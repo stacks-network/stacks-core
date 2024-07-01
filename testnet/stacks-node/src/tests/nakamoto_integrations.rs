@@ -2773,10 +2773,15 @@ fn follower_bootup() {
                     continue;
                 };
                 if info.stacks_tip == follower_info.stacks_tip {
-                    debug!("follower_bootup: Follower has advanced to miner's tip {}", &info.stacks_tip);
-                }
-                else {
-                    debug!("follower_bootup: Follower has NOT advanced to miner's tip: {} != {}", &info.stacks_tip, follower_info.stacks_tip);
+                    debug!(
+                        "follower_bootup: Follower has advanced to miner's tip {}",
+                        &info.stacks_tip
+                    );
+                } else {
+                    debug!(
+                        "follower_bootup: Follower has NOT advanced to miner's tip: {} != {}",
+                        &info.stacks_tip, follower_info.stacks_tip
+                    );
                 }
 
                 last_tip = info.stacks_tip;

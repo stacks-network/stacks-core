@@ -38,10 +38,9 @@ use stacks::chainstate::stacks::{
     TenureChangeCause, TenureChangePayload, TransactionAnchorMode, TransactionPayload,
     TransactionVersion,
 };
-use stacks::net::StacksMessageType;
-use stacks::net::stackerdb::StackerDBs;
 use stacks::net::p2p::NetworkHandle;
-use stacks::net::NakamotoBlocksData;
+use stacks::net::stackerdb::StackerDBs;
+use stacks::net::{NakamotoBlocksData, StacksMessageType};
 use stacks::util::secp256k1::MessageSignature;
 use stacks_common::codec::read_next;
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
@@ -53,9 +52,9 @@ use super::relayer::RelayerThread;
 use super::sign_coordinator::SignCoordinator;
 use super::{Config, Error as NakamotoNodeError, EventDispatcher, Keychain};
 use crate::nakamoto_node::VRF_MOCK_MINER_KEY;
+use crate::neon_node;
 use crate::run_loop::nakamoto::Globals;
 use crate::run_loop::RegisteredKey;
-use crate::neon_node;
 
 #[cfg(test)]
 lazy_static::lazy_static! {
@@ -172,7 +171,7 @@ impl BlockMinerThread {
             event_dispatcher: rt.event_dispatcher.clone(),
             parent_tenure_id,
             reason,
-            p2p_handle: rt.get_p2p_handle()
+            p2p_handle: rt.get_p2p_handle(),
         }
     }
 
@@ -582,7 +581,12 @@ impl BlockMinerThread {
 
         // forward to p2p thread
         let block_id = block.block_id();
-        if let Err(e) = self.p2p_handle.broadcast_message(vec![], StacksMessageType::NakamotoBlocks(NakamotoBlocksData { blocks: vec![block] })) {
+        if let Err(e) = self.p2p_handle.broadcast_message(
+            vec![],
+            StacksMessageType::NakamotoBlocks(NakamotoBlocksData {
+                blocks: vec![block],
+            }),
+        ) {
             warn!("Failed to broadcast blocok {}: {:?}", &block_id, &e);
         }
         Ok(())
@@ -678,32 +682,50 @@ impl BlockMinerThread {
         // 2. The highest block in the current tenure's parent tenure
         // Where the current tenure's parent tenure is the tenure start block committed to in the current tenure's associated block commit.
         let stacks_tip_header = if let Some(block) = self.mined_blocks.last() {
-            test_debug!("Stacks block parent ID is last mined block {}", &block.block_id());
-            let header_info = NakamotoChainState::get_block_header(chain_state.db(), &block.block_id())
-                .map_err(|e| {
-                    error!("Could not query header info for last-mined block ID {}: {:?}", &block.block_id(), &e);
-                    NakamotoNodeError::ParentNotFound
-                })?
-                .ok_or_else(|| {
-                    error!("No header info for last-mined block ID {}", &block.block_id());
-                    NakamotoNodeError::ParentNotFound
-                })?;
+            test_debug!(
+                "Stacks block parent ID is last mined block {}",
+                &block.block_id()
+            );
+            let header_info =
+                NakamotoChainState::get_block_header(chain_state.db(), &block.block_id())
+                    .map_err(|e| {
+                        error!(
+                            "Could not query header info for last-mined block ID {}: {:?}",
+                            &block.block_id(),
+                            &e
+                        );
+                        NakamotoNodeError::ParentNotFound
+                    })?
+                    .ok_or_else(|| {
+                        error!(
+                            "No header info for last-mined block ID {}",
+                            &block.block_id()
+                        );
+                        NakamotoNodeError::ParentNotFound
+                    })?;
 
             header_info
         } else {
-            test_debug!("Stacks block parent ID is last block in parent tenure ID {}", &self.parent_tenure_id);
-            let parent_tenure_header = NakamotoChainState::get_block_header(chain_state.db(), &self.parent_tenure_id)
-                .map_err(|e| {
-                    error!("Could not query header for parent tenure ID {}: {:?}", &self.parent_tenure_id, &e);
-                    NakamotoNodeError::ParentNotFound
-                })?
-                .ok_or_else(|| {
-                    error!("No header for parent tenure ID {}", &self.parent_tenure_id);
-                    NakamotoNodeError::ParentNotFound
-                })?;
+            test_debug!(
+                "Stacks block parent ID is last block in parent tenure ID {}",
+                &self.parent_tenure_id
+            );
+            let parent_tenure_header =
+                NakamotoChainState::get_block_header(chain_state.db(), &self.parent_tenure_id)
+                    .map_err(|e| {
+                        error!(
+                            "Could not query header for parent tenure ID {}: {:?}",
+                            &self.parent_tenure_id, &e
+                        );
+                        NakamotoNodeError::ParentNotFound
+                    })?
+                    .ok_or_else(|| {
+                        error!("No header for parent tenure ID {}", &self.parent_tenure_id);
+                        NakamotoNodeError::ParentNotFound
+                    })?;
 
-            let (stacks_tip_ch, stacks_tip_bh) = SortitionDB::get_canonical_stacks_chain_tip_hash(burn_db.conn())
-                .map_err(|e| {
+            let (stacks_tip_ch, stacks_tip_bh) =
+                SortitionDB::get_canonical_stacks_chain_tip_hash(burn_db.conn()).map_err(|e| {
                     error!("Failed to load canonical Stacks tip: {:?}", &e);
                     NakamotoNodeError::ParentNotFound
                 })?;
@@ -718,29 +740,37 @@ impl BlockMinerThread {
                 .map_err(|e| {
                     error!("Could not query parent tenure finish block: {:?}", &e);
                     NakamotoNodeError::ParentNotFound
-                })?
-            {
+                })? {
                 header
-            }
-            else {
+            } else {
                 // this is an epoch2 block
-                debug!("Stacks block parent ID may be an epoch2x block: {}", &self.parent_tenure_id);
-                let header = NakamotoChainState::get_block_header(chain_state.db(), &self.parent_tenure_id)
-                    .map_err(|e| {
-                        error!("Could not query header info for epoch2x tenure block ID {}: {:?}", &self.parent_tenure_id, &e);
-                        NakamotoNodeError::ParentNotFound
-                    })?
-                    .ok_or_else(|| {
-                        error!("No header info for epoch2x tenure block ID {}", &self.parent_tenure_id);
-                        NakamotoNodeError::ParentNotFound
-                    })?;
+                debug!(
+                    "Stacks block parent ID may be an epoch2x block: {}",
+                    &self.parent_tenure_id
+                );
+                let header =
+                    NakamotoChainState::get_block_header(chain_state.db(), &self.parent_tenure_id)
+                        .map_err(|e| {
+                            error!(
+                                "Could not query header info for epoch2x tenure block ID {}: {:?}",
+                                &self.parent_tenure_id, &e
+                            );
+                            NakamotoNodeError::ParentNotFound
+                        })?
+                        .ok_or_else(|| {
+                            error!(
+                                "No header info for epoch2x tenure block ID {}",
+                                &self.parent_tenure_id
+                            );
+                            NakamotoNodeError::ParentNotFound
+                        })?;
 
                 header
             };
 
             last_tenure_finish_block_header
         };
-        
+
         test_debug!(
             "Miner: stacks tip parent header is {} {:?}",
             &stacks_tip_header.index_block_hash(),
