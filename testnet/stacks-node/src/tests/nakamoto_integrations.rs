@@ -2679,7 +2679,6 @@ fn follower_bootup() {
             .unwrap();
 
         let mut last_tip = BlockHeaderHash([0x00; 32]);
-        let mut last_tip_height = 0;
         let mut last_nonce = None;
 
         debug!(
@@ -2688,15 +2687,20 @@ fn follower_bootup() {
         );
 
         // mine the interim blocks
-        for interim_block_ix in 0..inter_blocks_per_tenure {
+        for _ in 0..inter_blocks_per_tenure {
             let blocks_processed_before = coord_channel
                 .lock()
                 .expect("Mutex poisoned")
                 .get_stacks_blocks_processed();
-            // submit a tx so that the miner will mine an extra block
-            let Ok(account) = get_account_result(&http_origin, &sender_addr) else {
-                thread::sleep(Duration::from_millis(100));
-                continue;
+
+            let account = loop {
+                // submit a tx so that the miner will mine an extra block
+                let Ok(account) = get_account_result(&http_origin, &sender_addr) else {
+                    debug!("follower_bootup: Failed to load miner account");
+                    thread::sleep(Duration::from_millis(100));
+                    continue;
+                };
+                break account;
             };
 
             let sender_nonce = account
@@ -2746,6 +2750,7 @@ fn follower_bootup() {
                     .lock()
                     .expect("Mutex poisoned")
                     .get_stacks_blocks_processed();
+
                 if blocks_processed > blocks_processed_before {
                     break;
                 }
@@ -2754,21 +2759,29 @@ fn follower_bootup() {
                 thread::sleep(Duration::from_millis(100));
             }
 
-            debug!("follower_bootup: Follower advanced to miner tip");
+            // compare chain tips
+            loop {
+                let Ok(info) = get_chain_info_result(&naka_conf) else {
+                    debug!("follower_bootup: failed to load tip info");
+                    thread::sleep(Duration::from_millis(100));
+                    continue;
+                };
 
-            let Ok(info) = get_chain_info_result(&naka_conf) else {
-                debug!("follower_bootup: failed to load tip info");
-                thread::sleep(Duration::from_millis(100));
-                continue;
-            };
+                let Ok(follower_info) = get_chain_info_result(&follower_conf) else {
+                    debug!("follower_bootup: Could not get follower chain info");
+                    thread::sleep(Duration::from_millis(100));
+                    continue;
+                };
+                if info.stacks_tip == follower_info.stacks_tip {
+                    debug!("follower_bootup: Follower has advanced to miner's tip {}", &info.stacks_tip);
+                }
+                else {
+                    debug!("follower_bootup: Follower has NOT advanced to miner's tip: {} != {}", &info.stacks_tip, follower_info.stacks_tip);
+                }
 
-            /*
-            assert_ne!(info.stacks_tip, last_tip);
-            assert_ne!(info.stacks_tip_height, last_tip_height);
-            */
-
-            last_tip = info.stacks_tip;
-            last_tip_height = info.stacks_tip_height;
+                last_tip = info.stacks_tip;
+                break;
+            }
         }
 
         debug!("follower_bootup: Wait for next block-commit");
@@ -3430,6 +3443,7 @@ fn forked_tenure_is_ignored() {
     let transfer_tx =
         make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
     let tx = submit_tx(&http_origin, &transfer_tx);
+
     info!("Submitted tx {tx} in Tenure C to mine a second block");
     while mined_blocks.load(Ordering::SeqCst) <= blocks_before {
         assert!(
