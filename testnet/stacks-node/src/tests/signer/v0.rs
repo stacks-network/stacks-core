@@ -128,9 +128,11 @@ impl SignerTest<SpawnedSigner> {
         // Verify that the signers signed the proposed block
         let signature = self.wait_for_confirmed_block_v0(&proposed_signer_signature_hash, timeout);
 
+        info!("Got {} signatures", signature.len());
+
         // NOTE: signature.len() does not need to equal signers.len(); the stacks miner can finish the block
         //  whenever it has crossed the threshold.
-        info!("Got {} signatures", signature.len());
+        assert!(signature.len() >= num_signers / 7 * 10);
 
         let reward_cycle = self.get_current_reward_cycle();
         let signers = self.get_reward_set_signers(reward_cycle);
