@@ -171,6 +171,7 @@ fn test_nakamoto_inv_10_tenures_10_sortitions() {
 
     let chainstate = &mut peer.stacks_node.as_mut().unwrap().chainstate;
     let sort_db = peer.sortdb.as_mut().unwrap();
+    let stacks_tip = peer.network.stacks_tip.block_id();
 
     let mut inv_generator = InvGenerator::new();
 
@@ -181,7 +182,7 @@ fn test_nakamoto_inv_10_tenures_10_sortitions() {
     // check the reward cycles
     for (rc, inv) in reward_cycle_invs.into_iter().enumerate() {
         let bitvec = inv_generator
-            .make_tenure_bitvector(&tip, sort_db, chainstate, rc as u64)
+            .make_tenure_bitvector(&tip, sort_db, chainstate, &stacks_tip, rc as u64)
             .unwrap();
         debug!(
             "At reward cycle {}: {:?}, mesasge = {:?}",
@@ -232,6 +233,7 @@ fn test_nakamoto_inv_2_tenures_3_sortitions() {
 
     let chainstate = &mut peer.stacks_node.as_mut().unwrap().chainstate;
     let sort_db = peer.sortdb.as_mut().unwrap();
+    let stacks_tip = peer.network.stacks_tip.block_id();
 
     let mut inv_generator = InvGenerator::new();
 
@@ -241,7 +243,7 @@ fn test_nakamoto_inv_2_tenures_3_sortitions() {
 
     for (rc, inv) in reward_cycle_invs.into_iter().enumerate() {
         let bitvec = inv_generator
-            .make_tenure_bitvector(&tip, sort_db, chainstate, rc as u64)
+            .make_tenure_bitvector(&tip, sort_db, chainstate, &stacks_tip, rc as u64)
             .unwrap();
         debug!(
             "At reward cycle {}: {:?}, mesasge = {:?}",
@@ -284,6 +286,7 @@ fn test_nakamoto_inv_10_extended_tenures_10_sortitions() {
 
     let chainstate = &mut peer.stacks_node.as_mut().unwrap().chainstate;
     let sort_db = peer.sortdb.as_mut().unwrap();
+    let stacks_tip = peer.network.stacks_tip.block_id();
 
     let mut inv_generator = InvGenerator::new();
 
@@ -293,7 +296,7 @@ fn test_nakamoto_inv_10_extended_tenures_10_sortitions() {
 
     for (rc, inv) in reward_cycle_invs.into_iter().enumerate() {
         let bitvec = inv_generator
-            .make_tenure_bitvector(&tip, sort_db, chainstate, rc as u64)
+            .make_tenure_bitvector(&tip, sort_db, chainstate, &stacks_tip, rc as u64)
             .unwrap();
         debug!("At reward cycle {}: {:?}", rc, &bitvec);
 
