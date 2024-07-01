@@ -2717,7 +2717,8 @@ impl NakamotoChainState {
         Self::get_block_header_nakamoto(chainstate_conn.sqlite(), &block_id)
     }
 
-    /// Get the highest block in the given tenure
+    /// Get the highest block in the given tenure.
+    /// Only works on Nakamoto blocks.
     /// TODO: unit test
     pub fn get_highest_block_header_in_tenure<STH: StacksHandle>(
         chainstate_conn: &mut STH,
@@ -2866,9 +2867,10 @@ impl NakamotoChainState {
     }
 
     /// Get the VRF proof for a Nakamoto block, if it exists.
+    /// This must be the tenure-start Nakamoto block ID
     /// Returns None if the Nakamoto block's VRF proof is not found (e.g. because there is no
     /// Nakamoto block, or becuase this isn't a tenure-start block)
-    pub(crate) fn get_nakamoto_tenure_vrf_proof(
+    pub fn get_nakamoto_tenure_vrf_proof(
         chainstate_conn: &Connection,
         tenure_start_block_id: &StacksBlockId,
     ) -> Result<Option<VRFProof>, ChainstateError> {
@@ -3787,6 +3789,7 @@ impl NakamotoChainState {
         let new_tenure = block.is_wellformed_tenure_start_block().map_err(|_| {
             ChainstateError::InvalidStacksBlock("Invalid tenure changes in nakamoto block".into())
         })?;
+
         // this block is mined in the ongoing tenure.
         if !new_tenure
             && !Self::check_tenure_continuity(chainstate_tx.as_tx(), &parent_ch, &block.header)?
