@@ -539,6 +539,7 @@ impl NakamotoChainState {
 
     /// Get the tenure-change most recently processed in the history tipped by the given block.
     /// This can be a block-found or an extended tenure change.
+    /// Returns None if this tip is an epoch2x block ID
     pub fn get_ongoing_tenure<STH: StacksHandle>(
         headers_conn: &mut STH,
         tip_block_id: &StacksBlockId,
