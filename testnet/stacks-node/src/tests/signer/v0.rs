@@ -128,31 +128,44 @@ impl SignerTest<SpawnedSigner> {
         // Verify that the signers signed the proposed block
         let signature = self.wait_for_confirmed_block_v0(&proposed_signer_signature_hash, timeout);
 
+        // NOTE: signature.len() does not need to equal signers.len(); the stacks miner can finish the block
+        //  whenever it has crossed the threshold.
         info!("Got {} signatures", signature.len());
-
-        assert_eq!(signature.len(), num_signers);
 
         let reward_cycle = self.get_current_reward_cycle();
         let signers = self.get_reward_set_signers(reward_cycle);
 
         // Verify that the signers signed the proposed block
-        let all_signed = signers.iter().zip(signature).all(|(signer, signature)| {
+        let mut signer_index = 0;
+        let mut signature_index = 0;
+        let validated = loop {
+            let Some(signature) = signature.get(signature_index) else {
+                break true;
+            };
+            let Some(signer) = signers.get(signer_index) else {
+                error!("Failed to validate the mined nakamoto block: ran out of signers to try to validate signatures");
+                break false;
+            };
             let stacks_public_key = Secp256k1PublicKey::from_slice(signer.signing_key.as_slice())
                 .expect("Failed to convert signing key to StacksPublicKey");
-
-            // let valid = stacks_public_key.verify(message, signature);
             let valid = stacks_public_key
-                .verify(&message, &signature)
+                .verify(&message, signature)
                 .expect("Failed to verify signature");
             if !valid {
-                error!(
-                    "Failed to verify signature for signer: {:?}",
-                    stacks_public_key
+                info!(
+                    "Failed to verify signature for signer, will attempt to validate without this signer";
+                    "signer_pk" => stacks_public_key.to_hex(),
+                    "signer_index" => signer_index,
+                    "signature_index" => signature_index,
                 );
+                signer_index += 1;
+            } else {
+                signer_index += 1;
+                signature_index += 1;
             }
-            valid
-        });
-        assert!(all_signed);
+        };
+
+        assert!(validated);
     }
 
     // Only call after already past the epoch 3.0 boundary
