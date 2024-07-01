@@ -715,8 +715,6 @@ impl NakamotoUnconfirmedTenureDownloader {
     /// Returns Err(..) if we call this function out of sequence.
     pub fn make_highest_complete_tenure_downloader(
         &self,
-        highest_tenure: &WantedTenure,
-        unconfirmed_tenure: &WantedTenure,
     ) -> Result<NakamotoTenureDownloader, NetError> {
         if self.state != NakamotoUnconfirmedDownloadState::Done {
             return Err(NetError::InvalidState);
@@ -744,33 +742,6 @@ impl NakamotoUnconfirmedTenureDownloader {
             confirmed_signer_keys.clone(),
             unconfirmed_signer_keys.clone(),
         );
-
-        /*
-        let Some(unconfirmed_tenure_start_block) = self.unconfirmed_tenure_start_block.as_ref()
-        else {
-            return Err(NetError::InvalidState);
-        };
-        let Some(confirmed_signer_keys) = self.confirmed_signer_keys.as_ref() else {
-            return Err(NetError::InvalidState);
-        };
-        let Some(unconfirmed_signer_keys) = self.unconfirmed_signer_keys.as_ref() else {
-            return Err(NetError::InvalidState);
-        };
-
-        test_debug!(
-            "Create highest complete tenure downloader for {}",
-            &highest_tenure.tenure_id_consensus_hash
-        );
-        let ntd = NakamotoTenureDownloader::new(
-            highest_tenure.tenure_id_consensus_hash.clone(),
-            unconfirmed_tenure.winning_block_id.clone(),
-            unconfirmed_tenure_start_block.header.block_id(),
-            self.naddr.clone(),
-            confirmed_signer_keys.clone(),
-            unconfirmed_signer_keys.clone(),
-        )
-        .with_tenure_end_block(unconfirmed_tenure_start_block.clone());
-        */
 
         Ok(ntd)
     }
