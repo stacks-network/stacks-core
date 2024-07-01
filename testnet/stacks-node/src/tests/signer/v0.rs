@@ -38,9 +38,9 @@ use tracing_subscriber::prelude::*;
 use tracing_subscriber::{fmt, EnvFilter};
 
 use super::SignerTest;
-use crate::tests::{self, make_stacks_transfer};
 use crate::tests::nakamoto_integrations::{boot_to_epoch_3_reward_set, next_block_and};
 use crate::tests::neon_integrations::{get_chain_info, next_block_and_wait, submit_tx};
+use crate::tests::{self, make_stacks_transfer};
 use crate::{nakamoto_node, BurnchainController};
 
 impl SignerTest<SpawnedSigner> {
