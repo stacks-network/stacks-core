@@ -90,6 +90,7 @@ pub enum NetworkRequest {
 /// The "main loop" for sending/receiving data is a select/poll loop, and runs outside of other
 /// threads that need a synchronous RPC or a multi-RPC interface.  This object gives those threads
 /// a way to issue commands and hear back replies from them.
+#[derive(Clone)]
 pub struct NetworkHandle {
     chan_in: SyncSender<NetworkRequest>,
 }
@@ -4673,7 +4674,6 @@ impl PeerNetwork {
     /// current stacks tip.
     /// If this is the first tenure in epoch 3.x, then this is the pointer to the epoch 2.x block
     /// that it builds atop.
-    /// TODO: unit test
     pub(crate) fn get_parent_stacks_tip(
         &self,
         chainstate: &StacksChainState,
