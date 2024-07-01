@@ -9,7 +9,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 ### Added
 - Added configuration option `connections.antientropy_retry` (#4932)
 ### Changed
-- Set default antientropy_rety to run once per hour, not once per minute
+- Set default antientropy_rety to run once per hour
 
 
 ## [2.5.0.0.4]
