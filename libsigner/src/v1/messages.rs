@@ -110,8 +110,8 @@ impl MessageSlotIDTrait for MessageSlotID {
 }
 
 impl SignerMessageTrait<MessageSlotID> for SignerMessage {
-    fn msg_id(&self) -> MessageSlotID {
-        self.msg_id()
+    fn msg_id(&self) -> Option<MessageSlotID> {
+        Some(self.msg_id())
     }
 }
 

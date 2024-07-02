@@ -64,10 +64,17 @@ define_u8_enum!(
 /// Enum representing the stackerdb message identifier: this is
 ///  the contract index in the signers contracts (i.e., X in signers-0-X)
 MessageSlotID {
-    /// Block Proposal message from miners
-    BlockProposal = 0,
     /// Block Response message from signers
     BlockResponse = 1
+});
+
+define_u8_enum!(
+/// Enum representing the slots used by the miner
+MinerSlotID {
+    /// Block proposal from the miner
+    BlockProposal = 0,
+    /// Block pushed from the miner
+    BlockPushed = 1
 });
 
 impl MessageSlotIDTrait for MessageSlotID {
@@ -80,7 +87,7 @@ impl MessageSlotIDTrait for MessageSlotID {
 }
 
 impl SignerMessageTrait<MessageSlotID> for SignerMessage {
-    fn msg_id(&self) -> MessageSlotID {
+    fn msg_id(&self) -> Option<MessageSlotID> {
         self.msg_id()
     }
 }
@@ -91,7 +98,9 @@ SignerMessageTypePrefix {
     /// Block Proposal message from miners
     BlockProposal = 0,
     /// Block Response message from signers
-    BlockResponse = 1
+    BlockResponse = 1,
+    /// Block Pushed message from miners
+    BlockPushed = 2
 });
 
 #[cfg_attr(test, mutants::skip)]
@@ -133,66 +142,64 @@ impl From<&SignerMessage> for SignerMessageTypePrefix {
         match message {
             SignerMessage::BlockProposal(_) => SignerMessageTypePrefix::BlockProposal,
             SignerMessage::BlockResponse(_) => SignerMessageTypePrefix::BlockResponse,
+            SignerMessage::BlockPushed(_) => SignerMessageTypePrefix::BlockPushed,
         }
     }
 }
 
 /// The messages being sent through the stacker db contracts
-#[derive(Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum SignerMessage {
     /// The block proposal from miners for signers to observe and sign
     BlockProposal(BlockProposal),
     /// The block response from signers for miners to observe
     BlockResponse(BlockResponse),
-}
-
-impl Debug for SignerMessage {
-    #[cfg_attr(test, mutants::skip)]
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::BlockProposal(b) => Debug::fmt(b, f),
-            Self::BlockResponse(b) => Debug::fmt(b, f),
-        }
-    }
+    /// A block pushed from miners to the signers set
+    BlockPushed(NakamotoBlock),
 }
 
 impl SignerMessage {
     /// Helper function to determine the slot ID for the provided stacker-db writer id
+    ///  Not every message has a `MessageSlotID`: messages from the miner do not
+    ///   broadcast over `.signers-0-X` contracts.
     #[cfg_attr(test, mutants::skip)]
-    pub fn msg_id(&self) -> MessageSlotID {
+    pub fn msg_id(&self) -> Option<MessageSlotID> {
         match self {
-            Self::BlockProposal(_) => MessageSlotID::BlockProposal,
-            Self::BlockResponse(_) => MessageSlotID::BlockResponse,
+            Self::BlockProposal(_) | Self::BlockPushed(_) => None,
+            Self::BlockResponse(_) => Some(MessageSlotID::BlockResponse),
         }
     }
 }
 
 impl StacksMessageCodec for SignerMessage {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
-        write_next(fd, &(SignerMessageTypePrefix::from(self) as u8))?;
+        SignerMessageTypePrefix::from(self)
+            .to_u8()
+            .consensus_serialize(fd)?;
         match self {
-            SignerMessage::BlockProposal(block_proposal) => {
-                write_next(fd, block_proposal)?;
-            }
-            SignerMessage::BlockResponse(block_response) => {
-                write_next(fd, block_response)?;
-            }
-        };
+            SignerMessage::BlockProposal(block_proposal) => block_proposal.consensus_serialize(fd),
+            SignerMessage::BlockResponse(block_response) => block_response.consensus_serialize(fd),
+            SignerMessage::BlockPushed(block) => block.consensus_serialize(fd),
+        }?;
         Ok(())
     }
 
     #[cfg_attr(test, mutants::skip)]
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
-        let type_prefix_byte = read_next::<u8, _>(fd)?;
+        let type_prefix_byte = u8::consensus_deserialize(fd)?;
         let type_prefix = SignerMessageTypePrefix::try_from(type_prefix_byte)?;
         let message = match type_prefix {
             SignerMessageTypePrefix::BlockProposal => {
-                let block_proposal = read_next::<BlockProposal, _>(fd)?;
+                let block_proposal = StacksMessageCodec::consensus_deserialize(fd)?;
                 SignerMessage::BlockProposal(block_proposal)
             }
             SignerMessageTypePrefix::BlockResponse => {
-                let block_response = read_next::<BlockResponse, _>(fd)?;
+                let block_response = StacksMessageCodec::consensus_deserialize(fd)?;
                 SignerMessage::BlockResponse(block_response)
+            }
+            SignerMessageTypePrefix::BlockPushed => {
+                let block = StacksMessageCodec::consensus_deserialize(fd)?;
+                SignerMessage::BlockPushed(block)
             }
         };
         Ok(message)

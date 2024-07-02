@@ -66,6 +66,8 @@ pub mod gettransaction_unconfirmed;
 pub mod liststackerdbreplicas;
 pub mod postblock;
 pub mod postblock_proposal;
+#[warn(unused_imports)]
+pub mod postblock_v3;
 pub mod postfeerate;
 pub mod postmempoolquery;
 pub mod postmicroblock;
@@ -129,6 +131,7 @@ impl StacksHttp {
         self.register_rpc_endpoint(postblock_proposal::RPCBlockProposalRequestHandler::new(
             self.block_proposal_token.clone(),
         ));
+        self.register_rpc_endpoint(postblock_v3::RPCPostBlockRequestHandler::default());
         self.register_rpc_endpoint(postfeerate::RPCPostFeeRateRequestHandler::new());
         self.register_rpc_endpoint(postmempoolquery::RPCMempoolQueryRequestHandler::new());
         self.register_rpc_endpoint(postmicroblock::RPCPostMicroblockRequestHandler::new());

@@ -74,5 +74,5 @@ pub trait MessageSlotID: Sized + Eq + Hash + Debug + Copy {
 /// A trait for signer messages used in signer communciation
 pub trait SignerMessage<T: MessageSlotID>: StacksMessageCodec {
     /// The contract identifier for the message slot in stacker db
-    fn msg_id(&self) -> T;
+    fn msg_id(&self) -> Option<T>;
 }

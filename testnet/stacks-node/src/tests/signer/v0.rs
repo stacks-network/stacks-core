@@ -41,7 +41,7 @@ use super::SignerTest;
 use crate::tests::nakamoto_integrations::{boot_to_epoch_3_reward_set, next_block_and};
 use crate::tests::neon_integrations::{get_chain_info, next_block_and_wait, submit_tx};
 use crate::tests::{self, make_stacks_transfer};
-use crate::BurnchainController;
+use crate::{nakamoto_node, BurnchainController};
 
 impl SignerTest<SpawnedSigner> {
     /// Run the test until the epoch 3 boundary
@@ -318,6 +318,12 @@ fn miner_gather_signatures() {
         .with(fmt::layer())
         .with(EnvFilter::from_default_env())
         .init();
+
+    // Disable p2p broadcast of the nakamoto blocks, so that we rely
+    //  on the signer's using StackerDB to get pushed blocks
+    *nakamoto_node::miner::TEST_SKIP_P2P_BROADCAST
+        .lock()
+        .unwrap() = Some(true);
 
     info!("------------------------- Test Setup -------------------------");
     let num_signers = 5;

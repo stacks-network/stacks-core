@@ -21,9 +21,9 @@ use clarity::types::PrivateKey;
 use clarity::util::hash::MerkleHashFunc;
 use libsigner::v0::messages::{BlockResponse, MessageSlotID, RejectCode, SignerMessage};
 use libsigner::{BlockProposal, SignerEvent};
-use slog::{slog_debug, slog_error, slog_warn};
+use slog::{slog_debug, slog_error, slog_info, slog_warn};
 use stacks_common::types::chainstate::StacksAddress;
-use stacks_common::{debug, error, warn};
+use stacks_common::{debug, error, info, warn};
 
 use crate::client::{SignerSlotID, StackerDB, StacksClient};
 use crate::config::SignerConfig;
@@ -118,8 +118,20 @@ impl SignerTrait<SignerMessage> for Signer {
                     messages.len();
                 );
                 for message in messages {
-                    if let SignerMessage::BlockProposal(block_proposal) = message {
-                        self.handle_block_proposal(stacks_client, block_proposal);
+                    match message {
+                        SignerMessage::BlockProposal(block_proposal) => {
+                            self.handle_block_proposal(stacks_client, block_proposal);
+                        }
+                        SignerMessage::BlockPushed(b) => {
+                            let block_push_result = stacks_client.post_block(&b);
+                            info!(
+                                "{self}: Got block pushed message";
+                                "block_id" => %b.block_id(),
+                                "signer_sighash" => %b.header.signer_signature_hash(),
+                                "push_result" => ?block_push_result,
+                            );
+                        }
+                        _ => {}
                     }
                 }
             }
