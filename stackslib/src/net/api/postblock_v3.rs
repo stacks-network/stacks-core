@@ -167,7 +167,7 @@ impl HttpResponse for RPCPostBlockRequestHandler {
         body: &[u8],
     ) -> Result<HttpResponsePayload, Error> {
         let accepted: StacksBlockAcceptedData = parse_json(preamble, body)?;
-        Ok(HttpResponsePayload::try_from_json(accepted)?)
+        HttpResponsePayload::try_from_json(accepted)
     }
 }
 

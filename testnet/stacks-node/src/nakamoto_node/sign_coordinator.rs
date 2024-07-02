@@ -331,7 +331,8 @@ impl SignCoordinator {
             .expect("FATAL: tried to initialize WSTS coordinator before first burn block height")
     }
 
-    fn send_signers_message<M: StacksMessageCodec>(
+    /// Send a message over the miners contract using a `Scalar` private key
+    fn send_miners_message_scalar<M: StacksMessageCodec>(
         message_key: &Scalar,
         sortdb: &SortitionDB,
         tip: &BlockSnapshot,
@@ -355,6 +356,7 @@ impl SignCoordinator {
         )
     }
 
+    /// Send a message over the miners contract using a `StacksPrivateKey`
     pub fn send_miners_message<M: StacksMessageCodec>(
         miner_sk: &StacksPrivateKey,
         sortdb: &SortitionDB,
@@ -439,7 +441,7 @@ impl SignCoordinator {
                     "Failed to start signing round in FIRE coordinator: {e:?}"
                 ))
             })?;
-        Self::send_signers_message::<SignerMessageV1>(
+        Self::send_miners_message_scalar::<SignerMessageV1>(
             &self.message_key,
             sortdb,
             burn_tip,
@@ -591,7 +593,7 @@ impl SignCoordinator {
                 }
             }
             for msg in outbound_msgs {
-                match Self::send_signers_message::<SignerMessageV1>(
+                match Self::send_miners_message_scalar::<SignerMessageV1>(
                     &self.message_key,
                     sortdb,
                     burn_tip,
@@ -653,7 +655,7 @@ impl SignCoordinator {
         debug!("Sending block proposal message to signers";
             "signer_signature_hash" => ?&block.header.signer_signature_hash().0,
         );
-        Self::send_signers_message::<SignerMessageV0>(
+        Self::send_miners_message_scalar::<SignerMessageV0>(
             &self.message_key,
             sortdb,
             burn_tip,

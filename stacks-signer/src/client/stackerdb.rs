@@ -290,12 +290,13 @@ mod tests {
         };
         let mock_server = mock_server_from_config(&config);
         debug!("Spawning msg sender");
-        let h = spawn(move || stackerdb.send_message_with_retry(signer_message).unwrap());
+        let sender_thread =
+            spawn(move || stackerdb.send_message_with_retry(signer_message).unwrap());
         let mut response_bytes = b"HTTP/1.1 200 OK\n\n".to_vec();
         let payload = serde_json::to_string(&ack).expect("Failed to serialize ack");
         response_bytes.extend(payload.as_bytes());
         std::thread::sleep(Duration::from_millis(500));
         write_response(mock_server, response_bytes.as_slice());
-        assert_eq!(ack, h.join().unwrap());
+        assert_eq!(ack, sender_thread.join().unwrap());
     }
 }
