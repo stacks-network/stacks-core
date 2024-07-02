@@ -141,6 +141,8 @@ impl SignerTest<SpawnedSigner> {
         let mut signer_index = 0;
         let mut signature_index = 0;
         let validated = loop {
+            // Since we've already checked `signature.len()`, this means we've
+            //  validated all the signatures in this loop
             let Some(signature) = signature.get(signature_index) else {
                 break true;
             };
