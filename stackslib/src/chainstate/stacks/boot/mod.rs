@@ -51,7 +51,7 @@ use crate::burnchains::bitcoin::address::BitcoinAddress;
 use crate::burnchains::{Address, Burnchain, PoxConstants};
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::stacks::address::{PoxAddress, StacksAddressExtensions};
-use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::db::{StacksChainState, StacksDBConn};
 use crate::chainstate::stacks::index::marf::MarfConnection;
 use crate::chainstate::stacks::Error;
 use crate::clarity_vm::clarity::{ClarityConnection, ClarityTransactionConnection};
@@ -597,11 +597,12 @@ impl StacksChainState {
         code: &str,
     ) -> Result<Value, Error> {
         let iconn = sortdb.index_handle_at_block(self, stacks_block_id)?;
-        let dbconn = self.state_index.sqlite_conn();
+        let ro_index = self.state_index.reopen_readonly()?;
+        let headers_db = HeadersDBConn(StacksDBConn::new(&ro_index, ()));
         self.clarity_state
             .eval_read_only(
                 &stacks_block_id,
-                &HeadersDBConn(dbconn),
+                &headers_db,
                 &iconn,
                 &boot::boot_code_id(boot_contract_name, self.mainnet),
                 code,
@@ -1388,8 +1389,6 @@ pub mod pox_3_tests;
 pub mod pox_4_tests;
 #[cfg(test)]
 pub mod signers_tests;
-#[cfg(test)]
-pub mod signers_voting_tests;
 
 #[cfg(test)]
 pub mod test {

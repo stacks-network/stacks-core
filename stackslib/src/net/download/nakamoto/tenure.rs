@@ -177,9 +177,6 @@ impl TenureStartEnd {
             let bit = u16::try_from(i).expect("FATAL: more sortitions than u16::MAX");
             if !invbits.get(bit).unwrap_or(false) {
                 test_debug!("i={} bit not set", i);
-                /*
-                i += 1;
-                */
                 continue;
             }
 

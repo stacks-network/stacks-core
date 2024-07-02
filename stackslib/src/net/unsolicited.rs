@@ -803,7 +803,7 @@ impl PeerNetwork {
     ) -> bool {
         if chainstate
             .nakamoto_blocks_db()
-            .has_nakamoto_block(&nakamoto_block.block_id())
+            .has_nakamoto_block_with_index_hash(&nakamoto_block.block_id())
             .unwrap_or(false)
         {
             debug!(

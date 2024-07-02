@@ -214,7 +214,10 @@ impl RPCRequestHandler for GetSortitionHandler {
                     .ok_or_else(|| ChainError::NoSuchBlockError)?;
 
                 let (miner_pk_hash160, stacks_parent_ch, committed_block_hash, last_sortition_ch) = if !sortition_sn.sortition {
-                    (None, None, None, None)
+                    // find the last snapshot with the sortition
+                    let handle = sortdb.index_handle(&sortition_sn.sortition_id);
+                    let last_sortition = handle.get_last_snapshot_with_sortition(sortition_sn.block_height)?;
+                    (None, None, None, Some(last_sortition.consensus_hash))
                 } else {
                     let block_commit = SortitionDB::get_block_commit(sortdb.conn(), &sortition_sn.winning_block_txid, &sortition_sn.sortition_id)?
                         .ok_or_else(|| {

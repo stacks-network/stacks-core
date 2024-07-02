@@ -64,7 +64,6 @@ use crate::chainstate::stacks::boot::pox_2_tests::{
 use crate::chainstate::stacks::boot::signers_tests::{
     get_signer_index, prepare_signers_test, readonly_call,
 };
-use crate::chainstate::stacks::boot::signers_voting_tests::{make_dummy_tx, nakamoto_tenure};
 use crate::chainstate::stacks::boot::{
     PoxVersions, BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET,
     MINERS_NAME, POX_2_NAME, POX_3_NAME,

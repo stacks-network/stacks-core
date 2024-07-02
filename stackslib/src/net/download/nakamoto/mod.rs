@@ -183,7 +183,8 @@ impl PeerNetwork {
             return;
         }
         let epoch = self.get_epoch_by_epoch_id(StacksEpochId::Epoch30);
-        let downloader = NakamotoDownloadStateMachine::new(epoch.start_height);
+        let downloader =
+            NakamotoDownloadStateMachine::new(epoch.start_height, self.stacks_tip.block_id());
         self.block_downloader_nakamoto = Some(downloader);
     }
 
@@ -192,7 +193,7 @@ impl PeerNetwork {
         &mut self,
         burnchain_height: u64,
         sortdb: &SortitionDB,
-        chainstate: &StacksChainState,
+        chainstate: &mut StacksChainState,
         ibd: bool,
     ) -> Result<HashMap<ConsensusHash, Vec<NakamotoBlock>>, NetError> {
         if self.block_downloader_nakamoto.is_none() {
@@ -214,7 +215,7 @@ impl PeerNetwork {
         &mut self,
         burnchain_height: u64,
         sortdb: &SortitionDB,
-        chainstate: &StacksChainState,
+        chainstate: &mut StacksChainState,
         ibd: bool,
     ) -> Result<HashMap<ConsensusHash, Vec<NakamotoBlock>>, NetError> {
         if self.connection_opts.disable_block_download {

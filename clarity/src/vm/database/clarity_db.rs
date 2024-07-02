@@ -25,9 +25,7 @@ use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, SortitionId, StacksAddress, StacksBlockId,
     VRFSeed,
 };
-use stacks_common::types::{
-    Address, StacksEpoch as GenericStacksEpoch, StacksEpochId, PEER_VERSION_EPOCH_2_0,
-};
+use stacks_common::types::{Address, StacksEpoch as GenericStacksEpoch, StacksEpochId};
 use stacks_common::util::hash::{to_hex, Hash160, Sha256Sum, Sha512Trunc256Sum};
 
 use super::clarity_store::SpecialCaseHandler;
@@ -328,7 +326,7 @@ impl BurnStateDB for NullBurnStateDB {
             start_height: 0,
             end_height: u64::MAX,
             block_limit: ExecutionCost::max_value(),
-            network_epoch: PEER_VERSION_EPOCH_2_0,
+            network_epoch: 0,
         })
     }
     fn get_stacks_epoch_by_epoch_id(&self, _epoch_id: &StacksEpochId) -> Option<StacksEpoch> {

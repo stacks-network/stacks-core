@@ -1131,7 +1131,7 @@ mod test {
         block_reward.block_hash = new_tip.anchored_header.block_hash();
         block_reward.consensus_hash = new_tip.consensus_hash.clone();
 
-        let mut tx = chainstate.index_tx_begin().unwrap();
+        let mut tx = chainstate.index_tx_begin();
         let tip = StacksChainState::advance_tip(
             &mut tx,
             parent_header_info
@@ -1187,7 +1187,7 @@ mod test {
         );
 
         {
-            let mut tx = chainstate.index_tx_begin().unwrap();
+            let mut tx = chainstate.index_tx_begin();
             let ancestor_0 = StacksChainState::get_tip_ancestor(
                 &mut tx,
                 &StacksHeaderInfo::regtest_genesis(),
@@ -1204,7 +1204,7 @@ mod test {
         );
 
         {
-            let mut tx = chainstate.index_tx_begin().unwrap();
+            let mut tx = chainstate.index_tx_begin();
             let ancestor_0 = StacksChainState::get_tip_ancestor(&mut tx, &parent_tip, 0).unwrap();
             let ancestor_1 = StacksChainState::get_tip_ancestor(&mut tx, &parent_tip, 1).unwrap();
 
@@ -1217,7 +1217,7 @@ mod test {
         let tip = advance_tip(&mut chainstate, &parent_tip, &mut tip_reward);
 
         {
-            let mut tx = chainstate.index_tx_begin().unwrap();
+            let mut tx = chainstate.index_tx_begin();
             let ancestor_2 = StacksChainState::get_tip_ancestor(&mut tx, &tip, 2).unwrap();
             let ancestor_1 = StacksChainState::get_tip_ancestor(&mut tx, &tip, 1).unwrap();
             let ancestor_0 = StacksChainState::get_tip_ancestor(&mut tx, &tip, 0).unwrap();
@@ -1263,7 +1263,7 @@ mod test {
         let tip = advance_tip(&mut chainstate, &parent_tip, &mut tip_reward);
 
         {
-            let mut tx = chainstate.index_tx_begin().unwrap();
+            let mut tx = chainstate.index_tx_begin();
             let payments_0 =
                 StacksChainState::get_scheduled_block_rewards_in_fork_at_height(&mut tx, &tip, 0)
                     .unwrap();
@@ -1313,7 +1313,7 @@ mod test {
         let tip = advance_tip(&mut chainstate, &parent_tip, &mut tip_reward);
 
         {
-            let mut tx = chainstate.index_tx_begin().unwrap();
+            let mut tx = chainstate.index_tx_begin();
             let payments_0 =
                 StacksChainState::get_scheduled_block_rewards_in_fork_at_height(&mut tx, &tip, 0)
                     .unwrap();

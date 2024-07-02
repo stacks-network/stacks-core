@@ -633,16 +633,6 @@ impl<'a, C, T: MarfTrieId> IndexDBConn<'a, C, T> {
     pub fn conn(&self) -> &DBConn {
         self.index.sqlite_conn()
     }
-
-    pub fn get_stacks_epoch_by_epoch_id(&self, epoch_id: &StacksEpochId) -> Option<StacksEpoch> {
-        SortitionDB::get_stacks_epoch_by_epoch_id(self.conn(), epoch_id)
-            .expect("BUG: failed to get epoch for epoch id")
-    }
-
-    pub fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch> {
-        SortitionDB::get_stacks_epoch(self.conn(), height as u64)
-            .expect("BUG: failed to get epoch for burn block height")
-    }
 }
 
 impl<'a, C, T: MarfTrieId> Deref for IndexDBConn<'a, C, T> {
@@ -924,6 +914,12 @@ impl<'a, C: Clone, T: MarfTrieId> IndexDBTx<'a, C, T> {
     /// Get a value from the fork index
     pub fn get_indexed(&mut self, header_hash: &T, key: &str) -> Result<Option<String>, Error> {
         get_indexed(self.index_mut(), header_hash, key)
+    }
+
+    /// Get a value from the fork index, but with a read-only reference
+    pub fn get_indexed_ref(&self, header_hash: &T, key: &str) -> Result<Option<String>, Error> {
+        let mut ro_index = self.index().reopen_readonly()?;
+        get_indexed(&mut ro_index, header_hash, key)
     }
 
     /// Put all keys and values in a single MARF transaction, and seal it.

@@ -1072,6 +1072,14 @@ pub trait SortitionHandle {
     /// Returns Err(..) on DB errors
     fn get_nakamoto_tip(&self) -> Result<Option<(ConsensusHash, BlockHeaderHash, u64)>, db_error>;
 
+    /// Get the block ID of the highest-processed Nakamoto block on this history.
+    fn get_nakamoto_tip_block_id(&self) -> Result<Option<StacksBlockId>, db_error> {
+        let Some((ch, bhh, _)) = self.get_nakamoto_tip()? else {
+            return Ok(None);
+        };
+        Ok(Some(StacksBlockId::new(&ch, &bhh)))
+    }
+
     /// is the given block a descendant of `potential_ancestor`?
     ///  * block_at_burn_height: the burn height of the sortition that chose the stacks block to check
     ///  * potential_ancestor: the stacks block hash of the potential ancestor
@@ -1808,6 +1816,30 @@ impl<'a> SortitionHandleTx<'a> {
 
         if cur_epoch.epoch_id >= StacksEpochId::Epoch30 {
             // Nakamoto blocks are always processed in order since the chain can't fork
+            // arbitrarily.
+            // However, two kinds of forks can happen:
+            // * one of a set of malleableized siblings can be confirmed (but they all have the
+            // same sighash and same height).
+            // * a late tenure-change can be processed.
+            // As a result, only update the canonical Nakamoto tip if the given block is higher
+            // than the existing tip for this sortiton.
+            let current_sortition_tip : Option<(ConsensusHash, BlockHeaderHash, u64)> = self.query_row_and_then(
+                "SELECT consensus_hash,block_hash,block_height FROM stacks_chain_tips WHERE sortition_id = ?1 ORDER BY block_height DESC LIMIT 1",
+                rusqlite::params![&burn_tip.sortition_id],
+                |row| Ok((row.get_unwrap(0), row.get_unwrap(1), (u64::try_from(row.get_unwrap::<_, i64>(2)).expect("FATAL: block height too high"))))
+            ).optional()?;
+
+            if let Some((cur_ch, cur_bhh, cur_height)) = current_sortition_tip {
+                if cur_height >= stacks_block_height {
+                    debug!("Will NOT replace canonical Stacks tip {}/{} ({}) height {} with {}/{} ({}) height {}",
+                           &cur_ch, &cur_bhh, &StacksBlockId::new(&cur_ch, &cur_bhh), &cur_height, consensus_hash, stacks_block_hash, &StacksBlockId::new(consensus_hash, stacks_block_hash), stacks_block_height);
+                    return Ok(());
+                } else {
+                    debug!("Will replace canonical Stacks tip {}/{} ({}) height {} with {}/{} ({}) height {}",
+                           &cur_ch, &cur_bhh, &StacksBlockId::new(&cur_ch, &cur_bhh), &cur_height, consensus_hash, stacks_block_hash, &StacksBlockId::new(consensus_hash, stacks_block_hash), stacks_block_height);
+                }
+            }
+
             self.update_canonical_stacks_tip(
                 &burn_tip.sortition_id,
                 consensus_hash,

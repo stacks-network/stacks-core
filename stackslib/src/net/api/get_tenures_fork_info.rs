@@ -152,6 +152,7 @@ impl TenureForkingInfo {
         sn: &BlockSnapshot,
         sortdb: &SortitionDB,
         chainstate: &StacksChainState,
+        tip_block_id: &StacksBlockId,
     ) -> Result<Self, ChainError> {
         let first_block_mined = if !sn.sortition {
             None
@@ -174,7 +175,8 @@ impl TenureForkingInfo {
                 .map(|header| header.index_block_hash())
             } else {
                 NakamotoChainState::get_nakamoto_tenure_start_block_header(
-                    chainstate.db(),
+                    &mut chainstate.index_conn(),
+                    tip_block_id,
                     &sn.consensus_hash,
                 )?
                 .map(|header| header.index_block_hash())
@@ -206,7 +208,7 @@ impl RPCRequestHandler for GetTenuresForkInfo {
         _contents: HttpRequestContents,
         node: &mut StacksNodeState,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
-        let result = node.with_node_state(|_network, sortdb, chainstate, _mempool, _rpc_args| {
+        let result = node.with_node_state(|network, sortdb, chainstate, _mempool, _rpc_args| {
             let start_from = self
                 .stop_sortition
                 .clone()
@@ -224,7 +226,10 @@ impl RPCRequestHandler for GetTenuresForkInfo {
             let mut cursor = SortitionDB::get_block_snapshot_consensus(sortdb.conn(), &start_from)?
                 .ok_or_else(|| ChainError::NoSuchBlockError)?;
             results.push(TenureForkingInfo::from_snapshot(
-                &cursor, sortdb, chainstate,
+                &cursor,
+                sortdb,
+                chainstate,
+                &network.stacks_tip.block_id(),
             )?);
             let handle = sortdb.index_handle(&cursor.sortition_id);
             let mut depth = 0;
@@ -236,7 +241,10 @@ impl RPCRequestHandler for GetTenuresForkInfo {
                 cursor = handle
                     .get_last_snapshot_with_sortition(cursor.block_height.saturating_sub(1))?;
                 results.push(TenureForkingInfo::from_snapshot(
-                    &cursor, sortdb, chainstate,
+                    &cursor,
+                    sortdb,
+                    chainstate,
+                    &network.stacks_tip.block_id(),
                 )?);
             }
 

@@ -1005,7 +1005,7 @@ pub fn get_all_mining_rewards(
     block_height: u64,
 ) -> Vec<Vec<MinerPaymentSchedule>> {
     let mut ret = vec![];
-    let mut tx = chainstate.index_tx_begin().unwrap();
+    let mut tx = chainstate.index_tx_begin();
 
     for i in 0..block_height {
         let block_rewards =

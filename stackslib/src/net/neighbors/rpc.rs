@@ -245,11 +245,13 @@ impl NeighborRPC {
 
             // see if we got any data
             let Some(http_response) = convo.try_get_response() else {
-                // still waiting
-                debug!(
-                    "{:?}: HTTP event {} is still waiting for a response",
-                    &network.local_peer, event_id
-                );
+                if !convo.is_idle() {
+                    // still waiting
+                    debug!(
+                        "{:?}: HTTP event {} is still waiting for a response",
+                        &network.local_peer, event_id
+                    );
+                }
                 return Ok(None);
             };
 
