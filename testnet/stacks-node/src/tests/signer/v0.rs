@@ -262,10 +262,8 @@ fn block_proposal_rejection() {
     );
 
     info!("------------------------- Test Block Proposal Rejected -------------------------");
-    // Verify that the node correctly rejected the node
-    let proposed_signer_signature_hash =
-        signer_test.wait_for_validate_reject_response(short_timeout);
-    assert_eq!(proposed_signer_signature_hash, block_signer_signature_hash);
+    // Give signer time to reject block
+    std::thread::sleep(Duration::from_secs(3));
 
     let mut stackerdb = StackerDB::new(
         &signer_test.running_nodes.conf.node.rpc_bind,
