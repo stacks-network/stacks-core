@@ -2773,7 +2773,6 @@ pub mod test {
             let mut mempool = self.mempool.take().unwrap();
             let indexer = self.indexer.take().unwrap();
 
-            let old_parent_tip = self.network.parent_stacks_tip.clone();
             let old_tip = self.network.stacks_tip.clone();
 
             let ret = self.network.run(
@@ -2787,10 +2786,6 @@ pub mod test {
                 100,
                 &RPCHandlerArgs::default(),
             );
-
-            if self.network.stacks_tip != old_tip {
-                assert_eq!(self.network.parent_stacks_tip, old_tip);
-            }
 
             self.sortdb = Some(sortdb);
             self.stacks_node = Some(stacks_node);
@@ -2858,7 +2853,6 @@ pub mod test {
             );
             let indexer = BitcoinIndexer::new_unit_test(&self.config.burnchain.working_dir);
 
-            let old_parent_tip = self.network.parent_stacks_tip.clone();
             let old_tip = self.network.stacks_tip.clone();
 
             let ret = self.network.run(
@@ -2873,10 +2867,6 @@ pub mod test {
                 &RPCHandlerArgs::default(),
             );
 
-            if self.network.stacks_tip != old_tip {
-                assert_eq!(self.network.parent_stacks_tip, old_tip);
-            }
-
             self.sortdb = Some(sortdb);
             self.stacks_node = Some(stacks_node);
             self.mempool = Some(mempool);
@@ -2889,16 +2879,11 @@ pub mod test {
             let mut stacks_node = self.stacks_node.take().unwrap();
             let indexer = BitcoinIndexer::new_unit_test(&self.config.burnchain.working_dir);
 
-            let old_parent_tip = self.network.parent_stacks_tip.clone();
             let old_tip = self.network.stacks_tip.clone();
 
             self.network
                 .refresh_burnchain_view(&indexer, &sortdb, &mut stacks_node.chainstate, false)
                 .unwrap();
-
-            if self.network.stacks_tip != old_tip {
-                assert_eq!(self.network.parent_stacks_tip, old_tip);
-            }
 
             self.sortdb = Some(sortdb);
             self.stacks_node = Some(stacks_node);

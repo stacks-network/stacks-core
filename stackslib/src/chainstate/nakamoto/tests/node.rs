@@ -398,12 +398,14 @@ impl TestStacksNode {
     /// Record the nakamoto blocks as a new tenure
     pub fn add_nakamoto_tenure_blocks(&mut self, tenure_blocks: Vec<NakamotoBlock>) {
         if let Some(last_tenure) = self.nakamoto_blocks.last_mut() {
-            // this tenure is overwriting the last tenure
-            if last_tenure.first().unwrap().header.consensus_hash
-                == tenure_blocks.first().unwrap().header.consensus_hash
-            {
-                *last_tenure = tenure_blocks;
-                return;
+            if tenure_blocks.len() > 0 {
+                // this tenure is overwriting the last tenure
+                if last_tenure.first().unwrap().header.consensus_hash
+                    == tenure_blocks.first().unwrap().header.consensus_hash
+                {
+                    *last_tenure = tenure_blocks;
+                    return;
+                }
             }
         }
         self.nakamoto_blocks.push(tenure_blocks);
@@ -761,16 +763,12 @@ impl TestStacksNode {
 
             let block_id = nakamoto_block.block_id();
 
-            if !try_to_process {
-                blocks.push((nakamoto_block, size, cost));
-                block_count += 1;
-                break;
+            if try_to_process {
+                debug!(
+                    "Process Nakamoto block {} ({:?}",
+                    &block_id, &nakamoto_block.header
+                );
             }
-
-            debug!(
-                "Process Nakamoto block {} ({:?}",
-                &block_id, &nakamoto_block.header
-            );
             debug!(
                 "Nakamoto block {} txs: {:?}",
                 &block_id, &nakamoto_block.txs
@@ -803,24 +801,28 @@ impl TestStacksNode {
                     malleablized_blocks.push(block_to_store.clone());
                 }
 
-                let accepted = match Relayer::process_new_nakamoto_block(
-                    &miner.burnchain,
-                    sortdb,
-                    &mut sort_handle,
-                    chainstate,
-                    &stacks_tip,
-                    &block_to_store,
-                    None,
-                    NakamotoBlockObtainMethod::Pushed,
-                ) {
-                    Ok(accepted) => accepted,
-                    Err(e) => {
-                        error!(
-                            "Failed to process nakamoto block: {:?}\n{:?}",
-                            &e, &nakamoto_block
-                        );
-                        panic!();
+                let accepted = if try_to_process {
+                    match Relayer::process_new_nakamoto_block(
+                        &miner.burnchain,
+                        sortdb,
+                        &mut sort_handle,
+                        chainstate,
+                        &stacks_tip,
+                        &block_to_store,
+                        None,
+                        NakamotoBlockObtainMethod::Pushed,
+                    ) {
+                        Ok(accepted) => accepted,
+                        Err(e) => {
+                            error!(
+                                "Failed to process nakamoto block: {:?}\n{:?}",
+                                &e, &nakamoto_block
+                            );
+                            panic!();
+                        }
                     }
+                } else {
+                    false
                 };
                 if accepted {
                     test_debug!("Accepted Nakamoto block {}", &block_to_store.block_id());
@@ -842,11 +844,18 @@ impl TestStacksNode {
                         assert_eq!(nakamoto_chain_tip, &nakamoto_block.header);
                     }
                 } else {
-                    test_debug!(
-                        "Did NOT accept Nakamoto block {}",
-                        &block_to_store.block_id()
-                    );
-                    break;
+                    if try_to_process {
+                        test_debug!(
+                            "Did NOT accept Nakamoto block {}",
+                            &block_to_store.block_id()
+                        );
+                        break;
+                    } else {
+                        test_debug!(
+                            "Test will NOT process Nakamoto block {}",
+                            &block_to_store.block_id()
+                        );
+                    }
                 }
 
                 let num_sigs = block_to_store.header.signer_signature.len();

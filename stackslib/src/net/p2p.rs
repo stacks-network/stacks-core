@@ -4670,7 +4670,7 @@ impl PeerNetwork {
 
     /// Load up the parent stacks tip.
     /// For epoch 2.x, this is the pointer to the parent block of the current stacks tip
-    /// For epoch 3.x, this is the pointer to the tenure-start block of the parent tenure of the
+    /// For epoch 3.x, this is the pointer to the _tenure-start_ block of the parent tenure of the
     /// current stacks tip.
     /// If this is the first tenure in epoch 3.x, then this is the pointer to the epoch 2.x block
     /// that it builds atop.
@@ -4921,6 +4921,10 @@ impl PeerNetwork {
                 Ok(tip) => tip,
                 Err(net_error::DBError(db_error::NotFoundError)) => {
                     // this is the first block
+                    debug!(
+                        "First-ever block (no parent): {:?} ({}/{})",
+                        &new_stacks_tip_block_id, &stacks_tip_ch, &stacks_tip_bhh
+                    );
                     StacksTipInfo {
                         consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
                         block_hash: FIRST_STACKS_BLOCK_HASH.clone(),
@@ -5085,6 +5089,11 @@ impl PeerNetwork {
                 "{:?}: canonical Stacks tip is now {:?}",
                 self.get_local_peer(),
                 &self.stacks_tip
+            );
+            test_debug!(
+                "{:?}: parent canonical Stacks tip is now {:?}",
+                self.get_local_peer(),
+                &self.parent_stacks_tip
             );
         }
 
