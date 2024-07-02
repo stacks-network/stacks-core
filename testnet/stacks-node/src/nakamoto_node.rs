@@ -95,6 +95,8 @@ pub enum Error {
     BadVrfConstruction,
     CannotSelfSign,
     MiningFailure(ChainstateError),
+    /// The miner didn't accept their own block
+    AcceptFailure(ChainstateError),
     MinerSignatureError(&'static str),
     SignerSignatureError(String),
     /// A failure occurred while configuring the miner thread

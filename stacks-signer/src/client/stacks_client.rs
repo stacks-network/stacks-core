@@ -35,7 +35,9 @@ use blockstack_lib::net::api::getinfo::RPCPeerInfoData;
 use blockstack_lib::net::api::getpoxinfo::RPCPoxInfoData;
 use blockstack_lib::net::api::getsortition::{SortitionInfo, RPC_SORTITION_INFO_PATH};
 use blockstack_lib::net::api::getstackers::GetStackersResponse;
+use blockstack_lib::net::api::postblock::StacksBlockAcceptedData;
 use blockstack_lib::net::api::postblock_proposal::NakamotoBlockProposal;
+use blockstack_lib::net::api::postblock_v3;
 use blockstack_lib::net::api::postfeerate::{FeeRateEstimateRequestBody, RPCFeeEstimateResponse};
 use blockstack_lib::util_lib::boot::{boot_code_addr, boot_code_id};
 use clarity::util::hash::to_hex;
@@ -653,6 +655,23 @@ impl StacksClient {
             nonce,
         )?;
         Ok(unsigned_tx)
+    }
+
+    /// Try to post a completed nakamoto block to our connected stacks-node
+    /// Returns `true` if the block was accepted or `false` if the block
+    ///   was rejected.
+    pub fn post_block(&self, block: &NakamotoBlock) -> Result<bool, ClientError> {
+        let response = self
+            .stacks_node_client
+            .post(format!("{}{}", self.http_origin, postblock_v3::PATH))
+            .header("Content-Type", "application/octet-stream")
+            .body(block.serialize_to_vec())
+            .send()?;
+        if !response.status().is_success() {
+            return Err(ClientError::RequestFailure(response.status()));
+        }
+        let post_block_resp = response.json::<StacksBlockAcceptedData>()?;
+        Ok(post_block_resp.accepted)
     }
 
     /// Helper function to submit a transaction to the Stacks mempool

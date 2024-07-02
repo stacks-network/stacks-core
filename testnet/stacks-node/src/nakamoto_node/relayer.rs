@@ -1076,7 +1076,7 @@ impl RelayerThread {
         let burnchain_changed = self
             .last_committed
             .as_ref()
-            .map(|cmt| cmt.get_burn_tip().consensus_hash != &sort_tip.consensus_hash)
+            .map(|cmt| cmt.get_burn_tip().consensus_hash != sort_tip.consensus_hash)
             .unwrap_or(true);
 
         // did our view of the highest ongoing tenure change?

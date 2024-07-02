@@ -44,6 +44,7 @@ pub enum NakamotoBlockObtainMethod {
     Downloaded,
     Pushed,
     Mined,
+    Uploaded
 }
 
 impl fmt::Display for NakamotoBlockObtainMethod {

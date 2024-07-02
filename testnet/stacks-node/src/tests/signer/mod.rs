@@ -118,6 +118,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         // That's the kind of thing an idiot would have on his luggage!
         let password = "12345";
         naka_conf.connection_options.block_proposal_token = Some(password.to_string());
+        naka_conf.miner.wait_on_signers = Duration::from_secs(10);
 
         let run_stamp = rand::random();
 
