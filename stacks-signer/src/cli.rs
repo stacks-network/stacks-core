@@ -172,7 +172,7 @@ impl VoteInfo {
     /// Get the digest to sign that authenticates this vote data
     fn digest(&self) -> Sha512Trunc256Sum {
         let mut hasher = Sha512_256::new();
-        hasher.update(&self.sip.to_be_bytes());
+        hasher.update(self.sip.to_be_bytes());
         hasher.update((self.vote as u8).to_be_bytes());
         Sha512Trunc256Sum::from_hasher(hasher)
     }
