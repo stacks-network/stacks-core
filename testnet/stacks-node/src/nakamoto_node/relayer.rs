@@ -157,19 +157,9 @@ impl LastCommit {
         &self.burn_tip
     }
 
-    /// What's the burn view consensus hash as of this last commit?
-    pub fn get_burn_view_consensus_hash(&self) -> &ConsensusHash {
-        &self.burn_tip.consensus_hash
-    }
-
     /// What's the epoch in which this was sent?
     pub fn get_epoch_id(&self) -> &StacksEpochId {
         &self.epoch_id
-    }
-
-    /// What's the tenure-start block ID of the tenure this block-commit confirms?
-    pub fn get_tenure_start_block_id(&self) -> StacksBlockId {
-        StacksBlockId::new(&self.tenure_consensus_hash, &self.start_block_hash)
     }
 
     /// Get the tenure ID of the tenure this commit builds on
@@ -1086,7 +1076,7 @@ impl RelayerThread {
         let burnchain_changed = self
             .last_committed
             .as_ref()
-            .map(|cmt| cmt.get_burn_view_consensus_hash() != &sort_tip.consensus_hash)
+            .map(|cmt| cmt.get_burn_tip().consensus_hash != &sort_tip.consensus_hash)
             .unwrap_or(true);
 
         // did our view of the highest ongoing tenure change?
@@ -1138,7 +1128,7 @@ impl RelayerThread {
         debug!("Relayer: initiative to commit";
                "sortititon tip" => %sort_tip.consensus_hash,
                "stacks tip" => %stacks_tip,
-               "last-commit burn view" => %self.last_committed.as_ref().map(|cmt| cmt.get_burn_view_consensus_hash().to_string()).unwrap_or("(not set)".to_string()),
+               "last-commit burn view" => %self.last_committed.as_ref().map(|cmt| cmt.get_burn_tip().consensus_hash.to_string()).unwrap_or("(not set)".to_string()),
                "ongoing tenure" => %ongoing_tenure_consensus_hash,
                "last-commit ongoing tenure" => %self.last_committed.as_ref().map(|cmt| cmt.get_tenure_id().to_string()).unwrap_or("(not set)".to_string()),
                "tenure epoch" => %tenure_epoch_id,
