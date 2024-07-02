@@ -69,7 +69,7 @@ use crate::chainstate::nakamoto::tenure::NakamotoTenure;
 use crate::chainstate::nakamoto::test_signers::TestSigners;
 use crate::chainstate::nakamoto::tests::node::TestStacker;
 use crate::chainstate::nakamoto::{
-    query_rows, NakamotoBlock, NakamotoBlockHeader, NakamotoChainState, SortitionHandle,
+    query_row, NakamotoBlock, NakamotoBlockHeader, NakamotoChainState, SortitionHandle,
     FIRST_STACKS_BLOCK_ID,
 };
 use crate::chainstate::stacks::boot::{
@@ -98,15 +98,25 @@ impl<'a> NakamotoStagingBlocksConnRef<'a> {
     pub fn get_all_blocks_in_tenure(
         &self,
         tenure_id_consensus_hash: &ConsensusHash,
+        tip: &StacksBlockId,
     ) -> Result<Vec<NakamotoBlock>, ChainstateError> {
-        let qry = "SELECT data FROM nakamoto_staging_blocks WHERE consensus_hash = ?1 ORDER BY height ASC";
-        let args: &[&dyn ToSql] = &[tenure_id_consensus_hash];
-        let block_data: Vec<Vec<u8>> = query_rows(self, qry, args)?;
-        let mut blocks = Vec::with_capacity(block_data.len());
-        for data in block_data.into_iter() {
-            let block = NakamotoBlock::consensus_deserialize(&mut data.as_slice())?;
+        let mut blocks = vec![];
+        let mut cursor = tip.clone();
+        let qry = "SELECT data FROM nakamoto_staging_blocks WHERE index_block_hash = ?1";
+        loop {
+            let Some(block_data): Option<Vec<u8>> =
+                query_row(self, qry, rusqlite::params![&cursor])?
+            else {
+                break;
+            };
+            let block = NakamotoBlock::consensus_deserialize(&mut block_data.as_slice())?;
+            if &block.header.consensus_hash != tenure_id_consensus_hash {
+                break;
+            }
+            cursor = block.header.parent_block_id.clone();
             blocks.push(block);
         }
+        blocks.reverse();
         Ok(blocks)
     }
 }
@@ -873,7 +883,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
         parent_block_id: nakamoto_header_2.block_id(),
         tx_merkle_root: nakamoto_tx_merkle_root_3,
         state_index_root: TrieHash([0x07; 32]),
-        timestamp: 9,
+        timestamp: 8,
         miner_signature: MessageSignature::empty(),
         signer_signature: vec![MessageSignature::from_bytes(&[0x01; 65]).unwrap()],
         pox_treatment: BitVec::zeros(1).unwrap(),
