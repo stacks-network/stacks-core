@@ -1472,6 +1472,8 @@ pub struct NetworkResult {
     pub uploaded_transactions: Vec<StacksTransaction>,
     /// blocks sent to us via the http server
     pub uploaded_blocks: Vec<BlocksData>,
+    /// blocks sent to us via the http server
+    pub uploaded_nakamoto_blocks: Vec<NakamotoBlock>,
     /// microblocks sent to us by the http server
     pub uploaded_microblocks: Vec<MicroblocksData>,
     /// chunks we received from the HTTP server
@@ -1519,6 +1521,7 @@ impl NetworkResult {
             pushed_microblocks: HashMap::new(),
             pushed_nakamoto_blocks: HashMap::new(),
             uploaded_transactions: vec![],
+            uploaded_nakamoto_blocks: vec![],
             uploaded_blocks: vec![],
             uploaded_microblocks: vec![],
             uploaded_stackerdb_chunks: vec![],
@@ -1642,8 +1645,8 @@ impl NetworkResult {
         }
     }
 
-    pub fn consume_http_uploads(&mut self, mut msgs: Vec<StacksMessageType>) -> () {
-        for msg in msgs.drain(..) {
+    pub fn consume_http_uploads(&mut self, msgs: Vec<StacksMessageType>) -> () {
+        for msg in msgs.into_iter() {
             match msg {
                 StacksMessageType::Transaction(tx_data) => {
                     self.uploaded_transactions.push(tx_data);
@@ -1656,6 +1659,9 @@ impl NetworkResult {
                 }
                 StacksMessageType::StackerDBPushChunk(chunk_data) => {
                     self.uploaded_stackerdb_chunks.push(chunk_data);
+                }
+                StacksMessageType::NakamotoBlocks(data) => {
+                    self.uploaded_nakamoto_blocks.extend(data.blocks);
                 }
                 _ => {
                     // drop
