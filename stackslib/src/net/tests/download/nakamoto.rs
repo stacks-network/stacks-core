@@ -370,15 +370,27 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
     let parent_tip_ch = peer.network.parent_stacks_tip.consensus_hash.clone();
     let current_reward_sets = peer.network.current_reward_sets.clone();
 
+    let last_block_in_confirmed_tenure = NakamotoChainState::get_highest_block_header_in_tenure(
+        &mut peer.chainstate().index_conn(),
+        &tip_block_id,
+        &parent_tip_ch,
+    )
+    .unwrap()
+    .unwrap();
+
+    // NOTE: we have to account for malleablized blocks!
     let unconfirmed_tenure = peer
         .chainstate()
         .nakamoto_blocks_db()
-        .get_all_blocks_in_tenure(&tip_ch)
+        .get_all_blocks_in_tenure(&tip_ch, &tip_block_id)
         .unwrap();
     let last_confirmed_tenure = peer
         .chainstate()
         .nakamoto_blocks_db()
-        .get_all_blocks_in_tenure(&parent_tip_ch)
+        .get_all_blocks_in_tenure(
+            &parent_tip_ch,
+            &last_block_in_confirmed_tenure.index_block_hash(),
+        )
         .unwrap();
 
     let parent_parent_header = NakamotoChainState::get_block_header_nakamoto(
@@ -437,8 +449,7 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
             .as_ref()
             .unwrap()
             .header
-            .parent_block_id
-            .clone(),
+            .block_id(),
         processed: false,
         burn_height: peer.network.burnchain_tip.block_height,
     };
