@@ -248,12 +248,8 @@ impl BlockMinerThread {
                 ) {
                     Ok(x) => x,
                     Err(e) => {
-                        error!(
-                            "Unrecoverable error while gathering signatures: {e:?}. Ending tenure."
-                        );
-                        return Err(NakamotoNodeError::MiningFailure(
-                            ChainstateError::MinerAborted,
-                        ));
+                        error!("Error while gathering signatures: {e:?}. Will try mining again.");
+                        continue;
                     }
                 };
 
