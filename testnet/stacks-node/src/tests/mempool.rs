@@ -28,7 +28,7 @@ use super::{
     make_coinbase, make_contract_call, make_contract_publish, make_poison, make_stacks_transfer,
     serialize_sign_standard_single_sig_tx_anchor_mode_version, to_addr, SK_1, SK_2,
 };
-use crate::helium::RunLoop;
+use crate::local::RunLoop;
 use crate::Keychain;
 
 const FOO_CONTRACT: &'static str = "(define-public (foo) (ok 1))

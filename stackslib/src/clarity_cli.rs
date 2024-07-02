@@ -62,7 +62,7 @@ use crate::clarity::vm::{
 };
 use crate::clarity_vm::database::marf::{MarfedKV, WritableMarfStore};
 use crate::clarity_vm::database::MemoryBackingStore;
-use crate::core::{StacksEpochId, BLOCK_LIMIT_MAINNET_205, HELIUM_BLOCK_LIMIT_20};
+use crate::core::{StacksEpochId, BLOCK_LIMIT_MAINNET_205, LOCAL_TESTNET_BLOCK_LIMIT_20};
 use crate::util_lib::boot::{boot_code_addr, boot_code_id};
 use crate::util_lib::db::{sqlite_open, FromColumn};
 use crate::util_lib::strings::StacksString;
@@ -241,7 +241,7 @@ fn run_analysis<C: ClarityStorage>(
         if mainnet {
             BLOCK_LIMIT_MAINNET_205.clone()
         } else {
-            HELIUM_BLOCK_LIMIT_20.clone()
+            LOCAL_TESTNET_BLOCK_LIMIT_20.clone()
         },
         &mut marf_kv.get_clarity_db(header_db, &NULL_BURN_STATE_DB),
         DEFAULT_CLI_EPOCH,
@@ -429,7 +429,7 @@ where
         if mainnet {
             BLOCK_LIMIT_MAINNET_205.clone()
         } else {
-            HELIUM_BLOCK_LIMIT_20.clone()
+            LOCAL_TESTNET_BLOCK_LIMIT_20.clone()
         },
         &mut db,
         DEFAULT_CLI_EPOCH,

@@ -1,5 +1,5 @@
 [node]
-name = "helium-node"
+name = "regtest-node"
 rpc_bind = "127.0.0.1:20443"
 
 ## Settings for local testnet, relying on a local bitcoind server
@@ -9,17 +9,17 @@ rpc_bind = "127.0.0.1:20443"
 ##    disablewallet=0
 ##    txindex=1
 ##    server=1
-##    rpcuser=helium-node
+##    rpcuser=regtest-node
 ##    rpcpassword=secret
 ##
 # [burnchain]
 # chain = "bitcoin"
-# mode = "helium"
+# mode = "regtest"
 # peer_host = "127.0.0.1"
 # peer_port = 18444
 # rpc_port = 18443
 # rpc_ssl = false
-# username = "helium-node"
+# username = "regtest-node"
 # password = "secret"
 # timeout = 30
 # local_mining_public_key = "04ee0b1602eb18fef7986887a7e8769a30c9df981d33c8380d255edef003abdcd243a0eb74afdf6740e6c423e62aec631519a24cf5b1d62bf8a3e06ddc695dcb77"

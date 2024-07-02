@@ -3,16 +3,16 @@
 ## Getting started
 
 ```bash
-$ cat helium.conf
+$ cat regtest.conf
 chain=regtest
 disablewallet=0
 txindex=1
 server=1
-rpcuser=helium-node
+rpcuser=regtest-node
 rpcpassword=secret
 
 // Start bitcoind
-$ bitcoind -conf=helium.conf
+$ bitcoind -conf=regtest.conf
 
 // Start puppet-chain
 $ DYNAMIC_GENESIS_TIMESTAMP=1 cargo run local-leader.toml.default 

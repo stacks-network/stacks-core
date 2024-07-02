@@ -12,7 +12,7 @@ use stacks_common::util::hash::hex_bytes;
 
 use super::PUBLISH_CONTRACT;
 use crate::config::InitialBalance;
-use crate::helium::RunLoop;
+use crate::local::RunLoop;
 use crate::tests::to_addr;
 use crate::Config;
 
@@ -162,10 +162,10 @@ fn bitcoind_integration(segwit_flag: bool) {
     let mut conf = super::new_test_conf();
     conf.burnchain.commit_anchor_block_within = 2000;
     conf.burnchain.burn_fee_cap = BITCOIND_INT_TEST_COMMITS;
-    conf.burnchain.mode = "helium".to_string();
+    conf.burnchain.mode = "regtest".to_string();
     conf.burnchain.peer_host = "127.0.0.1".to_string();
     conf.burnchain.rpc_port = 18443;
-    conf.burnchain.username = Some("helium-node".to_string());
+    conf.burnchain.username = Some("regtest-node".to_string());
     conf.burnchain.password = Some("secret".to_string());
     conf.burnchain.local_mining_public_key = Some("04ee0b1602eb18fef7986887a7e8769a30c9df981d33c8380d255edef003abdcd243a0eb74afdf6740e6c423e62aec631519a24cf5b1d62bf8a3e06ddc695dcb77".to_string());
 
