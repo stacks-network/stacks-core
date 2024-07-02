@@ -3429,7 +3429,7 @@ impl NakamotoChainState {
         };
 
         let (stacking_burn_ops, transfer_burn_ops, delegate_burn_ops, vote_for_agg_key_ops) =
-            if new_tenure {
+            if new_tenure || tenure_extend {
                 StacksChainState::get_stacking_and_transfer_and_delegate_burn_ops(
                     chainstate_tx,
                     &parent_index_hash,
