@@ -201,7 +201,7 @@ fn build_scriptint(n: i64) -> Vec<u8> {
 
     let neg = n < 0;
 
-    let mut abs = n.abs() as usize;
+    let mut abs = n.unsigned_abs() as usize;
     let mut v = Vec::with_capacity(size_of::<usize>() + 1);
     while abs > 0xFF {
         v.push((abs & 0xFF) as u8);
