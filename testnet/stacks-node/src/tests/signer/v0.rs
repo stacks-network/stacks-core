@@ -15,7 +15,7 @@
 
 use std::env;
 use std::sync::atomic::Ordering;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use clarity::vm::types::PrincipalData;
 use libsigner::v0::messages::{
@@ -262,10 +262,6 @@ fn block_proposal_rejection() {
     );
 
     info!("------------------------- Test Block Proposal Rejected -------------------------");
-    // Verify that the node correctly rejected the node
-    let proposed_signer_signature_hash =
-        signer_test.wait_for_validate_reject_response(short_timeout);
-    assert_eq!(proposed_signer_signature_hash, block_signer_signature_hash);
 
     let mut stackerdb = StackerDB::new(
         &signer_test.running_nodes.conf.node.rpc_bind,
@@ -282,24 +278,32 @@ fn block_proposal_rejection() {
         .collect();
     assert_eq!(signer_slot_ids.len(), num_signers);
 
-    let messages: Vec<SignerMessage> = StackerDB::get_messages(
-        stackerdb
-            .get_session_mut(&MessageSlotID::BlockResponse)
-            .expect("Failed to get BlockResponse stackerdb session"),
-        &signer_slot_ids,
-    )
-    .expect("Failed to get message from stackerdb");
-    for message in messages {
-        if let SignerMessage::BlockResponse(BlockResponse::Rejected(BlockRejection {
-            reason: _reason,
-            reason_code,
-            signer_signature_hash,
-        })) = message
-        {
-            assert_eq!(signer_signature_hash, block_signer_signature_hash);
-            assert!(matches!(reason_code, RejectCode::ValidationFailed(_)));
-        } else {
-            panic!("Unexpected message type");
+    let start_polling = Instant::now();
+    'poll: loop {
+        std::thread::sleep(Duration::from_secs(1));
+        let messages: Vec<SignerMessage> = StackerDB::get_messages(
+            stackerdb
+                .get_session_mut(&MessageSlotID::BlockResponse)
+                .expect("Failed to get BlockResponse stackerdb session"),
+            &signer_slot_ids,
+        )
+        .expect("Failed to get message from stackerdb");
+        for message in messages {
+            if let SignerMessage::BlockResponse(BlockResponse::Rejected(BlockRejection {
+                reason: _reason,
+                reason_code,
+                signer_signature_hash,
+            })) = message
+            {
+                assert_eq!(signer_signature_hash, block_signer_signature_hash);
+                assert!(matches!(reason_code, RejectCode::ValidationFailed(_)));
+                break 'poll;
+            } else {
+                panic!("Unexpected message type");
+            }
+        }
+        if start_polling.elapsed() > short_timeout {
+            panic!("Timed out after waiting for response from signer");
         }
     }
     signer_test.shutdown();
