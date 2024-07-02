@@ -161,10 +161,7 @@ impl TestMiner {
     }
 
     pub fn last_block_commit(&self) -> Option<LeaderBlockCommitOp> {
-        match self.block_commits.len() {
-            0 => None,
-            x => Some(self.block_commits[x - 1].clone()),
-        }
+        self.block_commits.last().cloned()
     }
 
     pub fn block_commit_at(&self, idx: usize) -> Option<LeaderBlockCommitOp> {
