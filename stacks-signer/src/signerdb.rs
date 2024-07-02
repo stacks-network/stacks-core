@@ -21,7 +21,7 @@ use blockstack_lib::util_lib::db::{
     query_row, sqlite_open, table_exists, u64_to_sql, Error as DBError,
 };
 use libsigner::BlockProposal;
-use rusqlite::{params, Connection, Error as SqliteError, OpenFlags, NO_PARAMS};
+use rusqlite::{params, Connection, Error as SqliteError, OpenFlags};
 use serde::{Deserialize, Serialize};
 use slog::slog_debug;
 use stacks_common::debug;
@@ -123,11 +123,11 @@ impl SignerDb {
 
     fn instantiate_db(&self) -> Result<(), DBError> {
         if !table_exists(&self.db, "blocks")? {
-            self.db.execute(CREATE_BLOCKS_TABLE, NO_PARAMS)?;
+            self.db.execute(CREATE_BLOCKS_TABLE, [])?;
         }
 
         if !table_exists(&self.db, "signer_states")? {
-            self.db.execute(CREATE_SIGNER_STATE_TABLE, NO_PARAMS)?;
+            self.db.execute(CREATE_SIGNER_STATE_TABLE, [])?;
         }
 
         self.db.execute_batch(CREATE_INDEXES)?;

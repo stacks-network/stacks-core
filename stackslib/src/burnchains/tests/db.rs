@@ -16,7 +16,7 @@
 
 use std::cmp;
 
-use rusqlite::{ToSql, NO_PARAMS};
+use rusqlite::ToSql;
 use stacks_common::address::AddressHashMode;
 use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction as BtcTx;
 use stacks_common::deps_common::bitcoin::network::serialize::deserialize;
@@ -42,7 +42,7 @@ use crate::util_lib::db::Error as DBError;
 impl BurnchainDB {
     pub fn get_first_header(&self) -> Result<BurnchainBlockHeader, BurnchainError> {
         let qry = "SELECT * FROM burnchain_db_block_headers ORDER BY block_height ASC, block_hash DESC LIMIT 1";
-        let opt = query_row(&self.conn, qry, NO_PARAMS)?;
+        let opt = query_row(&self.conn, qry, [])?;
         opt.ok_or(BurnchainError::MissingParentBlock)
     }
 

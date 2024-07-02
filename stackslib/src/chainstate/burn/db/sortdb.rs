@@ -30,7 +30,7 @@ use rand::RngCore;
 use rusqlite::types::ToSql;
 use rusqlite::{
     Connection, Error as sqlite_error, OpenFlags, OptionalExtension, Row, Transaction,
-    TransactionBehavior, NO_PARAMS,
+    TransactionBehavior,
 };
 use sha2::{Digest, Sha512_256};
 use stacks_common::address::AddressHashMode;
@@ -573,7 +573,7 @@ const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
         block_height INTEGER NOT NULL,
         burn_header_hash TEXT NOT NULL,
         sortition_id TEXT NOT NULL,
-        
+
         consensus_hash TEXT NOT NULL,
         public_key TEXT NOT NULL,
         memo TEXT,
@@ -618,7 +618,7 @@ const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
         stacked_ustx TEXT NOT NULL,
         num_cycles INTEGER NOT NULL,
 
-        -- The primary key here is (txid, burn_header_hash) because 
+        -- The primary key here is (txid, burn_header_hash) because
         -- this transaction will be accepted regardless of which sortition
         -- history it is in.
         PRIMARY KEY(txid,burn_header_hash)
@@ -635,7 +635,7 @@ const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
         transfered_ustx TEXT NOT NULL,
         memo TEXT NOT NULL,
 
-        -- The primary key here is (txid, burn_header_hash) because 
+        -- The primary key here is (txid, burn_header_hash) because
         -- this transaction will be accepted regardless of which sortition
         -- history it is in.
         PRIMARY KEY(txid,burn_header_hash)
@@ -2187,7 +2187,7 @@ impl<'a> SortitionHandleConn<'a> {
 
     /// Get a block commit by txid. In the event of a burnchain fork, this may not be unique.
     ///   this function simply returns one of those block commits: only use data that is
-    ///   immutable across burnchain/pox forks, e.g., parent block ptr,  
+    ///   immutable across burnchain/pox forks, e.g., parent block ptr,
     pub fn get_block_commit_by_txid(
         &self,
         sort_id: &SortitionId,
@@ -2921,7 +2921,7 @@ impl SortitionDB {
         }
 
         info!("Replace existing epochs with new epochs");
-        db_tx.execute("DELETE FROM epochs;", NO_PARAMS)?;
+        db_tx.execute("DELETE FROM epochs;", [])?;
         for epoch in epochs.into_iter() {
             let args: &[&dyn ToSql] = &[
                 &(epoch.epoch_id as u32),
@@ -2964,7 +2964,7 @@ impl SortitionDB {
     /// Load up all snapshots, in ascending order by block height.  Great for testing!
     pub fn get_all_snapshots(&self) -> Result<Vec<BlockSnapshot>, db_error> {
         let qry = "SELECT * FROM snapshots ORDER BY block_height ASC";
-        query_rows(self.conn(), qry, NO_PARAMS)
+        query_rows(self.conn(), qry, [])
     }
 
     /// Get all snapshots for a burn block hash, even if they're not on the canonical PoX fork.
@@ -2982,7 +2982,7 @@ impl SortitionDB {
         height: u64,
     ) -> Result<Vec<BlockSnapshot>, db_error> {
         let qry = "SELECT * FROM snapshots WHERE block_height = ?1";
-        query_rows(conn, qry, &[u64_to_sql(height)?])
+        query_rows(conn, qry, [u64_to_sql(height)?])
     }
 
     /// Get all preprocessed reward sets and their associated anchor blocks
@@ -2991,7 +2991,7 @@ impl SortitionDB {
     ) -> Result<Vec<(SortitionId, RewardCycleInfo)>, db_error> {
         let sql = "SELECT * FROM preprocessed_reward_sets;";
         let mut stmt = conn.prepare(sql)?;
-        let mut qry = stmt.query(NO_PARAMS)?;
+        let mut qry = stmt.query([])?;
         let mut ret = vec![];
         while let Some(row) = qry.next()? {
             let sort_id: SortitionId = row.get("sortition_id")?;
@@ -3043,7 +3043,7 @@ impl SortitionDB {
         let index_path = db_mkdirs(path)?;
         let marf = SortitionDB::open_index(&index_path)?;
         let sql = "SELECT MAX(block_height) FROM snapshots";
-        Ok(query_rows(&marf.sqlite_conn(), sql, NO_PARAMS)?
+        Ok(query_rows(&marf.sqlite_conn(), sql, [])?
             .pop()
             .expect("BUG: no snapshots in block_snapshots"))
     }
@@ -3070,11 +3070,7 @@ impl SortitionDB {
     /// Get the database schema version, given a DB connection
     fn get_schema_version(conn: &Connection) -> Result<Option<String>, db_error> {
         let version = conn
-            .query_row(
-                "SELECT MAX(version) from db_config",
-                rusqlite::NO_PARAMS,
-                |row| row.get(0),
-            )
+            .query_row("SELECT MAX(version) from db_config", [], |row| row.get(0))
             .optional()?;
         Ok(version)
     }
@@ -3477,7 +3473,7 @@ impl SortitionDB {
         let ast_rule_sets: Vec<(ASTRules, u64)> = query_rows(
             conn,
             "SELECT * FROM ast_rule_heights ORDER BY block_height ASC",
-            NO_PARAMS,
+            [],
         )?;
 
         assert!(ast_rule_sets.len() > 0);
@@ -4495,8 +4491,7 @@ impl SortitionDB {
     /// Break ties deterministically by ordering on burnchain block hash.
     pub fn get_canonical_burn_chain_tip(conn: &Connection) -> Result<BlockSnapshot, db_error> {
         let qry = "SELECT * FROM snapshots WHERE pox_valid = 1 ORDER BY block_height DESC, burn_header_hash ASC LIMIT 1";
-        query_row(conn, qry, NO_PARAMS)
-            .map(|opt| opt.expect("CORRUPTION: No canonical burnchain tip"))
+        query_row(conn, qry, []).map(|opt| opt.expect("CORRUPTION: No canonical burnchain tip"))
     }
 
     /// Get the highest burn chain tip even if it's not PoX-valid.
@@ -4504,14 +4499,14 @@ impl SortitionDB {
     pub fn get_highest_known_burn_chain_tip(conn: &Connection) -> Result<BlockSnapshot, db_error> {
         let qry =
             "SELECT * FROM snapshots ORDER BY block_height DESC, burn_header_hash ASC LIMIT 1";
-        query_row(conn, qry, NO_PARAMS).map(|opt| opt.expect("CORRUPTION: No burnchain tips"))
+        query_row(conn, qry, []).map(|opt| opt.expect("CORRUPTION: No burnchain tips"))
     }
 
     /// Get the canonical burn chain tip -- the tip of the longest burn chain we know about.
     /// Break ties deterministically by ordering on burnchain block hash.
     pub fn get_canonical_chain_tip_bhh(conn: &Connection) -> Result<BurnchainHeaderHash, db_error> {
         let qry = "SELECT burn_header_hash FROM snapshots WHERE pox_valid = 1 ORDER BY block_height DESC, burn_header_hash ASC LIMIT 1";
-        match conn.query_row(qry, NO_PARAMS, |row| row.get(0)).optional() {
+        match conn.query_row(qry, [], |row| row.get(0)).optional() {
             Ok(opt) => Ok(opt.expect("CORRUPTION: No canonical burnchain tip")),
             Err(e) => Err(db_error::from(e)),
         }
@@ -4523,7 +4518,7 @@ impl SortitionDB {
     /// Returns Err if the underlying SQLite call fails.
     pub fn get_canonical_sortition_tip(conn: &Connection) -> Result<SortitionId, db_error> {
         let qry = "SELECT sortition_id FROM snapshots WHERE pox_valid = 1 ORDER BY block_height DESC, burn_header_hash ASC LIMIT 1";
-        match conn.query_row(qry, NO_PARAMS, |row| row.get(0)).optional() {
+        match conn.query_row(qry, [], |row| row.get(0)).optional() {
             Ok(opt) => Ok(opt.expect("CORRUPTION: No canonical burnchain tip")),
             Err(e) => Err(db_error::from(e)),
         }
@@ -4758,7 +4753,7 @@ impl SortitionDB {
         match conn
             .query_row(
                 "SELECT IFNULL(MAX(arrival_index), 1) FROM snapshots",
-                NO_PARAMS,
+                [],
                 |row| Ok(u64::from_row(row).expect("Expected u64 in database")),
             )
             .optional()?
@@ -5006,7 +5001,7 @@ impl SortitionDB {
         conn: &Connection,
         sortition: &SortitionId,
     ) -> Result<Option<u16>, db_error> {
-        let qry = "SELECT vtxindex FROM block_commits WHERE sortition_id = ?1 
+        let qry = "SELECT vtxindex FROM block_commits WHERE sortition_id = ?1
                     AND txid = (
                       SELECT winning_block_txid FROM snapshots WHERE sortition_id = ?2 LIMIT 1) LIMIT 1";
         let args: &[&dyn ToSql] = &[sortition, sortition];
@@ -5237,7 +5232,7 @@ impl SortitionDB {
     /// Get all StacksEpochs, in order by ascending start height
     pub fn get_stacks_epochs(conn: &DBConn) -> Result<Vec<StacksEpoch>, db_error> {
         let sql = "SELECT * FROM epochs ORDER BY start_block_height ASC";
-        query_rows(conn, sql, NO_PARAMS)
+        query_rows(conn, sql, [])
     }
 
     pub fn get_stacks_epoch_by_epoch_id(
@@ -5480,7 +5475,7 @@ impl<'a> SortitionHandleTx<'a> {
         transition: &BurnchainStateTransition,
     ) {
         let create = "CREATE TABLE IF NOT EXISTS snapshot_burn_distributions (sortition_id TEXT PRIMARY KEY, data TEXT NOT NULL);";
-        self.execute(create, NO_PARAMS).unwrap();
+        self.execute(create, []).unwrap();
         let sql = "INSERT INTO snapshot_burn_distributions (sortition_id, data) VALUES (?, ?)";
         let args: &[&dyn ToSql] = &[
             new_sortition,
@@ -6527,7 +6522,6 @@ pub mod tests {
     use std::sync::mpsc::sync_channel;
     use std::thread;
 
-    use rusqlite::NO_PARAMS;
     use stacks_common::address::AddressHashMode;
     use stacks_common::types::chainstate::{BlockHeaderHash, StacksAddress, VRFSeed};
     use stacks_common::util::get_epoch_time_secs;
@@ -6844,7 +6838,7 @@ pub mod tests {
         ) -> Result<Vec<(SortitionId, ConsensusHash, BlockHeaderHash, u64)>, db_error> {
             let sql = "SELECT * FROM stacks_chain_tips ORDER BY block_height ASC";
             let mut stmt = self.conn().prepare(sql)?;
-            let mut qry = stmt.query(NO_PARAMS)?;
+            let mut qry = stmt.query([])?;
             let mut ret = vec![];
             while let Some(row) = qry.next()? {
                 let sort_id: SortitionId = row.get("sortition_id")?;
@@ -10388,7 +10382,7 @@ pub mod tests {
             {
                 let db_tx = db.tx_begin().unwrap();
                 db_tx
-                    .execute("DELETE FROM block_commit_parents", NO_PARAMS)
+                    .execute("DELETE FROM block_commit_parents", [])
                     .unwrap();
                 db_tx.commit().unwrap();
             }

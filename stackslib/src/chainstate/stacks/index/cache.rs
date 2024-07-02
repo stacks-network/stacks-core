@@ -27,7 +27,7 @@ use std::{cmp, env, error, fmt, fs, io, os};
 use rusqlite::types::{FromSql, ToSql};
 use rusqlite::{
     Connection, Error as SqliteError, ErrorCode as SqliteErrorCode, OpenFlags, OptionalExtension,
-    Transaction, NO_PARAMS,
+    Transaction,
 };
 use stacks_common::types::chainstate::{
     BlockHeaderHash, TrieHash, BLOCK_HEADER_HASH_ENCODED_SIZE, TRIEHASH_ENCODED_SIZE,

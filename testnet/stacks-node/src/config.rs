@@ -1505,6 +1505,7 @@ pub struct AffirmationOverride {
 #[derive(Clone, Deserialize, Default, Debug)]
 pub struct BurnchainConfigFile {
     pub chain: Option<String>,
+    pub chain_id: Option<u32>,
     pub burn_fee_cap: Option<u64>,
     pub mode: Option<String>,
     pub commit_anchor_block_within: Option<u64>,

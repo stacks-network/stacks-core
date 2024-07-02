@@ -30,7 +30,7 @@ use clarity::vm::{ClarityVersion, SymbolicExpression, Value};
 use lazy_static::{__Deref, lazy_static};
 use rusqlite::blob::Blob;
 use rusqlite::types::{FromSql, FromSqlError};
-use rusqlite::{params, Connection, OpenFlags, OptionalExtension, ToSql, NO_PARAMS};
+use rusqlite::{params, Connection, OptionalExtension, ToSql};
 use sha2::{Digest as Sha2Digest, Sha512_256};
 use stacks_common::bitvec::BitVec;
 use stacks_common::codec::{
@@ -2056,7 +2056,7 @@ impl NakamotoChainState {
         let qry = "SELECT DISTINCT tenure_id_consensus_hash AS consensus_hash FROM nakamoto_tenures WHERE coinbase_height = ?1";
 
         let candidate_chs: Vec<ConsensusHash> =
-            query_rows(tx.tx(), qry, &[u64_to_sql(coinbase_height)?])?;
+            query_rows(tx.tx(), qry, [u64_to_sql(coinbase_height)?])?;
 
         if candidate_chs.len() == 0 {
             // no nakamoto_tenures at that tenure height, check if there's a stack block header where
@@ -3631,7 +3631,7 @@ impl NakamotoChainState {
         // mainnet
         let contract_id = boot_code_id(BOOT_TEST_POX_4_AGG_KEY_CONTRACT, false);
         clarity_tx.connection().as_transaction(|clarity| {
-            let (ast, analysis) = clarity
+            let (mut ast, analysis) = clarity
                 .analyze_smart_contract(
                     &contract_id,
                     ClarityVersion::Clarity2,
@@ -3643,7 +3643,8 @@ impl NakamotoChainState {
                 .initialize_smart_contract(
                     &contract_id,
                     ClarityVersion::Clarity2,
-                    &ast,
+                    &mut ast,
+                    &analysis,
                     &contract_content,
                     None,
                     |_, _| false,

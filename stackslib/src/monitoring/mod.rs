@@ -49,6 +49,7 @@ pub fn increment_rpc_calls_counter() {
 #[allow(unused_mut)]
 pub fn instrument_http_request_handler<F, R>(
     conv_http: &mut ConversationHttp,
+    // mut is needed when feature = "monitoring_prom"
     #[allow(unused_mut)] mut req: StacksHttpRequest,
     handler: F,
 ) -> Result<R, net_error>
@@ -210,7 +211,7 @@ fn txid_tracking_db(chainstate_root_path: &str) -> Result<DBConn, DatabaseError>
     if create_flag {
         conn.execute(
             "CREATE TABLE processed_txids (txid TEXT NOT NULL PRIMARY KEY)",
-            rusqlite::NO_PARAMS,
+            [],
         )?;
     }
 

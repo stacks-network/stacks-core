@@ -649,7 +649,7 @@ fn get_matured_reward(
     let parent_id_bhh = conn
         .query_row(
             &format!("SELECT parent_block_id FROM {table_name} WHERE index_block_hash = ?"),
-            [child_id_bhh.0].iter(),
+            [child_id_bhh.0],
             |x| {
                 Ok(StacksBlockId::from_column(x, "parent_block_id")
                     .expect("Bad parent_block_id in database"))
