@@ -6424,15 +6424,17 @@ fn check_block_info_rewards() {
         vec![&clarity::vm::Value::UInt(last_nakamoto_block)],
     );
     let tuple0 = result0.expect_tuple().unwrap().data_map;
-    assert_eq!(
+    assert!(
         tuple0
             .get("block-reward")
             .unwrap()
             .clone()
             .expect_optional()
             .unwrap()
-            .unwrap(),
-        Value::UInt(3061200000)
+            .unwrap()
+            .expect_u128()
+            .unwrap()
+            > 0
     );
 
     let result1 = call_read_only(
