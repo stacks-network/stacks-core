@@ -891,8 +891,9 @@ impl RelayerThread {
             )
         else {
             warn!("Failure getting the first block of tenure in order to assemble block commit";
-                  "tenure_consensus_hash" => %chain_tip_header.consensus_hash,
-                  "tip_block_hash" => %chain_tip_header.anchored_header.block_hash());
+              "tenure_consensus_hash" => %chain_tip_header.consensus_hash,
+              "tip_stacks_block_hash" => %chain_tip_header.anchored_header.block_hash()
+            );
             return None;
         };
 

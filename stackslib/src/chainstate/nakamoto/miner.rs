@@ -236,7 +236,10 @@ impl NakamotoBlockBuilder {
             SortitionDB::get_block_snapshot_consensus(&burn_dbconn, &self.header.consensus_hash)?
         else {
             warn!("Could not find sortition snapshot for burn block that elected the miner";
-                  "consensus_hash" => %self.header.consensus_hash);
+                "consensus_hash" => %self.header.consensus_hash,
+                "stacks_block_hash" => %self.header.block_hash(),
+                "stacks_block_id" => %self.header.block_id()
+            );
             return Err(Error::NoSuchBlockError);
         };
         let Some(tenure_block_commit) = SortitionDB::get_block_commit(
@@ -246,8 +249,11 @@ impl NakamotoBlockBuilder {
         )?
         else {
             warn!("Could not find winning block commit for burn block that elected the miner";
-                  "consensus_hash" => %self.header.consensus_hash,
-                  "winning_txid" => %tenure_election_sn.winning_block_txid);
+                "consensus_hash" => %self.header.consensus_hash,
+                "stacks_block_hash" => %self.header.block_hash(),
+                "stacks_block_id" => %self.header.block_id(),
+                "winning_txid" => %tenure_election_sn.winning_block_txid
+            );
             return Err(Error::NoSuchBlockError);
         };
 
@@ -560,8 +566,8 @@ impl NakamotoBlockBuilder {
 
         info!(
             "Miner: mined Nakamoto block";
-            "block_hash" => %block.header.block_hash(),
-            "block_id" => %block.header.block_id(),
+            "stacks_block_hash" => %block.header.block_hash(),
+            "stacks_block_id" => %block.header.block_id(),
             "height" => block.header.chain_length,
             "tx_count" => block.txs.len(),
             "parent_block_id" => %block.header.parent_block_id,

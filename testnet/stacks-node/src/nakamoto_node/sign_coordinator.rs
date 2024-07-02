@@ -763,6 +763,8 @@ impl SignCoordinator {
                             "signature" => %signature,
                             "signer_weight" => signer_entry.weight,
                             "total_weight_signed" => total_weight_signed,
+                            "stacks_block_hash" => %block.header.block_hash(),
+                            "stacks_block_id" => %block.header.block_id()
                         );
                         gathered_signatures.insert(slot_id, signature);
                     }
@@ -777,7 +779,10 @@ impl SignCoordinator {
 
             // After gathering all signatures, return them if we've hit the threshold
             if total_weight_signed >= self.weight_threshold {
-                info!("SignCoordinator: Received enough signatures. Continuing.");
+                info!("SignCoordinator: Received enough signatures. Continuing.";
+                    "stacks_block_hash" => %block.header.block_hash(),
+                    "stacks_block_id" => %block.header.block_id()
+                );
                 return Ok(gathered_signatures.values().cloned().collect());
             }
         }
