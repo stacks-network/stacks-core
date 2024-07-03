@@ -131,7 +131,7 @@ impl SignerTrait<SignerMessage> for Signer {
                             );
                         }
                         SignerMessage::BlockPushed(b) => {
-                            let block_push_result = stacks_client.post_block(&b);
+                            let block_push_result = stacks_client.post_block(b);
                             info!(
                                 "{self}: Got block pushed message";
                                 "block_id" => %b.block_id(),
