@@ -40,6 +40,7 @@ use crate::burnchains::PoxConstants;
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandle};
 use crate::chainstate::burn::operations::{BlockstackOperationType, LeaderBlockCommitOp};
 use crate::chainstate::coordinator::tests::{p2pkh_from, pox_addr_from};
+use crate::chainstate::nakamoto::coordinator::load_nakamoto_reward_set;
 use crate::chainstate::nakamoto::miner::NakamotoBlockBuilder;
 use crate::chainstate::nakamoto::signer_set::NakamotoSigners;
 use crate::chainstate::nakamoto::test_signers::TestSigners;
@@ -694,6 +695,90 @@ impl<'a> TestPeer<'a> {
 
         (block, burn_height, tenure_change_tx, coinbase_tx)
     }
+}
+
+#[test]
+// Test the block commit descendant check in nakamoto
+//   - create a 12 address PoX reward set
+//   - make a normal block commit, assert that the bitvec must contain 1s for those addresses
+//   - make a burn block commit, assert that the bitvec must contain 0s for those addresses
+fn block_descendant() {
+    let private_key = StacksPrivateKey::from_seed(&[2]);
+    let addr = StacksAddress::p2pkh(false, &StacksPublicKey::from_private(&private_key));
+
+    let num_stackers: u32 = 4;
+    let mut signing_key_seed = num_stackers.to_be_bytes().to_vec();
+    signing_key_seed.extend_from_slice(&[1, 1, 1, 1]);
+    let signing_key = StacksPrivateKey::from_seed(signing_key_seed.as_slice());
+    let test_stackers = (0..num_stackers)
+        .map(|index| TestStacker {
+            signer_private_key: signing_key.clone(),
+            stacker_private_key: StacksPrivateKey::from_seed(&index.to_be_bytes()),
+            amount: u64::MAX as u128 - 10000,
+            pox_address: Some(PoxAddress::Standard(
+                StacksAddress::new(
+                    C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+                    Hash160::from_data(&index.to_be_bytes()),
+                ),
+                Some(AddressHashMode::SerializeP2PKH),
+            )),
+        })
+        .collect::<Vec<_>>();
+    let test_signers = TestSigners::new(vec![signing_key]);
+    let mut pox_constants = TestPeerConfig::default().burnchain.pox_constants;
+    pox_constants.reward_cycle_length = 10;
+    pox_constants.v2_unlock_height = 21;
+    pox_constants.pox_3_activation_height = 26;
+    pox_constants.v3_unlock_height = 27;
+    pox_constants.pox_4_activation_height = 28;
+
+    let mut boot_plan = NakamotoBootPlan::new(function_name!())
+        .with_test_stackers(test_stackers.clone())
+        .with_test_signers(test_signers.clone())
+        .with_private_key(private_key);
+    boot_plan.pox_constants = pox_constants;
+
+    let mut peer = boot_plan.boot_into_nakamoto_peer(vec![], None);
+    let mut blocks = vec![];
+    let pox_constants = peer.sortdb().pox_constants.clone();
+    let first_burn_height = peer.sortdb().first_block_height;
+
+    // mine until we're at the start of the prepare reward phase (so we *know*
+    //  that the reward set contains entries)
+    loop {
+        let (block, burn_height, ..) =
+            peer.single_block_tenure(&private_key, |_| {}, |_| {}, |_| true);
+        blocks.push(block);
+
+        if pox_constants.is_in_prepare_phase(first_burn_height, burn_height + 1) {
+            info!("At prepare phase start"; "burn_height" => burn_height);
+            break;
+        }
+    }
+
+    // mine until right before the end of the prepare phase
+    loop {
+        let (burn_height, ..) = peer.mine_empty_tenure();
+        if pox_constants.is_reward_cycle_start(first_burn_height, burn_height + 3) {
+            info!("At prepare phase end"; "burn_height" => burn_height);
+            break;
+        }
+    }
+
+    // this should get chosen as the anchor block.
+    let (naka_anchor_block, ..) = peer.single_block_tenure(&private_key, |_| {}, |_| {}, |_| true);
+
+    // make the index=0 block empty, because it doesn't get a descendancy check
+    //  so, if this has a tenure mined, the direct parent check won't occur
+    peer.mine_empty_tenure();
+
+    // this would be where things go haywire. this tenure's parent will be the anchor block.
+    let (first_reward_block, ..) = peer.single_block_tenure(&private_key, |_| {}, |_| {}, |_| true);
+
+    assert_eq!(
+        first_reward_block.header.parent_block_id,
+        naka_anchor_block.block_id()
+    );
 }
 
 #[test]
