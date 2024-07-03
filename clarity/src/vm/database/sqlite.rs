@@ -17,9 +17,10 @@
 use rusqlite::types::{FromSql, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
 use rusqlite::{
     Connection, Error as SqliteError, ErrorCode as SqliteErrorCode, OptionalExtension, Row,
-    Savepoint, NO_PARAMS,
+    Savepoint,
 };
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId};
+use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::util::db_common::tx_busy_handler;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 

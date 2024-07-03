@@ -36,11 +36,12 @@ use clarity::vm::types::TupleData;
 use clarity::vm::{SymbolicExpression, Value};
 use lazy_static::lazy_static;
 use rusqlite::types::ToSql;
-use rusqlite::{Connection, OpenFlags, OptionalExtension, Row, Transaction, NO_PARAMS};
+use rusqlite::{params, Connection, OpenFlags, OptionalExtension, Row, Transaction};
 use serde::de::Error as de_Error;
 use serde::Deserialize;
 use stacks_common::codec::{read_next, write_next, StacksMessageCodec};
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId, TrieHash};
+use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::util;
 use stacks_common::util::hash::{hex_bytes, to_hex};
 
@@ -1022,10 +1023,10 @@ impl StacksChainState {
             }
             tx.execute(
                 "INSERT INTO db_config (version,mainnet,chain_id) VALUES (?1,?2,?3)",
-                &[
-                    &"1".to_string(),
-                    &(if mainnet { 1 } else { 0 }) as &dyn ToSql,
-                    &chain_id as &dyn ToSql,
+                params![
+                    "1".to_string(),
+                    (if mainnet { 1 } else { 0 }),
+                    chain_id,
                 ],
             )?;
 

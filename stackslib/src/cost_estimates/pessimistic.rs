@@ -1,10 +1,11 @@
 use std::cmp;
 use std::path::Path;
 
+use clarity::types::sqlite::NO_PARAMS;
 use clarity::vm::costs::ExecutionCost;
 use rusqlite::types::{FromSql, FromSqlError};
 use rusqlite::{
-    Connection, Error as SqliteError, OptionalExtension, ToSql, Transaction as SqliteTransaction,
+    params, Connection, Error as SqliteError, OptionalExtension, ToSql, Transaction as SqliteTransaction
 };
 use serde_json::Value as JsonValue;
 
@@ -146,7 +147,7 @@ impl Samples {
         let current_value = u64_to_sql(self.mean()).unwrap_or_else(|_| i64::MAX);
         tx.execute(
             sql,
-            rusqlite::params![identifier, current_value, self.to_json()],
+            params![identifier, current_value, self.to_json()],
         )
         .expect("SQLite failure");
     }
@@ -205,7 +206,7 @@ impl PessimisticEstimator {
 
     fn instantiate_db(tx: &SqliteTransaction) -> Result<(), SqliteError> {
         if !Self::db_already_instantiated(tx)? {
-            tx.execute(CREATE_TABLE, rusqlite::NO_PARAMS)?;
+            tx.execute(CREATE_TABLE, NO_PARAMS)?;
         }
 
         Ok(())

@@ -21,8 +21,9 @@ use std::path::PathBuf;
 use lazy_static::lazy_static;
 use rusqlite::blob::Blob;
 use rusqlite::types::{FromSql, FromSqlError};
-use rusqlite::{params, Connection, OpenFlags, OptionalExtension, ToSql, NO_PARAMS};
+use rusqlite::{params, Connection, OpenFlags, OptionalExtension, ToSql};
 use stacks_common::types::chainstate::{ConsensusHash, StacksBlockId};
+use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::util::{get_epoch_time_secs, sleep_ms};
 
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandle};
@@ -369,7 +370,7 @@ impl<'a> NakamotoStagingBlocksTx<'a> {
                                   WHERE index_block_hash = ?1";
         self.execute(
             &clear_staged_block,
-            params![&block, &u64_to_sql(get_epoch_time_secs())?],
+            params![block, u64_to_sql(get_epoch_time_secs())?],
         )?;
 
         Ok(())
@@ -389,7 +390,7 @@ impl<'a> NakamotoStagingBlocksTx<'a> {
                                   WHERE index_block_hash = ?1";
         self.execute(
             &clear_staged_block,
-            params![&block, &u64_to_sql(get_epoch_time_secs())?],
+            params![block, u64_to_sql(get_epoch_time_secs())?],
         )?;
 
         Ok(())

@@ -29,8 +29,7 @@ use rand;
 use rand::RngCore;
 use rusqlite::types::ToSql;
 use rusqlite::{
-    Connection, Error as sqlite_error, OpenFlags, OptionalExtension, Row, Transaction,
-    TransactionBehavior, NO_PARAMS,
+    params, Connection, Error as sqlite_error, OpenFlags, OptionalExtension, Row, Transaction, TransactionBehavior
 };
 use sha2::{Digest, Sha512_256};
 use stacks_common::address::AddressHashMode;
@@ -38,6 +37,7 @@ use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksAddress, StacksBlockId,
     TrieHash, VRFSeed,
 };
+use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::hash::{hex_bytes, to_hex, Hash160, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PublicKey};
@@ -2982,7 +2982,7 @@ impl SortitionDB {
         height: u64,
     ) -> Result<Vec<BlockSnapshot>, db_error> {
         let qry = "SELECT * FROM snapshots WHERE block_height = ?1";
-        query_rows(conn, qry, &[u64_to_sql(height)?])
+        query_rows(conn, qry, params![u64_to_sql(height)?])
     }
 
     /// Get all preprocessed reward sets and their associated anchor blocks
@@ -3070,11 +3070,9 @@ impl SortitionDB {
     /// Get the database schema version, given a DB connection
     fn get_schema_version(conn: &Connection) -> Result<Option<String>, db_error> {
         let version = conn
-            .query_row(
-                "SELECT MAX(version) from db_config",
-                rusqlite::NO_PARAMS,
-                |row| row.get(0),
-            )
+            .query_row("SELECT MAX(version) from db_config", NO_PARAMS, |row| {
+                row.get(0)
+            })
             .optional()?;
         Ok(version)
     }
@@ -3210,7 +3208,7 @@ impl SortitionDB {
         // skip if this step was done
         if table_exists(&tx, "stacks_chain_tips")? {
             let sql = "SELECT 1 FROM stacks_chain_tips WHERE sortition_id = ?1";
-            let args = rusqlite::params![&canonical_tip.sortition_id];
+            let args = params![canonical_tip.sortition_id];
             if let Ok(Some(_)) = query_row::<i64, _>(&tx, sql, args) {
                 info!("`stacks_chain_tips` appears to have been populated already; skipping this step");
                 return Ok(());
@@ -3507,7 +3505,7 @@ impl SortitionDB {
         }
         let sql = "REPLACE INTO preprocessed_reward_sets (sortition_id,reward_set) VALUES (?1,?2)";
         let rc_json = serde_json::to_string(rc_info).map_err(db_error::SerializationError)?;
-        let args = rusqlite::params![sortition_id, &rc_json];
+        let args = params![sortition_id, rc_json];
         sort_tx.execute(sql, args)?;
         Ok(())
     }
@@ -4883,7 +4881,7 @@ impl SortitionDB {
         conn: &Connection,
     ) -> Result<(u64, BurnchainHeaderHash), db_error> {
         let sql = "SELECT block_height, burn_header_hash FROM snapshots WHERE consensus_hash = ?1";
-        let args = rusqlite::params!(&ConsensusHash::empty());
+        let args = params![ConsensusHash::empty()];
         let mut stmt = conn.prepare(sql)?;
         let mut rows = stmt.query(args)?;
         while let Some(row) = rows.next()? {
@@ -6527,9 +6525,9 @@ pub mod tests {
     use std::sync::mpsc::sync_channel;
     use std::thread;
 
-    use rusqlite::NO_PARAMS;
     use stacks_common::address::AddressHashMode;
     use stacks_common::types::chainstate::{BlockHeaderHash, StacksAddress, VRFSeed};
+    use stacks_common::types::sqlite::NO_PARAMS;
     use stacks_common::util::get_epoch_time_secs;
     use stacks_common::util::hash::{hex_bytes, Hash160};
     use stacks_common::util::vrf::*;
@@ -6731,31 +6729,31 @@ pub mod tests {
             let pox_payouts_json = serde_json::to_string(&pox_payout)
                 .expect("FATAL: could not encode `total_pox_payouts` as JSON");
 
-            let args = rusqlite::params![
-                &u64_to_sql(first_snapshot.block_height)?,
-                &first_snapshot.burn_header_hash,
-                &u64_to_sql(first_snapshot.burn_header_timestamp)?,
-                &first_snapshot.parent_burn_header_hash,
-                &first_snapshot.consensus_hash,
-                &first_snapshot.ops_hash,
-                &first_snapshot.total_burn.to_string(),
-                &first_snapshot.sortition,
-                &first_snapshot.sortition_hash,
-                &first_snapshot.winning_block_txid,
-                &first_snapshot.winning_stacks_block_hash,
-                &first_snapshot.index_root,
-                &u64_to_sql(first_snapshot.num_sortitions)?,
-                &first_snapshot.stacks_block_accepted,
-                &u64_to_sql(first_snapshot.stacks_block_height)?,
-                &u64_to_sql(first_snapshot.arrival_index)?,
-                &u64_to_sql(first_snapshot.canonical_stacks_tip_height)?,
-                &first_snapshot.canonical_stacks_tip_hash,
-                &first_snapshot.canonical_stacks_tip_consensus_hash,
-                &first_snapshot.sortition_id,
-                &first_snapshot.parent_sortition_id,
-                &first_snapshot.pox_valid,
-                &first_snapshot.accumulated_coinbase_ustx.to_string(),
-                &pox_payouts_json,
+            let args = params![
+                u64_to_sql(first_snapshot.block_height)?,
+                first_snapshot.burn_header_hash,
+                u64_to_sql(first_snapshot.burn_header_timestamp)?,
+                first_snapshot.parent_burn_header_hash,
+                first_snapshot.consensus_hash,
+                first_snapshot.ops_hash,
+                first_snapshot.total_burn.to_string(),
+                first_snapshot.sortition,
+                first_snapshot.sortition_hash,
+                first_snapshot.winning_block_txid,
+                first_snapshot.winning_stacks_block_hash,
+                first_snapshot.index_root,
+                u64_to_sql(first_snapshot.num_sortitions)?,
+                first_snapshot.stacks_block_accepted,
+                u64_to_sql(first_snapshot.stacks_block_height)?,
+                u64_to_sql(first_snapshot.arrival_index)?,
+                u64_to_sql(first_snapshot.canonical_stacks_tip_height)?,
+                first_snapshot.canonical_stacks_tip_hash,
+                first_snapshot.canonical_stacks_tip_consensus_hash,
+                first_snapshot.sortition_id,
+                first_snapshot.parent_sortition_id,
+                first_snapshot.pox_valid,
+                first_snapshot.accumulated_coinbase_ustx.to_string(),
+                pox_payouts_json,
             ];
 
             db_tx.execute("INSERT INTO snapshots \
@@ -6866,7 +6864,7 @@ pub mod tests {
             let apparent_sender_str =
                 serde_json::to_string(sender).map_err(|e| db_error::SerializationError(e))?;
             let sql = "SELECT * FROM block_commits WHERE apparent_sender = ?1 ORDER BY block_height DESC LIMIT 1";
-            let args = rusqlite::params![&apparent_sender_str];
+            let args = params![apparent_sender_str];
             query_row(conn, sql, args)
         }
     }

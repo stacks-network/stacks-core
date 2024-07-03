@@ -32,6 +32,7 @@ use clarity::vm::test_util::TEST_BURN_STATE_DB;
 use clarity::vm::types::*;
 use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng};
+use rusqlite::params;
 use stacks_common::address::*;
 use stacks_common::types::chainstate::SortitionId;
 use stacks_common::util::hash::MerkleTree;
@@ -4799,7 +4800,7 @@ fn paramaterized_mempool_walk_test(
                 mempool_tx
                     .execute(
                         "UPDATE mempool SET fee_rate = ? WHERE txid = ?",
-                        rusqlite::params![Some(123.0), &txid],
+                        params![Some(123.0), &txid],
                     )
                     .unwrap();
             } else {
@@ -4807,7 +4808,7 @@ fn paramaterized_mempool_walk_test(
                 mempool_tx
                     .execute(
                         "UPDATE mempool SET fee_rate = ? WHERE txid = ?",
-                        rusqlite::params![none, &txid],
+                        params![none, &txid],
                     )
                     .unwrap();
             }

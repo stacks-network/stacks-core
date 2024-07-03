@@ -34,7 +34,7 @@ use clarity::vm::types::{
     TypeSignature, Value,
 };
 use rand::{thread_rng, Rng, RngCore};
-use rusqlite::{Connection, DatabaseName, Error as sqlite_error, OptionalExtension};
+use rusqlite::{params, Connection, DatabaseName, Error as sqlite_error, OptionalExtension, Params};
 use serde::Serialize;
 use serde_json::json;
 use stacks_common::bitvec::BitVec;
@@ -42,6 +42,7 @@ use stacks_common::codec::{read_next, write_next, MAX_MESSAGE_LEN};
 use stacks_common::types::chainstate::{
     BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockId,
 };
+use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::retry::BoundReader;
 use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs};
@@ -894,8 +895,7 @@ impl StacksChainState {
         sql_args: P,
     ) -> Result<Vec<Vec<u8>>, Error>
     where
-        P: IntoIterator,
-        P::Item: ToSql,
+        P: Params,
     {
         let mut stmt = conn
             .prepare(sql_query)
@@ -1614,24 +1614,25 @@ impl StacksChainState {
                    processed_time, \
                    download_time) \
                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)";
-        let args: &[&dyn ToSql] = &[
-            &block_hash,
-            &block.header.parent_block,
-            &consensus_hash,
-            &parent_consensus_hash,
-            &block.header.parent_microblock,
-            &block.header.parent_microblock_sequence,
-            &block.header.microblock_pubkey_hash,
-            &u64_to_sql(block.header.total_work.work)?,
-            &attachable,
-            &0,
-            &0,
-            &u64_to_sql(commit_burn)?,
-            &u64_to_sql(sortition_burn)?,
-            &index_block_hash,
-            &u64_to_sql(get_epoch_time_secs())?,
-            &0,
-            &u64_to_sql(download_time)?,
+
+        let args: &[&dyn ToSql] = params![
+            block_hash,
+            block.header.parent_block,
+            consensus_hash,
+            parent_consensus_hash,
+            block.header.parent_microblock,
+            block.header.parent_microblock_sequence,
+            block.header.microblock_pubkey_hash,
+            u64_to_sql(block.header.total_work.work)?,
+            attachable,
+            0,
+            0,
+            u64_to_sql(commit_burn)?,
+            u64_to_sql(sortition_burn)?,
+            index_block_hash,
+            u64_to_sql(get_epoch_time_secs())?,
+            0,
+            u64_to_sql(download_time)?,
         ];
 
         tx.execute(&sql, args)
@@ -1687,16 +1688,16 @@ impl StacksChainState {
 
         // store microblock metadata
         let sql = "INSERT OR REPLACE INTO staging_microblocks (anchored_block_hash, consensus_hash, index_block_hash, microblock_hash, parent_hash, index_microblock_hash, sequence, processed, orphaned) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)";
-        let args: &[&dyn ToSql] = &[
-            &parent_anchored_block_hash,
-            &parent_consensus_hash,
-            &index_block_hash,
-            &microblock.block_hash(),
-            &microblock.header.prev_block,
-            &index_microblock_hash,
-            &microblock.header.sequence,
-            &0,
-            &0,
+        let args: &[&dyn ToSql] = params![
+            parent_anchored_block_hash,
+            parent_consensus_hash,
+            index_block_hash,
+            microblock.block_hash(),
+            microblock.header.prev_block,
+            index_microblock_hash,
+            microblock.header.sequence,
+            0,
+            0,
         ];
 
         tx.execute(&sql, args)
@@ -2832,10 +2833,10 @@ impl StacksChainState {
             "SELECT {},{} FROM staging_blocks WHERE index_block_hash = ?1",
             consensus_hash_col, anchored_block_col
         );
-        let args = [index_block_hash as &dyn ToSql];
+        let args = params![index_block_hash];
 
         blocks_db
-            .query_row(&sql, &args, |row| {
+            .query_row(&sql, args, |row| {
                 let anchored_block_hash = BlockHeaderHash::from_column(row, anchored_block_col)
                     .expect("Expected anchored_block_hash - database corrupted");
                 let consensus_hash = ConsensusHash::from_column(row, consensus_hash_col)
@@ -2884,11 +2885,11 @@ impl StacksChainState {
                    staging_microblocks JOIN staging_microblocks_data \
                    ON staging_microblocks.microblock_hash = staging_microblocks_data.block_hash \
                    WHERE staging_microblocks.index_block_hash = ?1 AND staging_microblocks.microblock_hash = ?2";
-        let args = [
-            parent_index_block_hash as &dyn ToSql,
-            microblock_hash as &dyn ToSql,
+        let args = params![
+            parent_index_block_hash,
+            microblock_hash,
         ];
-        query_row(blocks_conn, sql, &args).map_err(Error::DBError)
+        query_row(blocks_conn, sql, args).map_err(Error::DBError)
     }
 
     /// Load up the metadata on a microblock stream (but don't get the data itself)
@@ -2900,9 +2901,9 @@ impl StacksChainState {
     ) -> Result<Vec<StagingMicroblock>, Error> {
         let sql = "SELECT * FROM staging_microblocks WHERE index_block_hash = ?1 ORDER BY sequence"
             .to_string();
-        let args = [parent_index_block_hash as &dyn ToSql];
+        let args = params![parent_index_block_hash];
         let microblock_info =
-            query_rows::<StagingMicroblock, _>(blocks_conn, &sql, &args).map_err(Error::DBError)?;
+            query_rows::<StagingMicroblock, _>(blocks_conn, &sql, args).map_err(Error::DBError)?;
         Ok(microblock_info)
     }
 
@@ -2942,7 +2943,7 @@ impl StacksChainState {
     ) -> Result<bool, Error> {
         let sql =
             "SELECT 1 FROM staging_blocks WHERE orphaned = 0 AND processed = 0 AND height >= ?1 AND arrival_time >= ?2";
-        let args: &[&dyn ToSql] = &[&u64_to_sql(height)?, &u64_to_sql(deadline)?];
+        let args: &[&dyn ToSql] = params![u64_to_sql(height)?, u64_to_sql(deadline)?];
         let res = conn
             .query_row(sql, args, |_r| Ok(()))
             .optional()
@@ -2958,7 +2959,7 @@ impl StacksChainState {
     ) -> Result<Option<StagingBlock>, Error> {
         let sql =
             "SELECT * FROM staging_blocks WHERE orphaned = 0 AND processed = 0 AND arrival_time >= ?1 ORDER BY height DESC LIMIT 1";
-        let res = query_row(conn, sql, &[u64_to_sql(deadline)?])?;
+        let res = query_row(conn, sql, params![u64_to_sql(deadline)?])?;
         Ok(res)
     }
 

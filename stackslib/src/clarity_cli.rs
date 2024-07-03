@@ -24,7 +24,7 @@ use clarity::vm::coverage::CoverageReporter;
 use lazy_static::lazy_static;
 use rand::Rng;
 use rusqlite::types::ToSql;
-use rusqlite::{Connection, OpenFlags, Row, Transaction, NO_PARAMS};
+use rusqlite::{Connection, OpenFlags, Row, Transaction};
 use serde::Serialize;
 use serde_json::json;
 use stacks_common::address::c32::c32_address;
@@ -33,6 +33,7 @@ use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksAddress, StacksBlockId, VRFSeed, *,
 };
+use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::util::hash::{bytes_to_hex, Hash160, Sha512Trunc256Sum};
 use stacks_common::util::{get_epoch_time_ms, log};
 

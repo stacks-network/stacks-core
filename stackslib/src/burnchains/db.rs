@@ -19,9 +19,10 @@ use std::path::Path;
 use std::{cmp, fmt, fs, io};
 
 use rusqlite::types::ToSql;
-use rusqlite::{Connection, OpenFlags, OptionalExtension, Row, Transaction, NO_PARAMS};
+use rusqlite::{Connection, OpenFlags, OptionalExtension, Row, Transaction};
 use serde_json;
 use stacks_common::types::chainstate::BurnchainHeaderHash;
+use stacks_common::types::sqlite::NO_PARAMS;
 
 use crate::burnchains::affirmation::*;
 use crate::burnchains::{

@@ -20,6 +20,7 @@ use clarity::types::chainstate::TenureBlockId;
 use clarity::vm::database::clarity_store::*;
 use clarity::vm::database::*;
 use clarity::vm::types::*;
+use rusqlite::params;
 use rusqlite::types::ToSql;
 use rusqlite::Row;
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
@@ -734,12 +735,12 @@ impl StacksChainState {
         let qry =
             "SELECT * FROM payments WHERE consensus_hash = ?1 AND block_hash = ?2 AND miner = 1"
                 .to_string();
-        let args = [
-            consensus_hash as &dyn ToSql,
-            stacks_block_hash as &dyn ToSql,
+        let args = params![
+            consensus_hash,
+            stacks_block_hash,
         ];
         let mut rows =
-            query_rows::<MinerPaymentSchedule, _>(conn, &qry, &args).map_err(Error::DBError)?;
+            query_rows::<MinerPaymentSchedule, _>(conn, &qry, args).map_err(Error::DBError)?;
         let len = rows.len();
         match len {
             0 => {

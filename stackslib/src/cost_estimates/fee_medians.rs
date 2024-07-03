@@ -2,11 +2,11 @@ use std::cmp;
 use std::cmp::Ordering;
 use std::path::Path;
 
+use clarity::types::sqlite::NO_PARAMS;
 use clarity::vm::costs::ExecutionCost;
 use rusqlite::types::{FromSql, FromSqlError};
 use rusqlite::{
-    AndThenRows, Connection, Error as SqliteError, OptionalExtension, ToSql,
-    Transaction as SqlTransaction,
+    params, AndThenRows, Connection, Error as SqliteError, OptionalExtension, ToSql, Transaction as SqlTransaction
 };
 use serde_json::Value as JsonValue;
 
@@ -89,7 +89,7 @@ impl<M: CostMetric> WeightedMedianFeeRateEstimator<M> {
 
     fn instantiate_db(tx: &SqlTransaction) -> Result<(), SqliteError> {
         if !Self::db_already_instantiated(tx)? {
-            tx.execute(CREATE_TABLE, rusqlite::NO_PARAMS)?;
+            tx.execute(CREATE_TABLE, NO_PARAMS)?;
         }
 
         Ok(())
@@ -108,7 +108,7 @@ impl<M: CostMetric> WeightedMedianFeeRateEstimator<M> {
         let mut mids = Vec::with_capacity(window_size as usize);
         let mut lows = Vec::with_capacity(window_size as usize);
         let results = stmt
-            .query_and_then::<_, SqliteError, _, _>(&[window_size], |row| {
+            .query_and_then::<_, SqliteError, _, _>(params![window_size], |row| {
                 let high: f64 = row.get("high")?;
                 let middle: f64 = row.get("middle")?;
                 let low: f64 = row.get("low")?;
@@ -160,10 +160,10 @@ impl<M: CostMetric> WeightedMedianFeeRateEstimator<M> {
                                FROM median_fee_estimator )";
         tx.execute(
             insert_sql,
-            rusqlite::params![new_measure.high, new_measure.middle, new_measure.low,],
+            params![new_measure.high, new_measure.middle, new_measure.low,],
         )
         .expect("SQLite failure");
-        tx.execute(deletion_sql, rusqlite::params![self.window_size])
+        tx.execute(deletion_sql, params![self.window_size])
             .expect("SQLite failure");
 
         let estimate = Self::get_rate_estimates_from_sql(&tx, self.window_size);

@@ -30,7 +30,7 @@ use clarity::vm::{ClarityVersion, SymbolicExpression, Value};
 use lazy_static::{__Deref, lazy_static};
 use rusqlite::blob::Blob;
 use rusqlite::types::{FromSql, FromSqlError};
-use rusqlite::{params, Connection, OpenFlags, OptionalExtension, ToSql, NO_PARAMS};
+use rusqlite::{params, Connection, OpenFlags, OptionalExtension, ToSql};
 use sha2::{Digest as Sha2Digest, Sha512_256};
 use stacks_common::bitvec::BitVec;
 use stacks_common::codec::{
@@ -44,6 +44,7 @@ use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, SortitionId, StacksAddress, StacksBlockId,
     StacksPrivateKey, StacksPublicKey, TrieHash, VRFSeed,
 };
+use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::types::{PrivateKey, StacksEpochId};
 use stacks_common::util::hash::{to_hex, Hash160, MerkleHashFunc, MerkleTree, Sha512Trunc256Sum};
 use stacks_common::util::retry::BoundReader;
@@ -2056,7 +2057,7 @@ impl NakamotoChainState {
         let qry = "SELECT DISTINCT tenure_id_consensus_hash AS consensus_hash FROM nakamoto_tenures WHERE coinbase_height = ?1";
 
         let candidate_chs: Vec<ConsensusHash> =
-            query_rows(tx.tx(), qry, &[u64_to_sql(coinbase_height)?])?;
+            query_rows(tx.tx(), qry, params![u64_to_sql(coinbase_height)?])?;
 
         if candidate_chs.len() == 0 {
             // no nakamoto_tenures at that tenure height, check if there's a stack block header where
@@ -2638,7 +2639,7 @@ impl NakamotoChainState {
         reward_set: &RewardSet,
     ) -> Result<(), ChainstateError> {
         let sql = "INSERT INTO nakamoto_reward_sets (index_block_hash, reward_set) VALUES (?, ?)";
-        let args = rusqlite::params![block_id, &reward_set.metadata_serialize(),];
+        let args = params![block_id, reward_set.metadata_serialize(),];
         tx.execute(sql, args)?;
         Ok(())
     }

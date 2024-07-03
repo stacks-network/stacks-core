@@ -22,8 +22,9 @@ use clarity::vm::types::QualifiedContractIdentifier;
 use clarity::vm::ContractName;
 use libstackerdb::{SlotMetadata, STACKERDB_MAX_CHUNK_SIZE};
 use rusqlite::types::ToSql;
-use rusqlite::{Connection, OpenFlags, OptionalExtension, Row, Transaction, NO_PARAMS};
+use rusqlite::{params, Connection, OpenFlags, OptionalExtension, Row, Transaction};
 use stacks_common::types::chainstate::{ConsensusHash, StacksAddress};
+use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 use stacks_common::util::secp256k1::MessageSignature;
@@ -258,15 +259,15 @@ impl<'a> StackerDBTx<'a> {
         for (principal, slot_count) in slots.iter() {
             test_debug!("Create StackerDB slots: ({}, {})", &principal, slot_count);
             for _ in 0..*slot_count {
-                let args: &[&dyn ToSql] = &[
-                    &stackerdb_id,
-                    &principal.to_string(),
-                    &slot_id,
-                    &NO_VERSION,
-                    &0,
-                    &vec![],
-                    &Sha512Trunc256Sum([0u8; 32]),
-                    &MessageSignature::empty(),
+                let args: &[&dyn ToSql] = params![
+                    stackerdb_id,
+                    principal.to_string(),
+                    slot_id,
+                    NO_VERSION,
+                    0,
+                    vec![],
+                    Sha512Trunc256Sum([0u8; 32]),
+                    MessageSignature::empty(),
                 ];
                 stmt.execute(args)?;
 
@@ -326,15 +327,15 @@ impl<'a> StackerDBTx<'a> {
                 // new slot, or existing slot with a different signer
                 let qry = "INSERT OR REPLACE INTO chunks (stackerdb_id,signer,slot_id,version,write_time,data,data_hash,signature) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)";
                 let mut stmt = self.sql_tx.prepare(&qry)?;
-                let args: &[&dyn ToSql] = &[
-                    &stackerdb_id,
-                    &principal.to_string(),
-                    &slot_id,
-                    &NO_VERSION,
-                    &0,
-                    &vec![],
-                    &Sha512Trunc256Sum([0u8; 32]),
-                    &MessageSignature::empty(),
+                let args: &[&dyn ToSql] = params![
+                    stackerdb_id,
+                    principal.to_string(),
+                    slot_id,
+                    NO_VERSION,
+                    0,
+                    vec![],
+                    Sha512Trunc256Sum([0u8; 32]),
+                    MessageSignature::empty(),
                 ];
 
                 stmt.execute(args)?;

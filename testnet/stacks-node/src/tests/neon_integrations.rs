@@ -8765,7 +8765,7 @@ fn atlas_stress_integration_test() {
                 let mut hashes = query_row_columns::<Hash160, _>(
                     &atlasdb.conn,
                     "SELECT content_hash FROM attachment_instances WHERE index_block_hash = ?1 AND attachment_index = ?2",
-                    &[ibh as &dyn ToSql, &u64_to_sql(*index).unwrap() as &dyn ToSql],
+                    params![ibh, u64_to_sql(*index).unwrap()],
                     "content_hash")
                 .unwrap();
                 if hashes.len() > 0 {

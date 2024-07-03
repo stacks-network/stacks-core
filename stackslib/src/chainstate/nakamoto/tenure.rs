@@ -68,7 +68,7 @@ use clarity::vm::events::StacksTransactionEvent;
 use clarity::vm::types::StacksAddressExtensions;
 use lazy_static::{__Deref, lazy_static};
 use rusqlite::types::{FromSql, FromSqlError};
-use rusqlite::{params, Connection, OptionalExtension, ToSql, NO_PARAMS};
+use rusqlite::{params, Connection, OptionalExtension, ToSql};
 use sha2::{Digest as Sha2Digest, Sha512_256};
 use stacks_common::codec::{
     read_next, write_next, Error as CodecError, StacksMessageCodec, MAX_MESSAGE_LEN,
@@ -80,6 +80,7 @@ use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksBlockId, StacksPrivateKey,
     StacksPublicKey, TrieHash, VRFSeed,
 };
+use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::types::{PrivateKey, StacksEpochId};
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::{to_hex, Hash160, MerkleHashFunc, MerkleTree, Sha512Trunc256Sum};
@@ -587,7 +588,7 @@ impl NakamotoChainState {
         burn_view: &ConsensusHash,
     ) -> Result<Option<NakamotoTenure>, ChainstateError> {
         let sql = "SELECT * FROM nakamoto_tenures WHERE burn_view_consensus_hash = ?1 ORDER BY tenure_index DESC LIMIT 1";
-        let args = rusqlite::params![burn_view];
+        let args = params![burn_view];
         let tenure_opt: Option<NakamotoTenure> = query_row(headers_conn, sql, args)?;
         Ok(tenure_opt)
     }

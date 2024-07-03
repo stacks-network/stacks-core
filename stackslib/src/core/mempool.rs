@@ -29,14 +29,14 @@ use rand::distributions::Uniform;
 use rand::prelude::Distribution;
 use rusqlite::types::ToSql;
 use rusqlite::{
-    Connection, Error as SqliteError, OpenFlags, OptionalExtension, Row, Rows, Transaction,
-    NO_PARAMS,
+    params, Connection, Error as SqliteError, OpenFlags, OptionalExtension, Row, Rows, Transaction
 };
 use siphasher::sip::SipHasher; // this is SipHash-2-4
 use stacks_common::codec::{
     read_next, write_next, Error as codec_error, StacksMessageCodec, MAX_MESSAGE_LEN,
 };
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksAddress, StacksBlockId};
+use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::types::MempoolCollectionBehavior;
 use stacks_common::util::hash::{to_hex, Sha512Trunc256Sum};
 use stacks_common::util::retry::{BoundReader, RetryReader};
@@ -1122,7 +1122,7 @@ fn db_set_nonce(conn: &DBConn, address: &StacksAddress, nonce: u64) -> Result<()
     let nonce_i64 = u64_to_sql(nonce)?;
 
     let sql = "INSERT OR REPLACE INTO nonces (address, nonce) VALUES (?1, ?2)";
-    conn.execute(sql, rusqlite::params![&addr_str, nonce_i64])?;
+    conn.execute(sql, params![addr_str, nonce_i64])?;
     Ok(())
 }
 
@@ -1130,7 +1130,7 @@ fn db_get_nonce(conn: &DBConn, address: &StacksAddress) -> Result<Option<u64>, d
     let addr_str = address.to_string();
 
     let sql = "SELECT nonce FROM nonces WHERE address = ?";
-    query_row(conn, sql, rusqlite::params![&addr_str])
+    query_row(conn, sql, params![addr_str])
 }
 
 #[cfg(test)]
@@ -1272,7 +1272,7 @@ impl MemPoolDB {
         let version = conn
             .query_row(
                 "SELECT MAX(version) FROM schema_version",
-                rusqlite::NO_PARAMS,
+                NO_PARAMS,
                 |row| row.get(0),
             )
             .optional()?;
@@ -1489,7 +1489,7 @@ impl MemPoolDB {
     pub fn reset_nonce_cache(&mut self) -> Result<(), db_error> {
         debug!("reset nonce cache");
         let sql = "DELETE FROM nonces";
-        self.db.execute(sql, rusqlite::NO_PARAMS)?;
+        self.db.execute(sql, NO_PARAMS)?;
         Ok(())
     }
 
@@ -1529,7 +1529,7 @@ impl MemPoolDB {
         let txs: Vec<MemPoolTxInfo> = query_rows(
             &sql_tx,
             "SELECT * FROM mempool as m WHERE m.fee_rate IS NULL LIMIT ?",
-            &[max_updates],
+            params![max_updates],
         )?;
         let mut updated = 0;
         for tx_to_estimate in txs {
@@ -1554,7 +1554,7 @@ impl MemPoolDB {
 
             sql_tx.execute(
                 "UPDATE mempool SET fee_rate = ? WHERE txid = ?",
-                rusqlite::params![fee_rate_f64, &txid],
+                params![fee_rate_f64, txid],
             )?;
             updated += 1;
         }
@@ -1945,7 +1945,7 @@ impl MemPoolDB {
         query_row(
             conn,
             "SELECT 1 FROM mempool WHERE txid = ?1",
-            &[txid as &dyn ToSql],
+            params![txid],
         )
         .and_then(|row_opt: Option<i64>| Ok(row_opt.is_some()))
     }
@@ -1954,7 +1954,7 @@ impl MemPoolDB {
         query_row(
             conn,
             "SELECT * FROM mempool WHERE txid = ?1",
-            &[txid as &dyn ToSql],
+            params![txid],
         )
     }
 
@@ -2398,7 +2398,7 @@ impl MemPoolDB {
         mempool_tx
             .execute(
                 "UPDATE mempool SET fee_rate = ? WHERE txid = ?",
-                rusqlite::params![fee_rate_estimate, &txid],
+                params![fee_rate_estimate, txid],
             )
             .map_err(db_error::from)?;
 
@@ -2588,12 +2588,12 @@ impl MemPoolDB {
             let txids: Vec<Txid> = query_rows(
                 tx,
                 "SELECT txid FROM tx_blacklist ORDER BY RANDOM() LIMIT ?1",
-                &[&u64_to_sql(to_delete)? as &dyn ToSql],
+                params![u64_to_sql(to_delete)?],
             )?;
             for txid in txids.into_iter() {
                 tx.execute(
                     "DELETE FROM tx_blacklist WHERE txid = ?1",
-                    &[&txid as &dyn ToSql],
+                    params![txid],
                 )?;
             }
         }

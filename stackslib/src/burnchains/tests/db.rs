@@ -16,11 +16,12 @@
 
 use std::cmp;
 
-use rusqlite::{ToSql, NO_PARAMS};
+use rusqlite::ToSql;
 use stacks_common::address::AddressHashMode;
 use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction as BtcTx;
 use stacks_common::deps_common::bitcoin::network::serialize::deserialize;
 use stacks_common::types::chainstate::StacksAddress;
+use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::util::hash::*;
 
 use super::*;

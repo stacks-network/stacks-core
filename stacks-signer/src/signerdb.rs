@@ -21,11 +21,12 @@ use blockstack_lib::util_lib::db::{
     query_row, sqlite_open, table_exists, u64_to_sql, Error as DBError,
 };
 use libsigner::BlockProposal;
-use rusqlite::{params, Connection, Error as SqliteError, OpenFlags, NO_PARAMS};
+use rusqlite::{params, Connection, Error as SqliteError, OpenFlags};
 use serde::{Deserialize, Serialize};
 use slog::slog_debug;
 use stacks_common::debug;
 use stacks_common::types::chainstate::ConsensusHash;
+use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 use wsts::net::NonceRequest;
 
@@ -163,7 +164,7 @@ impl SignerDb {
     ) -> Result<(), DBError> {
         self.db.execute(
             "INSERT OR REPLACE INTO signer_states (reward_cycle, encrypted_state) VALUES (?1, ?2)",
-            params![&u64_to_sql(reward_cycle)?, &encrypted_signer_state],
+            params![u64_to_sql(reward_cycle)?, encrypted_signer_state],
         )?;
         Ok(())
     }
@@ -178,7 +179,7 @@ impl SignerDb {
         let result: Option<String> = query_row(
             &self.db,
             "SELECT block_info FROM blocks WHERE reward_cycle = ? AND signer_signature_hash = ?",
-            params![&u64_to_sql(reward_cycle)?, hash.to_string()],
+            params![u64_to_sql(reward_cycle)?, hash.to_string()],
         )?;
 
         try_deserialize(result)
@@ -220,7 +221,7 @@ impl SignerDb {
             .execute(
                 "INSERT OR REPLACE INTO blocks (reward_cycle, burn_block_height, signer_signature_hash, block_info, signed_over, stacks_height, consensus_hash) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
                 params![
-                    u64_to_sql(block_info.reward_cycle)?, u64_to_sql(block_info.burn_block_height)?, hash.to_string(), &block_json,
+                    u64_to_sql(block_info.reward_cycle)?, u64_to_sql(block_info.burn_block_height)?, hash.to_string(), block_json,
                     signed_over,
                     u64_to_sql(block_info.block.header.chain_length)?,
                     block_info.block.header.consensus_hash.to_hex(),

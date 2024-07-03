@@ -12,7 +12,7 @@ use clarity::vm::database::{
 };
 use clarity::vm::errors::{InterpreterResult, RuntimeErrorType};
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, TupleData};
-use rusqlite::{Connection, OptionalExtension, Row, ToSql};
+use rusqlite::{params, Connection, OptionalExtension, Row, ToSql};
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, SortitionId, StacksAddress, StacksBlockId,
     TenureBlockId, VRFSeed,
@@ -649,7 +649,7 @@ fn get_matured_reward(
     let parent_id_bhh = conn
         .query_row(
             &format!("SELECT parent_block_id FROM {table_name} WHERE index_block_hash = ?"),
-            [child_id_bhh.0].iter(),
+            params![child_id_bhh.0],
             |x| {
                 Ok(StacksBlockId::from_column(x, "parent_block_id")
                     .expect("Bad parent_block_id in database"))
