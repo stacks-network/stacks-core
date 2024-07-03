@@ -46,6 +46,7 @@ mod tests;
 use std::fmt::{Debug, Display};
 use std::sync::mpsc::{channel, Receiver, Sender};
 
+use chainstate::SortitionsView;
 use config::GlobalConfig;
 use libsigner::{SignerEvent, SignerEventReceiver, SignerEventTrait};
 use runloop::SignerResult;
@@ -68,6 +69,7 @@ pub trait Signer<T: SignerEventTrait>: Debug + Display {
     fn process_event(
         &mut self,
         stacks_client: &StacksClient,
+        sortition_state: &mut Option<SortitionsView>,
         event: Option<&SignerEvent<T>>,
         res: Sender<Vec<SignerResult>>,
         current_reward_cycle: u64,
