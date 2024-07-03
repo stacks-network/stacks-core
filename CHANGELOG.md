@@ -17,6 +17,15 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
     - `get-tenure-info?` added
     - `get-block-info?` removed
 
+## [2.5.0.0.5]
+
+### Added
+
+- Added configuration option `connections.antientropy_retry` (#4932)
+
+### Changed
+
+- Set default antientropy_retry to run once per hour (#4935)
 
 ## [2.5.0.0.4]
 
@@ -48,7 +57,6 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 - Extra pair of signer slots got introduced at the epoch 2.5 boundary (#4845, #4868, #4891)
 - Never consider Stacks chain tips that are not on the canonical burn chain #4886 (#4893)
 
-
 ### Fixed
 
 - Allow Nakamoto blocks to access the burn block associated with the current tenure (#4333)
@@ -69,7 +77,6 @@ of the pox-4 contract. For more details see SIP-021.
 This is the first consensus-critical release for Nakamoto. Nodes which do not update before the 2.5 activation height will be forked away from the rest of the network. This release is compatible with 2.4.x chain state directories and does not require resyncing from genesis. The first time a node boots with this version it will perform some database migrations which could lengthen the normal node startup time.
 
 **This is a required release before Nakamoto rules are enabled in 3.0.**
-
 
 ### Timing of Release from 2.5 to 3.0
 
