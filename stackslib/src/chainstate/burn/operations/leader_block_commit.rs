@@ -692,7 +692,12 @@ impl LeaderBlockCommitOp {
         // Now, we are checking the reward sets match, and if they don't,
         //  whether or not pox descendant is necessary
 
-        let descended_from_anchor = tx.descended_from(parent_block_height, &reward_set_info.anchor_block)
+        // first, if we're in a nakamoto epoch, any block commit building directly off of the anchor block
+        //  is descendant
+        let directly_descended_from_anchor = epoch_id.block_commits_to_parent()
+            && self.block_header_hash == reward_set_info.anchor_block;
+        let descended_from_anchor = directly_descended_from_anchor || tx
+            .descended_from(parent_block_height, &reward_set_info.anchor_block)
             .map_err(|e| {
                 error!("Failed to check whether parent (height={}) is descendent of anchor block={}: {}",
                        parent_block_height, &reward_set_info.anchor_block, e);

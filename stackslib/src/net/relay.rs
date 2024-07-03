@@ -1949,22 +1949,53 @@ impl Relayer {
             };
 
         // process pushed Nakamoto blocks
-        let (mut pushed_blocks_and_relayers, bad_neighbors) =
-            match Self::process_pushed_nakamoto_blocks(
-                network_result,
-                burnchain,
-                sortdb,
-                chainstate,
-                coord_comms,
-            ) {
-                Ok(x) => x,
-                Err(e) => {
-                    warn!("Failed to process pushed Nakamoto blocks: {:?}", &e);
-                    (vec![], vec![])
-                }
-            };
+        let (pushed_blocks_and_relayers, bad_neighbors) = match Self::process_pushed_nakamoto_blocks(
+            network_result,
+            burnchain,
+            sortdb,
+            chainstate,
+            coord_comms,
+        ) {
+            Ok(x) => x,
+            Err(e) => {
+                warn!("Failed to process pushed Nakamoto blocks: {:?}", &e);
+                (vec![], vec![])
+            }
+        };
 
-        accepted_nakamoto_blocks_and_relayers.append(&mut pushed_blocks_and_relayers);
+        let mut http_uploaded_blocks = vec![];
+        for block in network_result.uploaded_nakamoto_blocks.drain(..) {
+            let block_id = block.block_id();
+            let have_block = chainstate
+                .nakamoto_blocks_db()
+                .has_nakamoto_block(&block_id)
+                .unwrap_or_else(|e| {
+                    warn!(
+                        "Failed to determine if we have Nakamoto block";
+                        "stacks_block_id" => %block_id,
+                        "err" => ?e
+                    );
+                    false
+                });
+            if have_block {
+                debug!(
+                    "Received http-uploaded nakamoto block";
+                    "stacks_block_id" => %block_id,
+                );
+                http_uploaded_blocks.push(block);
+            }
+        }
+        if !http_uploaded_blocks.is_empty() {
+            coord_comms.inspect(|comm| {
+                comm.announce_new_stacks_block();
+            });
+        }
+
+        accepted_nakamoto_blocks_and_relayers.extend(pushed_blocks_and_relayers);
+        accepted_nakamoto_blocks_and_relayers.push(AcceptedNakamotoBlocks {
+            relayers: vec![],
+            blocks: http_uploaded_blocks,
+        });
         Ok((accepted_nakamoto_blocks_and_relayers, bad_neighbors))
     }
 
