@@ -322,7 +322,7 @@ struct ConnectionOutbox<P: ProtocolFamily> {
     inflight: VecDeque<ReceiverNotify<P>>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, slog_derive::KV)]
 pub struct ConnectionOptions {
     pub inbox_maxlen: usize,
     pub outbox_maxlen: usize,
@@ -362,6 +362,7 @@ pub struct ConnectionOptions {
     pub max_inflight_blocks: u64,
     pub max_inflight_attachments: u64,
     pub max_attachment_retry_count: u64,
+    #[slog(skip)]
     pub read_only_call_limit: ExecutionCost,
     pub maximum_call_argument_size: u32,
     pub max_block_push_bandwidth: u64,
@@ -370,6 +371,7 @@ pub struct ConnectionOptions {
     pub max_stackerdb_push_bandwidth: u64,
     pub max_nakamoto_block_push_bandwidth: u64,
     pub max_sockets: usize,
+    #[slog(skip)]
     pub public_ip_address: Option<(PeerAddress, u16)>,
     pub public_ip_request_timeout: u64,
     pub public_ip_timeout: u64,

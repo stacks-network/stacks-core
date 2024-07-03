@@ -3312,6 +3312,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "slog_derive"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a945ec7f7ce853e89ffa36be1e27dce9a43e82ff9093bf3461c30d5da74ed11b"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 1.0.109",
+]
+
+[[package]]
 name = "smallvec"
 version = "1.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3433,6 +3444,7 @@ dependencies = [
  "serde_derive",
  "serde_json",
  "slog",
+ "slog_derive",
  "stacks-common",
  "stacks-signer",
  "stackslib",
@@ -3523,6 +3535,7 @@ dependencies = [
  "slog",
  "slog-json",
  "slog-term",
+ "slog_derive",
  "stacks-common",
  "stdext",
  "stx-genesis",
