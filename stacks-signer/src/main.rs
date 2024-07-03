@@ -165,7 +165,8 @@ fn handle_check_config(args: RunSignerArgs) {
 }
 
 fn handle_generate_vote(args: GenerateVoteArgs, do_print: bool) -> MessageSignature {
-    let message_signature = args.vote_info.sign(&args.private_key).unwrap();
+    let config = GlobalConfig::try_from(&args.config).unwrap();
+    let message_signature = args.vote_info.sign(&config.stacks_private_key).unwrap();
     if do_print {
         println!("{}", to_hex(message_signature.as_bytes()));
     }
@@ -235,7 +236,7 @@ pub mod tests {
     };
     use clarity::util::secp256k1::Secp256k1PrivateKey;
     use clarity::vm::{execute_v2, Value};
-    use rand::RngCore;
+    use rand::{Rng, RngCore};
     use stacks_common::consts::CHAIN_ID_TESTNET;
     use stacks_common::types::PublicKey;
     use stacks_common::util::secp256k1::Secp256k1PublicKey;
@@ -373,21 +374,21 @@ pub mod tests {
     #[test]
     fn test_vote() {
         let mut rand = rand::thread_rng();
-        let private_key = Secp256k1PrivateKey::new();
-        let public_key = StacksPublicKey::from_private(&private_key);
         let vote_info = VoteInfo {
-            vote: Vote::No,
+            vote: Vote::try_from(rand.gen_range(0..2)).unwrap(),
             sip: rand.next_u32(),
         };
+        let config_file = "./src/tests/conf/signer-0.toml";
+        let config = GlobalConfig::load_from_file(config_file).unwrap();
+        let private_key = config.stacks_private_key;
+        let public_key = StacksPublicKey::from_private(&private_key);
         let args = GenerateVoteArgs {
-            private_key,
+            config: config_file.into(),
             vote_info,
         };
         let message_signature = handle_generate_vote(args, false);
         assert!(
-            args.vote_info
-                .verify(&public_key, &message_signature)
-                .unwrap(),
+            vote_info.verify(&public_key, &message_signature).unwrap(),
             "Vote should be valid"
         );
     }

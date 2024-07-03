@@ -18,18 +18,24 @@ use std::path::PathBuf;
 
 use blockstack_lib::chainstate::stacks::address::PoxAddress;
 use blockstack_lib::util_lib::signed_structured_data::pox4::Pox4SignatureTopic;
+use blockstack_lib::util_lib::signed_structured_data::{
+    make_structured_data_domain, structured_data_message_hash,
+};
 use clap::{ArgAction, Parser, ValueEnum};
+use clarity::consts::CHAIN_ID_MAINNET;
 use clarity::types::chainstate::StacksPublicKey;
 use clarity::types::{PrivateKey, PublicKey};
-use clarity::util::hash::Sha512Trunc256Sum;
+use clarity::util::hash::Sha256Sum;
 use clarity::util::secp256k1::MessageSignature;
-use clarity::vm::types::QualifiedContractIdentifier;
-use sha2::{Digest, Sha512_256};
+use clarity::vm::types::{QualifiedContractIdentifier, TupleData};
+use clarity::vm::Value;
+use serde::{Deserialize, Serialize};
 use stacks_common::address::{
     b58, AddressHashMode, C32_ADDRESS_VERSION_MAINNET_MULTISIG,
     C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_MULTISIG,
     C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
+use stacks_common::define_u8_enum;
 use stacks_common::types::chainstate::StacksPrivateKey;
 
 extern crate alloc;
@@ -132,12 +138,12 @@ pub struct RunSignerArgs {
     pub config: PathBuf,
 }
 
-#[derive(Parser, Debug, Clone, Copy)]
+#[derive(Parser, Debug, Clone)]
 /// Arguments for the Vote command
 pub struct GenerateVoteArgs {
-    /// The Stacks private key to use in hexademical format
-    #[arg(short, long, value_parser = parse_private_key)]
-    pub private_key: StacksPrivateKey,
+    /// Path to signer config file
+    #[arg(long, short, value_name = "FILE")]
+    pub config: PathBuf,
     /// The vote info being cast
     #[clap(flatten)]
     pub vote_info: VoteInfo,
@@ -170,11 +176,15 @@ pub struct VoteInfo {
 
 impl VoteInfo {
     /// Get the digest to sign that authenticates this vote data
-    fn digest(&self) -> Sha512Trunc256Sum {
-        let mut hasher = Sha512_256::new();
-        hasher.update(self.sip.to_be_bytes());
-        hasher.update((self.vote as u8).to_be_bytes());
-        Sha512Trunc256Sum::from_hasher(hasher)
+    fn digest(&self) -> Sha256Sum {
+        let vote_message = TupleData::from_data(vec![
+            ("sip".into(), Value::UInt(self.sip.into())),
+            ("vote".into(), Value::UInt(self.vote.to_u8().into())),
+        ])
+        .unwrap();
+        let data_domain =
+            make_structured_data_domain("signer-sip-voting", "1.0.0", CHAIN_ID_MAINNET);
+        structured_data_message_hash(vote_message.into(), data_domain)
     }
 
     /// Sign the vote data and return the signature
@@ -194,15 +204,14 @@ impl VoteInfo {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-#[repr(u8)]
+define_u8_enum!(
 /// A given vote for a SIP
-pub enum Vote {
+Vote {
     /// Vote yes
-    Yes,
+    Yes = 0,
     /// Vote no
-    No,
-}
+    No = 1
+});
 
 impl TryFrom<&str> for Vote {
     type Error = String;
@@ -211,6 +220,17 @@ impl TryFrom<&str> for Vote {
             "yes" => Ok(Vote::Yes),
             "no" => Ok(Vote::No),
             _ => Err(format!("Invalid vote: {}. Must be `yes` or `no`.", input)),
+        }
+    }
+}
+
+impl TryFrom<u8> for Vote {
+    type Error = String;
+    fn try_from(input: u8) -> Result<Vote, Self::Error> {
+        match input {
+            0 => Ok(Vote::Yes),
+            1 => Ok(Vote::No),
+            _ => Err(format!("Invalid vote: {}. Must be 0 or 1.", input)),
         }
     }
 }
