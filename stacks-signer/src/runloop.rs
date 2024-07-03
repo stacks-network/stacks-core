@@ -29,6 +29,7 @@ use stacks_common::{debug, error, info, warn};
 use wsts::common::MerkleRoot;
 use wsts::state_machine::OperationResult;
 
+use crate::chainstate::SortitionsView;
 use crate::client::{retry_with_exponential_backoff, ClientError, SignerSlotID, StacksClient};
 use crate::config::{GlobalConfig, SignerConfig};
 use crate::Signer as SignerTrait;
@@ -147,6 +148,8 @@ where
     pub commands: VecDeque<RunLoopCommand>,
     /// The current reward cycle info. Only None if the runloop is uninitialized
     pub current_reward_cycle_info: Option<RewardCycleInfo>,
+    /// Cache sortitin data from `stacks-node`
+    pub sortition_state: Option<SortitionsView>,
     /// Phantom data for the message codec
     _phantom_data: std::marker::PhantomData<T>,
 }
@@ -162,6 +165,7 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
             state: State::Uninitialized,
             commands: VecDeque::new(),
             current_reward_cycle_info: None,
+            sortition_state: None,
             _phantom_data: std::marker::PhantomData,
         }
     }
@@ -429,6 +433,7 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug>
         for signer in self.stacks_signers.values_mut() {
             signer.process_event(
                 &self.stacks_client,
+                &mut self.sortition_state,
                 event.as_ref(),
                 res.clone(),
                 current_reward_cycle,

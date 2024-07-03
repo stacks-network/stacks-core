@@ -18,13 +18,24 @@ use std::path::PathBuf;
 
 use blockstack_lib::chainstate::stacks::address::PoxAddress;
 use blockstack_lib::util_lib::signed_structured_data::pox4::Pox4SignatureTopic;
+use blockstack_lib::util_lib::signed_structured_data::{
+    make_structured_data_domain, structured_data_message_hash,
+};
 use clap::{ArgAction, Parser, ValueEnum};
-use clarity::vm::types::QualifiedContractIdentifier;
+use clarity::consts::CHAIN_ID_MAINNET;
+use clarity::types::chainstate::StacksPublicKey;
+use clarity::types::{PrivateKey, PublicKey};
+use clarity::util::hash::Sha256Sum;
+use clarity::util::secp256k1::MessageSignature;
+use clarity::vm::types::{QualifiedContractIdentifier, TupleData};
+use clarity::vm::Value;
+use serde::{Deserialize, Serialize};
 use stacks_common::address::{
     b58, AddressHashMode, C32_ADDRESS_VERSION_MAINNET_MULTISIG,
     C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_MULTISIG,
     C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
+use stacks_common::define_u8_enum;
 use stacks_common::types::chainstate::StacksPrivateKey;
 
 extern crate alloc;
@@ -55,6 +66,10 @@ pub enum Command {
     GenerateStackingSignature(GenerateStackingSignatureArgs),
     /// Check a configuration file and output config information
     CheckConfig(RunSignerArgs),
+    /// Vote for a specified SIP with a yes or no vote
+    GenerateVote(GenerateVoteArgs),
+    /// Verify the vote for a specified SIP against a public key and vote info
+    VerifyVote(VerifyVoteArgs),
 }
 
 /// Basic arguments for all cyrptographic and stacker-db functionality
@@ -121,6 +136,99 @@ pub struct RunSignerArgs {
     /// Path to config file
     #[arg(long, short, value_name = "FILE")]
     pub config: PathBuf,
+}
+
+#[derive(Parser, Debug, Clone)]
+/// Arguments for the Vote command
+pub struct GenerateVoteArgs {
+    /// Path to signer config file
+    #[arg(long, short, value_name = "FILE")]
+    pub config: PathBuf,
+    /// The vote info being cast
+    #[clap(flatten)]
+    pub vote_info: VoteInfo,
+}
+
+#[derive(Parser, Debug, Clone, Copy)]
+/// Arguments for the VerifyVote command
+pub struct VerifyVoteArgs {
+    /// The Stacks public key to verify against
+    #[arg(short, long, value_parser = parse_public_key)]
+    pub public_key: StacksPublicKey,
+    /// The message signature in hexadecimal format
+    #[arg(short, long, value_parser = parse_message_signature)]
+    pub signature: MessageSignature,
+    /// The vote info being verified
+    #[clap(flatten)]
+    pub vote_info: VoteInfo,
+}
+
+#[derive(Parser, Debug, Clone, Copy)]
+/// Information about a SIP vote
+pub struct VoteInfo {
+    /// The SIP number to vote on
+    #[arg(long)]
+    pub sip: u32,
+    /// The vote to cast
+    #[arg(long, value_parser = parse_vote)]
+    pub vote: Vote,
+}
+
+impl VoteInfo {
+    /// Get the digest to sign that authenticates this vote data
+    fn digest(&self) -> Sha256Sum {
+        let vote_message = TupleData::from_data(vec![
+            ("sip".into(), Value::UInt(self.sip.into())),
+            ("vote".into(), Value::UInt(self.vote.to_u8().into())),
+        ])
+        .unwrap();
+        let data_domain =
+            make_structured_data_domain("signer-sip-voting", "1.0.0", CHAIN_ID_MAINNET);
+        structured_data_message_hash(vote_message.into(), data_domain)
+    }
+
+    /// Sign the vote data and return the signature
+    pub fn sign(&self, private_key: &StacksPrivateKey) -> Result<MessageSignature, &'static str> {
+        let digest = self.digest();
+        private_key.sign(digest.as_bytes())
+    }
+
+    /// Verify the vote data against the provided public key and signature
+    pub fn verify(
+        &self,
+        public_key: &StacksPublicKey,
+        signature: &MessageSignature,
+    ) -> Result<bool, &'static str> {
+        let digest = self.digest();
+        public_key.verify(digest.as_bytes(), signature)
+    }
+}
+
+define_u8_enum!(
+/// A given vote for a SIP
+Vote {
+    /// Vote yes
+    Yes = 0,
+    /// Vote no
+    No = 1
+});
+
+impl TryFrom<&str> for Vote {
+    type Error = String;
+    fn try_from(input: &str) -> Result<Vote, Self::Error> {
+        match input.to_lowercase().as_str() {
+            "yes" => Ok(Vote::Yes),
+            "no" => Ok(Vote::No),
+            _ => Err(format!("Invalid vote: {}. Must be `yes` or `no`.", input)),
+        }
+    }
+}
+
+impl TryFrom<u8> for Vote {
+    type Error = String;
+    fn try_from(input: u8) -> Result<Vote, Self::Error> {
+        Vote::from_u8(input).ok_or_else(|| format!("Invalid vote: {}. Must be 0 or 1.", input))
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -231,6 +339,21 @@ pub fn parse_pox_addr(pox_address_literal: &str) -> Result<PoxAddress, String> {
 /// Parse the hexadecimal Stacks private key
 fn parse_private_key(private_key: &str) -> Result<StacksPrivateKey, String> {
     StacksPrivateKey::from_hex(private_key).map_err(|e| format!("Invalid private key: {}", e))
+}
+
+/// Parse the hexadecimal Stacks public key
+fn parse_public_key(public_key: &str) -> Result<StacksPublicKey, String> {
+    StacksPublicKey::from_hex(public_key).map_err(|e| format!("Invalid public key: {}", e))
+}
+
+/// Parse the vote
+fn parse_vote(vote: &str) -> Result<Vote, String> {
+    vote.try_into()
+}
+
+/// Parse the hexadecimal encoded message signature
+fn parse_message_signature(signature: &str) -> Result<MessageSignature, String> {
+    MessageSignature::from_hex(signature).map_err(|e| format!("Invalid message signature: {}", e))
 }
 
 /// Parse the input data
