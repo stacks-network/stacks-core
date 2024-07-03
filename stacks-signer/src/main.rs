@@ -375,7 +375,7 @@ pub mod tests {
     fn test_vote() {
         let mut rand = rand::thread_rng();
         let vote_info = VoteInfo {
-            vote: Vote::try_from(rand.gen_range(0..2)).unwrap(),
+            vote: rand.gen_range(0..2).try_into().unwrap(),
             sip: rand.next_u32(),
         };
         let config_file = "./src/tests/conf/signer-0.toml";

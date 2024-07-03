@@ -227,11 +227,7 @@ impl TryFrom<&str> for Vote {
 impl TryFrom<u8> for Vote {
     type Error = String;
     fn try_from(input: u8) -> Result<Vote, Self::Error> {
-        match input {
-            0 => Ok(Vote::Yes),
-            1 => Ok(Vote::No),
-            _ => Err(format!("Invalid vote: {}. Must be 0 or 1.", input)),
-        }
+        Vote::from_u8(input).ok_or_else(|| format!("Invalid vote: {}. Must be 0 or 1.", input))
     }
 }
 
@@ -352,7 +348,7 @@ fn parse_public_key(public_key: &str) -> Result<StacksPublicKey, String> {
 
 /// Parse the vote
 fn parse_vote(vote: &str) -> Result<Vote, String> {
-    Vote::try_from(vote)
+    vote.try_into()
 }
 
 /// Parse the hexadecimal encoded message signature
