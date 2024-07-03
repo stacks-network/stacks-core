@@ -31,6 +31,8 @@ use stacks::types::chainstate::{StacksAddress, StacksPrivateKey};
 use stacks::types::PublicKey;
 use stacks::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 use stacks::util_lib::boot::boot_code_id;
+use stacks_common::bitvec::BitVec;
+use stacks_signer::chainstate::SortitionsView;
 use stacks_signer::client::{SignerSlotID, StackerDB};
 use stacks_signer::runloop::State;
 use stacks_signer::v0::SpawnedSigner;
@@ -189,6 +191,40 @@ impl SignerTest<SpawnedSigner> {
             self.mine_and_verify_confirmed_naka_block(timeout, num_signers);
         }
     }
+
+    /// Propose an invalid block to the signers
+    fn propose_block(&mut self, slot_id: u32, version: u32, block: NakamotoBlock) {
+        let miners_contract_id = boot_code_id(MINERS_NAME, false);
+        let mut session =
+            StackerDBSession::new(&self.running_nodes.conf.node.rpc_bind, miners_contract_id);
+        let burn_height = self
+            .running_nodes
+            .btc_regtest_controller
+            .get_headers_height();
+        let reward_cycle = self.get_current_reward_cycle();
+        let message = SignerMessage::BlockProposal(BlockProposal {
+            block,
+            burn_height,
+            reward_cycle,
+        });
+        let miner_sk = self
+            .running_nodes
+            .conf
+            .miner
+            .mining_key
+            .expect("No mining key");
+
+        // Submit the block proposal to the miner's slot
+        let mut chunk = StackerDBChunkData::new(slot_id, version, message.serialize_to_vec());
+        chunk.sign(&miner_sk).expect("Failed to sign message chunk");
+        debug!("Produced a signature: {:?}", chunk.sig);
+        let result = session.put_chunk(&chunk).expect("Failed to put chunk");
+        debug!("Test Put Chunk ACK: {result:?}");
+        assert!(
+            result.accepted,
+            "Failed to submit block proposal to signers"
+        );
+    }
 }
 
 #[test]
@@ -223,45 +259,23 @@ fn block_proposal_rejection() {
     let short_timeout = Duration::from_secs(30);
 
     info!("------------------------- Send Block Proposal To Signers -------------------------");
-    let miners_contract_id = boot_code_id(MINERS_NAME, false);
-    let mut session = StackerDBSession::new(
-        &signer_test.running_nodes.conf.node.rpc_bind,
-        miners_contract_id.clone(),
-    );
-    let block = NakamotoBlock {
+    let reward_cycle = signer_test.get_current_reward_cycle();
+    let view = SortitionsView::fetch_view(&signer_test.stacks_client).unwrap();
+    let mut block = NakamotoBlock {
         header: NakamotoBlockHeader::empty(),
         txs: vec![],
     };
-    let block_signer_signature_hash = block.header.signer_signature_hash();
-    let burn_height = signer_test
-        .running_nodes
-        .btc_regtest_controller
-        .get_headers_height();
-    let reward_cycle = signer_test.get_current_reward_cycle();
-    let message = SignerMessage::BlockProposal(BlockProposal {
-        block,
-        burn_height,
-        reward_cycle,
-    });
-    let miner_sk = signer_test
-        .running_nodes
-        .conf
-        .miner
-        .mining_key
-        .expect("No mining key");
+    // We want to force the signer to submit the block to the node for validation
+    // Must set the pox treatment validly and consensus hash validlty to prevent early termination
+    block.header.pox_treatment = BitVec::ones(1).unwrap();
+    block.header.consensus_hash = view.cur_sortition.consensus_hash;
 
-    // Submit the block proposal to the miner's slot
-    let mut chunk = StackerDBChunkData::new(0, 1, message.serialize_to_vec());
-    chunk.sign(&miner_sk).expect("Failed to sign message chunk");
-    debug!("Produced a signature: {:?}", chunk.sig);
-    let result = session.put_chunk(&chunk).expect("Failed to put chunk");
-    debug!("Test Put Chunk ACK: {result:?}");
-    assert!(
-        result.accepted,
-        "Failed to submit block proposal to signers"
-    );
+    let block_signer_signature_hash = block.header.signer_signature_hash();
+    signer_test.propose_block(0, 1, block);
 
     info!("------------------------- Test Block Proposal Rejected -------------------------");
+    let rejected_block_hash = signer_test.wait_for_validate_reject_response(short_timeout);
+    assert_eq!(rejected_block_hash, block_signer_signature_hash);
 
     let mut stackerdb = StackerDB::new(
         &signer_test.running_nodes.conf.node.rpc_bind,

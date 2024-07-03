@@ -280,7 +280,7 @@ impl Signer {
                 .ok();
         }
 
-        // Check if proposal can be rejected now if not valid agains sortition view
+        // Check if proposal can be rejected now if not valid against sortition view
         let block_response = if let Some(sortition_state) = sortition_state {
             match sortition_state.check_proposal(
                 stacks_client,
@@ -323,7 +323,7 @@ impl Signer {
             );
             Some(BlockResponse::rejected(
                 block_proposal.block.header.signer_signature_hash(),
-                RejectCode::ValidationFailed(ValidateRejectCode::InvalidBlock),
+                RejectCode::NoSortitionView,
             ))
         };
 
