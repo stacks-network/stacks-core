@@ -4,9 +4,10 @@ use std::path::Path;
 
 use clarity::types::sqlite::NO_PARAMS;
 use clarity::vm::costs::ExecutionCost;
-use rusqlite::types::{FromSql, FromSqlError};
+use rusqlite::types::{FromSql, FromSqlError, ToSql};
 use rusqlite::{
-    params, AndThenRows, Connection, Error as SqliteError, OptionalExtension, ToSql, Transaction as SqlTransaction
+    params, AndThenRows, Connection, Error as SqliteError, OpenFlags, OptionalExtension,
+    Transaction as SqlTransaction,
 };
 use serde_json::Value as JsonValue;
 
@@ -62,7 +63,7 @@ impl<M: CostMetric> WeightedMedianFeeRateEstimator<M> {
     pub fn open(p: &Path, metric: M, window_size: u32) -> Result<Self, SqliteError> {
         let mut db = sqlite_open(
             p,
-            rusqlite::OpenFlags::SQLITE_OPEN_CREATE | rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE,
+            OpenFlags::SQLITE_OPEN_CREATE | OpenFlags::SQLITE_OPEN_READ_WRITE,
             false,
         )?;
 

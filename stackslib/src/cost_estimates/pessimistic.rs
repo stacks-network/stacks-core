@@ -3,9 +3,10 @@ use std::path::Path;
 
 use clarity::types::sqlite::NO_PARAMS;
 use clarity::vm::costs::ExecutionCost;
-use rusqlite::types::{FromSql, FromSqlError};
+use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql};
 use rusqlite::{
-    params, Connection, Error as SqliteError, OptionalExtension, ToSql, Transaction as SqliteTransaction
+    params, Connection, Error as SqliteError, OpenFlags, OptionalExtension,
+    Transaction as SqliteTransaction,
 };
 use serde_json::Value as JsonValue;
 
@@ -77,9 +78,7 @@ impl std::fmt::Display for CostField {
 }
 
 impl FromSql for Samples {
-    fn column_result(
-        sql_value: rusqlite::types::ValueRef<'_>,
-    ) -> rusqlite::types::FromSqlResult<Self> {
+    fn column_result(sql_value: rusqlite::types::ValueRef<'_>) -> FromSqlResult<Self> {
         let json_value = JsonValue::column_result(sql_value)?;
         let items = serde_json::from_value(json_value).map_err(|_e| {
             error!("Failed to parse PessimisticEstimator sample from SQL");
@@ -145,11 +144,8 @@ impl Samples {
         let sql = "INSERT OR REPLACE INTO pessimistic_estimator
                      (estimate_key, current_value, samples) VALUES (?, ?, ?)";
         let current_value = u64_to_sql(self.mean()).unwrap_or_else(|_| i64::MAX);
-        tx.execute(
-            sql,
-            params![identifier, current_value, self.to_json()],
-        )
-        .expect("SQLite failure");
+        tx.execute(sql, params![identifier, current_value, self.to_json()])
+            .expect("SQLite failure");
     }
 
     fn get_sqlite(conn: &Connection, identifier: &str) -> Samples {
@@ -173,27 +169,25 @@ impl Samples {
 
 impl PessimisticEstimator {
     pub fn open(p: &Path, log_error: bool) -> Result<PessimisticEstimator, EstimatorError> {
-        let db =
-            sqlite_open(p, rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE, false).or_else(|e| {
-                if let SqliteError::SqliteFailure(ref internal, _) = e {
-                    if let rusqlite::ErrorCode::CannotOpen = internal.code {
-                        let mut db = sqlite_open(
-                            p,
-                            rusqlite::OpenFlags::SQLITE_OPEN_CREATE
-                                | rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE,
-                            false,
-                        )?;
-                        let tx = tx_begin_immediate_sqlite(&mut db)?;
-                        PessimisticEstimator::instantiate_db(&tx)?;
-                        tx.commit()?;
-                        Ok(db)
-                    } else {
-                        Err(e)
-                    }
+        let db = sqlite_open(p, OpenFlags::SQLITE_OPEN_READ_WRITE, false).or_else(|e| {
+            if let SqliteError::SqliteFailure(ref internal, _) = e {
+                if let rusqlite::ErrorCode::CannotOpen = internal.code {
+                    let mut db = sqlite_open(
+                        p,
+                        OpenFlags::SQLITE_OPEN_CREATE | OpenFlags::SQLITE_OPEN_READ_WRITE,
+                        false,
+                    )?;
+                    let tx = tx_begin_immediate_sqlite(&mut db)?;
+                    PessimisticEstimator::instantiate_db(&tx)?;
+                    tx.commit()?;
+                    Ok(db)
                 } else {
                     Err(e)
                 }
-            })?;
+            } else {
+                Err(e)
+            }
+        })?;
 
         Ok(PessimisticEstimator { db, log_error })
     }

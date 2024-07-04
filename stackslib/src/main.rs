@@ -769,7 +769,7 @@ simulating a miner.
         if let Some(value) = value_opt {
             let conn = sqlite_open(&db_path, OpenFlags::SQLITE_OPEN_READ_ONLY, false)
                 .expect("Failed to open DB");
-            let args: &[&dyn ToSql] = &[&value.to_hex()];
+            let args: &[&dyn ToSql] = params![&value.to_hex()];
             let res: Result<String, SqliteError> = conn.query_row_and_then(
                 "SELECT value FROM __fork_storage WHERE value_hash = ?1",
                 args,

@@ -25,8 +25,8 @@ use clarity::vm::types::{
 };
 use clarity::vm::{ClarityVersion, ContractName, SymbolicExpression, Value};
 use lazy_static::{__Deref, lazy_static};
-use rusqlite::types::{FromSql, FromSqlError};
-use rusqlite::{params, Connection, OptionalExtension, ToSql};
+use rusqlite::types::{FromSql, FromSqlError, ToSql};
+use rusqlite::{params, Connection, OptionalExtension};
 use sha2::{Digest as Sha2Digest, Sha512_256};
 use stacks_common::bitvec::BitVec;
 use stacks_common::codec::{

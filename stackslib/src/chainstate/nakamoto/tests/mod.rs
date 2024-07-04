@@ -26,7 +26,8 @@ use clarity::vm::types::StacksAddressExtensions;
 use clarity::vm::Value;
 use libstackerdb::StackerDBChunkData;
 use rand::{thread_rng, RngCore};
-use rusqlite::{Connection, ToSql};
+use rusqlite::types::ToSql;
+use rusqlite::{params, Connection};
 use stacks_common::address::AddressHashMode;
 use stacks_common::bitvec::BitVec;
 use stacks_common::codec::StacksMessageCodec;
@@ -180,7 +181,7 @@ impl<'a> NakamotoStagingBlocksConnRef<'a> {
         tenure_id_consensus_hash: &ConsensusHash,
     ) -> Result<Vec<NakamotoBlock>, ChainstateError> {
         let qry = "SELECT data FROM nakamoto_staging_blocks WHERE consensus_hash = ?1 ORDER BY height ASC";
-        let args: &[&dyn ToSql] = &[tenure_id_consensus_hash];
+        let args: &[&dyn ToSql] = params![tenure_id_consensus_hash];
         let block_data: Vec<Vec<u8>> = query_rows(self, qry, args)?;
         let mut blocks = Vec::with_capacity(block_data.len());
         for data in block_data.into_iter() {

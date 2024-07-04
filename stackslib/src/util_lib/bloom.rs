@@ -22,7 +22,8 @@ use std::io::{Read, Seek, SeekFrom, Write};
 use rand::prelude::*;
 use rand::thread_rng;
 use rusqlite::blob::Blob;
-use rusqlite::{Error as sqlite_error, Row, ToSql};
+use rusqlite::types::ToSql;
+use rusqlite::{params, Error as sqlite_error, Row};
 use siphasher::sip::SipHasher; // this is SipHash-2-4
 use stacks_common::codec::{read_next, write_next, Error as codec_error, StacksMessageCodec};
 use stacks_common::types::sqlite::NO_PARAMS;
@@ -361,7 +362,7 @@ impl<H: BloomHash + Clone + StacksMessageCodec> BloomCounter<H> {
             "INSERT INTO {} (counts, num_bins, num_hashes, hasher) VALUES (?1, ?2, ?3, ?4)",
             table_name
         );
-        let args: &[&dyn ToSql] = &[&counts_vec, &num_bins, &num_hashes, &hasher_vec];
+        let args: &[&dyn ToSql] = params![counts_vec, num_bins, num_hashes, hasher_vec];
 
         tx.execute(&sql, args).map_err(db_error::SqliteError)?;
 

@@ -25,7 +25,8 @@ use clarity::vm::types::QualifiedContractIdentifier;
 use rand::{thread_rng, Rng, RngCore};
 use rusqlite::types::{FromSql, ToSql};
 use rusqlite::{
-    params, Connection, Error as sqlite_error, OpenFlags, OptionalExtension, Params, Row, Transaction, TransactionBehavior
+    params, Connection, Error as sqlite_error, OpenFlags, OptionalExtension, Params, Row,
+    Transaction, TransactionBehavior,
 };
 use serde_json::Error as serde_error;
 use stacks_common::types::chainstate::{SortitionId, StacksAddress, StacksBlockId, TrieHash};

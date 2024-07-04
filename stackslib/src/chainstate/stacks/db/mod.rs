@@ -669,7 +669,7 @@ impl<'a> ChainstateTx<'a> {
                 let txid = tx_event.transaction.txid();
                 let tx_hex = tx_event.transaction.serialize_to_dbstring();
                 let result = tx_event.result.to_string();
-                let params: &[&dyn ToSql] = &[&txid, block_id, &tx_hex, &result];
+                let params: &[&dyn ToSql] = params![txid, block_id, tx_hex, result];
                 if let Err(e) = self.tx.tx().execute(insert, params) {
                     warn!("Failed to log TX: {}", e);
                 }
@@ -1023,11 +1023,7 @@ impl StacksChainState {
             }
             tx.execute(
                 "INSERT INTO db_config (version,mainnet,chain_id) VALUES (?1,?2,?3)",
-                params![
-                    "1".to_string(),
-                    (if mainnet { 1 } else { 0 }),
-                    chain_id,
-                ],
+                params!["1".to_string(), (if mainnet { 1 } else { 0 }), chain_id,],
             )?;
 
             if migrate {
