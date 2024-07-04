@@ -26,7 +26,7 @@ use stacks::core::StacksEpochExtension;
 use stacks::net::p2p::PeerNetwork;
 use stacks_common::types::{StacksEpoch, StacksEpochId};
 
-use crate::epochs::{EPOCH2, EPOCH3};
+use crate::epochs::{EPOCH_2, EPOCH_3};
 use crate::globals::NeonGlobals;
 use crate::neon::Counters;
 use crate::neon_node::LeaderKeyRegistrationState;
@@ -60,6 +60,8 @@ impl Neon2NakaData {
     }
 }
 
+const BOOT_THREAD_NAME: &str = "epoch-2/3-boot";
+
 /// This runloop handles booting to Nakamoto:
 /// During epochs [1.0, 2.5], it runs a neon run_loop.
 /// Once epoch 3.0 is reached, it stops the neon run_loop
@@ -78,8 +80,8 @@ enum InnerLoops {
 impl fmt::Display for InnerLoops {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            InnerLoops::Epoch2(_) => write!(f, "{EPOCH2}"),
-            InnerLoops::Epoch3(_) => write!(f, "{EPOCH3}"),
+            InnerLoops::Epoch2(_) => write!(f, "{EPOCH_2}"),
+            InnerLoops::Epoch3(_) => write!(f, "{EPOCH_3}"),
         }
     }
 }
@@ -146,8 +148,8 @@ impl BootRunLoop {
     fn start_from_naka(&mut self, burnchain_opt: Option<Burnchain>, mine_start: u64) {
         let InnerLoops::Epoch3(ref mut naka_loop) = self.active_loop else {
             panic!(
-                "Attempted to start from {} when the latest epoch was {}.",
-                EPOCH3, self.active_loop
+                "Attempted to start from epoch {} when the latest epoch was {}.",
+                EPOCH_3, self.active_loop
             );
         };
 
@@ -157,31 +159,32 @@ impl BootRunLoop {
     fn start_from_neon(&mut self, burnchain_opt: Option<Burnchain>, mine_start: u64) {
         let InnerLoops::Epoch2(ref mut neon_loop) = self.active_loop else {
             panic!(
-                "Attempted to start from {} when the latest epoch was {}.",
-                EPOCH2, self.active_loop
+                "Attempted to start from epoch {} when the latest epoch was {}.",
+                EPOCH_2, self.active_loop
             );
         };
 
         let termination_switch = neon_loop.get_termination_switch();
         let counters = neon_loop.get_counters();
 
-        let boot_thread = Self::spawn_stopper(&self.config, neon_loop)
-            .expect("FATAL: failed to spawn epoch-2/3-boot thread");
+        let boot_thread = Self::spawn_stopper(&self.config, neon_loop).unwrap_or_else(|error| {
+            panic!("Failed to spawn {} thread: {:?}", BOOT_THREAD_NAME, error)
+        });
 
         let data_to_naka = neon_loop.start(burnchain_opt.clone(), mine_start);
         let monitoring_thread = neon_loop.take_monitoring_thread();
 
         // did we exit because of the epoch-3.0 transition, or some other reason?
-        let exited_for_transition = boot_thread
-            .join()
-            .expect("FATAL: failed to join epoch-2/3-boot thread");
+        let exited_for_transition = boot_thread.join().unwrap_or_else(|error| {
+            panic!("Failed to join {} thread: {:?}", BOOT_THREAD_NAME, error)
+        });
 
         if !exited_for_transition {
-            info!("Shutting down {} to {} transition thread.", EPOCH2, EPOCH3);
+            info!(#"nakamoto-boot", "Shutting down epoch {} → {} transition thread.", EPOCH_2, EPOCH_3);
             return;
         }
 
-        info!("Reached {EPOCH3} boundary, starting Nakamoto node.");
+        info!(#"nakamoto-boot", "Reached epoch {EPOCH_3} boundary, starting Nakamoto node.");
         termination_switch.store(true, Ordering::SeqCst);
 
         let naka = NakaRunLoop::new(
@@ -193,16 +196,22 @@ impl BootRunLoop {
 
         let new_coord_channels = naka
             .get_coordinator_channel()
-            .expect("FATAL: should have coordinator channel in newly instantiated runloop");
+            .expect("A coordinator channel was not found for node.");
         {
-            let mut coord_channel = self.coordinator_channels.lock().expect("Mutex poisoned");
+            let mut coord_channel = self
+                .coordinator_channels
+                .lock()
+                .expect("Coordinator channel thread panicked while holding the lock.");
             *coord_channel = new_coord_channels;
         }
 
         self.active_loop = InnerLoops::Epoch3(naka);
 
         let InnerLoops::Epoch3(ref mut naka_loop) = self.active_loop else {
-            panic!("FATAL: unexpectedly found epoch2 loop after setting epoch3 active");
+            panic!(
+                "Unexpectedly found epoch {} after setting {} active.",
+                EPOCH_2, EPOCH_3
+            );
         };
 
         naka_loop.start(burnchain_opt, mine_start, data_to_naka)
@@ -216,25 +225,25 @@ impl BootRunLoop {
         let config = config.clone();
 
         thread::Builder::new()
-            .name("epoch-2/3-boot".into())
+            .name(BOOT_THREAD_NAME.into())
             .spawn(move || {
                 loop {
                     let do_transition = Self::reached_epoch_30_transition(&config)
                         .unwrap_or_else(|err| {
-                            warn!("Failed to check {} transition: {err:?}. Assuming transition did not occur yet.", EPOCH3);
+                            warn!(#"nakamoto-boot", "Failed to check epoch {} transition: {err:?}. Assuming transition did not occur yet.", EPOCH_3);
                             false
                         });
                     if do_transition {
                         break;
                     }
                     if !neon_term_switch.load(Ordering::SeqCst) {
-                        info!("Stop requested. Exiting {} to {} transition thread.", EPOCH2, EPOCH3);
+                        info!(#"nakamoto-boot", "Stop requested. Exiting epoch {} → {} transition thread.", EPOCH_2, EPOCH_3);
                         return false;
                     }
                     thread::sleep(Duration::from_secs(1));
                 }
                 // if loop exited, do the transition
-                info!("{} boundary reached, stopping {} run loop", EPOCH3, EPOCH2);
+                info!(#"nakamoto-boot", "Epoch {} boundary reached, stopping {}", EPOCH_3, EPOCH_2);
                 neon_term_switch.store(false, Ordering::SeqCst);
                 true
             })
@@ -249,7 +258,7 @@ impl BootRunLoop {
         );
 
         let epoch_3 = &epochs[StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch30)
-            .ok_or(format!("No {} defined.", EPOCH3))?];
+            .ok_or(format!("No epoch {} defined.", EPOCH_3))?];
 
         Ok(u64::from(burn_height) >= epoch_3.start_height - 1)
     }
@@ -261,14 +270,14 @@ impl BootRunLoop {
         if let Err(error) = fs::metadata(&sortdb_path) {
             // if the sortition db doesn't exist yet, don't try to open() it, because that creates the
             // db file even if it doesn't instantiate the tables, which breaks connect() logic.
-            info!("Failed to open Sortition database while checking current burn height. Assuming current height is 0."; "db_path" => sortdb_path, "inner_error" => error);
+            info!(#"nakamoto-boot", "Failed to open Sortition database while checking current burn height. Assuming current height is 0."; "db_path" => sortdb_path, "inner_error" => error);
             return Ok(0);
         }
 
         let sortdb_or_error = SortitionDB::open(&sortdb_path, false, burnchain.pox_constants);
 
         if let Err(error) = sortdb_or_error {
-            info!("Failed to open Sortition database while checking current burn height. Assuming current height is 0."; slog::o!("db_path" => sortdb_path, "readwrite" => false, "inner_error" => format!("{:?}", error)), burnchain.pox_constants);
+            info!(#"nakamoto-boot", "Failed to open Sortition database while checking current burn height. Assuming current height is 0."; slog::o!("db_path" => sortdb_path, "readwrite" => false, "inner_error" => format!("{:?}", error)), burnchain.pox_constants);
             return Ok(0);
         };
 
@@ -276,11 +285,16 @@ impl BootRunLoop {
         let tip_sn_or_error = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn());
 
         if let Err(error) = tip_sn_or_error {
-            info!("Failed to query Sortition database for current burn height. Assuming current height is 0."; slog::o!("db_path" => sortdb_path, "inner_error" => format!("{:?}", error)), burnchain.pox_constants);
+            info!(#"nakamoto-boot", "Failed to query Sortition database for current burn height. Assuming current height is 0."; slog::o!("db_path" => sortdb_path, "inner_error" => format!("{:?}", error)), burnchain.pox_constants);
             return Ok(0);
         };
 
-        Ok(u32::try_from(tip_sn_or_error.unwrap().block_height)
-            .expect("FATAL: burn height exceeded u32"))
+        let block_height = tip_sn_or_error.unwrap().block_height;
+
+        Ok(u32::try_from(block_height).expect(&format!(
+            "Burn height {} exceeds the max allowed value of {}",
+            block_height,
+            u32::MAX
+        )))
     }
 }

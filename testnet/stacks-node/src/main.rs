@@ -281,14 +281,14 @@ fn main() {
 
         let panic_backtrace = Backtrace::new();
 
-        error!("Process aborted due to fatal error: '{panic_message}'"; "location" => format!("{panic_location_file}:{panic_location_line}:{panic_location_column}"));
-        error!("Error backtrace:\n{:?}", &panic_backtrace);
+        error!(#"main", "Process aborted due to fatal error: '{panic_message}'"; "location" => format!("{panic_location_file}:{panic_location_line}:{panic_location_column}"));
+        error!(#"main", "Error backtrace:\n{:?}", &panic_backtrace);
 
         // force a core dump
         #[cfg(unix)]
         {
             let pid = process::id();
-            info!("Dumping core for PID {pid}"; "pid" => pid);
+            info!(#"main", "Dumping core for PID {pid}."; "pid" => pid);
 
             use libc::{kill, SIGQUIT};
 
@@ -303,7 +303,7 @@ fn main() {
     let mut args = Arguments::from_env();
     let subcommand = args.subcommand().unwrap().unwrap_or_default();
 
-    info!("{}", version());
+    info!(#"main", "{}", version());
 
     let mine_start: Option<u64> = args
         .opt_value_from_str("--mine-at-height")
@@ -311,7 +311,8 @@ fn main() {
 
     if let Some(mine_start) = mine_start {
         info!(
-            "Will begin mining once Stacks chain has synced to height >= {}",
+            #"main",
+            "Will begin mining once Stacks chain has synced to height >= {}.",
             mine_start
         );
     }
@@ -337,26 +338,26 @@ fn main() {
             let config_path: String = args.value_from_str("--config").unwrap();
             args.finish();
 
-            info!("Loading configuration file"; "config_path" => &config_path);
+            info!(#"main", "Loading configuration file."; "config_path" => &config_path);
 
             let config_file = match ConfigFile::from_path(&config_path) {
                 Ok(config_file) => {
-                    info!("Loaded configuration file: {:?}", &config_file; "config_path" => &config_path);
+                    info!(#"main", "Loaded configuration file: {:?}", &config_file; "config_path" => &config_path);
                     config_file
                 }
                 Err(error) => {
-                    warn!("Failed to load configuration file: {}", error; "config_path" => &config_path);
+                    warn!(#"main", "Failed to load configuration file: {}", error; "config_path" => &config_path);
                     process::exit(1);
                 }
             };
 
             match Config::from_config_file(config_file, true) {
                 Ok(_) => {
-                    info!("Configuration is valid"; "config_path" => &config_path);
+                    info!(#"main", "Configuration is valid"; "config_path" => &config_path);
                     process::exit(0);
                 }
                 Err(error) => {
-                    warn!("Failed to parse configuration: {}", error);
+                    warn!(#"main", "Failed to parse configuration: {}", error);
                     process::exit(1);
                 }
             };
@@ -365,12 +366,12 @@ fn main() {
             let config_path: String = args.value_from_str("--config").unwrap();
             args.finish();
 
-            info!("Loading configuration file"; "config_path" => &config_path);
+            info!(#"main", "Loading configuration file"; "config_path" => &config_path);
 
             match ConfigFile::from_path(&config_path) {
                 Ok(config_file) => config_file,
                 Err(e) => {
-                    warn!("Failed to load configuration file: {}", e);
+                    warn!(#"main", "Failed to load configuration file: {}", e);
                     process::exit(1);
                 }
             }
@@ -439,21 +440,21 @@ fn main() {
     let conf = match Config::from_config_file(config_file, true) {
         Ok(conf) => conf,
         Err(e) => {
-            error!("Failed to load configuration: {}", e);
+            error!(#"main", "Failed to load configuration: {}", e);
             process::exit(1);
         }
     };
 
-    debug!("Loaded node configuration"; &conf.node);
-    debug!("Loaded burnchain configuration"; &conf.burnchain);
-    debug!("Loaded connection configuration"; &conf.connection_options);
+    debug!(#"main", "Loaded node configuration."; &conf.node);
+    debug!(#"main", "Loaded burnchain configuration."; &conf.burnchain);
+    debug!(#"main", "Loaded connection configuration."; &conf.connection_options);
 
     let num_round: u64 = 0; // Infinite number of rounds
 
     if conf.burnchain.mode == "helium" || conf.burnchain.mode == "mocknet" {
         let mut run_loop = helium::RunLoop::new(conf);
         if let Err(error) = run_loop.start(num_round) {
-            error!("Local runloop exited with error: {}", error);
+            error!(#"main", "Local runloop exited with error: {}", error);
             return;
         }
     } else if conf.burnchain.mode == "neon"
@@ -465,7 +466,7 @@ fn main() {
         let mut run_loop = boot_nakamoto::BootRunLoop::new(conf).unwrap();
         run_loop.start(None, 0);
     } else {
-        error!("Burnchain mode '{}' is not supported", conf.burnchain.mode);
+        error!(#"main", "Burnchain mode '{}' is not supported.", conf.burnchain.mode);
     }
 }
 

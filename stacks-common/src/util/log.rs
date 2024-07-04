@@ -124,6 +124,20 @@ fn pretty_print_msg_header(
     rd.start_whitespace()?;
     write!(rd, " ")?;
 
+    if !record.tag().is_empty() {
+        rd.start_key()?;
+        write!(
+            rd,
+            "{}[{}]{}",
+            color_if_tty("\x1b[0;90m", isatty),
+            record.tag(),
+            color_if_tty("\x1b[0m", isatty)
+        )?;
+
+        rd.start_whitespace()?;
+        write!(rd, " ")?;
+    }
+
     rd.start_msg()?;
     write!(rd, "{}", record.msg())?;
 
