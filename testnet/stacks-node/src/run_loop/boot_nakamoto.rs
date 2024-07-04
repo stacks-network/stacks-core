@@ -270,14 +270,14 @@ impl BootRunLoop {
         if let Err(error) = fs::metadata(&sortdb_path) {
             // if the sortition db doesn't exist yet, don't try to open() it, because that creates the
             // db file even if it doesn't instantiate the tables, which breaks connect() logic.
-            info!(#"nakamoto-boot", "Failed to open Sortition database while checking current burn height. Assuming current height is 0."; "db_path" => sortdb_path, "inner_error" => error);
+            info!(#"nakamoto-boot", "Failed to open Sortition database while checking current burn height: {error}. Assuming current height is 0."; "db_path" => sortdb_path);
             return Ok(0);
         }
 
         let sortdb_or_error = SortitionDB::open(&sortdb_path, false, burnchain.pox_constants);
 
         if let Err(error) = sortdb_or_error {
-            info!(#"nakamoto-boot", "Failed to open Sortition database while checking current burn height. Assuming current height is 0."; slog::o!("db_path" => sortdb_path, "readwrite" => false, "inner_error" => format!("{:?}", error)), burnchain.pox_constants);
+            info!(#"nakamoto-boot", "Failed to open Sortition database while checking current burn height: {error}. Assuming current height is 0."; "db_path" => sortdb_path, "readwrite" => false);
             return Ok(0);
         };
 
@@ -285,7 +285,7 @@ impl BootRunLoop {
         let tip_sn_or_error = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn());
 
         if let Err(error) = tip_sn_or_error {
-            info!(#"nakamoto-boot", "Failed to query Sortition database for current burn height. Assuming current height is 0."; slog::o!("db_path" => sortdb_path, "inner_error" => format!("{:?}", error)), burnchain.pox_constants);
+            info!(#"nakamoto-boot", "Failed to query Sortition database for current burn height: {error}. Assuming current height is 0."; "db_path" => sortdb_path);
             return Ok(0);
         };
 
