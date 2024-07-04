@@ -280,7 +280,7 @@ pub struct Burnchain {
     pub initial_reward_start_block: u64,
 }
 
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Clone, Copy, Serialize, Deserialize, slog_derive::KV)]
 pub struct PoxConstants {
     /// the length (in burn blocks) of the reward cycle
     pub reward_cycle_length: u32,
@@ -311,6 +311,8 @@ pub struct PoxConstants {
     pub pox_3_activation_height: u32,
     /// After this burn height, reward cycles use pox-4 for reward set data
     pub pox_4_activation_height: u32,
+
+    #[slog(skip)]
     _shadow: PhantomData<()>,
 }
 
