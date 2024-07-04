@@ -640,7 +640,7 @@ mod tests {
             format!(
                 r#"
 Stacks node host: 127.0.0.1:20443
-Signer endpoint: [::1]:30000
+Signer endpoint: 127.0.0.1:30000
 Stacks address: ST3FPN8KBZ3YPBP0ZJGAAHTVFMQDTJCR5QPS7VTNJ
 Public key: 03bc489f27da3701d9f9e577c88de5567cf4023111b7577042d55cde4d823a3505
 Network: testnet
