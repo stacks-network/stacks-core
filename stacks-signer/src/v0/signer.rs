@@ -15,7 +15,7 @@
 use std::fmt::Debug;
 use std::sync::mpsc::Sender;
 
-use blockstack_lib::net::api::postblock_proposal::{BlockValidateResponse, ValidateRejectCode};
+use blockstack_lib::net::api::postblock_proposal::BlockValidateResponse;
 use clarity::types::chainstate::StacksPrivateKey;
 use clarity::types::PrivateKey;
 use clarity::util::hash::MerkleHashFunc;
@@ -309,7 +309,7 @@ impl Signer {
                     );
                     Some(BlockResponse::rejected(
                         block_proposal.block.header.signer_signature_hash(),
-                        RejectCode::ValidationFailed(ValidateRejectCode::InvalidBlock),
+                        RejectCode::SortitionViewMismatch,
                     ))
                 }
                 // Block proposal passed check, still don't know if valid

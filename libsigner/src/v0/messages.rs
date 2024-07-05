@@ -224,7 +224,9 @@ RejectCodeTypePrefix {
     /// The block was rejected in a prior round
     RejectedInPriorRound = 2,
     /// The block was rejected due to no sortition view
-    NoSortitionView = 3
+    NoSortitionView = 3,
+    /// The block was rejected due to a mismatch with expected sortition view
+    SortitionViewMismatch = 4
 });
 
 impl TryFrom<u8> for RejectCodeTypePrefix {
@@ -243,6 +245,7 @@ impl From<&RejectCode> for RejectCodeTypePrefix {
             RejectCode::ConnectivityIssues => RejectCodeTypePrefix::ConnectivityIssues,
             RejectCode::RejectedInPriorRound => RejectCodeTypePrefix::RejectedInPriorRound,
             RejectCode::NoSortitionView => RejectCodeTypePrefix::NoSortitionView,
+            RejectCode::SortitionViewMismatch => RejectCodeTypePrefix::SortitionViewMismatch,
         }
     }
 }
@@ -258,6 +261,8 @@ pub enum RejectCode {
     ConnectivityIssues,
     /// The block was rejected in a prior round
     RejectedInPriorRound,
+    /// The block was rejected due to a mismatch with expected sortition view
+    SortitionViewMismatch,
 }
 
 define_u8_enum!(
@@ -427,7 +432,8 @@ impl StacksMessageCodec for RejectCode {
             RejectCode::ValidationFailed(code) => write_next(fd, &(*code as u8))?,
             RejectCode::ConnectivityIssues
             | RejectCode::RejectedInPriorRound
-            | RejectCode::NoSortitionView => {
+            | RejectCode::NoSortitionView
+            | RejectCode::SortitionViewMismatch => {
                 // No additional data to serialize / deserialize
             }
         };
@@ -449,6 +455,7 @@ impl StacksMessageCodec for RejectCode {
             RejectCodeTypePrefix::ConnectivityIssues => RejectCode::ConnectivityIssues,
             RejectCodeTypePrefix::RejectedInPriorRound => RejectCode::RejectedInPriorRound,
             RejectCodeTypePrefix::NoSortitionView => RejectCode::NoSortitionView,
+            RejectCodeTypePrefix::SortitionViewMismatch => RejectCode::SortitionViewMismatch,
         };
         Ok(code)
     }
@@ -469,6 +476,12 @@ impl std::fmt::Display for RejectCode {
             ),
             RejectCode::NoSortitionView => {
                 write!(f, "The block was rejected due to no sortition view.")
+            }
+            RejectCode::SortitionViewMismatch => {
+                write!(
+                    f,
+                    "The block was rejected due to a mismatch with expected sortition view."
+                )
             }
         }
     }

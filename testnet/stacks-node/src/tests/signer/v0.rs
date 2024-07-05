@@ -265,17 +265,23 @@ fn block_proposal_rejection() {
         header: NakamotoBlockHeader::empty(),
         txs: vec![],
     };
-    // We want to force the signer to submit the block to the node for validation
-    // Must set the pox treatment validly and consensus hash validlty to prevent early termination
+
+    // First propose a block to the signers that does not have the correct consensus hash or BitVec. This should be rejected BEFORE
+    // the block is submitted to the node for validation.
+    let block_signer_signature_hash_1 = block.header.signer_signature_hash();
+    signer_test.propose_block(0, 1, block.clone());
+
+    // Propose a block to the signers that passes initial checks but will be rejected by the stacks node
     block.header.pox_treatment = BitVec::ones(1).unwrap();
     block.header.consensus_hash = view.cur_sortition.consensus_hash;
 
-    let block_signer_signature_hash = block.header.signer_signature_hash();
-    signer_test.propose_block(0, 1, block);
+    let block_signer_signature_hash_2 = block.header.signer_signature_hash();
+    signer_test.propose_block(0, 2, block);
 
     info!("------------------------- Test Block Proposal Rejected -------------------------");
+    // Verify the signers rejected the second block via the endpoint
     let rejected_block_hash = signer_test.wait_for_validate_reject_response(short_timeout);
-    assert_eq!(rejected_block_hash, block_signer_signature_hash);
+    assert_eq!(rejected_block_hash, block_signer_signature_hash_2);
 
     let mut stackerdb = StackerDB::new(
         &signer_test.running_nodes.conf.node.rpc_bind,
@@ -293,7 +299,9 @@ fn block_proposal_rejection() {
     assert_eq!(signer_slot_ids.len(), num_signers);
 
     let start_polling = Instant::now();
-    'poll: loop {
+    let mut found_signer_signature_hash_1 = false;
+    let mut found_signer_signature_hash_2 = false;
+    while !found_signer_signature_hash_1 && !found_signer_signature_hash_2 {
         std::thread::sleep(Duration::from_secs(1));
         let messages: Vec<SignerMessage> = StackerDB::get_messages(
             stackerdb
@@ -309,16 +317,23 @@ fn block_proposal_rejection() {
                 signer_signature_hash,
             })) = message
             {
-                assert_eq!(signer_signature_hash, block_signer_signature_hash);
-                assert!(matches!(reason_code, RejectCode::ValidationFailed(_)));
-                break 'poll;
+                if signer_signature_hash == block_signer_signature_hash_1 {
+                    found_signer_signature_hash_1 = true;
+                    assert!(matches!(reason_code, RejectCode::SortitionViewMismatch));
+                } else if signer_signature_hash == block_signer_signature_hash_2 {
+                    found_signer_signature_hash_2 = true;
+                    assert!(matches!(reason_code, RejectCode::ValidationFailed(_)));
+                } else {
+                    panic!("Unexpected signer signature hash");
+                }
             } else {
                 panic!("Unexpected message type");
             }
         }
-        if start_polling.elapsed() > short_timeout {
-            panic!("Timed out after waiting for response from signer");
-        }
+        assert!(
+            start_polling.elapsed() <= short_timeout,
+            "Timed out after waiting for response from signer"
+        );
     }
     signer_test.shutdown();
 }
