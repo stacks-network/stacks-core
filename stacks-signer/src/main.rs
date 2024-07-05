@@ -39,8 +39,8 @@ use stacks_common::debug;
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_signer::cli::{
-    Cli, Command, GenerateStackingSignatureArgs, GetChunkArgs, GetLatestChunkArgs, PutChunkArgs,
-    RunSignerArgs, StackerDBArgs,
+    Cli, Command, GenerateStackingSignatureArgs, GenerateVoteArgs, GetChunkArgs,
+    GetLatestChunkArgs, PutChunkArgs, RunSignerArgs, StackerDBArgs, VerifyVoteArgs,
 };
 use stacks_signer::config::GlobalConfig;
 use stacks_signer::v0::SpawnedSigner;
@@ -164,6 +164,30 @@ fn handle_check_config(args: RunSignerArgs) {
     println!("Config: {}", config);
 }
 
+fn handle_generate_vote(args: GenerateVoteArgs, do_print: bool) -> MessageSignature {
+    let config = GlobalConfig::try_from(&args.config).unwrap();
+    let message_signature = args.vote_info.sign(&config.stacks_private_key).unwrap();
+    if do_print {
+        println!("{}", to_hex(message_signature.as_bytes()));
+    }
+    message_signature
+}
+
+fn handle_verify_vote(args: VerifyVoteArgs, do_print: bool) -> bool {
+    let valid_vote = args
+        .vote_info
+        .verify(&args.public_key, &args.signature)
+        .unwrap();
+    if do_print {
+        if valid_vote {
+            println!("Valid vote");
+        } else {
+            println!("Invalid vote");
+        }
+    }
+    valid_vote
+}
+
 fn main() {
     let cli = Cli::parse();
 
@@ -194,6 +218,12 @@ fn main() {
         Command::CheckConfig(args) => {
             handle_check_config(args);
         }
+        Command::GenerateVote(args) => {
+            handle_generate_vote(args, true);
+        }
+        Command::VerifyVote(args) => {
+            handle_verify_vote(args, true);
+        }
     }
 }
 
@@ -204,11 +234,13 @@ pub mod tests {
     use blockstack_lib::util_lib::signed_structured_data::pox4::{
         make_pox_4_signer_key_message_hash, Pox4SignatureTopic,
     };
+    use clarity::util::secp256k1::Secp256k1PrivateKey;
     use clarity::vm::{execute_v2, Value};
+    use rand::{Rng, RngCore};
     use stacks_common::consts::CHAIN_ID_TESTNET;
     use stacks_common::types::PublicKey;
     use stacks_common::util::secp256k1::Secp256k1PublicKey;
-    use stacks_signer::cli::parse_pox_addr;
+    use stacks_signer::cli::{parse_pox_addr, VerifyVoteArgs, Vote, VoteInfo};
 
     use super::{handle_generate_stacking_signature, *};
     use crate::{GenerateStackingSignatureArgs, GlobalConfig};
@@ -337,5 +369,81 @@ pub mod tests {
         let verify_result = public_key.verify(&message_hash.0, &signature);
         assert!(verify_result.is_ok());
         assert!(verify_result.unwrap());
+    }
+
+    #[test]
+    fn test_vote() {
+        let mut rand = rand::thread_rng();
+        let vote_info = VoteInfo {
+            vote: rand.gen_range(0..2).try_into().unwrap(),
+            sip: rand.next_u32(),
+        };
+        let config_file = "./src/tests/conf/signer-0.toml";
+        let config = GlobalConfig::load_from_file(config_file).unwrap();
+        let private_key = config.stacks_private_key;
+        let public_key = StacksPublicKey::from_private(&private_key);
+        let args = GenerateVoteArgs {
+            config: config_file.into(),
+            vote_info,
+        };
+        let message_signature = handle_generate_vote(args, false);
+        assert!(
+            vote_info.verify(&public_key, &message_signature).unwrap(),
+            "Vote should be valid"
+        );
+    }
+
+    #[test]
+    fn test_verify_vote() {
+        let mut rand = rand::thread_rng();
+        let private_key = Secp256k1PrivateKey::new();
+        let public_key = StacksPublicKey::from_private(&private_key);
+
+        let invalid_private_key = Secp256k1PrivateKey::new();
+        let invalid_public_key = StacksPublicKey::from_private(&invalid_private_key);
+
+        let sip = rand.next_u32();
+        let vote_info = VoteInfo {
+            vote: Vote::No,
+            sip,
+        };
+
+        let args = VerifyVoteArgs {
+            public_key,
+            signature: vote_info.sign(&private_key).unwrap(),
+            vote_info,
+        };
+        let valid = handle_verify_vote(args, false);
+        assert!(valid, "Vote should be valid");
+
+        let args = VerifyVoteArgs {
+            public_key: invalid_public_key,
+            signature: vote_info.sign(&private_key).unwrap(), // Invalid corresponding public key
+            vote_info,
+        };
+        let valid = handle_verify_vote(args, false);
+        assert!(!valid, "Vote should be invalid");
+
+        let args = VerifyVoteArgs {
+            public_key,
+            signature: vote_info.sign(&private_key).unwrap(),
+            vote_info: VoteInfo {
+                vote: Vote::Yes, // Invalid vote
+                sip,
+            },
+        };
+        let valid = handle_verify_vote(args, false);
+        assert!(!valid, "Vote should be invalid");
+
+        let args = VerifyVoteArgs {
+            public_key,
+            signature: vote_info.sign(&private_key).unwrap(),
+            vote_info: VoteInfo {
+                vote: Vote::No,
+                sip: sip.wrapping_add(1), // Invalid sip number
+            },
+        };
+        let valid = handle_verify_vote(args, false);
+        assert!(!valid, "Vote should be invalid");
     }
 }
