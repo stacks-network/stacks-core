@@ -230,10 +230,6 @@ impl SignerDb {
 
         Ok(())
     }
-
-    fn get_sqlite_version(&self) -> Result<Option<String>, DBError> {
-        query_row(&self.db, "SELECT sqlite_version()", NO_PARAMS)
-    }
 }
 
 fn try_deserialize<T>(s: Option<String>) -> Result<Option<T>, DBError>
@@ -428,6 +424,9 @@ mod tests {
     fn test_sqlite_version() {
         let db_path = tmp_db_path();
         let db = SignerDb::new(db_path).expect("Failed to create signer db");
-        assert_eq!(db.get_sqlite_version().unwrap(), Some("3.45.0".to_string()));
+        assert_eq!(
+            query_row(&db.db, "SELECT sqlite_version()", NO_PARAMS).unwrap(),
+            Some("3.45.0".to_string())
+        );
     }
 }

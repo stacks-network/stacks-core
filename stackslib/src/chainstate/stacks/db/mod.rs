@@ -2969,4 +2969,13 @@ pub mod test {
         };
         assert!(db.supports_epoch(StacksEpochId::latest()));
     }
+
+    #[test]
+    fn test_sqlite_version() {
+        let chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        assert_eq!(
+            query_row(chainstate.db(), "SELECT sqlite_version()", NO_PARAMS).unwrap(),
+            Some("3.45.0".to_string())
+        );
+    }
 }
