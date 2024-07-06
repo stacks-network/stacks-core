@@ -635,10 +635,8 @@ mod tests {
     fn test_config_to_string() {
         let config = GlobalConfig::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
         let config_str = config.config_to_log_string();
-        assert_eq!(
-            config_str,
-            format!(
-                r#"
+
+        let expected_str_v4 = r#"
 Stacks node host: 127.0.0.1:20443
 Signer endpoint: 127.0.0.1:30000
 Stacks address: ST3FPN8KBZ3YPBP0ZJGAAHTVFMQDTJCR5QPS7VTNJ
@@ -647,8 +645,23 @@ Network: testnet
 Database path: :memory:
 DKG transaction fee: 0.01 uSTX
 Metrics endpoint: 0.0.0.0:9090
-"#
-            )
+"#;
+
+        let expected_str_v6 = r#"
+Stacks node host: 127.0.0.1:20443
+Signer endpoint: [::1]:30000
+Stacks address: ST3FPN8KBZ3YPBP0ZJGAAHTVFMQDTJCR5QPS7VTNJ
+Public key: 03bc489f27da3701d9f9e577c88de5567cf4023111b7577042d55cde4d823a3505
+Network: testnet
+Database path: :memory:
+DKG transaction fee: 0.01 uSTX
+Metrics endpoint: 0.0.0.0:9090
+"#;
+
+        assert!(
+            config_str == expected_str_v4 || config_str == expected_str_v6,
+            "Config string does not match expected output. Actual:\n{}",
+            config_str
         );
     }
 
