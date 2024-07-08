@@ -239,7 +239,7 @@ pub fn write_trie_blob<T: MarfTrieId>(
     block_hash: &T,
     data: &[u8],
 ) -> Result<u32, Error> {
-    let args: &[&dyn ToSql] = params![block_hash, data, 0, 0, 0,];
+    let args = params![block_hash, data, 0, 0, 0,];
     let mut s =
         conn.prepare("INSERT INTO marf_data (block_hash, data, unconfirmed, external_offset, external_length) VALUES (?, ?, ?, ?, ?)")?;
     let block_id = s
@@ -266,7 +266,7 @@ fn inner_write_external_trie_blob<T: MarfTrieId>(
     let block_id = if let Some(block_id) = block_id {
         // existing entry (i.e. a migration)
         let empty_blob: &[u8] = &[];
-        let args: &[&dyn ToSql] = params![
+        let args = params![
             block_hash,
             empty_blob,
             0,
@@ -286,7 +286,7 @@ fn inner_write_external_trie_blob<T: MarfTrieId>(
     } else {
         // new entry
         let empty_blob: &[u8] = &[];
-        let args: &[&dyn ToSql] = params![
+        let args = params![
             block_hash,
             empty_blob,
             0,
@@ -342,13 +342,13 @@ pub fn write_trie_blob_to_mined<T: MarfTrieId>(
 ) -> Result<u32, Error> {
     if let Ok(block_id) = get_mined_block_identifier(conn, block_hash) {
         // already exists; update
-        let args: &[&dyn ToSql] = params![data, block_id];
+        let args = params![data, block_id];
         let mut s = conn.prepare("UPDATE mined_blocks SET data = ? WHERE block_id = ?")?;
         s.execute(args)
             .expect("EXHAUSTION: MARF cannot track more than 2**31 - 1 blocks");
     } else {
         // doesn't exist yet; insert
-        let args: &[&dyn ToSql] = params![block_hash, data];
+        let args = params![block_hash, data];
         let mut s = conn.prepare("INSERT INTO mined_blocks (block_hash, data) VALUES (?, ?)")?;
         s.execute(args)
             .expect("EXHAUSTION: MARF cannot track more than 2**31 - 1 blocks");
@@ -375,13 +375,13 @@ pub fn write_trie_blob_to_unconfirmed<T: MarfTrieId>(
 
     if let Ok(Some(block_id)) = get_unconfirmed_block_identifier(conn, block_hash) {
         // already exists; update
-        let args: &[&dyn ToSql] = params![data, block_id];
+        let args = params![data, block_id];
         let mut s = conn.prepare("UPDATE marf_data SET data = ? WHERE block_id = ?")?;
         s.execute(args)
             .expect("EXHAUSTION: MARF cannot track more than 2**31 - 1 blocks");
     } else {
         // doesn't exist yet; insert
-        let args: &[&dyn ToSql] = params![block_hash, data, 1];
+        let args = params![block_hash, data, 1];
         let mut s =
             conn.prepare("INSERT INTO marf_data (block_hash, data, unconfirmed, external_offset, external_length) VALUES (?, ?, ?, 0, 0)")?;
         s.execute(args)
@@ -515,7 +515,7 @@ pub fn get_external_trie_offset_length(
     block_id: u32,
 ) -> Result<(u64, u64), Error> {
     let qry = "SELECT external_offset, external_length FROM marf_data WHERE block_id = ?1";
-    let args: &[&dyn ToSql] = params![block_id];
+    let args = params![block_id];
     let (offset, length) = query_row(conn, qry, args)?.ok_or(Error::NotFoundError)?;
     Ok((offset, length))
 }
@@ -526,7 +526,7 @@ pub fn get_external_trie_offset_length_by_bhh<T: MarfTrieId>(
     bhh: &T,
 ) -> Result<(u64, u64), Error> {
     let qry = "SELECT external_offset, external_length FROM marf_data WHERE block_hash = ?1";
-    let args: &[&dyn ToSql] = params![bhh];
+    let args = params![bhh];
     let (offset, length) = query_row(conn, qry, args)?.ok_or(Error::NotFoundError)?;
     Ok((offset, length))
 }

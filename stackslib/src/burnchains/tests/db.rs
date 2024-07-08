@@ -57,7 +57,7 @@ impl BurnchainDB {
         use rusqlite::params;
 
         let sql = "SELECT op FROM burnchain_db_block_ops WHERE block_hash = ?1";
-        let args: &[&dyn ToSql] = params![block_hash];
+        let args = params![block_hash];
         let mut ops: Vec<BlockstackOperationType> = query_rows(&self.conn, sql, args)?;
         ops.sort_by(|a, b| a.vtxindex().cmp(&b.vtxindex()));
         Ok(ops)

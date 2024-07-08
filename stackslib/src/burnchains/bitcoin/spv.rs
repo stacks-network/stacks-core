@@ -424,7 +424,7 @@ impl SpvClient {
         }
 
         let tx = self.tx_begin()?;
-        let args: &[&dyn ToSql] = params![u64_to_sql(interval)?, work.to_hex_be()];
+        let args = params![u64_to_sql(interval)?, work.to_hex_be()];
         tx.execute(
             "INSERT OR REPLACE INTO chain_work (interval,work) VALUES (?1,?2)",
             args,
@@ -707,7 +707,7 @@ impl SpvClient {
         let mut headers = vec![];
 
         let sql_query = "SELECT * FROM headers WHERE height >= ?1 AND height < ?2 ORDER BY height";
-        let sql_args: &[&dyn ToSql] = params![u64_to_sql(start_block)?, u64_to_sql(end_block)?];
+        let sql_args = params![u64_to_sql(start_block)?, u64_to_sql(end_block)?];
 
         let mut stmt = self
             .headers_db
@@ -749,7 +749,7 @@ impl SpvClient {
         let sql = "INSERT OR REPLACE INTO headers 
         (version, prev_blockhash, merkle_root, time, bits, nonce, height, hash)
         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)";
-        let args: &[&dyn ToSql] = params![
+        let args = params![
             header.version,
             header.prev_blockhash,
             header.merkle_root,

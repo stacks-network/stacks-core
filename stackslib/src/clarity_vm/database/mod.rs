@@ -513,7 +513,7 @@ pub fn get_stacks_header_column_from_table<F, R>(
 where
     F: Fn(&Row) -> R,
 {
-    let args: &[&dyn ToSql] = params![id_bhh];
+    let args = params![id_bhh];
     let table_name = if nakamoto {
         "nakamoto_block_headers"
     } else {
@@ -590,7 +590,7 @@ fn get_first_block_in_tenure(
     };
     let ch = consensus_hash
         .expect("Unexpected SQL failure querying block header table for 'consensus_hash'");
-    let args: &[&dyn ToSql] = params![ch];
+    let args = params![ch];
     conn.query_row(
         "
         SELECT index_block_hash
@@ -619,7 +619,7 @@ fn get_miner_column<F, R>(
 where
     F: FnOnce(&Row) -> R,
 {
-    let args: &[&dyn ToSql] = params![id_bhh.0];
+    let args = params![id_bhh.0];
     conn.query_row(
         &format!(
             "SELECT {} FROM payments WHERE index_block_hash = ? AND miner = 1",

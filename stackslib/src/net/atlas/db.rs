@@ -461,7 +461,7 @@ impl AtlasDB {
         let min = page_index * AttachmentInstance::ATTACHMENTS_INV_PAGE_SIZE;
         let max = (page_index + 1) * AttachmentInstance::ATTACHMENTS_INV_PAGE_SIZE;
         let qry = "SELECT MIN(block_height) as min, MAX(block_height) as max FROM attachment_instances WHERE attachment_index >= ?1 AND attachment_index < ?2";
-        let args: &[&dyn ToSql] = params![min, max];
+        let args = params![min, max];
         let mut stmt = self.conn.prepare(&qry)?;
         let mut rows = stmt.query(args)?;
 
@@ -497,7 +497,7 @@ impl AtlasDB {
         let min = page_index * AttachmentInstance::ATTACHMENTS_INV_PAGE_SIZE;
         let max = min + AttachmentInstance::ATTACHMENTS_INV_PAGE_SIZE;
         let qry = "SELECT attachment_index, is_available FROM attachment_instances WHERE attachment_index >= ?1 AND attachment_index < ?2 AND index_block_hash = ?3 ORDER BY attachment_index ASC";
-        let args: &[&dyn ToSql] = params![min, max, block_id,];
+        let args = params![min, max, block_id,];
         let rows = query_rows::<(u32, u32), _>(&self.conn, &qry, args)?;
 
         let mut bool_vector = vec![true; AttachmentInstance::ATTACHMENTS_INV_PAGE_SIZE as usize];
@@ -598,7 +598,7 @@ impl AtlasDB {
         let hex_content_hash = to_hex(&content_hash.0[..]);
         let qry = "SELECT content, hash FROM attachments WHERE hash = ?1 AND was_instantiated = 0"
             .to_string();
-        let args: &[&dyn ToSql] = params![hex_content_hash];
+        let args = params![hex_content_hash];
         let row = query_row::<Attachment, _>(&self.conn, &qry, args)?;
         Ok(row)
     }
@@ -633,7 +633,7 @@ impl AtlasDB {
     ) -> Result<Vec<AttachmentInstance>, db_error> {
         let hex_content_hash = to_hex(&content_hash.0[..]);
         let qry = "SELECT * FROM attachment_instances WHERE content_hash = ?1 AND status = ?2";
-        let args: &[&dyn ToSql] = params![hex_content_hash, AttachmentInstanceStatus::Checked];
+        let args = params![hex_content_hash, AttachmentInstanceStatus::Checked];
         let rows = query_rows(&self.conn, qry, args)?;
         Ok(rows)
     }
@@ -642,7 +642,7 @@ impl AtlasDB {
         let hex_content_hash = to_hex(&content_hash.0[..]);
         let qry = "SELECT content, hash FROM attachments WHERE hash = ?1 AND was_instantiated = 1"
             .to_string();
-        let args: &[&dyn ToSql] = params![hex_content_hash];
+        let args = params![hex_content_hash];
         let row = query_row::<Attachment, _>(&self.conn, &qry, args)?;
         Ok(row)
     }

@@ -44,7 +44,7 @@ pub struct SqliteConnection {
 }
 
 fn sqlite_put(conn: &Connection, key: &str, value: &str) -> Result<()> {
-    let params: &[&dyn ToSql] = params![key, value];
+    let params = params![key, value];
     match conn.execute("REPLACE INTO data_table (key, value) VALUES (?, ?)", params) {
         Ok(_) => Ok(()),
         Err(e) => {
@@ -56,7 +56,7 @@ fn sqlite_put(conn: &Connection, key: &str, value: &str) -> Result<()> {
 
 fn sqlite_get(conn: &Connection, key: &str) -> Result<Option<String>> {
     trace!("sqlite_get {}", key);
-    let params: &[&dyn ToSql] = params![key];
+    let params = params![key];
     let res = match conn
         .query_row(
             "SELECT value FROM data_table WHERE key = ?",
@@ -153,7 +153,7 @@ impl SqliteConnection {
         value: &str,
     ) -> Result<()> {
         let key = format!("clr-meta::{}::{}", contract_hash, key);
-        let params: &[&dyn ToSql] = params![bhh, key, value];
+        let params = params![bhh, key, value];
 
         if let Err(e) = conn.execute(
             "INSERT INTO metadata_table (blockhash, key, value) VALUES (?, ?, ?)",
@@ -176,7 +176,7 @@ impl SqliteConnection {
         from: &StacksBlockId,
         to: &StacksBlockId,
     ) -> Result<()> {
-        let params: &[&dyn ToSql] = params![to, from];
+        let params = params![to, from];
         if let Err(e) = conn.execute(
             "UPDATE metadata_table SET blockhash = ? WHERE blockhash = ?",
             params,
@@ -205,7 +205,7 @@ impl SqliteConnection {
         key: &str,
     ) -> Result<Option<String>> {
         let key = format!("clr-meta::{}::{}", contract_hash, key);
-        let params: &[&dyn ToSql] = params![bhh, key];
+        let params = params![bhh, key];
 
         match conn
             .query_row(

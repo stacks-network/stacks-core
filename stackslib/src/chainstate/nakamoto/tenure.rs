@@ -438,7 +438,7 @@ impl NakamotoChainState {
     ) -> Result<bool, ChainstateError> {
         // a tenure will have been processed if any of its children have been processed
         let sql = "SELECT 1 FROM nakamoto_tenures WHERE prev_tenure_id_consensus_hash = ?1 LIMIT 1";
-        let args: &[&dyn ToSql] = params![tenure_id_consensus_hash];
+        let args = params![tenure_id_consensus_hash];
         let found: Option<i64> = query_row(conn, sql, args)?;
         Ok(found.is_some())
     }
@@ -454,7 +454,7 @@ impl NakamotoChainState {
     ) -> Result<(), ChainstateError> {
         // NOTE: this is checked with check_nakamoto_tenure()
         assert_eq!(block_header.consensus_hash, tenure.tenure_consensus_hash);
-        let args: &[&dyn ToSql] = params![
+        let args = params![
             tenure.tenure_consensus_hash,
             tenure.prev_tenure_consensus_hash,
             tenure.burn_view_consensus_hash,
@@ -511,7 +511,7 @@ impl NakamotoChainState {
         consensus_hash: &ConsensusHash,
     ) -> Result<Option<ConsensusHash>, ChainstateError> {
         let sql = "SELECT prev_tenure_id_consensus_hash AS consensus_hash FROM nakamoto_tenures WHERE tenure_id_consensus_hash = ?1 ORDER BY tenure_index DESC LIMIT 1";
-        let args: &[&dyn ToSql] = params![consensus_hash];
+        let args = params![consensus_hash];
         query_row(chainstate_conn, sql, args).map_err(ChainstateError::DBError)
     }
 
@@ -577,7 +577,7 @@ impl NakamotoChainState {
         tenure_consensus_hash: &ConsensusHash,
     ) -> Result<Option<NakamotoTenure>, ChainstateError> {
         let sql = "SELECT * FROM nakamoto_tenures WHERE tenure_id_consensus_hash = ?1 ORDER BY tenure_index DESC LIMIT 1";
-        let args: &[&dyn ToSql] = params![tenure_consensus_hash];
+        let args = params![tenure_consensus_hash];
         let tenure_opt: Option<NakamotoTenure> = query_row(headers_conn, sql, args)?;
         Ok(tenure_opt)
     }
@@ -588,7 +588,7 @@ impl NakamotoChainState {
         burn_view: &ConsensusHash,
     ) -> Result<Option<NakamotoTenure>, ChainstateError> {
         let sql = "SELECT * FROM nakamoto_tenures WHERE burn_view_consensus_hash = ?1 ORDER BY tenure_index DESC LIMIT 1";
-        let args: &[&dyn ToSql] = params![burn_view];
+        let args = params![burn_view];
         let tenure_opt: Option<NakamotoTenure> = query_row(headers_conn, sql, args)?;
         Ok(tenure_opt)
     }
@@ -601,7 +601,7 @@ impl NakamotoChainState {
         tenure_id_consensus_hash: &ConsensusHash,
     ) -> Result<Option<NakamotoTenure>, ChainstateError> {
         let sql = "SELECT * FROM nakamoto_tenures WHERE tenure_id_consensus_hash = ?1 AND cause = ?2 ORDER BY tenure_index DESC LIMIT 1";
-        let args: &[&dyn ToSql] = params![
+        let args = params![
             tenure_id_consensus_hash,
             TenureChangeCause::BlockFound.as_u8(),
         ];

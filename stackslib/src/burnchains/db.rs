@@ -322,7 +322,7 @@ impl<'a> BurnchainDBTransaction<'a> {
         let sql = "INSERT OR IGNORE INTO burnchain_db_block_headers
                    (block_height, block_hash, parent_block_hash, num_txs, timestamp)
                    VALUES (?, ?, ?, ?, ?)";
-        let args: &[&dyn ToSql] = params![
+        let args = params![
             u64_to_sql(header.block_height)?,
             header.block_hash,
             header.parent_block_hash,
@@ -347,7 +347,7 @@ impl<'a> BurnchainDBTransaction<'a> {
     ) -> Result<u64, DBError> {
         let weight = affirmation_map.weight();
         let sql = "INSERT INTO affirmation_maps (affirmation_map,weight) VALUES (?1,?2)";
-        let args: &[&dyn ToSql] = params![affirmation_map.encode(), u64_to_sql(weight)?];
+        let args = params![affirmation_map.encode(), u64_to_sql(weight)?];
         match self.sql_tx.execute(sql, args) {
             Ok(_) => {
                 let am_id = BurnchainDB::get_affirmation_map_id(&self.sql_tx, &affirmation_map)?
@@ -368,7 +368,7 @@ impl<'a> BurnchainDBTransaction<'a> {
         affirmation_id: u64,
     ) -> Result<(), DBError> {
         let sql = "UPDATE block_commit_metadata SET affirmation_id = ?1, anchor_block_descendant = ?2 WHERE burn_block_hash = ?3 AND txid = ?4";
-        let args: &[&dyn ToSql] = params![
+        let args = params![
             u64_to_sql(affirmation_id)?,
             opt_u64_to_sql(anchor_block_descendant)?,
             block_commit.burn_header_hash,
@@ -391,13 +391,13 @@ impl<'a> BurnchainDBTransaction<'a> {
         target_reward_cycle: u64,
     ) -> Result<(), DBError> {
         let sql = "INSERT OR REPLACE INTO anchor_blocks (reward_cycle) VALUES (?1)";
-        let args: &[&dyn ToSql] = params![u64_to_sql(target_reward_cycle)?];
+        let args = params![u64_to_sql(target_reward_cycle)?];
         self.sql_tx
             .execute(sql, args)
             .map_err(|e| DBError::SqliteError(e))?;
 
         let sql = "UPDATE block_commit_metadata SET anchor_block = ?1 WHERE burn_block_hash = ?2 AND txid = ?3";
-        let args: &[&dyn ToSql] = params![
+        let args = params![
             u64_to_sql(target_reward_cycle)?,
             block_commit.burn_header_hash,
             block_commit.txid,
@@ -421,7 +421,7 @@ impl<'a> BurnchainDBTransaction<'a> {
     /// Unmark all block-commit(s) that were anchor block(s) for this reward cycle.
     pub fn clear_anchor_block(&self, reward_cycle: u64) -> Result<(), DBError> {
         let sql = "UPDATE block_commit_metadata SET anchor_block = NULL WHERE anchor_block = ?1";
-        let args: &[&dyn ToSql] = params![u64_to_sql(reward_cycle)?];
+        let args = params![u64_to_sql(reward_cycle)?];
         self.sql_tx
             .execute(sql, args)
             .map(|_| ())
@@ -878,7 +878,7 @@ impl<'a> BurnchainDBTransaction<'a> {
                                    (burn_block_hash, txid, block_height, vtxindex, anchor_block, anchor_block_descendant, affirmation_id)
                                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)";
         let mut stmt = self.sql_tx.prepare(commit_metadata_sql)?;
-        let args: &[&dyn ToSql] = params![
+        let args = params![
             bcm.burn_block_hash,
             bcm.txid,
             u64_to_sql(bcm.block_height)?,
@@ -904,7 +904,7 @@ impl<'a> BurnchainDBTransaction<'a> {
         for op in block_ops.iter() {
             let serialized_op =
                 serde_json::to_string(op).expect("Failed to serialize parsed BlockstackOp");
-            let args: &[&dyn ToSql] =
+            let args =
                 params![block_header.block_hash, op.txid_ref(), serialized_op];
             stmt.execute(args)?;
         }
@@ -960,7 +960,7 @@ impl<'a> BurnchainDBTransaction<'a> {
         assert_eq!((affirmation_map.len() as u64) + 1, reward_cycle);
         let qry =
             "INSERT OR REPLACE INTO overrides (reward_cycle, affirmation_map) VALUES (?1, ?2)";
-        let args: &[&dyn ToSql] = params![u64_to_sql(reward_cycle)?, affirmation_map.encode()];
+        let args = params![u64_to_sql(reward_cycle)?, affirmation_map.encode()];
 
         let mut stmt = self.sql_tx.prepare(qry)?;
         stmt.execute(args)?;
@@ -969,7 +969,7 @@ impl<'a> BurnchainDBTransaction<'a> {
 
     pub fn clear_override_affirmation_map(&self, reward_cycle: u64) -> Result<(), DBError> {
         let qry = "DELETE FROM overrides WHERE reward_cycle = ?1";
-        let args: &[&dyn ToSql] = params![u64_to_sql(reward_cycle)?];
+        let args = params![u64_to_sql(reward_cycle)?];
 
         let mut stmt = self.sql_tx.prepare(qry)?;
         stmt.execute(args)?;
@@ -1166,7 +1166,7 @@ impl BurnchainDB {
     ) -> Option<BlockstackOperationType> {
         let qry =
             "SELECT DISTINCT op FROM burnchain_db_block_ops WHERE txid = ?1 AND block_hash = ?2";
-        let args: &[&dyn ToSql] = params![txid, burn_header_hash];
+        let args = params![txid, burn_header_hash];
 
         match query_row(conn, qry, args) {
             Ok(res) => res,
@@ -1185,7 +1185,7 @@ impl BurnchainDB {
         txid: &Txid,
     ) -> Option<BlockstackOperationType> {
         let qry = "SELECT DISTINCT op FROM burnchain_db_block_ops WHERE txid = ?1";
-        let args: &[&dyn ToSql] = params![txid];
+        let args = params![txid];
 
         let ops: Vec<BlockstackOperationType> =
             query_rows(&self.conn, qry, args).expect("FATAL: burnchain DB query error");
@@ -1256,7 +1256,7 @@ impl BurnchainDB {
         affirmation_id: u64,
     ) -> Result<Option<AffirmationMap>, DBError> {
         let sql = "SELECT affirmation_map FROM affirmation_maps WHERE affirmation_id = ?1";
-        let args: &[&dyn ToSql] = params![&u64_to_sql(affirmation_id)?];
+        let args = params![&u64_to_sql(affirmation_id)?];
         query_row(conn, sql, args)
     }
 
@@ -1265,7 +1265,7 @@ impl BurnchainDB {
         affirmation_id: u64,
     ) -> Result<Option<u64>, DBError> {
         let sql = "SELECT weight FROM affirmation_maps WHERE affirmation_id = ?1";
-        let args: &[&dyn ToSql] = params![&u64_to_sql(affirmation_id)?];
+        let args = params![&u64_to_sql(affirmation_id)?];
         query_row(conn, sql, args)
     }
 
@@ -1274,7 +1274,7 @@ impl BurnchainDB {
         affirmation_map: &AffirmationMap,
     ) -> Result<Option<u64>, DBError> {
         let sql = "SELECT affirmation_id FROM affirmation_maps WHERE affirmation_map = ?1";
-        let args: &[&dyn ToSql] = params![&affirmation_map.encode()];
+        let args = params![&affirmation_map.encode()];
         query_row(conn, sql, args)
     }
 
@@ -1284,7 +1284,7 @@ impl BurnchainDB {
         txid: &Txid,
     ) -> Result<Option<u64>, DBError> {
         let sql = "SELECT affirmation_id FROM block_commit_metadata WHERE burn_block_hash = ?1 AND txid = ?2";
-        let args: &[&dyn ToSql] = params![burn_header_hash, txid];
+        let args = params![burn_header_hash, txid];
         query_row(conn, sql, args)
     }
 
@@ -1305,13 +1305,13 @@ impl BurnchainDB {
         txid: &Txid,
     ) -> Result<bool, DBError> {
         let sql = "SELECT 1 FROM block_commit_metadata WHERE anchor_block IS NOT NULL AND burn_block_hash = ?1 AND txid = ?2";
-        let args: &[&dyn ToSql] = params![burn_header_hash, txid];
+        let args = params![burn_header_hash, txid];
         query_row(conn, sql, args)?.ok_or(DBError::NotFoundError)
     }
 
     pub fn has_anchor_block(conn: &DBConn, reward_cycle: u64) -> Result<bool, DBError> {
         let sql = "SELECT 1 FROM block_commit_metadata WHERE anchor_block = ?1";
-        let args: &[&dyn ToSql] = params![u64_to_sql(reward_cycle)?];
+        let args = params![u64_to_sql(reward_cycle)?];
         Ok(query_row::<bool, _>(conn, sql, args)?.is_some())
     }
 
@@ -1320,7 +1320,7 @@ impl BurnchainDB {
         reward_cycle: u64,
     ) -> Result<Vec<BlockCommitMetadata>, DBError> {
         let sql = "SELECT * FROM block_commit_metadata WHERE anchor_block = ?1";
-        let args: &[&dyn ToSql] = params![u64_to_sql(reward_cycle)?];
+        let args = params![u64_to_sql(reward_cycle)?];
 
         let metadatas: Vec<BlockCommitMetadata> = query_rows(conn, sql, args)?;
         Ok(metadatas)
@@ -1332,7 +1332,7 @@ impl BurnchainDB {
         reward_cycle: u64,
     ) -> Result<Option<BlockCommitMetadata>, DBError> {
         let sql = "SELECT * FROM block_commit_metadata WHERE anchor_block = ?1";
-        let args: &[&dyn ToSql] = params![u64_to_sql(reward_cycle)?];
+        let args = params![u64_to_sql(reward_cycle)?];
 
         let metadatas: Vec<BlockCommitMetadata> = query_rows(conn, sql, args)?;
         for metadata in metadatas {
@@ -1373,7 +1373,7 @@ impl BurnchainDB {
     ) -> Result<Option<(LeaderBlockCommitOp, BlockCommitMetadata)>, DBError> {
         let sql =
             "SELECT * FROM block_commit_metadata WHERE anchor_block = ?1 AND burn_block_hash = ?2";
-        let args: &[&dyn ToSql] = params![u64_to_sql(reward_cycle)?, anchor_block_burn_header_hash];
+        let args = params![u64_to_sql(reward_cycle)?, anchor_block_burn_header_hash];
         if let Some(commit_metadata) = query_row::<BlockCommitMetadata, _>(conn, sql, args)? {
             let commit = BurnchainDB::get_block_commit(
                 conn,
@@ -1451,7 +1451,7 @@ impl BurnchainDB {
         vtxindex: u16,
     ) -> Result<Option<LeaderBlockCommitOp>, DBError> {
         let qry = "SELECT txid FROM block_commit_metadata WHERE block_height = ?1 AND vtxindex = ?2 AND burn_block_hash = ?3";
-        let args: &[&dyn ToSql] = params![block_ptr, vtxindex, header_hash];
+        let args = params![block_ptr, vtxindex, header_hash];
         let txid = match query_row(&conn, qry, args) {
             Ok(Some(txid)) => txid,
             Ok(None) => {
@@ -1497,7 +1497,7 @@ impl BurnchainDB {
         burn_block_hash: &BurnchainHeaderHash,
         txid: &Txid,
     ) -> Result<Option<BlockCommitMetadata>, DBError> {
-        let args: &[&dyn ToSql] = params![burn_block_hash, txid];
+        let args = params![burn_block_hash, txid];
         query_row_panic(
             conn,
             "SELECT * FROM block_commit_metadata WHERE burn_block_hash = ?1 AND txid = ?2",

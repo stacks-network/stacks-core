@@ -362,7 +362,7 @@ impl<H: BloomHash + Clone + StacksMessageCodec> BloomCounter<H> {
             "INSERT INTO {} (counts, num_bins, num_hashes, hasher) VALUES (?1, ?2, ?3, ?4)",
             table_name
         );
-        let args: &[&dyn ToSql] = params![counts_vec, num_bins, num_hashes, hasher_vec];
+        let args = params![counts_vec, num_bins, num_hashes, hasher_vec];
 
         tx.execute(&sql, args).map_err(db_error::SqliteError)?;
 

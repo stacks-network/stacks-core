@@ -181,7 +181,7 @@ impl<'a> NakamotoStagingBlocksConnRef<'a> {
         tenure_id_consensus_hash: &ConsensusHash,
     ) -> Result<Vec<NakamotoBlock>, ChainstateError> {
         let qry = "SELECT data FROM nakamoto_staging_blocks WHERE consensus_hash = ?1 ORDER BY height ASC";
-        let args: &[&dyn ToSql] = params![tenure_id_consensus_hash];
+        let args = params![tenure_id_consensus_hash];
         let block_data: Vec<Vec<u8>> = query_rows(self, qry, args)?;
         let mut blocks = Vec::with_capacity(block_data.len());
         for data in block_data.into_iter() {

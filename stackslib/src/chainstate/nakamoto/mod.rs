@@ -2289,7 +2289,7 @@ impl NakamotoChainState {
         block_hash: &BlockHeaderHash,
     ) -> Result<Option<(bool, bool)>, ChainstateError> {
         let sql = "SELECT processed, orphaned FROM nakamoto_staging_blocks WHERE consensus_hash = ?1 AND block_hash = ?2";
-        let args: &[&dyn ToSql] = params![consensus_hash, block_hash];
+        let args = params![consensus_hash, block_hash];
         let Some((processed, orphaned)) = query_row_panic(&staging_blocks_conn, sql, args, || {
             "FATAL: multiple rows for the same consensus hash and block hash".to_string()
         })
@@ -2327,7 +2327,7 @@ impl NakamotoChainState {
         consensus_hash: &ConsensusHash,
     ) -> Result<Option<VRFProof>, ChainstateError> {
         let sql = "SELECT vrf_proof FROM nakamoto_block_headers WHERE consensus_hash = ?1 AND tenure_changed = 1";
-        let args: &[&dyn ToSql] = params![consensus_hash];
+        let args = params![consensus_hash];
         let proof_bytes: Option<String> = query_row(chainstate_conn, sql, args)?;
         if let Some(bytes) = proof_bytes {
             let proof = VRFProof::from_hex(&bytes)
@@ -2415,7 +2415,7 @@ impl NakamotoChainState {
             ))
         })?;
 
-        let args: &[&dyn ToSql] = params![
+        let args = params![
             u64_to_sql(*stacks_block_height)?,
             index_root,
             consensus_hash,
@@ -2622,7 +2622,7 @@ impl NakamotoChainState {
         if applied_epoch_transition {
             debug!("Block {} applied an epoch transition", &index_block_hash);
             let sql = "INSERT INTO epoch_transitions (block_id) VALUES (?)";
-            let args: &[&dyn ToSql] = params![index_block_hash];
+            let args = params![index_block_hash];
             headers_tx.deref_mut().execute(sql, args)?;
         }
 
@@ -2639,7 +2639,7 @@ impl NakamotoChainState {
         reward_set: &RewardSet,
     ) -> Result<(), ChainstateError> {
         let sql = "INSERT INTO nakamoto_reward_sets (index_block_hash, reward_set) VALUES (?, ?)";
-        let args: &[&dyn ToSql] = params![block_id, reward_set.metadata_serialize(),];
+        let args = params![block_id, reward_set.metadata_serialize(),];
         tx.execute(sql, args)?;
         Ok(())
     }
