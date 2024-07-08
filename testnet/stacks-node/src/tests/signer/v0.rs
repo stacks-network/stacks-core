@@ -41,7 +41,9 @@ use tracing_subscriber::{fmt, EnvFilter};
 
 use super::SignerTest;
 use crate::tests::nakamoto_integrations::{boot_to_epoch_3_reward_set, next_block_and};
-use crate::tests::neon_integrations::{get_chain_info, next_block_and_wait, submit_tx};
+use crate::tests::neon_integrations::{
+    get_chain_info, next_block_and_wait, submit_tx, test_observer,
+};
 use crate::tests::{self, make_stacks_transfer};
 use crate::{nakamoto_node, BurnchainController};
 
@@ -254,7 +256,7 @@ fn block_proposal_rejection() {
 
     info!("------------------------- Test Setup -------------------------");
     let num_signers = 5;
-    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new(num_signers, vec![]);
+    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new(num_signers, vec![], None);
     signer_test.boot_to_epoch_3();
     let short_timeout = Duration::from_secs(30);
 
@@ -360,7 +362,7 @@ fn miner_gather_signatures() {
 
     info!("------------------------- Test Setup -------------------------");
     let num_signers = 5;
-    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new(num_signers, vec![]);
+    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new(num_signers, vec![], None);
     signer_test.boot_to_epoch_3();
     let timeout = Duration::from_secs(30);
 
@@ -412,7 +414,7 @@ fn mine_2_nakamoto_reward_cycles() {
     info!("------------------------- Test Setup -------------------------");
     let nmb_reward_cycles = 2;
     let num_signers = 5;
-    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new(num_signers, vec![]);
+    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new(num_signers, vec![], None);
     let timeout = Duration::from_secs(200);
     signer_test.boot_to_epoch_3();
     let curr_reward_cycle = signer_test.get_current_reward_cycle();
@@ -468,13 +470,36 @@ fn end_of_tenure() {
     let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new(
         num_signers,
         vec![(sender_addr.clone(), send_amt + send_fee)],
+        Some(Duration::from_secs(500)),
     );
     let http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
+    let long_timeout = Duration::from_secs(200);
+    let short_timeout = Duration::from_secs(20);
 
     signer_test.boot_to_epoch_3();
+    let curr_reward_cycle = signer_test.get_current_reward_cycle();
+    // Advance to one before the next reward cycle to ensure we are on the reward cycle boundary
+    let final_reward_cycle = curr_reward_cycle + 1;
+    let final_reward_cycle_height_boundary = signer_test
+        .running_nodes
+        .btc_regtest_controller
+        .get_burnchain()
+        .reward_cycle_to_block_height(final_reward_cycle)
+        - 2;
 
-    signer_test.mine_nakamoto_block(Duration::from_secs(30));
+    info!("------------------------- Test Mine to Next Reward Cycle Boundary  -------------------------");
+    signer_test.run_until_burnchain_height_nakamoto(
+        long_timeout,
+        final_reward_cycle_height_boundary,
+        num_signers,
+    );
+    println!("Advanced to nexct reward cycle boundary: {final_reward_cycle_height_boundary}");
+    assert_eq!(
+        signer_test.get_current_reward_cycle(),
+        final_reward_cycle - 1
+    );
 
+    info!("------------------------- Test Block Validation Stalled -------------------------");
     TEST_VALIDATE_STALL.lock().unwrap().replace(true);
 
     let proposals_before = signer_test
@@ -486,6 +511,8 @@ fn end_of_tenure() {
         .nakamoto_blocks_mined
         .load(Ordering::SeqCst);
 
+    let info = get_chain_info(&signer_test.running_nodes.conf);
+    let start_height = info.stacks_tip_height;
     // submit a tx so that the miner will mine an extra block
     let sender_nonce = 0;
     let transfer_tx =
@@ -493,14 +520,17 @@ fn end_of_tenure() {
     submit_tx(&http_origin, &transfer_tx);
 
     info!("Submitted transfer tx and waiting for block proposal");
-    loop {
-        let blocks_proposed = signer_test
-            .running_nodes
-            .nakamoto_blocks_proposed
-            .load(Ordering::SeqCst);
-        if blocks_proposed > proposals_before {
-            break;
-        }
+    let start_time = Instant::now();
+    while signer_test
+        .running_nodes
+        .nakamoto_blocks_proposed
+        .load(Ordering::SeqCst)
+        <= proposals_before
+    {
+        assert!(
+            start_time.elapsed() <= short_timeout,
+            "Timed out waiting for block proposal"
+        );
         std::thread::sleep(Duration::from_millis(100));
     }
 
@@ -516,14 +546,13 @@ fn end_of_tenure() {
         blocks_before
     );
 
+    info!("Triggering a new block to be mined");
+
+    // Mine a couple blocks into the next reward cycle
     let commits_before = signer_test
         .running_nodes
         .commits_submitted
         .load(Ordering::SeqCst);
-
-    info!("Triggering a new block to be mined");
-
-    // Trigger the next block to be mined and commit submitted
     next_block_and(
         &mut signer_test.running_nodes.btc_regtest_controller,
         10,
@@ -536,23 +565,52 @@ fn end_of_tenure() {
         },
     )
     .unwrap();
+    for _ in 0..2 {
+        next_block_and(
+            &mut signer_test.running_nodes.btc_regtest_controller,
+            10,
+            || Ok(true),
+        )
+        .unwrap();
+    }
+    assert_eq!(signer_test.get_current_reward_cycle(), final_reward_cycle);
 
-    info!("Disabling the stall and waiting for the blocks to be processed");
+    while test_observer::get_burn_blocks()
+        .last()
+        .unwrap()
+        .get("burn_block_height")
+        .unwrap()
+        .as_u64()
+        .unwrap()
+        >= final_reward_cycle_height_boundary + 3
+    {
+        std::thread::sleep(Duration::from_secs(1));
+        assert!(
+            start_time.elapsed() <= short_timeout,
+            "Timed out waiting for bun block events"
+        );
+    }
+
+    std::thread::sleep(short_timeout);
+    info!("Unpausing block validation and waiting for block to be processed");
     // Disable the stall and wait for the block to be processed
     TEST_VALIDATE_STALL.lock().unwrap().replace(false);
-    loop {
-        let blocks_mined = signer_test
-            .running_nodes
-            .nakamoto_blocks_mined
-            .load(Ordering::SeqCst);
-        if blocks_mined > blocks_before + 1 {
-            break;
-        }
+    let start_time = Instant::now();
+    while signer_test
+        .running_nodes
+        .nakamoto_blocks_mined
+        .load(Ordering::SeqCst)
+        <= blocks_before
+    {
+        assert!(
+            start_time.elapsed() <= short_timeout,
+            "Timed out waiting for block to be mined"
+        );
         std::thread::sleep(Duration::from_millis(100));
     }
 
     let info = get_chain_info(&signer_test.running_nodes.conf);
-    assert_eq!(info.stacks_tip_height, 30);
+    assert_eq!(info.stacks_tip_height, start_height + 1);
 
     signer_test.shutdown();
 }
@@ -580,6 +638,7 @@ fn retry_on_timeout() {
     let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new(
         num_signers,
         vec![(sender_addr.clone(), send_amt + send_fee)],
+        Some(Duration::from_secs(5)),
     );
     let http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
 
@@ -619,8 +678,8 @@ fn retry_on_timeout() {
 
     info!("Block proposed, verifying that it is not processed");
 
-    // Wait 20 seconds to be sure that the timeout has occurred
-    std::thread::sleep(Duration::from_secs(20));
+    // Wait 10 seconds to be sure that the timeout has occurred
+    std::thread::sleep(Duration::from_secs(10));
     assert_eq!(
         signer_test
             .running_nodes

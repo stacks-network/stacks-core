@@ -100,7 +100,11 @@ pub struct SignerTest<S> {
 }
 
 impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<SpawnedSigner<S, T>> {
-    fn new(num_signers: usize, initial_balances: Vec<(StacksAddress, u64)>) -> Self {
+    fn new(
+        num_signers: usize,
+        initial_balances: Vec<(StacksAddress, u64)>,
+        wait_on_signers: Option<Duration>,
+    ) -> Self {
         // Generate Signer Data
         let signer_stacks_private_keys = (0..num_signers)
             .map(|_| StacksPrivateKey::new())
@@ -118,7 +122,11 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         // That's the kind of thing an idiot would have on his luggage!
         let password = "12345";
         naka_conf.connection_options.block_proposal_token = Some(password.to_string());
-        naka_conf.miner.wait_on_signers = Duration::from_secs(10);
+        if let Some(wait_on_signers) = wait_on_signers {
+            naka_conf.miner.wait_on_signers = wait_on_signers;
+        } else {
+            naka_conf.miner.wait_on_signers = Duration::from_secs(10);
+        }
 
         let run_stamp = rand::random();
 
@@ -547,6 +555,7 @@ fn setup_stx_btc_node(
             EventKeyType::StackerDBChunks,
             EventKeyType::BlockProposal,
             EventKeyType::MinedBlocks,
+            EventKeyType::BurnchainBlocks,
         ],
     });
 

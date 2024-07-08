@@ -375,13 +375,21 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
     fn cleanup_stale_signers(&mut self, current_reward_cycle: u64) {
         let mut to_delete = Vec::new();
         for (idx, signer) in &mut self.stacks_signers {
-            if signer.reward_cycle() < current_reward_cycle {
+            let reward_cycle = signer.reward_cycle();
+            let next_reward_cycle = reward_cycle.wrapping_add(1);
+            let stale = match next_reward_cycle.cmp(&current_reward_cycle) {
+                std::cmp::Ordering::Less => true, // We are more than one reward cycle behind, so we are stale
+                std::cmp::Ordering::Equal => !signer.has_pending_blocks(), // We are the next reward cycle, so check if we have any pending blocks to process
+                std::cmp::Ordering::Greater => false, // We are the current reward cycle, so we are not stale
+            };
+            if stale {
                 debug!("{signer}: Signer's tenure has completed.");
                 to_delete.push(*idx);
                 continue;
             }
         }
         for idx in to_delete {
+            println!("DELETING");
             self.stacks_signers.remove(&idx);
         }
     }
