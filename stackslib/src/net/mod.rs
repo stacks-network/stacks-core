@@ -1705,6 +1705,7 @@ pub mod test {
     use std::{fs, io, thread};
 
     use clarity::boot_util::boot_code_id;
+    use clarity::vm::ast::parser::v1::CONTRACT_MAX_NAME_LENGTH;
     use clarity::vm::ast::ASTRules;
     use clarity::vm::costs::ExecutionCost;
     use clarity::vm::database::STXBalance;
@@ -2453,7 +2454,19 @@ pub mod test {
                         let smart_contract = TransactionPayload::SmartContract(
                             TransactionSmartContract {
                                 name: ContractName::try_from(
-                                    conf.test_name.replace("::", "-").to_string(),
+                                    conf.test_name
+                                        .replace("::", "-")
+                                        .to_string()
+                                        .chars()
+                                        // ensure auto-generated contract names are not too long
+                                        .skip(
+                                            conf.test_name
+                                                .len()
+                                                .saturating_sub(CONTRACT_MAX_NAME_LENGTH),
+                                        )
+                                        .collect::<String>()
+                                        .trim_start_matches(|c: char| !c.is_alphabetic())
+                                        .to_string(),
                                 )
                                 .expect("FATAL: invalid boot-code contract name"),
                                 code_body: StacksString::from_str(&conf.setup_code)
