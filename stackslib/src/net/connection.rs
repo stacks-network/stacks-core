@@ -507,7 +507,7 @@ impl std::default::Default for ConnectionOptions {
             public_ip_max_retries: 3, // maximum number of retries before self-throttling for $public_ip_timeout
             max_block_push: 10, // maximum number of blocksData messages to push out via our anti-entropy protocol
             max_microblock_push: 10, // maximum number of microblocks messages to push out via our anti-entropy protocol
-            antientropy_retry: 60,   // retry pushing data once every minute
+            antientropy_retry: 3600, // retry pushing data once every hour
             antientropy_public: true, // run antientropy even if we're NOT NAT'ed
             max_buffered_blocks_available: 5,
             max_buffered_microblocks_available: 5,

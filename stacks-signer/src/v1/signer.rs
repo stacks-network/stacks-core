@@ -1384,17 +1384,21 @@ impl Signer {
     ) -> Result<(), PersistenceError> {
         self.signer_db
             .insert_encrypted_signer_state(self.reward_cycle, encrypted_state)?;
-
         Ok(())
     }
 
     /// Persist signer state in StackerDB
+    /// TODO: this is a no-op until the number of signer slots can be expanded
     fn save_signer_state_in_stackerdb(
         &mut self,
-        encrypted_state: Vec<u8>,
+        _encrypted_state: Vec<u8>,
     ) -> Result<(), PersistenceError> {
+        /*
+         * This is a no-op until the number of signer slots can be expanded to 14
+         *
         let message = SignerMessage::EncryptedSignerState(encrypted_state);
         self.stackerdb_manager.send_message_with_retry(message)?;
+        */
         Ok(())
     }
 
