@@ -904,8 +904,7 @@ impl<'a> BurnchainDBTransaction<'a> {
         for op in block_ops.iter() {
             let serialized_op =
                 serde_json::to_string(op).expect("Failed to serialize parsed BlockstackOp");
-            let args =
-                params![block_header.block_hash, op.txid_ref(), serialized_op];
+            let args = params![block_header.block_hash, op.txid_ref(), serialized_op];
             stmt.execute(args)?;
         }
 

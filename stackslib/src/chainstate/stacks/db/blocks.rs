@@ -1565,8 +1565,7 @@ impl StacksChainState {
             // if this block has an unprocessed staging parent, then it's not attachable until its parent is.
             let has_unprocessed_parent_sql = "SELECT anchored_block_hash FROM staging_blocks WHERE anchored_block_hash = ?1 AND consensus_hash = ?2 AND processed = 0 AND orphaned = 0 LIMIT 1";
             let has_parent_sql = "SELECT anchored_block_hash FROM staging_blocks WHERE anchored_block_hash = ?1 AND consensus_hash = ?2 LIMIT 1";
-            let has_parent_args =
-                params![block.header.parent_block, parent_consensus_hash];
+            let has_parent_args = params![block.header.parent_block, parent_consensus_hash];
             let has_unprocessed_parent_rows = query_row_columns::<BlockHeaderHash, _>(
                 &tx,
                 has_unprocessed_parent_sql,
@@ -2028,8 +2027,7 @@ impl StacksChainState {
         );
 
         let sql = "SELECT COALESCE(MIN(block_height), 0), COALESCE(MAX(block_height), 0) FROM block_headers WHERE burn_header_height >= ?1 AND burn_header_height < ?2";
-        let args =
-            params![u64_to_sql(burn_height_start)?, u64_to_sql(burn_height_end)?,];
+        let args = params![u64_to_sql(burn_height_start)?, u64_to_sql(burn_height_end)?,];
 
         self.db()
             .query_row(sql, args, |row| {
@@ -2309,8 +2307,7 @@ impl StacksChainState {
 
         // find all orphaned microblocks, and delete the block data
         let find_orphaned_microblocks_sql = "SELECT microblock_hash FROM staging_microblocks WHERE consensus_hash = ?1 AND anchored_block_hash = ?2";
-        let find_orphaned_microblocks_args =
-            params![consensus_hash, anchored_block_hash];
+        let find_orphaned_microblocks_args = params![consensus_hash, anchored_block_hash];
         let orphaned_microblock_hashes = query_row_columns::<BlockHeaderHash, _>(
             tx,
             find_orphaned_microblocks_sql,
@@ -2320,8 +2317,7 @@ impl StacksChainState {
 
         // drop microblocks (this processes them)
         let update_microblock_children_sql = "UPDATE staging_microblocks SET orphaned = 1, processed = 1 WHERE consensus_hash = ?1 AND anchored_block_hash = ?2";
-        let update_microblock_children_args =
-            params![consensus_hash, anchored_block_hash];
+        let update_microblock_children_args = params![consensus_hash, anchored_block_hash];
 
         tx.execute(update_block_sql, update_block_args)?;
 
@@ -2532,8 +2528,7 @@ impl StacksChainState {
 
         // find all orphaned microblocks, and delete the block data
         let find_orphaned_microblocks_sql = "SELECT microblock_hash FROM staging_microblocks WHERE consensus_hash = ?1 AND anchored_block_hash = ?2";
-        let find_orphaned_microblocks_args =
-            params![consensus_hash, anchored_block_hash];
+        let find_orphaned_microblocks_args = params![consensus_hash, anchored_block_hash];
         let orphaned_microblock_hashes = query_row_columns::<BlockHeaderHash, _>(
             tx,
             find_orphaned_microblocks_sql,
@@ -2550,8 +2545,7 @@ impl StacksChainState {
             &index_block_hash
         );
         let update_microblock_children_sql = "UPDATE staging_microblocks SET orphaned = 1, processed = 1 WHERE consensus_hash = ?1 AND anchored_block_hash = ?2".to_string();
-        let update_microblock_children_args =
-            params![consensus_hash, anchored_block_hash];
+        let update_microblock_children_args = params![consensus_hash, anchored_block_hash];
 
         tx.execute(&update_block_sql, update_block_args)
             .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
@@ -2587,8 +2581,7 @@ impl StacksChainState {
     ) -> Result<(), Error> {
         // find offending sequence
         let seq_sql = "SELECT sequence FROM staging_microblocks WHERE consensus_hash = ?1 AND anchored_block_hash = ?2 AND microblock_hash = ?3 AND processed = 0 AND orphaned = 0".to_string();
-        let seq_args =
-            params![consensus_hash, anchored_block_hash, invalid_block_hash];
+        let seq_args = params![consensus_hash, anchored_block_hash, invalid_block_hash];
         let seq = match query_int::<_>(tx, &seq_sql, seq_args) {
             Ok(seq) => seq,
             Err(e) => match e {
@@ -2674,8 +2667,7 @@ impl StacksChainState {
             test_debug!("Set {}-{} processed", &parent_index_hash, &mblock_hash);
 
             // confirm this microblock
-            let args =
-                params![parent_consensus_hash, parent_block_hash, mblock_hash];
+            let args = params![parent_consensus_hash, parent_block_hash, mblock_hash];
             tx.execute(sql, args)
                 .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
 

@@ -1980,8 +1980,7 @@ impl MemPoolDB {
         timestamp: u64,
     ) -> Result<Vec<MemPoolTxInfo>, db_error> {
         let sql = "SELECT * FROM mempool WHERE accept_time = ?1 AND consensus_hash = ?2 AND block_header_hash = ?3 ORDER BY origin_nonce ASC";
-        let args =
-            params![u64_to_sql(timestamp)?, consensus_hash, block_header_hash];
+        let args = params![u64_to_sql(timestamp)?, consensus_hash, block_header_hash];
         let rows = query_rows::<MemPoolTxInfo, _>(conn, &sql, args)?;
         Ok(rows)
     }
