@@ -36,11 +36,12 @@ use clarity::vm::types::TupleData;
 use clarity::vm::{SymbolicExpression, Value};
 use lazy_static::lazy_static;
 use rusqlite::types::ToSql;
-use rusqlite::{Connection, OpenFlags, OptionalExtension, Row, Transaction, NO_PARAMS};
+use rusqlite::{params, Connection, OpenFlags, OptionalExtension, Row, Transaction};
 use serde::de::Error as de_Error;
 use serde::Deserialize;
 use stacks_common::codec::{read_next, write_next, StacksMessageCodec};
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId, TrieHash};
+use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::util;
 use stacks_common::util::hash::{hex_bytes, to_hex};
 
@@ -668,7 +669,7 @@ impl<'a> ChainstateTx<'a> {
                 let txid = tx_event.transaction.txid();
                 let tx_hex = tx_event.transaction.serialize_to_dbstring();
                 let result = tx_event.result.to_string();
-                let params: &[&dyn ToSql] = &[&txid, block_id, &tx_hex, &result];
+                let params = params![txid, block_id, tx_hex, result];
                 if let Err(e) = self.tx.tx().execute(insert, params) {
                     warn!("Failed to log TX: {}", e);
                 }
@@ -1022,11 +1023,7 @@ impl StacksChainState {
             }
             tx.execute(
                 "INSERT INTO db_config (version,mainnet,chain_id) VALUES (?1,?2,?3)",
-                &[
-                    &"1".to_string(),
-                    &(if mainnet { 1 } else { 0 }) as &dyn ToSql,
-                    &chain_id as &dyn ToSql,
-                ],
+                params!["1".to_string(), (if mainnet { 1 } else { 0 }), chain_id,],
             )?;
 
             if migrate {
@@ -2475,7 +2472,7 @@ impl StacksChainState {
         index_block_hash: &StacksBlockId,
     ) -> Result<Vec<Txid>, Error> {
         let sql = "SELECT txids FROM burnchain_txids WHERE index_block_hash = ?1";
-        let args: &[&dyn ToSql] = &[index_block_hash];
+        let args = params![index_block_hash];
 
         let txids = conn
             .query_row(sql, args, |r| {
@@ -2555,7 +2552,7 @@ impl StacksChainState {
         let txids_json =
             serde_json::to_string(&txids).expect("FATAL: could not serialize Vec<Txid>");
         let sql = "INSERT INTO burnchain_txids (index_block_hash, txids) VALUES (?1, ?2)";
-        let args: &[&dyn ToSql] = &[index_block_hash, &txids_json];
+        let args = params![index_block_hash, &txids_json];
         tx.execute(sql, args)?;
         Ok(())
     }
@@ -2685,7 +2682,7 @@ impl StacksChainState {
         if applied_epoch_transition {
             debug!("Block {} applied an epoch transition", &index_block_hash);
             let sql = "INSERT INTO epoch_transitions (block_id) VALUES (?)";
-            let args: &[&dyn ToSql] = &[&index_block_hash];
+            let args = params![&index_block_hash];
             headers_tx.deref_mut().execute(sql, args)?;
         }
 
@@ -2971,5 +2968,14 @@ pub mod test {
             chain_id: CHAIN_ID_MAINNET,
         };
         assert!(db.supports_epoch(StacksEpochId::latest()));
+    }
+
+    #[test]
+    fn test_sqlite_version() {
+        let chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        assert_eq!(
+            query_row(chainstate.db(), "SELECT sqlite_version()", NO_PARAMS).unwrap(),
+            Some("3.45.0".to_string())
+        );
     }
 }

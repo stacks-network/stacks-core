@@ -29,8 +29,8 @@ use clarity::vm::types::{PrincipalData, StacksAddressExtensions, TupleData};
 use clarity::vm::{ClarityVersion, SymbolicExpression, Value};
 use lazy_static::{__Deref, lazy_static};
 use rusqlite::blob::Blob;
-use rusqlite::types::{FromSql, FromSqlError};
-use rusqlite::{params, Connection, OpenFlags, OptionalExtension, ToSql, NO_PARAMS};
+use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput};
+use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
 use sha2::{Digest as Sha2Digest, Sha512_256};
 use stacks_common::bitvec::BitVec;
 use stacks_common::codec::{
@@ -44,6 +44,7 @@ use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, SortitionId, StacksAddress, StacksBlockId,
     StacksPrivateKey, StacksPublicKey, TrieHash, VRFSeed,
 };
+use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::types::{PrivateKey, StacksEpochId};
 use stacks_common::util::hash::{to_hex, Hash160, MerkleHashFunc, MerkleTree, Sha512Trunc256Sum};
 use stacks_common::util::retry::BoundReader;
@@ -126,13 +127,13 @@ define_named_enum!(HeaderTypeNames {
 });
 
 impl ToSql for HeaderTypeNames {
-    fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
+    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
         self.get_name_str().to_sql()
     }
 }
 
 impl FromSql for HeaderTypeNames {
-    fn column_result(value: rusqlite::types::ValueRef<'_>) -> rusqlite::types::FromSqlResult<Self> {
+    fn column_result(value: rusqlite::types::ValueRef<'_>) -> FromSqlResult<Self> {
         Self::lookup_by_name(value.as_str()?).ok_or_else(|| FromSqlError::InvalidType)
     }
 }
@@ -2056,7 +2057,7 @@ impl NakamotoChainState {
         let qry = "SELECT DISTINCT tenure_id_consensus_hash AS consensus_hash FROM nakamoto_tenures WHERE coinbase_height = ?1";
 
         let candidate_chs: Vec<ConsensusHash> =
-            query_rows(tx.tx(), qry, &[u64_to_sql(coinbase_height)?])?;
+            query_rows(tx.tx(), qry, params![u64_to_sql(coinbase_height)?])?;
 
         if candidate_chs.len() == 0 {
             // no nakamoto_tenures at that tenure height, check if there's a stack block header where
@@ -2288,7 +2289,7 @@ impl NakamotoChainState {
         block_hash: &BlockHeaderHash,
     ) -> Result<Option<(bool, bool)>, ChainstateError> {
         let sql = "SELECT processed, orphaned FROM nakamoto_staging_blocks WHERE consensus_hash = ?1 AND block_hash = ?2";
-        let args: &[&dyn ToSql] = &[consensus_hash, block_hash];
+        let args = params![consensus_hash, block_hash];
         let Some((processed, orphaned)) = query_row_panic(&staging_blocks_conn, sql, args, || {
             "FATAL: multiple rows for the same consensus hash and block hash".to_string()
         })
@@ -2326,7 +2327,7 @@ impl NakamotoChainState {
         consensus_hash: &ConsensusHash,
     ) -> Result<Option<VRFProof>, ChainstateError> {
         let sql = "SELECT vrf_proof FROM nakamoto_block_headers WHERE consensus_hash = ?1 AND tenure_changed = 1";
-        let args: &[&dyn ToSql] = &[consensus_hash];
+        let args = params![consensus_hash];
         let proof_bytes: Option<String> = query_row(chainstate_conn, sql, args)?;
         if let Some(bytes) = proof_bytes {
             let proof = VRFProof::from_hex(&bytes)
@@ -2414,32 +2415,32 @@ impl NakamotoChainState {
             ))
         })?;
 
-        let args: &[&dyn ToSql] = &[
-            &u64_to_sql(*stacks_block_height)?,
-            &index_root,
-            &consensus_hash,
-            &burn_header_hash,
-            &burn_header_height,
-            &u64_to_sql(*burn_header_timestamp)?,
-            &block_size_str,
-            &HeaderTypeNames::Nakamoto,
-            &header.version,
-            &u64_to_sql(header.chain_length)?,
-            &u64_to_sql(header.burn_spent)?,
-            &header.miner_signature,
-            &signer_signature,
-            &header.tx_merkle_root,
-            &header.state_index_root,
-            &u64_to_sql(header.timestamp)?,
-            &block_hash,
-            &index_block_hash,
+        let args = params![
+            u64_to_sql(*stacks_block_height)?,
+            index_root,
+            consensus_hash,
+            burn_header_hash,
+            burn_header_height,
+            u64_to_sql(*burn_header_timestamp)?,
+            block_size_str,
+            HeaderTypeNames::Nakamoto,
+            header.version,
+            u64_to_sql(header.chain_length)?,
+            u64_to_sql(header.burn_spent)?,
+            header.miner_signature,
+            signer_signature,
+            header.tx_merkle_root,
+            header.state_index_root,
+            u64_to_sql(header.timestamp)?,
+            block_hash,
+            index_block_hash,
             block_cost,
             total_tenure_cost,
-            &tenure_tx_fees.to_string(),
-            &header.parent_block_id,
-            if tenure_changed { &1i64 } else { &0i64 },
-            &vrf_proof_bytes.as_ref(),
-            &header.pox_treatment,
+            tenure_tx_fees.to_string(),
+            header.parent_block_id,
+            if tenure_changed { 1i64 } else { 0i64 },
+            vrf_proof_bytes.as_ref(),
+            header.pox_treatment,
             tip_info.burn_view.as_ref().ok_or_else(|| {
                 error!(
                     "Attempted to store nakamoto block header information without burnchain view";
@@ -2621,7 +2622,7 @@ impl NakamotoChainState {
         if applied_epoch_transition {
             debug!("Block {} applied an epoch transition", &index_block_hash);
             let sql = "INSERT INTO epoch_transitions (block_id) VALUES (?)";
-            let args: &[&dyn ToSql] = &[&index_block_hash];
+            let args = params![index_block_hash];
             headers_tx.deref_mut().execute(sql, args)?;
         }
 
@@ -2638,7 +2639,7 @@ impl NakamotoChainState {
         reward_set: &RewardSet,
     ) -> Result<(), ChainstateError> {
         let sql = "INSERT INTO nakamoto_reward_sets (index_block_hash, reward_set) VALUES (?, ?)";
-        let args = rusqlite::params![block_id, &reward_set.metadata_serialize(),];
+        let args = params![block_id, reward_set.metadata_serialize(),];
         tx.execute(sql, args)?;
         Ok(())
     }

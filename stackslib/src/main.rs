@@ -80,13 +80,14 @@ use blockstack_lib::util_lib::strings::UrlString;
 use blockstack_lib::{clarity_cli, util_lib};
 use libstackerdb::StackerDBChunkData;
 use rusqlite::types::ToSql;
-use rusqlite::{Connection, OpenFlags};
+use rusqlite::{params, Connection, Error as SqliteError, OpenFlags};
 use serde_json::{json, Value};
 use stacks_common::codec::{read_next, StacksMessageCodec};
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, PoxId, StacksAddress, StacksBlockId,
 };
 use stacks_common::types::net::PeerAddress;
+use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::util::hash::{hex_bytes, to_hex, Hash160};
 use stacks_common::util::retry::LogReader;
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
@@ -768,8 +769,8 @@ simulating a miner.
         if let Some(value) = value_opt {
             let conn = sqlite_open(&db_path, OpenFlags::SQLITE_OPEN_READ_ONLY, false)
                 .expect("Failed to open DB");
-            let args: &[&dyn ToSql] = &[&value.to_hex()];
-            let res: Result<String, rusqlite::Error> = conn.query_row_and_then(
+            let args = params![&value.to_hex()];
+            let res: Result<String, SqliteError> = conn.query_row_and_then(
                 "SELECT value FROM __fork_storage WHERE value_hash = ?1",
                 args,
                 |row| {
@@ -829,18 +830,18 @@ simulating a miner.
         let tip = BlockHeaderHash::from_hex(&argv[3]).unwrap();
         let burntip = BurnchainHeaderHash::from_hex(&argv[4]).unwrap();
 
-        let conn = rusqlite::Connection::open(path).unwrap();
+        let conn = Connection::open(path).unwrap();
         let mut cur_burn = burntip.clone();
         let mut cur_tip = tip.clone();
         loop {
             println!("{}, {}", cur_burn, cur_tip);
             let (next_burn, next_tip) = match
                 conn.query_row("SELECT parent_burn_header_hash, parent_anchored_block_hash FROM staging_blocks WHERE anchored_block_hash = ? and burn_header_hash = ?",
-                               &[&cur_tip as &dyn rusqlite::types::ToSql, &cur_burn], |row| Ok((row.get_unwrap(0), row.get_unwrap(1)))) {
+                               params![cur_tip, cur_burn], |row| Ok((row.get_unwrap(0), row.get_unwrap(1)))) {
                     Ok(x) => x,
                     Err(e) => {
                         match e {
-                            rusqlite::Error::QueryReturnedNoRows => {},
+                            SqliteError::QueryReturnedNoRows => {},
                             e => {
                                 eprintln!("SQL Error: {}", e);
                             },
@@ -933,7 +934,7 @@ simulating a miner.
         };
 
         let mut stmt = conn.prepare(&query).unwrap();
-        let mut hashes_set = stmt.query(rusqlite::NO_PARAMS).unwrap();
+        let mut hashes_set = stmt.query(NO_PARAMS).unwrap();
 
         let mut index_block_hashes: Vec<String> = vec![];
         while let Ok(Some(row)) = hashes_set.next() {
@@ -965,7 +966,7 @@ simulating a miner.
             byte_prefix
         );
         let mut stmt = conn.prepare(&query).unwrap();
-        let mut rows = stmt.query(rusqlite::NO_PARAMS).unwrap();
+        let mut rows = stmt.query(NO_PARAMS).unwrap();
         while let Ok(Some(row)) = rows.next() {
             let val_string: String = row.get(0).unwrap();
             let clarity_value = match clarity::vm::Value::try_deserialize_hex_untyped(&val_string) {

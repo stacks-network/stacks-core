@@ -36,8 +36,7 @@ use libstackerdb::{
 };
 use rand::{thread_rng, RngCore};
 use regex::Regex;
-use rusqlite::types::ToSqlOutput;
-use rusqlite::ToSql;
+use rusqlite::types::{ToSql, ToSqlOutput};
 use serde::de::Error as de_Error;
 use serde::ser::Error as ser_Error;
 use serde::{Deserialize, Serialize};
@@ -1705,13 +1704,13 @@ pub mod test {
     use std::{fs, io, thread};
 
     use clarity::boot_util::boot_code_id;
+    use clarity::types::sqlite::NO_PARAMS;
     use clarity::vm::ast::ASTRules;
     use clarity::vm::costs::ExecutionCost;
     use clarity::vm::database::STXBalance;
     use clarity::vm::types::*;
     use clarity::vm::ClarityVersion;
     use rand::{Rng, RngCore};
-    use rusqlite::NO_PARAMS;
     use stacks_common::address::*;
     use stacks_common::codec::StacksMessageCodec;
     use stacks_common::deps_common::bitcoin::network::serialize::BitcoinHash;
