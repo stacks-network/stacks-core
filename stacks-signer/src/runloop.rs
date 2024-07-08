@@ -385,11 +385,9 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
             if stale {
                 debug!("{signer}: Signer's tenure has completed.");
                 to_delete.push(*idx);
-                continue;
             }
         }
         for idx in to_delete {
-            println!("DELETING");
             self.stacks_signers.remove(&idx);
         }
     }
