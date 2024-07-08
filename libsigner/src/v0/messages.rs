@@ -222,7 +222,11 @@ RejectCodeTypePrefix {
     /// The block was rejected due to connectivity issues with the signer
     ConnectivityIssues = 1,
     /// The block was rejected in a prior round
-    RejectedInPriorRound = 2
+    RejectedInPriorRound = 2,
+    /// The block was rejected due to no sortition view
+    NoSortitionView = 3,
+    /// The block was rejected due to a mismatch with expected sortition view
+    SortitionViewMismatch = 4
 });
 
 impl TryFrom<u8> for RejectCodeTypePrefix {
@@ -240,6 +244,8 @@ impl From<&RejectCode> for RejectCodeTypePrefix {
             RejectCode::ValidationFailed(_) => RejectCodeTypePrefix::ValidationFailed,
             RejectCode::ConnectivityIssues => RejectCodeTypePrefix::ConnectivityIssues,
             RejectCode::RejectedInPriorRound => RejectCodeTypePrefix::RejectedInPriorRound,
+            RejectCode::NoSortitionView => RejectCodeTypePrefix::NoSortitionView,
+            RejectCode::SortitionViewMismatch => RejectCodeTypePrefix::SortitionViewMismatch,
         }
     }
 }
@@ -249,10 +255,14 @@ impl From<&RejectCode> for RejectCodeTypePrefix {
 pub enum RejectCode {
     /// RPC endpoint Validation failed
     ValidationFailed(ValidateRejectCode),
+    /// No Sortition View to verify against
+    NoSortitionView,
     /// The block was rejected due to connectivity issues with the signer
     ConnectivityIssues,
     /// The block was rejected in a prior round
     RejectedInPriorRound,
+    /// The block was rejected due to a mismatch with expected sortition view
+    SortitionViewMismatch,
 }
 
 define_u8_enum!(
@@ -420,7 +430,10 @@ impl StacksMessageCodec for RejectCode {
         // Do not do a single match here as we may add other variants in the future and don't want to miss adding it
         match self {
             RejectCode::ValidationFailed(code) => write_next(fd, &(*code as u8))?,
-            RejectCode::ConnectivityIssues | RejectCode::RejectedInPriorRound => {
+            RejectCode::ConnectivityIssues
+            | RejectCode::RejectedInPriorRound
+            | RejectCode::NoSortitionView
+            | RejectCode::SortitionViewMismatch => {
                 // No additional data to serialize / deserialize
             }
         };
@@ -441,6 +454,8 @@ impl StacksMessageCodec for RejectCode {
             ),
             RejectCodeTypePrefix::ConnectivityIssues => RejectCode::ConnectivityIssues,
             RejectCodeTypePrefix::RejectedInPriorRound => RejectCode::RejectedInPriorRound,
+            RejectCodeTypePrefix::NoSortitionView => RejectCode::NoSortitionView,
+            RejectCodeTypePrefix::SortitionViewMismatch => RejectCode::SortitionViewMismatch,
         };
         Ok(code)
     }
@@ -459,6 +474,15 @@ impl std::fmt::Display for RejectCode {
                 f,
                 "The block was proposed before and rejected by the signer."
             ),
+            RejectCode::NoSortitionView => {
+                write!(f, "The block was rejected due to no sortition view.")
+            }
+            RejectCode::SortitionViewMismatch => {
+                write!(
+                    f,
+                    "The block was rejected due to a mismatch with expected sortition view."
+                )
+            }
         }
     }
 }

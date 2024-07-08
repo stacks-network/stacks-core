@@ -15,7 +15,7 @@
 use std::fmt::Debug;
 use std::sync::mpsc::Sender;
 
-use blockstack_lib::net::api::postblock_proposal::{BlockValidateResponse, ValidateRejectCode};
+use blockstack_lib::net::api::postblock_proposal::BlockValidateResponse;
 use clarity::types::chainstate::StacksPrivateKey;
 use clarity::types::PrivateKey;
 use clarity::util::hash::MerkleHashFunc;
@@ -280,7 +280,7 @@ impl Signer {
                 .ok();
         }
 
-        // Check if proposal can be rejected now if not valid agains sortition view
+        // Check if proposal can be rejected now if not valid against sortition view
         let block_response = if let Some(sortition_state) = sortition_state {
             match sortition_state.check_proposal(
                 stacks_client,
@@ -309,7 +309,7 @@ impl Signer {
                     );
                     Some(BlockResponse::rejected(
                         block_proposal.block.header.signer_signature_hash(),
-                        RejectCode::ValidationFailed(ValidateRejectCode::InvalidBlock),
+                        RejectCode::SortitionViewMismatch,
                     ))
                 }
                 // Block proposal passed check, still don't know if valid
@@ -323,7 +323,7 @@ impl Signer {
             );
             Some(BlockResponse::rejected(
                 block_proposal.block.header.signer_signature_hash(),
-                RejectCode::ValidationFailed(ValidateRejectCode::InvalidBlock),
+                RejectCode::NoSortitionView,
             ))
         };
 
