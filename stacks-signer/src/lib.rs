@@ -81,7 +81,7 @@ pub trait Signer<T: SignerEventTrait>: Debug + Display {
         current_reward_cycle: u64,
         command: Option<RunLoopCommand>,
     );
-    /// Check if the signer is stale, i.e. its tenure is complete and it has no pending blocks to process
+    /// Check if the signer is in the middle of processing blocks
     fn has_pending_blocks(&self) -> bool;
 }
 
