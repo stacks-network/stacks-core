@@ -71,6 +71,7 @@ use stacks::net::api::getstackers::GetStackersResponse;
 use stacks::net::api::postblock_proposal::{
     BlockValidateReject, BlockValidateResponse, NakamotoBlockProposal, ValidateRejectCode,
 };
+use stacks::util::get_epoch_time_secs;
 use stacks::util::hash::hex_bytes;
 use stacks::util_lib::boot::boot_code_id;
 use stacks::util_lib::signed_structured_data::pox4::{
@@ -88,7 +89,7 @@ use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::hash::{to_hex, Hash160, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PrivateKey, Secp256k1PublicKey};
 use stacks_common::util::sleep_ms;
-use stacks_signer::chainstate::SortitionsView;
+use stacks_signer::chainstate::{ProposalEvalConfig, SortitionsView};
 use stacks_signer::signerdb::{BlockInfo, SignerDb};
 use wsts::net::Message;
 
@@ -4542,7 +4543,11 @@ fn signer_chainstate() {
         )
         .unwrap();
 
-        let sortitions_view = SortitionsView::fetch_view(&signer_client).unwrap();
+        // this config disallows any reorg due to poorly timed block commits
+        let proposal_conf = ProposalEvalConfig {
+            first_proposal_burn_block_timing: Duration::from_secs(0),
+        };
+        let sortitions_view = SortitionsView::fetch_view(proposal_conf, &signer_client).unwrap();
 
         // check the prior tenure's proposals again, confirming that the sortitions_view
         //  will reject them.
@@ -4604,6 +4609,9 @@ fn signer_chainstate() {
                 valid: Some(true),
                 nonce_request: None,
                 signed_over: true,
+                proposed_time: get_epoch_time_secs(),
+                signed_self: None,
+                signed_group: None,
             })
             .unwrap();
 
@@ -4648,7 +4656,11 @@ fn signer_chainstate() {
         );
         // force the view to refresh and check again
 
-        let sortitions_view = SortitionsView::fetch_view(&signer_client).unwrap();
+        // this config disallows any reorg due to poorly timed block commits
+        let proposal_conf = ProposalEvalConfig {
+            first_proposal_burn_block_timing: Duration::from_secs(0),
+        };
+        let sortitions_view = SortitionsView::fetch_view(proposal_conf, &signer_client).unwrap();
         let valid = sortitions_view
             .check_proposal(
                 &signer_client,
@@ -4672,6 +4684,9 @@ fn signer_chainstate() {
                 valid: Some(true),
                 nonce_request: None,
                 signed_over: true,
+                proposed_time: get_epoch_time_secs(),
+                signed_self: None,
+                signed_group: None,
             })
             .unwrap();
 
@@ -4707,7 +4722,11 @@ fn signer_chainstate() {
         txs: vec![],
     };
 
-    let mut sortitions_view = SortitionsView::fetch_view(&signer_client).unwrap();
+    // this config disallows any reorg due to poorly timed block commits
+    let proposal_conf = ProposalEvalConfig {
+        first_proposal_burn_block_timing: Duration::from_secs(0),
+    };
+    let mut sortitions_view = SortitionsView::fetch_view(proposal_conf, &signer_client).unwrap();
 
     assert!(
         !sortitions_view

@@ -26,7 +26,7 @@ use slog::{slog_debug, slog_error, slog_info, slog_warn};
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::{debug, error, info, warn};
 
-use crate::chainstate::SortitionsView;
+use crate::chainstate::{ProposalEvalConfig, SortitionsView};
 use crate::client::{SignerSlotID, StackerDB, StacksClient};
 use crate::config::SignerConfig;
 use crate::runloop::{RunLoopCommand, SignerResult};
@@ -52,6 +52,8 @@ pub struct Signer {
     pub reward_cycle: u64,
     /// SignerDB for state management
     pub signer_db: SignerDb,
+    /// Configuration for proposal evaluation
+    pub proposal_config: ProposalEvalConfig,
 }
 
 impl std::fmt::Display for Signer {
@@ -89,7 +91,7 @@ impl SignerTrait<SignerMessage> for Signer {
             //  and the vec could be heterogenous, so, don't differentiate.
             Some(SignerEvent::BlockValidationResponse(_))
             | Some(SignerEvent::MinerMessages(..))
-            | Some(SignerEvent::NewBurnBlock(_))
+            | Some(SignerEvent::NewBurnBlock { .. })
             | Some(SignerEvent::StatusCheck)
             | None => None,
             Some(SignerEvent::SignerMessages(msg_parity, ..)) => Some(u64::from(*msg_parity) % 2),
@@ -146,8 +148,23 @@ impl SignerTrait<SignerMessage> for Signer {
             SignerEvent::StatusCheck => {
                 debug!("{self}: Received a status check event.");
             }
-            SignerEvent::NewBurnBlock(height) => {
-                debug!("{self}: Receved a new burn block event for block height {height}");
+            SignerEvent::NewBurnBlock {
+                burn_height,
+                burn_header_hash,
+                received_time,
+            } => {
+                debug!("{self}: Receved a new burn block event for block height {burn_height}");
+                if let Err(e) =
+                    self.signer_db
+                        .insert_burn_block(burn_header_hash, *burn_height, received_time)
+                {
+                    warn!(
+                        "Failed to write burn block event to signerdb";
+                        "err" => ?e,
+                        "burn_header_hash" => %burn_header_hash,
+                        "burn_height" => burn_height
+                    );
+                }
                 *sortition_state = None;
             }
         }
@@ -184,7 +201,7 @@ impl From<SignerConfig> for Signer {
         );
         let signer_db =
             SignerDb::new(&signer_config.db_path).expect("Failed to connect to signer Db");
-
+        let proposal_config = ProposalEvalConfig::from(&signer_config);
         Self {
             private_key: signer_config.stacks_private_key,
             stackerdb,
@@ -198,6 +215,7 @@ impl From<SignerConfig> for Signer {
             signer_slot_ids: signer_config.signer_slot_ids.clone(),
             reward_cycle: signer_config.reward_cycle,
             signer_db,
+            proposal_config,
         }
     }
 }
@@ -279,15 +297,16 @@ impl Signer {
 
         // Get sortition view if we don't have it
         if sortition_state.is_none() {
-            *sortition_state = SortitionsView::fetch_view(stacks_client)
-                .inspect_err(|e| {
-                    warn!(
-                        "{self}: Failed to update sortition view: {e:?}";
-                        "signer_sighash" => %signer_signature_hash,
-                        "block_id" => %block_proposal.block.block_id(),
-                    )
-                })
-                .ok();
+            *sortition_state =
+                SortitionsView::fetch_view(self.proposal_config.clone(), stacks_client)
+                    .inspect_err(|e| {
+                        warn!(
+                            "{self}: Failed to update sortition view: {e:?}";
+                            "signer_sighash" => %signer_signature_hash,
+                            "block_id" => %block_proposal.block.block_id(),
+                        )
+                    })
+                    .ok();
         }
 
         // Check if proposal can be rejected now if not valid against sortition view

@@ -64,6 +64,8 @@ pub struct SortitionInfo {
     pub burn_block_hash: BurnchainHeaderHash,
     /// The burn height of the block that triggered this event.
     pub burn_block_height: u64,
+    /// The burn block time of the sortition
+    pub burn_header_timestamp: u64,
     /// This sortition ID of the block that triggered this event. This incorporates
     ///  PoX forking information and the burn block hash to obtain an identifier that is
     ///  unique across PoX forks and burnchain forks.
@@ -256,6 +258,7 @@ impl RPCRequestHandler for GetSortitionHandler {
                 Ok(SortitionInfo {
                     burn_block_hash: sortition_sn.burn_header_hash,
                     burn_block_height: sortition_sn.block_height,
+                    burn_header_timestamp: sortition_sn.burn_header_timestamp,
                     sortition_id: sortition_sn.sortition_id,
                     parent_sortition_id: sortition_sn.parent_sortition_id,
                     consensus_hash: sortition_sn.consensus_hash,

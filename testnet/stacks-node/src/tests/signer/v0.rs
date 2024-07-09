@@ -32,7 +32,7 @@ use stacks::types::PublicKey;
 use stacks::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 use stacks::util_lib::boot::boot_code_id;
 use stacks_common::bitvec::BitVec;
-use stacks_signer::chainstate::SortitionsView;
+use stacks_signer::chainstate::{ProposalEvalConfig, SortitionsView};
 use stacks_signer::client::{SignerSlotID, StackerDB};
 use stacks_signer::runloop::State;
 use stacks_signer::v0::SpawnedSigner;
@@ -262,7 +262,10 @@ fn block_proposal_rejection() {
 
     info!("------------------------- Send Block Proposal To Signers -------------------------");
     let reward_cycle = signer_test.get_current_reward_cycle();
-    let view = SortitionsView::fetch_view(&signer_test.stacks_client).unwrap();
+    let proposal_conf = ProposalEvalConfig {
+        first_proposal_burn_block_timing: Duration::from_secs(0),
+    };
+    let view = SortitionsView::fetch_view(proposal_conf, &signer_test.stacks_client).unwrap();
     let mut block = NakamotoBlock {
         header: NakamotoBlockHeader::empty(),
         txs: vec![],

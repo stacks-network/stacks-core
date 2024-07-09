@@ -172,7 +172,7 @@ impl SignerTrait<SignerMessage> for Signer {
             // Block proposal events do have reward cycles, but each proposal has its own cycle,
             //  and the vec could be heterogenous, so, don't differentiate.
             Some(SignerEvent::MinerMessages(..))
-            | Some(SignerEvent::NewBurnBlock(_))
+            | Some(SignerEvent::NewBurnBlock { .. })
             | Some(SignerEvent::StatusCheck)
             | None => None,
             Some(SignerEvent::SignerMessages(msg_parity, ..)) => Some(u64::from(*msg_parity) % 2),
@@ -239,8 +239,23 @@ impl SignerTrait<SignerMessage> for Signer {
             SignerEvent::StatusCheck => {
                 debug!("{self}: Received a status check event.")
             }
-            SignerEvent::NewBurnBlock(height) => {
-                debug!("{self}: Receved a new burn block event for block height {height}");
+            SignerEvent::NewBurnBlock {
+                burn_height,
+                burn_header_hash,
+                received_time,
+            } => {
+                debug!("{self}: Receved a new burn block event for block height {burn_height}");
+                if let Err(e) =
+                    self.signer_db
+                        .insert_burn_block(burn_header_hash, *burn_height, received_time)
+                {
+                    warn!(
+                        "Failed to write burn block event to signerdb";
+                        "err" => ?e,
+                        "burn_header_hash" => %burn_header_hash,
+                        "burn_height" => burn_height
+                    );
+                }
             }
         }
     }
