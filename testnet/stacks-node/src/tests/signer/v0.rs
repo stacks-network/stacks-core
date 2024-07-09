@@ -93,7 +93,7 @@ impl SignerTest<SpawnedSigner> {
             let states = self.wait_for_states(short_timeout);
             if states
                 .iter()
-                .all(|state| state == &State::RegisteredSigners)
+                .all(|state_info| state_info.runloop_state == State::RegisteredSigners)
             {
                 break;
             }
@@ -534,21 +534,9 @@ fn end_of_tenure() {
         std::thread::sleep(Duration::from_millis(100));
     }
 
-    info!("Block proposed, verifying that it is not processed");
-
-    // Wait 10 seconds and verify that the block has not been processed
-    std::thread::sleep(Duration::from_secs(10));
-    assert_eq!(
-        signer_test
-            .running_nodes
-            .nakamoto_blocks_mined
-            .load(Ordering::SeqCst),
-        blocks_before
-    );
-
     info!("Triggering a new block to be mined");
 
-    // Mine a couple blocks into the next reward cycle
+    // Mine a block into the next reward cycle
     let commits_before = signer_test
         .running_nodes
         .commits_submitted
@@ -565,14 +553,6 @@ fn end_of_tenure() {
         },
     )
     .unwrap();
-    for _ in 0..2 {
-        next_block_and(
-            &mut signer_test.running_nodes.btc_regtest_controller,
-            10,
-            || Ok(true),
-        )
-        .unwrap();
-    }
     assert_eq!(signer_test.get_current_reward_cycle(), final_reward_cycle);
 
     while test_observer::get_burn_blocks()
@@ -582,16 +562,45 @@ fn end_of_tenure() {
         .unwrap()
         .as_u64()
         .unwrap()
-        >= final_reward_cycle_height_boundary + 3
+        >= final_reward_cycle_height_boundary + 1
     {
-        std::thread::sleep(Duration::from_secs(1));
         assert!(
             start_time.elapsed() <= short_timeout,
-            "Timed out waiting for bun block events"
+            "Timed out waiting for burn block events"
         );
+        std::thread::sleep(Duration::from_millis(100));
     }
 
-    std::thread::sleep(short_timeout);
+    let now = std::time::Instant::now();
+    // Wait for the signer to process the burn blocks and fully enter the next reward cycle
+    loop {
+        signer_test.send_status_request();
+        let states = signer_test.wait_for_states(short_timeout);
+        if states.iter().all(|state_info| {
+            state_info
+                .reward_cycle_info
+                .map(|info| info.reward_cycle == final_reward_cycle)
+                .unwrap_or(false)
+        }) {
+            break;
+        }
+        assert!(
+            now.elapsed() < short_timeout,
+            "Timed out waiting for signers to be in the next reward cycle"
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    }
+
+    info!("Block proposed and burn blocks consumed. Verifying that stacks block is still not processed");
+
+    assert_eq!(
+        signer_test
+            .running_nodes
+            .nakamoto_blocks_mined
+            .load(Ordering::SeqCst),
+        blocks_before
+    );
+
     info!("Unpausing block validation and waiting for block to be processed");
     // Disable the stall and wait for the block to be processed
     TEST_VALIDATE_STALL.lock().unwrap().replace(false);

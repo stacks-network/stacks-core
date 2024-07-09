@@ -51,7 +51,7 @@ use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::{hex_bytes, Sha512Trunc256Sum};
 use stacks_signer::client::{SignerSlotID, StacksClient};
 use stacks_signer::config::{build_signer_config_tomls, GlobalConfig as SignerConfig, Network};
-use stacks_signer::runloop::{SignerResult, State};
+use stacks_signer::runloop::{SignerResult, StateInfo};
 use stacks_signer::{Signer, SpawnedSigner};
 use wsts::state_machine::PublicKeys;
 
@@ -168,7 +168,8 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         }
     }
 
-    fn send_status_request(&self) {
+    /// Send a status request to each spawned signer
+    pub fn send_status_request(&self) {
         for port in 3000..3000 + self.spawned_signers.len() {
             let endpoint = format!("http://localhost:{}", port);
             let path = format!("{endpoint}/status");
@@ -182,7 +183,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
     }
 
     /// Wait for the signers to respond to a status check
-    fn wait_for_states(&mut self, timeout: Duration) -> Vec<State> {
+    pub fn wait_for_states(&mut self, timeout: Duration) -> Vec<StateInfo> {
         debug!("Waiting for Status...");
         let now = std::time::Instant::now();
         let mut states = Vec::with_capacity(self.spawned_signers.len());
@@ -202,8 +203,8 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
                         SignerResult::OperationResult(_operation) => {
                             panic!("Recieved an operation result.");
                         }
-                        SignerResult::StatusCheck(state) => {
-                            states.push(state);
+                        SignerResult::StatusCheck(state_info) => {
+                            states.push(state_info);
                         }
                     }
                 }

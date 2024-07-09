@@ -34,10 +34,19 @@ use crate::client::{retry_with_exponential_backoff, ClientError, SignerSlotID, S
 use crate::config::{GlobalConfig, SignerConfig};
 use crate::Signer as SignerTrait;
 
+/// The internal signer state info
+#[derive(PartialEq, Clone, Debug)]
+pub struct StateInfo {
+    /// the runloop state
+    pub runloop_state: State,
+    /// the current reward cycle info
+    pub reward_cycle_info: Option<RewardCycleInfo>,
+}
+
 /// The signer result that can be sent across threads
 pub enum SignerResult {
     /// The signer has received a status check
-    StatusCheck(State),
+    StatusCheck(StateInfo),
     /// The signer has completed an operation
     OperationResult(OperationResult),
 }
@@ -48,9 +57,9 @@ impl From<OperationResult> for SignerResult {
     }
 }
 
-impl From<State> for SignerResult {
-    fn from(state: State) -> Self {
-        SignerResult::StatusCheck(state)
+impl From<StateInfo> for SignerResult {
+    fn from(state_info: StateInfo) -> Self {
+        SignerResult::StatusCheck(state_info)
     }
 }
 
@@ -458,7 +467,12 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug>
         // This is the only event that we respond to from the outer signer runloop
         if let Some(SignerEvent::StatusCheck) = event {
             info!("Signer status check requested: {:?}.", self.state);
-            if let Err(e) = res.send(vec![self.state.into()]) {
+            if let Err(e) = res.send(vec![StateInfo {
+                runloop_state: self.state,
+                reward_cycle_info: self.current_reward_cycle_info,
+            }
+            .into()])
+            {
                 error!("Failed to send status check result: {e}.");
             }
         }
