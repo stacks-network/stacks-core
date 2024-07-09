@@ -20,9 +20,10 @@ use std::{fmt, fs};
 
 use lazy_static::lazy_static;
 use rusqlite::blob::Blob;
-use rusqlite::types::{FromSql, FromSqlError};
-use rusqlite::{params, Connection, OpenFlags, OptionalExtension, ToSql, NO_PARAMS};
+use rusqlite::types::{FromSql, FromSqlError, ToSql};
+use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
 use stacks_common::types::chainstate::{ConsensusHash, StacksBlockId};
+use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 use stacks_common::util::{get_epoch_time_secs, sleep_ms};
 
@@ -44,7 +45,7 @@ pub enum NakamotoBlockObtainMethod {
     Downloaded,
     Pushed,
     Mined,
-    Uploaded
+    Uploaded,
 }
 
 impl fmt::Display for NakamotoBlockObtainMethod {
@@ -238,7 +239,7 @@ impl<'a> NakamotoStagingBlocksConnRef<'a> {
         index_block_hash: &StacksBlockId,
     ) -> Result<bool, ChainstateError> {
         let qry = "SELECT 1 FROM nakamoto_staging_blocks WHERE index_block_hash = ?1";
-        let args: &[&dyn ToSql] = &[index_block_hash];
+        let args = params![index_block_hash];
         let res: Option<i64> = query_row(self, qry, args)?;
         Ok(res.is_some())
     }
@@ -251,23 +252,22 @@ impl<'a> NakamotoStagingBlocksConnRef<'a> {
     pub(crate) fn get_block_processed_and_signed_weight(
         &self,
         consensus_hash: &ConsensusHash,
-        sighash: &Sha512Trunc256Sum,
+        signer_sighash: &Sha512Trunc256Sum,
     ) -> Result<Option<(StacksBlockId, bool, bool, u32)>, ChainstateError> {
         let sql = "SELECT index_block_hash,processed,orphaned,signing_weight FROM nakamoto_staging_blocks WHERE consensus_hash = ?1 AND block_hash = ?2 ORDER BY signing_weight DESC, index_block_hash LIMIT 1";
-        let args = rusqlite::params![consensus_hash, sighash];
+        let args = params![consensus_hash, signer_sighash];
 
         let mut stmt = self.deref().prepare(sql)?;
-        let mut qry = stmt.query(args)?;
+        Ok(stmt
+            .query_row(args, |row| {
+                let block_id: StacksBlockId = row.get(0)?;
+                let processed: bool = row.get(1)?;
+                let orphaned: bool = row.get(2)?;
+                let signing_weight: u32 = row.get(3)?;
 
-        while let Some(row) = qry.next()? {
-            let block_id: StacksBlockId = row.get(0)?;
-            let processed: bool = row.get(1)?;
-            let orphaned: bool = row.get(2)?;
-            let signing_weight: u32 = row.get(3)?;
-
-            return Ok(Some((block_id, processed, orphaned, signing_weight)));
-        }
-        Ok(None)
+                Ok((block_id, processed, orphaned, signing_weight))
+            })
+            .optional()?)
     }
 
     /// Get the rowid of a Nakamoto block
@@ -276,7 +276,7 @@ impl<'a> NakamotoStagingBlocksConnRef<'a> {
         index_block_hash: &StacksBlockId,
     ) -> Result<Option<i64>, ChainstateError> {
         let sql = "SELECT rowid FROM nakamoto_staging_blocks WHERE index_block_hash = ?1";
-        let args: &[&dyn ToSql] = &[index_block_hash];
+        let args = params![index_block_hash];
         let res: Option<i64> = query_row(self, sql, args)?;
         Ok(res)
     }
@@ -291,7 +291,7 @@ impl<'a> NakamotoStagingBlocksConnRef<'a> {
         index_block_hash: &StacksBlockId,
     ) -> Result<Option<(NakamotoBlock, u64)>, ChainstateError> {
         let qry = "SELECT data FROM nakamoto_staging_blocks WHERE index_block_hash = ?1";
-        let args: &[&dyn ToSql] = &[index_block_hash];
+        let args = params![index_block_hash];
         let res: Option<Vec<u8>> = query_row(self, qry, args)?;
         let Some(block_bytes) = res else {
             return Ok(None);
@@ -320,7 +320,7 @@ impl<'a> NakamotoStagingBlocksConnRef<'a> {
         index_block_hash: &StacksBlockId,
     ) -> Result<Option<u64>, ChainstateError> {
         let qry = "SELECT length(data) FROM nakamoto_staging_blocks WHERE index_block_hash = ?1";
-        let args: &[&dyn ToSql] = &[index_block_hash];
+        let args = params![index_block_hash];
         let res = query_row(self, qry, args)?
             .map(|size: i64| u64::try_from(size).expect("FATAL: block size exceeds i64::MAX"));
         Ok(res)
@@ -427,7 +427,7 @@ impl<'a> NakamotoStagingBlocksTx<'a> {
                                   WHERE index_block_hash = ?1";
         self.execute(
             &clear_staged_block,
-            params![&block, &u64_to_sql(get_epoch_time_secs())?],
+            params![block, u64_to_sql(get_epoch_time_secs())?],
         )?;
 
         Ok(())
@@ -447,7 +447,7 @@ impl<'a> NakamotoStagingBlocksTx<'a> {
                                   WHERE index_block_hash = ?1";
         self.execute(
             &clear_staged_block,
-            params![&block, &u64_to_sql(get_epoch_time_secs())?],
+            params![block, u64_to_sql(get_epoch_time_secs())?],
         )?;
 
         Ok(())
@@ -480,12 +480,10 @@ impl<'a> NakamotoStagingBlocksTx<'a> {
             ));
         };
 
-        let burn_attachable = if !burn_attachable {
+        let burn_attachable = burn_attachable || {
             // if it's burn_attachable before, it's burn_attachable always
             self.conn()
                 .is_burn_block_processed(&block.header.consensus_hash)?
-        } else {
-            burn_attachable
         };
 
         self.execute(
@@ -528,16 +526,16 @@ impl<'a> NakamotoStagingBlocksTx<'a> {
         Ok(())
     }
 
-    /// Do we have a block with the given sighash?
+    /// Do we have a block with the given signer sighash?
     /// NOTE: the block hash and sighash are the same for Nakamoto blocks
-    pub(crate) fn has_nakamoto_block_with_sighash(
+    pub(crate) fn has_nakamoto_block_with_signer_sighash(
         &self,
         consensus_hash: &ConsensusHash,
-        sighash: &Sha512Trunc256Sum,
+        signer_sighash: &Sha512Trunc256Sum,
     ) -> Result<bool, ChainstateError> {
         let qry =
             "SELECT 1 FROM nakamoto_staging_blocks WHERE consensus_hash = ?1 AND block_hash = ?2";
-        let args = rusqlite::params![consensus_hash, sighash];
+        let args = rusqlite::params![consensus_hash, signer_sighash];
         let present: Option<u32> = query_row(self, qry, args)?;
         Ok(present.is_some())
     }
@@ -546,22 +544,24 @@ impl<'a> NakamotoStagingBlocksTx<'a> {
     /// NOTE: the block hash and sighash are the same for Nakamoto blocks, so this is equivalent to
     /// storing a new block.
     /// Return true if stored; false if not.
-    pub(crate) fn try_store_block_with_new_sighash(
+    pub(crate) fn try_store_block_with_new_signer_sighash(
         &self,
         block: &NakamotoBlock,
         burn_attachable: bool,
         signing_weight: u32,
         obtain_method: NakamotoBlockObtainMethod,
     ) -> Result<bool, ChainstateError> {
-        let sighash = block.header.signer_signature_hash();
-        if self.has_nakamoto_block_with_sighash(&block.header.consensus_hash, &sighash)? {
+        let signer_sighash = block.header.signer_signature_hash();
+        if self
+            .has_nakamoto_block_with_signer_sighash(&block.header.consensus_hash, &signer_sighash)?
+        {
             return Ok(false);
         }
         self.store_block(block, burn_attachable, signing_weight, obtain_method)?;
         Ok(true)
     }
 
-    /// Replace an already-stored block with the given sighash with a newer copy with more signing
+    /// Replace an already-stored block with a newer copy with more signing
     /// power.  Arguments will not be validated; the caller must do this.
     pub(crate) fn replace_block(
         &self,

@@ -853,11 +853,7 @@ impl NakamotoUnconfirmedTenureDownloader {
                 test_debug!("Got unconfirmed tenure blocks response");
                 let blocks = response.decode_nakamoto_tenure()?;
                 let accepted_opt = self.try_accept_unconfirmed_tenure_blocks(blocks)?;
-                if accepted_opt.is_some() {
-                    test_debug!("Got complete unconfirmed tenure blocks");
-                } else {
-                    test_debug!("Got partial unconfirmed tenure blocks");
-                }
+                test_debug!("Got unconfirmed tenure blocks"; "complete" => accepted_opt.is_some());
                 Ok(accepted_opt)
             }
             NakamotoUnconfirmedDownloadState::Done => {

@@ -26,7 +26,8 @@ use clarity::vm::types::StacksAddressExtensions;
 use clarity::vm::Value;
 use libstackerdb::StackerDBChunkData;
 use rand::{thread_rng, RngCore};
-use rusqlite::{Connection, ToSql};
+use rusqlite::types::ToSql;
+use rusqlite::{params, Connection};
 use stacks_common::address::AddressHashMode;
 use stacks_common::bitvec::BitVec;
 use stacks_common::codec::StacksMessageCodec;
@@ -65,7 +66,7 @@ use crate::chainstate::nakamoto::signer_set::NakamotoSigners;
 use crate::chainstate::nakamoto::staging_blocks::{
     NakamotoBlockObtainMethod, NakamotoStagingBlocksConnRef,
 };
-use crate::chainstate::nakamoto::tenure::NakamotoTenure;
+use crate::chainstate::nakamoto::tenure::NakamotoTenureEvent;
 use crate::chainstate::nakamoto::test_signers::TestSigners;
 use crate::chainstate::nakamoto::tests::node::TestStacker;
 use crate::chainstate::nakamoto::{
@@ -104,9 +105,7 @@ impl<'a> NakamotoStagingBlocksConnRef<'a> {
         let mut cursor = tip.clone();
         let qry = "SELECT data FROM nakamoto_staging_blocks WHERE index_block_hash = ?1";
         loop {
-            let Some(block_data): Option<Vec<u8>> =
-                query_row(self, qry, rusqlite::params![&cursor])?
-            else {
+            let Some(block_data): Option<Vec<u8>> = query_row(self, qry, params![cursor])? else {
                 break;
             };
             let block = NakamotoBlock::consensus_deserialize(&mut block_data.as_slice())?;
@@ -955,7 +954,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
         .add(&nakamoto_execution_cost_2)
         .unwrap();
 
-    let nakamoto_tenure = NakamotoTenure {
+    let nakamoto_tenure = NakamotoTenureEvent {
         tenure_id_consensus_hash: tenure_change_payload.tenure_consensus_hash.clone(),
         prev_tenure_id_consensus_hash: tenure_change_payload.prev_tenure_consensus_hash.clone(),
         burn_view_consensus_hash: tenure_change_payload.burn_view_consensus_hash.clone(),

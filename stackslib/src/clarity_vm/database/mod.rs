@@ -12,7 +12,8 @@ use clarity::vm::database::{
 };
 use clarity::vm::errors::{InterpreterResult, RuntimeErrorType};
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, TupleData};
-use rusqlite::{Connection, OptionalExtension, Row, ToSql};
+use rusqlite::types::ToSql;
+use rusqlite::{params, Connection, OptionalExtension, Row};
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, SortitionId, StacksAddress, StacksBlockId,
     TenureBlockId, VRFSeed,
@@ -24,7 +25,7 @@ use crate::chainstate::burn::db::sortdb::{
     get_ancestor_sort_id, get_ancestor_sort_id_tx, SortitionDB, SortitionDBConn, SortitionHandle,
     SortitionHandleConn, SortitionHandleTx,
 };
-use crate::chainstate::nakamoto::{nakamoto_keys, NakamotoChainState, StacksHandle};
+use crate::chainstate::nakamoto::{keys as nakamoto_keys, NakamotoChainState, StacksDBIndexed};
 use crate::chainstate::stacks::boot::PoxStartCycleInfo;
 use crate::chainstate::stacks::db::accounts::MinerReward;
 use crate::chainstate::stacks::db::{
@@ -585,7 +586,7 @@ pub fn get_stacks_header_column_from_table<F, R>(
 where
     F: Fn(&Row) -> R,
 {
-    let args: &[&dyn ToSql] = &[id_bhh];
+    let args = params![id_bhh];
     let table_name = if nakamoto {
         "nakamoto_block_headers"
     } else {
@@ -665,6 +666,7 @@ fn get_first_block_in_tenure<GTS: GetTenureStartId>(
     // tenure-start block ID.
     let ch = consensus_hash
         .expect("Unexpected SQL failure querying block header table for 'consensus_hash'");
+
     let tenure_start_id: TenureBlockId = conn
         .get_tenure_block_id(id_bhh, &ch)
         .expect("FATAL: failed to query DB for tenure-start block")
@@ -682,7 +684,7 @@ fn get_miner_column<F, R>(
 where
     F: FnOnce(&Row) -> R,
 {
-    let args: &[&dyn ToSql] = &[&id_bhh.0];
+    let args = params![id_bhh.0];
     conn.query_row(
         &format!(
             "SELECT {} FROM payments WHERE index_block_hash = ? AND miner = 1",
@@ -714,7 +716,7 @@ fn get_matured_reward<GTS: GetTenureStartId>(
         .conn()
         .query_row(
             &format!("SELECT parent_block_id FROM {table_name} WHERE index_block_hash = ?"),
-            [child_id_bhh.0].iter(),
+            params![child_id_bhh.0],
             |x| {
                 Ok(StacksBlockId::from_column(x, "parent_block_id")
                     .expect("Bad parent_block_id in database"))

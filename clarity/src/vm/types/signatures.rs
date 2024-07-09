@@ -15,8 +15,10 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::btree_map::Entry;
-use std::collections::{hash_map, BTreeMap, HashMap};
+use std::collections::{hash_map, BTreeMap};
 use std::hash::{Hash, Hasher};
+use std::ops::Deref;
+use std::sync::Arc;
 use std::{cmp, fmt};
 
 // TypeSignatures
@@ -76,7 +78,36 @@ impl AssetIdentifier {
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TupleTypeSignature {
-    type_map: HashMap<ClarityName, TypeSignature>,
+    #[serde(with = "tuple_type_map_serde")]
+    type_map: Arc<BTreeMap<ClarityName, TypeSignature>>,
+}
+
+mod tuple_type_map_serde {
+    use std::collections::BTreeMap;
+    use std::ops::Deref;
+    use std::sync::Arc;
+
+    use serde::{Deserializer, Serializer};
+
+    use super::TypeSignature;
+    use crate::vm::ClarityName;
+
+    pub fn serialize<S: Serializer>(
+        map: &Arc<BTreeMap<ClarityName, TypeSignature>>,
+        ser: S,
+    ) -> Result<S::Ok, S::Error> {
+        serde::Serialize::serialize(map.deref(), ser)
+    }
+
+    pub fn deserialize<'de, D>(
+        deser: D,
+    ) -> Result<Arc<BTreeMap<ClarityName, TypeSignature>>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let map = serde::Deserialize::deserialize(deser)?;
+        Ok(Arc::new(map))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -787,12 +818,12 @@ impl TypeSignature {
                 inner_type.1.canonicalize_v2_1(),
             ))),
             TupleType(ref tuple_sig) => {
-                let mut canonicalized_fields = HashMap::new();
+                let mut canonicalized_fields = BTreeMap::new();
                 for (field_name, field_type) in tuple_sig.get_type_map() {
                     canonicalized_fields.insert(field_name.clone(), field_type.canonicalize_v2_1());
                 }
                 TypeSignature::from(TupleTypeSignature {
-                    type_map: canonicalized_fields,
+                    type_map: Arc::new(canonicalized_fields),
                 })
             }
             TraitReferenceType(trait_id) => CallableType(CallableSubtype::Trait(trait_id.clone())),
@@ -851,9 +882,9 @@ impl TryFrom<Vec<(ClarityName, TypeSignature)>> for TupleTypeSignature {
             return Err(CheckErrors::EmptyTuplesNotAllowed);
         }
 
-        let mut type_map = HashMap::new();
+        let mut type_map = BTreeMap::new();
         for (name, type_info) in type_data.into_iter() {
-            if let hash_map::Entry::Vacant(e) = type_map.entry(name.clone()) {
+            if let Entry::Vacant(e) = type_map.entry(name.clone()) {
                 e.insert(type_info);
             } else {
                 return Err(CheckErrors::NameAlreadyUsed(name.into()));
@@ -874,30 +905,7 @@ impl TryFrom<BTreeMap<ClarityName, TypeSignature>> for TupleTypeSignature {
                 return Err(CheckErrors::TypeSignatureTooDeep);
             }
         }
-        let type_map = type_map.into_iter().collect();
-        let result = TupleTypeSignature { type_map };
-        let would_be_size = result
-            .inner_size()?
-            .ok_or_else(|| CheckErrors::ValueTooLarge)?;
-        if would_be_size > MAX_VALUE_SIZE {
-            Err(CheckErrors::ValueTooLarge)
-        } else {
-            Ok(result)
-        }
-    }
-}
-
-impl TryFrom<HashMap<ClarityName, TypeSignature>> for TupleTypeSignature {
-    type Error = CheckErrors;
-    fn try_from(type_map: HashMap<ClarityName, TypeSignature>) -> Result<TupleTypeSignature> {
-        if type_map.is_empty() {
-            return Err(CheckErrors::EmptyTuplesNotAllowed);
-        }
-        for child_sig in type_map.values() {
-            if (1 + child_sig.depth()) > MAX_TYPE_DEPTH {
-                return Err(CheckErrors::TypeSignatureTooDeep);
-            }
-        }
+        let type_map = Arc::new(type_map.into_iter().collect());
         let result = TupleTypeSignature { type_map };
         let would_be_size = result
             .inner_size()?
@@ -925,7 +933,7 @@ impl TupleTypeSignature {
         self.type_map.get(field)
     }
 
-    pub fn get_type_map(&self) -> &HashMap<ClarityName, TypeSignature> {
+    pub fn get_type_map(&self) -> &BTreeMap<ClarityName, TypeSignature> {
         &self.type_map
     }
 
@@ -961,7 +969,7 @@ impl TupleTypeSignature {
     }
 
     pub fn shallow_merge(&mut self, update: &mut TupleTypeSignature) {
-        self.type_map.extend(update.type_map.drain());
+        Arc::make_mut(&mut self.type_map).append(Arc::make_mut(&mut update.type_map));
     }
 }
 

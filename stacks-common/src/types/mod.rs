@@ -152,6 +152,22 @@ impl StacksEpochId {
         }
     }
 
+    /// Whether or not this epoch interprets block commit OPs block hash field
+    ///  as a new block hash or the StacksBlockId of a new tenure's parent tenure.
+    pub fn block_commits_to_parent(&self) -> bool {
+        match self {
+            StacksEpochId::Epoch10
+            | StacksEpochId::Epoch20
+            | StacksEpochId::Epoch2_05
+            | StacksEpochId::Epoch21
+            | StacksEpochId::Epoch22
+            | StacksEpochId::Epoch23
+            | StacksEpochId::Epoch24
+            | StacksEpochId::Epoch25 => false,
+            StacksEpochId::Epoch30 => true,
+        }
+    }
+
     /// Does this epoch support unlocking PoX contributors that miss a slot?
     ///
     /// Epoch 2.0 - 2.05 didn't support this feature, but they weren't epoch-guarded on it. Instead,

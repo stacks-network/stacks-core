@@ -1,0 +1,1 @@
+The problem is that one or both nodes determine that they each behaved badly somehow during tenure block sync, and they disconnect each other and blow each other's inventory data away faster than it can be resync'ed

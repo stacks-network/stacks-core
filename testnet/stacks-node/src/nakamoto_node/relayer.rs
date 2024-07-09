@@ -114,7 +114,7 @@ pub struct LastCommit {
     /// What is the epoch in which this was sent?
     epoch_id: StacksEpochId,
     /// commit txid (to be filled in on submission)
-    txid: Txid,
+    txid: Option<Txid>,
 }
 
 impl LastCommit {
@@ -133,7 +133,7 @@ impl LastCommit {
             tenure_consensus_hash,
             start_block_hash,
             epoch_id,
-            txid: Txid([0x00; 32]),
+            txid: None,
         }
     }
 
@@ -169,7 +169,7 @@ impl LastCommit {
 
     /// Set our txid
     pub fn set_txid(&mut self, txid: &Txid) {
-        self.txid = txid.clone();
+        self.txid = Some(txid.clone());
     }
 }
 
@@ -1079,59 +1079,17 @@ impl RelayerThread {
             .map(|cmt| cmt.get_burn_tip().consensus_hash != sort_tip.consensus_hash)
             .unwrap_or(true);
 
-        // did our view of the highest ongoing tenure change?
-        // e.g. did we process blocks in an ancestral tenure that previously was empty?
-        // if so, then we will need to send (more likely, RBF) a block-commit to confirm it.
-        let (ongoing_tenure_consensus_hash, tenure_epoch_id) = if let Some(ongoing_tenure) =
-            NakamotoChainState::get_ongoing_tenure(&mut self.chainstate.index_conn(), &stacks_tip)
-                .map_err(|e| {
-                    error!(
-                        "Failed to get ongoing tenure off of {}: {:?}",
-                        &stacks_tip, &e
-                    );
-                    e
-                })
-                .ok()
-                .flatten()
-        {
-            (
-                ongoing_tenure.tenure_id_consensus_hash,
-                StacksEpochId::Epoch30,
-            )
-        } else if let Some(header) =
-            StacksChainState::get_stacks_block_header_info_by_index_block_hash(
-                self.chainstate.db(),
-                &stacks_tip,
-            )
-            .map_err(|e| {
-                error!(
-                    "Failed to get stacks 2.x block header for {}: {:?}",
-                    &stacks_tip, &e
-                );
-                e
-            })
-            .ok()
-            .flatten()
-        {
-            (header.consensus_hash, StacksEpochId::Epoch25)
-        } else {
-            error!("Could not deduce ongoing tenure");
-            return None;
-        };
-
         let highest_tenure_changed = self
             .last_committed
             .as_ref()
-            .map(|cmt| cmt.get_tenure_id() != &ongoing_tenure_consensus_hash)
+            .map(|cmt| cmt.get_tenure_id() != &stacks_tip_ch)
             .unwrap_or(true);
 
         debug!("Relayer: initiative to commit";
                "sortititon tip" => %sort_tip.consensus_hash,
                "stacks tip" => %stacks_tip,
                "last-commit burn view" => %self.last_committed.as_ref().map(|cmt| cmt.get_burn_tip().consensus_hash.to_string()).unwrap_or("(not set)".to_string()),
-               "ongoing tenure" => %ongoing_tenure_consensus_hash,
                "last-commit ongoing tenure" => %self.last_committed.as_ref().map(|cmt| cmt.get_tenure_id().to_string()).unwrap_or("(not set)".to_string()),
-               "tenure epoch" => %tenure_epoch_id,
                "burnchain view changed?" => %burnchain_changed,
                "highest tenure changed?" => %highest_tenure_changed);
 

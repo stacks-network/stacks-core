@@ -12,7 +12,7 @@ use clarity::vm::types::serialization::SerializationError;
 use clarity::vm::types::PrincipalData;
 use clarity::vm::{ClarityName, ClarityVersion, ContractName, Value, MAX_CALL_STACK_DEPTH};
 use rand::{Rng, RngCore};
-use rusqlite::types::ToSql;
+use rusqlite::params;
 use serde::Deserialize;
 use serde_json::json;
 use stacks::burnchains::bitcoin::address::{BitcoinAddress, LegacyBitcoinAddressType};
@@ -8767,7 +8767,7 @@ fn atlas_stress_integration_test() {
                 let mut hashes = query_row_columns::<Hash160, _>(
                     &atlasdb.conn,
                     "SELECT content_hash FROM attachment_instances WHERE index_block_hash = ?1 AND attachment_index = ?2",
-                    &[ibh as &dyn ToSql, &u64_to_sql(*index).unwrap() as &dyn ToSql],
+                    params![ibh, u64_to_sql(*index).unwrap()],
                     "content_hash")
                 .unwrap();
                 if hashes.len() > 0 {

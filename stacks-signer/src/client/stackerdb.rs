@@ -235,8 +235,6 @@ mod tests {
     use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
     use clarity::util::hash::{MerkleTree, Sha512Trunc256Sum};
     use libsigner::v0::messages::{BlockRejection, BlockResponse, RejectCode, SignerMessage};
-    use libsigner::BlockProposal;
-    use rand::{thread_rng, RngCore};
 
     use super::*;
     use crate::client::tests::{generate_signer_config, mock_server_from_config, write_response};

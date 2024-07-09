@@ -114,12 +114,6 @@ dependencies = [
 
 [[package]]
 name = "ahash"
-version = "0.4.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0453232ace82dee0dd0b4c87a59bd90f7b53b314f3e0f61fe2ee7c8a16482289"
-
-[[package]]
-name = "ahash"
 version = "0.8.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "42cd52102d3df161c77a887b608d7a4897d7cc112886a9537b738a887a03aaff"
@@ -717,7 +711,7 @@ name = "clarity"
 version = "0.0.1"
 dependencies = [
  "assert-json-diff",
- "hashbrown 0.14.3",
+ "hashbrown",
  "integer-sqrt",
  "lazy_static",
  "mutants",
@@ -1188,9 +1182,9 @@ dependencies = [
 
 [[package]]
 name = "fallible-iterator"
-version = "0.2.0"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4443176a9f2c162692bd3d352d745ef9413eec5782a80d8fd6f8a1ac692a07f7"
+checksum = "2acce4a10f12dc2fb14a218589d4f1f62ef011b2d0cc4b3cb1bba8e94da14649"
 
 [[package]]
 name = "fallible-streaming-iterator"
@@ -1497,31 +1491,22 @@ checksum = "eabb4a44450da02c90444cf74558da904edde8fb4e9035a9a6a4e15445af0bd7"
 
 [[package]]
 name = "hashbrown"
-version = "0.9.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d7afe4a420e3fe79967a00898cc1f4db7c8a49a9333a29f8a4bd76a253d5cd04"
-dependencies = [
- "ahash 0.4.8",
-]
-
-[[package]]
-name = "hashbrown"
 version = "0.14.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "290f1a1d9242c78d09ce40a5e87e7554ee637af1351968159f4952f028f75604"
 dependencies = [
- "ahash 0.8.8",
+ "ahash",
  "allocator-api2",
  "serde",
 ]
 
 [[package]]
 name = "hashlink"
-version = "0.6.0"
+version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d99cf782f0dc4372d26846bec3de7804ceb5df083c2d4462c0b8d2330e894fa8"
+checksum = "6ba4ff7128dee98c7dc9794b6a411377e1404dba1c97deb8d1a55297bd25d8af"
 dependencies = [
- "hashbrown 0.9.1",
+ "hashbrown",
 ]
 
 [[package]]
@@ -1758,7 +1743,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "233cf39063f058ea2caae4091bf4a3ef70a653afbc026f5c4a4135d114e3c177"
 dependencies = [
  "equivalent",
- "hashbrown 0.14.3",
+ "hashbrown",
 ]
 
 [[package]]
@@ -1920,7 +1905,7 @@ name = "libsigner"
 version = "0.0.1"
 dependencies = [
  "clarity",
- "hashbrown 0.14.3",
+ "hashbrown",
  "lazy_static",
  "libc",
  "libstackerdb",
@@ -1946,9 +1931,9 @@ dependencies = [
 
 [[package]]
 name = "libsqlite3-sys"
-version = "0.20.1"
+version = "0.28.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "64d31059f22935e6c31830db5249ba2b7ecd54fd73a9909286f0a67aa55c2fbd"
+checksum = "0c10584274047cb335c23d3e61bcef8e323adae7c5c8c760540f73610177fc3f"
 dependencies = [
  "cc",
  "pkg-config",
@@ -2722,7 +2707,7 @@ checksum = "c08c74e62047bb2de4ff487b251e4a92e24f48745648451635cec7d591162d9f"
 name = "relay-server"
 version = "0.0.1"
 dependencies = [
- "hashbrown 0.14.3",
+ "hashbrown",
 ]
 
 [[package]]
@@ -2874,17 +2859,15 @@ dependencies = [
 
 [[package]]
 name = "rusqlite"
-version = "0.24.2"
+version = "0.31.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d5f38ee71cbab2c827ec0ac24e76f82eca723cee92c509a65f67dee393c25112"
+checksum = "b838eba278d213a8beaf485bd313fd580ca4505a00d5871caeb1457c55322cae"
 dependencies = [
- "bitflags 1.3.2",
- "byteorder",
+ "bitflags 2.4.2",
  "fallible-iterator",
  "fallible-streaming-iterator",
  "hashlink",
  "libsqlite3-sys",
- "memchr",
  "serde_json",
  "smallvec",
 ]
@@ -3295,7 +3278,7 @@ dependencies = [
  "serde",
  "serde_json",
  "slog",
- "time 0.3.34",
+ "time 0.3.36",
 ]
 
 [[package]]
@@ -3308,7 +3291,7 @@ dependencies = [
  "slog",
  "term",
  "thread_local",
- "time 0.3.34",
+ "time 0.3.36",
 ]
 
 [[package]]
@@ -3380,7 +3363,7 @@ dependencies = [
  "chrono",
  "curve25519-dalek 2.0.0",
  "ed25519-dalek",
- "hashbrown 0.14.3",
+ "hashbrown",
  "lazy_static",
  "libc",
  "nix",
@@ -3416,7 +3399,7 @@ dependencies = [
  "base64 0.12.3",
  "chrono",
  "clarity",
- "hashbrown 0.14.3",
+ "hashbrown",
  "http-types",
  "lazy_static",
  "libc",
@@ -3453,7 +3436,7 @@ dependencies = [
  "backoff",
  "clap 4.5.0",
  "clarity",
- "hashbrown 0.14.3",
+ "hashbrown",
  "lazy_static",
  "libsigner",
  "libstackerdb",
@@ -3493,7 +3476,7 @@ dependencies = [
  "criterion",
  "curve25519-dalek 2.0.0",
  "ed25519-dalek",
- "hashbrown 0.14.3",
+ "hashbrown",
  "integer-sqrt",
  "lazy_static",
  "libc",
@@ -3777,9 +3760,9 @@ dependencies = [
 
 [[package]]
 name = "time"
-version = "0.3.34"
+version = "0.3.36"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c8248b6521bb14bc45b4067159b9b6ad792e2d6d754d6c41fb50e29fefe38749"
+checksum = "5dfd88e563464686c916c7e46e623e520ddc6d79fa6641390f2e3fa86e83e885"
 dependencies = [
  "deranged",
  "itoa",
@@ -3789,7 +3772,7 @@ dependencies = [
  "powerfmt",
  "serde",
  "time-core",
- "time-macros 0.2.17",
+ "time-macros 0.2.18",
 ]
 
 [[package]]
@@ -3810,9 +3793,9 @@ dependencies = [
 
 [[package]]
 name = "time-macros"
-version = "0.2.17"
+version = "0.2.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7ba3a3ef41e6672a2f0f001392bb5dcd3ff0a9992d618ca761a11c3121547774"
+checksum = "3f252a68540fde3a3877aeea552b832b40ab9a69e318efd078774a01ddee1ccf"
 dependencies = [
  "num-conv",
  "time-core",
@@ -4611,7 +4594,7 @@ checksum = "9c80d57a61294350ed91e91eb20a6c34da084ec8f15d039bab79ce3efabbd1a4"
 dependencies = [
  "aes-gcm 0.10.3",
  "bs58 0.5.0",
- "hashbrown 0.14.3",
+ "hashbrown",
  "hex",
  "num-traits",
  "p256k1",

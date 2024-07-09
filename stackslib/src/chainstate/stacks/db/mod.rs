@@ -36,11 +36,12 @@ use clarity::vm::types::TupleData;
 use clarity::vm::{SymbolicExpression, Value};
 use lazy_static::lazy_static;
 use rusqlite::types::ToSql;
-use rusqlite::{Connection, OpenFlags, OptionalExtension, Row, Transaction, NO_PARAMS};
+use rusqlite::{params, Connection, OpenFlags, OptionalExtension, Row, Transaction};
 use serde::de::Error as de_Error;
 use serde::Deserialize;
 use stacks_common::codec::{read_next, write_next, StacksMessageCodec};
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId, TrieHash};
+use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::util;
 use stacks_common::util::hash::{hex_bytes, to_hex};
 
@@ -291,45 +292,20 @@ pub struct DBConfig {
 
 impl DBConfig {
     pub fn supports_epoch(&self, epoch_id: StacksEpochId) -> bool {
+        let version_u32: u32 = self.version.parse().unwrap_or_else(|e| {
+            error!("Failed to parse Stacks chainstate version as u32: {e}");
+            0
+        });
         match epoch_id {
             StacksEpochId::Epoch10 => true,
-            StacksEpochId::Epoch20 => {
-                self.version == "1"
-                    || self.version == "2"
-                    || self.version == "3"
-                    || self.version == "4"
-                    || self.version == "5"
-            }
-            StacksEpochId::Epoch2_05 => {
-                self.version == "2"
-                    || self.version == "3"
-                    || self.version == "4"
-                    || self.version == "5"
-            }
-            StacksEpochId::Epoch21 => {
-                self.version == "3" || self.version == "4" || self.version == "5"
-            }
-            StacksEpochId::Epoch22 => {
-                self.version == "3" || self.version == "4" || self.version == "5"
-            }
-            StacksEpochId::Epoch23 => {
-                self.version == "3" || self.version == "4" || self.version == "5"
-            }
-            StacksEpochId::Epoch24 => {
-                self.version == "3" || self.version == "4" || self.version == "5"
-            }
-            StacksEpochId::Epoch25 => {
-                self.version == "3"
-                    || self.version == "4"
-                    || self.version == "5"
-                    || self.version == "6"
-            }
-            StacksEpochId::Epoch30 => {
-                self.version == "3"
-                    || self.version == "4"
-                    || self.version == "5"
-                    || self.version == "6"
-            }
+            StacksEpochId::Epoch20 => version_u32 >= 1 && version_u32 <= 5,
+            StacksEpochId::Epoch2_05 => version_u32 >= 2 && version_u32 <= 5,
+            StacksEpochId::Epoch21 => version_u32 >= 3 && version_u32 <= 5,
+            StacksEpochId::Epoch22 => version_u32 >= 3 && version_u32 <= 5,
+            StacksEpochId::Epoch23 => version_u32 >= 3 && version_u32 <= 5,
+            StacksEpochId::Epoch24 => version_u32 >= 3 && version_u32 <= 5,
+            StacksEpochId::Epoch25 => version_u32 >= 3 && version_u32 <= 6,
+            StacksEpochId::Epoch30 => version_u32 >= 3 && version_u32 <= 6,
         }
     }
 }
@@ -375,16 +351,6 @@ impl StacksBlockHeaderTypes {
         match &self {
             StacksBlockHeaderTypes::Nakamoto(ref x) => Some(x),
             _ => None,
-        }
-    }
-
-    /// Get the sighash of a block.
-    /// * In Nakamoto blocks, this is the hash signers must sign
-    /// * In epoch 2, this is simply the blocok hash (there are no signers)
-    pub fn sighash(&self) -> Sha512Trunc256Sum {
-        match &self {
-            StacksBlockHeaderTypes::Nakamoto(ref x) => x.signer_signature_hash(),
-            StacksBlockHeaderTypes::Epoch2(ref x) => Sha512Trunc256Sum(x.block_hash().0),
         }
     }
 }
@@ -685,7 +651,7 @@ impl<'a> ChainstateTx<'a> {
                 let txid = tx_event.transaction.txid();
                 let tx_hex = tx_event.transaction.serialize_to_dbstring();
                 let result = tx_event.result.to_string();
-                let params: &[&dyn ToSql] = &[&txid, block_id, &tx_hex, &result];
+                let params = params![txid, block_id, tx_hex, result];
                 if let Err(e) = self.tx.tx().execute(insert, params) {
                     warn!("Failed to log TX: {}", e);
                 }
@@ -1039,11 +1005,7 @@ impl StacksChainState {
             }
             tx.execute(
                 "INSERT INTO db_config (version,mainnet,chain_id) VALUES (?1,?2,?3)",
-                &[
-                    &"1".to_string(),
-                    &(if mainnet { 1 } else { 0 }) as &dyn ToSql,
-                    &chain_id as &dyn ToSql,
-                ],
+                params!["1".to_string(), (if mainnet { 1 } else { 0 }), chain_id,],
             )?;
 
             if migrate {
@@ -2499,7 +2461,7 @@ impl StacksChainState {
         index_block_hash: &StacksBlockId,
     ) -> Result<Vec<Txid>, Error> {
         let sql = "SELECT txids FROM burnchain_txids WHERE index_block_hash = ?1";
-        let args: &[&dyn ToSql] = &[index_block_hash];
+        let args = params![index_block_hash];
 
         let txids = conn
             .query_row(sql, args, |r| {
@@ -2579,7 +2541,7 @@ impl StacksChainState {
         let txids_json =
             serde_json::to_string(&txids).expect("FATAL: could not serialize Vec<Txid>");
         let sql = "INSERT INTO burnchain_txids (index_block_hash, txids) VALUES (?1, ?2)";
-        let args: &[&dyn ToSql] = &[index_block_hash, &txids_json];
+        let args = params![index_block_hash, &txids_json];
         tx.execute(sql, args)?;
         Ok(())
     }
@@ -2709,7 +2671,7 @@ impl StacksChainState {
         if applied_epoch_transition {
             debug!("Block {} applied an epoch transition", &index_block_hash);
             let sql = "INSERT INTO epoch_transitions (block_id) VALUES (?)";
-            let args: &[&dyn ToSql] = &[&index_block_hash];
+            let args = params![&index_block_hash];
             headers_tx.deref_mut().execute(sql, args)?;
         }
 
@@ -2995,5 +2957,14 @@ pub mod test {
             chain_id: CHAIN_ID_MAINNET,
         };
         assert!(db.supports_epoch(StacksEpochId::latest()));
+    }
+
+    #[test]
+    fn test_sqlite_version() {
+        let chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        assert_eq!(
+            query_row(chainstate.db(), "SELECT sqlite_version()", NO_PARAMS).unwrap(),
+            Some("3.45.0".to_string())
+        );
     }
 }

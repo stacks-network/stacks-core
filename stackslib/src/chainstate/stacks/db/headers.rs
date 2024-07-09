@@ -139,29 +139,29 @@ impl StacksChainState {
 
         assert!(block_height < (i64::MAX as u64));
 
-        let args: &[&dyn ToSql] = &[
-            &header.version,
-            &total_burn_str,
-            &total_work_str,
-            &header.proof,
-            &header.parent_block,
-            &header.parent_microblock,
-            &header.parent_microblock_sequence,
-            &header.tx_merkle_root,
-            &header.state_index_root,
-            &header.microblock_pubkey_hash,
-            &block_hash,
-            &index_block_hash,
-            &consensus_hash,
-            &burn_header_hash,
-            &(burn_header_height as i64),
-            &(burn_header_timestamp as i64),
-            &(block_height as i64),
-            &index_root,
+        let args = params![
+            header.version,
+            total_burn_str,
+            total_work_str,
+            header.proof,
+            header.parent_block,
+            header.parent_microblock,
+            header.parent_microblock_sequence,
+            header.tx_merkle_root,
+            header.state_index_root,
+            header.microblock_pubkey_hash,
+            block_hash,
+            index_block_hash,
+            consensus_hash,
+            burn_header_hash,
+            (burn_header_height as i64),
+            (burn_header_timestamp as i64),
+            (block_height as i64),
+            index_root,
             anchored_block_cost,
-            &block_size_str,
+            block_size_str,
             parent_id,
-            &u64_to_sql(affirmation_weight)?,
+            u64_to_sql(affirmation_weight)?,
         ];
 
         tx.execute("INSERT INTO block_headers \
@@ -209,7 +209,7 @@ impl StacksChainState {
         block_hash: &BlockHeaderHash,
     ) -> Result<bool, Error> {
         let sql = "SELECT 1 FROM block_headers WHERE consensus_hash = ?1 AND block_hash = ?2";
-        let args: &[&dyn ToSql] = &[&consensus_hash, &block_hash];
+        let args = params![consensus_hash, block_hash];
         match conn.query_row(sql, args, |_| Ok(true)) {
             Ok(_) => Ok(true),
             Err(rusqlite::Error::QueryReturnedNoRows) => Ok(false),
@@ -225,7 +225,7 @@ impl StacksChainState {
         block_hash: &BlockHeaderHash,
     ) -> Result<Option<StacksHeaderInfo>, Error> {
         let sql = "SELECT * FROM block_headers WHERE consensus_hash = ?1 AND block_hash = ?2";
-        let args: &[&dyn ToSql] = &[&consensus_hash, &block_hash];
+        let args = params![consensus_hash, block_hash];
         query_row_panic(conn, sql, args, || {
             "FATAL: multiple rows for the same block hash".to_string()
         })
@@ -319,7 +319,7 @@ impl StacksChainState {
     pub fn get_genesis_header_info(conn: &Connection) -> Result<StacksHeaderInfo, Error> {
         // by construction, only one block can have height 0 in this DB
         let sql = "SELECT * FROM block_headers WHERE consensus_hash = ?1 AND block_height = 0";
-        let args: &[&dyn ToSql] = &[&FIRST_BURNCHAIN_CONSENSUS_HASH];
+        let args = params![FIRST_BURNCHAIN_CONSENSUS_HASH];
         let row_opt = query_row(conn, sql, args)?;
         Ok(row_opt.expect("BUG: no genesis header info"))
     }
@@ -330,7 +330,7 @@ impl StacksChainState {
         block_id: &StacksBlockId,
     ) -> Result<Option<StacksBlockId>, Error> {
         let sql = "SELECT parent_block_id FROM block_headers WHERE index_block_hash = ?1 LIMIT 1";
-        let args: &[&dyn ToSql] = &[block_id];
+        let args = params![block_id];
         let mut rows = query_row_columns::<StacksBlockId, _>(conn, sql, args, "parent_block_id")?;
         Ok(rows.pop())
     }
@@ -338,7 +338,7 @@ impl StacksChainState {
     /// Is this block present and processed?
     pub fn has_stacks_block(conn: &Connection, block_id: &StacksBlockId) -> Result<bool, Error> {
         let sql = "SELECT 1 FROM block_headers WHERE index_block_hash = ?1 LIMIT 1";
-        let args: &[&dyn ToSql] = &[block_id];
+        let args = params![block_id];
         Ok(conn
             .query_row(sql, args, |_r| Ok(()))
             .optional()
@@ -383,7 +383,7 @@ impl StacksChainState {
     ) -> Result<Vec<StacksHeaderInfo>, Error> {
         let qry =
             "SELECT * FROM block_headers WHERE block_height = ?1 AND affirmation_weight = ?2 ORDER BY burn_header_height DESC";
-        let args: &[&dyn ToSql] = &[&u64_to_sql(height)?, &u64_to_sql(affirmation_weight)?];
+        let args = params![u64_to_sql(height)?, u64_to_sql(affirmation_weight)?];
         query_rows(conn, qry, args).map_err(|e| e.into())
     }
 

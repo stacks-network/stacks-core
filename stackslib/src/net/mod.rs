@@ -36,8 +36,7 @@ use libstackerdb::{
 };
 use rand::{thread_rng, RngCore};
 use regex::Regex;
-use rusqlite::types::ToSqlOutput;
-use rusqlite::ToSql;
+use rusqlite::types::{ToSql, ToSqlOutput};
 use serde::de::Error as de_Error;
 use serde::ser::Error as ser_Error;
 use serde::{Deserialize, Serialize};
@@ -1709,13 +1708,13 @@ pub mod test {
     use std::{fs, io, thread};
 
     use clarity::boot_util::boot_code_id;
+    use clarity::types::sqlite::NO_PARAMS;
     use clarity::vm::ast::ASTRules;
     use clarity::vm::costs::ExecutionCost;
     use clarity::vm::database::STXBalance;
     use clarity::vm::types::*;
     use clarity::vm::ClarityVersion;
     use rand::{Rng, RngCore};
-    use rusqlite::NO_PARAMS;
     use stacks_common::address::*;
     use stacks_common::codec::StacksMessageCodec;
     use stacks_common::deps_common::bitcoin::network::serialize::BitcoinHash;
@@ -3447,6 +3446,14 @@ pub mod test {
 
         pub fn add_empty_burnchain_block(&mut self) -> (u64, BurnchainHeaderHash, ConsensusHash) {
             self.next_burnchain_block(vec![])
+        }
+
+        pub fn mine_empty_tenure(&mut self) -> (u64, BurnchainHeaderHash, ConsensusHash) {
+            let (burn_ops, ..) = self.begin_nakamoto_tenure(TenureChangeCause::BlockFound);
+            let result = self.next_burnchain_block(burn_ops);
+            // remove the last block commit so that the testpeer doesn't try to build off of this tenure
+            self.miner.block_commits.pop();
+            result
         }
 
         pub fn mempool(&mut self) -> &mut MemPoolDB {

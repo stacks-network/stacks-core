@@ -31,6 +31,7 @@ wsts = { workspace = true }
 rand = { workspace = true }
 rand_core = { workspace = true }
 hashbrown = { workspace = true }
+rusqlite = { workspace = true }
 
 [target.'cfg(not(any(target_os = "macos", target_os="windows", target_arch = "arm")))'.dependencies]
 tikv-jemallocator = {workspace = true}
@@ -48,10 +49,6 @@ tracing = "0.1.37"
 tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
 wsts = {workspace = true}
 mutants = "0.0.3"
-
-[dependencies.rusqlite]
-version = "=0.24.2"
-features = ["blob", "serde_json", "i128_blob", "bundled", "trace"]
 
 [[bin]]
 name = "stacks-node"

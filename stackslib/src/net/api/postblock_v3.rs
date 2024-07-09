@@ -132,7 +132,7 @@ impl RPCRequestHandler for RPCPostBlockRequestHandler {
                     &stacks_tip,
                     &block,
                     None,
-                    NakamotoBlockObtainMethod::Uploaded
+                    NakamotoBlockObtainMethod::Uploaded,
                 )
             })
             .map_err(|e| {

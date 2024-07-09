@@ -29,14 +29,14 @@ use rand::distributions::Uniform;
 use rand::prelude::Distribution;
 use rusqlite::types::ToSql;
 use rusqlite::{
-    Connection, Error as SqliteError, OpenFlags, OptionalExtension, Row, Rows, Transaction,
-    NO_PARAMS,
+    params, Connection, Error as SqliteError, OpenFlags, OptionalExtension, Row, Rows, Transaction,
 };
 use siphasher::sip::SipHasher; // this is SipHash-2-4
 use stacks_common::codec::{
     read_next, write_next, Error as codec_error, StacksMessageCodec, MAX_MESSAGE_LEN,
 };
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksAddress, StacksBlockId};
+use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::types::MempoolCollectionBehavior;
 use stacks_common::util::hash::{to_hex, Sha512Trunc256Sum};
 use stacks_common::util::retry::{BoundReader, RetryReader};
@@ -859,7 +859,7 @@ impl<'a> MemPoolTx<'a> {
     /// Used to clear out txids that are now outside the bloom counter's depth.
     fn prune_bloom_counter(&mut self, target_height: u64) -> Result<(), MemPoolRejection> {
         let sql = "SELECT a.txid FROM mempool AS a LEFT OUTER JOIN removed_txids AS b ON a.txid = b.txid WHERE b.txid IS NULL AND a.height = ?1";
-        let args: &[&dyn ToSql] = &[&u64_to_sql(target_height)?];
+        let args = params![u64_to_sql(target_height)?];
         let txids: Vec<Txid> = query_rows(&self.tx, sql, args)?;
         let _num_txs = txids.len();
 
@@ -871,7 +871,7 @@ impl<'a> MemPoolTx<'a> {
                 bloom_counter.remove_raw(dbtx, &txid.0)?;
 
                 let sql = "INSERT OR REPLACE INTO removed_txids (txid) VALUES (?1)";
-                let args: &[&dyn ToSql] = &[&txid];
+                let args = params![txid];
                 dbtx.execute(sql, args).map_err(db_error::SqliteError)?;
             }
             // help the type inference out
@@ -902,7 +902,7 @@ impl<'a> MemPoolTx<'a> {
     ) -> Result<Option<Txid>, MemPoolRejection> {
         // is this the first-ever txid at this height?
         let sql = "SELECT 1 FROM mempool WHERE height = ?1";
-        let args: &[&dyn ToSql] = &[&u64_to_sql(height)?];
+        let args = params![u64_to_sql(height)?];
         let present: Option<i64> = query_row(&self.tx, sql, args)?;
         if present.is_none() && height > (BLOOM_COUNTER_DEPTH as u64) {
             // this is the first-ever tx at this height.
@@ -925,7 +925,7 @@ impl<'a> MemPoolTx<'a> {
                     // remove lowest-fee tx (they're paying the least, so replication is
                     // deprioritized)
                     let sql = "SELECT a.txid FROM mempool AS a LEFT OUTER JOIN removed_txids AS b ON a.txid = b.txid WHERE b.txid IS NULL AND a.height > ?1 ORDER BY a.tx_fee ASC LIMIT 1";
-                    let args: &[&dyn ToSql] = &[&u64_to_sql(
+                    let args = params![u64_to_sql(
                         height.saturating_sub(BLOOM_COUNTER_DEPTH as u64),
                     )?];
                     let evict_txid: Option<Txid> = query_row(&dbtx, sql, args)?;
@@ -933,7 +933,7 @@ impl<'a> MemPoolTx<'a> {
                         bloom_counter.remove_raw(dbtx, &evict_txid.0)?;
 
                         let sql = "INSERT OR REPLACE INTO removed_txids (txid) VALUES (?1)";
-                        let args: &[&dyn ToSql] = &[&evict_txid];
+                        let args = params![evict_txid];
                         dbtx.execute(sql, args).map_err(db_error::SqliteError)?;
 
                         Some(evict_txid)
@@ -963,7 +963,7 @@ impl<'a> MemPoolTx<'a> {
         let hashed_txid = Txid(Sha512Trunc256Sum::from_data(&randomized_buff).0);
 
         let sql = "INSERT OR REPLACE INTO randomized_txids (txid,hashed_txid) VALUES (?1,?2)";
-        let args: &[&dyn ToSql] = &[txid, &hashed_txid];
+        let args = params![txid, hashed_txid];
 
         self.execute(sql, args).map_err(db_error::SqliteError)?;
 
@@ -1122,7 +1122,7 @@ fn db_set_nonce(conn: &DBConn, address: &StacksAddress, nonce: u64) -> Result<()
     let nonce_i64 = u64_to_sql(nonce)?;
 
     let sql = "INSERT OR REPLACE INTO nonces (address, nonce) VALUES (?1, ?2)";
-    conn.execute(sql, rusqlite::params![&addr_str, nonce_i64])?;
+    conn.execute(sql, params![addr_str, nonce_i64])?;
     Ok(())
 }
 
@@ -1130,7 +1130,7 @@ fn db_get_nonce(conn: &DBConn, address: &StacksAddress) -> Result<Option<u64>, d
     let addr_str = address.to_string();
 
     let sql = "SELECT nonce FROM nonces WHERE address = ?";
-    query_row(conn, sql, rusqlite::params![&addr_str])
+    query_row(conn, sql, params![addr_str])
 }
 
 #[cfg(test)]
@@ -1272,7 +1272,7 @@ impl MemPoolDB {
         let version = conn
             .query_row(
                 "SELECT MAX(version) FROM schema_version",
-                rusqlite::NO_PARAMS,
+                NO_PARAMS,
                 |row| row.get(0),
             )
             .optional()?;
@@ -1489,7 +1489,7 @@ impl MemPoolDB {
     pub fn reset_nonce_cache(&mut self) -> Result<(), db_error> {
         debug!("reset nonce cache");
         let sql = "DELETE FROM nonces";
-        self.db.execute(sql, rusqlite::NO_PARAMS)?;
+        self.db.execute(sql, NO_PARAMS)?;
         Ok(())
     }
 
@@ -1504,12 +1504,12 @@ impl MemPoolDB {
     ) -> Result<Vec<StacksAddress>, db_error> {
         let sql = "SELECT DISTINCT origin_address FROM mempool WHERE height > ?1 AND height <= ?2 AND tx_fee >= ?3
                    ORDER BY tx_fee DESC LIMIT ?4 OFFSET ?5";
-        let args: &[&dyn ToSql] = &[
-            &start_height,
-            &end_height,
-            &u64_to_sql(min_fees)?,
-            &count,
-            &offset,
+        let args = params![
+            start_height,
+            end_height,
+            u64_to_sql(min_fees)?,
+            count,
+            offset,
         ];
         query_row_columns(self.conn(), sql, args, "origin_address")
     }
@@ -1529,7 +1529,7 @@ impl MemPoolDB {
         let txs: Vec<MemPoolTxInfo> = query_rows(
             &sql_tx,
             "SELECT * FROM mempool as m WHERE m.fee_rate IS NULL LIMIT ?",
-            &[max_updates],
+            params![max_updates],
         )?;
         let mut updated = 0;
         for tx_to_estimate in txs {
@@ -1554,7 +1554,7 @@ impl MemPoolDB {
 
             sql_tx.execute(
                 "UPDATE mempool SET fee_rate = ? WHERE txid = ?",
-                rusqlite::params![fee_rate_f64, &txid],
+                params![fee_rate_f64, txid],
             )?;
             updated += 1;
         }
@@ -1751,26 +1751,26 @@ impl MemPoolDB {
             ) {
                 Ordering::Less => {
                     debug!(
-                        "Mempool: unexecutable: drop tx {} {}:{} ({}) expected {},{}",
-                        &candidate.txid,
-                        candidate.origin_address,
-                        candidate.origin_nonce,
-                        candidate.fee_rate.unwrap_or_default(),
-                        expected_origin_nonce,
-                        expected_sponsor_nonce
+                        "Mempool: unexecutable: drop tx";
+                        "txid" => %candidate.txid,
+                        "tx_origin_addr" => %candidate.origin_address,
+                        "tx_origin_nonce" => candidate.origin_nonce,
+                        "fee_rate" => candidate.fee_rate.unwrap_or_default(),
+                        "expected_origin_nonce" => expected_origin_nonce,
+                        "expected_sponsor_nonce" => expected_sponsor_nonce,
                     );
                     // This transaction cannot execute in this pass, just drop it
                     continue;
                 }
                 Ordering::Greater => {
                     debug!(
-                        "Mempool: nonces too high, cached for later {} {}:{} ({}) expected {},{}",
-                        &candidate.txid,
-                        candidate.origin_address,
-                        candidate.origin_nonce,
-                        candidate.fee_rate.unwrap_or_default(),
-                        expected_origin_nonce,
-                        expected_sponsor_nonce
+                        "Mempool: nonces too high, cached for later";
+                        "txid" => %candidate.txid,
+                        "tx_origin_addr" => %candidate.origin_address,
+                        "tx_origin_nonce" => candidate.origin_nonce,
+                        "fee_rate" => candidate.fee_rate.unwrap_or_default(),
+                        "expected_origin_nonce" => expected_origin_nonce,
+                        "expected_sponsor_nonce" => expected_sponsor_nonce,
                     );
                     // This transaction could become runnable in this pass, save it for later
                     candidate_cache.push(candidate);
@@ -1928,7 +1928,7 @@ impl MemPoolDB {
 
         debug!(
             "Mempool iteration finished";
-            "considered_txs" => total_considered,
+            "considered_txs" => u128::from(total_considered),
             "elapsed_ms" => start_time.elapsed().as_millis()
         );
         Ok(total_considered)
@@ -1948,20 +1948,12 @@ impl MemPoolDB {
     }
 
     pub fn db_has_tx(conn: &DBConn, txid: &Txid) -> Result<bool, db_error> {
-        query_row(
-            conn,
-            "SELECT 1 FROM mempool WHERE txid = ?1",
-            &[txid as &dyn ToSql],
-        )
-        .and_then(|row_opt: Option<i64>| Ok(row_opt.is_some()))
+        query_row(conn, "SELECT 1 FROM mempool WHERE txid = ?1", params![txid])
+            .and_then(|row_opt: Option<i64>| Ok(row_opt.is_some()))
     }
 
     pub fn get_tx(conn: &DBConn, txid: &Txid) -> Result<Option<MemPoolTxInfo>, db_error> {
-        query_row(
-            conn,
-            "SELECT * FROM mempool WHERE txid = ?1",
-            &[txid as &dyn ToSql],
-        )
+        query_row(conn, "SELECT * FROM mempool WHERE txid = ?1", params![txid])
     }
 
     /// Get all transactions across all tips
@@ -1980,7 +1972,7 @@ impl MemPoolDB {
         block_header_hash: &BlockHeaderHash,
     ) -> Result<usize, db_error> {
         let sql = "SELECT * FROM mempool WHERE consensus_hash = ?1 AND block_header_hash = ?2";
-        let args: &[&dyn ToSql] = &[consensus_hash, block_header_hash];
+        let args = params![consensus_hash, block_header_hash];
         let rows = query_rows::<MemPoolTxInfo, _>(conn, &sql, args)?;
         Ok(rows.len())
     }
@@ -1994,7 +1986,7 @@ impl MemPoolDB {
         timestamp: u64,
     ) -> Result<Vec<MemPoolTxInfo>, db_error> {
         let sql = "SELECT * FROM mempool WHERE accept_time = ?1 AND consensus_hash = ?2 AND block_header_hash = ?3 ORDER BY origin_nonce ASC";
-        let args: &[&dyn ToSql] = &[&u64_to_sql(timestamp)?, consensus_hash, block_header_hash];
+        let args = params![u64_to_sql(timestamp)?, consensus_hash, block_header_hash];
         let rows = query_rows::<MemPoolTxInfo, _>(conn, &sql, args)?;
         Ok(rows)
     }
@@ -2002,7 +1994,7 @@ impl MemPoolDB {
     /// Given a chain tip, find the highest block-height from _before_ this tip
     pub fn get_previous_block_height(conn: &DBConn, height: u64) -> Result<Option<u64>, db_error> {
         let sql = "SELECT height FROM mempool WHERE height < ?1 ORDER BY height DESC LIMIT 1";
-        let args: &[&dyn ToSql] = &[&u64_to_sql(height)?];
+        let args = params![u64_to_sql(height)?];
         query_row(conn, sql, args)
     }
 
@@ -2015,11 +2007,11 @@ impl MemPoolDB {
         count: u64,
     ) -> Result<Vec<MemPoolTxInfo>, db_error> {
         let sql = "SELECT * FROM mempool WHERE accept_time >= ?1 AND consensus_hash = ?2 AND block_header_hash = ?3 ORDER BY tx_fee DESC LIMIT ?4";
-        let args: &[&dyn ToSql] = &[
-            &u64_to_sql(timestamp)?,
+        let args = params![
+            u64_to_sql(timestamp)?,
             consensus_hash,
             block_header_hash,
-            &u64_to_sql(count)?,
+            u64_to_sql(count)?,
         ];
         let rows = query_rows::<MemPoolTxInfo, _>(conn, &sql, args)?;
         Ok(rows)
@@ -2052,7 +2044,7 @@ impl MemPoolDB {
                           FROM mempool WHERE {0}_address = ?1 AND {0}_nonce = ?2",
             if is_origin { "origin" } else { "sponsor" }
         );
-        let args: &[&dyn ToSql] = &[&addr.to_string(), &u64_to_sql(nonce)?];
+        let args = params![addr.to_string(), u64_to_sql(nonce)?];
         query_row(conn, &sql, args)
     }
 
@@ -2185,19 +2177,19 @@ impl MemPoolDB {
             tx)
             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)";
 
-        let args: &[&dyn ToSql] = &[
-            &txid,
-            &origin_address.to_string(),
-            &u64_to_sql(origin_nonce)?,
-            &sponsor_address.to_string(),
-            &u64_to_sql(sponsor_nonce)?,
-            &u64_to_sql(tx_fee)?,
-            &u64_to_sql(length)?,
+        let args = params![
+            txid,
+            origin_address.to_string(),
+            u64_to_sql(origin_nonce)?,
+            sponsor_address.to_string(),
+            u64_to_sql(sponsor_nonce)?,
+            u64_to_sql(tx_fee)?,
+            u64_to_sql(length)?,
             consensus_hash,
             block_header_hash,
-            &u64_to_sql(height)?,
-            &u64_to_sql(get_epoch_time_secs())?,
-            &tx_bytes,
+            u64_to_sql(height)?,
+            u64_to_sql(get_epoch_time_secs())?,
+            tx_bytes,
         ];
 
         tx.execute(sql, args)
@@ -2247,7 +2239,7 @@ impl MemPoolDB {
         event_observer: Option<&dyn MemPoolEventDispatcher>,
     ) -> Result<(), db_error> {
         let threshold_time = get_epoch_time_secs().saturating_sub(age.as_secs());
-        let args: &[&dyn ToSql] = &[&u64_to_sql(threshold_time)?];
+        let args = params![u64_to_sql(threshold_time)?];
         if let Some(event_observer) = event_observer {
             let sql = "SELECT txid FROM mempool WHERE accept_time < ?1";
             let txids = query_rows(tx, sql, args)?;
@@ -2268,7 +2260,7 @@ impl MemPoolDB {
         min_height: u64,
         event_observer: Option<&dyn MemPoolEventDispatcher>,
     ) -> Result<(), db_error> {
-        let args: &[&dyn ToSql] = &[&u64_to_sql(min_height)?];
+        let args = params![u64_to_sql(min_height)?];
 
         if let Some(event_observer) = event_observer {
             let sql = "SELECT txid FROM mempool WHERE height < ?1";
@@ -2402,7 +2394,7 @@ impl MemPoolDB {
         mempool_tx
             .execute(
                 "UPDATE mempool SET fee_rate = ? WHERE txid = ?",
-                rusqlite::params![fee_rate_estimate, &txid],
+                params![fee_rate_estimate, txid],
             )
             .map_err(db_error::from)?;
 
@@ -2566,7 +2558,7 @@ impl MemPoolDB {
     ) -> Result<(), db_error> {
         for txid in txids {
             let sql = "INSERT OR REPLACE INTO tx_blacklist (txid, arrival_time) VALUES (?1, ?2)";
-            let args: &[&dyn ToSql] = &[&txid, &u64_to_sql(now)?];
+            let args = params![txid, &u64_to_sql(now)?];
             tx.execute(sql, args)?;
         }
         Ok(())
@@ -2581,7 +2573,7 @@ impl MemPoolDB {
         max_size: u64,
     ) -> Result<(), db_error> {
         let sql = "DELETE FROM tx_blacklist WHERE arrival_time + ?1 < ?2";
-        let args: &[&dyn ToSql] = &[&u64_to_sql(timeout)?, &u64_to_sql(now)?];
+        let args = params![u64_to_sql(timeout)?, u64_to_sql(now)?];
         tx.execute(sql, args)?;
 
         // if we get too big, then drop some txs at random
@@ -2592,13 +2584,10 @@ impl MemPoolDB {
             let txids: Vec<Txid> = query_rows(
                 tx,
                 "SELECT txid FROM tx_blacklist ORDER BY RANDOM() LIMIT ?1",
-                &[&u64_to_sql(to_delete)? as &dyn ToSql],
+                params![u64_to_sql(to_delete)?],
             )?;
             for txid in txids.into_iter() {
-                tx.execute(
-                    "DELETE FROM tx_blacklist WHERE txid = ?1",
-                    &[&txid as &dyn ToSql],
-                )?;
+                tx.execute("DELETE FROM tx_blacklist WHERE txid = ?1", params![txid])?;
             }
         }
         Ok(())
@@ -2610,7 +2599,7 @@ impl MemPoolDB {
         txid: &Txid,
     ) -> Result<Option<u64>, db_error> {
         let sql = "SELECT arrival_time FROM tx_blacklist WHERE txid = ?1";
-        let args: &[&dyn ToSql] = &[&txid];
+        let args = params![txid];
         query_row(conn, sql, args)
     }
 
@@ -2733,7 +2722,7 @@ impl MemPoolDB {
         };
         let min_height = max_height.saturating_sub(BLOOM_COUNTER_DEPTH as u64);
         let sql = "SELECT mempool.txid FROM mempool WHERE height > ?1 AND height <= ?2 AND NOT EXISTS (SELECT 1 FROM removed_txids WHERE txid = mempool.txid)";
-        let args: &[&dyn ToSql] = &[&u64_to_sql(min_height)?, &u64_to_sql(max_height)?];
+        let args = params![u64_to_sql(min_height)?, u64_to_sql(max_height)?];
         query_rows(&self.conn(), sql, args)
     }
 
@@ -2761,7 +2750,7 @@ impl MemPoolDB {
         };
         let min_height = max_height.saturating_sub(BLOOM_COUNTER_DEPTH as u64);
         let sql = "SELECT COUNT(txid) FROM mempool WHERE height > ?1 AND height <= ?2";
-        let args: &[&dyn ToSql] = &[&u64_to_sql(min_height)?, &u64_to_sql(max_height)?];
+        let args = params![u64_to_sql(min_height)?, u64_to_sql(max_height)?];
         query_int(conn, sql, args).map(|cnt| cnt as u64)
     }
 
@@ -2782,7 +2771,7 @@ impl MemPoolDB {
     /// Get the hashed txid for a txid
     pub fn get_randomized_txid(&self, txid: &Txid) -> Result<Option<Txid>, db_error> {
         let sql = "SELECT hashed_txid FROM randomized_txids WHERE txid = ?1 LIMIT 1";
-        let args: &[&dyn ToSql] = &[txid];
+        let args = params![txid];
         query_row(&self.conn(), sql, args)
     }
 
@@ -2829,10 +2818,10 @@ impl MemPoolDB {
                         (SELECT 1 FROM removed_txids WHERE txid = mempool.txid) \
                    ORDER BY randomized_txids.hashed_txid ASC LIMIT ?3";
 
-        let args: &[&dyn ToSql] = &[
-            &last_randomized_txid,
-            &u64_to_sql(height.saturating_sub(BLOOM_COUNTER_DEPTH as u64))?,
-            &u64_to_sql(max_run)?,
+        let args = params![
+            last_randomized_txid,
+            u64_to_sql(height.saturating_sub(BLOOM_COUNTER_DEPTH as u64))?,
+            u64_to_sql(max_run)?,
         ];
 
         let mut tags_table = HashSet::new();

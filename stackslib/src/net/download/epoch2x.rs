@@ -522,7 +522,9 @@ impl BlockDownloader {
                                         self.broken_neighbors.push(block_key.neighbor.clone());
                                     }
                                     Err(e) => {
-                                        info!("Error decoding response from remote neighbor {:?} (at {}): {:?}", &block_key.neighbor, &block_key.data_url, &e);
+                                        info!("Error decoding response from remote neighbor {:?} (at {}): {:?}", &block_key.neighbor, &block_key.data_url, &e;
+                                            "consensus_hash" => %block_key.consensus_hash
+                                        );
                                         self.broken_peers.push(event_id);
                                         self.broken_neighbors.push(block_key.neighbor.clone());
                                     }
@@ -626,7 +628,9 @@ impl BlockDownloader {
                                     Ok(microblocks) => {
                                         if microblocks.len() == 0 {
                                             // we wouldn't have asked for a 0-length stream
-                                            info!("Got unexpected zero-length microblock stream from {:?} ({:?})", &block_key.neighbor, &block_key.data_url);
+                                            info!("Got unexpected zero-length microblock stream from {:?} ({:?})", &block_key.neighbor, &block_key.data_url;
+                                                "consensus_hash" => %block_key.consensus_hash
+                                            );
                                             self.broken_peers.push(event_id);
                                             self.broken_neighbors.push(block_key.neighbor.clone());
                                         } else {
@@ -644,7 +648,9 @@ impl BlockDownloader {
                                     Err(net_error::NotFoundError) => {
                                         // remote peer didn't have the microblock, even though their blockinv said
                                         // they did.
-                                        info!("Remote neighbor {:?} ({:?}) does not have microblock stream indexed at {}", &block_key.neighbor, &block_key.data_url, &block_key.index_block_hash);
+                                        info!("Remote neighbor {:?} ({:?}) does not have microblock stream indexed at {}", &block_key.neighbor, &block_key.data_url, &block_key.index_block_hash;
+                                            "consensus_hash" => %block_key.consensus_hash
+                                        );
 
                                         // the fact that we asked this peer means that it's block inv indicated
                                         // it was present, so the absence is the mark of a broken peer.
@@ -654,7 +660,9 @@ impl BlockDownloader {
                                         // talk to them for a while.
                                     }
                                     Err(e) => {
-                                        info!("Error decoding response from remote neighbor {:?} (at {}): {:?}", &block_key.neighbor, &block_key.data_url, &e);
+                                        info!("Error decoding response from remote neighbor {:?} (at {}): {:?}", &block_key.neighbor, &block_key.data_url, &e;
+                                            "consensus_hash" => %block_key.consensus_hash
+                                        );
                                         self.broken_peers.push(event_id);
                                         self.broken_neighbors.push(block_key.neighbor.clone());
                                     }

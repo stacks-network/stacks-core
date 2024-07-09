@@ -268,7 +268,7 @@ impl BlockMinerThread {
                     info!(
                         "Miner: Block signed by signer set and broadcasted";
                         "signer_sighash" => %new_block.header.signer_signature_hash(),
-                        "block_hash" => %new_block.header.block_hash(),
+                        "stacks_block_hash" => %new_block.header.block_hash(),
                         "stacks_block_id" => %new_block.header.block_id(),
                         "block_height" => new_block.header.chain_length,
                         "consensus_hash" => %new_block.header.consensus_hash,
@@ -569,7 +569,7 @@ impl BlockMinerThread {
                 blocks: vec![block.clone()],
             }),
         ) {
-            warn!("Failed to broadcast blocok {}: {:?}", &block_id, &e);
+            warn!("Failed to broadcast block {}: {:?}", &block_id, &e);
         }
         Ok(())
     }
@@ -585,8 +585,10 @@ impl BlockMinerThread {
             if *TEST_BROADCAST_STALL.lock().unwrap() == Some(true) {
                 // Do an extra check just so we don't log EVERY time.
                 warn!("Broadcasting is stalled due to testing directive.";
-                    "block_id" => %block.block_id(),
+                    "stacks_block_id" => %block.block_id(),
+                    "stacks_block_hash" => %block.header.block_hash(),
                     "height" => block.header.chain_length,
+                    "consensus_hash" => %block.header.consensus_hash
                 );
                 while *TEST_BROADCAST_STALL.lock().unwrap() == Some(true) {
                     std::thread::sleep(std::time::Duration::from_millis(10));
@@ -594,6 +596,7 @@ impl BlockMinerThread {
                 info!("Broadcasting is no longer stalled due to testing directive.";
                     "block_id" => %block.block_id(),
                     "height" => block.header.chain_length,
+                    "consensus_hash" => %block.header.consensus_hash
                 );
             }
         }
@@ -606,11 +609,19 @@ impl BlockMinerThread {
         )
         .expect("FATAL: could not open sortition DB");
 
+        if self.config.miner.mining_key.is_none() {
+            return Err(NakamotoNodeError::MinerConfigurationFailed(
+                "No mining key configured, cannot mine",
+            ));
+        };
+
         // push block via p2p block push
         self.broadcast_p2p(&sort_db, &mut chain_state, &block, reward_set)
             .map_err(NakamotoNodeError::AcceptFailure)?;
 
         let Some(ref miner_privkey) = self.config.miner.mining_key else {
+            // should be unreachable, but we can't borrow this above broadcast_p2p() since it's
+            // mutable
             return Err(NakamotoNodeError::MinerConfigurationFailed(
                 "No mining key configured, cannot mine",
             ));
@@ -730,25 +741,22 @@ impl BlockMinerThread {
                 "Stacks block parent ID is last mined block {}",
                 &block.block_id()
             );
-            let header_info =
-                NakamotoChainState::get_block_header(chain_state.db(), &block.block_id())
-                    .map_err(|e| {
-                        error!(
-                            "Could not query header info for last-mined block ID {}: {:?}",
-                            &block.block_id(),
-                            &e
-                        );
-                        NakamotoNodeError::ParentNotFound
-                    })?
-                    .ok_or_else(|| {
-                        error!(
-                            "No header info for last-mined block ID {}",
-                            &block.block_id()
-                        );
-                        NakamotoNodeError::ParentNotFound
-                    })?;
-
-            header_info
+            NakamotoChainState::get_block_header(chain_state.db(), &block.block_id())
+                .map_err(|e| {
+                    error!(
+                        "Could not query header info for last-mined block ID {}: {:?}",
+                        &block.block_id(),
+                        &e
+                    );
+                    NakamotoNodeError::ParentNotFound
+                })?
+                .ok_or_else(|| {
+                    error!(
+                        "No header info for last-mined block ID {}",
+                        &block.block_id()
+                    );
+                    NakamotoNodeError::ParentNotFound
+                })?
         } else {
             test_debug!(
                 "Stacks block parent ID is last block in parent tenure ID {}",
@@ -768,6 +776,8 @@ impl BlockMinerThread {
                         NakamotoNodeError::ParentNotFound
                     })?;
 
+            // NOTE: this is the soon-to-be parent's block ID, since it's the tip we mine on top
+            // of.  We're only interested in performing queries relative to the canonical tip.
             let (stacks_tip_ch, stacks_tip_bh) =
                 SortitionDB::get_canonical_stacks_chain_tip_hash(burn_db.conn()).map_err(|e| {
                     error!("Failed to load canonical Stacks tip: {:?}", &e);
@@ -775,16 +785,16 @@ impl BlockMinerThread {
                 })?;
 
             let stacks_tip = StacksBlockId::new(&stacks_tip_ch, &stacks_tip_bh);
-            let last_tenure_finish_block_header = if let Some(header) =
-                NakamotoChainState::get_highest_block_header_in_tenure(
-                    &mut chain_state.index_conn(),
-                    &stacks_tip,
-                    &parent_tenure_header.consensus_hash,
-                )
-                .map_err(|e| {
-                    error!("Could not query parent tenure finish block: {:?}", &e);
-                    NakamotoNodeError::ParentNotFound
-                })? {
+            let header_opt = NakamotoChainState::get_highest_block_header_in_tenure(
+                &mut chain_state.index_conn(),
+                &stacks_tip,
+                &parent_tenure_header.consensus_hash,
+            )
+            .map_err(|e| {
+                error!("Could not query parent tenure finish block: {:?}", &e);
+                NakamotoNodeError::ParentNotFound
+            })?;
+            if let Some(header) = header_opt {
                 header
             } else {
                 // this is an epoch2 block
@@ -792,27 +802,22 @@ impl BlockMinerThread {
                     "Stacks block parent ID may be an epoch2x block: {}",
                     &self.parent_tenure_id
                 );
-                let header =
-                    NakamotoChainState::get_block_header(chain_state.db(), &self.parent_tenure_id)
-                        .map_err(|e| {
-                            error!(
-                                "Could not query header info for epoch2x tenure block ID {}: {:?}",
-                                &self.parent_tenure_id, &e
-                            );
-                            NakamotoNodeError::ParentNotFound
-                        })?
-                        .ok_or_else(|| {
-                            error!(
-                                "No header info for epoch2x tenure block ID {}",
-                                &self.parent_tenure_id
-                            );
-                            NakamotoNodeError::ParentNotFound
-                        })?;
-
-                header
-            };
-
-            last_tenure_finish_block_header
+                NakamotoChainState::get_block_header(chain_state.db(), &self.parent_tenure_id)
+                    .map_err(|e| {
+                        error!(
+                            "Could not query header info for epoch2x tenure block ID {}: {:?}",
+                            &self.parent_tenure_id, &e
+                        );
+                        NakamotoNodeError::ParentNotFound
+                    })?
+                    .ok_or_else(|| {
+                        error!(
+                            "No header info for epoch2x tenure block ID {}",
+                            &self.parent_tenure_id
+                        );
+                        NakamotoNodeError::ParentNotFound
+                    })?
+            }
         };
 
         test_debug!(

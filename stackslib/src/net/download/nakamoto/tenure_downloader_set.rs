@@ -195,7 +195,6 @@ impl NakamotoTenureDownloaderSet {
 
     /// Determine if this downloader set is empty -- i.e. there's no in-progress downloaders.
     pub fn is_empty(&self) -> bool {
-        let mut cnt = 0;
         for downloader_opt in self.downloaders.iter() {
             let Some(downloader) = downloader_opt else {
                 continue;
@@ -204,9 +203,9 @@ impl NakamotoTenureDownloaderSet {
                 continue;
             }
             test_debug!("TenureDownloadSet::is_empty(): have downloader for tenure {:?} assigned to {} in state {}", &downloader.tenure_id_consensus_hash, &downloader.naddr, &downloader.state);
-            cnt += 1;
+            return true;
         }
-        cnt == 0
+        false
     }
 
     /// Try to resume processing a download state machine with a given peer.  Since a peer is

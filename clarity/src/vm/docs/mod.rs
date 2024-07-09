@@ -2746,7 +2746,7 @@ pub fn make_json_api_reference() -> String {
 #[cfg(test)]
 mod test {
     use stacks_common::address::AddressHashMode;
-    use stacks_common::consts::CHAIN_ID_TESTNET;
+    use stacks_common::consts::{CHAIN_ID_TESTNET, PEER_VERSION_EPOCH_2_1};
     use stacks_common::types::chainstate::{
         BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, SortitionId, StacksAddress,
         StacksBlockId, VRFSeed,
@@ -2905,7 +2905,7 @@ mod test {
                 start_height: 0,
                 end_height: u64::MAX,
                 block_limit: ExecutionCost::max_value(),
-                network_epoch: 0x06,
+                network_epoch: PEER_VERSION_EPOCH_2_1,
             })
         }
         fn get_burn_start_height(&self) -> u32 {
