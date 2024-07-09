@@ -1097,7 +1097,7 @@ impl<
                 // and will remain canonical with respect to its tenure's Bitcoin fork forever.
                 // Here, we're loading a reward set calculated between H and H+99 from H+100, where
                 // H is the start of the prepare phase.  So if we get any reward set from our
-                // canonical tip, it's guaranteed to be te canonical one.
+                // canonical tip, it's guaranteed to be the canonical one.
                 let canonical_sortition_tip = self.canonical_sortition_tip.clone().unwrap_or(
                     // should be unreachable
                     SortitionDB::get_canonical_burn_chain_tip(&self.sortition_db.conn())?
