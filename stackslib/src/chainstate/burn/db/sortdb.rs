@@ -1619,8 +1619,10 @@ impl<'a> SortitionHandleTx<'a> {
                         .map(|ix| {
                             let recipient = reward_set.rewarded_addresses[ix as usize].clone();
                             info!("PoX recipient chosen";
-                                   "recipient" => recipient.to_burnchain_repr(),
-                                   "block_height" => block_height);
+                               "recipient" => recipient.to_burnchain_repr(),
+                               "block_height" => block_height,
+                               "anchor_stacks_block_hash" => &anchor_block,
+                            );
                             (recipient, u16::try_from(ix).unwrap())
                         })
                         .collect(),
@@ -1652,8 +1654,10 @@ impl<'a> SortitionHandleTx<'a> {
                         let ix = u16::try_from(ix).unwrap();
                         let recipient = self.get_reward_set_entry(ix)?;
                         info!("PoX recipient chosen";
-                               "recipient" => recipient.to_burnchain_repr(),
-                               "block_height" => block_height);
+                           "recipient" => recipient.to_burnchain_repr(),
+                           "block_height" => block_height,
+                           "stacks_block_hash" => %anchor_block
+                        );
                         recipients.push((recipient, ix));
                     }
                     Ok(Some(RewardSetInfo {
@@ -5531,7 +5535,9 @@ impl<'a> SortitionHandleTx<'a> {
             BlockstackOperationType::LeaderKeyRegister(ref op) => {
                 info!(
                     "ACCEPTED({}) leader key register {} at {},{}",
-                    op.block_height, &op.txid, op.block_height, op.vtxindex
+                    op.block_height, &op.txid, op.block_height, op.vtxindex;
+                    "consensus_hash" => %op.consensus_hash,
+                    "burn_header_hash" => %op.burn_header_hash
                 );
                 self.insert_leader_key(op, sort_id)
             }
@@ -5539,7 +5545,8 @@ impl<'a> SortitionHandleTx<'a> {
                 info!(
                     "ACCEPTED({}) leader block commit {} at {},{}",
                     op.block_height, &op.txid, op.block_height, op.vtxindex;
-                    "apparent_sender" => %op.apparent_sender
+                    "apparent_sender" => %op.apparent_sender,
+                    "stacks_block_hash" => %op.block_header_hash
                 );
                 self.insert_block_commit(op, sort_id)
             }
@@ -5560,7 +5567,8 @@ impl<'a> SortitionHandleTx<'a> {
             BlockstackOperationType::PreStx(ref op) => {
                 info!(
                     "ACCEPTED({}) pre stack stx op {} at {},{}",
-                    op.block_height, &op.txid, op.block_height, op.vtxindex
+                    op.block_height, &op.txid, op.block_height, op.vtxindex;
+                    "burn_header_hash" => %op.burn_header_hash
                 );
                 // no need to store this op in the sortition db.
                 Ok(())

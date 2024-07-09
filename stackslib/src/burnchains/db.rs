@@ -405,12 +405,12 @@ impl<'a> BurnchainDBTransaction<'a> {
         match self.sql_tx.execute(sql, args) {
             Ok(_) => {
                 info!(
-                    "Set anchor block for reward cycle {} to {},{},{},{}",
-                    target_reward_cycle,
-                    &block_commit.burn_header_hash,
-                    &block_commit.txid,
-                    &block_commit.block_height,
-                    &block_commit.vtxindex
+                    "Setting anchor block for reward cycle {target_reward_cycle}.";
+                    "burn_block_hash" => %block_commit.burn_header_hash,
+                    "stacks_block_hash" => %block_commit.block_header_hash,
+                    "block_commit_txid" => %block_commit.txid,
+                    "block_commit_height" => block_commit.block_height,
+                    "block_commit_vtxindex" => block_commit.vtxindex,
                 );
                 Ok(())
             }
@@ -1420,7 +1420,9 @@ impl BurnchainDB {
     ) -> Result<Vec<BlockstackOperationType>, BurnchainError> {
         let header = block.header();
         debug!("Storing new burnchain block";
-              "burn_header_hash" => %header.block_hash.to_string());
+              "burn_block_hash" => %header.block_hash,
+              "block_height" => header.block_height
+        );
         let mut blockstack_ops =
             self.get_blockstack_transactions(burnchain, indexer, block, &header, epoch_id);
         apply_blockstack_txs_safety_checks(header.block_height, &mut blockstack_ops);

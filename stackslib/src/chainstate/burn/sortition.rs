@@ -680,9 +680,10 @@ impl BlockSnapshot {
         }
 
         if let Some(reject_winner_reason) = reject_winner_reason {
-            info!("SORTITION({}): WINNER REJECTED: {}", block_height, &reject_winner_reason;
+            info!("SORTITION({block_height}): WINNER REJECTED: {reject_winner_reason:?}";
                   "txid" => %winning_block.txid,
-                  "block_hash" => %winning_block.block_header_hash);
+                  "stacks_block_hash" => %winning_block.block_header_hash,
+                  "burn_block_hash" => %winning_block.burn_header_hash);
 
             // N.B. can't use `make_snapshot_no_sortition()` helper here because then `sort_tx`
             // would be mutably borrowed twice.
@@ -714,10 +715,10 @@ impl BlockSnapshot {
             my_pox_id,
         )?;
 
-        info!(
-            "SORTITION({}): WINNER IS {:?} (from {:?})",
-            block_height, &winning_block.block_header_hash, &winning_block.txid
-        );
+        info!("SORTITION({block_height}): WINNER SELECTED";
+            "txid" => %winning_block.txid,
+            "stacks_block_hash" => %winning_block.block_header_hash,
+            "burn_block_hash" => %winning_block.burn_header_hash);
 
         let miner_pk_hash = sort_tx
             .get_leader_key_at(

@@ -225,6 +225,9 @@ impl<'a, T: BlockEventDispatcher> OnChainRewardSetProvider<'a, T> {
             debug_log,
             "PoX reward set loaded from written block state";
             "reward_set_block_id" => %reward_set_block.index_block_hash(),
+            "burn_block_hash" => %reward_set_block.burn_header_hash,
+            "stacks_block_height" => reward_set_block.stacks_block_height,
+            "burn_header_height" => reward_set_block.burn_header_height,
         );
 
         if reward_set.signers.is_none() {
@@ -338,8 +341,8 @@ pub fn get_nakamoto_reward_cycle_info<U: RewardSetProvider>(
         "block_id" => %block_id,
         "consensus_hash" => %anchor_block_header.consensus_hash,
         "burn_height" => anchor_block_header.burn_header_height,
-        "anchor_chain_tip" => %anchor_block_header.index_block_hash(),
-        "anchor_chain_tip_height" => %anchor_block_header.burn_header_height,
+        "stacks_block_height" => anchor_block_header.stacks_block_height,
+        "burn_block_hash" => %anchor_block_header.burn_header_hash
     );
 
     return Ok(Some(rc_info));
@@ -540,7 +543,10 @@ pub fn load_nakamoto_reward_set<U: RewardSetProvider>(
     )?;
     debug!(
         "Stacks anchor block (ch {}) {} cycle {} is processed",
-        &anchor_block_header.consensus_hash, &block_id, reward_cycle
+        &anchor_block_header.consensus_hash, &block_id, reward_cycle;
+        "anchor.consensus_hash" => %anchor_block_header.consensus_hash,
+        "anchor.burn_header_hash" => %anchor_block_header.burn_header_hash,
+        "anchor.burn_block_height" => anchor_block_header.burn_header_height
     );
     let anchor_status = PoxAnchorBlockStatus::SelectedAndKnown(stacks_block_hash, txid, reward_set);
 
@@ -855,9 +861,11 @@ impl<
                     .expect("Could not find a stacks epoch.");
                 if let Err(e) = estimator.notify_block(&block_receipt, &stacks_epoch.block_limit) {
                     warn!("FeeEstimator failed to process block receipt";
-                          "stacks_block" => %block_hash,
-                          "stacks_height" => %block_receipt.header.stacks_block_height,
-                          "error" => %e);
+                        "stacks_block_hash" => %block_hash,
+                        "stacks_block_height" => %block_receipt.header.stacks_block_height,
+                        "burn_block_hash" => %block_receipt.header.burn_header_hash,
+                        "error" => %e
+                    );
                 }
             }
 
@@ -1030,17 +1038,13 @@ impl<
                 .block_height_to_reward_cycle(header.block_height)
                 .unwrap_or(u64::MAX);
 
-            debug!(
-                "Process burn block {} reward cycle {} in {}",
-                header.block_height, reward_cycle, &self.burnchain.working_dir,
-            );
-
             info!(
                 "Process burn block {} reward cycle {} in {}",
                 header.block_height, reward_cycle, &self.burnchain.working_dir;
                 "in_prepare_phase" => self.burnchain.is_in_prepare_phase(header.block_height),
                 "is_rc_start" => self.burnchain.is_reward_cycle_start(header.block_height),
                 "is_prior_in_prepare_phase" => self.burnchain.is_in_prepare_phase(header.block_height.saturating_sub(2)),
+                "burn_block_hash" => %header.block_hash,
             );
 
             // calculate paid rewards during this burnchain block if we announce

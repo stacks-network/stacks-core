@@ -1032,8 +1032,10 @@ impl NakamotoChainState {
             warn!("While processing tenure change, failed to look up parent tenure";
                   "parent_coinbase_height" => parent_coinbase_height,
                   "parent_block_id" => %block.header.parent_block_id,
-                  "block_hash" => %block.header.block_hash(),
-                  "block_consensus_hash" => %block.header.consensus_hash);
+                  "consensus_hash" => %block.header.consensus_hash,
+                  "stacks_block_hash" => %block.header.block_hash(),
+                  "stacks_block_id" => %block.header.block_id()
+            );
             ChainstateError::NoSuchBlockError
         })?;
         // fetch the parent tenure fees by reading the total tx fees from this block's
@@ -1046,8 +1048,10 @@ impl NakamotoChainState {
             )?.ok_or_else(|| {
                 warn!("While processing tenure change, failed to look up parent block's total tx fees";
                       "parent_block_id" => %block.header.parent_block_id,
-                      "block_hash" => %block.header.block_hash(),
-                      "block_consensus_hash" => %block.header.consensus_hash);
+                      "consensus_hash" => %block.header.consensus_hash,
+                      "stacks_block_hash" => %block.header.block_hash(),
+                      "stacks_block_id" => %block.header.block_id()
+                    );
                 ChainstateError::NoSuchBlockError
             })?
         } else {
