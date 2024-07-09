@@ -553,6 +553,16 @@ fn end_of_tenure() {
         },
     )
     .unwrap();
+
+    // Mine a few blocks so we are well into the next reward cycle
+    for _ in 0..2 {
+        next_block_and(
+            &mut signer_test.running_nodes.btc_regtest_controller,
+            10,
+            || Ok(true),
+        )
+        .unwrap();
+    }
     assert_eq!(signer_test.get_current_reward_cycle(), final_reward_cycle);
 
     while test_observer::get_burn_blocks()
@@ -562,7 +572,7 @@ fn end_of_tenure() {
         .unwrap()
         .as_u64()
         .unwrap()
-        >= final_reward_cycle_height_boundary + 1
+        < final_reward_cycle_height_boundary + 1
     {
         assert!(
             start_time.elapsed() <= short_timeout,
