@@ -1263,6 +1263,10 @@ impl NakamotoDownloadStateMachine {
             if is_available && !wt.processed {
                 // a tenure is available but not yet processed, so we can't yet transition to
                 // fetching unconfirmed tenures (we'd have no way to validate them).
+                test_debug!(
+                    "Tenure {} is available but not yet processed",
+                    &wt.tenure_id_consensus_hash
+                );
                 return false;
             }
         }

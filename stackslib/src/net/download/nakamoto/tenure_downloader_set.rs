@@ -203,9 +203,9 @@ impl NakamotoTenureDownloaderSet {
                 continue;
             }
             test_debug!("TenureDownloadSet::is_empty(): have downloader for tenure {:?} assigned to {} in state {}", &downloader.tenure_id_consensus_hash, &downloader.naddr, &downloader.state);
-            return true;
+            return false;
         }
-        false
+        true
     }
 
     /// Try to resume processing a download state machine with a given peer.  Since a peer is

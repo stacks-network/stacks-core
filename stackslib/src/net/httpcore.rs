@@ -804,7 +804,14 @@ impl StacksHttpRecvStream {
                     blocked = true;
                     (0, num_consumed)
                 }
-                Ok((num_read, num_consumed)) => (num_read, num_consumed),
+                Ok((num_read, num_consumed)) => {
+                    test_debug!(
+                        "consume_data read {} bytes ({} consumed)",
+                        num_read,
+                        num_consumed
+                    );
+                    (num_read, num_consumed)
+                }
                 Err(e) => {
                     if e.kind() == io::ErrorKind::WouldBlock || e.kind() == io::ErrorKind::TimedOut
                     {
