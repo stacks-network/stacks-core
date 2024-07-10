@@ -82,13 +82,13 @@ impl SignerTrait<SignerMessage> for Signer {
         sortition_state: &mut Option<SortitionsView>,
         event: Option<&SignerEvent<SignerMessage>>,
         _res: Sender<Vec<SignerResult>>,
-        current_reward_cycle: u64,
+        _current_reward_cycle: u64,
     ) {
         let event_parity = match event {
-            Some(SignerEvent::BlockValidationResponse(_)) => Some(current_reward_cycle % 2),
             // Block proposal events do have reward cycles, but each proposal has its own cycle,
             //  and the vec could be heterogenous, so, don't differentiate.
-            Some(SignerEvent::MinerMessages(..))
+            Some(SignerEvent::BlockValidationResponse(_))
+            | Some(SignerEvent::MinerMessages(..))
             | Some(SignerEvent::NewBurnBlock(_))
             | Some(SignerEvent::StatusCheck)
             | None => None,
@@ -162,6 +162,16 @@ impl SignerTrait<SignerMessage> for Signer {
         if let Some(command) = command {
             warn!("{self}: Received a command: {command:?}. V0 Signers do not support commands. Ignoring...")
         }
+    }
+
+    fn has_pending_blocks(&self) -> bool {
+        self.signer_db
+            .has_pending_blocks(self.reward_cycle)
+            .unwrap_or_else(|e| {
+                error!("{self}: Failed to check for pending blocks: {e:?}",);
+                // Assume we have pending blocks to prevent premature cleanup
+                true
+            })
     }
 }
 
@@ -381,7 +391,6 @@ impl Signer {
                     }
                 };
                 block_info.valid = Some(true);
-                // TODO: do not sign the block if it fails signer state checks (forks, etc.)
                 let signature = self
                     .private_key
                     .sign(&signer_signature_hash.0)
