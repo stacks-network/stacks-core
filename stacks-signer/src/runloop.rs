@@ -34,10 +34,19 @@ use crate::client::{retry_with_exponential_backoff, ClientError, SignerSlotID, S
 use crate::config::{GlobalConfig, SignerConfig};
 use crate::Signer as SignerTrait;
 
+/// The internal signer state info
+#[derive(PartialEq, Clone, Debug)]
+pub struct StateInfo {
+    /// the runloop state
+    pub runloop_state: State,
+    /// the current reward cycle info
+    pub reward_cycle_info: Option<RewardCycleInfo>,
+}
+
 /// The signer result that can be sent across threads
 pub enum SignerResult {
     /// The signer has received a status check
-    StatusCheck(State),
+    StatusCheck(StateInfo),
     /// The signer has completed an operation
     OperationResult(OperationResult),
 }
@@ -48,9 +57,9 @@ impl From<OperationResult> for SignerResult {
     }
 }
 
-impl From<State> for SignerResult {
-    fn from(state: State) -> Self {
-        SignerResult::StatusCheck(state)
+impl From<StateInfo> for SignerResult {
+    fn from(state_info: StateInfo) -> Self {
+        SignerResult::StatusCheck(state_info)
     }
 }
 
@@ -375,10 +384,16 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
     fn cleanup_stale_signers(&mut self, current_reward_cycle: u64) {
         let mut to_delete = Vec::new();
         for (idx, signer) in &mut self.stacks_signers {
-            if signer.reward_cycle() < current_reward_cycle {
+            let reward_cycle = signer.reward_cycle();
+            let next_reward_cycle = reward_cycle.wrapping_add(1);
+            let stale = match next_reward_cycle.cmp(&current_reward_cycle) {
+                std::cmp::Ordering::Less => true, // We are more than one reward cycle behind, so we are stale
+                std::cmp::Ordering::Equal => !signer.has_pending_blocks(), // We are the next reward cycle, so check if we have any pending blocks to process
+                std::cmp::Ordering::Greater => false, // We are the current reward cycle, so we are not stale
+            };
+            if stale {
                 debug!("{signer}: Signer's tenure has completed.");
                 to_delete.push(*idx);
-                continue;
             }
         }
         for idx in to_delete {
@@ -452,7 +467,12 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug>
         // This is the only event that we respond to from the outer signer runloop
         if let Some(SignerEvent::StatusCheck) = event {
             info!("Signer status check requested: {:?}.", self.state);
-            if let Err(e) = res.send(vec![self.state.into()]) {
+            if let Err(e) = res.send(vec![StateInfo {
+                runloop_state: self.state,
+                reward_cycle_info: self.current_reward_cycle_info,
+            }
+            .into()])
+            {
                 error!("Failed to send status check result: {e}.");
             }
         }

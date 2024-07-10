@@ -100,6 +100,7 @@ CREATE TABLE IF NOT EXISTS blocks (
 const CREATE_INDEXES: &str = "
 CREATE INDEX IF NOT EXISTS blocks_signed_over ON blocks (signed_over);
 CREATE INDEX IF NOT EXISTS blocks_consensus_hash ON blocks (consensus_hash);
+CREATE INDEX IF NOT EXISTS blocks_valid ON blocks ((json_extract(block_info, '$.valid')));
 ";
 
 const CREATE_SIGNER_STATE_TABLE: &str = "
@@ -191,7 +192,7 @@ impl SignerDb {
         tenure: &ConsensusHash,
     ) -> Result<Option<BlockInfo>, DBError> {
         let query = "SELECT block_info FROM blocks WHERE consensus_hash = ? AND signed_over = 1 ORDER BY stacks_height DESC LIMIT 1";
-        let result: Option<String> = query_row(&self.db, query, &[tenure])?;
+        let result: Option<String> = query_row(&self.db, query, [tenure])?;
 
         try_deserialize(result)
     }
@@ -230,6 +231,15 @@ impl SignerDb {
 
         Ok(())
     }
+
+    /// Determine if there are any pending blocks that have not yet been processed by checking the block_info.valid field
+    pub fn has_pending_blocks(&self, reward_cycle: u64) -> Result<bool, DBError> {
+        let query = "SELECT block_info FROM blocks WHERE reward_cycle = ? AND json_extract(block_info, '$.valid') IS NULL LIMIT 1";
+        let result: Option<String> =
+            query_row(&self.db, query, params!(&u64_to_sql(reward_cycle)?))?;
+
+        Ok(result.is_some())
+    }
 }
 
 fn try_deserialize<T>(s: Option<String>) -> Result<Option<T>, DBError>
@@ -260,6 +270,7 @@ mod tests {
     use blockstack_lib::chainstate::nakamoto::{
         NakamotoBlock, NakamotoBlockHeader, NakamotoBlockVote,
     };
+    use clarity::util::secp256k1::MessageSignature;
     use libsigner::BlockProposal;
 
     use super::*;
@@ -418,6 +429,41 @@ mod tests {
             .get_encrypted_signer_state(9)
             .expect("Failed to get signer state")
             .is_none());
+    }
+
+    #[test]
+    fn test_has_pending_blocks() {
+        let db_path = tmp_db_path();
+        let mut db = SignerDb::new(db_path).expect("Failed to create signer db");
+        let (mut block_info_1, _block_proposal) = create_block_override(|b| {
+            b.block.header.miner_signature = MessageSignature([0x01; 65]);
+            b.burn_height = 1;
+        });
+        let (mut block_info_2, _block_proposal) = create_block_override(|b| {
+            b.block.header.miner_signature = MessageSignature([0x02; 65]);
+            b.burn_height = 2;
+        });
+
+        db.insert_block(&block_info_1)
+            .expect("Unable to insert block into db");
+        db.insert_block(&block_info_2)
+            .expect("Unable to insert block into db");
+
+        assert!(db.has_pending_blocks(block_info_1.reward_cycle).unwrap());
+
+        block_info_1.valid = Some(true);
+
+        db.insert_block(&block_info_1)
+            .expect("Unable to update block in db");
+
+        assert!(db.has_pending_blocks(block_info_1.reward_cycle).unwrap());
+
+        block_info_2.valid = Some(true);
+
+        db.insert_block(&block_info_2)
+            .expect("Unable to update block in db");
+
+        assert!(!db.has_pending_blocks(block_info_1.reward_cycle).unwrap());
     }
 
     #[test]
