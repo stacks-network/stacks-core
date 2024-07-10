@@ -1845,7 +1845,43 @@ impl<'a> SortitionHandleTx<'a> {
             ).optional()?;
 
             if let Some((cur_ch, cur_bhh, cur_height)) = current_sortition_tip {
-                let will_replace = cur_height < stacks_block_height;
+                let will_replace = if cur_height < stacks_block_height {
+                    true
+                } else if cur_height > stacks_block_height {
+                    false
+                } else {
+                    if &cur_ch == consensus_hash {
+                        // same sortition (i.e. nakamoto block)
+                        // pick the one with the lexicographically-lesser block hash
+                        cur_bhh
+                            .0
+                            .iter()
+                            .zip(stacks_block_hash.0.iter())
+                            .find_map(|(cur_bhh_byte, accepted_bhh_byte)| {
+                                if cur_bhh_byte < accepted_bhh_byte {
+                                    // current is "earlier", so don't replace
+                                    Some(false)
+                                } else if cur_bhh_byte > accepted_bhh_byte {
+                                    // current is "later", so replace
+                                    Some(true)
+                                } else {
+                                    None
+                                }
+                            })
+                            // if somehow the block hashes are also the same, then don't replace
+                            .unwrap_or(false)
+                    } else {
+                        // tips come from different sortitions
+                        // break ties by going with the latter-signed block
+                        let sn_current = SortitionDB::get_block_snapshot_consensus(self, &cur_ch)?
+                            .ok_or(db_error::NotFoundError)?;
+                        let sn_accepted =
+                            SortitionDB::get_block_snapshot_consensus(self, &consensus_hash)?
+                                .ok_or(db_error::NotFoundError)?;
+                        sn_current.block_height < sn_accepted.block_height
+                    }
+                };
+
                 debug!("Setting Stacks tip as accepted";
                        "replace?" => will_replace,
                        "current_tip_consensus_hash" => %cur_ch,

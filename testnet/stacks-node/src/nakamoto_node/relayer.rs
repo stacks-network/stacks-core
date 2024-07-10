@@ -390,62 +390,6 @@ impl RelayerThread {
             .expect("FATAL: failed to query sortition DB")
             .expect("FATAL: unknown consensus hash");
 
-        let (stacks_tip_ch, stacks_tip_bh) =
-            SortitionDB::get_canonical_stacks_chain_tip_hash(self.sortdb.conn()).map_err(|e| {
-                error!("Failed to load canonical stacks tip: {:?}", &e);
-                NakamotoNodeError::ParentNotFound
-            })?;
-        let stacks_tip = StacksBlockId::new(&stacks_tip_ch, &stacks_tip_bh);
-
-        let ongoing_tenure_consensus_hash = if let Some(ongoing_tenure) =
-            NakamotoChainState::get_ongoing_tenure(&mut self.chainstate.index_conn(), &stacks_tip)
-                .map_err(|e| {
-                error!(
-                    "Failed to get ongoing tenure off of {}: {:?}",
-                    &stacks_tip, &e
-                );
-                NakamotoNodeError::ParentNotFound
-            })? {
-            ongoing_tenure.tenure_id_consensus_hash
-        } else if let Some(header) =
-            StacksChainState::get_stacks_block_header_info_by_index_block_hash(
-                self.chainstate.db(),
-                &stacks_tip,
-            )
-            .map_err(|e| {
-                error!(
-                    "Failed to get stacks 2.x block header for {}: {:?}",
-                    &stacks_tip, &e
-                );
-                NakamotoNodeError::ParentNotFound
-            })?
-        {
-            header.consensus_hash
-        } else {
-            error!("Could not deduce ongoing tenure");
-            return Err(NakamotoNodeError::ParentNotFound);
-        };
-
-        let highest_tenure_start_block_header = NakamotoChainState::get_tenure_start_block_header(
-            &mut self.chainstate.index_conn(),
-            &stacks_tip,
-            &ongoing_tenure_consensus_hash,
-        )
-        .map_err(|e| {
-            error!(
-                "Relayer: Failed to get tenure-start block header for stacks tip {}: {:?}",
-                &stacks_tip, &e
-            );
-            NakamotoNodeError::ParentNotFound
-        })?
-        .ok_or_else(|| {
-            error!(
-                "Relayer: Failed to find tenure-start block header for stacks tip {}",
-                &stacks_tip
-            );
-            NakamotoNodeError::ParentNotFound
-        })?;
-
         self.globals.set_last_sortition(sn.clone());
 
         let won_sortition = sn.sortition && self.last_commits.remove(&sn.winning_block_txid);
@@ -457,7 +401,6 @@ impl RelayerThread {
             "burn_height" => sn.block_height,
             "winning_txid" => %sn.winning_block_txid,
             "committed_parent" => %committed_index_hash,
-            "last_tenure_start_id" => %highest_tenure_start_block_header.index_block_hash(),
             "won_sortition?" => won_sortition,
         );
 
@@ -468,7 +411,7 @@ impl RelayerThread {
         let directive = if sn.sortition {
             if won_sortition {
                 MinerDirective::BeginTenure {
-                    parent_tenure_start: highest_tenure_start_block_header.index_block_hash(),
+                    parent_tenure_start: committed_index_hash,
                     burnchain_tip: sn,
                 }
             } else {

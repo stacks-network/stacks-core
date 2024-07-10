@@ -3443,6 +3443,7 @@ fn forked_tenure_is_ignored() {
     // Now let's produce a second block for tenure C and ensure it builds off of block C.
     let blocks_before = mined_blocks.load(Ordering::SeqCst);
     let start_time = Instant::now();
+
     // submit a tx so that the miner will mine an extra block
     let sender_nonce = 0;
     let transfer_tx =
@@ -4073,9 +4074,10 @@ fn nakamoto_attempt_time() {
 
     // ----- Setup boilerplate finished, test block proposal API endpoint -----
 
-    let mut sender_nonce = 0;
     let tenure_count = 2;
     let inter_blocks_per_tenure = 3;
+
+    info!("Begin subtest 1");
 
     // Subtest 1
     // Mine nakamoto tenures with a few transactions
@@ -4089,7 +4091,9 @@ fn nakamoto_attempt_time() {
         let mut last_tip_height = 0;
 
         // mine the interim blocks
-        for _ in 0..inter_blocks_per_tenure {
+        for tenure_count in 0..inter_blocks_per_tenure {
+            debug!("nakamoto_attempt_time: begin tenure {}", tenure_count);
+
             let blocks_processed_before = coord_channel
                 .lock()
                 .expect("Mutex poisoned")
@@ -4099,6 +4103,17 @@ fn nakamoto_attempt_time() {
             let tx_fee = 500;
             let amount = 500;
 
+            let account = loop {
+                // submit a tx so that the miner will mine an extra block
+                let Ok(account) = get_account_result(&http_origin, &sender_addr) else {
+                    debug!("nakamoto_attempt_time: Failed to load miner account");
+                    thread::sleep(Duration::from_millis(100));
+                    continue;
+                };
+                break account;
+            };
+
+            let mut sender_nonce = account.nonce;
             for _ in 0..txs_per_block {
                 let transfer_tx =
                     make_stacks_transfer(&sender_sk, sender_nonce, tx_fee, &recipient, amount);
@@ -4142,6 +4157,8 @@ fn nakamoto_attempt_time() {
         }
     }
 
+    info!("Begin subtest 2");
+
     // Subtest 2
     // Confirm that no blocks are mined if there are no transactions
     for _ in 0..2 {
@@ -4167,6 +4184,8 @@ fn nakamoto_attempt_time() {
         assert_eq!(info.stacks_tip, info_before.stacks_tip);
         assert_eq!(info.stacks_tip_height, info_before.stacks_tip_height);
     }
+
+    info!("Begin subtest 3");
 
     // Subtest 3
     // Add more than `nakamoto_attempt_time_ms` worth of transactions into mempool
@@ -4198,9 +4217,15 @@ fn nakamoto_attempt_time() {
             if tx_count >= tx_limit {
                 break 'submit_txs;
             }
+            info!(
+                "nakamoto_times_ms: on account {}; sent {} txs so far (out of {})",
+                acct_idx, tx_count, tx_limit
+            );
         }
         acct_idx += 1;
     }
+
+    info!("Subtest 3 sent all transactions");
 
     // Make sure that these transactions *could* fit into a single block
     assert!(tx_total_size < MAX_BLOCK_LEN as usize);

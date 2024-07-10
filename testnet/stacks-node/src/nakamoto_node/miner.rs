@@ -725,8 +725,7 @@ impl BlockMinerThread {
     // TODO: add tests from mutation testing results #4869
     #[cfg_attr(test, mutants::skip)]
     /// Load up the parent block info for mining.
-    /// If there's no parent because this is the first block, then return the genesis block's info.
-    /// If we can't find the parent in the DB but we expect one, return None.
+    /// If we can't find the parent in the DB but we expect one, return Err(ParentNotFound).
     fn load_block_parent_info(
         &self,
         burn_db: &mut SortitionDB,
@@ -741,27 +740,27 @@ impl BlockMinerThread {
                 "Stacks block parent ID is last mined block {}",
                 &block.block_id()
             );
-            NakamotoChainState::get_block_header(chain_state.db(), &block.block_id())
+            let stacks_block_id = block.block_id();
+            NakamotoChainState::get_block_header(chain_state.db(), &stacks_block_id)
                 .map_err(|e| {
                     error!(
                         "Could not query header info for last-mined block ID {}: {:?}",
-                        &block.block_id(),
-                        &e
+                        &stacks_block_id, &e
                     );
                     NakamotoNodeError::ParentNotFound
                 })?
                 .ok_or_else(|| {
-                    error!(
-                        "No header info for last-mined block ID {}",
-                        &block.block_id()
-                    );
+                    error!("No header for parent tenure ID {}", &stacks_block_id);
                     NakamotoNodeError::ParentNotFound
                 })?
         } else {
+            // no mined blocks yet
             test_debug!(
                 "Stacks block parent ID is last block in parent tenure ID {}",
                 &self.parent_tenure_id
             );
+
+            // find the last block in the parent tenure, since this is the tip we'll build atop
             let parent_tenure_header =
                 NakamotoChainState::get_block_header(chain_state.db(), &self.parent_tenure_id)
                     .map_err(|e| {
@@ -802,21 +801,24 @@ impl BlockMinerThread {
                     "Stacks block parent ID may be an epoch2x block: {}",
                     &self.parent_tenure_id
                 );
-                NakamotoChainState::get_block_header(chain_state.db(), &self.parent_tenure_id)
-                    .map_err(|e| {
-                        error!(
-                            "Could not query header info for epoch2x tenure block ID {}: {:?}",
-                            &self.parent_tenure_id, &e
-                        );
-                        NakamotoNodeError::ParentNotFound
-                    })?
-                    .ok_or_else(|| {
-                        error!(
-                            "No header info for epoch2x tenure block ID {}",
-                            &self.parent_tenure_id
-                        );
-                        NakamotoNodeError::ParentNotFound
-                    })?
+                let epoch2_header =
+                    NakamotoChainState::get_block_header(chain_state.db(), &self.parent_tenure_id)
+                        .map_err(|e| {
+                            error!(
+                                "Could not query header info for epoch2x tenure block ID {}: {:?}",
+                                &self.parent_tenure_id, &e
+                            );
+                            NakamotoNodeError::ParentNotFound
+                        })?
+                        .ok_or_else(|| {
+                            error!(
+                                "No header info for epoch2x tenure block ID {}",
+                                &self.parent_tenure_id
+                            );
+                            NakamotoNodeError::ParentNotFound
+                        })?;
+
+                epoch2_header
             }
         };
 
