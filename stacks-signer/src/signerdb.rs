@@ -192,7 +192,7 @@ impl SignerDb {
         tenure: &ConsensusHash,
     ) -> Result<Option<BlockInfo>, DBError> {
         let query = "SELECT block_info FROM blocks WHERE consensus_hash = ? AND signed_over = 1 ORDER BY stacks_height DESC LIMIT 1";
-        let result: Option<String> = query_row(&self.db, query, &[tenure])?;
+        let result: Option<String> = query_row(&self.db, query, [tenure])?;
 
         try_deserialize(result)
     }
@@ -270,6 +270,7 @@ mod tests {
     use blockstack_lib::chainstate::nakamoto::{
         NakamotoBlock, NakamotoBlockHeader, NakamotoBlockVote,
     };
+    use clarity::util::secp256k1::MessageSignature;
     use libsigner::BlockProposal;
 
     use super::*;
@@ -434,18 +435,18 @@ mod tests {
     fn test_has_pending_blocks() {
         let db_path = tmp_db_path();
         let mut db = SignerDb::new(db_path).expect("Failed to create signer db");
-        let (mut block_info_1, _block_proposal) = create_block();
-        let (block_info_2, _block_proposal) = create_block();
-        let (block_info_3, _block_proposal) = create_block();
-        let (block_info_4, _block_proposal) = create_block();
+        let (mut block_info_1, _block_proposal) = create_block_override(|b| {
+            b.block.header.miner_signature = MessageSignature([0x01; 65]);
+            b.burn_height = 1;
+        });
+        let (mut block_info_2, _block_proposal) = create_block_override(|b| {
+            b.block.header.miner_signature = MessageSignature([0x02; 65]);
+            b.burn_height = 2;
+        });
 
         db.insert_block(&block_info_1)
             .expect("Unable to insert block into db");
         db.insert_block(&block_info_2)
-            .expect("Unable to insert block into db");
-        db.insert_block(&block_info_3)
-            .expect("Unable to insert block into db");
-        db.insert_block(&block_info_4)
             .expect("Unable to insert block into db");
 
         assert!(db.has_pending_blocks(block_info_1.reward_cycle).unwrap());
@@ -453,6 +454,13 @@ mod tests {
         block_info_1.valid = Some(true);
 
         db.insert_block(&block_info_1)
+            .expect("Unable to update block in db");
+
+        assert!(db.has_pending_blocks(block_info_1.reward_cycle).unwrap());
+
+        block_info_2.valid = Some(true);
+
+        db.insert_block(&block_info_2)
             .expect("Unable to update block in db");
 
         assert!(!db.has_pending_blocks(block_info_1.reward_cycle).unwrap());
