@@ -34,22 +34,10 @@ use crate::signerdb::SignerDb;
 pub enum SignerChainstateError {
     /// Error resulting from database interactions
     #[error("Database error: {0}")]
-    DBError(DBError),
+    DBError(#[from] DBError),
     /// Error resulting from crate::client interactions
     #[error("Client error: {0}")]
-    ClientError(ClientError),
-}
-
-impl From<ClientError> for SignerChainstateError {
-    fn from(value: ClientError) -> Self {
-        Self::ClientError(value)
-    }
-}
-
-impl From<DBError> for SignerChainstateError {
-    fn from(value: DBError) -> Self {
-        Self::DBError(value)
-    }
+    ClientError(#[from] ClientError),
 }
 
 /// Captures this signer's current view of a sortition's miner.
@@ -93,8 +81,8 @@ pub struct SortitionState {
 /// Captures the configuration settings used by the signer when evaluating block proposals.
 #[derive(Debug, Clone)]
 pub struct ProposalEvalConfig {
-    /// How much time between the first block proposal in a tenure and the next bitcoin block
-    ///  must pass before a subsequent miner isn't allowed to reorg the tenure
+    /// How much time must pass between the first block proposal in a tenure and the next bitcoin block
+    ///  before a subsequent miner isn't allowed to reorg the tenure
     pub first_proposal_burn_block_timing: Duration,
 }
 
@@ -323,6 +311,9 @@ impl SortitionsView {
             "Most recent miner's tenure does not build off the prior sortition, checking if this is valid behavior";
             "proposed_block_consensus_hash" => %block.header.consensus_hash,
             "proposed_block_signer_sighash" => %block.header.signer_signature_hash(),
+            "sortition_state.consensus_hash" => %sortition_state.consensus_hash,
+            "sortition_state.prior_sortition" => %sortition_state.prior_sortition,
+            "sortition_state.parent_tenure_id" => %sortition_state.parent_tenure_id,
         );
 
         let tenures_reorged = client.get_tenure_forking_info(
@@ -367,8 +358,14 @@ impl SortitionsView {
                     sortition_state_received_time
                 {
                     // how long was there between when the proposal was received and the next sortition started?
-                    let proposal_to_sortition = sortition_state_received_time
-                        .saturating_sub(local_block_info.proposed_time);
+                    let proposal_to_sortition = if let Some(signed_at) =
+                        local_block_info.signed_self
+                    {
+                        sortition_state_received_time.saturating_sub(signed_at)
+                    } else {
+                        info!("We did not sign over the reorged tenure's first block, considering it as a late-arriving proposal");
+                        0
+                    };
                     if Duration::from_secs(proposal_to_sortition)
                         <= *first_proposal_burn_block_timing
                     {

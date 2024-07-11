@@ -151,8 +151,8 @@ pub struct SignerConfig {
     pub max_tx_fee_ustx: Option<u64>,
     /// The path to the signer's database file
     pub db_path: PathBuf,
-    /// How much time between the first block proposal in a tenure and the next bitcoin block
-    ///  must pass before a subsequent miner isn't allowed to reorg the tenure
+    /// How much time must pass between the first block proposal in a tenure and the next bitcoin block
+    ///  before a subsequent miner isn't allowed to reorg the tenure
     pub first_proposal_burn_block_timing: Duration,
 }
 
@@ -233,8 +233,8 @@ struct RawConfigFile {
     pub db_path: String,
     /// Metrics endpoint
     pub metrics_endpoint: Option<String>,
-    /// How much time between the first block proposal in a tenure and the next bitcoin block
-    ///  must pass before a subsequent miner isn't allowed to reorg the tenure
+    /// How much time must pass between the first block proposal in a tenure and the next bitcoin block
+    ///  before a subsequent miner isn't allowed to reorg the tenure
     pub first_proposal_burn_block_timing_secs: Option<u64>,
 }
 

@@ -409,7 +409,7 @@ impl Signer {
                         return;
                     }
                 };
-                block_info.valid = Some(true);
+                block_info.mark_signed_and_valid();
                 let signature = self
                     .private_key
                     .sign(&signer_signature_hash.0)

@@ -83,6 +83,16 @@ impl BlockInfo {
         block_info
     }
 
+    /// Mark this block as valid, signed over, and record a timestamp in the block info if it wasn't
+    ///  already set.
+    pub fn mark_signed_and_valid(&mut self) {
+        self.valid = Some(true);
+        self.signed_over = true;
+        if self.signed_self.is_none() {
+            self.signed_self = Some(get_epoch_time_secs());
+        }
+    }
+
     /// Return the block's signer signature hash
     pub fn signer_signature_hash(&self) -> Sha512Trunc256Sum {
         self.block.header.signer_signature_hash()

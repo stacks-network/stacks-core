@@ -243,6 +243,27 @@ impl BlockMinerThread {
             };
 
             if let Some(mut new_block) = new_block {
+                #[cfg(test)]
+                {
+                    if *TEST_BROADCAST_STALL.lock().unwrap() == Some(true) {
+                        // Do an extra check just so we don't log EVERY time.
+                        warn!("Broadcasting is stalled due to testing directive.";
+                                  "stacks_block_id" => %new_block.block_id(),
+                                  "stacks_block_hash" => %new_block.header.block_hash(),
+                                  "height" => new_block.header.chain_length,
+                                  "consensus_hash" => %new_block.header.consensus_hash
+                        );
+                        while *TEST_BROADCAST_STALL.lock().unwrap() == Some(true) {
+                            std::thread::sleep(std::time::Duration::from_millis(10));
+                        }
+                        info!("Broadcasting is no longer stalled due to testing directive.";
+                              "block_id" => %new_block.block_id(),
+                              "height" => new_block.header.chain_length,
+                              "consensus_hash" => %new_block.header.consensus_hash
+                        );
+                    }
+                }
+
                 let (reward_set, signer_signature) = match self.gather_signatures(
                     &mut new_block,
                     self.burn_block.block_height,
@@ -656,26 +677,6 @@ impl BlockMinerThread {
         reward_set: RewardSet,
         stackerdbs: &StackerDBs,
     ) -> Result<(), NakamotoNodeError> {
-        #[cfg(test)]
-        {
-            if *TEST_BROADCAST_STALL.lock().unwrap() == Some(true) {
-                // Do an extra check just so we don't log EVERY time.
-                warn!("Broadcasting is stalled due to testing directive.";
-                    "stacks_block_id" => %block.block_id(),
-                    "stacks_block_hash" => %block.header.block_hash(),
-                    "height" => block.header.chain_length,
-                    "consensus_hash" => %block.header.consensus_hash
-                );
-                while *TEST_BROADCAST_STALL.lock().unwrap() == Some(true) {
-                    std::thread::sleep(std::time::Duration::from_millis(10));
-                }
-                info!("Broadcasting is no longer stalled due to testing directive.";
-                    "block_id" => %block.block_id(),
-                    "height" => block.header.chain_length,
-                    "consensus_hash" => %block.header.consensus_hash
-                );
-            }
-        }
         let mut chain_state = neon_node::open_chainstate_with_faults(&self.config)
             .expect("FATAL: could not open chainstate DB");
         let sort_db = SortitionDB::open(
@@ -1014,7 +1015,6 @@ impl BlockMinerThread {
                 ChainstateError::NoTransactionsToMine,
             ));
         }
-
         let mining_key = self.keychain.get_nakamoto_sk();
         let miner_signature = mining_key
             .sign(block.header.miner_signature_hash().as_bytes())
@@ -1028,6 +1028,7 @@ impl BlockMinerThread {
             block.txs.len();
             "signer_sighash" => %block.header.signer_signature_hash(),
             "consensus_hash" => %block.header.consensus_hash,
+            "timestamp" => block.header.timestamp,
         );
 
         self.event_dispatcher.process_mined_nakamoto_block_event(

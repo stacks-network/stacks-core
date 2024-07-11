@@ -216,6 +216,11 @@ impl NakamotoBlockBuilder {
                 tenure_id_consensus_hash.clone(),
                 parent_stacks_header.index_block_hash(),
                 bitvec_len,
+                parent_stacks_header
+                    .anchored_header
+                    .as_stacks_nakamoto()
+                    .map(|b| b.timestamp)
+                    .unwrap_or(0),
             ),
         })
     }
