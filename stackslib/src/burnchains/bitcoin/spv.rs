@@ -651,7 +651,7 @@ impl SpvClient {
         match query_row::<u64, _>(
             &self.headers_db,
             "SELECT IFNULL(MAX(height),0) FROM headers",
-            [],
+            NO_PARAMS,
         )? {
             Some(max) => Ok(max),
             None => Ok(0),

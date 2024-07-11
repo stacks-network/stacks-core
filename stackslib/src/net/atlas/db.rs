@@ -562,14 +562,14 @@ impl AtlasDB {
     pub fn count_uninstantiated_attachments(&self) -> Result<u32, db_error> {
         let qry = "SELECT COUNT(rowid) FROM attachments
                    WHERE was_instantiated = 0";
-        let count = query_count(&self.conn, qry, [])? as u32;
+        let count = query_count(&self.conn, qry, NO_PARAMS)? as u32;
         Ok(count)
     }
 
     pub fn count_unresolved_attachment_instances(&self) -> Result<u32, db_error> {
         let qry = "SELECT COUNT(rowid) FROM attachment_instances
                    WHERE is_available = 0";
-        let count = query_count(&self.conn, qry, [])? as u32;
+        let count = query_count(&self.conn, qry, NO_PARAMS)? as u32;
         Ok(count)
     }
 
