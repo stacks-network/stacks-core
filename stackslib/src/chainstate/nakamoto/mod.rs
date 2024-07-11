@@ -2185,7 +2185,7 @@ impl NakamotoChainState {
         obtain_method: NakamotoBlockObtainMethod,
     ) -> Result<bool, ChainstateError> {
         let block_id = block.block_id();
-        let sighash = block.header.signer_signature_hash();
+        let block_hash = block.header.block_hash();
 
         // case 1 -- no block with this sighash exists.
         if staging_db_tx.try_store_block_with_new_signer_sighash(
@@ -2196,22 +2196,22 @@ impl NakamotoChainState {
         )? {
             debug!("Stored block with new sighash";
                    "block_id" => %block_id,
-                   "sighash" => %sighash);
+                   "block_hash" => %block_hash);
             return Ok(true);
         }
 
         // case 2 -- the block exists. Consider replacing it, but only if its
         // signing weight is higher.
-        let (existing_block_id, _processed, orphaned, existing_signing_weight) = staging_db_tx.conn().get_block_processed_and_signed_weight(&block.header.consensus_hash, &sighash)?
+        let (existing_block_id, _processed, orphaned, existing_signing_weight) = staging_db_tx.conn().get_block_processed_and_signed_weight(&block.header.consensus_hash, &block_hash)?
             .ok_or_else(|| {
                 // this should be unreachable -- there's no record of this block
-                error!("Could not store block {} ({}) with sighash {} -- no record of its processed status or signing weight!", &block_id, &block.header.consensus_hash, &sighash);
+                error!("Could not store block {} ({}) with block hash {} -- no record of its processed status or signing weight!", &block_id, &block.header.consensus_hash, &block_hash);
                 ChainstateError::NoSuchBlockError
             })?;
 
         if orphaned {
             // nothing to do
-            debug!("Will not store alternative copy of block {} ({}) with sighash {}, since a block with the same sighash was orphaned", &block_id, &block.header.consensus_hash, &sighash);
+            debug!("Will not store alternative copy of block {} ({}) with block hash {}, since a block with the same block hash was orphaned", &block_id, &block.header.consensus_hash, &block_hash);
             return Ok(false);
         }
 
@@ -2220,12 +2220,12 @@ impl NakamotoChainState {
             debug!("Replaced block";
                    "existing_block_id" => %existing_block_id,
                    "block_id" => %block_id,
-                   "sighash" => %sighash,
+                   "block_hash" => %block_hash,
                    "existing_signing_weight" => existing_signing_weight,
                    "signing_weight" => signing_weight);
             true
         } else {
-            debug!("Will not store alternative copy of block {} ({}) with sighash {}, since it has less signing power", &block_id, &block.header.consensus_hash, &sighash);
+            debug!("Will not store alternative copy of block {} ({}) with block hash {}, since it has less signing power", &block_id, &block.header.consensus_hash, &block_hash);
             false
         };
 

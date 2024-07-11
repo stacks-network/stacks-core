@@ -1111,7 +1111,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
                 .conn()
                 .get_block_processed_and_signed_weight(
                     &nakamoto_header_3.consensus_hash,
-                    &nakamoto_header_3.signer_signature_hash()
+                    &nakamoto_header_3.block_hash(),
                 )
                 .unwrap()
                 .unwrap(),
@@ -1141,7 +1141,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
                 .conn()
                 .get_block_processed_and_signed_weight(
                     &nakamoto_header_3.consensus_hash,
-                    &nakamoto_header_3.signer_signature_hash()
+                    &nakamoto_header_3.block_hash(),
                 )
                 .unwrap()
                 .unwrap(),
@@ -1201,7 +1201,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
             .nakamoto_blocks_db()
             .get_block_processed_and_signed_weight(
                 &nakamoto_header.consensus_hash,
-                &nakamoto_header.signer_signature_hash()
+                &nakamoto_header.block_hash(),
             )
             .unwrap()
             .unwrap(),
@@ -1225,7 +1225,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
             .nakamoto_blocks_db()
             .get_block_processed_and_signed_weight(
                 &nakamoto_header.consensus_hash,
-                &nakamoto_header_2.signer_signature_hash()
+                &nakamoto_header_2.block_hash(),
             )
             .unwrap()
             .unwrap(),
@@ -1250,7 +1250,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
             .nakamoto_blocks_db()
             .get_block_processed_and_signed_weight(
                 &nakamoto_header_3_weight_2.consensus_hash,
-                &nakamoto_header_3_weight_2.signer_signature_hash()
+                &nakamoto_header_3_weight_2.block_hash()
             )
             .unwrap()
             .unwrap(),
@@ -1292,7 +1292,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
                 .conn()
                 .get_block_processed_and_signed_weight(
                     &nakamoto_header_3_weight_2.consensus_hash,
-                    &nakamoto_header_3_weight_2.signer_signature_hash()
+                    &nakamoto_header_3_weight_2.block_hash()
                 )
                 .unwrap()
                 .unwrap(),
@@ -1323,7 +1323,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
                 .conn()
                 .get_block_processed_and_signed_weight(
                     &nakamoto_header_3.consensus_hash,
-                    &nakamoto_header_3.signer_signature_hash()
+                    &nakamoto_header_3.block_hash()
                 )
                 .unwrap()
                 .unwrap(),
@@ -1356,7 +1356,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
                 .conn()
                 .get_block_processed_and_signed_weight(
                     &nakamoto_header_3_weight_2.consensus_hash,
-                    &nakamoto_header_3_weight_2.signer_signature_hash()
+                    &nakamoto_header_3_weight_2.block_hash()
                 )
                 .unwrap()
                 .unwrap(),
@@ -1438,7 +1438,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
                 .conn()
                 .get_block_processed_and_signed_weight(
                     &nakamoto_header_3_weight_2.consensus_hash,
-                    &nakamoto_header_3_weight_2.signer_signature_hash()
+                    &nakamoto_header_3_weight_2.block_hash()
                 )
                 .unwrap()
                 .unwrap(),
@@ -1481,7 +1481,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
                 .conn()
                 .get_block_processed_and_signed_weight(
                     &nakamoto_header_3.consensus_hash,
-                    &nakamoto_header_3.signer_signature_hash()
+                    &nakamoto_header_3.block_hash()
                 )
                 .unwrap()
                 .unwrap(),
@@ -1510,7 +1510,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
                 .conn()
                 .get_block_processed_and_signed_weight(
                     &nakamoto_header.consensus_hash,
-                    &nakamoto_header.signer_signature_hash()
+                    &nakamoto_header.block_hash()
                 )
                 .unwrap()
                 .unwrap(),

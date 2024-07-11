@@ -22,9 +22,8 @@ use lazy_static::lazy_static;
 use rusqlite::blob::Blob;
 use rusqlite::types::{FromSql, FromSqlError, ToSql};
 use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
-use stacks_common::types::chainstate::{ConsensusHash, StacksBlockId};
+use stacks_common::types::chainstate::{BlockHeaderHash, ConsensusHash, StacksBlockId};
 use stacks_common::types::sqlite::NO_PARAMS;
-use stacks_common::util::hash::Sha512Trunc256Sum;
 use stacks_common::util::{get_epoch_time_secs, sleep_ms};
 
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandle};
@@ -252,10 +251,10 @@ impl<'a> NakamotoStagingBlocksConnRef<'a> {
     pub(crate) fn get_block_processed_and_signed_weight(
         &self,
         consensus_hash: &ConsensusHash,
-        signer_sighash: &Sha512Trunc256Sum,
+        block_hash: &BlockHeaderHash,
     ) -> Result<Option<(StacksBlockId, bool, bool, u32)>, ChainstateError> {
         let sql = "SELECT index_block_hash,processed,orphaned,signing_weight FROM nakamoto_staging_blocks WHERE consensus_hash = ?1 AND block_hash = ?2 ORDER BY signing_weight DESC, index_block_hash LIMIT 1";
-        let args = params![consensus_hash, signer_sighash];
+        let args = params![consensus_hash, block_hash];
 
         let mut stmt = self.deref().prepare(sql)?;
         Ok(stmt
@@ -528,14 +527,14 @@ impl<'a> NakamotoStagingBlocksTx<'a> {
 
     /// Do we have a block with the given signer sighash?
     /// NOTE: the block hash and sighash are the same for Nakamoto blocks
-    pub(crate) fn has_nakamoto_block_with_signer_sighash(
+    pub(crate) fn has_nakamoto_block_with_block_hash(
         &self,
         consensus_hash: &ConsensusHash,
-        signer_sighash: &Sha512Trunc256Sum,
+        block_hash: &BlockHeaderHash,
     ) -> Result<bool, ChainstateError> {
         let qry =
             "SELECT 1 FROM nakamoto_staging_blocks WHERE consensus_hash = ?1 AND block_hash = ?2";
-        let args = rusqlite::params![consensus_hash, signer_sighash];
+        let args = rusqlite::params![consensus_hash, block_hash];
         let present: Option<u32> = query_row(self, qry, args)?;
         Ok(present.is_some())
     }
@@ -551,10 +550,8 @@ impl<'a> NakamotoStagingBlocksTx<'a> {
         signing_weight: u32,
         obtain_method: NakamotoBlockObtainMethod,
     ) -> Result<bool, ChainstateError> {
-        let signer_sighash = block.header.signer_signature_hash();
-        if self
-            .has_nakamoto_block_with_signer_sighash(&block.header.consensus_hash, &signer_sighash)?
-        {
+        let block_hash = block.header.block_hash();
+        if self.has_nakamoto_block_with_block_hash(&block.header.consensus_hash, &block_hash)? {
             return Ok(false);
         }
         self.store_block(block, burn_attachable, signing_weight, obtain_method)?;
