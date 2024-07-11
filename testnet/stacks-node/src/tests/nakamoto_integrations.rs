@@ -6131,6 +6131,67 @@ fn check_block_info() {
     run_loop_thread.join().unwrap();
 }
 
+fn get_expected_reward_for_height(blocks: &Vec<serde_json::Value>, block_height: u128) -> u128 {
+    // Find the target block
+    let target_block = blocks
+        .iter()
+        .find(|b| b["block_height"].as_u64().unwrap() == block_height as u64)
+        .unwrap();
+
+    // Find the tenure change block (the first block with this burn block hash)
+    let tenure_burn_block_hash = target_block["burn_block_hash"].as_str().unwrap();
+    let tenure_block = blocks
+        .iter()
+        .find(|b| b["burn_block_hash"].as_str().unwrap() == tenure_burn_block_hash)
+        .unwrap();
+    let matured_block_hash = tenure_block["block_hash"].as_str().unwrap();
+
+    let mut expected_reward_opt = None;
+    for block in blocks.iter().rev() {
+        for rewards in block["matured_miner_rewards"].as_array().unwrap() {
+            if rewards.as_object().unwrap()["from_stacks_block_hash"]
+                .as_str()
+                .unwrap()
+                == matured_block_hash
+            {
+                let reward_object = rewards.as_object().unwrap();
+                let coinbase_amount: u128 = reward_object["coinbase_amount"]
+                    .as_str()
+                    .unwrap()
+                    .parse()
+                    .unwrap();
+                let tx_fees_anchored: u128 = reward_object["tx_fees_anchored"]
+                    .as_str()
+                    .unwrap()
+                    .parse()
+                    .unwrap();
+                let tx_fees_streamed_confirmed: u128 = reward_object["tx_fees_streamed_confirmed"]
+                    .as_str()
+                    .unwrap()
+                    .parse()
+                    .unwrap();
+                let tx_fees_streamed_produced: u128 = reward_object["tx_fees_streamed_produced"]
+                    .as_str()
+                    .unwrap()
+                    .parse()
+                    .unwrap();
+                expected_reward_opt = Some(
+                    expected_reward_opt.unwrap_or(0)
+                        + coinbase_amount
+                        + tx_fees_anchored
+                        + tx_fees_streamed_confirmed
+                        + tx_fees_streamed_produced,
+                );
+            }
+        }
+
+        if let Some(expected_reward) = expected_reward_opt {
+            return expected_reward;
+        }
+    }
+    panic!("Expected reward not found");
+}
+
 #[test]
 #[ignore]
 /// Verify `block-reward` property in `get-block-info?` and `get-tenure-info?`.
@@ -6352,18 +6413,18 @@ fn check_block_info_rewards() {
     let info = get_chain_info_result(&naka_conf).unwrap();
     info!("Chain info: {:?}", info);
     let last_stacks_block_height = info.stacks_tip_height as u128;
-
-    // Mining 100 blocks takes a while, so only run this test if the env var is set
     let last_nakamoto_block = last_stacks_block_height;
 
-    // Mine 100+ burn blocks to get the block reward matured
-    info!("Mining 102 tenures to mature the block reward");
-    for i in 0..102 {
-        let commits_before = commits_submitted.load(Ordering::SeqCst);
-        next_block_and(&mut btc_regtest_controller, 60, || {
-            let commits_count = commits_submitted.load(Ordering::SeqCst);
-            Ok(commits_count >= commits_before + 1)
-        })
+    // Mine more than 2 burn blocks to get the last block's reward matured
+    // (only 2 blocks maturation time in tests)
+    info!("Mining 6 tenures to mature the block reward");
+    for i in 0..6 {
+        next_block_and_mine_commit(
+            &mut btc_regtest_controller,
+            20,
+            &coord_channel,
+            &commits_submitted,
+        )
         .unwrap();
         info!("Mined a block ({i})");
     }
@@ -6371,14 +6432,17 @@ fn check_block_info_rewards() {
     let info = get_chain_info_result(&naka_conf).unwrap();
     info!("Chain info: {:?}", info);
     let last_stacks_block_height = info.stacks_tip_height as u128;
+    let blocks = test_observer::get_blocks();
 
     // Check the block reward is now matured in one of the tenure-change blocks
+    let mature_height = last_stacks_block_height - 4;
+    let expected_reward = get_expected_reward_for_height(&blocks, mature_height);
     let result0 = call_read_only(
         &naka_conf,
         &sender_addr,
         contract0_name,
         "get-info",
-        vec![&clarity::vm::Value::UInt(last_stacks_block_height - 100)],
+        vec![&clarity::vm::Value::UInt(mature_height)],
     );
     let tuple0 = result0.expect_tuple().unwrap().data_map;
     assert_eq!(
@@ -6389,7 +6453,7 @@ fn check_block_info_rewards() {
             .expect_optional()
             .unwrap()
             .unwrap(),
-        Value::UInt(2040806360)
+        Value::UInt(expected_reward as u128)
     );
 
     let result1 = call_read_only(
@@ -6397,7 +6461,7 @@ fn check_block_info_rewards() {
         &sender_addr,
         contract1_name,
         "get-info",
-        vec![&clarity::vm::Value::UInt(last_stacks_block_height - 100)],
+        vec![&clarity::vm::Value::UInt(mature_height)],
     );
     let tuple1 = result1.expect_tuple().unwrap().data_map;
     assert_eq!(tuple0, tuple1);
@@ -6407,7 +6471,7 @@ fn check_block_info_rewards() {
         &sender_addr,
         contract3_name,
         "get-tenure-info",
-        vec![&clarity::vm::Value::UInt(last_stacks_block_height - 100)],
+        vec![&clarity::vm::Value::UInt(mature_height)],
     );
     let tuple3_tenure = result3_tenure.expect_tuple().unwrap().data_map;
     assert_eq!(
@@ -6416,6 +6480,8 @@ fn check_block_info_rewards() {
     );
 
     // Check the block reward is now matured in one of the Nakamoto blocks
+    let expected_reward = get_expected_reward_for_height(&blocks, last_nakamoto_block);
+
     let result0 = call_read_only(
         &naka_conf,
         &sender_addr,
@@ -6432,7 +6498,7 @@ fn check_block_info_rewards() {
             .expect_optional()
             .unwrap()
             .unwrap(),
-        Value::UInt(3061200000)
+        Value::UInt(expected_reward as u128)
     );
 
     let result1 = call_read_only(
