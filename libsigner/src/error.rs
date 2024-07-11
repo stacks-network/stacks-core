@@ -75,3 +75,9 @@ pub enum EventError {
     #[error("Empty chunks event")]
     EmptyChunksEvent,
 }
+
+impl Default for EventError {
+    fn default() -> Self {
+        EventError::UnrecognizedEvent("Unknown event".to_string())
+    }
+}

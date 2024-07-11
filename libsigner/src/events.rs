@@ -114,6 +114,15 @@ pub enum SignerEvent<T: SignerEventTrait> {
     NewBurnBlock(u64),
 }
 
+impl<T> Default for SignerEvent<T>
+where
+    T: Default + SignerEventTrait,
+{
+    fn default() -> SignerEvent<T> {
+        SignerEvent::SignerMessages(0, vec![])
+    }
+}
+
 /// Trait to implement a stop-signaler for the event receiver thread.
 /// The caller calls `send()` and the event receiver loop (which lives in a separate thread) will
 /// terminate.
@@ -378,8 +387,6 @@ fn ack_dispatcher(request: HttpRequest) {
     };
 }
 
-// TODO: add tests from mutation testing results #4835
-#[cfg_attr(test, mutants::skip)]
 /// Process a stackerdb event from the node
 fn process_stackerdb_event<T: SignerEventTrait>(
     local_addr: Option<SocketAddr>,
