@@ -493,6 +493,22 @@ macro_rules! impl_array_hexstring_fmt {
     };
 }
 
+#[macro_export]
+macro_rules! impl_slog_value {
+    ($thing:ident) => {
+        impl slog::Value for $thing {
+            fn serialize(
+                &self,
+                _: &slog::Record,
+                key: slog::Key,
+                serializer: &mut dyn slog::Serializer,
+            ) -> slog::Result {
+                serializer.emit_arguments(key, &format_args!("{}", *self))
+            }
+        }
+    };
+}
+
 #[allow(unused_macros)]
 #[macro_export]
 macro_rules! impl_byte_array_newtype {

@@ -521,9 +521,10 @@ pub struct RewardSetInfo {
     pub allow_nakamoto_punishment: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, slog_derive::KV)]
 pub struct MissedBlockCommit {
     pub txid: Txid,
+    #[slog(skip)]
     pub input: (Txid, u32),
     pub intended_sortition: SortitionId,
 }

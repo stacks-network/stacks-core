@@ -170,11 +170,12 @@ impl From<db_error> for Error {
     }
 }
 
-#[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize, slog_derive::KV)]
 pub struct TransferStxOp {
     pub sender: StacksAddress,
     pub recipient: StacksAddress,
     pub transfered_ustx: u128,
+    #[slog(skip)]
     pub memo: Vec<u8>,
 
     // common to all transactions
@@ -184,7 +185,7 @@ pub struct TransferStxOp {
     pub burn_header_hash: BurnchainHeaderHash, // hash of the burn chain block header
 }
 
-#[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize, slog_derive::KV)]
 pub struct StackStxOp {
     pub sender: StacksAddress,
     /// the PoX reward address.
@@ -194,8 +195,11 @@ pub struct StackStxOp {
     /// how many ustx this transaction locks
     pub stacked_ustx: u128,
     pub num_cycles: u8,
+
+    #[slog(skip)]
     pub signer_key: Option<StacksPublicKeyBuffer>,
     pub max_amount: Option<u128>,
+    #[slog(skip)]
     pub auth_id: Option<u32>,
 
     // common to all transactions
@@ -205,7 +209,7 @@ pub struct StackStxOp {
     pub burn_header_hash: BurnchainHeaderHash, // hash of the burn chain block header
 }
 
-#[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize, slog_derive::KV)]
 pub struct PreStxOp {
     /// the output address
     /// (must be a legacy Bitcoin address)
@@ -218,20 +222,24 @@ pub struct PreStxOp {
     pub burn_header_hash: BurnchainHeaderHash, // hash of the burn chain block header
 }
 
-#[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize, slog_derive::KV)]
 pub struct LeaderBlockCommitOp {
     pub block_header_hash: BlockHeaderHash, // hash of Stacks block header (sha512/256)
 
-    pub new_seed: VRFSeed,     // new seed for this block
+    #[slog(skip)]
+    pub new_seed: VRFSeed, // new seed for this block
     pub parent_block_ptr: u32, // block height of the block that contains the parent block hash
     pub parent_vtxindex: u16, // offset in the parent block where the parent block hash can be found
     pub key_block_ptr: u32,   // pointer to the block that contains the leader key registration
     pub key_vtxindex: u16,    // offset in the block where the leader key can be found
-    pub memo: Vec<u8>,        // extra unused byte
+
+    #[slog(skip)]
+    pub memo: Vec<u8>, // extra unused byte
 
     /// how many burn tokens (e.g. satoshis) were committed to produce this block
     pub burn_fee: u64,
     /// the input transaction, used in mining commitment smoothing
+    #[slog(skip)]
     pub input: (Txid, u32),
 
     pub burn_parent_modulus: u8,
@@ -242,6 +250,7 @@ pub struct LeaderBlockCommitOp {
     pub apparent_sender: BurnchainSigner,
 
     /// PoX/Burn outputs
+    #[slog(skip)]
     pub commit_outs: Vec<PoxAddress>,
 
     /// If the active epoch supports PoX reward/punishment
@@ -249,6 +258,7 @@ pub struct LeaderBlockCommitOp {
     /// of the PoX addresses active during the block commit.
     ///
     /// This value is set by the check() call, not during parsing.
+    #[slog(skip)]
     pub treatment: Vec<Treatment>,
 
     // PoX sunset burn
@@ -261,11 +271,15 @@ pub struct LeaderBlockCommitOp {
     pub burn_header_hash: BurnchainHeaderHash, // hash of the burn chain block header
 }
 
-#[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize, slog_derive::KV)]
 pub struct LeaderKeyRegisterOp {
     pub consensus_hash: ConsensusHash, // consensus hash at time of issuance
-    pub public_key: VRFPublicKey,      // EdDSA public key
-    pub memo: Vec<u8>,                 // extra bytes in the op-return
+
+    #[slog(skip)]
+    pub public_key: VRFPublicKey, // EdDSA public key
+
+    #[slog(skip)]
+    pub memo: Vec<u8>, // extra bytes in the op-return
 
     // common to all transactions
     pub txid: Txid,                            // transaction ID
@@ -274,7 +288,7 @@ pub struct LeaderKeyRegisterOp {
     pub burn_header_hash: BurnchainHeaderHash, // hash of burn chain block
 }
 
-#[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize, slog_derive::KV)]
 pub struct DelegateStxOp {
     pub sender: StacksAddress,
     pub delegate_to: StacksAddress,
@@ -282,6 +296,7 @@ pub struct DelegateStxOp {
     ///  and the actual  PoX reward address.
     /// NOTE: the address in .pox-2 will be tagged as either p2pkh or p2sh; it's impossible to tell
     /// if it's a segwit-p2sh since that looks identical to a p2sh address.
+    #[slog(skip)]
     pub reward_addr: Option<(u32, PoxAddress)>,
     pub delegated_ustx: u128,
     pub until_burn_height: Option<u64>,
@@ -293,13 +308,15 @@ pub struct DelegateStxOp {
     pub burn_header_hash: BurnchainHeaderHash, // hash of the burn chain block header
 }
 
-#[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize, slog_derive::KV)]
 pub struct VoteForAggregateKeyOp {
     pub sender: StacksAddress,
+    #[slog(skip)]
     pub aggregate_key: StacksPublicKeyBuffer,
     pub round: u32,
     pub reward_cycle: u64,
     pub signer_index: u16,
+    #[slog(skip)]
     pub signer_key: StacksPublicKeyBuffer,
 
     // common to all transactions

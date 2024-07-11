@@ -26,7 +26,6 @@ use stacks::core::StacksEpochExtension;
 use stacks::net::p2p::PeerNetwork;
 use stacks_common::types::{StacksEpoch, StacksEpochId};
 
-use crate::epochs::{EPOCH_2, EPOCH_3};
 use crate::globals::NeonGlobals;
 use crate::neon::Counters;
 use crate::neon_node::LeaderKeyRegistrationState;
@@ -62,6 +61,8 @@ impl Neon2NakaData {
 
 const BOOT_THREAD_NAME: &str = "epoch-2/3-boot";
 
+const LOG_CONTEXT: &str = "nakamoto-boot";
+
 /// This runloop handles booting to Nakamoto:
 /// During epochs [1.0, 2.5], it runs a neon run_loop.
 /// Once epoch 3.0 is reached, it stops the neon run_loop
@@ -80,8 +81,8 @@ enum InnerLoops {
 impl fmt::Display for InnerLoops {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            InnerLoops::Epoch2(_) => write!(f, "{EPOCH_2}"),
-            InnerLoops::Epoch3(_) => write!(f, "{EPOCH_3}"),
+            InnerLoops::Epoch2(_) => write!(f, "{}", StacksEpochId::Epoch20),
+            InnerLoops::Epoch3(_) => write!(f, "{}", StacksEpochId::Epoch30),
         }
     }
 }
@@ -149,7 +150,8 @@ impl BootRunLoop {
         let InnerLoops::Epoch3(ref mut naka_loop) = self.active_loop else {
             panic!(
                 "Attempted to start from epoch {} when the latest epoch was {}.",
-                EPOCH_3, self.active_loop
+                StacksEpochId::Epoch30,
+                self.active_loop
             );
         };
 
@@ -160,7 +162,8 @@ impl BootRunLoop {
         let InnerLoops::Epoch2(ref mut neon_loop) = self.active_loop else {
             panic!(
                 "Attempted to start from epoch {} when the latest epoch was {}.",
-                EPOCH_2, self.active_loop
+                StacksEpochId::Epoch20,
+                self.active_loop
             );
         };
 
@@ -180,11 +183,11 @@ impl BootRunLoop {
         });
 
         if !exited_for_transition {
-            info!(#"nakamoto-boot", "Shutting down epoch {} → {} transition thread.", EPOCH_2, EPOCH_3);
+            info!(#LOG_CONTEXT, "Shutting down epoch {} → {} transition thread.", StacksEpochId::Epoch20, StacksEpochId::Epoch30);
             return;
         }
 
-        info!(#"nakamoto-boot", "Reached epoch {EPOCH_3} boundary, starting Nakamoto node.");
+        info!(#LOG_CONTEXT, "Reached epoch {} boundary, starting Nakamoto node.", StacksEpochId::Epoch30);
         termination_switch.store(true, Ordering::SeqCst);
 
         let naka = NakaRunLoop::new(
@@ -210,7 +213,8 @@ impl BootRunLoop {
         let InnerLoops::Epoch3(ref mut naka_loop) = self.active_loop else {
             panic!(
                 "Unexpectedly found epoch {} after setting {} active.",
-                EPOCH_2, EPOCH_3
+                StacksEpochId::Epoch20,
+                StacksEpochId::Epoch30
             );
         };
 
@@ -230,20 +234,20 @@ impl BootRunLoop {
                 loop {
                     let do_transition = Self::reached_epoch_30_transition(&config)
                         .unwrap_or_else(|err| {
-                            warn!(#"nakamoto-boot", "Failed to check epoch {} transition: {err:?}. Assuming transition did not occur yet.", EPOCH_3);
+                            warn!(#LOG_CONTEXT, "Failed to check epoch {} transition: {err:?}. Assuming transition did not occur yet.", StacksEpochId::Epoch30);
                             false
                         });
                     if do_transition {
                         break;
                     }
                     if !neon_term_switch.load(Ordering::SeqCst) {
-                        info!(#"nakamoto-boot", "Stop requested. Exiting epoch {} → {} transition thread.", EPOCH_2, EPOCH_3);
+                        info!(#LOG_CONTEXT, "Stop requested. Exiting epoch {} → {} transition thread.", StacksEpochId::Epoch20, StacksEpochId::Epoch30);
                         return false;
                     }
                     thread::sleep(Duration::from_secs(1));
                 }
                 // if loop exited, do the transition
-                info!(#"nakamoto-boot", "Epoch {} boundary reached, stopping {}", EPOCH_3, EPOCH_2);
+                info!(#LOG_CONTEXT, "Epoch {} boundary reached, stopping {}", StacksEpochId::Epoch30, StacksEpochId::Epoch20);
                 neon_term_switch.store(false, Ordering::SeqCst);
                 true
             })
@@ -258,7 +262,7 @@ impl BootRunLoop {
         );
 
         let epoch_3 = &epochs[StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch30)
-            .ok_or(format!("No epoch {} defined.", EPOCH_3))?];
+            .ok_or(format!("No epoch {} defined.", StacksEpochId::Epoch30))?];
 
         Ok(u64::from(burn_height) >= epoch_3.start_height - 1)
     }
@@ -270,14 +274,14 @@ impl BootRunLoop {
         if let Err(error) = fs::metadata(&sortdb_path) {
             // if the sortition db doesn't exist yet, don't try to open() it, because that creates the
             // db file even if it doesn't instantiate the tables, which breaks connect() logic.
-            info!(#"nakamoto-boot", "Failed to open Sortition database while checking current burn height: {error}. Assuming current height is 0."; "db_path" => sortdb_path);
+            info!(#LOG_CONTEXT, "Failed to open Sortition database while checking current burn height: {error}. Assuming current height is 0."; "db_path" => sortdb_path);
             return Ok(0);
         }
 
         let sortdb_or_error = SortitionDB::open(&sortdb_path, false, burnchain.pox_constants);
 
         if let Err(error) = sortdb_or_error {
-            info!(#"nakamoto-boot", "Failed to open Sortition database while checking current burn height: {error}. Assuming current height is 0."; "db_path" => sortdb_path, "readwrite" => false);
+            info!(#LOG_CONTEXT, "Failed to open Sortition database while checking current burn height: {error}. Assuming current height is 0."; "db_path" => sortdb_path, "readwrite" => false);
             return Ok(0);
         };
 
@@ -285,7 +289,7 @@ impl BootRunLoop {
         let tip_sn_or_error = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn());
 
         if let Err(error) = tip_sn_or_error {
-            info!(#"nakamoto-boot", "Failed to query Sortition database for current burn height: {error}. Assuming current height is 0."; "db_path" => sortdb_path);
+            info!(#LOG_CONTEXT, "Failed to query Sortition database for current burn height: {error}. Assuming current height is 0."; "db_path" => sortdb_path);
             return Ok(0);
         };
 

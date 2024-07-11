@@ -18,7 +18,6 @@ pub mod monitoring;
 pub mod burnchains;
 pub mod chain_data;
 pub mod config;
-pub mod epochs;
 pub mod event_dispatcher;
 pub mod genesis_data;
 pub mod globals;

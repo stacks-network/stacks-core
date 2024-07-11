@@ -87,6 +87,8 @@ use crate::util_lib::db::{
     u64_to_sql, DBConn, DBTx, Error as db_error, FromColumn, FromRow, IndexDBConn, IndexDBTx,
 };
 
+const LOG_SOURCE: &str = "sortition-db";
+
 const BLOCK_HEIGHT_MAX: u64 = ((1 as u64) << 63) - 1;
 
 pub const REWARD_WINDOW_START: u64 = 144 * 15;
@@ -2665,10 +2667,12 @@ impl SortitionDB {
         pox_constants: PoxConstants,
     ) -> Result<SortitionDB, db_error> {
         let index_path = db_mkdirs(path)?;
+
         debug!(
-            "Open sortdb as '{}', with index as '{}'",
-            if readwrite { "readwrite" } else { "readonly" },
-            index_path
+            #LOG_SOURCE,
+            "Opening database.";
+            "mode" => if readwrite { "readwrite" } else { "readonly" },
+            "index_path" => &index_path
         );
 
         let marf = SortitionDB::open_index(&index_path)?;
@@ -2686,6 +2690,7 @@ impl SortitionDB {
         };
 
         db.check_schema_version_or_error()?;
+
         Ok(db)
     }
 
@@ -2707,7 +2712,7 @@ impl SortitionDB {
         migrator: Option<SortitionDBMigrator>,
         readwrite: bool,
     ) -> Result<SortitionDB, db_error> {
-        let create_flag = match fs::metadata(path) {
+        let should_create = match fs::metadata(path) {
             Err(e) => {
                 if e.kind() == ErrorKind::NotFound {
                     // need to create
@@ -2724,11 +2729,13 @@ impl SortitionDB {
         };
 
         let index_path = db_mkdirs(path)?;
+
         debug!(
-            "Connect/Open {} sortdb as '{}', with index as '{}'",
-            if create_flag { "(create)" } else { "" },
-            if readwrite { "readwrite" } else { "readonly" },
-            index_path
+            #LOG_SOURCE,
+            "Connecting database.";
+            "mode" => if readwrite { "readwrite" } else { "readonly" },
+            "should_create" => should_create,
+            "index_path" => &index_path
         );
 
         let marf = SortitionDB::open_index(&index_path)?;
@@ -2743,8 +2750,7 @@ impl SortitionDB {
             first_burn_header_hash: first_burn_hash.clone(),
         };
 
-        if create_flag {
-            // instantiate!
+        if should_create {
             db.instantiate(
                 first_block_height,
                 first_burn_hash,
@@ -2761,8 +2767,16 @@ impl SortitionDB {
             || snapshot.block_height != first_block_height
             || snapshot.burn_header_hash != *first_burn_hash
         {
-            error!("Invalid genesis snapshot: sn.is_initial = {}, sn.block_height = {}, sn.burn_hash = {}, expect.block_height = {}, expect.burn_hash = {}",
-                   snapshot.is_initial(), snapshot.block_height, &snapshot.burn_header_hash, first_block_height, first_burn_hash);
+            error!(
+                #LOG_SOURCE,
+                "Invalid genesis snapshot.";
+                "snapshot_is_initial" => snapshot.is_initial(),
+                "snapshot_block_height" => snapshot.block_height,
+                "snapshot_burn_hash" => format!("{}", &snapshot.burn_header_hash),
+                "expected_block_height" => first_block_height,
+                "expected_burn_hash" => format!("{}", first_burn_hash),
+            );
+
             return Err(db_error::Corruption);
         }
 
@@ -2781,8 +2795,10 @@ impl SortitionDB {
         epochs_ref: &[StacksEpoch],
     ) -> Result<(), db_error> {
         debug!(
-            "Instantiate SortDB: first block is {},{}",
-            first_block_height, first_burn_header_hash
+            #LOG_SOURCE,
+            "Instanting database.";
+            "first_block_height" => first_block_height,
+            "first_burn_header_hash" => format!("{}", first_burn_header_hash)
         );
 
         sql_pragma(self.conn(), "journal_mode", &"WAL")?;
@@ -2790,23 +2806,33 @@ impl SortitionDB {
 
         let mut db_tx = SortitionHandleTx::begin(self, &SortitionId::sentinel())?;
 
-        // create first (sentinel) snapshot
-        debug!("Make first snapshot");
+        debug!(#LOG_SOURCE, "Creating first (sentinel) snapshot.");
+
         let mut first_snapshot = BlockSnapshot::initial(
             first_block_height,
             first_burn_header_hash,
             first_burn_header_timestamp,
         );
 
-        assert!(first_snapshot.parent_burn_header_hash != first_snapshot.burn_header_hash);
+        assert!(
+            first_snapshot.parent_burn_header_hash != first_snapshot.burn_header_hash,
+            "The sortition database initial snapshot burn header hash '{}' cannot be the same as the parent burn header hash '{}'.",
+            first_snapshot.burn_header_hash,
+            first_snapshot.parent_burn_header_hash
+        );
+
         assert_eq!(
             first_snapshot.parent_burn_header_hash,
-            BurnchainHeaderHash::sentinel()
+            BurnchainHeaderHash::sentinel(),
+            "The sortition database initial snapshot burn header hash '{}' must be the same as the sentinel burn header hash '{}'.",
+            first_snapshot.parent_burn_header_hash,
+            BurnchainHeaderHash::sentinel(),
         );
 
         for row_text in SORTITION_DB_INITIAL_SCHEMA {
             db_tx.execute_batch(row_text)?;
         }
+
         SortitionDB::apply_schema_2(&db_tx, epochs_ref)?;
         SortitionDB::apply_schema_3(&db_tx)?;
         SortitionDB::apply_schema_4(&db_tx)?;
@@ -2837,7 +2863,7 @@ impl SortitionDB {
 
         self.add_indexes()?;
 
-        debug!("Instantiated SortDB");
+        debug!(#LOG_SOURCE, "Instantiated sortition database.");
         Ok(())
     }
 
@@ -2880,7 +2906,7 @@ impl SortitionDB {
         let existing_epoch_idx = StacksEpoch::find_epoch(&existing_epochs, tip.block_height)
             .unwrap_or_else(|| {
                 panic!(
-                    "FATAL: Sortition tip {} has no epoch in its existing epochs table",
+                    "Could not find an epoch for the sortition tip at block height {}.",
                     tip.block_height
                 );
             });
@@ -2888,7 +2914,7 @@ impl SortitionDB {
         let new_epoch_idx =
             StacksEpoch::find_epoch(&epochs, tip.block_height).unwrap_or_else(|| {
                 panic!(
-                    "FATAL: Sortition tip {} has no epoch in the configured epochs list",
+                    "Could not find an epoch for the sortition tip at block height {}.",
                     tip.block_height
                 );
             });
@@ -2898,7 +2924,7 @@ impl SortitionDB {
         for i in 0..existing_epoch_idx.min(new_epoch_idx) {
             if existing_epochs[i] != epochs[i] {
                 panic!(
-                    "FATAL: tried to retcon epoch {:?} into epoch {:?}",
+                    "Attempt to retroactively modify epoch {:?} into epoch {:?} detected. Epochs should remain unchanged and consistent.",
                     &existing_epochs[i], &epochs[i]
                 );
             }
@@ -2917,10 +2943,13 @@ impl SortitionDB {
         }
 
         if tip.block_height >= epochs[new_epoch_idx].end_height {
-            panic!("FATAL: tip has reached or passed the end of the configured epoch");
+            panic!(
+                "The tip at height {} has reached or passed the end of the configured epoch.",
+                tip.block_height
+            );
         }
 
-        info!("Replace existing epochs with new epochs");
+        info!(#LOG_SOURCE, "Replacing existing epochs with new epochs.");
         db_tx.execute("DELETE FROM epochs;", NO_PARAMS)?;
         for epoch in epochs.into_iter() {
             let args: &[&dyn ToSql] = &[
@@ -3011,7 +3040,7 @@ impl SortitionDB {
         if let Some(height) = heights.pop() {
             for next_height in heights {
                 if height != next_height {
-                    panic!("BUG: consensus hash {} has two different heights", ch);
+                    panic!("Consensus hash {} has two different heights: {height} (current), {next_height} (next).", ch);
                 }
             }
             Ok(Some(height))
@@ -3045,13 +3074,13 @@ impl SortitionDB {
         let sql = "SELECT MAX(block_height) FROM snapshots";
         Ok(query_rows(&marf.sqlite_conn(), sql, NO_PARAMS)?
             .pop()
-            .expect("BUG: no snapshots in block_snapshots"))
+            .expect("No snapshots were found in the sortition database."))
     }
 
     /// Is a particular database version supported by a given epoch?
     pub fn is_db_version_supported_in_epoch(epoch: StacksEpochId, version: &str) -> bool {
-        let version_u32: u32 = version.parse().unwrap_or_else(|e| {
-            error!("Failed to parse sortdb version as u32: {e}");
+        let version_u32: u32 = version.parse().unwrap_or_else(|error| {
+            error!(#LOG_SOURCE, "Failed to parse database version: {error}");
             0
         });
         match epoch {
@@ -3186,7 +3215,7 @@ impl SortitionDB {
     /// Apply just the table creation/alterations for schema 8.  Don't attempt migration yet.
     fn apply_schema_8_tables(tx: &DBTx, epochs: &[StacksEpoch]) -> Result<(), db_error> {
         if table_exists(tx, "stacks_chain_tips")? {
-            info!("Schema 8 tables appear to have been created already; skipping this step");
+            info!(#LOG_SOURCE, "Schema 8: Skipped creating tables as they already exist."; "schema-version" => "8", "tables" => "stacks_chain_tips");
             return Ok(());
         }
 
@@ -3212,7 +3241,7 @@ impl SortitionDB {
             let sql = "SELECT 1 FROM stacks_chain_tips WHERE sortition_id = ?1";
             let args = rusqlite::params![&canonical_tip.sortition_id];
             if let Ok(Some(_)) = query_row::<i64, _>(&tx, sql, args) {
-                info!("`stacks_chain_tips` appears to have been populated already; skipping this step");
+                info!(#LOG_SOURCE, "Schema 8: Skipped populating chain tips as they have already been populated."; "schema-version" => "8", "tables" => "stacks_chain_tips");
                 return Ok(());
             }
         }
@@ -3220,9 +3249,11 @@ impl SortitionDB {
         for height in first_block_height..=canonical_tip.block_height {
             let snapshots = SortitionDB::get_all_snapshots_by_burn_height(&tx, height)?;
             debug!(
-                "Populate stacks_chain_tips for {} sortition(s) at height {}",
+                #LOG_SOURCE,
+                "Schema 8: Populating chain tips for {} sortition(s) at height {}...",
                 snapshots.len(),
-                height
+                height;
+                "schema-version" => "8", "tables" => "stacks_chain_tips"
             );
             for snapshot in snapshots.into_iter() {
                 let sql = "INSERT OR REPLACE INTO stacks_chain_tips (sortition_id,consensus_hash,block_hash,block_height) VALUES (?1,?2,?3,?4)";
@@ -3252,14 +3283,14 @@ impl SortitionDB {
                 break;
             }
             let epoch_at_height = SortitionDB::get_stacks_epoch(self.conn(), rc_start)?
-                .unwrap_or_else(|| panic!("FATAL: no epoch defined for burn height {}", rc_start))
+                .unwrap_or_else(|| panic!("No epoch defined for burn height {}.", rc_start))
                 .epoch_id;
 
             if epoch_at_height >= StacksEpochId::Epoch30 {
                 break;
             }
 
-            info!("Regenerating reward set for cycle {}", &rc);
+            info!(#LOG_SOURCE, "Schema 8: Regenerating reward set for cycle {}...", &rc; "schema-version" => "8");
             migrator.regenerate_reward_cycle_info(self, rc)?;
         }
 
@@ -3281,16 +3312,16 @@ impl SortitionDB {
         let canonical_tip = SortitionDB::get_canonical_burn_chain_tip(self.conn())?;
 
         // port over `stacks_chain_tips` table
-        info!("Instantiating `stacks_chain_tips` table...");
+        info!(#LOG_SOURCE, "Initializing chain tips table..."; "schema-version" => "8", "tables" => "stacks_chain_tips");
         self.apply_schema_8_stacks_chain_tips(&canonical_tip)?;
 
         // port over `preprocessed_reward_sets` table
         if let Some(migrator) = migrator.take() {
-            info!("Instantiating `preprocessed_reward_sets` table...");
+            info!(#LOG_SOURCE, "initializing pre-processed rewards set table..."; "schema-version" => "8", "tables" => "preprocessed_reward_sets");
             self.apply_schema_8_preprocessed_reward_sets(&canonical_tip, migrator)?;
         } else {
             // NOTE: if we're instantiating the DB, this is fine.
-            info!("No migrator implementation given; `preprocessed_reward_sets` will not be prepopulated");
+            info!(#LOG_SOURCE, "No migrator implementation provided. Pre-processed reward sets will not be pre-populated."; "schema-version" => "8", "tables" => "preprocessed_reward_sets");
         }
 
         let tx = self.tx_begin()?;
@@ -3330,8 +3361,8 @@ impl SortitionDB {
                     Err(db_error::OldSchema(version_u64))
                 }
             }
-            Ok(None) => panic!("The schema version of the sortition DB is not recorded."),
-            Err(e) => panic!("Error obtaining the version of the sortition DB: {:?}", e),
+            Ok(None) => panic!("The sortition database schema version has not been stored."),
+            Err(error) => panic!("Failed to obtain the sortition database version: {}", error),
         }
     }
 
@@ -3390,11 +3421,13 @@ impl SortitionDB {
 
                         return Ok(());
                     } else {
-                        panic!("The schema version of the sortition DB is invalid.")
+                        panic!("The schema version of the sortition database is invalid.")
                     }
                 }
-                Ok(None) => panic!("The schema version of the sortition DB is not recorded."),
-                Err(e) => panic!("Error obtaining the version of the sortition DB: {:?}", e),
+                Ok(None) => {
+                    panic!("The schema version of the sortition database has not been stored.")
+                }
+                Err(error) => panic!("Failed to obtain the sortition database version: {}", error),
             }
         }
     }
@@ -3423,7 +3456,7 @@ impl SortitionDB {
             };
             db.check_schema_version_and_update(epochs, Some(migrator))
         } else {
-            debug!("SortitionDB is at the latest schema");
+            debug!(#LOG_SOURCE, "The databse is up to date with the latest schema.");
             Ok(())
         }
     }
@@ -3629,7 +3662,7 @@ impl<'a> SortitionDBTx<'a> {
     ) -> Result<AffirmationMap, db_error> {
         let affirmation_map = match self.get_indexed(chain_tip, &db_keys::pox_affirmation_map())? {
             Some(am_str) => {
-                AffirmationMap::decode(&am_str).expect("FATAL: corrupt affirmation map")
+                AffirmationMap::decode(&am_str).expect(&format!("Affirmation map from sortition database transaction at chain tip {:?} is corrupted.", chain_tip))
             }
             None => AffirmationMap::empty(),
         };
@@ -3674,13 +3707,20 @@ impl<'a> SortitionDBConn<'a> {
             .ok_or_else(|| db_error::NotFoundError)?;
 
         if !tip_snapshot.pox_valid {
-            warn!("Consensus hash {:?} corresponds to a sortition that is not on the canonical PoX fork", tip_consensus_hash);
+            warn!(
+                #LOG_SOURCE,
+                "Consensus hash {:?} corresponds to a sortition that is not on the canonical PoX fork.", tip_consensus_hash;
+                tip_snapshot
+            );
+
             return Err(db_error::InvalidPoxSortition);
         }
 
         assert!(
             tip_snapshot.block_height >= self.context.first_block_height,
-            "DB corruption: have snapshot with a smaller block height than the first block height"
+            "The sortition database is corrupted: Found a snapshot with a smaller block height {} than the first block height {}.",
+            tip_snapshot.block_height,
+            self.context.first_block_height
         );
 
         let db_handle = self.as_handle(&tip_snapshot.sortition_id);
@@ -3711,14 +3751,14 @@ impl<'a> SortitionDBConn<'a> {
             )?
             .unwrap_or_else(|| {
                 panic!(
-                    "Discontiguous index: missing block for consensus hash {}",
+                    "Encountered a discontiguous index in the sortition database: Missing block for consensus hash {}.",
                     ancestor_consensus_hash
                 )
             });
 
             // this can happen if this call is interleaved with a PoX invalidation transaction
             if !ancestor_snapshot.pox_valid {
-                warn!("Consensus hash {:?} corresponds to a sortition that is not on the canonical PoX fork", ancestor_consensus_hash);
+                warn!(#LOG_SOURCE, "Consensus hash {:?} corresponds to a sortition that is not on the canonical PoX fork", ancestor_consensus_hash; tip_snapshot);
                 return Err(db_error::InvalidPoxSortition);
             }
 
@@ -3729,8 +3769,10 @@ impl<'a> SortitionDBConn<'a> {
             };
 
             debug!(
-                "CACHE MISS {} (height {}): {:?}",
-                &ancestor_consensus_hash, ancestor_snapshot.block_height, &header_hash_opt
+                #LOG_SOURCE,
+                "Cache missed for consensus hash {} (height {}): {:?}",
+                &ancestor_consensus_hash, ancestor_snapshot.block_height, &header_hash_opt;
+                &ancestor_snapshot,
             );
 
             ret.push((ancestor_snapshot.consensus_hash, header_hash_opt.clone()));
@@ -3741,7 +3783,7 @@ impl<'a> SortitionDBConn<'a> {
             )?
             .unwrap_or_else(|| {
                 panic!(
-                    "Discontiguous index: missing parent block of parent burn header hash {}",
+                    "Encountered a discontiguous index in the sortition database: Missing parent block of parent burn header hash {}.",
                     &ancestor_snapshot.parent_burn_header_hash
                 )
             });
@@ -3764,21 +3806,25 @@ impl<'a> SortitionDBConn<'a> {
         {
             Ok(Some((_, sn))) => {
                 debug!(
-                    "Parent of {}/{} is {}/{}",
-                    consensus_hash, block_hash, sn.consensus_hash, sn.winning_stacks_block_hash
+                    #LOG_SOURCE,
+                    "Parent of {}/{} is {}/{}.",
+                    consensus_hash, block_hash, sn.consensus_hash, sn.winning_stacks_block_hash;
+                    &sn
                 );
                 sn
             }
             Ok(None) => {
                 debug!(
-                    "Received block with unknown parent snapshot: {}/{}",
+                    #LOG_SOURCE,
+                    "Received block with unknown parent snapshot: {}/{}.",
                     consensus_hash, block_hash,
                 );
                 return Ok(None);
             }
             Err(db_error::InvalidPoxSortition) => {
                 warn!(
-                    "Received block {}/{} on a non-canonical PoX sortition",
+                    #LOG_SOURCE,
+                    "Received block {}/{} on a non-canonical PoX sortition.",
                     consensus_hash, block_hash,
                 );
                 return Ok(None);
@@ -3796,7 +3842,7 @@ impl<'a> SortitionDBConn<'a> {
         self.get_indexed(sortition_id, &db_keys::pox_reward_set_size())
             .map(|x| {
                 db_keys::reward_set_size_from_string(
-                    &x.expect("CORRUPTION: no current reward set size written"),
+                    &x.expect(&format!("The sortition database is corrupted: No current reward set size for sortition {:?} found.", sortition_id)),
                 )
             })
     }
@@ -3810,11 +3856,15 @@ impl<'a> SortitionDBConn<'a> {
             .get_indexed(sortition_id, &db_keys::pox_reward_set_entry(entry_ix))?
             .unwrap_or_else(|| {
                 panic!(
-                    "CORRUPTION: expected reward set entry at index={}, but not found",
-                    entry_ix
+                    "The sortition database is corrupted: Expected reward set entry at index {} for sortition {} but none found.",
+                    entry_ix,
+                    sortition_id,
                 )
             });
-        Ok(PoxAddress::from_db_string(&entry_str).expect("FATAL: could not decode PoX address"))
+        Ok(PoxAddress::from_db_string(&entry_str).expect(&format!(
+            "Failed to decode decode PoX address: {}.",
+            entry_str
+        )))
     }
 
     pub fn get_reward_set_payouts_at(
@@ -3826,8 +3876,9 @@ impl<'a> SortitionDBConn<'a> {
         let pox_addrs_json: String =
             query_row(self.conn(), sql, args)?.ok_or(db_error::NotFoundError)?;
 
-        let pox_addrs: (Vec<PoxAddress>, u128) =
-            serde_json::from_str(&pox_addrs_json).expect("FATAL: failed to decode pox payout JSON");
+        let pox_addrs: (Vec<PoxAddress>, u128) = serde_json::from_str(&pox_addrs_json).expect(
+            &format!("Failed to decode PoX payout JSON: {}", pox_addrs_json),
+        );
         Ok(pox_addrs)
     }
 
@@ -3843,15 +3894,17 @@ impl<'a> SortitionDBConn<'a> {
     ) -> Result<RewardCycleInfo, db_error> {
         let tip_sn = SortitionDB::get_block_snapshot(self, tip)?.ok_or_else(|| {
             error!(
-                "Could not find snapshot for sortition while fetching reward set";
+                #LOG_SOURCE,
+                "Could not find snapshot for sortition while fetching reward set.";
                 "tip_sortition_id" => %tip,
             );
+
             db_error::NotFoundError
         })?;
 
         let reward_cycle_id = pox_constants
             .block_height_to_reward_cycle(first_block_height, tip_sn.block_height)
-            .expect("FATAL: stored snapshot with block height < first_block_height");
+            .expect(&format!("Stored sortition database snapshot with block height {} less than first block height {}.", tip_sn.block_height, first_block_height));
 
         self.get_preprocessed_reward_set_for_reward_cycle(
             pox_constants,
@@ -3879,13 +3932,15 @@ impl<'a> SortitionDBConn<'a> {
         let last_sortition =
             get_ancestor_sort_id(self, prepare_phase_end, tip)?.ok_or_else(|| {
                 error!(
-                    "Could not find prepare phase end ancestor while fetching reward set";
+                    #LOG_SOURCE,
+                    "Could not find prepare phase end ancestor while fetching reward set.";
                     "tip_sortition_id" => %tip,
                     "reward_cycle_id" => reward_cycle_id,
                     "prepare_phase_end_height" => prepare_phase_end
                 );
                 db_error::NotFoundError
             })?;
+
         Ok(last_sortition)
     }
 
@@ -3906,13 +3961,15 @@ impl<'a> SortitionDBConn<'a> {
         let first_sortition =
             get_ancestor_sort_id(self, prepare_phase_start, tip)?.ok_or_else(|| {
                 error!(
-                    "Could not find prepare phase start ancestor while fetching reward set";
+                    #LOG_SOURCE,
+                    "Could not find prepare phase start ancestor while fetching reward set.";
                     "tip_sortition_id" => %tip,
                     "reward_cycle_id" => reward_cycle_id,
                     "prepare_phase_start_height" => prepare_phase_start
                 );
                 db_error::NotFoundError
             })?;
+
         Ok(first_sortition)
     }
 
@@ -3935,10 +3992,13 @@ impl<'a> SortitionDBConn<'a> {
             tip,
             reward_cycle_id,
         )?;
-        info!("Fetching preprocessed reward set";
-              "tip_sortition_id" => %tip,
-              "reward_cycle_id" => reward_cycle_id,
-              "prepare_phase_start_sortition_id" => %first_sortition,
+
+        info!(
+            #LOG_SOURCE,
+            "Fetching pre-processed reward set...";
+            "tip_sortition_id" => %tip,
+            "reward_cycle_id" => reward_cycle_id,
+            "prepare_phase_start_sortition_id" => %first_sortition
         );
 
         Ok((
@@ -4000,7 +4060,10 @@ impl SortitionDB {
             if s == "" {
                 None
             } else {
-                Some(BlockHeaderHash::from_hex(&s).expect("BUG: Bad BlockHeaderHash stored in DB"))
+                Some(BlockHeaderHash::from_hex(&s).expect(&format!(
+                    "Bad block header hash stored in sortition database: {}.",
+                    s
+                )))
             }
         })
         .flatten()
@@ -4011,7 +4074,10 @@ impl SortitionDB {
             if s == "" {
                 None
             } else {
-                Some(Txid::from_hex(&s).expect("BUG: Bad Txid stored in DB"))
+                Some(Txid::from_hex(&s).expect(&format!(
+                    "Bad transaction ID stored in sortition database: {}",
+                    s
+                )))
             }
         })
         .flatten()
@@ -4086,7 +4152,7 @@ impl SortitionDB {
             }
             cls(&mut db_tx, &header, &queue);
 
-            debug!("Invalidate descendants of burn block {}", &header);
+            debug!(#LOG_SOURCE, "Invalidating descendants of burn block {}...", &header);
 
             #[cfg(any(test, feature = "testing"))]
             {
@@ -4096,7 +4162,7 @@ impl SortitionDB {
                     &[&header],
                 )?;
                 for invalid in to_invalidate {
-                    debug!("Invalidate child of {}: {:?}", &header, &invalid);
+                    debug!(#LOG_SOURCE, "Invalidating child of burn block {}: {:?}", &header, &invalid);
                 }
             }
 
@@ -4180,13 +4246,13 @@ impl SortitionDB {
                 let consumed_leader_keys: String = row.get_unwrap(1);
                 Ok(BurnchainStateTransitionOps {
                     accepted_ops: serde_json::from_str(&accepted_ops)
-                        .expect("CORRUPTION: DB stored bad transition ops"),
+                        .expect(&format!("The sortition database is corrupted: Found bad transition ops {}.", accepted_ops)),
                     consumed_leader_keys: serde_json::from_str(&consumed_leader_keys)
-                        .expect("CORRUPTION: DB stored bad transition ops"),
+                        .expect(&format!("The sortition database is corrupted: Found bad transition ops {}.", accepted_ops)),
                 })
             })
             .optional()?
-            .expect("CORRUPTION: DB stored BlockSnapshot, but not the transition ops");
+            .expect(&format!("The sortition database is corrupted: Found block snapshot for height {} but not a corresponding transition ops.", snapshot.block_height));
 
         Ok(Some((snapshot, transition_ops)))
     }
@@ -4197,13 +4263,15 @@ impl SortitionDB {
         if let Some(ref next_pox_info) = next_pox_info {
             if next_pox_info.is_reward_info_known() {
                 info!(
-                    "Begin reward-cycle sortition with present anchor block={:?}",
+                    #LOG_SOURCE,
+                    "Begin reward-cycle sortition with present anchor block {:?}.",
                     &next_pox_info.selected_anchor_block(),
                 );
                 next_pox.extend_with_present_block();
             } else {
                 info!(
-                    "Begin reward-cycle sortition with absent anchor block={:?}",
+                    #LOG_SOURCE,
+                    "Begin reward-cycle sortition with absent anchor block {:?}.",
                     &next_pox_info.selected_anchor_block(),
                 );
                 next_pox.extend_with_not_present_block();
@@ -4248,14 +4316,14 @@ impl SortitionDB {
         let parent_sort_id = self
             .get_sortition_id(&burn_header.parent_block_hash, from_tip)?
             .ok_or_else(|| {
-                warn!("Unknown block {:?}", burn_header.parent_block_hash);
+                warn!(#LOG_SOURCE, "Unknown block {:?}.", burn_header.parent_block_hash);
                 BurnchainError::MissingParentBlock
             })?;
 
         let cur_epoch = SortitionDB::get_stacks_epoch(self.conn(), burn_header.block_height)?
             .unwrap_or_else(|| {
                 panic!(
-                    "FATAL: no epoch defined for burn height {}",
+                    "No epoch defined in sortition database for burn height {}.",
                     burn_header.block_height
                 )
             });
@@ -4264,13 +4332,14 @@ impl SortitionDB {
         let parent_snapshot = sortition_db_handle
             .get_block_snapshot(&burn_header.parent_block_hash, &parent_sort_id)?
             .ok_or_else(|| {
-                warn!("Unknown block {:?}", burn_header.parent_block_hash);
+                warn!(#LOG_SOURCE, "Unknown block {:?}.", burn_header.parent_block_hash);
                 BurnchainError::MissingParentBlock
             })?;
 
         let parent_pox = sortition_db_handle.get_pox_id()?;
         test_debug!(
-            "parent PoX ID of {:?} off of {} is {}",
+            #LOG_SOURCE,
+            "Parent PoX ID of {:?} off of {} is {}.",
             &burn_header.parent_block_hash,
             &from_tip,
             &parent_pox
@@ -4285,10 +4354,11 @@ impl SortitionDB {
             .is_after_pox_sunset_end(burn_header.block_height, cur_epoch.epoch_id)
         {
             test_debug!(
-                "No recipients for burn height {}: epoch = {}, sunset_end = {}",
-                burnchain.pox_constants.sunset_end,
-                cur_epoch.epoch_id,
-                burn_header.block_height
+                #LOG_SOURCE,
+                "No recipients found for burn height {}.",
+                burnchain.pox_constants.sunset_end;
+                "epoch" => cur_epoch.epoch_id,
+                "sunset_end" => burn_header.block_height
             );
             None
         } else {
@@ -4307,7 +4377,7 @@ impl SortitionDB {
         let initial_mining_bonus = if bonus_remaining > 0 {
             let mining_bonus_per_block = sortition_db_handle
                 .get_initial_mining_bonus_per_block(&parent_sort_id)?
-                .expect("BUG: initial mining bonus amount written, but not the per block amount.");
+                .expect(&format!("Initial mining bonus for amount was found, but not the per-block amount for sortition ID {}.", parent_sort_id));
             cmp::min(bonus_remaining, mining_bonus_per_block)
         } else {
             0
@@ -4334,7 +4404,7 @@ impl SortitionDB {
         if !dryrun {
             // commit everything!
             sortition_db_handle.commit().expect(
-                "Failed to commit to sortition db after announcing reward set info, state corrupted.",
+                "Failed to commit to sortition database after announcing reward set. The state is corrupted.",
             );
         }
         Ok((new_snapshot.0, new_snapshot.1))
@@ -4354,7 +4424,7 @@ impl SortitionDB {
             SortitionDB::get_stacks_epoch(self.conn(), parent_snapshot.block_height + 1)?
                 .unwrap_or_else(|| {
                     panic!(
-                        "FATAL: no epoch defined for burn height {}",
+                        "No epoch defined in the sortition database for burn height {}.",
                         parent_snapshot.block_height + 1
                     )
                 });
@@ -4405,18 +4475,22 @@ impl SortitionDB {
         if chain_tip.block_height < burnchain.first_block_height {
             // should never happen, but don't panic since this is network-callable code
             error!(
-                "Invalid block height from DB: {}: expected at least {}",
+                #LOG_SOURCE,
+                "Invalid block height from database: {}. Expected at least {}.",
                 chain_tip.block_height, burnchain.first_block_height
             );
+
             return Err(db_error::Corruption);
         }
 
         if chain_tip.block_height < burnchain.stable_confirmations as u64 {
             // should never happen, but don't panic since this is network-callable code
             error!(
-                "Invalid block height from DB: {}: expected at least {}",
+                #LOG_SOURCE,
+                "Invalid block height from database: {}. Expected at least {}.",
                 chain_tip.block_height, burnchain.stable_confirmations
             );
+
             return Err(db_error::Corruption);
         }
 
@@ -4471,6 +4545,7 @@ impl SortitionDB {
             .clone();
 
         test_debug!(
+            #LOG_SOURCE,
             "Chain view: {},{}-{},{},{}",
             chain_tip.block_height,
             chain_tip.burn_header_hash,
@@ -4478,6 +4553,7 @@ impl SortitionDB {
             &burn_stable_block_hash,
             &chain_tip.canonical_stacks_tip_consensus_hash,
         );
+
         Ok(BurnchainView {
             burn_block_height: chain_tip.block_height,
             burn_block_hash: chain_tip.burn_header_hash,
@@ -4495,8 +4571,9 @@ impl SortitionDB {
     /// Break ties deterministically by ordering on burnchain block hash.
     pub fn get_canonical_burn_chain_tip(conn: &Connection) -> Result<BlockSnapshot, db_error> {
         let qry = "SELECT * FROM snapshots WHERE pox_valid = 1 ORDER BY block_height DESC, burn_header_hash ASC LIMIT 1";
-        query_row(conn, qry, NO_PARAMS)
-            .map(|opt| opt.expect("CORRUPTION: No canonical burnchain tip"))
+        query_row(conn, qry, NO_PARAMS).map(|opt| {
+            opt.expect("The sortition database is corrupted: No canonical burnchain tip found.")
+        })
     }
 
     /// Get the highest burn chain tip even if it's not PoX-valid.
@@ -4504,7 +4581,8 @@ impl SortitionDB {
     pub fn get_highest_known_burn_chain_tip(conn: &Connection) -> Result<BlockSnapshot, db_error> {
         let qry =
             "SELECT * FROM snapshots ORDER BY block_height DESC, burn_header_hash ASC LIMIT 1";
-        query_row(conn, qry, NO_PARAMS).map(|opt| opt.expect("CORRUPTION: No burnchain tips"))
+        query_row(conn, qry, NO_PARAMS)
+            .map(|opt| opt.expect("The sortition database is corrupted: No burnchain tips found."))
     }
 
     /// Get the canonical burn chain tip -- the tip of the longest burn chain we know about.
@@ -4512,7 +4590,8 @@ impl SortitionDB {
     pub fn get_canonical_chain_tip_bhh(conn: &Connection) -> Result<BurnchainHeaderHash, db_error> {
         let qry = "SELECT burn_header_hash FROM snapshots WHERE pox_valid = 1 ORDER BY block_height DESC, burn_header_hash ASC LIMIT 1";
         match conn.query_row(qry, NO_PARAMS, |row| row.get(0)).optional() {
-            Ok(opt) => Ok(opt.expect("CORRUPTION: No canonical burnchain tip")),
+            Ok(opt) => Ok(opt
+                .expect("The sortition database is corrupted: No canonical burnchain tip found.")),
             Err(e) => Err(db_error::from(e)),
         }
     }
@@ -4524,7 +4603,8 @@ impl SortitionDB {
     pub fn get_canonical_sortition_tip(conn: &Connection) -> Result<SortitionId, db_error> {
         let qry = "SELECT sortition_id FROM snapshots WHERE pox_valid = 1 ORDER BY block_height DESC, burn_header_hash ASC LIMIT 1";
         match conn.query_row(qry, NO_PARAMS, |row| row.get(0)).optional() {
-            Ok(opt) => Ok(opt.expect("CORRUPTION: No canonical burnchain tip")),
+            Ok(opt) => Ok(opt
+                .expect("The sortition database is corrupted: No canonical burnchain tip found.")),
             Err(e) => Err(db_error::from(e)),
         }
     }
@@ -4617,7 +4697,7 @@ impl SortitionDB {
             for row in rows.into_iter() {
                 if row != bhh {
                     panic!(
-                        "FATAL: burnchain header hash {} has two parents: {} and {}",
+                        "Burnchain header hash {} in sortition database has two parents: {}, {}.",
                         burnchain_header_hash, &bhh, &row
                     );
                 }
@@ -4652,7 +4732,8 @@ impl SortitionDB {
         for _i in 0..count {
             let parent_bhh = match SortitionDB::get_parent_burnchain_header_hash(
                 conn,
-                ret.last().expect("FATAL: empty burn header hash list"),
+                ret.last()
+                    .expect("The sorition database has an empty burn header hash list."),
             )? {
                 Some(bhh) => bhh,
                 None => {
@@ -4725,7 +4806,7 @@ impl SortitionDB {
         let cur_epoch =
             SortitionDB::get_stacks_epoch(conn, sn.block_height)?.unwrap_or_else(|| {
                 panic!(
-                    "FATAL: no epoch defined for burn height {}",
+                    "The sortition databse has no epoch defined for burn height {}.",
                     sn.block_height
                 )
             });
@@ -4759,7 +4840,7 @@ impl SortitionDB {
             .query_row(
                 "SELECT IFNULL(MAX(arrival_index), 1) FROM snapshots",
                 NO_PARAMS,
-                |row| Ok(u64::from_row(row).expect("Expected u64 in database")),
+                |row| Ok(u64::from_row(row).expect("Expected max arrival index to be an 64-bit unsigned integer in sortition database.")),
             )
             .optional()?
         {
@@ -4777,7 +4858,7 @@ impl SortitionDB {
             conn,
             "SELECT * FROM snapshots WHERE arrival_index = ?1 AND stacks_block_accepted > 0 AND pox_valid = 1",
             &[&u64_to_sql(arrival_index)?],
-            || "BUG: multiple snapshots have the same non-zero arrival index".to_string(),
+            || "Multiple snapshots have the same non-zero arrival index in sortition database.".to_string(),
         )
     }
 
@@ -4789,7 +4870,7 @@ impl SortitionDB {
         let args = [&consensus_hash];
         query_row_panic(conn, qry, &args, || {
             format!(
-                "FATAL: multiple block snapshots for the same block with consensus hash {}",
+                "Multiple block snapshots found in sortition database for the same block with consensus hash {}.",
                 consensus_hash
             )
         })
@@ -4803,7 +4884,7 @@ impl SortitionDB {
         let args = [&consensus_hash];
         query_row_panic(conn, qry, &args, || {
             format!(
-                "FATAL: multiple block snapshots for the same block with consensus hash {}",
+                "Multiple block snapshots found in sortition database for the same block with consensus hash {}.",
                 consensus_hash
             )
         })
@@ -4819,7 +4900,7 @@ impl SortitionDB {
         let args = [&consensus_hash];
         query_row_panic(conn, qry, &args, || {
             format!(
-                "FATAL: multiple block snapshots for the same block with consensus hash {}",
+                "Multiple block snapshots found in sortition database for the same block with consensus hash {}.",
                 consensus_hash
             )
         })
@@ -4834,7 +4915,7 @@ impl SortitionDB {
         let args = [&consensus_hash];
         let res: Option<i64> = query_row_panic(conn, qry, &args, || {
             format!(
-                "FATAL: multiple block snapshots for the same block with consensus hash {}",
+                "Multiple block snapshots found in sortition database for the same block with consensus hash {}.",
                 consensus_hash
             )
         })?;
@@ -4851,13 +4932,13 @@ impl SortitionDB {
         let args = [&sortition_id];
         query_row_panic(conn, qry, &args, || {
             format!(
-                "FATAL: multiple block snapshots for the same block {}",
+                "Multiple block snapshots found in sortition database for the same block {}.",
                 sortition_id
             )
         })
         .map(|x| {
             if x.is_none() {
-                test_debug!("No snapshot with sortition ID {}", sortition_id);
+                test_debug!(#LOG_SOURCE, "No snapshot found for sortition ID {}.", sortition_id);
             }
             x
         })
@@ -4867,12 +4948,12 @@ impl SortitionDB {
     pub fn get_first_block_snapshot(conn: &Connection) -> Result<BlockSnapshot, db_error> {
         let qry = "SELECT * FROM snapshots WHERE consensus_hash = ?1";
         let result = query_row_panic(conn, qry, &[&ConsensusHash::empty()], || {
-            "FATAL: multiple first-block snapshots".into()
+            "Multiple first-block snapshots found in sortition database.".into()
         })?;
         match result {
             None => {
                 // should never happen
-                panic!("FATAL: no first snapshot");
+                panic!("No first snapshot found in sortition database.");
             }
             Some(snapshot) => Ok(snapshot),
         }
@@ -4890,7 +4971,7 @@ impl SortitionDB {
             let height_i64: i64 = row.get("block_height")?;
             let hash: BurnchainHeaderHash = row.get("burn_header_hash")?;
             let height = u64::try_from(height_i64).map_err(|_| {
-                warn!("Height does not fit into a u64");
+                warn!(#LOG_SOURCE, "Height {} exceeds the max allowed value of {}.", height_i64, u64::MAX);
                 db_error::ParseError
             })?;
             return Ok((height, hash));
@@ -4909,7 +4990,8 @@ impl SortitionDB {
                 .block_height_to_reward_cycle(block.block_height)
                 .ok_or_else(|| {
                     warn!(
-                        "block height {} does not have a reward cycle",
+                        #LOG_SOURCE,
+                        "Block height {} does not have a reward cycle.",
                         block.block_height
                     );
                     db_error::NotFoundError
@@ -4925,7 +5007,8 @@ impl SortitionDB {
                     .block_height_to_reward_cycle(block.block_height - 1)
                     .ok_or_else(|| {
                         warn!(
-                            "block height {} does not have a reward cycle",
+                            #LOG_SOURCE,
+                            "Block height {} does not have a reward cycle.",
                             block.block_height - 1
                         );
                         db_error::NotFoundError
@@ -4933,15 +5016,20 @@ impl SortitionDB {
             );
         }
 
-        let sort_id_of_start =
-            get_ancestor_sort_id(&self.index_conn(), reward_start_height, &block.sortition_id)?
-                .ok_or_else(|| {
-                    warn!(
-                "reward start height {} (from block height {}) does not have a sortition from {}",
+        let sort_id_of_start = get_ancestor_sort_id(
+            &self.index_conn(),
+            reward_start_height,
+            &block.sortition_id,
+        )?
+        .ok_or_else(|| {
+            warn!(
+                #LOG_SOURCE,
+                "Reward starting height {} from block height {} does not have a sortition from {}.",
                 reward_start_height, block.block_height, &block.sortition_id
             );
-                    db_error::NotFoundError
-                })?;
+
+            db_error::NotFoundError
+        })?;
 
         let handle = self.index_handle(&sort_id_of_start);
         Ok(handle.get_reward_set_size_at(&sort_id_of_start)? > 0)
@@ -4959,7 +5047,7 @@ impl SortitionDB {
         for i in 0..block_commits.len() {
             burn_total = burn_total
                 .checked_add(block_commits[i].burn_fee)
-                .expect("Way too many tokens burned");
+                .expect("Way too many tokens burned.");
         }
         Ok(burn_total)
     }
@@ -5030,9 +5118,11 @@ impl SortitionDB {
             Some(id) => id,
             None => {
                 debug!(
-                    "No ancestor block {} from {} in index",
+                    #LOG_SOURCE,
+                    "No ancestor block {} from {} found in index.",
                     ancestor_block_height, tip_block_hash
                 );
+
                 return Ok(None);
             }
         };
@@ -5053,9 +5143,11 @@ impl SortitionDB {
             Some(id) => id,
             None => {
                 debug!(
-                    "No ancestor block {} from {} in index",
+                    #LOG_SOURCE,
+                    "No ancestor block {} from {} found in index.",
                     ancestor_block_height, tip_block_hash
                 );
+
                 return Ok(None);
             }
         };
@@ -5094,7 +5186,7 @@ impl SortitionDB {
         let args: &[&dyn ToSql] = &[sortition, &u64_to_sql(block_height)?, &vtxindex];
         query_row_panic(conn, qry, args, || {
             format!(
-                "Multiple parent blocks at {},{} in {}",
+                "The sortition database contains multiple parent blocks at {},{} in {}.",
                 block_height, vtxindex, sortition
             )
         })
@@ -5127,7 +5219,7 @@ impl SortitionDB {
         ];
         query_row_panic(ic, qry, args, || {
             format!(
-                "Multiple keys at {},{} in {}",
+                "The sortition database contains multiple keys at {},{} in {}.",
                 key_block_height, key_vtxindex, tip
             )
         })
@@ -5147,7 +5239,7 @@ impl SortitionDB {
         )? {
             Some(sn) => {
                 if !sn.pox_valid {
-                    warn!("Consensus hash {:?} corresponds to a sortition that is not on the canonical PoX fork", consensus_hash);
+                    warn!(#LOG_SOURCE, "Consensus hash {:?} corresponds to a sortition that is not on the canonical PoX fork.", consensus_hash);
                     return Err(db_error::InvalidPoxSortition);
                 }
                 (sn.sortition_id, sn.winning_block_txid)
@@ -5160,7 +5252,10 @@ impl SortitionDB {
         let qry = "SELECT * FROM block_commits WHERE sortition_id = ?1 AND block_header_hash = ?2 AND txid = ?3";
         let args: [&dyn ToSql; 3] = [&sortition_id, &block_hash, &winning_txid];
         query_row_panic(conn, qry, &args, || {
-            format!("FATAL: multiple block commits for {}", &block_hash)
+            format!(
+                "The sortition database contains multiple block commits for {}.",
+                &block_hash
+            )
         })
     }
 
@@ -5172,8 +5267,10 @@ impl SortitionDB {
     ) -> Result<Option<BlockSnapshot>, db_error> {
         match ic.get_indexed(tip, &db_keys::stacks_block_present(block_hash))? {
             Some(sortition_id_hex) => {
-                let sortition_id = SortitionId::from_hex(&sortition_id_hex)
-                    .expect("FATAL: DB stored non-parseable sortition id");
+                let sortition_id = SortitionId::from_hex(&sortition_id_hex).expect(&format!(
+                    "The sortition database stored non-parseable sortition ID: {}.",
+                    sortition_id_hex
+                ));
                 SortitionDB::get_block_snapshot(ic, &sortition_id)
             }
             None => Ok(None),
@@ -5204,7 +5301,8 @@ impl SortitionDB {
                 i -= 1;
             }
         }
-        debug!("Block header cache has {} items", cache.len());
+
+        debug!(#LOG_SOURCE, "Block header cache contains {} items.", cache.len());
     }
 
     /// Get the StacksEpoch for a given burn block height
@@ -5284,7 +5382,7 @@ impl SortitionDB {
             if epoch.epoch_id == StacksEpochId::Epoch2_05 {
                 return Ok(pox_constants
                     .block_height_to_reward_cycle(first_block_height, epoch.end_height)
-                    .expect("FATAL: end block of epoch 2.05 is before system start height"));
+                    .expect(&format!("End block of epoch {} in the sortition database is before system start height {}.", StacksEpochId::Epoch2_05, first_block_height)));
             }
         }
 
@@ -5301,7 +5399,8 @@ impl SortitionDB {
     ) -> Result<BlockSnapshot, db_error> {
         assert!(burn_block_height < BLOCK_HEIGHT_MAX);
         test_debug!(
-            "Get snapshot at from sortition tip {}, expect height {}",
+            #LOG_SOURCE,
+            "Retrieving snapshot for sortition tip {}. Expect height {}.",
             chain_tip,
             burn_block_height
         );
@@ -5309,7 +5408,8 @@ impl SortitionDB {
             Some(sortition_id) => sortition_id,
             None => {
                 error!(
-                    "No blockheight {} ancestor at sortition identifier {}",
+                    #LOG_SOURCE,
+                    "No block height {} ancestor at sortition ID {}.",
                     burn_block_height, &chain_tip
                 );
                 return Err(db_error::NotFoundError);
@@ -5319,7 +5419,7 @@ impl SortitionDB {
         let ancestor_hash = match tx.get_indexed(&get_from, &db_keys::last_sortition())? {
             Some(hex_str) => BurnchainHeaderHash::from_hex(&hex_str).unwrap_or_else(|_| {
                 panic!(
-                    "FATAL: corrupt database: failed to parse {} into a hex string",
+                    "The sortition database is corrupted: Failed to parse {} into a hex string.",
                     &hex_str
                 )
             }),
@@ -5332,11 +5432,18 @@ impl SortitionDB {
         let sortition_identifier_key = db_keys::sortition_id_for_bhh(&ancestor_hash);
         let sortition_id = match tx.get_indexed(chain_tip, &sortition_identifier_key)? {
             None => return SortitionDB::get_first_block_snapshot(tx),
-            Some(x) => SortitionId::from_hex(&x).expect("FATAL: bad Sortition ID stored in DB"),
+            Some(x) => SortitionId::from_hex(&x).expect(&format!(
+                "The sortition database has a bad Sortition ID: {}.",
+                x
+            )),
         };
 
-        SortitionDB::get_block_snapshot(tx, &sortition_id)
-            .map(|x| x.expect("FATAL: no snapshot for MARF'ed sortition ID"))
+        SortitionDB::get_block_snapshot(tx, &sortition_id).map(|x| {
+            x.expect(&format!(
+                "No snapshot for MARF'ed sortition ID: {}.",
+                sortition_id
+            ))
+        })
     }
 }
 
@@ -5383,7 +5490,7 @@ impl<'a> SortitionHandleTx<'a> {
         let cur_epoch =
             SortitionDB::get_stacks_epoch(self, snapshot.block_height)?.unwrap_or_else(|| {
                 panic!(
-                    "FATAL: no epoch defined for burn height {}",
+                    "No epoch defined in the sortition database for burn height {}.",
                     snapshot.block_height
                 )
             });
@@ -5401,14 +5508,17 @@ impl<'a> SortitionHandleTx<'a> {
                 canonical_stacks_tip_block_hash,
                 canonical_stacks_tip_height,
             ) = res?;
+
             debug!(
-                "Setting stacks_chain_tips values";
+                #LOG_SOURCE,
+                "Setting up chain tips...";
                 "sortition_id" => %sn.sortition_id,
                 "parent_sortition_id" => %parent_snapshot.sortition_id,
                 "stacks_tip_height" => canonical_stacks_tip_height,
                 "stacks_tip_hash" => %canonical_stacks_tip_block_hash,
                 "stacks_tip_consensus" => %canonical_stacks_tip_consensus_hash
             );
+
             sn.canonical_stacks_tip_height = canonical_stacks_tip_height;
             sn.canonical_stacks_tip_hash = canonical_stacks_tip_block_hash;
             sn.canonical_stacks_tip_consensus_hash = canonical_stacks_tip_consensus_hash;
@@ -5448,7 +5558,8 @@ impl<'a> SortitionHandleTx<'a> {
                 SortitionDB::get_canonical_stacks_chain_tip_hash(self).unwrap();
 
             debug!(
-                "After sortition {}, canonical Stacks tip is {}/{}",
+                #LOG_SOURCE,
+                "After sortition {}, canonical Stacks tip is {}/{}.",
                 &snapshot.consensus_hash, &block_consensus_hash, &block_bhh
             );
         }
@@ -5460,7 +5571,12 @@ impl<'a> SortitionHandleTx<'a> {
         chain_tip: &SortitionId,
     ) -> Result<u128, db_error> {
         self.get_indexed(&chain_tip, db_keys::initial_mining_bonus_remaining())?
-            .map(|s| Ok(s.parse().expect("BUG: bad mining bonus stored in DB")))
+            .map(|s| {
+                Ok(s.parse().expect(&format!(
+                    "Bad mining bonus stored in the sortition database: {}",
+                    s
+                )))
+            })
             .unwrap_or(Ok(0))
     }
 
@@ -5470,7 +5586,12 @@ impl<'a> SortitionHandleTx<'a> {
     ) -> Result<Option<u128>, db_error> {
         Ok(self
             .get_indexed(&chain_tip, db_keys::initial_mining_bonus_per_block())?
-            .map(|s| s.parse().expect("BUG: bad mining bonus stored in DB")))
+            .map(|s| {
+                s.parse().expect(&format!(
+                    "Bad mining bonus stored in the sortition database: {}",
+                    s
+                ))
+            }))
     }
 
     #[cfg(any(test, feature = "testing"))]
@@ -5517,8 +5638,16 @@ impl<'a> SortitionHandleTx<'a> {
         let chain_tip = self.context.chain_tip.clone();
         let pox_id = self
             .get_indexed(&chain_tip, db_keys::pox_identifier())?
-            .map(|s| s.parse().expect("BUG: Bad PoX identifier stored in DB"))
-            .expect("BUG: No PoX identifier stored.");
+            .map(|s| {
+                s.parse().expect(&format!(
+                    "Bad PoX identifier stored in the sortition database: {}.",
+                    s
+                ))
+            })
+            .expect(&format!(
+                "No PoX identifier found for tip {} in the sortition database.",
+                chain_tip
+            ));
         Ok(pox_id)
     }
 
@@ -5531,53 +5660,73 @@ impl<'a> SortitionHandleTx<'a> {
         match blockstack_op {
             BlockstackOperationType::LeaderKeyRegister(ref op) => {
                 info!(
-                    "ACCEPTED({}) leader key register {} at {},{}",
-                    op.block_height, &op.txid, op.block_height, op.vtxindex
+                    #LOG_SOURCE,
+                    "Accepted leader key register {} at {},{}.",
+                    &op.txid, op.block_height, op.vtxindex;
+                    op,
                 );
+
                 self.insert_leader_key(op, sort_id)
             }
             BlockstackOperationType::LeaderBlockCommit(ref op) => {
                 info!(
-                    "ACCEPTED({}) leader block commit {} at {},{}",
-                    op.block_height, &op.txid, op.block_height, op.vtxindex;
-                    "apparent_sender" => %op.apparent_sender
+                    #LOG_SOURCE,
+                    "Accepted leader block commit {} at {},{}.",
+                    &op.txid, op.block_height, op.vtxindex;
+                    op,
                 );
+
                 self.insert_block_commit(op, sort_id)
             }
             BlockstackOperationType::StackStx(ref op) => {
                 info!(
-                    "ACCEPTED({}) stack stx opt {} at {},{}",
-                    op.block_height, &op.txid, op.block_height, op.vtxindex
+                    #LOG_SOURCE,
+                    "Accepted stack STX opt {} at {},{}.",
+                    &op.txid, op.block_height, op.vtxindex;
+                    op
                 );
+
                 self.insert_stack_stx(op)
             }
             BlockstackOperationType::TransferStx(ref op) => {
                 info!(
-                    "ACCEPTED({}) transfer stx opt {} at {},{}",
-                    op.block_height, &op.txid, op.block_height, op.vtxindex
+                    #LOG_SOURCE,
+                    "Accepted transfer STX opt {} at {},{}.",
+                    &op.txid, op.block_height, op.vtxindex;
+                    op
                 );
+
                 self.insert_transfer_stx(op)
             }
             BlockstackOperationType::PreStx(ref op) => {
                 info!(
-                    "ACCEPTED({}) pre stack stx op {} at {},{}",
-                    op.block_height, &op.txid, op.block_height, op.vtxindex
+                    #LOG_SOURCE,
+                    "Accepted pre stack stx op {} at {},{}.",
+                    op.block_height, &op.txid, op.block_height;
+                    op
                 );
+
                 // no need to store this op in the sortition db.
                 Ok(())
             }
             BlockstackOperationType::DelegateStx(ref op) => {
                 info!(
-                    "ACCEPTED({}) delegate stx opt {} at {},{}",
-                    op.block_height, &op.txid, op.block_height, op.vtxindex
+                    #LOG_SOURCE,
+                    "Accepted delegate STX opt {} at {},{}.",
+                    &op.txid, op.block_height, op.vtxindex;
+                    op
                 );
+
                 self.insert_delegate_stx(op)
             }
             BlockstackOperationType::VoteForAggregateKey(ref op) => {
                 info!(
-                    "ACCEPTED({}) vote for aggregate key {} at {},{}",
-                    op.block_height, &op.txid, op.block_height, op.vtxindex
+                    #LOG_SOURCE,
+                    "Accepted vote for aggregate key {} at {},{}.",
+                    &op.txid, op.block_height, op.vtxindex;
+                    op
                 );
+
                 self.insert_vote_for_aggregate_key(op)
             }
         }
@@ -5752,14 +5901,15 @@ impl<'a> SortitionHandleTx<'a> {
         let parent_args: &[&dyn ToSql] = &[sort_id, &block_commit.txid, &parent_sortition_id];
 
         debug!(
-            "Parent sortition of {},{},{} is {} (parent at {},{})",
+            #LOG_SOURCE,
+            "Parent sortition of {},{},{} is {}.",
             &block_commit.txid,
             block_commit.block_height,
             block_commit.vtxindex,
-            &parent_sortition_id,
-            block_commit.parent_block_ptr,
-            block_commit.parent_vtxindex
+            &parent_sortition_id;
+            block_commit
         );
+
         let res = self.execute("INSERT INTO block_commit_parents (block_commit_sortition_id, block_commit_txid, parent_sortition_id) VALUES (?1, ?2, ?3)", parent_args);
 
         // in tests, this table doesn't always exist.  Do nothing in that case, but in prod, error
@@ -5784,11 +5934,8 @@ impl<'a> SortitionHandleTx<'a> {
                       VALUES (?1, ?2, ?3)",
             args,
         )?;
-        info!(
-            "ACCEPTED missed block commit";
-            "txid" => %op.txid,
-            "intended_sortition" => %op.intended_sortition,
-        );
+
+        info!(#LOG_SOURCE, "Accepted missed block commit."; op);
 
         Ok(())
     }
@@ -5804,16 +5951,14 @@ impl<'a> SortitionHandleTx<'a> {
         assert!(snapshot.num_sortitions < BLOCK_HEIGHT_MAX);
 
         let pox_payouts_json = serde_json::to_string(&total_pox_payouts)
-            .expect("FATAL: could not encode `total_pox_payouts` as JSON");
+            .expect("Could not encode total PoX payouts as JSON.");
 
         test_debug!(
-            "Insert block snapshot state {} for block {} ({},{}) {}, winner = {}",
+            #LOG_SOURCE,
+            "Insert block snapshot state {} for block {}.",
             snapshot.index_root,
-            snapshot.block_height,
-            snapshot.burn_header_hash,
-            snapshot.parent_burn_header_hash,
-            snapshot.num_sortitions,
-            &snapshot.winning_stacks_block_hash
+            snapshot.block_height;
+            snapshot
         );
 
         // there had better not be any other valid snapshots for this block
@@ -5824,8 +5969,10 @@ impl<'a> SortitionHandleTx<'a> {
                 &[&snapshot.burn_header_hash],
             )?;
             if all_valid_sortitions.len() > 0 {
-                error!("FATAL: Tried to insert snapshot {:?}, but already have pox-valid sortition for {:?}", &snapshot, &snapshot.burn_header_hash);
-                panic!();
+                panic!(
+                    "Tried to insert snapshot {:?}, but already have pox-valid sortition for {:?}.",
+                    &snapshot, &snapshot.burn_header_hash
+                );
             }
         }
 
@@ -5964,7 +6111,8 @@ impl<'a> SortitionHandleTx<'a> {
         }
 
         if let Some(initialize_bonus) = initialize_bonus {
-            debug!("Add initial mining bonus: {:?}", &initialize_bonus);
+            debug!(#LOG_SOURCE, "Add initial mining bonus: {:?}", &initialize_bonus; snapshot);
+
             // first sortition with a winner, set the initial mining bonus fields
             keys.push(db_keys::initial_mining_bonus_per_block().into());
             values.push(initialize_bonus.per_block.to_string());
@@ -5983,7 +6131,7 @@ impl<'a> SortitionHandleTx<'a> {
                 let mining_bonus_per_block = self
                     .get_initial_mining_bonus_per_block(&parent_snapshot.sortition_id)?
                     .expect(
-                        "BUG: initial mining bonus amount written, but not the per block amount.",
+                        "Initial mining bonus amount found in the sortition database, but not the per-block amount.",
                     );
                 let bonus_remaining = prior_bonus_remaining.saturating_sub(mining_bonus_per_block);
                 keys.push(db_keys::initial_mining_bonus_remaining().into());
@@ -6035,8 +6183,10 @@ impl<'a> SortitionHandleTx<'a> {
                     values.push(anchor_block_txid.to_hex());
 
                     debug!(
-                        "Known anchor block {} txid {} at reward cycle starting at burn height {}",
-                        anchor_block, anchor_block_txid, snapshot.block_height
+                        #LOG_SOURCE,
+                        "Known anchor block {} txid {} at reward cycle starting at burn height {}.",
+                        anchor_block, anchor_block_txid, snapshot.block_height;
+                        snapshot
                     );
                 } else {
                     keys.push(db_keys::pox_last_anchor().to_string());
@@ -6048,8 +6198,10 @@ impl<'a> SortitionHandleTx<'a> {
                     cur_affirmation_map.push(AffirmationMapEntry::Nothing);
 
                     debug!(
-                        "No anchor block at reward cycle starting at burn height {}",
-                        snapshot.block_height
+                        #LOG_SOURCE,
+                        "No anchor block at reward cycle starting at burn height {}.",
+                        snapshot.block_height;
+                        snapshot
                     );
                 }
 
@@ -6075,7 +6227,7 @@ impl<'a> SortitionHandleTx<'a> {
                         for (addr, ix) in recipients_to_remove.iter() {
                             addrs.push(addr.clone());
                             assert_eq!(reward_set.rewarded_addresses.remove(*ix as usize).to_burnchain_repr(), addr.to_burnchain_repr(),
-                                       "BUG: Attempted to remove used address from reward set, but failed to do so safely");
+                                       "Attempted to remove used address from reward set, but failed to do so safely.");
                         }
                         pox_payout_addrs = addrs;
                     } else {
@@ -6102,7 +6254,10 @@ impl<'a> SortitionHandleTx<'a> {
                             self.context.first_block_height,
                             self.context.pox_constants.reward_cycle_length.into(),
                         )
-                        .expect("FATAL: PoX reward cycle started before first block height");
+                        .expect(&format!(
+                            "PoX reward cycle started before first block height {}.",
+                            self.context.first_block_height
+                        ));
 
                         keys.push(db_keys::pox_reward_cycle_unlocks(cycle_number));
                         values.push(reward_set.start_cycle_state.serialize());
@@ -6149,7 +6304,7 @@ impl<'a> SortitionHandleTx<'a> {
                         // sanity check
                         if index >= current_len {
                             unreachable!(
-                                "Supplied index should never be greater than recipient set size"
+                                "Supplied index should never be greater than recipient set size."
                             );
                         } else if index + 1 == current_len {
                             // selected index is the last element: no need to swap, just decrement len
@@ -6170,7 +6325,8 @@ impl<'a> SortitionHandleTx<'a> {
                             // via `get-burn-block-info?`.
                             assert!(
                                 replace_with.as_clarity_tuple().is_some(),
-                                "FATAL: do not know hash mode for next PoX address"
+                                "Could not determine hash mode for next PoX address {}.",
+                                replace_with
                             );
 
                             // swap and decrement to remove from set
@@ -6287,11 +6443,11 @@ impl<'a> SortitionHandleTx<'a> {
         hash_tied.sort();
         let winner = hash_tied
             .first()
-            .expect("FATAL: zero-length list of tied block IDs");
+            .expect(&format!("No tied block IDs found at height {} while trying to break a canonical tip tie. The list of tied block IDs is unexpectedly empty.", best_height));
 
         let winner_index = *mapping
             .get(&winner)
-            .expect("FATAL: winning block ID not mapped");
+            .expect(&format!("The winning block ID ({}) is not found in the mapping while trying to break a canonical tip tie.", winner));
 
         Some(winner_index)
     }
@@ -6329,13 +6485,13 @@ impl<'a> SortitionHandleTx<'a> {
             )?
             .unwrap_or("1".into())
             .parse::<u64>()
-            .expect("BUG: max arrival index is not a u64");
+            .expect(&format!("Could not parse the max arrival index for block header {} to a 64-bit unsigned integer.", parent_tip.sortition_id));
 
         let max_arrival_index = SortitionDB::get_max_arrival_index(self.tx())?;
 
         // find all Stacks block hashes who arrived since this parent_tip was built.
         for ari in old_max_arrival_index..(max_arrival_index + 1) {
-            test_debug!("Get block with arrival index {}", ari);
+            test_debug!(#LOG_SOURCE, "Get block with arrival index {}.", ari);
             let arrival_sn = match SortitionDB::get_snapshot_by_arrival_index(self.tx(), ari)? {
                 Some(sn) => sn,
                 None => {
@@ -6355,13 +6511,15 @@ impl<'a> SortitionHandleTx<'a> {
                 }
 
                 debug!(
-                    "New Stacks anchored block arrived: block {}/{} ({}) ari={} tip={}",
+                    #LOG_SOURCE,
+                    "New Stacks anchored block arrived: {}/{} ({}).",
                     &sn.consensus_hash,
                     &sn.winning_stacks_block_hash,
-                    sn.stacks_block_height,
-                    ari,
-                    &parent_tip.burn_header_hash
+                    sn.stacks_block_height;
+                    "arrival_index" => ari,
+                    "burn_header_hash" => &parent_tip.burn_header_hash
                 );
+
                 new_block_arrivals.push((
                     sn.consensus_hash,
                     sn.winning_stacks_block_hash,
@@ -6379,7 +6537,8 @@ impl<'a> SortitionHandleTx<'a> {
         let mut ret = vec![];
 
         debug!(
-            "Current best tip is {}/{} (height {})",
+            #LOG_SOURCE,
+            "Current best tip is {}/{} (height {}).",
             &best_tip_consensus_hash, &best_tip_block_bhh, best_tip_height
         );
 
@@ -6390,14 +6549,15 @@ impl<'a> SortitionHandleTx<'a> {
             // everyone else must be higher than the highest known tip to supersede it.
             if *height > best_tip_height || (*height == 0 && best_tip_height == 0) {
                 debug!(
-                    "At tip {}: {}/{} (height {}) is superceded by {}/{} (height {})",
-                    &parent_tip.burn_header_hash,
+                    #LOG_SOURCE,
+                    "Block {}/{} (height {}) is superceded by {}/{} (height {}).",
                     &best_tip_consensus_hash,
                     &best_tip_block_bhh,
                     best_tip_height,
                     consensus_hash,
                     block_bhh,
-                    *height
+                    *height;
+                    "tip" => &parent_tip.burn_header_hash,
                 );
 
                 best_tip_block_bhh = block_bhh.clone();
@@ -6418,8 +6578,11 @@ impl<'a> SortitionHandleTx<'a> {
         }
 
         debug!(
-            "Max arrival for child of {} is {} (hash {} height {})",
-            &best_tip_consensus_hash, &max_arrival_index, &best_tip_block_bhh, best_tip_height
+            #LOG_SOURCE,
+            "Max arrival for child block of {} is {}",
+            &best_tip_consensus_hash, &max_arrival_index;
+            "best_tip_hash" =>  &best_tip_block_bhh,
+            "best_tip_height" => best_tip_height
         );
 
         Ok((
@@ -6467,12 +6630,15 @@ impl<'a> SortitionHandleTx<'a> {
         ];
 
         debug!(
-            "Canonical Stacks tip at ({},{}) is {}/{} (height {})",
+            #LOG_SOURCE,
+            "Canonical Stacks tip at ({},{}) is {}/{} (height {}).",
             &tip.block_height, &tip.burn_header_hash, &best_chh, &best_bhh, best_height
         );
+
         self.execute("UPDATE snapshots SET canonical_stacks_tip_consensus_hash = ?1, canonical_stacks_tip_hash = ?2, canonical_stacks_tip_height = ?3
                     WHERE block_height = ?4", args)
             .map_err(db_error::SqliteError)?;
+
         Ok(())
     }
 

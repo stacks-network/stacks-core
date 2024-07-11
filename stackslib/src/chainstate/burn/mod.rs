@@ -58,6 +58,7 @@ pub struct SortitionHash(pub [u8; 32]);
 impl_array_newtype!(SortitionHash, u8, 32);
 impl_array_hexstring_fmt!(SortitionHash);
 impl_byte_array_newtype!(SortitionHash, u8, 32);
+impl_slog_value!(SortitionHash);
 
 #[derive(Debug, Clone, PartialEq)]
 #[repr(u8)]
@@ -72,7 +73,7 @@ pub enum Opcodes {
 }
 
 // a burnchain block snapshot
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, slog_derive::KV)]
 pub struct BlockSnapshot {
     /// the burn block height of this sortition
     pub block_height: u64,
@@ -80,6 +81,7 @@ pub struct BlockSnapshot {
     pub burn_header_hash: BurnchainHeaderHash,
     pub parent_burn_header_hash: BurnchainHeaderHash,
     pub consensus_hash: ConsensusHash,
+    #[slog(skip)]
     pub ops_hash: OpsHash,
     /// how many burn tokens have been destroyed since genesis
     pub total_burn: u64,
@@ -92,6 +94,7 @@ pub struct BlockSnapshot {
     /// hash of Stacks block that won sortition (will be all 0's if sortition is false)
     pub winning_stacks_block_hash: BlockHeaderHash,
     /// root hash of the index over the materialized view of all inserted data
+    #[slog(skip)]
     pub index_root: TrieHash,
     /// how many stacks blocks exist
     pub num_sortitions: u64,
@@ -114,6 +117,8 @@ pub struct BlockSnapshot {
     ///   will accrue to the sortition winner elected by this block
     ///   or to the next winner if there is no winner in this block
     pub accumulated_coinbase_ustx: u128,
+
+    #[slog(skip)]
     pub miner_pk_hash: Option<Hash160>,
 }
 

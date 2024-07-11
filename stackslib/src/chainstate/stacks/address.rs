@@ -85,6 +85,8 @@ pub enum PoxAddress {
     Addr32(bool, PoxAddressType32, [u8; 32]),
 }
 
+impl_slog_value!(PoxAddress);
+
 /// Serializes a PoxAddress as a B58 check encoded address or a bech32 address
 pub fn pox_addr_b58_serialize<S: Serializer>(
     input: &PoxAddress,
