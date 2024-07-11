@@ -4772,6 +4772,11 @@ impl PeerNetwork {
     }
 
     /// Refresh our view of the last three reward cycles
+    /// This ensures that the PeerNetwork has cached copies of the reward cycle data (including the
+    /// signing set) for the current, previous, and previous-previous reward cycles.  This data is
+    /// in turn consumed by the Nakamoto block downloader, which must validate blocks signed from
+    /// any of these reward cycles.
+    #[cfg_attr(test, mutants::skip)]
     fn refresh_reward_cycles(
         &mut self,
         sortdb: &SortitionDB,

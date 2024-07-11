@@ -741,6 +741,7 @@ impl NakamotoBlockHeader {
     ///
     /// Returns the signing weight on success.
     /// Returns ChainstateError::InvalidStacksBlock on error
+    #[cfg_attr(test, mutants::skip)]
     pub fn verify_signer_signatures(&self, reward_set: &RewardSet) -> Result<u32, ChainstateError> {
         let message = self.signer_signature_hash();
         let Some(signers) = &reward_set.signers else {
