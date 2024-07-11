@@ -1073,6 +1073,14 @@ pub trait SortitionHandle {
     /// Returns Err(..) on DB errors
     fn get_nakamoto_tip(&self) -> Result<Option<(ConsensusHash, BlockHeaderHash, u64)>, db_error>;
 
+    /// Get the block ID of the highest-processed Nakamoto block on this history.
+    fn get_nakamoto_tip_block_id(&self) -> Result<Option<StacksBlockId>, db_error> {
+        let Some((ch, bhh, _)) = self.get_nakamoto_tip()? else {
+            return Ok(None);
+        };
+        Ok(Some(StacksBlockId::new(&ch, &bhh)))
+    }
+
     /// is the given block a descendant of `potential_ancestor`?
     ///  * block_at_burn_height: the burn height of the sortition that chose the stacks block to check
     ///  * potential_ancestor: the stacks block hash of the potential ancestor
@@ -1813,6 +1821,67 @@ impl<'a> SortitionHandleTx<'a> {
 
         if cur_epoch.epoch_id >= StacksEpochId::Epoch30 {
             // Nakamoto blocks are always processed in order since the chain can't fork
+            // arbitrarily.
+            //
+            // However, a "benign" fork can arise when a late tenure-change is processed.  This
+            // would happen if
+            //
+            // 1. miner A wins sortition and produces a tenure-change;
+            // 2. miner B wins sortition, and signers sign its tenure-change;
+            // 3. miner C wins sortition by confirming miner A's last-block
+            //
+            // Depending on the timing of things, signers could end up signing both miner B and
+            // miner C's tenure-change blocks, which are in conflict.  The Stacks node must be able
+            // to handle this case; it does so simply by processing both blocks (as Stacks forks),
+            // and letting signers figure out which one is canonical.
+            //
+            // As a result, only update the canonical Nakamoto tip if the given block is higher
+            // than the existing tip for this sortiton (because it represents more overall signer
+            // votes).
+            let current_sortition_tip : Option<(ConsensusHash, BlockHeaderHash, u64)> = self.query_row_and_then(
+                "SELECT consensus_hash,block_hash,block_height FROM stacks_chain_tips WHERE sortition_id = ?1 ORDER BY block_height DESC LIMIT 1",
+                rusqlite::params![&burn_tip.sortition_id],
+                |row| Ok((row.get_unwrap(0), row.get_unwrap(1), (u64::try_from(row.get_unwrap::<_, i64>(2)).expect("FATAL: block height too high"))))
+            ).optional()?;
+
+            if let Some((cur_ch, cur_bhh, cur_height)) = current_sortition_tip {
+                let will_replace = if cur_height < stacks_block_height {
+                    true
+                } else if cur_height > stacks_block_height {
+                    false
+                } else {
+                    if &cur_ch == consensus_hash {
+                        // same sortition (i.e. nakamoto block)
+                        // no replacement
+                        false
+                    } else {
+                        // tips come from different sortitions
+                        // break ties by going with the latter-signed block
+                        let sn_current = SortitionDB::get_block_snapshot_consensus(self, &cur_ch)?
+                            .ok_or(db_error::NotFoundError)?;
+                        let sn_accepted =
+                            SortitionDB::get_block_snapshot_consensus(self, &consensus_hash)?
+                                .ok_or(db_error::NotFoundError)?;
+                        sn_current.block_height < sn_accepted.block_height
+                    }
+                };
+
+                debug!("Setting Stacks tip as accepted";
+                       "replace?" => will_replace,
+                       "current_tip_consensus_hash" => %cur_ch,
+                       "current_tip_block_header_hash" => %cur_bhh,
+                       "current_tip_block_id" => %StacksBlockId::new(&cur_ch, &cur_bhh),
+                       "current_tip_height" => cur_height,
+                       "accepted_tip_consensus_hash" => %consensus_hash,
+                       "accepted_tip_block_header_hash" => %stacks_block_hash,
+                       "accepted_tip_block_id" => %StacksBlockId::new(consensus_hash, stacks_block_hash),
+                       "accepted_tip_height" => stacks_block_height);
+
+                if !will_replace {
+                    return Ok(());
+                }
+            }
+
             self.update_canonical_stacks_tip(
                 &burn_tip.sortition_id,
                 consensus_hash,

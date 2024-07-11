@@ -2746,12 +2746,12 @@ pub fn make_json_api_reference() -> String {
 #[cfg(test)]
 mod test {
     use stacks_common::address::AddressHashMode;
-    use stacks_common::consts::CHAIN_ID_TESTNET;
+    use stacks_common::consts::{CHAIN_ID_TESTNET, PEER_VERSION_EPOCH_2_1};
     use stacks_common::types::chainstate::{
         BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, SortitionId, StacksAddress,
         StacksBlockId, VRFSeed,
     };
-    use stacks_common::types::{Address, StacksEpochId, PEER_VERSION_EPOCH_2_1};
+    use stacks_common::types::{Address, StacksEpochId};
     use stacks_common::util::hash::hex_bytes;
 
     use super::{get_input_type_string, make_all_api_reference, make_json_api_reference};
