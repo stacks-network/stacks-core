@@ -86,7 +86,7 @@ impl SignerTrait<SignerMessage> for Signer {
     ) {
         let event_parity = match event {
             // Block proposal events do have reward cycles, but each proposal has its own cycle,
-            //  and the vec could be heterogenous, so, don't differentiate.
+            //  and the vec could be heterogeneous, so, don't differentiate.
             Some(SignerEvent::BlockValidationResponse(_))
             | Some(SignerEvent::MinerMessages(..))
             | Some(SignerEvent::NewBurnBlock(_))
