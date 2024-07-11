@@ -230,13 +230,13 @@ impl SqliteConnection {
 
 impl SqliteConnection {
     pub fn initialize_conn(conn: &Connection) -> Result<()> {
-        conn.query_row("PRAGMA journal_mode = WAL;", [], |_row| Ok(()))
+        conn.query_row("PRAGMA journal_mode = WAL;", NO_PARAMS, |_row| Ok(()))
             .map_err(|x| InterpreterError::SqliteError(IncomparableError { err: x }))?;
 
         conn.execute(
             "CREATE TABLE IF NOT EXISTS data_table
                       (key TEXT PRIMARY KEY, value TEXT)",
-            [],
+            NO_PARAMS,
         )
         .map_err(|x| InterpreterError::SqliteError(IncomparableError { err: x }))?;
 
@@ -244,7 +244,7 @@ impl SqliteConnection {
             "CREATE TABLE IF NOT EXISTS metadata_table
                       (key TEXT NOT NULL, blockhash TEXT, value TEXT,
                        UNIQUE (key, blockhash))",
-            [],
+            NO_PARAMS,
         )
         .map_err(|x| InterpreterError::SqliteError(IncomparableError { err: x }))?;
 

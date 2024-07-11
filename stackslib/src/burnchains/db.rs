@@ -1108,7 +1108,7 @@ impl BurnchainDB {
         conn: &DBConn,
     ) -> Result<BurnchainBlockHeader, BurnchainError> {
         let qry = "SELECT * FROM burnchain_db_block_headers ORDER BY block_height DESC, block_hash ASC LIMIT 1";
-        let opt = query_row(conn, qry, [])?;
+        let opt = query_row(conn, qry, NO_PARAMS)?;
         Ok(opt.expect("CORRUPTION: Could not query highest burnchain header"))
     }
 
@@ -1524,7 +1524,7 @@ impl BurnchainDB {
                    ORDER BY affirmation_maps.weight DESC, block_commit_metadata.anchor_block DESC";
 
         let mut stmt = conn.prepare(sql)?;
-        let mut rows = stmt.query([])?;
+        let mut rows = stmt.query(NO_PARAMS)?;
         while let Some(row) = rows.next()? {
             let metadata = BlockCommitMetadata::from_row(row)?;
 

@@ -573,13 +573,13 @@ impl PeerDB {
     }
 
     fn reset_denies(tx: &Transaction) -> Result<(), db_error> {
-        tx.execute("UPDATE frontier SET denied = 0", [])
+        tx.execute("UPDATE frontier SET denied = 0", NO_PARAMS)
             .map_err(db_error::SqliteError)?;
         Ok(())
     }
 
     fn reset_allows(tx: &Transaction) -> Result<(), db_error> {
-        tx.execute("UPDATE frontier SET allowed = 0", [])
+        tx.execute("UPDATE frontier SET allowed = 0", NO_PARAMS)
             .map_err(db_error::SqliteError)?;
         Ok(())
     }
@@ -799,7 +799,7 @@ impl PeerDB {
     /// Read the local peer record
     pub fn get_local_peer(conn: &DBConn) -> Result<LocalPeer, db_error> {
         let qry = "SELECT * FROM local_peer LIMIT 1".to_string();
-        let rows = query_rows::<LocalPeer, _>(conn, &qry, [])?;
+        let rows = query_rows::<LocalPeer, _>(conn, &qry, NO_PARAMS)?;
 
         match rows.len() {
             1 => Ok(rows[0].clone()),
@@ -1145,7 +1145,7 @@ impl PeerDB {
 
     /// clear all initial peers
     fn clear_initial_peers(tx: &Transaction) -> Result<(), db_error> {
-        tx.execute("UPDATE frontier SET initial = 0", [])
+        tx.execute("UPDATE frontier SET initial = 0", NO_PARAMS)
             .map_err(db_error::SqliteError)?;
 
         Ok(())
@@ -1483,7 +1483,7 @@ impl PeerDB {
         let sql_query = format!("SELECT prefix, mask FROM {}", table);
         let mut stmt = conn.prepare(&sql_query)?;
         let rows_res_iter = stmt
-            .query_and_then([], |row| {
+            .query_and_then(NO_PARAMS, |row| {
                 let prefix = PeerAddress::from_column(row, "prefix")?;
                 let mask: u32 = row.get_unwrap("mask");
                 let res: Result<(PeerAddress, u32), db_error> = Ok((prefix, mask));
@@ -1761,13 +1761,13 @@ impl PeerDB {
     #[cfg_attr(test, mutants::skip)]
     pub fn get_frontier_size(conn: &DBConn) -> Result<u64, db_error> {
         let qry = "SELECT COUNT(*) FROM frontier";
-        let count = query_count(conn, &qry, [])?;
+        let count = query_count(conn, &qry, NO_PARAMS)?;
         Ok(count as u64)
     }
 
     pub fn get_all_peers(conn: &DBConn) -> Result<Vec<Neighbor>, db_error> {
         let qry = "SELECT * FROM frontier ORDER BY addrbytes ASC, port ASC";
-        let rows = query_rows::<Neighbor, _>(conn, &qry, [])?;
+        let rows = query_rows::<Neighbor, _>(conn, &qry, NO_PARAMS)?;
         Ok(rows)
     }
 

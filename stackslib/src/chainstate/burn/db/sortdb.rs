@@ -2925,7 +2925,7 @@ impl SortitionDB {
         }
 
         info!("Replace existing epochs with new epochs");
-        db_tx.execute("DELETE FROM epochs;", [])?;
+        db_tx.execute("DELETE FROM epochs;", NO_PARAMS)?;
         for epoch in epochs.into_iter() {
             let args = params![
                 (epoch.epoch_id as u32),
@@ -2968,7 +2968,7 @@ impl SortitionDB {
     /// Load up all snapshots, in ascending order by block height.  Great for testing!
     pub fn get_all_snapshots(&self) -> Result<Vec<BlockSnapshot>, db_error> {
         let qry = "SELECT * FROM snapshots ORDER BY block_height ASC";
-        query_rows(self.conn(), qry, [])
+        query_rows(self.conn(), qry, NO_PARAMS)
     }
 
     /// Get all snapshots for a burn block hash, even if they're not on the canonical PoX fork.
@@ -2995,7 +2995,7 @@ impl SortitionDB {
     ) -> Result<Vec<(SortitionId, RewardCycleInfo)>, db_error> {
         let sql = "SELECT * FROM preprocessed_reward_sets;";
         let mut stmt = conn.prepare(sql)?;
-        let mut qry = stmt.query([])?;
+        let mut qry = stmt.query(NO_PARAMS)?;
         let mut ret = vec![];
         while let Some(row) = qry.next()? {
             let sort_id: SortitionId = row.get("sortition_id")?;
@@ -3047,7 +3047,7 @@ impl SortitionDB {
         let index_path = db_mkdirs(path)?;
         let marf = SortitionDB::open_index(&index_path)?;
         let sql = "SELECT MAX(block_height) FROM snapshots";
-        Ok(query_rows(&marf.sqlite_conn(), sql, [])?
+        Ok(query_rows(&marf.sqlite_conn(), sql, NO_PARAMS)?
             .pop()
             .expect("BUG: no snapshots in block_snapshots"))
     }
@@ -4497,7 +4497,8 @@ impl SortitionDB {
     /// Break ties deterministically by ordering on burnchain block hash.
     pub fn get_canonical_burn_chain_tip(conn: &Connection) -> Result<BlockSnapshot, db_error> {
         let qry = "SELECT * FROM snapshots WHERE pox_valid = 1 ORDER BY block_height DESC, burn_header_hash ASC LIMIT 1";
-        query_row(conn, qry, []).map(|opt| opt.expect("CORRUPTION: No canonical burnchain tip"))
+        query_row(conn, qry, NO_PARAMS)
+            .map(|opt| opt.expect("CORRUPTION: No canonical burnchain tip"))
     }
 
     /// Get the highest burn chain tip even if it's not PoX-valid.
@@ -4505,14 +4506,14 @@ impl SortitionDB {
     pub fn get_highest_known_burn_chain_tip(conn: &Connection) -> Result<BlockSnapshot, db_error> {
         let qry =
             "SELECT * FROM snapshots ORDER BY block_height DESC, burn_header_hash ASC LIMIT 1";
-        query_row(conn, qry, []).map(|opt| opt.expect("CORRUPTION: No burnchain tips"))
+        query_row(conn, qry, NO_PARAMS).map(|opt| opt.expect("CORRUPTION: No burnchain tips"))
     }
 
     /// Get the canonical burn chain tip -- the tip of the longest burn chain we know about.
     /// Break ties deterministically by ordering on burnchain block hash.
     pub fn get_canonical_chain_tip_bhh(conn: &Connection) -> Result<BurnchainHeaderHash, db_error> {
         let qry = "SELECT burn_header_hash FROM snapshots WHERE pox_valid = 1 ORDER BY block_height DESC, burn_header_hash ASC LIMIT 1";
-        match conn.query_row(qry, [], |row| row.get(0)).optional() {
+        match conn.query_row(qry, NO_PARAMS, |row| row.get(0)).optional() {
             Ok(opt) => Ok(opt.expect("CORRUPTION: No canonical burnchain tip")),
             Err(e) => Err(db_error::from(e)),
         }
@@ -4524,7 +4525,7 @@ impl SortitionDB {
     /// Returns Err if the underlying SQLite call fails.
     pub fn get_canonical_sortition_tip(conn: &Connection) -> Result<SortitionId, db_error> {
         let qry = "SELECT sortition_id FROM snapshots WHERE pox_valid = 1 ORDER BY block_height DESC, burn_header_hash ASC LIMIT 1";
-        match conn.query_row(qry, [], |row| row.get(0)).optional() {
+        match conn.query_row(qry, NO_PARAMS, |row| row.get(0)).optional() {
             Ok(opt) => Ok(opt.expect("CORRUPTION: No canonical burnchain tip")),
             Err(e) => Err(db_error::from(e)),
         }
@@ -4759,7 +4760,7 @@ impl SortitionDB {
         match conn
             .query_row(
                 "SELECT IFNULL(MAX(arrival_index), 1) FROM snapshots",
-                [],
+                NO_PARAMS,
                 |row| Ok(u64::from_row(row).expect("Expected u64 in database")),
             )
             .optional()?
@@ -5238,7 +5239,7 @@ impl SortitionDB {
     /// Get all StacksEpochs, in order by ascending start height
     pub fn get_stacks_epochs(conn: &DBConn) -> Result<Vec<StacksEpoch>, db_error> {
         let sql = "SELECT * FROM epochs ORDER BY start_block_height ASC";
-        query_rows(conn, sql, [])
+        query_rows(conn, sql, NO_PARAMS)
     }
 
     pub fn get_stacks_epoch_by_epoch_id(
@@ -5481,7 +5482,7 @@ impl<'a> SortitionHandleTx<'a> {
         transition: &BurnchainStateTransition,
     ) {
         let create = "CREATE TABLE IF NOT EXISTS snapshot_burn_distributions (sortition_id TEXT PRIMARY KEY, data TEXT NOT NULL);";
-        self.execute(create, []).unwrap();
+        self.execute(create, NO_PARAMS).unwrap();
         let sql = "INSERT INTO snapshot_burn_distributions (sortition_id, data) VALUES (?, ?)";
         let args = params![
             new_sortition,
@@ -6849,7 +6850,7 @@ pub mod tests {
         ) -> Result<Vec<(SortitionId, ConsensusHash, BlockHeaderHash, u64)>, db_error> {
             let sql = "SELECT * FROM stacks_chain_tips ORDER BY block_height ASC";
             let mut stmt = self.conn().prepare(sql)?;
-            let mut qry = stmt.query([])?;
+            let mut qry = stmt.query(NO_PARAMS)?;
             let mut ret = vec![];
             while let Some(row) = qry.next()? {
                 let sort_id: SortitionId = row.get("sortition_id")?;
@@ -10393,7 +10394,7 @@ pub mod tests {
             {
                 let db_tx = db.tx_begin().unwrap();
                 db_tx
-                    .execute("DELETE FROM block_commit_parents", [])
+                    .execute("DELETE FROM block_commit_parents", NO_PARAMS)
                     .unwrap();
                 db_tx.commit().unwrap();
             }

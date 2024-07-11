@@ -3981,10 +3981,11 @@ pub mod test {
             let tx = sortdb.tx_begin().unwrap();
             tx.execute(
                 "CREATE TABLE stacks_chain_tips_backup AS SELECT * FROM stacks_chain_tips;",
-                [],
+                NO_PARAMS,
             )
             .unwrap();
-            tx.execute("DELETE FROM stacks_chain_tips;", []).unwrap();
+            tx.execute("DELETE FROM stacks_chain_tips;", NO_PARAMS)
+                .unwrap();
             tx.commit().unwrap();
 
             // NOTE: this considers each and every snapshot, but we only care about epoch2.x
@@ -4010,10 +4011,11 @@ pub mod test {
 
             // restore
             let tx = sortdb.tx_begin().unwrap();
-            tx.execute("DROP TABLE stacks_chain_tips;", []).unwrap();
+            tx.execute("DROP TABLE stacks_chain_tips;", NO_PARAMS)
+                .unwrap();
             tx.execute(
                 "ALTER TABLE stacks_chain_tips_backup RENAME TO stacks_chain_tips;",
-                [],
+                NO_PARAMS,
             )
             .unwrap();
             tx.commit().unwrap();
@@ -4042,8 +4044,8 @@ pub mod test {
                     .collect();
 
             let tx = sortdb.tx_begin().unwrap();
-            tx.execute("CREATE TABLE preprocessed_reward_sets_backup AS SELECT * FROM preprocessed_reward_sets;", []).unwrap();
-            tx.execute("DELETE FROM preprocessed_reward_sets;", [])
+            tx.execute("CREATE TABLE preprocessed_reward_sets_backup AS SELECT * FROM preprocessed_reward_sets;", NO_PARAMS).unwrap();
+            tx.execute("DELETE FROM preprocessed_reward_sets;", NO_PARAMS)
                 .unwrap();
             tx.commit().unwrap();
 
@@ -4075,11 +4077,11 @@ pub mod test {
             assert_eq!(expected_epoch2_reward_sets, migrated_epoch2_reward_sets);
 
             let tx = sortdb.tx_begin().unwrap();
-            tx.execute("DROP TABLE preprocessed_reward_sets;", [])
+            tx.execute("DROP TABLE preprocessed_reward_sets;", NO_PARAMS)
                 .unwrap();
             tx.execute(
                 "ALTER TABLE preprocessed_reward_sets_backup RENAME TO preprocessed_reward_sets;",
-                [],
+                NO_PARAMS,
             )
             .unwrap();
             tx.commit().unwrap();

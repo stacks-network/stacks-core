@@ -2187,7 +2187,7 @@ type defined using `define-fungible-token`. The increased token balance is _not_
 rather minted.
 
 If a non-positive amount is provided to mint, this function returns `(err 1)`. Otherwise, on successfully mint, it
-returns `(ok true)`. If this call would result in more supplied tokens than defined by the total supply in
+returns `(ok true)`. If this call would result in more supplied tokens than defined by the total supply in 
 `define-fungible-token`, then a `SupplyOverflow` runtime error is thrown.
 ",
     example: "

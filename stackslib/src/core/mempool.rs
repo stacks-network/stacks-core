@@ -1137,7 +1137,9 @@ fn db_get_nonce(conn: &DBConn, address: &StacksAddress) -> Result<Option<u64>, d
 pub fn db_get_all_nonces(conn: &DBConn) -> Result<Vec<(StacksAddress, u64)>, db_error> {
     let sql = "SELECT * FROM nonces";
     let mut stmt = conn.prepare(&sql).map_err(|e| db_error::SqliteError(e))?;
-    let mut iter = stmt.query([]).map_err(|e| db_error::SqliteError(e))?;
+    let mut iter = stmt
+        .query(NO_PARAMS)
+        .map_err(|e| db_error::SqliteError(e))?;
     let mut ret = vec![];
     while let Ok(Some(row)) = iter.next() {
         let addr = StacksAddress::from_column(row, "address")?;
@@ -1647,7 +1649,7 @@ impl MemPoolDB {
             .prepare(&sql)
             .map_err(|err| Error::SqliteError(err))?;
         let mut null_iterator = query_stmt_null
-            .query([])
+            .query(NO_PARAMS)
             .map_err(|err| Error::SqliteError(err))?;
 
         let sql = "
@@ -1661,7 +1663,7 @@ impl MemPoolDB {
             .prepare(&sql)
             .map_err(|err| Error::SqliteError(err))?;
         let mut fee_iterator = query_stmt_fee
-            .query([])
+            .query(NO_PARAMS)
             .map_err(|err| Error::SqliteError(err))?;
 
         loop {
@@ -1952,7 +1954,7 @@ impl MemPoolDB {
     #[cfg(test)]
     pub fn get_all_txs(conn: &DBConn) -> Result<Vec<MemPoolTxInfo>, db_error> {
         let sql = "SELECT * FROM mempool";
-        let rows = query_rows::<MemPoolTxInfo, _>(conn, &sql, [])?;
+        let rows = query_rows::<MemPoolTxInfo, _>(conn, &sql, NO_PARAMS)?;
         Ok(rows)
     }
 
@@ -2572,7 +2574,7 @@ impl MemPoolDB {
 
         // if we get too big, then drop some txs at random
         let sql = "SELECT size FROM tx_blacklist_size";
-        let sz = query_int(tx, sql, [])? as u64;
+        let sz = query_int(tx, sql, NO_PARAMS)? as u64;
         if sz > max_size {
             let to_delete = sz - max_size;
             let txids: Vec<Txid> = query_rows(
@@ -2666,7 +2668,7 @@ impl MemPoolDB {
     #[cfg(test)]
     pub fn dump_txs(&self) {
         let sql = "SELECT * FROM mempool";
-        let txs: Vec<MemPoolTxMetadata> = query_rows(&self.db, sql, []).unwrap();
+        let txs: Vec<MemPoolTxMetadata> = query_rows(&self.db, sql, NO_PARAMS).unwrap();
 
         eprintln!("{:#?}", txs);
     }
@@ -2695,12 +2697,12 @@ impl MemPoolDB {
     /// Find maximum height represented in the mempool
     pub fn get_max_height(conn: &DBConn) -> Result<Option<u64>, db_error> {
         let sql = "SELECT 1 FROM mempool WHERE height >= 0";
-        let count = query_rows::<i64, _>(conn, sql, [])?.len();
+        let count = query_rows::<i64, _>(conn, sql, NO_PARAMS)?.len();
         if count == 0 {
             Ok(None)
         } else {
             let sql = "SELECT MAX(height) FROM mempool";
-            Ok(Some(query_int(conn, sql, [])? as u64))
+            Ok(Some(query_int(conn, sql, NO_PARAMS)? as u64))
         }
     }
 

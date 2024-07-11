@@ -92,7 +92,7 @@ CREATE TABLE IF NOT EXISTS blocks (
     block_info TEXT NOT NULL,
     consensus_hash TEXT NOT NULL,
     signed_over INTEGER NOT NULL,
-    stacks_height INTEGER NOT NULL, 
+    stacks_height INTEGER NOT NULL,
     burn_block_height INTEGER NOT NULL,
     PRIMARY KEY (reward_cycle, signer_signature_hash)
 )";
@@ -125,11 +125,11 @@ impl SignerDb {
 
     fn instantiate_db(&self) -> Result<(), DBError> {
         if !table_exists(&self.db, "blocks")? {
-            self.db.execute(CREATE_BLOCKS_TABLE, [])?;
+            self.db.execute(CREATE_BLOCKS_TABLE, NO_PARAMS)?;
         }
 
         if !table_exists(&self.db, "signer_states")? {
-            self.db.execute(CREATE_SIGNER_STATE_TABLE, [])?;
+            self.db.execute(CREATE_SIGNER_STATE_TABLE, NO_PARAMS)?;
         }
 
         self.db.execute_batch(CREATE_INDEXES)?;

@@ -1981,7 +1981,7 @@ mod tests {
 
             // S1G2081040G2081040G2081040G208105NK8PE5 is the transient address
             let contract = "
-                (begin 
+                (begin
                     (asserts! (is-eq tx-sender 'S1G2081040G2081040G2081040G208105NK8PE5)
                         (err tx-sender))
 
@@ -2257,7 +2257,8 @@ mod tests {
         // sqlite only have entries
         assert_eq!(
             0,
-            sql.query_row::<u32, _, _>("SELECT COUNT(value) FROM data_table", [], |row| row.get(0))
+            sql.query_row::<u32, _, _>("SELECT COUNT(value) FROM data_table", NO_PARAMS, |row| row
+                .get(0))
                 .unwrap()
         );
     }
@@ -2294,9 +2295,11 @@ mod tests {
 
         let genesis_metadata_entries = marf
             .sql_conn()
-            .query_row::<u32, _, _>("SELECT COUNT(value) FROM metadata_table", [], |row| {
-                row.get(0)
-            })
+            .query_row::<u32, _, _>(
+                "SELECT COUNT(value) FROM metadata_table",
+                NO_PARAMS,
+                |row| row.get(0),
+            )
             .unwrap();
 
         let mut clarity_instance = ClarityInstance::new(false, CHAIN_ID_TESTNET, marf);
@@ -2402,9 +2405,12 @@ mod tests {
         // sqlite only have any metadata entries from the genesis block
         assert_eq!(
             genesis_metadata_entries,
-            sql.query_row::<u32, _, _>("SELECT COUNT(value) FROM metadata_table", [], |row| row
-                .get(0))
-                .unwrap()
+            sql.query_row::<u32, _, _>(
+                "SELECT COUNT(value) FROM metadata_table",
+                NO_PARAMS,
+                |row| row.get(0)
+            )
+            .unwrap()
         );
     }
 

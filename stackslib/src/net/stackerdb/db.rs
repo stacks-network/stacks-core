@@ -218,7 +218,7 @@ impl<'a> StackerDBTx<'a> {
         &self,
     ) -> Result<Vec<QualifiedContractIdentifier>, net_error> {
         let sql = "SELECT smart_contract_id FROM databases ORDER BY smart_contract_id";
-        query_rows(&self.conn(), sql, []).map_err(|e| e.into())
+        query_rows(&self.conn(), sql, NO_PARAMS).map_err(|e| e.into())
     }
 
     /// Get the Stacker DB ID for a smart contract
@@ -535,7 +535,7 @@ impl StackerDBs {
         &self,
     ) -> Result<Vec<QualifiedContractIdentifier>, net_error> {
         let sql = "SELECT smart_contract_id FROM databases ORDER BY smart_contract_id";
-        query_rows(&self.conn, sql, []).map_err(|e| e.into())
+        query_rows(&self.conn, sql, NO_PARAMS).map_err(|e| e.into())
     }
 
     /// Get the principal who signs a particular slot in a particular stacker DB.

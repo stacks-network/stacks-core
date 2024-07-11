@@ -43,7 +43,7 @@ use crate::util_lib::db::Error as DBError;
 impl BurnchainDB {
     pub fn get_first_header(&self) -> Result<BurnchainBlockHeader, BurnchainError> {
         let qry = "SELECT * FROM burnchain_db_block_headers ORDER BY block_height ASC, block_hash DESC LIMIT 1";
-        let opt = query_row(&self.conn, qry, [])?;
+        let opt = query_row(&self.conn, qry, NO_PARAMS)?;
         opt.ok_or(BurnchainError::MissingParentBlock)
     }
 

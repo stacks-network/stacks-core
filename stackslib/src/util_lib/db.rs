@@ -355,7 +355,7 @@ macro_rules! impl_byte_array_from_column {
 fn get_db_path(conn: &Connection) -> Result<String, Error> {
     let sql = "PRAGMA database_list";
     let path: Result<Option<String>, sqlite_error> =
-        conn.query_row_and_then(sql, [], |row| row.get(2));
+        conn.query_row_and_then(sql, NO_PARAMS, |row| row.get(2));
     match path {
         Ok(Some(path)) => Ok(path),
         Ok(None) => Ok("<unknown>".to_string()),
@@ -550,7 +550,7 @@ fn inner_sql_pragma(
 
 /// Run a VACUUM command
 pub fn sql_vacuum(conn: &Connection) -> Result<(), Error> {
-    conn.execute("VACUUM", [])
+    conn.execute("VACUUM", NO_PARAMS)
         .map_err(Error::SqliteError)
         .and_then(|_| Ok(()))
 }
@@ -872,7 +872,7 @@ impl<'a, C: Clone, T: MarfTrieId> IndexDBTx<'a, C, T> {
             PRIMARY KEY(value_hash)
         );
         "#,
-                [],
+                NO_PARAMS,
             )
             .map_err(Error::SqliteError)?;
         Ok(())
