@@ -64,7 +64,7 @@ features = ["serde", "recovery"]
 optional = true
 
 [dependencies.rusqlite]
-version = "=0.28.0"
+workspace = true
 features = ["blob", "serde_json", "i128_blob", "bundled", "trace"]
 optional = true
 

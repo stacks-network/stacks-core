@@ -13,15 +13,15 @@ fmt-stacks = "fmt -- --config group_imports=StdExternalCrate,imports_granularity
 #rustflags = ["-Clink-arg=-fuse-ld=lld", "-Clink-arg=-Wl,--no-rosegment"]
 
 # Uncomment the two patches below to use local versions of stacks-core and clarity-wasm
-# [patch.'https://github.com/stacks-network/stacks-core.git']
-# clarity = { path = "clarity" }
-# stacks-common = { path = "stacks-common" }
-# pox-locking = { path = "pox-locking" }
-# libstackerdb = { path = "libstackerdb" }
-# stx-genesis = { path = "stx-genesis"}
-# stacks = { package = "stackslib", path = "stackslib" }
-# libsigner = { path = "libsigner" }
-# stacks-signer = { path = "stacks-signer" }
+[patch.'https://github.com/stacks-network/stacks-core.git']
+clarity = { path = "clarity" }
+stacks-common = { path = "stacks-common" }
+pox-locking = { path = "pox-locking" }
+libstackerdb = { path = "libstackerdb" }
+stx-genesis = { path = "stx-genesis"}
+stacks = { package = "stackslib", path = "stackslib" }
+libsigner = { path = "libsigner" }
+stacks-signer = { path = "stacks-signer" }
 
-# [patch.'https://github.com/stacks-network/clarity-wasm.git']
-# clar2wasm = { path = "../clarity-wasm/clar2wasm" }
+[patch.'https://github.com/stacks-network/clarity-wasm.git']
+clar2wasm = { path = "../clarity-wasm/clar2wasm" }

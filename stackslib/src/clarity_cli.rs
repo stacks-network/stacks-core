@@ -33,6 +33,7 @@ use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksAddress, StacksBlockId, VRFSeed, *,
 };
+use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::util::hash::{bytes_to_hex, Hash160, Sha512Trunc256Sum};
 use stacks_common::util::{get_epoch_time_ms, log};
 

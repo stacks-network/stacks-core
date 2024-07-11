@@ -85,6 +85,8 @@ jobs:
           - tests::nakamoto_integrations::nakamoto_attempt_time
           - tests::signer::v0::block_proposal_rejection
           - tests::signer::v0::miner_gather_signatures
+          - tests::signer::v0::mine_2_nakamoto_reward_cycles
+          - tests::signer::v0::end_of_tenure
           - tests::nakamoto_integrations::stack_stx_burn_op_integration_test
           - tests::nakamoto_integrations::check_block_heights
           - tests::nakamoto_integrations::clarity_burn_state

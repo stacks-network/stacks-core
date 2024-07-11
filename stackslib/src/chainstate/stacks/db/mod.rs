@@ -36,11 +36,12 @@ use clarity::vm::types::TupleData;
 use clarity::vm::{SymbolicExpression, Value};
 use lazy_static::lazy_static;
 use rusqlite::types::ToSql;
-use rusqlite::{Connection, OpenFlags, OptionalExtension, Row, Transaction};
+use rusqlite::{params, Connection, OpenFlags, OptionalExtension, Row, Transaction};
 use serde::de::Error as de_Error;
 use serde::Deserialize;
 use stacks_common::codec::{read_next, write_next, StacksMessageCodec};
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId, TrieHash};
+use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::util;
 use stacks_common::util::hash::{hex_bytes, to_hex};
 
@@ -668,7 +669,7 @@ impl<'a> ChainstateTx<'a> {
                 let txid = tx_event.transaction.txid();
                 let tx_hex = tx_event.transaction.serialize_to_dbstring();
                 let result = tx_event.result.to_string();
-                let params: &[&dyn ToSql] = &[&txid, block_id, &tx_hex, &result];
+                let params = params![txid, block_id, tx_hex, result];
                 if let Err(e) = self.tx.tx().execute(insert, params) {
                     warn!("Failed to log TX: {}", e);
                 }
@@ -713,9 +714,9 @@ const CHAINSTATE_INITIAL_SCHEMA: &'static [&'static str] = &[
         tx_merkle_root TEXT NOT NULL,
         state_index_root TEXT NOT NULL,
         microblock_pubkey_hash TEXT NOT NULL,
-        
+
         block_hash TEXT NOT NULL,                   -- NOTE: this is *not* unique, since two burn chain forks can commit to the same Stacks block.
-        index_block_hash TEXT UNIQUE NOT NULL,      -- NOTE: this is the hash of the block hash and consensus hash of the burn block that selected it, 
+        index_block_hash TEXT UNIQUE NOT NULL,      -- NOTE: this is the hash of the block hash and consensus hash of the burn block that selected it,
                                                     -- and is guaranteed to be globally unique (across all Stacks forks and across all PoX forks).
                                                     -- index_block_hash is the block hash fed into the MARF index.
 
@@ -750,7 +751,7 @@ const CHAINSTATE_INITIAL_SCHEMA: &'static [&'static str] = &[
         burnchain_commit_burn INT NOT NULL,
         burnchain_sortition_burn INT NOT NULL,
         miner INT NOT NULL,
-        
+
         -- internal use
         stacks_block_height INTEGER NOT NULL,
         index_block_hash TEXT NOT NULL,     -- NOTE: can't enforce UNIQUE here, because there will be multiple entries per block
@@ -851,7 +852,7 @@ const CHAINSTATE_SCHEMA_3: &'static [&'static str] = &[
     -- * one that records the coinbase, anchored tx fee, and confirmed streamed tx fees, and
     -- * one that records only the produced streamed tx fees.
     -- The latter is determined once this block's stream gets subsequently confirmed.
-    -- You query this table by passing both the parent and the child block hashes, since both the 
+    -- You query this table by passing both the parent and the child block hashes, since both the
     -- parent and child blocks determine the full reward for the parent block.
     CREATE TABLE matured_rewards(
         address TEXT NOT NULL,      -- address of the miner who produced the block
@@ -862,7 +863,7 @@ const CHAINSTATE_SCHEMA_3: &'static [&'static str] = &[
         tx_fees_streamed_confirmed TEXT NOT NULL,
         tx_fees_streamed_produced TEXT NOT NULL,
 
-        -- fork identifier 
+        -- fork identifier
         child_index_block_hash TEXT NOT NULL,
         parent_index_block_hash TEXT NOT NULL,
 
@@ -1022,11 +1023,7 @@ impl StacksChainState {
             }
             tx.execute(
                 "INSERT INTO db_config (version,mainnet,chain_id) VALUES (?1,?2,?3)",
-                &[
-                    &"1".to_string(),
-                    &(if mainnet { 1 } else { 0 }) as &dyn ToSql,
-                    &chain_id as &dyn ToSql,
-                ],
+                params!["1".to_string(), (if mainnet { 1 } else { 0 }), chain_id,],
             )?;
 
             if migrate {
@@ -2476,7 +2473,7 @@ impl StacksChainState {
         index_block_hash: &StacksBlockId,
     ) -> Result<Vec<Txid>, Error> {
         let sql = "SELECT txids FROM burnchain_txids WHERE index_block_hash = ?1";
-        let args: &[&dyn ToSql] = &[index_block_hash];
+        let args = params![index_block_hash];
 
         let txids = conn
             .query_row(sql, args, |r| {
@@ -2556,7 +2553,7 @@ impl StacksChainState {
         let txids_json =
             serde_json::to_string(&txids).expect("FATAL: could not serialize Vec<Txid>");
         let sql = "INSERT INTO burnchain_txids (index_block_hash, txids) VALUES (?1, ?2)";
-        let args: &[&dyn ToSql] = &[index_block_hash, &txids_json];
+        let args = params![index_block_hash, &txids_json];
         tx.execute(sql, args)?;
         Ok(())
     }
@@ -2686,7 +2683,7 @@ impl StacksChainState {
         if applied_epoch_transition {
             debug!("Block {} applied an epoch transition", &index_block_hash);
             let sql = "INSERT INTO epoch_transitions (block_id) VALUES (?)";
-            let args: &[&dyn ToSql] = &[&index_block_hash];
+            let args = params![&index_block_hash];
             headers_tx.deref_mut().execute(sql, args)?;
         }
 
@@ -2972,5 +2969,14 @@ pub mod test {
             chain_id: CHAIN_ID_MAINNET,
         };
         assert!(db.supports_epoch(StacksEpochId::latest()));
+    }
+
+    #[test]
+    fn test_sqlite_version() {
+        let chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        assert_eq!(
+            query_row(chainstate.db(), "SELECT sqlite_version()", NO_PARAMS).unwrap(),
+            Some("3.45.0".to_string())
+        );
     }
 }

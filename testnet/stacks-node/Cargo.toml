@@ -50,7 +50,7 @@ wsts = {workspace = true}
 mutants = "0.0.3"
 
 [dependencies.rusqlite]
-version = "=0.28.0"
+workspace = true
 features = ["blob", "serde_json", "i128_blob", "bundled", "trace"]
 
 [[bin]]

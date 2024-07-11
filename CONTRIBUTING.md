@@ -43,6 +43,11 @@ Branch names should use a prefix that conveys the overall goal of the branch:
 - `test/more-coverage` for branches that only add more tests
 - `refactor/formatting-fix` for refactors
 
+The branch suffix must only include ASCII lowercase and uppercase letters,
+digits, underscores, periods and dashes.
+
+The full branch name must be max 128 characters long.
+
 ### Merging PRs from Forks
 
 PRs from forks or opened by contributors without commit access require

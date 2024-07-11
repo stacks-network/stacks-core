@@ -36,8 +36,7 @@ use libstackerdb::{
 };
 use rand::{thread_rng, RngCore};
 use regex::Regex;
-use rusqlite::types::ToSqlOutput;
-use rusqlite::ToSql;
+use rusqlite::types::{ToSql, ToSqlOutput};
 use serde::de::Error as de_Error;
 use serde::ser::Error as ser_Error;
 use serde::{Deserialize, Serialize};
@@ -652,6 +651,8 @@ pub struct StacksNodeState<'a> {
     inner_mempool: Option<&'a mut MemPoolDB>,
     inner_rpc_args: Option<&'a RPCHandlerArgs<'a>>,
     relay_message: Option<StacksMessageType>,
+    /// Are we in Initial Block Download (IBD) phase?
+    ibd: bool,
 }
 
 impl<'a> StacksNodeState<'a> {
@@ -661,6 +662,7 @@ impl<'a> StacksNodeState<'a> {
         inner_chainstate: &'a mut StacksChainState,
         inner_mempool: &'a mut MemPoolDB,
         inner_rpc_args: &'a RPCHandlerArgs<'a>,
+        ibd: bool,
     ) -> StacksNodeState<'a> {
         StacksNodeState {
             inner_network: Some(inner_network),
@@ -669,6 +671,7 @@ impl<'a> StacksNodeState<'a> {
             inner_mempool: Some(inner_mempool),
             inner_rpc_args: Some(inner_rpc_args),
             relay_message: None,
+            ibd,
         }
     }
 
@@ -1468,6 +1471,8 @@ pub struct NetworkResult {
     pub uploaded_transactions: Vec<StacksTransaction>,
     /// blocks sent to us via the http server
     pub uploaded_blocks: Vec<BlocksData>,
+    /// blocks sent to us via the http server
+    pub uploaded_nakamoto_blocks: Vec<NakamotoBlock>,
     /// microblocks sent to us by the http server
     pub uploaded_microblocks: Vec<MicroblocksData>,
     /// chunks we received from the HTTP server
@@ -1515,6 +1520,7 @@ impl NetworkResult {
             pushed_microblocks: HashMap::new(),
             pushed_nakamoto_blocks: HashMap::new(),
             uploaded_transactions: vec![],
+            uploaded_nakamoto_blocks: vec![],
             uploaded_blocks: vec![],
             uploaded_microblocks: vec![],
             uploaded_stackerdb_chunks: vec![],
@@ -1638,8 +1644,8 @@ impl NetworkResult {
         }
     }
 
-    pub fn consume_http_uploads(&mut self, mut msgs: Vec<StacksMessageType>) -> () {
-        for msg in msgs.drain(..) {
+    pub fn consume_http_uploads(&mut self, msgs: Vec<StacksMessageType>) -> () {
+        for msg in msgs.into_iter() {
             match msg {
                 StacksMessageType::Transaction(tx_data) => {
                     self.uploaded_transactions.push(tx_data);
@@ -1652,6 +1658,9 @@ impl NetworkResult {
                 }
                 StacksMessageType::StackerDBPushChunk(chunk_data) => {
                     self.uploaded_stackerdb_chunks.push(chunk_data);
+                }
+                StacksMessageType::NakamotoBlocks(data) => {
+                    self.uploaded_nakamoto_blocks.extend(data.blocks);
                 }
                 _ => {
                     // drop
@@ -1695,6 +1704,7 @@ pub mod test {
     use std::{fs, io, thread};
 
     use clarity::boot_util::boot_code_id;
+    use clarity::types::sqlite::NO_PARAMS;
     use clarity::vm::ast::ASTRules;
     use clarity::vm::costs::ExecutionCost;
     use clarity::vm::database::STXBalance;
@@ -3422,6 +3432,14 @@ pub mod test {
 
         pub fn add_empty_burnchain_block(&mut self) -> (u64, BurnchainHeaderHash, ConsensusHash) {
             self.next_burnchain_block(vec![])
+        }
+
+        pub fn mine_empty_tenure(&mut self) -> (u64, BurnchainHeaderHash, ConsensusHash) {
+            let (burn_ops, ..) = self.begin_nakamoto_tenure(TenureChangeCause::BlockFound);
+            let result = self.next_burnchain_block(burn_ops);
+            // remove the last block commit so that the testpeer doesn't try to build off of this tenure
+            self.miner.block_commits.pop();
+            result
         }
 
         pub fn mempool(&mut self) -> &mut MemPoolDB {

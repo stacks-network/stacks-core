@@ -1895,6 +1895,7 @@ mod tests {
     use clarity::vm::types::{StandardPrincipalData, Value};
     use stacks_common::consts::CHAIN_ID_TESTNET;
     use stacks_common::types::chainstate::ConsensusHash;
+    use stacks_common::types::sqlite::NO_PARAMS;
 
     use super::*;
     use crate::chainstate::stacks::index::ClarityMarfTrieId;

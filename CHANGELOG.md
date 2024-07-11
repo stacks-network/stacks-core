@@ -5,9 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
-## Unreleased
-
-### Added
+## [Unreleased]
 
 - Added support for Clarity 3
   - Keywords / variable
@@ -19,9 +17,45 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
     - `get-tenure-info?` added
     - `get-block-info?` removed
 
+## [2.5.0.0.5]
+
+### Added
+
+- Added configuration option `connections.antientropy_retry` (#4932)
+
+### Changed
+
+- Set default antientropy_retry to run once per hour (#4935)
+
+## [2.5.0.0.4]
+
+### Added
+
+- Adds the solo stacking scenarios to the stateful property-based testing strategy for PoX-4 (#4725)
+- Add signer-key to synthetic stack-aggregation-increase event (#4728)
+- Implement the assumed total commit with carry-over (ATC-C) strategy for denying opportunistic Bitcoin miners from mining Stacks at a discount (#4733)
+- Adding support for stacks-block-height and tenure-height in Clarity 3 (#4745)
+- Preserve PeerNetwork struct when transitioning to 3.0 (#4767)
+- Implement singer monitor server error (#4773)
+- Pull current stacks signer out into v1 implementation and create placeholder v0 mod (#4778)
+- Create new block signature message type for v0 signer (#4787)
+- Isolate the rusqlite dependency in stacks-common and clarity behind a cargo feature (#4791)
+- Add next_initiative_delay config option to control how frequently the miner checks if a new burnchain block has been processed (#4795)
+- Various performance improvements and cleanup
+
 ### Changed
 
 - Downgraded log messages about transactions from warning to info (#4697)
+- Fix race condition between the signer binary and the /v2/pox endpoint (#4738)
+- Make node config mock_miner item hot-swappable (#4743)
+- Mandates that a burnchain block header be resolved by a BurnchainHeaderReader, which will resolve a block height to at most one burnchain header (#4748)
+- Optional config option to resolve DNS of bootstrap nodes (#4749)
+- Limit inventory syncs with new peers (#4750)
+- Update /v2/fees/transfer to report the median transaction fee estimate for a STX-transfer of 180 bytes (#4754)
+- Reduce connection spamming in stackerdb (#4759)
+- Remove deprecated signer cli commands (#4772)
+- Extra pair of signer slots got introduced at the epoch 2.5 boundary (#4845, #4868, #4891)
+- Never consider Stacks chain tips that are not on the canonical burn chain #4886 (#4893)
 
 ### Fixed
 
@@ -43,7 +77,6 @@ of the pox-4 contract. For more details see SIP-021.
 This is the first consensus-critical release for Nakamoto. Nodes which do not update before the 2.5 activation height will be forked away from the rest of the network. This release is compatible with 2.4.x chain state directories and does not require resyncing from genesis. The first time a node boots with this version it will perform some database migrations which could lengthen the normal node startup time.
 
 **This is a required release before Nakamoto rules are enabled in 3.0.**
-
 
 ### Timing of Release from 2.5 to 3.0
 

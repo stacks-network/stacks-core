@@ -20,9 +20,10 @@ use std::path::PathBuf;
 
 use lazy_static::lazy_static;
 use rusqlite::blob::Blob;
-use rusqlite::types::{FromSql, FromSqlError};
-use rusqlite::{params, Connection, OpenFlags, OptionalExtension, ToSql};
+use rusqlite::types::{FromSql, FromSqlError, ToSql};
+use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
 use stacks_common::types::chainstate::{ConsensusHash, StacksBlockId};
+use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::util::{get_epoch_time_secs, sleep_ms};
 
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandle};
@@ -187,7 +188,7 @@ impl<'a> NakamotoStagingBlocksConnRef<'a> {
         // this block must be a processed Nakamoto block
         let ibh = StacksBlockId::new(&ch, &bhh);
         let qry = "SELECT 1 FROM nakamoto_staging_blocks WHERE processed = 1 AND index_block_hash = ?1 LIMIT 1";
-        let args: &[&dyn ToSql] = &[&ibh];
+        let args = params![ibh];
         let res: Option<i64> = query_row(self, qry, args)?;
         Ok(res.is_some())
     }
@@ -201,7 +202,7 @@ impl<'a> NakamotoStagingBlocksConnRef<'a> {
         index_block_hash: &StacksBlockId,
     ) -> Result<bool, ChainstateError> {
         let qry = "SELECT 1 FROM nakamoto_staging_blocks WHERE index_block_hash = ?1";
-        let args: &[&dyn ToSql] = &[index_block_hash];
+        let args = params![index_block_hash];
         let res: Option<i64> = query_row(self, qry, args)?;
         Ok(res.is_some())
     }
@@ -212,7 +213,7 @@ impl<'a> NakamotoStagingBlocksConnRef<'a> {
         consensus_hash: &ConsensusHash,
     ) -> Result<Option<NakamotoBlock>, ChainstateError> {
         let qry = "SELECT data FROM nakamoto_staging_blocks WHERE is_tenure_start = 1 AND consensus_hash = ?1";
-        let args: &[&dyn ToSql] = &[consensus_hash];
+        let args = params![consensus_hash];
         let data: Option<Vec<u8>> = query_row(self, qry, args)?;
         let Some(block_bytes) = data else {
             return Ok(None);
@@ -234,7 +235,7 @@ impl<'a> NakamotoStagingBlocksConnRef<'a> {
         index_block_hash: &StacksBlockId,
     ) -> Result<Option<i64>, ChainstateError> {
         let sql = "SELECT rowid FROM nakamoto_staging_blocks WHERE index_block_hash = ?1";
-        let args: &[&dyn ToSql] = &[index_block_hash];
+        let args = params![index_block_hash];
         let res: Option<i64> = query_row(self, sql, args)?;
         Ok(res)
     }
@@ -249,7 +250,7 @@ impl<'a> NakamotoStagingBlocksConnRef<'a> {
         index_block_hash: &StacksBlockId,
     ) -> Result<Option<(NakamotoBlock, u64)>, ChainstateError> {
         let qry = "SELECT data FROM nakamoto_staging_blocks WHERE index_block_hash = ?1";
-        let args: &[&dyn ToSql] = &[index_block_hash];
+        let args = params![index_block_hash];
         let res: Option<Vec<u8>> = query_row(self, qry, args)?;
         let Some(block_bytes) = res else {
             return Ok(None);
@@ -278,7 +279,7 @@ impl<'a> NakamotoStagingBlocksConnRef<'a> {
         index_block_hash: &StacksBlockId,
     ) -> Result<Option<u64>, ChainstateError> {
         let qry = "SELECT length(data) FROM nakamoto_staging_blocks WHERE index_block_hash = ?1";
-        let args: &[&dyn ToSql] = &[index_block_hash];
+        let args = params![index_block_hash];
         let res = query_row(self, qry, args)?
             .map(|size: i64| u64::try_from(size).expect("FATAL: block size exceeds i64::MAX"));
         Ok(res)
@@ -369,7 +370,7 @@ impl<'a> NakamotoStagingBlocksTx<'a> {
                                   WHERE index_block_hash = ?1";
         self.execute(
             &clear_staged_block,
-            params![&block, &u64_to_sql(get_epoch_time_secs())?],
+            params![block, u64_to_sql(get_epoch_time_secs())?],
         )?;
 
         Ok(())
@@ -389,7 +390,7 @@ impl<'a> NakamotoStagingBlocksTx<'a> {
                                   WHERE index_block_hash = ?1";
         self.execute(
             &clear_staged_block,
-            params![&block, &u64_to_sql(get_epoch_time_secs())?],
+            params![block, u64_to_sql(get_epoch_time_secs())?],
         )?;
 
         Ok(())

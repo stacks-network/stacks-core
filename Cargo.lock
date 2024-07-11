@@ -741,16 +741,15 @@ checksum = "98cc8fbded0c607b7ba9dd60cd98df59af97e84d24e49c8557331cfc26d301ce"
 [[package]]
 name = "clar2wasm"
 version = "0.1.0"
-source = "git+https://github.com/stacks-network/clarity-wasm.git?branch=chore/update-clarity#ffbf49befc00d6eb3230a8e44ebf91b621f074e4"
 dependencies = [
  "chrono",
  "clap 4.5.1",
- "clarity 2.3.0 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
+ "clarity",
  "lazy_static",
  "regex",
  "rusqlite",
  "sha2 0.10.8",
- "stacks-common 0.0.2 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
+ "stacks-common",
  "walrus",
  "wasmtime",
  "wat",
@@ -778,32 +777,8 @@ dependencies = [
  "serde_stacker",
  "sha2-asm 0.5.5",
  "slog",
- "stacks-common 0.0.2 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
- "wasmtime",
-]
-
-[[package]]
-name = "clarity"
-version = "2.3.0"
-source = "git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop#abea0d349d43f46d3d73eb9e3bc0cb1663dc58f5"
-dependencies = [
- "getrandom 0.2.12",
- "hashbrown 0.14.3",
- "integer-sqrt",
- "lazy_static",
- "rand 0.8.5",
- "rand_chacha 0.3.1",
- "regex",
- "rstest 0.17.0",
- "rstest_reuse 0.5.0",
- "rusqlite",
- "serde",
- "serde_derive",
- "serde_json",
- "serde_stacker",
- "sha2-asm 0.5.5",
- "slog",
- "stacks-common 0.0.2 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
+ "stacks-common",
+ "time 0.2.27",
  "wasmtime",
 ]
 
@@ -1800,9 +1775,9 @@ dependencies = [
 
 [[package]]
 name = "hashlink"
-version = "0.8.4"
+version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e8094feaf31ff591f651a2664fb9cfd92bba7a60ce3197265e9482ebe753c8f7"
+checksum = "6ba4ff7128dee98c7dc9794b6a411377e1404dba1c97deb8d1a55297bd25d8af"
 dependencies = [
  "hashbrown 0.14.3",
 ]
@@ -1990,7 +1965,7 @@ dependencies = [
  "httpdate",
  "itoa",
  "pin-project-lite",
- "socket2 0.4.10",
+ "socket2 0.5.6",
  "tokio",
  "tower-service",
  "tracing",
@@ -2334,11 +2309,11 @@ dependencies = [
 name = "libsigner"
 version = "0.0.1"
 dependencies = [
- "clarity 2.3.0 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
+ "clarity",
  "hashbrown 0.14.3",
  "lazy_static",
  "libc",
- "libstackerdb 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
+ "libstackerdb",
  "mutants",
  "prometheus",
  "rand 0.8.5",
@@ -2352,34 +2327,8 @@ dependencies = [
  "slog",
  "slog-json",
  "slog-term",
- "stacks-common 0.0.2 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
- "stackslib 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
- "thiserror",
- "tiny_http",
- "wsts",
-]
-
-[[package]]
-name = "libsigner"
-version = "0.0.1"
-source = "git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop#abea0d349d43f46d3d73eb9e3bc0cb1663dc58f5"
-dependencies = [
- "clarity 2.3.0 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
- "hashbrown 0.14.3",
- "lazy_static",
- "libc",
- "libstackerdb 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
- "prometheus",
- "secp256k1",
- "serde",
- "serde_derive",
- "serde_json",
- "serde_stacker",
- "sha2 0.10.8",
- "slog",
- "slog-term",
- "stacks-common 0.0.2 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
- "stackslib 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
+ "stacks-common",
+ "stackslib",
  "thiserror",
  "tiny_http",
  "wsts",
@@ -2387,9 +2336,9 @@ dependencies = [
 
 [[package]]
 name = "libsqlite3-sys"
-version = "0.25.2"
+version = "0.28.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "29f835d03d717946d28b1d1ed632eb6f0e24a299388ee623d0c23118d3e8a7fa"
+checksum = "0c10584274047cb335c23d3e61bcef8e323adae7c5c8c760540f73610177fc3f"
 dependencies = [
  "cc",
  "pkg-config",
@@ -2400,27 +2349,13 @@ dependencies = [
 name = "libstackerdb"
 version = "0.0.1"
 dependencies = [
- "clarity 2.3.0 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
+ "clarity",
  "secp256k1",
  "serde",
  "serde_derive",
  "serde_stacker",
  "sha2 0.10.8",
- "stacks-common 0.0.2 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
-]
-
-[[package]]
-name = "libstackerdb"
-version = "0.0.1"
-source = "git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop#abea0d349d43f46d3d73eb9e3bc0cb1663dc58f5"
-dependencies = [
- "clarity 2.3.0 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
- "secp256k1",
- "serde",
- "serde_derive",
- "serde_stacker",
- "sha2 0.10.8",
- "stacks-common 0.0.2 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
+ "stacks-common",
 ]
 
 [[package]]
@@ -2963,20 +2898,10 @@ checksum = "439ee305def115ba05938db6eb1644ff94165c5ab5e9420d1c1bcedbba909391"
 name = "pox-locking"
 version = "2.4.0"
 dependencies = [
- "clarity 2.3.0 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
+ "clarity",
  "mutants",
  "slog",
- "stacks-common 0.0.2 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
-]
-
-[[package]]
-name = "pox-locking"
-version = "2.4.0"
-source = "git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop#abea0d349d43f46d3d73eb9e3bc0cb1663dc58f5"
-dependencies = [
- "clarity 2.3.0 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
- "slog",
- "stacks-common 0.0.2 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
+ "stacks-common",
 ]
 
 [[package]]
@@ -3413,12 +3338,12 @@ dependencies = [
 
 [[package]]
 name = "rusqlite"
-version = "0.28.0"
+version = "0.31.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "01e213bc3ecb39ac32e81e51ebe31fd888a940515173e3a18a35f8c6e896422a"
+checksum = "b838eba278d213a8beaf485bd313fd580ca4505a00d5871caeb1457c55322cae"
 dependencies = [
- "bitflags 1.3.2",
- "fallible-iterator 0.2.0",
+ "bitflags 2.4.2",
+ "fallible-iterator 0.3.0",
  "fallible-streaming-iterator",
  "hashlink",
  "libsqlite3-sys",
@@ -3884,7 +3809,7 @@ dependencies = [
  "serde",
  "serde_json",
  "slog",
- "time 0.3.34",
+ "time 0.3.36",
 ]
 
 [[package]]
@@ -3897,7 +3822,7 @@ dependencies = [
  "slog",
  "term",
  "thread_local",
- "time 0.3.34",
+ "time 0.3.36",
 ]
 
 [[package]]
@@ -4003,39 +3928,7 @@ dependencies = [
  "slog",
  "slog-json",
  "slog-term",
- "time 0.3.34",
- "winapi 0.3.9",
- "wsts",
-]
-
-[[package]]
-name = "stacks-common"
-version = "0.0.2"
-source = "git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop#abea0d349d43f46d3d73eb9e3bc0cb1663dc58f5"
-dependencies = [
- "chrono",
- "curve25519-dalek 2.0.0",
- "ed25519-dalek",
- "getrandom 0.2.12",
- "hashbrown 0.14.3",
- "lazy_static",
- "libc",
- "libsecp256k1",
- "nix",
- "percent-encoding",
- "rand 0.8.5",
- "ripemd",
- "rusqlite",
- "secp256k1",
- "serde",
- "serde_derive",
- "serde_json",
- "sha2 0.10.8",
- "sha3",
- "slog",
- "slog-json",
- "slog-term",
- "time 0.3.34",
+ "time 0.3.36",
  "winapi 0.3.9",
  "wsts",
 ]
@@ -4049,12 +3942,12 @@ dependencies = [
  "backtrace",
  "base64 0.12.3",
  "chrono",
- "clarity 2.3.0 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
+ "clarity",
  "hashbrown 0.14.3",
  "http-types",
  "lazy_static",
  "libc",
- "libsigner 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
+ "libsigner",
  "mutants",
  "pico-args",
  "rand 0.8.5",
@@ -4068,10 +3961,10 @@ dependencies = [
  "serde_json",
  "sha2 0.10.8",
  "slog",
- "stacks-common 0.0.2 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
- "stacks-signer 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
- "stackslib 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
- "stx-genesis 0.1.0 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
+ "stacks-common",
+ "stacks-signer",
+ "stackslib",
+ "stx-genesis",
  "tikv-jemallocator",
  "tokio",
  "toml 0.5.11",
@@ -4087,11 +3980,11 @@ version = "0.0.1"
 dependencies = [
  "backoff",
  "clap 4.5.1",
- "clarity 2.3.0 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
+ "clarity",
  "hashbrown 0.14.3",
  "lazy_static",
- "libsigner 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
- "libstackerdb 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
+ "libsigner",
+ "libstackerdb",
  "num-traits",
  "polynomial",
  "prometheus",
@@ -4108,43 +4001,8 @@ dependencies = [
  "slog",
  "slog-json",
  "slog-term",
- "stacks-common 0.0.2 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
- "stackslib 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
- "thiserror",
- "tiny_http",
- "toml 0.5.11",
- "tracing",
- "tracing-subscriber",
- "url",
- "wsts",
-]
-
-[[package]]
-name = "stacks-signer"
-version = "0.0.1"
-source = "git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop#abea0d349d43f46d3d73eb9e3bc0cb1663dc58f5"
-dependencies = [
- "backoff",
- "clap 4.5.1",
- "clarity 2.3.0 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
- "hashbrown 0.14.3",
- "lazy_static",
- "libsigner 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
- "libstackerdb 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
- "prometheus",
- "rand 0.8.5",
- "rand_core 0.6.4",
- "reqwest",
- "rusqlite",
- "secp256k1",
- "serde",
- "serde_derive",
- "serde_json",
- "serde_stacker",
- "slog",
- "slog-term",
- "stacks-common 0.0.2 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
- "stackslib 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
+ "stacks-common",
+ "stackslib",
  "thiserror",
  "tiny_http",
  "toml 0.5.11",
@@ -4161,7 +4019,7 @@ dependencies = [
  "assert-json-diff",
  "chrono",
  "clar2wasm",
- "clarity 2.3.0 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
+ "clarity",
  "criterion",
  "curve25519-dalek 2.0.0",
  "ed25519-dalek",
@@ -4169,12 +4027,12 @@ dependencies = [
  "integer-sqrt",
  "lazy_static",
  "libc",
- "libstackerdb 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
+ "libstackerdb",
  "mio 0.6.23",
  "mutants",
  "nix",
  "percent-encoding",
- "pox-locking 2.4.0 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
+ "pox-locking",
  "prometheus",
  "rand 0.8.5",
  "rand_chacha 0.3.1",
@@ -4194,55 +4052,11 @@ dependencies = [
  "slog",
  "slog-json",
  "slog-term",
- "stacks-common 0.0.2 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
+ "stacks-common",
  "stdext",
- "stx-genesis 0.1.0 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
+ "stx-genesis",
  "tikv-jemallocator",
- "time 0.3.34",
- "url",
- "winapi 0.3.9",
- "wsts",
-]
-
-[[package]]
-name = "stackslib"
-version = "0.0.1"
-source = "git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop#abea0d349d43f46d3d73eb9e3bc0cb1663dc58f5"
-dependencies = [
- "chrono",
- "clar2wasm",
- "clarity 2.3.0 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
- "curve25519-dalek 2.0.0",
- "ed25519-dalek",
- "hashbrown 0.14.3",
- "integer-sqrt",
- "lazy_static",
- "libc",
- "libstackerdb 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
- "mio 0.6.23",
- "nix",
- "percent-encoding",
- "pox-locking 2.4.0 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
- "prometheus",
- "rand 0.8.5",
- "rand_chacha 0.3.1",
- "rand_core 0.6.4",
- "regex",
- "ripemd",
- "rusqlite",
- "secp256k1",
- "serde",
- "serde_derive",
- "serde_json",
- "sha2 0.10.8",
- "sha3",
- "siphasher",
- "slog",
- "slog-json",
- "slog-term",
- "stacks-common 0.0.2 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
- "tikv-jemallocator",
- "time 0.3.34",
+ "time 0.3.36",
  "url",
  "winapi 0.3.9",
  "wsts",
@@ -4327,15 +4141,6 @@ checksum = "5ee073c9e4cd00e28217186dbe12796d692868f432bf2e97ee73bed0c56dfa01"
 [[package]]
 name = "stx-genesis"
 version = "0.1.0"
-dependencies = [
- "libflate",
- "sha2 0.10.8",
-]
-
-[[package]]
-name = "stx-genesis"
-version = "0.1.0"
-source = "git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop#abea0d349d43f46d3d73eb9e3bc0cb1663dc58f5"
 dependencies = [
  "libflate",
  "sha2 0.10.8",
@@ -4507,9 +4312,9 @@ dependencies = [
 
 [[package]]
 name = "time"
-version = "0.3.34"
+version = "0.3.36"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c8248b6521bb14bc45b4067159b9b6ad792e2d6d754d6c41fb50e29fefe38749"
+checksum = "5dfd88e563464686c916c7e46e623e520ddc6d79fa6641390f2e3fa86e83e885"
 dependencies = [
  "deranged",
  "itoa",
@@ -4517,7 +4322,7 @@ dependencies = [
  "powerfmt",
  "serde",
  "time-core",
- "time-macros 0.2.17",
+ "time-macros 0.2.18",
 ]
 
 [[package]]
@@ -4538,9 +4343,9 @@ dependencies = [
 
 [[package]]
 name = "time-macros"
-version = "0.2.17"
+version = "0.2.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7ba3a3ef41e6672a2f0f001392bb5dcd3ff0a9992d618ca761a11c3121547774"
+checksum = "3f252a68540fde3a3877aeea552b832b40ab9a69e318efd078774a01ddee1ccf"
 dependencies = [
  "num-conv",
  "time-core",

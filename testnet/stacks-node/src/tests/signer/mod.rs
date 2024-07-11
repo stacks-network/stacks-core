@@ -35,6 +35,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use clarity::boot_util::boot_code_id;
+use clarity::vm::types::PrincipalData;
 use libsigner::{SignerEntries, SignerEventTrait};
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::nakamoto::signer_set::NakamotoSigners;
@@ -42,6 +43,7 @@ use stacks::chainstate::stacks::boot::{NakamotoSignerEntry, SIGNERS_NAME};
 use stacks::chainstate::stacks::{StacksPrivateKey, ThresholdSignature};
 use stacks::core::StacksEpoch;
 use stacks::net::api::postblock_proposal::BlockValidateResponse;
+use stacks::types::chainstate::StacksAddress;
 use stacks::util::secp256k1::MessageSignature;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::consts::SIGNER_SLOTS_PER_USER;
@@ -49,9 +51,8 @@ use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::{hex_bytes, Sha512Trunc256Sum};
 use stacks_signer::client::{SignerSlotID, StacksClient};
 use stacks_signer::config::{build_signer_config_tomls, GlobalConfig as SignerConfig, Network};
-use stacks_signer::runloop::{SignerResult, State};
+use stacks_signer::runloop::{SignerResult, StateInfo};
 use stacks_signer::{Signer, SpawnedSigner};
-use wsts::curve::point::Point;
 use wsts::state_machine::PublicKeys;
 
 use crate::config::{Config as NeonConfig, EventKeyType, EventObserverConfig, InitialBalance};
@@ -78,6 +79,8 @@ pub struct RunningNodes {
     pub vrfs_submitted: Arc<AtomicU64>,
     pub commits_submitted: Arc<AtomicU64>,
     pub blocks_processed: Arc<AtomicU64>,
+    pub nakamoto_blocks_proposed: Arc<AtomicU64>,
+    pub nakamoto_blocks_mined: Arc<AtomicU64>,
     pub coord_channel: Arc<Mutex<CoordinatorChannels>>,
     pub conf: NeonConfig,
 }
@@ -97,17 +100,33 @@ pub struct SignerTest<S> {
 }
 
 impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<SpawnedSigner<S, T>> {
-    fn new(num_signers: usize) -> Self {
+    fn new(
+        num_signers: usize,
+        initial_balances: Vec<(StacksAddress, u64)>,
+        wait_on_signers: Option<Duration>,
+    ) -> Self {
         // Generate Signer Data
         let signer_stacks_private_keys = (0..num_signers)
             .map(|_| StacksPrivateKey::new())
             .collect::<Vec<StacksPrivateKey>>();
 
         let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
+
+        // Add initial balances to the config
+        for (address, amount) in initial_balances.iter() {
+            naka_conf
+                .add_initial_balance(PrincipalData::from(address.clone()).to_string(), *amount);
+        }
+
         // So the combination is... one, two, three, four, five? That's the stupidest combination I've ever heard in my life!
         // That's the kind of thing an idiot would have on his luggage!
         let password = "12345";
         naka_conf.connection_options.block_proposal_token = Some(password.to_string());
+        if let Some(wait_on_signers) = wait_on_signers {
+            naka_conf.miner.wait_on_signers = wait_on_signers;
+        } else {
+            naka_conf.miner.wait_on_signers = Duration::from_secs(10);
+        }
 
         let run_stamp = rand::random();
 
@@ -149,7 +168,8 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         }
     }
 
-    fn send_status_request(&self) {
+    /// Send a status request to each spawned signer
+    pub fn send_status_request(&self) {
         for port in 3000..3000 + self.spawned_signers.len() {
             let endpoint = format!("http://localhost:{}", port);
             let path = format!("{endpoint}/status");
@@ -163,7 +183,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
     }
 
     /// Wait for the signers to respond to a status check
-    fn wait_for_states(&mut self, timeout: Duration) -> Vec<State> {
+    pub fn wait_for_states(&mut self, timeout: Duration) -> Vec<StateInfo> {
         debug!("Waiting for Status...");
         let now = std::time::Instant::now();
         let mut states = Vec::with_capacity(self.spawned_signers.len());
@@ -183,8 +203,8 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
                         SignerResult::OperationResult(_operation) => {
                             panic!("Recieved an operation result.");
                         }
-                        SignerResult::StatusCheck(state) => {
-                            states.push(state);
+                        SignerResult::StatusCheck(state_info) => {
+                            states.push(state_info);
                         }
                     }
                 }
@@ -235,18 +255,6 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
             .get_burnchain()
             .reward_cycle_to_block_height(reward_cycle);
         reward_cycle_height.saturating_sub(current_block_height)
-    }
-
-    fn mine_and_verify_confirmed_naka_block(
-        &mut self,
-        agg_key: &Point,
-        timeout: Duration,
-    ) -> MinedNakamotoBlockEvent {
-        let new_block = self.mine_nakamoto_block(timeout);
-        let signer_sighash = new_block.signer_signature_hash.clone();
-        let signature = self.wait_for_confirmed_block_v1(&signer_sighash, timeout);
-        assert!(signature.0.verify(&agg_key, signer_sighash.as_bytes()));
-        new_block
     }
 
     fn mine_nakamoto_block(&mut self, timeout: Duration) -> MinedNakamotoBlockEvent {
@@ -548,6 +556,7 @@ fn setup_stx_btc_node(
             EventKeyType::StackerDBChunks,
             EventKeyType::BlockProposal,
             EventKeyType::MinedBlocks,
+            EventKeyType::BurnchainBlocks,
         ],
     });
 
@@ -563,7 +572,7 @@ fn setup_stx_btc_node(
     }
     naka_conf.initial_balances.append(&mut initial_balances);
     naka_conf.node.stacker = true;
-    naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1000);
+    naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(5);
 
     for signer_set in 0..2 {
         for message_id in 0..SIGNER_SLOTS_PER_USER {
@@ -596,6 +605,8 @@ fn setup_stx_btc_node(
         blocks_processed,
         naka_submitted_vrfs: vrfs_submitted,
         naka_submitted_commits: commits_submitted,
+        naka_proposed_blocks: naka_blocks_proposed,
+        naka_mined_blocks: naka_blocks_mined,
         ..
     } = run_loop.counters();
 
@@ -626,6 +637,8 @@ fn setup_stx_btc_node(
         vrfs_submitted: vrfs_submitted.0,
         commits_submitted: commits_submitted.0,
         blocks_processed: blocks_processed.0,
+        nakamoto_blocks_proposed: naka_blocks_proposed.0,
+        nakamoto_blocks_mined: naka_blocks_mined.0,
         coord_channel,
         conf: naka_conf,
     }

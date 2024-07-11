@@ -23,6 +23,7 @@ use std::{fmt, fs};
 use clarity::vm::costs::ExecutionCost;
 use lazy_static::lazy_static;
 use rusqlite::{OpenFlags, OptionalExtension};
+use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::uint::{Uint256, Uint512};
 
@@ -211,7 +212,7 @@ fn txid_tracking_db(chainstate_root_path: &str) -> Result<DBConn, DatabaseError>
     if create_flag {
         conn.execute(
             "CREATE TABLE processed_txids (txid TEXT NOT NULL PRIMARY KEY)",
-            [],
+            NO_PARAMS,
         )?;
     }
 

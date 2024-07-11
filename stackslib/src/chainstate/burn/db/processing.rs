@@ -48,7 +48,8 @@ impl<'a> SortitionHandleTx<'a> {
                 op.check(burnchain, self).map_err(|e| {
                     warn!(
                         "REJECTED({}) leader key register {} at {},{}: {:?}",
-                        op.block_height, &op.txid, op.block_height, op.vtxindex, &e
+                        op.block_height, &op.txid, op.block_height, op.vtxindex, &e;
+                        "consensus_hash" => %op.consensus_hash
                     );
                     BurnchainError::OpError(e)
                 })
@@ -63,7 +64,8 @@ impl<'a> SortitionHandleTx<'a> {
                         op.vtxindex,
                         op.parent_block_ptr,
                         op.parent_vtxindex,
-                        &e
+                        &e;
+                        "stacks_block_hash" => %op.block_header_hash
                     );
                     BurnchainError::OpError(e)
                 })
