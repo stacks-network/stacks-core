@@ -393,6 +393,7 @@ fn process_stackerdb_event<T: SignerEventTrait>(
     mut request: HttpRequest,
 ) -> Result<SignerEvent<T>, EventError> {
     debug!("Got stackerdb_chunks event");
+    // TODO: remove this comment
     let mut body = String::new();
     if let Err(e) = request.as_reader().read_to_string(&mut body) {
         error!("Failed to read body: {:?}", &e);
