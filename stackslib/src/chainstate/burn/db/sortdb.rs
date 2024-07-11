@@ -1852,24 +1852,8 @@ impl<'a> SortitionHandleTx<'a> {
                 } else {
                     if &cur_ch == consensus_hash {
                         // same sortition (i.e. nakamoto block)
-                        // pick the one with the lexicographically-lesser block hash
-                        cur_bhh
-                            .0
-                            .iter()
-                            .zip(stacks_block_hash.0.iter())
-                            .find_map(|(cur_bhh_byte, accepted_bhh_byte)| {
-                                if cur_bhh_byte < accepted_bhh_byte {
-                                    // current is "earlier", so don't replace
-                                    Some(false)
-                                } else if cur_bhh_byte > accepted_bhh_byte {
-                                    // current is "later", so replace
-                                    Some(true)
-                                } else {
-                                    None
-                                }
-                            })
-                            // if somehow the block hashes are also the same, then don't replace
-                            .unwrap_or(false)
+                        // no replacement
+                        false
                     } else {
                         // tips come from different sortitions
                         // break ties by going with the latter-signed block
