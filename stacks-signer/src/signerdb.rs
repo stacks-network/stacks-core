@@ -117,7 +117,7 @@ CREATE TABLE IF NOT EXISTS blocks (
     stacks_height INTEGER NOT NULL, 
     burn_block_height INTEGER NOT NULL,
     PRIMARY KEY (reward_cycle, signer_signature_hash)
-)";
+) STRICT";
 
 const CREATE_INDEXES: &str = "
 CREATE INDEX IF NOT EXISTS blocks_signed_over ON blocks (signed_over);
@@ -130,14 +130,14 @@ const CREATE_SIGNER_STATE_TABLE: &str = "
 CREATE TABLE IF NOT EXISTS signer_states (
     reward_cycle INTEGER PRIMARY KEY,
     encrypted_state BLOB NOT NULL
-)";
+) STRICT";
 
 const CREATE_BURN_STATE_TABLE: &str = "
 CREATE TABLE IF NOT EXISTS burn_blocks (
     block_hash TEXT PRIMARY KEY,
-    block_height INTEGER,
-    received_time INTEGER
-)";
+    block_height INTEGER NOT NULL,
+    received_time INTEGER NOT NULL
+) STRICT";
 
 impl SignerDb {
     /// Create a new `SignerState` instance.

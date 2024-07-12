@@ -160,7 +160,8 @@ fn reorg_timing_testing(
 ) -> Result<bool, SignerChainstateError> {
     let (_stacks_client, mut signer_db, block_pk, mut view, mut block) =
         setup_test_environment(test_name);
-    view.config.first_proposal_burn_block_timing = Duration::from_secs(first_proposal_burn_block_timing_secs);
+    view.config.first_proposal_burn_block_timing =
+        Duration::from_secs(first_proposal_burn_block_timing_secs);
 
     view.cur_sortition.parent_tenure_id = view.last_sortition.as_ref().unwrap().parent_tenure_id;
     block.header.consensus_hash = view.cur_sortition.consensus_hash;
@@ -251,21 +252,13 @@ fn reorg_timing_testing(
 
 #[test]
 fn check_proposal_reorg_timing_bad() {
-    let result = reorg_timing_testing(
-        "reorg_timing_bad",
-        30,
-        31,
-    );
+    let result = reorg_timing_testing("reorg_timing_bad", 30, 31);
     assert!(!result.unwrap(), "Proposal should not validate, because the reorg occurred in a block whose proposed time was long enough before the sortition");
 }
 
 #[test]
 fn check_proposal_reorg_timing_ok() {
-    let result = reorg_timing_testing(
-        "reorg_timing_okay",
-        30,
-        30,
-    );
+    let result = reorg_timing_testing("reorg_timing_okay", 30, 30);
     assert!(result.unwrap(), "Proposal should validate okay, because the reorg occurred in a block whose proposed time was close to the sortition");
 }
 
