@@ -3060,7 +3060,7 @@ fn test_build_microblock_stream_forks_with_descendants() {
 
                     // erase any pending transactions -- this is a "worse" poison-microblock,
                     // and we want to avoid mining the "better" one
-                    mempool.clear_before_height(10).unwrap();
+                    mempool.clear_before_coinbase_height(10).unwrap();
 
                     let mut tx_bytes = vec![];
                     poison_microblock_tx
@@ -4784,6 +4784,7 @@ fn paramaterized_mempool_walk_test(
                 &mut chainstate,
                 &b_1.0,
                 &b_1.1,
+                true,
                 txid,
                 tx_bytes,
                 tx_fee,
@@ -4832,7 +4833,6 @@ fn paramaterized_mempool_walk_test(
                     .iterate_candidates::<_, ChainstateError, _>(
                         clarity_conn,
                         &mut tx_events,
-                        2,
                         mempool_settings.clone(),
                         |_, available_tx, _| {
                             count_txs += 1;
