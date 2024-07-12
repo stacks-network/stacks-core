@@ -66,7 +66,7 @@ use crate::chainstate::stacks::events::{
     StacksBlockEventData, StacksTransactionEvent, StacksTransactionReceipt, TransactionOrigin,
 };
 use crate::chainstate::stacks::index::marf::MARFOpenOpts;
-use crate::chainstate::stacks::index::MarfTrieId;
+use crate::chainstate::stacks::index::{Error as IndexError, MarfTrieId};
 use crate::chainstate::stacks::miner::{signal_mining_blocked, signal_mining_ready, MinerStatus};
 use crate::chainstate::stacks::{
     Error as ChainstateError, StacksBlock, StacksBlockHeader, TransactionPayload,
@@ -252,6 +252,7 @@ pub enum Error {
     NoSortitions,
     FailedToProcessSortition(BurnchainError),
     DBError(DBError),
+    IndexError(IndexError),
     NotPrepareEndBlock,
     NotPoXAnchorBlock,
     NotInPreparePhase,
@@ -275,6 +276,12 @@ impl From<ChainstateError> for Error {
 impl From<DBError> for Error {
     fn from(o: DBError) -> Error {
         Error::DBError(o)
+    }
+}
+
+impl From<IndexError> for Error {
+    fn from(o: IndexError) -> Error {
+        Error::IndexError(o)
     }
 }
 
@@ -3320,11 +3327,11 @@ impl<
 
                     // update cost estimator
                     if let Some(ref mut estimator) = self.cost_estimator {
-                        let stacks_epoch = self
-                            .sortition_db
-                            .index_conn()
-                            .get_stacks_epoch_by_epoch_id(&block_receipt.evaluated_epoch)
-                            .expect("Could not find a stacks epoch.");
+                        let stacks_epoch = SortitionDB::get_stacks_epoch_by_epoch_id(
+                            self.sortition_db.conn(),
+                            &block_receipt.evaluated_epoch,
+                        )?
+                        .expect("Could not find a stacks epoch.");
                         estimator.notify_block(
                             &block_receipt.tx_receipts,
                             &stacks_epoch.block_limit,
@@ -3334,11 +3341,11 @@ impl<
 
                     // update fee estimator
                     if let Some(ref mut estimator) = self.fee_estimator {
-                        let stacks_epoch = self
-                            .sortition_db
-                            .index_conn()
-                            .get_stacks_epoch_by_epoch_id(&block_receipt.evaluated_epoch)
-                            .expect("Could not find a stacks epoch.");
+                        let stacks_epoch = SortitionDB::get_stacks_epoch_by_epoch_id(
+                            self.sortition_db.conn(),
+                            &block_receipt.evaluated_epoch,
+                        )?
+                        .expect("Could not find a stacks epoch.");
                         if let Err(e) =
                             estimator.notify_block(&block_receipt, &stacks_epoch.block_limit)
                         {

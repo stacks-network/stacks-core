@@ -42,6 +42,7 @@ use crate::chainstate::coordinator::{
     BlockEventDispatcher, Error as CoordinatorError, OnChainRewardSetProvider,
 };
 use crate::chainstate::nakamoto::coordinator::load_nakamoto_reward_set;
+use crate::chainstate::nakamoto::staging_blocks::NakamotoBlockObtainMethod;
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader, NakamotoChainState};
 use crate::chainstate::stacks::db::unconfirmed::ProcessedUnconfirmedState;
 use crate::chainstate::stacks::db::{StacksChainState, StacksEpochReceipt, StacksHeaderInfo};
@@ -516,6 +517,10 @@ impl Relayer {
         Relayer::new(handle, network.connection_opts.clone(), stacker_dbs)
     }
 
+    pub fn get_p2p_handle(&self) -> NetworkHandle {
+        self.p2p.clone()
+    }
+
     /// Given Stacks 2.x blocks pushed to us, verify that they correspond to expected block data.
     pub fn validate_blocks_push(
         conn: &SortitionDBConn,
@@ -556,13 +561,14 @@ impl Relayer {
     /// Given Nakamoto blocks pushed to us, verify that they correspond to expected block data.
     pub fn validate_nakamoto_blocks_push(
         burnchain: &Burnchain,
-        conn: &SortitionDBConn,
         sortdb: &SortitionDB,
         chainstate: &mut StacksChainState,
+        stacks_tip: &StacksBlockId,
         nakamoto_blocks_data: &NakamotoBlocksData,
     ) -> Result<(), net_error> {
+        let conn = sortdb.index_conn();
         let mut loaded_reward_sets = HashMap::new();
-        let tip_sn = SortitionDB::get_canonical_burn_chain_tip(conn)?;
+        let tip_sn = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())?;
 
         for nakamoto_block in nakamoto_blocks_data.blocks.iter() {
             // is this the right Stacks block for this sortition?
@@ -603,6 +609,7 @@ impl Relayer {
                     &tip_sn.sortition_id,
                     burnchain,
                     chainstate,
+                    stacks_tip,
                     sortdb,
                     &OnChainRewardSetProvider::new(),
                 )
@@ -792,8 +799,10 @@ impl Relayer {
         sortdb: &SortitionDB,
         sort_handle: &mut SortitionHandleConn,
         chainstate: &mut StacksChainState,
+        stacks_tip: &StacksBlockId,
         block: &NakamotoBlock,
         coord_comms: Option<&CoordinatorChannels>,
+        obtained_method: NakamotoBlockObtainMethod,
     ) -> Result<bool, chainstate_error> {
         debug!(
             "Handle incoming Nakamoto block {}/{}",
@@ -804,7 +813,7 @@ impl Relayer {
         // do we have this block?  don't lock the DB needlessly if so.
         if chainstate
             .nakamoto_blocks_db()
-            .has_nakamoto_block(&block.header.block_id())
+            .has_nakamoto_block_with_index_hash(&block.header.block_id())
             .map_err(|e| {
                 warn!(
                     "Failed to determine if we have Nakamoto block {}/{}: {:?}",
@@ -881,6 +890,7 @@ impl Relayer {
             &tip,
             burnchain,
             chainstate,
+            stacks_tip,
             sortdb,
             &OnChainRewardSetProvider::new(),
         ) {
@@ -920,6 +930,7 @@ impl Relayer {
             &staging_db_tx,
             headers_conn,
             reward_set,
+            obtained_method,
         )?;
         staging_db_tx.commit()?;
 
@@ -945,6 +956,7 @@ impl Relayer {
         burnchain: &Burnchain,
         sortdb: &SortitionDB,
         chainstate: &mut StacksChainState,
+        stacks_tip: &StacksBlockId,
         blocks: impl Iterator<Item = NakamotoBlock>,
         coord_comms: Option<&CoordinatorChannels>,
     ) -> Result<Vec<NakamotoBlock>, chainstate_error> {
@@ -958,8 +970,10 @@ impl Relayer {
                 sortdb,
                 &mut sort_handle,
                 chainstate,
+                stacks_tip,
                 &block,
                 coord_comms,
+                NakamotoBlockObtainMethod::Downloaded,
             ) {
                 warn!("Failed to process Nakamoto block {}: {:?}", &block_id, &e);
             } else {
@@ -1554,9 +1568,9 @@ impl Relayer {
                 let mut accepted_blocks = vec![];
                 if let Err(e) = Relayer::validate_nakamoto_blocks_push(
                     burnchain,
-                    &sortdb.index_conn(),
                     sortdb,
                     chainstate,
+                    &network_result.stacks_tip,
                     nakamoto_blocks_data,
                 ) {
                     info!(
@@ -1581,8 +1595,10 @@ impl Relayer {
                         sortdb,
                         &mut sort_handle,
                         chainstate,
+                        &network_result.stacks_tip,
                         &nakamoto_block,
                         coord_comms,
+                        NakamotoBlockObtainMethod::Pushed,
                     ) {
                         Ok(accepted) => {
                             if accepted {
@@ -1935,6 +1951,7 @@ impl Relayer {
                 burnchain,
                 sortdb,
                 chainstate,
+                &network_result.stacks_tip,
                 nakamoto_blocks.into_values(),
                 coord_comms,
             ) {
@@ -1968,7 +1985,7 @@ impl Relayer {
             let block_id = block.block_id();
             let have_block = chainstate
                 .nakamoto_blocks_db()
-                .has_nakamoto_block(&block_id)
+                .has_nakamoto_block_with_index_hash(&block_id)
                 .unwrap_or_else(|e| {
                     warn!(
                         "Failed to determine if we have Nakamoto block";
@@ -2568,7 +2585,7 @@ impl Relayer {
                     if !force_send
                         && chainstate
                             .nakamoto_blocks_db()
-                            .has_nakamoto_block(&blk.block_id())
+                            .has_nakamoto_block_with_index_hash(&blk.block_id())
                             .unwrap_or(true)
                     {
                         return false;

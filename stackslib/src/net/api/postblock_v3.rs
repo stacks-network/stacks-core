@@ -18,6 +18,7 @@ use stacks_common::codec::{Error as CodecError, StacksMessageCodec, MAX_PAYLOAD_
 use stacks_common::types::net::PeerHost;
 
 use super::postblock::StacksBlockAcceptedData;
+use crate::chainstate::nakamoto::staging_blocks::NakamotoBlockObtainMethod;
 use crate::chainstate::nakamoto::NakamotoBlock;
 use crate::net::http::{
     parse_json, Error, HttpContentType, HttpError, HttpRequest, HttpRequestContents,
@@ -122,13 +123,16 @@ impl RPCRequestHandler for RPCPostBlockRequestHandler {
         let response = node
             .with_node_state(|network, sortdb, chainstate, _mempool, _rpc_args| {
                 let mut handle_conn = sortdb.index_handle_at_tip();
+                let stacks_tip = network.stacks_tip.block_id();
                 Relayer::process_new_nakamoto_block(
                     &network.burnchain,
                     &sortdb,
                     &mut handle_conn,
                     chainstate,
+                    &stacks_tip,
                     &block,
                     None,
+                    NakamotoBlockObtainMethod::Uploaded,
                 )
             })
             .map_err(|e| {

@@ -2,12 +2,13 @@ use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLE
 use stacks_common::consts::{
     BITCOIN_REGTEST_FIRST_BLOCK_HASH, BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT,
     BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP, FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH,
+    PEER_VERSION_EPOCH_2_0,
 };
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, SortitionId, StacksAddress, StacksBlockId,
     StacksPrivateKey, StacksPublicKey, VRFSeed,
 };
-use stacks_common::types::{StacksEpochId, PEER_VERSION_EPOCH_2_0};
+use stacks_common::types::StacksEpochId;
 
 use crate::vm::ast::ASTRules;
 use crate::vm::costs::ExecutionCost;

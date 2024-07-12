@@ -94,6 +94,7 @@ jobs:
           - tests::nakamoto_integrations::clarity_burn_state
           - tests::nakamoto_integrations::check_block_times
           - tests::nakamoto_integrations::check_block_info
+          - tests::nakamoto_integrations::check_block_info_rewards
           - tests::nakamoto_integrations::continue_tenure_extend
           # Do not run this one until we figure out why it fails in CI
           # - tests::neon_integrations::bitcoin_reorg_flap

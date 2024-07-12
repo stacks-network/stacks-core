@@ -232,7 +232,8 @@ impl UnconfirmedState {
             mblocks.len()
         );
 
-        let headers_db = HeadersDBConn(chainstate.db());
+        let stacks_dbconn = chainstate.index_conn();
+        let headers_db = HeadersDBConn(stacks_dbconn);
         let burn_block_hash = headers_db
             .get_burn_header_hash_for_block(&self.confirmed_chain_tip)
             .expect("BUG: unable to get burn block hash based on chain tip");
@@ -260,14 +261,13 @@ impl UnconfirmedState {
 
         if mblocks.len() > 0 {
             let cur_cost = self.cost_so_far.clone();
-            let headers_db_conn = HeadersDBConn(chainstate.db());
 
             // NOTE: we *must* commit the clarity_tx now that it's begun.
             // Otherwise, microblock miners can leave the MARF in a partially-initialized state,
             // leading to a node crash.
             let mut clarity_tx = StacksChainState::chainstate_begin_unconfirmed(
                 db_config,
-                &headers_db_conn,
+                &headers_db,
                 &mut self.clarity_inst,
                 burn_dbconn,
                 &self.confirmed_chain_tip,
