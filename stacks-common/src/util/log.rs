@@ -173,6 +173,7 @@ struct TermSerializer<'a> {
     isatty: bool,
     pretty_print: bool,
     prefix_written: bool,
+    comma_needed: bool,
 }
 
 impl<'a> TermSerializer<'a> {
@@ -182,6 +183,7 @@ impl<'a> TermSerializer<'a> {
             isatty,
             pretty_print,
             prefix_written: false,
+            comma_needed: true,
         }
     }
 }
@@ -191,15 +193,22 @@ impl<'a> slog::Serializer for TermSerializer<'a> {
         if !self.prefix_written {
             write!(self.rd, "{} - {{ ", color_if_tty("\x1b[0;90m", self.isatty))?;
             self.prefix_written = true;
+            self.comma_needed = false;
+        }
+
+        if self.comma_needed {
+            write!(self.rd, ", ")?;
         }
 
         write!(
             self.rd,
-            "{}{}: {} ",
+            "{}{}: {}",
             color_if_tty("\x1b[0;90m", self.isatty),
             key,
             val,
         )?;
+
+        self.comma_needed = true;
 
         Ok(())
     }
@@ -208,7 +217,7 @@ impl<'a> slog::Serializer for TermSerializer<'a> {
 impl<'a> Drop for TermSerializer<'a> {
     fn drop(&mut self) {
         if self.prefix_written {
-            write!(self.rd, "}}{}", color_if_tty("\x1b[0m", self.isatty)).ok();
+            write!(self.rd, " }}{}", color_if_tty("\x1b[0m", self.isatty)).ok();
         }
     }
 }
