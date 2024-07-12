@@ -240,6 +240,7 @@ fn mempool_walk_over_fork() {
             &mut chainstate,
             &block.0,
             &block.1,
+            true,
             txid,
             tx_bytes,
             tx_fee,
@@ -275,7 +276,6 @@ fn mempool_walk_over_fork() {
                 .iterate_candidates::<_, ChainstateError, _>(
                     clarity_conn,
                     &mut tx_events,
-                    2,
                     mempool_settings.clone(),
                     |_, available_tx, _| {
                         count_txs += 1;
@@ -314,7 +314,6 @@ fn mempool_walk_over_fork() {
                 .iterate_candidates::<_, ChainstateError, _>(
                     clarity_conn,
                     &mut tx_events,
-                    2,
                     mempool_settings.clone(),
                     |_, available_tx, _| {
                         count_txs += 1;
@@ -352,7 +351,6 @@ fn mempool_walk_over_fork() {
                 .iterate_candidates::<_, ChainstateError, _>(
                     clarity_conn,
                     &mut tx_events,
-                    3,
                     mempool_settings.clone(),
                     |_, available_tx, _| {
                         count_txs += 1;
@@ -395,7 +393,6 @@ fn mempool_walk_over_fork() {
                 .iterate_candidates::<_, ChainstateError, _>(
                     clarity_conn,
                     &mut tx_events,
-                    2,
                     mempool_settings.clone(),
                     |_, available_tx, _| {
                         count_txs += 1;
@@ -436,7 +433,6 @@ fn mempool_walk_over_fork() {
                 .iterate_candidates::<_, ChainstateError, _>(
                     clarity_conn,
                     &mut tx_events,
-                    3,
                     mempool_settings.clone(),
                     |_, available_tx, _| {
                         count_txs += 1;
@@ -498,6 +494,7 @@ fn mempool_walk_over_fork() {
         &mut chainstate,
         &block.0,
         &block.1,
+        true,
         txid,
         tx_bytes,
         tx_fee,
@@ -551,6 +548,7 @@ fn mempool_walk_over_fork() {
         &mut chainstate,
         &block.0,
         &block.1,
+        true,
         txid,
         tx_bytes,
         tx_fee,
@@ -630,6 +628,7 @@ fn test_iterate_candidates_consider_no_estimate_tx_prob() {
             &mut chainstate,
             &b_1.0,
             &b_1.1,
+            true,
             txid,
             tx_bytes,
             tx_fee,
@@ -672,7 +671,6 @@ fn test_iterate_candidates_consider_no_estimate_tx_prob() {
                 .iterate_candidates::<_, ChainstateError, _>(
                     clarity_conn,
                     &mut tx_events,
-                    2,
                     mempool_settings.clone(),
                     |_, available_tx, _| {
                         count_txs += 1;
@@ -710,7 +708,6 @@ fn test_iterate_candidates_consider_no_estimate_tx_prob() {
                 .iterate_candidates::<_, ChainstateError, _>(
                     clarity_conn,
                     &mut tx_events,
-                    2,
                     mempool_settings.clone(),
                     |_, available_tx, _| {
                         count_txs += 1;
@@ -748,7 +745,6 @@ fn test_iterate_candidates_consider_no_estimate_tx_prob() {
                 .iterate_candidates::<_, ChainstateError, _>(
                     clarity_conn,
                     &mut tx_events,
-                    2,
                     mempool_settings.clone(),
                     |_, available_tx, _| {
                         count_txs += 1;
@@ -826,6 +822,7 @@ fn test_iterate_candidates_skipped_transaction() {
             &mut chainstate,
             &b_1.0,
             &b_1.1,
+            true,
             txid,
             tx_bytes,
             tx_fee,
@@ -850,7 +847,6 @@ fn test_iterate_candidates_skipped_transaction() {
                 .iterate_candidates::<_, ChainstateError, _>(
                     clarity_conn,
                     &mut tx_events,
-                    2,
                     mempool_settings.clone(),
                     |_, available_tx, _| {
                         count_txs += 1;
@@ -939,6 +935,7 @@ fn test_iterate_candidates_processing_error_transaction() {
             &mut chainstate,
             &b_1.0,
             &b_1.1,
+            true,
             txid,
             tx_bytes,
             tx_fee,
@@ -963,7 +960,6 @@ fn test_iterate_candidates_processing_error_transaction() {
                 .iterate_candidates::<_, ChainstateError, _>(
                     clarity_conn,
                     &mut tx_events,
-                    2,
                     mempool_settings.clone(),
                     |_, available_tx, _| {
                         count_txs += 1;
@@ -1054,6 +1050,7 @@ fn test_iterate_candidates_problematic_transaction() {
             &mut chainstate,
             &b_1.0,
             &b_1.1,
+            true,
             txid,
             tx_bytes,
             tx_fee,
@@ -1078,7 +1075,6 @@ fn test_iterate_candidates_problematic_transaction() {
                 .iterate_candidates::<_, ChainstateError, _>(
                     clarity_conn,
                     &mut tx_events,
-                    2,
                     mempool_settings.clone(),
                     |_, available_tx, _| {
                         count_txs += 1;
@@ -1183,6 +1179,7 @@ fn test_iterate_candidates_concurrent_write_lock() {
             &mut chainstate,
             &b_1.0,
             &b_1.1,
+            true,
             txid,
             tx_bytes,
             tx_fee,
@@ -1239,7 +1236,6 @@ fn test_iterate_candidates_concurrent_write_lock() {
                 .iterate_candidates::<_, ChainstateError, _>(
                     clarity_conn,
                     &mut tx_events,
-                    2,
                     mempool_settings.clone(),
                     |_, available_tx, _| {
                         count_txs += 1;
@@ -1342,6 +1338,7 @@ fn mempool_do_not_replace_tx() {
         &mut chainstate,
         &b_1.0,
         &b_1.1,
+        true,
         txid,
         tx_bytes,
         tx_fee,
@@ -1370,6 +1367,7 @@ fn mempool_do_not_replace_tx() {
         &mut chainstate,
         &b_2.0,
         &b_2.1,
+        true,
         txid,
         tx_bytes,
         tx_fee,
@@ -1446,6 +1444,7 @@ fn mempool_db_load_store_replace_tx(#[case] behavior: MempoolCollectionBehavior)
             &mut chainstate,
             &ConsensusHash([0x1; 20]),
             &BlockHeaderHash([0x2; 32]),
+            false,
             txid,
             tx_bytes,
             tx_fee,
@@ -1471,12 +1470,15 @@ fn mempool_db_load_store_replace_tx(#[case] behavior: MempoolCollectionBehavior)
         assert_eq!(tx_info.metadata.origin_nonce, origin_nonce);
         assert_eq!(tx_info.metadata.sponsor_address, sponsor_address);
         assert_eq!(tx_info.metadata.sponsor_nonce, sponsor_nonce);
-        assert_eq!(tx_info.metadata.consensus_hash, ConsensusHash([0x1; 20]));
         assert_eq!(
-            tx_info.metadata.block_header_hash,
+            tx_info.metadata.tenure_consensus_hash,
+            ConsensusHash([0x1; 20])
+        );
+        assert_eq!(
+            tx_info.metadata.tenure_block_header_hash,
             BlockHeaderHash([0x2; 32])
         );
-        assert_eq!(tx_info.metadata.block_height, height);
+        assert_eq!(tx_info.metadata.coinbase_height, height);
 
         // test replace-by-fee with a higher fee
         let old_txid = txid;
@@ -1503,6 +1505,7 @@ fn mempool_db_load_store_replace_tx(#[case] behavior: MempoolCollectionBehavior)
             &mut chainstate,
             &ConsensusHash([0x1; 20]),
             &BlockHeaderHash([0x2; 32]),
+            false,
             txid,
             tx_bytes,
             tx_fee,
@@ -1539,12 +1542,15 @@ fn mempool_db_load_store_replace_tx(#[case] behavior: MempoolCollectionBehavior)
         assert_eq!(tx_info.metadata.origin_nonce, origin_nonce);
         assert_eq!(tx_info.metadata.sponsor_address, sponsor_address);
         assert_eq!(tx_info.metadata.sponsor_nonce, sponsor_nonce);
-        assert_eq!(tx_info.metadata.consensus_hash, ConsensusHash([0x1; 20]));
         assert_eq!(
-            tx_info.metadata.block_header_hash,
+            tx_info.metadata.tenure_consensus_hash,
+            ConsensusHash([0x1; 20])
+        );
+        assert_eq!(
+            tx_info.metadata.tenure_block_header_hash,
             BlockHeaderHash([0x2; 32])
         );
-        assert_eq!(tx_info.metadata.block_height, height);
+        assert_eq!(tx_info.metadata.coinbase_height, height);
 
         // test replace-by-fee with a lower fee
         let old_txid = txid;
@@ -1563,6 +1569,7 @@ fn mempool_db_load_store_replace_tx(#[case] behavior: MempoolCollectionBehavior)
             &mut chainstate,
             &ConsensusHash([0x1; 20]),
             &BlockHeaderHash([0x2; 32]),
+            false,
             txid,
             tx_bytes,
             tx_fee,
@@ -1622,7 +1629,7 @@ fn mempool_db_load_store_replace_tx(#[case] behavior: MempoolCollectionBehavior)
     let mut mempool_tx = mempool.tx_begin().unwrap();
     match behavior {
         MempoolCollectionBehavior::ByStacksHeight => {
-            MemPoolDB::garbage_collect_by_height(&mut mempool_tx, 101, None)
+            MemPoolDB::garbage_collect_by_coinbase_height(&mut mempool_tx, 101, None)
         }
         MempoolCollectionBehavior::ByReceiveTime => {
             let test_max_age = Duration::from_secs(1);
@@ -1712,6 +1719,7 @@ fn mempool_db_test_rbf() {
         &mut chainstate,
         &ConsensusHash([0x1; 20]),
         &BlockHeaderHash([0x2; 32]),
+        false,
         txid,
         tx_bytes,
         tx_fee,
@@ -1761,6 +1769,7 @@ fn mempool_db_test_rbf() {
         &mut chainstate,
         &ConsensusHash([0x1; 20]),
         &BlockHeaderHash([0x2; 32]),
+        false,
         txid,
         tx_bytes,
         tx_fee,
@@ -1843,6 +1852,7 @@ fn test_add_txs_bloom_filter() {
                 &mut chainstate,
                 &ConsensusHash([0x1 + (block_height as u8); 20]),
                 &BlockHeaderHash([0x2 + (block_height as u8); 32]),
+                false,
                 txid,
                 tx_bytes,
                 tx_fee,
@@ -1953,6 +1963,7 @@ fn test_txtags() {
                 &mut chainstate,
                 &ConsensusHash([0x1 + (block_height as u8); 20]),
                 &BlockHeaderHash([0x2 + (block_height as u8); 32]),
+                false,
                 txid,
                 tx_bytes,
                 tx_fee,
@@ -2046,6 +2057,7 @@ fn test_make_mempool_sync_data() {
                     &mut chainstate,
                     &ConsensusHash([0x1 + (block_height as u8); 20]),
                     &BlockHeaderHash([0x2 + (block_height as u8); 32]),
+                    false,
                     txid.clone(),
                     tx_bytes,
                     tx_fee,
@@ -2084,7 +2096,7 @@ fn test_make_mempool_sync_data() {
                     let recent_txids = mempool.get_bloom_txids().unwrap();
                     assert!(recent_txids.len() <= MAX_BLOOM_COUNTER_TXS as usize);
 
-                    let max_height = MemPoolDB::get_max_height(mempool.conn())
+                    let max_height = MemPoolDB::get_max_coinbase_height(mempool.conn())
                         .unwrap()
                         .unwrap_or(0);
                     eprintln!(
@@ -2223,6 +2235,7 @@ fn test_find_next_missing_transactions() {
             &mut chainstate,
             &ConsensusHash([0x1 + (block_height as u8); 20]),
             &BlockHeaderHash([0x2 + (block_height as u8); 32]),
+            false,
             txid.clone(),
             tx_bytes,
             tx_fee,
@@ -2492,6 +2505,7 @@ fn test_drop_and_blacklist_txs_by_time() {
             &mut chainstate,
             &ConsensusHash([0x1 + (block_height as u8); 20]),
             &BlockHeaderHash([0x2 + (block_height as u8); 32]),
+            false,
             txid.clone(),
             tx_bytes,
             tx_fee,
@@ -2611,6 +2625,7 @@ fn test_drop_and_blacklist_txs_by_size() {
             &mut chainstate,
             &ConsensusHash([0x1 + (block_height as u8); 20]),
             &BlockHeaderHash([0x2 + (block_height as u8); 32]),
+            false,
             txid.clone(),
             tx_bytes,
             tx_fee,
@@ -2728,6 +2743,7 @@ fn test_filter_txs_by_type() {
             &mut chainstate,
             &b_2.0,
             &b_2.1,
+            true,
             txid.clone(),
             tx_bytes,
             tx_fee,
@@ -2763,7 +2779,6 @@ fn test_filter_txs_by_type() {
                 .iterate_candidates::<_, ChainstateError, _>(
                     clarity_conn,
                     &mut tx_events,
-                    2,
                     mempool_settings.clone(),
                     |_, available_tx, _| {
                         count_txs += 1;
@@ -2799,7 +2814,6 @@ fn test_filter_txs_by_type() {
                 .iterate_candidates::<_, ChainstateError, _>(
                     clarity_conn,
                     &mut tx_events,
-                    2,
                     mempool_settings.clone(),
                     |_, available_tx, _| {
                         count_txs += 1;
