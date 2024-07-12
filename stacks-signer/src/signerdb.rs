@@ -482,6 +482,47 @@ mod tests {
     }
 
     #[test]
+    fn get_first_signed_block() {
+        let db_path = tmp_db_path();
+        let mut db = SignerDb::new(db_path).expect("Failed to create signer db");
+        let (mut block_info, block_proposal) = create_block();
+        db.insert_block(&block_info).unwrap();
+
+        assert!(db
+            .get_first_signed_block_in_tenure(&block_proposal.block.header.consensus_hash)
+            .unwrap()
+            .is_none());
+
+        block_info.mark_signed_and_valid();
+        db.insert_block(&block_info).unwrap();
+
+        let fetched_info = db
+            .get_first_signed_block_in_tenure(&block_proposal.block.header.consensus_hash)
+            .unwrap()
+            .unwrap();
+        assert_eq!(fetched_info, block_info);
+    }
+
+    #[test]
+    fn insert_burn_block_get_time() {
+        let db_path = tmp_db_path();
+        let mut db = SignerDb::new(db_path).expect("Failed to create signer db");
+        let test_burn_hash = BurnchainHeaderHash([10; 32]);
+        let stime = SystemTime::now();
+        let time_to_epoch = stime
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        db.insert_burn_block(&test_burn_hash, 10, &stime).unwrap();
+
+        let stored_time = db
+            .get_burn_block_receive_time(&test_burn_hash)
+            .unwrap()
+            .unwrap();
+        assert_eq!(stored_time, time_to_epoch);
+    }
+
+    #[test]
     fn test_write_signer_state() {
         let db_path = tmp_db_path();
         let db = SignerDb::new(db_path).expect("Failed to create signer db");
