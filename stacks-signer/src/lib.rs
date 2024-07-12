@@ -1,6 +1,6 @@
 #![forbid(missing_docs)]
 /*!
-# stacks-signer: a libary for creating a Stacks compliant signer. A default implementation binary is also provided.
+# stacks-signer: a library for creating a Stacks compliant signer. A default implementation binary is also provided.
 Usage documentation can be found in the [README](https://github.com/Trust-Machines/core-eng/stacks-signer-api/README.md).
 */
 
@@ -81,6 +81,8 @@ pub trait Signer<T: SignerEventTrait>: Debug + Display {
         current_reward_cycle: u64,
         command: Option<RunLoopCommand>,
     );
+    /// Check if the signer is in the middle of processing blocks
+    fn has_pending_blocks(&self) -> bool;
 }
 
 /// A wrapper around the running signer type for the signer

@@ -1748,6 +1748,7 @@ impl ConversationP2P {
             &tip,
             sortdb,
             chainstate,
+            &network.stacks_tip.block_id(),
             reward_cycle,
         )?;
         let nakamoto_inv = NakamotoInvData::try_from(&bitvec_bools).map_err(|e| {
@@ -1757,6 +1758,13 @@ impl ConversationP2P {
             );
             e
         })?;
+
+        test_debug!(
+            "Reply NakamotoInv for {} (rc {}): {:?}",
+            &get_nakamoto_inv.consensus_hash,
+            reward_cycle,
+            &nakamoto_inv
+        );
 
         Ok(StacksMessageType::NakamotoInv(nakamoto_inv))
     }

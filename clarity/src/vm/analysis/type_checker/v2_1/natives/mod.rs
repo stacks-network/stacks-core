@@ -17,8 +17,8 @@
 use stacks_common::types::StacksEpochId;
 
 use super::{
-    check_argument_count, check_arguments_at_least, check_arguments_at_most, no_type, TypeChecker,
-    TypeResult, TypingContext,
+    check_argument_count, check_arguments_at_least, check_arguments_at_most,
+    compute_typecheck_cost, no_type, TypeChecker, TypeResult, TypingContext,
 };
 use crate::vm::analysis::errors::{CheckError, CheckErrors, CheckResult};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
@@ -62,14 +62,43 @@ fn check_special_list_cons(
     args: &[SymbolicExpression],
     context: &TypingContext,
 ) -> TypeResult {
-    let typed_args = checker.type_check_all(args, context)?;
-    for type_arg in typed_args.iter() {
-        runtime_cost(
-            ClarityCostFunction::AnalysisListItemsCheck,
-            checker,
-            type_arg.type_size()?,
-        )?;
+    let mut result = Vec::with_capacity(args.len());
+    let mut entries_size: Option<u32> = Some(0);
+    let mut costs = Vec::with_capacity(args.len());
+
+    for arg in args.iter() {
+        // don't use map here, since type_check has side-effects.
+        let checked = checker.type_check(arg, context)?;
+        let cost = checked.type_size().and_then(|ty_size| {
+            checker
+                .compute_cost(
+                    ClarityCostFunction::AnalysisListItemsCheck,
+                    &[ty_size.into()],
+                )
+                .map_err(CheckErrors::from)
+        });
+        costs.push(cost);
+
+        if let Some(cur_size) = entries_size.clone() {
+            entries_size = cur_size.checked_add(checked.size()?);
+        }
+        if let Some(cur_size) = entries_size {
+            if cur_size > MAX_VALUE_SIZE {
+                entries_size = None;
+            }
+        }
+        if entries_size.is_some() {
+            result.push(checked);
+        }
     }
+
+    for cost in costs.into_iter() {
+        checker.add_cost(cost?)?;
+    }
+    if entries_size.is_none() {
+        return Err(CheckErrors::ValueTooLarge.into());
+    }
+    let typed_args = result;
     TypeSignature::parent_list_type(&typed_args)
         .map_err(|x| x.into())
         .map(TypeSignature::from)
@@ -203,6 +232,9 @@ pub fn check_special_tuple_cons(
         args.len(),
     )?;
 
+    let mut type_size = 0u32;
+    let mut cons_error = Ok(());
+
     handle_binding_list(args, |var_name, var_sexp| {
         checker.type_check(var_sexp, context).and_then(|var_type| {
             runtime_cost(
@@ -210,11 +242,21 @@ pub fn check_special_tuple_cons(
                 checker,
                 var_type.type_size()?,
             )?;
-            tuple_type_data.push((var_name.clone(), var_type));
+            if type_size < MAX_VALUE_SIZE {
+                type_size = type_size
+                    .saturating_add(var_name.len() as u32)
+                    .saturating_add(var_name.len() as u32)
+                    .saturating_add(var_type.type_size()?)
+                    .saturating_add(var_type.size()?);
+                tuple_type_data.push((var_name.clone(), var_type));
+            } else {
+                cons_error = Err(CheckErrors::BadTupleConstruction);
+            }
             Ok(())
         })
     })?;
 
+    cons_error?;
     let tuple_signature = TupleTypeSignature::try_from(tuple_type_data)
         .map_err(|_e| CheckErrors::BadTupleConstruction)?;
 
@@ -339,14 +381,32 @@ fn check_special_equals(
 ) -> TypeResult {
     check_arguments_at_least(1, args)?;
 
-    let arg_types = checker.type_check_all(args, context)?;
+    let mut arg_type = None;
+    let mut costs = Vec::with_capacity(args.len());
 
-    let mut arg_type = arg_types[0].clone();
-    for x_type in arg_types.into_iter() {
-        analysis_typecheck_cost(checker, &x_type, &arg_type)?;
-        arg_type = TypeSignature::least_supertype(&StacksEpochId::Epoch21, &x_type, &arg_type)
-            .map_err(|_| CheckErrors::TypeError(x_type, arg_type))?;
+    for arg in args.iter() {
+        let x_type = checker.type_check(arg, context)?;
+        if arg_type.is_none() {
+            arg_type = Some(Ok(x_type.clone()));
+        }
+        if let Some(Ok(cur_type)) = arg_type {
+            let cost = compute_typecheck_cost(checker, &x_type, &cur_type);
+            costs.push(cost);
+            arg_type = Some(
+                TypeSignature::least_supertype(&StacksEpochId::Epoch21, &x_type, &cur_type)
+                    .map_err(|_| CheckErrors::TypeError(x_type, cur_type)),
+            );
+        }
     }
+
+    for cost in costs.into_iter() {
+        checker.add_cost(cost?)?;
+    }
+
+    // check if there was a least supertype failure.
+    arg_type.ok_or_else(|| {
+        CheckErrors::Expects("Arg type should be set because arguments checked for >= 1".into())
+    })??;
 
     Ok(TypeSignature::BoolType)
 }

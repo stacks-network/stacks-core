@@ -170,7 +170,7 @@ impl SignerTrait<SignerMessage> for Signer {
         let event_parity = match event {
             Some(SignerEvent::BlockValidationResponse(_)) => Some(current_reward_cycle % 2),
             // Block proposal events do have reward cycles, but each proposal has its own cycle,
-            //  and the vec could be heterogenous, so, don't differentiate.
+            //  and the vec could be heterogeneous, so, don't differentiate.
             Some(SignerEvent::MinerMessages(..))
             | Some(SignerEvent::NewBurnBlock(_))
             | Some(SignerEvent::StatusCheck)
@@ -266,6 +266,16 @@ impl SignerTrait<SignerMessage> for Signer {
             }
         }
         self.process_next_command(stacks_client, current_reward_cycle);
+    }
+
+    fn has_pending_blocks(&self) -> bool {
+        self.signer_db
+            .has_pending_blocks(self.reward_cycle)
+            .unwrap_or_else(|e| {
+                error!("{self}: Failed to check if there are pending blocks: {e:?}");
+                // Assume there are pending blocks to prevent premature cleanup
+                true
+            })
     }
 }
 
@@ -1384,17 +1394,21 @@ impl Signer {
     ) -> Result<(), PersistenceError> {
         self.signer_db
             .insert_encrypted_signer_state(self.reward_cycle, encrypted_state)?;
-
         Ok(())
     }
 
     /// Persist signer state in StackerDB
+    /// TODO: this is a no-op until the number of signer slots can be expanded
     fn save_signer_state_in_stackerdb(
         &mut self,
-        encrypted_state: Vec<u8>,
+        _encrypted_state: Vec<u8>,
     ) -> Result<(), PersistenceError> {
+        /*
+         * This is a no-op until the number of signer slots can be expanded to 14
+         *
         let message = SignerMessage::EncryptedSignerState(encrypted_state);
         self.stackerdb_manager.send_message_with_retry(message)?;
+        */
         Ok(())
     }
 

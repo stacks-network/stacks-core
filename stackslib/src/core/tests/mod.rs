@@ -26,6 +26,7 @@ use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, StacksAddre
 use clarity::vm::{ClarityName, ContractName, Value};
 use rand::prelude::*;
 use rand::thread_rng;
+use rusqlite::params;
 use stacks_common::address::AddressHashMode;
 use stacks_common::codec::{read_next, Error as codec_error, StacksMessageCodec};
 use stacks_common::types::chainstate::{
@@ -645,7 +646,7 @@ fn test_iterate_candidates_consider_no_estimate_tx_prob() {
             mempool_tx
                 .execute(
                     "UPDATE mempool SET fee_rate = ? WHERE txid = ?",
-                    rusqlite::params![Some(123.0), &txid],
+                    params![Some(123.0), txid],
                 )
                 .unwrap();
         } else {
@@ -653,7 +654,7 @@ fn test_iterate_candidates_consider_no_estimate_tx_prob() {
             mempool_tx
                 .execute(
                     "UPDATE mempool SET fee_rate = ? WHERE txid = ?",
-                    rusqlite::params![none, &txid],
+                    params![none, txid],
                 )
                 .unwrap();
         }
@@ -1198,7 +1199,7 @@ fn test_iterate_candidates_concurrent_write_lock() {
             mempool_tx
                 .execute(
                     "UPDATE mempool SET fee_rate = ? WHERE txid = ?",
-                    rusqlite::params![Some(123.0), &txid],
+                    params![Some(123.0), txid],
                 )
                 .unwrap();
         } else {
@@ -1206,7 +1207,7 @@ fn test_iterate_candidates_concurrent_write_lock() {
             mempool_tx
                 .execute(
                     "UPDATE mempool SET fee_rate = ? WHERE txid = ?",
-                    rusqlite::params![none, &txid],
+                    params![none, txid],
                 )
                 .unwrap();
         }

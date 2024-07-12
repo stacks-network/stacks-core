@@ -193,9 +193,19 @@ impl NakamotoTenureDownloaderSet {
             .is_some()
     }
 
-    /// Determine if this downloader set is empty -- i.e. there's no in-flight requests.
+    /// Determine if this downloader set is empty -- i.e. there's no in-progress downloaders.
     pub fn is_empty(&self) -> bool {
-        self.inflight() == 0
+        for downloader_opt in self.downloaders.iter() {
+            let Some(downloader) = downloader_opt else {
+                continue;
+            };
+            if downloader.is_done() {
+                continue;
+            }
+            test_debug!("TenureDownloadSet::is_empty(): have downloader for tenure {:?} assigned to {} in state {}", &downloader.tenure_id_consensus_hash, &downloader.naddr, &downloader.state);
+            return false;
+        }
+        true
     }
 
     /// Try to resume processing a download state machine with a given peer.  Since a peer is
@@ -609,7 +619,13 @@ impl NakamotoTenureDownloaderSet {
             };
             test_debug!("Got response from {}", &naddr);
 
-            let Ok(blocks_opt) = downloader.handle_next_download_response(response) else {
+            let Ok(blocks_opt) = downloader
+                .handle_next_download_response(response)
+                .map_err(|e| {
+                    debug!("Failed to handle response from {}: {:?}", &naddr, &e);
+                    e
+                })
+            else {
                 test_debug!("Failed to handle download response from {}", &naddr);
                 neighbor_rpc.add_dead(network, &naddr);
                 continue;

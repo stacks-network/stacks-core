@@ -53,7 +53,7 @@ use crate::chainstate::stacks::boot::{
     POX_3_NAME,
 };
 use crate::chainstate::stacks::db::{
-    MinerPaymentSchedule, StacksChainState, StacksHeaderInfo, MINER_REWARD_MATURITY,
+    MinerPaymentSchedule, StacksChainState, StacksDBConn, StacksHeaderInfo, MINER_REWARD_MATURITY,
 };
 use crate::chainstate::stacks::events::TransactionOrigin;
 use crate::chainstate::stacks::index::marf::MarfConnection;
@@ -666,7 +666,7 @@ where
     F: FnOnce(&mut ClarityDatabase) -> R,
 {
     with_sortdb(peer, |ref mut c, ref sortdb| {
-        let headers_db = HeadersDBConn(c.state_index.sqlite_conn());
+        let headers_db = HeadersDBConn(StacksDBConn::new(&c.state_index, ()));
         let burn_db = sortdb.index_handle_at_tip();
         let mut read_only_clar = c
             .clarity_state

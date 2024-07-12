@@ -182,9 +182,11 @@ impl NakamotoTenureDownloader {
         end_signer_keys: RewardSet,
     ) -> Self {
         test_debug!(
-            "Instantiate downloader to {} for tenure {}",
+            "Instantiate downloader to {} for tenure {}: {}-{}",
             &naddr,
-            &tenure_id_consensus_hash
+            &tenure_id_consensus_hash,
+            &tenure_start_block_id,
+            &tenure_end_block_id,
         );
         Self {
             tenure_id_consensus_hash,
@@ -656,7 +658,10 @@ impl NakamotoTenureDownloader {
                     "Got download response for tenure-start block {}",
                     &_block_id
                 );
-                let block = response.decode_nakamoto_block()?;
+                let block = response.decode_nakamoto_block().map_err(|e| {
+                    warn!("Failed to decode response for a Nakamoto block: {:?}", &e);
+                    e
+                })?;
                 self.try_accept_tenure_start_block(block)?;
                 Ok(None)
             }
@@ -666,7 +671,10 @@ impl NakamotoTenureDownloader {
             }
             NakamotoTenureDownloadState::GetTenureEndBlock(_block_id) => {
                 test_debug!("Got download response to tenure-end block {}", &_block_id);
-                let block = response.decode_nakamoto_block()?;
+                let block = response.decode_nakamoto_block().map_err(|e| {
+                    warn!("Failed to decode response for a Nakamoto block: {:?}", &e);
+                    e
+                })?;
                 self.try_accept_tenure_end_block(&block)?;
                 Ok(None)
             }
@@ -675,7 +683,10 @@ impl NakamotoTenureDownloader {
                     "Got download response for tenure blocks ending at {}",
                     &_end_block_id
                 );
-                let blocks = response.decode_nakamoto_tenure()?;
+                let blocks = response.decode_nakamoto_tenure().map_err(|e| {
+                    warn!("Failed to decode response for a Nakamoto tenure: {:?}", &e);
+                    e
+                })?;
                 self.try_accept_tenure_blocks(blocks)
             }
             NakamotoTenureDownloadState::Done => Err(NetError::InvalidState),

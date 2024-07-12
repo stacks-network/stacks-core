@@ -27,12 +27,13 @@ use std::{cmp, env, error, fmt, fs, io, os};
 use rusqlite::types::{FromSql, ToSql};
 use rusqlite::{
     Connection, Error as SqliteError, ErrorCode as SqliteErrorCode, OpenFlags, OptionalExtension,
-    Transaction, NO_PARAMS,
+    Transaction,
 };
 use sha2::Digest;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, TrieHash, BLOCK_HEADER_HASH_ENCODED_SIZE, TRIEHASH_ENCODED_SIZE,
 };
+use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::log;
 

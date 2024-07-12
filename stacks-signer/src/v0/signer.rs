@@ -15,7 +15,7 @@
 use std::fmt::Debug;
 use std::sync::mpsc::Sender;
 
-use blockstack_lib::net::api::postblock_proposal::{BlockValidateResponse, ValidateRejectCode};
+use blockstack_lib::net::api::postblock_proposal::BlockValidateResponse;
 use clarity::types::chainstate::StacksPrivateKey;
 use clarity::types::PrivateKey;
 use clarity::util::hash::MerkleHashFunc;
@@ -82,13 +82,13 @@ impl SignerTrait<SignerMessage> for Signer {
         sortition_state: &mut Option<SortitionsView>,
         event: Option<&SignerEvent<SignerMessage>>,
         _res: Sender<Vec<SignerResult>>,
-        current_reward_cycle: u64,
+        _current_reward_cycle: u64,
     ) {
         let event_parity = match event {
-            Some(SignerEvent::BlockValidationResponse(_)) => Some(current_reward_cycle % 2),
             // Block proposal events do have reward cycles, but each proposal has its own cycle,
-            //  and the vec could be heterogenous, so, don't differentiate.
-            Some(SignerEvent::MinerMessages(..))
+            //  and the vec could be heterogeneous, so, don't differentiate.
+            Some(SignerEvent::BlockValidationResponse(_))
+            | Some(SignerEvent::MinerMessages(..))
             | Some(SignerEvent::NewBurnBlock(_))
             | Some(SignerEvent::StatusCheck)
             | None => None,
@@ -162,6 +162,16 @@ impl SignerTrait<SignerMessage> for Signer {
         if let Some(command) = command {
             warn!("{self}: Received a command: {command:?}. V0 Signers do not support commands. Ignoring...")
         }
+    }
+
+    fn has_pending_blocks(&self) -> bool {
+        self.signer_db
+            .has_pending_blocks(self.reward_cycle)
+            .unwrap_or_else(|e| {
+                error!("{self}: Failed to check for pending blocks: {e:?}",);
+                // Assume we have pending blocks to prevent premature cleanup
+                true
+            })
     }
 }
 
@@ -280,7 +290,7 @@ impl Signer {
                 .ok();
         }
 
-        // Check if proposal can be rejected now if not valid agains sortition view
+        // Check if proposal can be rejected now if not valid against sortition view
         let block_response = if let Some(sortition_state) = sortition_state {
             match sortition_state.check_proposal(
                 stacks_client,
@@ -309,7 +319,7 @@ impl Signer {
                     );
                     Some(BlockResponse::rejected(
                         block_proposal.block.header.signer_signature_hash(),
-                        RejectCode::ValidationFailed(ValidateRejectCode::InvalidBlock),
+                        RejectCode::SortitionViewMismatch,
                     ))
                 }
                 // Block proposal passed check, still don't know if valid
@@ -323,7 +333,7 @@ impl Signer {
             );
             Some(BlockResponse::rejected(
                 block_proposal.block.header.signer_signature_hash(),
-                RejectCode::ValidationFailed(ValidateRejectCode::InvalidBlock),
+                RejectCode::NoSortitionView,
             ))
         };
 
@@ -381,7 +391,6 @@ impl Signer {
                     }
                 };
                 block_info.valid = Some(true);
-                // TODO: do not sign the block if it fails signer state checks (forks, etc.)
                 let signature = self
                     .private_key
                     .sign(&signer_signature_hash.0)

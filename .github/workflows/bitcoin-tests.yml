@@ -86,11 +86,13 @@ jobs:
           - tests::signer::v0::block_proposal_rejection
           - tests::signer::v0::miner_gather_signatures
           - tests::signer::v0::mine_2_nakamoto_reward_cycles
+          - tests::signer::v0::end_of_tenure
           - tests::nakamoto_integrations::stack_stx_burn_op_integration_test
           - tests::nakamoto_integrations::check_block_heights
           - tests::nakamoto_integrations::clarity_burn_state
           - tests::nakamoto_integrations::check_block_times
           - tests::nakamoto_integrations::check_block_info
+          - tests::nakamoto_integrations::check_block_info_rewards
           - tests::nakamoto_integrations::continue_tenure_extend
           # Do not run this one until we figure out why it fails in CI
           # - tests::neon_integrations::bitcoin_reorg_flap

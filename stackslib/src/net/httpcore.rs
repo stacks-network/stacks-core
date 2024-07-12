@@ -797,18 +797,25 @@ impl StacksHttpRecvStream {
             let mut decoded_buf = vec![0u8; CHUNK_BUF_LEN];
             let (read_pass, consumed_pass) = match self.state.do_read(fd, &mut decoded_buf) {
                 Ok((0, num_consumed)) => {
-                    trace!(
+                    test_debug!(
                         "consume_data blocked on 0 decoded bytes ({} consumed)",
                         num_consumed
                     );
                     blocked = true;
                     (0, num_consumed)
                 }
-                Ok((num_read, num_consumed)) => (num_read, num_consumed),
+                Ok((num_read, num_consumed)) => {
+                    test_debug!(
+                        "consume_data read {} bytes ({} consumed)",
+                        num_read,
+                        num_consumed
+                    );
+                    (num_read, num_consumed)
+                }
                 Err(e) => {
                     if e.kind() == io::ErrorKind::WouldBlock || e.kind() == io::ErrorKind::TimedOut
                     {
-                        trace!("consume_data blocked on read error");
+                        test_debug!("consume_data blocked on read error");
                         blocked = true;
                         (0, 0)
                     } else {
@@ -1466,7 +1473,7 @@ impl ProtocolFamily for StacksHttp {
                     }
                     None => {
                         // need more data
-                        trace!(
+                        test_debug!(
                             "did not read http response payload, but buffered {}",
                             num_read
                         );

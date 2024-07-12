@@ -31,15 +31,11 @@ stacks_common = { package = "stacks-common", path = "../stacks-common", optional
 rstest = "0.17.0"
 rstest_reuse = "0.5.0"
 hashbrown = { workspace = true }
+rusqlite = { workspace = true, optional = true}
 
 [dependencies.serde_json]
 version = "1.0"
 features = ["arbitrary_precision", "unbounded_depth"]
-
-[dependencies.rusqlite]
-version = "=0.24.2"
-optional = true
-features = ["blob", "serde_json", "i128_blob", "bundled", "trace"]
 
 [dependencies.time]
 version = "0.2.23"

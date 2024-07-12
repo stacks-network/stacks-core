@@ -21,11 +21,12 @@ use blockstack_lib::util_lib::db::{
     query_row, sqlite_open, table_exists, u64_to_sql, Error as DBError,
 };
 use libsigner::BlockProposal;
-use rusqlite::{params, Connection, Error as SqliteError, OpenFlags, NO_PARAMS};
+use rusqlite::{params, Connection, Error as SqliteError, OpenFlags};
 use serde::{Deserialize, Serialize};
 use slog::slog_debug;
 use stacks_common::debug;
 use stacks_common::types::chainstate::ConsensusHash;
+use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 use wsts::net::NonceRequest;
 
@@ -99,6 +100,7 @@ CREATE TABLE IF NOT EXISTS blocks (
 const CREATE_INDEXES: &str = "
 CREATE INDEX IF NOT EXISTS blocks_signed_over ON blocks (signed_over);
 CREATE INDEX IF NOT EXISTS blocks_consensus_hash ON blocks (consensus_hash);
+CREATE INDEX IF NOT EXISTS blocks_valid ON blocks ((json_extract(block_info, '$.valid')));
 ";
 
 const CREATE_SIGNER_STATE_TABLE: &str = "
@@ -163,7 +165,7 @@ impl SignerDb {
     ) -> Result<(), DBError> {
         self.db.execute(
             "INSERT OR REPLACE INTO signer_states (reward_cycle, encrypted_state) VALUES (?1, ?2)",
-            params![&u64_to_sql(reward_cycle)?, &encrypted_signer_state],
+            params![u64_to_sql(reward_cycle)?, encrypted_signer_state],
         )?;
         Ok(())
     }
@@ -178,7 +180,7 @@ impl SignerDb {
         let result: Option<String> = query_row(
             &self.db,
             "SELECT block_info FROM blocks WHERE reward_cycle = ? AND signer_signature_hash = ?",
-            params![&u64_to_sql(reward_cycle)?, hash.to_string()],
+            params![u64_to_sql(reward_cycle)?, hash.to_string()],
         )?;
 
         try_deserialize(result)
@@ -190,7 +192,7 @@ impl SignerDb {
         tenure: &ConsensusHash,
     ) -> Result<Option<BlockInfo>, DBError> {
         let query = "SELECT block_info FROM blocks WHERE consensus_hash = ? AND signed_over = 1 ORDER BY stacks_height DESC LIMIT 1";
-        let result: Option<String> = query_row(&self.db, query, &[tenure])?;
+        let result: Option<String> = query_row(&self.db, query, [tenure])?;
 
         try_deserialize(result)
     }
@@ -220,7 +222,7 @@ impl SignerDb {
             .execute(
                 "INSERT OR REPLACE INTO blocks (reward_cycle, burn_block_height, signer_signature_hash, block_info, signed_over, stacks_height, consensus_hash) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
                 params![
-                    u64_to_sql(block_info.reward_cycle)?, u64_to_sql(block_info.burn_block_height)?, hash.to_string(), &block_json,
+                    u64_to_sql(block_info.reward_cycle)?, u64_to_sql(block_info.burn_block_height)?, hash.to_string(), block_json,
                     signed_over,
                     u64_to_sql(block_info.block.header.chain_length)?,
                     block_info.block.header.consensus_hash.to_hex(),
@@ -228,6 +230,15 @@ impl SignerDb {
             )?;
 
         Ok(())
+    }
+
+    /// Determine if there are any pending blocks that have not yet been processed by checking the block_info.valid field
+    pub fn has_pending_blocks(&self, reward_cycle: u64) -> Result<bool, DBError> {
+        let query = "SELECT block_info FROM blocks WHERE reward_cycle = ? AND json_extract(block_info, '$.valid') IS NULL LIMIT 1";
+        let result: Option<String> =
+            query_row(&self.db, query, params!(&u64_to_sql(reward_cycle)?))?;
+
+        Ok(result.is_some())
     }
 }
 
@@ -259,6 +270,7 @@ mod tests {
     use blockstack_lib::chainstate::nakamoto::{
         NakamotoBlock, NakamotoBlockHeader, NakamotoBlockVote,
     };
+    use clarity::util::secp256k1::MessageSignature;
     use libsigner::BlockProposal;
 
     use super::*;
@@ -417,5 +429,50 @@ mod tests {
             .get_encrypted_signer_state(9)
             .expect("Failed to get signer state")
             .is_none());
+    }
+
+    #[test]
+    fn test_has_pending_blocks() {
+        let db_path = tmp_db_path();
+        let mut db = SignerDb::new(db_path).expect("Failed to create signer db");
+        let (mut block_info_1, _block_proposal) = create_block_override(|b| {
+            b.block.header.miner_signature = MessageSignature([0x01; 65]);
+            b.burn_height = 1;
+        });
+        let (mut block_info_2, _block_proposal) = create_block_override(|b| {
+            b.block.header.miner_signature = MessageSignature([0x02; 65]);
+            b.burn_height = 2;
+        });
+
+        db.insert_block(&block_info_1)
+            .expect("Unable to insert block into db");
+        db.insert_block(&block_info_2)
+            .expect("Unable to insert block into db");
+
+        assert!(db.has_pending_blocks(block_info_1.reward_cycle).unwrap());
+
+        block_info_1.valid = Some(true);
+
+        db.insert_block(&block_info_1)
+            .expect("Unable to update block in db");
+
+        assert!(db.has_pending_blocks(block_info_1.reward_cycle).unwrap());
+
+        block_info_2.valid = Some(true);
+
+        db.insert_block(&block_info_2)
+            .expect("Unable to update block in db");
+
+        assert!(!db.has_pending_blocks(block_info_1.reward_cycle).unwrap());
+    }
+
+    #[test]
+    fn test_sqlite_version() {
+        let db_path = tmp_db_path();
+        let db = SignerDb::new(db_path).expect("Failed to create signer db");
+        assert_eq!(
+            query_row(&db.db, "SELECT sqlite_version()", NO_PARAMS).unwrap(),
+            Some("3.45.0".to_string())
+        );
     }
 }
