@@ -330,7 +330,7 @@ impl RelayerThread {
         }
 
         if sn.sortition {
-            if won_sortition {
+            if won_sortition || self.config.get_node_config(false).mock_mining {
                 MinerDirective::BeginTenure {
                     parent_tenure_start: committed_index_hash,
                     burnchain_tip: sn,
