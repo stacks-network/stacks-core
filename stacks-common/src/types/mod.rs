@@ -58,11 +58,6 @@ pub trait Address: Clone + fmt::Debug + fmt::Display {
     fn is_burn(&self) -> bool;
 }
 
-pub const PEER_VERSION_EPOCH_1_0: u8 = 0x00;
-pub const PEER_VERSION_EPOCH_2_0: u8 = 0x00;
-pub const PEER_VERSION_EPOCH_2_05: u8 = 0x05;
-pub const PEER_VERSION_EPOCH_2_1: u8 = 0x06;
-
 // sliding burnchain window over which a miner's past block-commit payouts will be used to weight
 // its current block-commit in a sortition.
 // This is the value used in epoch 2.x
@@ -144,6 +139,22 @@ impl StacksEpochId {
     /// Whether or not this epoch supports the punishment of PoX reward
     /// recipients using the bitvec scheme
     pub fn allows_pox_punishment(&self) -> bool {
+        match self {
+            StacksEpochId::Epoch10
+            | StacksEpochId::Epoch20
+            | StacksEpochId::Epoch2_05
+            | StacksEpochId::Epoch21
+            | StacksEpochId::Epoch22
+            | StacksEpochId::Epoch23
+            | StacksEpochId::Epoch24
+            | StacksEpochId::Epoch25 => false,
+            StacksEpochId::Epoch30 => true,
+        }
+    }
+
+    /// Whether or not this epoch interprets block commit OPs block hash field
+    ///  as a new block hash or the StacksBlockId of a new tenure's parent tenure.
+    pub fn block_commits_to_parent(&self) -> bool {
         match self {
             StacksEpochId::Epoch10
             | StacksEpochId::Epoch20

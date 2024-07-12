@@ -3088,8 +3088,16 @@ fn process_new_blocks_rejects_problematic_asts() {
     let mut unsolicited = HashMap::new();
     unsolicited.insert(nk.clone(), bad_msgs.clone());
 
-    let mut network_result =
-        NetworkResult::new(0, 0, 0, 0, 0, ConsensusHash([0x01; 20]), HashMap::new());
+    let mut network_result = NetworkResult::new(
+        peer.network.stacks_tip.block_id(),
+        0,
+        0,
+        0,
+        0,
+        0,
+        ConsensusHash([0x01; 20]),
+        HashMap::new(),
+    );
     network_result.consume_unsolicited(unsolicited);
 
     assert!(network_result.has_blocks());

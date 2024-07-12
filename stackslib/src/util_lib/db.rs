@@ -25,11 +25,12 @@ use clarity::vm::types::QualifiedContractIdentifier;
 use rand::{thread_rng, Rng, RngCore};
 use rusqlite::types::{FromSql, ToSql};
 use rusqlite::{
-    Connection, Error as sqlite_error, OpenFlags, OptionalExtension, Row, Transaction,
-    TransactionBehavior, NO_PARAMS,
+    params, Connection, Error as sqlite_error, OpenFlags, OptionalExtension, Params, Row,
+    Transaction, TransactionBehavior,
 };
 use serde_json::Error as serde_error;
 use stacks_common::types::chainstate::{SortitionId, StacksAddress, StacksBlockId, TrieHash};
+use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::types::Address;
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
@@ -397,8 +398,7 @@ fn log_sql_eqp(_conn: &Connection, _sql_query: &str) {}
 /// boilerplate code for querying rows
 pub fn query_rows<T, P>(conn: &Connection, sql_query: &str, sql_args: P) -> Result<Vec<T>, Error>
 where
-    P: IntoIterator,
-    P::Item: ToSql,
+    P: Params,
     T: FromRow<T>,
 {
     log_sql_eqp(conn, sql_query);
@@ -412,8 +412,7 @@ where
 ///   if more than 1 row is returned, excess rows are ignored.
 pub fn query_row<T, P>(conn: &Connection, sql_query: &str, sql_args: P) -> Result<Option<T>, Error>
 where
-    P: IntoIterator,
-    P::Item: ToSql,
+    P: Params,
     T: FromRow<T>,
 {
     log_sql_eqp(conn, sql_query);
@@ -433,8 +432,7 @@ pub fn query_expect_row<T, P>(
     sql_args: P,
 ) -> Result<Option<T>, Error>
 where
-    P: IntoIterator,
-    P::Item: ToSql,
+    P: Params,
     T: FromRow<T>,
 {
     log_sql_eqp(conn, sql_query);
@@ -459,8 +457,7 @@ pub fn query_row_panic<T, P, F>(
     panic_message: F,
 ) -> Result<Option<T>, Error>
 where
-    P: IntoIterator,
-    P::Item: ToSql,
+    P: Params,
     T: FromRow<T>,
     F: FnOnce() -> String,
 {
@@ -485,8 +482,7 @@ pub fn query_row_columns<T, P>(
     column_name: &str,
 ) -> Result<Vec<T>, Error>
 where
-    P: IntoIterator,
-    P::Item: ToSql,
+    P: Params,
     T: FromColumn<T>,
 {
     log_sql_eqp(conn, sql_query);
@@ -506,8 +502,7 @@ where
 /// Boilerplate for querying a single integer (first and only item of the query must be an int)
 pub fn query_int<P>(conn: &Connection, sql_query: &str, sql_args: P) -> Result<i64, Error>
 where
-    P: IntoIterator,
-    P::Item: ToSql,
+    P: Params,
 {
     log_sql_eqp(conn, sql_query);
     let mut stmt = conn.prepare(sql_query)?;
@@ -530,8 +525,7 @@ where
 
 pub fn query_count<P>(conn: &Connection, sql_query: &str, sql_args: P) -> Result<i64, Error>
 where
-    P: IntoIterator,
-    P::Item: ToSql,
+    P: Params,
 {
     query_int(conn, sql_query, sql_args)
 }
@@ -632,16 +626,6 @@ impl<'a, C, T: MarfTrieId> IndexDBConn<'a, C, T> {
 
     pub fn conn(&self) -> &DBConn {
         self.index.sqlite_conn()
-    }
-
-    pub fn get_stacks_epoch_by_epoch_id(&self, epoch_id: &StacksEpochId) -> Option<StacksEpoch> {
-        SortitionDB::get_stacks_epoch_by_epoch_id(self.conn(), epoch_id)
-            .expect("BUG: failed to get epoch for epoch id")
-    }
-
-    pub fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch> {
-        SortitionDB::get_stacks_epoch(self.conn(), height as u64)
-            .expect("BUG: failed to get epoch for burn block height")
     }
 }
 
@@ -790,7 +774,7 @@ fn load_indexed(conn: &DBConn, marf_value: &MARFValue) -> Result<Option<String>,
         .prepare("SELECT value FROM __fork_storage WHERE value_hash = ?1 LIMIT 2")
         .map_err(Error::SqliteError)?;
     let mut rows = stmt
-        .query(&[&marf_value.to_hex() as &dyn ToSql])
+        .query(params![marf_value.to_hex()])
         .map_err(Error::SqliteError)?;
     let mut value = None;
 
@@ -924,6 +908,12 @@ impl<'a, C: Clone, T: MarfTrieId> IndexDBTx<'a, C, T> {
     /// Get a value from the fork index
     pub fn get_indexed(&mut self, header_hash: &T, key: &str) -> Result<Option<String>, Error> {
         get_indexed(self.index_mut(), header_hash, key)
+    }
+
+    /// Get a value from the fork index, but with a read-only reference
+    pub fn get_indexed_ref(&self, header_hash: &T, key: &str) -> Result<Option<String>, Error> {
+        let mut ro_index = self.index().reopen_readonly()?;
+        get_indexed(&mut ro_index, header_hash, key)
     }
 
     /// Put all keys and values in a single MARF transaction, and seal it.

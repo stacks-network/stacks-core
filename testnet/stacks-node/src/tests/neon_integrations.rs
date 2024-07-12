@@ -12,7 +12,7 @@ use clarity::vm::types::serialization::SerializationError;
 use clarity::vm::types::PrincipalData;
 use clarity::vm::{ClarityName, ClarityVersion, ContractName, Value, MAX_CALL_STACK_DEPTH};
 use rand::{Rng, RngCore};
-use rusqlite::types::ToSql;
+use rusqlite::params;
 use serde::Deserialize;
 use serde_json::json;
 use stacks::burnchains::bitcoin::address::{BitcoinAddress, LegacyBitcoinAddressType};
@@ -827,7 +827,7 @@ pub fn get_chain_info_result(conf: &Config) -> Result<RPCPeerInfoData, reqwest::
 
     // get the canonical chain tip
     let path = format!("{http_origin}/v2/info");
-    client.get(&path).send().unwrap().json::<RPCPeerInfoData>()
+    client.get(&path).send()?.json::<RPCPeerInfoData>()
 }
 
 pub fn get_chain_info_opt(conf: &Config) -> Option<RPCPeerInfoData> {
@@ -1265,21 +1265,23 @@ pub struct Account {
     pub nonce: u64,
 }
 
-pub fn get_account<F: std::fmt::Display>(http_origin: &str, account: &F) -> Account {
+pub fn get_account_result<F: std::fmt::Display>(
+    http_origin: &str,
+    account: &F,
+) -> Result<Account, reqwest::Error> {
     let client = reqwest::blocking::Client::new();
     let path = format!("{}/v2/accounts/{}?proof=0", http_origin, account);
-    let res = client
-        .get(&path)
-        .send()
-        .unwrap()
-        .json::<AccountEntryResponse>()
-        .unwrap();
+    let res = client.get(&path).send()?.json::<AccountEntryResponse>()?;
     info!("Account response: {:#?}", res);
-    Account {
+    Ok(Account {
         balance: u128::from_str_radix(&res.balance[2..], 16).unwrap(),
         locked: u128::from_str_radix(&res.locked[2..], 16).unwrap(),
         nonce: res.nonce,
-    }
+    })
+}
+
+pub fn get_account<F: std::fmt::Display>(http_origin: &str, account: &F) -> Account {
+    get_account_result(http_origin, account).unwrap()
 }
 
 pub fn get_pox_info(http_origin: &str) -> Option<RPCPoxInfoData> {
@@ -8765,7 +8767,7 @@ fn atlas_stress_integration_test() {
                 let mut hashes = query_row_columns::<Hash160, _>(
                     &atlasdb.conn,
                     "SELECT content_hash FROM attachment_instances WHERE index_block_hash = ?1 AND attachment_index = ?2",
-                    &[ibh as &dyn ToSql, &u64_to_sql(*index).unwrap() as &dyn ToSql],
+                    params![ibh, u64_to_sql(*index).unwrap()],
                     "content_hash")
                 .unwrap();
                 if hashes.len() > 0 {

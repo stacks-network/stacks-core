@@ -890,10 +890,10 @@ impl Node {
         let mut cost_estimator = self.config.make_cost_estimator();
         let mut fee_estimator = self.config.make_fee_estimator();
 
-        let stacks_epoch = db
-            .index_conn()
-            .get_stacks_epoch_by_epoch_id(&processed_block.evaluated_epoch)
-            .expect("Could not find a stacks epoch.");
+        let stacks_epoch =
+            SortitionDB::get_stacks_epoch_by_epoch_id(db.conn(), &processed_block.evaluated_epoch)
+                .expect("FATAL: could not query sortition DB for epochs")
+                .expect("Could not find a stacks epoch.");
         if let Some(estimator) = cost_estimator.as_mut() {
             estimator.notify_block(
                 &processed_block.tx_receipts,
@@ -905,7 +905,7 @@ impl Node {
         if let Some(estimator) = fee_estimator.as_mut() {
             if let Err(e) = estimator.notify_block(&processed_block, &stacks_epoch.block_limit) {
                 warn!("FeeEstimator failed to process block receipt";
-                      "stacks_block" => %processed_block.header.anchored_header.block_hash(),
+                      "stacks_block_hash" => %processed_block.header.anchored_header.block_hash(),
                       "stacks_height" => %processed_block.header.stacks_block_height,
                       "error" => %e);
             }

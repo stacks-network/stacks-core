@@ -1,6 +1,6 @@
 #![forbid(missing_docs)]
 /*!
-# stacks-signer: a libary for creating a Stacks compliant signer. A default implementation binary is also provided.
+# stacks-signer: a library for creating a Stacks compliant signer. A default implementation binary is also provided.
 Usage documentation can be found in the [README](https://github.com/Trust-Machines/core-eng/stacks-signer-api/README.md).
 */
 
@@ -46,6 +46,7 @@ mod tests;
 use std::fmt::{Debug, Display};
 use std::sync::mpsc::{channel, Receiver, Sender};
 
+use chainstate::SortitionsView;
 use config::GlobalConfig;
 use libsigner::{SignerEvent, SignerEventReceiver, SignerEventTrait};
 use runloop::SignerResult;
@@ -68,6 +69,7 @@ pub trait Signer<T: SignerEventTrait>: Debug + Display {
     fn process_event(
         &mut self,
         stacks_client: &StacksClient,
+        sortition_state: &mut Option<SortitionsView>,
         event: Option<&SignerEvent<T>>,
         res: Sender<Vec<SignerResult>>,
         current_reward_cycle: u64,
@@ -79,6 +81,8 @@ pub trait Signer<T: SignerEventTrait>: Debug + Display {
         current_reward_cycle: u64,
         command: Option<RunLoopCommand>,
     );
+    /// Check if the signer is in the middle of processing blocks
+    fn has_pending_blocks(&self) -> bool;
 }
 
 /// A wrapper around the running signer type for the signer

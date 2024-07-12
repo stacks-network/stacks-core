@@ -36,8 +36,7 @@ use libstackerdb::{
 };
 use rand::{thread_rng, RngCore};
 use regex::Regex;
-use rusqlite::types::ToSqlOutput;
-use rusqlite::ToSql;
+use rusqlite::types::{ToSql, ToSqlOutput};
 use serde::de::Error as de_Error;
 use serde::ser::Error as ser_Error;
 use serde::{Deserialize, Serialize};
@@ -1450,6 +1449,8 @@ pub const DENY_MIN_BAN_DURATION: u64 = 2;
 /// Result of doing network work
 #[derive(Clone)]
 pub struct NetworkResult {
+    /// Stacks chain tip when we began this pass
+    pub stacks_tip: StacksBlockId,
     /// PoX ID as it was when we begin downloading blocks (set if we have downloaded new blocks)
     pub download_pox_id: Option<PoxId>,
     /// Network messages we received but did not handle
@@ -1472,6 +1473,8 @@ pub struct NetworkResult {
     pub uploaded_transactions: Vec<StacksTransaction>,
     /// blocks sent to us via the http server
     pub uploaded_blocks: Vec<BlocksData>,
+    /// blocks sent to us via the http server
+    pub uploaded_nakamoto_blocks: Vec<NakamotoBlock>,
     /// microblocks sent to us by the http server
     pub uploaded_microblocks: Vec<MicroblocksData>,
     /// chunks we received from the HTTP server
@@ -1500,6 +1503,7 @@ pub struct NetworkResult {
 
 impl NetworkResult {
     pub fn new(
+        stacks_tip: StacksBlockId,
         num_state_machine_passes: u64,
         num_inv_sync_passes: u64,
         num_download_passes: u64,
@@ -1509,6 +1513,7 @@ impl NetworkResult {
         stacker_db_configs: HashMap<QualifiedContractIdentifier, StackerDBConfig>,
     ) -> NetworkResult {
         NetworkResult {
+            stacks_tip,
             unhandled_messages: HashMap::new(),
             download_pox_id: None,
             blocks: vec![],
@@ -1519,6 +1524,7 @@ impl NetworkResult {
             pushed_microblocks: HashMap::new(),
             pushed_nakamoto_blocks: HashMap::new(),
             uploaded_transactions: vec![],
+            uploaded_nakamoto_blocks: vec![],
             uploaded_blocks: vec![],
             uploaded_microblocks: vec![],
             uploaded_stackerdb_chunks: vec![],
@@ -1642,8 +1648,8 @@ impl NetworkResult {
         }
     }
 
-    pub fn consume_http_uploads(&mut self, mut msgs: Vec<StacksMessageType>) -> () {
-        for msg in msgs.drain(..) {
+    pub fn consume_http_uploads(&mut self, msgs: Vec<StacksMessageType>) -> () {
+        for msg in msgs.into_iter() {
             match msg {
                 StacksMessageType::Transaction(tx_data) => {
                     self.uploaded_transactions.push(tx_data);
@@ -1656,6 +1662,9 @@ impl NetworkResult {
                 }
                 StacksMessageType::StackerDBPushChunk(chunk_data) => {
                     self.uploaded_stackerdb_chunks.push(chunk_data);
+                }
+                StacksMessageType::NakamotoBlocks(data) => {
+                    self.uploaded_nakamoto_blocks.extend(data.blocks);
                 }
                 _ => {
                     // drop
@@ -1699,13 +1708,13 @@ pub mod test {
     use std::{fs, io, thread};
 
     use clarity::boot_util::boot_code_id;
+    use clarity::types::sqlite::NO_PARAMS;
     use clarity::vm::ast::ASTRules;
     use clarity::vm::costs::ExecutionCost;
     use clarity::vm::database::STXBalance;
     use clarity::vm::types::*;
     use clarity::vm::ClarityVersion;
     use rand::{Rng, RngCore};
-    use rusqlite::NO_PARAMS;
     use stacks_common::address::*;
     use stacks_common::codec::StacksMessageCodec;
     use stacks_common::deps_common::bitcoin::network::serialize::BitcoinHash;
@@ -2241,6 +2250,8 @@ pub mod test {
             (),
             BitcoinIndexer,
         >,
+        /// list of malleablized blocks produced when mining.
+        pub malleablized_blocks: Vec<NakamotoBlock>,
     }
 
     impl<'a> TestPeer<'a> {
@@ -2654,6 +2665,7 @@ pub mod test {
                 chainstate_path: chainstate_path,
                 coord: coord,
                 indexer: Some(indexer),
+                malleablized_blocks: vec![],
             }
         }
 
@@ -2766,6 +2778,8 @@ pub mod test {
             let mut mempool = self.mempool.take().unwrap();
             let indexer = self.indexer.take().unwrap();
 
+            let old_tip = self.network.stacks_tip.clone();
+
             let ret = self.network.run(
                 &indexer,
                 &mut sortdb,
@@ -2844,6 +2858,8 @@ pub mod test {
             );
             let indexer = BitcoinIndexer::new_unit_test(&self.config.burnchain.working_dir);
 
+            let old_tip = self.network.stacks_tip.clone();
+
             let ret = self.network.run(
                 &indexer,
                 &mut sortdb,
@@ -2867,6 +2883,9 @@ pub mod test {
             let sortdb = self.sortdb.take().unwrap();
             let mut stacks_node = self.stacks_node.take().unwrap();
             let indexer = BitcoinIndexer::new_unit_test(&self.config.burnchain.working_dir);
+
+            let old_tip = self.network.stacks_tip.clone();
+
             self.network
                 .refresh_burnchain_view(&indexer, &sortdb, &mut stacks_node.chainstate, false)
                 .unwrap();
@@ -3429,12 +3448,24 @@ pub mod test {
             self.next_burnchain_block(vec![])
         }
 
+        pub fn mine_empty_tenure(&mut self) -> (u64, BurnchainHeaderHash, ConsensusHash) {
+            let (burn_ops, ..) = self.begin_nakamoto_tenure(TenureChangeCause::BlockFound);
+            let result = self.next_burnchain_block(burn_ops);
+            // remove the last block commit so that the testpeer doesn't try to build off of this tenure
+            self.miner.block_commits.pop();
+            result
+        }
+
         pub fn mempool(&mut self) -> &mut MemPoolDB {
             self.mempool.as_mut().unwrap()
         }
 
         pub fn chainstate(&mut self) -> &mut StacksChainState {
             &mut self.stacks_node.as_mut().unwrap().chainstate
+        }
+
+        pub fn chainstate_ref(&self) -> &StacksChainState {
+            &self.stacks_node.as_ref().unwrap().chainstate
         }
 
         pub fn sortdb(&mut self) -> &mut SortitionDB {
@@ -3552,6 +3583,7 @@ pub mod test {
                 SortitionDB::get_canonical_burn_chain_tip(&self.sortdb.as_ref().unwrap().conn())
                     .unwrap();
             let burnchain = self.config.burnchain.clone();
+
             let (burn_ops, stacks_block, microblocks) = self.make_tenure(
                 |ref mut miner,
                  ref mut sortdb,
@@ -3602,6 +3634,14 @@ pub mod test {
             }
 
             self.refresh_burnchain_view();
+
+            let (stacks_tip_ch, stacks_tip_bh) =
+                SortitionDB::get_canonical_stacks_chain_tip_hash(self.sortdb().conn()).unwrap();
+            assert_eq!(
+                self.network.stacks_tip.block_id(),
+                StacksBlockId::new(&stacks_tip_ch, &stacks_tip_bh)
+            );
+
             tip_id
         }
 
@@ -4089,6 +4129,37 @@ pub mod test {
 
             self.sortdb = Some(sortdb);
             self.stacks_node = Some(node);
+        }
+
+        /// Verify that all malleablized blocks are duly processed
+        pub fn check_malleablized_blocks(
+            &self,
+            all_blocks: Vec<NakamotoBlock>,
+            expected_siblings: usize,
+        ) {
+            for block in all_blocks.iter() {
+                let sighash = block.header.signer_signature_hash();
+                let siblings = self
+                    .chainstate_ref()
+                    .nakamoto_blocks_db()
+                    .get_blocks_at_height(block.header.chain_length);
+
+                debug!("Expect {} siblings: {:?}", expected_siblings, &siblings);
+                assert_eq!(siblings.len(), expected_siblings);
+
+                for sibling in siblings {
+                    let (processed, orphaned) = NakamotoChainState::get_nakamoto_block_status(
+                        self.chainstate_ref().nakamoto_blocks_db(),
+                        self.chainstate_ref().db(),
+                        &sibling.header.consensus_hash,
+                        &sibling.header.block_hash(),
+                    )
+                    .unwrap()
+                    .unwrap();
+                    assert!(processed);
+                    assert!(!orphaned);
+                }
+            }
         }
     }
 

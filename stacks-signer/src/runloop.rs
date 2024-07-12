@@ -29,14 +29,24 @@ use stacks_common::{debug, error, info, warn};
 use wsts::common::MerkleRoot;
 use wsts::state_machine::OperationResult;
 
+use crate::chainstate::SortitionsView;
 use crate::client::{retry_with_exponential_backoff, ClientError, SignerSlotID, StacksClient};
 use crate::config::{GlobalConfig, SignerConfig};
 use crate::Signer as SignerTrait;
 
+/// The internal signer state info
+#[derive(PartialEq, Clone, Debug)]
+pub struct StateInfo {
+    /// the runloop state
+    pub runloop_state: State,
+    /// the current reward cycle info
+    pub reward_cycle_info: Option<RewardCycleInfo>,
+}
+
 /// The signer result that can be sent across threads
 pub enum SignerResult {
     /// The signer has received a status check
-    StatusCheck(State),
+    StatusCheck(StateInfo),
     /// The signer has completed an operation
     OperationResult(OperationResult),
 }
@@ -47,9 +57,9 @@ impl From<OperationResult> for SignerResult {
     }
 }
 
-impl From<State> for SignerResult {
-    fn from(state: State) -> Self {
-        SignerResult::StatusCheck(state)
+impl From<StateInfo> for SignerResult {
+    fn from(state_info: StateInfo) -> Self {
+        SignerResult::StatusCheck(state_info)
     }
 }
 
@@ -147,6 +157,8 @@ where
     pub commands: VecDeque<RunLoopCommand>,
     /// The current reward cycle info. Only None if the runloop is uninitialized
     pub current_reward_cycle_info: Option<RewardCycleInfo>,
+    /// Cache sortitin data from `stacks-node`
+    pub sortition_state: Option<SortitionsView>,
     /// Phantom data for the message codec
     _phantom_data: std::marker::PhantomData<T>,
 }
@@ -162,6 +174,7 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
             state: State::Uninitialized,
             commands: VecDeque::new(),
             current_reward_cycle_info: None,
+            sortition_state: None,
             _phantom_data: std::marker::PhantomData,
         }
     }
@@ -244,6 +257,7 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
             key_ids,
             signer_entries,
             signer_slot_ids: signer_slot_ids.into_values().collect(),
+            first_proposal_burn_block_timing: self.config.first_proposal_burn_block_timing,
             ecdsa_private_key: self.config.ecdsa_private_key,
             stacks_private_key: self.config.stacks_private_key,
             node_host: self.config.node_host.to_string(),
@@ -371,10 +385,16 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
     fn cleanup_stale_signers(&mut self, current_reward_cycle: u64) {
         let mut to_delete = Vec::new();
         for (idx, signer) in &mut self.stacks_signers {
-            if signer.reward_cycle() < current_reward_cycle {
+            let reward_cycle = signer.reward_cycle();
+            let next_reward_cycle = reward_cycle.wrapping_add(1);
+            let stale = match next_reward_cycle.cmp(&current_reward_cycle) {
+                std::cmp::Ordering::Less => true, // We are more than one reward cycle behind, so we are stale
+                std::cmp::Ordering::Equal => !signer.has_pending_blocks(), // We are the next reward cycle, so check if we have any pending blocks to process
+                std::cmp::Ordering::Greater => false, // We are the current reward cycle, so we are not stale
+            };
+            if stale {
                 debug!("{signer}: Signer's tenure has completed.");
                 to_delete.push(*idx);
-                continue;
             }
         }
         for idx in to_delete {
@@ -415,8 +435,8 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug>
                 }
                 return None;
             }
-        } else if let Some(SignerEvent::NewBurnBlock(current_burn_block_height)) = event {
-            if let Err(e) = self.refresh_runloop(current_burn_block_height) {
+        } else if let Some(SignerEvent::NewBurnBlock { burn_height, .. }) = event {
+            if let Err(e) = self.refresh_runloop(burn_height) {
                 error!("Failed to refresh signer runloop: {e}.");
                 warn!("Signer may have an outdated view of the network.");
             }
@@ -429,6 +449,7 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug>
         for signer in self.stacks_signers.values_mut() {
             signer.process_event(
                 &self.stacks_client,
+                &mut self.sortition_state,
                 event.as_ref(),
                 res.clone(),
                 current_reward_cycle,
@@ -447,7 +468,12 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug>
         // This is the only event that we respond to from the outer signer runloop
         if let Some(SignerEvent::StatusCheck) = event {
             info!("Signer status check requested: {:?}.", self.state);
-            if let Err(e) = res.send(vec![self.state.into()]) {
+            if let Err(e) = res.send(vec![StateInfo {
+                runloop_state: self.state,
+                reward_cycle_info: self.current_reward_cycle_info,
+            }
+            .into()])
+            {
                 error!("Failed to send status check result: {e}.");
             }
         }

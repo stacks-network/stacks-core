@@ -705,6 +705,7 @@ impl PeerNetwork {
         }
     }
 
+    #[cfg_attr(test, mutants::skip)]
     /// Check the signature of a NakamotoBlock against its sortition's reward cycle.
     /// The reward cycle must be recent.
     pub(crate) fn check_nakamoto_block_signer_signature(
@@ -793,6 +794,7 @@ impl PeerNetwork {
         return (Some(reward_set_sn_rc), can_process);
     }
 
+    #[cfg_attr(test, mutants::skip)]
     /// Determine if an unsolicited NakamotoBlockData message contains data we can potentially
     /// buffer.  Returns whether or not the block can be buffered.
     pub(crate) fn is_nakamoto_block_bufferable(
@@ -803,7 +805,7 @@ impl PeerNetwork {
     ) -> bool {
         if chainstate
             .nakamoto_blocks_db()
-            .has_nakamoto_block(&nakamoto_block.block_id())
+            .has_nakamoto_block_with_index_hash(&nakamoto_block.block_id())
             .unwrap_or(false)
         {
             debug!(
@@ -867,6 +869,7 @@ impl PeerNetwork {
         to_buffer
     }
 
+    #[cfg_attr(test, mutants::skip)]
     /// Handle an unsolicited NakamotoBlocksData message.
     ///
     /// Unlike Stacks epoch 2.x blocks, no change to the remote peer's inventory will take place.
@@ -897,6 +900,7 @@ impl PeerNetwork {
         )
     }
 
+    #[cfg_attr(test, mutants::skip)]
     /// Handle an unsolicited message, with either the intention of just processing it (in which
     /// case, `buffer` will be `false`), or with the intention of not only processing it, but also
     /// determining if it can be bufferred and retried later (in which case, `buffer` will be
@@ -998,6 +1002,7 @@ impl PeerNetwork {
         }
     }
 
+    #[cfg_attr(test, mutants::skip)]
     /// Handle unsolicited messages propagated up to us from our ongoing ConversationP2Ps.
     /// Return messages that we couldn't handle here, but key them by neighbor, not event, so the
     /// relayer can do something useful with them.

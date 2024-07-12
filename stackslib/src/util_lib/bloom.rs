@@ -22,9 +22,11 @@ use std::io::{Read, Seek, SeekFrom, Write};
 use rand::prelude::*;
 use rand::thread_rng;
 use rusqlite::blob::Blob;
-use rusqlite::{Error as sqlite_error, Row, ToSql, NO_PARAMS};
+use rusqlite::types::ToSql;
+use rusqlite::{params, Error as sqlite_error, Row};
 use siphasher::sip::SipHasher; // this is SipHash-2-4
 use stacks_common::codec::{read_next, write_next, Error as codec_error, StacksMessageCodec};
+use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::util::hash::{to_hex, Sha512Trunc256Sum};
 
 use crate::util_lib::db::{query_expect_row, DBConn, DBTx, Error as db_error};
@@ -360,7 +362,7 @@ impl<H: BloomHash + Clone + StacksMessageCodec> BloomCounter<H> {
             "INSERT INTO {} (counts, num_bins, num_hashes, hasher) VALUES (?1, ?2, ?3, ?4)",
             table_name
         );
-        let args: &[&dyn ToSql] = &[&counts_vec, &num_bins, &num_hashes, &hasher_vec];
+        let args = params![counts_vec, num_bins, num_hashes, hasher_vec];
 
         tx.execute(&sql, args).map_err(db_error::SqliteError)?;
 
@@ -381,7 +383,7 @@ impl<H: BloomHash + Clone + StacksMessageCodec> BloomCounter<H> {
         let sql = format!("SELECT rowid,* FROM {}", table_name);
         let result = conn.query_row_and_then(&sql, NO_PARAMS, |row| {
             let mut hasher_blob = row
-                .get_raw("hasher")
+                .get_ref("hasher")?
                 .as_blob()
                 .expect("Unable to read hasher as blob");
             let hasher =

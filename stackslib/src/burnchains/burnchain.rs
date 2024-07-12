@@ -249,8 +249,11 @@ impl BurnchainStateTransition {
             for blocks_back in 0..(epoch_id.mining_commitment_window() - 1) {
                 if parent_snapshot.block_height < (blocks_back as u64) {
                     debug!("Mining commitment window shortened because block height is less than window size";
-                           "block_height" => %parent_snapshot.block_height,
-                           "window_size" => %epoch_id.mining_commitment_window());
+                        "block_height" => %parent_snapshot.block_height,
+                        "window_size" => %epoch_id.mining_commitment_window(),
+                        "burn_block_hash" => %parent_snapshot.burn_header_hash,
+                        "consensus_hash" => %parent_snapshot.consensus_hash
+                    );
                     break;
                 }
                 let block_height = parent_snapshot.block_height - (blocks_back as u64);
@@ -275,13 +278,17 @@ impl BurnchainStateTransition {
                 "Block {} is in a reward phase with PoX. Miner commit window is {}: {:?}",
                 parent_snapshot.block_height + 1,
                 windowed_block_commits.len(),
-                &windowed_block_commits
+                &windowed_block_commits;
+                "burn_block_hash" => %parent_snapshot.burn_header_hash,
+                "consensus_hash" => %parent_snapshot.consensus_hash
             );
         } else {
             // PoX reward-phase is not active, or we're starting a new epoch
             debug!(
                 "Block {} is in a prepare phase, in the post-PoX sunset, or in an epoch transition, so no windowing will take place",
-                parent_snapshot.block_height + 1
+                parent_snapshot.block_height + 1;
+                "burn_block_hash" => %parent_snapshot.burn_header_hash,
+                "consensus_hash" => %parent_snapshot.consensus_hash
             );
 
             assert_eq!(windowed_block_commits.len(), 1);
@@ -342,7 +349,8 @@ impl BurnchainStateTransition {
         for op in all_block_commits.values() {
             warn!(
                 "REJECTED({}) block commit {} at {},{}: Committed to an already-consumed VRF key",
-                op.block_height, &op.txid, op.block_height, op.vtxindex
+                op.block_height, &op.txid, op.block_height, op.vtxindex;
+                "stacks_block_hash" => %op.block_header_hash
             );
         }
 
@@ -1001,7 +1009,8 @@ impl Burnchain {
                     // duplicate
                     warn!(
                         "REJECTED({}) leader key register {} at {},{}: Duplicate VRF key",
-                        data.block_height, &data.txid, data.block_height, data.vtxindex
+                        data.block_height, &data.txid, data.block_height, data.vtxindex;
+                        "consensus_hash" => %data.consensus_hash
                     );
                     false
                 } else {
@@ -1071,7 +1080,7 @@ impl Burnchain {
                 "prev_reward_cycle" => %prev_reward_cycle,
                 "this_reward_cycle" => %this_reward_cycle,
                 "block_height" => %block_height,
-                "cycle-length" => %burnchain.pox_constants.reward_cycle_length
+                "cycle_length" => %burnchain.pox_constants.reward_cycle_length,
             );
             update_pox_affirmation_maps(burnchain_db, indexer, prev_reward_cycle, burnchain)?;
         }
@@ -1312,7 +1321,8 @@ impl Burnchain {
                         "Parsed block {} (epoch {}) in {}ms",
                         burnchain_block.block_height(),
                         cur_epoch.epoch_id,
-                        parse_end.saturating_sub(parse_start)
+                        parse_end.saturating_sub(parse_start);
+                        "burn_block_hash" => %burnchain_block.block_hash()
                     );
 
                     db_send
@@ -1350,7 +1360,8 @@ impl Burnchain {
                 debug!(
                     "Inserted block {} in {}ms",
                     burnchain_block.block_height(),
-                    insert_end.saturating_sub(insert_start)
+                    insert_end.saturating_sub(insert_start);
+                    "burn_block_hash" => %burnchain_block.block_hash()
                 );
             }
             Ok(last_processed)
@@ -1647,7 +1658,8 @@ impl Burnchain {
                         "Parsed block {} (in epoch {}) in {}ms",
                         burnchain_block.block_height(),
                         cur_epoch.epoch_id,
-                        parse_end.saturating_sub(parse_start)
+                        parse_end.saturating_sub(parse_start);
+                        "burn_block_hash" => %burnchain_block.block_hash()
                     );
 
                     db_send
@@ -1699,7 +1711,8 @@ impl Burnchain {
                         debug!(
                             "Inserted block {} in {}ms",
                             burnchain_block.block_height(),
-                            insert_end.saturating_sub(insert_start)
+                            insert_end.saturating_sub(insert_start);
+                            "burn_block_hash" => %burnchain_block.block_hash()
                         );
                     }
                     Ok(last_processed)

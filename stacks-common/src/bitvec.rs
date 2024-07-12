@@ -15,9 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #[cfg(feature = "canonical")]
-use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSqlOutput, ValueRef};
-#[cfg(feature = "canonical")]
-use rusqlite::ToSql;
+use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
 use serde::{Deserialize, Serialize};
 
 use crate::codec::{

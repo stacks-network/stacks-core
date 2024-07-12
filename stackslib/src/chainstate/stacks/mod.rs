@@ -27,8 +27,8 @@ use clarity::vm::types::{
     PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, Value,
 };
 use clarity::vm::ClarityVersion;
-use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSqlOutput, ValueRef};
-use rusqlite::{Error as RusqliteError, ToSql};
+use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
+use rusqlite::Error as RusqliteError;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sha2::{Digest, Sha512_256};
@@ -1133,7 +1133,6 @@ pub const MAX_MICROBLOCK_SIZE: u32 = 65536;
 
 #[cfg(test)]
 pub mod test {
-    use boot::signers_voting_tests::make_dummy_tx;
     use clarity::util::get_epoch_time_secs;
     use clarity::vm::representations::{ClarityName, ContractName};
     use clarity::vm::ClarityVersion;

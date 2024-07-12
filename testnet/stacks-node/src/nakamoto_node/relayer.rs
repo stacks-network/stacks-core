@@ -36,11 +36,10 @@ use stacks::chainstate::stacks::miner::{
     get_mining_spend_amount, signal_mining_blocked, signal_mining_ready,
 };
 use stacks::core::mempool::MemPoolDB;
-use stacks::core::{
-    FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH, STACKS_EPOCH_3_0_MARKER,
-};
+use stacks::core::STACKS_EPOCH_3_0_MARKER;
 use stacks::monitoring::increment_stx_blocks_mined_counter;
 use stacks::net::db::LocalPeer;
+use stacks::net::p2p::NetworkHandle;
 use stacks::net::relay::Relayer;
 use stacks::net::NetworkResult;
 use stacks_common::types::chainstate::{
@@ -49,7 +48,7 @@ use stacks_common::types::chainstate::{
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::hash::Hash160;
-use stacks_common::util::vrf::{VRFProof, VRFPublicKey};
+use stacks_common::util::vrf::VRFPublicKey;
 
 use super::miner::MinerReason;
 use super::{
@@ -96,6 +95,81 @@ impl fmt::Display for RelayerDirective {
             RelayerDirective::RegisterKey(_) => write!(f, "RegisterKey"),
             RelayerDirective::Exit => write!(f, "Exit"),
         }
+    }
+}
+
+/// Last commitment data
+/// This represents the tenure that the last-sent block-commit committed to.
+pub struct LastCommit {
+    /// block-commit sent
+    block_commit: LeaderBlockCommitOp,
+    /// the sortition tip at the time the block-commit was sent
+    burn_tip: BlockSnapshot,
+    /// the stacks tip at the time the block-commit was sent
+    stacks_tip: StacksBlockId,
+    /// the tenure consensus hash for the tip's tenure
+    tenure_consensus_hash: ConsensusHash,
+    /// the start-block hash of the tip's tenure
+    start_block_hash: BlockHeaderHash,
+    /// What is the epoch in which this was sent?
+    epoch_id: StacksEpochId,
+    /// commit txid (to be filled in on submission)
+    txid: Option<Txid>,
+}
+
+impl LastCommit {
+    pub fn new(
+        commit: LeaderBlockCommitOp,
+        burn_tip: BlockSnapshot,
+        stacks_tip: StacksBlockId,
+        tenure_consensus_hash: ConsensusHash,
+        start_block_hash: BlockHeaderHash,
+        epoch_id: StacksEpochId,
+    ) -> Self {
+        Self {
+            block_commit: commit,
+            burn_tip,
+            stacks_tip,
+            tenure_consensus_hash,
+            start_block_hash,
+            epoch_id,
+            txid: None,
+        }
+    }
+
+    /// Get the commit
+    pub fn get_block_commit(&self) -> &LeaderBlockCommitOp {
+        &self.block_commit
+    }
+
+    /// What's the parent tenure's tenure-start block hash?
+    pub fn parent_tenure_id(&self) -> StacksBlockId {
+        StacksBlockId(self.block_commit.block_header_hash.clone().0)
+    }
+
+    /// What's the stacks tip at the time of commit?
+    pub fn get_stacks_tip(&self) -> &StacksBlockId {
+        &self.stacks_tip
+    }
+
+    /// What's the burn tip at the time of commit?
+    pub fn get_burn_tip(&self) -> &BlockSnapshot {
+        &self.burn_tip
+    }
+
+    /// What's the epoch in which this was sent?
+    pub fn get_epoch_id(&self) -> &StacksEpochId {
+        &self.epoch_id
+    }
+
+    /// Get the tenure ID of the tenure this commit builds on
+    pub fn get_tenure_id(&self) -> &ConsensusHash {
+        &self.tenure_consensus_hash
+    }
+
+    /// Set our txid
+    pub fn set_txid(&mut self, txid: &Txid) {
+        self.txid = Some(txid.clone());
     }
 }
 
@@ -160,9 +234,9 @@ pub struct RelayerThread {
     ///  to check if it should issue a block commit or try to register a VRF key
     next_initiative: Instant,
     is_miner: bool,
-    /// This is the last snapshot in which the relayer committed, and the parent_tenure_id
-    ///  which was committed to
-    last_committed: Option<(BlockSnapshot, StacksBlockId)>,
+    /// Information about the last-sent block commit, and the relayer's view of the chain at the
+    /// time it was sent.
+    last_committed: Option<LastCommit>,
 }
 
 impl RelayerThread {
@@ -221,6 +295,11 @@ impl RelayerThread {
             next_initiative: Instant::now() + Duration::from_millis(next_initiative_delay),
             last_committed: None,
         }
+    }
+
+    /// Get a handle to the p2p thread
+    pub fn get_p2p_handle(&self) -> NetworkHandle {
+        self.relayer.get_p2p_handle()
     }
 
     /// have we waited for the right conditions under which to start mining a block off of our
@@ -306,7 +385,7 @@ impl RelayerThread {
         consensus_hash: ConsensusHash,
         burn_hash: BurnchainHeaderHash,
         committed_index_hash: StacksBlockId,
-    ) -> MinerDirective {
+    ) -> Result<MinerDirective, NakamotoNodeError> {
         let sn = SortitionDB::get_block_snapshot_consensus(self.sortdb.conn(), &consensus_hash)
             .expect("FATAL: failed to query sortition DB")
             .expect("FATAL: unknown consensus hash");
@@ -329,7 +408,7 @@ impl RelayerThread {
             increment_stx_blocks_mined_counter();
         }
 
-        if sn.sortition {
+        let directive = if sn.sortition {
             if won_sortition {
                 MinerDirective::BeginTenure {
                     parent_tenure_start: committed_index_hash,
@@ -342,7 +421,8 @@ impl RelayerThread {
             MinerDirective::ContinueTenure {
                 new_burn_view: consensus_hash,
             }
-        }
+        };
+        Ok(directive)
     }
 
     /// Constructs and returns a LeaderKeyRegisterOp out of the provided params
@@ -399,29 +479,73 @@ impl RelayerThread {
         }
     }
 
-    /// Produce the block-commit for this anchored block, if we can.
-    /// `target_ch` is the consensus-hash of the Tenure we will build off
-    /// `target_bh` is the block hash of the Tenure we will build off
-    /// Returns the (the most recent burn snapshot, the expected epoch, the commit-op) on success
+    /// Produce the block-commit for this upcoming tenure, if we can.
+    ///
+    /// Takes the Nakamoto chain tip (consensus hash, block header hash).
+    ///
+    /// Returns the (the most recent burn snapshot, the most recent stakcs tip, the commit-op) on success
     /// Returns None if we fail somehow.
-    fn make_block_commit(
+    ///
+    /// TODO: unit test
+    pub(crate) fn make_block_commit(
         &mut self,
-        target_ch: &ConsensusHash,
-        target_bh: &BlockHeaderHash,
-    ) -> Result<(BlockSnapshot, StacksEpochId, LeaderBlockCommitOp), NakamotoNodeError> {
+        tip_block_ch: &ConsensusHash,
+        tip_block_bh: &BlockHeaderHash,
+    ) -> Result<LastCommit, NakamotoNodeError> {
         let sort_tip = SortitionDB::get_canonical_burn_chain_tip(self.sortdb.conn())
             .map_err(|_| NakamotoNodeError::SnapshotNotFoundForChainTip)?;
 
-        let parent_vrf_proof =
-            NakamotoChainState::get_block_vrf_proof(self.chainstate.db(), &target_ch)
-                .map_err(|_e| NakamotoNodeError::ParentNotFound)?
-                .unwrap_or_else(|| VRFProof::empty());
+        let stacks_tip = StacksBlockId::new(tip_block_ch, tip_block_bh);
+
+        // sanity check -- this block must exist and have been processed locally
+        let highest_tenure_start_block_header = NakamotoChainState::get_tenure_start_block_header(
+            &mut self.chainstate.index_conn(),
+            &stacks_tip,
+            &tip_block_ch,
+        )
+        .map_err(|e| {
+            error!(
+                "Relayer: Failed to get tenure-start block header for stacks tip {}: {:?}",
+                &stacks_tip, &e
+            );
+            NakamotoNodeError::ParentNotFound
+        })?
+        .ok_or_else(|| {
+            error!(
+                "Relayer: Failed to find tenure-start block header for stacks tip {}",
+                &stacks_tip
+            );
+            NakamotoNodeError::ParentNotFound
+        })?;
+
+        // load the VRF proof generated in this tenure, so we can use it to seed the VRF in the
+        // upcoming tenure.  This may be an epoch2x VRF proof.
+        let tip_vrf_proof = NakamotoChainState::get_block_vrf_proof(
+            &mut self.chainstate.index_conn(),
+            &stacks_tip,
+            tip_block_ch,
+        )
+        .map_err(|e| {
+            error!(
+                "Failed to load VRF proof for {} off of {}: {:?}",
+                tip_block_ch, &stacks_tip, &e
+            );
+            NakamotoNodeError::ParentNotFound
+        })?
+        .ok_or_else(|| {
+            error!(
+                "No block VRF proof for {} off of {}",
+                tip_block_ch, &stacks_tip
+            );
+            NakamotoNodeError::ParentNotFound
+        })?;
 
         // let's figure out the recipient set!
         let recipients = get_nakamoto_next_recipients(
             &sort_tip,
             &mut self.sortdb,
             &mut self.chainstate,
+            &stacks_tip,
             &self.burnchain,
         )
         .map_err(|e| {
@@ -429,32 +553,40 @@ impl RelayerThread {
             NakamotoNodeError::SnapshotNotFoundForChainTip
         })?;
 
-        let block_header =
-            NakamotoChainState::get_block_header_by_consensus_hash(self.chainstate.db(), target_ch)
-                .map_err(|e| {
-                    error!("Relayer: Failed to get block header for parent tenure: {e:?}");
-                    NakamotoNodeError::ParentNotFound
-                })?
-                .ok_or_else(|| {
-                    error!("Relayer: Failed to find block header for parent tenure");
-                    NakamotoNodeError::ParentNotFound
-                })?;
+        let commit_outs = if self
+            .burnchain
+            .is_in_prepare_phase(sort_tip.block_height + 1)
+        {
+            vec![PoxAddress::standard_burn_address(self.config.is_mainnet())]
+        } else {
+            RewardSetInfo::into_commit_outs(recipients, self.config.is_mainnet())
+        };
 
-        let parent_block_id = block_header.index_block_hash();
-        if parent_block_id != StacksBlockId::new(target_ch, target_bh) {
-            error!("Relayer: Found block header for parent tenure, but mismatched block id";
-                   "expected_block_id" => %StacksBlockId::new(target_ch, target_bh),
-                   "found_block_id" => %parent_block_id);
-            return Err(NakamotoNodeError::UnexpectedChainState);
-        }
-
-        let Ok(Some(parent_sortition)) =
-            SortitionDB::get_block_snapshot_consensus(self.sortdb.conn(), target_ch)
+        // find the sortition that kicked off this tenure (it may be different from the sortition
+        // tip, such as when there is no sortition or when the miner of the current sortition never
+        // produces a block).  This is used to find the parent block-commit of the block-commit
+        // we'll submit.
+        let Ok(Some(tip_tenure_sortition)) =
+            SortitionDB::get_block_snapshot_consensus(self.sortdb.conn(), tip_block_ch)
         else {
-            error!("Relayer: Failed to lookup the block snapshot of parent tenure ID"; "tenure_consensus_hash" => %target_ch);
+            error!("Relayer: Failed to lookup the block snapshot of highest tenure ID"; "tenure_consensus_hash" => %tip_block_ch);
             return Err(NakamotoNodeError::ParentNotFound);
         };
 
+        // find the parent block-commit of this commit
+        let commit_parent_block_burn_height = tip_tenure_sortition.block_height;
+        let Ok(Some(parent_winning_tx)) = SortitionDB::get_block_commit(
+            self.sortdb.conn(),
+            &tip_tenure_sortition.winning_block_txid,
+            &tip_tenure_sortition.sortition_id,
+        ) else {
+            error!("Relayer: Failed to lookup the block commit of parent tenure ID"; "tenure_consensus_hash" => %tip_block_ch);
+            return Err(NakamotoNodeError::SnapshotNotFoundForChainTip);
+        };
+
+        let commit_parent_winning_vtxindex = parent_winning_tx.vtxindex;
+
+        // epoch in which this commit will be sent (affects how the burnchain client processes it)
         let Ok(Some(target_epoch)) =
             SortitionDB::get_stacks_epoch(self.sortdb.conn(), sort_tip.block_height + 1)
         else {
@@ -462,76 +594,71 @@ impl RelayerThread {
             return Err(NakamotoNodeError::SnapshotNotFoundForChainTip);
         };
 
-        let parent_block_burn_height = parent_sortition.block_height;
-        let Ok(Some(parent_winning_tx)) = SortitionDB::get_block_commit(
-            self.sortdb.conn(),
-            &parent_sortition.winning_block_txid,
-            &parent_sortition.sortition_id,
-        ) else {
-            error!("Relayer: Failed to lookup the block commit of parent tenure ID"; "tenure_consensus_hash" => %target_ch);
-            return Err(NakamotoNodeError::SnapshotNotFoundForChainTip);
-        };
-
-        let parent_winning_vtxindex = parent_winning_tx.vtxindex;
-
+        // amount of burnchain tokens (e.g. sats) we'll spend across the PoX outputs
         let burn_fee_cap = get_mining_spend_amount(self.globals.get_miner_status());
-        let sunset_burn = self.burnchain.expected_sunset_burn(
-            sort_tip.block_height + 1,
-            burn_fee_cap,
-            target_epoch.epoch_id,
-        );
-        let rest_commit = burn_fee_cap - sunset_burn;
 
-        let commit_outs = if !self
-            .burnchain
-            .pox_constants
-            .is_after_pox_sunset_end(sort_tip.block_height, target_epoch.epoch_id)
-            && !self
-                .burnchain
-                .is_in_prepare_phase(sort_tip.block_height + 1)
-        {
-            RewardSetInfo::into_commit_outs(recipients, self.config.is_mainnet())
-        } else {
-            vec![PoxAddress::standard_burn_address(self.config.is_mainnet())]
-        };
-
-        // let's commit, but target the current burnchain tip with our modulus
+        // let's commit, but target the current burnchain tip with our modulus so the commit is
+        // only valid if it lands in the targeted burnchain block height
         let burn_parent_modulus = u8::try_from(sort_tip.block_height % BURN_BLOCK_MINED_AT_MODULUS)
             .map_err(|_| {
                 error!("Relayer: Block mining modulus is not u8");
                 NakamotoNodeError::UnexpectedChainState
             })?;
+
+        // burnchain signer for this commit
         let sender = self.keychain.get_burnchain_signer();
+
+        // VRF key this commit uses (i.e. the one we registered)
         let key = self
             .globals
             .get_leader_key_registration_state()
             .get_active()
             .ok_or_else(|| NakamotoNodeError::NoVRFKeyActive)?;
-        let op = LeaderBlockCommitOp {
+
+        let commit = LeaderBlockCommitOp {
+            // NOTE: to be filled in
             treatment: vec![],
-            sunset_burn,
-            block_header_hash: BlockHeaderHash(parent_block_id.0),
-            burn_fee: rest_commit,
-            input: (Txid([0; 32]), 0),
+            // NOTE: PoX sunset has been disabled prior to taking effect
+            sunset_burn: 0,
+            // block-commits in Nakamoto commit to the ongoing tenure's tenure-start block (which,
+            // when processed, become the start-block of the tenure atop which this miner will
+            // produce blocks)
+            block_header_hash: BlockHeaderHash(
+                highest_tenure_start_block_header.index_block_hash().0,
+            ),
+            // the rest of this is the same as epoch2x commits, modulo the new epoch marker
+            burn_fee: burn_fee_cap,
             apparent_sender: sender,
             key_block_ptr: u32::try_from(key.block_height)
                 .expect("FATAL: burn block height exceeded u32"),
             key_vtxindex: u16::try_from(key.op_vtxindex).expect("FATAL: vtxindex exceeded u16"),
             memo: vec![STACKS_EPOCH_3_0_MARKER],
-            new_seed: VRFSeed::from_proof(&parent_vrf_proof),
-            parent_block_ptr: u32::try_from(parent_block_burn_height)
+            new_seed: VRFSeed::from_proof(&tip_vrf_proof),
+            parent_block_ptr: u32::try_from(commit_parent_block_burn_height)
                 .expect("FATAL: burn block height exceeded u32"),
-            parent_vtxindex: u16::try_from(parent_winning_vtxindex)
+            parent_vtxindex: u16::try_from(commit_parent_winning_vtxindex)
                 .expect("FATAL: vtxindex exceeded u16"),
+            burn_parent_modulus,
+            commit_outs,
+
+            // NOTE: to be filled in
+            input: (Txid([0; 32]), 0),
             vtxindex: 0,
             txid: Txid([0u8; 32]),
             block_height: 0,
             burn_header_hash: BurnchainHeaderHash::zero(),
-            burn_parent_modulus,
-            commit_outs,
         };
 
-        Ok((sort_tip, target_epoch.epoch_id, op))
+        Ok(LastCommit::new(
+            commit,
+            sort_tip,
+            stacks_tip,
+            highest_tenure_start_block_header.consensus_hash,
+            highest_tenure_start_block_header
+                .anchored_header
+                .block_hash(),
+            target_epoch.epoch_id,
+        ))
     }
 
     /// Create the block miner thread state.
@@ -744,7 +871,12 @@ impl RelayerThread {
         committed_index_hash: StacksBlockId,
     ) -> bool {
         let miner_instruction =
-            self.process_sortition(consensus_hash, burn_hash, committed_index_hash);
+            match self.process_sortition(consensus_hash, burn_hash, committed_index_hash) {
+                Ok(mi) => mi,
+                Err(_) => {
+                    return false;
+                }
+            };
 
         match miner_instruction {
             MinerDirective::BeginTenure {
@@ -787,29 +919,30 @@ impl RelayerThread {
         true
     }
 
+    /// Generate and submit the next block-commit, and record it locally
     fn issue_block_commit(
         &mut self,
-        tenure_start_ch: ConsensusHash,
-        tenure_start_bh: BlockHeaderHash,
+        tip_block_ch: ConsensusHash,
+        tip_block_bh: BlockHeaderHash,
     ) -> Result<(), NakamotoNodeError> {
-        let (last_committed_at, target_epoch_id, commit) =
-            self.make_block_commit(&tenure_start_ch, &tenure_start_bh)?;
+        let mut last_committed = self.make_block_commit(&tip_block_ch, &tip_block_bh)?;
         #[cfg(test)]
         {
             if TEST_SKIP_COMMIT_OP.lock().unwrap().unwrap_or(false) {
-                //if let Some((last_committed, ..)) = self.last_committed.as_ref() {
-                //    if last_committed.consensus_hash == last_committed_at.consensus_hash {
                 warn!("Relayer: not submitting block-commit to bitcoin network due to test directive.");
                 return Ok(());
-                //}
             }
         }
+
+        // sign and broadcast
         let mut op_signer = self.keychain.generate_op_signer();
         let txid = self
             .bitcoin_controller
             .submit_operation(
-                target_epoch_id,
-                BlockstackOperationType::LeaderBlockCommit(commit),
+                last_committed.get_epoch_id().clone(),
+                BlockstackOperationType::LeaderBlockCommit(
+                    last_committed.get_block_commit().clone(),
+                ),
                 &mut op_signer,
                 1,
             )
@@ -817,23 +950,26 @@ impl RelayerThread {
                 warn!("Failed to submit block-commit bitcoin transaction");
                 NakamotoNodeError::BurnchainSubmissionFailed
             })?;
+
         info!(
             "Relayer: Submitted block-commit";
-            "parent_consensus_hash" => %tenure_start_ch,
-            "parent_block_hash" => %tenure_start_bh,
+            "tip_consensus_hash" => %tip_block_ch,
+            "tip_block_hash" => %tip_block_bh,
             "txid" => %txid,
         );
 
+        // update local state
+        last_committed.set_txid(&txid);
         self.last_commits.insert(txid);
-        self.last_committed = Some((
-            last_committed_at,
-            StacksBlockId::new(&tenure_start_ch, &tenure_start_bh),
-        ));
+        self.last_committed = Some(last_committed);
         self.globals.counters.bump_naka_submitted_commits();
 
         Ok(())
     }
 
+    /// Determine what the relayer should do to advance the chain.
+    /// * If this isn't a miner, then it's always nothing.
+    /// * Otherwise, if we haven't done so already, go register a VRF public key
     fn initiative(&mut self) -> Option<RelayerDirective> {
         if !self.is_miner {
             return None;
@@ -856,65 +992,60 @@ impl RelayerThread {
             LeaderKeyRegistrationState::Active(_) => {}
         };
 
-        // has there been a new sortition
-        let Ok(sort_tip) = SortitionDB::get_canonical_burn_chain_tip(self.sortdb.conn()) else {
+        // load up canonical sortition and stacks tips
+        let Ok(sort_tip) =
+            SortitionDB::get_canonical_burn_chain_tip(self.sortdb.conn()).map_err(|e| {
+                error!("Failed to load canonical sortition tip: {:?}", &e);
+                e
+            })
+        else {
             return None;
         };
 
-        // check if the burnchain changed, if so, we should issue a commit.
-        //  if not, we may still want to update a commit if we've received a new tenure start block
-        let burnchain_changed = if let Some((last_committed_at, ..)) = self.last_committed.as_ref()
-        {
-            // if the new sortition tip has a different consesus hash than the last commit,
-            //  issue a new commit
-            sort_tip.consensus_hash != last_committed_at.consensus_hash
-        } else {
-            // if there was no last commit, issue a new commit
-            true
-        };
-
-        let Ok(Some(chain_tip_header)) =
-            NakamotoChainState::get_canonical_block_header(self.chainstate.db(), &self.sortdb)
+        // NOTE: this may be an epoch2x tip
+        let Ok((stacks_tip_ch, stacks_tip_bh)) =
+            SortitionDB::get_canonical_stacks_chain_tip_hash(self.sortdb.conn()).map_err(|e| {
+                error!("Failed to load canonical stacks tip: {:?}", &e);
+                e
+            })
         else {
-            info!("No known canonical tip, will issue a genesis block commit");
-            return Some(RelayerDirective::IssueBlockCommit(
-                FIRST_BURNCHAIN_CONSENSUS_HASH,
-                FIRST_STACKS_BLOCK_HASH,
-            ));
-        };
-
-        // get the starting block of the chain tip's tenure
-        let Ok(Some(chain_tip_tenure_start)) =
-            NakamotoChainState::get_block_header_by_consensus_hash(
-                self.chainstate.db(),
-                &chain_tip_header.consensus_hash,
-            )
-        else {
-            warn!("Failure getting the first block of tenure in order to assemble block commit";
-                  "tenure_consensus_hash" => %chain_tip_header.consensus_hash,
-                  "tip_block_hash" => %chain_tip_header.anchored_header.block_hash());
             return None;
         };
+        let stacks_tip = StacksBlockId::new(&stacks_tip_ch, &stacks_tip_bh);
 
-        let chain_tip_tenure_id = chain_tip_tenure_start.index_block_hash();
-        let should_commit = burnchain_changed
-            || if let Some((_, last_committed_tenure_id)) = self.last_committed.as_ref() {
-                // if the tenure ID of the chain tip has changed, issue a new commit
-                last_committed_tenure_id != &chain_tip_tenure_id
-            } else {
-                // should be unreachable, but either way, if
-                //  `self.last_committed` is None, we should issue a commit
-                true
-            };
+        // check stacks and sortition tips to see if any chainstate change has happened.
+        // did our view of the sortition history change?
+        // if so, then let's try and confirm the highest tenure so far.
+        let burnchain_changed = self
+            .last_committed
+            .as_ref()
+            .map(|cmt| cmt.get_burn_tip().consensus_hash != sort_tip.consensus_hash)
+            .unwrap_or(true);
 
-        if should_commit {
-            Some(RelayerDirective::IssueBlockCommit(
-                chain_tip_tenure_start.consensus_hash,
-                chain_tip_tenure_start.anchored_header.block_hash(),
-            ))
-        } else {
-            None
+        let highest_tenure_changed = self
+            .last_committed
+            .as_ref()
+            .map(|cmt| cmt.get_tenure_id() != &stacks_tip_ch)
+            .unwrap_or(true);
+
+        debug!("Relayer: initiative to commit";
+               "sortititon tip" => %sort_tip.consensus_hash,
+               "stacks tip" => %stacks_tip,
+               "last-commit burn view" => %self.last_committed.as_ref().map(|cmt| cmt.get_burn_tip().consensus_hash.to_string()).unwrap_or("(not set)".to_string()),
+               "last-commit ongoing tenure" => %self.last_committed.as_ref().map(|cmt| cmt.get_tenure_id().to_string()).unwrap_or("(not set)".to_string()),
+               "burnchain view changed?" => %burnchain_changed,
+               "highest tenure changed?" => %highest_tenure_changed);
+
+        if !burnchain_changed && !highest_tenure_changed {
+            // nothing to do
+            return None;
         }
+
+        // burnchain view or highest-tenure view changed, so we need to send (or RBF) a commit
+        Some(RelayerDirective::IssueBlockCommit(
+            stacks_tip_ch,
+            stacks_tip_bh,
+        ))
     }
 
     /// Main loop of the relayer.

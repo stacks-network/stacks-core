@@ -94,7 +94,11 @@ impl<M: MessageSlotID + 'static> StackerDB<M> {
         &mut self,
         message: T,
     ) -> Result<StackerDBChunkAckData, ClientError> {
-        let msg_id = message.msg_id();
+        let msg_id = message.msg_id().ok_or_else(|| {
+            ClientError::PutChunkRejected(
+                "Tried to send a SignerMessage which does not have a corresponding .signers slot identifier".into()
+            )
+        })?;
         let message_bytes = message.serialize_to_vec();
         self.send_message_bytes_with_retry(&msg_id, message_bytes)
     }
@@ -230,9 +234,7 @@ mod tests {
 
     use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
     use clarity::util::hash::{MerkleTree, Sha512Trunc256Sum};
-    use libsigner::v0::messages::SignerMessage;
-    use libsigner::BlockProposal;
-    use rand::{thread_rng, RngCore};
+    use libsigner::v0::messages::{BlockRejection, BlockResponse, RejectCode, SignerMessage};
 
     use super::*;
     use crate::client::tests::{generate_signer_config, mock_server_from_config, write_response};
@@ -272,12 +274,12 @@ mod tests {
         };
         block.header.tx_merkle_root = tx_merkle_root;
 
-        let block_proposal = BlockProposal {
-            block,
-            burn_height: thread_rng().next_u64(),
-            reward_cycle: thread_rng().next_u64(),
+        let block_reject = BlockRejection {
+            reason: "Did not like it".into(),
+            reason_code: RejectCode::RejectedInPriorRound,
+            signer_signature_hash: block.header.signer_signature_hash(),
         };
-        let signer_message = SignerMessage::BlockProposal(block_proposal);
+        let signer_message = SignerMessage::BlockResponse(BlockResponse::Rejected(block_reject));
         let ack = StackerDBChunkAckData {
             accepted: true,
             reason: None,
@@ -285,12 +287,14 @@ mod tests {
             code: None,
         };
         let mock_server = mock_server_from_config(&config);
-        let h = spawn(move || stackerdb.send_message_with_retry(signer_message));
+        debug!("Spawning msg sender");
+        let sender_thread =
+            spawn(move || stackerdb.send_message_with_retry(signer_message).unwrap());
         let mut response_bytes = b"HTTP/1.1 200 OK\n\n".to_vec();
         let payload = serde_json::to_string(&ack).expect("Failed to serialize ack");
         response_bytes.extend(payload.as_bytes());
         std::thread::sleep(Duration::from_millis(500));
         write_response(mock_server, response_bytes.as_slice());
-        assert_eq!(ack, h.join().unwrap().unwrap());
+        assert_eq!(ack, sender_thread.join().unwrap());
     }
 }

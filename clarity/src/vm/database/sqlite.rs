@@ -16,10 +16,11 @@
 
 use rusqlite::types::{FromSql, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
 use rusqlite::{
-    Connection, Error as SqliteError, ErrorCode as SqliteErrorCode, OptionalExtension, Row,
-    Savepoint, NO_PARAMS,
+    params, Connection, Error as SqliteError, ErrorCode as SqliteErrorCode, OptionalExtension, Row,
+    Savepoint,
 };
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId};
+use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::util::db_common::tx_busy_handler;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 
@@ -43,11 +44,8 @@ pub struct SqliteConnection {
 }
 
 fn sqlite_put(conn: &Connection, key: &str, value: &str) -> Result<()> {
-    let params: [&dyn ToSql; 2] = [&key, &value];
-    match conn.execute(
-        "REPLACE INTO data_table (key, value) VALUES (?, ?)",
-        &params,
-    ) {
+    let params = params![key, value];
+    match conn.execute("REPLACE INTO data_table (key, value) VALUES (?, ?)", params) {
         Ok(_) => Ok(()),
         Err(e) => {
             error!("Failed to insert/replace ({},{}): {:?}", key, value, &e);
@@ -58,11 +56,11 @@ fn sqlite_put(conn: &Connection, key: &str, value: &str) -> Result<()> {
 
 fn sqlite_get(conn: &Connection, key: &str) -> Result<Option<String>> {
     trace!("sqlite_get {}", key);
-    let params: [&dyn ToSql; 1] = [&key];
+    let params = params![key];
     let res = match conn
         .query_row(
             "SELECT value FROM data_table WHERE key = ?",
-            &params,
+            params,
             |row| row.get(0),
         )
         .optional()
@@ -155,11 +153,11 @@ impl SqliteConnection {
         value: &str,
     ) -> Result<()> {
         let key = format!("clr-meta::{}::{}", contract_hash, key);
-        let params: [&dyn ToSql; 3] = [&bhh, &key, &value];
+        let params = params![bhh, key, value];
 
         if let Err(e) = conn.execute(
             "INSERT INTO metadata_table (blockhash, key, value) VALUES (?, ?, ?)",
-            &params,
+            params,
         ) {
             error!(
                 "Failed to insert ({},{},{}): {:?}",
@@ -178,10 +176,10 @@ impl SqliteConnection {
         from: &StacksBlockId,
         to: &StacksBlockId,
     ) -> Result<()> {
-        let params = [to, from];
+        let params = params![to, from];
         if let Err(e) = conn.execute(
             "UPDATE metadata_table SET blockhash = ? WHERE blockhash = ?",
-            &params,
+            params,
         ) {
             error!("Failed to update {} to {}: {:?}", &from, &to, &e);
             return Err(InterpreterError::DBError(SQL_FAIL_MESSAGE.into()).into());
@@ -190,7 +188,10 @@ impl SqliteConnection {
     }
 
     pub fn drop_metadata(conn: &Connection, from: &StacksBlockId) -> Result<()> {
-        if let Err(e) = conn.execute("DELETE FROM metadata_table WHERE blockhash = ?", &[from]) {
+        if let Err(e) = conn.execute(
+            "DELETE FROM metadata_table WHERE blockhash = ?",
+            params![from],
+        ) {
             error!("Failed to drop metadata from {}: {:?}", &from, &e);
             return Err(InterpreterError::DBError(SQL_FAIL_MESSAGE.into()).into());
         }
@@ -204,12 +205,12 @@ impl SqliteConnection {
         key: &str,
     ) -> Result<Option<String>> {
         let key = format!("clr-meta::{}::{}", contract_hash, key);
-        let params: [&dyn ToSql; 2] = [&bhh, &key];
+        let params = params![bhh, key];
 
         match conn
             .query_row(
                 "SELECT value FROM metadata_table WHERE blockhash = ? AND key = ?",
-                &params,
+                params,
                 |row| row.get(0),
             )
             .optional()
@@ -264,10 +265,10 @@ impl SqliteConnection {
     pub fn check_schema(conn: &Connection) -> Result<()> {
         let sql = "SELECT sql FROM sqlite_master WHERE name=?";
         let _: String = conn
-            .query_row(sql, &["data_table"], |row| row.get(0))
+            .query_row(sql, params!["data_table"], |row| row.get(0))
             .map_err(|x| InterpreterError::SqliteError(IncomparableError { err: x }))?;
         let _: String = conn
-            .query_row(sql, &["metadata_table"], |row| row.get(0))
+            .query_row(sql, params!["metadata_table"], |row| row.get(0))
             .map_err(|x| InterpreterError::SqliteError(IncomparableError { err: x }))?;
         Ok(())
     }

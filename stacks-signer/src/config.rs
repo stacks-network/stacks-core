@@ -151,6 +151,9 @@ pub struct SignerConfig {
     pub max_tx_fee_ustx: Option<u64>,
     /// The path to the signer's database file
     pub db_path: PathBuf,
+    /// How much time must pass between the first block proposal in a tenure and the next bitcoin block
+    ///  before a subsequent miner isn't allowed to reorg the tenure
+    pub first_proposal_burn_block_timing: Duration,
 }
 
 /// The parsed configuration for the signer
@@ -190,6 +193,9 @@ pub struct GlobalConfig {
     pub db_path: PathBuf,
     /// Metrics endpoint
     pub metrics_endpoint: Option<SocketAddr>,
+    /// How much time between the first block proposal in a tenure and the next bitcoin block
+    ///  must pass before a subsequent miner isn't allowed to reorg the tenure
+    pub first_proposal_burn_block_timing: Duration,
 }
 
 /// Internal struct for loading up the config file
@@ -227,6 +233,9 @@ struct RawConfigFile {
     pub db_path: String,
     /// Metrics endpoint
     pub metrics_endpoint: Option<String>,
+    /// How much time must pass between the first block proposal in a tenure and the next bitcoin block
+    ///  before a subsequent miner isn't allowed to reorg the tenure
+    pub first_proposal_burn_block_timing_secs: Option<u64>,
 }
 
 impl RawConfigFile {
@@ -298,6 +307,8 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
         let dkg_private_timeout = raw_data.dkg_private_timeout_ms.map(Duration::from_millis);
         let nonce_timeout = raw_data.nonce_timeout_ms.map(Duration::from_millis);
         let sign_timeout = raw_data.sign_timeout_ms.map(Duration::from_millis);
+        let first_proposal_burn_block_timing =
+            Duration::from_secs(raw_data.first_proposal_burn_block_timing_secs.unwrap_or(30));
         let db_path = raw_data.db_path.into();
 
         let metrics_endpoint = match raw_data.metrics_endpoint {
@@ -331,6 +342,7 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
             auth_password: raw_data.auth_password,
             db_path,
             metrics_endpoint,
+            first_proposal_burn_block_timing,
         })
     }
 }
@@ -635,10 +647,19 @@ mod tests {
     fn test_config_to_string() {
         let config = GlobalConfig::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
         let config_str = config.config_to_log_string();
-        assert_eq!(
-            config_str,
-            format!(
-                r#"
+
+        let expected_str_v4 = r#"
+Stacks node host: 127.0.0.1:20443
+Signer endpoint: 127.0.0.1:30000
+Stacks address: ST3FPN8KBZ3YPBP0ZJGAAHTVFMQDTJCR5QPS7VTNJ
+Public key: 03bc489f27da3701d9f9e577c88de5567cf4023111b7577042d55cde4d823a3505
+Network: testnet
+Database path: :memory:
+DKG transaction fee: 0.01 uSTX
+Metrics endpoint: 0.0.0.0:9090
+"#;
+
+        let expected_str_v6 = r#"
 Stacks node host: 127.0.0.1:20443
 Signer endpoint: [::1]:30000
 Stacks address: ST3FPN8KBZ3YPBP0ZJGAAHTVFMQDTJCR5QPS7VTNJ
@@ -647,8 +668,12 @@ Network: testnet
 Database path: :memory:
 DKG transaction fee: 0.01 uSTX
 Metrics endpoint: 0.0.0.0:9090
-"#
-            )
+"#;
+
+        assert!(
+            config_str == expected_str_v4 || config_str == expected_str_v6,
+            "Config string does not match expected output. Actual:\n{}",
+            config_str
         );
     }
 

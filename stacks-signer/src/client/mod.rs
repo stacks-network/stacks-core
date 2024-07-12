@@ -565,6 +565,7 @@ pub(crate) mod tests {
             tx_fee_ustx: config.tx_fee_ustx,
             max_tx_fee_ustx: config.max_tx_fee_ustx,
             db_path: config.db_path.clone(),
+            first_proposal_burn_block_timing: Duration::from_secs(30),
         }
     }
 

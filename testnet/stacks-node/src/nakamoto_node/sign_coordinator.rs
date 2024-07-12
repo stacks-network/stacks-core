@@ -18,7 +18,7 @@ use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
 
 use hashbrown::{HashMap, HashSet};
-use libsigner::v0::messages::{BlockResponse, SignerMessage as SignerMessageV0};
+use libsigner::v0::messages::{BlockResponse, MinerSlotID, SignerMessage as SignerMessageV0};
 use libsigner::v1::messages::{MessageSlotID, SignerMessage as SignerMessageV1};
 use libsigner::{BlockProposal, SignerEntries, SignerEvent, SignerSession, StackerDBSession};
 use stacks::burnchains::Burnchain;
@@ -331,25 +331,52 @@ impl SignCoordinator {
             .expect("FATAL: tried to initialize WSTS coordinator before first burn block height")
     }
 
-    fn send_signers_message<M: StacksMessageCodec>(
+    /// Send a message over the miners contract using a `Scalar` private key
+    fn send_miners_message_scalar<M: StacksMessageCodec>(
         message_key: &Scalar,
         sortdb: &SortitionDB,
         tip: &BlockSnapshot,
         stackerdbs: &StackerDBs,
         message: M,
+        miner_slot_id: MinerSlotID,
         is_mainnet: bool,
         miners_session: &mut StackerDBSession,
     ) -> Result<(), String> {
         let mut miner_sk = StacksPrivateKey::from_slice(&message_key.to_bytes()).unwrap();
         miner_sk.set_compress_public(true);
+        Self::send_miners_message(
+            &miner_sk,
+            sortdb,
+            tip,
+            stackerdbs,
+            message,
+            miner_slot_id,
+            is_mainnet,
+            miners_session,
+        )
+    }
+
+    /// Send a message over the miners contract using a `StacksPrivateKey`
+    pub fn send_miners_message<M: StacksMessageCodec>(
+        miner_sk: &StacksPrivateKey,
+        sortdb: &SortitionDB,
+        tip: &BlockSnapshot,
+        stackerdbs: &StackerDBs,
+        message: M,
+        miner_slot_id: MinerSlotID,
+        is_mainnet: bool,
+        miners_session: &mut StackerDBSession,
+    ) -> Result<(), String> {
         let miner_pubkey = StacksPublicKey::from_private(&miner_sk);
         let Some(slot_range) = NakamotoChainState::get_miner_slot(sortdb, tip, &miner_pubkey)
             .map_err(|e| format!("Failed to read miner slot information: {e:?}"))?
         else {
             return Err("No slot for miner".into());
         };
-        // We only have one slot per miner
-        let slot_id = slot_range.start;
+
+        let slot_id = slot_range
+            .start
+            .saturating_add(miner_slot_id.to_u8().into());
         if !slot_range.contains(&slot_id) {
             return Err("Not enough slots for miner messages".into());
         }
@@ -414,12 +441,13 @@ impl SignCoordinator {
                     "Failed to start signing round in FIRE coordinator: {e:?}"
                 ))
             })?;
-        Self::send_signers_message::<SignerMessageV1>(
+        Self::send_miners_message_scalar::<SignerMessageV1>(
             &self.message_key,
             sortdb,
             burn_tip,
             &stackerdbs,
             nonce_req_msg.into(),
+            MinerSlotID::BlockProposal,
             self.is_mainnet,
             &mut self.miners_session,
         )
@@ -565,12 +593,15 @@ impl SignCoordinator {
                 }
             }
             for msg in outbound_msgs {
-                match Self::send_signers_message::<SignerMessageV1>(
+                match Self::send_miners_message_scalar::<SignerMessageV1>(
                     &self.message_key,
                     sortdb,
                     burn_tip,
                     stackerdbs,
                     msg.into(),
+                    // TODO: note, in v1, we'll want to add a new slot, but for now, it just shares
+                    //   with the block proposal
+                    MinerSlotID::BlockProposal,
                     self.is_mainnet,
                     &mut self.miners_session,
                 ) {
@@ -624,12 +655,13 @@ impl SignCoordinator {
         debug!("Sending block proposal message to signers";
             "signer_signature_hash" => ?&block.header.signer_signature_hash().0,
         );
-        Self::send_signers_message::<SignerMessageV0>(
+        Self::send_miners_message_scalar::<SignerMessageV0>(
             &self.message_key,
             sortdb,
             burn_tip,
             &stackerdbs,
             block_proposal_message,
+            MinerSlotID::BlockProposal,
             self.is_mainnet,
             &mut self.miners_session,
         )
@@ -709,75 +741,83 @@ impl SignCoordinator {
             );
 
             for (message, slot_id) in messages.into_iter().zip(slot_ids) {
-                match message {
+                let (response_hash, signature) = match message {
                     SignerMessageV0::BlockResponse(BlockResponse::Accepted((
                         response_hash,
                         signature,
-                    ))) => {
-                        let block_sighash = block.header.signer_signature_hash();
-                        if block_sighash != response_hash {
-                            warn!(
-                                "Processed signature but didn't validate over the expected block. Returning error.";
-                                "signature" => %signature,
-                                "block_signer_signature_hash" => %block_sighash,
-                                "slot_id" => slot_id,
-                            );
-                            continue;
-                        }
-                        debug!("SignCoordinator: Received valid signature from signer"; "slot_id" => slot_id, "signature" => %signature);
-                        let Some(signer_entry) = &self.signer_entries.get(&slot_id) else {
-                            return Err(NakamotoNodeError::SignerSignatureError(
-                                "Signer entry not found".into(),
-                            ));
-                        };
-                        let Ok(signer_pubkey) =
-                            StacksPublicKey::from_slice(&signer_entry.signing_key)
-                        else {
-                            return Err(NakamotoNodeError::SignerSignatureError(
-                                "Failed to parse signer public key".into(),
-                            ));
-                        };
-                        let Ok(valid_sig) = signer_pubkey.verify(block_sighash.bits(), &signature)
-                        else {
-                            warn!("Got invalid signature from a signer. Ignoring.");
-                            continue;
-                        };
-                        if !valid_sig {
-                            warn!(
-                                "Processed signature but didn't validate over the expected block. Ignoring";
-                                "signature" => %signature,
-                                "block_signer_signature_hash" => %block_sighash,
-                                "slot_id" => slot_id,
-                            );
-                            continue;
-                        }
-                        if !gathered_signatures.contains_key(&slot_id) {
-                            total_weight_signed = total_weight_signed
-                                .checked_add(signer_entry.weight)
-                                .expect("FATAL: total weight signed exceeds u32::MAX");
-                        }
-                        debug!("Signature Added to block";
-                            "block_signer_sighash" => %block_sighash,
-                            "signer_pubkey" => signer_pubkey.to_hex(),
-                            "signer_slot_id" => slot_id,
-                            "signature" => %signature,
-                            "signer_weight" => signer_entry.weight,
-                            "total_weight_signed" => total_weight_signed,
-                        );
-                        gathered_signatures.insert(slot_id, signature);
-                    }
+                    ))) => (response_hash, signature),
                     SignerMessageV0::BlockResponse(BlockResponse::Rejected(_)) => {
                         debug!("Received rejected block response. Ignoring.");
+                        continue;
                     }
                     SignerMessageV0::BlockProposal(_) => {
                         debug!("Received block proposal message. Ignoring.");
+                        continue;
                     }
+                    SignerMessageV0::BlockPushed(_) => {
+                        debug!("Received block pushed message. Ignoring.");
+                        continue;
+                    }
+                };
+                let block_sighash = block.header.signer_signature_hash();
+                if block_sighash != response_hash {
+                    warn!(
+                        "Processed signature but didn't validate over the expected block. Returning error.";
+                        "signature" => %signature,
+                        "block_signer_signature_hash" => %block_sighash,
+                        "slot_id" => slot_id,
+                    );
+                    continue;
                 }
+                debug!("SignCoordinator: Received valid signature from signer"; "slot_id" => slot_id, "signature" => %signature);
+                let Some(signer_entry) = &self.signer_entries.get(&slot_id) else {
+                    return Err(NakamotoNodeError::SignerSignatureError(
+                        "Signer entry not found".into(),
+                    ));
+                };
+                let Ok(signer_pubkey) = StacksPublicKey::from_slice(&signer_entry.signing_key)
+                else {
+                    return Err(NakamotoNodeError::SignerSignatureError(
+                        "Failed to parse signer public key".into(),
+                    ));
+                };
+                let Ok(valid_sig) = signer_pubkey.verify(block_sighash.bits(), &signature) else {
+                    warn!("Got invalid signature from a signer. Ignoring.");
+                    continue;
+                };
+                if !valid_sig {
+                    warn!(
+                        "Processed signature but didn't validate over the expected block. Ignoring";
+                        "signature" => %signature,
+                        "block_signer_signature_hash" => %block_sighash,
+                        "slot_id" => slot_id,
+                    );
+                    continue;
+                }
+                if !gathered_signatures.contains_key(&slot_id) {
+                    total_weight_signed = total_weight_signed
+                        .checked_add(signer_entry.weight)
+                        .expect("FATAL: total weight signed exceeds u32::MAX");
+                }
+                debug!("Signature Added to block";
+                    "block_signer_sighash" => %block_sighash,
+                    "signer_pubkey" => signer_pubkey.to_hex(),
+                    "signer_slot_id" => slot_id,
+                    "signature" => %signature,
+                    "signer_weight" => signer_entry.weight,
+                    "total_weight_signed" => total_weight_signed,
+                    "stacks_block_hash" => %block.header.block_hash(),
+                    "stacks_block_id" => %block.header.block_id()
+                );
+                gathered_signatures.insert(slot_id, signature);
             }
 
             // After gathering all signatures, return them if we've hit the threshold
             if total_weight_signed >= self.weight_threshold {
-                info!("SignCoordinator: Received enough signatures. Continuing.");
+                info!("SignCoordinator: Received enough signatures. Continuing.";
+                    "stacks_block_hash" => %block.header.block_hash(),
+                    "stacks_block_id" => %block.header.block_id()
+                );
                 return Ok(gathered_signatures.values().cloned().collect());
             }
         }

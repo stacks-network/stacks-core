@@ -25,8 +25,8 @@ use clarity::vm::types::{
 };
 use clarity::vm::{ClarityVersion, ContractName, SymbolicExpression, Value};
 use lazy_static::{__Deref, lazy_static};
-use rusqlite::types::{FromSql, FromSqlError};
-use rusqlite::{params, Connection, OptionalExtension, ToSql, NO_PARAMS};
+use rusqlite::types::{FromSql, FromSqlError, ToSql};
+use rusqlite::{params, Connection, OptionalExtension};
 use sha2::{Digest as Sha2Digest, Sha512_256};
 use stacks_common::bitvec::BitVec;
 use stacks_common::codec::{
@@ -40,6 +40,7 @@ use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksAddress, StacksBlockId,
     StacksPrivateKey, StacksPublicKey, TrieHash, VRFSeed,
 };
+use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::types::{PrivateKey, StacksEpochId};
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::{to_hex, Hash160, MerkleHashFunc, MerkleTree, Sha512Trunc256Sum};
@@ -239,6 +240,7 @@ impl NakamotoSigners {
         let reward_set =
             StacksChainState::make_reward_set(threshold, reward_slots, StacksEpochId::Epoch30);
 
+        test_debug!("Reward set for cycle {}: {:?}", &reward_cycle, &reward_set);
         let stackerdb_list = if participation == 0 {
             vec![]
         } else {

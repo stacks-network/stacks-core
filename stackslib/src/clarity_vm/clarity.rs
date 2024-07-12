@@ -1887,9 +1887,9 @@ mod tests {
     use clarity::vm::database::{ClarityBackingStore, STXBalance};
     use clarity::vm::test_util::{TEST_BURN_STATE_DB, TEST_HEADER_DB};
     use clarity::vm::types::{StandardPrincipalData, Value};
-    use rusqlite::NO_PARAMS;
     use stacks_common::consts::CHAIN_ID_TESTNET;
     use stacks_common::types::chainstate::ConsensusHash;
+    use stacks_common::types::sqlite::NO_PARAMS;
 
     use super::*;
     use crate::chainstate::stacks::index::ClarityMarfTrieId;

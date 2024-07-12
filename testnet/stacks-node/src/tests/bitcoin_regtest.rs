@@ -21,6 +21,14 @@ pub enum BitcoinCoreError {
     SpawnFailed(String),
 }
 
+impl std::fmt::Display for BitcoinCoreError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::SpawnFailed(msg) => write!(f, "bitcoind spawn failed: {msg}"),
+        }
+    }
+}
+
 type BitcoinResult<T> = Result<T, BitcoinCoreError>;
 
 pub struct BitcoinCoreController {
