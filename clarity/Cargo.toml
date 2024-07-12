@@ -45,9 +45,6 @@ workspace = true
 features = ["blob", "serde_json", "i128_blob", "bundled", "trace"]
 optional = true
 
-[dependencies.time]
-version = "0.2.23"
-features = ["std"]
 
 [dev-dependencies]
 assert-json-diff = "1.0.0"
