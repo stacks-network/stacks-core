@@ -45,8 +45,6 @@ use crate::client::tests::MockServerClient;
 use crate::client::StacksClient;
 use crate::signerdb::{BlockInfo, SignerDb};
 
-static TEST_FIRST_PROPOSAL_BURN_BLOCK_TIMING: Duration = Duration::from_secs(30);
-
 fn setup_test_environment(
     fn_name: &str,
 ) -> (
@@ -87,7 +85,7 @@ fn setup_test_environment(
         cur_sortition,
         last_sortition,
         config: ProposalEvalConfig {
-            first_proposal_burn_block_timing: TEST_FIRST_PROPOSAL_BURN_BLOCK_TIMING.clone(),
+            first_proposal_burn_block_timing: Duration::from_secs(30),
         },
     };
 
@@ -157,10 +155,12 @@ fn check_proposal_miner_pkh_mismatch() {
 
 fn reorg_timing_testing(
     test_name: &str,
+    first_proposal_burn_block_timing_secs: u64,
     sortition_timing_secs: u64,
 ) -> Result<bool, SignerChainstateError> {
     let (_stacks_client, mut signer_db, block_pk, mut view, mut block) =
         setup_test_environment(test_name);
+    view.config.first_proposal_burn_block_timing = Duration::from_secs(first_proposal_burn_block_timing_secs);
 
     view.cur_sortition.parent_tenure_id = view.last_sortition.as_ref().unwrap().parent_tenure_id;
     block.header.consensus_hash = view.cur_sortition.consensus_hash;
@@ -227,7 +227,7 @@ fn reorg_timing_testing(
         reward_cycle: 1,
     };
     let mut block_info_1 = BlockInfo::from(block_proposal_1);
-    block_info_1.signed_over = true;
+    block_info_1.mark_signed_and_valid();
     signer_db.insert_block(&block_info_1).unwrap();
 
     let sortition_time = SystemTime::UNIX_EPOCH
@@ -253,7 +253,8 @@ fn reorg_timing_testing(
 fn check_proposal_reorg_timing_bad() {
     let result = reorg_timing_testing(
         "reorg_timing_bad",
-        TEST_FIRST_PROPOSAL_BURN_BLOCK_TIMING.as_secs() + 1,
+        30,
+        31,
     );
     assert!(!result.unwrap(), "Proposal should not validate, because the reorg occurred in a block whose proposed time was long enough before the sortition");
 }
@@ -262,7 +263,8 @@ fn check_proposal_reorg_timing_bad() {
 fn check_proposal_reorg_timing_ok() {
     let result = reorg_timing_testing(
         "reorg_timing_okay",
-        TEST_FIRST_PROPOSAL_BURN_BLOCK_TIMING.as_secs(),
+        30,
+        30,
     );
     assert!(result.unwrap(), "Proposal should validate okay, because the reorg occurred in a block whose proposed time was close to the sortition");
 }
