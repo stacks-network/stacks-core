@@ -33,7 +33,7 @@ use stacks_common::consts::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_H
 use stacks_common::types::chainstate::{PoxId, SortitionId};
 use stacks_common::types::net::{PeerAddress, PeerHost};
 use stacks_common::types::StacksEpochId;
-use stacks_common::util::hash::to_hex;
+use stacks_common::util::hash::{to_hex, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::Secp256k1PublicKey;
 use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs, log};
 use {mio, url};
@@ -48,7 +48,7 @@ use crate::chainstate::coordinator::{
 };
 use crate::chainstate::nakamoto::coordinator::load_nakamoto_reward_set;
 use crate::chainstate::stacks::boot::{RewardSet, MINERS_NAME};
-use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState};
 use crate::chainstate::stacks::{StacksBlockHeader, MAX_BLOCK_LEN, MAX_TRANSACTION_LEN};
 use crate::core::StacksEpoch;
 use crate::monitoring::{update_inbound_neighbors, update_outbound_neighbors};
@@ -90,6 +90,7 @@ pub enum NetworkRequest {
 /// The "main loop" for sending/receiving data is a select/poll loop, and runs outside of other
 /// threads that need a synchronous RPC or a multi-RPC interface.  This object gives those threads
 /// a way to issue commands and hear back replies from them.
+#[derive(Clone)]
 pub struct NetworkHandle {
     chan_in: SyncSender<NetworkRequest>,
 }
@@ -234,6 +235,7 @@ impl ConnectingPeer {
     }
 }
 
+/// Cached reward cycle, for validating pushed blocks
 #[derive(Clone, Debug, PartialEq)]
 pub struct CurrentRewardSet {
     pub reward_cycle: u64,
@@ -252,6 +254,30 @@ impl CurrentRewardSet {
     }
 }
 
+/// Cached stacks chain tip info, consumed by RPC endpoints
+#[derive(Clone, Debug, PartialEq)]
+pub struct StacksTipInfo {
+    pub consensus_hash: ConsensusHash,
+    pub block_hash: BlockHeaderHash,
+    pub height: u64,
+    pub is_nakamoto: bool,
+}
+
+impl StacksTipInfo {
+    pub fn empty() -> Self {
+        Self {
+            consensus_hash: ConsensusHash([0u8; 20]),
+            block_hash: BlockHeaderHash([0u8; 32]),
+            height: 0,
+            is_nakamoto: false,
+        }
+    }
+
+    pub fn block_id(&self) -> StacksBlockId {
+        StacksBlockId::new(&self.consensus_hash, &self.block_hash)
+    }
+}
+
 pub struct PeerNetwork {
     // constants
     pub peer_version: u32,
@@ -267,13 +293,11 @@ pub struct PeerNetwork {
     pub ast_rules: ASTRules,
 
     /// Current Stacks tip -- the highest block's consensus hash, block hash, and height
-    pub stacks_tip: (ConsensusHash, BlockHeaderHash, u64),
-    /// Sortition that corresponds to the current Stacks tip, if known
-    pub stacks_tip_sn: Option<BlockSnapshot>,
+    pub stacks_tip: StacksTipInfo,
     /// Parent tenure Stacks tip -- the last block in the current tip's parent tenure.
     /// In epoch 2.x, this is the parent block.
     /// In nakamoto, this is the last block in the parent tenure
-    pub parent_stacks_tip: (ConsensusHash, BlockHeaderHash, u64),
+    pub parent_stacks_tip: StacksTipInfo,
     /// The block id of the first block in this tenure.
     /// In epoch 2.x, this is the same as the tip block ID
     /// In nakamoto, this is the block ID of the first block in the current tenure
@@ -488,9 +512,8 @@ impl PeerNetwork {
                 &first_burn_header_hash,
                 first_burn_header_ts as u64,
             ),
-            stacks_tip: (ConsensusHash([0x00; 20]), BlockHeaderHash([0x00; 32]), 0),
-            stacks_tip_sn: None,
-            parent_stacks_tip: (ConsensusHash([0x00; 20]), BlockHeaderHash([0x00; 32]), 0),
+            stacks_tip: StacksTipInfo::empty(),
+            parent_stacks_tip: StacksTipInfo::empty(),
             tenure_start_block_id: StacksBlockId([0x00; 32]),
             current_reward_sets: BTreeMap::new(),
 
@@ -4085,7 +4108,7 @@ impl PeerNetwork {
         &mut self,
         burnchain_height: u64,
         sortdb: &SortitionDB,
-        chainstate: &StacksChainState,
+        chainstate: &mut StacksChainState,
         ibd: bool,
         network_result: &mut NetworkResult,
     ) -> bool {
@@ -4647,65 +4670,92 @@ impl PeerNetwork {
 
     /// Load up the parent stacks tip.
     /// For epoch 2.x, this is the pointer to the parent block of the current stacks tip
-    /// For epoch 3.x, this is the pointer to the tenure-start block of the parent tenure of the
+    /// For epoch 3.x, this is the pointer to the _tenure-start_ block of the parent tenure of the
     /// current stacks tip.
     /// If this is the first tenure in epoch 3.x, then this is the pointer to the epoch 2.x block
     /// that it builds atop.
     pub(crate) fn get_parent_stacks_tip(
-        cur_epoch: StacksEpochId,
+        &self,
         chainstate: &StacksChainState,
         stacks_tip_block_id: &StacksBlockId,
-    ) -> Result<(ConsensusHash, BlockHeaderHash, u64), net_error> {
+    ) -> Result<StacksTipInfo, net_error> {
         let header = NakamotoChainState::get_block_header(chainstate.db(), stacks_tip_block_id)?
-            .ok_or(net_error::DBError(db_error::NotFoundError))?;
+            .ok_or_else(|| {
+                debug!(
+                    "{:?}: get_parent_stacks_tip: No such stacks block: {:?}",
+                    self.get_local_peer(),
+                    stacks_tip_block_id
+                );
+                net_error::DBError(db_error::NotFoundError)
+            })?;
 
-        let parent_header = if cur_epoch < StacksEpochId::Epoch30 {
-            // prior to epoch 3.0, the self.prev_stacks_tip field is just the parent block
-            let parent_block_id =
-                StacksChainState::get_parent_block_id(chainstate.db(), &header.index_block_hash())?
-                    .ok_or(net_error::DBError(db_error::NotFoundError))?;
-
-            NakamotoChainState::get_block_header(chainstate.db(), &parent_block_id)?
-                .ok_or(net_error::DBError(db_error::NotFoundError))?
-        } else {
-            // in epoch 3.0 and later, self.prev_stacks_tip is the first tenure block of the
-            // current tip's parent tenure.
-            match NakamotoChainState::get_nakamoto_parent_tenure_id_consensus_hash(
-                chainstate.db(),
+        let tenure_start_header = NakamotoChainState::get_tenure_start_block_header(
+            &mut chainstate.index_conn(),
+            stacks_tip_block_id,
+            &header.consensus_hash,
+        )?
+        .ok_or_else(|| {
+            debug!(
+                "{:?}: get_parent_stacks_tip: No tenure-start block for {} off of {}",
+                self.get_local_peer(),
                 &header.consensus_hash,
-            )? {
-                Some(ch) => NakamotoChainState::get_nakamoto_tenure_start_block_header(
-                    chainstate.db(),
-                    &ch,
-                )?
-                .ok_or(net_error::DBError(db_error::NotFoundError))?,
-                None => {
-                    // parent in epoch 2
-                    let tenure_start_block_header =
-                        NakamotoChainState::get_block_header_by_consensus_hash(
-                            chainstate.db(),
-                            &header.consensus_hash,
-                        )?
-                        .ok_or(net_error::DBError(db_error::NotFoundError))?;
+                stacks_tip_block_id
+            );
+            net_error::DBError(db_error::NotFoundError)
+        })?;
 
-                    let nakamoto_header = tenure_start_block_header
-                        .anchored_header
-                        .as_stacks_nakamoto()
-                        .ok_or(net_error::DBError(db_error::NotFoundError))?;
-
-                    NakamotoChainState::get_block_header(
-                        chainstate.db(),
-                        &nakamoto_header.parent_block_id,
-                    )?
-                    .ok_or(net_error::DBError(db_error::NotFoundError))?
-                }
+        let parent_block_id = match tenure_start_header.anchored_header {
+            StacksBlockHeaderTypes::Nakamoto(ref nakamoto_header) => {
+                nakamoto_header.parent_block_id.clone()
             }
+            StacksBlockHeaderTypes::Epoch2(..) => StacksChainState::get_parent_block_id(
+                chainstate.db(),
+                &tenure_start_header.index_block_hash(),
+            )?
+            .ok_or_else(|| {
+                debug!(
+                    "{:?}: get_parent_stacks_tip: No parent block ID found for epoch2x block {}",
+                    self.get_local_peer(),
+                    &tenure_start_header.index_block_hash()
+                );
+                net_error::DBError(db_error::NotFoundError)
+            })?,
         };
-        Ok((
-            parent_header.consensus_hash,
-            parent_header.anchored_header.block_hash(),
-            parent_header.anchored_header.height(),
-        ))
+
+        let parent_header =
+            NakamotoChainState::get_block_header(chainstate.db(), &parent_block_id)?.ok_or_else(
+                || {
+                    debug!(
+                        "{:?}: get_parent_stacks_tip: No such parent stacks block: {:?}",
+                        self.get_local_peer(),
+                        &parent_block_id
+                    );
+                    net_error::DBError(db_error::NotFoundError)
+                },
+            )?;
+
+        let parent_tenure_start_header = NakamotoChainState::get_tenure_start_block_header(&mut chainstate.index_conn(), stacks_tip_block_id, &parent_header.consensus_hash)?
+            .ok_or_else(|| {
+                debug!("{:?}: get_parent_stacks_tip: No tenure-start block for parent tenure {} off of child {} (parnet {})", self.get_local_peer(), &parent_header.consensus_hash, stacks_tip_block_id, &parent_block_id);
+                net_error::DBError(db_error::NotFoundError)
+            })?;
+
+        let parent_stacks_tip = StacksTipInfo {
+            consensus_hash: parent_tenure_start_header.consensus_hash,
+            block_hash: parent_tenure_start_header.anchored_header.block_hash(),
+            height: parent_tenure_start_header.anchored_header.height(),
+            is_nakamoto: parent_tenure_start_header
+                .anchored_header
+                .as_stacks_nakamoto()
+                .is_some(),
+        };
+        test_debug!(
+            "{:?}: Parent Stacks tip off of {} is {:?}",
+            self.get_local_peer(),
+            &stacks_tip_block_id,
+            &parent_stacks_tip
+        );
+        Ok(parent_stacks_tip)
     }
 
     /// Clear out old reward cycles
@@ -4722,11 +4772,17 @@ impl PeerNetwork {
     }
 
     /// Refresh our view of the last three reward cycles
+    /// This ensures that the PeerNetwork has cached copies of the reward cycle data (including the
+    /// signing set) for the current, previous, and previous-previous reward cycles.  This data is
+    /// in turn consumed by the Nakamoto block downloader, which must validate blocks signed from
+    /// any of these reward cycles.
+    #[cfg_attr(test, mutants::skip)]
     fn refresh_reward_cycles(
         &mut self,
         sortdb: &SortitionDB,
         chainstate: &mut StacksChainState,
         tip_sn: &BlockSnapshot,
+        tip_block_id: &StacksBlockId,
     ) -> Result<(), net_error> {
         let cur_rc = self
             .burnchain
@@ -4767,6 +4823,7 @@ impl PeerNetwork {
                 &tip_sn.sortition_id,
                 &self.burnchain,
                 chainstate,
+                tip_block_id,
                 sortdb,
                 &OnChainRewardSetProvider::new(),
             )
@@ -4815,60 +4872,78 @@ impl PeerNetwork {
     ) -> Result<HashMap<NeighborKey, Vec<StacksMessage>>, net_error> {
         // update burnchain snapshot if we need to (careful -- it's expensive)
         let canonical_sn = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())?;
-        let stacks_tip =
+        let (stacks_tip_ch, stacks_tip_bhh, stacks_tip_height) =
             SortitionDB::get_canonical_stacks_chain_tip_hash_and_height(sortdb.conn())?;
 
         let burnchain_tip_changed = canonical_sn.block_height != self.chain_view.burn_block_height
             || self.num_state_machine_passes == 0
             || canonical_sn.sortition_id != self.burnchain_tip.sortition_id;
 
-        let stacks_tip_changed = self.stacks_tip != stacks_tip;
-        let new_stacks_tip_block_id = StacksBlockId::new(&stacks_tip.0, &stacks_tip.1);
+        let stacks_tip_changed = self.stacks_tip.consensus_hash != stacks_tip_ch
+            || self.stacks_tip.block_hash != stacks_tip_bhh
+            || self.stacks_tip.height != stacks_tip_height;
+
+        let new_stacks_tip_block_id = StacksBlockId::new(&stacks_tip_ch, &stacks_tip_bhh);
+        let stacks_tip_is_nakamoto = if stacks_tip_changed {
+            // go check
+            chainstate
+                .nakamoto_blocks_db()
+                .has_nakamoto_block_with_index_hash(&new_stacks_tip_block_id)
+                .unwrap_or(false)
+        } else {
+            self.stacks_tip.is_nakamoto
+        };
+
         let need_stackerdb_refresh = canonical_sn.canonical_stacks_tip_consensus_hash
             != self.burnchain_tip.canonical_stacks_tip_consensus_hash
             || burnchain_tip_changed
             || stacks_tip_changed;
 
         if burnchain_tip_changed || stacks_tip_changed {
-            self.refresh_reward_cycles(sortdb, chainstate, &canonical_sn)?;
+            self.refresh_reward_cycles(
+                sortdb,
+                chainstate,
+                &canonical_sn,
+                &new_stacks_tip_block_id,
+            )?;
         }
 
         let mut ret: HashMap<NeighborKey, Vec<StacksMessage>> = HashMap::new();
 
-        let (parent_stacks_tip, tenure_start_block_id, stacks_tip_sn) = if stacks_tip_changed {
-            let stacks_tip_sn =
-                SortitionDB::get_block_snapshot_consensus(sortdb.conn(), &stacks_tip.0)?;
+        let (parent_stacks_tip, tenure_start_block_id) = if stacks_tip_changed {
             let tenure_start_block_id = if let Some(header) =
                 NakamotoChainState::get_nakamoto_tenure_start_block_header(
-                    chainstate.db(),
-                    &stacks_tip.0,
+                    &mut chainstate.index_conn(),
+                    &new_stacks_tip_block_id,
+                    &stacks_tip_ch,
                 )? {
                 header.index_block_hash()
             } else {
                 new_stacks_tip_block_id.clone()
             };
-            let parent_tip_id = match Self::get_parent_stacks_tip(
-                self.get_current_epoch().epoch_id,
-                chainstate,
-                &new_stacks_tip_block_id,
-            ) {
-                Ok(tip_id) => tip_id,
+            let parent_tip = match self.get_parent_stacks_tip(chainstate, &new_stacks_tip_block_id)
+            {
+                Ok(tip) => tip,
                 Err(net_error::DBError(db_error::NotFoundError)) => {
                     // this is the first block
-                    (
-                        FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
-                        FIRST_STACKS_BLOCK_HASH.clone(),
-                        0,
-                    )
+                    debug!(
+                        "First-ever block (no parent): {:?} ({}/{})",
+                        &new_stacks_tip_block_id, &stacks_tip_ch, &stacks_tip_bhh
+                    );
+                    StacksTipInfo {
+                        consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
+                        block_hash: FIRST_STACKS_BLOCK_HASH.clone(),
+                        height: 0,
+                        is_nakamoto: false,
+                    }
                 }
                 Err(e) => return Err(e),
             };
-            (parent_tip_id, tenure_start_block_id, stacks_tip_sn)
+            (parent_tip, tenure_start_block_id)
         } else {
             (
                 self.parent_stacks_tip.clone(),
                 self.tenure_start_block_id.clone(),
-                self.stacks_tip_sn.clone(),
             )
         };
 
@@ -5005,10 +5080,27 @@ impl PeerNetwork {
 
         // update cached stacks chain view for /v2/info and /v3/tenures/info
         self.burnchain_tip = canonical_sn;
-        self.stacks_tip = stacks_tip;
-        self.stacks_tip_sn = stacks_tip_sn;
-        self.parent_stacks_tip = parent_stacks_tip;
         self.tenure_start_block_id = tenure_start_block_id;
+        if stacks_tip_changed {
+            self.stacks_tip = StacksTipInfo {
+                consensus_hash: stacks_tip_ch,
+                block_hash: stacks_tip_bhh,
+                height: stacks_tip_height,
+                is_nakamoto: stacks_tip_is_nakamoto,
+            };
+            self.parent_stacks_tip = parent_stacks_tip;
+
+            test_debug!(
+                "{:?}: canonical Stacks tip is now {:?}",
+                self.get_local_peer(),
+                &self.stacks_tip
+            );
+            test_debug!(
+                "{:?}: parent canonical Stacks tip is now {:?}",
+                self.get_local_peer(),
+                &self.parent_stacks_tip
+            );
+        }
 
         Ok(ret)
     }
@@ -5204,16 +5296,17 @@ impl PeerNetwork {
             debug!("Already have tx {}", txid);
             return false;
         }
-        let stacks_epoch = match sortdb
-            .index_conn()
-            .get_stacks_epoch(burnchain_tip.block_height as u32)
+        let stacks_epoch = match SortitionDB::get_stacks_epoch(
+            sortdb.conn(),
+            burnchain_tip.block_height,
+        )
+        .ok()
+        .flatten()
         {
             Some(epoch) => epoch,
             None => {
-                warn!(
-                        "Failed to store transaction because could not load Stacks epoch for canonical burn height = {}",
-                        burnchain_tip.block_height
-                    );
+                warn!("Failed to store transaction because could not load Stacks epoch for canonical burn height = {}",
+                      burnchain_tip.block_height);
                 return false;
             }
         };
@@ -5422,6 +5515,7 @@ impl PeerNetwork {
             };
 
         let mut network_result = NetworkResult::new(
+            self.stacks_tip.block_id(),
             self.num_state_machine_passes,
             self.num_inv_sync_passes,
             self.num_downloader_passes,

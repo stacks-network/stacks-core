@@ -1133,7 +1133,6 @@ pub const MAX_MICROBLOCK_SIZE: u32 = 65536;
 
 #[cfg(test)]
 pub mod test {
-    use boot::signers_voting_tests::make_dummy_tx;
     use clarity::util::get_epoch_time_secs;
     use clarity::vm::representations::{ClarityName, ContractName};
     use clarity::vm::ClarityVersion;

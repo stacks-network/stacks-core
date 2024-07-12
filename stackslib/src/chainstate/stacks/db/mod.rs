@@ -55,6 +55,7 @@ use crate::chainstate::burn::{ConsensusHash, ConsensusHashExtensions};
 use crate::chainstate::nakamoto::{
     HeaderTypeNames, NakamotoBlock, NakamotoBlockHeader, NakamotoChainState,
     NakamotoStagingBlocksConn, NAKAMOTO_CHAINSTATE_SCHEMA_1, NAKAMOTO_CHAINSTATE_SCHEMA_2,
+    NAKAMOTO_CHAINSTATE_SCHEMA_3,
 };
 use crate::chainstate::stacks::address::StacksAddressExtensions;
 use crate::chainstate::stacks::boot::*;
@@ -291,39 +292,20 @@ pub struct DBConfig {
 
 impl DBConfig {
     pub fn supports_epoch(&self, epoch_id: StacksEpochId) -> bool {
+        let version_u32: u32 = self.version.parse().unwrap_or_else(|e| {
+            error!("Failed to parse Stacks chainstate version as u32: {e}");
+            0
+        });
         match epoch_id {
             StacksEpochId::Epoch10 => true,
-            StacksEpochId::Epoch20 => {
-                self.version == "1"
-                    || self.version == "2"
-                    || self.version == "3"
-                    || self.version == "4"
-                    || self.version == "5"
-            }
-            StacksEpochId::Epoch2_05 => {
-                self.version == "2"
-                    || self.version == "3"
-                    || self.version == "4"
-                    || self.version == "5"
-            }
-            StacksEpochId::Epoch21 => {
-                self.version == "3" || self.version == "4" || self.version == "5"
-            }
-            StacksEpochId::Epoch22 => {
-                self.version == "3" || self.version == "4" || self.version == "5"
-            }
-            StacksEpochId::Epoch23 => {
-                self.version == "3" || self.version == "4" || self.version == "5"
-            }
-            StacksEpochId::Epoch24 => {
-                self.version == "3" || self.version == "4" || self.version == "5"
-            }
-            StacksEpochId::Epoch25 => {
-                self.version == "3" || self.version == "4" || self.version == "5"
-            }
-            StacksEpochId::Epoch30 => {
-                self.version == "3" || self.version == "4" || self.version == "5"
-            }
+            StacksEpochId::Epoch20 => version_u32 >= 1 && version_u32 <= 6,
+            StacksEpochId::Epoch2_05 => version_u32 >= 2 && version_u32 <= 6,
+            StacksEpochId::Epoch21 => version_u32 >= 3 && version_u32 <= 6,
+            StacksEpochId::Epoch22 => version_u32 >= 3 && version_u32 <= 6,
+            StacksEpochId::Epoch23 => version_u32 >= 3 && version_u32 <= 6,
+            StacksEpochId::Epoch24 => version_u32 >= 3 && version_u32 <= 6,
+            StacksEpochId::Epoch25 => version_u32 >= 3 && version_u32 <= 6,
+            StacksEpochId::Epoch30 => version_u32 >= 3 && version_u32 <= 6,
         }
     }
 }
@@ -697,7 +679,7 @@ impl<'a> DerefMut for ChainstateTx<'a> {
     }
 }
 
-pub const CHAINSTATE_VERSION: &'static str = "5";
+pub const CHAINSTATE_VERSION: &'static str = "6";
 
 const CHAINSTATE_INITIAL_SCHEMA: &'static [&'static str] = &[
     "PRAGMA foreign_keys = ON;",
@@ -1112,6 +1094,13 @@ impl StacksChainState {
                         // migrate to nakamoto 2
                         info!("Migrating chainstate schema from version 4 to 5: fix nakamoto tenure typo");
                         for cmd in NAKAMOTO_CHAINSTATE_SCHEMA_2.iter() {
+                            tx.execute_batch(cmd)?;
+                        }
+                    }
+                    "5" => {
+                        // migrate to nakamoto 3
+                        info!("Migrating chainstate schema from version 5 to 6: adds height_in_tenure field");
+                        for cmd in NAKAMOTO_CHAINSTATE_SCHEMA_3.iter() {
                             tx.execute_batch(cmd)?;
                         }
                     }
@@ -1663,7 +1652,7 @@ impl StacksChainState {
 
         {
             // add a block header entry for the boot code
-            let mut tx = chainstate.index_tx_begin()?;
+            let mut tx = chainstate.index_tx_begin();
             let parent_hash = StacksBlockId::sentinel();
             let first_index_hash = StacksBlockHeader::make_index_block_hash(
                 &FIRST_BURNCHAIN_CONSENSUS_HASH,
@@ -1882,12 +1871,12 @@ impl StacksChainState {
 
     /// Begin a transaction against the (indexed) stacks chainstate DB.
     /// Does not create a Clarity instance.
-    pub fn index_tx_begin<'a>(&'a mut self) -> Result<StacksDBTx<'a>, Error> {
-        Ok(StacksDBTx::new(&mut self.state_index, ()))
+    pub fn index_tx_begin<'a>(&'a mut self) -> StacksDBTx<'a> {
+        StacksDBTx::new(&mut self.state_index, ())
     }
 
-    pub fn index_conn<'a>(&'a self) -> Result<StacksDBConn<'a>, Error> {
-        Ok(StacksDBConn::new(&self.state_index, ()))
+    pub fn index_conn<'a>(&'a self) -> StacksDBConn<'a> {
+        StacksDBConn::new(&self.state_index, ())
     }
 
     /// Begin a transaction against the underlying DB
@@ -1923,7 +1912,7 @@ impl StacksChainState {
     ) -> Value {
         let result = self.clarity_state.eval_read_only(
             parent_id_bhh,
-            &HeadersDBConn(self.state_index.sqlite_conn()),
+            &HeadersDBConn(StacksDBConn::new(&self.state_index, ())),
             burn_dbconn,
             contract,
             code,
@@ -1942,7 +1931,7 @@ impl StacksChainState {
     ) -> Result<Value, clarity_error> {
         self.clarity_state.eval_read_only(
             parent_id_bhh,
-            &HeadersDBConn(self.state_index.sqlite_conn()),
+            &HeadersDBConn(StacksDBConn::new(&self.state_index, ())),
             burn_dbconn,
             contract,
             code,
@@ -1961,7 +1950,7 @@ impl StacksChainState {
         function: &str,
         args: &[Value],
     ) -> Result<Value, clarity_error> {
-        let headers_db = HeadersDBConn(self.state_index.sqlite_conn());
+        let headers_db = HeadersDBConn(StacksDBConn::new(&self.state_index, ()));
         let mut conn = self.clarity_state.read_only_connection_checked(
             parent_id_bhh,
             &headers_db,

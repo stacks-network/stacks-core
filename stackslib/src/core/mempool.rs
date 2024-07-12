@@ -1751,20 +1751,26 @@ impl MemPoolDB {
             ) {
                 Ordering::Less => {
                     debug!(
-                        "Mempool: unexecutable: drop tx {}:{} ({})",
-                        candidate.origin_address,
-                        candidate.origin_nonce,
-                        candidate.fee_rate.unwrap_or_default()
+                        "Mempool: unexecutable: drop tx";
+                        "txid" => %candidate.txid,
+                        "tx_origin_addr" => %candidate.origin_address,
+                        "tx_origin_nonce" => candidate.origin_nonce,
+                        "fee_rate" => candidate.fee_rate.unwrap_or_default(),
+                        "expected_origin_nonce" => expected_origin_nonce,
+                        "expected_sponsor_nonce" => expected_sponsor_nonce,
                     );
                     // This transaction cannot execute in this pass, just drop it
                     continue;
                 }
                 Ordering::Greater => {
                     debug!(
-                        "Mempool: nonces too high, cached for later {}:{} ({})",
-                        candidate.origin_address,
-                        candidate.origin_nonce,
-                        candidate.fee_rate.unwrap_or_default()
+                        "Mempool: nonces too high, cached for later";
+                        "txid" => %candidate.txid,
+                        "tx_origin_addr" => %candidate.origin_address,
+                        "tx_origin_nonce" => candidate.origin_nonce,
+                        "fee_rate" => candidate.fee_rate.unwrap_or_default(),
+                        "expected_origin_nonce" => expected_origin_nonce,
+                        "expected_sponsor_nonce" => expected_sponsor_nonce,
                     );
                     // This transaction could become runnable in this pass, save it for later
                     candidate_cache.push(candidate);
@@ -2056,9 +2062,7 @@ impl MemPoolDB {
             return Ok(true);
         }
 
-        let headers_conn = &chainstate
-            .index_conn()
-            .map_err(|_e| db_error::Other("ChainstateError".to_string()))?;
+        let headers_conn = &chainstate.index_conn();
         let height_of_first_with_second_tip =
             headers_conn.get_ancestor_block_height(&second_block, &first_block)?;
         let height_of_second_with_first_tip =
