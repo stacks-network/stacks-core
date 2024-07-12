@@ -25,7 +25,6 @@ jobs:
     name: Lock Threads
     runs-on: ubuntu-latest
     steps:
-      ## Perform a lookup to check if the cache already exists
       - name: Lock Threads
         id: lock_threads
         uses: stacks-network/actions/lock-threads@main
