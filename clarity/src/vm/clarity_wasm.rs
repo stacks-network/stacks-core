@@ -1920,6 +1920,8 @@ fn link_host_functions(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Er
     link_secp256k1_recover_fn(linker)?;
     link_secp256k1_verify_fn(linker)?;
     link_principal_of_fn(linker)?;
+    link_save_constant_fn(linker)?;
+    link_load_constant_fn(linker)?;
 
     link_log(linker)
 }
@@ -5855,6 +5857,114 @@ fn link_principal_of_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), E
         .map_err(|e| {
             Error::Wasm(WasmError::UnableToLinkHostFunction(
                 "secp256k1_verify".to_string(),
+                e,
+            ))
+        })
+}
+
+fn link_save_constant_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+    linker
+        .func_wrap(
+            "clarity",
+            "save_constant",
+            |mut caller: Caller<'_, ClarityWasmContext>,
+             name_offset: i32,
+             name_length: i32,
+             value_offset: i32,
+             _value_length: i32| {
+                let memory = caller
+                    .get_export("memory")
+                    .and_then(|export| export.into_memory())
+                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+
+                let epoch = caller.data_mut().global_context.epoch_id;
+
+                // Get constant name from the memory.
+                let const_name =
+                    read_identifier_from_wasm(memory, &mut caller, name_offset, name_length)?;
+                let cname = ClarityName::from(const_name.as_str());
+
+                // Get constant value type.
+                let value_ty = caller
+                    .data()
+                    .contract_analysis
+                    .ok_or(Error::Wasm(WasmError::DefinesNotFound))?
+                    .get_variable_type(const_name.as_str())
+                    .ok_or(Error::Wasm(WasmError::DefinesNotFound))?;
+
+                let value =
+                    read_from_wasm_indirect(memory, &mut caller, value_ty, value_offset, epoch)?;
+
+                // Insert constant name and expression value into a persistent data structure.
+                caller
+                    .data_mut()
+                    .contract_context_mut()?
+                    .variables
+                    .insert(cname, value);
+
+                Ok(())
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            Error::Wasm(WasmError::UnableToLinkHostFunction(
+                "save_constant".to_string(),
+                e,
+            ))
+        })
+}
+
+fn link_load_constant_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+    linker
+        .func_wrap(
+            "clarity",
+            "load_constant",
+            |mut caller: Caller<'_, ClarityWasmContext>,
+             name_offset: i32,
+             name_length: i32,
+             value_offset: i32,
+             _value_length: i32| {
+                let memory = caller
+                    .get_export("memory")
+                    .and_then(|export| export.into_memory())
+                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+
+                // Read constant name from the memory.
+                let const_name =
+                    read_identifier_from_wasm(memory, &mut caller, name_offset, name_length)?;
+
+                // Constant value
+                let value = caller
+                    .data()
+                    .contract_context()
+                    .variables
+                    .get(&ClarityName::from(const_name.as_str()))
+                    // TODO: create a new WasmError to handle the constant not found issue
+                    .ok_or(Error::Wasm(WasmError::WasmGeneratorError(
+                        "Constant not found on MARF".to_string(),
+                    )))?
+                    .clone();
+
+                // Constant value type
+                let ty = TypeSignature::type_of(&value)?;
+
+                write_to_wasm(
+                    &mut caller,
+                    memory,
+                    &ty,
+                    value_offset,
+                    value_offset + get_type_size(&ty),
+                    &value,
+                    true,
+                )?;
+
+                Ok(())
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            Error::Wasm(WasmError::UnableToLinkHostFunction(
+                "load_constant".to_string(),
                 e,
             ))
         })
