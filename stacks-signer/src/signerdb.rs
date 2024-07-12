@@ -15,19 +15,22 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::path::Path;
+use std::time::SystemTime;
 
 use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockVote};
 use blockstack_lib::util_lib::db::{
     query_row, sqlite_open, table_exists, u64_to_sql, Error as DBError,
 };
+use clarity::types::chainstate::BurnchainHeaderHash;
+use clarity::util::get_epoch_time_secs;
 use libsigner::BlockProposal;
 use rusqlite::{params, Connection, Error as SqliteError, OpenFlags};
 use serde::{Deserialize, Serialize};
-use slog::slog_debug;
-use stacks_common::debug;
+use slog::{slog_debug, slog_error};
 use stacks_common::types::chainstate::ConsensusHash;
 use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::util::hash::Sha512Trunc256Sum;
+use stacks_common::{debug, error};
 use wsts::net::NonceRequest;
 
 /// Additional Info about a proposed block
@@ -47,6 +50,12 @@ pub struct BlockInfo {
     pub nonce_request: Option<NonceRequest>,
     /// Whether this block is already being signed over
     pub signed_over: bool,
+    /// Time at which the proposal was received by this signer (epoch time in seconds)
+    pub proposed_time: u64,
+    /// Time at which the proposal was signed by this signer (epoch time in seconds)
+    pub signed_self: Option<u64>,
+    /// Time at which the proposal was signed by a threshold in the signer set (epoch time in seconds)
+    pub signed_group: Option<u64>,
 }
 
 impl From<BlockProposal> for BlockInfo {
@@ -59,6 +68,9 @@ impl From<BlockProposal> for BlockInfo {
             valid: None,
             nonce_request: None,
             signed_over: false,
+            proposed_time: get_epoch_time_secs(),
+            signed_self: None,
+            signed_group: None,
         }
     }
 }
@@ -69,6 +81,16 @@ impl BlockInfo {
         block_info.nonce_request = Some(nonce_request);
         block_info.signed_over = true;
         block_info
+    }
+
+    /// Mark this block as valid, signed over, and record a timestamp in the block info if it wasn't
+    ///  already set.
+    pub fn mark_signed_and_valid(&mut self) {
+        self.valid = Some(true);
+        self.signed_over = true;
+        if self.signed_self.is_none() {
+            self.signed_self = Some(get_epoch_time_secs());
+        }
     }
 
     /// Return the block's signer signature hash
@@ -95,19 +117,27 @@ CREATE TABLE IF NOT EXISTS blocks (
     stacks_height INTEGER NOT NULL, 
     burn_block_height INTEGER NOT NULL,
     PRIMARY KEY (reward_cycle, signer_signature_hash)
-)";
+) STRICT";
 
 const CREATE_INDEXES: &str = "
 CREATE INDEX IF NOT EXISTS blocks_signed_over ON blocks (signed_over);
 CREATE INDEX IF NOT EXISTS blocks_consensus_hash ON blocks (consensus_hash);
 CREATE INDEX IF NOT EXISTS blocks_valid ON blocks ((json_extract(block_info, '$.valid')));
+CREATE INDEX IF NOT EXISTS burn_blocks_height ON burn_blocks (block_height);
 ";
 
 const CREATE_SIGNER_STATE_TABLE: &str = "
 CREATE TABLE IF NOT EXISTS signer_states (
     reward_cycle INTEGER PRIMARY KEY,
     encrypted_state BLOB NOT NULL
-)";
+) STRICT";
+
+const CREATE_BURN_STATE_TABLE: &str = "
+CREATE TABLE IF NOT EXISTS burn_blocks (
+    block_hash TEXT PRIMARY KEY,
+    block_height INTEGER NOT NULL,
+    received_time INTEGER NOT NULL
+) STRICT";
 
 impl SignerDb {
     /// Create a new `SignerState` instance.
@@ -130,6 +160,10 @@ impl SignerDb {
 
         if !table_exists(&self.db, "signer_states")? {
             self.db.execute(CREATE_SIGNER_STATE_TABLE, NO_PARAMS)?;
+        }
+
+        if !table_exists(&self.db, "burn_blocks")? {
+            self.db.execute(CREATE_BURN_STATE_TABLE, NO_PARAMS)?;
         }
 
         self.db.execute_batch(CREATE_INDEXES)?;
@@ -197,7 +231,58 @@ impl SignerDb {
         try_deserialize(result)
     }
 
-    /// Insert a block into the database.
+    /// Return the first signed block in a tenure (identified by its consensus hash)
+    pub fn get_first_signed_block_in_tenure(
+        &self,
+        tenure: &ConsensusHash,
+    ) -> Result<Option<BlockInfo>, DBError> {
+        let query = "SELECT block_info FROM blocks WHERE consensus_hash = ? AND signed_over = 1 ORDER BY stacks_height ASC LIMIT 1";
+        let result: Option<String> = query_row(&self.db, query, &[tenure])?;
+
+        try_deserialize(result)
+    }
+
+    /// Insert or replace a burn block into the database
+    pub fn insert_burn_block(
+        &mut self,
+        burn_hash: &BurnchainHeaderHash,
+        burn_height: u64,
+        received_time: &SystemTime,
+    ) -> Result<(), DBError> {
+        let received_ts = received_time
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|e| DBError::Other(format!("Bad system time: {e}")))?
+            .as_secs();
+        debug!("Inserting burn block info"; "burn_block_height" => burn_height, "burn_hash" => %burn_hash, "received" => received_ts);
+        self.db.execute(
+            "INSERT OR REPLACE INTO burn_blocks (block_hash, block_height, received_time) VALUES (?1, ?2, ?3)",
+            params![
+                burn_hash,
+                u64_to_sql(burn_height)?,
+                u64_to_sql(received_ts)?,
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Get timestamp (epoch seconds) at which a burn block was received over the event dispatcheer by this signer
+    /// if that burn block has been received.
+    pub fn get_burn_block_receive_time(
+        &self,
+        burn_hash: &BurnchainHeaderHash,
+    ) -> Result<Option<u64>, DBError> {
+        let query = "SELECT received_time FROM burn_blocks WHERE block_hash = ? LIMIT 1";
+        let Some(receive_time_i64) = query_row::<i64, _>(&self.db, query, &[burn_hash])? else {
+            return Ok(None);
+        };
+        let receive_time = u64::try_from(receive_time_i64).map_err(|e| {
+            error!("Failed to parse db received_time as u64: {e}");
+            DBError::Corruption
+        })?;
+        Ok(Some(receive_time))
+    }
+
+    /// Insert or replace a block into the database.
     /// `hash` is the `signer_signature_hash` of the block.
     pub fn insert_block(&mut self, block_info: &BlockInfo) -> Result<(), DBError> {
         let block_json =
@@ -394,6 +479,47 @@ mod tests {
 
         assert_ne!(old_block_info, block_info);
         assert_eq!(block_info.vote, Some(vote));
+    }
+
+    #[test]
+    fn get_first_signed_block() {
+        let db_path = tmp_db_path();
+        let mut db = SignerDb::new(db_path).expect("Failed to create signer db");
+        let (mut block_info, block_proposal) = create_block();
+        db.insert_block(&block_info).unwrap();
+
+        assert!(db
+            .get_first_signed_block_in_tenure(&block_proposal.block.header.consensus_hash)
+            .unwrap()
+            .is_none());
+
+        block_info.mark_signed_and_valid();
+        db.insert_block(&block_info).unwrap();
+
+        let fetched_info = db
+            .get_first_signed_block_in_tenure(&block_proposal.block.header.consensus_hash)
+            .unwrap()
+            .unwrap();
+        assert_eq!(fetched_info, block_info);
+    }
+
+    #[test]
+    fn insert_burn_block_get_time() {
+        let db_path = tmp_db_path();
+        let mut db = SignerDb::new(db_path).expect("Failed to create signer db");
+        let test_burn_hash = BurnchainHeaderHash([10; 32]);
+        let stime = SystemTime::now();
+        let time_to_epoch = stime
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        db.insert_burn_block(&test_burn_hash, 10, &stime).unwrap();
+
+        let stored_time = db
+            .get_burn_block_receive_time(&test_burn_hash)
+            .unwrap()
+            .unwrap();
+        assert_eq!(stored_time, time_to_epoch);
     }
 
     #[test]

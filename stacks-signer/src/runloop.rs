@@ -257,6 +257,7 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
             key_ids,
             signer_entries,
             signer_slot_ids: signer_slot_ids.into_values().collect(),
+            first_proposal_burn_block_timing: self.config.first_proposal_burn_block_timing,
             ecdsa_private_key: self.config.ecdsa_private_key,
             stacks_private_key: self.config.stacks_private_key,
             node_host: self.config.node_host.to_string(),
@@ -434,8 +435,8 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug>
                 }
                 return None;
             }
-        } else if let Some(SignerEvent::NewBurnBlock(current_burn_block_height)) = event {
-            if let Err(e) = self.refresh_runloop(current_burn_block_height) {
+        } else if let Some(SignerEvent::NewBurnBlock { burn_height, .. }) = event {
+            if let Err(e) = self.refresh_runloop(burn_height) {
                 error!("Failed to refresh signer runloop: {e}.");
                 warn!("Signer may have an outdated view of the network.");
             }

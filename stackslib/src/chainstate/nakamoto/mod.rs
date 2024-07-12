@@ -838,6 +838,7 @@ impl NakamotoBlockHeader {
         consensus_hash: ConsensusHash,
         parent_block_id: StacksBlockId,
         bitvec_len: u16,
+        parent_timestamp: u64,
     ) -> NakamotoBlockHeader {
         NakamotoBlockHeader {
             version: NAKAMOTO_BLOCK_VERSION,
@@ -847,7 +848,7 @@ impl NakamotoBlockHeader {
             parent_block_id,
             tx_merkle_root: Sha512Trunc256Sum([0u8; 32]),
             state_index_root: TrieHash([0u8; 32]),
-            timestamp: get_epoch_time_secs(),
+            timestamp: std::cmp::max(parent_timestamp, get_epoch_time_secs()),
             miner_signature: MessageSignature::empty(),
             signer_signature: vec![],
             pox_treatment: BitVec::ones(bitvec_len)

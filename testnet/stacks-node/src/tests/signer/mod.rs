@@ -105,6 +105,15 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         initial_balances: Vec<(StacksAddress, u64)>,
         wait_on_signers: Option<Duration>,
     ) -> Self {
+        Self::new_with_config_modifications(num_signers, initial_balances, wait_on_signers, |_| {})
+    }
+
+    fn new_with_config_modifications<F: Fn(&mut SignerConfig) -> ()>(
+        num_signers: usize,
+        initial_balances: Vec<(StacksAddress, u64)>,
+        wait_on_signers: Option<Duration>,
+        modifier: F,
+    ) -> Self {
         // Generate Signer Data
         let signer_stacks_private_keys = (0..num_signers)
             .map(|_| StacksPrivateKey::new())
@@ -148,8 +157,9 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
             .into_iter()
             .map(|i| {
                 info!("spawning signer");
-                let signer_config =
+                let mut signer_config =
                     SignerConfig::load_from_str(&signer_configs[i as usize]).unwrap();
+                modifier(&mut signer_config);
                 SpawnedSigner::new(signer_config)
             })
             .collect();
@@ -520,11 +530,10 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         self.running_nodes
             .run_loop_stopper
             .store(false, Ordering::SeqCst);
-        // Stop the signers before the node to prevent hanging
+        self.running_nodes.run_loop_thread.join().unwrap();
         for signer in self.spawned_signers {
             assert!(signer.stop().is_none());
         }
-        self.running_nodes.run_loop_thread.join().unwrap();
     }
 }
 
