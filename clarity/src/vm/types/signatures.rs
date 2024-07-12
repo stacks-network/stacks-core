@@ -910,7 +910,10 @@ impl TypeSignature {
                 for ty in type_map_ref.values_mut() {
                     *ty = ty.clone().concretize_deep()?;
                 }
-                Ok(TupleTypeSignature { type_map }.into())
+                Ok(TupleTypeSignature {
+                    type_map: Arc::new(type_map_ref),
+                }
+                .into())
             }
             TypeSignature::ListUnionType(_) | TypeSignature::CallableType(_) => self.concretize(),
         }
