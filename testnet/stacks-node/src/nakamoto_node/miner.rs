@@ -411,6 +411,10 @@ impl BlockMinerThread {
                 },
             )?;
 
+        if self.config.get_node_config(false).mock_mining {
+            return Ok((reward_set, Vec::new()));
+        }
+
         *attempts += 1;
         let signature = coordinator.begin_sign_v0(
             new_block,
