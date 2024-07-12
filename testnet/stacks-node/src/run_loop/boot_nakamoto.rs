@@ -61,7 +61,7 @@ impl Neon2NakaData {
 
 const BOOT_THREAD_NAME: &str = "epoch-2/3-boot";
 
-const LOG_CONTEXT: &str = "nakamoto-boot";
+const LOG_SOURCE: &str = "nakamoto-boot";
 
 /// This runloop handles booting to Nakamoto:
 /// During epochs [1.0, 2.5], it runs a neon run_loop.
@@ -183,11 +183,11 @@ impl BootRunLoop {
         });
 
         if !exited_for_transition {
-            info!(#LOG_CONTEXT, "Shutting down epoch {} → {} transition thread.", StacksEpochId::Epoch20, StacksEpochId::Epoch30);
+            info!(#LOG_SOURCE, "Shutting down epoch {} → {} transition thread.", StacksEpochId::Epoch20, StacksEpochId::Epoch30);
             return;
         }
 
-        info!(#LOG_CONTEXT, "Reached epoch {} boundary, starting Nakamoto node.", StacksEpochId::Epoch30);
+        info!(#LOG_SOURCE, "Reached epoch {} boundary, starting Nakamoto node.", StacksEpochId::Epoch30);
         termination_switch.store(true, Ordering::SeqCst);
 
         let naka = NakaRunLoop::new(
@@ -234,20 +234,20 @@ impl BootRunLoop {
                 loop {
                     let do_transition = Self::reached_epoch_30_transition(&config)
                         .unwrap_or_else(|err| {
-                            warn!(#LOG_CONTEXT, "Failed to check epoch {} transition: {err:?}. Assuming transition did not occur yet.", StacksEpochId::Epoch30);
+                            warn!(#LOG_SOURCE, "Failed to check epoch {} transition: {err:?}. Assuming transition did not occur yet.", StacksEpochId::Epoch30);
                             false
                         });
                     if do_transition {
                         break;
                     }
                     if !neon_term_switch.load(Ordering::SeqCst) {
-                        info!(#LOG_CONTEXT, "Stop requested. Exiting epoch {} → {} transition thread.", StacksEpochId::Epoch20, StacksEpochId::Epoch30);
+                        info!(#LOG_SOURCE, "Stop requested. Exiting epoch {} → {} transition thread.", StacksEpochId::Epoch20, StacksEpochId::Epoch30);
                         return false;
                     }
                     thread::sleep(Duration::from_secs(1));
                 }
                 // if loop exited, do the transition
-                info!(#LOG_CONTEXT, "Epoch {} boundary reached, stopping {}", StacksEpochId::Epoch30, StacksEpochId::Epoch20);
+                info!(#LOG_SOURCE, "Epoch {} boundary reached, stopping {}", StacksEpochId::Epoch30, StacksEpochId::Epoch20);
                 neon_term_switch.store(false, Ordering::SeqCst);
                 true
             })
@@ -274,14 +274,14 @@ impl BootRunLoop {
         if let Err(error) = fs::metadata(&sortdb_path) {
             // if the sortition db doesn't exist yet, don't try to open() it, because that creates the
             // db file even if it doesn't instantiate the tables, which breaks connect() logic.
-            info!(#LOG_CONTEXT, "Failed to open Sortition database while checking current burn height: {error}. Assuming current height is 0."; "db_path" => sortdb_path);
+            info!(#LOG_SOURCE, "Failed to open Sortition database while checking current burn height: {error}. Assuming current height is 0."; "db_path" => sortdb_path);
             return Ok(0);
         }
 
         let sortdb_or_error = SortitionDB::open(&sortdb_path, false, burnchain.pox_constants);
 
         if let Err(error) = sortdb_or_error {
-            info!(#LOG_CONTEXT, "Failed to open Sortition database while checking current burn height: {error}. Assuming current height is 0."; "db_path" => sortdb_path, "readwrite" => false);
+            info!(#LOG_SOURCE, "Failed to open Sortition database while checking current burn height: {error}. Assuming current height is 0."; "db_path" => sortdb_path, "readwrite" => false);
             return Ok(0);
         };
 
@@ -289,7 +289,7 @@ impl BootRunLoop {
         let tip_sn_or_error = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn());
 
         if let Err(error) = tip_sn_or_error {
-            info!(#LOG_CONTEXT, "Failed to query Sortition database for current burn height: {error}. Assuming current height is 0."; "db_path" => sortdb_path);
+            info!(#LOG_SOURCE, "Failed to query Sortition database for current burn height: {error}. Assuming current height is 0."; "db_path" => sortdb_path);
             return Ok(0);
         };
 

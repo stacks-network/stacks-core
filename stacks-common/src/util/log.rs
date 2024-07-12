@@ -78,7 +78,7 @@ fn print_msg_header(mut rd: &mut dyn RecordDecorator, record: &Record) -> io::Re
     rd.start_whitespace()?;
     record
         .kv()
-        .serialize(record, &mut KVSerializer::new(rd, false, false))?;
+        .serialize(record, &mut TermSerializer::new(rd, false, false))?;
 
     Ok(())
 }
@@ -150,7 +150,7 @@ fn pretty_print_msg_header(
     rd.start_whitespace()?;
     record
         .kv()
-        .serialize(record, &mut KVSerializer::new(rd, isatty, true))?;
+        .serialize(record, &mut TermSerializer::new(rd, isatty, true))?;
 
     if debug {
         write!(rd, " ")?;
@@ -168,16 +168,16 @@ fn pretty_print_msg_header(
     Ok(())
 }
 
-struct KVSerializer<'a> {
+struct TermSerializer<'a> {
     rd: &'a mut dyn RecordDecorator,
     isatty: bool,
     pretty_print: bool,
     prefix_written: bool,
 }
 
-impl<'a> KVSerializer<'a> {
-    fn new(rd: &'a mut dyn RecordDecorator, isatty: bool, pretty_print: bool) -> KVSerializer {
-        KVSerializer {
+impl<'a> TermSerializer<'a> {
+    fn new(rd: &'a mut dyn RecordDecorator, isatty: bool, pretty_print: bool) -> TermSerializer {
+        TermSerializer {
             rd,
             isatty,
             pretty_print,
@@ -186,7 +186,7 @@ impl<'a> KVSerializer<'a> {
     }
 }
 
-impl<'a> slog::Serializer for KVSerializer<'a> {
+impl<'a> slog::Serializer for TermSerializer<'a> {
     fn emit_arguments(&mut self, key: &str, val: &std::fmt::Arguments<'_>) -> slog::Result {
         if !self.prefix_written {
             write!(self.rd, "{} - {{ ", color_if_tty("\x1b[0;90m", self.isatty))?;
@@ -205,7 +205,7 @@ impl<'a> slog::Serializer for KVSerializer<'a> {
     }
 }
 
-impl<'a> Drop for KVSerializer<'a> {
+impl<'a> Drop for TermSerializer<'a> {
     fn drop(&mut self) {
         if self.prefix_written {
             write!(self.rd, "}}{}", color_if_tty("\x1b[0m", self.isatty)).ok();
