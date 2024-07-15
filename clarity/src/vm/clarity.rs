@@ -213,7 +213,7 @@ pub trait TransactionConnection: ClarityConnection {
                 cost_track,
                 epoch_id,
                 clarity_version,
-                false,
+                true,
             );
 
             match result {
