@@ -20,6 +20,7 @@ use std::sync::mpsc::sync_channel;
 use std::thread;
 use std::thread::JoinHandle;
 
+use clarity::vm::types::PrincipalData;
 use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
 use stacks_common::codec::{read_next, StacksMessageCodec};
 use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey};
@@ -337,6 +338,49 @@ pub fn make_nakamoto_peers_from_invs<'a>(
     bitvecs: Vec<Vec<bool>>,
     num_peers: usize,
 ) -> (TestPeer<'a>, Vec<TestPeer<'a>>) {
+    inner_make_nakamoto_peers_from_invs(
+        test_name,
+        observer,
+        rc_len,
+        prepare_len,
+        bitvecs,
+        num_peers,
+        vec![],
+    )
+}
+
+/// NOTE: The second return value does _not_ need `<'a>`, since `observer` is never installed into
+/// the peers here.  However, it appears unavoidable to the borrow-checker.
+pub fn make_nakamoto_peers_from_invs_and_balances<'a>(
+    test_name: &str,
+    observer: &'a TestEventObserver,
+    rc_len: u32,
+    prepare_len: u32,
+    bitvecs: Vec<Vec<bool>>,
+    num_peers: usize,
+    initial_balances: Vec<(PrincipalData, u64)>,
+) -> (TestPeer<'a>, Vec<TestPeer<'a>>) {
+    inner_make_nakamoto_peers_from_invs(
+        test_name,
+        observer,
+        rc_len,
+        prepare_len,
+        bitvecs,
+        num_peers,
+        initial_balances,
+    )
+}
+
+/// Make peers from inventories and balances
+fn inner_make_nakamoto_peers_from_invs<'a>(
+    test_name: &str,
+    observer: &'a TestEventObserver,
+    rc_len: u32,
+    prepare_len: u32,
+    bitvecs: Vec<Vec<bool>>,
+    num_peers: usize,
+    mut initial_balances: Vec<(PrincipalData, u64)>,
+) -> (TestPeer<'a>, Vec<TestPeer<'a>>) {
     for bitvec in bitvecs.iter() {
         assert_eq!(bitvec.len() as u32, rc_len);
     }
@@ -415,10 +459,11 @@ pub fn make_nakamoto_peers_from_invs<'a>(
         0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3,
     ]);
 
+    initial_balances.push((addr.into(), 1_000_000));
     let plan = NakamotoBootPlan::new(test_name)
         .with_private_key(private_key)
         .with_pox_constants(rc_len, prepare_len)
-        .with_initial_balances(vec![(addr.into(), 1_000_000)])
+        .with_initial_balances(initial_balances)
         .with_extra_peers(num_peers)
         .with_test_signers(test_signers)
         .with_test_stackers(test_stackers);
