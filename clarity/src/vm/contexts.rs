@@ -1901,10 +1901,12 @@ impl ContractContext {
         }
     }
 
+    #[cfg(feature = "clarity-wasm")]
     pub fn set_wasm_module(&mut self, wasm_module: Vec<u8>) {
         self.wasm_module = Some(wasm_module);
     }
 
+    #[cfg(feature = "clarity-wasm")]
     pub fn with_wasm_module<T>(&self, f: impl Fn(&[u8]) -> Result<T>) -> Result<T> {
         let wasm_module = self
             .wasm_module
