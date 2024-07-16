@@ -471,17 +471,6 @@ impl MempoolSync {
                     match Self::mempool_sync_resolve_data_url(url_str, dns_request, dns_client_opt)
                     {
                         Ok((false, Some(addr))) => {
-                            // address must be resolvable
-                            if PeerAddress::from_socketaddr(&addr).is_in_private_range() {
-                                debug!(
-                                    "{:?}: Mempool sync skips {}, which has private IP {}",
-                                    network.get_local_peer(),
-                                    &url_str,
-                                    &addr
-                                );
-                                self.mempool_sync_reset();
-                                return (true, None);
-                            }
                             // success! advance
                             self.mempool_state =
                                 MempoolSyncState::SendQuery(url_str.clone(), addr, page_id.clone());
@@ -508,6 +497,18 @@ impl MempoolSync {
                 }
                 MempoolSyncState::SendQuery(ref url, ref addr, ref page_id) => {
                     // 3. ask for the remote peer's mempool's novel txs
+                    // address must be resolvable
+                    if !network.get_connection_opts().private_neighbors
+                        && PeerAddress::from_socketaddr(&addr).is_in_private_range()
+                    {
+                        debug!(
+                            "{:?}: Mempool sync skips {}, which has private IP",
+                            network.get_local_peer(),
+                            &addr
+                        );
+                        self.mempool_sync_reset();
+                        return (true, None);
+                    }
                     debug!(
                         "{:?}: Mempool sync will query {} for mempool transactions at {}",
                         &network.get_local_peer(),
