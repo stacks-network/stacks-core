@@ -288,6 +288,14 @@ pub enum SignerMessage {
     EncryptedSignerState(Vec<u8>),
 }
 
+//#[cfg(any(test, feature = "testing"))]
+// This is only used for mutation testing
+impl Default for SignerMessage {
+    fn default() -> Self {
+        SignerMessage::Transactions(vec![])
+    }
+}
+
 impl Debug for SignerMessage {
     #[cfg_attr(test, mutants::skip)]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

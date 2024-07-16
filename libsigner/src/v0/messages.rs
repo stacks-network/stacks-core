@@ -31,7 +31,7 @@ use std::sync::mpsc::Sender;
 use std::sync::Arc;
 
 use blockstack_lib::chainstate::nakamoto::signer_set::NakamotoSigners;
-use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
+use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
 use blockstack_lib::chainstate::stacks::events::StackerDBChunksEvent;
 use blockstack_lib::chainstate::stacks::StacksTransaction;
 use blockstack_lib::net::api::postblock_proposal::{
@@ -156,6 +156,15 @@ pub enum SignerMessage {
     BlockResponse(BlockResponse),
     /// A block pushed from miners to the signers set
     BlockPushed(NakamotoBlock),
+}
+
+impl Default for SignerMessage {
+    fn default() -> Self {
+        Self::BlockPushed(NakamotoBlock {
+            header: NakamotoBlockHeader::empty(),
+            txs: Default::default(),
+        })
+    }
 }
 
 impl SignerMessage {

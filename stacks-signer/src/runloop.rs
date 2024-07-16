@@ -133,7 +133,7 @@ impl RewardCycleInfo {
 pub struct RunLoop<Signer, T>
 where
     Signer: SignerTrait<T>,
-    T: StacksMessageCodec + Clone + Send + Debug,
+    T: StacksMessageCodec + Clone + Send + Debug + Default,
 {
     /// Configuration info
     pub config: GlobalConfig,
@@ -154,7 +154,9 @@ where
     _phantom_data: std::marker::PhantomData<T>,
 }
 
-impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLoop<Signer, T> {
+impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug + Default>
+    RunLoop<Signer, T>
+{
     /// Create a new signer runloop from the provided configuration
     pub fn new(config: GlobalConfig) -> Self {
         let stacks_client = StacksClient::from(&config);
@@ -387,7 +389,7 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
     }
 }
 
-impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug>
+impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug + Default>
     SignerRunLoop<Vec<SignerResult>, RunLoopCommand, T> for RunLoop<Signer, T>
 {
     fn set_event_timeout(&mut self, timeout: Duration) {

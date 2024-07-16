@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::default;
 use std::fmt::Debug;
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
@@ -58,12 +59,12 @@ use crate::http::{decode_http_body, decode_http_request};
 use crate::EventError;
 
 /// Define the trait for the event processor
-pub trait SignerEventTrait<T: StacksMessageCodec + Clone + Debug + Send = Self>:
-    StacksMessageCodec + Clone + Debug + Send
+pub trait SignerEventTrait<T: StacksMessageCodec + Clone + Debug + Send + Default = Self>:
+    StacksMessageCodec + Clone + Debug + Send + Default
 {
 }
 
-impl<T: StacksMessageCodec + Clone + Debug + Send> SignerEventTrait for T {}
+impl<T: StacksMessageCodec + Clone + Debug + Send + Default> SignerEventTrait for T {}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 /// BlockProposal sent to signers
@@ -97,7 +98,7 @@ impl StacksMessageCodec for BlockProposal {
 }
 
 /// Event enum for newly-arrived signer subscribed events
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Default)]
 pub enum SignerEvent<T: SignerEventTrait> {
     /// A miner sent a message over .miners
     /// The `Vec<T>` will contain any signer messages made by the miner.
@@ -109,17 +110,16 @@ pub enum SignerEvent<T: SignerEventTrait> {
     /// A new block proposal validation response from the node
     BlockValidationResponse(BlockValidateResponse),
     /// Status endpoint request
+    #[default]
     StatusCheck,
     /// A new burn block event was received with the given burnchain block height
     NewBurnBlock(u64),
 }
 
-impl<T> Default for SignerEvent<T>
-where
-    T: Default + SignerEventTrait,
-{
-    fn default() -> SignerEvent<T> {
-        SignerEvent::SignerMessages(0, vec![])
+impl<T: SignerEventTrait> SignerEvent<T> {
+    /// Create a new `SignerEvent` from default
+    pub fn new() -> Self {
+        SignerEvent::default()
     }
 }
 

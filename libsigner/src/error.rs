@@ -42,7 +42,7 @@ pub enum RPCError {
 }
 
 /// Errors originating from receiving event data from the Stacks node
-#[derive(thiserror::Error, Debug)]
+#[derive(thiserror::Error, Debug, Default)]
 pub enum EventError {
     /// IO Error
     #[error("{0}")]
@@ -73,11 +73,6 @@ pub enum EventError {
     UnrecognizedStackerDBContract(QualifiedContractIdentifier),
     /// Empty chunks event
     #[error("Empty chunks event")]
+    #[default]
     EmptyChunksEvent,
-}
-
-impl Default for EventError {
-    fn default() -> Self {
-        EventError::UnrecognizedEvent("Unknown event".to_string())
-    }
 }
