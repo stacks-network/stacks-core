@@ -92,7 +92,7 @@ jobs:
   ##  - it is not a release run
   docker-image:
     if: |
-      needs.check-release.outputs.is_release == 'false'
+      needs.check-release.outputs.is_release != 'true'
     name: Docker Image (Source)
     uses: ./.github/workflows/image-build-source.yml
     needs:
@@ -113,18 +113,16 @@ jobs:
   create-cache:
     if: |
       needs.check-release.outputs.is_release == 'true' || (
-        needs.check-release.outputs.is_release == 'false' && (
-          github.event_name == 'workflow_dispatch' ||
-          github.event_name == 'pull_request' ||
-          github.event_name == 'merge_group' ||
-          (
-            contains('
-              refs/heads/master
-              refs/heads/develop
-              refs/heads/next
-            ', github.event.pull_request.head.ref) &&
-            github.event_name == 'push'
-          )
+        github.event_name == 'workflow_dispatch' ||
+        github.event_name == 'pull_request' ||
+        github.event_name == 'merge_group' ||
+        (
+          contains('
+            refs/heads/master
+            refs/heads/develop
+            refs/heads/next
+          ', github.event.pull_request.head.ref) &&
+          github.event_name == 'push'
         )
       )
     name: Create Test Cache
@@ -147,18 +145,16 @@ jobs:
   stacks-core-tests:
     if: |
       needs.check-release.outputs.is_release == 'true' || (
-        needs.check-release.outputs.is_release == 'false' && (
-          github.event_name == 'workflow_dispatch' ||
-          github.event_name == 'pull_request' ||
-          github.event_name == 'merge_group' ||
-          (
-            contains('
-              refs/heads/master
-              refs/heads/develop
-              refs/heads/next
-            ', github.event.pull_request.head.ref) &&
-            github.event_name == 'push'
-          )
+        github.event_name == 'workflow_dispatch' ||
+        github.event_name == 'pull_request' ||
+        github.event_name == 'merge_group' ||
+        (
+          contains('
+            refs/heads/master
+            refs/heads/develop
+            refs/heads/next
+          ', github.event.pull_request.head.ref) &&
+          github.event_name == 'push'
         )
       )
     name: Stacks Core Tests
@@ -171,18 +167,16 @@ jobs:
   bitcoin-tests:
     if: |
       needs.check-release.outputs.is_release == 'true' || (
-        needs.check-release.outputs.is_release == 'false' && (
-          github.event_name == 'workflow_dispatch' ||
-          github.event_name == 'pull_request' ||
-          github.event_name == 'merge_group' ||
-          (
-            contains('
-              refs/heads/master
-              refs/heads/develop
-              refs/heads/next
-            ', github.event.pull_request.head.ref) &&
-            github.event_name == 'push'
-          )
+        github.event_name == 'workflow_dispatch' ||
+        github.event_name == 'pull_request' ||
+        github.event_name == 'merge_group' ||
+        (
+          contains('
+            refs/heads/master
+            refs/heads/develop
+            refs/heads/next
+          ', github.event.pull_request.head.ref) &&
+          github.event_name == 'push'
         )
       )
     name: Bitcoin Tests
