@@ -20,8 +20,8 @@ use super::errors::RuntimeErrorType;
 use super::events::*;
 use super::functions::crypto::{pubkey_to_address_v1, pubkey_to_address_v2};
 use super::types::{
-    ASCIIData, AssetIdentifier, BlockInfoProperty, BuffData, BurnBlockInfoProperty, CharType,
-    FixedFunction, FunctionType, ListData, ListTypeData, OptionalData, PrincipalData,
+    ASCIIData, AssetIdentifier, BlockInfoProperty, BuffData, BurnBlockInfoProperty, CallableData,
+    CharType, FixedFunction, FunctionType, ListData, ListTypeData, OptionalData, PrincipalData,
     QualifiedContractIdentifier, ResponseData, SequenceData, StacksAddressExtensions,
     StandardPrincipalData, TraitIdentifier, TupleData, TupleTypeSignature, UTF8Data, BUFF_1,
     BUFF_32, BUFF_33,
@@ -1568,21 +1568,8 @@ fn pass_argument_to_wasm(
             buffer.push(Val::I32(written));
             Ok((buffer, offset + written, in_mem_offset + in_mem_written))
         }
-        Value::Principal(p) => {
-            let bytes: Vec<u8> = match p {
-                PrincipalData::Standard(StandardPrincipalData(v, h)) => {
-                    std::iter::once(v).chain(h.iter()).copied().collect()
-                }
-                PrincipalData::Contract(QualifiedContractIdentifier {
-                    issuer: StandardPrincipalData(v, h),
-                    name,
-                }) => std::iter::once(v)
-                    .chain(h.iter())
-                    .chain(std::iter::once(&name.len()))
-                    .chain(name.as_bytes())
-                    .copied()
-                    .collect(),
-            };
+        Value::Principal(PrincipalData::Standard(StandardPrincipalData(v, h))) => {
+            let bytes: Vec<u8> = std::iter::once(v).chain(h.iter()).copied().collect();
             let buffer = vec![Val::I32(in_mem_offset), Val::I32(bytes.len() as i32)];
             memory
                 .write(&mut store, in_mem_offset as usize, &bytes)
@@ -1590,7 +1577,30 @@ fn pass_argument_to_wasm(
             let adjusted_in_mem_offset = in_mem_offset + bytes.len() as i32;
             Ok((buffer, offset, adjusted_in_mem_offset))
         }
-        Value::CallableContract(_c) => todo!("Value type not yet implemented: {:?}", value),
+        Value::Principal(PrincipalData::Contract(p))
+        | Value::CallableContract(CallableData {
+            contract_identifier: p,
+            ..
+        }) => {
+            // Callable types can just ignore the optional trait identifier, and
+            // is handled like a qualified contract
+            let QualifiedContractIdentifier {
+                issuer: StandardPrincipalData(v, h),
+                name,
+            } = p;
+            let bytes: Vec<u8> = std::iter::once(v)
+                .chain(h.iter())
+                .chain(std::iter::once(&name.len()))
+                .chain(name.as_bytes())
+                .copied()
+                .collect();
+            let buffer = vec![Val::I32(in_mem_offset), Val::I32(bytes.len() as i32)];
+            memory
+                .write(&mut store, in_mem_offset as usize, &bytes)
+                .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
+            let adjusted_in_mem_offset = in_mem_offset + bytes.len() as i32;
+            Ok((buffer, offset, adjusted_in_mem_offset))
+        }
         Value::Tuple(_t) => todo!("Value type not yet implemented: {:?}", value),
     }
 }
