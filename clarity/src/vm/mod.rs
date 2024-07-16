@@ -24,7 +24,7 @@ pub mod types;
 
 pub mod contracts;
 
-#[cfg(feature = "canonical")]
+#[cfg(feature = "clarity-wasm")]
 pub mod clarity_wasm;
 
 pub mod ast;

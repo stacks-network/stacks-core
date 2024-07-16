@@ -26,7 +26,7 @@ use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::StacksEpochId;
 
 use super::analysis::{self, ContractAnalysis};
-#[cfg(feature = "canonical")]
+#[cfg(feature = "clarity-wasm")]
 use super::clarity_wasm::call_function;
 use super::EvalHook;
 use crate::vm::ast::{ASTRules, ContractAST};
@@ -663,7 +663,7 @@ impl<'a> OwnedEnvironment<'a> {
         )
     }
 
-    #[cfg(feature = "canonical")]
+    #[cfg(feature = "clarity-wasm")]
     pub fn initialize_versioned_contract(
         &mut self,
         contract_identifier: QualifiedContractIdentifier,
@@ -1241,7 +1241,7 @@ impl<'a, 'b> Environment<'a, 'b> {
         let next_contract_context = next_contract_context.unwrap_or(self.contract_context);
 
         let result = {
-            #[cfg(feature = "canonical")]
+            #[cfg(feature = "clarity-wasm")]
             if next_contract_context.wasm_module.is_some() {
                 call_function(
                     &function.get_name(),
@@ -1264,7 +1264,7 @@ impl<'a, 'b> Environment<'a, 'b> {
                 );
                 function.execute_apply(args, &mut nested_env)
             }
-            #[cfg(not(feature = "canonical"))]
+            #[cfg(not(feature = "clarity-wasm"))]
             {
                 let mut nested_env = Environment::new(
                     &mut self.global_context,
@@ -1320,7 +1320,7 @@ impl<'a, 'b> Environment<'a, 'b> {
     /// This function should only be used for testing and the CLI interface.
     /// Normal execution reaches the `initialize_contract_from_ast` method
     /// below.
-    #[cfg(feature = "canonical")]
+    #[cfg(feature = "clarity-wasm")]
     pub fn initialize_contract(
         &mut self,
         contract_identifier: QualifiedContractIdentifier,
