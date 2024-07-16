@@ -56,8 +56,9 @@ mutants = "0.0.3"
 # criterion = "0.3"
 
 [features]
-default = ["canonical", "log"]
-canonical = ["rusqlite", "stacks_common/canonical", "serde_stacker", "wasmtime"]
+default = ["canonical", "log", "clarity-wasm"]
+canonical = ["rusqlite", "stacks_common/canonical", "serde_stacker"]
+clarity-wasm = ["wasmtime"]
 log = ["slog", "stacks_common/log"]
 wasm = ["stacks_common/wasm", "developer-mode", "log", "getrandom"]
 developer-mode = ["stacks_common/developer-mode"]

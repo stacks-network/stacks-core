@@ -18,7 +18,7 @@ use std::error::Error as ErrorTrait;
 use std::string::FromUtf8Error;
 use std::{error, fmt};
 
-#[cfg(feature = "canonical")]
+#[cfg(feature = "clarity-wasm")]
 use rusqlite::Error as SqliteError;
 use serde_json::Error as SerdeJSONErr;
 use stacks_common::types::chainstate::BlockHeaderHash;
@@ -59,7 +59,7 @@ pub enum InterpreterError {
     UninitializedPersistedVariable,
     FailedToConstructAssetTable,
     FailedToConstructEventBatch,
-    #[cfg(feature = "canonical")]
+    #[cfg(feature = "clarity-wasm")]
     SqliteError(IncomparableError<SqliteError>),
     BadFileName,
     FailedToCreateDataDirectory,
@@ -126,20 +126,20 @@ pub enum WasmError {
     TopLevelNotFound,
     MemoryNotFound,
     GlobalNotFound(String),
-    #[cfg(feature = "canonical")]
+    #[cfg(feature = "clarity-wasm")]
     WasmCompileFailed(wasmtime::Error),
-    #[cfg(feature = "canonical")]
+    #[cfg(feature = "clarity-wasm")]
     UnableToLoadModule(wasmtime::Error),
-    #[cfg(feature = "canonical")]
+    #[cfg(feature = "clarity-wasm")]
     UnableToLinkHostFunction(String, wasmtime::Error),
     UnableToReadIdentifier(FromUtf8Error),
     UnableToRetrieveIdentifier(i32),
     InvalidClarityName(String),
-    #[cfg(feature = "canonical")]
+    #[cfg(feature = "clarity-wasm")]
     UnableToWriteStackPointer(wasmtime::Error),
-    #[cfg(feature = "canonical")]
+    #[cfg(feature = "clarity-wasm")]
     UnableToReadMemory(wasmtime::Error),
-    #[cfg(feature = "canonical")]
+    #[cfg(feature = "clarity-wasm")]
     UnableToWriteMemory(wasmtime::Error),
     ValueTypeMismatch,
     InvalidNoTypeInValue,
@@ -147,7 +147,7 @@ pub enum WasmError {
     DefineFunctionCalledInRunMode,
     ExpectedReturnValue,
     InvalidIndicator(i32),
-    #[cfg(feature = "canonical")]
+    #[cfg(feature = "clarity-wasm")]
     Runtime(wasmtime::Error),
 }
 
@@ -160,11 +160,11 @@ impl fmt::Display for WasmError {
             WasmError::TopLevelNotFound => write!(f, "Top level function not found"),
             WasmError::MemoryNotFound => write!(f, "Memory not found"),
             WasmError::GlobalNotFound(e) => write!(f, "Global variable not found: {e}"),
-            #[cfg(feature = "canonical")]
+            #[cfg(feature = "clarity-wasm")]
             WasmError::WasmCompileFailed(e) => write!(f, "Wasm compile failed: {e}"),
-            #[cfg(feature = "canonical")]
+            #[cfg(feature = "clarity-wasm")]
             WasmError::UnableToLoadModule(e) => write!(f, "Unable to load module: {e}"),
-            #[cfg(feature = "canonical")]
+            #[cfg(feature = "clarity-wasm")]
             WasmError::UnableToLinkHostFunction(name, e) => {
                 write!(f, "Unable to link host function {name}: {e}")
             }
@@ -173,13 +173,13 @@ impl fmt::Display for WasmError {
                 write!(f, "Unable to retrieve identifier: {id}")
             }
             WasmError::InvalidClarityName(name) => write!(f, "Invalid Clarity name: {name}"),
-            #[cfg(feature = "canonical")]
+            #[cfg(feature = "clarity-wasm")]
             WasmError::UnableToWriteStackPointer(e) => {
                 write!(f, "Unable to write stack pointer: {e}")
             }
-            #[cfg(feature = "canonical")]
+            #[cfg(feature = "clarity-wasm")]
             WasmError::UnableToReadMemory(e) => write!(f, "Unable to read memory: {e}"),
-            #[cfg(feature = "canonical")]
+            #[cfg(feature = "clarity-wasm")]
             WasmError::UnableToWriteMemory(e) => write!(f, "Unable to write memory: {e}"),
             WasmError::ValueTypeMismatch => write!(f, "Value type mismatch"),
             WasmError::InvalidNoTypeInValue => write!(f, "Invalid no type in value"),
@@ -191,7 +191,7 @@ impl fmt::Display for WasmError {
             WasmError::InvalidIndicator(indicator) => {
                 write!(f, "Invalid response/optional indicator: {indicator}")
             }
-            #[cfg(feature = "canonical")]
+            #[cfg(feature = "clarity-wasm")]
             WasmError::Runtime(e) => write!(f, "Runtime error: {e}"),
         }
     }
