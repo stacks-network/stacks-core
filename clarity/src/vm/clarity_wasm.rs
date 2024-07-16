@@ -1519,8 +1519,20 @@ fn pass_argument_to_wasm(
             let adjusted_in_mem_offset = in_mem_offset + s.data.len() as i32;
             Ok((buffer, offset, adjusted_in_mem_offset))
         }
-        Value::Sequence(SequenceData::String(CharType::UTF8(_s))) => {
-            todo!("Value type not yet implemented: {:?}", value)
+        Value::Sequence(SequenceData::String(CharType::UTF8(s))) => {
+            // For a utf8 string, convert the chars to big-endian i32, convert this into a list of
+            // bytes, then pass the offset and length to the wasm function
+            let bytes: Vec<u8> = String::from_utf8(s.items().iter().flatten().copied().collect())
+                .map_err(|e| Error::Wasm(WasmError::WasmGeneratorError(e.to_string())))?
+                .chars()
+                .flat_map(|c| (c as u32).to_be_bytes())
+                .collect();
+            let buffer = vec![Val::I32(in_mem_offset), Val::I32(bytes.len() as i32)];
+            memory
+                .write(&mut store, in_mem_offset as usize, &bytes)
+                .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
+            let adjusted_in_mem_offset = in_mem_offset + bytes.len() as i32;
+            Ok((buffer, offset, adjusted_in_mem_offset))
         }
         Value::Sequence(SequenceData::Buffer(b)) => {
             // For a buffer, write the bytes into the memory, then pass the
