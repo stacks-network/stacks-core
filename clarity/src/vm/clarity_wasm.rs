@@ -1601,7 +1601,26 @@ fn pass_argument_to_wasm(
             let adjusted_in_mem_offset = in_mem_offset + bytes.len() as i32;
             Ok((buffer, offset, adjusted_in_mem_offset))
         }
-        Value::Tuple(_t) => todo!("Value type not yet implemented: {:?}", value),
+        Value::Tuple(TupleData {
+            type_signature,
+            data_map,
+        }) => {
+            let mut buffer = vec![];
+            let mut offset = offset;
+            let mut in_mem_offset = in_mem_offset;
+            for name in type_signature.get_type_map().keys() {
+                let b;
+                (b, offset, in_mem_offset) = pass_argument_to_wasm(
+                    memory,
+                    store.as_context_mut(),
+                    &data_map[name],
+                    offset,
+                    in_mem_offset,
+                )?;
+                buffer.extend(b);
+            }
+            Ok((buffer, offset, in_mem_offset))
+        }
     }
 }
 
