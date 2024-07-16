@@ -1568,7 +1568,28 @@ fn pass_argument_to_wasm(
             buffer.push(Val::I32(written));
             Ok((buffer, offset + written, in_mem_offset + in_mem_written))
         }
-        Value::Principal(_p) => todo!("Value type not yet implemented: {:?}", value),
+        Value::Principal(p) => {
+            let bytes: Vec<u8> = match p {
+                PrincipalData::Standard(StandardPrincipalData(v, h)) => {
+                    std::iter::once(v).chain(h.iter()).copied().collect()
+                }
+                PrincipalData::Contract(QualifiedContractIdentifier {
+                    issuer: StandardPrincipalData(v, h),
+                    name,
+                }) => std::iter::once(v)
+                    .chain(h.iter())
+                    .chain(std::iter::once(&name.len()))
+                    .chain(name.as_bytes())
+                    .copied()
+                    .collect(),
+            };
+            let buffer = vec![Val::I32(in_mem_offset), Val::I32(bytes.len() as i32)];
+            memory
+                .write(&mut store, in_mem_offset as usize, &bytes)
+                .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
+            let adjusted_in_mem_offset = in_mem_offset + bytes.len() as i32;
+            Ok((buffer, offset, adjusted_in_mem_offset))
+        }
         Value::CallableContract(_c) => todo!("Value type not yet implemented: {:?}", value),
         Value::Tuple(_t) => todo!("Value type not yet implemented: {:?}", value),
     }
