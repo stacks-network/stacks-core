@@ -46,7 +46,7 @@ For example, if there is a stacks-core release of 2.6.0.0.0, `stacks-signer` wil
 
 1. The release must be timed so that it does not interfere with a _prepare
    phase_. The timing of the next Stacking cycle can be found
-   [here](https://stx.eco/dao/tools). A release should happen
+   [here](https://stx.eco/dao/tools?tool=2). A release should happen
    at least 48 hours before the start of a new cycle, to avoid interfering
    with the prepare phase.
 
