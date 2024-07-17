@@ -1018,7 +1018,9 @@ fn read_from_wasm(
             }
         }
         TypeSignature::NoType => Err(Error::Wasm(WasmError::InvalidNoTypeInValue)),
-        TypeSignature::ListUnionType(_subtypes) => Err(Error::Wasm(WasmError::InvalidListUnionTypeInValue)),
+        TypeSignature::ListUnionType(_subtypes) => {
+            Err(Error::Wasm(WasmError::InvalidListUnionTypeInValue))
+        }
     }
 }
 
@@ -7443,10 +7445,11 @@ mod tests {
 }
 
 mod error_mapping {
+    use wasmtime::{AsContextMut, Instance, Trap};
+
     use crate::vm::errors::{CheckErrors, Error, RuntimeErrorType, ShortReturnType, WasmError};
     use crate::vm::types::ResponseData;
     use crate::vm::Value;
-    use wasmtime::{AsContextMut, Instance, Trap};
 
     const LOG2_ERROR_MESSAGE: &str = "log2 must be passed a positive integer";
     const SQRTI_ERROR_MESSAGE: &str = "sqrti must be passed a positive integer";
@@ -7604,5 +7607,4 @@ mod error_mapping {
             _ => panic!("Runtime error code {} not supported", runtime_error_code),
         }
     }
-
 }
