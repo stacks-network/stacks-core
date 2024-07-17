@@ -709,7 +709,7 @@ pub fn is_in_memory_type(ty: &TypeSignature) -> bool {
 
 fn clar2wasm_ty(ty: &TypeSignature) -> Vec<ValType> {
     match ty {
-        TypeSignature::NoType => vec![ValType::I32], // TODO: can this just be empty?
+        TypeSignature::NoType => vec![ValType::I32], // TODO: clarity-wasm issue #445. Can this just be empty?
         TypeSignature::IntType => vec![ValType::I64, ValType::I64],
         TypeSignature::UIntType => vec![ValType::I64, ValType::I64],
         TypeSignature::ResponseType(inner_types) => {
@@ -1017,8 +1017,8 @@ fn read_from_wasm(
                 _ => Err(Error::Wasm(WasmError::InvalidIndicator(indicator))),
             }
         }
-        TypeSignature::NoType => todo!("type not yet implemented: {:?}", ty),
-        TypeSignature::ListUnionType(_subtypes) => todo!("type not yet implemented: {:?}", ty),
+        TypeSignature::NoType => Err(Error::Wasm(WasmError::UnhandledType)),
+        TypeSignature::ListUnionType(_subtypes) => Err(Error::Wasm(WasmError::UnhandledType)),
     }
 }
 
@@ -1518,7 +1518,7 @@ fn pass_argument_to_wasm(
             Ok((buffer, offset, adjusted_in_mem_offset))
         }
         Value::Sequence(SequenceData::String(CharType::UTF8(_s))) => {
-            todo!("Value type not yet implemented: {:?}", value)
+            Err(Error::Wasm(WasmError::UnhandledType))
         }
         Value::Sequence(SequenceData::Buffer(b)) => {
             // For a buffer, write the bytes into the memory, then pass the
@@ -1554,9 +1554,9 @@ fn pass_argument_to_wasm(
             buffer.push(Val::I32(written));
             Ok((buffer, offset + written, in_mem_offset + in_mem_written))
         }
-        Value::Principal(_p) => todo!("Value type not yet implemented: {:?}", value),
-        Value::CallableContract(_c) => todo!("Value type not yet implemented: {:?}", value),
-        Value::Tuple(_t) => todo!("Value type not yet implemented: {:?}", value),
+        Value::Principal(_p) => Err(Error::Wasm(WasmError::UnhandledType)),
+        Value::CallableContract(_c) => Err(Error::Wasm(WasmError::UnhandledType)),
+        Value::Tuple(_t) => Err(Error::Wasm(WasmError::UnhandledType)),
     }
 }
 
@@ -1845,7 +1845,7 @@ fn wasm_to_clarity_value(
             Ok((Some(tuple.into()), index - value_index))
         }
         TypeSignature::ListUnionType(_lu) => {
-            todo!("Wasm value type not implemented: {:?}", type_sig)
+            Err(Error::Wasm(WasmError::UnhandledType))
         }
     }
 }
@@ -1926,7 +1926,7 @@ fn link_define_variable_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<()
              name_length: i32,
              mut value_offset: i32,
              mut value_length: i32| {
-                // TODO: Include this cost
+                // TODO: clarity-wasm issue #344 Include this cost
                 // runtime_cost(ClarityCostFunction::CreateVar, global_context, value_type.size())?;
 
                 // Get the memory from the caller
@@ -2485,7 +2485,7 @@ fn link_get_variable_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), E
                     Err(_e) => data_types.value_type.size()? as u64,
                 };
 
-                // TODO: Include this cost
+                // TODO: clarity-wasm issue #344 Include this cost
                 // runtime_cost(ClarityCostFunction::FetchVar, env, result_size)?;
 
                 let value = result.map(|data| data.value)?;
@@ -2552,7 +2552,7 @@ fn link_set_variable_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), E
                     )))?
                     .clone();
 
-                // TODO: Include this cost
+                // TODO: clarity-wasm issue #344 Include this cost
                 // runtime_cost(
                 //     ClarityCostFunction::SetVar,
                 //     env,
@@ -2573,7 +2573,7 @@ fn link_set_variable_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), E
                     epoch,
                 )?;
 
-                // TODO: Include this cost
+                // TODO: clarity-wasm issue #344 Include this cost
                 // env.add_memory(value.get_memory_use())?;
 
                 // Store the variable in the global context
@@ -7589,7 +7589,7 @@ mod error_mapping {
                 panic!("An error has been detected in the code")
             }
             // TODO: UInt(42) value below is just a placeholder.
-            // It should be replaced by the current "thrown-value" when issue #385 is resolved.
+            // It should be replaced by the current "thrown-value" when clarity-wasm issue #385 is resolved.
             // Tests that reach this code are currently ignored.
             ErrorMap::ShortReturnAssertionFailure => Error::ShortReturn(
                 ShortReturnType::AssertionFailed(Value::Response(ResponseData {
