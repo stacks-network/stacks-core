@@ -144,6 +144,7 @@ pub enum WasmError {
     ExpectedReturnValue,
     InvalidIndicator(i32),
     Runtime(wasmtime::Error),
+    UnhandledType,
 }
 
 #[cfg(feature = "clarity-wasm")]
@@ -182,6 +183,7 @@ impl fmt::Display for WasmError {
                 write!(f, "Invalid response/optional indicator: {indicator}")
             }
             WasmError::Runtime(e) => write!(f, "Runtime error: {e}"),
+            WasmError::UnhandledType => write!(f, "Type not handled"),
         }
     }
 }
