@@ -19,16 +19,17 @@ use std::time::SystemTime;
 
 use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockVote};
 use blockstack_lib::util_lib::db::{
-    query_row, sqlite_open, table_exists, u64_to_sql, Error as DBError,
+    query_row, sqlite_open, table_exists, tx_begin_immediate, u64_to_sql, Error as DBError,
 };
 use clarity::types::chainstate::BurnchainHeaderHash;
 use clarity::util::get_epoch_time_secs;
 use libsigner::BlockProposal;
-use rusqlite::{params, Connection, Error as SqliteError, OpenFlags};
+use rusqlite::{
+    params, Connection, Error as SqliteError, OpenFlags, OptionalExtension, Transaction,
+};
 use serde::{Deserialize, Serialize};
 use slog::{slog_debug, slog_error};
 use stacks_common::types::chainstate::ConsensusHash;
-use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 use stacks_common::{debug, error};
 use wsts::net::NonceRequest;
@@ -107,7 +108,7 @@ pub struct SignerDb {
     db: Connection,
 }
 
-const CREATE_BLOCKS_TABLE: &str = "
+static CREATE_BLOCKS_TABLE: &str = "
 CREATE TABLE IF NOT EXISTS blocks (
     reward_cycle INTEGER NOT NULL,
     signer_signature_hash TEXT NOT NULL,
@@ -119,55 +120,111 @@ CREATE TABLE IF NOT EXISTS blocks (
     PRIMARY KEY (reward_cycle, signer_signature_hash)
 ) STRICT";
 
-const CREATE_INDEXES: &str = "
+static CREATE_INDEXES: &str = "
 CREATE INDEX IF NOT EXISTS blocks_signed_over ON blocks (signed_over);
 CREATE INDEX IF NOT EXISTS blocks_consensus_hash ON blocks (consensus_hash);
 CREATE INDEX IF NOT EXISTS blocks_valid ON blocks ((json_extract(block_info, '$.valid')));
 CREATE INDEX IF NOT EXISTS burn_blocks_height ON burn_blocks (block_height);
 ";
 
-const CREATE_SIGNER_STATE_TABLE: &str = "
+static CREATE_SIGNER_STATE_TABLE: &str = "
 CREATE TABLE IF NOT EXISTS signer_states (
     reward_cycle INTEGER PRIMARY KEY,
     encrypted_state BLOB NOT NULL
 ) STRICT";
 
-const CREATE_BURN_STATE_TABLE: &str = "
+static CREATE_BURN_STATE_TABLE: &str = "
 CREATE TABLE IF NOT EXISTS burn_blocks (
     block_hash TEXT PRIMARY KEY,
     block_height INTEGER NOT NULL,
     received_time INTEGER NOT NULL
 ) STRICT";
 
+static CREATE_DB_CONFIG: &str = "
+    CREATE TABLE db_config(
+        version INTEGER NOT NULL
+    ) STRICT
+";
+
+static DROP_SCHEMA_0: &str = "
+   DROP TABLE IF EXISTS burn_blocks;
+   DROP TABLE IF EXISTS signer_states;
+   DROP TABLE IF EXISTS blocks;
+   DROP TABLE IF EXISTS db_config;";
+
+static SCHEMA_1: &[&str] = &[
+    DROP_SCHEMA_0,
+    CREATE_DB_CONFIG,
+    CREATE_BURN_STATE_TABLE,
+    CREATE_BLOCKS_TABLE,
+    CREATE_SIGNER_STATE_TABLE,
+    CREATE_INDEXES,
+    "INSERT INTO db_config (version) VALUES (1);",
+];
+
 impl SignerDb {
+    /// The current schema version used in this build of the signer binary.
+    pub const SCHEMA_VERSION: u32 = 1;
+
     /// Create a new `SignerState` instance.
     /// This will create a new SQLite database at the given path
     /// or an in-memory database if the path is ":memory:"
     pub fn new(db_path: impl AsRef<Path>) -> Result<Self, DBError> {
         let connection = Self::connect(db_path)?;
 
-        let signer_db = Self { db: connection };
-
-        signer_db.instantiate_db()?;
+        let mut signer_db = Self { db: connection };
+        signer_db.create_or_migrate()?;
 
         Ok(signer_db)
     }
 
-    fn instantiate_db(&self) -> Result<(), DBError> {
-        if !table_exists(&self.db, "blocks")? {
-            self.db.execute(CREATE_BLOCKS_TABLE, NO_PARAMS)?;
+    /// Returns the schema version of the database
+    fn get_schema_version(conn: &Connection) -> Result<u32, DBError> {
+        if !table_exists(conn, "db_config")? {
+            return Ok(0);
+        }
+        let result = conn
+            .query_row("SELECT version FROM db_config LIMIT 1", [], |row| {
+                row.get(0)
+            })
+            .optional();
+        match result {
+            Ok(x) => Ok(x.unwrap_or_else(|| 0)),
+            Err(e) => Err(DBError::from(e)),
+        }
+    }
+
+    /// Migrate from schema 0 to schema 1
+    fn schema_1_migration(tx: &Transaction) -> Result<(), DBError> {
+        if Self::get_schema_version(tx)? >= 1 {
+            // no migration necessary
+            return Ok(());
         }
 
-        if !table_exists(&self.db, "signer_states")? {
-            self.db.execute(CREATE_SIGNER_STATE_TABLE, NO_PARAMS)?;
+        for statement in SCHEMA_1.iter() {
+            tx.execute_batch(statement)?;
         }
 
-        if !table_exists(&self.db, "burn_blocks")? {
-            self.db.execute(CREATE_BURN_STATE_TABLE, NO_PARAMS)?;
+        Ok(())
+    }
+
+    /// Either instantiate a new database, or migrate an existing one
+    /// If the detected version of the existing database is 0 (i.e., a pre-migration
+    /// logic DB, the DB will be dropped).
+    fn create_or_migrate(&mut self) -> Result<(), DBError> {
+        let sql_tx = tx_begin_immediate(&mut self.db)?;
+        loop {
+            let version = Self::get_schema_version(&sql_tx)?;
+            match version {
+                0 => Self::schema_1_migration(&sql_tx)?,
+                1 => break,
+                x => return Err(DBError::Other(format!(
+                    "Database schema is newer than supported by this binary. Expected version = {}, Database version = {x}",
+                    Self::SCHEMA_VERSION,
+                ))),
+            }
         }
-
-        self.db.execute_batch(CREATE_INDEXES)?;
-
+        sql_tx.commit()?;
         Ok(())
     }
 
@@ -597,7 +654,7 @@ mod tests {
         let db_path = tmp_db_path();
         let db = SignerDb::new(db_path).expect("Failed to create signer db");
         assert_eq!(
-            query_row(&db.db, "SELECT sqlite_version()", NO_PARAMS).unwrap(),
+            query_row(&db.db, "SELECT sqlite_version()", []).unwrap(),
             Some("3.45.0".to_string())
         );
     }
