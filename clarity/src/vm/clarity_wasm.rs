@@ -568,19 +568,7 @@ pub fn call_function<'a, 'b, 'c>(
 
     // Call the function
     func.call(&mut store, &wasm_args, &mut results)
-        .map_err(|e| {
-            // TODO: If the root cause is a clarity error, we should be able to return that,
-            //       but it is not cloneable, so we can't return it directly.
-            //       If the root cause is a trap from our Wasm code, then we need to translate
-            //       it into a Clarity error.
-            //       See issue stacks-network/clarity-wasm#104
-            // if let Some(vm_error) = e.root_cause().downcast_ref::<crate::vm::errors::Error>() {
-            //     vm_error.clone()
-            // } else {
-            //     Error::Wasm(WasmError::Runtime(e))
-            // }
-            Error::Wasm(WasmError::Runtime(e))
-        })?;
+        .map_err(|e| error_mapping::resolve_error(e, instance, &mut store))?;
 
     // If the function returns a value, translate it into a Clarity `Value`
     wasm_to_clarity_value(&return_type, 0, &results, memory, &mut &mut store, epoch)
@@ -721,7 +709,7 @@ pub fn is_in_memory_type(ty: &TypeSignature) -> bool {
 
 fn clar2wasm_ty(ty: &TypeSignature) -> Vec<ValType> {
     match ty {
-        TypeSignature::NoType => vec![ValType::I32], // TODO: can this just be empty?
+        TypeSignature::NoType => vec![ValType::I32], // TODO: clarity-wasm issue #445. Can this just be empty?
         TypeSignature::IntType => vec![ValType::I64, ValType::I64],
         TypeSignature::UIntType => vec![ValType::I64, ValType::I64],
         TypeSignature::ResponseType(inner_types) => {
@@ -1029,8 +1017,10 @@ fn read_from_wasm(
                 _ => Err(Error::Wasm(WasmError::InvalidIndicator(indicator))),
             }
         }
-        TypeSignature::NoType => todo!("type not yet implemented: {:?}", ty),
-        TypeSignature::ListUnionType(_subtypes) => todo!("type not yet implemented: {:?}", ty),
+        TypeSignature::NoType => Err(Error::Wasm(WasmError::InvalidNoTypeInValue)),
+        TypeSignature::ListUnionType(_subtypes) => {
+            Err(Error::Wasm(WasmError::InvalidListUnionTypeInValue))
+        }
     }
 }
 
@@ -1857,7 +1847,7 @@ fn wasm_to_clarity_value(
             Ok((Some(tuple.into()), index - value_index))
         }
         TypeSignature::ListUnionType(_lu) => {
-            todo!("Wasm value type not implemented: {:?}", type_sig)
+            Err(Error::Wasm(WasmError::InvalidListUnionTypeInValue))
         }
     }
 }
@@ -1938,7 +1928,7 @@ fn link_define_variable_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<()
              name_length: i32,
              mut value_offset: i32,
              mut value_length: i32| {
-                // TODO: Include this cost
+                // TODO: clarity-wasm issue #344 Include this cost
                 // runtime_cost(ClarityCostFunction::CreateVar, global_context, value_type.size())?;
 
                 // Get the memory from the caller
@@ -2497,7 +2487,7 @@ fn link_get_variable_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), E
                     Err(_e) => data_types.value_type.size()? as u64,
                 };
 
-                // TODO: Include this cost
+                // TODO: clarity-wasm issue #344 Include this cost
                 // runtime_cost(ClarityCostFunction::FetchVar, env, result_size)?;
 
                 let value = result.map(|data| data.value)?;
@@ -2564,7 +2554,7 @@ fn link_set_variable_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), E
                     )))?
                     .clone();
 
-                // TODO: Include this cost
+                // TODO: clarity-wasm issue #344 Include this cost
                 // runtime_cost(
                 //     ClarityCostFunction::SetVar,
                 //     env,
@@ -2585,7 +2575,7 @@ fn link_set_variable_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), E
                     epoch,
                 )?;
 
-                // TODO: Include this cost
+                // TODO: clarity-wasm issue #344 Include this cost
                 // env.add_memory(value.get_memory_use())?;
 
                 // Store the variable in the global context
@@ -5939,10 +5929,7 @@ fn link_load_constant_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
                     .contract_context()
                     .variables
                     .get(&ClarityName::from(const_name.as_str()))
-                    // TODO: create a new WasmError to handle the constant not found issue
-                    .ok_or(Error::Wasm(WasmError::WasmGeneratorError(
-                        "Constant not found on MARF".to_string(),
-                    )))?
+                    .ok_or(CheckErrors::UndefinedVariable(const_name.to_string()))?
                     .clone();
 
                 // Constant value type
@@ -7454,5 +7441,170 @@ mod tests {
         )
         .expect("failed to read bytes");
         assert_eq!(read, expected);
+    }
+}
+
+mod error_mapping {
+    use wasmtime::{AsContextMut, Instance, Trap};
+
+    use crate::vm::errors::{CheckErrors, Error, RuntimeErrorType, ShortReturnType, WasmError};
+    use crate::vm::types::ResponseData;
+    use crate::vm::Value;
+
+    const LOG2_ERROR_MESSAGE: &str = "log2 must be passed a positive integer";
+    const SQRTI_ERROR_MESSAGE: &str = "sqrti must be passed a positive integer";
+    const POW_ERROR_MESSAGE: &str = "Power argument to (pow ...) must be a u32 integer";
+
+    pub enum ErrorMap {
+        NotClarityError = -1,
+        ArithmeticOverflow = 0,
+        ArithmeticUnderflow = 1,
+        DivisionByZero = 2,
+        ArithmeticLog2Error = 3,
+        ArithmeticSqrtiError = 4,
+        UnwrapFailure = 5,
+        Panic = 6,
+        ShortReturnAssertionFailure = 7,
+        ArithmeticPowError = 8,
+        NotMapped = 99,
+    }
+
+    impl From<i32> for ErrorMap {
+        fn from(error_code: i32) -> Self {
+            match error_code {
+                -1 => ErrorMap::NotClarityError,
+                0 => ErrorMap::ArithmeticOverflow,
+                1 => ErrorMap::ArithmeticUnderflow,
+                2 => ErrorMap::DivisionByZero,
+                3 => ErrorMap::ArithmeticLog2Error,
+                4 => ErrorMap::ArithmeticSqrtiError,
+                5 => ErrorMap::UnwrapFailure,
+                6 => ErrorMap::Panic,
+                7 => ErrorMap::ShortReturnAssertionFailure,
+                8 => ErrorMap::ArithmeticPowError,
+                _ => ErrorMap::NotMapped,
+            }
+        }
+    }
+
+    pub fn resolve_error(
+        e: wasmtime::Error,
+        instance: Instance,
+        mut store: impl AsContextMut,
+    ) -> Error {
+        if let Some(vm_error) = e.root_cause().downcast_ref::<Error>() {
+            // SAFETY:
+            //
+            // This unsafe operation returns the value of a location pointed by `*mut T`.
+            //
+            // The purpose of this code is to take the ownership of the `vm_error` value
+            // since clarity::vm::errors::Error is not a Clonable type.
+            //
+            // Converting a `&T` (vm_error) to a `*mut T` doesn't cause any issues here
+            // because the reference is not borrowed elsewhere.
+            //
+            // The replaced `T` value is deallocated after the operation. Therefore, the chosen `T`
+            // is a dummy value, solely to satisfy the signature of the replace function
+            // and not cause harm when it is deallocated.
+            //
+            // Specifically, Error::Wasm(WasmError::ModuleNotFound) was selected as the placeholder value.
+            return unsafe {
+                core::ptr::replace(
+                    (vm_error as *const Error) as *mut Error,
+                    Error::Wasm(WasmError::ModuleNotFound),
+                )
+            };
+        }
+
+        if let Some(vm_error) = e.root_cause().downcast_ref::<CheckErrors>() {
+            // SAFETY:
+            //
+            // This unsafe operation returns the value of a location pointed by `*mut T`.
+            //
+            // The purpose of this code is to take the ownership of the `vm_error` value
+            // since clarity::vm::errors::Error is not a Clonable type.
+            //
+            // Converting a `&T` (vm_error) to a `*mut T` doesn't cause any issues here
+            // because the reference is not borrowed elsewhere.
+            //
+            // The replaced `T` value is deallocated after the operation. Therefore, the chosen `T`
+            // is a dummy value, solely to satisfy the signature of the replace function
+            // and not cause harm when it is deallocated.
+            //
+            // Specifically, CheckErrors::ExpectedName was selected as the placeholder value.
+            return unsafe {
+                let err = core::ptr::replace(
+                    (vm_error as *const CheckErrors) as *mut CheckErrors,
+                    CheckErrors::ExpectedName,
+                );
+
+                <CheckErrors as std::convert::Into<Error>>::into(err)
+            };
+        }
+
+        // Check if the error is caused by
+        // an unreachable Wasm trap.
+        //
+        // In this case, runtime errors are handled
+        // by being mapped to the corresponding ClarityWasm Errors.
+        if let Some(Trap::UnreachableCodeReached) = e.root_cause().downcast_ref::<Trap>() {
+            return from_runtime_error_code(instance, &mut store, e);
+        }
+
+        // All other errors are treated as general runtime errors.
+        Error::Wasm(WasmError::Runtime(e))
+    }
+
+    fn from_runtime_error_code(
+        instance: Instance,
+        mut store: impl AsContextMut,
+        e: wasmtime::Error,
+    ) -> Error {
+        let global = "runtime-error-code";
+        let runtime_error_code = instance
+            .get_global(&mut store, global)
+            .and_then(|glob| glob.get(&mut store).i32())
+            .unwrap_or_else(|| panic!("Could not find {global} global with i32 value"));
+
+        match ErrorMap::from(runtime_error_code) {
+            ErrorMap::NotClarityError => Error::Wasm(WasmError::Runtime(e)),
+            ErrorMap::ArithmeticOverflow => {
+                Error::Runtime(RuntimeErrorType::ArithmeticOverflow, Some(Vec::new()))
+            }
+            ErrorMap::ArithmeticUnderflow => {
+                Error::Runtime(RuntimeErrorType::ArithmeticUnderflow, Some(Vec::new()))
+            }
+            ErrorMap::DivisionByZero => {
+                Error::Runtime(RuntimeErrorType::DivisionByZero, Some(Vec::new()))
+            }
+            ErrorMap::ArithmeticLog2Error => Error::Runtime(
+                RuntimeErrorType::Arithmetic(LOG2_ERROR_MESSAGE.into()),
+                Some(Vec::new()),
+            ),
+            ErrorMap::ArithmeticSqrtiError => Error::Runtime(
+                RuntimeErrorType::Arithmetic(SQRTI_ERROR_MESSAGE.into()),
+                Some(Vec::new()),
+            ),
+            ErrorMap::UnwrapFailure => {
+                Error::Runtime(RuntimeErrorType::UnwrapFailure, Some(Vec::new()))
+            }
+            ErrorMap::Panic => {
+                panic!("An error has been detected in the code")
+            }
+            // TODO: UInt(42) value below is just a placeholder.
+            // It should be replaced by the current "thrown-value" when clarity-wasm issue #385 is resolved.
+            // Tests that reach this code are currently ignored.
+            ErrorMap::ShortReturnAssertionFailure => Error::ShortReturn(
+                ShortReturnType::AssertionFailed(Value::Response(ResponseData {
+                    committed: false,
+                    data: Box::new(Value::UInt(42)),
+                })),
+            ),
+            ErrorMap::ArithmeticPowError => Error::Runtime(
+                RuntimeErrorType::Arithmetic(POW_ERROR_MESSAGE.into()),
+                Some(Vec::new()),
+            ),
+            _ => panic!("Runtime error code {} not supported", runtime_error_code),
+        }
     }
 }
