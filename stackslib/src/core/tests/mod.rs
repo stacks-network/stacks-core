@@ -1444,7 +1444,7 @@ fn mempool_db_load_store_replace_tx(#[case] behavior: MempoolCollectionBehavior)
             &mut chainstate,
             &ConsensusHash([0x1; 20]),
             &BlockHeaderHash([0x2; 32]),
-            false,
+            false, // don't resolve the above chain tip since it doesn't exist
             txid,
             tx_bytes,
             tx_fee,
@@ -1505,7 +1505,7 @@ fn mempool_db_load_store_replace_tx(#[case] behavior: MempoolCollectionBehavior)
             &mut chainstate,
             &ConsensusHash([0x1; 20]),
             &BlockHeaderHash([0x2; 32]),
-            false,
+            false, // don't resolve the above chain tip since it doesn't exist
             txid,
             tx_bytes,
             tx_fee,
@@ -1569,7 +1569,7 @@ fn mempool_db_load_store_replace_tx(#[case] behavior: MempoolCollectionBehavior)
             &mut chainstate,
             &ConsensusHash([0x1; 20]),
             &BlockHeaderHash([0x2; 32]),
-            false,
+            false, // don't resolve the above chain tip since it doesn't exist
             txid,
             tx_bytes,
             tx_fee,
@@ -1719,7 +1719,7 @@ fn mempool_db_test_rbf() {
         &mut chainstate,
         &ConsensusHash([0x1; 20]),
         &BlockHeaderHash([0x2; 32]),
-        false,
+        false, // don't resolve the above chain tip since it doesn't exist
         txid,
         tx_bytes,
         tx_fee,
@@ -1769,7 +1769,7 @@ fn mempool_db_test_rbf() {
         &mut chainstate,
         &ConsensusHash([0x1; 20]),
         &BlockHeaderHash([0x2; 32]),
-        false,
+        false, // don't resolve the above chain tip since it doesn't exist
         txid,
         tx_bytes,
         tx_fee,
@@ -1852,7 +1852,7 @@ fn test_add_txs_bloom_filter() {
                 &mut chainstate,
                 &ConsensusHash([0x1 + (block_height as u8); 20]),
                 &BlockHeaderHash([0x2 + (block_height as u8); 32]),
-                false,
+                false, // don't resolve the above chain tip since it doesn't exist
                 txid,
                 tx_bytes,
                 tx_fee,
@@ -1963,7 +1963,7 @@ fn test_txtags() {
                 &mut chainstate,
                 &ConsensusHash([0x1 + (block_height as u8); 20]),
                 &BlockHeaderHash([0x2 + (block_height as u8); 32]),
-                false,
+                false, // don't resolve the above chain tip since it doesn't exist
                 txid,
                 tx_bytes,
                 tx_fee,
@@ -2057,7 +2057,7 @@ fn test_make_mempool_sync_data() {
                     &mut chainstate,
                     &ConsensusHash([0x1 + (block_height as u8); 20]),
                     &BlockHeaderHash([0x2 + (block_height as u8); 32]),
-                    false,
+                    false, // don't resolve the above chain tip since it doesn't exist
                     txid.clone(),
                     tx_bytes,
                     tx_fee,
@@ -2235,7 +2235,7 @@ fn test_find_next_missing_transactions() {
             &mut chainstate,
             &ConsensusHash([0x1 + (block_height as u8); 20]),
             &BlockHeaderHash([0x2 + (block_height as u8); 32]),
-            false,
+            false, // don't resolve the above chain tip since it doesn't exist
             txid.clone(),
             tx_bytes,
             tx_fee,
@@ -2505,7 +2505,7 @@ fn test_drop_and_blacklist_txs_by_time() {
             &mut chainstate,
             &ConsensusHash([0x1 + (block_height as u8); 20]),
             &BlockHeaderHash([0x2 + (block_height as u8); 32]),
-            false,
+            false, // don't resolve the above chain tip since it doesn't exist
             txid.clone(),
             tx_bytes,
             tx_fee,
@@ -2625,7 +2625,7 @@ fn test_drop_and_blacklist_txs_by_size() {
             &mut chainstate,
             &ConsensusHash([0x1 + (block_height as u8); 20]),
             &BlockHeaderHash([0x2 + (block_height as u8); 32]),
-            false,
+            false, // don't resolve the above chain tip since it doesn't exist
             txid.clone(),
             tx_bytes,
             tx_fee,

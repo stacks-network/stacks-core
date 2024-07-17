@@ -2294,7 +2294,6 @@ impl MemPoolDB {
     }
 
     /// Submit a transaction to the mempool at a particular chain tip.
-    /// TODO: Nakamoto-ize
     fn tx_submit(
         mempool_tx: &mut MemPoolTx,
         chainstate: &mut StacksChainState,
