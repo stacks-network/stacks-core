@@ -1017,8 +1017,8 @@ fn read_from_wasm(
                 _ => Err(Error::Wasm(WasmError::InvalidIndicator(indicator))),
             }
         }
-        TypeSignature::NoType => Err(Error::Wasm(WasmError::UnhandledType)),
-        TypeSignature::ListUnionType(_subtypes) => Err(Error::Wasm(WasmError::UnhandledType)),
+        TypeSignature::NoType => Err(Error::Wasm(WasmError::InvalidNoTypeInValue)),
+        TypeSignature::ListUnionType(_subtypes) => Err(Error::Wasm(WasmError::InvalidListUnionTypeInValue)),
     }
 }
 
@@ -1518,7 +1518,7 @@ fn pass_argument_to_wasm(
             Ok((buffer, offset, adjusted_in_mem_offset))
         }
         Value::Sequence(SequenceData::String(CharType::UTF8(_s))) => {
-            Err(Error::Wasm(WasmError::UnhandledType))
+            todo!("Value type not yet implemented: {:?}", value)
         }
         Value::Sequence(SequenceData::Buffer(b)) => {
             // For a buffer, write the bytes into the memory, then pass the
@@ -1554,9 +1554,9 @@ fn pass_argument_to_wasm(
             buffer.push(Val::I32(written));
             Ok((buffer, offset + written, in_mem_offset + in_mem_written))
         }
-        Value::Principal(_p) => Err(Error::Wasm(WasmError::UnhandledType)),
-        Value::CallableContract(_c) => Err(Error::Wasm(WasmError::UnhandledType)),
-        Value::Tuple(_t) => Err(Error::Wasm(WasmError::UnhandledType)),
+        Value::Principal(_p) => todo!("Value type not yet implemented: {:?}", value),
+        Value::CallableContract(_c) => todo!("Value type not yet implemented: {:?}", value),
+        Value::Tuple(_t) => todo!("Value type not yet implemented: {:?}", value),
     }
 }
 
@@ -1845,7 +1845,7 @@ fn wasm_to_clarity_value(
             Ok((Some(tuple.into()), index - value_index))
         }
         TypeSignature::ListUnionType(_lu) => {
-            Err(Error::Wasm(WasmError::UnhandledType))
+            Err(Error::Wasm(WasmError::InvalidListUnionTypeInValue))
         }
     }
 }

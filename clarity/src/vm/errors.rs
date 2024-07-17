@@ -139,12 +139,12 @@ pub enum WasmError {
     UnableToWriteMemory(wasmtime::Error),
     ValueTypeMismatch,
     InvalidNoTypeInValue,
+    InvalidListUnionTypeInValue,
     InvalidFunctionKind(i32),
     DefineFunctionCalledInRunMode,
     ExpectedReturnValue,
     InvalidIndicator(i32),
     Runtime(wasmtime::Error),
-    UnhandledType,
 }
 
 #[cfg(feature = "clarity-wasm")]
@@ -174,6 +174,7 @@ impl fmt::Display for WasmError {
             WasmError::UnableToWriteMemory(e) => write!(f, "Unable to write memory: {e}"),
             WasmError::ValueTypeMismatch => write!(f, "Value type mismatch"),
             WasmError::InvalidNoTypeInValue => write!(f, "Invalid no type in value"),
+            WasmError::InvalidListUnionTypeInValue => write!(f, "Invalid list union type in value"),
             WasmError::InvalidFunctionKind(kind) => write!(f, "Invalid function kind: {kind}"),
             WasmError::DefineFunctionCalledInRunMode => {
                 write!(f, "Define function called in run mode")
@@ -183,7 +184,6 @@ impl fmt::Display for WasmError {
                 write!(f, "Invalid response/optional indicator: {indicator}")
             }
             WasmError::Runtime(e) => write!(f, "Runtime error: {e}"),
-            WasmError::UnhandledType => write!(f, "Type not handled"),
         }
     }
 }
