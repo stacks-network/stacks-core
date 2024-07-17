@@ -124,6 +124,7 @@ pub mod http;
 /// Links http crate to Stacks
 pub mod httpcore;
 pub mod inv;
+pub mod mempool;
 pub mod neighbors;
 pub mod p2p;
 /// Implements wrapper around `mio` crate, which itself is a wrapper around Linux's `epoll(2)` syscall.

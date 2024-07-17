@@ -194,7 +194,7 @@ impl ConversationHttp {
 
     /// Is a request in-progress?
     pub fn is_request_inflight(&self) -> bool {
-        self.pending_request.is_some()
+        self.pending_request.is_some() || self.pending_response.is_some()
     }
 
     /// Start a HTTP request from this peer, and expect a response.
