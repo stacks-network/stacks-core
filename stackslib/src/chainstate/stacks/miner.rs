@@ -133,6 +133,7 @@ pub fn signal_mining_blocked(miner_status: Arc<Mutex<MinerStatus>>) {
 
 /// resume mining if we blocked it earlier
 pub fn signal_mining_ready(miner_status: Arc<Mutex<MinerStatus>>) {
+    debug!("Signaling miner to resume"; "thread_id" => ?std::thread::current().id());
     match miner_status.lock() {
         Ok(mut status) => {
             status.remove_blocked();
