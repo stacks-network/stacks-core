@@ -600,6 +600,7 @@ impl<'a> TestRPC<'a> {
                     peer_1.chainstate(),
                     &consensus_hash,
                     &stacks_block.block_hash(),
+                    true,
                     txid.clone(),
                     tx_bytes,
                     tx_fee,
