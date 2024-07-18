@@ -539,21 +539,16 @@ pub fn call_function<'a, 'b, 'c>(
 
     // Convert the args into wasmtime values
     let mut wasm_args = vec![];
-    for arg in args {
+    for (arg, ty) in args.iter().zip(func_types.get_arg_types()) {
         let (arg_vec, new_offset, new_in_mem_offset) =
-            pass_argument_to_wasm(memory, &mut store, arg, offset, in_mem_offset)?;
+            pass_argument_to_wasm(memory, &mut store, ty, arg, offset, in_mem_offset)?;
         wasm_args.extend(arg_vec);
         offset = new_offset;
         in_mem_offset = new_in_mem_offset;
     }
 
     // Reserve stack space for the return value, if necessary.
-    let return_type = store
-        .data()
-        .contract_context()
-        .functions
-        .get(function_name)
-        .ok_or(CheckErrors::UndefinedFunction(function_name.to_string()))?
+    let return_type = func_types
         .get_return_type()
         .as_ref()
         .ok_or(Error::Wasm(WasmError::ExpectedReturnValue))?
@@ -1459,6 +1454,7 @@ fn write_to_wasm(
 fn pass_argument_to_wasm(
     memory: Memory,
     mut store: impl AsContextMut,
+    ty: &TypeSignature,
     value: &Value,
     offset: i32,
     in_mem_offset: i32,
@@ -1482,27 +1478,71 @@ fn pass_argument_to_wasm(
             in_mem_offset,
         )),
         Value::Optional(o) => {
-            let mut buffer = vec![Val::I32(if o.data.is_some() { 1 } else { 0 })];
-            let (inner, new_offset, new_in_mem_offset) = pass_argument_to_wasm(
+            let TypeSignature::OptionalType(inner_ty) = ty else {
+                return Err(Error::Wasm(WasmError::ValueTypeMismatch));
+            };
+
+            if let Some(inner_value) = o.data.as_ref() {
+                let mut buffer = vec![Val::I32(1)];
+                let (inner_buffer, new_offset, new_in_mem_offset) = pass_argument_to_wasm(
+                    memory,
+                    store,
+                    inner_ty,
+                    inner_value,
+                    offset,
+                    in_mem_offset,
+                )?;
+                buffer.extend(inner_buffer);
+                Ok((buffer, new_offset, new_in_mem_offset))
+            } else {
+                let buffer = clar2wasm_ty(ty)
+                    .into_iter()
+                    .map(|vt| match vt {
+                        ValType::I32 => Val::I32(0),
+                        ValType::I64 => Val::I64(0),
+                        _ => unreachable!("No other types used in Clarity-Wasm"),
+                    })
+                    .collect();
+                Ok((buffer, offset, in_mem_offset))
+            }
+        }
+        Value::Response(r) => {
+            let TypeSignature::ResponseType(inner_tys) = ty else {
+                return Err(Error::Wasm(WasmError::ValueTypeMismatch));
+            };
+            let mut buffer = vec![Val::I32(r.committed as i32)];
+            let (value_buffer, new_offset, new_in_mem_offset) = pass_argument_to_wasm(
                 memory,
                 store,
-                o.data
-                    .as_ref()
-                    .map_or(&Value::none(), |boxed_value| &boxed_value),
+                if r.committed {
+                    &inner_tys.0
+                } else {
+                    &inner_tys.1
+                },
+                &r.data,
                 offset,
                 in_mem_offset,
             )?;
-            buffer.extend(inner);
-            Ok((buffer, new_offset, new_in_mem_offset))
-        }
-        Value::Response(r) => {
-            let mut buffer = vec![Val::I32(if r.committed { 1 } else { 0 })];
-            let (inner, new_offset, new_in_mem_offset) = if r.committed {
-                pass_argument_to_wasm(memory, store, &r.data, offset, in_mem_offset)?
+            let empty_buffer = clar2wasm_ty(if r.committed {
+                &inner_tys.1
             } else {
-                pass_argument_to_wasm(memory, store, &r.data, offset, in_mem_offset)?
-            };
-            buffer.extend(inner);
+                &inner_tys.0
+            })
+            .into_iter()
+            .map(|vt| match vt {
+                ValType::I32 => Val::I32(0),
+                ValType::I64 => Val::I64(0),
+                _ => unreachable!("No other types used in Clarity-Wasm"),
+            });
+
+            if r.committed {
+                buffer.extend(value_buffer);
+                buffer.extend(empty_buffer);
+            } else {
+                buffer.extend(empty_buffer);
+                buffer.extend(value_buffer);
+            }
+
             Ok((buffer, new_offset, new_in_mem_offset))
         }
         Value::Sequence(SequenceData::String(CharType::ASCII(s))) => {
@@ -1549,6 +1589,10 @@ fn pass_argument_to_wasm(
             Ok((buffer, offset, adjusted_in_mem_offset))
         }
         Value::Sequence(SequenceData::List(l)) => {
+            let TypeSignature::SequenceType(SequenceSubtype::ListType(ltd)) = ty else {
+                return Err(Error::Wasm(WasmError::ValueTypeMismatch));
+            };
+
             let mut buffer = vec![Val::I32(offset)];
             let mut written = 0;
             let mut in_mem_written = 0;
@@ -1556,7 +1600,7 @@ fn pass_argument_to_wasm(
                 let (len, in_mem_len) = write_to_wasm(
                     &mut store,
                     memory,
-                    l.type_signature.get_list_item_type(),
+                    ltd.get_list_item_type(),
                     offset + written,
                     in_mem_offset + in_mem_written,
                     item,
@@ -1601,18 +1645,20 @@ fn pass_argument_to_wasm(
             let adjusted_in_mem_offset = in_mem_offset + bytes.len() as i32;
             Ok((buffer, offset, adjusted_in_mem_offset))
         }
-        Value::Tuple(TupleData {
-            type_signature,
-            data_map,
-        }) => {
+        Value::Tuple(TupleData { data_map, .. }) => {
+            let TypeSignature::TupleType(tuple_ty) = ty else {
+                return Err(Error::Wasm(WasmError::ValueTypeMismatch));
+            };
+
             let mut buffer = vec![];
             let mut offset = offset;
             let mut in_mem_offset = in_mem_offset;
-            for name in type_signature.get_type_map().keys() {
+            for (name, ty) in tuple_ty.get_type_map() {
                 let b;
                 (b, offset, in_mem_offset) = pass_argument_to_wasm(
                     memory,
                     store.as_context_mut(),
+                    ty,
                     &data_map[name],
                     offset,
                     in_mem_offset,
