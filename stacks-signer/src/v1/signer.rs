@@ -586,7 +586,7 @@ impl Signer {
                     .block_lookup(self.reward_cycle, &signer_signature_hash)
                     .unwrap_or_else(|_| Some(BlockInfo::from(block_proposal.clone())))
                     .unwrap_or_else(|| BlockInfo::from(block_proposal.clone()));
-                if block_info.signed_over {
+                if block_info.ext.get_signed_over().unwrap_or(false) {
                     debug!("{self}: Received a sign command for a block we are already signing over. Ignore it.");
                     return;
                 }
@@ -603,7 +603,9 @@ impl Signer {
                     Ok(msg) => {
                         let ack = self.stackerdb_manager.send_message_with_retry(msg.into());
                         debug!("{self}: ACK: {ack:?}",);
-                        block_info.signed_over = true;
+                        block_info.ext.set_signed_over(true).unwrap_or_else(|e| {
+                            error!("{self}: `set_signed_over()` failed: {e:?}");
+                        });
                         self.signer_db
                             .insert_block(&block_info)
                             .unwrap_or_else(|e| {
@@ -692,7 +694,7 @@ impl Signer {
                 block_info
             }
         };
-        if let Some(mut nonce_request) = block_info.nonce_request.take() {
+        if let Some(mut nonce_request) = block_info.ext.take_nonce_request() {
             debug!("{self}: Received a block validate response from the stacks node for a block we already received a nonce request for. Responding to the nonce request...");
             // We have received validation from the stacks node. Determine our vote and update the request message
             self.determine_vote(&mut block_info, &mut nonce_request);
@@ -707,7 +709,7 @@ impl Signer {
             "{self}: Received a block validate response";
             "block_hash" => block_info.block.header.block_hash(),
             "valid" => block_info.valid,
-            "signed_over" => block_info.signed_over,
+            "signed_over" => block_info.ext.get_signed_over(),
         );
         self.signer_db
             .insert_block(&block_info)
@@ -916,7 +918,7 @@ impl Signer {
                 "{self}: received a nonce request for a new block. Submit block for validation. ";
                 "signer_sighash" => %signer_signature_hash,
             );
-            let block_info = BlockInfo::new_with_request(block_proposal, nonce_request.clone());
+            let block_info = BlockInfo::new_v1_with_request(block_proposal, nonce_request.clone());
             stacks_client
                 .submit_block_for_validation(block_info.block.clone())
                 .unwrap_or_else(|e| {
@@ -928,7 +930,12 @@ impl Signer {
         if block_info.valid.is_none() {
             // We have not yet received validation from the stacks node. Cache the request and wait for validation
             debug!("{self}: We have yet to receive validation from the stacks node for a nonce request. Cache the nonce request and wait for block validation...");
-            block_info.nonce_request = Some(nonce_request.clone());
+            block_info
+                .ext
+                .set_nonce_request(nonce_request.clone())
+                .unwrap_or_else(|e| {
+                    warn!("{self}: Failed to set nonce_request: {e:?}",);
+                });
             return Some(block_info);
         }
 
