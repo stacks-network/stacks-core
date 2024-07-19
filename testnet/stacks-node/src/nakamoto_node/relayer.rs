@@ -110,6 +110,7 @@ pub struct LastCommit {
     /// the tenure consensus hash for the tip's tenure
     tenure_consensus_hash: ConsensusHash,
     /// the start-block hash of the tip's tenure
+    #[allow(dead_code)]
     start_block_hash: BlockHeaderHash,
     /// What is the epoch in which this was sent?
     epoch_id: StacksEpochId,
@@ -836,14 +837,20 @@ impl RelayerThread {
                 })?
         };
 
-        if last_winner_snapshot.miner_pk_hash != Some(mining_pkh) {
-            debug!("Relayer: the miner did not win the last sortition. No tenure to continue.";
-                   "current_mining_pkh" => %mining_pkh,
-                   "last_winner_snapshot.miner_pk_hash" => ?last_winner_snapshot.miner_pk_hash,
-            );
+        let won_last_sortition = last_winner_snapshot.miner_pk_hash == Some(mining_pkh);
+        debug!(
+            "Relayer: Current burn block had no sortition. Checking for tenure continuation.";
+            "won_last_sortition" => won_last_sortition,
+            "current_mining_pkh" => %mining_pkh,
+            "last_winner_snapshot.miner_pk_hash" => ?last_winner_snapshot.miner_pk_hash,
+            "canonical_stacks_tip_id" => %canonical_stacks_tip,
+            "canonical_stacks_tip_ch" => %canonical_stacks_tip_ch,
+            "block_election_ch" => %block_election_snapshot.consensus_hash,
+            "burn_view_ch" => %new_burn_view,
+        );
+
+        if !won_last_sortition {
             return Ok(());
-        } else {
-            debug!("Relayer: the miner won the last sortition. Continuing tenure.");
         }
 
         match self.start_new_tenure(
