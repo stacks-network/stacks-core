@@ -8,11 +8,11 @@ wait_time_for_microblocks = 10000
 [burnchain]
 chain = "bitcoin"
 mode = "xenon"
-peer_host = "bitcoind.testnet.stacks.co"
-username = "blockstack"
-password = "blockstacksystem"
-rpc_port = 18332
-peer_port = 18333
+peer_host = "bitcoin.regtest.hiro.so"
+username = "hirosystems"
+password = "hirosystems"
+rpc_port = 18443
+peer_port = 18444
 
 # Used for sending events to a local stacks-blockchain-api service
 # [[events_observer]]

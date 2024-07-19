@@ -9,9 +9,9 @@ bootstrap_node = "02196f005965cebe6ddc3901b7b1cc1aa7a88f305bb8c5893456b8f9a60592
 [burnchain]
 chain = "bitcoin"
 mode = "mainnet"
-peer_host = "bitcoind.stacks.co"
-username = "blockstack"
-password = "blockstacksystem"
+peer_host = "bitcoin.hiro.so"
+username = "hirosystems"
+password = "hirosystems"
 rpc_port = 8332
 peer_port = 8333
 burn_fee_cap = 1
