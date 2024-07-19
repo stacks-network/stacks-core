@@ -8,9 +8,9 @@ wait_time_for_microblocks = 10000
 [burnchain]
 chain = "bitcoin"
 mode = "krypton"
-peer_host = "bitcoind.regtest.stacks.co"
-username = "blockstack"
-password = "blockstacksystem"
+peer_host = "bitcoin.regtest.hiro.so"
+username = "hirosystems"
+password = "hirosystems"
 rpc_port = 18443
 peer_port = 18444
 

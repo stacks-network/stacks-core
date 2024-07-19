@@ -14,8 +14,8 @@ mode = "xenon"
 peer_host = "127.0.0.1"
 username = "<USERNAME>"
 password = "<PASSWORD>"
-rpc_port = 18332
-peer_port = 18333
+rpc_port = 18443
+peer_port = 18444
 
 [[ustx_balance]]
 address = "ST2QKZ4FKHAH1NQKYKYAYZPY440FEPK7GZ1R5HBP2"
