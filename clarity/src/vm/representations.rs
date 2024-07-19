@@ -455,13 +455,17 @@ pub struct SymbolicExpression {
     pub id: u64,
 
     #[cfg(feature = "developer-mode")]
+    #[serde(skip)]
     pub span: Span,
 
     #[cfg(feature = "developer-mode")]
+    #[serde(skip)]
     pub pre_comments: Vec<(String, Span)>,
     #[cfg(feature = "developer-mode")]
+    #[serde(skip)]
     pub end_line_comment: Option<String>,
     #[cfg(feature = "developer-mode")]
+    #[serde(skip)]
     pub post_comments: Vec<(String, Span)>,
 }
 
@@ -651,7 +655,7 @@ impl fmt::Display for SymbolicExpression {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct Span {
     pub start_line: u32,
     pub start_column: u32,

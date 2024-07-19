@@ -229,6 +229,7 @@ pub struct ContractContext {
     // @todo: @hugocaillard: remove pub
     // it's only used to know that the contract can be called with wasm
     // it should be epoch gated in the future
+    #[serde(skip)]
     pub wasm_module: Option<Vec<u8>>,
 }
 
