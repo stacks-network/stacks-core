@@ -9,8 +9,8 @@ you should make sure to add the following config fields to your config file:
 miner = True
 # Bitcoin private key to spend
 seed = "YOUR PRIVATE KEY"
-# How long to wait for microblocks to arrive before mining a block to confirm them (in milliseconds)
-wait_time_for_microblocks = 10000
+# Disable microblocks (ref: https://github.com/stacks-network/stacks-core/pull/4561 )
+mine_microblocks = false
 # Run as a mock-miner, to test mining without spending BTC. Needs miner=True.
 #mock_mining = True
 
@@ -23,10 +23,18 @@ first_attempt_time_ms = 1000
 # Time to spend on subsequent attempts to make a block, in milliseconds.
 # This can be bigger -- new block-commits will be RBF'ed.
 subsequent_attempt_time_ms = 60000
-# Time to spend mining a microblock, in milliseconds.
-microblock_attempt_time_ms = 30000
 # Time to spend mining a Nakamoto block, in milliseconds.
 nakamoto_attempt_time_ms = 20000
+
+[burnchain]
+# Maximum amount (in sats) of "burn commitment" to broadcast for the next block's leader election
+burn_fee_cap = 20000
+# Amount (in sats) per byte - Used to calculate the transaction fees
+satoshis_per_byte = 25
+# Amount of sats to add when RBF'ing bitcoin tx  (default: 5)
+rbf_fee_increment = 5
+# Maximum percentage to RBF bitcoin tx (default: 150% of satsv/B)
+max_rbf = 150
 ```
 
 You can verify that your node is operating as a miner by checking its log output
