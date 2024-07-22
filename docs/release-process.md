@@ -65,7 +65,7 @@ A release should happen at least 24 hours before the start of a new cycle, to av
    - Add cherry-picked commits to the `feat/X.Y.Z.A.n-pr_number` branch
    - Merge `feat/X.Y.Z.A.n-pr_number` into `release/X.Y.Z.A.n`.
 
-4. Open a PR to update the `CHANGELOG.md` file in the `release/X.Y.Z.A.n` branch.
+4. Open a PR to update the [CHANGELOG](../CHANGELOG.md) file in the `release/X.Y.Z.A.n` branch.
 
    - Create a chore branch from `release/X.Y.Z.A.n`, ex: `chore/X.Y.Z.A.n-changelog`.
    - Add summaries of all Pull Requests to the `Added`, `Changed` and `Fixed` sections.
