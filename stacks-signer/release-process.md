@@ -89,3 +89,4 @@ A release should happen at least 24 hours before the start of a new cycle, to av
 9. Finally, the following merges will happen to complete the release process:
    - Release branch `release/signer-X.Y.Z.A.n.x` will be merged into the `master` branch.
    - Then, `master` will be merged into `develop`.
+
