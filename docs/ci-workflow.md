@@ -1,4 +1,4 @@
-# CI Workflows
+# CI Workflow
 
 All releases are built via a Github Actions workflow named [`CI`](../.github/workflows/ci.yml), and is responsible for:
 
@@ -11,11 +11,11 @@ All releases are built via a Github Actions workflow named [`CI`](../.github/wor
 
 1. Releases are only created when the [CI workflow](../.github/workflows/ci.yml) is triggered against a release branch (ex: `release/X.Y.Z.A.n`).
 2. [Caching](https://docs.github.com/en/actions/using-workflows/caching-dependencies-to-speed-up-workflows) is used to speed up testing - a cache is created based on the type of data (i.e. cargo) and the commit sha.
-   Tests can be retried quickly since the cache will persist until the cleanup job is run.
+   Tests can be retried quickly since the cache will persist until the cleanup job is run or the cache is evicted.
 3. [Nextest](https://nexte.st/) is used to run the tests from a cached build archive file (using commit sha as the cache key).
-   - Two [test archives](https://nexte.st/docs/ci-features/archiving/) are created, one for genesis tests and one for generic tests.
+   - Two [test archives](https://nexte.st/docs/ci-features/archiving/) are created, one for genesis tests and one for non-genesis tests.
    - Unit-tests are [partitioned](https://nexte.st/docs/ci-features/partitioning/) and parallelized to speed up execution time.
-4. Most workflow steps are called from a separate actions repo <https://github.com/stacks-network/actions> to reduce duplication.
+4. Most workflow steps are called from a separate actions repo <https://github.com/stacks-network/actions> to enforce DRY.
 
 ## TL;DR
 
@@ -55,7 +55,7 @@ Partitions (shards) are used when there is a large and unknown number of tests t
 
 There is also a workflow designed to run tests that is manually triggered: [Standalone Tests](../.github/workflows/standalone-tests.yml).
 This workflow requires you to select which test(s) you want to run, which then triggers a reusable workflow via conditional.
-For example, selecting "Epoch Tests" will run the tests defined in [Epoch Tests](../.github/workflows/epoch-tests.yml).
+For example, selecting `Epoch Tests` will run the tests defined in [Epoch Tests](../.github/workflows/epoch-tests.yml).
 Likewise, selecting `Release Tests` will run the same tests as a release workflow.
 
 ### Adding/changing tests
@@ -105,7 +105,7 @@ If any of the tests given to the action (JSON string of `needs` field) fails, th
 
 If you have to mark more than 1 job from the same workflow required in a ruleset, you can use this action in a separate job and only add that job as required.
 
-In the following example, `unit-tests` is a matrix job with 8 partitions (i.e. 8 jobs are running), while the others are normal jobs.
+In the following example, `unit-tests` is a matrix job from [Stacks Core Tests](../.github/workflows/stacks-core-tests.yml) with 8 partitions (i.e. 8 jobs are running), while the others are normal jobs.
 If any of the jobs are failing, the `check-tests` job will also fail.
 
 ```yaml
@@ -145,7 +145,7 @@ check-tests:
 ### Merging a branch to develop
 
 Once a PR is added to the merge queue, the target branch is merged into the source branch.
-Then, the same workflows are triggered as in the [previous step](#opening-a-pr-against-develop).
+Then, the same workflows are triggered as in the [previous step](#openingupdating-a-pr).
 
 ---
 

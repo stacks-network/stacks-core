@@ -9,7 +9,7 @@ This document describes several techniques to profile (i.e. find performance bot
 - generating flame graphs, and
 - profiling sqlite queries.
 
-Note that all bash commands in this document are run from the stacks-blockchain repository root directory.
+Note that all bash commands in this document are run from the [stacks-core repository](https://github.com/stacks-network/stacks-core) root directory.
 
 ## Logging tips
 

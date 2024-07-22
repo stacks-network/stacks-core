@@ -14,8 +14,8 @@
 ## Release Schedule and Hotfixes
 
 Normal releases in this repository that add new features are released on a monthly schedule.
-The currently staged changes for such releases are in the [develop branch](https://github.com/stacks-network/stacks-blockchain/tree/develop).
-It is generally safe to run a `stacks-node` from that branch, though it has received less rigorous testing than release tags.
+The currently staged changes for such releases are in the [develop branch](https://github.com/stacks-network/stacks-core/tree/develop).
+It is generally safe to run a `stacks-node` from that branch, though it has received less rigorous testing than release tags or the [master branch](https://github.com/stacks-network/stacks-core/tree/master).
 If bugs are found in the `develop` branch, please do [report them as issues](https://github.com/stacks-network/stacks-core/issues) on this repository.
 
 For fixes that impact the correct functioning or liveness of the network, _hotfixes_ may be issued.
@@ -40,7 +40,7 @@ A increments on non-consensus-breaking changes that do not require a fresh chain
 n increments on patches and hot-fixes (akin to semantic PATCH)
 ```
 
-Optionally, an extra pre-release field may be appended to the version to specify a release candidate in the format `-rc[0-9]`
+Optionally, an extra pre-release field may be appended to the version to specify a release candidate in the format `-rc[0-9]`.
 
 ## Non-Consensus Breaking Release Process
 
@@ -50,31 +50,32 @@ A release should happen at least 24 hours before the start of a new cycle, to av
 
 1. Before creating the release, the _version number_ must be determined, where the factors that determine the version number are discussed in [Versioning](#versioning).
 
-   1. First determine whether there are any "non-consensus-breaking changes that require a fresh chainstate".
+   - First determine whether there are any "non-consensus-breaking changes that require a fresh chainstate".
       - In other words, the database schema has changed, but an automatic migration was not implemented.
       - Determine whether this a feature release, as opposed to a hotfix or a patch.
-   2. A new branch in format `release/X.Y.Z.A.n` is created from the base branch `develop`.
+   - A new branch in the format `release/X.Y.Z.A.n` is created from the base branch `develop`.
 
 2. Enumerate PRs and/or issues that would _block_ the release.
 
-   1. A label should be applied to each such issue/PR as `X.Y.Z.A.n-blocker`.
+   - A label should be applied to each such issue/PR as `X.Y.Z.A.n-blocker`.
 
-3. Since development is continuing in the `develop` branch, it may be necessary to cherry-pick commits into the release branch.
+3. Since development is continuing in the `develop` branch, it may be necessary to cherry-pick some commits into the release branch.
 
-   1. Create a feature branch from `release/X.Y.Z.A.n`, ex: `feat/X.Y.Z.A.n-pr_number`.
-   2. Add cherry-picked commits to the `feat/X.Y.Z.A.n-pr_number` branch
-   3. Merge `feat/X.Y.Z.A.n-pr_number` back into `release/X.Y.Z.A.n`.
+   - Create a feature branch from `release/X.Y.Z.A.n`, ex: `feat/X.Y.Z.A.n-pr_number`.
+   - Add cherry-picked commits to the `feat/X.Y.Z.A.n-pr_number` branch
+   - Merge `feat/X.Y.Z.A.n-pr_number` into `release/X.Y.Z.A.n`.
 
 4. Open a PR to update the `CHANGELOG.md` file in the `release/X.Y.Z.A.n` branch.
 
-   1. Create a chore branch from `release/X.Y.Z.A.n`, ex: `chore/X.Y.Z.A.n-changelog`.
-   2. Add summaries of all Pull Requests to the `Added`, `Changed` and `Fixed` sections.
+   - Create a chore branch from `release/X.Y.Z.A.n`, ex: `chore/X.Y.Z.A.n-changelog`.
+   - Add summaries of all Pull Requests to the `Added`, `Changed` and `Fixed` sections.
       - Pull requests merged into `develop` can be found [here](https://github.com/stacks-network/stacks-core/pulls?q=is%3Apr+is%3Aclosed+base%3Adevelop+sort%3Aupdated-desc).
-        - **Note**: GitHub does not allow sorting by _merge time_, so, when sorting by some proxy criterion, some care should be used to understand which PR's were _merged_ after the last release.
+        
+        **Note**: GitHub does not allow sorting by _merge time_, so, when sorting by some proxy criterion, some care should be used to understand which PR's were _merged_ after the last release.
 
-5. Once `chore/X.Y.Z.A.n-changelog` has merged, a build may be started by manually triggering the [`CI` Github Actions workflow](https://github.com/stacks-network/stacks-core/actions/workflows/ci.yml) against the `release/X.Y.Z.A.n` branch.
+5. Once `chore/X.Y.Z.A.n-changelog` has merged, a build may be started by manually triggering the [`CI` workflow](../.github/workflows/ci.yml) against the `release/X.Y.Z.A.n` branch.
 
-6. Once the release has been built and binaries are available, ecosystem participants shall be notified to test the tagged release on various staging infrastructure.
+6. Once the release candidate has been built and binaries are available, ecosystem participants shall be notified to test the tagged release on various staging infrastructure.
 
 7. The release candidate will tested that it successfully syncs with the current chain from genesis both in testnet and mainnet.
 
@@ -87,8 +88,8 @@ A release should happen at least 24 hours before the start of a new cycle, to av
    Announcements will then be shared in the `#stacks-core-devs` channel in the Stacks Discord, as well as the [mailing list](https://groups.google.com/a/stacks.org/g/announce).
 
 10. Finally, the following merges will happen to complete the release process:
-    1. Release branch `release/X.Y.Z.A.n` will be merged into the `master` branch.
-    2. Then, `master` will be merged back into `develop`.
+    - Release branch `release/X.Y.Z.A.n` will be merged into the `master` branch.
+    - Then, `master` will be merged into `develop`.
 
 ## Consensus Breaking Release Process
 
@@ -96,4 +97,3 @@ Consensus breaking releases shall follow the same overall process as a non-conse
 
 - The release must be timed so that sufficient time is given to perform a genesis sync.
 - The release must take into account the activation height at which the new consensus rules will take effect.
-  Generically, a few weeks lead time is required for consensus breaking changes.

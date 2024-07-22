@@ -2,7 +2,7 @@
 
 
 ## Supported Versions
-Please see [Releases](https://github.com/stacks-network/stacks-blockchain/releases). It is recommended to use the [most recently released version](https://github.com/stacks-network/stacks-blockchain/releases/latest).
+Please see [Releases](https://github.com/stacks-network/stacks-core/releases). It is recommended to use the [most recently released version](https://github.com/stacks-network/stacks-core/releases/latest).
 
 
 ## Reporting a vulnerability
