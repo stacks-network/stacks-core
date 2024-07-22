@@ -38,32 +38,32 @@ start_height = 0
 
 [[burnchain.epochs]]
 epoch_name = "2.0"
-start_height = 230
+start_height = 0
 
 [[burnchain.epochs]]
 epoch_name = "2.05"
-start_height = 240
+start_height = 1
 
 [[burnchain.epochs]]
 epoch_name = "2.1"
-start_height = 240
+start_height = 2
 
 [[burnchain.epochs]]
 epoch_name = "2.2"
-start_height = 241
+start_height = 3
 
 [[burnchain.epochs]]
 epoch_name = "2.3"
-start_height = 242
+start_height = 4
 
 [[burnchain.epochs]]
 epoch_name = "2.4"
-start_height = 243
+start_height = 5
 
 [[burnchain.epochs]]
 epoch_name = "2.5"
-start_height = 244
+start_height = 6
 
 [[burnchain.epochs]]
 epoch_name = "3.0"
-start_height = 2_000_250
+start_height = 2000701
