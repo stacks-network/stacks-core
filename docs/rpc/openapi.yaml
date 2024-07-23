@@ -519,7 +519,94 @@ paths:
         description: |
           The Stacks chain tip to query from.
           If tip == "latest", the query will be run from the latest known tip (includes unconfirmed state).
-          If the tip is left unspecified, the stacks chain tip will be selected (only includes confirmed state). 
+          If the tip is left unspecified, the stacks chain tip will be selected (only includes confirmed state).
+
+  /v2/clarity_marf_value/{clarity_marf_key}:
+    post:
+      summary: Get the MARF value for a given key
+      tags:
+        - Smart Contracts
+      operationId: get_clarity_marf_value
+      description: |
+        Attempt to fetch the value of a MARF key. The key is identified with [Clarity MARF Key].
+
+        In the response, `data` is the hex serialization of the value.
+      responses:
+        200:
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: ./api/core-node/get-clarity-marf-value.schema.json
+              example:
+                $ref: ./api/core-node/get-clarity-marf-value.example.json
+        400:
+          description: Failed to retrieve MARF key
+      parameters:
+        - name: clarity_marf_key
+          in: path
+          required: true
+          description: MARF key
+          schema:
+            type: string
+        - name: proof
+          in: query
+          description: Returns object without the proof field when set to 0
+          schema:
+            type: integer
+        - name: tip
+          in: query
+          schema:
+            type: string
+          description: The Stacks chain tip to query from. If tip == latest, the query will be run from the latest
+            known tip (includes unconfirmed state).
+
+  /v2/clarity_metadata/{contract_address}/{contract_name}/{clarity_metadata_key}:
+    post:
+      summary: Get the contract metadata for the metadata key
+      tags:
+        - Smart Contracts
+      operationId: get_clarity_metadata_key
+      description: |
+        Attempt to fetch the metadata of a contract. The contract is identified with [Stacks Address] and [Contract Name] in the URL path. The metadata key is identified with [Clarity Metadata Key].
+
+        In the response, `data` is formatted as JSON.
+      responses:
+        200:
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: ./api/core-node/get-clarity-metadata.schema.json
+              example:
+                $ref: ./api/core-node/get-clarity-metadata.example.json
+        400:
+          description: Failed to retrieve constant value from contract
+      parameters:
+        - name: contract_address
+          in: path
+          required: true
+          description: Stacks address
+          schema:
+            type: string
+        - name: contract_name
+          in: path
+          required: true
+          description: Contract name
+          schema:
+            type: string
+        - name: clarity_metadata_key
+          in: path
+          required: true
+          description: Metadata key
+          schema:
+            type: string
+        - name: tip
+          in: query
+          schema:
+            type: string
+          description: The Stacks chain tip to query from. If tip == latest, the query will be run from the latest
+            known tip (includes unconfirmed state).
 
   /v2/constant_val/{contract_address}/{contract_name}/{constant_name}:
     post:
@@ -633,7 +720,7 @@ paths:
 
   /v3/blocks/{block_id}:
     get:
-      summary: Fetch a Nakamoto block 
+      summary: Fetch a Nakamoto block
       tags:
         - Blocks
       operationId: get_block_v3
@@ -674,7 +761,7 @@ paths:
             application/json:
               example:
                 $ref: ./api/core-node/get_tenure_info.json
-  
+
   /v3/tenures/{block_id}:
     get:
       summary: Fetch a sequence of Nakamoto blocks in a tenure
