@@ -1098,7 +1098,7 @@ impl RelayerThread {
     }
 
     /// Try loading up a saved VRF key
-    pub(crate) fn load_saved_vrf_key(path: &str) -> Option<RegisteredKey> {
+    pub(crate) fn load_saved_vrf_key(path: &str, pubkey_hash: &Hash160) -> Option<RegisteredKey> {
         let mut f = match fs::File::open(path) {
             Ok(f) => f,
             Err(e) => {
@@ -1115,13 +1115,20 @@ impl RelayerThread {
             return None;
         }
 
-        let Ok(registered_key) = serde_json::from_slice(&registered_key_bytes) else {
+        let Ok(registered_key) = serde_json::from_slice::<RegisteredKey>(&registered_key_bytes)
+        else {
             warn!(
                 "Did not load registered key from {}: could not decode JSON",
                 &path
             );
             return None;
         };
+
+        // Check that the loaded key's memo matches the current miner's key
+        if registered_key.memo != pubkey_hash.as_ref() {
+            warn!("Loaded VRF key does not match mining key");
+            return None;
+        }
 
         info!("Loaded registered key from {}", &path);
         Some(registered_key)
@@ -1146,21 +1153,14 @@ impl RelayerThread {
                     return true;
                 }
                 let mut saved_key_opt = None;
-                let mut restored = false;
                 if let Some(path) = self.config.miner.activated_vrf_key_path.as_ref() {
-                    saved_key_opt = Self::load_saved_vrf_key(&path);
+                    saved_key_opt =
+                        Self::load_saved_vrf_key(&path, &self.keychain.get_nakamoto_pkh());
                 }
                 if let Some(saved_key) = saved_key_opt {
-                    let pubkey_hash = self.keychain.get_nakamoto_pkh();
-                    if pubkey_hash.as_ref() == &saved_key.memo {
-                        debug!("Relayer: resuming VRF key");
-                        self.globals.resume_leader_key(saved_key);
-                        restored = true;
-                    } else {
-                        warn!("Relayer: directive Saved VRF key does not match current key");
-                    }
-                }
-                if !restored {
+                    debug!("Relayer: resuming VRF key");
+                    self.globals.resume_leader_key(saved_key);
+                } else {
                     debug!("Relayer: directive Register VRF key");
                     self.rotate_vrf_and_register(&last_burn_block);
                     debug!("Relayer: directive Registered VRF key");
