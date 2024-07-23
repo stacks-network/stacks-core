@@ -13,8 +13,7 @@
 
 ## Release Schedule and Hotfixes
 
-Normal releases in this repository that add new or updated features shall be released in an ad-hoc manner.
-The currently staged changes for such releases are in the [develop branch](https://github.com/stacks-network/stacks-core/tree/develop).
+`stack-signer` releases that add new or updated features shall be released in an ad-hoc manner.
 It is generally safe to run a `stacks-signer` from that branch, though it has received less rigorous testing than release branches.
 If bugs are found in the `develop` branch, please do [report them as issues](https://github.com/stacks-network/stacks-core/issues) on this repository.
 
