@@ -16,11 +16,13 @@
 
 use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::representations::{
-    MARF_KEY_FOR_QUAD_REGEX_STRING, MARF_KEY_FOR_TRIP_REGEX_STRING,
+    CONTRACT_NAME_REGEX_STRING, METADATA_KEY_REGEX_STRING, STANDARD_PRINCIPAL_REGEX_STRING,
 };
+use clarity::vm::types::QualifiedContractIdentifier;
+use clarity::vm::ContractName;
 use regex::{Captures, Regex};
+use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::net::PeerHost;
-use stacks_common::util::hash::to_hex;
 
 use crate::net::http::{
     parse_json, Error, HttpNotFound, HttpRequest, HttpRequestContents, HttpRequestPreamble,
@@ -33,42 +35,42 @@ use crate::net::httpcore::{
 use crate::net::{Error as NetError, StacksNodeState, TipRequest};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ClarityMarfValueResponse {
+pub struct ClarityMetadataResponse {
     pub data: String,
-    #[serde(rename = "proof")]
-    #[serde(default)]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub marf_proof: Option<String>,
 }
 
 #[derive(Clone)]
-pub struct RPCGetClarityMarfValueRequestHandler {
-    pub clarity_marf_key: Option<String>,
+pub struct RPCGetClarityMetadataRequestHandler {
+    pub clarity_metadata_key: Option<String>,
+    pub contract_identifier: Option<QualifiedContractIdentifier>,
 }
-impl RPCGetClarityMarfValueRequestHandler {
+impl RPCGetClarityMetadataRequestHandler {
     pub fn new() -> Self {
         Self {
-            clarity_marf_key: None,
+            clarity_metadata_key: None,
+            contract_identifier: None,
         }
     }
 }
 
 /// Decode the HTTP request
-impl HttpRequest for RPCGetClarityMarfValueRequestHandler {
+impl HttpRequest for RPCGetClarityMetadataRequestHandler {
     fn verb(&self) -> &'static str {
         "GET"
     }
 
     fn path_regex(&self) -> Regex {
         Regex::new(&format!(
-            r"^/v2/clarity_marf_value/(?P<clarity_marf_key>(vm-epoch::epoch-version)|({})|({}))$",
-            *MARF_KEY_FOR_TRIP_REGEX_STRING, *MARF_KEY_FOR_QUAD_REGEX_STRING
+            r"^/v2/clarity_metadata/(?P<address>{})/(?P<contract>{})/(?P<clarity_metadata_key>(analysis)|({}))$",
+            *STANDARD_PRINCIPAL_REGEX_STRING,
+            *CONTRACT_NAME_REGEX_STRING,
+            *METADATA_KEY_REGEX_STRING
         ))
         .unwrap()
     }
 
     fn metrics_identifier(&self) -> &str {
-        "/v2/clarity_marf_value/:clarity_marf_key"
+        "/v2/clarity_metadata/:principal/:contract_name/:clarity_metadata_key"
     }
 
     /// Try to decode this request.
@@ -86,9 +88,11 @@ impl HttpRequest for RPCGetClarityMarfValueRequestHandler {
             ));
         }
 
-        let marf_key = request::get_key(captures, "clarity_marf_key")?;
+        let contract_identifier = request::get_contract_address(captures, "address", "contract")?;
+        let metadata_key = request::get_key(captures, "clarity_metadata_key")?;
 
-        self.clarity_marf_key = Some(marf_key);
+        self.contract_identifier = Some(contract_identifier);
+        self.clarity_metadata_key = Some(metadata_key);
 
         let contents = HttpRequestContents::new().query_string(query);
         Ok(contents)
@@ -96,10 +100,11 @@ impl HttpRequest for RPCGetClarityMarfValueRequestHandler {
 }
 
 /// Handle the HTTP request
-impl RPCRequestHandler for RPCGetClarityMarfValueRequestHandler {
+impl RPCRequestHandler for RPCGetClarityMetadataRequestHandler {
     /// Reset internal state
     fn restart(&mut self) {
-        self.clarity_marf_key = None;
+        self.contract_identifier = None;
+        self.clarity_metadata_key = None;
     }
 
     /// Make the response
@@ -109,8 +114,11 @@ impl RPCRequestHandler for RPCGetClarityMarfValueRequestHandler {
         contents: HttpRequestContents,
         node: &mut StacksNodeState,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
-        let clarity_marf_key = self.clarity_marf_key.take().ok_or(NetError::SendError(
-            "`clarity_marf_key` not set".to_string(),
+        let contract_identifier = self.contract_identifier.take().ok_or(NetError::SendError(
+            "`contract_identifier` not set".to_string(),
+        ))?;
+        let clarity_metadata_key = self.clarity_metadata_key.take().ok_or(NetError::SendError(
+            "`clarity_metadata_key` not set".to_string(),
         ))?;
 
         let tip = match node.load_stacks_chain_tip(&preamble, &contents) {
@@ -120,30 +128,19 @@ impl RPCRequestHandler for RPCGetClarityMarfValueRequestHandler {
             }
         };
 
-        let with_proof = contents.get_with_proof();
-
         let data_opt = node.with_node_state(|_network, sortdb, chainstate, _mempool, _rpc_args| {
             chainstate.maybe_read_only_clarity_tx(
                 &sortdb.index_handle_at_block(chainstate, &tip)?,
                 &tip,
                 |clarity_tx| {
                     clarity_tx.with_clarity_db_readonly(|clarity_db| {
-                        let (value_hex, marf_proof): (String, _) = if with_proof {
-                            clarity_db
-                                .get_data_with_proof(&clarity_marf_key)
-                                .ok()
-                                .flatten()
-                                .map(|(a, b)| (a, Some(format!("0x{}", to_hex(&b)))))?
-                        } else {
-                            clarity_db
-                                .get_data(&clarity_marf_key)
-                                .ok()
-                                .flatten()
-                                .map(|a| (a, None))?
-                        };
+                        let data = clarity_db
+                            .store
+                            .get_metadata(&contract_identifier, &clarity_metadata_key)
+                            .ok()
+                            .flatten()?;
 
-                        let data = format!("0x{}", value_hex);
-                        Some(ClarityMarfValueResponse { data, marf_proof })
+                        Some(ClarityMetadataResponse { data })
                     })
                 },
             )
@@ -154,7 +151,7 @@ impl RPCRequestHandler for RPCGetClarityMarfValueRequestHandler {
             Ok(Some(None)) => {
                 return StacksHttpResponse::new_error(
                     &preamble,
-                    &HttpNotFound::new("Marf key not found".to_string()),
+                    &HttpNotFound::new("Metadata not found".to_string()),
                 )
                 .try_into_contents()
                 .map_err(NetError::from);
@@ -177,41 +174,43 @@ impl RPCRequestHandler for RPCGetClarityMarfValueRequestHandler {
 }
 
 /// Decode the HTTP response
-impl HttpResponse for RPCGetClarityMarfValueRequestHandler {
+impl HttpResponse for RPCGetClarityMetadataRequestHandler {
     fn try_parse_response(
         &self,
         preamble: &HttpResponsePreamble,
         body: &[u8],
     ) -> Result<HttpResponsePayload, Error> {
-        let marf_value: ClarityMarfValueResponse = parse_json(preamble, body)?;
-        Ok(HttpResponsePayload::try_from_json(marf_value)?)
+        let metadata: ClarityMetadataResponse = parse_json(preamble, body)?;
+        Ok(HttpResponsePayload::try_from_json(metadata)?)
     }
 }
 
 impl StacksHttpRequest {
-    pub fn new_getclaritymarfvalue(
+    pub fn new_getclaritymetadata(
         host: PeerHost,
-        clarity_marf_key: String,
+        contract_addr: StacksAddress,
+        contract_name: ContractName,
+        clarity_metadata_key: String,
         tip_req: TipRequest,
-        with_proof: bool,
     ) -> StacksHttpRequest {
         StacksHttpRequest::new_for_peer(
             host,
             "GET".into(),
-            format!("/v2/clarity_marf_value/{}", &clarity_marf_key),
-            HttpRequestContents::new()
-                .for_tip(tip_req)
-                .query_arg("proof".into(), if with_proof { "1" } else { "0" }.into()),
+            format!(
+                "/v2/clarity_metadata/{}/{}/{}",
+                &contract_addr, &contract_name, &clarity_metadata_key
+            ),
+            HttpRequestContents::new().for_tip(tip_req),
         )
         .expect("FATAL: failed to construct request from infallible data")
     }
 }
 
 impl StacksHttpResponse {
-    pub fn decode_clarity_marf_value_response(self) -> Result<ClarityMarfValueResponse, NetError> {
+    pub fn decode_clarity_metadata_response(self) -> Result<ClarityMetadataResponse, NetError> {
         let contents = self.get_http_payload_ok()?;
         let contents_json: serde_json::Value = contents.try_into()?;
-        let resp: ClarityMarfValueResponse = serde_json::from_value(contents_json)
+        let resp: ClarityMetadataResponse = serde_json::from_value(contents_json)
             .map_err(|_e| NetError::DeserializeError("Failed to load from JSON".to_string()))?;
         Ok(resp)
     }

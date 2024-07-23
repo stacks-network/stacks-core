@@ -248,7 +248,7 @@ pub mod request {
     }
 
     /// Get and parse a MARF key from a path's captures, given the name of the regex field.
-    pub fn get_marf_key(captures: &Captures, key: &str) -> Result<String, HttpError> {
+    pub fn get_key(captures: &Captures, key: &str) -> Result<String, HttpError> {
         let marf_key = if let Some(marf_key_str) = captures.name(key) {
             marf_key_str.as_str().to_string()
         } else {

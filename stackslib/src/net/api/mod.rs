@@ -43,6 +43,7 @@ pub mod getattachmentsinv;
 pub mod getblock;
 pub mod getblock_v3;
 pub mod getclaritymarfvalue;
+pub mod getclaritymetadata;
 pub mod getconstantval;
 pub mod getcontractabi;
 pub mod getcontractsrc;
@@ -94,6 +95,7 @@ impl StacksHttp {
         self.register_rpc_endpoint(
             getclaritymarfvalue::RPCGetClarityMarfValueRequestHandler::new(),
         );
+        self.register_rpc_endpoint(getclaritymetadata::RPCGetClarityMetadataRequestHandler::new());
         self.register_rpc_endpoint(getconstantval::RPCGetConstantValRequestHandler::new());
         self.register_rpc_endpoint(getcontractabi::RPCGetContractAbiRequestHandler::new());
         self.register_rpc_endpoint(getcontractsrc::RPCGetContractSrcRequestHandler::new());

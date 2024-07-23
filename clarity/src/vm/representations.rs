@@ -64,6 +64,18 @@ lazy_static! {
         Regex::new(format!("^{}$|^__transient$", CONTRACT_NAME_REGEX_STRING.as_str()).as_str())
             .unwrap()
     };
+    pub static ref MARF_KEY_FOR_TRIP_REGEX_STRING: String = format!(
+        r"vm::{}::\d+::.*",
+        *CONTRACT_PRINCIPAL_REGEX_STRING,
+    );
+    pub static ref MARF_KEY_FOR_QUAD_REGEX_STRING: String = format!(
+        r"{}::.*",
+        *MARF_KEY_FOR_TRIP_REGEX_STRING,
+    );
+    pub static ref METADATA_KEY_REGEX_STRING: String = format!(
+        r"vm-metadata::\d+::.*",
+
+    );
 }
 
 guarded_string!(

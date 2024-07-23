@@ -60,6 +60,8 @@ mod getattachment;
 mod getattachmentsinv;
 mod getblock;
 mod getblock_v3;
+mod getclaritymarfvalue;
+mod getclaritymetadata;
 mod getconstantval;
 mod getcontractabi;
 mod getcontractsrc;
@@ -117,7 +119,7 @@ const TEST_CONTRACT: &'static str = "
         (ok 1)))
     (begin
       (map-set unit-map { account: 'ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R } { units: 123 }))
-    
+
     (define-read-only (ro-confirmed) u1)
 
     (define-public (do-test) (ok u0))
