@@ -15,6 +15,8 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use core::fmt;
 use std::collections::HashSet;
+use std::fs;
+use std::io::Read;
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -1095,6 +1097,36 @@ impl RelayerThread {
         debug!("Relayer exit!");
     }
 
+    /// Try loading up a saved VRF key
+    pub(crate) fn load_saved_vrf_key(path: &str) -> Option<RegisteredKey> {
+        let mut f = match fs::File::open(path) {
+            Ok(f) => f,
+            Err(e) => {
+                warn!("Could not open {}: {:?}", &path, &e);
+                return None;
+            }
+        };
+        let mut registered_key_bytes = vec![];
+        if let Err(e) = f.read_to_end(&mut registered_key_bytes) {
+            warn!(
+                "Failed to read registered key bytes from {}: {:?}",
+                path, &e
+            );
+            return None;
+        }
+
+        let Ok(registered_key) = serde_json::from_slice(&registered_key_bytes) else {
+            warn!(
+                "Did not load registered key from {}: could not decode JSON",
+                &path
+            );
+            return None;
+        };
+
+        info!("Loaded registered key from {}", &path);
+        Some(registered_key)
+    }
+
     /// Top-level dispatcher
     pub fn handle_directive(&mut self, directive: RelayerDirective) -> bool {
         debug!("Relayer: handling directive"; "directive" => %directive);
@@ -1113,7 +1145,26 @@ impl RelayerThread {
                     info!("In initial block download, will not submit VRF registration");
                     return true;
                 }
-                self.rotate_vrf_and_register(&last_burn_block);
+                let mut saved_key_opt = None;
+                let mut restored = false;
+                if let Some(path) = self.config.miner.activated_vrf_key_path.as_ref() {
+                    saved_key_opt = Self::load_saved_vrf_key(&path);
+                }
+                if let Some(saved_key) = saved_key_opt {
+                    let pubkey_hash = self.keychain.get_nakamoto_pkh();
+                    if pubkey_hash.as_ref() == &saved_key.memo {
+                        debug!("Relayer: resuming VRF key");
+                        self.globals.resume_leader_key(saved_key);
+                        restored = true;
+                    } else {
+                        warn!("Relayer: directive Saved VRF key does not match current key");
+                    }
+                }
+                if !restored {
+                    debug!("Relayer: directive Register VRF key");
+                    self.rotate_vrf_and_register(&last_burn_block);
+                    debug!("Relayer: directive Registered VRF key");
+                }
                 self.globals.counters.bump_blocks_processed();
                 true
             }
