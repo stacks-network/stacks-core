@@ -20,7 +20,7 @@ jobs:
   ## Runs anytime `ci.yml` runs or when manually called
   image:
     name: Build Image
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       ## Build a maximum of 2 images concurrently based on matrix.dist
