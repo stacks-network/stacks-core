@@ -128,7 +128,7 @@ fn test_try_make_response() {
 
     // existing data
     let response = responses.remove(0);
-    println!(
+    debug!(
         "Response:\n{}\n",
         std::str::from_utf8(&response.try_serialize().unwrap()).unwrap()
     );

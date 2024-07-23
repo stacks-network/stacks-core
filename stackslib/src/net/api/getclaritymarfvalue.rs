@@ -86,7 +86,7 @@ impl HttpRequest for RPCGetClarityMarfValueRequestHandler {
             ));
         }
 
-        let marf_key = request::get_key(captures, "clarity_marf_key")?;
+        let marf_key = request::get_clarity_key(captures, "clarity_marf_key")?;
 
         self.clarity_marf_key = Some(marf_key);
 

@@ -51,6 +51,8 @@ lazy_static! {
         "({})|({})",
         *STANDARD_PRINCIPAL_REGEX_STRING, *CONTRACT_PRINCIPAL_REGEX_STRING
     );
+    static ref CLARITY_NAME_NO_BOUNDARIES_REGEX_STRING: String =
+        "[a-zA-Z]([a-zA-Z0-9]|[-_!?+<>=/*])*|[-+=/*]|[<>]=?".into();
     pub static ref CLARITY_NAME_REGEX_STRING: String =
         "^[a-zA-Z]([a-zA-Z0-9]|[-_!?+<>=/*])*$|^[-+=/*]$|^[<>]=?$".into();
     pub static ref CLARITY_NAME_REGEX: Regex =
@@ -65,16 +67,17 @@ lazy_static! {
             .unwrap()
     };
     pub static ref MARF_KEY_FOR_TRIP_REGEX_STRING: String = format!(
-        r"vm::{}::\d+::.*",
+        r"vm::{}::\d+::({})",
         *CONTRACT_PRINCIPAL_REGEX_STRING,
+        *CLARITY_NAME_NO_BOUNDARIES_REGEX_STRING,
     );
     pub static ref MARF_KEY_FOR_QUAD_REGEX_STRING: String = format!(
-        r"{}::.*",
+        r"{}::[0-9a-fA-F]+",
         *MARF_KEY_FOR_TRIP_REGEX_STRING,
     );
     pub static ref METADATA_KEY_REGEX_STRING: String = format!(
-        r"vm-metadata::\d+::.*",
-
+        r"vm-metadata::\d+::(contract|contract-size|contract-src|contract-data-size|({}))",
+        *CLARITY_NAME_NO_BOUNDARIES_REGEX_STRING,
     );
 }
 

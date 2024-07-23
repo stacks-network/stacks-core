@@ -89,7 +89,7 @@ impl HttpRequest for RPCGetClarityMetadataRequestHandler {
         }
 
         let contract_identifier = request::get_contract_address(captures, "address", "contract")?;
-        let metadata_key = request::get_key(captures, "clarity_metadata_key")?;
+        let metadata_key = request::get_clarity_key(captures, "clarity_metadata_key")?;
 
         self.contract_identifier = Some(contract_identifier);
         self.clarity_metadata_key = Some(metadata_key);
