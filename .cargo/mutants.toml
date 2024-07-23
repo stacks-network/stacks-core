@@ -1,0 +1,1 @@
+exclude_globs = ["stacks-signer/src/v1/*.rs"]
