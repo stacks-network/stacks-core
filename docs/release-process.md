@@ -45,14 +45,13 @@ Optionally, an extra pre-release field may be appended to the version to specify
 ## Non-Consensus Breaking Release Process
 
 The release must be timed so that it does not interfere with a _prepare phase_.
-The timing of the next Stacking cycle can be found [here](https://stx.eco/dao/tools?tool=2).
-A release should happen at least 24 hours before the start of a new cycle, to avoid interfering with the prepare phase.
+The timing of the next Stacking cycle can be found [here](https://stx.eco/dao/tools?tool=2); to avoid interfering with the prepare phase, releases should happen at least 24 hours before the start of a new cycle.
 
 1. Before creating the release, the _version number_ must be determined, where the factors that determine the version number are discussed in [Versioning](#versioning).
 
    - First determine whether there are any "non-consensus-breaking changes that require a fresh chainstate".
-      - In other words, the database schema has changed, but an automatic migration was not implemented.
-      - Determine whether this a feature release, as opposed to a hotfix or a patch.
+     - In other words, the database schema has changed, but an automatic migration was not implemented.
+     - Determine whether this a feature release, as opposed to a hotfix or a patch.
    - A new branch in the format `release/X.Y.Z.A.n` is created from the base branch `develop`.
 
 2. Enumerate PRs and/or issues that would _block_ the release.
@@ -69,9 +68,9 @@ A release should happen at least 24 hours before the start of a new cycle, to av
 
    - Create a chore branch from `release/X.Y.Z.A.n`, ex: `chore/X.Y.Z.A.n-changelog`.
    - Add summaries of all Pull Requests to the `Added`, `Changed` and `Fixed` sections.
-      - Pull requests merged into `develop` can be found [here](https://github.com/stacks-network/stacks-core/pulls?q=is%3Apr+is%3Aclosed+base%3Adevelop+sort%3Aupdated-desc).
-        
-        **Note**: GitHub does not allow sorting by _merge time_, so, when sorting by some proxy criterion, some care should be used to understand which PR's were _merged_ after the last release.
+     - Pull requests merged into `develop` can be found [here](https://github.com/stacks-network/stacks-core/pulls?q=is%3Apr+is%3Aclosed+base%3Adevelop+sort%3Aupdated-desc).
+
+       **Note**: GitHub does not allow sorting by _merge time_, so, when sorting by some proxy criterion, some care should be used to understand which PR's were _merged_ after the last release.
 
 5. Once `chore/X.Y.Z.A.n-changelog` has merged, a build may be started by manually triggering the [`CI` workflow](../.github/workflows/ci.yml) against the `release/X.Y.Z.A.n` branch.
 

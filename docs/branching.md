@@ -4,22 +4,22 @@ The following is a modified version of the gitflow branching strategy described 
 
 ## Main Branches
 
-- **master** - `origin/master` is the main branch where the source code of HEAD always reflects a production-ready state.
-- **develop** - `origin/develop` is the branch where the source code of HEAD always reflects a state with the latest delivered development changes for the next release.
-- **next** - `origin/next` may contain consensus-breaking changes.
+- **master** - `master` is the main branch where the source code of HEAD always reflects a production-ready state.
+- **develop** - `develop` is the branch where the source code of HEAD always reflects a state with the latest delivered development changes for the next release.
+- **next** - `next` may contain consensus-breaking changes.
 - **release/X.Y.Z.A.n** is the release branch.
 
 When the source code in the develop branch reaches a stable point and is ready to be released, a release branch is created as `release/X.Y.Z.A.n` (see [release-process.md](./release-process.md)).
 After release, the following will happen:
 
-- `release/X.Y.Z.A.n` branch is merged back to `origin/master`.
-- `origin/master` is then merged into `origin/develop`, and development continues in the `origin/develop` branch.
-- `origin/develop` is then merged into `origin/next`.
+- `release/X.Y.Z.A.n` branch is merged back to `master`.
+- `master` is then merged into `develop`, and development continues in the `develop` branch.
+- `develop` is then merged into `next`.
 
 ## Supporting Branches
 
 Branch names should use a prefix that conveys the overall goal of the branch.
-All branches should be based off of `origin/develop`, with the exception being a hotfix branch which may be based off of `origin/master`.
+All branches should be based off of `develop`, with the exception being a hotfix branch which may be based off of `master`.
 
 - `feat/some-fancy-new-thing`: For new features.
 - `fix/some-broken-thing`: For hot fixes and bug fixes.

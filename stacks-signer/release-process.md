@@ -44,8 +44,7 @@ x increments on the current stacks-core release version
 ## Non-Consensus Breaking Release Process
 
 The release must be timed so that it does not interfere with a _prepare phase_.
-The timing of the next Stacking cycle can be found [here](https://stx.eco/dao/tools?tool=2).
-A release should happen at least 24 hours before the start of a new cycle, to avoid interfering with the prepare phase.
+The timing of the next Stacking cycle can be found [here](https://stx.eco/dao/tools?tool=2); to avoid interfering with the prepare phase, releases should happen at least 24 hours before the start of a new cycle.
 
 1. Before creating the release, the _version number_ must be determined, where the factors that determine the version number are discussed in [Versioning](#versioning).
 
@@ -88,4 +87,3 @@ A release should happen at least 24 hours before the start of a new cycle, to av
 9. Finally, the following merges will happen to complete the release process:
    - Release branch `release/signer-X.Y.Z.A.n.x` will be merged into the `master` branch.
    - Then, `master` will be merged into `develop`.
-
