@@ -52,6 +52,7 @@ rusqlite = { workspace = true }
 clarity = { path = "../clarity", features = ["testing"] }
 polynomial = "0.2.6"
 num-traits = "0.2.18"
+mutants = { workspace = true }
 
 [dependencies.serde_json]
 version = "1.0"

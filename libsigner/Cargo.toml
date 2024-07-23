@@ -35,7 +35,7 @@ tiny_http = "0.12"
 wsts = { workspace = true }
 
 [dev-dependencies]
-mutants = "0.0.3"
+mutants = { workspace = true }
 rand_core = { workspace = true }
 rand = { workspace = true }
 

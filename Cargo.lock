@@ -3440,6 +3440,7 @@ dependencies = [
  "lazy_static",
  "libsigner",
  "libstackerdb",
+ "mutants",
  "num-traits",
  "polynomial",
  "prometheus",
