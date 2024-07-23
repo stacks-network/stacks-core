@@ -1205,3 +1205,121 @@ impl RelayerThread {
         continue_running
     }
 }
+
+#[cfg(test)]
+pub mod test {
+    use std::fs::File;
+    use std::io::Write;
+    use std::path::Path;
+
+    use stacks::util::hash::Hash160;
+    use stacks::util::secp256k1::Secp256k1PublicKey;
+    use stacks::util::vrf::VRFPublicKey;
+
+    use super::RelayerThread;
+    use crate::nakamoto_node::save_activated_vrf_key;
+    use crate::run_loop::RegisteredKey;
+    use crate::Keychain;
+
+    #[test]
+    fn load_nonexistent_vrf_key() {
+        let keychain = Keychain::default(vec![0u8; 32]);
+        let pk = Secp256k1PublicKey::from_private(keychain.get_nakamoto_sk());
+        let pubkey_hash = Hash160::from_node_public_key(&pk);
+
+        let path = "/tmp/does_not_exist.json";
+        _ = std::fs::remove_file(&path);
+
+        let res = RelayerThread::load_saved_vrf_key(&path, &pubkey_hash);
+        assert!(res.is_none());
+    }
+
+    #[test]
+    fn load_empty_vrf_key() {
+        let keychain = Keychain::default(vec![0u8; 32]);
+        let pk = Secp256k1PublicKey::from_private(keychain.get_nakamoto_sk());
+        let pubkey_hash = Hash160::from_node_public_key(&pk);
+
+        let path = "/tmp/empty.json";
+        File::create(&path).expect("Failed to create test file");
+        assert!(Path::new(&path).exists());
+
+        let res = RelayerThread::load_saved_vrf_key(&path, &pubkey_hash);
+        assert!(res.is_none());
+
+        std::fs::remove_file(&path).expect("Failed to delete test file");
+    }
+
+    #[test]
+    fn load_bad_vrf_key() {
+        let keychain = Keychain::default(vec![0u8; 32]);
+        let pk = Secp256k1PublicKey::from_private(keychain.get_nakamoto_sk());
+        let pubkey_hash = Hash160::from_node_public_key(&pk);
+
+        let path = "/tmp/invalid_saved_key.json";
+        let json_content = r#"{ "hello": "world" }"#;
+
+        // Write the JSON content to the file
+        let mut file = File::create(&path).expect("Failed to create test file");
+        file.write_all(json_content.as_bytes())
+            .expect("Failed to write to test file");
+        assert!(Path::new(&path).exists());
+
+        let res = RelayerThread::load_saved_vrf_key(&path, &pubkey_hash);
+        assert!(res.is_none());
+
+        std::fs::remove_file(&path).expect("Failed to delete test file");
+    }
+
+    #[test]
+    fn save_load_vrf_key() {
+        let keychain = Keychain::default(vec![0u8; 32]);
+        let pk = Secp256k1PublicKey::from_private(keychain.get_nakamoto_sk());
+        let pubkey_hash = Hash160::from_node_public_key(&pk);
+        let key = RegisteredKey {
+            target_block_height: 101,
+            block_height: 102,
+            op_vtxindex: 1,
+            vrf_public_key: VRFPublicKey::from_hex(
+                "1da75863a7e1ef86f0f550d92b1f77dc60af23694b884b2816b703137ff94e71",
+            )
+            .unwrap(),
+            memo: pubkey_hash.as_ref().to_vec(),
+        };
+        let path = "/tmp/vrf_key.json";
+        save_activated_vrf_key(path, &key);
+
+        let res = RelayerThread::load_saved_vrf_key(&path, &pubkey_hash);
+        assert!(res.is_some());
+
+        std::fs::remove_file(&path).expect("Failed to delete test file");
+    }
+
+    #[test]
+    fn invalid_saved_memo() {
+        let keychain = Keychain::default(vec![0u8; 32]);
+        let pk = Secp256k1PublicKey::from_private(keychain.get_nakamoto_sk());
+        let pubkey_hash = Hash160::from_node_public_key(&pk);
+        let key = RegisteredKey {
+            target_block_height: 101,
+            block_height: 102,
+            op_vtxindex: 1,
+            vrf_public_key: VRFPublicKey::from_hex(
+                "1da75863a7e1ef86f0f550d92b1f77dc60af23694b884b2816b703137ff94e71",
+            )
+            .unwrap(),
+            memo: pubkey_hash.as_ref().to_vec(),
+        };
+        let path = "/tmp/vrf_key.json";
+        save_activated_vrf_key(path, &key);
+
+        let keychain = Keychain::default(vec![1u8; 32]);
+        let pk = Secp256k1PublicKey::from_private(keychain.get_nakamoto_sk());
+        let pubkey_hash = Hash160::from_node_public_key(&pk);
+
+        let res = RelayerThread::load_saved_vrf_key(&path, &pubkey_hash);
+        assert!(res.is_none());
+
+        std::fs::remove_file(&path).expect("Failed to delete test file");
+    }
+}
