@@ -39,15 +39,12 @@ use wsts::net::NonceRequest;
 pub struct BlockInfoV1 {
     /// The associated packet nonce request if we have one
     pub nonce_request: Option<NonceRequest>,
-    /// Whether this block is already being signed over
-    pub signed_over: bool,
 }
 
 impl From<NonceRequest> for BlockInfoV1 {
     fn from(value: NonceRequest) -> Self {
         Self {
             nonce_request: Some(value),
-            signed_over: true,
         }
     }
 }
@@ -65,23 +62,6 @@ pub enum ExtraBlockInfo {
 }
 
 impl ExtraBlockInfo {
-    /// Get `signed_over` if it exists
-    pub fn get_signed_over(&self) -> Option<bool> {
-        match self {
-            ExtraBlockInfo::None | ExtraBlockInfo::V0 => None,
-            ExtraBlockInfo::V1(v1) => Some(v1.signed_over),
-        }
-    }
-    /// Set `signed_over` if it exists
-    pub fn set_signed_over(&mut self, value: bool) -> Result<(), &str> {
-        match self {
-            ExtraBlockInfo::None | ExtraBlockInfo::V0 => Err("Field doesn't exist"),
-            ExtraBlockInfo::V1(v1) => {
-                v1.signed_over = value;
-                Ok(())
-            }
-        }
-    }
     /// Take `nonce_request` if it exists
     pub fn take_nonce_request(&mut self) -> Option<NonceRequest> {
         match self {
@@ -114,6 +94,8 @@ pub struct BlockInfo {
     pub vote: Option<NakamotoBlockVote>,
     /// Whether the block contents are valid
     pub valid: Option<bool>,
+    /// Whether this block is already being signed over
+    pub signed_over: bool,
     /// Time at which the proposal was received by this signer (epoch time in seconds)
     pub proposed_time: u64,
     /// Time at which the proposal was signed by this signer (epoch time in seconds)
@@ -132,6 +114,7 @@ impl From<BlockProposal> for BlockInfo {
             reward_cycle: value.reward_cycle,
             vote: None,
             valid: None,
+            signed_over: false,
             proposed_time: get_epoch_time_secs(),
             signed_self: None,
             signed_group: None,
@@ -144,6 +127,7 @@ impl BlockInfo {
     pub fn new_v1_with_request(block_proposal: BlockProposal, nonce_request: NonceRequest) -> Self {
         let mut block_info = BlockInfo::from(block_proposal);
         block_info.ext = ExtraBlockInfo::V1(BlockInfoV1::from(nonce_request));
+        block_info.signed_over = true;
         block_info
     }
 
@@ -151,8 +135,8 @@ impl BlockInfo {
     ///  already set.
     pub fn mark_signed_and_valid(&mut self) {
         self.valid = Some(true);
+        self.signed_over = true;
         self.signed_self.get_or_insert(get_epoch_time_secs());
-        _ = self.ext.set_signed_over(true);
     }
 
     /// Return the block's signer signature hash
@@ -407,7 +391,7 @@ impl SignerDb {
             serde_json::to_string(&block_info).expect("Unable to serialize block info");
         let hash = &block_info.signer_signature_hash();
         let block_id = &block_info.block.block_id();
-        let signed_over = &block_info.ext.get_signed_over().unwrap_or(false);
+        let signed_over = &block_info.signed_over;
         let vote = block_info
             .vote
             .as_ref()
@@ -604,8 +588,6 @@ mod tests {
         let db_path = tmp_db_path();
         let mut db = SignerDb::new(db_path).expect("Failed to create signer db");
         let (mut block_info, block_proposal) = create_block();
-        // We'll need the V1 data fields for this
-        block_info.ext = ExtraBlockInfo::V1(BlockInfoV1::default());
         db.insert_block(&block_info).unwrap();
 
         assert!(db

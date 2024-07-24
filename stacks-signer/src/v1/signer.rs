@@ -586,7 +586,7 @@ impl Signer {
                     .block_lookup(self.reward_cycle, &signer_signature_hash)
                     .unwrap_or_else(|_| Some(BlockInfo::from(block_proposal.clone())))
                     .unwrap_or_else(|| BlockInfo::from(block_proposal.clone()));
-                if block_info.ext.get_signed_over().unwrap_or(false) {
+                if block_info.signed_over {
                     debug!("{self}: Received a sign command for a block we are already signing over. Ignore it.");
                     return;
                 }
@@ -603,9 +603,7 @@ impl Signer {
                     Ok(msg) => {
                         let ack = self.stackerdb_manager.send_message_with_retry(msg.into());
                         debug!("{self}: ACK: {ack:?}",);
-                        block_info.ext.set_signed_over(true).unwrap_or_else(|e| {
-                            error!("{self}: `set_signed_over()` failed: {e:?}");
-                        });
+                        block_info.signed_over = true;
                         self.signer_db
                             .insert_block(&block_info)
                             .unwrap_or_else(|e| {
@@ -709,7 +707,7 @@ impl Signer {
             "{self}: Received a block validate response";
             "block_hash" => block_info.block.header.block_hash(),
             "valid" => block_info.valid,
-            "signed_over" => block_info.ext.get_signed_over(),
+            "signed_over" => block_info.signed_over,
         );
         self.signer_db
             .insert_block(&block_info)
