@@ -1243,6 +1243,7 @@ impl<'a, 'b> Environment<'a, 'b> {
         let result = {
             #[cfg(feature = "clarity-wasm")]
             if next_contract_context.wasm_module.is_some() {
+                info!("Calling function into wasm binary");
                 call_function(
                     &function.get_name(),
                     args,
