@@ -189,7 +189,7 @@ impl SignerDb {
             })
             .optional();
         match result {
-            Ok(x) => Ok(x.unwrap_or_else(|| 0)),
+            Ok(x) => Ok(x.unwrap_or(0)),
             Err(e) => Err(DBError::from(e)),
         }
     }
@@ -294,7 +294,7 @@ impl SignerDb {
         tenure: &ConsensusHash,
     ) -> Result<Option<BlockInfo>, DBError> {
         let query = "SELECT block_info FROM blocks WHERE consensus_hash = ? AND signed_over = 1 ORDER BY stacks_height ASC LIMIT 1";
-        let result: Option<String> = query_row(&self.db, query, &[tenure])?;
+        let result: Option<String> = query_row(&self.db, query, [tenure])?;
 
         try_deserialize(result)
     }

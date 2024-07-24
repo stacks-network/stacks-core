@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::time::Duration;
+use std::time::{Duration, UNIX_EPOCH};
 
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
 use blockstack_lib::chainstate::stacks::TenureChangePayload;
@@ -91,8 +91,8 @@ pub struct ProposalEvalConfig {
 impl From<&SignerConfig> for ProposalEvalConfig {
     fn from(value: &SignerConfig) -> Self {
         Self {
-            first_proposal_burn_block_timing: value.first_proposal_burn_block_timing.clone(),
-            block_proposal_timeout: value.block_proposal_timeout.clone(),
+            first_proposal_burn_block_timing: value.first_proposal_burn_block_timing,
+            block_proposal_timeout: value.block_proposal_timeout,
         }
     }
 }
@@ -150,12 +150,40 @@ impl<'a> ProposedBy<'a> {
 impl SortitionsView {
     /// Apply checks from the SortitionsView on the block proposal.
     pub fn check_proposal(
-        &self,
+        &mut self,
         client: &StacksClient,
         signer_db: &SignerDb,
         block: &NakamotoBlock,
         block_pk: &StacksPublicKey,
     ) -> Result<bool, SignerChainstateError> {
+        // If this is the first block in the tenure, check if it was proposed after the timeout
+        if signer_db
+            .get_last_signed_block_in_tenure(&block.header.consensus_hash)?
+            .is_none()
+        {
+            if let Some(received_ts) =
+                signer_db.get_burn_block_receive_time(&self.cur_sortition.burn_block_hash)?
+            {
+                let received_time = UNIX_EPOCH + Duration::from_secs(received_ts);
+                let elapsed = std::time::SystemTime::now()
+                    .duration_since(received_time)
+                    .unwrap_or_else(|_| {
+                        panic!("Failed to calculate time since burn block received")
+                    });
+                if elapsed >= self.config.block_proposal_timeout {
+                    warn!(
+                        "Miner proposed first block after block proposal timeout.";
+                        "proposed_block_consensus_hash" => %block.header.consensus_hash,
+                        "proposed_block_signer_sighash" => %block.header.signer_signature_hash(),
+                        "current_sortition_consensus_hash" => ?self.cur_sortition.consensus_hash,
+                        "last_sortition_consensus_hash" => ?self.last_sortition.as_ref().map(|x| x.consensus_hash),
+                        "burn_block_received_time" => ?received_time,
+                    );
+                    self.cur_sortition.miner_status =
+                        SortitionMinerStatus::InvalidatedBeforeFirstBlock;
+                }
+            }
+        }
         let bitvec_all_1s = block.header.pox_treatment.iter().all(|entry| entry);
         if !bitvec_all_1s {
             warn!(

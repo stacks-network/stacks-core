@@ -86,7 +86,7 @@ fn setup_test_environment(
         last_sortition,
         config: ProposalEvalConfig {
             first_proposal_burn_block_timing: Duration::from_secs(30),
-            block_proposal_timeout: Duration::from_secs(30),
+            block_proposal_timeout: Duration::from_secs(5),
         },
     };
 
@@ -111,7 +111,7 @@ fn setup_test_environment(
             parent_block_id: StacksBlockId([0; 32]),
             tx_merkle_root: Sha512Trunc256Sum([0; 32]),
             state_index_root: TrieHash([0; 32]),
-            timestamp: 11,
+            timestamp: 3,
             miner_signature: MessageSignature::empty(),
             signer_signature: vec![],
             pox_treatment: BitVec::ones(1).unwrap(),
@@ -140,7 +140,7 @@ fn check_proposal_units() {
 
 #[test]
 fn check_proposal_miner_pkh_mismatch() {
-    let (stacks_client, signer_db, _block_pk, view, mut block) =
+    let (stacks_client, signer_db, _block_pk, mut view, mut block) =
         setup_test_environment("miner_pkh_mismatch");
     block.header.consensus_hash = view.cur_sortition.consensus_hash;
     let different_block_pk = StacksPublicKey::from_private(&StacksPrivateKey::from_seed(&[2, 3]));
@@ -328,7 +328,7 @@ fn make_tenure_change_tx(payload: TenureChangePayload) -> StacksTransaction {
 
 #[test]
 fn check_proposal_tenure_extend_invalid_conditions() {
-    let (stacks_client, signer_db, block_pk, view, mut block) =
+    let (stacks_client, signer_db, block_pk, mut view, mut block) =
         setup_test_environment("tenure_extend");
     block.header.consensus_hash = view.cur_sortition.consensus_hash;
     let mut extend_payload = make_tenure_change_payload();
@@ -349,5 +349,41 @@ fn check_proposal_tenure_extend_invalid_conditions() {
     block.txs = vec![tx];
     assert!(view
         .check_proposal(&stacks_client, &signer_db, &block, &block_pk)
+        .unwrap());
+}
+
+#[test]
+fn check_block_proposal_timeout() {
+    let (stacks_client, mut signer_db, block_pk, mut view, mut curr_sortition_block) =
+        setup_test_environment("block_proposal_timeout");
+    curr_sortition_block.header.consensus_hash = view.cur_sortition.consensus_hash;
+    let mut last_sortition_block = curr_sortition_block.clone();
+    last_sortition_block.header.consensus_hash =
+        view.last_sortition.as_ref().unwrap().consensus_hash;
+
+    // Ensure we have a burn height to compare against
+    let burn_hash = view.cur_sortition.burn_block_hash;
+    let burn_height = 1;
+    let received_time = SystemTime::now();
+    signer_db
+        .insert_burn_block(&burn_hash, burn_height, &received_time)
+        .unwrap();
+
+    assert!(view
+        .check_proposal(&stacks_client, &signer_db, &curr_sortition_block, &block_pk)
+        .unwrap());
+
+    assert!(!view
+        .check_proposal(&stacks_client, &signer_db, &last_sortition_block, &block_pk)
+        .unwrap());
+
+    // Sleep a bit to time out the block proposal
+    std::thread::sleep(Duration::from_secs(5));
+    assert!(!view
+        .check_proposal(&stacks_client, &signer_db, &curr_sortition_block, &block_pk)
+        .unwrap());
+
+    assert!(view
+        .check_proposal(&stacks_client, &signer_db, &last_sortition_block, &block_pk)
         .unwrap());
 }

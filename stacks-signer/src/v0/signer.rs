@@ -14,7 +14,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::fmt::Debug;
 use std::sync::mpsc::Sender;
-use std::time::{Duration, UNIX_EPOCH};
 
 use blockstack_lib::net::api::postblock_proposal::BlockValidateResponse;
 use clarity::types::chainstate::StacksPrivateKey;
@@ -27,7 +26,7 @@ use slog::{slog_debug, slog_error, slog_info, slog_warn};
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::{debug, error, info, warn};
 
-use crate::chainstate::{ProposalEvalConfig, SortitionMinerStatus, SortitionsView};
+use crate::chainstate::{ProposalEvalConfig, SortitionsView};
 use crate::client::{SignerSlotID, StackerDB, StacksClient};
 use crate::config::SignerConfig;
 use crate::runloop::{RunLoopCommand, SignerResult};
@@ -312,33 +311,6 @@ impl Signer {
 
         // Check if proposal can be rejected now if not valid against sortition view
         let block_response = if let Some(sortition_state) = sortition_state {
-            // If this is the first block in the tenure, check if it was proposed after the timeout
-            if let Ok(None) = self
-                .signer_db
-                .get_last_signed_block_in_tenure(&block_proposal.block.header.consensus_hash)
-            {
-                if let Ok(Some(received_ts)) = self
-                    .signer_db
-                    .get_burn_block_receive_time(&sortition_state.cur_sortition.burn_block_hash)
-                {
-                    let received_time = UNIX_EPOCH + Duration::from_secs(received_ts);
-                    let elapsed = std::time::SystemTime::now()
-                        .duration_since(received_time)
-                        .unwrap_or_else(|_| {
-                            panic!("{self}: Failed to calculate time since burn block received")
-                        });
-                    if elapsed >= self.proposal_config.block_proposal_timeout {
-                        warn!(
-                            "{self}: miner proposed block after timeout.";
-                            "signer_sighash" => %signer_signature_hash,
-                            "block_id" => %block_proposal.block.block_id(),
-                        );
-                        sortition_state.cur_sortition.miner_status =
-                            SortitionMinerStatus::InvalidatedBeforeFirstBlock;
-                    }
-                }
-            }
-
             match sortition_state.check_proposal(
                 stacks_client,
                 &self.signer_db,
