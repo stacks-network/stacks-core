@@ -976,6 +976,7 @@ impl StacksChainState {
         origin_account: &StacksAccount,
         ast_rules: ASTRules,
     ) -> Result<StacksTransactionReceipt, Error> {
+        debug!("TX PAYLOAD: {:?}", tx.payload);
         match tx.payload {
             TransactionPayload::TokenTransfer(ref addr, ref amount, ref memo) => {
                 // post-conditions are not allowed for this variant, since they're non-sensical.
