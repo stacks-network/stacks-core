@@ -1161,7 +1161,6 @@ impl RelayerThread {
                     debug!("Relayer: resuming VRF key");
                     self.globals.resume_leader_key(saved_key);
                 } else {
-                    debug!("Relayer: directive Register VRF key");
                     self.rotate_vrf_and_register(&last_burn_block);
                     debug!("Relayer: directive Registered VRF key");
                 }
