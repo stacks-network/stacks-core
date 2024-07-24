@@ -84,12 +84,15 @@ pub struct ProposalEvalConfig {
     /// How much time must pass between the first block proposal in a tenure and the next bitcoin block
     ///  before a subsequent miner isn't allowed to reorg the tenure
     pub first_proposal_burn_block_timing: Duration,
+    /// Time between processing a sortition and proposing a block before the block is considered invalid
+    pub block_proposal_timeout: Duration,
 }
 
 impl From<&SignerConfig> for ProposalEvalConfig {
     fn from(value: &SignerConfig) -> Self {
         Self {
             first_proposal_burn_block_timing: value.first_proposal_burn_block_timing.clone(),
+            block_proposal_timeout: value.block_proposal_timeout.clone(),
         }
     }
 }

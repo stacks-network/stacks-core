@@ -268,6 +268,7 @@ fn block_proposal_rejection() {
     let reward_cycle = signer_test.get_current_reward_cycle();
     let proposal_conf = ProposalEvalConfig {
         first_proposal_burn_block_timing: Duration::from_secs(0),
+        block_proposal_timeout: Duration::from_secs(100),
     };
     let view = SortitionsView::fetch_view(proposal_conf, &signer_test.stacks_client).unwrap();
     let mut block = NakamotoBlock {
