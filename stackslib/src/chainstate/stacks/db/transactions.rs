@@ -1264,6 +1264,7 @@ impl StacksChainState {
 
                 // Beginning in epoch 3.0, smart contracts are compiled to Wasm
                 // and executed using the Wasm runtime.
+                debug!("Before compiling the contract to wasm binary");
                 if epoch_id >= StacksEpochId::Epoch30 {
                     debug!("Compiling the contract to wasm binary");
                     let mut module = compile_contract(contract_analysis.clone()).map_err(|e| {
