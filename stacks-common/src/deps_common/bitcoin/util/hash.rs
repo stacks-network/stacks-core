@@ -50,6 +50,7 @@ impl_array_newtype!(Ripemd160Hash, u8, 20);
 /// A Bitcoin hash160, 20-bytes, computed from x as RIPEMD160(SHA256(x))
 pub struct Hash160([u8; 20]);
 impl_array_newtype!(Hash160, u8, 20);
+#[cfg(feature = "canonical")]
 impl_byte_array_rusqlite_only!(Hash160);
 
 impl Hash160 {

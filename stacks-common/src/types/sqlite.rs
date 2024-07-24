@@ -44,14 +44,25 @@ impl ToSql for Sha256dHash {
 
 // Implement rusqlite traits for a bunch of structs that used to be defined
 //  in the chainstate code
+#[cfg(feature = "canonical")]
 impl_byte_array_rusqlite_only!(ConsensusHash);
+#[cfg(feature = "canonical")]
 impl_byte_array_rusqlite_only!(Hash160);
+#[cfg(feature = "canonical")]
 impl_byte_array_rusqlite_only!(BlockHeaderHash);
+#[cfg(feature = "canonical")]
 impl_byte_array_rusqlite_only!(VRFSeed);
+#[cfg(feature = "canonical")]
 impl_byte_array_rusqlite_only!(BurnchainHeaderHash);
+#[cfg(feature = "canonical")]
 impl_byte_array_rusqlite_only!(VRFProof);
+#[cfg(feature = "canonical")]
 impl_byte_array_rusqlite_only!(TrieHash);
+#[cfg(feature = "canonical")]
 impl_byte_array_rusqlite_only!(Sha512Trunc256Sum);
+#[cfg(feature = "canonical")]
 impl_byte_array_rusqlite_only!(MessageSignature);
+#[cfg(feature = "canonical")]
 impl_byte_array_rusqlite_only!(SortitionId);
+#[cfg(feature = "canonical")]
 impl_byte_array_rusqlite_only!(StacksBlockId);
