@@ -35,24 +35,16 @@ pub struct BurnchainHeaderHash(pub [u8; 32]);
 impl_array_newtype!(BurnchainHeaderHash, u8, 32);
 impl_array_hexstring_fmt!(BurnchainHeaderHash);
 impl_byte_array_newtype!(BurnchainHeaderHash, u8, 32);
+impl_slog_value!(BurnchainHeaderHash);
 
 pub struct BlockHeaderHash(pub [u8; 32]);
 impl_array_newtype!(BlockHeaderHash, u8, 32);
 impl_array_hexstring_fmt!(BlockHeaderHash);
 impl_byte_array_newtype!(BlockHeaderHash, u8, 32);
 impl_byte_array_serde!(BlockHeaderHash);
-pub const BLOCK_HEADER_HASH_ENCODED_SIZE: usize = 32;
+impl_slog_value!(BlockHeaderHash);
 
-impl slog::Value for BlockHeaderHash {
-    fn serialize(
-        &self,
-        _record: &slog::Record,
-        key: slog::Key,
-        serializer: &mut dyn slog::Serializer,
-    ) -> slog::Result {
-        serializer.emit_arguments(key, &format_args!("{}", *self))
-    }
-}
+pub const BLOCK_HEADER_HASH_ENCODED_SIZE: usize = 32;
 
 /// Identifier used to identify "sortitions" in the
 ///  SortitionDB. A sortition is the collection of
@@ -63,6 +55,7 @@ pub struct SortitionId(pub [u8; 32]);
 impl_array_newtype!(SortitionId, u8, 32);
 impl_array_hexstring_fmt!(SortitionId);
 impl_byte_array_newtype!(SortitionId, u8, 32);
+impl_slog_value!(SortitionId);
 
 pub struct VRFSeed(pub [u8; 32]);
 impl_array_newtype!(VRFSeed, u8, 32);
@@ -215,6 +208,8 @@ pub struct StacksAddress {
     pub bytes: Hash160,
 }
 
+impl_slog_value!(StacksAddress);
+
 impl StacksMessageCodec for StacksAddress {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
         write_next(fd, &self.version)?;
@@ -262,6 +257,7 @@ impl_array_newtype!(ConsensusHash, u8, 20);
 impl_array_hexstring_fmt!(ConsensusHash);
 impl_byte_array_newtype!(ConsensusHash, u8, 20);
 impl_byte_array_serde!(ConsensusHash);
+impl_slog_value!(ConsensusHash);
 
 pub const CONSENSUS_HASH_ENCODED_SIZE: u32 = 20;
 

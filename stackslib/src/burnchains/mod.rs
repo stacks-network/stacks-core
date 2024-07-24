@@ -66,6 +66,8 @@ impl_array_hexstring_fmt!(Txid);
 impl_byte_array_newtype!(Txid, u8, 32);
 impl_byte_array_message_codec!(Txid, 32);
 impl_byte_array_serde!(Txid);
+impl_slog_value!(Txid);
+
 pub const TXID_ENCODED_SIZE: u32 = 32;
 
 pub const MAGIC_BYTES_LENGTH: usize = 2;
@@ -171,6 +173,8 @@ impl fmt::Display for BurnchainSigner {
         write!(f, "{}", &self.0)
     }
 }
+
+impl_slog_value!(BurnchainSigner);
 
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct BurnchainRecipient {
@@ -280,7 +284,7 @@ pub struct Burnchain {
     pub initial_reward_start_block: u64,
 }
 
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Clone, Copy, Serialize, Deserialize, slog_derive::KV)]
 pub struct PoxConstants {
     /// the length (in burn blocks) of the reward cycle
     pub reward_cycle_length: u32,
@@ -311,6 +315,8 @@ pub struct PoxConstants {
     pub pox_3_activation_height: u32,
     /// After this burn height, reward cycles use pox-4 for reward set data
     pub pox_4_activation_height: u32,
+
+    #[slog(skip)]
     _shadow: PhantomData<()>,
 }
 

@@ -35,7 +35,7 @@ struct TermFormat<D: Decorator> {
     isatty: bool,
 }
 
-fn print_msg_header(mut rd: &mut dyn RecordDecorator, record: &Record) -> io::Result<bool> {
+fn print_msg_header(mut rd: &mut dyn RecordDecorator, record: &Record) -> io::Result<()> {
     rd.start_level()?;
     write!(rd, "{}", record.level().as_short_str())?;
     rd.start_whitespace()?;
@@ -74,7 +74,13 @@ fn print_msg_header(mut rd: &mut dyn RecordDecorator, record: &Record) -> io::Re
     rd.start_msg()?;
     let mut count_rd = CountingWriter::new(&mut rd);
     write!(count_rd, "{}", record.msg())?;
-    Ok(count_rd.count() != 0)
+
+    rd.start_whitespace()?;
+    record
+        .kv()
+        .serialize(record, &mut TermSerializer::new(rd, false, false))?;
+
+    Ok(())
 }
 
 fn pretty_print_msg_header(
@@ -82,7 +88,7 @@ fn pretty_print_msg_header(
     record: &Record,
     debug: bool,
     isatty: bool,
-) -> io::Result<bool> {
+) -> io::Result<()> {
     rd.start_timestamp()?;
     let now: DateTime<Utc> = Utc::now();
     write!(
@@ -124,8 +130,27 @@ fn pretty_print_msg_header(
     rd.start_whitespace()?;
     write!(rd, " ")?;
 
+    if !record.tag().is_empty() {
+        rd.start_key()?;
+        write!(
+            rd,
+            "{}[{}]{}",
+            color_if_tty("\x1b[0;90m", isatty),
+            record.tag(),
+            color_if_tty("\x1b[0m", isatty)
+        )?;
+
+        rd.start_whitespace()?;
+        write!(rd, " ")?;
+    }
+
     rd.start_msg()?;
     write!(rd, "{}", record.msg())?;
+
+    rd.start_whitespace()?;
+    record
+        .kv()
+        .serialize(record, &mut TermSerializer::new(rd, isatty, true))?;
 
     if debug {
         write!(rd, " ")?;
@@ -140,7 +165,61 @@ fn pretty_print_msg_header(
         )?;
     }
 
-    Ok(true)
+    Ok(())
+}
+
+struct TermSerializer<'a> {
+    rd: &'a mut dyn RecordDecorator,
+    isatty: bool,
+    pretty_print: bool,
+    prefix_written: bool,
+    comma_needed: bool,
+}
+
+impl<'a> TermSerializer<'a> {
+    fn new(rd: &'a mut dyn RecordDecorator, isatty: bool, pretty_print: bool) -> TermSerializer {
+        TermSerializer {
+            rd,
+            isatty,
+            pretty_print,
+            prefix_written: false,
+            comma_needed: true,
+        }
+    }
+}
+
+impl<'a> slog::Serializer for TermSerializer<'a> {
+    fn emit_arguments(&mut self, key: &str, val: &std::fmt::Arguments<'_>) -> slog::Result {
+        if !self.prefix_written {
+            write!(self.rd, "{} - {{ ", color_if_tty("\x1b[0;90m", self.isatty))?;
+            self.prefix_written = true;
+            self.comma_needed = false;
+        }
+
+        if self.comma_needed {
+            write!(self.rd, ", ")?;
+        }
+
+        write!(
+            self.rd,
+            "{}{}: {}",
+            color_if_tty("\x1b[0;90m", self.isatty),
+            key,
+            val,
+        )?;
+
+        self.comma_needed = true;
+
+        Ok(())
+    }
+}
+
+impl<'a> Drop for TermSerializer<'a> {
+    fn drop(&mut self) {
+        if self.prefix_written {
+            write!(self.rd, " }}{}", color_if_tty("\x1b[0m", self.isatty)).ok();
+        }
+    }
 }
 
 impl<D: Decorator> Drain for TermFormat<D> {
@@ -164,20 +243,11 @@ impl<D: Decorator> TermFormat<D> {
 
     fn format_full(&self, record: &Record, values: &OwnedKVList) -> io::Result<()> {
         self.decorator.with_record(record, values, |decorator| {
-            let comma_needed = if self.pretty_print {
+            if self.pretty_print {
                 pretty_print_msg_header(decorator, record, self.debug, self.isatty)
             } else {
                 print_msg_header(decorator, record)
             }?;
-            {
-                let mut serializer = Serializer::new(decorator, comma_needed, true);
-
-                record.kv().serialize(record, &mut serializer)?;
-
-                values.serialize(record, &mut serializer)?;
-
-                serializer.finish()?;
-            }
 
             decorator.start_whitespace()?;
             writeln!(decorator)?;
@@ -191,18 +261,22 @@ impl<D: Decorator> TermFormat<D> {
 
 #[cfg(feature = "slog_json")]
 fn make_json_logger() -> Logger {
-    let def_keys = o!("file" => FnValue(move |info| {
-                          info.file()
-                      }),
-                      "line" => FnValue(move |info| {
-                          info.line()
-                      }),
-                      "thread" => FnValue(move |_| {
-                          match thread::current().name() {
-                              None => format!("{:?}", thread::current().id()),
-                              Some(name) => name.to_string(),
-                          }
-                      }),
+    let def_keys = o!(
+        "source" => FnValue(move |info| {
+            info.tag().to_string()
+        }),
+        "file" => FnValue(move |info| {
+            info.file()
+        }),
+        "line" => FnValue(move |info| {
+            info.line()
+        }),
+        "thread" => FnValue(move |_| {
+            match thread::current().name() {
+                None => format!("{:?}", thread::current().id()),
+                Some(name) => name.to_string(),
+            }
+        }),
     );
 
     let drain = Mutex::new(slog_json::Json::default(std::io::stderr()));

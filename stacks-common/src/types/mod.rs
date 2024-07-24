@@ -68,6 +68,8 @@ pub const MINING_COMMITMENT_WINDOW: u8 = 6;
 // Only relevant for Nakamoto (epoch 3.x)
 pub const MINING_COMMITMENT_FREQUENCY_NAKAMOTO: u8 = 3;
 
+/// The epochs of a Stacks node represent points in time (or block boundaries) for the
+/// activation of a feature set. These can or cannot have codenames, e.g.: Neon, Nakamoto, etc.
 #[repr(u32)]
 #[derive(Debug, Clone, Eq, PartialEq, PartialOrd, Ord, Hash, Copy, Serialize, Deserialize)]
 pub enum StacksEpochId {
@@ -81,6 +83,8 @@ pub enum StacksEpochId {
     Epoch25 = 0x0201a,
     Epoch30 = 0x03000,
 }
+
+impl_slog_value!(StacksEpochId);
 
 pub enum MempoolCollectionBehavior {
     ByStacksHeight,

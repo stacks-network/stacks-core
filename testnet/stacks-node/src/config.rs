@@ -1365,7 +1365,7 @@ impl std::default::Default for Config {
     }
 }
 
-#[derive(Clone, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize, slog_derive::KV)]
 pub struct BurnchainConfig {
     pub chain: String,
     pub mode: String,
@@ -1380,6 +1380,7 @@ pub struct BurnchainConfig {
     pub username: Option<String>,
     pub password: Option<String>,
     pub timeout: u32,
+    #[slog(skip)]
     pub magic_bytes: MagicBytes,
     pub local_mining_public_key: Option<String>,
     pub process_exit_at_block_height: Option<u64>,
@@ -1394,6 +1395,7 @@ pub struct BurnchainConfig {
     pub first_burn_block_hash: Option<String>,
     /// Custom override for the definitions of the epochs. This will only be applied for testnet and
     /// regtest nodes.
+    #[slog(skip)]
     pub epochs: Option<Vec<StacksEpoch>>,
     pub pox_2_activation: Option<u32>,
     pub pox_reward_length: Option<u32>,
@@ -1402,6 +1404,7 @@ pub struct BurnchainConfig {
     pub sunset_end: Option<u32>,
     pub wallet_name: String,
     pub ast_precheck_size_height: Option<u64>,
+    #[slog(skip)]
     pub affirmation_overrides: HashMap<u64, AffirmationMap>,
 }
 
@@ -1779,17 +1782,21 @@ impl BurnchainConfigFile {
         Ok(config)
     }
 }
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, slog_derive::KV)]
 pub struct NodeConfig {
     pub name: String,
+    #[slog(skip)]
     pub seed: Vec<u8>,
     pub working_dir: String,
     pub rpc_bind: String,
     pub p2p_bind: String,
     pub data_url: String,
     pub p2p_address: String,
+    #[slog(skip)]
     pub local_peer_seed: Vec<u8>,
+    #[slog(skip)]
     pub bootstrap_node: Vec<Neighbor>,
+    #[slog(skip)]
     pub deny_nodes: Vec<Neighbor>,
     pub miner: bool,
     pub stacker: bool,
@@ -1820,6 +1827,7 @@ pub struct NodeConfig {
     ///  wake up the chains-coordinator. Defaults to 300s (5 min).
     pub chain_liveness_poll_time_secs: u64,
     /// stacker DBs we replicate
+    #[slog(skip)]
     pub stacker_dbs: Vec<QualifiedContractIdentifier>,
 }
 
