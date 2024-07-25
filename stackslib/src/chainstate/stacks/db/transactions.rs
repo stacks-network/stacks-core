@@ -976,7 +976,7 @@ impl StacksChainState {
         origin_account: &StacksAccount,
         ast_rules: ASTRules,
     ) -> Result<StacksTransactionReceipt, Error> {
-        debug!("TX PAYLOAD: {:?}", tx.payload);
+        info!("TXPAYLOAD: {:?}", tx.payload);
         match tx.payload {
             TransactionPayload::TokenTransfer(ref addr, ref amount, ref memo) => {
                 // post-conditions are not allowed for this variant, since they're non-sensical.
@@ -1054,7 +1054,7 @@ impl StacksChainState {
 
                 let (result, asset_map, events) = match contract_call_resp {
                     Ok((return_value, asset_map, events)) => {
-                        info!("Contract-call successfully processed";
+                        info!("Contract-call successfully processed: wasm";
                               "txid" => %tx.txid(),
                               "origin" => %origin_account.principal,
                               "origin_nonce" => %origin_account.nonce,
