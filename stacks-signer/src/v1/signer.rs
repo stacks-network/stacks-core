@@ -172,7 +172,7 @@ impl SignerTrait<SignerMessage> for Signer {
             // Block proposal events do have reward cycles, but each proposal has its own cycle,
             //  and the vec could be heterogeneous, so, don't differentiate.
             Some(SignerEvent::MinerMessages(..))
-            | Some(SignerEvent::NewBurnBlock(_))
+            | Some(SignerEvent::NewBurnBlock { .. })
             | Some(SignerEvent::StatusCheck)
             | None => None,
             Some(SignerEvent::SignerMessages(msg_parity, ..)) => Some(u64::from(*msg_parity) % 2),
@@ -239,8 +239,23 @@ impl SignerTrait<SignerMessage> for Signer {
             SignerEvent::StatusCheck => {
                 debug!("{self}: Received a status check event.")
             }
-            SignerEvent::NewBurnBlock(height) => {
-                debug!("{self}: Receved a new burn block event for block height {height}");
+            SignerEvent::NewBurnBlock {
+                burn_height,
+                burn_header_hash,
+                received_time,
+            } => {
+                debug!("{self}: Receved a new burn block event for block height {burn_height}");
+                if let Err(e) =
+                    self.signer_db
+                        .insert_burn_block(burn_header_hash, *burn_height, received_time)
+                {
+                    warn!(
+                        "Failed to write burn block event to signerdb";
+                        "err" => ?e,
+                        "burn_header_hash" => %burn_header_hash,
+                        "burn_height" => burn_height
+                    );
+                }
             }
         }
     }
@@ -677,7 +692,7 @@ impl Signer {
                 block_info
             }
         };
-        if let Some(mut nonce_request) = block_info.nonce_request.take() {
+        if let Some(mut nonce_request) = block_info.ext.take_nonce_request() {
             debug!("{self}: Received a block validate response from the stacks node for a block we already received a nonce request for. Responding to the nonce request...");
             // We have received validation from the stacks node. Determine our vote and update the request message
             self.determine_vote(&mut block_info, &mut nonce_request);
@@ -901,7 +916,7 @@ impl Signer {
                 "{self}: received a nonce request for a new block. Submit block for validation. ";
                 "signer_sighash" => %signer_signature_hash,
             );
-            let block_info = BlockInfo::new_with_request(block_proposal, nonce_request.clone());
+            let block_info = BlockInfo::new_v1_with_request(block_proposal, nonce_request.clone());
             stacks_client
                 .submit_block_for_validation(block_info.block.clone())
                 .unwrap_or_else(|e| {
@@ -913,7 +928,12 @@ impl Signer {
         if block_info.valid.is_none() {
             // We have not yet received validation from the stacks node. Cache the request and wait for validation
             debug!("{self}: We have yet to receive validation from the stacks node for a nonce request. Cache the nonce request and wait for block validation...");
-            block_info.nonce_request = Some(nonce_request.clone());
+            block_info
+                .ext
+                .set_nonce_request(nonce_request.clone())
+                .unwrap_or_else(|e| {
+                    warn!("{self}: Failed to set nonce_request: {e:?}",);
+                });
             return Some(block_info);
         }
 

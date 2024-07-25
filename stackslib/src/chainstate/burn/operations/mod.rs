@@ -249,6 +249,7 @@ pub struct LeaderBlockCommitOp {
     /// of the PoX addresses active during the block commit.
     ///
     /// This value is set by the check() call, not during parsing.
+    #[serde(default = "default_treatment")]
     pub treatment: Vec<Treatment>,
 
     // PoX sunset burn
@@ -259,6 +260,10 @@ pub struct LeaderBlockCommitOp {
     pub vtxindex: u32,                         // index in the block where this tx occurs
     pub block_height: u64,                     // block height at which this tx occurs
     pub burn_header_hash: BurnchainHeaderHash, // hash of the burn chain block header
+}
+
+fn default_treatment() -> Vec<Treatment> {
+    Vec::new()
 }
 
 #[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]

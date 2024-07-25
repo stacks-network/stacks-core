@@ -13,17 +13,18 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::env;
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
+use std::{env, thread};
 
 use clarity::vm::types::PrincipalData;
 use libsigner::v0::messages::{
     BlockRejection, BlockResponse, MessageSlotID, RejectCode, SignerMessage,
 };
 use libsigner::{BlockProposal, SignerSession, StackerDBSession};
-use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
+use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader, NakamotoChainState};
 use stacks::chainstate::stacks::boot::MINERS_NAME;
+use stacks::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
 use stacks::codec::StacksMessageCodec;
 use stacks::libstackerdb::StackerDBChunkData;
 use stacks::net::api::postblock_proposal::TEST_VALIDATE_STALL;
@@ -32,7 +33,7 @@ use stacks::types::PublicKey;
 use stacks::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 use stacks::util_lib::boot::boot_code_id;
 use stacks_common::bitvec::BitVec;
-use stacks_signer::chainstate::SortitionsView;
+use stacks_signer::chainstate::{ProposalEvalConfig, SortitionsView};
 use stacks_signer::client::{SignerSlotID, StackerDB};
 use stacks_signer::runloop::State;
 use stacks_signer::v0::SpawnedSigner;
@@ -40,6 +41,9 @@ use tracing_subscriber::prelude::*;
 use tracing_subscriber::{fmt, EnvFilter};
 
 use super::SignerTest;
+use crate::event_dispatcher::MinedNakamotoBlockEvent;
+use crate::nakamoto_node::miner::TEST_BROADCAST_STALL;
+use crate::nakamoto_node::relayer::TEST_SKIP_COMMIT_OP;
 use crate::tests::nakamoto_integrations::{boot_to_epoch_3_reward_set, next_block_and};
 use crate::tests::neon_integrations::{
     get_chain_info, next_block_and_wait, submit_tx, test_observer,
@@ -262,7 +266,10 @@ fn block_proposal_rejection() {
 
     info!("------------------------- Send Block Proposal To Signers -------------------------");
     let reward_cycle = signer_test.get_current_reward_cycle();
-    let view = SortitionsView::fetch_view(&signer_test.stacks_client).unwrap();
+    let proposal_conf = ProposalEvalConfig {
+        first_proposal_burn_block_timing: Duration::from_secs(0),
+    };
+    let view = SortitionsView::fetch_view(proposal_conf, &signer_test.stacks_client).unwrap();
     let mut block = NakamotoBlock {
         header: NakamotoBlockHeader::empty(),
         txs: vec![],
@@ -441,6 +448,343 @@ fn mine_2_nakamoto_reward_cycles() {
         .get_headers_height();
     assert_eq!(current_burnchain_height, final_reward_cycle_height_boundary);
     signer_test.shutdown();
+}
+
+#[test]
+#[ignore]
+fn forked_tenure_invalid() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+    let result = forked_tenure_testing(Duration::from_secs(5), Duration::from_secs(7), false);
+
+    assert_ne!(result.tip_b, result.tip_a);
+    assert_eq!(result.tip_b, result.tip_c);
+    assert_ne!(result.tip_c, result.tip_a);
+
+    // Block B was built atop block A
+    assert_eq!(
+        result.tip_b.stacks_block_height,
+        result.tip_a.stacks_block_height + 1
+    );
+    assert_eq!(
+        result.mined_b.parent_block_id,
+        result.tip_a.index_block_hash().to_string()
+    );
+
+    // Block C was built AFTER Block B was built, but BEFORE it was broadcasted, so it should be built off of Block A
+    assert_eq!(
+        result.mined_c.parent_block_id,
+        result.tip_a.index_block_hash().to_string()
+    );
+    assert_ne!(
+        result
+            .tip_c
+            .anchored_header
+            .as_stacks_nakamoto()
+            .unwrap()
+            .signer_signature_hash(),
+        result.mined_c.signer_signature_hash,
+        "Mined block during tenure C should not have become the chain tip"
+    );
+
+    assert!(result.tip_c_2.is_none());
+    assert!(result.mined_c_2.is_none());
+
+    // Tenure D should continue progress
+    assert_ne!(result.tip_c, result.tip_d);
+    assert_ne!(result.tip_b, result.tip_d);
+    assert_ne!(result.tip_a, result.tip_d);
+
+    // Tenure D builds off of Tenure B
+    assert_eq!(
+        result.tip_d.stacks_block_height,
+        result.tip_b.stacks_block_height + 1,
+    );
+    assert_eq!(
+        result.mined_d.parent_block_id,
+        result.tip_b.index_block_hash().to_string()
+    );
+}
+
+#[test]
+#[ignore]
+fn forked_tenure_okay() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let result = forked_tenure_testing(Duration::from_secs(360), Duration::from_secs(0), true);
+
+    assert_ne!(result.tip_b, result.tip_a);
+    assert_ne!(result.tip_b, result.tip_c);
+    assert_ne!(result.tip_c, result.tip_a);
+
+    // Block B was built atop block A
+    assert_eq!(
+        result.tip_b.stacks_block_height,
+        result.tip_a.stacks_block_height + 1
+    );
+    assert_eq!(
+        result.mined_b.parent_block_id,
+        result.tip_a.index_block_hash().to_string()
+    );
+
+    // Block C was built AFTER Block B was built, but BEFORE it was broadcasted, so it should be built off of Block A
+    assert_eq!(
+        result.tip_c.stacks_block_height,
+        result.tip_a.stacks_block_height + 1
+    );
+    assert_eq!(
+        result.mined_c.parent_block_id,
+        result.tip_a.index_block_hash().to_string()
+    );
+
+    let tenure_c_2 = result.tip_c_2.unwrap();
+    assert_ne!(result.tip_c, tenure_c_2);
+    assert_ne!(tenure_c_2, result.tip_d);
+    assert_ne!(result.tip_c, result.tip_d);
+
+    // Second block of tenure C builds off of block C
+    assert_eq!(
+        tenure_c_2.stacks_block_height,
+        result.tip_c.stacks_block_height + 1,
+    );
+    assert_eq!(
+        result.mined_c_2.unwrap().parent_block_id,
+        result.tip_c.index_block_hash().to_string()
+    );
+
+    // Tenure D builds off of the second block of tenure C
+    assert_eq!(
+        result.tip_d.stacks_block_height,
+        tenure_c_2.stacks_block_height + 1,
+    );
+    assert_eq!(
+        result.mined_d.parent_block_id,
+        tenure_c_2.index_block_hash().to_string()
+    );
+}
+
+struct TenureForkingResult {
+    tip_a: StacksHeaderInfo,
+    tip_b: StacksHeaderInfo,
+    tip_c: StacksHeaderInfo,
+    tip_c_2: Option<StacksHeaderInfo>,
+    tip_d: StacksHeaderInfo,
+    mined_b: MinedNakamotoBlockEvent,
+    mined_c: MinedNakamotoBlockEvent,
+    mined_c_2: Option<MinedNakamotoBlockEvent>,
+    mined_d: MinedNakamotoBlockEvent,
+}
+
+/// This test spins up a nakamoto-neon node.
+/// It starts in Epoch 2.0, mines with `neon_node` to Epoch 3.0, and then switches
+///  to Nakamoto operation (activating pox-4 by submitting a stack-stx tx). The BootLoop
+///  struct handles the epoch-2/3 tear-down and spin-up.
+/// Miner A mines a regular tenure, its last block being block a_x.
+/// Miner B starts its tenure, Miner B produces a Stacks block b_0, but miner C submits its block commit before b_0 is broadcasted.
+/// Bitcoin block C, containing Miner C's block commit, is mined BEFORE miner C has a chance to update their block commit with b_0's information.
+/// This test asserts:
+///  * tenure C ignores b_0, and correctly builds off of block a_x.
+fn forked_tenure_testing(
+    proposal_limit: Duration,
+    post_btc_block_pause: Duration,
+    expect_tenure_c: bool,
+) -> TenureForkingResult {
+    tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(EnvFilter::from_default_env())
+        .init();
+
+    let num_signers = 5;
+    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_addr = tests::to_addr(&sender_sk);
+    let send_amt = 100;
+    let send_fee = 180;
+    let recipient = PrincipalData::from(StacksAddress::burn_address(false));
+    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
+        num_signers,
+        vec![(sender_addr.clone(), send_amt + send_fee)],
+        Some(Duration::from_secs(15)),
+        |config| {
+            // make the duration long enough that the reorg attempt will definitely be accepted
+            config.first_proposal_burn_block_timing = proposal_limit;
+        },
+    );
+    let http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
+
+    signer_test.boot_to_epoch_3();
+    info!("------------------------- Reached Epoch 3.0 -------------------------");
+
+    let naka_conf = signer_test.running_nodes.conf.clone();
+    let burnchain = naka_conf.get_burnchain();
+    let sortdb = burnchain.open_sortition_db(true).unwrap();
+    let (chainstate, _) = StacksChainState::open(
+        naka_conf.is_mainnet(),
+        naka_conf.burnchain.chain_id,
+        &naka_conf.get_chainstate_path_str(),
+        None,
+    )
+    .unwrap();
+
+    let commits_submitted = signer_test.running_nodes.commits_submitted.clone();
+    let mined_blocks = signer_test.running_nodes.nakamoto_blocks_mined.clone();
+    let proposed_blocks = signer_test.running_nodes.nakamoto_blocks_proposed.clone();
+
+    info!("Starting tenure A.");
+    // In the next block, the miner should win the tenure and submit a stacks block
+    let commits_before = commits_submitted.load(Ordering::SeqCst);
+    let blocks_before = mined_blocks.load(Ordering::SeqCst);
+    next_block_and(
+        &mut signer_test.running_nodes.btc_regtest_controller,
+        60,
+        || {
+            let commits_count = commits_submitted.load(Ordering::SeqCst);
+            let blocks_count = mined_blocks.load(Ordering::SeqCst);
+            Ok(commits_count > commits_before && blocks_count > blocks_before)
+        },
+    )
+    .unwrap();
+
+    let tip_a = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
+        .unwrap()
+        .unwrap();
+
+    // For the next tenure, submit the commit op but do not allow any stacks blocks to be broadcasted
+    TEST_BROADCAST_STALL.lock().unwrap().replace(true);
+    let blocks_before = mined_blocks.load(Ordering::SeqCst);
+    let commits_before = commits_submitted.load(Ordering::SeqCst);
+    info!("Starting tenure B.");
+    next_block_and(
+        &mut signer_test.running_nodes.btc_regtest_controller,
+        60,
+        || {
+            let commits_count = commits_submitted.load(Ordering::SeqCst);
+            Ok(commits_count > commits_before)
+        },
+    )
+    .unwrap();
+
+    info!("Commit op is submitted; unpause tenure B's block");
+
+    // Unpause the broadcast of Tenure B's block, do not submit commits.
+    TEST_SKIP_COMMIT_OP.lock().unwrap().replace(true);
+    TEST_BROADCAST_STALL.lock().unwrap().replace(false);
+
+    // Wait for a stacks block to be broadcasted
+    let start_time = Instant::now();
+    while mined_blocks.load(Ordering::SeqCst) <= blocks_before {
+        assert!(
+            start_time.elapsed() < Duration::from_secs(30),
+            "FAIL: Test timed out while waiting for block production",
+        );
+        thread::sleep(Duration::from_secs(1));
+    }
+
+    info!("Tenure B broadcasted a block. Wait {post_btc_block_pause:?}, issue the next bitcon block, and un-stall block commits.");
+    thread::sleep(post_btc_block_pause);
+    let tip_b = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
+        .unwrap()
+        .unwrap();
+    let blocks = test_observer::get_mined_nakamoto_blocks();
+    let mined_b = blocks.last().unwrap().clone();
+
+    info!("Starting tenure C.");
+    // Submit a block commit op for tenure C
+    let commits_before = commits_submitted.load(Ordering::SeqCst);
+    let blocks_before = if expect_tenure_c {
+        mined_blocks.load(Ordering::SeqCst)
+    } else {
+        proposed_blocks.load(Ordering::SeqCst)
+    };
+    next_block_and(
+        &mut signer_test.running_nodes.btc_regtest_controller,
+        60,
+        || {
+            TEST_SKIP_COMMIT_OP.lock().unwrap().replace(false);
+            let commits_count = commits_submitted.load(Ordering::SeqCst);
+            let blocks_count = if expect_tenure_c {
+                mined_blocks.load(Ordering::SeqCst)
+            } else {
+                proposed_blocks.load(Ordering::SeqCst)
+            };
+            Ok(commits_count > commits_before && blocks_count > blocks_before)
+        },
+    )
+    .unwrap();
+
+    info!("Tenure C produced (or proposed) a block!");
+    let tip_c = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
+        .unwrap()
+        .unwrap();
+
+    let blocks = test_observer::get_mined_nakamoto_blocks();
+    let mined_c = blocks.last().unwrap().clone();
+
+    let (tip_c_2, mined_c_2) = if !expect_tenure_c {
+        (None, None)
+    } else {
+        // Now let's produce a second block for tenure C and ensure it builds off of block C.
+        let blocks_before = mined_blocks.load(Ordering::SeqCst);
+        let start_time = Instant::now();
+        // submit a tx so that the miner will mine an extra block
+        let sender_nonce = 0;
+        let transfer_tx =
+            make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
+        let tx = submit_tx(&http_origin, &transfer_tx);
+        info!("Submitted tx {tx} in Tenure C to mine a second block");
+        while mined_blocks.load(Ordering::SeqCst) <= blocks_before {
+            assert!(
+                start_time.elapsed() < Duration::from_secs(30),
+                "FAIL: Test timed out while waiting for block production",
+            );
+            thread::sleep(Duration::from_secs(1));
+        }
+
+        info!("Tenure C produced a second block!");
+
+        let block_2_tenure_c =
+            NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
+                .unwrap()
+                .unwrap();
+        let blocks = test_observer::get_mined_nakamoto_blocks();
+        let block_2_c = blocks.last().cloned().unwrap();
+        (Some(block_2_tenure_c), Some(block_2_c))
+    };
+
+    info!("Starting tenure D.");
+    // Submit a block commit op for tenure D and mine a stacks block
+    let commits_before = commits_submitted.load(Ordering::SeqCst);
+    let blocks_before = mined_blocks.load(Ordering::SeqCst);
+    next_block_and(
+        &mut signer_test.running_nodes.btc_regtest_controller,
+        60,
+        || {
+            let commits_count = commits_submitted.load(Ordering::SeqCst);
+            let blocks_count = mined_blocks.load(Ordering::SeqCst);
+            Ok(commits_count > commits_before && blocks_count > blocks_before)
+        },
+    )
+    .unwrap();
+
+    let tip_d = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
+        .unwrap()
+        .unwrap();
+    let blocks = test_observer::get_mined_nakamoto_blocks();
+    let mined_d = blocks.last().unwrap().clone();
+    signer_test.shutdown();
+    TenureForkingResult {
+        tip_a,
+        tip_b,
+        tip_c,
+        tip_c_2,
+        tip_d,
+        mined_b,
+        mined_c,
+        mined_c_2,
+        mined_d,
+    }
 }
 
 #[test]

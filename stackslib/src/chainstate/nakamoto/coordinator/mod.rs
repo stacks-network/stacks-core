@@ -758,7 +758,7 @@ impl<
             match self.handle_new_nakamoto_burnchain_block() {
                 Ok(can_proceed) => {
                     if !can_proceed {
-                        error!("Missing canonical anchor block",);
+                        error!("Missing canonical anchor block");
                     }
                 }
                 Err(e) => {

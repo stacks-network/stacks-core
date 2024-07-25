@@ -20,6 +20,7 @@ use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::Arc;
+use std::time::SystemTime;
 
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
 use blockstack_lib::chainstate::stacks::boot::{MINERS_NAME, SIGNERS_NAME};
@@ -111,7 +112,14 @@ pub enum SignerEvent<T: SignerEventTrait> {
     /// Status endpoint request
     StatusCheck,
     /// A new burn block event was received with the given burnchain block height
-    NewBurnBlock(u64),
+    NewBurnBlock {
+        /// the burn height for the newly processed burn block
+        burn_height: u64,
+        /// the burn hash for the newly processed burn block
+        burn_header_hash: BurnchainHeaderHash,
+        /// the time at which this event was received by the signer's event processor
+        received_time: SystemTime,
+    },
 }
 
 /// Trait to implement a stop-signaler for the event receiver thread.
@@ -516,7 +524,19 @@ fn process_new_burn_block_event<T: SignerEventTrait>(
     }
     let temp: TempBurnBlockEvent = serde_json::from_slice(body.as_bytes())
         .map_err(|e| EventError::Deserialize(format!("Could not decode body to JSON: {:?}", &e)))?;
-    let event = SignerEvent::NewBurnBlock(temp.burn_block_height);
+    let burn_header_hash = temp
+        .burn_block_hash
+        .get(2..)
+        .ok_or_else(|| EventError::Deserialize("Hex string should be 0x prefixed".into()))
+        .and_then(|hex| {
+            BurnchainHeaderHash::from_hex(hex)
+                .map_err(|e| EventError::Deserialize(format!("Invalid hex string: {e}")))
+        })?;
+    let event = SignerEvent::NewBurnBlock {
+        burn_height: temp.burn_block_height,
+        received_time: SystemTime::now(),
+        burn_header_hash,
+    };
     if let Err(e) = request.respond(HttpResponse::empty(200u16)) {
         error!("Failed to respond to request: {:?}", &e);
     }

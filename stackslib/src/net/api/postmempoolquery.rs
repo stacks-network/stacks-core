@@ -29,6 +29,7 @@ use url::form_urlencoded;
 use {serde, serde_json};
 
 use crate::burnchains::Txid;
+use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::{Error as ChainError, StacksTransaction};
 use crate::core::mempool::{decode_tx_stream, MemPoolDB, MemPoolSyncData};
@@ -89,8 +90,8 @@ pub struct StacksMemPoolStream {
     pub num_txs: u64,
     /// maximum we can visit in the query
     pub max_txs: u64,
-    /// height of the chain at time of query
-    pub height: u64,
+    /// coinbase height of the chain at time of query
+    pub coinbase_height: u64,
     /// Are we done sending transactions, and are now in the process of sending the trailing page
     /// ID?
     pub corked: bool,
@@ -105,7 +106,7 @@ impl StacksMemPoolStream {
         mempool_db: DBConn,
         tx_query: MemPoolSyncData,
         max_txs: u64,
-        height: u64,
+        coinbase_height: u64,
         page_id_opt: Option<Txid>,
     ) -> Self {
         let last_randomized_txid = page_id_opt.unwrap_or_else(|| {
@@ -118,7 +119,7 @@ impl StacksMemPoolStream {
             last_randomized_txid: last_randomized_txid,
             num_txs: 0,
             max_txs: max_txs,
-            height: height,
+            coinbase_height,
             corked: false,
             finished: false,
             mempool_db,
@@ -159,7 +160,7 @@ impl HttpChunkGenerator for StacksMemPoolStream {
             MemPoolDB::static_find_next_missing_transactions(
                 &self.mempool_db,
                 &self.tx_query,
-                self.height,
+                self.coinbase_height,
                 &self.last_randomized_txid,
                 1,
                 remaining,
@@ -275,12 +276,18 @@ impl RPCRequestHandler for RPCMempoolQueryRequestHandler {
         let page_id = self.page_id.take();
 
         let stream_res = node.with_node_state(|network, sortdb, chainstate, mempool, _rpc_args| {
-            let height = self.get_stacks_chain_tip(&preamble, sortdb, chainstate).map(|hdr| hdr.anchored_header.height()).unwrap_or(0);
+            let header = self.get_stacks_chain_tip(&preamble, sortdb, chainstate)
+                .map_err(|e| StacksHttpResponse::new_error(&preamble, &HttpServerError::new(format!("Failed to load chain tip: {:?}", &e))))?;
+
+            let coinbase_height = NakamotoChainState::get_coinbase_height(&mut chainstate.index_conn(), &header.index_block_hash())
+                .map_err(|e| StacksHttpResponse::new_error(&preamble, &HttpServerError::new(format!("Failed to load coinbase height: {:?}", &e))))?
+                .unwrap_or(0);
+
             let max_txs = network.connection_opts.mempool_max_tx_query;
             debug!(
                 "Begin mempool query";
                 "page_id" => %page_id.map(|txid| format!("{}", &txid)).unwrap_or("(none".to_string()),
-                "block_height" => height,
+                "coinbase_height" => coinbase_height,
                 "max_txs" => max_txs
             );
 
@@ -291,7 +298,7 @@ impl RPCRequestHandler for RPCMempoolQueryRequestHandler {
                 }
             };
 
-            Ok(StacksMemPoolStream::new(mempool_db, mempool_query, max_txs, height, page_id))
+            Ok(StacksMemPoolStream::new(mempool_db, mempool_query, max_txs, coinbase_height, page_id))
         });
 
         let stream = match stream_res {
