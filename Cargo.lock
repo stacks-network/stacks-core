@@ -791,9 +791,33 @@ dependencies = [
 [[package]]
 name = "clarity"
 version = "2.3.0"
-source = "git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop#f7f587754fcd07fb14b343d7b371f40a490d319d"
+source = "git+https://github.com/stacks-network/stacks-core.git?branch=chore/downgrade-ci-host-for-image-build#7d77bc34fca50579ce15eb21e21251a74195d7e0"
 dependencies = [
  "getrandom 0.2.15",
+ "hashbrown 0.14.5",
+ "integer-sqrt",
+ "lazy_static",
+ "rand 0.8.5",
+ "rand_chacha 0.3.1",
+ "regex",
+ "rstest 0.17.0",
+ "rstest_reuse 0.5.0",
+ "rusqlite",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "serde_stacker",
+ "sha2-asm 0.5.5",
+ "slog",
+ "stacks-common 0.0.2 (git+https://github.com/stacks-network/stacks-core.git?branch=chore/downgrade-ci-host-for-image-build)",
+ "wasmtime",
+]
+
+[[package]]
+name = "clarity"
+version = "2.3.0"
+source = "git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop#f7f587754fcd07fb14b343d7b371f40a490d319d"
+dependencies = [
  "hashbrown 0.14.5",
  "integer-sqrt",
  "lazy_static",
@@ -2348,11 +2372,11 @@ dependencies = [
 name = "libsigner"
 version = "0.0.1"
 dependencies = [
- "clarity 2.3.0 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
+ "clarity 2.3.0 (git+https://github.com/stacks-network/stacks-core.git?branch=chore/downgrade-ci-host-for-image-build)",
  "hashbrown 0.14.5",
  "lazy_static",
  "libc",
- "libstackerdb 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
+ "libstackerdb 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=chore/downgrade-ci-host-for-image-build)",
  "mutants",
  "prometheus",
  "rand 0.8.5",
@@ -2365,6 +2389,32 @@ dependencies = [
  "sha2 0.10.8",
  "slog",
  "slog-json",
+ "slog-term",
+ "stacks-common 0.0.2 (git+https://github.com/stacks-network/stacks-core.git?branch=chore/downgrade-ci-host-for-image-build)",
+ "stackslib 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=chore/downgrade-ci-host-for-image-build)",
+ "thiserror",
+ "tiny_http",
+ "wsts",
+]
+
+[[package]]
+name = "libsigner"
+version = "0.0.1"
+source = "git+https://github.com/stacks-network/stacks-core.git?branch=chore/downgrade-ci-host-for-image-build#7d77bc34fca50579ce15eb21e21251a74195d7e0"
+dependencies = [
+ "clarity 2.3.0 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
+ "hashbrown 0.14.5",
+ "lazy_static",
+ "libc",
+ "libstackerdb 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
+ "prometheus",
+ "secp256k1",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "serde_stacker",
+ "sha2 0.10.8",
+ "slog",
  "slog-term",
  "stacks-common 0.0.2 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
  "stackslib 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
@@ -2413,6 +2463,20 @@ dependencies = [
 [[package]]
 name = "libstackerdb"
 version = "0.0.1"
+dependencies = [
+ "clarity 2.3.0 (git+https://github.com/stacks-network/stacks-core.git?branch=chore/downgrade-ci-host-for-image-build)",
+ "secp256k1",
+ "serde",
+ "serde_derive",
+ "serde_stacker",
+ "sha2 0.10.8",
+ "stacks-common 0.0.2 (git+https://github.com/stacks-network/stacks-core.git?branch=chore/downgrade-ci-host-for-image-build)",
+]
+
+[[package]]
+name = "libstackerdb"
+version = "0.0.1"
+source = "git+https://github.com/stacks-network/stacks-core.git?branch=chore/downgrade-ci-host-for-image-build#7d77bc34fca50579ce15eb21e21251a74195d7e0"
 dependencies = [
  "clarity 2.3.0 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
  "secp256k1",
@@ -2972,8 +3036,18 @@ checksum = "439ee305def115ba05938db6eb1644ff94165c5ab5e9420d1c1bcedbba909391"
 name = "pox-locking"
 version = "2.4.0"
 dependencies = [
- "clarity 2.3.0 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
+ "clarity 2.3.0 (git+https://github.com/stacks-network/stacks-core.git?branch=chore/downgrade-ci-host-for-image-build)",
  "mutants",
+ "slog",
+ "stacks-common 0.0.2 (git+https://github.com/stacks-network/stacks-core.git?branch=chore/downgrade-ci-host-for-image-build)",
+]
+
+[[package]]
+name = "pox-locking"
+version = "2.4.0"
+source = "git+https://github.com/stacks-network/stacks-core.git?branch=chore/downgrade-ci-host-for-image-build#7d77bc34fca50579ce15eb21e21251a74195d7e0"
+dependencies = [
+ "clarity 2.3.0 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
  "slog",
  "stacks-common 0.0.2 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
 ]
@@ -4072,11 +4146,9 @@ dependencies = [
  "chrono",
  "curve25519-dalek 2.0.0",
  "ed25519-dalek",
- "getrandom 0.2.15",
  "hashbrown 0.14.5",
  "lazy_static",
  "libc",
- "libsecp256k1",
  "nix",
  "percent-encoding",
  "rand 0.8.5",
@@ -4105,12 +4177,12 @@ dependencies = [
  "backtrace",
  "base64 0.12.3",
  "chrono",
- "clarity 2.3.0 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
+ "clarity 2.3.0 (git+https://github.com/stacks-network/stacks-core.git?branch=chore/downgrade-ci-host-for-image-build)",
  "hashbrown 0.14.5",
  "http-types",
  "lazy_static",
  "libc",
- "libsigner 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
+ "libsigner 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=chore/downgrade-ci-host-for-image-build)",
  "mutants",
  "pico-args",
  "rand 0.8.5",
@@ -4124,10 +4196,10 @@ dependencies = [
  "serde_json",
  "sha2 0.10.8",
  "slog",
- "stacks-common 0.0.2 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
- "stacks-signer 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
- "stackslib 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
- "stx-genesis 0.1.0 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
+ "stacks-common 0.0.2 (git+https://github.com/stacks-network/stacks-core.git?branch=chore/downgrade-ci-host-for-image-build)",
+ "stacks-signer 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=chore/downgrade-ci-host-for-image-build)",
+ "stackslib 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=chore/downgrade-ci-host-for-image-build)",
+ "stx-genesis 0.1.0 (git+https://github.com/stacks-network/stacks-core.git?branch=chore/downgrade-ci-host-for-image-build)",
  "tikv-jemallocator",
  "tokio",
  "toml 0.5.11",
@@ -4143,11 +4215,11 @@ version = "0.0.1"
 dependencies = [
  "backoff",
  "clap 4.5.10",
- "clarity 2.3.0 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
+ "clarity 2.3.0 (git+https://github.com/stacks-network/stacks-core.git?branch=chore/downgrade-ci-host-for-image-build)",
  "hashbrown 0.14.5",
  "lazy_static",
- "libsigner 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
- "libstackerdb 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
+ "libsigner 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=chore/downgrade-ci-host-for-image-build)",
+ "libstackerdb 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=chore/downgrade-ci-host-for-image-build)",
  "num-traits",
  "polynomial",
  "prometheus",
@@ -4164,8 +4236,8 @@ dependencies = [
  "slog",
  "slog-json",
  "slog-term",
- "stacks-common 0.0.2 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
- "stackslib 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
+ "stacks-common 0.0.2 (git+https://github.com/stacks-network/stacks-core.git?branch=chore/downgrade-ci-host-for-image-build)",
+ "stackslib 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=chore/downgrade-ci-host-for-image-build)",
  "thiserror",
  "tiny_http",
  "toml 0.5.11",
@@ -4178,7 +4250,7 @@ dependencies = [
 [[package]]
 name = "stacks-signer"
 version = "0.0.1"
-source = "git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop#f7f587754fcd07fb14b343d7b371f40a490d319d"
+source = "git+https://github.com/stacks-network/stacks-core.git?branch=chore/downgrade-ci-host-for-image-build#7d77bc34fca50579ce15eb21e21251a74195d7e0"
 dependencies = [
  "backoff",
  "clap 4.5.10",
@@ -4217,7 +4289,7 @@ dependencies = [
  "assert-json-diff",
  "chrono",
  "clar2wasm",
- "clarity 2.3.0 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
+ "clarity 2.3.0 (git+https://github.com/stacks-network/stacks-core.git?branch=chore/downgrade-ci-host-for-image-build)",
  "criterion",
  "curve25519-dalek 2.0.0",
  "ed25519-dalek",
@@ -4225,12 +4297,12 @@ dependencies = [
  "integer-sqrt",
  "lazy_static",
  "libc",
- "libstackerdb 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
+ "libstackerdb 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=chore/downgrade-ci-host-for-image-build)",
  "mio 0.6.23",
  "mutants",
  "nix",
  "percent-encoding",
- "pox-locking 2.4.0 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
+ "pox-locking 2.4.0 (git+https://github.com/stacks-network/stacks-core.git?branch=chore/downgrade-ci-host-for-image-build)",
  "prometheus",
  "rand 0.8.5",
  "rand_chacha 0.3.1",
@@ -4250,9 +4322,9 @@ dependencies = [
  "slog",
  "slog-json",
  "slog-term",
- "stacks-common 0.0.2 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
+ "stacks-common 0.0.2 (git+https://github.com/stacks-network/stacks-core.git?branch=chore/downgrade-ci-host-for-image-build)",
  "stdext",
- "stx-genesis 0.1.0 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
+ "stx-genesis 0.1.0 (git+https://github.com/stacks-network/stacks-core.git?branch=chore/downgrade-ci-host-for-image-build)",
  "tikv-jemallocator",
  "time 0.3.36",
  "url",
@@ -4263,7 +4335,7 @@ dependencies = [
 [[package]]
 name = "stackslib"
 version = "0.0.1"
-source = "git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop#f7f587754fcd07fb14b343d7b371f40a490d319d"
+source = "git+https://github.com/stacks-network/stacks-core.git?branch=chore/downgrade-ci-host-for-image-build#7d77bc34fca50579ce15eb21e21251a74195d7e0"
 dependencies = [
  "chrono",
  "clar2wasm",
@@ -4295,6 +4367,48 @@ dependencies = [
  "siphasher",
  "slog",
  "slog-json",
+ "slog-term",
+ "stacks-common 0.0.2 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
+ "tikv-jemallocator",
+ "time 0.3.36",
+ "url",
+ "winapi 0.3.9",
+ "wsts",
+]
+
+[[package]]
+name = "stackslib"
+version = "0.0.1"
+source = "git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop#f7f587754fcd07fb14b343d7b371f40a490d319d"
+dependencies = [
+ "chrono",
+ "clar2wasm",
+ "clarity 2.3.0 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
+ "curve25519-dalek 2.0.0",
+ "ed25519-dalek",
+ "hashbrown 0.14.5",
+ "integer-sqrt",
+ "lazy_static",
+ "libc",
+ "libstackerdb 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
+ "mio 0.6.23",
+ "nix",
+ "percent-encoding",
+ "pox-locking 2.4.0 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
+ "rand 0.8.5",
+ "rand_chacha 0.3.1",
+ "rand_core 0.6.4",
+ "regex",
+ "ripemd",
+ "rusqlite",
+ "secp256k1",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "sha2 0.10.8",
+ "sha3",
+ "siphasher",
+ "slog",
  "slog-term",
  "stacks-common 0.0.2 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
  "tikv-jemallocator",
@@ -4391,7 +4505,7 @@ dependencies = [
 [[package]]
 name = "stx-genesis"
 version = "0.1.0"
-source = "git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop#f7f587754fcd07fb14b343d7b371f40a490d319d"
+source = "git+https://github.com/stacks-network/stacks-core.git?branch=chore/downgrade-ci-host-for-image-build#7d77bc34fca50579ce15eb21e21251a74195d7e0"
 dependencies = [
  "libflate",
  "sha2 0.10.8",
