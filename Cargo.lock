@@ -784,7 +784,7 @@ dependencies = [
  "serde_stacker",
  "sha2-asm 0.5.5",
  "slog",
- "stacks-common 0.0.2 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-develop)",
+ "stacks-common 0.0.2 (git+https://github.com/stacks-network/stacks-core.git?branch=chore/downgrade-ci-host-for-image-build)",
  "wasmtime",
 ]
 
@@ -4017,6 +4017,38 @@ dependencies = [
  "ripemd",
  "rstest 0.11.0",
  "rstest_reuse 0.1.3",
+ "rusqlite",
+ "secp256k1",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "sha2 0.10.8",
+ "sha3",
+ "slog",
+ "slog-json",
+ "slog-term",
+ "time 0.3.36",
+ "winapi 0.3.9",
+ "wsts",
+]
+
+[[package]]
+name = "stacks-common"
+version = "0.0.2"
+source = "git+https://github.com/stacks-network/stacks-core.git?branch=chore/downgrade-ci-host-for-image-build#9631f63b6b094d540ab0e851e8717d7b2d137da3"
+dependencies = [
+ "chrono",
+ "curve25519-dalek 2.0.0",
+ "ed25519-dalek",
+ "getrandom 0.2.15",
+ "hashbrown 0.14.5",
+ "lazy_static",
+ "libc",
+ "libsecp256k1",
+ "nix",
+ "percent-encoding",
+ "rand 0.8.5",
+ "ripemd",
  "rusqlite",
  "secp256k1",
  "serde",
