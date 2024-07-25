@@ -78,6 +78,39 @@ pub struct SortitionState {
     pub burn_block_hash: BurnchainHeaderHash,
 }
 
+impl SortitionState {
+    /// Check if the sortition is timed out (i.e., the miner did not propose a block in time)
+    pub fn is_timed_out(
+        &self,
+        timeout: Duration,
+        signer_db: &SignerDb,
+    ) -> Result<bool, SignerChainstateError> {
+        // if the miner has already been invalidated, we don't need to check if they've timed out.
+        if self.miner_status != SortitionMinerStatus::Valid {
+            return Ok(false);
+        }
+        // if we've already signed a block in this tenure, the miner can't have timed out.
+        let has_blocks = signer_db
+            .get_last_signed_block_in_tenure(&self.consensus_hash)?
+            .is_some();
+        if has_blocks {
+            return Ok(false);
+        }
+        let Some(received_ts) = signer_db.get_burn_block_receive_time(&self.burn_block_hash)?
+        else {
+            return Ok(false);
+        };
+        let received_time = UNIX_EPOCH + Duration::from_secs(received_ts);
+        let Ok(elapsed) = std::time::SystemTime::now().duration_since(received_time) else {
+            return Ok(false);
+        };
+        if elapsed > timeout {
+            return Ok(true);
+        }
+        Ok(false)
+    }
+}
+
 /// Captures the configuration settings used by the signer when evaluating block proposals.
 #[derive(Debug, Clone)]
 pub struct ProposalEvalConfig {
@@ -156,32 +189,15 @@ impl SortitionsView {
         block: &NakamotoBlock,
         block_pk: &StacksPublicKey,
     ) -> Result<bool, SignerChainstateError> {
-        // If this is the first block in the tenure, check if it was proposed after the timeout
-        if signer_db
-            .get_last_signed_block_in_tenure(&block.header.consensus_hash)?
-            .is_none()
+        if self
+            .cur_sortition
+            .is_timed_out(self.config.block_proposal_timeout, signer_db)?
         {
-            if let Some(received_ts) =
-                signer_db.get_burn_block_receive_time(&self.cur_sortition.burn_block_hash)?
-            {
-                let received_time = UNIX_EPOCH + Duration::from_secs(received_ts);
-                let elapsed = std::time::SystemTime::now()
-                    .duration_since(received_time)
-                    .unwrap_or_else(|_| {
-                        panic!("Failed to calculate time since burn block received")
-                    });
-                if elapsed >= self.config.block_proposal_timeout {
-                    warn!(
-                        "Miner proposed first block after block proposal timeout.";
-                        "proposed_block_consensus_hash" => %block.header.consensus_hash,
-                        "proposed_block_signer_sighash" => %block.header.signer_signature_hash(),
-                        "current_sortition_consensus_hash" => ?self.cur_sortition.consensus_hash,
-                        "last_sortition_consensus_hash" => ?self.last_sortition.as_ref().map(|x| x.consensus_hash),
-                        "burn_block_received_time" => ?received_time,
-                    );
-                    self.cur_sortition.miner_status =
-                        SortitionMinerStatus::InvalidatedBeforeFirstBlock;
-                }
+            self.cur_sortition.miner_status = SortitionMinerStatus::InvalidatedBeforeFirstBlock;
+        }
+        if let Some(last_sortition) = self.last_sortition.as_mut() {
+            if last_sortition.is_timed_out(self.config.block_proposal_timeout, signer_db)? {
+                last_sortition.miner_status = SortitionMinerStatus::InvalidatedBeforeFirstBlock;
             }
         }
         let bitvec_all_1s = block.header.pox_treatment.iter().all(|entry| entry);

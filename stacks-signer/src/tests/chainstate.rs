@@ -387,3 +387,80 @@ fn check_block_proposal_timeout() {
         .check_proposal(&stacks_client, &signer_db, &last_sortition_block, &block_pk)
         .unwrap());
 }
+
+#[test]
+fn check_sortition_timeout() {
+    let signer_db_dir = "/tmp/stacks-node-tests/signer-units/";
+    let signer_db_path = format!(
+        "{signer_db_dir}/sortition_timeout.{}.sqlite",
+        get_epoch_time_secs()
+    );
+    fs::create_dir_all(signer_db_dir).unwrap();
+    let mut signer_db = SignerDb::new(signer_db_path).unwrap();
+
+    let mut sortition = SortitionState {
+        miner_pkh: Hash160([0; 20]),
+        miner_pubkey: None,
+        prior_sortition: ConsensusHash([0; 20]),
+        parent_tenure_id: ConsensusHash([0; 20]),
+        consensus_hash: ConsensusHash([1; 20]),
+        miner_status: SortitionMinerStatus::Valid,
+        burn_header_timestamp: 2,
+        burn_block_hash: BurnchainHeaderHash([1; 32]),
+    };
+    // Ensure we have a burn height to compare against
+    let burn_hash = sortition.burn_block_hash;
+    let burn_height = 1;
+    let received_time = SystemTime::now();
+    signer_db
+        .insert_burn_block(&burn_hash, burn_height, &received_time)
+        .unwrap();
+
+    std::thread::sleep(Duration::from_secs(1));
+    // We have not yet timed out
+    assert!(!sortition
+        .is_timed_out(Duration::from_secs(10), &signer_db)
+        .unwrap());
+    // We are a valid sortition, have an empty tenure, and have now timed out
+    assert!(sortition
+        .is_timed_out(Duration::from_secs(1), &signer_db)
+        .unwrap());
+    // This will not be marked as timed out as the status is no longer valid
+    sortition.miner_status = SortitionMinerStatus::InvalidatedAfterFirstBlock;
+    assert!(!sortition
+        .is_timed_out(Duration::from_secs(1), &signer_db)
+        .unwrap());
+
+    // Revert the status to continue other checks
+    sortition.miner_status = SortitionMinerStatus::Valid;
+    // Insert a signed over block so its no longer an empty tenure
+    let block_proposal = BlockProposal {
+        block: NakamotoBlock {
+            header: NakamotoBlockHeader {
+                version: 1,
+                chain_length: 10,
+                burn_spent: 10,
+                consensus_hash: sortition.consensus_hash,
+                parent_block_id: StacksBlockId([0; 32]),
+                tx_merkle_root: Sha512Trunc256Sum([0; 32]),
+                state_index_root: TrieHash([0; 32]),
+                timestamp: 11,
+                miner_signature: MessageSignature::empty(),
+                signer_signature: vec![],
+                pox_treatment: BitVec::ones(1).unwrap(),
+            },
+            txs: vec![],
+        },
+        burn_height: 2,
+        reward_cycle: 1,
+    };
+
+    let mut block_info = BlockInfo::from(block_proposal);
+    block_info.signed_over = true;
+    signer_db.insert_block(&block_info).unwrap();
+
+    // This will no longer be timed out as we have a non-empty tenure
+    assert!(!sortition
+        .is_timed_out(Duration::from_secs(1), &signer_db)
+        .unwrap());
+}
