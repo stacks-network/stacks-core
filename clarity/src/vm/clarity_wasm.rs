@@ -533,7 +533,7 @@ pub fn call_function<'a, 'b, 'c>(
     // Determine how much space is needed for arguments
     let mut arg_size = 0;
     for arg in func_types.get_arg_types() {
-        arg_size += get_type_size(arg);
+        arg_size += get_type_in_memory_size(arg, false);
     }
     let mut in_mem_offset = offset + arg_size;
 
