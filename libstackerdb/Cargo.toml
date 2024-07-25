@@ -19,8 +19,8 @@ path = "./src/libstackerdb.rs"
 serde = "1"
 serde_derive = "1"
 serde_stacker = "0.1"
-stacks-common = { git = "https://github.com/stacks-network/stacks-core.git", branch = "feat/clarity-wasm-develop" }
-clarity = { git = "https://github.com/stacks-network/stacks-core.git", branch = "feat/clarity-wasm-develop" }
+stacks-common = { path = "../stacks-common" }
+clarity = { path = "../clarity" }
 
 [dependencies.secp256k1]
 version = "0.24.3"
