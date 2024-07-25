@@ -1613,7 +1613,10 @@ fn pass_argument_to_wasm(
             Ok((buffer, offset + written, in_mem_offset + in_mem_written))
         }
         Value::Principal(PrincipalData::Standard(StandardPrincipalData(v, h))) => {
-            let bytes: Vec<u8> = std::iter::once(v).chain(h.iter()).copied().collect();
+            let mut bytes: Vec<u8> = Vec::with_capacity(22);
+            bytes.push(*v);
+            bytes.extend(h);
+            bytes.push(0);
             let buffer = vec![Val::I32(in_mem_offset), Val::I32(bytes.len() as i32)];
             memory
                 .write(&mut store, in_mem_offset as usize, &bytes)
