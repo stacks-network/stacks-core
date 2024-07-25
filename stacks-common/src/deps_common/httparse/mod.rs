@@ -1280,7 +1280,6 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "std")]
     #[test]
     fn test_std_error() {
         use std::error::Error as StdError;
