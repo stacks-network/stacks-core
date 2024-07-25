@@ -50,10 +50,10 @@ slog-term = "2.6.0"
 slog-json = { version = "2.3.0", optional = true }
 chrono = "0.4.19"
 libc = "0.2.82"
-clarity = { git = "https://github.com/stacks-network/stacks-core.git", branch = "feat/clarity-wasm-develop" }
-stacks-common = { git = "https://github.com/stacks-network/stacks-core.git", branch = "feat/clarity-wasm-develop" }
-pox-locking = { git = "https://github.com/stacks-network/stacks-core.git", branch = "feat/clarity-wasm-develop" }
-libstackerdb = { git = "https://github.com/stacks-network/stacks-core.git", branch = "feat/clarity-wasm-develop" }
+clarity = { path = "../clarity" }
+stacks-common = { path = "../stacks-common" }
+pox-locking = { path = "../pox-locking" }
+libstackerdb = { path = "../libstackerdb" }
 siphasher = "0.3.7"
 wsts = { workspace = true }
 hashbrown = { workspace = true }
@@ -98,9 +98,9 @@ features = ["std"]
 assert-json-diff = "1.0.0"
 criterion = "0.3.5"
 stdext = "0.3.1"
-stx-genesis = { git = "https://github.com/stacks-network/stacks-core.git", branch = "feat/clarity-wasm-develop" }
-clarity = { features = ["default", "testing"], git = "https://github.com/stacks-network/stacks-core.git", branch = "feat/clarity-wasm-develop" }
-stacks-common = { features = ["default", "testing"], git = "https://github.com/stacks-network/stacks-core.git", branch = "feat/clarity-wasm-develop" }
+stx-genesis = { path = "../stx-genesis" }
+clarity = { path = "../clarity", features = ["default", "testing"] }
+stacks-common = { path = "../stacks-common", features = ["default", "testing"] }
 rstest = "0.17.0"
 rstest_reuse = "0.5.0"
 mutants = "0.0.3"

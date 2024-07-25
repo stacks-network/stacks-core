@@ -12,8 +12,8 @@ pico-args = "0.5.0"
 serde = "1"
 serde_derive = "1"
 serde_json = { version = "1.0", features = ["arbitrary_precision", "raw_value"] }
-stacks = { package = "stackslib", git = "https://github.com/stacks-network/stacks-core.git", branch = "feat/clarity-wasm-develop" }
-stx-genesis = { git = "https://github.com/stacks-network/stacks-core.git", branch = "feat/clarity-wasm-develop" }
+stacks = { path = "../../stackslib", package = "stackslib" }
+stx-genesis = { path = "../../stx-genesis" }
 toml = "0.5.6"
 async-h1 = "2.3.2"
 async-std = { version = "1.6", features = ["attributes"] }
@@ -22,11 +22,11 @@ base64 = "0.12.0"
 backtrace = "0.3.50"
 libc = "0.2.151"
 slog = { version = "2.5.2", features = [ "max_level_trace" ] }
-clarity = { git = "https://github.com/stacks-network/stacks-core.git", branch = "feat/clarity-wasm-develop" }
-stacks-common = { git = "https://github.com/stacks-network/stacks-core.git", branch = "feat/clarity-wasm-develop" }
+clarity = { path = "../../clarity" }
+stacks-common = { path = "../../stacks-common" }
 chrono = "0.4.19"
 regex = "1"
-libsigner = { git = "https://github.com/stacks-network/stacks-core.git", branch = "feat/clarity-wasm-develop" }
+libsigner = { path = "../../libsigner" }
 wsts = { workspace = true }
 rand = { workspace = true }
 rand_core = { workspace = true }
@@ -40,10 +40,10 @@ ring = "0.16.19"
 warp = "0.3.5"
 tokio = "1.15"
 reqwest = { version = "0.11", default_features = false, features = ["blocking", "json", "rustls", "rustls-tls"] }
-clarity = { git = "https://github.com/stacks-network/stacks-core.git", branch = "feat/clarity-wasm-develop", features = ["default", "testing"] }
-stacks-common = { git = "https://github.com/stacks-network/stacks-core.git", branch = "feat/clarity-wasm-develop", features = ["default", "testing"] }
-stacks = { package = "stackslib", git = "https://github.com/stacks-network/stacks-core.git", branch = "feat/clarity-wasm-develop", features = ["default", "testing"] }
-stacks-signer = { git = "https://github.com/stacks-network/stacks-core.git", branch = "feat/clarity-wasm-develop" }
+clarity = { path = "../../clarity", features = ["default", "testing"] }
+stacks-common = { path = "../../stacks-common", features = ["default", "testing"] }
+stacks = { path = "../../stackslib", package = "stackslib", features = ["default", "testing"] }
+stacks-signer = { path = "../../stacks-signer" }
 tracing = "0.1.37"
 tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
 wsts = {workspace = true}
