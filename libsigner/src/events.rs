@@ -393,7 +393,6 @@ fn process_stackerdb_event<T: SignerEventTrait>(
     local_addr: Option<SocketAddr>,
     mut request: HttpRequest,
 ) -> Result<SignerEvent<T>, EventError> {
-    debug!("Got stackerdb_chunks event");
     let mut body = String::new();
     if let Err(e) = request.as_reader().read_to_string(&mut body) {
         error!("Failed to read body: {:?}", &e);
@@ -404,6 +403,7 @@ fn process_stackerdb_event<T: SignerEventTrait>(
         )));
     }
 
+    debug!("Got stackerdb_chunks event"; "chunks_event_body" => %body);
     let event: StackerDBChunksEvent = serde_json::from_slice(body.as_bytes())
         .map_err(|e| EventError::Deserialize(format!("Could not decode body to JSON: {:?}", &e)))?;
 
