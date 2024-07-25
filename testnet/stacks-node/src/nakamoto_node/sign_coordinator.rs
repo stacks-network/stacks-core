@@ -653,7 +653,7 @@ impl SignCoordinator {
 
         let block_proposal_message = SignerMessageV0::BlockProposal(block_proposal);
         debug!("Sending block proposal message to signers";
-            "signer_signature_hash" => ?&block.header.signer_signature_hash().0,
+            "signer_signature_hash" => %block.header.signer_signature_hash(),
         );
         Self::send_miners_message_scalar::<SignerMessageV0>(
             &self.message_key,

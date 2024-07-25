@@ -635,9 +635,12 @@ impl RunLoop {
                         let sortition_id = &block.sortition_id;
 
                         // Have the node process the new block, that can include, or not, a sortition.
-                        if let Err(e) =
-                            node.process_burnchain_state(burnchain.sortdb_mut(), sortition_id, ibd)
-                        {
+                        if let Err(e) = node.process_burnchain_state(
+                            self.config(),
+                            burnchain.sortdb_mut(),
+                            sortition_id,
+                            ibd,
+                        ) {
                             // relayer errored, exit.
                             error!("Runloop: Block relayer and miner errored, exiting."; "err" => ?e);
                             return;
