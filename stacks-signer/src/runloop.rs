@@ -354,6 +354,7 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
         let current_reward_cycle = reward_cycle_info.reward_cycle;
         // We should only attempt to refresh the signer if we are not configured for the next reward cycle yet and we received a new burn block for its prepare phase
         if reward_cycle_info.is_in_next_prepare_phase(current_burn_block_height) {
+            self.cleanup_stale_signers(current_reward_cycle);
             let next_reward_cycle = current_reward_cycle.saturating_add(1);
             if self
                 .stacks_signers
@@ -373,7 +374,6 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
                 "last_burnchain_block_height" => reward_cycle_info.last_burnchain_block_height,
             );
         }
-        self.cleanup_stale_signers(current_reward_cycle);
         if self.stacks_signers.is_empty() {
             self.state = State::NoRegisteredSigners;
         } else {

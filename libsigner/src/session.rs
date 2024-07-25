@@ -84,6 +84,10 @@ pub trait SignerSession {
         let Some(latest_bytes) = self.get_latest_chunk(slot_id)? else {
             return Ok(None);
         };
+        info!(
+            "Bytes = {}",
+            clarity::util::hash::to_hex(latest_bytes.as_slice())
+        );
         Some(
             T::consensus_deserialize(&mut latest_bytes.as_slice()).map_err(|e| {
                 let msg = format!("StacksMessageCodec::consensus_deserialize failure: {e}");

@@ -491,6 +491,10 @@ impl SortitionsView {
 
         let latest_consensus_hash = latest_ch;
 
+        info!(
+            "Fetched state. cur_sortition = {cur_sortition:?}, last_sortition = {last_sortition:?}"
+        );
+
         Ok(Self {
             cur_sortition,
             last_sortition,

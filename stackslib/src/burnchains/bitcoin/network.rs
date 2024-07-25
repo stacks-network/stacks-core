@@ -148,9 +148,10 @@ impl BitcoinIndexer {
     /// Do the initial handshake to the remote peer.
     /// Returns the remote peer's block height
     pub fn peer_handshake(&mut self) -> Result<u64, btc_error> {
-        debug!(
+        trace!(
             "Begin peer handshake to {}:{}",
-            self.config.peer_host, self.config.peer_port
+            self.config.peer_host,
+            self.config.peer_port
         );
         self.send_version()?;
         let version_reply = self.recv_message()?;
@@ -159,9 +160,11 @@ impl BitcoinIndexer {
         let verack_reply = self.recv_message()?;
         self.handle_verack(verack_reply)?;
 
-        debug!(
+        trace!(
             "Established connection to {}:{}, who has {} blocks",
-            self.config.peer_host, self.config.peer_port, self.runtime.block_height
+            self.config.peer_host,
+            self.config.peer_port,
+            self.runtime.block_height
         );
         Ok(self.runtime.block_height)
     }

@@ -280,14 +280,16 @@ impl StackerDBs {
                 == boot_code_id(MINERS_NAME, chainstate.mainnet)
             {
                 // .miners contract -- directly generate the config
-                NakamotoChainState::make_miners_stackerdb_config(sortdb, &tip).unwrap_or_else(|e| {
-                    warn!(
-                        "Failed to generate .miners StackerDB config";
-                        "contract" => %stackerdb_contract_id,
-                        "err" => ?e,
-                    );
-                    StackerDBConfig::noop()
-                })
+                NakamotoChainState::make_miners_stackerdb_config(sortdb, &tip)
+                    .map(|(config, _)| config)
+                    .unwrap_or_else(|e| {
+                        warn!(
+                            "Failed to generate .miners StackerDB config";
+                            "contract" => %stackerdb_contract_id,
+                            "err" => ?e,
+                        );
+                        StackerDBConfig::noop()
+                    })
             } else {
                 // attempt to load the config from the contract itself
                 StackerDBConfig::from_smart_contract(
@@ -297,11 +299,20 @@ impl StackerDBs {
                     num_neighbors,
                 )
                 .unwrap_or_else(|e| {
-                    warn!(
-                        "Failed to load StackerDB config";
-                        "contract" => %stackerdb_contract_id,
-                        "err" => ?e,
-                    );
+                    if matches!(e, net_error::NoSuchStackerDB(_)) && stackerdb_contract_id.is_boot()
+                    {
+                        debug!(
+                            "Failed to load StackerDB config";
+                            "contract" => %stackerdb_contract_id,
+                            "err" => ?e,
+                        );
+                    } else {
+                        warn!(
+                            "Failed to load StackerDB config";
+                            "contract" => %stackerdb_contract_id,
+                            "err" => ?e,
+                        );
+                    }
                     StackerDBConfig::noop()
                 })
             };

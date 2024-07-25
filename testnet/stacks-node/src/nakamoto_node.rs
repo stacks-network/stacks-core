@@ -207,7 +207,7 @@ impl StacksNode {
         StacksNode::set_monitoring_miner_address(&keychain, &relayer_thread);
 
         let relayer_thread_handle = thread::Builder::new()
-            .name(format!("relayer-{}", &local_peer.data_url))
+            .name(format!("relayer-naka-{}", &local_peer.data_url))
             .stack_size(BLOCK_PROCESSOR_STACK_SIZE)
             .spawn(move || {
                 relayer_thread.main(relay_recv);

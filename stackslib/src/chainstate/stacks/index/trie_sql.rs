@@ -151,7 +151,7 @@ pub fn migrate_tables_if_needed<T: MarfTrieId>(conn: &mut Connection) -> Result<
             }
             x if x == SQL_MARF_SCHEMA_VERSION => {
                 // done
-                debug!("Migrated MARF data to schema {}", &SQL_MARF_SCHEMA_VERSION);
+                trace!("Migrated MARF data to schema {}", &SQL_MARF_SCHEMA_VERSION);
                 break;
             }
             x => {
@@ -169,7 +169,7 @@ pub fn migrate_tables_if_needed<T: MarfTrieId>(conn: &mut Connection) -> Result<
         && !trie_sql::detect_partial_migration(conn)?
     {
         // no migration will need to happen, so stop checking
-        debug!("Marking MARF data as fully-migrated");
+        trace!("Marking MARF data as fully-migrated");
         set_migrated(conn)?;
     }
     Ok(first_version)
@@ -247,7 +247,7 @@ pub fn write_trie_blob<T: MarfTrieId>(
         .try_into()
         .expect("EXHAUSTION: MARF cannot track more than 2**31 - 1 blocks");
 
-    debug!("Wrote block trie {} to rowid {}", block_hash, block_id);
+    trace!("Wrote block trie {} to rowid {}", block_hash, block_id);
     Ok(block_id)
 }
 
@@ -278,9 +278,11 @@ fn inner_write_external_trie_blob<T: MarfTrieId>(
             conn.prepare("UPDATE marf_data SET block_hash = ?1, data = ?2, unconfirmed = ?3, external_offset = ?4, external_length = ?5 WHERE block_id = ?6")?;
         s.execute(args)?;
 
-        debug!(
+        trace!(
             "Replaced block trie {} at rowid {} offset {}",
-            block_hash, block_id, offset
+            block_hash,
+            block_id,
+            offset
         );
         block_id
     } else {

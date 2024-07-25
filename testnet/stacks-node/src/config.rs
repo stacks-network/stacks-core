@@ -587,44 +587,48 @@ impl Config {
         }
 
         if let Some(first_burn_block_height) = self.burnchain.first_burn_block_height {
-            debug!(
+            trace!(
                 "Override first_block_height from {} to {}",
-                burnchain.first_block_height, first_burn_block_height
+                burnchain.first_block_height,
+                first_burn_block_height
             );
             burnchain.first_block_height = first_burn_block_height;
         }
 
         if let Some(first_burn_block_timestamp) = self.burnchain.first_burn_block_timestamp {
-            debug!(
+            trace!(
                 "Override first_block_timestamp from {} to {}",
-                burnchain.first_block_timestamp, first_burn_block_timestamp
+                burnchain.first_block_timestamp,
+                first_burn_block_timestamp
             );
             burnchain.first_block_timestamp = first_burn_block_timestamp;
         }
 
         if let Some(first_burn_block_hash) = &self.burnchain.first_burn_block_hash {
-            debug!(
+            trace!(
                 "Override first_burn_block_hash from {} to {}",
-                burnchain.first_block_hash, first_burn_block_hash
+                burnchain.first_block_hash,
+                first_burn_block_hash
             );
             burnchain.first_block_hash = BurnchainHeaderHash::from_hex(&first_burn_block_hash)
                 .expect("Invalid first_burn_block_hash");
         }
 
         if let Some(pox_prepare_length) = self.burnchain.pox_prepare_length {
-            debug!("Override pox_prepare_length to {pox_prepare_length}");
+            trace!("Override pox_prepare_length to {pox_prepare_length}");
             burnchain.pox_constants.prepare_length = pox_prepare_length;
         }
 
         if let Some(pox_reward_length) = self.burnchain.pox_reward_length {
-            debug!("Override pox_reward_length to {pox_reward_length}");
+            trace!("Override pox_reward_length to {pox_reward_length}");
             burnchain.pox_constants.reward_cycle_length = pox_reward_length;
         }
 
         if let Some(v1_unlock_height) = self.burnchain.pox_2_activation {
-            debug!(
+            trace!(
                 "Override v1_unlock_height from {} to {}",
-                burnchain.pox_constants.v1_unlock_height, v1_unlock_height
+                burnchain.pox_constants.v1_unlock_height,
+                v1_unlock_height
             );
             burnchain.pox_constants.v1_unlock_height = v1_unlock_height;
         }
@@ -657,7 +661,7 @@ impl Config {
                 .find(|epoch| epoch.epoch_id == StacksEpochId::Epoch21)
             {
                 // Override v1_unlock_height to the start_height of epoch2.1
-                debug!(
+                trace!(
                     "Override v2_unlock_height from {} to {}",
                     burnchain.pox_constants.v1_unlock_height,
                     epoch.start_height + 1
@@ -670,7 +674,7 @@ impl Config {
                 .find(|epoch| epoch.epoch_id == StacksEpochId::Epoch22)
             {
                 // Override v2_unlock_height to the start_height of epoch2.2
-                debug!(
+                trace!(
                     "Override v2_unlock_height from {} to {}",
                     burnchain.pox_constants.v2_unlock_height,
                     epoch.start_height + 1
@@ -683,9 +687,10 @@ impl Config {
                 .find(|epoch| epoch.epoch_id == StacksEpochId::Epoch24)
             {
                 // Override pox_3_activation_height to the start_height of epoch2.4
-                debug!(
+                trace!(
                     "Override pox_3_activation_height from {} to {}",
-                    burnchain.pox_constants.pox_3_activation_height, epoch.start_height
+                    burnchain.pox_constants.pox_3_activation_height,
+                    epoch.start_height
                 );
                 burnchain.pox_constants.pox_3_activation_height = epoch.start_height as u32;
             }
@@ -695,9 +700,10 @@ impl Config {
                 .find(|epoch| epoch.epoch_id == StacksEpochId::Epoch25)
             {
                 // Override pox_4_activation_height to the start_height of epoch2.5
-                debug!(
+                trace!(
                     "Override pox_4_activation_height from {} to {}",
-                    burnchain.pox_constants.pox_4_activation_height, epoch.start_height
+                    burnchain.pox_constants.pox_4_activation_height,
+                    epoch.start_height
                 );
                 burnchain.pox_constants.pox_4_activation_height = epoch.start_height as u32;
                 burnchain.pox_constants.v3_unlock_height = epoch.start_height as u32 + 1;
@@ -705,17 +711,19 @@ impl Config {
         }
 
         if let Some(sunset_start) = self.burnchain.sunset_start {
-            debug!(
+            trace!(
                 "Override sunset_start from {} to {}",
-                burnchain.pox_constants.sunset_start, sunset_start
+                burnchain.pox_constants.sunset_start,
+                sunset_start
             );
             burnchain.pox_constants.sunset_start = sunset_start.into();
         }
 
         if let Some(sunset_end) = self.burnchain.sunset_end {
-            debug!(
+            trace!(
                 "Override sunset_end from {} to {}",
-                burnchain.pox_constants.sunset_end, sunset_end
+                burnchain.pox_constants.sunset_end,
+                sunset_end
             );
             burnchain.pox_constants.sunset_end = sunset_end.into();
         }

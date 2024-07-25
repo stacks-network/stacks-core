@@ -455,6 +455,28 @@ impl MaturedMinerPaymentSchedules {
     }
 }
 
+pub struct MinersDBInformation {
+    signer_0_sortition: ConsensusHash,
+    signer_1_sortition: ConsensusHash,
+    latest_winner: u16,
+}
+
+impl MinersDBInformation {
+    pub fn get_signer_index(&self, sortition: &ConsensusHash) -> Option<u16> {
+        if sortition == &self.signer_0_sortition {
+            Some(0)
+        } else if sortition == &self.signer_1_sortition {
+            Some(1)
+        } else {
+            None
+        }
+    }
+
+    pub fn get_latest_winner_index(&self) -> u16 {
+        self.latest_winner
+    }
+}
+
 /// Calculated matured miner rewards, from scheduled rewards
 #[derive(Debug, Clone)]
 pub struct MaturedMinerRewards {
@@ -4039,7 +4061,7 @@ impl NakamotoChainState {
     pub fn make_miners_stackerdb_config(
         sortdb: &SortitionDB,
         tip: &BlockSnapshot,
-    ) -> Result<StackerDBConfig, ChainstateError> {
+    ) -> Result<(StackerDBConfig, MinersDBInformation), ChainstateError> {
         let ih = sortdb.index_handle(&tip.sortition_id);
         let last_winner_snapshot = ih.get_last_snapshot_with_sortition(tip.block_height)?;
         let parent_winner_snapshot = ih.get_last_snapshot_with_sortition(
@@ -4051,13 +4073,13 @@ impl NakamotoChainState {
         // go get their corresponding leader keys, but preserve the miner's relative position in
         // the stackerdb signer list -- if a miner was in slot 0, then it should stay in slot 0
         // after a sortition (and vice versa for 1)
-        let sns = if last_winner_snapshot.num_sortitions % 2 == 0 {
-            [last_winner_snapshot, parent_winner_snapshot]
+        let (latest_winner_idx, sns) = if last_winner_snapshot.num_sortitions % 2 == 0 {
+            (0, [last_winner_snapshot, parent_winner_snapshot])
         } else {
-            [parent_winner_snapshot, last_winner_snapshot]
+            (1, [parent_winner_snapshot, last_winner_snapshot])
         };
 
-        for sn in sns {
+        for sn in sns.iter() {
             // find the commit
             let Some(block_commit) =
                 ih.get_block_commit_by_txid(&sn.sortition_id, &sn.winning_block_txid)?
@@ -4088,6 +4110,12 @@ impl NakamotoChainState {
             );
         }
 
+        let miners_db_info = MinersDBInformation {
+            signer_0_sortition: sns[0].consensus_hash,
+            signer_1_sortition: sns[1].consensus_hash,
+            latest_winner: latest_winner_idx,
+        };
+
         let signers = miner_key_hash160s
             .into_iter()
             .map(|hash160|
@@ -4101,14 +4129,50 @@ impl NakamotoChainState {
                 ))
             .collect();
 
-        Ok(StackerDBConfig {
-            chunk_size: MAX_PAYLOAD_LEN.into(),
-            signers,
-            write_freq: 5,
-            max_writes: u32::MAX,  // no limit on number of writes
-            max_neighbors: 200, // TODO: const -- just has to be equal to or greater than the number of signers
-            hint_replicas: vec![], // TODO: is there a way to get the IP addresses of stackers' preferred nodes?
-        })
+        Ok((
+            StackerDBConfig {
+                chunk_size: MAX_PAYLOAD_LEN.into(),
+                signers,
+                write_freq: 5,
+                max_writes: u32::MAX,  // no limit on number of writes
+                max_neighbors: 200, // TODO: const -- just has to be equal to or greater than the number of signers
+                hint_replicas: vec![], // TODO: is there a way to get the IP addresses of stackers' preferred nodes?
+            },
+            miners_db_info,
+        ))
+    }
+
+    /// Get the slot range for the given miner's public key.
+    /// Returns Some(Range<u32>) if the miner is in the StackerDB config, where the range of slots for the miner is [start, end).
+    ///   i.e., inclusive of `start`, exclusive of `end`.
+    /// Returns None if the miner is not in the StackerDB config.
+    /// Returns an error if the miner is in the StackerDB config but the slot number is invalid.
+    pub fn get_latest_miner_slot(
+        sortdb: &SortitionDB,
+        tip: &BlockSnapshot,
+    ) -> Result<Option<(StacksAddress, Range<u32>)>, ChainstateError> {
+        let (stackerdb_config, miner_info) = Self::make_miners_stackerdb_config(sortdb, &tip)?;
+
+        // find out which slot we're in
+        let signer_ix = miner_info.get_latest_winner_index().into();
+
+        let mut start_slot_count = 0;
+        for (_, slot_count) in stackerdb_config.signers.get(..signer_ix).unwrap_or(&[]) {
+            start_slot_count += slot_count;
+        }
+
+        let Some((miner_addr, slot_count)) = stackerdb_config.signers.get(signer_ix) else {
+            // miner key does not match any slot
+            warn!("Miner is not in the miners StackerDB config";
+                  "stackerdb_slots" => format!("{:?}", &stackerdb_config.signers));
+
+            return Ok(None);
+        };
+        let slot_id_range = Range {
+            start: start_slot_count,
+            end: start_slot_count + slot_count,
+        };
+        Ok(Some((miner_addr.clone(), slot_id_range)))
     }
 
     /// Get the slot range for the given miner's public key.
@@ -4119,32 +4183,35 @@ impl NakamotoChainState {
     pub fn get_miner_slot(
         sortdb: &SortitionDB,
         tip: &BlockSnapshot,
-        miner_pubkey: &StacksPublicKey,
+        election_sortition: &ConsensusHash,
     ) -> Result<Option<Range<u32>>, ChainstateError> {
-        let miner_hash160 = Hash160::from_node_public_key(&miner_pubkey);
-        let stackerdb_config = Self::make_miners_stackerdb_config(sortdb, &tip)?;
+        let (stackerdb_config, miners_info) = Self::make_miners_stackerdb_config(sortdb, &tip)?;
 
         // find out which slot we're in
-        let mut slot_index = 0;
-        let mut slot_id_result = None;
-        for (addr, slot_count) in stackerdb_config.signers.iter() {
-            if addr.bytes == miner_hash160 {
-                slot_id_result = Some(Range {
-                    start: slot_index,
-                    end: slot_index + slot_count,
-                });
-                break;
-            }
-            slot_index += slot_count;
+        let Some(signer_ix) = miners_info
+            .get_signer_index(election_sortition)
+            .map(usize::from)
+        else {
+            warn!("Miner is not in the miners StackerDB config";
+                  "stackerdb_slots" => format!("{:?}", &stackerdb_config.signers));
+            return Ok(None);
+        };
+
+        let mut start_slot_count = 0;
+        for (_, slot_count) in stackerdb_config.signers.get(..signer_ix).unwrap_or(&[]) {
+            start_slot_count += slot_count;
         }
 
-        let Some(slot_id_range) = slot_id_result else {
+        let Some((_miner_addr, slot_count)) = stackerdb_config.signers.get(signer_ix) else {
             // miner key does not match any slot
             warn!("Miner is not in the miners StackerDB config";
-                  "miner" => %miner_hash160,
                   "stackerdb_slots" => format!("{:?}", &stackerdb_config.signers));
 
             return Ok(None);
+        };
+        let slot_id_range = Range {
+            start: start_slot_count,
+            end: start_slot_count + slot_count,
         };
         Ok(Some(slot_id_range))
     }

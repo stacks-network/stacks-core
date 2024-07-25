@@ -422,16 +422,6 @@ impl<'a, T: MarfTrieId> MarfTransaction<'a, T> {
         let height_key = format!("{}::{}", BLOCK_HEIGHT_TO_HASH_MAPPING_KEY, height);
         let hash_key = format!("{}::{}", BLOCK_HASH_TO_HEIGHT_MAPPING_KEY, next_block_hash);
 
-        debug!(
-            "Set {}::{} = {}",
-            BLOCK_HEIGHT_TO_HASH_MAPPING_KEY, height, next_block_hash
-        );
-        debug!(
-            "Set {}::{} = {}",
-            BLOCK_HASH_TO_HEIGHT_MAPPING_KEY, next_block_hash, height
-        );
-        debug!("Set {} = {}", OWN_BLOCK_HEIGHT_KEY, height);
-
         keys.push(OWN_BLOCK_HEIGHT_KEY.to_string());
         values.push(MARFValue::from(height));
 
@@ -464,6 +454,12 @@ impl<'a, T: MarfTrieId> MarfTransaction<'a, T> {
             keys.push(prev_hash_key);
             values.push(MARFValue::from(height - 1));
         }
+
+        trace!(
+            "Setting MARF tracking data keys";
+            "keys" => ?keys,
+            "values" => ?values,
+        );
 
         self.insert_batch(&keys, values)?;
         Ok(())
@@ -1058,9 +1054,12 @@ impl<T: MarfTrieId> MARF<T> {
             assert!(false);
         }
 
-        debug!(
+        trace!(
             "MARF Insert in {}: '{}' = '{}' (...{:?})",
-            block_hash, path, leaf_value.data, &leaf_value.path
+            block_hash,
+            path,
+            leaf_value.data,
+            &leaf_value.path
         );
 
         Trie::add_value(storage, &mut cursor, &mut value)?;

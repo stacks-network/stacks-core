@@ -635,7 +635,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
         storage_tx: &mut TrieStorageTransaction<T>,
     ) -> Result<TrieHash, Error> {
         // find trie root hash
-        debug!("Calculate trie root hash");
+        trace!("Calculate trie root hash");
         let root_trie_hash = self.calculate_node_hashes(storage_tx, 0)?;
 
         // find marf root hash -- the hash of the trie root node hash, and the hashes of the
@@ -643,7 +643,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
         // being flushed, we have to temporarily reinstate its data into `storage_tx` so we can
         // use it to walk down the various MARF paths needed to query ancestor tries.
         let marf_root_hash = self.with_reinstated_data(storage_tx, |moved_trieram, storage| {
-            debug!("Calculate marf root hash");
+            trace!("Calculate marf root hash");
             moved_trieram.calculate_marf_root_hash(storage, &root_trie_hash)
         });
 

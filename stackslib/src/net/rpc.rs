@@ -553,7 +553,7 @@ impl ConversationHttp {
                         |conv_http, req| conv_http.handle_request(req, node),
                     )?;
 
-                    info!("Handled StacksHTTPRequest";
+                    trace!("Handled StacksHTTPRequest";
                            "verb" => %verb,
                            "path" => %request_path,
                            "processing_time_ms" => start_time.elapsed().as_millis(),
@@ -572,7 +572,7 @@ impl ConversationHttp {
                     let start_time = Instant::now();
                     self.reply_error(resp)?;
 
-                    info!("Handled StacksHTTPRequest Error"; "path" => %path, "processing_time_ms" => start_time.elapsed().as_millis(), "conn_id" => self.conn_id, "peer_addr" => &self.peer_addr);
+                    trace!("Handled StacksHTTPRequest Error"; "path" => %path, "processing_time_ms" => start_time.elapsed().as_millis(), "conn_id" => self.conn_id, "peer_addr" => &self.peer_addr);
                 }
                 StacksHttpMessage::Response(resp) => {
                     // Is there someone else waiting for this message?  If so, pass it along.
