@@ -1,5 +1,5 @@
 [node]
-# working_dir = "/dir/to/save/chainstate" # defaults to: /tmp/stacks-node-[0-9]
+# working_dir = "/dir/to/save/chainstate" # defaults to: /tmp/stacks-node-[0-9]*
 rpc_bind = "0.0.0.0:20443"
 p2p_bind = "0.0.0.0:20444"
 miner = true
@@ -11,8 +11,3 @@ prometheus_bind = "0.0.0.0:9153"
 chain = "bitcoin"
 mode = "mainnet"
 peer_host = "bitcoin.hiro.so"
-username = "hirosystems"
-password = "hirosystems"
-rpc_port = 8332
-peer_port = 8333
-burn_fee_cap = 1

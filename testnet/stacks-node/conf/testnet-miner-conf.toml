@@ -1,5 +1,5 @@
 [node]
-# working_dir = "/dir/to/save/chainstate" # defaults to: /tmp/stacks-node-[0-9]
+# working_dir = "/dir/to/save/chainstate" # defaults to: /tmp/stacks-node-[0-9]*
 rpc_bind = "0.0.0.0:20443"
 p2p_bind = "0.0.0.0:20444"
 bootstrap_node = "029266faff4c8e0ca4f934f34996a96af481df94a89b0c9bd515f3536a95682ddc@seed.testnet.hiro.so:30444"
@@ -9,10 +9,10 @@ prometheus_bind = "0.0.0.0:9153"
 chain = "bitcoin"
 mode = "krypton"
 peer_host = "127.0.0.1"
-username = "<USERNAME>"
-password = "<PASSWORD>"
-rpc_port = 18443
-peer_port = 18444
+username = "<Bitcoin RPC username>"
+password = "<Bitcoin RPC password>"
+rpc_port = <Bitcoin RPC port>
+peer_port = <Bitcoin P2P port>
 pox_prepare_length = 100
 pox_reward_length = 900
 # Maximum amount (in sats) of "burn commitment" to broadcast for the next block's leader election
