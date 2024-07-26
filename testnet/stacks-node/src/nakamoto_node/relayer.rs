@@ -112,6 +112,7 @@ pub struct LastCommit {
     /// the tenure consensus hash for the tip's tenure
     tenure_consensus_hash: ConsensusHash,
     /// the start-block hash of the tip's tenure
+    #[allow(dead_code)] // This is used when feature = "canonical" is set.
     start_block_hash: BlockHeaderHash,
     /// What is the epoch in which this was sent?
     epoch_id: StacksEpochId,
