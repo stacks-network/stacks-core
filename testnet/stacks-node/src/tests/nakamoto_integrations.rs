@@ -89,7 +89,7 @@ use stacks_common::util::hash::{to_hex, Hash160, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PrivateKey, Secp256k1PublicKey};
 use stacks_common::util::{get_epoch_time_secs, sleep_ms};
 use stacks_signer::chainstate::{ProposalEvalConfig, SortitionsView};
-use stacks_signer::signerdb::{BlockInfo, SignerDb};
+use stacks_signer::signerdb::{BlockInfo, ExtraBlockInfo, SignerDb};
 use wsts::net::Message;
 
 use super::bitcoin_regtest::BitcoinCoreController;
@@ -4714,11 +4714,11 @@ fn signer_chainstate() {
                 reward_cycle,
                 vote: None,
                 valid: Some(true),
-                nonce_request: None,
                 signed_over: true,
                 proposed_time: get_epoch_time_secs(),
                 signed_self: None,
                 signed_group: None,
+                ext: ExtraBlockInfo::None,
             })
             .unwrap();
 
@@ -4789,11 +4789,11 @@ fn signer_chainstate() {
                 reward_cycle,
                 vote: None,
                 valid: Some(true),
-                nonce_request: None,
                 signed_over: true,
                 proposed_time: get_epoch_time_secs(),
                 signed_self: None,
                 signed_group: None,
+                ext: ExtraBlockInfo::None,
             })
             .unwrap();
 
