@@ -429,6 +429,10 @@ pub struct StackerDBSync<NC: NeighborComms> {
     num_attempted_connections: u64,
     /// How many connections have been made in the last pass (gets reset)
     num_connections: u64,
+    /// Number of state machine passes
+    rounds: u128,
+    /// Round when we last pushed
+    push_round: u128,
 }
 
 impl StackerDBSyncResult {
