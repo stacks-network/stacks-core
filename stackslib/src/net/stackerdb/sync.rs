@@ -74,6 +74,8 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
             stale_neighbors: HashSet::new(),
             num_connections: 0,
             num_attempted_connections: 0,
+            rounds: 0,
+            push_round: 0,
         };
         dbsync.reset(None, config);
         dbsync
@@ -215,6 +217,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
         self.state = StackerDBSyncState::ConnectBegin;
         self.num_connections = 0;
         self.num_attempted_connections = 0;
+        self.rounds += 1;
         result
     }
 
@@ -406,6 +409,16 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                 } else {
                     thread_rng().gen::<u32>() % chunk_inv.num_outbound_replicas == 0
                 };
+
+                debug!(
+                    "{:?}: Can push chunk StackerDBChunk(db={},id={},ver={}) to {}. Replicate? {}",
+                    &network.get_local_peer(),
+                    &self.smart_contract_id,
+                    our_chunk.chunk_data.slot_id,
+                    our_chunk.chunk_data.slot_version,
+                    &naddr,
+                    do_replicate
+                );
 
                 if !do_replicate {
                     continue;
@@ -1000,9 +1013,11 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
     /// Returns true if there are no more chunks to push.
     /// Returns false if there are
     pub fn pushchunks_begin(&mut self, network: &mut PeerNetwork) -> Result<bool, net_error> {
-        if self.chunk_push_priorities.len() == 0 {
+        if self.chunk_push_priorities.len() == 0 && self.push_round != self.rounds {
+            // only do this once per round
             let priorities = self.make_chunk_push_schedule(&network)?;
             self.chunk_push_priorities = priorities;
+            self.push_round = self.rounds;
         }
         if self.chunk_push_priorities.len() == 0 {
             // done
@@ -1017,8 +1032,6 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
             self.chunk_push_priorities.len()
         );
 
-        let mut pushed = 0;
-
         // fill up our comms with $capacity requests
         for _i in 0..self.request_capacity {
             if self.comms.count_inflight() >= self.request_capacity {
@@ -1030,7 +1043,8 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                 .1
                 .iter()
                 .enumerate()
-                .find(|(_i, naddr)| !self.comms.has_inflight(naddr));
+                // .find(|(_i, naddr)| !self.comms.has_inflight(naddr));
+                .find(|(_i, _naddr)| true);
 
             let (idx, selected_neighbor) = if let Some(x) = selected_neighbor_opt {
                 x
@@ -1072,8 +1086,6 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                 continue;
             }
 
-            pushed += 1;
-
             // record what we just sent
             self.chunk_push_receipts
                 .insert(selected_neighbor.clone(), (slot_id, slot_version));
@@ -1088,7 +1100,13 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
             return Err(net_error::PeerNotConnected);
         }
         self.next_chunk_push_priority = cur_priority;
-        Ok(self.chunk_push_priorities.len() == 0)
+        Ok(self
+            .chunk_push_priorities
+            .iter()
+            .fold(0usize, |acc, (_chunk, num_naddrs)| {
+                acc.saturating_add(num_naddrs.len())
+            })
+            == 0)
     }
 
     /// Collect push-chunk replies from neighbors.
@@ -1138,7 +1156,14 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
             }
         }
 
-        self.comms.count_inflight() == 0
+        let inflight = self.comms.count_inflight();
+        debug!(
+            "{:?}: inflight messages for {}: {:?}",
+            network.get_local_peer(),
+            &self.smart_contract_id,
+            inflight
+        );
+        inflight == 0
     }
 
     /// Recalculate the download schedule based on chunkinvs received on push
@@ -1189,8 +1214,9 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
 
         loop {
             debug!(
-                "{:?}: stacker DB sync state is {:?}",
+                "{:?}: stacker DB sync state for {} is {:?}",
                 network.get_local_peer(),
+                &self.smart_contract_id,
                 &self.state
             );
             let mut blocked = true;

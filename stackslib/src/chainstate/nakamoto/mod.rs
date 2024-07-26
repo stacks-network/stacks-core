@@ -4104,7 +4104,7 @@ impl NakamotoChainState {
         Ok(StackerDBConfig {
             chunk_size: MAX_PAYLOAD_LEN.into(),
             signers,
-            write_freq: 5,
+            write_freq: 0,
             max_writes: u32::MAX,  // no limit on number of writes
             max_neighbors: 200, // TODO: const -- just has to be equal to or greater than the number of signers
             hint_replicas: vec![], // TODO: is there a way to get the IP addresses of stackers' preferred nodes?
