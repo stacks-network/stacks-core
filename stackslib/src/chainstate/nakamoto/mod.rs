@@ -4155,22 +4155,19 @@ impl NakamotoChainState {
 
         // find out which slot we're in
         let signer_ix = miner_info.get_latest_winner_index().into();
-
-        let mut start_slot_count = 0;
-        for (_, slot_count) in stackerdb_config.signers.get(..signer_ix).unwrap_or(&[]) {
-            start_slot_count += slot_count;
-        }
-
-        let Some((miner_addr, slot_count)) = stackerdb_config.signers.get(signer_ix) else {
-            // miner key does not match any slot
+        let mut signer_ranges = stackerdb_config.signer_ranges();
+        if signer_ix >= signer_ranges.len() {
+            // should be unreachable, but always good to be careful
             warn!("Miner is not in the miners StackerDB config";
                   "stackerdb_slots" => format!("{:?}", &stackerdb_config.signers));
 
             return Ok(None);
-        };
-        let slot_id_range = Range {
-            start: start_slot_count,
-            end: start_slot_count + slot_count,
+        }
+        let slot_id_range = signer_ranges.swap_remove(signer_ix);
+        let Some((miner_addr, _slot_count)) = stackerdb_config.signers.get(signer_ix) else {
+            warn!("Miner is not in the miners StackerDB config";
+                  "stackerdb_slots" => format!("{:?}", &stackerdb_config.signers));
+            return Ok(None);
         };
         Ok(Some((miner_addr.clone(), slot_id_range)))
     }
@@ -4196,23 +4193,16 @@ impl NakamotoChainState {
                   "stackerdb_slots" => format!("{:?}", &stackerdb_config.signers));
             return Ok(None);
         };
-
-        let mut start_slot_count = 0;
-        for (_, slot_count) in stackerdb_config.signers.get(..signer_ix).unwrap_or(&[]) {
-            start_slot_count += slot_count;
-        }
-
-        let Some((_miner_addr, slot_count)) = stackerdb_config.signers.get(signer_ix) else {
-            // miner key does not match any slot
+        let mut signer_ranges = stackerdb_config.signer_ranges();
+        if signer_ix >= signer_ranges.len() {
+            // should be unreachable, but always good to be careful
             warn!("Miner is not in the miners StackerDB config";
                   "stackerdb_slots" => format!("{:?}", &stackerdb_config.signers));
 
             return Ok(None);
-        };
-        let slot_id_range = Range {
-            start: start_slot_count,
-            end: start_slot_count + slot_count,
-        };
+        }
+        let slot_id_range = signer_ranges.swap_remove(signer_ix);
+
         Ok(Some(slot_id_range))
     }
 

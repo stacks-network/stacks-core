@@ -119,6 +119,7 @@ pub mod db;
 pub mod sync;
 
 use std::collections::{HashMap, HashSet};
+use std::ops::Range;
 
 use clarity::vm::types::QualifiedContractIdentifier;
 use libstackerdb::{SlotMetadata, STACKERDB_MAX_CHUNK_SIZE};
@@ -204,6 +205,22 @@ impl StackerDBConfig {
     #[cfg_attr(test, mutants::skip)]
     pub fn num_slots(&self) -> u32 {
         self.signers.iter().fold(0, |acc, s| acc + s.1)
+    }
+
+    /// What are the slot index ranges for each signer?
+    /// Returns the ranges in the same ordering as `self.signers`
+    pub fn signer_ranges(&self) -> Vec<Range<u32>> {
+        let mut slot_index = 0;
+        let mut result = Vec::with_capacity(self.signers.len());
+        for (_, slot_count) in self.signers.iter() {
+            let end = slot_index + *slot_count;
+            result.push(Range {
+                start: slot_index,
+                end,
+            });
+            slot_index = end;
+        }
+        result
     }
 }
 

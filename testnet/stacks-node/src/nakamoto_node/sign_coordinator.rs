@@ -296,7 +296,7 @@ impl SignCoordinator {
                     wsts_public_keys,
                     is_mainnet,
                     miners_session,
-                    signing_round_timeout: config.miner.wait_on_signers.clone(),
+                    signing_round_timeout: Duration::from_secs(20),
                     next_signer_bitvec,
                     signer_entries: signer_public_keys,
                     weight_threshold: threshold,
@@ -677,6 +677,9 @@ impl SignCoordinator {
         counters.bump_naka_proposed_blocks();
         #[cfg(test)]
         {
+            info!(
+                "SignCoordinator: sent block proposal to .miners, waiting for test signing channel"
+            );
             // In test mode, short-circuit waiting for the signers if the TEST_SIGNING
             //  channel has been created. This allows integration tests for the stacks-node
             //  independent of the stacks-signer.

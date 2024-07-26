@@ -308,7 +308,7 @@ pub fn blind_signer(
                 continue;
             }
             last_count = cur_count;
-            match read_and_sign_block_proposal(&conf, &signers, &signed_blocks, &sender) {
+            match read_and_sign_block_proposal(&conf, &signers, &signed_blocks, &sender, None) {
                 Ok(signed_block) => {
                     if signed_blocks.contains(&signed_block) {
                         continue;
@@ -328,12 +328,14 @@ pub fn blind_signer(
 ///  of the individual signer who broadcasts the response to the StackerDB
 pub fn blind_dbl_signer(
     conf: &Config,
+    other_conf: &Config,
     signers: &TestSigners,
     proposals_count: Vec<RunLoopCounter>,
 ) -> JoinHandle<()> {
     let sender = TestSigningChannel::instantiate();
     let mut signed_blocks = HashSet::new();
     let conf = conf.clone();
+    let other_conf = other_conf.clone();
     let signers = signers.clone();
     let mut last_count: Vec<_> = proposals_count
         .iter()
@@ -357,10 +359,24 @@ pub fn blind_dbl_signer(
             thread::sleep(Duration::from_secs(5));
             info!("Checking for a block proposal to sign...");
             last_count = cur_count;
-            match read_and_sign_block_proposal(&conf, &signers, &signed_blocks, &sender) {
+            match read_and_sign_block_proposal(&conf, &signers, &signed_blocks, &sender, Some(&other_conf)) {
                 Ok(signed_block) => {
                     if signed_blocks.contains(&signed_block) {
-                        info!("Already signed block"; "signer_sig_hash" => signed_block.to_hex());
+                        info!("Already signed block, will sleep and try again"; "signer_sig_hash" => signed_block.to_hex());
+                        thread::sleep(Duration::from_secs(10));
+                        match read_and_sign_block_proposal(&conf, &signers, &signed_blocks, &sender, Some(&other_conf)) {
+                            Ok(signed_block) => {
+                                if signed_blocks.contains(&signed_block) {
+                                    info!("Already signed block, ignoring"; "signer_sig_hash" => signed_block.to_hex());
+                                    continue;
+                                }
+                                info!("Signed block"; "signer_sig_hash" => signed_block.to_hex());
+                                signed_blocks.insert(signed_block);
+                            }
+                            Err(e) => {
+                                warn!("Error reading and signing block proposal: {e}");
+                            }
+                        };
                         continue;
                     }
                     info!("Signed block"; "signer_sig_hash" => signed_block.to_hex());
@@ -379,24 +395,54 @@ pub fn get_latest_block_proposal(
     sortdb: &SortitionDB,
 ) -> Result<(NakamotoBlock, StacksPublicKey), String> {
     let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
-    let (miner_addr, miner_slot_id) = NakamotoChainState::get_latest_miner_slot(&sortdb, &tip)
-        .map_err(|_| "Unable to get miner slot")?
-        .ok_or("No miner slot exists")?;
+    let (stackerdb_conf, miner_info) =
+        NakamotoChainState::make_miners_stackerdb_config(sortdb, &tip)
+            .map_err(|e| e.to_string())?;
+    let miner_ranges = stackerdb_conf.signer_ranges();
+    let latest_miner = usize::from(miner_info.get_latest_winner_index());
+    let miner_contract_id = boot_code_id(MINERS_NAME, false);
+    let mut miners_stackerdb = StackerDBSession::new(&conf.node.rpc_bind, miner_contract_id);
 
-    let proposed_block = {
-        let miner_contract_id = boot_code_id(MINERS_NAME, false);
-        let mut miners_stackerdb = StackerDBSession::new(&conf.node.rpc_bind, miner_contract_id);
-        let message: SignerMessageV0 = miners_stackerdb
-            .get_latest(miner_slot_id.start)
-            .expect("Failed to get latest chunk from the miner slot ID")
-            .expect("No chunk found");
-        let SignerMessageV0::BlockProposal(block_proposal) = message else {
-            panic!("Expected a signer message block proposal. Got {message:?}");
-        };
-        // TODO: use v1 message types behind epoch gate
-        // get_block_proposal_msg_v1(&mut miners_stackerdb, miner_slot_id.start);
-        block_proposal.block
-    };
+    let mut proposed_blocks: Vec<_> = stackerdb_conf
+        .signers
+        .iter()
+        .enumerate()
+        .zip(miner_ranges)
+        .filter_map(|((miner_ix, (miner_addr, _)), miner_slot_id)| {
+            let proposed_block = {
+                let message: SignerMessageV0 =
+                    miners_stackerdb.get_latest(miner_slot_id.start).ok()??;
+                let SignerMessageV0::BlockProposal(block_proposal) = message else {
+                    panic!("Expected a signer message block proposal. Got {message:?}");
+                };
+                block_proposal.block
+            };
+            Some((proposed_block, miner_addr, miner_ix == latest_miner))
+        })
+        .collect();
+
+    proposed_blocks.sort_by(|(block_a, _, is_latest_a), (block_b, _, is_latest_b)| {
+        if block_a.header.chain_length > block_b.header.chain_length {
+            return std::cmp::Ordering::Greater;
+        } else if block_a.header.chain_length < block_b.header.chain_length {
+            return std::cmp::Ordering::Less;
+        }
+        // the heights are tied, tie break with the latest miner
+        if *is_latest_a {
+            return std::cmp::Ordering::Greater;
+        }
+        if *is_latest_b {
+            return std::cmp::Ordering::Less;
+        }
+        return std::cmp::Ordering::Equal;
+    });
+
+    for (b, _, is_latest) in proposed_blocks.iter() {
+        info!("Consider block"; "signer_sighash" => %b.header.signer_signature_hash(), "is_latest_sortition" => is_latest, "chain_height" => b.header.chain_length);
+    }
+
+    let (proposed_block, miner_addr, _) = proposed_blocks.pop().unwrap();
+
     let pubkey = StacksPublicKey::recover_to_pubkey(
         proposed_block.header.miner_signature_hash().as_bytes(),
         &proposed_block.header.miner_signature,
@@ -439,6 +485,7 @@ pub fn read_and_sign_block_proposal(
     signers: &TestSigners,
     signed_blocks: &HashSet<Sha512Trunc256Sum>,
     channel: &Sender<Vec<MessageSignature>>,
+    other_conf: Option<&Config>,
 ) -> Result<Sha512Trunc256Sum, String> {
     let burnchain = conf.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
@@ -453,8 +500,15 @@ pub fn read_and_sign_block_proposal(
     let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
 
     let mut proposed_block = get_latest_block_proposal(conf, &sortdb)?.0;
+    let other_stackerdb_prop = other_conf
+        .map(|other_conf| get_latest_block_proposal(other_conf, &sortdb))
+        .transpose()?
+        .map(|x| x.0.header.signer_signature_hash());
     let proposed_block_hash = format!("0x{}", proposed_block.header.block_hash());
     let signer_sig_hash = proposed_block.header.signer_signature_hash();
+    if other_conf.is_some() {
+        info!("The fetched proposed blocks would be"; "other" => %other_stackerdb_prop.as_ref().unwrap(), "norm" => %signer_sig_hash);
+    }
 
     if signed_blocks.contains(&signer_sig_hash) {
         // already signed off on this block, don't sign again.
@@ -1674,6 +1728,7 @@ fn multiple_nodes() {
     info!("Nakamoto miner started...");
     blind_dbl_signer(
         &naka_conf,
+        &conf_node_2,
         &signers,
         vec![proposals_submitted, proposals_submitted_2],
     );
