@@ -3986,6 +3986,14 @@ impl RelayerThread {
             }
             RelayerDirective::RunTenure(registered_key, last_burn_block, issue_timestamp_ms) => {
                 debug!("Relayer: directive Run tenure");
+                let Ok(Some(next_block_epoch)) = SortitionDB::get_stacks_epoch(self.sortdb_ref().conn(), last_burn_block.block_height.saturating_add(1)) else {
+                    warn!("Failed to load Stacks Epoch for next burn block, skipping RunTenure directive");
+                    return true
+                };
+                if next_block_epoch.epoch_id.uses_nakamoto_blocks() {
+                    info!("Next burn block is in Nakamoto epoch, skipping RunTenure directive for 2.x node");
+                    return true
+                }
                 self.block_miner_thread_try_start(
                     registered_key,
                     last_burn_block,

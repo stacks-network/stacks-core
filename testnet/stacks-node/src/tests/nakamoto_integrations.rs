@@ -1540,7 +1540,7 @@ fn multiple_nodes() {
     let sender_signer_sk = Secp256k1PrivateKey::new();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
     let tenure_count = 15;
-    let inter_blocks_per_tenure = 27;
+    let inter_blocks_per_tenure = 6;
     // setup sender + recipient for some test stx transfers
     // these are necessary for the interim blocks to get mined at all
     let sender_addr = tests::to_addr(&sender_sk);
