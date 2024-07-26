@@ -1067,3 +1067,33 @@ fn retry_on_timeout() {
 
     signer_test.shutdown();
 }
+
+#[test]
+#[ignore]
+/// This test checks that the miner will retry when signature collection times out.
+fn mock_mine_epoch_25() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(EnvFilter::from_default_env())
+        .init();
+
+    info!("------------------------- Test Setup -------------------------");
+    let num_signers = 5;
+    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_addr = tests::to_addr(&sender_sk);
+    let send_amt = 100;
+    let send_fee = 180;
+    let recipient = PrincipalData::from(StacksAddress::burn_address(false));
+    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new(
+        num_signers,
+        vec![(sender_addr.clone(), send_amt + send_fee)],
+        Some(Duration::from_secs(5)),
+    );
+    let http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
+
+    todo!("BOOT TO EPOCH 2.5 AND VERIFY WE RECEIVE A MOCK SIGNATURE PER SORTITION");
+}

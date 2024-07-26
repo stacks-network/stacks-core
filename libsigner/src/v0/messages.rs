@@ -236,12 +236,26 @@ pub trait StacksMessageCodecExtensions: Sized {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MockSignature {
     /// The signature across the stacks consensus hash
-    pub signature: MessageSignature,
+    signature: MessageSignature,
     /// The block hash that the signature is across
-    pub stacks_consensus_hash: ConsensusHash,
+    stacks_consensus_hash: ConsensusHash,
 }
 
 impl MockSignature {
+    /// Create a new mock signature with the provided stacks consensus hash and private key
+    pub fn new(
+        stacks_consensus_hash: ConsensusHash,
+        stacks_private_key: &StacksPrivateKey,
+    ) -> Self {
+        let mut sig = Self {
+            signature: MessageSignature::empty(),
+            stacks_consensus_hash,
+        };
+        sig.sign(stacks_private_key)
+            .expect("Failed to sign MockSignature");
+        sig
+    }
+
     /// The signature hash for the mock signature
     pub fn signature_hash(&self) -> Result<Sha512Trunc256Sum, CodecError> {
         let mut hasher = Sha512_256::new();
@@ -250,7 +264,7 @@ impl MockSignature {
         Ok(Sha512Trunc256Sum::from_hasher(hasher))
     }
     /// Sign the mock signature and set the internal signature field
-    pub fn sign(&mut self, private_key: &StacksPrivateKey) -> Result<(), String> {
+    fn sign(&mut self, private_key: &StacksPrivateKey) -> Result<(), String> {
         let signature_hash = self.signature_hash().map_err(|e| e.to_string())?;
         self.signature = private_key.sign(&signature_hash.0)?;
         Ok(())
