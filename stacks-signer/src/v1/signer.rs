@@ -201,7 +201,7 @@ impl SignerTrait<SignerMessage> for Signer {
         };
         match event {
             SignerEvent::BlockValidationResponse(block_validate_response) => {
-                info!("{self}: Received a block proposal result from the stacks node...");
+                debug!("{self}: Received a block proposal result from the stacks node...");
                 self.handle_block_validate_response(
                     stacks_client,
                     block_validate_response,
@@ -703,7 +703,7 @@ impl Signer {
             };
             self.handle_packets(stacks_client, res, &[packet], current_reward_cycle);
         }
-        info!(
+        debug!(
             "{self}: Received a block validate response";
             "block_hash" => block_info.block.header.block_hash(),
             "valid" => block_info.valid,
