@@ -151,6 +151,9 @@ pub struct SignerConfig {
     pub max_tx_fee_ustx: Option<u64>,
     /// The path to the signer's database file
     pub db_path: PathBuf,
+    /// How much time must pass between the first block proposal in a tenure and the next bitcoin block
+    ///  before a subsequent miner isn't allowed to reorg the tenure
+    pub first_proposal_burn_block_timing: Duration,
 }
 
 /// The parsed configuration for the signer
@@ -190,6 +193,9 @@ pub struct GlobalConfig {
     pub db_path: PathBuf,
     /// Metrics endpoint
     pub metrics_endpoint: Option<SocketAddr>,
+    /// How much time between the first block proposal in a tenure and the next bitcoin block
+    ///  must pass before a subsequent miner isn't allowed to reorg the tenure
+    pub first_proposal_burn_block_timing: Duration,
 }
 
 /// Internal struct for loading up the config file
@@ -227,6 +233,9 @@ struct RawConfigFile {
     pub db_path: String,
     /// Metrics endpoint
     pub metrics_endpoint: Option<String>,
+    /// How much time must pass between the first block proposal in a tenure and the next bitcoin block
+    ///  before a subsequent miner isn't allowed to reorg the tenure
+    pub first_proposal_burn_block_timing_secs: Option<u64>,
 }
 
 impl RawConfigFile {
@@ -298,6 +307,8 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
         let dkg_private_timeout = raw_data.dkg_private_timeout_ms.map(Duration::from_millis);
         let nonce_timeout = raw_data.nonce_timeout_ms.map(Duration::from_millis);
         let sign_timeout = raw_data.sign_timeout_ms.map(Duration::from_millis);
+        let first_proposal_burn_block_timing =
+            Duration::from_secs(raw_data.first_proposal_burn_block_timing_secs.unwrap_or(30));
         let db_path = raw_data.db_path.into();
 
         let metrics_endpoint = match raw_data.metrics_endpoint {
@@ -331,6 +342,7 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
             auth_password: raw_data.auth_password,
             db_path,
             metrics_endpoint,
+            first_proposal_burn_block_timing,
         })
     }
 }
