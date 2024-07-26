@@ -119,6 +119,7 @@ pub mod db;
 pub mod sync;
 
 use std::collections::{HashMap, HashSet};
+use std::ops::Range;
 
 use clarity::vm::types::QualifiedContractIdentifier;
 use libstackerdb::{SlotMetadata, STACKERDB_MAX_CHUNK_SIZE};
@@ -205,6 +206,22 @@ impl StackerDBConfig {
     pub fn num_slots(&self) -> u32 {
         self.signers.iter().fold(0, |acc, s| acc + s.1)
     }
+
+    /// What are the slot index ranges for each signer?
+    /// Returns the ranges in the same ordering as `self.signers`
+    pub fn signer_ranges(&self) -> Vec<Range<u32>> {
+        let mut slot_index = 0;
+        let mut result = Vec::with_capacity(self.signers.len());
+        for (_, slot_count) in self.signers.iter() {
+            let end = slot_index + *slot_count;
+            result.push(Range {
+                start: slot_index,
+                end,
+            });
+            slot_index = end;
+        }
+        result
+    }
 }
 
 /// This is the set of replicated chunks in all stacker DBs that this node subscribes to.
@@ -280,14 +297,16 @@ impl StackerDBs {
                 == boot_code_id(MINERS_NAME, chainstate.mainnet)
             {
                 // .miners contract -- directly generate the config
-                NakamotoChainState::make_miners_stackerdb_config(sortdb, &tip).unwrap_or_else(|e| {
-                    warn!(
-                        "Failed to generate .miners StackerDB config";
-                        "contract" => %stackerdb_contract_id,
-                        "err" => ?e,
-                    );
-                    StackerDBConfig::noop()
-                })
+                NakamotoChainState::make_miners_stackerdb_config(sortdb, &tip)
+                    .map(|(config, _)| config)
+                    .unwrap_or_else(|e| {
+                        warn!(
+                            "Failed to generate .miners StackerDB config";
+                            "contract" => %stackerdb_contract_id,
+                            "err" => ?e,
+                        );
+                        StackerDBConfig::noop()
+                    })
             } else {
                 // attempt to load the config from the contract itself
                 StackerDBConfig::from_smart_contract(
@@ -297,11 +316,20 @@ impl StackerDBs {
                     num_neighbors,
                 )
                 .unwrap_or_else(|e| {
-                    warn!(
-                        "Failed to load StackerDB config";
-                        "contract" => %stackerdb_contract_id,
-                        "err" => ?e,
-                    );
+                    if matches!(e, net_error::NoSuchStackerDB(_)) && stackerdb_contract_id.is_boot()
+                    {
+                        debug!(
+                            "Failed to load StackerDB config";
+                            "contract" => %stackerdb_contract_id,
+                            "err" => ?e,
+                        );
+                    } else {
+                        warn!(
+                            "Failed to load StackerDB config";
+                            "contract" => %stackerdb_contract_id,
+                            "err" => ?e,
+                        );
+                    }
                     StackerDBConfig::noop()
                 })
             };

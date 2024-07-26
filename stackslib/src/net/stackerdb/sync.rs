@@ -1096,9 +1096,6 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
             // next-prioritized chunk
             cur_priority = (cur_priority + 1) % self.chunk_push_priorities.len();
         }
-        if pushed == 0 {
-            return Err(net_error::PeerNotConnected);
-        }
         self.next_chunk_push_priority = cur_priority;
         Ok(self
             .chunk_push_priorities
