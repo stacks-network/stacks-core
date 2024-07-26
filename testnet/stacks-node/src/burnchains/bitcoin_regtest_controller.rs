@@ -1715,6 +1715,7 @@ impl BitcoinRegtestController {
                 spent_in_outputs + min_tx_size * fee_rate + estimated_rbf,
                 &mut utxos_cloned,
                 signer,
+                true,
             );
             let serialized_tx = SerializedTx::new(tx_cloned);
             cmp::max(min_tx_size, serialized_tx.bytes.len() as u64)
@@ -1731,6 +1732,7 @@ impl BitcoinRegtestController {
             spent_in_outputs + tx_size * fee_rate + rbf_fee,
             utxos_set,
             signer,
+            true,
         );
         signer.dispose();
         Some(())
@@ -1744,38 +1746,45 @@ impl BitcoinRegtestController {
         &mut self,
         epoch_id: StacksEpochId,
         tx: &mut Transaction,
-        total_to_spend: u64,
+        tx_cost: u64,
         utxos_set: &mut UTXOSet,
         signer: &mut BurnchainOpSigner,
+        force_change_output: bool,
     ) -> bool {
         let mut public_key = signer.get_public_key();
-        let mut total_consumed = 0;
+
+        let total_target = if force_change_output {
+            tx_cost + DUST_UTXO_LIMIT
+        } else {
+            tx_cost
+        };
 
         // select UTXOs until we have enough to cover the cost
+        let mut total_consumed = 0;
         let mut available_utxos = vec![];
         available_utxos.append(&mut utxos_set.utxos);
         for utxo in available_utxos.into_iter() {
             total_consumed += utxo.amount;
             utxos_set.utxos.push(utxo);
 
-            if total_consumed >= total_to_spend {
+            if total_consumed >= total_target {
                 break;
             }
         }
 
-        if total_consumed < total_to_spend {
+        if total_consumed < total_target {
             warn!(
                 "Consumed total {} is less than intended spend: {}",
-                total_consumed, total_to_spend
+                total_consumed, total_target
             );
             return false;
         }
 
         // Append the change output
-        let value = total_consumed - total_to_spend;
+        let value = total_consumed - tx_cost;
         debug!(
             "Payments value: {:?}, total_consumed: {:?}, total_spent: {:?}",
-            value, total_consumed, total_to_spend
+            value, total_consumed, total_target
         );
         if value >= DUST_UTXO_LIMIT {
             let change_output = if self.config.miner.segwit && epoch_id >= StacksEpochId::Epoch21 {
