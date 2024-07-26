@@ -76,7 +76,7 @@ The timing of the next Stacking cycle can be found [here](https://stx.eco/dao/to
 
 6. Once the release candidate has been built and binaries are available, ecosystem participants shall be notified to test the tagged release on various staging infrastructure.
 
-7. The release candidate will tested that it successfully syncs with the current chain from genesis both in testnet and mainnet.
+7. The release candidate will test that it successfully syncs with the current chain from genesis both in testnet and mainnet.
 
 8. If bugs or issues emerge from the rollout on staging infrastructure, the release will be delayed until those regressions are resolved.
 
