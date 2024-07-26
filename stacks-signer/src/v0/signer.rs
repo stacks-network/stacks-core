@@ -153,7 +153,7 @@ impl SignerTrait<SignerMessage> for Signer {
                 burn_header_hash,
                 received_time,
             } => {
-                debug!("{self}: Receved a new burn block event for block height {burn_height}");
+                info!("{self}: Receved a new burn block event for block height {burn_height}");
                 if let Err(e) =
                     self.signer_db
                         .insert_burn_block(burn_header_hash, *burn_height, received_time)
@@ -251,7 +251,7 @@ impl Signer {
         block_proposal: &BlockProposal,
         miner_pubkey: &Secp256k1PublicKey,
     ) {
-        debug!("{self}: Received a block proposal: {block_proposal:?}");
+        info!("{self}: Received a block proposal: {block_proposal:?}");
         if block_proposal.reward_cycle != self.reward_cycle {
             // We are not signing for this reward cycle. Ignore the block.
             debug!(
@@ -388,7 +388,7 @@ impl Signer {
 
     /// Handle the block validate response returned from our prior calls to submit a block for validation
     fn handle_block_validate_response(&mut self, block_validate_response: &BlockValidateResponse) {
-        debug!("{self}: Received a block validate response: {block_validate_response:?}");
+        info!("{self}: Received a block validate response: {block_validate_response:?}");
         let (response, block_info) = match block_validate_response {
             BlockValidateResponse::Ok(block_validate_ok) => {
                 crate::monitoring::increment_block_validation_responses(true);

@@ -201,7 +201,7 @@ impl SignerTrait<SignerMessage> for Signer {
         };
         match event {
             SignerEvent::BlockValidationResponse(block_validate_response) => {
-                debug!("{self}: Received a block proposal result from the stacks node...");
+                info!("{self}: Received a block proposal result from the stacks node...");
                 self.handle_block_validate_response(
                     stacks_client,
                     block_validate_response,
@@ -244,7 +244,7 @@ impl SignerTrait<SignerMessage> for Signer {
                 burn_header_hash,
                 received_time,
             } => {
-                debug!("{self}: Receved a new burn block event for block height {burn_height}");
+                info!("{self}: Received a new burn block event for block height {burn_height}");
                 if let Err(e) =
                     self.signer_db
                         .insert_burn_block(burn_header_hash, *burn_height, received_time)
@@ -703,7 +703,7 @@ impl Signer {
             };
             self.handle_packets(stacks_client, res, &[packet], current_reward_cycle);
         }
-        debug!(
+        info!(
             "{self}: Received a block validate response";
             "block_hash" => block_info.block.header.block_hash(),
             "valid" => block_info.valid,
