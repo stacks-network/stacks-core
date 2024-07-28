@@ -42,6 +42,8 @@ extern crate alloc;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about)]
+#[command(long_version = option_env!("SIGNER_VERSION").unwrap_or(env!("CARGO_PKG_VERSION")))]
+
 /// The CLI arguments for the stacks signer
 pub struct Cli {
     /// Subcommand action to take
