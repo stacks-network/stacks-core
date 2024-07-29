@@ -1039,16 +1039,13 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
             }
 
             let chunk_push = self.chunk_push_priorities[cur_priority].0.clone();
+            // try the first neighbor in the chunk_push_priorities list
             let selected_neighbor_opt = self.chunk_push_priorities[cur_priority]
                 .1
-                .iter()
-                .enumerate()
-                // .find(|(_i, naddr)| !self.comms.has_inflight(naddr));
-                .find(|(_i, _naddr)| true);
+                .first()
+                .map(|neighbor| (0, neighbor));
 
-            let (idx, selected_neighbor) = if let Some(x) = selected_neighbor_opt {
-                x
-            } else {
+            let Some((idx, selected_neighbor)) = selected_neighbor_opt else {
                 debug!("{:?}: pushchunks_begin: no available neighbor to send StackerDBChunk(db={},id={},ver={}) to",
                     &network.get_local_peer(),
                     &self.smart_contract_id,
