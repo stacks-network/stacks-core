@@ -222,6 +222,32 @@ impl BlockMinerThread {
         // now, actually run this tenure
         loop {
             let new_block = loop {
+                if self.config.get_node_config(false).mock_mining {
+                    let burn_db_path = self.config.get_burn_db_file_path();
+                    let mut burn_db = SortitionDB::open(
+                        &burn_db_path,
+                        true,
+                        self.burnchain.pox_constants.clone(),
+                    )
+                    .expect("FATAL: could not open sortition DB");
+                    let burn_tip_changed = self.check_burn_tip_changed(&burn_db);
+                    let mut chain_state = neon_node::open_chainstate_with_faults(&self.config)
+                        .expect("FATAL: could not open chainstate DB");
+                    match burn_tip_changed
+                        .and_then(|_| self.load_block_parent_info(&mut burn_db, &mut chain_state))
+                    {
+                        Ok(..) => {}
+                        Err(NakamotoNodeError::ParentNotFound) => {
+                            info!("Mock miner has not processed parent block yet, sleeping and trying again");
+                            thread::sleep(Duration::from_millis(ABORT_TRY_AGAIN_MS));
+                            continue;
+                        }
+                        Err(e) => {
+                            warn!("Mock miner failed to load parent info: {e:?}");
+                            return Err(e);
+                        }
+                    }
+                }
                 match self.mine_block(&stackerdbs) {
                     Ok(x) => break Some(x),
                     Err(NakamotoNodeError::MiningFailure(ChainstateError::MinerAborted)) => {
@@ -401,6 +427,10 @@ impl BlockMinerThread {
             ));
         };
 
+        if self.config.get_node_config(false).mock_mining {
+            return Ok((reward_set, Vec::new()));
+        }
+
         let miner_privkey_as_scalar = Scalar::from(miner_privkey.as_slice().clone());
         let mut coordinator =
             SignCoordinator::new(&reward_set, miner_privkey_as_scalar, &self.config).map_err(
@@ -410,10 +440,6 @@ impl BlockMinerThread {
                     ))
                 },
             )?;
-
-        if self.config.get_node_config(false).mock_mining {
-            return Ok((reward_set, Vec::new()));
-        }
 
         *attempts += 1;
         let signature = coordinator.begin_sign_v0(

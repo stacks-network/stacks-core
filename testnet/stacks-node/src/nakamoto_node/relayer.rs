@@ -794,7 +794,7 @@ impl RelayerThread {
 
     fn continue_tenure(&mut self, new_burn_view: ConsensusHash) -> Result<(), NakamotoNodeError> {
         if let Err(e) = self.stop_tenure() {
-            error!("Relayer: Failed to stop tenure: {:?}", e);
+            error!("Relayer: Failed to stop tenure: {e:?}");
             return Ok(());
         }
         debug!("Relayer: successfully stopped tenure.");
@@ -867,7 +867,7 @@ impl RelayerThread {
                 debug!("Relayer: successfully started new tenure.");
             }
             Err(e) => {
-                error!("Relayer: Failed to start new tenure: {:?}", e);
+                error!("Relayer: Failed to start new tenure: {e:?}");
             }
         }
         Ok(())
@@ -879,13 +879,11 @@ impl RelayerThread {
         burn_hash: BurnchainHeaderHash,
         committed_index_hash: StacksBlockId,
     ) -> bool {
-        let miner_instruction =
-            match self.process_sortition(consensus_hash, burn_hash, committed_index_hash) {
-                Ok(mi) => mi,
-                Err(_) => {
-                    return false;
-                }
-            };
+        let Ok(miner_instruction) =
+            self.process_sortition(consensus_hash, burn_hash, committed_index_hash)
+        else {
+            return false;
+        };
 
         match miner_instruction {
             MinerDirective::BeginTenure {
@@ -901,7 +899,7 @@ impl RelayerThread {
                     debug!("Relayer: successfully started new tenure.");
                 }
                 Err(e) => {
-                    error!("Relayer: Failed to start new tenure: {:?}", e);
+                    error!("Relayer: Failed to start new tenure: {e:?}");
                 }
             },
             MinerDirective::ContinueTenure { new_burn_view } => {
@@ -910,7 +908,7 @@ impl RelayerThread {
                         debug!("Relayer: successfully handled continue tenure.");
                     }
                     Err(e) => {
-                        error!("Relayer: Failed to continue tenure: {:?}", e);
+                        error!("Relayer: Failed to continue tenure: {e:?}");
                         return false;
                     }
                 }
@@ -920,7 +918,7 @@ impl RelayerThread {
                     debug!("Relayer: successfully stopped tenure.");
                 }
                 Err(e) => {
-                    error!("Relayer: Failed to stop tenure: {:?}", e);
+                    error!("Relayer: Failed to stop tenure: {e:?}");
                 }
             },
         }
