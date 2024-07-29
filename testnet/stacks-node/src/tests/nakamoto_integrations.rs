@@ -1571,14 +1571,15 @@ fn mine_multiple_per_tenure_integration() {
 
 #[test]
 #[ignore]
-/// This test spins up a nakamoto-neon node.
+/// This test spins up two nakamoto nodes, both configured to mine.
 /// It starts in Epoch 2.0, mines with `neon_node` to Epoch 3.0, and then switches
 ///  to Nakamoto operation (activating pox-4 by submitting a stack-stx tx). The BootLoop
 ///  struct handles the epoch-2/3 tear-down and spin-up.
 /// This test makes three assertions:
-///  * 5 tenures are mined after 3.0 starts
-///  * Each tenure has 10 blocks (the coinbase block and 9 interim blocks)
-fn multiple_nodes() {
+///  * 15 tenures are mined after 3.0 starts
+///  * Each tenure has 6 blocks (the coinbase block and 5 interim blocks)
+///  * Both nodes see the same chainstate at the end of the test
+fn multiple_miners() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
     }
@@ -1683,7 +1684,7 @@ fn multiple_nodes() {
     let coord_channel = run_loop.coordinator_channels();
     let coord_channel_2 = run_loop_2.coordinator_channels();
 
-    let run_loop_2_thread = thread::Builder::new()
+    let _run_loop_2_thread = thread::Builder::new()
         .name("run_loop_2".into())
         .spawn(move || run_loop_2.start(None, 0))
         .unwrap();
@@ -1733,11 +1734,7 @@ fn multiple_nodes() {
     info!("Neighbors 2"; "neighbors" => ?get_neighbors(&conf_node_2));
 
     // Wait one block to confirm the VRF register, wait until a block commit is submitted
-    next_block_and(&mut btc_regtest_controller, 60, || {
-        let commits_count = commits_submitted.load(Ordering::SeqCst);
-        Ok(commits_count >= 1)
-    })
-    .unwrap();
+    wait_for_first_naka_block_commit(60, &commits_submitted);
 
     // Mine `tenure_count` nakamoto tenures
     for tenure_ix in 0..tenure_count {
@@ -1799,8 +1796,10 @@ fn multiple_nodes() {
         "is_nakamoto" => tip.anchored_header.as_stacks_nakamoto().is_some(),
     );
 
-    info!("Peer 1 information"; "chain_info" => ?get_chain_info(&naka_conf).stacks_tip_height);
-    info!("Peer 2 information"; "chain_info" => ?get_chain_info(&conf_node_2).stacks_tip_height);
+    let peer_1_height = get_chain_info(&naka_conf).stacks_tip_height;
+    let peer_2_height = get_chain_info(&conf_node_2).stacks_tip_height;
+    info!("Peer height information"; "peer_1" => peer_1_height, "peer_2" => peer_2_height);
+    assert_eq!(peer_1_height, peer_2_height);
 
     assert!(tip.anchored_header.as_stacks_nakamoto().is_some());
     assert_eq!(
@@ -1821,7 +1820,6 @@ fn multiple_nodes() {
     run_loop_2_stopper.store(false, Ordering::SeqCst);
 
     run_loop_thread.join().unwrap();
-    //    run_loop_2_thread.join().unwrap();
 }
 
 #[test]

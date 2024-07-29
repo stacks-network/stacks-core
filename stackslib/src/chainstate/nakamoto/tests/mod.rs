@@ -2080,9 +2080,8 @@ fn test_make_miners_stackerdb_config() {
         let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
         let miner_privkey = &miner_keys[i];
         let miner_pubkey = StacksPublicKey::from_private(miner_privkey);
-        let slot_id =
-            NakamotoChainState::get_miner_slot(&sort_db, &tip, &block.header.consensus_hash)
-                .expect("Failed to get miner slot");
+        let slot_id = NakamotoChainState::get_miner_slot(&sort_db, &tip, &tip.consensus_hash)
+            .expect("Failed to get miner slot");
         if sortition {
             let slot_id = slot_id.expect("No miner slot exists for this miner").start;
             let slot_version = stackerdbs

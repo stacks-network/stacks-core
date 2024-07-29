@@ -455,6 +455,8 @@ impl MaturedMinerPaymentSchedules {
     }
 }
 
+/// Struct containing information about the miners assigned in the
+/// .miners stackerdb config
 pub struct MinersDBInformation {
     signer_0_sortition: ConsensusHash,
     signer_1_sortition: ConsensusHash,
@@ -462,6 +464,8 @@ pub struct MinersDBInformation {
 }
 
 impl MinersDBInformation {
+    /// What index in the `.miners` stackerdb is the miner who won
+    /// `sortition`?
     pub fn get_signer_index(&self, sortition: &ConsensusHash) -> Option<u16> {
         if sortition == &self.signer_0_sortition {
             Some(0)
@@ -472,6 +476,12 @@ impl MinersDBInformation {
         }
     }
 
+    /// Get all of the sortitions whose winners are included in .miners
+    pub fn get_sortitions(&self) -> [&ConsensusHash; 2] {
+        [&self.signer_0_sortition, &self.signer_1_sortition]
+    }
+
+    /// Get the index of the latest sortition winner in .miners
     pub fn get_latest_winner_index(&self) -> u16 {
         self.latest_winner
     }
@@ -4160,14 +4170,18 @@ impl NakamotoChainState {
             .map(usize::from)
         else {
             warn!("Miner is not in the miners StackerDB config";
-                  "stackerdb_slots" => format!("{:?}", &stackerdb_config.signers));
+                  "stackerdb_slots" => ?stackerdb_config.signers,
+                  "queried_sortition" => %election_sortition,
+                  "sortition_hashes" => ?miners_info.get_sortitions());
             return Ok(None);
         };
         let mut signer_ranges = stackerdb_config.signer_ranges();
         if signer_ix >= signer_ranges.len() {
             // should be unreachable, but always good to be careful
             warn!("Miner is not in the miners StackerDB config";
-                  "stackerdb_slots" => format!("{:?}", &stackerdb_config.signers));
+                  "stackerdb_slots" => ?stackerdb_config.signers,
+                  "queried_sortition" => %election_sortition,
+                  "sortition_hashes" => ?miners_info.get_sortitions());
 
             return Ok(None);
         }
