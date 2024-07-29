@@ -37,12 +37,36 @@ use stacks_common::address::{
 };
 use stacks_common::define_u8_enum;
 use stacks_common::types::chainstate::StacksPrivateKey;
+use once_cell::sync::Lazy;
 
 extern crate alloc;
 
+const GIT_BRANCH: Option<&'static str> = option_env!("GIT_BRANCH");
+const GIT_COMMIT: Option<&'static str> = option_env!("GIT_COMMIT");
+#[cfg(debug_assertions)]
+const BUILD_TYPE: &'static str = "debug";
+#[cfg(not(debug_assertions))]
+const BUILD_TYPE: &'static str = "release";
+
+
+static VERSION_STRING: Lazy<String> = Lazy::new(|| {
+    let pkg_version = option_env!("STACKS_NODE_VERSION").unwrap_or(env!("CARGO_PKG_VERSION"));
+    let git_branch = GIT_BRANCH.unwrap_or("");
+    let git_commit = GIT_COMMIT.unwrap_or(""); 
+    format!(
+        "{} ({}:{}, {} build, {} [{}])",
+        pkg_version,
+        git_branch,
+        git_commit,
+        BUILD_TYPE,
+        std::env::consts::OS,
+        std::env::consts::ARCH
+    )
+});
+
 #[derive(Parser, Debug)]
 #[command(author, version, about)]
-#[command(long_version = option_env!("SIGNER_VERSION").unwrap_or(env!("CARGO_PKG_VERSION")))]
+#[command(long_version = VERSION_STRING.as_str())]
 
 /// The CLI arguments for the stacks signer
 pub struct Cli {
