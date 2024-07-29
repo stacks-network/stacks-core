@@ -29,6 +29,7 @@ use clarity::util::hash::Sha256Sum;
 use clarity::util::secp256k1::MessageSignature;
 use clarity::vm::types::{QualifiedContractIdentifier, TupleData};
 use clarity::vm::Value;
+use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use stacks_common::address::{
     b58, AddressHashMode, C32_ADDRESS_VERSION_MAINNET_MULTISIG,
@@ -37,7 +38,6 @@ use stacks_common::address::{
 };
 use stacks_common::define_u8_enum;
 use stacks_common::types::chainstate::StacksPrivateKey;
-use once_cell::sync::Lazy;
 
 extern crate alloc;
 
@@ -48,11 +48,10 @@ const BUILD_TYPE: &'static str = "debug";
 #[cfg(not(debug_assertions))]
 const BUILD_TYPE: &'static str = "release";
 
-
 static VERSION_STRING: Lazy<String> = Lazy::new(|| {
     let pkg_version = option_env!("STACKS_NODE_VERSION").unwrap_or(env!("CARGO_PKG_VERSION"));
     let git_branch = GIT_BRANCH.unwrap_or("");
-    let git_commit = GIT_COMMIT.unwrap_or(""); 
+    let git_commit = GIT_COMMIT.unwrap_or("");
     format!(
         "{} ({}:{}, {} build, {} [{}])",
         pkg_version,
