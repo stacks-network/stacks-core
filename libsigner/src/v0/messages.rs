@@ -238,7 +238,7 @@ pub struct MockSignature {
     /// The signature across the stacks consensus hash
     signature: MessageSignature,
     /// The block hash that the signature is across
-    stacks_consensus_hash: ConsensusHash,
+    pub stacks_consensus_hash: ConsensusHash,
 }
 
 impl MockSignature {

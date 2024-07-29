@@ -86,7 +86,7 @@ impl SignerTrait<SignerMessage> for Signer {
         sortition_state: &mut Option<SortitionsView>,
         event: Option<&SignerEvent<SignerMessage>>,
         _res: Sender<Vec<SignerResult>>,
-        _current_reward_cycle: u64,
+        current_reward_cycle: u64,
     ) {
         let event_parity = match event {
             // Block proposal events do have reward cycles, but each proposal has its own cycle,
@@ -155,7 +155,7 @@ impl SignerTrait<SignerMessage> for Signer {
                 burn_header_hash,
                 received_time,
             } => {
-                debug!("{self}: Receved a new burn block event for block height {burn_height}");
+                debug!("{self}: Received a new burn block event for block height {burn_height}");
                 if let Err(e) =
                     self.signer_db
                         .insert_burn_block(burn_header_hash, *burn_height, received_time)
@@ -168,9 +168,12 @@ impl SignerTrait<SignerMessage> for Signer {
                     );
                 }
                 *sortition_state = None;
-                if let Ok(StacksEpochId::Epoch25) = stacks_client.get_node_epoch() {
-                    // We are in epoch 25, so we should mock mine to prove we are still alive.
-                    self.mock_mine(stacks_client);
+                if self.reward_cycle == current_reward_cycle {
+                    if let Ok(StacksEpochId::Epoch25) = stacks_client.get_node_epoch() {
+                        // We are in epoch 2.5, so we should mock mine to prove we are still alive.
+                        debug!("Mock signing for burn block {burn_height:?}");
+                        self.mock_sign(stacks_client);
+                    }
                 };
             }
         }
@@ -470,13 +473,15 @@ impl Signer {
     }
 
     /// Send a mock signature to stackerdb to prove we are still alive
-    fn mock_mine(&mut self, stacks_client: &StacksClient) {
+    fn mock_sign(&mut self, stacks_client: &StacksClient) {
         let Ok(peer_info) = stacks_client.get_peer_info() else {
             warn!("{self}: Failed to get peer info. Cannot mock mine.");
             return;
         };
+        let consensus_hash = peer_info.stacks_tip_consensus_hash;
+        debug!("Mock signing using stacks tip {consensus_hash:?}");
         let mock_signature =
-            MockSignature::new(peer_info.stacks_tip_consensus_hash, &self.private_key);
+            MockSignature::new(consensus_hash, &self.private_key);
         let message = SignerMessage::MockSignature(mock_signature);
         if let Err(e) = self
             .stackerdb
