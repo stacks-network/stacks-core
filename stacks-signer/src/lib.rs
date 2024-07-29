@@ -1,6 +1,6 @@
 #![forbid(missing_docs)]
 /*!
-# stacks-signer: a libary for creating a Stacks compliant signer. A default implementation binary is also provided.
+# stacks-signer: a library for creating a Stacks compliant signer. A default implementation binary is also provided.
 Usage documentation can be found in the [README](https://github.com/Trust-Machines/core-eng/stacks-signer-api/README.md).
 */
 

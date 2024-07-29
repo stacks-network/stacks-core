@@ -279,7 +279,7 @@ impl SignerTrait<SignerMessage> for Signer {
                 debug!("{self}: Received a status check event.")
             }
             Some(SignerEvent::NewBurnBlock(height)) => {
-                debug!("{self}: Receved a new burn block event for block height {height}")
+                debug!("{self}: Received a new burn block event for block height {height}")
             }
             None => {
                 // No event. Do nothing.
