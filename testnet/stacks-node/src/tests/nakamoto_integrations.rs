@@ -1024,6 +1024,18 @@ pub fn boot_to_epoch_3_reward_set(
     info!("Bootstrapped to Epoch 3.0 reward set calculation height: {epoch_3_reward_set_calculation}.");
 }
 
+/// Wait for a block commit, without producing a block
+fn wait_for_first_naka_block_commit(timeout_secs: u64, naka_commits_submitted: &Arc<AtomicU64>) {
+    let start = Instant::now();
+    while naka_commits_submitted.load(Ordering::SeqCst) < 1 {
+        if start.elapsed() > Duration::from_secs(timeout_secs) {
+            error!("Timed out waiting for block commit");
+            panic!();
+        }
+        thread::sleep(Duration::from_millis(100));
+    }
+}
+
 #[test]
 #[ignore]
 /// This test spins up a nakamoto-neon node.
@@ -1134,12 +1146,7 @@ fn simple_neon_integration() {
     info!("Nakamoto miner started...");
     blind_signer(&naka_conf, &signers, proposals_submitted);
 
-    // Wait one block to confirm the VRF register, wait until a block commit is submitted
-    next_block_and(&mut btc_regtest_controller, 60, || {
-        let commits_count = commits_submitted.load(Ordering::SeqCst);
-        Ok(commits_count >= 1)
-    })
-    .unwrap();
+    wait_for_first_naka_block_commit(60, &commits_submitted);
 
     // Mine 15 nakamoto tenures
     for _i in 0..15 {
@@ -1231,6 +1238,10 @@ fn simple_neon_integration() {
 
     assert!(tip.anchored_header.as_stacks_nakamoto().is_some());
     assert!(tip.stacks_block_height >= block_height_pre_3_0 + 30);
+
+    // Check that we aren't missing burn blocks
+    let bhh = u64::from(tip.burn_header_height);
+    test_observer::contains_burn_block_range(220..=bhh).unwrap();
 
     // make sure prometheus returns an updated height
     #[cfg(feature = "monitoring_prom")]
@@ -1355,12 +1366,7 @@ fn mine_multiple_per_tenure_integration() {
     info!("Nakamoto miner started...");
     blind_signer(&naka_conf, &signers, proposals_submitted);
 
-    // Wait one block to confirm the VRF register, wait until a block commit is submitted
-    next_block_and(&mut btc_regtest_controller, 60, || {
-        let commits_count = commits_submitted.load(Ordering::SeqCst);
-        Ok(commits_count >= 1)
-    })
-    .unwrap();
+    wait_for_first_naka_block_commit(60, &commits_submitted);
 
     // Mine `tenure_count` nakamoto tenures
     for tenure_ix in 0..tenure_count {
@@ -1672,12 +1678,7 @@ fn correct_burn_outs() {
     );
     assert_eq!(stacker_response.stacker_set.rewarded_addresses.len(), 1);
 
-    // Wait one block to confirm the VRF register, wait until a block commit is submitted
-    next_block_and(&mut btc_regtest_controller, 60, || {
-        let commits_count = commits_submitted.load(Ordering::SeqCst);
-        Ok(commits_count >= 1)
-    })
-    .unwrap();
+    wait_for_first_naka_block_commit(60, &commits_submitted);
 
     info!("Bootstrapped to Epoch-3.0 boundary, mining nakamoto blocks");
 
@@ -1874,12 +1875,7 @@ fn block_proposal_api_endpoint() {
 
     info!("Nakamoto miner started...");
 
-    // Wait one block to confirm the VRF register, wait until a block commit is submitted
-    next_block_and(&mut btc_regtest_controller, 60, || {
-        let commits_count = commits_submitted.load(Ordering::SeqCst);
-        Ok(commits_count >= 1)
-    })
-    .unwrap();
+    wait_for_first_naka_block_commit(60, &commits_submitted);
 
     // Mine 3 nakamoto tenures
     for _ in 0..3 {
@@ -2218,12 +2214,7 @@ fn miner_writes_proposed_block_to_stackerdb() {
     info!("Nakamoto miner started...");
     blind_signer(&naka_conf, &signers, proposals_submitted);
 
-    // Wait one block to confirm the VRF register, wait until a block commit is submitted
-    next_block_and(&mut btc_regtest_controller, 60, || {
-        let commits_count = commits_submitted.load(Ordering::SeqCst);
-        Ok(commits_count >= 1)
-    })
-    .unwrap();
+    wait_for_first_naka_block_commit(60, &commits_submitted);
 
     // Mine 1 nakamoto tenure
     next_block_and_mine_commit(
@@ -2353,12 +2344,7 @@ fn vote_for_aggregate_key_burn_op() {
     info!("Nakamoto miner started...");
     blind_signer(&naka_conf, &signers, proposals_submitted);
 
-    // Wait one block to confirm the VRF register, wait until a block commit is submitted
-    next_block_and(&mut btc_regtest_controller, 60, || {
-        let commits_count = commits_submitted.load(Ordering::SeqCst);
-        Ok(commits_count >= 1)
-    })
-    .unwrap();
+    wait_for_first_naka_block_commit(60, &commits_submitted);
 
     // submit a pre-stx op
     let mut miner_signer = Keychain::default(naka_conf.node.seed.clone()).generate_op_signer();
@@ -2612,12 +2598,7 @@ fn follower_bootup() {
     info!("Nakamoto miner started...");
     blind_signer(&naka_conf, &signers, proposals_submitted);
 
-    // Wait one block to confirm the VRF register, wait until a block commit is submitted
-    next_block_and(&mut btc_regtest_controller, 60, || {
-        let commits_count = commits_submitted.load(Ordering::SeqCst);
-        Ok(commits_count >= 1)
-    })
-    .unwrap();
+    wait_for_first_naka_block_commit(60, &commits_submitted);
 
     let mut follower_conf = naka_conf.clone();
     follower_conf.events_observers.clear();
@@ -2916,12 +2897,7 @@ fn stack_stx_burn_op_integration_test() {
     info!("Nakamoto miner started...");
     blind_signer(&naka_conf, &signers, proposals_submitted);
 
-    // Wait one block to confirm the VRF register, wait until a block commit is submitted
-    next_block_and(&mut btc_regtest_controller, 60, || {
-        let commits_count = commits_submitted.load(Ordering::SeqCst);
-        Ok(commits_count >= 1)
-    })
-    .unwrap();
+    wait_for_first_naka_block_commit(60, &commits_submitted);
 
     let block_height = btc_regtest_controller.get_headers_height();
 
@@ -3360,12 +3336,7 @@ fn forked_tenure_is_ignored() {
     blind_signer(&naka_conf, &signers, proposals_submitted);
 
     info!("Starting tenure A.");
-    // Wait one block to confirm the VRF register, wait until a block commit is submitted
-    next_block_and(&mut btc_regtest_controller, 60, || {
-        let commits_count = commits_submitted.load(Ordering::SeqCst);
-        Ok(commits_count >= 1)
-    })
-    .unwrap();
+    wait_for_first_naka_block_commit(60, &commits_submitted);
 
     // In the next block, the miner should win the tenure and submit a stacks block
     let commits_before = commits_submitted.load(Ordering::SeqCst);
@@ -3662,12 +3633,7 @@ fn check_block_heights() {
     let preheights = heights0_value.expect_tuple().unwrap();
     info!("Heights from pre-epoch 3.0: {}", preheights);
 
-    // Wait one block to confirm the VRF register, wait until a block commit is submitted
-    next_block_and(&mut btc_regtest_controller, 60, || {
-        let commits_count = commits_submitted.load(Ordering::SeqCst);
-        Ok(commits_count >= 1)
-    })
-    .unwrap();
+    wait_for_first_naka_block_commit(60, &commits_submitted);
 
     let info = get_chain_info_result(&naka_conf).unwrap();
     info!("Chain info: {:?}", info);
@@ -4051,12 +4017,7 @@ fn nakamoto_attempt_time() {
 
     info!("Nakamoto miner started...");
 
-    // Wait one block to confirm the VRF register, wait until a block commit is submitted
-    next_block_and(&mut btc_regtest_controller, 60, || {
-        let commits_count = commits_submitted.load(Ordering::SeqCst);
-        Ok(commits_count >= 1)
-    })
-    .unwrap();
+    wait_for_first_naka_block_commit(60, &commits_submitted);
 
     // Mine 3 nakamoto tenures
     for _ in 0..3 {
@@ -4340,12 +4301,7 @@ fn clarity_burn_state() {
     info!("Nakamoto miner started...");
     blind_signer(&naka_conf, &signers, proposals_submitted);
 
-    // Wait one block to confirm the VRF register, wait until a block commit is submitted
-    next_block_and(&mut btc_regtest_controller, 60, || {
-        let commits_count = commits_submitted.load(Ordering::SeqCst);
-        Ok(commits_count >= 1)
-    })
-    .unwrap();
+    wait_for_first_naka_block_commit(60, &commits_submitted);
 
     let mut sender_nonce = 0;
 
@@ -4624,12 +4580,7 @@ fn signer_chainstate() {
         false,
     );
 
-    // Wait one block to confirm the VRF register, wait until a block commit is submitted
-    next_block_and(&mut btc_regtest_controller, 60, || {
-        let commits_count = commits_submitted.load(Ordering::SeqCst);
-        Ok(commits_count >= 1)
-    })
-    .unwrap();
+    wait_for_first_naka_block_commit(60, &commits_submitted);
 
     let mut signer_db =
         SignerDb::new(format!("{}/signer_db_path", naka_conf.node.working_dir)).unwrap();
@@ -5155,12 +5106,7 @@ fn continue_tenure_extend() {
     info!("Nakamoto miner started...");
     blind_signer(&naka_conf, &signers, proposals_submitted);
 
-    // Wait one block to confirm the VRF register, wait until a block commit is submitted
-    next_block_and(&mut btc_regtest_controller, 60, || {
-        let commits_count = commits_submitted.load(Ordering::SeqCst);
-        Ok(commits_count >= 1)
-    })
-    .unwrap();
+    wait_for_first_naka_block_commit(60, &commits_submitted);
 
     // Mine a regular nakamoto tenure
     next_block_and_mine_commit(
@@ -5443,12 +5389,7 @@ fn check_block_times() {
         .unwrap();
     info!("Time from pre-epoch 3.0: {}", time0);
 
-    // Wait one block to confirm the VRF register, wait until a block commit is submitted
-    next_block_and(&mut btc_regtest_controller, 60, || {
-        let commits_count = commits_submitted.load(Ordering::SeqCst);
-        Ok(commits_count >= 1)
-    })
-    .unwrap();
+    wait_for_first_naka_block_commit(60, &commits_submitted);
 
     // This version uses the Clarity 1 / 2 function
     let contract1_name = "test-contract-1";
@@ -5928,12 +5869,7 @@ fn check_block_info() {
     let tuple0 = result0.expect_tuple().unwrap().data_map;
     info!("Info from pre-epoch 3.0: {:?}", tuple0);
 
-    // Wait one block to confirm the VRF register, wait until a block commit is submitted
-    next_block_and(&mut btc_regtest_controller, 60, || {
-        let commits_count = commits_submitted.load(Ordering::SeqCst);
-        Ok(commits_count >= 1)
-    })
-    .unwrap();
+    wait_for_first_naka_block_commit(60, &commits_submitted);
 
     // This version uses the Clarity 1 / 2 function
     let contract1_name = "test-contract-1";
@@ -6436,12 +6372,7 @@ fn check_block_info_rewards() {
     let tuple0 = result0.expect_tuple().unwrap().data_map;
     info!("Info from pre-epoch 3.0: {:?}", tuple0);
 
-    // Wait one block to confirm the VRF register, wait until a block commit is submitted
-    next_block_and(&mut btc_regtest_controller, 60, || {
-        let commits_count = commits_submitted.load(Ordering::SeqCst);
-        Ok(commits_count >= 1)
-    })
-    .unwrap();
+    wait_for_first_naka_block_commit(60, &commits_submitted);
 
     // This version uses the Clarity 1 / 2 function
     let contract1_name = "test-contract-1";
