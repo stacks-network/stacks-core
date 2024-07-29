@@ -15,11 +15,10 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use clarity::vm::clarity::ClarityConnection;
-use clarity::vm::representations::{
-    CONTRACT_NAME_REGEX_STRING, METADATA_KEY_REGEX_STRING, STANDARD_PRINCIPAL_REGEX_STRING,
-};
+use clarity::vm::representations::{CONTRACT_NAME_REGEX_STRING, STANDARD_PRINCIPAL_REGEX_STRING};
 use clarity::vm::types::QualifiedContractIdentifier;
 use clarity::vm::ContractName;
+use lazy_static::lazy_static;
 use regex::{Captures, Regex};
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::net::PeerHost;
@@ -33,6 +32,15 @@ use crate::net::httpcore::{
     StacksHttpRequest, StacksHttpResponse,
 };
 use crate::net::{Error as NetError, StacksNodeState, TipRequest};
+
+lazy_static! {
+    static ref CLARITY_NAME_NO_BOUNDARIES_REGEX_STRING: String =
+        "[a-zA-Z]([a-zA-Z0-9]|[-_!?+<>=/*])*|[-+=/*]|[<>]=?".into();
+    static ref METADATA_KEY_REGEX_STRING: String = format!(
+        r"vm-metadata::\d+::(contract|contract-size|contract-src|contract-data-size|({}))",
+        *CLARITY_NAME_NO_BOUNDARIES_REGEX_STRING,
+    );
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ClarityMetadataResponse {
@@ -61,7 +69,7 @@ impl HttpRequest for RPCGetClarityMetadataRequestHandler {
 
     fn path_regex(&self) -> Regex {
         Regex::new(&format!(
-            r"^/v2/clarity_metadata/(?P<address>{})/(?P<contract>{})/(?P<clarity_metadata_key>(analysis)|({}))$",
+            r"^/v2/clarity/metadata/(?P<address>{})/(?P<contract>{})/(?P<clarity_metadata_key>(analysis)|({}))$",
             *STANDARD_PRINCIPAL_REGEX_STRING,
             *CONTRACT_NAME_REGEX_STRING,
             *METADATA_KEY_REGEX_STRING
@@ -70,7 +78,7 @@ impl HttpRequest for RPCGetClarityMetadataRequestHandler {
     }
 
     fn metrics_identifier(&self) -> &str {
-        "/v2/clarity_metadata/:principal/:contract_name/:clarity_metadata_key"
+        "/v2/clarity/metadata/:principal/:contract_name/:clarity_metadata_key"
     }
 
     /// Try to decode this request.
@@ -89,7 +97,15 @@ impl HttpRequest for RPCGetClarityMetadataRequestHandler {
         }
 
         let contract_identifier = request::get_contract_address(captures, "address", "contract")?;
-        let metadata_key = request::get_clarity_key(captures, "clarity_metadata_key")?;
+
+        let metadata_key = if let Some(key_str) = captures.name("clarity_metadata_key") {
+            key_str.as_str().to_string()
+        } else {
+            return Err(Error::Http(
+                404,
+                "Missing `clarity_metadata_key`".to_string(),
+            ));
+        };
 
         self.contract_identifier = Some(contract_identifier);
         self.clarity_metadata_key = Some(metadata_key);
@@ -197,7 +213,7 @@ impl StacksHttpRequest {
             host,
             "GET".into(),
             format!(
-                "/v2/clarity_metadata/{}/{}/{}",
+                "/v2/clarity/metadata/{}/{}/{}",
                 &contract_addr, &contract_name, &clarity_metadata_key
             ),
             HttpRequestContents::new().for_tip(tip_req),

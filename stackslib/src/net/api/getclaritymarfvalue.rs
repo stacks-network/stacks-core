@@ -15,9 +15,8 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use clarity::vm::clarity::ClarityConnection;
-use clarity::vm::representations::{
-    MARF_KEY_FOR_QUAD_REGEX_STRING, MARF_KEY_FOR_TRIP_REGEX_STRING,
-};
+use clarity::vm::representations::CONTRACT_PRINCIPAL_REGEX_STRING;
+use lazy_static::lazy_static;
 use regex::{Captures, Regex};
 use stacks_common::types::net::PeerHost;
 use stacks_common::util::hash::to_hex;
@@ -32,8 +31,19 @@ use crate::net::httpcore::{
 };
 use crate::net::{Error as NetError, StacksNodeState, TipRequest};
 
+lazy_static! {
+    static ref CLARITY_NAME_NO_BOUNDARIES_REGEX_STRING: String =
+        "[a-zA-Z]([a-zA-Z0-9]|[-_!?+<>=/*])*|[-+=/*]|[<>]=?".into();
+    static ref MARF_KEY_FOR_TRIP_REGEX_STRING: String = format!(
+        r"vm::{}::\d+::({})",
+        *CONTRACT_PRINCIPAL_REGEX_STRING, *CLARITY_NAME_NO_BOUNDARIES_REGEX_STRING,
+    );
+    static ref MARF_KEY_FOR_QUAD_REGEX_STRING: String =
+        format!(r"{}::[0-9a-fA-F]+", *MARF_KEY_FOR_TRIP_REGEX_STRING,);
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ClarityMarfValueResponse {
+pub struct ClarityMarfResponse {
     pub data: String,
     #[serde(rename = "proof")]
     #[serde(default)]
@@ -42,10 +52,10 @@ pub struct ClarityMarfValueResponse {
 }
 
 #[derive(Clone)]
-pub struct RPCGetClarityMarfValueRequestHandler {
+pub struct RPCGetClarityMarfRequestHandler {
     pub clarity_marf_key: Option<String>,
 }
-impl RPCGetClarityMarfValueRequestHandler {
+impl RPCGetClarityMarfRequestHandler {
     pub fn new() -> Self {
         Self {
             clarity_marf_key: None,
@@ -54,21 +64,21 @@ impl RPCGetClarityMarfValueRequestHandler {
 }
 
 /// Decode the HTTP request
-impl HttpRequest for RPCGetClarityMarfValueRequestHandler {
+impl HttpRequest for RPCGetClarityMarfRequestHandler {
     fn verb(&self) -> &'static str {
         "GET"
     }
 
     fn path_regex(&self) -> Regex {
         Regex::new(&format!(
-            r"^/v2/clarity_marf_value/(?P<clarity_marf_key>(vm-epoch::epoch-version)|({})|({}))$",
+            r"^/v2/clarity/marf/(?P<clarity_marf_key>(vm-epoch::epoch-version)|({})|({}))$",
             *MARF_KEY_FOR_TRIP_REGEX_STRING, *MARF_KEY_FOR_QUAD_REGEX_STRING
         ))
         .unwrap()
     }
 
     fn metrics_identifier(&self) -> &str {
-        "/v2/clarity_marf_value/:clarity_marf_key"
+        "/v2/clarity/marf/:clarity_marf_key"
     }
 
     /// Try to decode this request.
@@ -86,7 +96,11 @@ impl HttpRequest for RPCGetClarityMarfValueRequestHandler {
             ));
         }
 
-        let marf_key = request::get_clarity_key(captures, "clarity_marf_key")?;
+        let marf_key = if let Some(key_str) = captures.name("clarity_marf_key") {
+            key_str.as_str().to_string()
+        } else {
+            return Err(Error::Http(404, "Missing `clarity_marf_key`".to_string()));
+        };
 
         self.clarity_marf_key = Some(marf_key);
 
@@ -96,7 +110,7 @@ impl HttpRequest for RPCGetClarityMarfValueRequestHandler {
 }
 
 /// Handle the HTTP request
-impl RPCRequestHandler for RPCGetClarityMarfValueRequestHandler {
+impl RPCRequestHandler for RPCGetClarityMarfRequestHandler {
     /// Reset internal state
     fn restart(&mut self) {
         self.clarity_marf_key = None;
@@ -143,7 +157,7 @@ impl RPCRequestHandler for RPCGetClarityMarfValueRequestHandler {
                         };
 
                         let data = format!("0x{}", value_hex);
-                        Some(ClarityMarfValueResponse { data, marf_proof })
+                        Some(ClarityMarfResponse { data, marf_proof })
                     })
                 },
             )
@@ -177,19 +191,19 @@ impl RPCRequestHandler for RPCGetClarityMarfValueRequestHandler {
 }
 
 /// Decode the HTTP response
-impl HttpResponse for RPCGetClarityMarfValueRequestHandler {
+impl HttpResponse for RPCGetClarityMarfRequestHandler {
     fn try_parse_response(
         &self,
         preamble: &HttpResponsePreamble,
         body: &[u8],
     ) -> Result<HttpResponsePayload, Error> {
-        let marf_value: ClarityMarfValueResponse = parse_json(preamble, body)?;
+        let marf_value: ClarityMarfResponse = parse_json(preamble, body)?;
         Ok(HttpResponsePayload::try_from_json(marf_value)?)
     }
 }
 
 impl StacksHttpRequest {
-    pub fn new_getclaritymarfvalue(
+    pub fn new_getclaritymarf(
         host: PeerHost,
         clarity_marf_key: String,
         tip_req: TipRequest,
@@ -198,7 +212,7 @@ impl StacksHttpRequest {
         StacksHttpRequest::new_for_peer(
             host,
             "GET".into(),
-            format!("/v2/clarity_marf_value/{}", &clarity_marf_key),
+            format!("/v2/clarity/marf/{}", &clarity_marf_key),
             HttpRequestContents::new()
                 .for_tip(tip_req)
                 .query_arg("proof".into(), if with_proof { "1" } else { "0" }.into()),
@@ -208,10 +222,10 @@ impl StacksHttpRequest {
 }
 
 impl StacksHttpResponse {
-    pub fn decode_clarity_marf_value_response(self) -> Result<ClarityMarfValueResponse, NetError> {
+    pub fn decode_clarity_marf_response(self) -> Result<ClarityMarfResponse, NetError> {
         let contents = self.get_http_payload_ok()?;
         let contents_json: serde_json::Value = contents.try_into()?;
-        let resp: ClarityMarfValueResponse = serde_json::from_value(contents_json)
+        let resp: ClarityMarfResponse = serde_json::from_value(contents_json)
             .map_err(|_e| NetError::DeserializeError("Failed to load from JSON".to_string()))?;
         Ok(resp)
     }

@@ -43,7 +43,7 @@ fn test_try_parse_request() {
     let valid_keys = [vm_key_epoch, vm_key_trip, vm_key_quad];
 
     for key in valid_keys {
-        let request = StacksHttpRequest::new_getclaritymarfvalue(
+        let request = StacksHttpRequest::new_getclaritymarf(
             addr.into(),
             key.to_string(),
             TipRequest::SpecificTip(StacksBlockId([0x22; 32])),
@@ -58,7 +58,7 @@ fn test_try_parse_request() {
         let bytes = request.try_serialize().unwrap();
 
         let (parsed_preamble, offset) = http.read_preamble(&bytes).unwrap();
-        let mut handler = getclaritymarfvalue::RPCGetClarityMarfValueRequestHandler::new();
+        let mut handler = getclaritymarfvalue::RPCGetClarityMarfRequestHandler::new();
         let mut parsed_request = http
             .handle_try_parse_request(
                 &mut handler,
@@ -88,7 +88,7 @@ fn test_try_make_response() {
     let mut requests = vec![];
 
     // query existing
-    let request = StacksHttpRequest::new_getclaritymarfvalue(
+    let request = StacksHttpRequest::new_getclaritymarf(
         addr.into(),
         "vm::ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.hello-world::1::bar".to_string(),
         TipRequest::UseLatestAnchoredTip,
@@ -97,7 +97,7 @@ fn test_try_make_response() {
     requests.push(request);
 
     // query existing unconfirmed
-    let request = StacksHttpRequest::new_getclaritymarfvalue(
+    let request = StacksHttpRequest::new_getclaritymarf(
         addr.into(),
         "vm::ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.hello-world-unconfirmed::1::bar-unconfirmed"
             .to_string(),
@@ -107,7 +107,7 @@ fn test_try_make_response() {
     requests.push(request);
 
     // query non-existant var
-    let request = StacksHttpRequest::new_getclaritymarfvalue(
+    let request = StacksHttpRequest::new_getclaritymarf(
         addr.into(),
         "vm::ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.hello-world::1::does-not-exist".to_string(),
         TipRequest::UseLatestAnchoredTip,
@@ -116,7 +116,7 @@ fn test_try_make_response() {
     requests.push(request);
 
     // query non-existant contract
-    let request = StacksHttpRequest::new_getclaritymarfvalue(
+    let request = StacksHttpRequest::new_getclaritymarf(
         addr.into(),
         "vm::ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.does-not-exist::1::bar".to_string(),
         TipRequest::UseLatestAnchoredTip,

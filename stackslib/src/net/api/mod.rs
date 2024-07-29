@@ -92,9 +92,7 @@ impl StacksHttp {
         self.register_rpc_endpoint(getattachmentsinv::RPCGetAttachmentsInvRequestHandler::new());
         self.register_rpc_endpoint(getblock::RPCBlocksRequestHandler::new());
         self.register_rpc_endpoint(getblock_v3::RPCNakamotoBlockRequestHandler::new());
-        self.register_rpc_endpoint(
-            getclaritymarfvalue::RPCGetClarityMarfValueRequestHandler::new(),
-        );
+        self.register_rpc_endpoint(getclaritymarfvalue::RPCGetClarityMarfRequestHandler::new());
         self.register_rpc_endpoint(getclaritymetadata::RPCGetClarityMetadataRequestHandler::new());
         self.register_rpc_endpoint(getconstantval::RPCGetConstantValRequestHandler::new());
         self.register_rpc_endpoint(getcontractabi::RPCGetContractAbiRequestHandler::new());
