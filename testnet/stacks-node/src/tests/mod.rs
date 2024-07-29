@@ -324,6 +324,41 @@ pub fn new_test_conf() -> Config {
     conf
 }
 
+/// Randomly change the config's network ports to new ports.
+pub fn set_random_binds(config: &mut Config) {
+    let prior_rpc_port: u16 = config
+        .node
+        .rpc_bind
+        .split(":")
+        .last()
+        .unwrap()
+        .parse()
+        .unwrap();
+    let prior_p2p_port: u16 = config
+        .node
+        .p2p_bind
+        .split(":")
+        .last()
+        .unwrap()
+        .parse()
+        .unwrap();
+    let (rpc_port, p2p_port) = loop {
+        let mut rng = rand::thread_rng();
+        let mut buf = [0u8; 8];
+        rng.fill_bytes(&mut buf);
+        let rpc_port = u16::from_be_bytes(buf[0..2].try_into().unwrap()).saturating_add(1025) - 1; // use a non-privileged port between 1024 and 65534
+        let p2p_port = u16::from_be_bytes(buf[2..4].try_into().unwrap()).saturating_add(1025) - 1; // use a non-privileged port between 1024 and 65534
+        if rpc_port != prior_rpc_port && p2p_port != prior_p2p_port {
+            break (rpc_port, p2p_port);
+        }
+    };
+    let localhost = "127.0.0.1";
+    config.node.rpc_bind = format!("{}:{}", localhost, rpc_port);
+    config.node.p2p_bind = format!("{}:{}", localhost, p2p_port);
+    config.node.data_url = format!("http://{}:{}", localhost, rpc_port);
+    config.node.p2p_address = format!("{}:{}", localhost, p2p_port);
+}
+
 pub fn to_addr(sk: &StacksPrivateKey) -> StacksAddress {
     StacksAddress::from_public_keys(
         C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
