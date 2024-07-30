@@ -5023,8 +5023,10 @@ fn signer_chainstate() {
         // this config disallows any reorg due to poorly timed block commits
         let proposal_conf = ProposalEvalConfig {
             first_proposal_burn_block_timing: Duration::from_secs(0),
+            block_proposal_timeout: Duration::from_secs(100),
         };
-        let sortitions_view = SortitionsView::fetch_view(proposal_conf, &signer_client).unwrap();
+        let mut sortitions_view =
+            SortitionsView::fetch_view(proposal_conf, &signer_client).unwrap();
 
         // check the prior tenure's proposals again, confirming that the sortitions_view
         //  will reject them.
@@ -5136,8 +5138,10 @@ fn signer_chainstate() {
         // this config disallows any reorg due to poorly timed block commits
         let proposal_conf = ProposalEvalConfig {
             first_proposal_burn_block_timing: Duration::from_secs(0),
+            block_proposal_timeout: Duration::from_secs(100),
         };
-        let sortitions_view = SortitionsView::fetch_view(proposal_conf, &signer_client).unwrap();
+        let mut sortitions_view =
+            SortitionsView::fetch_view(proposal_conf, &signer_client).unwrap();
         let valid = sortitions_view
             .check_proposal(
                 &signer_client,
@@ -5202,6 +5206,7 @@ fn signer_chainstate() {
     // this config disallows any reorg due to poorly timed block commits
     let proposal_conf = ProposalEvalConfig {
         first_proposal_burn_block_timing: Duration::from_secs(0),
+        block_proposal_timeout: Duration::from_secs(100),
     };
     let mut sortitions_view = SortitionsView::fetch_view(proposal_conf, &signer_client).unwrap();
 

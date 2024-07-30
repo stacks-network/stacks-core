@@ -89,6 +89,7 @@ jobs:
           - tests::signer::v0::end_of_tenure
           - tests::signer::v0::forked_tenure_okay
           - tests::signer::v0::forked_tenure_invalid
+          - tests::signer::v0::empty_sortition
           - tests::signer::v0::bitcoind_forking_test
           - tests::signer::v0::mock_sign_epoch_25
           - tests::nakamoto_integrations::stack_stx_burn_op_integration_test
