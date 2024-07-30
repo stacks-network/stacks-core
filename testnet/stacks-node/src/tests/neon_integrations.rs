@@ -186,7 +186,9 @@ pub fn neon_integration_test_conf_with_seed(seed: Vec<u8>) -> (Config, StacksAdd
 }
 
 pub mod test_observer {
+    use std::collections::HashSet;
     use std::convert::Infallible;
+    use std::ops::{Bound, RangeBounds};
     use std::sync::Mutex;
     use std::thread;
 
@@ -565,6 +567,38 @@ pub mod test_observer {
         MEMTXS_DROPPED.lock().unwrap().clear();
         ATTACHMENTS.lock().unwrap().clear();
         PROPOSAL_RESPONSES.lock().unwrap().clear();
+    }
+
+    pub fn contains_burn_block_range(range: impl RangeBounds<u64>) -> Result<(), String> {
+        // Get set of all burn block heights
+        let burn_block_heights = get_blocks()
+            .iter()
+            .map(|x| x.get("burn_block_height").unwrap().as_u64().unwrap())
+            .collect::<HashSet<_>>();
+
+        let start = match range.start_bound() {
+            Bound::Unbounded => return Err("Unbounded ranges not supported".into()),
+            Bound::Included(&x) => x,
+            Bound::Excluded(&x) => x.saturating_add(1),
+        };
+
+        let end = match range.end_bound() {
+            Bound::Unbounded => return Err("Unbounded ranges not supported".into()),
+            Bound::Included(&x) => x,
+            Bound::Excluded(&x) => x.saturating_sub(1),
+        };
+
+        // Find indexes in range for which we don't have burn block in set
+        let missing = (start..=end)
+            .into_iter()
+            .filter(|i| !burn_block_heights.contains(&i))
+            .collect::<Vec<_>>();
+
+        if missing.is_empty() {
+            Ok(())
+        } else {
+            Err(format!("Missing the following burn blocks: {missing:?}"))
+        }
     }
 }
 
@@ -1282,6 +1316,13 @@ pub fn get_account_result<F: std::fmt::Display>(
 
 pub fn get_account<F: std::fmt::Display>(http_origin: &str, account: &F) -> Account {
     get_account_result(http_origin, account).unwrap()
+}
+
+pub fn get_neighbors(conf: &Config) -> Option<serde_json::Value> {
+    let client = reqwest::blocking::Client::new();
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+    let path = format!("{}/v2/neighbors", http_origin);
+    client.get(&path).send().ok()?.json().ok()
 }
 
 pub fn get_pox_info(http_origin: &str) -> Option<RPCPoxInfoData> {
