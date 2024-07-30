@@ -153,7 +153,7 @@ impl SignerTrait<SignerMessage> for Signer {
                 burn_header_hash,
                 received_time,
             } => {
-                debug!("{self}: Receved a new burn block event for block height {burn_height}");
+                info!("{self}: Received a new burn block event for block height {burn_height}");
                 if let Err(e) =
                     self.signer_db
                         .insert_burn_block(burn_header_hash, *burn_height, received_time)
@@ -287,7 +287,7 @@ impl Signer {
             return;
         }
 
-        debug!(
+        info!(
             "{self}: received a block proposal for a new block. Submit block for validation. ";
             "signer_sighash" => %signer_signature_hash,
             "block_id" => %block_proposal.block.block_id(),
@@ -388,7 +388,7 @@ impl Signer {
 
     /// Handle the block validate response returned from our prior calls to submit a block for validation
     fn handle_block_validate_response(&mut self, block_validate_response: &BlockValidateResponse) {
-        debug!("{self}: Received a block validate response: {block_validate_response:?}");
+        info!("{self}: Received a block validate response: {block_validate_response:?}");
         let (response, block_info) = match block_validate_response {
             BlockValidateResponse::Ok(block_validate_ok) => {
                 crate::monitoring::increment_block_validation_responses(true);
