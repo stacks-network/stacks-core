@@ -269,7 +269,10 @@ impl StacksNode {
                 snapshot.parent_burn_header_hash,
                 snapshot.winning_stacks_block_hash,
             ))
-            .map_err(|_| Error::ChannelClosed)
+            .map_err(|_| Error::ChannelClosed)?;
+
+        self.globals.raise_initiative();
+        Ok(())
     }
 
     /// Process a state coming from the burnchain, by extracting the validated KeyRegisterOp
