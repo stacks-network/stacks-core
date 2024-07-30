@@ -15,15 +15,15 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::btree_map::Entry;
-use std::collections::{hash_map, BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use std::hash::{Hash, Hasher};
 use std::{cmp, fmt};
 
-// TypeSignatures
-use hashbrown::HashSet;
 use lazy_static::lazy_static;
 use stacks_common::address::c32;
 use stacks_common::types::StacksEpochId;
+// TypeSignatures
+use stacks_common::types::{StacksHashMap as HashMap, StacksHashSet as HashSet};
 use stacks_common::util::hash;
 
 use crate::vm::costs::{cost_functions, runtime_cost, CostOverflowingMath};
@@ -76,14 +76,14 @@ impl AssetIdentifier {
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TupleTypeSignature {
-    type_map: HashMap<ClarityName, TypeSignature>,
+    pub type_map: BTreeMap<ClarityName, TypeSignature>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-pub struct BufferLength(u32);
+pub struct BufferLength(pub u32);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct StringUTF8Length(u32);
+pub struct StringUTF8Length(pub u32);
 
 // INVARIANTS enforced by the Type Signatures.
 //   1. A TypeSignature constructor will always fail rather than construct a
@@ -221,8 +221,8 @@ pub const UTF8_40: TypeSignature = SequenceType(SequenceSubtype::StringType(Stri
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ListTypeData {
-    max_len: u32,
-    entry_type: Box<TypeSignature>,
+    pub max_len: u32,
+    pub entry_type: Box<TypeSignature>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -787,7 +787,7 @@ impl TypeSignature {
                 inner_type.1.canonicalize_v2_1(),
             ))),
             TupleType(ref tuple_sig) => {
-                let mut canonicalized_fields = HashMap::new();
+                let mut canonicalized_fields = BTreeMap::new();
                 for (field_name, field_type) in tuple_sig.get_type_map() {
                     canonicalized_fields.insert(field_name.clone(), field_type.canonicalize_v2_1());
                 }
@@ -808,7 +808,7 @@ impl TypeSignature {
             ListUnionType(types) => {
                 let mut is_trait = None;
                 let mut is_principal = true;
-                for partial in types {
+                for partial in types.iter() {
                     match partial {
                         CallableSubtype::Principal(_) => {
                             if is_trait.is_some() {
@@ -851,9 +851,9 @@ impl TryFrom<Vec<(ClarityName, TypeSignature)>> for TupleTypeSignature {
             return Err(CheckErrors::EmptyTuplesNotAllowed);
         }
 
-        let mut type_map = HashMap::new();
+        let mut type_map = BTreeMap::new();
         for (name, type_info) in type_data.into_iter() {
-            if let hash_map::Entry::Vacant(e) = type_map.entry(name.clone()) {
+            if let Entry::Vacant(e) = type_map.entry(name.clone()) {
                 e.insert(type_info);
             } else {
                 return Err(CheckErrors::NameAlreadyUsed(name.into()));
@@ -866,30 +866,6 @@ impl TryFrom<Vec<(ClarityName, TypeSignature)>> for TupleTypeSignature {
 impl TryFrom<BTreeMap<ClarityName, TypeSignature>> for TupleTypeSignature {
     type Error = CheckErrors;
     fn try_from(type_map: BTreeMap<ClarityName, TypeSignature>) -> Result<TupleTypeSignature> {
-        if type_map.is_empty() {
-            return Err(CheckErrors::EmptyTuplesNotAllowed);
-        }
-        for child_sig in type_map.values() {
-            if (1 + child_sig.depth()) > MAX_TYPE_DEPTH {
-                return Err(CheckErrors::TypeSignatureTooDeep);
-            }
-        }
-        let type_map = type_map.into_iter().collect();
-        let result = TupleTypeSignature { type_map };
-        let would_be_size = result
-            .inner_size()?
-            .ok_or_else(|| CheckErrors::ValueTooLarge)?;
-        if would_be_size > MAX_VALUE_SIZE {
-            Err(CheckErrors::ValueTooLarge)
-        } else {
-            Ok(result)
-        }
-    }
-}
-
-impl TryFrom<HashMap<ClarityName, TypeSignature>> for TupleTypeSignature {
-    type Error = CheckErrors;
-    fn try_from(type_map: HashMap<ClarityName, TypeSignature>) -> Result<TupleTypeSignature> {
         if type_map.is_empty() {
             return Err(CheckErrors::EmptyTuplesNotAllowed);
         }
@@ -925,7 +901,7 @@ impl TupleTypeSignature {
         self.type_map.get(field)
     }
 
-    pub fn get_type_map(&self) -> &HashMap<ClarityName, TypeSignature> {
+    pub fn get_type_map(&self) -> &BTreeMap<ClarityName, TypeSignature> {
         &self.type_map
     }
 
@@ -961,7 +937,7 @@ impl TupleTypeSignature {
     }
 
     pub fn shallow_merge(&mut self, update: &mut TupleTypeSignature) {
-        self.type_map.extend(update.type_map.drain());
+        self.type_map.append(&mut update.type_map);
     }
 }
 
@@ -1354,7 +1330,7 @@ impl TypeSignature {
                 if x == y {
                     Ok(a.clone())
                 } else {
-                    Ok(ListUnionType(HashSet::from([x.clone(), y.clone()])))
+                    Ok(ListUnionType(HashSet::from_iter([x.clone(), y.clone()])))
                 }
             }
             (ListUnionType(l), CallableType(c)) | (CallableType(c), ListUnionType(l)) => {
@@ -1366,7 +1342,7 @@ impl TypeSignature {
             | (CallableType(CallableSubtype::Principal(_)), PrincipalType) => Ok(PrincipalType),
             (PrincipalType, ListUnionType(l)) | (ListUnionType(l), PrincipalType) => {
                 let mut all_principals = true;
-                for ty in l {
+                for ty in l.iter() {
                     match ty {
                         CallableSubtype::Trait(_) => {
                             all_principals = false;
@@ -1969,9 +1945,7 @@ pub fn parse_name_type_pairs<A: CostTracker>(
 impl fmt::Display for TupleTypeSignature {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "(tuple")?;
-        let mut type_strs: Vec<_> = self.type_map.iter().collect();
-        type_strs.sort_unstable_by_key(|x| x.0);
-        for (field_name, field_type) in type_strs {
+        for (field_name, field_type) in self.type_map.iter() {
             write!(f, " ({} {})", &**field_name, field_type)?;
         }
         write!(f, ")")
@@ -2157,7 +2131,7 @@ mod test {
                 contract_identifier: QualifiedContractIdentifier::transient(),
             }),
         ];
-        let list_union = ListUnionType(callables.clone().into());
+        let list_union = ListUnionType(callables.to_vec().into_iter().collect());
         let callables2 = [
             CallableSubtype::Principal(QualifiedContractIdentifier::local("bar").unwrap()),
             CallableSubtype::Trait(TraitIdentifier {
@@ -2165,7 +2139,7 @@ mod test {
                 contract_identifier: QualifiedContractIdentifier::transient(),
             }),
         ];
-        let list_union2 = ListUnionType(callables2.clone().into());
+        let list_union2 = ListUnionType(callables2.to_vec().into_iter().collect());
         let list_union_merged = ListUnionType(HashSet::from_iter(
             [callables, callables2].concat().iter().cloned(),
         ));
@@ -2173,7 +2147,8 @@ mod test {
             CallableSubtype::Principal(QualifiedContractIdentifier::local("foo").unwrap()),
             CallableSubtype::Principal(QualifiedContractIdentifier::local("bar").unwrap()),
         ];
-        let list_union_principals = ListUnionType(callable_principals.into());
+        let list_union_principals =
+            ListUnionType(callable_principals.to_vec().into_iter().collect());
 
         let notype_pairs = [
             // NoType with X should result in X

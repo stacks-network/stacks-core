@@ -193,6 +193,5 @@ pub fn announce_boot_receipts(
         &ExecutionCost::zero(),
         pox_constants,
         &None,
-        &None,
     );
 }

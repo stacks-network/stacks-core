@@ -3782,7 +3782,6 @@ fn test_get_pox_addrs() {
                 }
 
                 let block_builder = StacksBlockBuilder::make_block_builder(
-                    &burnchain,
                     false,
                     &parent_tip,
                     vrf_proof,
@@ -4079,7 +4078,6 @@ fn test_stack_with_segwit() {
                 }
 
                 let block_builder = StacksBlockBuilder::make_block_builder(
-                    &burnchain,
                     false,
                     &parent_tip,
                     vrf_proof,

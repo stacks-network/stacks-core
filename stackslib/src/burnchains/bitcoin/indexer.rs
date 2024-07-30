@@ -845,11 +845,7 @@ impl BitcoinIndexer {
                 }
             } else {
                 // ignore the reorg
-                test_debug!(
-                    "Reorg chain does not overtake original Bitcoin chain ({} >= {})",
-                    orig_total_work,
-                    reorg_total_work
-                );
+                test_debug!("Reorg chain does not overtake original Bitcoin chain");
                 new_tip = orig_spv_client.get_headers_height()?;
             }
         }

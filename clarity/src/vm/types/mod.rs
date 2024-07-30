@@ -23,7 +23,6 @@ use std::collections::btree_map::Entry;
 use std::collections::BTreeMap;
 use std::{char, cmp, fmt, str};
 
-use hashbrown::hash_map::OccupiedEntry;
 use regex::Regex;
 use stacks_common::address::c32;
 use stacks_common::types::chainstate::StacksAddress;
@@ -106,11 +105,6 @@ impl QualifiedContractIdentifier {
             issuer: StandardPrincipalData::transient(),
             name,
         }
-    }
-
-    /// Was this contract issued by the null issuer address? (i.e., is it a "boot contract")
-    pub fn is_boot(&self) -> bool {
-        self.issuer.1 == [0; 20]
     }
 
     pub fn parse(literal: &str) -> Result<QualifiedContractIdentifier> {
@@ -1529,10 +1523,6 @@ impl TupleData {
         self.data_map.is_empty()
     }
 
-    ///TODO: #4587 create default for TupleData, then check if the mutation tests are caught for the case:
-    /// Ok((Default::default()))    
-    /// Or keep the skip and remove the comment
-    #[cfg_attr(test, mutants::skip)]
     pub fn from_data(data: Vec<(ClarityName, Value)>) -> Result<TupleData> {
         let mut type_map = BTreeMap::new();
         let mut data_map = BTreeMap::new();
@@ -1549,10 +1539,6 @@ impl TupleData {
         Self::new(TupleTypeSignature::try_from(type_map)?, data_map)
     }
 
-    ///TODO: #4587 create default for TupleData, then check if the mutation tests are caught for the case:
-    /// Ok((Default::default()))
-    /// Or keep the skip and remove the comment
-    #[cfg_attr(test, mutants::skip)]
     pub fn from_data_typed(
         epoch: &StacksEpochId,
         data: Vec<(ClarityName, Value)>,

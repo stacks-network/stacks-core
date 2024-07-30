@@ -228,8 +228,6 @@ pub struct RewardSet {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     // only generated for nakamoto reward sets
     pub signers: Option<Vec<NakamotoSignerEntry>>,
-    #[serde(default)]
-    pub pox_ustx_threshold: Option<u128>,
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
@@ -262,7 +260,6 @@ impl RewardSet {
                 missed_reward_slots: vec![],
             },
             signers: None,
-            pox_ustx_threshold: None,
         }
     }
 
@@ -299,7 +296,7 @@ impl StacksChainState {
     pub fn handled_pox_cycle_start(clarity_db: &mut ClarityDatabase, cycle_number: u64) -> bool {
         let db_key = Self::handled_pox_cycle_start_key(cycle_number);
         match clarity_db
-            .get_data::<String>(&db_key)
+            .get::<String>(&db_key)
             .expect("FATAL: DB error when checking PoX cycle start")
         {
             Some(x) => x == POX_CYCLE_START_HANDLED_VALUE,
@@ -312,7 +309,7 @@ impl StacksChainState {
         cycle_number: u64,
     ) -> Result<(), clarity::vm::errors::Error> {
         let db_key = Self::handled_pox_cycle_start_key(cycle_number);
-        db.put_data(&db_key, &POX_CYCLE_START_HANDLED_VALUE.to_string())?;
+        db.put(&db_key, &POX_CYCLE_START_HANDLED_VALUE.to_string())?;
         Ok(())
     }
 
@@ -432,7 +429,7 @@ impl StacksChainState {
         cycle_number: u64,
         cycle_info: Option<PoxStartCycleInfo>,
     ) -> Result<Vec<StacksTransactionEvent>, Error> {
-        Self::handle_pox_cycle_missed_unlocks(clarity, cycle_number, cycle_info, &PoxVersions::Pox2)
+        Self::handle_pox_cycle_start(clarity, cycle_number, cycle_info, POX_2_NAME)
     }
 
     /// Do all the necessary Clarity operations at the start of a PoX reward cycle.
@@ -444,7 +441,7 @@ impl StacksChainState {
         cycle_number: u64,
         cycle_info: Option<PoxStartCycleInfo>,
     ) -> Result<Vec<StacksTransactionEvent>, Error> {
-        Self::handle_pox_cycle_missed_unlocks(clarity, cycle_number, cycle_info, &PoxVersions::Pox3)
+        Self::handle_pox_cycle_start(clarity, cycle_number, cycle_info, POX_3_NAME)
     }
 
     /// Do all the necessary Clarity operations at the start of a PoX reward cycle.
@@ -452,36 +449,29 @@ impl StacksChainState {
     ///
     /// This should only be called for PoX v4 cycles.
     pub fn handle_pox_cycle_start_pox_4(
-        _clarity: &mut ClarityTransactionConnection,
-        _cycle_number: u64,
-        _cycle_info: Option<PoxStartCycleInfo>,
+        clarity: &mut ClarityTransactionConnection,
+        cycle_number: u64,
+        cycle_info: Option<PoxStartCycleInfo>,
     ) -> Result<Vec<StacksTransactionEvent>, Error> {
-        // PASS
-        Ok(vec![])
+        Self::handle_pox_cycle_start(clarity, cycle_number, cycle_info, POX_4_NAME)
     }
 
     /// Do all the necessary Clarity operations at the start of a PoX reward cycle.
     /// Currently, this just means applying any auto-unlocks to Stackers who qualified.
     ///
-    fn handle_pox_cycle_missed_unlocks(
+    fn handle_pox_cycle_start(
         clarity: &mut ClarityTransactionConnection,
         cycle_number: u64,
         cycle_info: Option<PoxStartCycleInfo>,
-        pox_contract_ver: &PoxVersions,
+        pox_contract_name: &str,
     ) -> Result<Vec<StacksTransactionEvent>, Error> {
         clarity.with_clarity_db(|db| Ok(Self::mark_pox_cycle_handled(db, cycle_number)))??;
-
-        if !matches!(pox_contract_ver, PoxVersions::Pox2 | PoxVersions::Pox3) {
-            return Err(Error::InvalidStacksBlock(format!(
-                "Attempted to invoke missed unlocks handling on invalid PoX version ({pox_contract_ver})"
-            )));
-        }
 
         debug!(
             "Handling PoX reward cycle start";
             "reward_cycle" => cycle_number,
             "cycle_active" => cycle_info.is_some(),
-            "pox_contract" => %pox_contract_ver,
+            "pox_contract" => pox_contract_name
         );
 
         let cycle_info = match cycle_info {
@@ -490,8 +480,7 @@ impl StacksChainState {
         };
 
         let sender_addr = PrincipalData::from(boot::boot_code_addr(clarity.is_mainnet()));
-        let pox_contract =
-            boot::boot_code_id(pox_contract_ver.get_name_str(), clarity.is_mainnet());
+        let pox_contract = boot::boot_code_id(pox_contract_name, clarity.is_mainnet());
 
         let mut total_events = vec![];
         for (principal, amount_locked) in cycle_info.missed_reward_slots.iter() {
@@ -517,8 +506,7 @@ impl StacksChainState {
             }).expect("FATAL: failed to accelerate PoX unlock");
 
             // query the stacking state for this user before deleting it
-            let user_data =
-                Self::get_user_stacking_state(clarity, principal, pox_contract_ver.get_name_str());
+            let user_data = Self::get_user_stacking_state(clarity, principal, pox_contract_name);
 
             // perform the unlock
             let (result, _, mut events, _) = clarity
@@ -823,19 +811,12 @@ impl StacksChainState {
             //   pointer set by the PoX contract, then add them to auto-unlock list
             if slots_taken == 0 && !contributed_stackers.is_empty() {
                 info!(
-                    "{}",
-                    if epoch_id.supports_pox_missed_slot_unlocks() {
-                        "Stacker missed reward slot, added to unlock list"
-                    } else {
-                        "Stacker missed reward slot"
-                    };
+                    "Stacker missed reward slot, added to unlock list";
+                    //                    "stackers" => %VecDisplay(&contributed_stackers),
                     "reward_address" => %address.clone().to_b58(),
                     "threshold" => threshold,
                     "stacked_amount" => stacked_amt
                 );
-                if !epoch_id.supports_pox_missed_slot_unlocks() {
-                    continue;
-                }
                 contributed_stackers
                     .sort_by_cached_key(|(stacker, ..)| to_hex(&stacker.serialize_to_vec()));
                 while let Some((contributor, amt)) = contributed_stackers.pop() {
@@ -855,9 +836,6 @@ impl StacksChainState {
                 }
             }
         }
-        if !epoch_id.supports_pox_missed_slot_unlocks() {
-            missed_slots.clear();
-        }
         info!("Reward set calculated"; "slots_occuppied" => reward_set.len());
         RewardSet {
             rewarded_addresses: reward_set,
@@ -865,7 +843,6 @@ impl StacksChainState {
                 missed_reward_slots: missed_slots,
             },
             signers: signer_set,
-            pox_ustx_threshold: Some(threshold),
         }
     }
 
@@ -2680,7 +2657,6 @@ pub mod test {
                     let block_txs = vec![coinbase_tx];
 
                     let block_builder = StacksBlockBuilder::make_regtest_block_builder(
-                        &burnchain,
                         &parent_tip,
                         vrf_proof,
                         tip.total_burn,
@@ -2717,10 +2693,6 @@ pub mod test {
 
     #[test]
     fn test_lockups() {
-        let burnchain = Burnchain::default_unittest(
-            0,
-            &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
-        );
         let mut peer_config = TestPeerConfig::new(function_name!(), 2000, 2001);
         let alice = StacksAddress::from_string("STVK1K405H6SK9NKJAP32GHYHDJ98MMNP8Y6Z9N0").unwrap();
         let bob = StacksAddress::from_string("ST76D2FMXZ7D2719PNE4N71KPSX84XCCNCMYC940").unwrap();
@@ -2807,7 +2779,6 @@ pub mod test {
                     let block_txs = vec![coinbase_tx];
 
                     let block_builder = StacksBlockBuilder::make_regtest_block_builder(
-                        &burnchain,
                         &parent_tip,
                         vrf_proof,
                         tip.total_burn,
@@ -2902,8 +2873,7 @@ pub mod test {
                     block_txs.push(tx);
                 }
 
-                let block_builder = StacksBlockBuilder::make_regtest_block_builder(&burnchain,
-                    &parent_tip, vrf_proof, tip.total_burn, microblock_pubkeyhash).unwrap();
+                let block_builder = StacksBlockBuilder::make_regtest_block_builder(&parent_tip, vrf_proof, tip.total_burn, microblock_pubkeyhash).unwrap();
                 let (anchored_block, _size, _cost) = StacksBlockBuilder::make_anchored_block_from_txs(block_builder, chainstate, &sortdb.index_conn(), block_txs).unwrap();
                 (anchored_block, vec![])
             });
@@ -2999,7 +2969,6 @@ pub mod test {
                     let block_txs = vec![coinbase_tx, burn_tx];
 
                     let block_builder = StacksBlockBuilder::make_regtest_block_builder(
-                        &burnchain,
                         &parent_tip,
                         vrf_proof,
                         tip.total_burn,
@@ -3110,7 +3079,6 @@ pub mod test {
                     }
 
                     let block_builder = StacksBlockBuilder::make_regtest_block_builder(
-                        &burnchain,
                         &parent_tip,
                         vrf_proof,
                         tip.total_burn,
@@ -3327,7 +3295,6 @@ pub mod test {
                     }
 
                     let block_builder = StacksBlockBuilder::make_block_builder(
-                        &burnchain,
                         false,
                         &parent_tip,
                         vrf_proof,
@@ -3586,7 +3553,6 @@ pub mod test {
                     }
 
                     let block_builder = StacksBlockBuilder::make_regtest_block_builder(
-                        &burnchain,
                         &parent_tip,
                         vrf_proof,
                         tip.total_burn,
@@ -3861,7 +3827,6 @@ pub mod test {
                     }
 
                     let block_builder = StacksBlockBuilder::make_regtest_block_builder(
-                        &burnchain,
                         &parent_tip,
                         vrf_proof,
                         tip.total_burn,
@@ -4114,8 +4079,7 @@ pub mod test {
                     block_txs.push(charlie_test_tx);
                 }
 
-                let block_builder = StacksBlockBuilder::make_regtest_block_builder(&burnchain,
-                    &parent_tip, vrf_proof, tip.total_burn, microblock_pubkeyhash).unwrap();
+                let block_builder = StacksBlockBuilder::make_regtest_block_builder(&parent_tip, vrf_proof, tip.total_burn, microblock_pubkeyhash).unwrap();
                 let (anchored_block, _size, _cost) = StacksBlockBuilder::make_anchored_block_from_txs(block_builder, chainstate, &sortdb.index_conn(), block_txs).unwrap();
                 (anchored_block, vec![])
             });
@@ -4278,7 +4242,6 @@ pub mod test {
                     }
 
                     let block_builder = StacksBlockBuilder::make_regtest_block_builder(
-                        &burnchain,
                         &parent_tip,
                         vrf_proof,
                         tip.total_burn,
@@ -4577,7 +4540,6 @@ pub mod test {
                     }
 
                     let block_builder = StacksBlockBuilder::make_regtest_block_builder(
-                        &burnchain,
                         &parent_tip,
                         vrf_proof,
                         tip.total_burn,
@@ -5158,7 +5120,6 @@ pub mod test {
                     }
 
                     let block_builder = StacksBlockBuilder::make_regtest_block_builder(
-                        &burnchain,
                         &parent_tip,
                         vrf_proof,
                         tip.total_burn,
@@ -5537,7 +5498,7 @@ pub mod test {
                     block_txs.push(charlie_reject);
                 }
 
-                let block_builder = StacksBlockBuilder::make_regtest_block_builder(&burnchain, &parent_tip, vrf_proof, tip.total_burn, microblock_pubkeyhash).unwrap();
+                let block_builder = StacksBlockBuilder::make_regtest_block_builder(&parent_tip, vrf_proof, tip.total_burn, microblock_pubkeyhash).unwrap();
                 let (anchored_block, _size, _cost) = StacksBlockBuilder::make_anchored_block_from_txs(block_builder, chainstate, &sortdb.index_conn(), block_txs).unwrap();
 
                 if tenure_id == 2 {

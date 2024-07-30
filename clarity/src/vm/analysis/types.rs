@@ -16,8 +16,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use hashbrown::HashMap;
-use stacks_common::types::StacksEpochId;
+use stacks_common::types::{StacksEpochId, StacksHashMap as HashMap, StacksHashSet as HashSet};
 
 use crate::vm::analysis::analysis_db::AnalysisDatabase;
 use crate::vm::analysis::contract_interface_builder::ContractInterface;

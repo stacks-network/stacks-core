@@ -18,6 +18,7 @@ use std::collections::{BinaryHeap, HashMap, HashSet};
 use std::{thread, time};
 
 use clarity::vm::types::QualifiedContractIdentifier;
+use proptest::prelude::*;
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId};
 use stacks_common::types::net::{PeerAddress, PeerHost};
 use stacks_common::util::hash::Hash160;

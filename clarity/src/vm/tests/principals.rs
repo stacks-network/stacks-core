@@ -1,5 +1,4 @@
-use hashbrown::HashMap;
-use stacks_common::types::StacksEpochId;
+use stacks_common::types::{StacksEpochId, StacksHashMap as HashMap, StacksHashSet as HashSet};
 use stacks_common::util::hash::hex_bytes;
 
 use crate::vm::ast::ASTRules;

@@ -1,5 +1,5 @@
 use clarity::vm::docs::contracts::{produce_docs_refs, ContractSupportDocs};
-use hashbrown::{HashMap, HashSet};
+use stacks_common::types::{StacksHashMap as HashMap, StacksHashSet as HashSet};
 
 use super::STACKS_BOOT_CODE_MAINNET;
 

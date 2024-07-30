@@ -15,7 +15,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::borrow::BorrowMut;
-use std::collections::HashMap;
 use std::fs;
 
 use clarity::types::chainstate::{PoxId, SortitionId, StacksBlockId};
@@ -24,7 +23,7 @@ use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::StacksAddressExtensions;
 use clarity::vm::Value;
 use rand::{thread_rng, RngCore};
-use rusqlite::{Connection, ToSql};
+use rusqlite::Connection;
 use stacks_common::address::AddressHashMode;
 use stacks_common::bitvec::BitVec;
 use stacks_common::codec::StacksMessageCodec;
@@ -35,7 +34,9 @@ use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksAddress, StacksPrivateKey,
     StacksPublicKey, StacksWorkScore, TrieHash, VRFSeed,
 };
-use stacks_common::types::{Address, PrivateKey, StacksEpoch, StacksEpochId};
+use stacks_common::types::{
+    Address, PrivateKey, StacksEpoch, StacksEpochId, StacksHashMap as HashMap,
+};
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::{hex_bytes, Hash160, MerkleTree, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PublicKey};
@@ -60,13 +61,11 @@ use crate::chainstate::coordinator::tests::{
 use crate::chainstate::nakamoto::coordinator::tests::boot_nakamoto;
 use crate::chainstate::nakamoto::miner::NakamotoBlockBuilder;
 use crate::chainstate::nakamoto::signer_set::NakamotoSigners;
-use crate::chainstate::nakamoto::staging_blocks::NakamotoStagingBlocksConnRef;
 use crate::chainstate::nakamoto::tenure::NakamotoTenure;
 use crate::chainstate::nakamoto::test_signers::TestSigners;
 use crate::chainstate::nakamoto::tests::node::TestStacker;
 use crate::chainstate::nakamoto::{
-    query_rows, NakamotoBlock, NakamotoBlockHeader, NakamotoChainState, SortitionHandle,
-    FIRST_STACKS_BLOCK_ID,
+    NakamotoBlock, NakamotoBlockHeader, NakamotoChainState, SortitionHandle, FIRST_STACKS_BLOCK_ID,
 };
 use crate::chainstate::stacks::boot::{
     MINERS_NAME, SIGNERS_VOTING_FUNCTION_NAME, SIGNERS_VOTING_NAME,
@@ -77,36 +76,17 @@ use crate::chainstate::stacks::db::{
     StacksHeaderInfo,
 };
 use crate::chainstate::stacks::{
-    CoinbasePayload, Error as ChainstateError, StacksBlock, StacksBlockHeader, StacksTransaction,
-    StacksTransactionSigner, TenureChangeCause, TenureChangePayload, ThresholdSignature,
-    TokenTransferMemo, TransactionAnchorMode, TransactionAuth, TransactionContractCall,
-    TransactionPayload, TransactionPostConditionMode, TransactionSmartContract, TransactionVersion,
+    CoinbasePayload, StacksBlock, StacksBlockHeader, StacksTransaction, StacksTransactionSigner,
+    TenureChangeCause, TenureChangePayload, ThresholdSignature, TokenTransferMemo,
+    TransactionAnchorMode, TransactionAuth, TransactionContractCall, TransactionPayload,
+    TransactionPostConditionMode, TransactionSmartContract, TransactionVersion,
 };
 use crate::core;
 use crate::core::{StacksEpochExtension, STACKS_EPOCH_3_0_MARKER};
 use crate::net::codec::test::check_codec_and_corruption;
-use crate::net::stackerdb::MINER_SLOT_COUNT;
 use crate::util_lib::boot::boot_code_id;
 use crate::util_lib::db::Error as db_error;
 use crate::util_lib::strings::StacksString;
-
-impl<'a> NakamotoStagingBlocksConnRef<'a> {
-    #[cfg(test)]
-    pub fn get_all_blocks_in_tenure(
-        &self,
-        tenure_id_consensus_hash: &ConsensusHash,
-    ) -> Result<Vec<NakamotoBlock>, ChainstateError> {
-        let qry = "SELECT data FROM nakamoto_staging_blocks WHERE consensus_hash = ?1 ORDER BY height ASC";
-        let args: &[&dyn ToSql] = &[tenure_id_consensus_hash];
-        let block_data: Vec<Vec<u8>> = query_rows(self, qry, args)?;
-        let mut blocks = Vec::with_capacity(block_data.len());
-        for data in block_data.into_iter() {
-            let block = NakamotoBlock::consensus_deserialize(&mut data.as_slice())?;
-            blocks.push(block);
-        }
-        Ok(blocks)
-    }
-}
 
 /// Get an address's account
 pub fn get_account(
@@ -2058,14 +2038,12 @@ fn test_make_miners_stackerdb_config() {
         .collect();
 
     // active miner alternates slots (part of stability)
-    let first_miner_slot = 0;
-    let second_miner_slot = first_miner_slot + MINER_SLOT_COUNT;
-    assert_eq!(stackerdb_chunks[0].slot_id, first_miner_slot);
-    assert_eq!(stackerdb_chunks[1].slot_id, second_miner_slot);
-    assert_eq!(stackerdb_chunks[2].slot_id, first_miner_slot);
-    assert_eq!(stackerdb_chunks[3].slot_id, second_miner_slot);
-    assert_eq!(stackerdb_chunks[4].slot_id, first_miner_slot);
-    assert_eq!(stackerdb_chunks[5].slot_id, second_miner_slot);
+    assert_eq!(stackerdb_chunks[0].slot_id, 0);
+    assert_eq!(stackerdb_chunks[1].slot_id, 1);
+    assert_eq!(stackerdb_chunks[2].slot_id, 0);
+    assert_eq!(stackerdb_chunks[3].slot_id, 1);
+    assert_eq!(stackerdb_chunks[4].slot_id, 0);
+    assert_eq!(stackerdb_chunks[5].slot_id, 1);
 
     assert!(stackerdb_chunks[0].verify(&miner_addrs[1]).unwrap());
     assert!(stackerdb_chunks[1].verify(&miner_addrs[2]).unwrap());
@@ -2379,7 +2357,7 @@ fn valid_vote_transaction() {
         }),
     };
     valid_tx.set_origin_nonce(1);
-    let mut account_nonces = std::collections::HashMap::new();
+    let mut account_nonces = HashMap::new();
     account_nonces.insert(valid_tx.origin_address(), 1);
     assert!(NakamotoSigners::valid_vote_transaction(
         &account_nonces,
@@ -2600,7 +2578,7 @@ fn valid_vote_transaction_malformed_transactions() {
     };
     invalid_nonce.set_origin_nonce(0); // old nonce
 
-    let mut account_nonces = std::collections::HashMap::new();
+    let mut account_nonces = HashMap::new();
     account_nonces.insert(invalid_not_contract_call.origin_address(), 1);
     for tx in vec![
         invalid_not_contract_call,
@@ -2731,7 +2709,7 @@ fn filter_one_transaction_per_signer_multiple_addresses() {
     };
     valid_tx_2_address_2.set_origin_nonce(2);
     let mut filtered_transactions = HashMap::new();
-    let mut account_nonces = std::collections::HashMap::new();
+    let mut account_nonces = HashMap::new();
     account_nonces.insert(valid_tx_1_address_1.origin_address(), 1);
     account_nonces.insert(valid_tx_1_address_2.origin_address(), 1);
     NakamotoSigners::update_filtered_transactions(
@@ -2746,7 +2724,10 @@ fn filter_one_transaction_per_signer_multiple_addresses() {
             valid_tx_2_address_1,
         ],
     );
-    let txs: Vec<_> = filtered_transactions.into_values().collect();
+    let txs: Vec<_> = filtered_transactions
+        .iter()
+        .map(|(_, v)| v.clone())
+        .collect();
     assert_eq!(txs.len(), 2);
     assert!(txs.contains(&valid_tx_1_address_1));
     assert!(txs.contains(&valid_tx_1_address_2));
@@ -2828,7 +2809,7 @@ fn filter_one_transaction_per_signer_duplicate_nonces() {
     };
     valid_tx_3.set_origin_nonce(0);
 
-    let mut account_nonces = std::collections::HashMap::new();
+    let mut account_nonces = HashMap::new();
     account_nonces.insert(valid_tx_1.origin_address(), 0);
     let mut txs = vec![valid_tx_2, valid_tx_1, valid_tx_3];
     let mut filtered_transactions = HashMap::new();
@@ -2838,7 +2819,10 @@ fn filter_one_transaction_per_signer_duplicate_nonces() {
         false,
         txs.clone(),
     );
-    let filtered_txs: Vec<_> = filtered_transactions.into_values().collect();
+    let filtered_txs: Vec<_> = filtered_transactions
+        .iter()
+        .map(|(_, v)| v.clone())
+        .collect();
     txs.sort_by(|a, b| a.txid().cmp(&b.txid()));
     assert_eq!(filtered_txs.len(), 1);
     assert!(filtered_txs.contains(&txs.first().expect("failed to get first tx")));

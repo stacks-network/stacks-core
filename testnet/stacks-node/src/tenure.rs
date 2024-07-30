@@ -101,7 +101,6 @@ impl<'a> Tenure {
             &self.coinbase_tx,
             BlockBuilderSettings::limited(),
             None,
-            &self.config.get_burnchain(),
         )
         .unwrap();
 

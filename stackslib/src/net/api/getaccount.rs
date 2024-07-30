@@ -152,14 +152,14 @@ impl RPCRequestHandler for RPCGetAccountRequestHandler {
                         let v3_unlock_height = clarity_db.get_v3_unlock_height().ok()?;
                         let (balance, balance_proof) = if with_proof {
                             clarity_db
-                                .get_data_with_proof::<STXBalance>(&key)
+                                .get_with_proof::<STXBalance>(&key)
                                 .ok()
                                 .flatten()
                                 .map(|(a, b)| (a, Some(format!("0x{}", to_hex(&b)))))
                                 .unwrap_or_else(|| (STXBalance::zero(), Some("".into())))
                         } else {
                             clarity_db
-                                .get_data::<STXBalance>(&key)
+                                .get::<STXBalance>(&key)
                                 .ok()
                                 .flatten()
                                 .map(|a| (a, None))
@@ -169,14 +169,14 @@ impl RPCRequestHandler for RPCGetAccountRequestHandler {
                         let key = ClarityDatabase::make_key_for_account_nonce(&account);
                         let (nonce, nonce_proof) = if with_proof {
                             clarity_db
-                                .get_data_with_proof(&key)
+                                .get_with_proof(&key)
                                 .ok()
                                 .flatten()
                                 .map(|(a, b)| (a, Some(format!("0x{}", to_hex(&b)))))
                                 .unwrap_or_else(|| (0, Some("".into())))
                         } else {
                             clarity_db
-                                .get_data(&key)
+                                .get(&key)
                                 .ok()
                                 .flatten()
                                 .map(|a| (a, None))

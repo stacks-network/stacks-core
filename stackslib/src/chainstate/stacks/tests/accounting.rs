@@ -121,7 +121,6 @@ fn test_bad_microblock_fees_pre_v210() {
         },
     ];
     peer_config.epochs = Some(epochs);
-    let burnchain = peer_config.burnchain.clone();
 
     let num_blocks = 10;
     let mut anchored_sender_nonce = 0;
@@ -304,7 +303,6 @@ fn test_bad_microblock_fees_pre_v210() {
                 }
 
                 let builder = StacksBlockBuilder::make_block_builder(
-                    &burnchain,
                     chainstate.mainnet,
                     &parent_tip,
                     vrf_proof,
@@ -406,7 +404,6 @@ fn test_bad_microblock_fees_fix_transition() {
         (addr.to_account_principal(), 1000000000),
         (addr_anchored.to_account_principal(), 1000000000),
     ];
-    let burnchain = peer_config.burnchain.clone();
 
     let epochs = vec![
         StacksEpoch {
@@ -627,7 +624,6 @@ fn test_bad_microblock_fees_fix_transition() {
                 }
 
                 let builder = StacksBlockBuilder::make_block_builder(
-                    &burnchain,
                     chainstate.mainnet,
                     &parent_tip,
                     vrf_proof,
@@ -763,7 +759,6 @@ fn test_get_block_info_v210() {
         (addr.to_account_principal(), 1000000000),
         (addr_anchored.to_account_principal(), 1000000000),
     ];
-    let burnchain = peer_config.burnchain.clone();
 
     let epochs = vec![
         StacksEpoch {
@@ -983,7 +978,6 @@ fn test_get_block_info_v210() {
                 }
 
                 let builder = StacksBlockBuilder::make_block_builder(
-                    &burnchain,
                     chainstate.mainnet,
                     &parent_tip,
                     vrf_proof,
@@ -1135,7 +1129,6 @@ fn test_get_block_info_v210_no_microblocks() {
         (addr.to_account_principal(), 1000000000),
         (addr_anchored.to_account_principal(), 1000000000),
     ];
-    let burnchain = peer_config.burnchain.clone();
 
     let epochs = vec![
         StacksEpoch {
@@ -1287,7 +1280,6 @@ fn test_get_block_info_v210_no_microblocks() {
                     mblock_pubkey_hash
                 };
                 let builder = StacksBlockBuilder::make_block_builder(
-                    &burnchain,
                     chainstate.mainnet,
                     &parent_tip,
                     vrf_proof,
@@ -1494,7 +1486,6 @@ fn test_coinbase_pay_to_alt_recipient_v210(pay_to_contract: bool) {
         },
     ];
     peer_config.epochs = Some(epochs);
-    let burnchain = peer_config.burnchain.clone();
 
     let num_blocks = 10;
     let mut anchored_sender_nonce = 0;
@@ -1754,7 +1745,6 @@ fn test_coinbase_pay_to_alt_recipient_v210(pay_to_contract: bool) {
                 }
 
                 let builder = StacksBlockBuilder::make_block_builder(
-                    &burnchain,
                     chainstate.mainnet,
                     &parent_tip,
                     vrf_proof,

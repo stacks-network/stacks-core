@@ -170,8 +170,8 @@ impl StacksMessageCodec for ContractName {
 pub enum PreSymbolicExpressionType {
     AtomValue(Value),
     Atom(ClarityName),
-    List(Vec<PreSymbolicExpression>),
-    Tuple(Vec<PreSymbolicExpression>),
+    List(Box<[PreSymbolicExpression]>),
+    Tuple(Box<[PreSymbolicExpression]>),
     SugaredContractIdentifier(ContractName),
     SugaredFieldIdentifier(ContractName, ClarityName),
     FieldIdentifier(TraitIdentifier),
@@ -323,14 +323,14 @@ impl PreSymbolicExpression {
         }
     }
 
-    pub fn list(val: Vec<PreSymbolicExpression>) -> PreSymbolicExpression {
+    pub fn list(val: Box<[PreSymbolicExpression]>) -> PreSymbolicExpression {
         PreSymbolicExpression {
             pre_expr: PreSymbolicExpressionType::List(val),
             ..PreSymbolicExpression::cons()
         }
     }
 
-    pub fn tuple(val: Vec<PreSymbolicExpression>) -> PreSymbolicExpression {
+    pub fn tuple(val: Box<[PreSymbolicExpression]>) -> PreSymbolicExpression {
         PreSymbolicExpression {
             pre_expr: PreSymbolicExpressionType::Tuple(val),
             ..PreSymbolicExpression::cons()
@@ -412,7 +412,7 @@ impl PreSymbolicExpression {
 pub enum SymbolicExpressionType {
     AtomValue(Value),
     Atom(ClarityName),
-    List(Vec<SymbolicExpression>),
+    List(Box<[SymbolicExpression]>),
     LiteralValue(Value),
     Field(TraitIdentifier),
     TraitReference(ClarityName, TraitDefinition),
@@ -544,7 +544,7 @@ impl SymbolicExpression {
         }
     }
 
-    pub fn list(val: Vec<SymbolicExpression>) -> SymbolicExpression {
+    pub fn list(val: Box<[SymbolicExpression]>) -> SymbolicExpression {
         SymbolicExpression {
             expr: SymbolicExpressionType::List(val),
             ..SymbolicExpression::cons()

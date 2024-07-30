@@ -87,7 +87,7 @@ jobs:
         uses: stacks-network/actions/stacks-core/testenv@main
         with:
           btc-version: "25.0"
-
+          
       ## Run test matrix using restored cache of archive file
       ##   - Test will timeout after env.TEST_TIMEOUT minutes
       - name: Run Tests
@@ -168,6 +168,7 @@ jobs:
 
   # Core contract tests on Clarinet v1
   # Check for false positives/negatives
+  # https://github.com/stacks-network/stacks-blockchain/pull/4031#pullrequestreview-1713341208
   core-contracts-clarinet-test-clarinet-v1:
     name: Core Contracts Test Clarinet V1
     runs-on: ubuntu-latest
@@ -181,19 +182,3 @@ jobs:
         with:
           args: test --manifest-path=./contrib/core-contract-tests/Clarinet.toml contrib/core-contract-tests/tests/bns/name_register_test.ts
 
-  check-tests:
-    name: Check Tests
-    runs-on: ubuntu-latest
-    if: always()
-    needs:
-      - full-genesis
-      - unit-tests
-      - open-api-validation
-      - core-contracts-clarinet-test
-    steps:
-      - name: Check Tests Status
-        id: check_tests_status
-        uses: stacks-network/actions/check-jobs-status@main
-        with:
-          jobs: ${{ toJson(needs) }}
-          summary_print: "true"

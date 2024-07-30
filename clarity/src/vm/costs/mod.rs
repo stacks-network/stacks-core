@@ -17,11 +17,10 @@
 use std::collections::BTreeMap;
 use std::{cmp, fmt};
 
-use hashbrown::HashMap;
 use lazy_static::lazy_static;
 use rusqlite::types::{FromSql, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
 use serde::{Deserialize, Serialize};
-use stacks_common::types::StacksEpochId;
+use stacks_common::types::{StacksEpochId, StacksHashMap as HashMap, StacksHashSet as HashSet};
 
 use crate::boot_util::boot_code_id;
 use crate::vm::ast::ContractAST;
@@ -207,8 +206,14 @@ impl From<CostStateSummary> for SerializedCostStateSummary {
             cost_function_references,
         } = other;
         SerializedCostStateSummary {
-            contract_call_circuits: contract_call_circuits.into_iter().collect(),
-            cost_function_references: cost_function_references.into_iter().collect(),
+            contract_call_circuits: contract_call_circuits
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect(),
+            cost_function_references: cost_function_references
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect(),
         }
     }
 }
@@ -786,9 +791,6 @@ impl TrackerData {
     /// `apply_updates` - tells this function to look for any changes in the cost voting contract
     ///   which would need to be applied. if `false`, just load the last computed cost state in this
     ///   fork.
-    /// TODO: #4587 add test for Err cases
-    /// Or keep the skip and remove the comment
-    #[cfg_attr(test, mutants::skip)]
     fn load_costs(&mut self, clarity_db: &mut ClarityDatabase, apply_updates: bool) -> Result<()> {
         clarity_db.begin();
         let epoch_id = clarity_db
@@ -994,7 +996,7 @@ fn compute_cost(
         )));
     }
 
-    let function_invocation = [SymbolicExpression::list(program)];
+    let function_invocation = [SymbolicExpression::list(program.into_boxed_slice())];
 
     let eval_result = eval_all(
         &function_invocation,

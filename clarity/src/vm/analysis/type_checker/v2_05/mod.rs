@@ -20,8 +20,7 @@ pub mod natives;
 
 use std::collections::BTreeMap;
 
-use hashbrown::HashMap;
-use stacks_common::types::StacksEpochId;
+use stacks_common::types::{StacksEpochId, StacksHashMap as HashMap, StacksHashSet as HashSet};
 
 use self::contexts::ContractContext;
 pub use self::natives::{SimpleNativeFunction, TypedNativeFunction};
@@ -111,15 +110,14 @@ impl CostTracker for TypeChecker<'_, '_> {
     }
 }
 
-impl TypeChecker<'_, '_> {
-    pub fn run_pass(
+impl AnalysisPass for TypeChecker<'_, '_> {
+    fn run_pass(
         _epoch: &StacksEpochId,
         contract_analysis: &mut ContractAnalysis,
         analysis_db: &mut AnalysisDatabase,
-        build_type_map: bool,
     ) -> CheckResult<()> {
         let cost_track = contract_analysis.take_contract_cost_tracker();
-        let mut command = TypeChecker::new(analysis_db, cost_track, build_type_map);
+        let mut command = TypeChecker::new(analysis_db, cost_track);
         // run the analysis, and replace the cost tracker whether or not the
         //   analysis succeeded.
         match command.run(contract_analysis) {
@@ -344,14 +342,13 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
     fn new(
         db: &'a mut AnalysisDatabase<'b>,
         cost_track: LimitedCostTracker,
-        build_type_map: bool,
     ) -> TypeChecker<'a, 'b> {
         Self {
             db,
             cost_track,
             contract_context: ContractContext::new(),
             function_return_tracker: None,
-            type_map: TypeMap::new(build_type_map),
+            type_map: TypeMap::new(),
         }
     }
 

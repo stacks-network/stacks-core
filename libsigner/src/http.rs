@@ -18,9 +18,9 @@ use std::io;
 use std::io::{Read, Write};
 use std::net::SocketAddr;
 
-use hashbrown::HashMap;
 use stacks_common::codec::MAX_MESSAGE_LEN;
 use stacks_common::deps_common::httparse;
+use stacks_common::types::StacksHashMap as HashMap;
 use stacks_common::util::chunked_encoding::*;
 
 use crate::error::{EventError, RPCError};
@@ -238,12 +238,12 @@ pub fn run_http_request<S: Read + Write>(
 
     let req_txt = if let Some(content_type) = content_type {
         format!(
-            "{} {} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\nContent-Type: {}\r\n{}User-Agent: libsigner/0.1\r\nAccept: */*\r\n\r\n",
+            "{} {} HTTP/1.0\r\nHost: {}\r\nConnection: close\r\nContent-Type: {}\r\n{}User-Agent: libsigner/0.1\r\nAccept: */*\r\n\r\n",
             verb, path, host, content_type, content_length_hdr
         )
     } else {
         format!(
-            "{} {} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n{}User-Agent: libsigner/0.1\r\nAccept: */*\r\n\r\n",
+            "{} {} HTTP/1.0\r\nHost: {}\r\nConnection: close\r\n{}User-Agent: libsigner/0.1\r\nAccept: */*\r\n\r\n",
             verb, path, host, content_length_hdr
         )
     };

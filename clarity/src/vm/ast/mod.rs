@@ -319,8 +319,7 @@ pub fn build_ast<T: CostTracker>(
 
 #[cfg(test)]
 mod test {
-    use hashbrown::HashMap;
-    use stacks_common::types::StacksEpochId;
+    use stacks_common::types::{StacksEpochId, StacksHashMap as HashMap, StacksHashSet as HashSet};
 
     use crate::vm::ast::errors::ParseErrors;
     use crate::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;

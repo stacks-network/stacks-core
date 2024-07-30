@@ -81,7 +81,6 @@ pub fn type_check_version(
         LimitedCostTracker::new_free(),
         epoch,
         version,
-        false,
     )
     .map_err(|(e, _)| e)
 }

@@ -32,10 +32,9 @@
 use std::hash::Hash;
 use std::{mem, u32};
 
-use hashbrown::HashMap;
-
 use crate::deps_common::bitcoin::network::serialize::{self, SimpleDecoder, SimpleEncoder};
 use crate::deps_common::bitcoin::util::hash::Sha256dHash;
+use crate::types::{StacksHashMap as HashMap, StacksHashSet as HashSet};
 
 /// Maximum size, in bytes, of a vector we are allowed to decode
 pub const MAX_VEC_SIZE: usize = 64 * 1024 * 1024;

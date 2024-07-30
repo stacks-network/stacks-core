@@ -76,6 +76,7 @@ impl BitcoinCoreController {
             Err(e) => return Err(BitcoinCoreError::SpawnFailed(format!("{:?}", e))),
         };
 
+        eprintln!("bitcoind spawned, waiting for startup");
         let mut out_reader = BufReader::new(process.stdout.take().unwrap());
 
         let mut line = String::new();
@@ -94,34 +95,6 @@ impl BitcoinCoreController {
 
         self.bitcoind_process = Some(process);
 
-        Ok(())
-    }
-
-    pub fn stop_bitcoind(&mut self) -> Result<(), BitcoinCoreError> {
-        if let Some(_) = self.bitcoind_process.take() {
-            let mut command = Command::new("bitcoin-cli");
-            command
-                .stdout(Stdio::piped())
-                .arg("-rpcconnect=127.0.0.1")
-                .arg("-rpcport=8332")
-                .arg("-rpcuser=neon-tester")
-                .arg("-rpcpassword=neon-tester-pass")
-                .arg("stop");
-
-            let mut process = match command.spawn() {
-                Ok(child) => child,
-                Err(e) => return Err(BitcoinCoreError::SpawnFailed(format!("{:?}", e))),
-            };
-
-            let mut out_reader = BufReader::new(process.stdout.take().unwrap());
-            let mut line = String::new();
-            while let Ok(bytes_read) = out_reader.read_line(&mut line) {
-                if bytes_read == 0 {
-                    break;
-                }
-                eprintln!("{}", &line);
-            }
-        }
         Ok(())
     }
 
@@ -169,8 +142,8 @@ fn bitcoind_integration(segwit_flag: bool) {
     conf.burnchain.password = Some("secret".to_string());
     conf.burnchain.local_mining_public_key = Some("04ee0b1602eb18fef7986887a7e8769a30c9df981d33c8380d255edef003abdcd243a0eb74afdf6740e6c423e62aec631519a24cf5b1d62bf8a3e06ddc695dcb77".to_string());
 
-    conf.miner.first_attempt_time_ms = i64::MAX as u64;
-    conf.miner.subsequent_attempt_time_ms = i64::MAX as u64;
+    conf.miner.first_attempt_time_ms = i64::max_value() as u64;
+    conf.miner.subsequent_attempt_time_ms = i64::max_value() as u64;
     conf.miner.segwit = segwit_flag;
 
     conf.initial_balances.push(InitialBalance {

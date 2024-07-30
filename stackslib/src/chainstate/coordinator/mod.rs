@@ -26,7 +26,6 @@ use clarity::vm::costs::ExecutionCost;
 use clarity::vm::database::BurnStateDB;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::Value;
-use stacks_common::bitvec::BitVec;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksBlockId,
 };
@@ -178,7 +177,6 @@ pub trait BlockEventDispatcher {
         mblock_confirmed_consumed: &ExecutionCost,
         pox_constants: &PoxConstants,
         reward_set_data: &Option<RewardSetData>,
-        signer_bitvec: &Option<BitVec<4000>>,
     );
 
     /// called whenever a burn block is about to be
@@ -239,8 +237,6 @@ pub struct ChainsCoordinator<
     /// Used to tell the P2P thread that the stackerdb
     ///  needs to be refreshed.
     pub refresh_stacker_db: Arc<AtomicBool>,
-    /// whether or not the canonical tip is now a Nakamoto header
-    pub in_nakamoto_epoch: bool,
 }
 
 #[derive(Debug)]
@@ -542,7 +538,6 @@ impl<
             config,
             burnchain_indexer,
             refresh_stacker_db: comms.refresh_stacker_db.clone(),
-            in_nakamoto_epoch: false,
         };
 
         let mut nakamoto_available = false;
@@ -704,7 +699,6 @@ impl<'a, T: BlockEventDispatcher, U: RewardSetProvider, B: BurnchainHeaderReader
             config: ChainsCoordinatorConfig::new(),
             burnchain_indexer,
             refresh_stacker_db: Arc::new(AtomicBool::new(false)),
-            in_nakamoto_epoch: false,
         }
     }
 }
@@ -2489,7 +2483,7 @@ impl<
                 BurnchainDB::get_burnchain_block(&self.burnchain_blocks_db.conn(), &cursor)
                     .map_err(|e| {
                         warn!(
-                            "ChainsCoordinator: could not retrieve block burnhash={}",
+                            "ChainsCoordinator: could not retrieve  block burnhash={}",
                             &cursor
                         );
                         Error::NonContiguousBurnchainBlock(e)

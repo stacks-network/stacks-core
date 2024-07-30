@@ -145,16 +145,6 @@ impl StackerDBErrorCodes {
             "reason": self.reason()
         })
     }
-
-    #[cfg_attr(test, mutants::skip)]
-    pub fn from_code(code: u32) -> Option<Self> {
-        match code {
-            0 => Some(Self::DataAlreadyExists),
-            1 => Some(Self::NoSuchSlot),
-            2 => Some(Self::BadSigner),
-            _ => None,
-        }
-    }
 }
 
 impl RPCRequestHandler for RPCPostStackerDBChunkRequestHandler {
@@ -229,23 +219,31 @@ impl RPCRequestHandler for RPCPostStackerDBChunkRequestHandler {
                             }
                         };
 
-                    let err_code = if slot_metadata_opt.is_some() {
-                        if let NetError::BadSlotSigner(..) = e {
+                    let (reason, slot_metadata_opt) = if let Some(slot_metadata) = slot_metadata_opt
+                    {
+                        let code = if let NetError::BadSlotSigner(..) = e {
                             StackerDBErrorCodes::BadSigner
                         } else {
                             StackerDBErrorCodes::DataAlreadyExists
-                        }
+                        };
+
+                        (
+                            serde_json::to_string(&code.into_json())
+                                .unwrap_or("(unable to encode JSON)".to_string()),
+                            Some(slot_metadata),
+                        )
                     } else {
-                        StackerDBErrorCodes::NoSuchSlot
+                        (
+                            serde_json::to_string(&StackerDBErrorCodes::NoSuchSlot.into_json())
+                                .unwrap_or("(unable to encode JSON)".to_string()),
+                            None,
+                        )
                     };
-                    let reason = serde_json::to_string(&err_code.clone().into_json())
-                        .unwrap_or("(unable to encode JSON)".to_string());
 
                     let ack = StackerDBChunkAckData {
                         accepted: false,
                         reason: Some(reason),
                         metadata: slot_metadata_opt,
-                        code: Some(err_code.code()),
                     };
                     return Ok(ack);
                 }
@@ -283,7 +281,6 @@ impl RPCRequestHandler for RPCPostStackerDBChunkRequestHandler {
                     accepted: true,
                     reason: None,
                     metadata: Some(slot_metadata),
-                    code: None,
                 };
 
                 return Ok(ack);

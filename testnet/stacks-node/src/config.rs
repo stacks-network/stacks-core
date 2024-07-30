@@ -1,7 +1,6 @@
-use std::collections::{HashMap, HashSet};
-use std::net::{Ipv4Addr, SocketAddr, ToSocketAddrs};
+use std::collections::HashSet;
+use std::net::{SocketAddr, ToSocketAddrs};
 use std::path::PathBuf;
-use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use std::{fs, thread};
@@ -10,8 +9,6 @@ use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier};
 use lazy_static::lazy_static;
 use rand::RngCore;
-use serde::Deserialize;
-use stacks::burnchains::affirmation::AffirmationMap;
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::{Burnchain, MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
 use stacks::chainstate::nakamoto::signer_set::NakamotoSigners;
@@ -33,7 +30,6 @@ use stacks::cost_estimates::{CostEstimator, FeeEstimator, PessimisticEstimator, 
 use stacks::net::atlas::AtlasConfig;
 use stacks::net::connection::ConnectionOptions;
 use stacks::net::{Neighbor, NeighborKey};
-use stacks::types::chainstate::BurnchainHeaderHash;
 use stacks::util_lib::boot::boot_code_id;
 use stacks::util_lib::db::Error as DBError;
 use stacks_common::consts::SIGNER_SLOTS_PER_USER;
@@ -201,74 +197,6 @@ mod tests {
             Some("password".to_string())
         );
     }
-
-    #[test]
-    fn should_load_affirmation_map() {
-        let affirmation_string = "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnppnnnnnnnnnnnnnnnnnnnnnnnnpppppnnnnnnnnnnnnnnnnnnnnnnnpppppppppppppppnnnnnnnnnnnnnnnnnnnnnnnppppppppppnnnnnnnnnnnnnnnnnnnppppnnnnnnnnnnnnnnnnnnnnnnnppppppppnnnnnnnnnnnnnnnnnnnnnnnppnppnnnnnnnnnnnnnnnnnnnnnnnppppnnnnnnnnnnnnnnnnnnnnnnnnnppppppnnnnnnnnnnnnnnnnnnnnnnnnnppnnnnnnnnnnnnnnnnnnnnnnnnnpppppppnnnnnnnnnnnnnnnnnnnnnnnnnnpnnnnnnnnnnnnnnnnnnnnnnnnnpppnppppppppppppppnnppppnpa";
-        let affirmation =
-            AffirmationMap::decode(affirmation_string).expect("Failed to decode affirmation map");
-        let config = Config::from_config_file(
-            ConfigFile::from_str(&format!(
-                r#"
-                    [[burnchain.affirmation_overrides]]
-                    reward_cycle = 1
-                    affirmation = "{affirmation_string}"
-                "#
-            ))
-            .expect("Expected to be able to parse config file from string"),
-        )
-        .expect("Expected to be able to parse affirmation map from file");
-
-        assert_eq!(config.burnchain.affirmation_overrides.len(), 1);
-        assert_eq!(config.burnchain.affirmation_overrides.get(&0), None);
-        assert_eq!(
-            config.burnchain.affirmation_overrides.get(&1),
-            Some(&affirmation)
-        );
-    }
-
-    #[test]
-    fn should_fail_to_load_invalid_affirmation_map() {
-        let bad_affirmation_string = "bad_map";
-        let file = ConfigFile::from_str(&format!(
-            r#"
-                    [[burnchain.affirmation_overrides]]
-                    reward_cycle = 1
-                    affirmation = "{bad_affirmation_string}"
-                "#
-        ))
-        .expect("Expected to be able to parse config file from string");
-
-        assert!(Config::from_config_file(file).is_err());
-    }
-
-    #[test]
-    fn should_load_empty_affirmation_map() {
-        let config = Config::from_config_file(
-            ConfigFile::from_str(r#""#)
-                .expect("Expected to be able to parse config file from string"),
-        )
-        .expect("Expected to be able to parse affirmation map from file");
-
-        assert!(config.burnchain.affirmation_overrides.is_empty());
-    }
-
-    #[test]
-    fn should_include_xenon_default_affirmation_overrides() {
-        let config = Config::from_config_file(
-            ConfigFile::from_str(
-                r#"
-                [burnchain]
-                chain = "bitcoin"
-                mode = "xenon"
-                "#,
-            )
-            .expect("Expected to be able to parse config file from string"),
-        )
-        .expect("Expected to be able to parse affirmation map from file");
-        // Should default add xenon affirmation overrides
-        assert_eq!(config.burnchain.affirmation_overrides.len(), 3);
-    }
 }
 
 impl ConfigFile {
@@ -294,16 +222,14 @@ impl ConfigFile {
     }
 
     pub fn xenon() -> ConfigFile {
-        let mut burnchain = BurnchainConfigFile {
+        let burnchain = BurnchainConfigFile {
             mode: Some("xenon".to_string()),
             rpc_port: Some(18332),
             peer_port: Some(18333),
-            peer_host: Some("bitcoind.testnet.stacks.co".to_string()),
+            peer_host: Some("bitcoind.xenon.blockstack.org".to_string()),
             magic_bytes: Some("T2".into()),
             ..BurnchainConfigFile::default()
         };
-
-        burnchain.add_affirmation_overrides_xenon();
 
         let node = NodeConfigFile {
             bootstrap_node: Some("029266faff4c8e0ca4f934f34996a96af481df94a89b0c9bd515f3536a95682ddc@seed.testnet.hiro.so:30444".to_string()),
@@ -537,31 +463,6 @@ impl Config {
             return;
         }
 
-        if let Some(first_burn_block_height) = self.burnchain.first_burn_block_height {
-            debug!(
-                "Override first_block_height from {} to {}",
-                burnchain.first_block_height, first_burn_block_height
-            );
-            burnchain.first_block_height = first_burn_block_height;
-        }
-
-        if let Some(first_burn_block_timestamp) = self.burnchain.first_burn_block_timestamp {
-            debug!(
-                "Override first_block_timestamp from {} to {}",
-                burnchain.first_block_timestamp, first_burn_block_timestamp
-            );
-            burnchain.first_block_timestamp = first_burn_block_timestamp;
-        }
-
-        if let Some(first_burn_block_hash) = &self.burnchain.first_burn_block_hash {
-            debug!(
-                "Override first_burn_block_hash from {} to {}",
-                burnchain.first_block_hash, first_burn_block_hash
-            );
-            burnchain.first_block_hash = BurnchainHeaderHash::from_hex(&first_burn_block_hash)
-                .expect("Invalid first_burn_block_hash");
-        }
-
         if let Some(pox_prepare_length) = self.burnchain.pox_prepare_length {
             debug!("Override pox_prepare_length to {pox_prepare_length}");
             burnchain.pox_constants.prepare_length = pox_prepare_length;
@@ -581,28 +482,7 @@ impl Config {
         }
 
         if let Some(epochs) = &self.burnchain.epochs {
-            if let Some(epoch) = epochs
-                .iter()
-                .find(|epoch| epoch.epoch_id == StacksEpochId::Epoch10)
-            {
-                // Epoch 1.0 start height can be equal to the first block height iff epoch 2.0
-                // start height is also equal to the first block height.
-                assert!(
-                    epoch.start_height <= burnchain.first_block_height,
-                    "FATAL: Epoch 1.0 start height must be at or before the first block height"
-                );
-            }
-
-            if let Some(epoch) = epochs
-                .iter()
-                .find(|epoch| epoch.epoch_id == StacksEpochId::Epoch20)
-            {
-                assert_eq!(
-                    epoch.start_height, burnchain.first_block_height,
-                    "FATAL: Epoch 2.0 start height must match the first block height"
-                );
-            }
-
+            // Iterate through the epochs vector and find the item where epoch_id == StacksEpochId::Epoch22
             if let Some(epoch) = epochs
                 .iter()
                 .find(|epoch| epoch.epoch_id == StacksEpochId::Epoch21)
@@ -672,7 +552,9 @@ impl Config {
         }
 
         // check if the Epoch 3.0 burnchain settings as configured are going to be valid.
-        self.check_nakamoto_config(&burnchain);
+        if self.burnchain.mode == "nakamoto-neon" {
+            self.check_nakamoto_config(&burnchain);
+        }
     }
 
     fn check_nakamoto_config(&self, burnchain: &Burnchain) {
@@ -828,6 +710,7 @@ impl Config {
             );
         }
 
+        // epochs must be a prefix of [1.0, 2.0, 2.05, 2.1]
         let expected_list = [
             StacksEpochId::Epoch10,
             StacksEpochId::Epoch20,
@@ -985,8 +868,10 @@ impl Config {
             node.require_affirmed_anchor_blocks = false;
         }
 
-        if node.stacker || node.miner {
+        if (node.stacker || node.miner) && burnchain.mode == "nakamoto-neon" {
             node.add_miner_stackerdb(is_mainnet);
+        }
+        if (node.stacker || node.miner) && burnchain.mode == "nakamoto-neon" {
             node.add_signers_stackerdbs(is_mainnet);
         }
 
@@ -1226,7 +1111,6 @@ impl Config {
                 filter_origins: miner_config.filter_origins,
             },
             miner_status,
-            confirm_microblocks: true,
         }
     }
 
@@ -1289,9 +1173,6 @@ pub struct BurnchainConfig {
     pub leader_key_tx_estimated_size: u64,
     pub block_commit_tx_estimated_size: u64,
     pub rbf_fee_increment: u64,
-    pub first_burn_block_height: Option<u64>,
-    pub first_burn_block_timestamp: Option<u32>,
-    pub first_burn_block_hash: Option<String>,
     /// Custom override for the definitions of the epochs. This will only be applied for testnet and
     /// regtest nodes.
     pub epochs: Option<Vec<StacksEpoch>>,
@@ -1302,7 +1183,6 @@ pub struct BurnchainConfig {
     pub sunset_end: Option<u32>,
     pub wallet_name: String,
     pub ast_precheck_size_height: Option<u64>,
-    pub affirmation_overrides: HashMap<u64, AffirmationMap>,
 }
 
 impl BurnchainConfig {
@@ -1330,9 +1210,6 @@ impl BurnchainConfig {
             leader_key_tx_estimated_size: LEADER_KEY_TX_ESTIM_SIZE,
             block_commit_tx_estimated_size: BLOCK_COMMIT_TX_ESTIM_SIZE,
             rbf_fee_increment: DEFAULT_RBF_FEE_RATE_INCREMENT,
-            first_burn_block_height: None,
-            first_burn_block_timestamp: None,
-            first_burn_block_hash: None,
             epochs: None,
             pox_2_activation: None,
             pox_prepare_length: None,
@@ -1341,7 +1218,6 @@ impl BurnchainConfig {
             sunset_end: None,
             wallet_name: "".to_string(),
             ast_precheck_size_height: None,
-            affirmation_overrides: HashMap::new(),
         }
     }
     pub fn get_rpc_url(&self, wallet: Option<String>) -> String {
@@ -1397,12 +1273,6 @@ pub const EPOCH_CONFIG_2_5_0: &'static str = "2.5";
 pub const EPOCH_CONFIG_3_0_0: &'static str = "3.0";
 
 #[derive(Clone, Deserialize, Default, Debug)]
-pub struct AffirmationOverride {
-    pub reward_cycle: u64,
-    pub affirmation: String,
-}
-
-#[derive(Clone, Deserialize, Default, Debug)]
 pub struct BurnchainConfigFile {
     pub chain: Option<String>,
     pub burn_fee_cap: Option<u64>,
@@ -1424,9 +1294,6 @@ pub struct BurnchainConfigFile {
     pub block_commit_tx_estimated_size: Option<u64>,
     pub rbf_fee_increment: Option<u64>,
     pub max_rbf: Option<u64>,
-    pub first_burn_block_height: Option<u64>,
-    pub first_burn_block_timestamp: Option<u32>,
-    pub first_burn_block_hash: Option<String>,
     pub epochs: Option<Vec<StacksEpochConfigFile>>,
     pub pox_prepare_length: Option<u32>,
     pub pox_reward_length: Option<u32>,
@@ -1435,38 +1302,9 @@ pub struct BurnchainConfigFile {
     pub sunset_end: Option<u32>,
     pub wallet_name: Option<String>,
     pub ast_precheck_size_height: Option<u64>,
-    pub affirmation_overrides: Option<Vec<AffirmationOverride>>,
 }
 
 impl BurnchainConfigFile {
-    /// Add affirmation overrides required to sync Xenon Testnet node.
-    ///
-    /// The Xenon Testnet Stacks 2.4 activation height occurred before the finalized SIP-024 updates and release of the stacks-node versioned 2.4.0.0.0.
-    /// This caused the Stacks Xenon testnet to undergo a deep reorg when 2.4.0.0.0 was finalized. This deep reorg meant that 3 reward cycles were
-    /// invalidated, which requires overrides in the affirmation map to continue correct operation. Those overrides are required for cycles 413, 414, and 415.
-    pub fn add_affirmation_overrides_xenon(&mut self) {
-        let default_overrides = vec![
-        AffirmationOverride {
-            reward_cycle: 413,
-            affirmation: "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnppnnnnnnnnnnnnnnnnnnnnnnnnpppppnnnnnnnnnnnnnnnnnnnnnnnpppppppppppppppnnnnnnnnnnnnnnnnnnnnnnnppppppppppnnnnnnnnnnnnnnnnnnnppppnnnnnnnnnnnnnnnnnnnnnnnppppppppnnnnnnnnnnnnnnnnnnnnnnnppnppnnnnnnnnnnnnnnnnnnnnnnnppppnnnnnnnnnnnnnnnnnnnnnnnnnppppppnnnnnnnnnnnnnnnnnnnnnnnnnppnnnnnnnnnnnnnnnnnnnnnnnnnpppppppnnnnnnnnnnnnnnnnnnnnnnnnnnpnnnnnnnnnnnnnnnnnnnnnnnnnpppnppppppppppppppnnppppnpa".to_string()
-        },
-        AffirmationOverride {
-            reward_cycle: 414,
-            affirmation: "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnppnnnnnnnnnnnnnnnnnnnnnnnnpppppnnnnnnnnnnnnnnnnnnnnnnnpppppppppppppppnnnnnnnnnnnnnnnnnnnnnnnppppppppppnnnnnnnnnnnnnnnnnnnppppnnnnnnnnnnnnnnnnnnnnnnnppppppppnnnnnnnnnnnnnnnnnnnnnnnppnppnnnnnnnnnnnnnnnnnnnnnnnppppnnnnnnnnnnnnnnnnnnnnnnnnnppppppnnnnnnnnnnnnnnnnnnnnnnnnnppnnnnnnnnnnnnnnnnnnnnnnnnnpppppppnnnnnnnnnnnnnnnnnnnnnnnnnnpnnnnnnnnnnnnnnnnnnnnnnnnnpppnppppppppppppppnnppppnpaa".to_string()
-        },
-        AffirmationOverride {
-            reward_cycle: 415,
-            affirmation: "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnppnnnnnnnnnnnnnnnnnnnnnnnnpppppnnnnnnnnnnnnnnnnnnnnnnnpppppppppppppppnnnnnnnnnnnnnnnnnnnnnnnppppppppppnnnnnnnnnnnnnnnnnnnppppnnnnnnnnnnnnnnnnnnnnnnnppppppppnnnnnnnnnnnnnnnnnnnnnnnppnppnnnnnnnnnnnnnnnnnnnnnnnppppnnnnnnnnnnnnnnnnnnnnnnnnnppppppnnnnnnnnnnnnnnnnnnnnnnnnnppnnnnnnnnnnnnnnnnnnnnnnnnnpppppppnnnnnnnnnnnnnnnnnnnnnnnnnnpnnnnnnnnnnnnnnnnnnnnnnnnnpppnppppppppppppppnnppppnpaaa".to_string()
-        }];
-        if let Some(affirmation_overrides) = self.affirmation_overrides.as_mut() {
-            for affirmation in default_overrides {
-                affirmation_overrides.push(affirmation);
-            }
-        } else {
-            self.affirmation_overrides = Some(default_overrides);
-        };
-    }
-
     fn into_config_default(
         mut self,
         default_burnchain_config: BurnchainConfig,
@@ -1475,7 +1313,6 @@ impl BurnchainConfigFile {
             if self.magic_bytes.is_none() {
                 self.magic_bytes = ConfigFile::xenon().burnchain.unwrap().magic_bytes;
             }
-            self.add_affirmation_overrides_xenon();
         }
 
         let mode = self.mode.unwrap_or(default_burnchain_config.mode);
@@ -1491,19 +1328,6 @@ impl BurnchainConfigFile {
                     "Attempted to run mainnet node with bad magic bytes '{}'",
                     self.magic_bytes.as_ref().unwrap()
                 ));
-            }
-        }
-
-        let mut affirmation_overrides = HashMap::new();
-        if let Some(aos) = self.affirmation_overrides {
-            for ao in aos {
-                let Some(affirmation_map) = AffirmationMap::decode(&ao.affirmation) else {
-                    return Err(format!(
-                        "Invalid affirmation override for reward cycle {}: {}",
-                        ao.reward_cycle, ao.affirmation
-                    ));
-                };
-                affirmation_overrides.insert(ao.reward_cycle, affirmation_map);
             }
         }
 
@@ -1579,16 +1403,6 @@ impl BurnchainConfigFile {
             rbf_fee_increment: self
                 .rbf_fee_increment
                 .unwrap_or(default_burnchain_config.rbf_fee_increment),
-            first_burn_block_height: self
-                .first_burn_block_height
-                .or(default_burnchain_config.first_burn_block_height),
-            first_burn_block_timestamp: self
-                .first_burn_block_timestamp
-                .or(default_burnchain_config.first_burn_block_timestamp),
-            first_burn_block_hash: self
-                .first_burn_block_hash
-                .clone()
-                .or(default_burnchain_config.first_burn_block_hash.clone()),
             // will be overwritten below
             epochs: default_burnchain_config.epochs,
             ast_precheck_size_height: self.ast_precheck_size_height,
@@ -1606,7 +1420,6 @@ impl BurnchainConfigFile {
             pox_prepare_length: self
                 .pox_prepare_length
                 .or(default_burnchain_config.pox_prepare_length),
-            affirmation_overrides,
         };
 
         if let BitcoinNetworkType::Mainnet = config.get_bitcoin_network().1 {
@@ -1616,13 +1429,6 @@ impl BurnchainConfigFile {
                 || config.sunset_end.is_some()
             {
                 return Err("PoX-2 parameters are not configurable in mainnet".into());
-            }
-            // Check that the first burn block options are not set in mainnet
-            if config.first_burn_block_height.is_some()
-                || config.first_burn_block_timestamp.is_some()
-                || config.first_burn_block_hash.is_some()
-            {
-                return Err("First burn block parameters are not configurable in mainnet".into());
             }
         }
 
@@ -1958,18 +1764,6 @@ impl Default for NodeConfig {
 }
 
 impl NodeConfig {
-    /// Get a SocketAddr for this node's RPC endpoint which uses the loopback address
-    pub fn get_rpc_loopback(&self) -> Option<SocketAddr> {
-        let rpc_port = SocketAddr::from_str(&self.rpc_bind)
-            .or_else(|e| {
-                error!("Could not parse node.rpc_bind configuration setting as SocketAddr: {e}");
-                Err(())
-            })
-            .ok()?
-            .port();
-        Some(SocketAddr::new(Ipv4Addr::LOCALHOST.into(), rpc_port))
-    }
-
     pub fn add_signers_stackerdbs(&mut self, is_mainnet: bool) {
         for signer_set in 0..2 {
             for message_id in 0..SIGNER_SLOTS_PER_USER {
