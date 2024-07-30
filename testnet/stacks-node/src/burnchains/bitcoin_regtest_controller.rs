@@ -872,6 +872,7 @@ impl BitcoinRegtestController {
             fee_rate,
             &mut utxos,
             signer,
+            false,
         )?;
 
         increment_btc_ops_sent_counter();
@@ -1009,6 +1010,7 @@ impl BitcoinRegtestController {
             get_satoshis_per_byte(&self.config),
             &mut utxos,
             signer,
+            false,
         )?;
 
         increment_btc_ops_sent_counter();
@@ -1092,6 +1094,7 @@ impl BitcoinRegtestController {
             get_satoshis_per_byte(&self.config),
             &mut utxos,
             signer,
+            false,
         )?;
 
         increment_btc_ops_sent_counter();
@@ -1166,6 +1169,7 @@ impl BitcoinRegtestController {
             get_satoshis_per_byte(&self.config),
             &mut utxos,
             signer,
+            false,
         )?;
 
         increment_btc_ops_sent_counter();
@@ -1244,6 +1248,7 @@ impl BitcoinRegtestController {
             get_satoshis_per_byte(&self.config),
             &mut utxos,
             signer,
+            false,
         )?;
 
         increment_btc_ops_sent_counter();
@@ -1331,6 +1336,7 @@ impl BitcoinRegtestController {
             get_satoshis_per_byte(&self.config),
             &mut utxos,
             signer,
+            false,
         )?;
 
         increment_btc_ops_sent_counter();
@@ -1421,6 +1427,7 @@ impl BitcoinRegtestController {
             fee_rate,
             &mut utxos,
             signer,
+            true, // only block commit op requires change output to exist
         )?;
 
         let serialized_tx = SerializedTx::new(tx.clone());
@@ -1691,6 +1698,7 @@ impl BitcoinRegtestController {
         fee_rate: u64,
         utxos_set: &mut UTXOSet,
         signer: &mut BurnchainOpSigner,
+        force_change_output: bool,
     ) -> Option<()> {
         // spend UTXOs in order by confirmations.  Spend the least-confirmed UTXO first, and in the
         // event of a tie, spend the smallest-value UTXO first.
@@ -1721,7 +1729,7 @@ impl BitcoinRegtestController {
                 spent_in_outputs + min_tx_size * fee_rate + estimated_rbf,
                 &mut utxos_cloned,
                 signer,
-                true,
+                force_change_output,
             );
             let serialized_tx = SerializedTx::new(tx_cloned);
             cmp::max(min_tx_size, serialized_tx.bytes.len() as u64)
@@ -1738,7 +1746,7 @@ impl BitcoinRegtestController {
             spent_in_outputs + tx_size * fee_rate + rbf_fee,
             utxos_set,
             signer,
-            true,
+            force_change_output,
         );
         signer.dispose();
         Some(())
