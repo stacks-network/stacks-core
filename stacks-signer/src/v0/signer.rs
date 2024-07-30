@@ -251,7 +251,7 @@ impl Signer {
         block_proposal: &BlockProposal,
         miner_pubkey: &Secp256k1PublicKey,
     ) {
-        info!("{self}: Received a block proposal: {block_proposal:?}");
+        debug!("{self}: Received a block proposal: {block_proposal:?}");
         if block_proposal.reward_cycle != self.reward_cycle {
             // We are not signing for this reward cycle. Ignore the block.
             debug!(
