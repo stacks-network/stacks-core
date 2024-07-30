@@ -2629,7 +2629,7 @@ impl PeerNetwork {
         }
 
         // synchronize peer block inventories
-        let (done, throttled, dead_neighbors, broken_neighbors) =
+        let (done, throttled, broken_neighbors, dead_neighbors) =
             self.sync_inventories_epoch2x(sortdb, ibd);
 
         // disconnect and ban broken peers
