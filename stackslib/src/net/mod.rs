@@ -1044,6 +1044,7 @@ pub mod NackErrorCodes {
     pub const NoSuchDB: u32 = 6;
     pub const StaleVersion: u32 = 7;
     pub const StaleView: u32 = 8;
+    pub const FutureVersion: u32 = 9;
 }
 
 #[derive(Debug, Clone, PartialEq)]
