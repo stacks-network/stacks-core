@@ -57,7 +57,11 @@ use stacks_common::util::sleep_ms;
 use super::super::operations::BurnchainOpSigner;
 use super::super::Config;
 use super::{BurnchainController, BurnchainTip, Error as BurnchainControllerError};
-use crate::config::BurnchainConfig;
+use crate::config::{
+    BurnchainConfig, OP_TX_BLOCK_COMMIT_ESTIM_SIZE, OP_TX_DELEGATE_STACKS_ESTIM_SIZE,
+    OP_TX_PRE_STACKS_ESTIM_SIZE, OP_TX_STACK_STX_ESTIM_SIZE, OP_TX_TRANSFER_STACKS_ESTIM_SIZE,
+    OP_TX_VOTE_AGG_ESTIM_SIZE,
+};
 
 /// The number of bitcoin blocks that can have
 ///  passed since the UTXO cache was last refreshed before
@@ -950,7 +954,7 @@ impl BitcoinRegtestController {
         utxo_to_use: Option<UTXO>,
     ) -> Option<Transaction> {
         let public_key = signer.get_public_key();
-        let max_tx_size = 230;
+        let max_tx_size = OP_TX_TRANSFER_STACKS_ESTIM_SIZE;
         let (mut tx, mut utxos) = if let Some(utxo) = utxo_to_use {
             (
                 Transaction {
@@ -1032,7 +1036,7 @@ impl BitcoinRegtestController {
         utxo_to_use: Option<UTXO>,
     ) -> Option<Transaction> {
         let public_key = signer.get_public_key();
-        let max_tx_size = 230;
+        let max_tx_size = OP_TX_DELEGATE_STACKS_ESTIM_SIZE;
 
         let (mut tx, mut utxos) = if let Some(utxo) = utxo_to_use {
             (
@@ -1110,7 +1114,7 @@ impl BitcoinRegtestController {
         utxo_to_use: Option<UTXO>,
     ) -> Option<Transaction> {
         let public_key = signer.get_public_key();
-        let max_tx_size = 230;
+        let max_tx_size = OP_TX_VOTE_AGG_ESTIM_SIZE;
 
         let (mut tx, mut utxos) = if let Some(utxo) = utxo_to_use {
             (
@@ -1204,9 +1208,11 @@ impl BitcoinRegtestController {
         signer: &mut BurnchainOpSigner,
     ) -> Option<Transaction> {
         let public_key = signer.get_public_key();
-        let max_tx_size = 280;
+        let max_tx_size = OP_TX_PRE_STACKS_ESTIM_SIZE;
 
-        let output_amt = DUST_UTXO_LIMIT + max_tx_size * get_satoshis_per_byte(&self.config);
+        let max_tx_size_any_op = 380;
+        let output_amt = DUST_UTXO_LIMIT + max_tx_size_any_op * get_satoshis_per_byte(&self.config);
+
         let (mut tx, mut utxos) =
             self.prepare_tx(epoch_id, &public_key, output_amt, None, None, 0)?;
 
@@ -1271,7 +1277,7 @@ impl BitcoinRegtestController {
         utxo_to_use: Option<UTXO>,
     ) -> Option<Transaction> {
         let public_key = signer.get_public_key();
-        let max_tx_size = 250;
+        let max_tx_size = OP_TX_STACK_STX_ESTIM_SIZE;
 
         let (mut tx, mut utxos) = if let Some(utxo) = utxo_to_use {
             (

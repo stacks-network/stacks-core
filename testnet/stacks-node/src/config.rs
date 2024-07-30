@@ -49,10 +49,16 @@ use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 use crate::chain_data::MinerStats;
 
 pub const DEFAULT_SATS_PER_VB: u64 = 50;
+pub const OP_TX_LEADER_KEY_ESTIM_SIZE: u64 = 290;
+pub const OP_TX_BLOCK_COMMIT_ESTIM_SIZE: u64 = 350;
+pub const OP_TX_TRANSFER_STACKS_ESTIM_SIZE: u64 = 230;
+pub const OP_TX_DELEGATE_STACKS_ESTIM_SIZE: u64 = 230;
+pub const OP_TX_VOTE_AGG_ESTIM_SIZE: u64 = 230;
+pub const OP_TX_PRE_STACKS_ESTIM_SIZE: u64 = 280;
+pub const OP_TX_STACK_STX_ESTIM_SIZE: u64 = 250;
+
 const DEFAULT_MAX_RBF_RATE: u64 = 150; // 1.5x
 const DEFAULT_RBF_FEE_RATE_INCREMENT: u64 = 5;
-const LEADER_KEY_TX_ESTIM_SIZE: u64 = 290;
-const BLOCK_COMMIT_TX_ESTIM_SIZE: u64 = 350;
 const INV_REWARD_CYCLES_TESTNET: u64 = 6;
 
 #[derive(Clone, Deserialize, Default, Debug)]
@@ -1427,8 +1433,8 @@ impl BurnchainConfig {
             poll_time_secs: 10, // TODO: this is a testnet specific value.
             satoshis_per_byte: DEFAULT_SATS_PER_VB,
             max_rbf: DEFAULT_MAX_RBF_RATE,
-            leader_key_tx_estimated_size: LEADER_KEY_TX_ESTIM_SIZE,
-            block_commit_tx_estimated_size: BLOCK_COMMIT_TX_ESTIM_SIZE,
+            leader_key_tx_estimated_size: OP_TX_LEADER_KEY_ESTIM_SIZE,
+            block_commit_tx_estimated_size: OP_TX_BLOCK_COMMIT_ESTIM_SIZE,
             rbf_fee_increment: DEFAULT_RBF_FEE_RATE_INCREMENT,
             first_burn_block_height: None,
             first_burn_block_timestamp: None,
