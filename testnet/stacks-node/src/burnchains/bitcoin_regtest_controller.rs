@@ -2037,6 +2037,61 @@ impl BitcoinRegtestController {
         let tx: Transaction = btc_deserialize(&hex_bytes(&txstr).unwrap()).unwrap();
         tx
     }
+
+    /// Produce `num_blocks` regtest bitcoin blocks, sending the bitcoin coinbase rewards
+    ///  to the bitcoin single sig addresses corresponding to `pks` in a round robin fashion.
+    #[cfg(test)]
+    pub fn bootstrap_chain_to_pks(&mut self, num_blocks: usize, pks: &[Secp256k1PublicKey]) {
+        info!("Creating wallet if it does not exist");
+        if let Err(e) = self.create_wallet_if_dne() {
+            error!("Error when creating wallet: {e:?}");
+        }
+
+        for pk in pks {
+            debug!("Import public key '{}'", &pk.to_hex());
+            if let Err(e) = BitcoinRPCRequest::import_public_key(&self.config, &pk) {
+                warn!("Error when importing pubkey: {e:?}");
+            }
+        }
+
+        if pks.len() == 1 {
+            // if we only have one pubkey, just generate all the blocks at once
+            let address = self.get_miner_address(StacksEpochId::Epoch21, &pks[0]);
+            debug!(
+                "Generate to address '{}' for public key '{}'",
+                &addr2str(&address),
+                &pks[0].to_hex()
+            );
+            if let Err(e) = BitcoinRPCRequest::generate_to_address(
+                &self.config,
+                num_blocks.try_into().unwrap(),
+                addr2str(&address),
+            ) {
+                error!("Bitcoin RPC failure: error generating block {:?}", e);
+                panic!();
+            }
+            return;
+        }
+
+        // otherwise, round robin generate blocks
+        for i in 0..num_blocks {
+            let pk = &pks[usize::try_from(i % pks.len()).unwrap()];
+            let address = self.get_miner_address(StacksEpochId::Epoch21, pk);
+            if i < pks.len() {
+                debug!(
+                    "Generate to address '{}' for public key '{}'",
+                    &addr2str(&address),
+                    &pk.to_hex(),
+                );
+            }
+            if let Err(e) =
+                BitcoinRPCRequest::generate_to_address(&self.config, 1, addr2str(&address))
+            {
+                error!("Bitcoin RPC failure: error generating block {:?}", e);
+                panic!();
+            }
+        }
+    }
 }
 
 impl BurnchainController for BitcoinRegtestController {
@@ -2152,45 +2207,19 @@ impl BurnchainController for BitcoinRegtestController {
 
     #[cfg(test)]
     fn bootstrap_chain(&mut self, num_blocks: u64) {
-        if let Some(ref local_mining_pubkey) = &self.config.burnchain.local_mining_public_key {
-            // NOTE: miner address is whatever the miner's segwit setting says it is here
-            let mut local_mining_pubkey =
-                Secp256k1PublicKey::from_hex(local_mining_pubkey).unwrap();
-            let address = self.get_miner_address(StacksEpochId::Epoch21, &local_mining_pubkey);
+        let Some(ref local_mining_pubkey) = &self.config.burnchain.local_mining_public_key else {
+            warn!("No local mining pubkey while bootstrapping bitcoin regtest, will not generate bitcoin blocks");
+            return;
+        };
 
-            if self.config.miner.segwit {
-                local_mining_pubkey.set_compressed(true);
-            }
+        // NOTE: miner address is whatever the miner's segwit setting says it is here
+        let mut local_mining_pubkey = Secp256k1PublicKey::from_hex(local_mining_pubkey).unwrap();
 
-            info!("Creating wallet if it does not exist");
-            match self.create_wallet_if_dne() {
-                Err(e) => warn!("Error when creating wallet: {:?}", e),
-                _ => {}
-            }
-
-            test_debug!("Import public key '{}'", &local_mining_pubkey.to_hex());
-
-            let _result = BitcoinRPCRequest::import_public_key(&self.config, &local_mining_pubkey);
-
-            test_debug!(
-                "Generate to address '{}' for public key '{}'",
-                &addr2str(&address),
-                &local_mining_pubkey.to_hex()
-            );
-            let result = BitcoinRPCRequest::generate_to_address(
-                &self.config,
-                num_blocks,
-                addr2str(&address),
-            );
-
-            match result {
-                Ok(_) => {}
-                Err(e) => {
-                    error!("Bitcoin RPC failure: error generating block {:?}", e);
-                    panic!();
-                }
-            }
+        if self.config.miner.segwit {
+            local_mining_pubkey.set_compressed(true);
         }
+
+        self.bootstrap_chain_to_pks(num_blocks.try_into().unwrap(), &[local_mining_pubkey])
     }
 }
 

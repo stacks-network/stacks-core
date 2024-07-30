@@ -89,6 +89,7 @@ jobs:
           - tests::signer::v0::end_of_tenure
           - tests::signer::v0::forked_tenure_okay
           - tests::signer::v0::forked_tenure_invalid
+          - tests::signer::v0::bitcoind_forking_test
           - tests::nakamoto_integrations::stack_stx_burn_op_integration_test
           - tests::nakamoto_integrations::check_block_heights
           - tests::nakamoto_integrations::clarity_burn_state
@@ -96,6 +97,7 @@ jobs:
           - tests::nakamoto_integrations::check_block_info
           - tests::nakamoto_integrations::check_block_info_rewards
           - tests::nakamoto_integrations::continue_tenure_extend
+          - tests::nakamoto_integrations::multiple_miners
           # Do not run this one until we figure out why it fails in CI
           # - tests::neon_integrations::bitcoin_reorg_flap
           # - tests::neon_integrations::bitcoin_reorg_flap_with_follower
