@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::time::Duration;
+use std::time::{Duration, UNIX_EPOCH};
 
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
 use blockstack_lib::chainstate::stacks::TenureChangePayload;
@@ -78,18 +78,54 @@ pub struct SortitionState {
     pub burn_block_hash: BurnchainHeaderHash,
 }
 
+impl SortitionState {
+    /// Check if the sortition is timed out (i.e., the miner did not propose a block in time)
+    pub fn is_timed_out(
+        &self,
+        timeout: Duration,
+        signer_db: &SignerDb,
+    ) -> Result<bool, SignerChainstateError> {
+        // if the miner has already been invalidated, we don't need to check if they've timed out.
+        if self.miner_status != SortitionMinerStatus::Valid {
+            return Ok(false);
+        }
+        // if we've already signed a block in this tenure, the miner can't have timed out.
+        let has_blocks = signer_db
+            .get_last_signed_block_in_tenure(&self.consensus_hash)?
+            .is_some();
+        if has_blocks {
+            return Ok(false);
+        }
+        let Some(received_ts) = signer_db.get_burn_block_receive_time(&self.burn_block_hash)?
+        else {
+            return Ok(false);
+        };
+        let received_time = UNIX_EPOCH + Duration::from_secs(received_ts);
+        let Ok(elapsed) = std::time::SystemTime::now().duration_since(received_time) else {
+            return Ok(false);
+        };
+        if elapsed > timeout {
+            return Ok(true);
+        }
+        Ok(false)
+    }
+}
+
 /// Captures the configuration settings used by the signer when evaluating block proposals.
 #[derive(Debug, Clone)]
 pub struct ProposalEvalConfig {
     /// How much time must pass between the first block proposal in a tenure and the next bitcoin block
     ///  before a subsequent miner isn't allowed to reorg the tenure
     pub first_proposal_burn_block_timing: Duration,
+    /// Time between processing a sortition and proposing a block before the block is considered invalid
+    pub block_proposal_timeout: Duration,
 }
 
 impl From<&SignerConfig> for ProposalEvalConfig {
     fn from(value: &SignerConfig) -> Self {
         Self {
-            first_proposal_burn_block_timing: value.first_proposal_burn_block_timing.clone(),
+            first_proposal_burn_block_timing: value.first_proposal_burn_block_timing,
+            block_proposal_timeout: value.block_proposal_timeout,
         }
     }
 }
@@ -147,12 +183,23 @@ impl<'a> ProposedBy<'a> {
 impl SortitionsView {
     /// Apply checks from the SortitionsView on the block proposal.
     pub fn check_proposal(
-        &self,
+        &mut self,
         client: &StacksClient,
         signer_db: &SignerDb,
         block: &NakamotoBlock,
         block_pk: &StacksPublicKey,
     ) -> Result<bool, SignerChainstateError> {
+        if self
+            .cur_sortition
+            .is_timed_out(self.config.block_proposal_timeout, signer_db)?
+        {
+            self.cur_sortition.miner_status = SortitionMinerStatus::InvalidatedBeforeFirstBlock;
+        }
+        if let Some(last_sortition) = self.last_sortition.as_mut() {
+            if last_sortition.is_timed_out(self.config.block_proposal_timeout, signer_db)? {
+                last_sortition.miner_status = SortitionMinerStatus::InvalidatedBeforeFirstBlock;
+            }
+        }
         let bitvec_all_1s = block.header.pox_treatment.iter().all(|entry| entry);
         if !bitvec_all_1s {
             warn!(
