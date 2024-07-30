@@ -296,6 +296,9 @@ impl RewardSetEventPayload {
 
 impl EventObserver {
     pub fn send_payload(&self, payload: &serde_json::Value, path: &str) {
+        debug!(
+            "Event dispatcher: Sending payload"; "url" => %path, "payload" => ?payload
+        );
         let body = match serde_json::to_vec(&payload) {
             Ok(body) => body,
             Err(err) => {

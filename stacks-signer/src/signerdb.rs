@@ -34,6 +34,53 @@ use stacks_common::util::hash::Sha512Trunc256Sum;
 use stacks_common::{debug, error};
 use wsts::net::NonceRequest;
 
+#[derive(Serialize, Deserialize, Debug, PartialEq, Default)]
+/// Information specific to Signer V1
+pub struct BlockInfoV1 {
+    /// The associated packet nonce request if we have one
+    pub nonce_request: Option<NonceRequest>,
+}
+
+impl From<NonceRequest> for BlockInfoV1 {
+    fn from(value: NonceRequest) -> Self {
+        Self {
+            nonce_request: Some(value),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Default)]
+/// Store extra version-specific info in `BlockInfo`
+pub enum ExtraBlockInfo {
+    #[default]
+    /// Don't know what version
+    None,
+    /// Extra data for Signer V0
+    V0,
+    /// Extra data for Signer V1
+    V1(BlockInfoV1),
+}
+
+impl ExtraBlockInfo {
+    /// Take `nonce_request` if it exists
+    pub fn take_nonce_request(&mut self) -> Option<NonceRequest> {
+        match self {
+            ExtraBlockInfo::None | ExtraBlockInfo::V0 => None,
+            ExtraBlockInfo::V1(v1) => v1.nonce_request.take(),
+        }
+    }
+    /// Set `nonce_request` if it exists
+    pub fn set_nonce_request(&mut self, value: NonceRequest) -> Result<(), &str> {
+        match self {
+            ExtraBlockInfo::None | ExtraBlockInfo::V0 => Err("Field doesn't exist"),
+            ExtraBlockInfo::V1(v1) => {
+                v1.nonce_request = Some(value);
+                Ok(())
+            }
+        }
+    }
+}
+
 /// Additional Info about a proposed block
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct BlockInfo {
@@ -47,8 +94,6 @@ pub struct BlockInfo {
     pub vote: Option<NakamotoBlockVote>,
     /// Whether the block contents are valid
     pub valid: Option<bool>,
-    /// The associated packet nonce request if we have one
-    pub nonce_request: Option<NonceRequest>,
     /// Whether this block is already being signed over
     pub signed_over: bool,
     /// Time at which the proposal was received by this signer (epoch time in seconds)
@@ -57,6 +102,8 @@ pub struct BlockInfo {
     pub signed_self: Option<u64>,
     /// Time at which the proposal was signed by a threshold in the signer set (epoch time in seconds)
     pub signed_group: Option<u64>,
+    /// Extra data specific to v0, v1, etc.
+    pub ext: ExtraBlockInfo,
 }
 
 impl From<BlockProposal> for BlockInfo {
@@ -67,19 +114,19 @@ impl From<BlockProposal> for BlockInfo {
             reward_cycle: value.reward_cycle,
             vote: None,
             valid: None,
-            nonce_request: None,
             signed_over: false,
             proposed_time: get_epoch_time_secs(),
             signed_self: None,
             signed_group: None,
+            ext: ExtraBlockInfo::default(),
         }
     }
 }
 impl BlockInfo {
     /// Create a new BlockInfo with an associated nonce request packet
-    pub fn new_with_request(block_proposal: BlockProposal, nonce_request: NonceRequest) -> Self {
+    pub fn new_v1_with_request(block_proposal: BlockProposal, nonce_request: NonceRequest) -> Self {
         let mut block_info = BlockInfo::from(block_proposal);
-        block_info.nonce_request = Some(nonce_request);
+        block_info.ext = ExtraBlockInfo::V1(BlockInfoV1::from(nonce_request));
         block_info.signed_over = true;
         block_info
     }
@@ -89,9 +136,7 @@ impl BlockInfo {
     pub fn mark_signed_and_valid(&mut self) {
         self.valid = Some(true);
         self.signed_over = true;
-        if self.signed_self.is_none() {
-            self.signed_self = Some(get_epoch_time_secs());
-        }
+        self.signed_self.get_or_insert(get_epoch_time_secs());
     }
 
     /// Return the block's signer signature hash
@@ -115,7 +160,7 @@ CREATE TABLE IF NOT EXISTS blocks (
     block_info TEXT NOT NULL,
     consensus_hash TEXT NOT NULL,
     signed_over INTEGER NOT NULL,
-    stacks_height INTEGER NOT NULL, 
+    stacks_height INTEGER NOT NULL,
     burn_block_height INTEGER NOT NULL,
     PRIMARY KEY (reward_cycle, signer_signature_hash)
 ) STRICT";

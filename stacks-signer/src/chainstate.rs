@@ -485,7 +485,7 @@ impl SortitionsView {
             Ok(true)
         } else {
             warn!(
-                "Miner block proposal's tenure change transaction does not confirm as many blocks as we expect in the parent tenure";
+                "Miner's block proposal does not confirm as many blocks as we expect";
                 "proposed_block_consensus_hash" => %block.header.consensus_hash,
                 "proposed_block_signer_sighash" => %block.header.signer_signature_hash(),
                 "proposed_chain_length" => block.header.chain_length,
