@@ -58,9 +58,9 @@ use super::super::operations::BurnchainOpSigner;
 use super::super::Config;
 use super::{BurnchainController, BurnchainTip, Error as BurnchainControllerError};
 use crate::config::{
-    BurnchainConfig, OP_TX_ANY_ESTIM_SIZE, OP_TX_BLOCK_COMMIT_ESTIM_SIZE,
-    OP_TX_DELEGATE_STACKS_ESTIM_SIZE, OP_TX_PRE_STACKS_ESTIM_SIZE, OP_TX_STACK_STX_ESTIM_SIZE,
-    OP_TX_TRANSFER_STACKS_ESTIM_SIZE, OP_TX_VOTE_AGG_ESTIM_SIZE,
+    BurnchainConfig, OP_TX_ANY_ESTIM_SIZE, OP_TX_DELEGATE_STACKS_ESTIM_SIZE,
+    OP_TX_PRE_STACKS_ESTIM_SIZE, OP_TX_STACK_STX_ESTIM_SIZE, OP_TX_TRANSFER_STACKS_ESTIM_SIZE,
+    OP_TX_VOTE_AGG_ESTIM_SIZE,
 };
 
 /// The number of bitcoin blocks that can have
