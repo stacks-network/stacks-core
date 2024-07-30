@@ -165,8 +165,9 @@ impl SignerTest<SpawnedSigner> {
             .wrapping_add(reward_cycle_len)
             .wrapping_add(1);
 
-        let next_reward_cycle_boundary =
-            epoch_25_reward_cycle_boundary.wrapping_add(reward_cycle_len);
+        let next_reward_cycle_boundary = epoch_25_reward_cycle_boundary
+            .wrapping_add(reward_cycle_len)
+            .saturating_sub(1);
         run_until_burnchain_height(
             &mut self.running_nodes.btc_regtest_controller,
             &self.running_nodes.blocks_processed,
@@ -228,7 +229,11 @@ impl SignerTest<SpawnedSigner> {
             &self.running_nodes.conf,
         );
 
-        info!("Ready to mine the first Epoch 2.5 reward cycle!");
+        let current_burn_block_height = self
+            .running_nodes
+            .btc_regtest_controller
+            .get_headers_height();
+        info!("At burn block height {current_burn_block_height}. Ready to mine the first Epoch 2.5 reward cycle!");
     }
 
     /// Run the test until the epoch 3 boundary
@@ -1398,8 +1403,8 @@ fn retry_on_timeout() {
 
 #[test]
 #[ignore]
-/// This test checks that the miner will retry when signature collection times out.
-fn mock_mine_epoch_25() {
+/// This test checks that Epoch 2.5 signers will issue a mock signature per burn block they receive.
+fn mock_sign_epoch_25() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
     }
@@ -1452,90 +1457,17 @@ fn mock_mine_epoch_25() {
         .map(|id| id.0)
         .collect();
     assert_eq!(signer_slot_ids.len(), num_signers);
-
-    // Give the peer info some time to update
-    let poll_time = Instant::now();
-    while signer_test
-        .stacks_client
-        .get_peer_info()
-        .unwrap()
-        .burn_block_height
-        + 1
-        < signer_test
-            .running_nodes
-            .btc_regtest_controller
-            .get_headers_height()
-    {
-        std::thread::sleep(Duration::from_secs(1));
-        assert!(
-            poll_time.elapsed() <= Duration::from_secs(15),
-            "Timed out waiting for peer info to update"
-        );
-    }
     // Mine until epoch 3.0 and ensure we get a new mock signature per epoch 2.5 sortition
     let main_poll_time = Instant::now();
-    while signer_test
-        .stacks_client
-        .get_peer_info()
-        .unwrap()
-        .burn_block_height
-        + 1
-        < epoch_3_start_height
-    {
-        let old_consensus_hash = signer_test
-            .stacks_client
-            .get_peer_info()
-            .unwrap()
-            .stacks_tip_consensus_hash;
-        next_block_and(
-            &mut signer_test.running_nodes.btc_regtest_controller,
-            60,
-            || Ok(true),
-        )
-        .unwrap();
-        let peer_poll_time = Instant::now();
-        while signer_test
-            .stacks_client
-            .get_peer_info()
-            .unwrap()
-            .stacks_tip_consensus_hash
-            == old_consensus_hash
-        {
-            std::thread::sleep(Duration::from_millis(100));
-            assert!(
-                peer_poll_time.elapsed() < Duration::from_secs(5),
-                "Timed out waiting for peer info to update"
-            );
-        }
-        let expected_consensus_hash = signer_test
-            .stacks_client
-            .get_peer_info()
-            .unwrap()
-            .stacks_tip_consensus_hash;
-        let mut mock_signatures = vec![];
-        let mock_poll_time = Instant::now();
-        while mock_signatures.len() != num_signers {
-            std::thread::sleep(Duration::from_millis(100));
-            let messages: Vec<SignerMessage> = StackerDB::get_messages(
-                stackerdb
-                    .get_session_mut(&MessageSlotID::MockSignature)
-                    .expect("Failed to get BlockResponse stackerdb session"),
-                &signer_slot_ids,
-            )
-            .expect("Failed to get message from stackerdb");
-            for message in messages {
-                if let SignerMessage::MockSignature(mock_signature) = message {
-                    debug!("MOCK SIGNATURE: {:?}", mock_signature);
-                    if mock_signature.stacks_consensus_hash == expected_consensus_hash {
-                        mock_signatures.push(mock_signature);
-                    }
-                }
-            }
-            assert!(
-                mock_poll_time.elapsed() <= Duration::from_secs(15),
-                "Failed to find mock signatures within timeout"
-            );
-        }
+    let mut current_burn_block_height = signer_test
+        .running_nodes
+        .btc_regtest_controller
+        .get_headers_height();
+    while current_burn_block_height + 1 < epoch_3_start_height {
+        current_burn_block_height = signer_test
+            .running_nodes
+            .btc_regtest_controller
+            .get_headers_height();
         let current_reward_cycle = signer_test.get_current_reward_cycle();
         if current_reward_cycle != reward_cycle {
             debug!("Rolling over reward cycle to {:?}", current_reward_cycle);
@@ -1553,6 +1485,38 @@ fn mock_mine_epoch_25() {
                 .map(|id| id.0)
                 .collect();
             assert_eq!(signer_slot_ids.len(), num_signers);
+        }
+        next_block_and(
+            &mut signer_test.running_nodes.btc_regtest_controller,
+            60,
+            || Ok(true),
+        )
+        .unwrap();
+        let mut mock_signatures = vec![];
+        let mock_poll_time = Instant::now();
+        debug!("Waiting for mock signatures for burn block height {current_burn_block_height}");
+        while mock_signatures.len() != num_signers {
+            std::thread::sleep(Duration::from_millis(100));
+            let messages: Vec<SignerMessage> = StackerDB::get_messages(
+                stackerdb
+                    .get_session_mut(&MessageSlotID::MockSignature)
+                    .expect("Failed to get BlockResponse stackerdb session"),
+                &signer_slot_ids,
+            )
+            .expect("Failed to get message from stackerdb");
+            for message in messages {
+                if let SignerMessage::MockSignature(mock_signature) = message {
+                    if mock_signature.sign_data.burn_block_height == current_burn_block_height {
+                        if !mock_signatures.contains(&mock_signature) {
+                            mock_signatures.push(mock_signature);
+                        }
+                    }
+                }
+            }
+            assert!(
+                mock_poll_time.elapsed() <= Duration::from_secs(15),
+                "Failed to find mock signatures within timeout"
+            );
         }
         assert!(
             main_poll_time.elapsed() <= Duration::from_secs(45),

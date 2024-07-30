@@ -16,6 +16,7 @@ use std::fmt::Debug;
 use std::sync::mpsc::Sender;
 
 use blockstack_lib::net::api::postblock_proposal::BlockValidateResponse;
+use clarity::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
 use clarity::types::chainstate::StacksPrivateKey;
 use clarity::types::{PrivateKey, StacksEpochId};
 use clarity::util::hash::MerkleHashFunc;
@@ -171,8 +172,7 @@ impl SignerTrait<SignerMessage> for Signer {
                 if let Ok(StacksEpochId::Epoch25) = stacks_client.get_node_epoch() {
                     if self.reward_cycle == current_reward_cycle {
                         // We are in epoch 2.5, so we should mock mine to prove we are still alive.
-                        debug!("Mock signing for burn block {burn_height:?}");
-                        self.mock_sign(stacks_client);
+                        self.mock_sign(*burn_height, stacks_client);
                     }
                 };
             }
@@ -473,14 +473,26 @@ impl Signer {
     }
 
     /// Send a mock signature to stackerdb to prove we are still alive
-    fn mock_sign(&mut self, stacks_client: &StacksClient) {
-        let Ok(peer_info) = stacks_client.get_peer_info() else {
-            warn!("{self}: Failed to get peer info. Cannot mock mine.");
+    fn mock_sign(&mut self, burn_block_height: u64, stacks_client: &StacksClient) {
+        let Ok(peer_view) = stacks_client.get_peer_info() else {
+            warn!("{self}: Failed to get peer info. Cannot mock sign.");
             return;
         };
-        let consensus_hash = peer_info.stacks_tip_consensus_hash;
-        debug!("Mock signing using stacks tip {consensus_hash:?}");
-        let mock_signature = MockSignature::new(consensus_hash, &self.private_key);
+        let chain_id = if self.mainnet {
+            CHAIN_ID_MAINNET
+        } else {
+            CHAIN_ID_TESTNET
+        };
+        debug!("Mock signing for burn block {burn_block_height:?}";
+            "stacks_tip_consensus_hash" => ?peer_view.stacks_tip_consensus_hash.clone(),
+            "stacks_tip" => ?peer_view.stacks_tip.clone(),
+            "peer_burn_block_height" => peer_view.burn_block_height,
+            "pox_consensus" => ?peer_view.pox_consensus.clone(),
+            "server_version" => peer_view.server_version.clone(),
+            "chain_id" => chain_id
+        );
+        let mock_signature =
+            MockSignature::new(peer_view, burn_block_height, chain_id, &self.private_key);
         let message = SignerMessage::MockSignature(mock_signature);
         if let Err(e) = self
             .stackerdb

@@ -34,16 +34,24 @@ use blockstack_lib::chainstate::nakamoto::signer_set::NakamotoSigners;
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
 use blockstack_lib::chainstate::stacks::events::StackerDBChunksEvent;
 use blockstack_lib::chainstate::stacks::StacksTransaction;
+use blockstack_lib::net::api::getinfo::RPCPeerInfoData;
 use blockstack_lib::net::api::postblock_proposal::{
     BlockValidateReject, BlockValidateResponse, ValidateRejectCode,
 };
 use blockstack_lib::util_lib::boot::boot_code_id;
-use clarity::types::chainstate::{ConsensusHash, StacksPrivateKey, StacksPublicKey};
+use blockstack_lib::util_lib::signed_structured_data::{
+    make_structured_data_domain, structured_data_message_hash,
+};
+use clarity::types::chainstate::{
+    BlockHeaderHash, ConsensusHash, StacksPrivateKey, StacksPublicKey,
+};
 use clarity::types::PrivateKey;
+use clarity::util::hash::Sha256Sum;
 use clarity::util::retry::BoundReader;
 use clarity::util::secp256k1::MessageSignature;
 use clarity::vm::types::serialization::SerializationError;
-use clarity::vm::types::QualifiedContractIdentifier;
+use clarity::vm::types::{QualifiedContractIdentifier, TupleData};
+use clarity::vm::Value;
 use hashbrown::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha512_256};
@@ -231,25 +239,103 @@ pub trait StacksMessageCodecExtensions: Sized {
     fn inner_consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError>;
 }
 
-/// A signer's mock signature across its last seen Stacks Consensus Hash. This is only used
-/// by Epoch 2.5 signers to simulate the signing of a block for every sortition.
+/// A snapshot of the signer view of the stacks node to be used for mock signing.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MockSignData {
+    /// The stacks tip consensus hash at the time of the mock signature
+    pub stacks_tip_consensus_hash: ConsensusHash,
+    /// The stacks tip header hash at the time of the mock signature
+    pub stacks_tip: BlockHeaderHash,
+    /// The server version
+    pub server_version: String,
+    /// The burn block height that triggered the mock signature
+    pub burn_block_height: u64,
+    /// The burn block height of the peer view at the time of the mock signature. Note
+    /// that this may be different from the burn_block_height if the peer view is stale.
+    pub peer_burn_block_height: u64,
+    /// The POX consensus hash at the time of the mock signature
+    pub pox_consensus: ConsensusHash,
+    /// The chain id for the mock signature
+    pub chain_id: u32,
+}
+
+impl MockSignData {
+    fn new(peer_view: RPCPeerInfoData, burn_block_height: u64, chain_id: u32) -> Self {
+        Self {
+            stacks_tip_consensus_hash: peer_view.stacks_tip_consensus_hash,
+            stacks_tip: peer_view.stacks_tip,
+            server_version: peer_view.server_version,
+            burn_block_height,
+            peer_burn_block_height: peer_view.burn_block_height,
+            pox_consensus: peer_view.pox_consensus,
+            chain_id,
+        }
+    }
+}
+
+impl StacksMessageCodec for MockSignData {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
+        write_next(fd, self.stacks_tip_consensus_hash.as_bytes())?;
+        write_next(fd, &self.stacks_tip)?;
+        write_next(fd, &(self.server_version.as_bytes().len() as u8))?;
+        fd.write_all(self.server_version.as_bytes())
+            .map_err(CodecError::WriteError)?;
+        write_next(fd, &self.burn_block_height)?;
+        write_next(fd, &self.peer_burn_block_height)?;
+        write_next(fd, &self.pox_consensus)?;
+        write_next(fd, &self.chain_id)?;
+        Ok(())
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
+        let stacks_tip_consensus_hash = read_next::<ConsensusHash, _>(fd)?;
+        let stacks_tip = read_next::<BlockHeaderHash, _>(fd)?;
+        let len_byte: u8 = read_next(fd)?;
+        let mut bytes = vec![0u8; len_byte as usize];
+        fd.read_exact(&mut bytes).map_err(CodecError::ReadError)?;
+        // must encode a valid string
+        let server_version = String::from_utf8(bytes).map_err(|_e| {
+            CodecError::DeserializeError(
+                "Failed to parse server version name: could not contruct from utf8".to_string(),
+            )
+        })?;
+        let burn_block_height = read_next::<u64, _>(fd)?;
+        let peer_burn_block_height = read_next::<u64, _>(fd)?;
+        let pox_consensus = read_next::<ConsensusHash, _>(fd)?;
+        let chain_id = read_next::<u32, _>(fd)?;
+        Ok(Self {
+            stacks_tip_consensus_hash,
+            stacks_tip,
+            server_version,
+            burn_block_height,
+            peer_burn_block_height,
+            pox_consensus,
+            chain_id,
+        })
+    }
+}
+
+/// A mock signature for the stacks node to be used for mock signing.
+/// This is only used by Epoch 2.5 signers to simulate the signing of a block for every sortition.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MockSignature {
-    /// The signature across the stacks consensus hash
+    /// The signature of the mock signature
     signature: MessageSignature,
-    /// The block hash that the signature is across
-    pub stacks_consensus_hash: ConsensusHash,
+    /// The data that was signed across
+    pub sign_data: MockSignData,
 }
 
 impl MockSignature {
-    /// Create a new mock signature with the provided stacks consensus hash and private key
+    /// Create a new mock sign data struct from the provided peer info, burn block height, chain id, and private key.
     pub fn new(
-        stacks_consensus_hash: ConsensusHash,
+        peer_view: RPCPeerInfoData,
+        burn_block_height: u64,
+        chain_id: u32,
         stacks_private_key: &StacksPrivateKey,
     ) -> Self {
         let mut sig = Self {
             signature: MessageSignature::empty(),
-            stacks_consensus_hash,
+            sign_data: MockSignData::new(peer_view, burn_block_height, chain_id),
         };
         sig.sign(stacks_private_key)
             .expect("Failed to sign MockSignature");
@@ -257,16 +343,43 @@ impl MockSignature {
     }
 
     /// The signature hash for the mock signature
-    pub fn signature_hash(&self) -> Result<Sha512Trunc256Sum, CodecError> {
-        let mut hasher = Sha512_256::new();
-        let fd = &mut hasher;
-        write_next(fd, &self.stacks_consensus_hash)?;
-        Ok(Sha512Trunc256Sum::from_hasher(hasher))
+    pub fn signature_hash(&self) -> Sha256Sum {
+        let domain_tuple =
+            make_structured_data_domain("mock-signer", "1.0.0", self.sign_data.chain_id);
+        let data_tuple = Value::Tuple(
+            TupleData::from_data(vec![
+                (
+                    "stacks-tip-consensus-hash".into(),
+                    Value::buff_from(self.sign_data.stacks_tip_consensus_hash.as_bytes().into())
+                        .unwrap(),
+                ),
+                (
+                    "stacks-tip".into(),
+                    Value::buff_from(self.sign_data.stacks_tip.as_bytes().into()).unwrap(),
+                ),
+                (
+                    "server-version".into(),
+                    Value::string_ascii_from_bytes(self.sign_data.server_version.clone().into())
+                        .unwrap(),
+                ),
+                (
+                    "burn-block-height".into(),
+                    Value::UInt(self.sign_data.burn_block_height.into()),
+                ),
+                (
+                    "pox-consensus".into(),
+                    Value::buff_from(self.sign_data.pox_consensus.as_bytes().into()).unwrap(),
+                ),
+            ])
+            .expect("Error creating signature hash"),
+        );
+        structured_data_message_hash(data_tuple, domain_tuple)
     }
+
     /// Sign the mock signature and set the internal signature field
     fn sign(&mut self, private_key: &StacksPrivateKey) -> Result<(), String> {
-        let signature_hash = self.signature_hash().map_err(|e| e.to_string())?;
-        self.signature = private_key.sign(&signature_hash.0)?;
+        let signature_hash = self.signature_hash();
+        self.signature = private_key.sign(signature_hash.as_bytes())?;
         Ok(())
     }
     /// Verify the mock signature against the provided public key
@@ -274,7 +387,7 @@ impl MockSignature {
         if self.signature == MessageSignature::empty() {
             return Ok(false);
         }
-        let signature_hash = self.signature_hash().map_err(|e| e.to_string())?;
+        let signature_hash = self.signature_hash();
         public_key
             .verify(&signature_hash.0, &self.signature)
             .map_err(|e| e.to_string())
@@ -284,16 +397,16 @@ impl MockSignature {
 impl StacksMessageCodec for MockSignature {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
         write_next(fd, &self.signature)?;
-        write_next(fd, &self.stacks_consensus_hash)?;
+        self.sign_data.consensus_serialize(fd)?;
         Ok(())
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
         let signature = read_next::<MessageSignature, _>(fd)?;
-        let stacks_consensus_hash = read_next::<ConsensusHash, _>(fd)?;
+        let sign_data = read_next::<MockSignData, _>(fd)?;
         Ok(Self {
             signature,
-            stacks_consensus_hash,
+            sign_data,
         })
     }
 }
@@ -591,6 +704,7 @@ mod test {
         TransactionPostConditionMode, TransactionSmartContract, TransactionVersion,
     };
     use blockstack_lib::util_lib::strings::StacksString;
+    use clarity::consts::CHAIN_ID_MAINNET;
     use clarity::types::chainstate::{ConsensusHash, StacksBlockId, TrieHash};
     use clarity::types::PrivateKey;
     use clarity::util::hash::MerkleTree;
@@ -708,6 +822,27 @@ mod test {
         assert_eq!(signer_message, deserialized_signer_message);
     }
 
+    fn random_mock_sign_data() -> MockSignData {
+        let stacks_tip_consensus_byte: u8 = thread_rng().gen();
+        let stacks_tip_byte: u8 = thread_rng().gen();
+        let pox_consensus_byte: u8 = thread_rng().gen();
+        let chain_byte: u8 = thread_rng().gen_range(0..=1);
+        let chain_id = if chain_byte == 1 {
+            CHAIN_ID_TESTNET
+        } else {
+            CHAIN_ID_MAINNET
+        };
+        MockSignData {
+            stacks_tip_consensus_hash: ConsensusHash([stacks_tip_consensus_byte; 20]),
+            stacks_tip: BlockHeaderHash([stacks_tip_byte; 32]),
+            server_version: "0.0.0".to_string(),
+            burn_block_height: thread_rng().next_u64(),
+            peer_burn_block_height: thread_rng().next_u64(),
+            pox_consensus: ConsensusHash([pox_consensus_byte; 20]),
+            chain_id,
+        }
+    }
+
     #[test]
     fn verify_sign_mock_signature() {
         let private_key = StacksPrivateKey::new();
@@ -716,11 +851,9 @@ mod test {
         let bad_private_key = StacksPrivateKey::new();
         let bad_public_key = StacksPublicKey::from_private(&bad_private_key);
 
-        let byte: u8 = thread_rng().gen();
-        let stacks_consensus_hash = ConsensusHash([byte; 20]);
         let mut mock_signature = MockSignature {
             signature: MessageSignature::empty(),
-            stacks_consensus_hash,
+            sign_data: random_mock_sign_data(),
         };
         assert!(!mock_signature
             .verify(&public_key)
@@ -740,15 +873,22 @@ mod test {
 
     #[test]
     fn serde_mock_signature() {
-        let byte: u8 = thread_rng().gen();
-        let stacks_consensus_hash = ConsensusHash([byte; 20]);
         let mock_signature = MockSignature {
             signature: MessageSignature::empty(),
-            stacks_consensus_hash,
+            sign_data: random_mock_sign_data(),
         };
         let serialized_signature = mock_signature.serialize_to_vec();
         let deserialized_signature = read_next::<MockSignature, _>(&mut &serialized_signature[..])
             .expect("Failed to deserialize MockSignature");
         assert_eq!(mock_signature, deserialized_signature);
+    }
+
+    #[test]
+    fn serde_sign_data() {
+        let sign_data = random_mock_sign_data();
+        let serialized_data = sign_data.serialize_to_vec();
+        let deserialized_data = read_next::<MockSignData, _>(&mut &serialized_data[..])
+            .expect("Failed to deserialize MockSignData");
+        assert_eq!(sign_data, deserialized_data);
     }
 }
