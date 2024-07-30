@@ -71,6 +71,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
             total_pushed: 0,
             last_run_ts: 0,
             need_resync: false,
+            stale_inv: false,
             stale_neighbors: HashSet::new(),
             num_connections: 0,
             num_attempted_connections: 0,
@@ -212,6 +213,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
         self.write_freq = config.write_freq;
 
         self.need_resync = false;
+        self.stale_inv = false;
         self.last_run_ts = get_epoch_time_secs();
 
         self.state = StackerDBSyncState::ConnectBegin;
@@ -256,7 +258,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
             .get_slot_write_timestamps(&self.smart_contract_id)?;
 
         if local_slot_versions.len() != local_write_timestamps.len() {
-            let msg = format!("Local slot versions ({}) out of sync with DB slot versions ({}); abandoning sync and trying again", local_slot_versions.len(), local_write_timestamps.len());
+            let msg = format!("Local slot versions ({}) out of sync with DB slot versions ({}) for {}; abandoning sync and trying again", local_slot_versions.len(), local_write_timestamps.len(), &self.smart_contract_id);
             warn!("{}", &msg);
             return Err(net_error::Transient(msg));
         }
@@ -270,12 +272,13 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
             let write_ts = local_write_timestamps[i];
             if write_ts + self.write_freq > now {
                 debug!(
-                    "{:?}: Chunk {} was written too frequently ({} + {} >= {}), so will not fetch chunk",
+                    "{:?}: Chunk {} was written too frequently ({} + {} >= {}) in {}, so will not fetch chunk",
                     network.get_local_peer(),
                     i,
                     write_ts,
                     self.write_freq,
-                    now
+                    now,
+                    &self.smart_contract_id,
                 );
                 continue;
             }
@@ -343,10 +346,11 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
         schedule.reverse();
 
         debug!(
-            "{:?}: Will request up to {} chunks for {}",
+            "{:?}: Will request up to {} chunks for {}. Schedule: {:?}",
             network.get_local_peer(),
             &schedule.len(),
             &self.smart_contract_id,
+            &schedule
         );
         Ok(schedule)
     }
@@ -520,12 +524,13 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                 if *old_version < new_inv.slot_versions[old_slot_id] {
                     // remote peer indicated that it has a newer version of this chunk.
                     debug!(
-                        "{:?}: peer {:?} has a newer version of slot {} ({} < {})",
+                        "{:?}: peer {:?} has a newer version of slot {} ({} < {}) in {}",
                         _network.get_local_peer(),
                         &naddr,
                         old_slot_id,
                         old_version,
-                        new_inv.slot_versions[old_slot_id]
+                        new_inv.slot_versions[old_slot_id],
+                        &self.smart_contract_id,
                     );
                     resync = true;
                     break;
@@ -833,9 +838,10 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                 }
                 StacksMessageType::Nack(data) => {
                     debug!(
-                        "{:?}: remote peer {:?} NACK'ed our StackerDBGetChunksInv us with code {}",
+                        "{:?}: remote peer {:?} NACK'ed our StackerDBGetChunksInv us (on {}) with code {}",
                         &network.get_local_peer(),
                         &naddr,
+                        &self.smart_contract_id,
                         data.error_code
                     );
                     self.connected_replicas.remove(&naddr);
@@ -851,9 +857,10 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                 }
             };
             debug!(
-                "{:?}: getchunksinv_try_finish: Received StackerDBChunkInv from {:?}",
+                "{:?}: getchunksinv_try_finish: Received StackerDBChunkInv from {:?}: {:?}",
                 network.get_local_peer(),
-                &naddr
+                &naddr,
+                &chunk_inv_opt
             );
 
             if let Some(chunk_inv) = chunk_inv_opt {
@@ -969,14 +976,17 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                 StacksMessageType::StackerDBChunk(data) => data,
                 StacksMessageType::Nack(data) => {
                     debug!(
-                        "{:?}: remote peer {:?} NACK'ed our StackerDBGetChunk with code {}",
+                        "{:?}: remote peer {:?} NACK'ed our StackerDBGetChunk (on {}) with code {}",
                         network.get_local_peer(),
                         &naddr,
+                        &self.smart_contract_id,
                         data.error_code
                     );
-                    self.connected_replicas.remove(&naddr);
                     if data.error_code == NackErrorCodes::StaleView {
                         self.stale_neighbors.insert(naddr);
+                    } else if data.error_code == NackErrorCodes::StaleVersion {
+                        // try again immediately, without throttling
+                        self.stale_inv = true;
                     }
                     continue;
                 }
@@ -1079,7 +1089,6 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                     &selected_neighbor,
                     &e
                 );
-                self.connected_replicas.remove(&selected_neighbor);
                 continue;
             }
 
@@ -1119,7 +1128,6 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                         &naddr,
                         data.error_code
                     );
-                    self.connected_replicas.remove(&naddr);
                     if data.error_code == NackErrorCodes::StaleView {
                         self.stale_neighbors.insert(naddr);
                     }
@@ -1279,8 +1287,19 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                     }
                 }
                 StackerDBSyncState::Finished => {
+                    let stale_inv = self.stale_inv;
+
                     let result = self.reset(Some(network), config);
                     self.state = StackerDBSyncState::ConnectBegin;
+
+                    if stale_inv {
+                        debug!(
+                            "{:?}: immediately retry StackerDB sync on {} due to stale inventory",
+                            network.get_local_peer(),
+                            &self.smart_contract_id
+                        );
+                        self.wakeup();
+                    }
                     return Ok(Some(result));
                 }
             };
