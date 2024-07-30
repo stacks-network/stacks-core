@@ -55,10 +55,11 @@ use crate::tests::nakamoto_integrations::{
     boot_to_epoch_25, boot_to_epoch_3_reward_set, next_block_and, POX_4_DEFAULT_STACKER_STX_AMT,
 };
 use crate::tests::neon_integrations::{
-    get_chain_info, next_block_and_wait, run_until_burnchain_height, submit_tx, test_observer,
+    get_account, get_chain_info, next_block_and_wait, run_until_burnchain_height, submit_tx,
+    test_observer,
 };
 use crate::tests::{self, make_stacks_transfer};
-use crate::{nakamoto_node, BurnchainController};
+use crate::{nakamoto_node, BurnchainController, Keychain};
 
 impl SignerTest<SpawnedSigner> {
     /// Run the test until the first epoch 2.5 reward cycle.
@@ -963,6 +964,155 @@ fn forked_tenure_testing(
         mined_c_2,
         mined_d,
     }
+}
+
+#[test]
+#[ignore]
+fn bitcoind_forking_test() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let num_signers = 5;
+    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_addr = tests::to_addr(&sender_sk);
+    let send_amt = 100;
+    let send_fee = 180;
+    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
+        num_signers,
+        vec![(sender_addr.clone(), send_amt + send_fee)],
+        Some(Duration::from_secs(15)),
+        |_config| {},
+    );
+    let conf = signer_test.running_nodes.conf.clone();
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+    let miner_address = Keychain::default(conf.node.seed.clone())
+        .origin_address(conf.is_mainnet())
+        .unwrap();
+
+    signer_test.boot_to_epoch_3();
+    info!("------------------------- Reached Epoch 3.0 -------------------------");
+    let pre_epoch_3_nonce = get_account(&http_origin, &miner_address).nonce;
+    let pre_fork_tenures = 10;
+
+    for _i in 0..pre_fork_tenures {
+        let _mined_block = signer_test.mine_nakamoto_block(Duration::from_secs(30));
+    }
+
+    let pre_fork_1_nonce = get_account(&http_origin, &miner_address).nonce;
+
+    assert_eq!(pre_fork_1_nonce, pre_epoch_3_nonce + 2 * pre_fork_tenures);
+
+    info!("------------------------- Triggering Bitcoin Fork -------------------------");
+
+    let burn_block_height = get_chain_info(&signer_test.running_nodes.conf).burn_block_height;
+    let burn_header_hash_to_fork = signer_test
+        .running_nodes
+        .btc_regtest_controller
+        .get_block_hash(burn_block_height);
+    signer_test
+        .running_nodes
+        .btc_regtest_controller
+        .invalidate_block(&burn_header_hash_to_fork);
+    signer_test
+        .running_nodes
+        .btc_regtest_controller
+        .build_next_block(1);
+
+    info!("Wait for block off of shallow fork");
+    thread::sleep(Duration::from_secs(15));
+
+    // we need to mine some blocks to get back to being considered a frequent miner
+    for _i in 0..3 {
+        let commits_count = signer_test
+            .running_nodes
+            .commits_submitted
+            .load(Ordering::SeqCst);
+        next_block_and(
+            &mut signer_test.running_nodes.btc_regtest_controller,
+            60,
+            || {
+                Ok(signer_test
+                    .running_nodes
+                    .commits_submitted
+                    .load(Ordering::SeqCst)
+                    > commits_count)
+            },
+        )
+        .unwrap();
+    }
+
+    let post_fork_1_nonce = get_account(&http_origin, &miner_address).nonce;
+
+    assert_eq!(post_fork_1_nonce, pre_fork_1_nonce - 1 * 2);
+
+    for _i in 0..5 {
+        signer_test.mine_nakamoto_block(Duration::from_secs(30));
+    }
+
+    let pre_fork_2_nonce = get_account(&http_origin, &miner_address).nonce;
+    assert_eq!(pre_fork_2_nonce, post_fork_1_nonce + 2 * 5);
+
+    info!(
+        "New chain info: {:?}",
+        get_chain_info(&signer_test.running_nodes.conf)
+    );
+
+    info!("------------------------- Triggering Deeper Bitcoin Fork -------------------------");
+
+    let burn_block_height = get_chain_info(&signer_test.running_nodes.conf).burn_block_height;
+    let burn_header_hash_to_fork = signer_test
+        .running_nodes
+        .btc_regtest_controller
+        .get_block_hash(burn_block_height - 3);
+    signer_test
+        .running_nodes
+        .btc_regtest_controller
+        .invalidate_block(&burn_header_hash_to_fork);
+    signer_test
+        .running_nodes
+        .btc_regtest_controller
+        .build_next_block(4);
+
+    info!("Wait for block off of shallow fork");
+    thread::sleep(Duration::from_secs(15));
+
+    // we need to mine some blocks to get back to being considered a frequent miner
+    for _i in 0..3 {
+        let commits_count = signer_test
+            .running_nodes
+            .commits_submitted
+            .load(Ordering::SeqCst);
+        next_block_and(
+            &mut signer_test.running_nodes.btc_regtest_controller,
+            60,
+            || {
+                Ok(signer_test
+                    .running_nodes
+                    .commits_submitted
+                    .load(Ordering::SeqCst)
+                    > commits_count)
+            },
+        )
+        .unwrap();
+    }
+
+    let post_fork_2_nonce = get_account(&http_origin, &miner_address).nonce;
+
+    assert_eq!(post_fork_2_nonce, pre_fork_2_nonce - 4 * 2);
+
+    for _i in 0..5 {
+        signer_test.mine_nakamoto_block(Duration::from_secs(30));
+    }
+
+    let test_end_nonce = get_account(&http_origin, &miner_address).nonce;
+    assert_eq!(test_end_nonce, post_fork_2_nonce + 2 * 5);
+
+    info!(
+        "New chain info: {:?}",
+        get_chain_info(&signer_test.running_nodes.conf)
+    );
+    signer_test.shutdown();
 }
 
 #[test]
