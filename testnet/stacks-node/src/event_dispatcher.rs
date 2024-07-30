@@ -1277,6 +1277,11 @@ impl EventDispatcher {
         contract_id: QualifiedContractIdentifier,
         modified_slots: Vec<StackerDBChunkData>,
     ) {
+        debug!(
+            "event_dispatcher: New StackerDB chunk events for {}: {:?}",
+            contract_id, modified_slots
+        );
+
         let interested_observers = self.filter_observers(&self.stackerdb_observers_lookup, false);
 
         let interested_receiver = STACKER_DB_CHANNEL.is_active(&contract_id);
@@ -1294,7 +1299,7 @@ impl EventDispatcher {
         if let Some(channel) = interested_receiver {
             if let Err(send_err) = channel.send(event) {
                 warn!(
-                    "Failed to send StackerDB event to WSTS coordinator channel. Miner thread may have exited.";
+                    "Failed to send StackerDB event to signer coordinator channel. Miner thread may have exited.";
                     "err" => ?send_err
                 );
             }
