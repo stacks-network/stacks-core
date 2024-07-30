@@ -48,9 +48,9 @@ use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksBlockId, StacksPublicKey, VRFSeed,
 };
 use stacks_common::types::StacksEpochId;
-use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::vrf::VRFPublicKey;
+use stacks_common::util::{get_epoch_time_ms, sleep_ms};
 
 use super::miner::MinerReason;
 use super::{
@@ -1065,8 +1065,11 @@ impl RelayerThread {
 
         self.next_initiative =
             Instant::now() + Duration::from_millis(self.config.node.next_initiative_delay);
+
         while self.globals.keep_running() {
-            let directive = if Instant::now() >= self.next_initiative {
+            let raised_initiative = self.globals.take_initiative();
+            let timed_out = Instant::now() >= self.next_initiative;
+            let directive = if raised_initiative || timed_out {
                 self.next_initiative =
                     Instant::now() + Duration::from_millis(self.config.node.next_initiative_delay);
                 self.initiative()
@@ -1074,19 +1077,19 @@ impl RelayerThread {
                 None
             };
 
-            let Some(timeout) = self.next_initiative.checked_duration_since(Instant::now()) else {
-                // next_initiative timeout occurred, so go to next loop iteration.
-                continue;
-            };
-
             let directive = if let Some(directive) = directive {
                 directive
             } else {
-                match relay_rcv.recv_timeout(timeout) {
+                match relay_rcv.recv_timeout(Duration::from_millis(
+                    self.config.node.next_initiative_delay,
+                )) {
                     Ok(directive) => directive,
-                    // timed out, so go to next loop iteration
-                    Err(RecvTimeoutError::Timeout) => continue,
-                    Err(RecvTimeoutError::Disconnected) => break,
+                    Err(RecvTimeoutError::Timeout) => {
+                        continue;
+                    }
+                    Err(RecvTimeoutError::Disconnected) => {
+                        break;
+                    }
                 }
             };
 
