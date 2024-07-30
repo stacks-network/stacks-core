@@ -711,6 +711,7 @@ impl RunLoop {
                             sortition_db_height
                         );
                         last_tenure_sortition_height = sortition_db_height;
+                        globals.raise_initiative();
                     }
                 }
             }
