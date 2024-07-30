@@ -168,8 +168,8 @@ impl SignerTrait<SignerMessage> for Signer {
                     );
                 }
                 *sortition_state = None;
-                if self.reward_cycle == current_reward_cycle {
-                    if let Ok(StacksEpochId::Epoch25) = stacks_client.get_node_epoch() {
+                if let Ok(StacksEpochId::Epoch25) = stacks_client.get_node_epoch() {
+                    if self.reward_cycle == current_reward_cycle {
                         // We are in epoch 2.5, so we should mock mine to prove we are still alive.
                         debug!("Mock signing for burn block {burn_height:?}");
                         self.mock_sign(stacks_client);
@@ -480,8 +480,7 @@ impl Signer {
         };
         let consensus_hash = peer_info.stacks_tip_consensus_hash;
         debug!("Mock signing using stacks tip {consensus_hash:?}");
-        let mock_signature =
-            MockSignature::new(consensus_hash, &self.private_key);
+        let mock_signature = MockSignature::new(consensus_hash, &self.private_key);
         let message = SignerMessage::MockSignature(mock_signature);
         if let Err(e) = self
             .stackerdb
