@@ -15,6 +15,8 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use core::fmt;
 use std::collections::HashSet;
+use std::fs;
+use std::io::Read;
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -110,6 +112,7 @@ pub struct LastCommit {
     /// the tenure consensus hash for the tip's tenure
     tenure_consensus_hash: ConsensusHash,
     /// the start-block hash of the tip's tenure
+    #[allow(dead_code)]
     start_block_hash: BlockHeaderHash,
     /// What is the epoch in which this was sent?
     epoch_id: StacksEpochId,
@@ -836,14 +839,20 @@ impl RelayerThread {
                 })?
         };
 
-        if last_winner_snapshot.miner_pk_hash != Some(mining_pkh) {
-            debug!("Relayer: the miner did not win the last sortition. No tenure to continue.";
-                   "current_mining_pkh" => %mining_pkh,
-                   "last_winner_snapshot.miner_pk_hash" => ?last_winner_snapshot.miner_pk_hash,
-            );
+        let won_last_sortition = last_winner_snapshot.miner_pk_hash == Some(mining_pkh);
+        debug!(
+            "Relayer: Current burn block had no sortition. Checking for tenure continuation.";
+            "won_last_sortition" => won_last_sortition,
+            "current_mining_pkh" => %mining_pkh,
+            "last_winner_snapshot.miner_pk_hash" => ?last_winner_snapshot.miner_pk_hash,
+            "canonical_stacks_tip_id" => %canonical_stacks_tip,
+            "canonical_stacks_tip_ch" => %canonical_stacks_tip_ch,
+            "block_election_ch" => %block_election_snapshot.consensus_hash,
+            "burn_view_ch" => %new_burn_view,
+        );
+
+        if !won_last_sortition {
             return Ok(());
-        } else {
-            debug!("Relayer: the miner won the last sortition. Continuing tenure.");
         }
 
         match self.start_new_tenure(
@@ -1095,6 +1104,43 @@ impl RelayerThread {
         debug!("Relayer exit!");
     }
 
+    /// Try loading up a saved VRF key
+    pub(crate) fn load_saved_vrf_key(path: &str, pubkey_hash: &Hash160) -> Option<RegisteredKey> {
+        let mut f = match fs::File::open(path) {
+            Ok(f) => f,
+            Err(e) => {
+                warn!("Could not open {}: {:?}", &path, &e);
+                return None;
+            }
+        };
+        let mut registered_key_bytes = vec![];
+        if let Err(e) = f.read_to_end(&mut registered_key_bytes) {
+            warn!(
+                "Failed to read registered key bytes from {}: {:?}",
+                path, &e
+            );
+            return None;
+        }
+
+        let Ok(registered_key) = serde_json::from_slice::<RegisteredKey>(&registered_key_bytes)
+        else {
+            warn!(
+                "Did not load registered key from {}: could not decode JSON",
+                &path
+            );
+            return None;
+        };
+
+        // Check that the loaded key's memo matches the current miner's key
+        if registered_key.memo != pubkey_hash.as_ref() {
+            warn!("Loaded VRF key does not match mining key");
+            return None;
+        }
+
+        info!("Loaded registered key from {}", &path);
+        Some(registered_key)
+    }
+
     /// Top-level dispatcher
     pub fn handle_directive(&mut self, directive: RelayerDirective) -> bool {
         debug!("Relayer: handling directive"; "directive" => %directive);
@@ -1113,7 +1159,18 @@ impl RelayerThread {
                     info!("In initial block download, will not submit VRF registration");
                     return true;
                 }
-                self.rotate_vrf_and_register(&last_burn_block);
+                let mut saved_key_opt = None;
+                if let Some(path) = self.config.miner.activated_vrf_key_path.as_ref() {
+                    saved_key_opt =
+                        Self::load_saved_vrf_key(&path, &self.keychain.get_nakamoto_pkh());
+                }
+                if let Some(saved_key) = saved_key_opt {
+                    debug!("Relayer: resuming VRF key");
+                    self.globals.resume_leader_key(saved_key);
+                } else {
+                    self.rotate_vrf_and_register(&last_burn_block);
+                    debug!("Relayer: directive Registered VRF key");
+                }
                 self.globals.counters.bump_blocks_processed();
                 true
             }
@@ -1152,5 +1209,123 @@ impl RelayerThread {
         };
         debug!("Relayer: handled directive"; "continue_running" => continue_running);
         continue_running
+    }
+}
+
+#[cfg(test)]
+pub mod test {
+    use std::fs::File;
+    use std::io::Write;
+    use std::path::Path;
+
+    use stacks::util::hash::Hash160;
+    use stacks::util::secp256k1::Secp256k1PublicKey;
+    use stacks::util::vrf::VRFPublicKey;
+
+    use super::RelayerThread;
+    use crate::nakamoto_node::save_activated_vrf_key;
+    use crate::run_loop::RegisteredKey;
+    use crate::Keychain;
+
+    #[test]
+    fn load_nonexistent_vrf_key() {
+        let keychain = Keychain::default(vec![0u8; 32]);
+        let pk = Secp256k1PublicKey::from_private(keychain.get_nakamoto_sk());
+        let pubkey_hash = Hash160::from_node_public_key(&pk);
+
+        let path = "/tmp/does_not_exist.json";
+        _ = std::fs::remove_file(&path);
+
+        let res = RelayerThread::load_saved_vrf_key(&path, &pubkey_hash);
+        assert!(res.is_none());
+    }
+
+    #[test]
+    fn load_empty_vrf_key() {
+        let keychain = Keychain::default(vec![0u8; 32]);
+        let pk = Secp256k1PublicKey::from_private(keychain.get_nakamoto_sk());
+        let pubkey_hash = Hash160::from_node_public_key(&pk);
+
+        let path = "/tmp/empty.json";
+        File::create(&path).expect("Failed to create test file");
+        assert!(Path::new(&path).exists());
+
+        let res = RelayerThread::load_saved_vrf_key(&path, &pubkey_hash);
+        assert!(res.is_none());
+
+        std::fs::remove_file(&path).expect("Failed to delete test file");
+    }
+
+    #[test]
+    fn load_bad_vrf_key() {
+        let keychain = Keychain::default(vec![0u8; 32]);
+        let pk = Secp256k1PublicKey::from_private(keychain.get_nakamoto_sk());
+        let pubkey_hash = Hash160::from_node_public_key(&pk);
+
+        let path = "/tmp/invalid_saved_key.json";
+        let json_content = r#"{ "hello": "world" }"#;
+
+        // Write the JSON content to the file
+        let mut file = File::create(&path).expect("Failed to create test file");
+        file.write_all(json_content.as_bytes())
+            .expect("Failed to write to test file");
+        assert!(Path::new(&path).exists());
+
+        let res = RelayerThread::load_saved_vrf_key(&path, &pubkey_hash);
+        assert!(res.is_none());
+
+        std::fs::remove_file(&path).expect("Failed to delete test file");
+    }
+
+    #[test]
+    fn save_load_vrf_key() {
+        let keychain = Keychain::default(vec![0u8; 32]);
+        let pk = Secp256k1PublicKey::from_private(keychain.get_nakamoto_sk());
+        let pubkey_hash = Hash160::from_node_public_key(&pk);
+        let key = RegisteredKey {
+            target_block_height: 101,
+            block_height: 102,
+            op_vtxindex: 1,
+            vrf_public_key: VRFPublicKey::from_hex(
+                "1da75863a7e1ef86f0f550d92b1f77dc60af23694b884b2816b703137ff94e71",
+            )
+            .unwrap(),
+            memo: pubkey_hash.as_ref().to_vec(),
+        };
+        let path = "/tmp/vrf_key.json";
+        save_activated_vrf_key(path, &key);
+
+        let res = RelayerThread::load_saved_vrf_key(&path, &pubkey_hash);
+        assert!(res.is_some());
+
+        std::fs::remove_file(&path).expect("Failed to delete test file");
+    }
+
+    #[test]
+    fn invalid_saved_memo() {
+        let keychain = Keychain::default(vec![0u8; 32]);
+        let pk = Secp256k1PublicKey::from_private(keychain.get_nakamoto_sk());
+        let pubkey_hash = Hash160::from_node_public_key(&pk);
+        let key = RegisteredKey {
+            target_block_height: 101,
+            block_height: 102,
+            op_vtxindex: 1,
+            vrf_public_key: VRFPublicKey::from_hex(
+                "1da75863a7e1ef86f0f550d92b1f77dc60af23694b884b2816b703137ff94e71",
+            )
+            .unwrap(),
+            memo: pubkey_hash.as_ref().to_vec(),
+        };
+        let path = "/tmp/vrf_key.json";
+        save_activated_vrf_key(path, &key);
+
+        let keychain = Keychain::default(vec![1u8; 32]);
+        let pk = Secp256k1PublicKey::from_private(keychain.get_nakamoto_sk());
+        let pubkey_hash = Hash160::from_node_public_key(&pk);
+
+        let res = RelayerThread::load_saved_vrf_key(&path, &pubkey_hash);
+        assert!(res.is_none());
+
+        std::fs::remove_file(&path).expect("Failed to delete test file");
     }
 }
