@@ -1810,6 +1810,8 @@ pub struct NodeConfig {
     pub miner: bool,
     pub stacker: bool,
     pub mock_mining: bool,
+    /// Where to output blocks from mock mining
+    pub mock_mining_output_dir: Option<PathBuf>,
     pub mine_microblocks: bool,
     pub microblock_frequency: u64,
     pub max_microblocks: u64,
@@ -2102,6 +2104,7 @@ impl Default for NodeConfig {
             miner: false,
             stacker: false,
             mock_mining: false,
+            mock_mining_output_dir: None,
             mine_microblocks: true,
             microblock_frequency: 30_000,
             max_microblocks: u16::MAX as u64,
@@ -2164,7 +2167,7 @@ impl NodeConfig {
     ) -> Neighbor {
         Neighbor {
             addr: NeighborKey {
-                peer_version: peer_version,
+                peer_version,
                 network_id: chain_id,
                 addrbytes: PeerAddress::from_socketaddr(&addr),
                 port: addr.port(),
@@ -2556,6 +2559,7 @@ pub struct NodeConfigFile {
     pub miner: Option<bool>,
     pub stacker: Option<bool>,
     pub mock_mining: Option<bool>,
+    pub mock_mining_output_dir: Option<String>,
     pub mine_microblocks: Option<bool>,
     pub microblock_frequency: Option<u64>,
     pub max_microblocks: Option<u64>,
@@ -2595,10 +2599,9 @@ impl NodeConfigFile {
             p2p_address: self.p2p_address.unwrap_or(rpc_bind.clone()),
             bootstrap_node: vec![],
             deny_nodes: vec![],
-            data_url: match self.data_url {
-                Some(data_url) => data_url,
-                None => format!("http://{}", rpc_bind),
-            },
+            data_url: self
+                .data_url
+                .unwrap_or_else(|| format!("http://{rpc_bind}")),
             local_peer_seed: match self.local_peer_seed {
                 Some(seed) => hex_bytes(&seed)
                     .map_err(|_e| format!("node.local_peer_seed should be a hex encoded string"))?,
@@ -2607,6 +2610,14 @@ impl NodeConfigFile {
             miner,
             stacker,
             mock_mining: self.mock_mining.unwrap_or(default_node_config.mock_mining),
+            mock_mining_output_dir: self
+                .mock_mining_output_dir
+                .map(PathBuf::from)
+                .map(fs::canonicalize)
+                .transpose()
+                .unwrap_or_else(|e| {
+                    panic!("Failed to construct PathBuf from node.mock_mining_output_dir: {e}")
+                }),
             mine_microblocks: self
                 .mine_microblocks
                 .unwrap_or(default_node_config.mine_microblocks),
