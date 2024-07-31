@@ -169,12 +169,19 @@ impl SignerTrait<SignerMessage> for Signer {
                     );
                 }
                 *sortition_state = None;
-                if let Ok(StacksEpochId::Epoch25) = stacks_client.get_node_epoch() {
-                    if self.reward_cycle == current_reward_cycle {
-                        // We are in epoch 2.5, so we should mock mine to prove we are still alive.
-                        self.mock_sign(*burn_height, stacks_client);
-                    }
+                let Ok(epoch) = stacks_client.get_node_epoch() else {
+                    warn!("{self}: Failed to determine node epoch. Cannot mock sign.");
+                    return;
                 };
+                debug!("{self}: Epoch 2.5 signer received a new burn block event.";
+                    "burn_height" => burn_height,
+                    "current_reward_cycle" => current_reward_cycle,
+                    "epoch" => ?epoch
+                );
+                if epoch == StacksEpochId::Epoch25 && self.reward_cycle == current_reward_cycle {
+                    // We are in epoch 2.5, so we should mock mine to prove we are still alive.
+                    self.mock_sign(*burn_height, stacks_client);
+                }
             }
         }
     }
