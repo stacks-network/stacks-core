@@ -666,7 +666,8 @@ fn setup_stx_btc_node<G: FnMut(&mut NeonConfig) -> ()>(
     let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
 
     info!("Bootstraping...");
-    btc_regtest_controller.bootstrap_chain_to_pks(201, btc_miner_pubkeys);
+    // Should be 201 for other tests?
+    btc_regtest_controller.bootstrap_chain_to_pks(195, btc_miner_pubkeys);
 
     info!("Chain bootstrapped...");
 
