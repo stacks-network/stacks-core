@@ -19,13 +19,9 @@ use std::path::PathBuf;
 
 use blockstack_lib::chainstate::stacks::address::PoxAddress;
 use blockstack_lib::util_lib::signed_structured_data::pox4::Pox4SignatureTopic;
-use clap::{ArgAction, Parser, ValueEnum};
+use clap::{Parser, ValueEnum};
 use clarity::vm::types::QualifiedContractIdentifier;
-use stacks_common::address::{
-    b58, AddressHashMode, C32_ADDRESS_VERSION_MAINNET_MULTISIG,
-    C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_MULTISIG,
-    C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-};
+use stacks_common::address::b58;
 use stacks_common::types::chainstate::StacksPrivateKey;
 
 use crate::config::Network;
@@ -59,7 +55,7 @@ pub enum Command {
     /// Run a DKG round through the stacker-db instance
     Dkg(RunDkgArgs),
     /// Run the signer, waiting for events from the stacker-db instance
-    Run(RunSignerArgs),
+    Run(RunDkgArgs),
     /// Generate necessary files for running a collection of signers
     GenerateFiles(GenerateFilesArgs),
     /// Generate a signature for Stacking transactions
@@ -128,7 +124,7 @@ pub struct PutChunkArgs {
 /// Arguments for the dkg-sign and sign command
 pub struct SignArgs {
     /// Path to config file
-    #[arg(long, short, value_name = "FILE")]
+    #[arg(long, value_name = "FILE")]
     pub config: PathBuf,
     /// The reward cycle the signer is registered for and wants to sign for
     /// Note: this must be the current reward cycle of the node
@@ -142,22 +138,14 @@ pub struct SignArgs {
 }
 
 #[derive(Parser, Debug, Clone)]
-/// Arguments for the Dkg command
+/// Arguments for the Run and Dkg commands
 pub struct RunDkgArgs {
     /// Path to config file
-    #[arg(long, short, value_name = "FILE")]
+    #[arg(long, value_name = "FILE")]
     pub config: PathBuf,
     /// The reward cycle the signer is registered for and wants to peform DKG for
     #[arg(long, short)]
     pub reward_cycle: u64,
-}
-
-#[derive(Parser, Debug, Clone)]
-/// Arguments for the Run command
-pub struct RunSignerArgs {
-    /// Path to config file
-    #[arg(long, short, value_name = "FILE")]
-    pub config: PathBuf,
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -196,14 +184,14 @@ pub struct StackingSignatureMethod(Pox4SignatureTopic);
 
 impl StackingSignatureMethod {
     /// Get the inner `Pox4SignatureTopic`
-    pub const fn topic(&self) -> &Pox4SignatureTopic {
+    pub fn topic(&self) -> &Pox4SignatureTopic {
         &self.0
     }
 }
 
 impl From<Pox4SignatureTopic> for StackingSignatureMethod {
     fn from(topic: Pox4SignatureTopic) -> Self {
-        Self(topic)
+        StackingSignatureMethod(topic)
     }
 }
 
@@ -214,9 +202,9 @@ impl ValueEnum for StackingSignatureMethod {
 
     fn value_variants<'a>() -> &'a [Self] {
         &[
-            Self(Pox4SignatureTopic::StackStx),
-            Self(Pox4SignatureTopic::StackExtend),
-            Self(Pox4SignatureTopic::AggregationCommit),
+            StackingSignatureMethod(Pox4SignatureTopic::StackStx),
+            StackingSignatureMethod(Pox4SignatureTopic::StackExtend),
+            StackingSignatureMethod(Pox4SignatureTopic::AggregationCommit),
         ]
     }
 
@@ -238,14 +226,13 @@ pub struct GenerateStackingSignatureArgs {
     /// BTC address used to receive rewards
     #[arg(short, long, value_parser = parse_pox_addr)]
     pub pox_address: PoxAddress,
-    /// The reward cycle during which this signature
-    /// can be used
+    /// The reward cycle to be used in the signature's message hash
     #[arg(short, long)]
     pub reward_cycle: u64,
-    /// Path to signer config file
-    #[arg(long, short, value_name = "FILE")]
+    /// Path to config file
+    #[arg(long, value_name = "FILE")]
     pub config: PathBuf,
-    /// Stacking method that can be used
+    /// Topic for signature
     #[arg(long)]
     pub method: StackingSignatureMethod,
     /// Number of cycles used as a lock period.
@@ -258,9 +245,6 @@ pub struct GenerateStackingSignatureArgs {
     /// A unique identifier to prevent re-using this authorization
     #[arg(long)]
     pub auth_id: u128,
-    /// Output information in JSON format
-    #[arg(long, action=ArgAction::SetTrue, required=false)]
-    pub json: bool,
 }
 
 /// Parse the contract ID
@@ -268,25 +252,12 @@ fn parse_contract(contract: &str) -> Result<QualifiedContractIdentifier, String>
     QualifiedContractIdentifier::parse(contract).map_err(|e| format!("Invalid contract: {}", e))
 }
 
-/// Parse a BTC address argument and return a `PoxAddress`.
-/// This function behaves similarly to `PoxAddress::from_b58`, but also handles
-/// addresses where the parsed AddressHashMode is None.
+/// Parse a BTC address argument and return a `PoxAddress`
 pub fn parse_pox_addr(pox_address_literal: &str) -> Result<PoxAddress, String> {
-    let parsed_addr = PoxAddress::from_b58(pox_address_literal).map_or_else(
-        || Err(format!("Invalid pox address: {pox_address_literal}")),
-        Ok,
-    );
-    match parsed_addr {
-        Ok(PoxAddress::Standard(addr, None)) => match addr.version {
-            C32_ADDRESS_VERSION_MAINNET_MULTISIG | C32_ADDRESS_VERSION_TESTNET_MULTISIG => Ok(
-                PoxAddress::Standard(addr, Some(AddressHashMode::SerializeP2SH)),
-            ),
-            C32_ADDRESS_VERSION_MAINNET_SINGLESIG | C32_ADDRESS_VERSION_TESTNET_SINGLESIG => Ok(
-                PoxAddress::Standard(addr, Some(AddressHashMode::SerializeP2PKH)),
-            ),
-            _ => Err(format!("Invalid address version: {}", addr.version)),
-        },
-        _ => parsed_addr,
+    if let Some(pox_address) = PoxAddress::from_b58(pox_address_literal) {
+        Ok(pox_address)
+    } else {
+        Err(format!("Invalid pox address: {}", pox_address_literal))
     }
 }
 
@@ -328,49 +299,13 @@ fn parse_network(network: &str) -> Result<Network, String> {
 #[cfg(test)]
 mod tests {
     use blockstack_lib::chainstate::stacks::address::{PoxAddressType20, PoxAddressType32};
-    use blockstack_lib::util_lib::signed_structured_data::pox4::make_pox_4_signer_key_message_hash;
-    use clarity::consts::CHAIN_ID_TESTNET;
-    use clarity::util::hash::Sha256Sum;
 
     use super::*;
-
-    /// Helper just to ensure that a the pox address
-    /// can be turned into a clarity tuple
-    fn make_message_hash(pox_addr: &PoxAddress) -> Sha256Sum {
-        make_pox_4_signer_key_message_hash(
-            pox_addr,
-            0,
-            &Pox4SignatureTopic::StackStx,
-            CHAIN_ID_TESTNET,
-            0,
-            0,
-            0,
-        )
-    }
-
-    fn clarity_tuple_version(pox_addr: &PoxAddress) -> u8 {
-        *pox_addr
-            .as_clarity_tuple()
-            .expect("Failed to generate clarity tuple for pox address")
-            .get("version")
-            .expect("Expected version in clarity tuple")
-            .clone()
-            .expect_buff(1)
-            .expect("Expected version to be a u128")
-            .first()
-            .expect("Expected version to be a uint")
-    }
 
     #[test]
     fn test_parse_pox_addr() {
         let tr = "bc1p8vg588hldsnv4a558apet4e9ff3pr4awhqj2hy8gy6x2yxzjpmqsvvpta4";
         let pox_addr = parse_pox_addr(tr).expect("Failed to parse segwit address");
-        assert_eq!(tr, pox_addr.clone().to_b58());
-        make_message_hash(&pox_addr);
-        assert_eq!(
-            clarity_tuple_version(&pox_addr),
-            PoxAddressType32::P2TR.to_u8()
-        );
         match pox_addr {
             PoxAddress::Addr32(_, addr_type, _) => {
                 assert_eq!(addr_type, PoxAddressType32::P2TR);
@@ -380,60 +315,26 @@ mod tests {
 
         let legacy = "1N8GMS991YDY1E696e9SB9EsYY5ckSU7hZ";
         let pox_addr = parse_pox_addr(legacy).expect("Failed to parse legacy address");
-        assert_eq!(legacy, pox_addr.clone().to_b58());
-        make_message_hash(&pox_addr);
-        assert_eq!(
-            clarity_tuple_version(&pox_addr),
-            AddressHashMode::SerializeP2PKH as u8
-        );
         match pox_addr {
             PoxAddress::Standard(stacks_addr, hash_mode) => {
                 assert_eq!(stacks_addr.version, 22);
-                assert_eq!(hash_mode, Some(AddressHashMode::SerializeP2PKH));
+                assert!(hash_mode.is_none());
             }
             _ => panic!("Invalid parsed address"),
         }
 
         let p2sh = "33JNgVMNMC9Xm6mJG9oTVf5zWbmt5xi1Mv";
         let pox_addr = parse_pox_addr(p2sh).expect("Failed to parse legacy address");
-        assert_eq!(p2sh, pox_addr.clone().to_b58());
-        assert_eq!(
-            clarity_tuple_version(&pox_addr),
-            AddressHashMode::SerializeP2SH as u8
-        );
-        make_message_hash(&pox_addr);
         match pox_addr {
             PoxAddress::Standard(stacks_addr, hash_mode) => {
                 assert_eq!(stacks_addr.version, 20);
-                assert_eq!(hash_mode, Some(AddressHashMode::SerializeP2SH));
-            }
-            _ => panic!("Invalid parsed address"),
-        }
-
-        let testnet_p2pkh = "mnr5asd1MLSutHLL514WZXNpUNN3L98zBc";
-        let pox_addr = parse_pox_addr(testnet_p2pkh).expect("Failed to parse testnet address");
-        assert_eq!(
-            clarity_tuple_version(&pox_addr),
-            AddressHashMode::SerializeP2PKH as u8
-        );
-        assert_eq!(testnet_p2pkh, pox_addr.clone().to_b58());
-        make_message_hash(&pox_addr);
-        match pox_addr {
-            PoxAddress::Standard(stacks_addr, hash_mode) => {
-                assert_eq!(stacks_addr.version, C32_ADDRESS_VERSION_TESTNET_SINGLESIG);
-                assert_eq!(hash_mode, Some(AddressHashMode::SerializeP2PKH));
+                assert!(hash_mode.is_none());
             }
             _ => panic!("Invalid parsed address"),
         }
 
         let wsh = "bc1qvnpcphdctvmql5gdw6chtwvvsl6ra9gwa2nehc99np7f24juc4vqrx29cs";
         let pox_addr = parse_pox_addr(wsh).expect("Failed to parse segwit address");
-        assert_eq!(
-            clarity_tuple_version(&pox_addr),
-            PoxAddressType32::P2WSH.to_u8()
-        );
-        assert_eq!(wsh, pox_addr.clone().to_b58());
-        make_message_hash(&pox_addr);
         match pox_addr {
             PoxAddress::Addr32(_, addr_type, _) => {
                 assert_eq!(addr_type, PoxAddressType32::P2WSH);
@@ -441,44 +342,8 @@ mod tests {
             _ => panic!("Invalid parsed address"),
         }
 
-        let wpkh = "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4";
+        let wpkh = "BC1QW508D6QEJXTDG4Y5R3ZARVARY0C5XW7KV8F3T4";
         let pox_addr = parse_pox_addr(wpkh).expect("Failed to parse segwit address");
-        assert_eq!(
-            clarity_tuple_version(&pox_addr),
-            PoxAddressType20::P2WPKH.to_u8()
-        );
-        assert_eq!(wpkh, pox_addr.clone().to_b58());
-        make_message_hash(&pox_addr);
-        match pox_addr {
-            PoxAddress::Addr20(_, addr_type, _) => {
-                assert_eq!(addr_type, PoxAddressType20::P2WPKH);
-            }
-            _ => panic!("Invalid parsed address"),
-        }
-
-        let testnet_tr = "tb1p46cgptxsfwkqpnnj552rkae3nf6l52wxn4snp4vm6mcrz2585hwq6cdwf2";
-        let pox_addr = parse_pox_addr(testnet_tr).expect("Failed to parse testnet address");
-        assert_eq!(testnet_tr, pox_addr.clone().to_b58());
-        make_message_hash(&pox_addr);
-        assert_eq!(
-            clarity_tuple_version(&pox_addr),
-            PoxAddressType32::P2TR.to_u8()
-        );
-        match pox_addr {
-            PoxAddress::Addr32(_, addr_type, _) => {
-                assert_eq!(addr_type, PoxAddressType32::P2TR);
-            }
-            _ => panic!("Invalid parsed address"),
-        }
-
-        let testnet_segwit = "tb1q38eleudmqyg4jrm39dnudj23pv6jcjrksa437s";
-        let pox_addr = parse_pox_addr(testnet_segwit).expect("Failed to parse testnet address");
-        assert_eq!(testnet_segwit, pox_addr.clone().to_b58());
-        make_message_hash(&pox_addr);
-        assert_eq!(
-            clarity_tuple_version(&pox_addr),
-            PoxAddressType20::P2WPKH.to_u8()
-        );
         match pox_addr {
             PoxAddress::Addr20(_, addr_type, _) => {
                 assert_eq!(addr_type, PoxAddressType20::P2WPKH);

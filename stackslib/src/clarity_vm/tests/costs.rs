@@ -1537,7 +1537,7 @@ fn test_cost_voting_integration(use_mainnet: bool, clarity_version: ClarityVersi
             tracker.contract_call_circuits().is_empty(),
             "No contract call circuits should have been processed"
         );
-        for (target, referenced_function) in tracker.cost_function_references().into_iter() {
+        for (target, referenced_function) in tracker.cost_function_references().iter() {
             assert_eq!(
                 &referenced_function.contract_id,
                 &boot_code_id("costs", use_mainnet),
@@ -1652,8 +1652,8 @@ fn test_cost_voting_integration(use_mainnet: bool, clarity_version: ClarityVersi
         assert_eq!(circuit2.unwrap().contract_id, cost_definer);
         assert_eq!(circuit2.unwrap().function_name, "cost-definition-multi-arg");
 
-        for (target, referenced_function) in tracker.cost_function_references().into_iter() {
-            if target == &ClarityCostFunction::Le {
+        for (target, referenced_function) in tracker.cost_function_references().iter() {
+            if **target == ClarityCostFunction::Le {
                 assert_eq!(&referenced_function.contract_id, &cost_definer);
                 assert_eq!(&referenced_function.function_name, "cost-definition-le");
             } else {

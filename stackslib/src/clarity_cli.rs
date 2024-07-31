@@ -144,7 +144,7 @@ fn friendly_expect_opt<A>(input: Option<A>, msg: &str) -> A {
     })
 }
 
-pub const DEFAULT_CLI_EPOCH: StacksEpochId = StacksEpochId::Epoch25;
+pub const DEFAULT_CLI_EPOCH: StacksEpochId = StacksEpochId::Epoch21;
 
 struct EvalInput {
     marf_kv: MarfedKV,
@@ -221,8 +221,6 @@ fn run_analysis_free<C: ClarityStorage>(
         LimitedCostTracker::new_free(),
         DEFAULT_CLI_EPOCH,
         clarity_version,
-        // no type map data is used in the clarity_cli
-        false,
     )
 }
 
@@ -255,8 +253,6 @@ fn run_analysis<C: ClarityStorage>(
         cost_track,
         DEFAULT_CLI_EPOCH,
         clarity_version,
-        // no type map data is used in the clarity_cli
-        false,
     )
 }
 

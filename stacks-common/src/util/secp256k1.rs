@@ -346,10 +346,6 @@ impl Secp256k1PrivateKey {
         }
         to_hex(&bytes)
     }
-
-    pub fn as_slice(&self) -> &[u8; 32] {
-        self.key.as_ref()
-    }
 }
 
 impl PrivateKey for Secp256k1PrivateKey {

@@ -236,7 +236,7 @@ impl<'a> Parser<'a> {
                             span.end_line = token.span.end_line;
                             span.end_column = token.span.end_column;
                             let out_nodes: Vec<_> = std::mem::take(nodes);
-                            let mut e = PreSymbolicExpression::list(out_nodes);
+                            let mut e = PreSymbolicExpression::list(out_nodes.into_boxed_slice());
                             e.copy_span(span);
                             Ok(Some(e))
                         }
@@ -253,7 +253,7 @@ impl<'a> Parser<'a> {
                             span.end_line = token.span.end_line;
                             span.end_column = token.span.end_column;
                             let out_nodes: Vec<_> = std::mem::take(nodes);
-                            let mut e = PreSymbolicExpression::list(out_nodes);
+                            let mut e = PreSymbolicExpression::list(out_nodes.into_boxed_slice());
                             e.copy_span(span);
                             Ok(Some(e))
                         }
@@ -301,7 +301,8 @@ impl<'a> Parser<'a> {
                                     open_tuple.span.clone(),
                                 )?;
                                 let out_nodes: Vec<_> = open_tuple.nodes.drain(..).collect();
-                                let mut e = PreSymbolicExpression::tuple(out_nodes);
+                                let mut e =
+                                    PreSymbolicExpression::tuple(out_nodes.into_boxed_slice());
                                 let span_before_eof = &self.tokens[self.tokens.len() - 2].span;
                                 open_tuple.span.end_line = span_before_eof.end_line;
                                 open_tuple.span.end_column = span_before_eof.end_column;
@@ -340,7 +341,7 @@ impl<'a> Parser<'a> {
                         placeholder.copy_span(&token.span);
                         open_tuple.nodes.push(placeholder); // Placeholder value
                         let out_nodes: Vec<_> = open_tuple.nodes.drain(..).collect();
-                        let mut e = PreSymbolicExpression::tuple(out_nodes);
+                        let mut e = PreSymbolicExpression::tuple(out_nodes.into_boxed_slice());
                         let span_before_eof = &self.tokens[self.tokens.len() - 2].span;
                         open_tuple.span.end_line = span_before_eof.end_line;
                         open_tuple.span.end_column = span_before_eof.end_column;
@@ -385,7 +386,8 @@ impl<'a> Parser<'a> {
                                 placeholder.copy_span(&eof_span);
                                 open_tuple.nodes.push(placeholder); // Placeholder value
                                 let out_nodes: Vec<_> = open_tuple.nodes.drain(..).collect();
-                                let mut e = PreSymbolicExpression::tuple(out_nodes);
+                                let mut e =
+                                    PreSymbolicExpression::tuple(out_nodes.into_boxed_slice());
                                 open_tuple.span.end_line =
                                     open_tuple.diagnostic_token.span.end_line;
                                 open_tuple.span.end_column =
@@ -420,7 +422,7 @@ impl<'a> Parser<'a> {
                         open_tuple.span.end_column = token.span.end_column;
                         self.next_token();
                         let out_nodes: Vec<_> = open_tuple.nodes.drain(..).collect();
-                        let mut e = PreSymbolicExpression::tuple(out_nodes);
+                        let mut e = PreSymbolicExpression::tuple(out_nodes.into_boxed_slice());
                         e.copy_span(&open_tuple.span);
                         return Ok(Some(e));
                     }
@@ -438,7 +440,7 @@ impl<'a> Parser<'a> {
                     open_tuple.span.end_column = token.span.end_column;
                     self.next_token();
                     let out_nodes: Vec<_> = open_tuple.nodes.drain(..).collect();
-                    let mut e = PreSymbolicExpression::tuple(out_nodes);
+                    let mut e = PreSymbolicExpression::tuple(out_nodes.into_boxed_slice());
                     e.copy_span(&open_tuple.span);
                     return Ok(Some(e));
                 }
@@ -477,7 +479,7 @@ impl<'a> Parser<'a> {
                 open_tuple.span.end_column = token.span.end_column;
                 self.next_token();
                 let out_nodes: Vec<_> = open_tuple.nodes.drain(..).collect();
-                let mut e = PreSymbolicExpression::tuple(out_nodes);
+                let mut e = PreSymbolicExpression::tuple(out_nodes.into_boxed_slice());
                 e.copy_span(&open_tuple.span);
                 return Ok(SetupTupleResult::Closed(e));
             }
@@ -494,7 +496,7 @@ impl<'a> Parser<'a> {
             open_tuple.span.end_column = token.span.end_column;
             self.next_token();
             let out_nodes: Vec<_> = open_tuple.nodes.drain(..).collect();
-            let mut e = PreSymbolicExpression::tuple(out_nodes);
+            let mut e = PreSymbolicExpression::tuple(out_nodes.into_boxed_slice());
             e.copy_span(&open_tuple.span);
             return Ok(SetupTupleResult::Closed(e));
         }

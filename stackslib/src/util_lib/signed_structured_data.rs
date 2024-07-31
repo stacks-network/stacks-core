@@ -106,11 +106,7 @@ pub mod pox4 {
             TupleData::from_data(vec![
                 (
                     "pox-addr".into(),
-                    pox_addr
-                        .clone()
-                        .as_clarity_tuple()
-                        .expect("Error creating signature hash - invalid PoX Address")
-                        .into(),
+                    pox_addr.clone().as_clarity_tuple().unwrap().into(),
                 ),
                 ("reward-cycle".into(), Value::UInt(reward_cycle)),
                 ("period".into(), Value::UInt(period)),
@@ -121,7 +117,7 @@ pub mod pox4 {
                 ("auth-id".into(), Value::UInt(auth_id)),
                 ("max-amount".into(), Value::UInt(max_amount)),
             ])
-            .expect("Error creating signature hash"),
+            .unwrap(),
         );
         structured_data_message_hash(data_tuple, domain_tuple)
     }

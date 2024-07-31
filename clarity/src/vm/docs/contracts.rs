@@ -1,8 +1,7 @@
 use std::collections::BTreeMap;
 
-use hashbrown::{HashMap, HashSet};
 use stacks_common::consts::CHAIN_ID_TESTNET;
-use stacks_common::types::StacksEpochId;
+use stacks_common::types::{StacksEpochId, StacksHashMap as HashMap, StacksHashSet as HashSet};
 
 use crate::vm::analysis::{mem_type_check, ContractAnalysis};
 use crate::vm::ast::{build_ast_with_rules, ASTRules};

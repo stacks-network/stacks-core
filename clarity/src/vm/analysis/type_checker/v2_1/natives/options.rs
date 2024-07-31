@@ -22,9 +22,7 @@ use super::{
 };
 use crate::vm::analysis::type_checker::contexts::TypingContext;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
-use crate::vm::costs::{
-    analysis_typecheck_cost, cost_functions, runtime_cost, CostErrors, CostTracker,
-};
+use crate::vm::costs::{analysis_typecheck_cost, cost_functions, runtime_cost};
 use crate::vm::representations::{ClarityName, SymbolicExpression};
 use crate::vm::types::signatures::CallableSubtype;
 use crate::vm::types::TypeSignature;
@@ -288,13 +286,7 @@ fn eval_with_new_binding(
         checker,
         bind_type.type_size()?,
     )?;
-    let mut memory_use = 0;
-    if checker.epoch.analysis_memory() {
-        memory_use = u64::from(bind_name.len())
-            .checked_add(u64::from(bind_type.type_size()?))
-            .ok_or_else(|| CostErrors::CostOverflow)?;
-        checker.add_memory(memory_use)?;
-    }
+
     checker.contract_context.check_name_used(&bind_name)?;
 
     if inner_context.lookup_variable_type(&bind_name).is_some() {
@@ -303,11 +295,7 @@ fn eval_with_new_binding(
 
     inner_context.add_variable_type(bind_name, bind_type, checker.clarity_version);
 
-    let result = checker.type_check(body, &inner_context);
-    if checker.epoch.analysis_memory() {
-        checker.drop_memory(memory_use)?;
-    }
-    result
+    checker.type_check(body, &inner_context)
 }
 
 fn check_special_match_opt(

@@ -15,20 +15,20 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::cell::RefCell;
-use std::collections::{HashSet, VecDeque};
+use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::{fs, io};
 
 use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::types::*;
-use hashbrown::HashMap;
 use rand::seq::SliceRandom;
 use rand::{CryptoRng, RngCore, SeedableRng};
 use rand_chacha::ChaCha20Rng;
 use stacks_common::address::*;
 use stacks_common::consts::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 use stacks_common::types::chainstate::{BlockHeaderHash, SortitionId, StacksBlockId, VRFSeed};
+use stacks_common::types::{StacksHashMap as HashMap, StacksHashSet as HashSet};
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::sleep_ms;
 use stacks_common::util::vrf::{VRFProof, VRFPublicKey};
@@ -119,7 +119,7 @@ impl Default for TestSigners {
         Self {
             signer_parties,
             aggregate_public_key,
-            poly_commitments,
+            poly_commitments: poly_commitments.into(),
             num_keys,
             threshold,
             party_key_ids,
@@ -147,13 +147,6 @@ impl TestSigners {
         let signature = sig_aggregator
             .sign(msg.as_slice(), &nonces, &sig_shares, &key_ids)
             .expect("aggregator sig failed");
-
-        test_debug!(
-            "Signed Nakamoto block {} with {} (rc {})",
-            block.block_id(),
-            &self.aggregate_public_key,
-            cycle
-        );
         block.header.signer_signature = ThresholdSignature(signature);
     }
 
@@ -186,7 +179,7 @@ impl TestSigners {
             .collect();
         self.poly_commitments =
             match wsts::v2::test_helpers::dkg(&mut self.signer_parties, &mut rng) {
-                Ok(poly_commitments) => poly_commitments,
+                Ok(poly_commitments) => poly_commitments.into(),
                 Err(secret_errors) => {
                     panic!("Got secret errors from DKG: {:?}", secret_errors);
                 }

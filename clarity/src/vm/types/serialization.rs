@@ -17,11 +17,10 @@
 use std::io::{Read, Write};
 use std::{cmp, error, fmt, str};
 
-use hashbrown::HashMap;
 use lazy_static::lazy_static;
 use serde_json::Value as JSONValue;
 use stacks_common::codec::{Error as codec_error, StacksMessageCodec};
-use stacks_common::types::StacksEpochId;
+use stacks_common::types::{StacksEpochId, StacksHashMap as HashMap, StacksHashSet as HashSet};
 use stacks_common::util::hash::{hex_bytes, to_hex};
 use stacks_common::util::retry::BoundReader;
 
@@ -559,7 +558,7 @@ impl Value {
                 }
             };
 
-            if bytes_read > expect_size as u64 {
+            if expect_size as u64 > bytes_read {
                 // this can happen due to sanitization, so its no longer indicative of a *problem* with the node.
                 debug!(
                     "Deserialized more bytes than expected size during deserialization. Expected size = {}, bytes read = {}, type = {}",

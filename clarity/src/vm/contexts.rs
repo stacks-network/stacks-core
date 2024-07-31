@@ -18,12 +18,11 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::mem::replace;
 
-use hashbrown::{HashMap, HashSet};
 use serde::Serialize;
 use serde_json::json;
 use stacks_common::consts::CHAIN_ID_TESTNET;
 use stacks_common::types::chainstate::StacksBlockId;
-use stacks_common::types::StacksEpochId;
+use stacks_common::types::{StacksEpochId, StacksHashMap as HashMap, StacksHashSet as HashSet};
 
 use super::EvalHook;
 use crate::vm::ast::{ASTRules, ContractAST};
@@ -205,7 +204,7 @@ pub struct GlobalContext<'a, 'hooks> {
     pub eval_hooks: Option<Vec<&'hooks mut dyn EvalHook>>,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct ContractContext {
     pub contract_identifier: QualifiedContractIdentifier,
     pub variables: HashMap<ClarityName, Value>,
@@ -1139,7 +1138,8 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
                 return Err(CheckErrors::CircularReference(vec![func_identifier.to_string()]).into())
             }
             self.call_stack.insert(&func_identifier, true);
-            let res = self.execute_function_as_transaction(&func, &args, Some(&contract.contract_context), allow_private);
+
+            let res = self.execute_function_as_transaction(&func, &args, Some(&contract.contract_context));
             self.call_stack.remove(&func_identifier, true)?;
 
             match res {
@@ -1167,7 +1167,6 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         function: &DefinedFunction,
         args: &[Value],
         next_contract_context: Option<&ContractContext>,
-        allow_private: bool,
     ) -> Result<Value> {
         let make_read_only = function.is_read_only();
 
@@ -1196,7 +1195,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
             self.global_context.roll_back()?;
             result
         } else {
-            self.global_context.handle_tx_result(result, allow_private)
+            self.global_context.handle_tx_result(result)
         }
     }
 
@@ -1726,14 +1725,7 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
         self.database.roll_back()
     }
 
-    // the allow_private parameter allows private functions calls to return any Clarity type
-    // and not just Response. It only has effect is the devtools feature is enabled. eg:
-    // clarity = { version = "*", features = ["devtools"] }
-    pub fn handle_tx_result(
-        &mut self,
-        result: Result<Value>,
-        allow_private: bool,
-    ) -> Result<Value> {
+    pub fn handle_tx_result(&mut self, result: Result<Value>) -> Result<Value> {
         if let Ok(result) = result {
             if let Value::Response(data) = result {
                 if data.committed {
@@ -1742,9 +1734,6 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
                     self.roll_back()?;
                 }
                 Ok(Value::Response(data))
-            } else if allow_private && cfg!(feature = "devtools") {
-                self.commit()?;
-                Ok(result)
             } else {
                 Err(
                     CheckErrors::PublicFunctionMustReturnResponse(TypeSignature::type_of(&result)?)

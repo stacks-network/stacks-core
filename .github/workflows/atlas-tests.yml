@@ -54,17 +54,3 @@ jobs:
         uses: stacks-network/actions/codecov@main
         with:
           test-name: ${{ matrix.test-name }}
-
-  check-tests:
-    name: Check Tests
-    runs-on: ubuntu-latest
-    if: always()
-    needs:
-      - atlas-tests
-    steps:
-      - name: Check Tests Status
-        id: check_tests_status
-        uses: stacks-network/actions/check-jobs-status@main
-        with:
-          jobs: ${{ toJson(needs) }}
-          summary_print: "true"

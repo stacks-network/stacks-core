@@ -1,6 +1,6 @@
 use std::io::{Error, Read};
 
-use hashbrown::HashMap;
+use stacks_common::types::StacksHashMap as HashMap;
 
 use crate::to_io_result::ToIoResult;
 

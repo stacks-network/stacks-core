@@ -38,7 +38,7 @@ use stacks_common::util::hash::{MerkleTree, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PrivateKey};
 use stacks_common::util::vrf::*;
 
-use crate::burnchains::{Burnchain, PrivateKey, PublicKey};
+use crate::burnchains::{PrivateKey, PublicKey};
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionDBConn, SortitionHandleTx};
 use crate::chainstate::burn::operations::*;
 use crate::chainstate::burn::*;
@@ -118,7 +118,6 @@ impl std::fmt::Display for MinerStatus {
 
 /// halt mining
 pub fn signal_mining_blocked(miner_status: Arc<Mutex<MinerStatus>>) {
-    debug!("Signaling miner to block"; "thread_id" => ?std::thread::current().id());
     match miner_status.lock() {
         Ok(mut status) => {
             status.add_blocked();
@@ -165,8 +164,6 @@ pub struct BlockBuilderSettings {
     pub max_miner_time_ms: u64,
     pub mempool_settings: MemPoolWalkSettings,
     pub miner_status: Arc<Mutex<MinerStatus>>,
-    /// Should the builder attempt to confirm any parent microblocks
-    pub confirm_microblocks: bool,
 }
 
 impl BlockBuilderSettings {
@@ -175,7 +172,6 @@ impl BlockBuilderSettings {
             max_miner_time_ms: u64::MAX,
             mempool_settings: MemPoolWalkSettings::default(),
             miner_status: Arc::new(Mutex::new(MinerStatus::make_ready(0))),
-            confirm_microblocks: true,
         }
     }
 
@@ -184,7 +180,6 @@ impl BlockBuilderSettings {
             max_miner_time_ms: u64::MAX,
             mempool_settings: MemPoolWalkSettings::zero(),
             miner_status: Arc::new(Mutex::new(MinerStatus::make_ready(0))),
-            confirm_microblocks: true,
         }
     }
 }
@@ -1804,7 +1799,6 @@ impl StacksBlockBuilder {
         &mut self,
         chainstate: &'a mut StacksChainState,
         burn_dbconn: &'a SortitionDBConn,
-        confirm_microblocks: bool,
     ) -> Result<MinerEpochInfo<'a>, Error> {
         debug!(
             "Miner epoch begin";
@@ -1835,10 +1829,7 @@ impl StacksBlockBuilder {
         )
         .expect("FATAL: more than 2^32 sortitions");
 
-        let parent_microblocks = if !confirm_microblocks {
-            debug!("Block assembly invoked with confirm_microblocks = false. Will not confirm any microblocks.");
-            vec![]
-        } else if StacksChainState::block_crosses_epoch_boundary(
+        let parent_microblocks = if StacksChainState::block_crosses_epoch_boundary(
             chainstate.db(),
             &self.parent_consensus_hash,
             &self.parent_header_hash,
@@ -1999,7 +1990,7 @@ impl StacksBlockBuilder {
     ) -> Result<(StacksBlock, u64, ExecutionCost, Option<StacksMicroblock>), Error> {
         debug!("Build anchored block from {} transactions", txs.len());
         let (mut chainstate, _) = chainstate_handle.reopen()?;
-        let mut miner_epoch_info = builder.pre_epoch_begin(&mut chainstate, burn_dbconn, true)?;
+        let mut miner_epoch_info = builder.pre_epoch_begin(&mut chainstate, burn_dbconn)?;
         let ast_rules = miner_epoch_info.ast_rules;
         let (mut epoch_tx, _) = builder.epoch_begin(burn_dbconn, &mut miner_epoch_info)?;
         for tx in txs.drain(..) {
@@ -2049,7 +2040,6 @@ impl StacksBlockBuilder {
 
     /// Create a block builder for mining
     pub fn make_block_builder(
-        burnchain: &Burnchain,
         mainnet: bool,
         stacks_parent_header: &StacksHeaderInfo,
         proof: VRFProof,
@@ -2057,19 +2047,20 @@ impl StacksBlockBuilder {
         pubkey_hash: Hash160,
     ) -> Result<StacksBlockBuilder, Error> {
         let builder = if stacks_parent_header.consensus_hash == FIRST_BURNCHAIN_CONSENSUS_HASH {
-            let (first_block_hash, first_block_height, first_block_ts) = if mainnet {
+            let (first_block_hash_hex, first_block_height, first_block_ts) = if mainnet {
                 (
-                    BurnchainHeaderHash::from_hex(BITCOIN_MAINNET_FIRST_BLOCK_HASH).unwrap(),
+                    BITCOIN_MAINNET_FIRST_BLOCK_HASH,
                     BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT,
                     BITCOIN_MAINNET_FIRST_BLOCK_TIMESTAMP,
                 )
             } else {
                 (
-                    burnchain.first_block_hash,
-                    burnchain.first_block_height,
-                    burnchain.first_block_timestamp,
+                    BITCOIN_TESTNET_FIRST_BLOCK_HASH,
+                    BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT,
+                    BITCOIN_TESTNET_FIRST_BLOCK_TIMESTAMP,
                 )
             };
+            let first_block_hash = BurnchainHeaderHash::from_hex(first_block_hash_hex).unwrap();
             StacksBlockBuilder::first_pubkey_hash(
                 0,
                 &FIRST_BURNCHAIN_CONSENSUS_HASH,
@@ -2103,20 +2094,21 @@ impl StacksBlockBuilder {
 
     /// Create a block builder for regtest mining
     pub fn make_regtest_block_builder(
-        burnchain: &Burnchain,
         stacks_parent_header: &StacksHeaderInfo,
         proof: VRFProof,
         total_burn: u64,
         pubkey_hash: Hash160,
     ) -> Result<StacksBlockBuilder, Error> {
         let builder = if stacks_parent_header.consensus_hash == FIRST_BURNCHAIN_CONSENSUS_HASH {
+            let first_block_hash =
+                BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap();
             StacksBlockBuilder::first_pubkey_hash(
                 0,
                 &FIRST_BURNCHAIN_CONSENSUS_HASH,
-                &burnchain.first_block_hash,
-                u32::try_from(burnchain.first_block_height)
+                &first_block_hash,
+                u32::try_from(BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT)
                     .expect("first regtest bitcoin block is over 2^32"),
-                u64::try_from(burnchain.first_block_timestamp)
+                u64::try_from(BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP)
                     .expect("first regtest bitcoin block timestamp is over 2^64"),
                 &proof,
                 pubkey_hash,
@@ -2394,7 +2386,6 @@ impl StacksBlockBuilder {
         coinbase_tx: &StacksTransaction,
         settings: BlockBuilderSettings,
         event_observer: Option<&dyn MemPoolEventDispatcher>,
-        burnchain: &Burnchain,
     ) -> Result<(StacksBlock, ExecutionCost, u64), Error> {
         if let TransactionPayload::Coinbase(..) = coinbase_tx.payload {
         } else {
@@ -2417,7 +2408,6 @@ impl StacksBlockBuilder {
         let (mut chainstate, _) = chainstate_handle.reopen()?;
 
         let mut builder = StacksBlockBuilder::make_block_builder(
-            burnchain,
             chainstate.mainnet,
             parent_stacks_header,
             proof,
@@ -2425,14 +2415,9 @@ impl StacksBlockBuilder {
             pubkey_hash,
         )?;
 
-        if !settings.confirm_microblocks {
-            builder.parent_microblock_hash = None;
-        }
-
         let ts_start = get_epoch_time_ms();
 
-        let mut miner_epoch_info =
-            builder.pre_epoch_begin(&mut chainstate, burn_dbconn, settings.confirm_microblocks)?;
+        let mut miner_epoch_info = builder.pre_epoch_begin(&mut chainstate, burn_dbconn)?;
         let ast_rules = miner_epoch_info.ast_rules;
         if ast_rules != ASTRules::Typical {
             builder.header.version = cmp::max(

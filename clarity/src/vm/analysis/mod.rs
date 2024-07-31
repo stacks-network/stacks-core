@@ -71,7 +71,6 @@ pub fn mem_type_check(
         cost_tracker,
         epoch,
         version,
-        true,
     ) {
         Ok(x) => {
             // return the first type result of the type checker
@@ -79,7 +78,7 @@ pub fn mem_type_check(
                 .type_map
                 .as_ref()
                 .ok_or_else(|| CheckErrors::Expects("Should be non-empty".into()))?
-                .get_type_expected(
+                .get_type(
                     x.expressions
                         .last()
                         .ok_or_else(|| CheckErrors::Expects("Should be non-empty".into()))?,
@@ -112,7 +111,6 @@ pub fn type_check(
         LimitedCostTracker::new_free(),
         *epoch,
         *version,
-        true,
     )
     .map_err(|(e, _cost_tracker)| e)
 }
@@ -125,7 +123,6 @@ pub fn run_analysis(
     cost_tracker: LimitedCostTracker,
     epoch: StacksEpochId,
     version: ClarityVersion,
-    build_type_map: bool,
 ) -> Result<ContractAnalysis, (CheckError, LimitedCostTracker)> {
     let mut contract_analysis = ContractAnalysis::new(
         contract_identifier.clone(),
@@ -138,7 +135,7 @@ pub fn run_analysis(
         ReadOnlyChecker::run_pass(&epoch, &mut contract_analysis, db)?;
         match epoch {
             StacksEpochId::Epoch20 | StacksEpochId::Epoch2_05 => {
-                TypeChecker2_05::run_pass(&epoch, &mut contract_analysis, db, build_type_map)
+                TypeChecker2_05::run_pass(&epoch, &mut contract_analysis, db)
             }
             StacksEpochId::Epoch21
             | StacksEpochId::Epoch22
@@ -146,7 +143,7 @@ pub fn run_analysis(
             | StacksEpochId::Epoch24
             | StacksEpochId::Epoch25
             | StacksEpochId::Epoch30 => {
-                TypeChecker2_1::run_pass(&epoch, &mut contract_analysis, db, build_type_map)
+                TypeChecker2_1::run_pass(&epoch, &mut contract_analysis, db)
             }
             StacksEpochId::Epoch10 => {
                 return Err(CheckErrors::Expects(

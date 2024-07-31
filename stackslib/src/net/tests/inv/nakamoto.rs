@@ -54,7 +54,7 @@ use crate::stacks_common::types::Address;
 use crate::util_lib::db::Error as DBError;
 
 /// Handshake with and get the reward cycle inventories for a range of reward cycles
-pub fn peer_get_nakamoto_invs<'a>(
+fn peer_get_nakamoto_invs<'a>(
     mut peer: TestPeer<'a>,
     reward_cycles: &[u64],
 ) -> (TestPeer<'a>, Vec<StacksMessageType>) {
@@ -325,7 +325,7 @@ fn test_nakamoto_inv_10_extended_tenures_10_sortitions() {
 
 /// NOTE: The second return value does _not_ need `<'a>`, since `observer` is never installed into
 /// the peers here.  However, it appears unavoidable to the borrow-checker.
-pub fn make_nakamoto_peers_from_invs<'a>(
+fn make_nakamoto_peers_from_invs<'a>(
     test_name: &str,
     observer: &'a TestEventObserver,
     rc_len: u32,
@@ -399,8 +399,6 @@ pub fn make_nakamoto_peers_from_invs<'a>(
                     NakamotoBootStep::TenureExtend(vec![next_stx_transfer()]),
                     NakamotoBootStep::Block(vec![next_stx_transfer()]),
                     NakamotoBootStep::TenureExtend(vec![next_stx_transfer()]),
-                    NakamotoBootStep::Block(vec![next_stx_transfer()]),
-                    NakamotoBootStep::TenureExtend(vec![next_stx_transfer()]),
                 ]));
             }
         }
@@ -416,7 +414,7 @@ pub fn make_nakamoto_peers_from_invs<'a>(
     (peer, other_peers)
 }
 
-pub fn make_nakamoto_peer_from_invs<'a>(
+fn make_nakamoto_peer_from_invs<'a>(
     test_name: &str,
     observer: &'a TestEventObserver,
     rc_len: u32,
@@ -646,7 +644,7 @@ fn test_nakamoto_tenure_inv() {
         port: 65535,
         public_key_hash: Hash160([0x11; 20]),
     };
-    let mut nakamoto_inv = NakamotoTenureInv::new(100, 100, 0, na);
+    let mut nakamoto_inv = NakamotoTenureInv::new(100, 100, na);
     assert!(!nakamoto_inv.has_ith_tenure(0));
     assert!(!nakamoto_inv.has_ith_tenure(99));
     assert!(!nakamoto_inv.has_ith_tenure(100));

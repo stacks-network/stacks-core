@@ -62,14 +62,14 @@ pub enum DefineType {
     Private,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct DefinedFunction {
-    identifier: FunctionIdentifier,
-    name: ClarityName,
-    arg_types: Vec<TypeSignature>,
+    pub identifier: FunctionIdentifier,
+    pub name: ClarityName,
+    pub arg_types: Vec<TypeSignature>,
     pub define_type: DefineType,
-    arguments: Vec<ClarityName>,
-    body: SymbolicExpression,
+    pub arguments: Vec<ClarityName>,
+    pub body: SymbolicExpression,
 }
 
 /// This enum handles the actual invocation of the method
@@ -340,8 +340,8 @@ impl DefinedFunction {
     pub fn apply(&self, args: &[Value], env: &mut Environment) -> Result<Value> {
         match self.define_type {
             DefineType::Private => self.execute_apply(args, env),
-            DefineType::Public => env.execute_function_as_transaction(self, args, None, false),
-            DefineType::ReadOnly => env.execute_function_as_transaction(self, args, None, false),
+            DefineType::Public => env.execute_function_as_transaction(self, args, None),
+            DefineType::ReadOnly => env.execute_function_as_transaction(self, args, None),
         }
     }
 
@@ -391,14 +391,14 @@ impl CallableType {
 }
 
 impl FunctionIdentifier {
-    fn new_native_function(name: &str) -> FunctionIdentifier {
+    pub fn new_native_function(name: &str) -> FunctionIdentifier {
         let identifier = format!("_native_:{}", name);
         FunctionIdentifier {
             identifier: identifier,
         }
     }
 
-    fn new_user_function(name: &str, context: &str) -> FunctionIdentifier {
+    pub fn new_user_function(name: &str, context: &str) -> FunctionIdentifier {
         let identifier = format!("{}:{}", context, name);
         FunctionIdentifier {
             identifier: identifier,

@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::BTreeMap;
 use std::ops::DerefMut;
 
 use clarity::vm::ast::ASTRules;
@@ -40,7 +40,9 @@ use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksAddress, StacksBlockId,
     StacksPrivateKey, StacksPublicKey, TrieHash, VRFSeed,
 };
-use stacks_common::types::{PrivateKey, StacksEpochId};
+use stacks_common::types::{
+    PrivateKey, StacksEpochId, StacksHashMap as HashMap, StacksHashSet as HashSet,
+};
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::{to_hex, Hash160, MerkleHashFunc, MerkleTree, Sha512Trunc256Sum};
 use stacks_common::util::retry::BoundReader;
@@ -514,7 +516,7 @@ impl NakamotoSigners {
             return false;
         }
         if origin_nonce < *account_nonce {
-            debug!("valid_vote_transaction: Received a transaction with an outdated nonce ({origin_nonce} < {account_nonce}).");
+            debug!("valid_vote_transaction: Received a transaction with an outdated nonce ({account_nonce} < {origin_nonce}).");
             return false;
         }
         Self::parse_vote_for_aggregate_public_key(transaction).is_some()

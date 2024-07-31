@@ -1,4 +1,4 @@
-use hashbrown::HashMap;
+use stacks_common::types::StacksHashMap as HashMap;
 
 pub trait QueryEx {
     fn url_query(&self) -> HashMap<&str, &str>;

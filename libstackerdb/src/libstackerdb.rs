@@ -104,8 +104,6 @@ pub struct StackerDBChunkAckData {
     pub reason: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<SlotMetadata>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub code: Option<u32>,
 }
 
 impl SlotMetadata {
@@ -192,12 +190,6 @@ impl StackerDBChunkData {
         md.sign(privk)?;
         self.sig = md.signature;
         Ok(())
-    }
-
-    pub fn recover_pk(&self) -> Result<StacksPublicKey, Error> {
-        let digest = self.get_slot_metadata().auth_digest();
-        StacksPublicKey::recover_to_pubkey(digest.as_bytes(), &self.sig)
-            .map_err(|ve| Error::VerifyingError(ve.to_string()))
     }
 
     /// Verify that this chunk was signed by the given

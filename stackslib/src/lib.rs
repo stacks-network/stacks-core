@@ -71,6 +71,10 @@ pub mod cost_estimates;
 
 pub mod clarity_cli;
 
+#[cfg(any(test, feature = "testing"))]
+#[macro_use]
+pub mod proptesting;
+
 // set via _compile-time_ envars
 const GIT_BRANCH: Option<&'static str> = option_env!("GIT_BRANCH");
 const GIT_COMMIT: Option<&'static str> = option_env!("GIT_COMMIT");

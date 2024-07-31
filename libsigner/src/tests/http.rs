@@ -17,7 +17,7 @@
 use std::io::{Read, Write};
 use std::{io, str};
 
-use hashbrown::HashMap;
+use stacks_common::types::{StacksHashMap as HashMap, StacksHashSet as HashSet};
 use stacks_common::util::chunked_encoding::*;
 
 use crate::error::{EventError, RPCError};

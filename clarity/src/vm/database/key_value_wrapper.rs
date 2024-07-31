@@ -16,9 +16,8 @@
 
 use std::hash::Hash;
 
-use hashbrown::HashMap;
 use stacks_common::types::chainstate::StacksBlockId;
-use stacks_common::types::StacksEpochId;
+use stacks_common::types::{StacksEpochId, StacksHashMap as HashMap, StacksHashSet as HashSet};
 use stacks_common::util::hash::Sha512Trunc256Sum;
 
 use super::clarity_store::SpecialCaseHandler;
@@ -284,7 +283,7 @@ impl<'a> RollbackWrapper<'a> {
             let all_edits =
                 rollback_check_pre_bottom_commit(last_item.edits, &mut self.lookup_map)?;
             if all_edits.len() > 0 {
-                self.store.put_all_data(all_edits).map_err(|e| {
+                self.store.put_all(all_edits).map_err(|e| {
                     InterpreterError::Expect(format!(
                         "ERROR: Failed to commit data to sql store: {e:?}"
                     ))
@@ -308,7 +307,7 @@ impl<'a> RollbackWrapper<'a> {
     }
 }
 
-fn inner_put_data<T>(
+fn inner_put<T>(
     lookup_map: &mut HashMap<T, Vec<String>>,
     edits: &mut Vec<(T, RollbackValueCheck)>,
     key: T,
@@ -322,14 +321,14 @@ fn inner_put_data<T>(
 }
 
 impl<'a> RollbackWrapper<'a> {
-    pub fn put_data(&mut self, key: &str, value: &str) -> InterpreterResult<()> {
+    pub fn put(&mut self, key: &str, value: &str) -> InterpreterResult<()> {
         let current = self.stack.last_mut().ok_or_else(|| {
             InterpreterError::Expect(
                 "ERROR: Clarity VM attempted PUT on non-nested context.".into(),
             )
         })?;
 
-        Ok(inner_put_data(
+        Ok(inner_put(
             &mut self.lookup_map,
             &mut current.edits,
             key.to_string(),
@@ -359,17 +358,17 @@ impl<'a> RollbackWrapper<'a> {
 
     /// this function will only return commitment proofs for values _already_ materialized
     ///  in the underlying store. otherwise it returns None.
-    pub fn get_data_with_proof<T>(&mut self, key: &str) -> InterpreterResult<Option<(T, Vec<u8>)>>
+    pub fn get_with_proof<T>(&mut self, key: &str) -> InterpreterResult<Option<(T, Vec<u8>)>>
     where
         T: ClarityDeserializable<T>,
     {
         self.store
-            .get_data_with_proof(key)?
+            .get_with_proof(key)?
             .map(|(value, proof)| Ok((T::deserialize(&value)?, proof)))
             .transpose()
     }
 
-    pub fn get_data<T>(&mut self, key: &str) -> InterpreterResult<Option<T>>
+    pub fn get<T>(&mut self, key: &str) -> InterpreterResult<Option<T>>
     where
         T: ClarityDeserializable<T>,
     {
@@ -386,10 +385,7 @@ impl<'a> RollbackWrapper<'a> {
             }
         }
         // otherwise, lookup from store
-        self.store
-            .get_data(key)?
-            .map(|x| T::deserialize(&x))
-            .transpose()
+        self.store.get(key)?.map(|x| T::deserialize(&x)).transpose()
     }
 
     pub fn deserialize_value(
@@ -426,7 +422,7 @@ impl<'a> RollbackWrapper<'a> {
                 return Ok(Some(Self::deserialize_value(x, expected, epoch)?));
             }
         }
-        let stored_data = self.store.get_data(key).map_err(|_| {
+        let stored_data = self.store.get(key).map_err(|_| {
             SerializationError::DeserializationError("ERROR: Clarity backing store failure".into())
         })?;
         match stored_data {
@@ -452,7 +448,7 @@ impl<'a> RollbackWrapper<'a> {
     ) -> InterpreterResult<()> {
         let key = make_contract_hash_key(contract);
         let value = self.store.make_contract_commitment(content_hash);
-        self.put_data(&key, &value)
+        self.put(&key, &value)
     }
 
     pub fn insert_metadata(
@@ -469,7 +465,7 @@ impl<'a> RollbackWrapper<'a> {
 
         let metadata_key = (contract.clone(), key.to_string());
 
-        Ok(inner_put_data(
+        Ok(inner_put(
             &mut self.metadata_lookup_map,
             &mut current.metadata_edits,
             metadata_key,

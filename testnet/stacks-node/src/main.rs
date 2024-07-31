@@ -41,7 +41,7 @@ use stacks::chainstate::coordinator::{get_next_recipients, OnChainRewardSetProvi
 use stacks::chainstate::stacks::address::PoxAddress;
 use stacks::chainstate::stacks::db::blocks::DummyEventDispatcher;
 use stacks::chainstate::stacks::db::StacksChainState;
-#[cfg(not(any(target_os = "macos", target_os = "windows", target_arch = "arm")))]
+#[cfg(not(target_env = "msvc"))]
 use tikv_jemallocator::Jemalloc;
 
 pub use self::burnchains::{
@@ -57,7 +57,7 @@ use crate::chain_data::MinerStats;
 use crate::neon_node::{BlockMinerThread, TipCandidate};
 use crate::run_loop::boot_nakamoto;
 
-#[cfg(not(any(target_os = "macos", target_os = "windows", target_arch = "arm")))]
+#[cfg(not(target_env = "msvc"))]
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
 
@@ -437,11 +437,13 @@ fn main() {
             return;
         }
     } else if conf.burnchain.mode == "neon"
-        || conf.burnchain.mode == "nakamoto-neon"
         || conf.burnchain.mode == "xenon"
         || conf.burnchain.mode == "krypton"
         || conf.burnchain.mode == "mainnet"
     {
+        let mut run_loop = neon::RunLoop::new(conf);
+        run_loop.start(None, mine_start.unwrap_or(0));
+    } else if conf.burnchain.mode == "nakamoto-neon" {
         let mut run_loop = boot_nakamoto::BootRunLoop::new(conf).unwrap();
         run_loop.start(None, 0);
     } else {

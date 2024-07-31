@@ -586,9 +586,8 @@ pub fn execute_v2(program: &str) -> Result<Option<Value>> {
 
 #[cfg(test)]
 mod test {
-    use hashbrown::HashMap;
     use stacks_common::consts::CHAIN_ID_TESTNET;
-    use stacks_common::types::StacksEpochId;
+    use stacks_common::types::{StacksEpochId, StacksHashMap as HashMap, StacksHashSet as HashSet};
 
     use super::ClarityVersion;
     use crate::vm::callables::{DefineType, DefinedFunction};
@@ -609,16 +608,16 @@ mod test {
         //  (define a 59)
         //  (do_work a)
         //
-        let content = [SymbolicExpression::list(vec![
+        let content = [SymbolicExpression::list(Box::new([
             SymbolicExpression::atom("do_work".into()),
             SymbolicExpression::atom("a".into()),
-        ])];
+        ]))];
 
-        let func_body = SymbolicExpression::list(vec![
+        let func_body = SymbolicExpression::list(Box::new([
             SymbolicExpression::atom("+".into()),
             SymbolicExpression::atom_value(Value::Int(5)),
             SymbolicExpression::atom("x".into()),
-        ]);
+        ]));
 
         let func_args = vec![("x".into(), TypeSignature::IntType)];
         let user_function = DefinedFunction::new(

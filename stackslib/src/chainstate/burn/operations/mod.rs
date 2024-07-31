@@ -22,7 +22,6 @@ use serde_json::json;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId, TrieHash, VRFSeed,
 };
-use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::hash::{hex_bytes, to_hex, Hash160, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::util::vrf::VRFPublicKey;
@@ -45,7 +44,6 @@ pub mod leader_block_commit;
 pub mod leader_key_register;
 pub mod stack_stx;
 pub mod transfer_stx;
-pub mod vote_for_aggregate_key;
 
 #[cfg(test)]
 mod test;
@@ -82,16 +80,12 @@ pub enum Error {
     // stack stx related errors
     StackStxMustBePositive,
     StackStxInvalidCycles,
-    StackStxInvalidKey,
 
     // errors associated with delegate stx
     DelegateStxMustBePositive,
 
     // sBTC errors
     AmountMustBePositive,
-
-    // vote-for-aggregate-public-key errors
-    VoteForAggregateKeyInvalidKey,
 }
 
 impl fmt::Display for Error {
@@ -143,11 +137,7 @@ impl fmt::Display for Error {
                 f,
                 "Stack STX must set num cycles between 1 and max num cycles"
             ),
-            Error::StackStxInvalidKey => write!(f, "Signer key is invalid"),
             Error::DelegateStxMustBePositive => write!(f, "Delegate STX must be positive amount"),
-            Error::VoteForAggregateKeyInvalidKey => {
-                write!(f, "Aggregate key is invalid")
-            }
             Self::AmountMustBePositive => write!(f, "Peg in amount must be positive"),
         }
     }
@@ -192,9 +182,6 @@ pub struct StackStxOp {
     /// how many ustx this transaction locks
     pub stacked_ustx: u128,
     pub num_cycles: u8,
-    pub signer_key: Option<StacksPublicKeyBuffer>,
-    pub max_amount: Option<u128>,
-    pub auth_id: Option<u32>,
 
     // common to all transactions
     pub txid: Txid,                            // transaction ID
@@ -283,22 +270,6 @@ pub struct DelegateStxOp {
     pub burn_header_hash: BurnchainHeaderHash, // hash of the burn chain block header
 }
 
-#[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
-pub struct VoteForAggregateKeyOp {
-    pub sender: StacksAddress,
-    pub aggregate_key: StacksPublicKeyBuffer,
-    pub round: u32,
-    pub reward_cycle: u64,
-    pub signer_index: u16,
-    pub signer_key: StacksPublicKeyBuffer,
-
-    // common to all transactions
-    pub txid: Txid,                            // transaction ID
-    pub vtxindex: u32,                         // index in the block where this tx occurs
-    pub block_height: u64,                     // block height at which this tx occurs
-    pub burn_header_hash: BurnchainHeaderHash, // hash of the burn chain block header
-}
-
 fn hex_ser_memo<S: serde::Serializer>(bytes: &[u8], s: S) -> Result<S::Ok, S::Error> {
     let inst = to_hex(bytes);
     s.serialize_str(inst.as_str())
@@ -341,7 +312,6 @@ pub enum BlockstackOperationType {
     StackStx(StackStxOp),
     TransferStx(TransferStxOp),
     DelegateStx(DelegateStxOp),
-    VoteForAggregateKey(VoteForAggregateKeyOp),
 }
 
 // serialization helpers for blockstack_op_to_json function
@@ -368,7 +338,6 @@ impl BlockstackOperationType {
             BlockstackOperationType::PreStx(_) => Opcodes::PreStx,
             BlockstackOperationType::TransferStx(_) => Opcodes::TransferStx,
             BlockstackOperationType::DelegateStx(_) => Opcodes::DelegateStx,
-            BlockstackOperationType::VoteForAggregateKey(_) => Opcodes::VoteForAggregateKey,
         }
     }
 
@@ -384,7 +353,6 @@ impl BlockstackOperationType {
             BlockstackOperationType::PreStx(ref data) => &data.txid,
             BlockstackOperationType::TransferStx(ref data) => &data.txid,
             BlockstackOperationType::DelegateStx(ref data) => &data.txid,
-            BlockstackOperationType::VoteForAggregateKey(ref data) => &data.txid,
         }
     }
 
@@ -396,7 +364,6 @@ impl BlockstackOperationType {
             BlockstackOperationType::PreStx(ref data) => data.vtxindex,
             BlockstackOperationType::TransferStx(ref data) => data.vtxindex,
             BlockstackOperationType::DelegateStx(ref data) => data.vtxindex,
-            BlockstackOperationType::VoteForAggregateKey(ref data) => data.vtxindex,
         }
     }
 
@@ -408,7 +375,6 @@ impl BlockstackOperationType {
             BlockstackOperationType::PreStx(ref data) => data.block_height,
             BlockstackOperationType::TransferStx(ref data) => data.block_height,
             BlockstackOperationType::DelegateStx(ref data) => data.block_height,
-            BlockstackOperationType::VoteForAggregateKey(ref data) => data.block_height,
         }
     }
 
@@ -420,7 +386,6 @@ impl BlockstackOperationType {
             BlockstackOperationType::PreStx(ref data) => data.burn_header_hash.clone(),
             BlockstackOperationType::TransferStx(ref data) => data.burn_header_hash.clone(),
             BlockstackOperationType::DelegateStx(ref data) => data.burn_header_hash.clone(),
-            BlockstackOperationType::VoteForAggregateKey(ref data) => data.burn_header_hash.clone(),
         }
     }
 
@@ -435,9 +400,6 @@ impl BlockstackOperationType {
             BlockstackOperationType::PreStx(ref mut data) => data.block_height = height,
             BlockstackOperationType::TransferStx(ref mut data) => data.block_height = height,
             BlockstackOperationType::DelegateStx(ref mut data) => data.block_height = height,
-            BlockstackOperationType::VoteForAggregateKey(ref mut data) => {
-                data.block_height = height
-            }
         };
     }
 
@@ -454,9 +416,6 @@ impl BlockstackOperationType {
             BlockstackOperationType::PreStx(ref mut data) => data.burn_header_hash = hash,
             BlockstackOperationType::TransferStx(ref mut data) => data.burn_header_hash = hash,
             BlockstackOperationType::DelegateStx(ref mut data) => data.burn_header_hash = hash,
-            BlockstackOperationType::VoteForAggregateKey(ref mut data) => {
-                data.burn_header_hash = hash
-            }
         };
     }
 
@@ -483,9 +442,6 @@ impl BlockstackOperationType {
                 "stacked_ustx": op.stacked_ustx,
                 "burn_txid": op.txid,
                 "vtxindex": op.vtxindex,
-                "signer_key": op.signer_key.as_ref().map(|k| serde_json::Value::String(k.to_hex())).unwrap_or(serde_json::Value::Null),
-                "max_amount": op.max_amount.map_or(serde_json::Value::Null, |amount| serde_json::Value::Number(serde_json::Number::from(amount))),
-                "auth_id": op.auth_id.map_or(serde_json::Value::Null, |id| serde_json::Value::Number(serde_json::Number::from(id))),
             }
         })
     }
@@ -522,23 +478,6 @@ impl BlockstackOperationType {
         })
     }
 
-    pub fn vote_for_aggregate_key_to_json(op: &VoteForAggregateKeyOp) -> serde_json::Value {
-        json!({
-            "vote_for_aggregate_key": {
-                "burn_block_height": op.block_height,
-                "burn_header_hash": &op.burn_header_hash.to_hex(),
-                "aggregate_key": op.aggregate_key.to_hex(),
-                "reward_cycle": op.reward_cycle,
-                "round": op.round,
-                "sender": stacks_addr_serialize(&op.sender),
-                "signer_index": op.signer_index,
-                "signer_key": op.signer_key.to_hex(),
-                "burn_txid": op.txid,
-                "vtxindex": op.vtxindex,
-            }
-        })
-    }
-
     // An explicit JSON serialization function is used (instead of using the default serialization
     // function) for the Blockstack ops. This is because (a) we wanted the serialization to be
     // more readable, and (b) the serialization used to display PoxAddress as a string is lossy,
@@ -550,12 +489,9 @@ impl BlockstackOperationType {
             BlockstackOperationType::StackStx(op) => Self::stack_stx_to_json(op),
             BlockstackOperationType::TransferStx(op) => Self::transfer_stx_to_json(op),
             BlockstackOperationType::DelegateStx(op) => Self::delegate_stx_to_json(op),
-            BlockstackOperationType::VoteForAggregateKey(op) => {
-                Self::vote_for_aggregate_key_to_json(op)
-            }
             // json serialization for the remaining op types is not implemented for now. This function
             // is currently only used to json-ify burnchain ops executed as Stacks transactions (so,
-            // stack_stx, transfer_stx, delegate_stx, and vote_for_aggregate_key).
+            // stack_stx, transfer_stx, and delegate_stx).
             _ => json!(null),
         }
     }
@@ -570,7 +506,6 @@ impl fmt::Display for BlockstackOperationType {
             BlockstackOperationType::LeaderBlockCommit(ref op) => write!(f, "{:?}", op),
             BlockstackOperationType::TransferStx(ref op) => write!(f, "{:?}", op),
             BlockstackOperationType::DelegateStx(ref op) => write!(f, "{:?}", op),
-            BlockstackOperationType::VoteForAggregateKey(ref op) => write!(f, "{:?}", op),
         }
     }
 }

@@ -15,20 +15,20 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::cell::RefCell;
-use std::collections::{HashSet, VecDeque};
+use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::{fs, io};
 
 use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::types::*;
-use hashbrown::HashMap;
 use rand::seq::SliceRandom;
 use rand::{CryptoRng, RngCore, SeedableRng};
 use rand_chacha::ChaCha20Rng;
 use stacks_common::address::*;
 use stacks_common::consts::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 use stacks_common::types::chainstate::{BlockHeaderHash, SortitionId, StacksBlockId, VRFSeed};
+use stacks_common::types::{StacksHashMap as HashMap, StacksHashSet as HashSet};
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::sleep_ms;
 use stacks_common::util::vrf::{VRFProof, VRFPublicKey};
@@ -563,22 +563,10 @@ impl TestStacksNode {
                 Self::make_nakamoto_block_from_txs(builder, chainstate, &sortdb.index_conn(), txs)
                     .unwrap();
             miner.sign_nakamoto_block(&mut nakamoto_block);
-
-            let tenure_sn =
-                SortitionDB::get_block_snapshot_consensus(sortdb.conn(), tenure_id_consensus_hash)
-                    .unwrap()
-                    .unwrap();
-            let cycle = sortdb
-                .pox_constants
-                .block_height_to_reward_cycle(sortdb.first_block_height, tenure_sn.block_height)
-                .unwrap();
-
-            test_debug!(
-                "Signing Nakamoto block {} in tenure {} with key in cycle {}",
-                nakamoto_block.block_id(),
-                tenure_id_consensus_hash,
-                cycle
-            );
+            let cycle = miner
+                .burnchain
+                .block_height_to_reward_cycle(burn_tip.block_height)
+                .expect("FATAL: failed to get reward cycle");
             signers.sign_nakamoto_block(&mut nakamoto_block, cycle);
 
             let block_id = nakamoto_block.block_id();
@@ -599,7 +587,6 @@ impl TestStacksNode {
                 &mut sort_handle,
                 chainstate,
                 nakamoto_block.clone(),
-                None,
             ) {
                 Ok(accepted) => accepted,
                 Err(e) => {
@@ -1048,26 +1035,9 @@ impl<'a> TestPeer<'a> {
             &[(NakamotoBlock, u64, ExecutionCost)],
         ) -> Vec<StacksTransaction>,
     {
+        let cycle = self.get_reward_cycle();
         let mut stacks_node = self.stacks_node.take().unwrap();
         let sortdb = self.sortdb.take().unwrap();
-
-        let tenure_extend_payload =
-            if let TransactionPayload::TenureChange(ref tc) = &tenure_extend_tx.payload {
-                tc
-            } else {
-                panic!("Not a tenure-extend payload");
-            };
-
-        let tenure_start_sn = SortitionDB::get_block_snapshot_consensus(
-            sortdb.conn(),
-            &tenure_extend_payload.tenure_consensus_hash,
-        )
-        .unwrap()
-        .unwrap();
-        let cycle = sortdb
-            .pox_constants
-            .block_height_to_reward_cycle(sortdb.first_block_height, tenure_start_sn.block_height)
-            .unwrap();
 
         // Ensure the signers are setup for the current cycle
         signers.generate_aggregate_key(cycle);
@@ -1120,7 +1090,6 @@ impl<'a> TestPeer<'a> {
                 &mut sort_handle,
                 &mut node.chainstate,
                 block,
-                None,
             )
             .unwrap();
             if accepted {
