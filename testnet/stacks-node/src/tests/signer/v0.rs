@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::ops::Add;
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 use std::{env, thread};
@@ -268,6 +269,7 @@ fn block_proposal_rejection() {
     let reward_cycle = signer_test.get_current_reward_cycle();
     let proposal_conf = ProposalEvalConfig {
         first_proposal_burn_block_timing: Duration::from_secs(0),
+        block_proposal_timeout: Duration::from_secs(100),
     };
     let view = SortitionsView::fetch_view(proposal_conf, &signer_test.stacks_client).unwrap();
     let mut block = NakamotoBlock {
@@ -1214,5 +1216,160 @@ fn retry_on_timeout() {
         std::thread::sleep(Duration::from_millis(100));
     }
 
+    signer_test.shutdown();
+}
+
+#[test]
+#[ignore]
+/// This test checks the behaviour of signers when a sortition is empty. Specifically:
+/// - An empty sortition will cause the signers to mark a miner as misbehaving once a timeout is exceeded.
+/// - The empty sortition will trigger the miner to attempt a tenure extend.
+/// - Signers will accept the tenure extend and sign subsequent blocks built off the old sortition
+fn empty_sortition() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(EnvFilter::from_default_env())
+        .init();
+
+    info!("------------------------- Test Setup -------------------------");
+    let num_signers = 5;
+    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_addr = tests::to_addr(&sender_sk);
+    let send_amt = 100;
+    let send_fee = 180;
+    let recipient = PrincipalData::from(StacksAddress::burn_address(false));
+    let block_proposal_timeout = Duration::from_secs(5);
+    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
+        num_signers,
+        vec![(sender_addr.clone(), send_amt + send_fee)],
+        Some(Duration::from_secs(5)),
+        |config| {
+            // make the duration long enough that the miner will be marked as malicious
+            config.block_proposal_timeout = block_proposal_timeout;
+        },
+    );
+    let http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
+    let short_timeout = Duration::from_secs(20);
+
+    signer_test.boot_to_epoch_3();
+
+    TEST_BROADCAST_STALL.lock().unwrap().replace(true);
+
+    info!("------------------------- Test Mine Regular Tenure A  -------------------------");
+    let commits_before = signer_test
+        .running_nodes
+        .commits_submitted
+        .load(Ordering::SeqCst);
+    // Mine a regular tenure
+    next_block_and(
+        &mut signer_test.running_nodes.btc_regtest_controller,
+        60,
+        || {
+            let commits_count = signer_test
+                .running_nodes
+                .commits_submitted
+                .load(Ordering::SeqCst);
+            Ok(commits_count > commits_before)
+        },
+    )
+    .unwrap();
+
+    info!("------------------------- Test Mine Empty Tenure B  -------------------------");
+    info!("Pausing stacks block mining to trigger an empty sortition.");
+    let blocks_before = signer_test
+        .running_nodes
+        .nakamoto_blocks_mined
+        .load(Ordering::SeqCst);
+    let commits_before = signer_test
+        .running_nodes
+        .commits_submitted
+        .load(Ordering::SeqCst);
+    // Start new Tenure B
+    // In the next block, the miner should win the tenure
+    next_block_and(
+        &mut signer_test.running_nodes.btc_regtest_controller,
+        60,
+        || {
+            let commits_count = signer_test
+                .running_nodes
+                .commits_submitted
+                .load(Ordering::SeqCst);
+            Ok(commits_count > commits_before)
+        },
+    )
+    .unwrap();
+
+    info!("Pausing stacks block proposal to force an empty tenure");
+    TEST_BROADCAST_STALL.lock().unwrap().replace(true);
+
+    info!("Pausing commit op to prevent tenure C from starting...");
+    TEST_SKIP_COMMIT_OP.lock().unwrap().replace(true);
+
+    let blocks_after = signer_test
+        .running_nodes
+        .nakamoto_blocks_mined
+        .load(Ordering::SeqCst);
+    assert_eq!(blocks_after, blocks_before);
+
+    // submit a tx so that the miner will mine an extra block
+    let sender_nonce = 0;
+    let transfer_tx =
+        make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
+    submit_tx(&http_origin, &transfer_tx);
+
+    std::thread::sleep(block_proposal_timeout.add(Duration::from_secs(1)));
+
+    TEST_BROADCAST_STALL.lock().unwrap().replace(false);
+
+    info!("------------------------- Test Delayed Block is Rejected  -------------------------");
+    let reward_cycle = signer_test.get_current_reward_cycle();
+    let mut stackerdb = StackerDB::new(
+        &signer_test.running_nodes.conf.node.rpc_bind,
+        StacksPrivateKey::new(), // We are just reading so don't care what the key is
+        false,
+        reward_cycle,
+        SignerSlotID(0), // We are just reading so again, don't care about index.
+    );
+
+    let signer_slot_ids: Vec<_> = signer_test
+        .get_signer_indices(reward_cycle)
+        .iter()
+        .map(|id| id.0)
+        .collect();
+    assert_eq!(signer_slot_ids.len(), num_signers);
+
+    // The miner's proposed block should get rejected by the signers
+    let start_polling = Instant::now();
+    let mut found_rejection = false;
+    while !found_rejection {
+        std::thread::sleep(Duration::from_secs(1));
+        let messages: Vec<SignerMessage> = StackerDB::get_messages(
+            stackerdb
+                .get_session_mut(&MessageSlotID::BlockResponse)
+                .expect("Failed to get BlockResponse stackerdb session"),
+            &signer_slot_ids,
+        )
+        .expect("Failed to get message from stackerdb");
+        for message in messages {
+            if let SignerMessage::BlockResponse(BlockResponse::Rejected(BlockRejection {
+                reason_code,
+                ..
+            })) = message
+            {
+                assert!(matches!(reason_code, RejectCode::SortitionViewMismatch));
+                found_rejection = true;
+            } else {
+                panic!("Unexpected message type");
+            }
+        }
+        assert!(
+            start_polling.elapsed() <= short_timeout,
+            "Timed out after waiting for response from signer"
+        );
+    }
     signer_test.shutdown();
 }

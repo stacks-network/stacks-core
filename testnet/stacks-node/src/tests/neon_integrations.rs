@@ -1318,6 +1318,13 @@ pub fn get_account<F: std::fmt::Display>(http_origin: &str, account: &F) -> Acco
     get_account_result(http_origin, account).unwrap()
 }
 
+pub fn get_neighbors(conf: &Config) -> Option<serde_json::Value> {
+    let client = reqwest::blocking::Client::new();
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+    let path = format!("{}/v2/neighbors", http_origin);
+    client.get(&path).send().ok()?.json().ok()
+}
+
 pub fn get_pox_info(http_origin: &str) -> Option<RPCPoxInfoData> {
     let client = reqwest::blocking::Client::new();
     let path = format!("{}/v2/pox", http_origin);
