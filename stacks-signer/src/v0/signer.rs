@@ -169,9 +169,12 @@ impl SignerTrait<SignerMessage> for Signer {
                     );
                 }
                 *sortition_state = None;
-                let Ok(epoch) = stacks_client.get_node_epoch() else {
-                    warn!("{self}: Failed to determine node epoch. Cannot mock sign.");
-                    return;
+                let epoch = match stacks_client.get_node_epoch() {
+                    Ok(epoch) => epoch,
+                    Err(e) => {
+                        warn!("{self}: Failed to determine node epoch. Cannot mock sign: {e}");
+                        return;
+                    }
                 };
                 debug!("{self}: Epoch 2.5 signer received a new burn block event.";
                     "burn_height" => burn_height,
