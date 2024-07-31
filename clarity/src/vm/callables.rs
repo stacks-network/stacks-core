@@ -62,14 +62,14 @@ pub enum DefineType {
     Private,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct DefinedFunction {
-    identifier: FunctionIdentifier,
-    name: ClarityName,
-    arg_types: Vec<TypeSignature>,
+    pub(crate) identifier: FunctionIdentifier,
+    pub(crate) name: ClarityName,
+    pub(crate) arg_types: Vec<TypeSignature>,
     pub define_type: DefineType,
-    arguments: Vec<ClarityName>,
-    body: SymbolicExpression,
+    pub(crate) arguments: Vec<ClarityName>,
+    pub(crate) body: SymbolicExpression,
 }
 
 /// This enum handles the actual invocation of the method
@@ -391,14 +391,14 @@ impl CallableType {
 }
 
 impl FunctionIdentifier {
-    fn new_native_function(name: &str) -> FunctionIdentifier {
+    pub fn new_native_function(name: &str) -> FunctionIdentifier {
         let identifier = format!("_native_:{}", name);
         FunctionIdentifier {
             identifier: identifier,
         }
     }
 
-    fn new_user_function(name: &str, context: &str) -> FunctionIdentifier {
+    pub fn new_user_function(name: &str, context: &str) -> FunctionIdentifier {
         let identifier = format!("{}:{}", context, name);
         FunctionIdentifier {
             identifier: identifier,

@@ -33,6 +33,13 @@ pub mod deps_common;
 
 pub mod bitvec;
 
+#[cfg(any(test, feature = "testing"))]
+#[macro_use]
+extern crate proptest;
+
+#[cfg(any(test, feature = "testing"))]
+pub mod proptesting;
+
 use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksBlockId};
 
 pub mod consts {
