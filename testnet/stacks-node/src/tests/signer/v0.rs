@@ -52,7 +52,6 @@ use tracing_subscriber::{fmt, EnvFilter};
 use super::SignerTest;
 use crate::event_dispatcher::MinedNakamotoBlockEvent;
 use crate::nakamoto_node::miner::TEST_BROADCAST_STALL;
-use crate::nakamoto_node::relayer::TEST_SKIP_COMMIT_OP;
 use crate::run_loop::boot_nakamoto;
 use crate::tests::nakamoto_integrations::{
     boot_to_epoch_25, boot_to_epoch_3_reward_set, next_block_and, POX_4_DEFAULT_STACKER_STX_AMT,
@@ -859,7 +858,13 @@ fn forked_tenure_testing(
     info!("Commit op is submitted; unpause tenure B's block");
 
     // Unpause the broadcast of Tenure B's block, do not submit commits.
-    TEST_SKIP_COMMIT_OP.lock().unwrap().replace(true);
+    signer_test
+        .running_nodes
+        .nakamoto_test_skip_commit_op
+        .0
+        .lock()
+        .unwrap()
+        .replace(true);
     TEST_BROADCAST_STALL.lock().unwrap().replace(false);
 
     // Wait for a stacks block to be broadcasted
@@ -892,7 +897,13 @@ fn forked_tenure_testing(
         &mut signer_test.running_nodes.btc_regtest_controller,
         60,
         || {
-            TEST_SKIP_COMMIT_OP.lock().unwrap().replace(false);
+            signer_test
+                .running_nodes
+                .nakamoto_test_skip_commit_op
+                .0
+                .lock()
+                .unwrap()
+                .replace(false);
             let commits_count = commits_submitted.load(Ordering::SeqCst);
             let blocks_count = if expect_tenure_c {
                 mined_blocks.load(Ordering::SeqCst)
@@ -1624,7 +1635,13 @@ fn empty_sortition() {
     TEST_BROADCAST_STALL.lock().unwrap().replace(true);
 
     info!("Pausing commit op to prevent tenure C from starting...");
-    TEST_SKIP_COMMIT_OP.lock().unwrap().replace(true);
+    signer_test
+        .running_nodes
+        .nakamoto_test_skip_commit_op
+        .0
+        .lock()
+        .unwrap()
+        .replace(true);
 
     let blocks_after = signer_test
         .running_nodes

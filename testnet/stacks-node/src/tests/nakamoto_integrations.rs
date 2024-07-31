@@ -95,7 +95,6 @@ use wsts::net::Message;
 use super::bitcoin_regtest::BitcoinCoreController;
 use crate::config::{EventKeyType, EventObserverConfig, InitialBalance};
 use crate::nakamoto_node::miner::TEST_BROADCAST_STALL;
-use crate::nakamoto_node::relayer::TEST_SKIP_COMMIT_OP;
 use crate::neon::{Counters, RunLoopCounter};
 use crate::operations::BurnchainOpSigner;
 use crate::run_loop::boot_nakamoto;
@@ -3723,6 +3722,7 @@ fn forked_tenure_is_ignored() {
         naka_submitted_commits: commits_submitted,
         naka_proposed_blocks: proposals_submitted,
         naka_mined_blocks: mined_blocks,
+        naka_skip_commit_op: test_skip_commit_op,
         ..
     } = run_loop.counters();
 
@@ -3791,7 +3791,7 @@ fn forked_tenure_is_ignored() {
     info!("Commit op is submitted; unpause tenure B's block");
 
     // Unpause the broadcast of Tenure B's block, do not submit commits.
-    TEST_SKIP_COMMIT_OP.lock().unwrap().replace(true);
+    test_skip_commit_op.0.lock().unwrap().replace(true);
     TEST_BROADCAST_STALL.lock().unwrap().replace(false);
 
     // Wait for a stacks block to be broadcasted
@@ -3816,7 +3816,7 @@ fn forked_tenure_is_ignored() {
     let commits_before = commits_submitted.load(Ordering::SeqCst);
     let blocks_before = mined_blocks.load(Ordering::SeqCst);
     next_block_and(&mut btc_regtest_controller, 60, || {
-        TEST_SKIP_COMMIT_OP.lock().unwrap().replace(false);
+        test_skip_commit_op.0.lock().unwrap().replace(false);
         let commits_count = commits_submitted.load(Ordering::SeqCst);
         let blocks_count = mined_blocks.load(Ordering::SeqCst);
         Ok(commits_count > commits_before && blocks_count > blocks_before)
@@ -5478,6 +5478,7 @@ fn continue_tenure_extend() {
         blocks_processed,
         naka_submitted_commits: commits_submitted,
         naka_proposed_blocks: proposals_submitted,
+        naka_skip_commit_op: test_skip_commit_op,
         ..
     } = run_loop.counters();
 
@@ -5549,7 +5550,7 @@ fn continue_tenure_extend() {
     );
 
     info!("Pausing commit ops to trigger a tenure extend.");
-    TEST_SKIP_COMMIT_OP.lock().unwrap().replace(true);
+    test_skip_commit_op.0.lock().unwrap().replace(true);
 
     next_block_and(&mut btc_regtest_controller, 60, || Ok(true)).unwrap();
 
@@ -5604,7 +5605,7 @@ fn continue_tenure_extend() {
     );
 
     info!("Resuming commit ops to mine regular tenures.");
-    TEST_SKIP_COMMIT_OP.lock().unwrap().replace(false);
+    test_skip_commit_op.0.lock().unwrap().replace(false);
 
     // Mine 15 more regular nakamoto tenures
     for _i in 0..15 {
