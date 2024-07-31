@@ -36,6 +36,7 @@ use stacks::util_lib::boot::boot_code_id;
 use stacks_common::bitvec::BitVec;
 use stacks_signer::chainstate::{ProposalEvalConfig, SortitionsView};
 use stacks_signer::client::{SignerSlotID, StackerDB};
+use stacks_signer::config::{build_signer_config_tomls, GlobalConfig as SignerConfig, Network};
 use stacks_signer::runloop::State;
 use stacks_signer::v0::SpawnedSigner;
 use tracing_subscriber::prelude::*;
@@ -1372,4 +1373,118 @@ fn empty_sortition() {
         );
     }
     signer_test.shutdown();
+}
+
+#[test]
+#[ignore]
+/// This test asserts that signer set rollover works as expected.
+/// Specifically, if a new set of signers are registered for an upcoming reward cycle,
+/// old signers shut down operation and the new signers take over with the commencement of
+/// the next reward cycle.
+fn signer_set_rollover() {
+    tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(EnvFilter::from_default_env())
+        .init();
+
+    info!("------------------------- Test Setup -------------------------");
+    let num_signers = 5;
+    let new_num_signers = 5;
+
+    let new_signer_private_keys: Vec<_> = (0..new_num_signers)
+        .into_iter()
+        .map(|_| StacksPrivateKey::new())
+        .collect();
+    let new_signer_addresses: Vec<_> = new_signer_private_keys
+        .iter()
+        .map(|sk| tests::to_addr(sk))
+        .collect();
+    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_addr = tests::to_addr(&sender_sk);
+    let send_amt = 100;
+    let send_fee = 180;
+    let recipient = PrincipalData::from(StacksAddress::burn_address(false));
+
+    // Boot with some initial signer set
+    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new(
+        num_signers,
+        vec![(sender_addr.clone(), send_amt + send_fee)],
+        None,
+    );
+    let http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
+    let short_timeout = Duration::from_secs(20);
+
+    let run_stamp = rand::random();
+
+    // Setup the new signers that will take over
+    let new_signer_configs = build_signer_config_tomls(
+        &new_signer_private_keys,
+        &signer_test.running_nodes.conf.node.rpc_bind,
+        Some(Duration::from_millis(128)), // Timeout defaults to 5 seconds. Let's override it to 128 milliseconds.
+        &Network::Testnet,
+        "12345",
+        run_stamp,
+        3000 + num_signers,
+        Some(100_000),
+        None,
+        Some(9000),
+    );
+
+    let new_spawned_signers: Vec<_> = (0..num_signers)
+        .into_iter()
+        .map(|i| {
+            info!("spawning signer");
+            let mut signer_config =
+                SignerConfig::load_from_str(&new_signer_configs[i as usize]).unwrap();
+            SpawnedSigner::new(signer_config)
+        })
+        .collect();
+
+    // TODO: may need to modify signer_test to not auto stack and delegate the way it does right now. I think it delegates for 12 reward cycles. and we should delegate only for one before transferring to the new signer set
+
+    // TODO: Advance to the first reward cycle, stacking and delegating to the old signers beforehand
+    signer_test.boot_to_epoch_3();
+
+    // TODO: verify that the first reward cycle has the old signers in the reward set
+    let reward_cycle = signer_test.get_current_reward_cycle();
+    let old_signer_slot_ids: Vec<_> = signer_test
+        .get_signer_indices(reward_cycle)
+        .iter()
+        .map(|id| id.0)
+        .collect();
+    // TODO: manually trigger a stacks transaction and verify that only OLD signer signatures are found in the signed block
+
+    let mined_blocks = signer_test.running_nodes.nakamoto_blocks_mined.clone();
+    // submit a tx so that the miner will mine an extra block
+    let blocks_before = mined_blocks.load(Ordering::SeqCst);
+    let start_time = Instant::now();
+    // submit a tx so that the miner will mine an extra block
+    let sender_nonce = 0;
+    let transfer_tx =
+        make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
+    let tx = submit_tx(&http_origin, &transfer_tx);
+    let mined_block = signer_test.mine_nakamoto_block(short_timeout);
+    // TODO: verify the mined_block signatures against the OLD signer set (might need to update event to take vector of message signatures?)
+
+    //TODO: advance to the next reward cycle, stacking and delegating to the new signers beforehand
+    let reward_cycle = signer_test.get_current_reward_cycle();
+    let new_signer_slot_ids: Vec<_> = signer_test
+        .get_signer_indices(reward_cycle)
+        .iter()
+        .map(|id| id.0)
+        .collect();
+
+    // submit a tx so that the miner will mine an extra block
+    let blocks_before = mined_blocks.load(Ordering::SeqCst);
+    let start_time = Instant::now();
+    // submit a tx so that the miner will mine an extra block
+    let sender_nonce = 1;
+    let transfer_tx =
+        make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
+    let tx = submit_tx(&http_origin, &transfer_tx);
+    let mined_block = signer_test.mine_nakamoto_block(short_timeout);
+    // TODO: verify the mined_block signatures against the NEW signer set
+
+    signer_test.shutdown();
+    // TODO: shutdown the new signers as well
 }
