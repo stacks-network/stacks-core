@@ -50,7 +50,6 @@ pub fn symbolic_expression() -> impl Strategy<Value = SymbolicExpression> {
     ];
 
     leaf.prop_recursive(3, 64, 5, |inner| {
-        prop::collection::vec(inner, 1..3)
-            .prop_map(|list| SymbolicExpression::list(list))
+        prop::collection::vec(inner, 1..3).prop_map(|list| SymbolicExpression::list(list))
     })
 }

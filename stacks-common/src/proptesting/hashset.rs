@@ -16,11 +16,11 @@
 
 use std::hash::Hash;
 
+use hashbrown::HashSet as StacksHashSet;
 use proptest::collection::{SizeRange, VecStrategy, VecValueTree};
 use proptest::prelude::*;
 use proptest::strategy::{statics, NewTree, ValueTree};
 use proptest::test_runner::TestRunner;
-use hashbrown::HashSet as StacksHashSet;
 
 #[derive(Clone, Copy, Debug)]
 struct MinSize(usize);

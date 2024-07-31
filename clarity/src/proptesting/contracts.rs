@@ -14,10 +14,10 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use hashbrown::HashMap;
 use proptest::collection::btree_map;
 use proptest::prelude::*;
 use stacks_common::proptesting::*;
-use hashbrown::HashMap;
 
 use super::*;
 use crate::vm::contracts::Contract;

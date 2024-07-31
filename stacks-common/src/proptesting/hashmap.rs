@@ -16,11 +16,11 @@
 
 use std::hash::Hash;
 
+use hashbrown::HashMap as StacksHashMap;
 use proptest::collection::{SizeRange, VecStrategy, VecValueTree};
 use proptest::strategy::{statics, NewTree, Strategy, ValueTree};
 use proptest::test_runner::TestRunner;
 use proptest::tuple::TupleValueTree;
-use hashbrown::HashMap as StacksHashMap;
 
 #[derive(Debug, Clone, Copy)]
 struct MinSize(usize);
