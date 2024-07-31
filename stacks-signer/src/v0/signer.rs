@@ -16,11 +16,14 @@ use std::fmt::Debug;
 use std::sync::mpsc::Sender;
 
 use blockstack_lib::net::api::postblock_proposal::BlockValidateResponse;
+use clarity::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
 use clarity::types::chainstate::StacksPrivateKey;
-use clarity::types::PrivateKey;
+use clarity::types::{PrivateKey, StacksEpochId};
 use clarity::util::hash::MerkleHashFunc;
 use clarity::util::secp256k1::Secp256k1PublicKey;
-use libsigner::v0::messages::{BlockResponse, MessageSlotID, RejectCode, SignerMessage};
+use libsigner::v0::messages::{
+    BlockResponse, MessageSlotID, MockSignature, RejectCode, SignerMessage,
+};
 use libsigner::{BlockProposal, SignerEvent};
 use slog::{slog_debug, slog_error, slog_info, slog_warn};
 use stacks_common::types::chainstate::StacksAddress;
@@ -84,7 +87,7 @@ impl SignerTrait<SignerMessage> for Signer {
         sortition_state: &mut Option<SortitionsView>,
         event: Option<&SignerEvent<SignerMessage>>,
         _res: Sender<Vec<SignerResult>>,
-        _current_reward_cycle: u64,
+        current_reward_cycle: u64,
     ) {
         let event_parity = match event {
             // Block proposal events do have reward cycles, but each proposal has its own cycle,
@@ -166,6 +169,12 @@ impl SignerTrait<SignerMessage> for Signer {
                     );
                 }
                 *sortition_state = None;
+                if let Ok(StacksEpochId::Epoch25) = stacks_client.get_node_epoch() {
+                    if self.reward_cycle == current_reward_cycle {
+                        // We are in epoch 2.5, so we should mock mine to prove we are still alive.
+                        self.mock_sign(*burn_height, stacks_client);
+                    }
+                };
             }
         }
     }
@@ -461,5 +470,35 @@ impl Signer {
         self.signer_db
             .insert_block(&block_info)
             .unwrap_or_else(|_| panic!("{self}: Failed to insert block in DB"));
+    }
+
+    /// Send a mock signature to stackerdb to prove we are still alive
+    fn mock_sign(&mut self, burn_block_height: u64, stacks_client: &StacksClient) {
+        let Ok(peer_view) = stacks_client.get_peer_info() else {
+            warn!("{self}: Failed to get peer info. Cannot mock sign.");
+            return;
+        };
+        let chain_id = if self.mainnet {
+            CHAIN_ID_MAINNET
+        } else {
+            CHAIN_ID_TESTNET
+        };
+        info!("Mock signing for burn block {burn_block_height:?}";
+            "stacks_tip_consensus_hash" => ?peer_view.stacks_tip_consensus_hash.clone(),
+            "stacks_tip" => ?peer_view.stacks_tip.clone(),
+            "peer_burn_block_height" => peer_view.burn_block_height,
+            "pox_consensus" => ?peer_view.pox_consensus.clone(),
+            "server_version" => peer_view.server_version.clone(),
+            "chain_id" => chain_id
+        );
+        let mock_signature =
+            MockSignature::new(peer_view, burn_block_height, chain_id, &self.private_key);
+        let message = SignerMessage::MockSignature(mock_signature);
+        if let Err(e) = self
+            .stackerdb
+            .send_message_with_retry::<SignerMessage>(message)
+        {
+            warn!("{self}: Failed to send mock signature to stacker-db: {e:?}",);
+        }
     }
 }

@@ -604,7 +604,8 @@ fn setup_stx_btc_node(
     let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
 
     info!("Bootstraping...");
-    btc_regtest_controller.bootstrap_chain(201);
+    // Bootstrap the chain to BEFORE epoch 2.5 to enable mock mining of blocks in Epoch 2.5 tests
+    btc_regtest_controller.bootstrap_chain(195);
 
     info!("Chain bootstrapped...");
 

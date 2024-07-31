@@ -111,7 +111,7 @@ use crate::tests::{
 use crate::{tests, BitcoinRegtestController, BurnchainController, Config, ConfigFile, Keychain};
 
 pub static POX_4_DEFAULT_STACKER_BALANCE: u64 = 100_000_000_000_000;
-static POX_4_DEFAULT_STACKER_STX_AMT: u128 = 99_000_000_000_000;
+pub static POX_4_DEFAULT_STACKER_STX_AMT: u128 = 99_000_000_000_000;
 
 lazy_static! {
     pub static ref NAKAMOTO_INTEGRATION_EPOCHS: [StacksEpoch; 9] = [
@@ -167,13 +167,13 @@ lazy_static! {
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch25,
             start_height: 201,
-            end_height: 231,
+            end_height: 251,
             block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
             network_epoch: PEER_VERSION_EPOCH_2_5
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch30,
-            start_height: 231,
+            start_height: 251,
             end_height: STACKS_EPOCH_MAX,
             block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
             network_epoch: PEER_VERSION_EPOCH_3_0
@@ -735,9 +735,9 @@ pub fn boot_to_epoch_3(
 
     let epochs = naka_conf.burnchain.epochs.clone().unwrap();
     let epoch_3 = &epochs[StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch30).unwrap()];
-
+    let current_height = btc_regtest_controller.get_headers_height();
     info!(
-        "Chain bootstrapped to bitcoin block 201, starting Epoch 2x miner";
+        "Chain bootstrapped to bitcoin block {current_height:?}, starting Epoch 2x miner";
         "Epoch 3.0 Boundary" => (epoch_3.start_height - 1),
     );
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
@@ -1118,6 +1118,47 @@ pub fn boot_to_epoch_3_reward_set_calculation_boundary(
     );
 
     info!("Bootstrapped to Epoch 3.0 reward set calculation boundary height: {epoch_3_reward_set_calculation_boundary}.");
+}
+
+///
+/// * `stacker_sks` - must be a private key for sending a large `stack-stx` transaction in order
+///   for pox-4 to activate
+/// * `signer_pks` - must be the same size as `stacker_sks`
+pub fn boot_to_epoch_25(
+    naka_conf: &Config,
+    blocks_processed: &Arc<AtomicU64>,
+    btc_regtest_controller: &mut BitcoinRegtestController,
+) {
+    let epochs = naka_conf.burnchain.epochs.clone().unwrap();
+    let epoch_25 = &epochs[StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch25).unwrap()];
+    let reward_cycle_len = naka_conf.get_burnchain().pox_constants.reward_cycle_length as u64;
+    let prepare_phase_len = naka_conf.get_burnchain().pox_constants.prepare_length as u64;
+
+    let epoch_25_start_height = epoch_25.start_height;
+    assert!(
+        epoch_25_start_height > 0,
+        "Epoch 2.5 start height must be greater than 0"
+    );
+    // stack enough to activate pox-4
+    let block_height = btc_regtest_controller.get_headers_height();
+    let reward_cycle = btc_regtest_controller
+        .get_burnchain()
+        .block_height_to_reward_cycle(block_height)
+        .unwrap();
+    debug!("Test Cycle Info";
+     "prepare_phase_len" => {prepare_phase_len},
+     "reward_cycle_len" => {reward_cycle_len},
+     "block_height" => {block_height},
+     "reward_cycle" => {reward_cycle},
+     "epoch_25_start_height" => {epoch_25_start_height},
+    );
+    run_until_burnchain_height(
+        btc_regtest_controller,
+        &blocks_processed,
+        epoch_25_start_height,
+        &naka_conf,
+    );
+    info!("Bootstrapped to Epoch 2.5: {epoch_25_start_height}.");
 }
 
 ///
@@ -1901,9 +1942,9 @@ fn correct_burn_outs() {
     let epochs = naka_conf.burnchain.epochs.clone().unwrap();
     let epoch_3 = &epochs[StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch30).unwrap()];
     let epoch_25 = &epochs[StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch25).unwrap()];
-
+    let current_height = btc_regtest_controller.get_headers_height();
     info!(
-        "Chain bootstrapped to bitcoin block 201, starting Epoch 2x miner";
+        "Chain bootstrapped to bitcoin block {current_height:?}, starting Epoch 2x miner";
         "Epoch 3.0 Boundary" => (epoch_3.start_height - 1),
     );
 
