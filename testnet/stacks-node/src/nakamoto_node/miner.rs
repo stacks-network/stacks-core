@@ -222,6 +222,9 @@ impl BlockMinerThread {
         // now, actually run this tenure
         loop {
             let new_block = loop {
+                // If we're mock mining, we may not have processed the block that the
+                // actual tenure winner committed to yet. So, before attempting to
+                // mock mine, check if the parent is processed.
                 if self.config.get_node_config(false).mock_mining {
                     let burn_db_path = self.config.get_burn_db_file_path();
                     let mut burn_db = SortitionDB::open(
