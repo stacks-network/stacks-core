@@ -1372,6 +1372,16 @@ fn get_nakamoto_headers(config: &Config) -> Vec<StacksHeaderInfo> {
 
 #[test]
 #[ignore]
+// Test two nakamoto miners, with the signer set split between them.
+//  One of the miners (run-loop-2) is prevented from submitting "good" block commits
+//  using the "commit stall" test flag in combination with "block broadcast stalls".
+//  (Because RL2 isn't able to RBF their initial commits after the tip is broadcasted).
+// This test works by tracking two different scenarios:
+//   1. RL2 must win a sortition that this block commit behavior would lead to a fork in.
+//   2. After such a sortition, RL1 must win another block.
+// The test asserts that every nakamoto sortition either has a successful tenure, or if
+//  RL2 wins and they would be expected to fork, no blocks are produced. The test asserts
+//  that every block produced increments the chain length.
 fn miner_forking() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
