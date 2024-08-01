@@ -634,7 +634,6 @@ impl SignCoordinator {
     pub fn begin_sign_v0(
         &mut self,
         block: &NakamotoBlock,
-        burn_block_height: u64,
         block_attempt: u64,
         burn_tip: &BlockSnapshot,
         burnchain: &Burnchain,
@@ -643,6 +642,13 @@ impl SignCoordinator {
         counters: &Counters,
         election_sortition: &ConsensusHash,
     ) -> Result<Vec<MessageSignature>, NakamotoNodeError> {
+        #[cfg(test)]
+        {
+            info!(
+                "---- Sign coordinator starting. Burn tip height: {} ----",
+                burn_tip.block_height
+            );
+        }
         let sign_id = Self::get_sign_id(burn_tip.block_height, burnchain);
         let sign_iter_id = block_attempt;
         let reward_cycle_id = burnchain
@@ -653,7 +659,7 @@ impl SignCoordinator {
 
         let block_proposal = BlockProposal {
             block: block.clone(),
-            burn_height: burn_block_height,
+            burn_height: burn_tip.block_height,
             reward_cycle: reward_cycle_id,
         };
 
@@ -736,7 +742,7 @@ impl SignCoordinator {
                 continue;
             };
             if signer_set != u32::try_from(reward_cycle_id % 2).unwrap() {
-                debug!("Received signer event for other reward cycle. Ignoring.");
+                info!("Received signer event for other reward cycle. Ignoring.");
                 continue;
             };
             let slot_ids = modified_slots
@@ -776,6 +782,8 @@ impl SignCoordinator {
                         "signature" => %signature,
                         "block_signer_signature_hash" => %block_sighash,
                         "slot_id" => slot_id,
+                        "reward_cycle_id" => reward_cycle_id,
+                        "response_hash" => %response_hash
                     );
                     continue;
                 }

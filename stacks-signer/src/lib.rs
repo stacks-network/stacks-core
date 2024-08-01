@@ -100,6 +100,8 @@ pub struct SpawnedSigner<S: Signer<T> + Send, T: SignerEventTrait> {
     pub cmd_send: Sender<RunLoopCommand>,
     /// The result receiver for interacting with the running signer
     pub res_recv: Receiver<Vec<SignerResult>>,
+    /// The spawned signer's config
+    pub config: GlobalConfig,
     /// Phantom data for the signer type
     _phantom: std::marker::PhantomData<S>,
 }
@@ -136,7 +138,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SpawnedSigner
         {
             crate::monitoring::start_serving_monitoring_metrics(config.clone()).ok();
         }
-        let runloop = RunLoop::new(config);
+        let runloop = RunLoop::new(config.clone());
         let mut signer: RunLoopSigner<S, T> =
             libsigner::Signer::new(runloop, ev, cmd_recv, res_send);
         let running_signer = signer.spawn(endpoint).expect("Failed to spawn signer");
@@ -145,6 +147,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SpawnedSigner
             cmd_send,
             res_recv,
             _phantom: std::marker::PhantomData,
+            config: config.clone(),
         }
     }
 }

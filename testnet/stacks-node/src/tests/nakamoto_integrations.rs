@@ -111,7 +111,7 @@ use crate::tests::{
 use crate::{tests, BitcoinRegtestController, BurnchainController, Config, ConfigFile, Keychain};
 
 pub static POX_4_DEFAULT_STACKER_BALANCE: u64 = 100_000_000_000_000;
-static POX_4_DEFAULT_STACKER_STX_AMT: u128 = 99_000_000_000_000;
+pub static POX_4_DEFAULT_STACKER_STX_AMT: u128 = 99_000_000_000_000;
 
 lazy_static! {
     pub static ref NAKAMOTO_INTEGRATION_EPOCHS: [StacksEpoch; 9] = [
@@ -1028,6 +1028,7 @@ pub fn boot_to_epoch_3_reward_set_calculation_boundary(
     stacker_sks: &[StacksPrivateKey],
     signer_sks: &[StacksPrivateKey],
     btc_regtest_controller: &mut BitcoinRegtestController,
+    num_stacking_cycles: Option<u64>,
 ) {
     assert_eq!(stacker_sks.len(), signer_sks.len());
 
@@ -1058,7 +1059,7 @@ pub fn boot_to_epoch_3_reward_set_calculation_boundary(
         .get_burnchain()
         .block_height_to_reward_cycle(block_height)
         .unwrap();
-    let lock_period = 12;
+    let lock_period: u128 = num_stacking_cycles.unwrap_or(12_u64).into();
     debug!("Test Cycle Info";
      "prepare_phase_len" => {prepare_phase_len},
      "reward_cycle_len" => {reward_cycle_len},
@@ -1130,6 +1131,7 @@ pub fn boot_to_epoch_3_reward_set(
     stacker_sks: &[StacksPrivateKey],
     signer_sks: &[StacksPrivateKey],
     btc_regtest_controller: &mut BitcoinRegtestController,
+    num_stacking_cycles: Option<u64>,
 ) {
     boot_to_epoch_3_reward_set_calculation_boundary(
         naka_conf,
@@ -1137,6 +1139,7 @@ pub fn boot_to_epoch_3_reward_set(
         stacker_sks,
         signer_sks,
         btc_regtest_controller,
+        num_stacking_cycles,
     );
     let epoch_3_reward_set_calculation =
         btc_regtest_controller.get_headers_height().wrapping_add(1);
@@ -4925,6 +4928,18 @@ fn signer_chainstate() {
     // query for prometheus metrics
     #[cfg(feature = "monitoring_prom")]
     {
+        let (chainstate, _) = StacksChainState::open(
+            naka_conf.is_mainnet(),
+            naka_conf.burnchain.chain_id,
+            &naka_conf.get_chainstate_path_str(),
+            None,
+        )
+        .unwrap();
+        let block_height_pre_3_0 =
+            NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
+                .unwrap()
+                .unwrap()
+                .stacks_block_height;
         let prom_http_origin = format!("http://{}", prom_bind);
         let client = reqwest::blocking::Client::new();
         let res = client

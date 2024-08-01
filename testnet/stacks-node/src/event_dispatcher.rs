@@ -138,6 +138,7 @@ pub struct MinedNakamotoBlockEvent {
     pub signer_signature_hash: Sha512Trunc256Sum,
     pub tx_events: Vec<TransactionEvent>,
     pub signer_bitvec: String,
+    pub signer_signature: Vec<MessageSignature>,
 }
 
 impl InnerStackerDBChannel {
@@ -1261,6 +1262,7 @@ impl EventDispatcher {
             tx_events,
             miner_signature: block.header.miner_signature.clone(),
             signer_signature_hash: block.header.signer_signature_hash(),
+            signer_signature: block.header.signer_signature.clone(),
             signer_bitvec,
         })
         .unwrap();
