@@ -141,9 +141,6 @@ impl SignerTest<SpawnedSigner> {
     // Only call after already past the epoch 3.0 boundary
     fn mine_and_verify_confirmed_naka_block(&mut self, timeout: Duration, num_signers: usize) {
         info!("------------------------- Try mining one block -------------------------");
-        // Get the current signers _before_ the new block
-        let reward_cycle = self.get_current_reward_cycle();
-        let signers = self.get_reward_set_signers(reward_cycle);
 
         self.mine_nakamoto_block(timeout);
 
@@ -160,6 +157,9 @@ impl SignerTest<SpawnedSigner> {
         // NOTE: signature.len() does not need to equal signers.len(); the stacks miner can finish the block
         //  whenever it has crossed the threshold.
         assert!(signature.len() >= num_signers * 7 / 10);
+
+        let reward_cycle = self.get_current_reward_cycle();
+        let signers = self.get_reward_set_signers(reward_cycle);
 
         // Verify that the signers signed the proposed block
         let mut signer_index = 0;
