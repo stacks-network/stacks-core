@@ -2001,14 +2001,6 @@ impl NakamotoChainState {
             panic!()
         });
 
-        // set stacks block accepted
-        let mut sort_tx = sort_db.tx_handle_begin(canonical_sortition_tip)?;
-        sort_tx.set_stacks_block_accepted(
-            &next_ready_block.header.consensus_hash,
-            &next_ready_block.header.block_hash(),
-            next_ready_block.header.chain_length,
-        )?;
-
         // as a separate transaction, mark this block as processed.
         // This is done separately so that the staging blocks DB, which receives writes
         // from the network to store blocks, will be available for writes while a block is
@@ -2018,6 +2010,22 @@ impl NakamotoChainState {
         Self::infallible_set_block_processed(stacks_chain_state, &block_id);
 
         let signer_bitvec = (&next_ready_block).header.pox_treatment.clone();
+
+        // set stacks block accepted
+        let mut sort_tx = sort_db.tx_handle_begin(canonical_sortition_tip)?;
+        sort_tx.set_stacks_block_accepted(
+            &next_ready_block.header.consensus_hash,
+            &next_ready_block.header.block_hash(),
+            next_ready_block.header.chain_length,
+        )?;
+
+        sort_tx
+            .commit()
+            .unwrap_or_else(|e| {
+                error!("Failed to commit sortition db transaction after committing chainstate and clarity block. The chainstate database is now corrupted.";
+                       "error" => ?e);
+                panic!()
+            });
 
         // announce the block, if we're connected to an event dispatcher
         if let Some(dispatcher) = dispatcher_opt {
@@ -2044,14 +2052,6 @@ impl NakamotoChainState {
                 &Some(signer_bitvec),
             );
         }
-
-        sort_tx
-            .commit()
-            .unwrap_or_else(|e| {
-                error!("Failed to commit sortition db transaction after committing chainstate and clarity block. The chainstate database is now corrupted.";
-                       "error" => ?e);
-                panic!()
-            });
 
         Ok(Some(receipt))
     }
