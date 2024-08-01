@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ops::Add;
 use std::str::FromStr;
 use std::sync::atomic::Ordering;
@@ -28,9 +28,7 @@ use libsigner::v0::messages::{
 use libsigner::{BlockProposal, SignerSession, StackerDBSession};
 use stacks::address::AddressHashMode;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
-use stacks::chainstate::nakamoto::{
-    NakamotoBlock, NakamotoBlockHeader, NakamotoBlockVote, NakamotoChainState,
-};
+use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader, NakamotoChainState};
 use stacks::chainstate::stacks::address::PoxAddress;
 use stacks::chainstate::stacks::boot::MINERS_NAME;
 use stacks::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
@@ -40,9 +38,7 @@ use stacks::libstackerdb::StackerDBChunkData;
 use stacks::net::api::postblock_proposal::TEST_VALIDATE_STALL;
 use stacks::types::chainstate::{StacksAddress, StacksBlockId, StacksPrivateKey, StacksPublicKey};
 use stacks::types::PublicKey;
-use stacks::util::get_epoch_time_secs;
-use stacks::util::hash::Sha512Trunc256Sum;
-use stacks::util::secp256k1::{MessageSignature, Secp256k1PrivateKey, Secp256k1PublicKey};
+use stacks::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 use stacks::util_lib::boot::boot_code_id;
 use stacks::util_lib::signed_structured_data::pox4::{
     make_pox_4_signer_key_signature, Pox4SignatureTopic,
@@ -51,7 +47,6 @@ use stacks_common::bitvec::BitVec;
 use stacks_signer::chainstate::{ProposalEvalConfig, SortitionsView};
 use stacks_signer::client::{SignerSlotID, StackerDB};
 use stacks_signer::runloop::State;
-use stacks_signer::signerdb::{BlockInfo, SignerDb};
 use stacks_signer::v0::SpawnedSigner;
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{fmt, EnvFilter};
@@ -70,7 +65,7 @@ use crate::tests::neon_integrations::{
     test_observer,
 };
 use crate::tests::{self, make_stacks_transfer};
-use crate::{nakamoto_node, BurnchainController, Keychain};
+use crate::{nakamoto_node, BurnchainController, Config, Keychain};
 
 impl SignerTest<SpawnedSigner> {
     /// Run the test until the first epoch 2.5 reward cycle.
@@ -1197,6 +1192,7 @@ fn multiple_miners() {
             config.node.seed = btc_miner_1_seed.clone();
             config.node.local_peer_seed = btc_miner_1_seed.clone();
             config.burnchain.local_mining_public_key = Some(btc_miner_1_pk.to_hex());
+            config.miner.mining_key = Some(Secp256k1PrivateKey::from_seed(&[1]));
 
             config.events_observers.retain(|listener| {
                 let Ok(addr) = std::net::SocketAddr::from_str(&listener.endpoint) else {
@@ -1225,6 +1221,7 @@ fn multiple_miners() {
     conf_node_2.node.seed = btc_miner_2_seed.clone();
     conf_node_2.burnchain.local_mining_public_key = Some(btc_miner_2_pk.to_hex());
     conf_node_2.node.local_peer_seed = btc_miner_2_seed.clone();
+    conf_node_2.miner.mining_key = Some(Secp256k1PrivateKey::from_seed(&[2]));
     conf_node_2.node.miner = true;
     conf_node_2.events_observers.clear();
     conf_node_2.events_observers.extend(node_2_listeners);
@@ -1252,9 +1249,59 @@ fn multiple_miners() {
 
     info!("------------------------- Reached Epoch 3.0 -------------------------");
 
-    let nakamoto_tenures = 20;
-    for _i in 0..nakamoto_tenures {
-        let _mined_block = signer_test.mine_block_wait_on_processing(Duration::from_secs(30));
+    let max_nakamoto_tenures = 20;
+
+    // due to the random nature of mining sortitions, the way this test is structured
+    //  is that we keep track of how many tenures each miner produced, and once enough sortitions
+    //  have been produced such that each miner has produced 3 tenures, we stop and check the
+    //  results at the end
+
+    let miner_1_pk = StacksPublicKey::from_private(conf.miner.mining_key.as_ref().unwrap());
+    let miner_2_pk = StacksPublicKey::from_private(conf_node_2.miner.mining_key.as_ref().unwrap());
+    let mut btc_blocks_mined = 0;
+    let mut miner_1_tenures = 0;
+    let mut miner_2_tenures = 0;
+    while !(miner_1_tenures >= 3 && miner_2_tenures >= 3) {
+        if btc_blocks_mined > max_nakamoto_tenures {
+            panic!("Produced {btc_blocks_mined} sortitions, but didn't cover the test scenarios, aborting");
+        }
+        signer_test.mine_block_wait_on_processing(Duration::from_secs(30));
+        btc_blocks_mined += 1;
+        let blocks = get_nakamoto_headers(&conf);
+        // for this test, there should be one block per tenure
+        let consensus_hash_set: HashSet<_> = blocks
+            .iter()
+            .map(|header| header.consensus_hash.clone())
+            .collect();
+        assert_eq!(
+            consensus_hash_set.len(),
+            blocks.len(),
+            "In this test, there should only be one block per tenure"
+        );
+        miner_1_tenures = blocks
+            .iter()
+            .filter(|header| {
+                let header = header.anchored_header.as_stacks_nakamoto().unwrap();
+                miner_1_pk
+                    .verify(
+                        header.miner_signature_hash().as_bytes(),
+                        &header.miner_signature,
+                    )
+                    .unwrap()
+            })
+            .count();
+        miner_2_tenures = blocks
+            .iter()
+            .filter(|header| {
+                let header = header.anchored_header.as_stacks_nakamoto().unwrap();
+                miner_2_pk
+                    .verify(
+                        header.miner_signature_hash().as_bytes(),
+                        &header.miner_signature,
+                    )
+                    .unwrap()
+            })
+            .count();
     }
 
     info!(
@@ -1268,9 +1315,59 @@ fn multiple_miners() {
     let peer_2_height = get_chain_info(&conf_node_2).stacks_tip_height;
     info!("Peer height information"; "peer_1" => peer_1_height, "peer_2" => peer_2_height, "pre_naka_height" => pre_nakamoto_peer_1_height);
     assert_eq!(peer_1_height, peer_2_height);
-    assert_eq!(peer_1_height, pre_nakamoto_peer_1_height + nakamoto_tenures);
+    assert_eq!(peer_1_height, pre_nakamoto_peer_1_height + btc_blocks_mined);
+    assert_eq!(
+        btc_blocks_mined,
+        u64::try_from(miner_1_tenures + miner_2_tenures).unwrap()
+    );
 
     signer_test.shutdown();
+}
+
+/// Read processed nakamoto block IDs from the test observer, and use `config` to open
+///  a chainstate DB and returns their corresponding StacksHeaderInfos
+fn get_nakamoto_headers(config: &Config) -> Vec<StacksHeaderInfo> {
+    let nakamoto_block_ids: Vec<_> = test_observer::get_blocks()
+        .into_iter()
+        .filter_map(|block_json| {
+            if block_json
+                .as_object()
+                .unwrap()
+                .get("miner_signature")
+                .is_none()
+            {
+                return None;
+            }
+            let block_id = StacksBlockId::from_hex(
+                &block_json
+                    .as_object()
+                    .unwrap()
+                    .get("index_block_hash")
+                    .unwrap()
+                    .as_str()
+                    .unwrap()[2..],
+            )
+            .unwrap();
+            Some(block_id)
+        })
+        .collect();
+
+    let (chainstate, _) = StacksChainState::open(
+        config.is_mainnet(),
+        config.burnchain.chain_id,
+        &config.get_chainstate_path_str(),
+        None,
+    )
+    .unwrap();
+
+    nakamoto_block_ids
+        .into_iter()
+        .map(|block_id| {
+            NakamotoChainState::get_block_header(chainstate.db(), &block_id)
+                .unwrap()
+                .unwrap()
+        })
+        .collect()
 }
 
 #[test]
@@ -1470,47 +1567,9 @@ fn miner_forking() {
         let (sortition_data, had_tenure) = run_sortition();
         sortitions_seen.push((sortition_data.clone(), had_tenure));
 
-        let nakamoto_block_ids: Vec<_> = test_observer::get_blocks()
+        let nakamoto_headers: HashMap<_, _> = get_nakamoto_headers(&conf)
             .into_iter()
-            .filter_map(|block_json| {
-                if block_json
-                    .as_object()
-                    .unwrap()
-                    .get("miner_signature")
-                    .is_none()
-                {
-                    return None;
-                }
-                let block_id = StacksBlockId::from_hex(
-                    &block_json
-                        .as_object()
-                        .unwrap()
-                        .get("index_block_hash")
-                        .unwrap()
-                        .as_str()
-                        .unwrap()[2..],
-                )
-                .unwrap();
-                Some(block_id)
-            })
-            .collect();
-
-        let (chainstate, _) = StacksChainState::open(
-            conf.is_mainnet(),
-            conf.burnchain.chain_id,
-            &conf.get_chainstate_path_str(),
-            None,
-        )
-        .unwrap();
-
-        let nakamoto_headers: HashMap<_, _> = nakamoto_block_ids
-            .into_iter()
-            .map(|block_id| {
-                let header_info = NakamotoChainState::get_block_header(chainstate.db(), &block_id)
-                    .unwrap()
-                    .unwrap();
-                (header_info.consensus_hash.clone(), header_info)
-            })
+            .map(|header| (header.consensus_hash.clone(), header))
             .collect();
 
         if had_tenure {
@@ -1562,20 +1621,11 @@ fn miner_forking() {
     info!("Peer height information"; "peer_1" => peer_1_height, "peer_2" => peer_2_height, "pre_naka_height" => pre_nakamoto_peer_1_height);
     assert_eq!(peer_1_height, peer_2_height);
 
-    let nakamoto_block_ids: Vec<_> = test_observer::get_blocks()
-        .into_iter()
-        .filter_map(|block_json| {
-            block_json
-                .as_object()
-                .unwrap()
-                .get("miner_signature")
-                .map(|x| x.as_str().unwrap().to_string())
-        })
-        .collect();
+    let nakamoto_blocks_count = get_nakamoto_headers(&conf).len();
 
     assert_eq!(
         peer_1_height - pre_nakamoto_peer_1_height,
-        u64::try_from(nakamoto_block_ids.len()).unwrap(),
+        u64::try_from(nakamoto_blocks_count).unwrap(),
         "There should be no forks in this test"
     );
 

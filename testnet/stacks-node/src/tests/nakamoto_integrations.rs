@@ -1641,6 +1641,10 @@ fn multiple_miners() {
 
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
     naka_conf.node.local_peer_seed = vec![1, 1, 1, 1];
+    naka_conf.miner.mining_key = Some(Secp256k1PrivateKey::from_seed(&[1]));
+
+    let node_2_rpc = 51026;
+    let node_2_p2p = 51025;
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
     naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
     let sender_sk = Secp256k1PrivateKey::new();
@@ -1665,7 +1669,11 @@ fn multiple_miners() {
     let stacker_sk = setup_stacker(&mut naka_conf);
 
     let mut conf_node_2 = naka_conf.clone();
-    set_random_binds(&mut conf_node_2);
+    let localhost = "127.0.0.1";
+    conf_node_2.node.rpc_bind = format!("{}:{}", localhost, node_2_rpc);
+    conf_node_2.node.p2p_bind = format!("{}:{}", localhost, node_2_p2p);
+    conf_node_2.node.data_url = format!("http://{}:{}", localhost, node_2_rpc);
+    conf_node_2.node.p2p_address = format!("{}:{}", localhost, node_2_p2p);
     conf_node_2.node.seed = vec![2, 2, 2, 2];
     conf_node_2.burnchain.local_mining_public_key = Some(
         Keychain::default(conf_node_2.node.seed.clone())
@@ -1674,6 +1682,8 @@ fn multiple_miners() {
     );
     conf_node_2.node.local_peer_seed = vec![2, 2, 2, 2];
     conf_node_2.node.miner = true;
+    conf_node_2.miner.mining_key = Some(Secp256k1PrivateKey::from_seed(&[2]));
+    conf_node_2.events_observers.clear();
 
     let node_1_sk = Secp256k1PrivateKey::from_seed(&naka_conf.node.local_peer_seed);
     let node_1_pk = StacksPublicKey::from_private(&node_1_sk);
@@ -1813,16 +1823,14 @@ fn multiple_miners() {
                 make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
             submit_tx(&http_origin, &transfer_tx);
 
-            loop {
+            wait_for(20, || {
                 let blocks_processed = coord_channel
                     .lock()
                     .expect("Mutex poisoned")
                     .get_stacks_blocks_processed();
-                if blocks_processed > blocks_processed_before {
-                    break;
-                }
-                thread::sleep(Duration::from_millis(100));
-            }
+                Ok(blocks_processed > blocks_processed_before)
+            })
+            .unwrap();
 
             let info = get_chain_info_result(&naka_conf).unwrap();
             assert_ne!(info.stacks_tip, last_tip);
@@ -1832,13 +1840,10 @@ fn multiple_miners() {
             last_tip_height = info.stacks_tip_height;
         }
 
-        let start_time = Instant::now();
-        while commits_submitted.load(Ordering::SeqCst) <= commits_before {
-            if start_time.elapsed() >= Duration::from_secs(20) {
-                panic!("Timed out waiting for block-commit");
-            }
-            thread::sleep(Duration::from_millis(100));
-        }
+        wait_for(20, || {
+            Ok(commits_submitted.load(Ordering::SeqCst) > commits_before)
+        })
+        .unwrap();
     }
 
     // load the chain tip, and assert that it is a nakamoto block and at least 30 blocks have advanced in epoch 3
