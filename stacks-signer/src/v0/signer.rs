@@ -169,12 +169,22 @@ impl SignerTrait<SignerMessage> for Signer {
                     );
                 }
                 *sortition_state = None;
-                if let Ok(StacksEpochId::Epoch25) = stacks_client.get_node_epoch() {
-                    if self.reward_cycle == current_reward_cycle {
-                        // We are in epoch 2.5, so we should mock mine to prove we are still alive.
-                        self.mock_sign(*burn_height, stacks_client);
+                let epoch = match stacks_client.get_node_epoch() {
+                    Ok(epoch) => epoch,
+                    Err(e) => {
+                        warn!("{self}: Failed to determine node epoch. Cannot mock sign: {e}");
+                        return;
                     }
                 };
+                debug!("{self}: Epoch 2.5 signer received a new burn block event.";
+                    "burn_height" => burn_height,
+                    "current_reward_cycle" => current_reward_cycle,
+                    "epoch" => ?epoch
+                );
+                if epoch == StacksEpochId::Epoch25 && self.reward_cycle == current_reward_cycle {
+                    // We are in epoch 2.5, so we should mock mine to prove we are still alive.
+                    self.mock_sign(*burn_height, stacks_client);
+                }
             }
         }
     }
@@ -477,7 +487,7 @@ impl Signer {
 
     /// Send a mock signature to stackerdb to prove we are still alive
     fn mock_sign(&mut self, burn_block_height: u64, stacks_client: &StacksClient) {
-        let Ok(peer_view) = stacks_client.get_peer_info() else {
+        let Ok(peer_info) = stacks_client.get_peer_info() else {
             warn!("{self}: Failed to get peer info. Cannot mock sign.");
             return;
         };
@@ -487,15 +497,15 @@ impl Signer {
             CHAIN_ID_TESTNET
         };
         info!("Mock signing for burn block {burn_block_height:?}";
-            "stacks_tip_consensus_hash" => ?peer_view.stacks_tip_consensus_hash.clone(),
-            "stacks_tip" => ?peer_view.stacks_tip.clone(),
-            "peer_burn_block_height" => peer_view.burn_block_height,
-            "pox_consensus" => ?peer_view.pox_consensus.clone(),
-            "server_version" => peer_view.server_version.clone(),
+            "stacks_tip_consensus_hash" => ?peer_info.stacks_tip_consensus_hash.clone(),
+            "stacks_tip" => ?peer_info.stacks_tip.clone(),
+            "peer_burn_block_height" => peer_info.burn_block_height,
+            "pox_consensus" => ?peer_info.pox_consensus.clone(),
+            "server_version" => peer_info.server_version.clone(),
             "chain_id" => chain_id
         );
         let mock_signature =
-            MockSignature::new(peer_view, burn_block_height, chain_id, &self.private_key);
+            MockSignature::new(burn_block_height, peer_info, chain_id, &self.private_key);
         let message = SignerMessage::MockSignature(mock_signature);
         if let Err(e) = self
             .stackerdb
