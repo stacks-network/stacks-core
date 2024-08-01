@@ -366,7 +366,7 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
                 self.refresh_signer_config(next_reward_cycle);
             }
         } else {
-            debug!("Received a new burnchain block height ({current_burn_block_height}) but not in prepare phase.";
+            info!("Received a new burnchain block height ({current_burn_block_height}) but not in prepare phase.";
                 "reward_cycle" => reward_cycle_info.reward_cycle,
                 "reward_cycle_length" => reward_cycle_info.reward_cycle_length,
                 "prepare_phase_block_length" => reward_cycle_info.prepare_phase_block_length,

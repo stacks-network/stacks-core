@@ -774,6 +774,10 @@ impl SignCoordinator {
                         debug!("Received block pushed message. Ignoring.");
                         continue;
                     }
+                    SignerMessageV0::MockSignature(_) => {
+                        debug!("Received mock signature message. Ignoring.");
+                        continue;
+                    }
                 };
                 let block_sighash = block.header.signer_signature_hash();
                 if block_sighash != response_hash {
