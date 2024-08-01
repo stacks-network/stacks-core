@@ -167,13 +167,13 @@ lazy_static! {
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch25,
             start_height: 201,
-            end_height: 251,
+            end_height: 231,
             block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
             network_epoch: PEER_VERSION_EPOCH_2_5
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch30,
-            start_height: 251,
+            start_height: 231,
             end_height: STACKS_EPOCH_MAX,
             block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
             network_epoch: PEER_VERSION_EPOCH_3_0
