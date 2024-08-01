@@ -454,7 +454,10 @@ impl Signer {
             }
         };
         // Submit a proposal response to the .signers contract for miners
-        debug!("{self}: Broadcasting a block response to stacks node: {response:?}");
+        info!(
+            "{self}: Broadcasting a block response to stacks node: {response:?}";
+            "signer_sighash" => %block_info.signer_signature_hash(),
+        );
         match self
             .stackerdb
             .send_message_with_retry::<SignerMessage>(response.clone().into())
