@@ -27,13 +27,11 @@ use libsigner::v0::messages::{
 use libsigner::{BlockProposal, SignerSession, StackerDBSession};
 use rand::RngCore;
 use stacks::address::AddressHashMode;
-use stacks::address::AddressHashMode;
 use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader, NakamotoChainState};
 use stacks::chainstate::stacks::address::PoxAddress;
 use stacks::chainstate::stacks::boot::MINERS_NAME;
 use stacks::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
 use stacks::codec::StacksMessageCodec;
-use stacks::core::CHAIN_ID_TESTNET;
 use stacks::core::{StacksEpochId, CHAIN_ID_TESTNET};
 use stacks::libstackerdb::StackerDBChunkData;
 use stacks::net::api::postblock_proposal::TEST_VALIDATE_STALL;
@@ -42,9 +40,6 @@ use stacks::types::PublicKey;
 use stacks::util::hash::MerkleHashFunc;
 use stacks::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 use stacks::util_lib::boot::boot_code_id;
-use stacks::util_lib::signed_structured_data::pox4::{
-    make_pox_4_signer_key_signature, Pox4SignatureTopic,
-};
 use stacks::util_lib::signed_structured_data::pox4::{
     make_pox_4_signer_key_signature, Pox4SignatureTopic,
 };
@@ -64,10 +59,8 @@ use crate::nakamoto_node::miner::TEST_BROADCAST_STALL;
 use crate::nakamoto_node::relayer::TEST_SKIP_COMMIT_OP;
 use crate::run_loop::boot_nakamoto;
 use crate::tests::nakamoto_integrations::{
-    
     boot_to_epoch_25, boot_to_epoch_3_reward_set, next_block_and, POX_4_DEFAULT_STACKER_BALANCE,
     POX_4_DEFAULT_STACKER_STX_AMT,
-, POX_4_DEFAULT_STACKER_STX_AMT,
 };
 use crate::tests::neon_integrations::{
     get_account, get_chain_info, next_block_and_wait, run_until_burnchain_height, submit_tx,
@@ -1986,6 +1979,7 @@ fn signer_set_rollover() {
             }
             naka_conf.node.rpc_bind = rpc_bind.clone();
         },
+        &[],
     );
     assert_eq!(
         new_spawned_signers[0].config.node_host,

@@ -125,7 +125,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         initial_balances: Vec<(StacksAddress, u64)>,
         wait_on_signers: Option<Duration>,
         mut signer_config_modifier: F,
-        node_config_modifier: G,
+        mut node_config_modifier: G,
         btc_miner_pubkeys: &[Secp256k1PublicKey],
     ) -> Self {
         // Generate Signer Data
@@ -135,7 +135,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
 
         let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
 
-        naka_modifier(&mut naka_conf);
+        node_config_modifier(&mut naka_conf);
 
         // Add initial balances to the config
         for (address, amount) in initial_balances.iter() {
@@ -192,15 +192,15 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
                     .unwrap(),
             )
             .unwrap();
-            &[pk]
+            vec![pk]
         } else {
-            btc_miner_pubkeys
+            btc_miner_pubkeys.to_vec()
         };
         let node = setup_stx_btc_node(
             naka_conf,
             &signer_stacks_private_keys,
             &signer_configs,
-            btc_miner_pubkeys,
+            btc_miner_pubkeys.as_slice(),
             node_config_modifier,
         );
         let config = signer_configs.first().unwrap();
