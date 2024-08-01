@@ -1663,7 +1663,8 @@ fn mock_sign_epoch_25() {
             .expect("Failed to get message from stackerdb");
             for message in messages {
                 if let SignerMessage::MockSignature(mock_signature) = message {
-                    if mock_signature.sign_data.burn_block_height == current_burn_block_height {
+                    if mock_signature.sign_data.event_burn_block_height == current_burn_block_height
+                    {
                         if !mock_signatures.contains(&mock_signature) {
                             mock_signatures.push(mock_signature);
                         }
