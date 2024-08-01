@@ -1992,6 +1992,15 @@ impl NakamotoChainState {
             next_ready_block.header.consensus_hash
         );
 
+        // this will panic if the Clarity commit fails.
+        clarity_commit.commit();
+        chainstate_tx.commit()
+        .unwrap_or_else(|e| {
+            error!("Failed to commit chainstate transaction after committing Clarity block. The chainstate database is now corrupted.";
+            "error" => ?e);
+            panic!()
+        });
+
         // set stacks block accepted
         let mut sort_tx = sort_db.tx_handle_begin(canonical_sortition_tip)?;
         sort_tx.set_stacks_block_accepted(
@@ -1999,15 +2008,6 @@ impl NakamotoChainState {
             &next_ready_block.header.block_hash(),
             next_ready_block.header.chain_length,
         )?;
-
-        // this will panic if the Clarity commit fails.
-        clarity_commit.commit();
-        chainstate_tx.commit()
-            .unwrap_or_else(|e| {
-                error!("Failed to commit chainstate transaction after committing Clarity block. The chainstate database is now corrupted.";
-                       "error" => ?e);
-                panic!()
-            });
 
         // as a separate transaction, mark this block as processed.
         // This is done separately so that the staging blocks DB, which receives writes
