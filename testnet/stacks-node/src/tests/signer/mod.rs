@@ -92,6 +92,8 @@ pub struct SignerTest<S> {
     pub running_nodes: RunningNodes,
     // The spawned signers and their threads
     pub spawned_signers: Vec<S>,
+    // The spawned signers and their threads
+    pub signer_configs: Vec<SignerConfig>,
     // the private keys of the signers
     pub signer_stacks_private_keys: Vec<StacksPrivateKey>,
     // link to the stacks node
@@ -209,6 +211,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
             signer_stacks_private_keys,
             stacks_client,
             run_stamp,
+            signer_configs,
         }
     }
 

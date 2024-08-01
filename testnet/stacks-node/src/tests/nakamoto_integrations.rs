@@ -625,6 +625,21 @@ where
     Ok(())
 }
 
+pub fn wait_for<F>(timeout_secs: u64, mut check: F) -> Result<(), String>
+where
+    F: FnMut() -> Result<bool, String>,
+{
+    let start = Instant::now();
+    while !check()? {
+        if start.elapsed() > Duration::from_secs(timeout_secs) {
+            error!("Timed out waiting for check to process");
+            return Err("Timed out".into());
+        }
+        thread::sleep(Duration::from_millis(100));
+    }
+    Ok(())
+}
+
 /// Mine a bitcoin block, and wait until:
 ///  (1) a new block has been processed by the coordinator
 pub fn next_block_and_process_new_stacks_block(
