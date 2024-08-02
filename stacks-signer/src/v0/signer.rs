@@ -12,9 +12,11 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
+use std::collections::{BTreeMap, HashMap};
 use std::fmt::Debug;
 use std::sync::mpsc::Sender;
 
+use blockstack_lib::chainstate::nakamoto::NakamotoBlockHeader;
 use blockstack_lib::net::api::postblock_proposal::BlockValidateResponse;
 use clarity::types::chainstate::StacksPrivateKey;
 use clarity::types::PrivateKey;
@@ -24,6 +26,8 @@ use libsigner::v0::messages::{BlockResponse, MessageSlotID, RejectCode, SignerMe
 use libsigner::{BlockProposal, SignerEvent};
 use slog::{slog_debug, slog_error, slog_info, slog_warn};
 use stacks_common::types::chainstate::StacksAddress;
+use stacks_common::util::hash::Sha512Trunc256Sum;
+use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::{debug, error, info, warn};
 
 use crate::chainstate::{ProposalEvalConfig, SortitionsView};
@@ -50,6 +54,8 @@ pub struct Signer {
     pub signer_addresses: Vec<StacksAddress>,
     /// The reward cycle this signer belongs to
     pub reward_cycle: u64,
+    /// Reward set signer addresses and their weights
+    pub signer_weights: HashMap<StacksAddress, usize>,
     /// SignerDB for state management
     pub signer_db: SignerDb,
     /// Configuration for proposal evaluation
@@ -109,13 +115,23 @@ impl SignerTrait<SignerMessage> for Signer {
         match event {
             SignerEvent::BlockValidationResponse(block_validate_response) => {
                 debug!("{self}: Received a block proposal result from the stacks node...");
-                self.handle_block_validate_response(block_validate_response)
+                self.handle_block_validate_response(stacks_client, block_validate_response)
             }
             SignerEvent::SignerMessages(_signer_set, messages) => {
                 debug!(
-                    "{self}: Received {} messages from the other signers. Ignoring...",
+                    "{self}: Received {} messages from the other signers",
                     messages.len()
                 );
+                // try and gather signatures
+                for message in messages {
+                    let SignerMessage::BlockResponse(block_response) = message else {
+                        continue;
+                    };
+                    let BlockResponse::Accepted((block_hash, signature)) = block_response else {
+                        continue;
+                    };
+                    self.handle_block_signature(stacks_client, block_hash, signature);
+                }
             }
             SignerEvent::MinerMessages(messages, miner_pubkey) => {
                 debug!(
@@ -202,16 +218,41 @@ impl From<SignerConfig> for Signer {
         let signer_db =
             SignerDb::new(&signer_config.db_path).expect("Failed to connect to signer Db");
         let proposal_config = ProposalEvalConfig::from(&signer_config);
+
+        // compute signer addresses *in reward cycle order*
+        let signer_ids_and_addrs: BTreeMap<_, _> = signer_config
+            .signer_entries
+            .signer_ids
+            .iter()
+            .map(|(addr, id)| (*id, addr.clone()))
+            .collect();
+
+        let signer_addresses: Vec<_> = signer_ids_and_addrs.into_values().collect();
+
+        let signer_weights = signer_addresses
+            .iter()
+            .map(|addr| {
+                let Some(signer_id) = signer_config.signer_entries.signer_ids.get(addr) else {
+                    panic!("Malformed config: no signer ID for {}", addr);
+                };
+                let Some(key_ids) = signer_config.signer_entries.signer_key_ids.get(signer_id)
+                else {
+                    panic!(
+                        "Malformed config: no key IDs for signer ID {} ({})",
+                        signer_id, addr
+                    );
+                };
+                (addr.clone(), key_ids.len())
+            })
+            .collect();
+
         Self {
             private_key: signer_config.stacks_private_key,
             stackerdb,
             mainnet: signer_config.mainnet,
             signer_id: signer_config.signer_id,
-            signer_addresses: signer_config
-                .signer_entries
-                .signer_ids
-                .into_keys()
-                .collect(),
+            signer_addresses,
+            signer_weights,
             signer_slot_ids: signer_config.signer_slot_ids.clone(),
             reward_cycle: signer_config.reward_cycle,
             signer_db,
@@ -260,7 +301,7 @@ impl Signer {
             );
             return;
         }
-        // TODO: should add a check to ignore an old burn block height if we know its oudated. Would require us to store the burn block height we last saw on the side.
+        // TODO: should add a check to ignore an old burn block height if we know its outdated. Would require us to store the burn block height we last saw on the side.
         //  the signer needs to be able to determine whether or not the block they're about to sign would conflict with an already-signed Stacks block
         let signer_signature_hash = block_proposal.block.header.signer_signature_hash();
         if let Some(block_info) = self
@@ -387,8 +428,13 @@ impl Signer {
     }
 
     /// Handle the block validate response returned from our prior calls to submit a block for validation
-    fn handle_block_validate_response(&mut self, block_validate_response: &BlockValidateResponse) {
+    fn handle_block_validate_response(
+        &mut self,
+        stacks_client: &StacksClient,
+        block_validate_response: &BlockValidateResponse,
+    ) {
         debug!("{self}: Received a block validate response: {block_validate_response:?}");
+        let mut signature_opt = None;
         let (response, block_info) = match block_validate_response {
             BlockValidateResponse::Ok(block_validate_ok) => {
                 crate::monitoring::increment_block_validation_responses(true);
@@ -414,6 +460,8 @@ impl Signer {
                     .private_key
                     .sign(&signer_signature_hash.0)
                     .expect("Failed to sign block");
+
+                signature_opt = Some(signature.clone());
                 (
                     BlockResponse::accepted(signer_signature_hash, signature),
                     block_info,
@@ -461,5 +509,168 @@ impl Signer {
         self.signer_db
             .insert_block(&block_info)
             .unwrap_or_else(|_| panic!("{self}: Failed to insert block in DB"));
+
+        if let Some(signature) = signature_opt {
+            // have to save the signature _after_ the block info
+            self.handle_block_signature(
+                stacks_client,
+                &block_info.signer_signature_hash(),
+                &signature,
+            );
+        }
+    }
+
+    /// Compute the signing weight and total weight, given a list of signatures
+    fn compute_signature_weight(
+        &self,
+        block_hash: &Sha512Trunc256Sum,
+        sigs: &[MessageSignature],
+    ) -> (u32, u32) {
+        let signing_weight = sigs.iter().fold(0usize, |signing_weight, sig| {
+            let weight = if let Ok(public_key) =
+                Secp256k1PublicKey::recover_to_pubkey(block_hash.bits(), sig)
+            {
+                let stacker_address = StacksAddress::p2pkh(self.mainnet, &public_key);
+                let stacker_weight = self.signer_weights.get(&stacker_address).unwrap_or(&0);
+                *stacker_weight
+            } else {
+                0
+            };
+            signing_weight.saturating_add(weight)
+        });
+
+        let total_weight = self
+            .signer_weights
+            .values()
+            .fold(0usize, |acc, val| acc.saturating_add(*val));
+        (
+            u32::try_from(signing_weight)
+                .unwrap_or_else(|_| panic!("FATAL: signing weight exceeds u32::MAX")),
+            u32::try_from(total_weight)
+                .unwrap_or_else(|_| panic!("FATAL: total weight exceeds u32::MAX")),
+        )
+    }
+
+    /// Handle an observed signature from another signer
+    fn handle_block_signature(
+        &mut self,
+        stacks_client: &StacksClient,
+        block_hash: &Sha512Trunc256Sum,
+        signature: &MessageSignature,
+    ) {
+        debug!("{self}: Received a block-accept signature: ({block_hash}, {signature})");
+
+        // authenticate the signature -- it must be signed by one of the stacking set
+        let is_valid_sig = self
+            .signer_addresses
+            .iter()
+            .find(|addr| {
+                let Ok(public_key) =
+                    Secp256k1PublicKey::recover_to_pubkey(block_hash.bits(), signature)
+                else {
+                    return false;
+                };
+                let stacker_address = StacksAddress::p2pkh(true, &public_key);
+
+                // it only matters that the address hash bytes match
+                stacker_address.bytes == addr.bytes
+            })
+            .is_some();
+
+        if !is_valid_sig {
+            debug!("{self}: Receive invalid signature {signature}. Will not store.");
+            return;
+        }
+
+        self.signer_db
+            .add_block_signature(block_hash, signature)
+            .unwrap_or_else(|_| panic!("{self}: Failed to save block signature"));
+
+        // do we have enough signatures to broadcast?
+        let signatures = self
+            .signer_db
+            .get_block_signatures(block_hash)
+            .unwrap_or_else(|_| panic!("{self}: Failed to load block signatures"));
+
+        let (signature_weight, total_weight) =
+            self.compute_signature_weight(block_hash, &signatures);
+        let min_weight = NakamotoBlockHeader::compute_voting_weight_threshold(total_weight)
+            .unwrap_or_else(|_| {
+                panic!("{self}: Failed to compute threshold weight for {total_weight}")
+            });
+
+        if min_weight > signature_weight {
+            debug!(
+                "{self}: Not enough signatures on block {} (have {}, need at least {}/{})",
+                block_hash, signature_weight, min_weight, total_weight
+            );
+            return;
+        }
+
+        // have enough signatures to broadcast!
+        // have we broadcasted before?
+        if self
+            .signer_db
+            .is_block_broadcasted(self.reward_cycle, block_hash)
+            .unwrap_or_else(|_| {
+                panic!("{self}: failed to determine if block {block_hash} was broadcasted")
+            })
+        {
+            debug!("{self}: will not re-broadcast block {}", block_hash);
+            return;
+        }
+
+        let Ok(Some(block_info)) = self
+            .signer_db
+            .block_lookup(self.reward_cycle, block_hash)
+            .map_err(|e| {
+                warn!("{self}: Failed to load block {block_hash}: {e:?})");
+                e
+            })
+        else {
+            warn!("{self}: No such block {block_hash}");
+            return;
+        };
+
+        // put signatures in order by signer address (i.e. reward cycle order)
+        let addrs_to_sigs: HashMap<_, _> = signatures
+            .into_iter()
+            .filter_map(|sig| {
+                let Ok(public_key) = Secp256k1PublicKey::recover_to_pubkey(block_hash.bits(), &sig)
+                else {
+                    return None;
+                };
+                let addr = StacksAddress::p2pkh(self.mainnet, &public_key);
+                Some((addr, sig))
+            })
+            .collect();
+
+        let signatures: Vec<_> = self
+            .signer_addresses
+            .iter()
+            .filter_map(|addr| addrs_to_sigs.get(addr).cloned())
+            .collect();
+
+        let mut block = block_info.block;
+        block.header.signer_signature = signatures;
+
+        let broadcasted = stacks_client
+            .post_block(&block)
+            .map_err(|e| {
+                warn!(
+                    "{self}: Failed to post block {block_hash} (id {}): {e:?}",
+                    &block.block_id()
+                );
+                e
+            })
+            .is_ok();
+
+        if broadcasted {
+            self.signer_db
+                .set_block_broadcasted(self.reward_cycle, block_hash)
+                .unwrap_or_else(|_| {
+                    panic!("{self}: failed to determine if block {block_hash} was broadcasted")
+                });
+        }
     }
 }
