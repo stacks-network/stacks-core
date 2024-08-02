@@ -10,8 +10,11 @@ extern crate stacks;
 #[macro_use(o, slog_log, slog_trace, slog_debug, slog_info, slog_warn, slog_error)]
 extern crate slog;
 
+use regex::Regex;
 pub use stacks_common::util;
 use stacks_common::util::hash::hex_bytes;
+
+use crate::neon_node::AssembledAnchorBlock;
 
 pub mod monitoring;
 
@@ -31,7 +34,8 @@ pub mod syncctl;
 pub mod tenure;
 
 use std::collections::HashMap;
-use std::{env, panic, process};
+use std::path::PathBuf;
+use std::{env, fs, panic, process};
 
 use backtrace::Backtrace;
 use pico_args::Arguments;
@@ -166,10 +170,8 @@ fn cli_get_miner_spend(
                 return 0.0;
             };
             let Ok(active_miners_and_commits) =
-                MinerStats::get_active_miners(&sortdb, Some(burn_block_height)).map_err(|e| {
-                    warn!("Failed to get active miners: {:?}", &e);
-                    e
-                })
+                MinerStats::get_active_miners(&sortdb, Some(burn_block_height))
+                    .inspect_err(|e| warn!("Failed to get active miners: {e:?}"))
             else {
                 return 0.0;
             };
@@ -187,10 +189,7 @@ fn cli_get_miner_spend(
 
             let Ok(unconfirmed_block_commits) = miner_stats
                 .get_unconfirmed_commits(burn_block_height + 1, &active_miners)
-                .map_err(|e| {
-                    warn!("Failed to find unconfirmed block-commits: {}", &e);
-                    e
-                })
+                .inspect_err(|e| warn!("Failed to find unconfirmed block-commits: {e}"))
             else {
                 return 0.0;
             };
@@ -229,10 +228,7 @@ fn cli_get_miner_spend(
                         &commit_outs,
                         at_burnchain_height,
                     )
-                    .map_err(|e| {
-                        warn!("Failed to get unconfirmed burn distribution: {:?}", &e);
-                        e
-                    })
+                    .inspect_err(|e| warn!("Failed to get unconfirmed burn distribution: {e:?}"))
                 else {
                     return 0.0;
                 };
@@ -263,6 +259,82 @@ fn cli_get_miner_spend(
         |_burn_block_height, _win_prob| {},
     );
     spend_amount
+}
+
+fn cli_replay_mock_mining(config_path: &str, path: &str) {
+    info!("Loading config at path {config_path}");
+    let config = match ConfigFile::from_path(&config_path) {
+        Ok(config_file) => Config::from_config_file(config_file, true).unwrap(),
+        Err(e) => {
+            warn!("Invalid config file: {e}");
+            process::exit(1);
+        }
+    };
+
+    // Validate directory path
+    let dir = PathBuf::from(path);
+    let dir = fs::canonicalize(dir).unwrap_or_else(|e| panic!("{path} is not a valid path: {e}"));
+
+    if !dir.is_dir() {
+        panic!("{path} is not a valid directory");
+    }
+
+    // Read entries in directory
+    let dir_entries = dir
+        .read_dir()
+        .unwrap_or_else(|e| panic!("Failed to read {path}: {e}"))
+        .filter_map(|e| e.ok());
+
+    // Get filenames, filtering out anything that isn't a regular file
+    let filenames = dir_entries.filter_map(|e| match e.file_type() {
+        Ok(t) if t.is_file() => e.file_name().into_string().ok(),
+        _ => None,
+    });
+
+    // Get vec of (block_height, filename), to prepare for sorting
+    //
+    // NOTE: Trusting the filename is not ideal. We could sort on data read from the file,
+    // but that requires reading all files
+    let re = Regex::new(r"^([0-9]+\.json)$").unwrap();
+    let mut indexed_files = filenames
+        .filter_map(|filename| {
+            // Use regex to extract block number from filename
+            let Some(cap) = re.captures(&filename) else {
+                return None;
+            };
+            let Some(m) = cap.get(0) else {
+                return None;
+            };
+            let Ok(bh) = m.as_str().parse::<u64>() else {
+                return None;
+            };
+            Some((bh, filename))
+        })
+        .collect::<Vec<_>>();
+
+    // Sort by block height
+    indexed_files.sort_by_key(|(bh, _)| *bh);
+
+    if indexed_files.is_empty() {
+        panic!("No block files found");
+    }
+
+    info!(
+        "Replaying {} blocks starting at {}",
+        indexed_files.len(),
+        indexed_files[0].0
+    );
+
+    for (bh, filename) in indexed_files {
+        let filepath = dir.join(filename);
+        let block = AssembledAnchorBlock::deserialize_from_file(&filepath)
+            .unwrap_or_else(|e| panic!("Error reading block {bh} from file: {e}"));
+        debug!("Replaying block from {filepath:?}";
+            "block_height" => bh,
+            "block" => ?block
+        );
+        // TODO: Actually replay block
+    }
 }
 
 fn main() {
@@ -412,6 +484,13 @@ fn main() {
             println!("Will spend {}", spend_amount);
             process::exit(0);
         }
+        "replay-mock-mining" => {
+            let path: String = args.value_from_str("--path").unwrap();
+            let config_path: String = args.value_from_str("--config").unwrap();
+            args.finish();
+            cli_replay_mock_mining(&config_path, &path);
+            process::exit(0);
+        }
         _ => {
             print_help();
             return;
@@ -501,6 +580,11 @@ version\t\tDisplay information about the current version and our release cycle.
 key-for-seed\tOutput the associated secret key for a burnchain signer created with a given seed.
 \t\tCan be passed a config file for the seed via the `--config <file>` option *or* by supplying the hex seed on
 \t\tthe command line directly.
+
+replay-mock-mining\tReplay mock mined blocks from <dir>
+\t\tArguments:
+\t\t  --path: path to directory of mock mined blocks
+\t\t  --config: path to the config file
 
 help\t\tDisplay this help.
 
