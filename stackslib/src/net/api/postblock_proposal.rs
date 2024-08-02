@@ -512,6 +512,15 @@ impl RPCRequestHandler for RPCBlockProposalRequestHandler {
             .take()
             .ok_or(NetError::SendError("`block_proposal` not set".into()))?;
 
+        info!(
+            "Received block proposal request";
+            "signer_sighash" => %block_proposal.block.header.signer_signature_hash(),
+            "block_header_hash" => %block_proposal.block.header.block_hash(),
+            "height" => block_proposal.block.header.chain_length,
+            "tx_count" => block_proposal.block.txs.len(),
+            "parent_stacks_block_id" => %block_proposal.block.header.parent_block_id,
+        );
+
         let res = node.with_node_state(|network, sortdb, chainstate, _mempool, rpc_args| {
             if network.is_proposal_thread_running() {
                 return Err((

@@ -44,9 +44,9 @@ extern crate alloc;
 const GIT_BRANCH: Option<&'static str> = option_env!("GIT_BRANCH");
 const GIT_COMMIT: Option<&'static str> = option_env!("GIT_COMMIT");
 #[cfg(debug_assertions)]
-const BUILD_TYPE: &'static str = "debug";
+const BUILD_TYPE: &str = "debug";
 #[cfg(not(debug_assertions))]
-const BUILD_TYPE: &'static str = "release";
+const BUILD_TYPE: &str = "release";
 
 lazy_static! {
     static ref VERSION_STRING: String = {
