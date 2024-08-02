@@ -1480,7 +1480,6 @@ fn test_make_tenure_downloaders() {
         NakamotoDownloadStateMachine::load_tenure_start_blocks(
             &wanted_tenures,
             chainstate,
-            &nakamoto_tip,
             &mut tenure_start_blocks,
         )
         .unwrap();
