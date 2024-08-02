@@ -1483,6 +1483,10 @@ fn test_make_tenure_downloaders() {
             &mut tenure_start_blocks,
         )
         .unwrap();
+
+        // remove malleablized blocks
+        tenure_start_blocks.retain(|_, block| block.header.version == 0);
+
         assert_eq!(tenure_start_blocks.len(), wanted_tenures.len());
 
         for wt in wanted_tenures_with_blocks {
