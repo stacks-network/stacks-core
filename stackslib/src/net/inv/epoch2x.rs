@@ -609,7 +609,9 @@ impl NeighborBlockStats {
         let mut broken = false;
         let mut stale = false;
 
-        if nack_data.error_code == NackErrorCodes::Throttled {
+        if nack_data.error_code == NackErrorCodes::Throttled
+            || nack_data.error_code == NackErrorCodes::HandshakeRequired
+        {
             // TODO: do something smarter here, like just back off
             return NodeStatus::Dead;
         } else if nack_data.error_code == NackErrorCodes::NoSuchBurnchainBlock {
@@ -2125,6 +2127,7 @@ impl PeerNetwork {
                 break;
             }
 
+            debug!("Inv sync state is {:?}", &stats.state);
             let again = match stats.state {
                 InvWorkState::GetPoxInvBegin => self
                     .inv_getpoxinv_begin(sortdb, nk, stats, request_timeout)
