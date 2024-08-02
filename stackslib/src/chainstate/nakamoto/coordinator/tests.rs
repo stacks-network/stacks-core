@@ -2453,3 +2453,75 @@ pub fn simple_nakamoto_coordinator_10_extended_tenures_10_sortitions() -> TestPe
 fn test_nakamoto_coordinator_10_tenures_and_extensions_10_blocks() {
     simple_nakamoto_coordinator_10_extended_tenures_10_sortitions();
 }
+
+#[test]
+fn process_next_nakamoto_block_deadlock() {
+    let private_key = StacksPrivateKey::from_seed(&[2]);
+    let addr = StacksAddress::p2pkh(false, &StacksPublicKey::from_private(&private_key));
+
+    let num_stackers: u32 = 4;
+    let mut signing_key_seed = num_stackers.to_be_bytes().to_vec();
+    signing_key_seed.extend_from_slice(&[1, 1, 1, 1]);
+    let signing_key = StacksPrivateKey::from_seed(signing_key_seed.as_slice());
+    let test_stackers = (0..num_stackers)
+        .map(|index| TestStacker {
+            signer_private_key: signing_key.clone(),
+            stacker_private_key: StacksPrivateKey::from_seed(&index.to_be_bytes()),
+            amount: u64::MAX as u128 - 10000,
+            pox_addr: Some(PoxAddress::Standard(
+                StacksAddress::new(
+                    C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+                    Hash160::from_data(&index.to_be_bytes()),
+                ),
+                Some(AddressHashMode::SerializeP2PKH),
+            )),
+            max_amount: None,
+        })
+        .collect::<Vec<_>>();
+    let test_signers = TestSigners::new(vec![signing_key]);
+    let mut pox_constants = TestPeerConfig::default().burnchain.pox_constants;
+    pox_constants.reward_cycle_length = 10;
+    pox_constants.v2_unlock_height = 21;
+    pox_constants.pox_3_activation_height = 26;
+    pox_constants.v3_unlock_height = 27;
+    pox_constants.pox_4_activation_height = 28;
+
+    let mut boot_plan = NakamotoBootPlan::new(function_name!())
+        .with_test_stackers(test_stackers.clone())
+        .with_test_signers(test_signers.clone())
+        .with_private_key(private_key);
+    boot_plan.pox_constants = pox_constants;
+
+    info!("Creating peer");
+
+    let mut peer = boot_plan.boot_into_nakamoto_peer(vec![], None);
+
+    // Lock the sortdb
+    info!("  -------------------------------   TRYING TO LOCK THE SORTDB");
+    let mut sortition_db = peer.sortdb().reopen().unwrap();
+    let sort_tx = sortition_db.tx_begin().unwrap();
+
+    // Start another thread that opens the sortdb, waits 10s, then tries to
+    // lock the chainstate db. This should cause a deadlock if the block
+    // processing is not acquiring the locks in the correct order.
+    info!("  -------------------------------   SPAWNING BLOCKER THREAD");
+    let blocker_thread = std::thread::spawn(move || {
+        // Wait a bit, to ensure the tenure will have grabbed any locks it needs
+        std::thread::sleep(std::time::Duration::from_secs(10));
+
+        // Lock the chainstate db
+        info!("  -------------------------------   TRYING TO LOCK THE CHAINSTATE");
+        let chainstate = &mut peer.stacks_node.as_mut().unwrap().chainstate;
+        let (chainstate_tx, _) = chainstate.chainstate_tx_begin().unwrap();
+
+        info!("  -------------------------------   SORTDB AND CHAINSTATE LOCKED");
+        info!("  -------------------------------   BLOCKER THREAD FINISHED");
+    });
+
+    info!("  -------------------------------   MINING TENURE");
+    let (block, burn_height, ..) = peer.single_block_tenure(&private_key, |_| {}, |_| {}, |_| true);
+    info!("  -------------------------------   TENURE MINED");
+
+    // Wait for the blocker thread to finish
+    blocker_thread.join().unwrap();
+}
