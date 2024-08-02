@@ -6,7 +6,9 @@ use std::thread::sleep;
 use std::time::Duration;
 
 use async_h1::client;
+use async_std::future::timeout;
 use async_std::net::TcpStream;
+use async_std::task;
 use clarity::vm::analysis::contract_interface_builder::build_contract_interface;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::events::{FTEventType, NFTEventType, STXEventType};
@@ -326,26 +328,24 @@ impl EventObserver {
             req.append_header("Content-Type", "application/json");
             req.set_body(body);
 
-            let response = async_std::task::block_on(async {
-                match async_std::future::timeout(
-                    connection_timeout,
-                    TcpStream::connect(self.endpoint.clone()),
-                )
-                .await
-                {
-                    Ok(Ok(stream)) => match client::connect(stream, req).await {
-                        Ok(response) => Some(response),
-                        Err(err) => {
-                            warn!("Event dispatcher: rpc invocation failed  - {:?}", err);
-                            None
+            let response = task::block_on(async {
+                let stream =
+                    match timeout(connection_timeout, TcpStream::connect(&self.endpoint)).await {
+                        Ok(Ok(stream)) => stream,
+                        Ok(Err(err)) => {
+                            warn!("Event dispatcher: connection failed  - {:?}", err);
+                            return None;
                         }
-                    },
-                    Ok(Err(err)) => {
-                        warn!("Event dispatcher: connection failed  - {:?}", err);
-                        None
-                    }
-                    Err(_) => {
-                        error!("Event dispatcher: connection attempt timed out");
+                        Err(_) => {
+                            error!("Event dispatcher: connection attempt timed out");
+                            return None;
+                        }
+                    };
+
+                match client::connect(stream, req).await {
+                    Ok(response) => Some(response),
+                    Err(err) => {
+                        warn!("Event dispatcher: rpc invocation failed  - {:?}", err);
                         None
                     }
                 }
