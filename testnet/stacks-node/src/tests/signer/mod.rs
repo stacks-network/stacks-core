@@ -44,7 +44,7 @@ use stacks::chainstate::stacks::{StacksPrivateKey, ThresholdSignature};
 use stacks::core::StacksEpoch;
 use stacks::net::api::postblock_proposal::BlockValidateResponse;
 use stacks::types::chainstate::StacksAddress;
-use stacks::util::secp256k1::MessageSignature;
+use stacks::util::secp256k1::{MessageSignature, Secp256k1PublicKey};
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::consts::SIGNER_SLOTS_PER_USER;
 use stacks_common::types::StacksEpochId;
@@ -57,7 +57,7 @@ use wsts::state_machine::PublicKeys;
 
 use crate::config::{Config as NeonConfig, EventKeyType, EventObserverConfig, InitialBalance};
 use crate::event_dispatcher::MinedNakamotoBlockEvent;
-use crate::neon::Counters;
+use crate::neon::{Counters, TestFlag};
 use crate::run_loop::boot_nakamoto;
 use crate::tests::bitcoin_regtest::BitcoinCoreController;
 use crate::tests::nakamoto_integrations::{
@@ -81,6 +81,7 @@ pub struct RunningNodes {
     pub blocks_processed: Arc<AtomicU64>,
     pub nakamoto_blocks_proposed: Arc<AtomicU64>,
     pub nakamoto_blocks_mined: Arc<AtomicU64>,
+    pub nakamoto_test_skip_commit_op: TestFlag,
     pub coord_channel: Arc<Mutex<CoordinatorChannels>>,
     pub conf: NeonConfig,
 }
@@ -91,6 +92,8 @@ pub struct SignerTest<S> {
     pub running_nodes: RunningNodes,
     // The spawned signers and their threads
     pub spawned_signers: Vec<S>,
+    // The spawned signers and their threads
+    pub signer_configs: Vec<SignerConfig>,
     // the private keys of the signers
     pub signer_stacks_private_keys: Vec<StacksPrivateKey>,
     // link to the stacks node
@@ -105,14 +108,26 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         initial_balances: Vec<(StacksAddress, u64)>,
         wait_on_signers: Option<Duration>,
     ) -> Self {
-        Self::new_with_config_modifications(num_signers, initial_balances, wait_on_signers, |_| {})
+        Self::new_with_config_modifications(
+            num_signers,
+            initial_balances,
+            wait_on_signers,
+            |_| {},
+            |_| {},
+            &[],
+        )
     }
 
-    fn new_with_config_modifications<F: Fn(&mut SignerConfig) -> ()>(
+    fn new_with_config_modifications<
+        F: FnMut(&mut SignerConfig) -> (),
+        G: FnMut(&mut NeonConfig) -> (),
+    >(
         num_signers: usize,
         initial_balances: Vec<(StacksAddress, u64)>,
         wait_on_signers: Option<Duration>,
-        modifier: F,
+        mut signer_config_modifier: F,
+        node_config_modifier: G,
+        btc_miner_pubkeys: &[Secp256k1PublicKey],
     ) -> Self {
         // Generate Signer Data
         let signer_stacks_private_keys = (0..num_signers)
@@ -136,11 +151,10 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         } else {
             naka_conf.miner.wait_on_signers = Duration::from_secs(10);
         }
-
         let run_stamp = rand::random();
 
         // Setup the signer and coordinator configurations
-        let signer_configs = build_signer_config_tomls(
+        let signer_configs: Vec<_> = build_signer_config_tomls(
             &signer_stacks_private_keys,
             &naka_conf.node.rpc_bind,
             Some(Duration::from_millis(128)), // Timeout defaults to 5 seconds. Let's override it to 128 milliseconds.
@@ -151,23 +165,45 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
             Some(100_000),
             None,
             Some(9000),
-        );
+        )
+        .into_iter()
+        .map(|toml| {
+            let mut signer_config = SignerConfig::load_from_str(&toml).unwrap();
+            signer_config_modifier(&mut signer_config);
+            signer_config
+        })
+        .collect();
+        assert_eq!(signer_configs.len(), num_signers);
 
-        let spawned_signers: Vec<_> = (0..num_signers)
-            .into_iter()
-            .map(|i| {
-                info!("spawning signer");
-                let mut signer_config =
-                    SignerConfig::load_from_str(&signer_configs[i as usize]).unwrap();
-                modifier(&mut signer_config);
-                SpawnedSigner::new(signer_config)
-            })
+        let spawned_signers = signer_configs
+            .iter()
+            .cloned()
+            .map(SpawnedSigner::new)
             .collect();
 
         // Setup the nodes and deploy the contract to it
-        let node = setup_stx_btc_node(naka_conf, &signer_stacks_private_keys, &signer_configs);
-        let config = SignerConfig::load_from_str(&signer_configs[0]).unwrap();
-        let stacks_client = StacksClient::from(&config);
+        let btc_miner_pubkeys = if btc_miner_pubkeys.is_empty() {
+            let pk = Secp256k1PublicKey::from_hex(
+                naka_conf
+                    .burnchain
+                    .local_mining_public_key
+                    .as_ref()
+                    .unwrap(),
+            )
+            .unwrap();
+            &[pk]
+        } else {
+            btc_miner_pubkeys
+        };
+        let node = setup_stx_btc_node(
+            naka_conf,
+            &signer_stacks_private_keys,
+            &signer_configs,
+            btc_miner_pubkeys,
+            node_config_modifier,
+        );
+        let config = signer_configs.first().unwrap();
+        let stacks_client = StacksClient::from(config);
 
         Self {
             running_nodes: node,
@@ -175,6 +211,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
             signer_stacks_private_keys,
             stacks_client,
             run_stamp,
+            signer_configs,
         }
     }
 
@@ -292,6 +329,33 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
             mined_block_elapsed_time
         );
         test_observer::get_mined_nakamoto_blocks().pop().unwrap()
+    }
+
+    fn mine_block_wait_on_processing(&mut self, timeout: Duration) {
+        let commits_submitted = self.running_nodes.commits_submitted.clone();
+        let blocks_len = test_observer::get_blocks().len();
+        let mined_block_time = Instant::now();
+        next_block_and_mine_commit(
+            &mut self.running_nodes.btc_regtest_controller,
+            timeout.as_secs(),
+            &self.running_nodes.coord_channel,
+            &commits_submitted,
+        )
+        .unwrap();
+
+        let t_start = Instant::now();
+        while test_observer::get_blocks().len() <= blocks_len {
+            assert!(
+                t_start.elapsed() < timeout,
+                "Timed out while waiting for nakamoto block to be processed"
+            );
+            thread::sleep(Duration::from_secs(1));
+        }
+        let mined_block_elapsed_time = mined_block_time.elapsed();
+        info!(
+            "Nakamoto block mine time elapsed: {:?}",
+            mined_block_elapsed_time
+        );
     }
 
     fn wait_for_confirmed_block_v1(
@@ -537,17 +601,17 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
     }
 }
 
-fn setup_stx_btc_node(
+fn setup_stx_btc_node<G: FnMut(&mut NeonConfig) -> ()>(
     mut naka_conf: NeonConfig,
     signer_stacks_private_keys: &[StacksPrivateKey],
-    signer_config_tomls: &[String],
+    signer_configs: &[SignerConfig],
+    btc_miner_pubkeys: &[Secp256k1PublicKey],
+    mut node_config_modifier: G,
 ) -> RunningNodes {
     // Spawn the endpoints for observing signers
-    for toml in signer_config_tomls {
-        let signer_config = SignerConfig::load_from_str(toml).unwrap();
-
+    for signer_config in signer_configs {
         naka_conf.events_observers.insert(EventObserverConfig {
-            endpoint: format!("{}", signer_config.endpoint),
+            endpoint: signer_config.endpoint.to_string(),
             events_keys: vec![
                 EventKeyType::StackerDBChunks,
                 EventKeyType::BlockProposal,
@@ -593,6 +657,8 @@ fn setup_stx_btc_node(
             }
         }
     }
+    node_config_modifier(&mut naka_conf);
+
     info!("Make new BitcoinCoreController");
     let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
     btcd_controller
@@ -604,7 +670,8 @@ fn setup_stx_btc_node(
     let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
 
     info!("Bootstraping...");
-    btc_regtest_controller.bootstrap_chain(201);
+    // Should be 201 for other tests?
+    btc_regtest_controller.bootstrap_chain_to_pks(195, btc_miner_pubkeys);
 
     info!("Chain bootstrapped...");
 
@@ -616,6 +683,7 @@ fn setup_stx_btc_node(
         naka_submitted_commits: commits_submitted,
         naka_proposed_blocks: naka_blocks_proposed,
         naka_mined_blocks: naka_blocks_mined,
+        naka_skip_commit_op: nakamoto_test_skip_commit_op,
         ..
     } = run_loop.counters();
 
@@ -648,6 +716,7 @@ fn setup_stx_btc_node(
         blocks_processed: blocks_processed.0,
         nakamoto_blocks_proposed: naka_blocks_proposed.0,
         nakamoto_blocks_mined: naka_blocks_mined.0,
+        nakamoto_test_skip_commit_op,
         coord_channel,
         conf: naka_conf,
     }

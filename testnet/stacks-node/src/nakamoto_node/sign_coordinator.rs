@@ -23,7 +23,7 @@ use libsigner::v1::messages::{MessageSlotID, SignerMessage as SignerMessageV1};
 use libsigner::{BlockProposal, SignerEntries, SignerEvent, SignerSession, StackerDBSession};
 use stacks::burnchains::Burnchain;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
-use stacks::chainstate::burn::BlockSnapshot;
+use stacks::chainstate::burn::{BlockSnapshot, ConsensusHash};
 use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader, NakamotoChainState};
 use stacks::chainstate::stacks::boot::{NakamotoSignerEntry, RewardSet, MINERS_NAME, SIGNERS_NAME};
 use stacks::chainstate::stacks::events::StackerDBChunksEvent;
@@ -341,6 +341,7 @@ impl SignCoordinator {
         miner_slot_id: MinerSlotID,
         is_mainnet: bool,
         miners_session: &mut StackerDBSession,
+        election_sortition: &ConsensusHash,
     ) -> Result<(), String> {
         let mut miner_sk = StacksPrivateKey::from_slice(&message_key.to_bytes()).unwrap();
         miner_sk.set_compress_public(true);
@@ -353,6 +354,7 @@ impl SignCoordinator {
             miner_slot_id,
             is_mainnet,
             miners_session,
+            election_sortition,
         )
     }
 
@@ -366,9 +368,9 @@ impl SignCoordinator {
         miner_slot_id: MinerSlotID,
         is_mainnet: bool,
         miners_session: &mut StackerDBSession,
+        election_sortition: &ConsensusHash,
     ) -> Result<(), String> {
-        let miner_pubkey = StacksPublicKey::from_private(&miner_sk);
-        let Some(slot_range) = NakamotoChainState::get_miner_slot(sortdb, tip, &miner_pubkey)
+        let Some(slot_range) = NakamotoChainState::get_miner_slot(sortdb, tip, &election_sortition)
             .map_err(|e| format!("Failed to read miner slot information: {e:?}"))?
         else {
             return Err("No slot for miner".into());
@@ -417,6 +419,7 @@ impl SignCoordinator {
         sortdb: &SortitionDB,
         stackerdbs: &StackerDBs,
         counters: &Counters,
+        election_sortiton: &ConsensusHash,
     ) -> Result<ThresholdSignature, NakamotoNodeError> {
         let sign_id = Self::get_sign_id(burn_tip.block_height, burnchain);
         let sign_iter_id = block_attempt;
@@ -450,6 +453,7 @@ impl SignCoordinator {
             MinerSlotID::BlockProposal,
             self.is_mainnet,
             &mut self.miners_session,
+            election_sortiton,
         )
         .map_err(NakamotoNodeError::SigningCoordinatorFailure)?;
         counters.bump_naka_proposed_blocks();
@@ -604,6 +608,7 @@ impl SignCoordinator {
                     MinerSlotID::BlockProposal,
                     self.is_mainnet,
                     &mut self.miners_session,
+                    election_sortiton,
                 ) {
                     Ok(()) => {
                         debug!("Miner/Coordinator: sent outbound message.");
@@ -636,6 +641,7 @@ impl SignCoordinator {
         sortdb: &SortitionDB,
         stackerdbs: &StackerDBs,
         counters: &Counters,
+        election_sortition: &ConsensusHash,
     ) -> Result<Vec<MessageSignature>, NakamotoNodeError> {
         let sign_id = Self::get_sign_id(burn_tip.block_height, burnchain);
         let sign_iter_id = block_attempt;
@@ -664,11 +670,15 @@ impl SignCoordinator {
             MinerSlotID::BlockProposal,
             self.is_mainnet,
             &mut self.miners_session,
+            election_sortition,
         )
         .map_err(NakamotoNodeError::SigningCoordinatorFailure)?;
         counters.bump_naka_proposed_blocks();
         #[cfg(test)]
         {
+            info!(
+                "SignCoordinator: sent block proposal to .miners, waiting for test signing channel"
+            );
             // In test mode, short-circuit waiting for the signers if the TEST_SIGNING
             //  channel has been created. This allows integration tests for the stacks-node
             //  independent of the stacks-signer.
@@ -756,6 +766,10 @@ impl SignCoordinator {
                     }
                     SignerMessageV0::BlockPushed(_) => {
                         debug!("Received block pushed message. Ignoring.");
+                        continue;
+                    }
+                    SignerMessageV0::MockSignature(_) => {
+                        debug!("Received mock signature message. Ignoring.");
                         continue;
                     }
                 };

@@ -57,7 +57,11 @@ use stacks_common::util::sleep_ms;
 use super::super::operations::BurnchainOpSigner;
 use super::super::Config;
 use super::{BurnchainController, BurnchainTip, Error as BurnchainControllerError};
-use crate::config::BurnchainConfig;
+use crate::config::{
+    BurnchainConfig, OP_TX_ANY_ESTIM_SIZE, OP_TX_DELEGATE_STACKS_ESTIM_SIZE,
+    OP_TX_PRE_STACKS_ESTIM_SIZE, OP_TX_STACK_STX_ESTIM_SIZE, OP_TX_TRANSFER_STACKS_ESTIM_SIZE,
+    OP_TX_VOTE_AGG_ESTIM_SIZE,
+};
 
 /// The number of bitcoin blocks that can have
 ///  passed since the UTXO cache was last refreshed before
@@ -868,6 +872,7 @@ impl BitcoinRegtestController {
             fee_rate,
             &mut utxos,
             signer,
+            false,
         )?;
 
         increment_btc_ops_sent_counter();
@@ -950,7 +955,7 @@ impl BitcoinRegtestController {
         utxo_to_use: Option<UTXO>,
     ) -> Option<Transaction> {
         let public_key = signer.get_public_key();
-        let max_tx_size = 230;
+        let max_tx_size = OP_TX_TRANSFER_STACKS_ESTIM_SIZE;
         let (mut tx, mut utxos) = if let Some(utxo) = utxo_to_use {
             (
                 Transaction {
@@ -1005,6 +1010,7 @@ impl BitcoinRegtestController {
             get_satoshis_per_byte(&self.config),
             &mut utxos,
             signer,
+            false,
         )?;
 
         increment_btc_ops_sent_counter();
@@ -1032,7 +1038,7 @@ impl BitcoinRegtestController {
         utxo_to_use: Option<UTXO>,
     ) -> Option<Transaction> {
         let public_key = signer.get_public_key();
-        let max_tx_size = 230;
+        let max_tx_size = OP_TX_DELEGATE_STACKS_ESTIM_SIZE;
 
         let (mut tx, mut utxos) = if let Some(utxo) = utxo_to_use {
             (
@@ -1088,6 +1094,7 @@ impl BitcoinRegtestController {
             get_satoshis_per_byte(&self.config),
             &mut utxos,
             signer,
+            false,
         )?;
 
         increment_btc_ops_sent_counter();
@@ -1110,7 +1117,7 @@ impl BitcoinRegtestController {
         utxo_to_use: Option<UTXO>,
     ) -> Option<Transaction> {
         let public_key = signer.get_public_key();
-        let max_tx_size = 230;
+        let max_tx_size = OP_TX_VOTE_AGG_ESTIM_SIZE;
 
         let (mut tx, mut utxos) = if let Some(utxo) = utxo_to_use {
             (
@@ -1162,6 +1169,7 @@ impl BitcoinRegtestController {
             get_satoshis_per_byte(&self.config),
             &mut utxos,
             signer,
+            false,
         )?;
 
         increment_btc_ops_sent_counter();
@@ -1204,9 +1212,11 @@ impl BitcoinRegtestController {
         signer: &mut BurnchainOpSigner,
     ) -> Option<Transaction> {
         let public_key = signer.get_public_key();
-        let max_tx_size = 280;
+        let max_tx_size = OP_TX_PRE_STACKS_ESTIM_SIZE;
 
-        let output_amt = DUST_UTXO_LIMIT + max_tx_size * get_satoshis_per_byte(&self.config);
+        let max_tx_size_any_op = OP_TX_ANY_ESTIM_SIZE;
+        let output_amt = DUST_UTXO_LIMIT + max_tx_size_any_op * get_satoshis_per_byte(&self.config);
+
         let (mut tx, mut utxos) =
             self.prepare_tx(epoch_id, &public_key, output_amt, None, None, 0)?;
 
@@ -1238,6 +1248,7 @@ impl BitcoinRegtestController {
             get_satoshis_per_byte(&self.config),
             &mut utxos,
             signer,
+            false,
         )?;
 
         increment_btc_ops_sent_counter();
@@ -1271,7 +1282,7 @@ impl BitcoinRegtestController {
         utxo_to_use: Option<UTXO>,
     ) -> Option<Transaction> {
         let public_key = signer.get_public_key();
-        let max_tx_size = 250;
+        let max_tx_size = OP_TX_STACK_STX_ESTIM_SIZE;
 
         let (mut tx, mut utxos) = if let Some(utxo) = utxo_to_use {
             (
@@ -1325,6 +1336,7 @@ impl BitcoinRegtestController {
             get_satoshis_per_byte(&self.config),
             &mut utxos,
             signer,
+            false,
         )?;
 
         increment_btc_ops_sent_counter();
@@ -1415,6 +1427,7 @@ impl BitcoinRegtestController {
             fee_rate,
             &mut utxos,
             signer,
+            true, // only block commit op requires change output to exist
         )?;
 
         let serialized_tx = SerializedTx::new(tx.clone());
@@ -1685,6 +1698,7 @@ impl BitcoinRegtestController {
         fee_rate: u64,
         utxos_set: &mut UTXOSet,
         signer: &mut BurnchainOpSigner,
+        force_change_output: bool,
     ) -> Option<()> {
         // spend UTXOs in order by confirmations.  Spend the least-confirmed UTXO first, and in the
         // event of a tie, spend the smallest-value UTXO first.
@@ -1715,6 +1729,7 @@ impl BitcoinRegtestController {
                 spent_in_outputs + min_tx_size * fee_rate + estimated_rbf,
                 &mut utxos_cloned,
                 signer,
+                force_change_output,
             );
             let serialized_tx = SerializedTx::new(tx_cloned);
             cmp::max(min_tx_size, serialized_tx.bytes.len() as u64)
@@ -1731,6 +1746,7 @@ impl BitcoinRegtestController {
             spent_in_outputs + tx_size * fee_rate + rbf_fee,
             utxos_set,
             signer,
+            force_change_output,
         );
         signer.dispose();
         Some(())
@@ -1744,38 +1760,45 @@ impl BitcoinRegtestController {
         &mut self,
         epoch_id: StacksEpochId,
         tx: &mut Transaction,
-        total_to_spend: u64,
+        tx_cost: u64,
         utxos_set: &mut UTXOSet,
         signer: &mut BurnchainOpSigner,
+        force_change_output: bool,
     ) -> bool {
         let mut public_key = signer.get_public_key();
-        let mut total_consumed = 0;
+
+        let total_target = if force_change_output {
+            tx_cost + DUST_UTXO_LIMIT
+        } else {
+            tx_cost
+        };
 
         // select UTXOs until we have enough to cover the cost
+        let mut total_consumed = 0;
         let mut available_utxos = vec![];
         available_utxos.append(&mut utxos_set.utxos);
         for utxo in available_utxos.into_iter() {
             total_consumed += utxo.amount;
             utxos_set.utxos.push(utxo);
 
-            if total_consumed >= total_to_spend {
+            if total_consumed >= total_target {
                 break;
             }
         }
 
-        if total_consumed < total_to_spend {
+        if total_consumed < total_target {
             warn!(
                 "Consumed total {} is less than intended spend: {}",
-                total_consumed, total_to_spend
+                total_consumed, total_target
             );
             return false;
         }
 
         // Append the change output
-        let value = total_consumed - total_to_spend;
+        let value = total_consumed - tx_cost;
         debug!(
             "Payments value: {:?}, total_consumed: {:?}, total_spent: {:?}",
-            value, total_consumed, total_to_spend
+            value, total_consumed, total_target
         );
         if value >= DUST_UTXO_LIMIT {
             let change_output = if self.config.miner.segwit && epoch_id >= StacksEpochId::Epoch21 {
@@ -2037,6 +2060,61 @@ impl BitcoinRegtestController {
         let tx: Transaction = btc_deserialize(&hex_bytes(&txstr).unwrap()).unwrap();
         tx
     }
+
+    /// Produce `num_blocks` regtest bitcoin blocks, sending the bitcoin coinbase rewards
+    ///  to the bitcoin single sig addresses corresponding to `pks` in a round robin fashion.
+    #[cfg(test)]
+    pub fn bootstrap_chain_to_pks(&mut self, num_blocks: usize, pks: &[Secp256k1PublicKey]) {
+        info!("Creating wallet if it does not exist");
+        if let Err(e) = self.create_wallet_if_dne() {
+            error!("Error when creating wallet: {e:?}");
+        }
+
+        for pk in pks {
+            debug!("Import public key '{}'", &pk.to_hex());
+            if let Err(e) = BitcoinRPCRequest::import_public_key(&self.config, &pk) {
+                warn!("Error when importing pubkey: {e:?}");
+            }
+        }
+
+        if pks.len() == 1 {
+            // if we only have one pubkey, just generate all the blocks at once
+            let address = self.get_miner_address(StacksEpochId::Epoch21, &pks[0]);
+            debug!(
+                "Generate to address '{}' for public key '{}'",
+                &addr2str(&address),
+                &pks[0].to_hex()
+            );
+            if let Err(e) = BitcoinRPCRequest::generate_to_address(
+                &self.config,
+                num_blocks.try_into().unwrap(),
+                addr2str(&address),
+            ) {
+                error!("Bitcoin RPC failure: error generating block {:?}", e);
+                panic!();
+            }
+            return;
+        }
+
+        // otherwise, round robin generate blocks
+        for i in 0..num_blocks {
+            let pk = &pks[usize::try_from(i % pks.len()).unwrap()];
+            let address = self.get_miner_address(StacksEpochId::Epoch21, pk);
+            if i < pks.len() {
+                debug!(
+                    "Generate to address '{}' for public key '{}'",
+                    &addr2str(&address),
+                    &pk.to_hex(),
+                );
+            }
+            if let Err(e) =
+                BitcoinRPCRequest::generate_to_address(&self.config, 1, addr2str(&address))
+            {
+                error!("Bitcoin RPC failure: error generating block {:?}", e);
+                panic!();
+            }
+        }
+    }
 }
 
 impl BurnchainController for BitcoinRegtestController {
@@ -2152,45 +2230,19 @@ impl BurnchainController for BitcoinRegtestController {
 
     #[cfg(test)]
     fn bootstrap_chain(&mut self, num_blocks: u64) {
-        if let Some(ref local_mining_pubkey) = &self.config.burnchain.local_mining_public_key {
-            // NOTE: miner address is whatever the miner's segwit setting says it is here
-            let mut local_mining_pubkey =
-                Secp256k1PublicKey::from_hex(local_mining_pubkey).unwrap();
-            let address = self.get_miner_address(StacksEpochId::Epoch21, &local_mining_pubkey);
+        let Some(ref local_mining_pubkey) = &self.config.burnchain.local_mining_public_key else {
+            warn!("No local mining pubkey while bootstrapping bitcoin regtest, will not generate bitcoin blocks");
+            return;
+        };
 
-            if self.config.miner.segwit {
-                local_mining_pubkey.set_compressed(true);
-            }
+        // NOTE: miner address is whatever the miner's segwit setting says it is here
+        let mut local_mining_pubkey = Secp256k1PublicKey::from_hex(local_mining_pubkey).unwrap();
 
-            info!("Creating wallet if it does not exist");
-            match self.create_wallet_if_dne() {
-                Err(e) => warn!("Error when creating wallet: {:?}", e),
-                _ => {}
-            }
-
-            test_debug!("Import public key '{}'", &local_mining_pubkey.to_hex());
-
-            let _result = BitcoinRPCRequest::import_public_key(&self.config, &local_mining_pubkey);
-
-            test_debug!(
-                "Generate to address '{}' for public key '{}'",
-                &addr2str(&address),
-                &local_mining_pubkey.to_hex()
-            );
-            let result = BitcoinRPCRequest::generate_to_address(
-                &self.config,
-                num_blocks,
-                addr2str(&address),
-            );
-
-            match result {
-                Ok(_) => {}
-                Err(e) => {
-                    error!("Bitcoin RPC failure: error generating block {:?}", e);
-                    panic!();
-                }
-            }
+        if self.config.miner.segwit {
+            local_mining_pubkey.set_compressed(true);
         }
+
+        self.bootstrap_chain_to_pks(num_blocks.try_into().unwrap(), &[local_mining_pubkey])
     }
 }
 
