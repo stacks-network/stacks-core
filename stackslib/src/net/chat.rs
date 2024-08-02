@@ -764,7 +764,7 @@ impl ConversationP2P {
         if my_epoch <= remote_epoch {
             // remote node supports same epochs we do
             debug!(
-                "Remote peer has epoch {}, which is newer than our epoch {}",
+                "Remote peer has epoch {}, which is at least as new as our epoch {}",
                 remote_epoch, my_epoch
             );
             return true;
@@ -2421,14 +2421,16 @@ impl ConversationP2P {
                 Ok(num_recved) => {
                     total_recved += num_recved;
                     if num_recved > 0 {
+                        debug!("{:?}: received {} bytes", self, num_recved);
                         self.stats.last_recv_time = get_epoch_time_secs();
                         self.stats.bytes_rx += num_recved as u64;
                     } else {
+                        debug!("{:?}: received {} bytes, stopping", self, num_recved);
                         break;
                     }
                 }
                 Err(net_error::PermanentlyDrained) => {
-                    trace!(
+                    debug!(
                         "{:?}: failed to recv on P2P conversation: PermanentlyDrained",
                         self
                     );
@@ -3022,7 +3024,7 @@ impl ConversationP2P {
                     }
                 }
             } else {
-                // no one was waiting for this reply, so just drop it
+                // message was passed to the relevant message handle
                 debug!(
                     "{:?}: Fulfilled pending message request (type {} seq {})",
                     &self, _msgtype, _seq
