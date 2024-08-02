@@ -452,7 +452,7 @@ impl Signer {
         stacks_client: &StacksClient,
         block_validate_response: &BlockValidateResponse,
     ) {
-        debug!("{self}: Received a block validate response: {block_validate_response:?}");
+        info!("{self}: Received a block validate response: {block_validate_response:?}");
         let mut signature_opt = None;
         let (response, block_info) = match block_validate_response {
             BlockValidateResponse::Ok(block_validate_ok) => {
