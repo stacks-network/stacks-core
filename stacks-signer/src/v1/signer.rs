@@ -21,7 +21,7 @@ use std::time::Instant;
 
 use blockstack_lib::chainstate::burn::ConsensusHashExtensions;
 use blockstack_lib::chainstate::nakamoto::signer_set::NakamotoSigners;
-use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockVote};
+use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
 use blockstack_lib::chainstate::stacks::boot::SIGNERS_VOTING_FUNCTION_NAME;
 use blockstack_lib::chainstate::stacks::StacksTransaction;
 use blockstack_lib::net::api::postblock_proposal::BlockValidateResponse;
@@ -57,7 +57,7 @@ use crate::chainstate::SortitionsView;
 use crate::client::{ClientError, SignerSlotID, StacksClient};
 use crate::config::SignerConfig;
 use crate::runloop::{RunLoopCommand, SignerCommand, SignerResult};
-use crate::signerdb::{BlockInfo, SignerDb};
+use crate::signerdb::{BlockInfo, NakamotoBlockVote, SignerDb};
 use crate::v1::coordinator::CoordinatorSelector;
 use crate::Signer as SignerTrait;
 
