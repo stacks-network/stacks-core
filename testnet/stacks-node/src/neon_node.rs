@@ -239,7 +239,7 @@ pub(crate) enum MinerThreadResult {
 /// Fully-assembled Stacks anchored, block as well as some extra metadata pertaining to how it was
 /// linked to the burnchain and what view(s) the miner had of the burnchain before and after
 /// completing the block.
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AssembledAnchorBlock {
     /// Consensus hash of the parent Stacks block
     parent_consensus_hash: ConsensusHash,
@@ -3603,22 +3603,17 @@ impl RelayerThread {
             }
         }
 
-        let mut miner_thread_state =
-            match self.create_block_miner(registered_key, last_burn_block, issue_timestamp_ms) {
-                Some(state) => state,
-                None => {
-                    return false;
-                }
-            };
+        let Some(mut miner_thread_state) =
+            self.create_block_miner(registered_key, last_burn_block, issue_timestamp_ms)
+        else {
+            return false;
+        };
 
         if let Ok(miner_handle) = thread::Builder::new()
             .name(format!("miner-block-{}", self.local_peer.data_url))
             .stack_size(BLOCK_PROCESSOR_STACK_SIZE)
             .spawn(move || miner_thread_state.run_tenure())
-            .map_err(|e| {
-                error!("Relayer: Failed to start tenure thread: {:?}", &e);
-                e
-            })
+            .inspect_err(|e| error!("Relayer: Failed to start tenure thread: {e:?}"))
         {
             self.miner_thread = Some(miner_handle);
         }
