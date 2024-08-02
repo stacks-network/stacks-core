@@ -57,7 +57,7 @@ use wsts::state_machine::PublicKeys;
 
 use crate::config::{Config as NeonConfig, EventKeyType, EventObserverConfig, InitialBalance};
 use crate::event_dispatcher::MinedNakamotoBlockEvent;
-use crate::neon::Counters;
+use crate::neon::{Counters, TestFlag};
 use crate::run_loop::boot_nakamoto;
 use crate::tests::bitcoin_regtest::BitcoinCoreController;
 use crate::tests::nakamoto_integrations::{
@@ -82,6 +82,7 @@ pub struct RunningNodes {
     pub blocks_processed: Arc<AtomicU64>,
     pub nakamoto_blocks_proposed: Arc<AtomicU64>,
     pub nakamoto_blocks_mined: Arc<AtomicU64>,
+    pub nakamoto_test_skip_commit_op: TestFlag,
     pub coord_channel: Arc<Mutex<CoordinatorChannels>>,
     pub conf: NeonConfig,
 }
@@ -92,6 +93,8 @@ pub struct SignerTest<S> {
     pub running_nodes: RunningNodes,
     // The spawned signers and their threads
     pub spawned_signers: Vec<S>,
+    // The spawned signers and their threads
+    pub signer_configs: Vec<SignerConfig>,
     // the private keys of the signers
     pub signer_stacks_private_keys: Vec<StacksPrivateKey>,
     // link to the stacks node
@@ -214,6 +217,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
             stacks_client,
             run_stamp,
             num_stacking_cycles: 12_u64,
+            signer_configs,
         }
     }
 
@@ -692,6 +696,7 @@ fn setup_stx_btc_node<G: FnMut(&mut NeonConfig) -> ()>(
         naka_submitted_commits: commits_submitted,
         naka_proposed_blocks: naka_blocks_proposed,
         naka_mined_blocks: naka_blocks_mined,
+        naka_skip_commit_op: nakamoto_test_skip_commit_op,
         ..
     } = run_loop.counters();
 
@@ -724,6 +729,7 @@ fn setup_stx_btc_node<G: FnMut(&mut NeonConfig) -> ()>(
         blocks_processed: blocks_processed.0,
         nakamoto_blocks_proposed: naka_blocks_proposed.0,
         nakamoto_blocks_mined: naka_blocks_mined.0,
+        nakamoto_test_skip_commit_op,
         coord_channel,
         conf: naka_conf,
     }

@@ -95,7 +95,6 @@ use wsts::net::Message;
 use super::bitcoin_regtest::BitcoinCoreController;
 use crate::config::{EventKeyType, EventObserverConfig, InitialBalance};
 use crate::nakamoto_node::miner::TEST_BROADCAST_STALL;
-use crate::nakamoto_node::relayer::TEST_SKIP_COMMIT_OP;
 use crate::neon::{Counters, RunLoopCounter};
 use crate::operations::BurnchainOpSigner;
 use crate::run_loop::boot_nakamoto;
@@ -619,6 +618,21 @@ where
     while !check()? {
         if start.elapsed() > Duration::from_secs(timeout_secs) {
             error!("Timed out waiting for block to process, trying to continue test");
+            return Err("Timed out".into());
+        }
+        thread::sleep(Duration::from_millis(100));
+    }
+    Ok(())
+}
+
+pub fn wait_for<F>(timeout_secs: u64, mut check: F) -> Result<(), String>
+where
+    F: FnMut() -> Result<bool, String>,
+{
+    let start = Instant::now();
+    while !check()? {
+        if start.elapsed() > Duration::from_secs(timeout_secs) {
+            error!("Timed out waiting for check to process");
             return Err("Timed out".into());
         }
         thread::sleep(Duration::from_millis(100));
@@ -1630,6 +1644,10 @@ fn multiple_miners() {
 
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
     naka_conf.node.local_peer_seed = vec![1, 1, 1, 1];
+    naka_conf.miner.mining_key = Some(Secp256k1PrivateKey::from_seed(&[1]));
+
+    let node_2_rpc = 51026;
+    let node_2_p2p = 51025;
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
     naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
     let sender_sk = Secp256k1PrivateKey::new();
@@ -1654,7 +1672,11 @@ fn multiple_miners() {
     let stacker_sk = setup_stacker(&mut naka_conf);
 
     let mut conf_node_2 = naka_conf.clone();
-    set_random_binds(&mut conf_node_2);
+    let localhost = "127.0.0.1";
+    conf_node_2.node.rpc_bind = format!("{}:{}", localhost, node_2_rpc);
+    conf_node_2.node.p2p_bind = format!("{}:{}", localhost, node_2_p2p);
+    conf_node_2.node.data_url = format!("http://{}:{}", localhost, node_2_rpc);
+    conf_node_2.node.p2p_address = format!("{}:{}", localhost, node_2_p2p);
     conf_node_2.node.seed = vec![2, 2, 2, 2];
     conf_node_2.burnchain.local_mining_public_key = Some(
         Keychain::default(conf_node_2.node.seed.clone())
@@ -1663,6 +1685,8 @@ fn multiple_miners() {
     );
     conf_node_2.node.local_peer_seed = vec![2, 2, 2, 2];
     conf_node_2.node.miner = true;
+    conf_node_2.miner.mining_key = Some(Secp256k1PrivateKey::from_seed(&[2]));
+    conf_node_2.events_observers.clear();
 
     let node_1_sk = Secp256k1PrivateKey::from_seed(&naka_conf.node.local_peer_seed);
     let node_1_pk = StacksPublicKey::from_private(&node_1_sk);
@@ -1802,16 +1826,14 @@ fn multiple_miners() {
                 make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
             submit_tx(&http_origin, &transfer_tx);
 
-            loop {
+            wait_for(20, || {
                 let blocks_processed = coord_channel
                     .lock()
                     .expect("Mutex poisoned")
                     .get_stacks_blocks_processed();
-                if blocks_processed > blocks_processed_before {
-                    break;
-                }
-                thread::sleep(Duration::from_millis(100));
-            }
+                Ok(blocks_processed > blocks_processed_before)
+            })
+            .unwrap();
 
             let info = get_chain_info_result(&naka_conf).unwrap();
             assert_ne!(info.stacks_tip, last_tip);
@@ -1821,13 +1843,10 @@ fn multiple_miners() {
             last_tip_height = info.stacks_tip_height;
         }
 
-        let start_time = Instant::now();
-        while commits_submitted.load(Ordering::SeqCst) <= commits_before {
-            if start_time.elapsed() >= Duration::from_secs(20) {
-                panic!("Timed out waiting for block-commit");
-            }
-            thread::sleep(Duration::from_millis(100));
-        }
+        wait_for(20, || {
+            Ok(commits_submitted.load(Ordering::SeqCst) > commits_before)
+        })
+        .unwrap();
     }
 
     // load the chain tip, and assert that it is a nakamoto block and at least 30 blocks have advanced in epoch 3
@@ -3726,6 +3745,7 @@ fn forked_tenure_is_ignored() {
         naka_submitted_commits: commits_submitted,
         naka_proposed_blocks: proposals_submitted,
         naka_mined_blocks: mined_blocks,
+        naka_skip_commit_op: test_skip_commit_op,
         ..
     } = run_loop.counters();
 
@@ -3794,7 +3814,7 @@ fn forked_tenure_is_ignored() {
     info!("Commit op is submitted; unpause tenure B's block");
 
     // Unpause the broadcast of Tenure B's block, do not submit commits.
-    TEST_SKIP_COMMIT_OP.lock().unwrap().replace(true);
+    test_skip_commit_op.0.lock().unwrap().replace(true);
     TEST_BROADCAST_STALL.lock().unwrap().replace(false);
 
     // Wait for a stacks block to be broadcasted
@@ -3819,7 +3839,7 @@ fn forked_tenure_is_ignored() {
     let commits_before = commits_submitted.load(Ordering::SeqCst);
     let blocks_before = mined_blocks.load(Ordering::SeqCst);
     next_block_and(&mut btc_regtest_controller, 60, || {
-        TEST_SKIP_COMMIT_OP.lock().unwrap().replace(false);
+        test_skip_commit_op.0.lock().unwrap().replace(false);
         let commits_count = commits_submitted.load(Ordering::SeqCst);
         let blocks_count = mined_blocks.load(Ordering::SeqCst);
         Ok(commits_count > commits_before && blocks_count > blocks_before)
@@ -5493,6 +5513,7 @@ fn continue_tenure_extend() {
         blocks_processed,
         naka_submitted_commits: commits_submitted,
         naka_proposed_blocks: proposals_submitted,
+        naka_skip_commit_op: test_skip_commit_op,
         ..
     } = run_loop.counters();
 
@@ -5564,7 +5585,7 @@ fn continue_tenure_extend() {
     );
 
     info!("Pausing commit ops to trigger a tenure extend.");
-    TEST_SKIP_COMMIT_OP.lock().unwrap().replace(true);
+    test_skip_commit_op.0.lock().unwrap().replace(true);
 
     next_block_and(&mut btc_regtest_controller, 60, || Ok(true)).unwrap();
 
@@ -5619,7 +5640,7 @@ fn continue_tenure_extend() {
     );
 
     info!("Resuming commit ops to mine regular tenures.");
-    TEST_SKIP_COMMIT_OP.lock().unwrap().replace(false);
+    test_skip_commit_op.0.lock().unwrap().replace(false);
 
     // Mine 15 more regular nakamoto tenures
     for _i in 0..15 {
