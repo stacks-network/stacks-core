@@ -318,6 +318,7 @@ impl EventObserver {
         };
 
         let backoff = Duration::from_millis((1.0 * 1_000.0) as u64);
+        let connection_timeout = Duration::from_secs(5);
 
         loop {
             let body = body.clone();
@@ -326,19 +327,26 @@ impl EventObserver {
             req.set_body(body);
 
             let response = async_std::task::block_on(async {
-                let stream = match TcpStream::connect(self.endpoint.clone()).await {
-                    Ok(stream) => stream,
-                    Err(err) => {
+                match async_std::future::timeout(
+                    connection_timeout,
+                    TcpStream::connect(self.endpoint.clone()),
+                )
+                .await
+                {
+                    Ok(Ok(stream)) => match client::connect(stream, req).await {
+                        Ok(response) => Some(response),
+                        Err(err) => {
+                            warn!("Event dispatcher: rpc invocation failed  - {:?}", err);
+                            None
+                        }
+                    },
+                    Ok(Err(err)) => {
                         warn!("Event dispatcher: connection failed  - {:?}", err);
-                        return None;
+                        None
                     }
-                };
-
-                match client::connect(stream, req).await {
-                    Ok(response) => Some(response),
-                    Err(err) => {
-                        warn!("Event dispatcher: rpc invocation failed  - {:?}", err);
-                        return None;
+                    Err(_) => {
+                        error!("Event dispatcher: connection attempt timed out");
+                        None
                     }
                 }
             });
