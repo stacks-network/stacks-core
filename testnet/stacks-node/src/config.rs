@@ -1334,7 +1334,7 @@ impl Config {
     /// the poll time is dependent on the first attempt time.
     pub fn get_poll_time(&self) -> u64 {
         let poll_timeout = if self.node.miner {
-            cmp::min(5000, self.miner.first_attempt_time_ms / 2)
+            cmp::min(1000, self.miner.first_attempt_time_ms / 2)
         } else {
             5000
         };
