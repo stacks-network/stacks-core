@@ -31,7 +31,6 @@ use blockstack_lib::net::api::get_tenures_fork_info::{
     TenureForkingInfo, RPC_TENURE_FORKING_INFO_PATH,
 };
 use blockstack_lib::net::api::getaccount::AccountEntryResponse;
-use blockstack_lib::net::api::getinfo::RPCPeerInfoData;
 use blockstack_lib::net::api::getpoxinfo::RPCPoxInfoData;
 use blockstack_lib::net::api::getsortition::{SortitionInfo, RPC_SORTITION_INFO_PATH};
 use blockstack_lib::net::api::getstackers::GetStackersResponse;
@@ -43,6 +42,7 @@ use blockstack_lib::util_lib::boot::{boot_code_addr, boot_code_id};
 use clarity::util::hash::to_hex;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::{ClarityName, ContractName, Value as ClarityValue};
+use libsigner::v0::messages::PeerInfo;
 use reqwest::header::AUTHORIZATION;
 use serde_json::json;
 use slog::{slog_debug, slog_warn};
@@ -463,7 +463,7 @@ impl StacksClient {
     }
 
     /// Get the current peer info data from the stacks node
-    pub fn get_peer_info(&self) -> Result<RPCPeerInfoData, ClientError> {
+    pub fn get_peer_info(&self) -> Result<PeerInfo, ClientError> {
         debug!("Getting stacks node info...");
         let timer =
             crate::monitoring::new_rpc_call_timer(&self.core_info_path(), &self.http_origin);
@@ -478,7 +478,7 @@ impl StacksClient {
         if !response.status().is_success() {
             return Err(ClientError::RequestFailure(response.status()));
         }
-        let peer_info_data = response.json::<RPCPeerInfoData>()?;
+        let peer_info_data = response.json::<PeerInfo>()?;
         Ok(peer_info_data)
     }
 
@@ -1387,7 +1387,18 @@ mod tests {
         let (response, peer_info) = build_get_peer_info_response(None, None);
         let h = spawn(move || mock.client.get_peer_info());
         write_response(mock.server, response.as_bytes());
-        assert_eq!(h.join().unwrap().unwrap(), peer_info);
+        let reduced_peer_info = h.join().unwrap().unwrap();
+        assert_eq!(
+            reduced_peer_info.burn_block_height,
+            peer_info.burn_block_height
+        );
+        assert_eq!(reduced_peer_info.pox_consensus, peer_info.pox_consensus);
+        assert_eq!(
+            reduced_peer_info.stacks_tip_consensus_hash,
+            peer_info.stacks_tip_consensus_hash
+        );
+        assert_eq!(reduced_peer_info.stacks_tip, peer_info.stacks_tip);
+        assert_eq!(reduced_peer_info.server_version, peer_info.server_version);
     }
 
     #[test]

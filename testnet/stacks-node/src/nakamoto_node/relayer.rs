@@ -66,11 +66,6 @@ use crate::run_loop::nakamoto::{Globals, RunLoop};
 use crate::run_loop::RegisteredKey;
 use crate::BitcoinRegtestController;
 
-#[cfg(test)]
-lazy_static::lazy_static! {
-    pub static ref TEST_SKIP_COMMIT_OP: std::sync::Mutex<Option<bool>> = std::sync::Mutex::new(None);
-}
-
 /// Command types for the Nakamoto relayer thread, issued to it by other threads
 pub enum RelayerDirective {
     /// Handle some new data that arrived on the network (such as blocks, transactions, and
@@ -937,7 +932,15 @@ impl RelayerThread {
         let mut last_committed = self.make_block_commit(&tip_block_ch, &tip_block_bh)?;
         #[cfg(test)]
         {
-            if TEST_SKIP_COMMIT_OP.lock().unwrap().unwrap_or(false) {
+            if self
+                .globals
+                .counters
+                .naka_skip_commit_op
+                .0
+                .lock()
+                .unwrap()
+                .unwrap_or(false)
+            {
                 warn!("Relayer: not submitting block-commit to bitcoin network due to test directive.");
                 return Ok(());
             }
