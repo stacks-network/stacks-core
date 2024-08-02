@@ -639,9 +639,10 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
             self.replicas = replicas;
         }
         debug!(
-            "{:?}: connect_begin: establish StackerDB sessions to {} neighbors",
+            "{:?}: connect_begin: establish StackerDB sessions to {} neighbors (out of {} p2p peers)",
             network.get_local_peer(),
-            self.replicas.len()
+            self.replicas.len(),
+            network.get_num_p2p_convos()
         );
         if self.replicas.len() == 0 {
             // nothing to do
@@ -1227,8 +1228,11 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                     let done = self.connect_begin(network)?;
                     if done {
                         self.state = StackerDBSyncState::ConnectFinish;
-                        blocked = false;
+                    } else {
+                        // no replicas; try again
+                        self.state = StackerDBSyncState::Finished;
                     }
+                    blocked = false;
                 }
                 StackerDBSyncState::ConnectFinish => {
                     let done = self.connect_try_finish(network)?;
@@ -1276,6 +1280,11 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                         {
                             // someone pushed newer chunk data to us, and getting chunks is
                             // enabled, so immediately go request them
+                            debug!(
+                                "{:?}: immediately retry StackerDB GetChunks on {} due to PushChunk NACK",
+                                network.get_local_peer(),
+                                &self.smart_contract_id
+                            );
                             self.recalculate_chunk_request_schedule(network)?;
                             self.state = StackerDBSyncState::GetChunks;
                         } else {
