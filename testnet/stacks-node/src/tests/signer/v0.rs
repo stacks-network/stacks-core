@@ -175,9 +175,8 @@ impl SignerTest<SpawnedSigner> {
             .wrapping_add(reward_cycle_len)
             .wrapping_add(1);
 
-        let next_reward_cycle_boundary = epoch_25_reward_cycle_boundary
-            .wrapping_add(reward_cycle_len)
-            .saturating_sub(1);
+        let next_reward_cycle_boundary =
+            epoch_25_reward_cycle_boundary.wrapping_add(reward_cycle_len);
         run_until_burnchain_height(
             &mut self.running_nodes.btc_regtest_controller,
             &self.running_nodes.blocks_processed,
@@ -2146,7 +2145,6 @@ fn mock_sign_epoch_25() {
     info!("------------------------- Test Processing Epoch 2.5 Tenures -------------------------");
 
     // Mine until epoch 3.0 and ensure that no more mock signatures are received
-
     let mut reward_cycle = signer_test.get_current_reward_cycle();
     let mut stackerdb = StackerDB::new(
         &signer_test.running_nodes.conf.node.rpc_bind,
@@ -2163,19 +2161,33 @@ fn mock_sign_epoch_25() {
     assert_eq!(signer_slot_ids.len(), num_signers);
     // Mine until epoch 3.0 and ensure we get a new mock signature per epoch 2.5 sortition
     let main_poll_time = Instant::now();
-    let mut current_burn_block_height = signer_test
+    while signer_test
         .running_nodes
         .btc_regtest_controller
-        .get_headers_height();
-    while current_burn_block_height + 1 < epoch_3_start_height {
-        current_burn_block_height = signer_test
+        .get_headers_height()
+        < epoch_3_start_height
+    {
+        next_block_and(
+            &mut signer_test.running_nodes.btc_regtest_controller,
+            60,
+            || Ok(true),
+        )
+        .unwrap();
+        let current_burn_block_height = signer_test
             .running_nodes
             .btc_regtest_controller
             .get_headers_height();
-        let current_reward_cycle = signer_test.get_current_reward_cycle();
-        if current_reward_cycle != reward_cycle {
-            debug!("Rolling over reward cycle to {:?}", current_reward_cycle);
-            reward_cycle = current_reward_cycle;
+        if current_burn_block_height
+            % signer_test
+                .running_nodes
+                .conf
+                .get_burnchain()
+                .pox_constants
+                .reward_cycle_length as u64
+            == 0
+        {
+            reward_cycle += 1;
+            debug!("Rolling over reward cycle to {:?}", reward_cycle);
             stackerdb = StackerDB::new(
                 &signer_test.running_nodes.conf.node.rpc_bind,
                 StacksPrivateKey::new(), // We are just reading so don't care what the key is
@@ -2190,12 +2202,6 @@ fn mock_sign_epoch_25() {
                 .collect();
             assert_eq!(signer_slot_ids.len(), num_signers);
         }
-        next_block_and(
-            &mut signer_test.running_nodes.btc_regtest_controller,
-            60,
-            || Ok(true),
-        )
-        .unwrap();
         let mut mock_signatures = vec![];
         let mock_poll_time = Instant::now();
         debug!("Waiting for mock signatures for burn block height {current_burn_block_height}");
