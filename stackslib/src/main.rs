@@ -26,6 +26,7 @@ extern crate stacks_common;
 #[macro_use(o, slog_log, slog_trace, slog_debug, slog_info, slog_warn, slog_error)]
 extern crate slog;
 
+use regex::Regex;
 use stacks_common::types::MempoolCollectionBehavior;
 #[cfg(not(any(target_os = "macos", target_os = "windows", target_arch = "arm")))]
 use tikv_jemallocator::Jemalloc;
@@ -38,6 +39,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs::{File, OpenOptions};
 use std::io::prelude::*;
 use std::io::BufReader;
+use std::path::PathBuf;
 use std::time::Instant;
 use std::{env, fs, io, process, thread};
 
@@ -92,7 +94,7 @@ use stacks_common::util::hash::{hex_bytes, to_hex, Hash160};
 use stacks_common::util::retry::LogReader;
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 use stacks_common::util::vrf::VRFProof;
-use stacks_common::util::{get_epoch_time_ms, log, sleep_ms};
+use stacks_common::util::{deserialize_json_from_file, get_epoch_time_ms, log, sleep_ms};
 
 #[cfg_attr(test, mutants::skip)]
 fn main() {
@@ -1338,6 +1340,88 @@ simulating a miner.
             stacks_blocks_arrival_order.len()
         );
         return;
+    }
+    if argv[1] == "replay-mock-mining" {
+        let print_help_and_exit = || {
+            let n = &argv[0];
+            eprintln!("Usage:");
+            eprintln!("  {n} <mock-miner-output-dir>");
+            process::exit(1);
+        };
+
+        // Process CLI args
+        let dir = argv
+            .get(2)
+            .map(PathBuf::from)
+            .map(fs::canonicalize)
+            .transpose()
+            .unwrap_or_else(|e| panic!("Not a valid path: {e}"))
+            .unwrap_or_else(print_help_and_exit);
+
+        if !dir.is_dir() {
+            panic!("Not a valid directory: {dir:?}");
+        }
+
+        // Read entries in directory
+        let dir_entries = dir
+            .read_dir()
+            .unwrap_or_else(|e| panic!("Failed to read directory: {e}"))
+            .filter_map(|e| e.ok());
+
+        // Get filenames, filtering out anything that isn't a regular file
+        let filenames = dir_entries.filter_map(|e| match e.file_type() {
+            Ok(t) if t.is_file() => e.file_name().into_string().ok(),
+            _ => None,
+        });
+
+        // Get vec of (block_height, filename), to prepare for sorting
+        //
+        // NOTE: Trusting the filename is not ideal. We could sort on data read from the file,
+        // but that requires reading all files
+        let re = Regex::new(r"^([0-9]+\.json)$").unwrap();
+        let mut indexed_files = filenames
+            .filter_map(|filename| {
+                // Use regex to extract block number from filename
+                let Some(cap) = re.captures(&filename) else {
+                    return None;
+                };
+                let Some(m) = cap.get(0) else {
+                    return None;
+                };
+                let Ok(bh) = m.as_str().parse::<u64>() else {
+                    return None;
+                };
+                Some((bh, filename))
+            })
+            .collect::<Vec<_>>();
+
+        // Sort by block height
+        indexed_files.sort_by_key(|(bh, _)| *bh);
+
+        if indexed_files.is_empty() {
+            panic!("No block files found");
+        }
+
+        info!(
+            "Replaying {} blocks starting at {}",
+            indexed_files.len(),
+            indexed_files[0].0
+        );
+
+        for (bh, filename) in indexed_files {
+            let filepath = dir.join(filename);
+            info!("Replaying block from file";
+                "block_height" => bh,
+                "filepath" => ?filepath
+            );
+            // let block = AssembledAnchorBlock::deserialize_json_from_file(filepath)
+            //     .unwrap_or_else(|e| panic!("Error reading block {block} from file: {e}"));
+            // debug!("Replaying block from {filepath:?}";
+            //     "block_height" => bh,
+            //     "block" => %block
+            // );
+            // TODO: Actually replay block
+        }
     }
 
     if argv.len() < 4 {

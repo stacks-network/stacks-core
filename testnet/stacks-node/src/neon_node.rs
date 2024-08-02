@@ -140,14 +140,13 @@
 use std::cmp;
 use std::cmp::Ordering as CmpOrdering;
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
-use std::fs::{self, File};
-use std::io::{BufWriter, Read, Write};
+use std::io::{Read, Write};
 use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::mpsc::{Receiver, TrySendError};
 use std::thread::JoinHandle;
 use std::time::Duration;
-use std::{mem, thread};
+use std::{fs, mem, thread};
 
 use clarity::vm::ast::ASTRules;
 use clarity::vm::costs::ExecutionCost;
@@ -191,6 +190,7 @@ use stacks::net::stackerdb::{StackerDBConfig, StackerDBSync, StackerDBs};
 use stacks::net::{
     Error as NetError, NetworkResult, PeerNetworkComms, RPCHandlerArgs, ServiceFlags,
 };
+use stacks::util::{deserialize_json_from_file, serialize_json_to_file};
 use stacks::util_lib::strings::{UrlString, VecDisplay};
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{
@@ -239,7 +239,7 @@ pub(crate) enum MinerThreadResult {
 /// Fully-assembled Stacks anchored, block as well as some extra metadata pertaining to how it was
 /// linked to the burnchain and what view(s) the miner had of the burnchain before and after
 /// completing the block.
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct AssembledAnchorBlock {
     /// Consensus hash of the parent Stacks block
     parent_consensus_hash: ConsensusHash,
@@ -256,28 +256,7 @@ pub struct AssembledAnchorBlock {
     /// Epoch timestamp in milliseconds when we started producing the block.
     tenure_begin: u128,
 }
-
-/// Write any `serde_json` object to a file
-/// TODO: Move this somewhere else
-pub fn serialize_json_to_file<J, P>(json: &J, filepath: P) -> Result<(), std::io::Error>
-where
-    J: ?Sized + serde::Serialize,
-    P: AsRef<Path>,
-{
-    let file = File::create(filepath)?;
-    let mut writer = BufWriter::new(file);
-    serde_json::to_writer(&mut writer, json)?;
-    writer.flush()
-}
-
-impl AssembledAnchorBlock {
-    pub fn serialize_to_file<P>(&self, filepath: P) -> Result<(), std::io::Error>
-    where
-        P: AsRef<Path>,
-    {
-        serialize_json_to_file(self, filepath)
-    }
-}
+impl_file_io_serde_json!(AssembledAnchorBlock);
 
 /// Miner chain tip, on top of which to build microblocks
 #[derive(Debug, Clone, PartialEq)]
