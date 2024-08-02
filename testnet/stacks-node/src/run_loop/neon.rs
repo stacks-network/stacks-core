@@ -82,6 +82,17 @@ impl std::ops::Deref for RunLoopCounter {
     }
 }
 
+#[cfg(test)]
+#[derive(Clone)]
+pub struct TestFlag(pub Arc<std::sync::Mutex<Option<bool>>>);
+
+#[cfg(test)]
+impl Default for TestFlag {
+    fn default() -> Self {
+        Self(Arc::new(std::sync::Mutex::new(None)))
+    }
+}
+
 #[derive(Clone, Default)]
 pub struct Counters {
     pub blocks_processed: RunLoopCounter,
@@ -95,6 +106,9 @@ pub struct Counters {
     pub naka_mined_blocks: RunLoopCounter,
     pub naka_proposed_blocks: RunLoopCounter,
     pub naka_mined_tenures: RunLoopCounter,
+
+    #[cfg(test)]
+    pub naka_skip_commit_op: TestFlag,
 }
 
 impl Counters {
