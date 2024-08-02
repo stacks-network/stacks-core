@@ -325,6 +325,24 @@ impl<'a> NakamotoStagingBlocksConnRef<'a> {
         Ok(res)
     }
 
+    /// Get all Nakamoto blocks in a tenure that report being tenure-start blocks
+    /// (depending on signer behavior, there can be more than one; none are guaranteed to be
+    /// canonical).
+    ///
+    /// Used by the block downloader
+    pub fn get_nakamoto_tenure_start_blocks(
+        &self,
+        consensus_hash: &ConsensusHash,
+    ) -> Result<Vec<NakamotoBlock>, ChainstateError> {
+        let qry = "SELECT data FROM nakamoto_staging_blocks WHERE is_tenure_start = 1 AND consensus_hash = ?1";
+        let args = params![consensus_hash];
+        let block_data: Vec<Vec<u8>> = query_rows(self, qry, args)?;
+        Ok(block_data
+            .into_iter()
+            .filter_map(|block_vec| NakamotoBlock::consensus_deserialize(&mut &block_vec[..]).ok())
+            .collect())
+    }
+
     /// Find the next ready-to-process Nakamoto block, given a connection to the staging blocks DB.
     /// NOTE: the relevant field queried from `nakamoto_staging_blocks` are updated by a separate
     /// tx from block-processing, so it's imperative that the thread that calls this function is
