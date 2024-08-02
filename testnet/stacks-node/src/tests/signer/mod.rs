@@ -64,7 +64,8 @@ use crate::tests::nakamoto_integrations::{
     naka_neon_integration_conf, next_block_and_mine_commit, POX_4_DEFAULT_STACKER_BALANCE,
 };
 use crate::tests::neon_integrations::{
-    next_block_and_wait, run_until_burnchain_height, test_observer, wait_for_runloop,
+    get_chain_info, next_block_and_wait, run_until_burnchain_height, test_observer,
+    wait_for_runloop,
 };
 use crate::tests::to_addr;
 use crate::{BitcoinRegtestController, BurnchainController};
@@ -473,15 +474,15 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
     }
 
     fn get_current_reward_cycle(&self) -> u64 {
-        let block_height = self
+        let block_height = get_chain_info(&self.running_nodes.conf).burn_block_height;
+        let rc = self
             .running_nodes
-            .btc_regtest_controller
-            .get_headers_height();
-        self.running_nodes
             .btc_regtest_controller
             .get_burnchain()
             .block_height_to_reward_cycle(block_height)
-            .unwrap()
+            .unwrap();
+        info!("Get current reward cycle: block_height = {block_height}, rc = {rc}");
+        rc
     }
 
     fn get_signer_index(&self, reward_cycle: u64) -> SignerSlotID {

@@ -2136,8 +2136,8 @@ fn signer_set_rollover() {
     let current_signers = signer_test.get_reward_set_signers(new_reward_cycle);
     assert_eq!(current_signers.len(), new_num_signers as usize);
     for signer in current_signers.iter() {
-        assert!(signer_test_public_keys.contains(&signer.signing_key.to_vec()));
-        assert!(!new_signer_public_keys.contains(&signer.signing_key.to_vec()));
+        assert!(!signer_test_public_keys.contains(&signer.signing_key.to_vec()));
+        assert!(new_signer_public_keys.contains(&signer.signing_key.to_vec()));
     }
 
     info!("---- Mining a block to verify new signer set -----");
