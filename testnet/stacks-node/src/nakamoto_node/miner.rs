@@ -439,14 +439,22 @@ impl BlockMinerThread {
                 },
             )?;
 
+        let mut chain_state =
+            neon_node::open_chainstate_with_faults(&self.config).map_err(|e| {
+                NakamotoNodeError::SigningCoordinatorFailure(format!(
+                    "Failed to open chainstate DB. Cannot mine! {e:?}"
+                ))
+            })?;
+
         *attempts += 1;
-        let signature = coordinator.begin_sign_v0(
+        let signature = coordinator.run_sign_v0(
             new_block,
             burn_block_height,
             *attempts,
             &tip,
             &self.burnchain,
             &sort_db,
+            &mut chain_state,
             &stackerdbs,
             &self.globals.counters,
             &self.burn_election_block.consensus_hash,
