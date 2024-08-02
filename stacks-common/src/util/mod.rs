@@ -28,6 +28,9 @@ pub mod uint;
 pub mod vrf;
 
 use std::collections::HashMap;
+use std::fs::File;
+use std::io::{BufReader, BufWriter, Write};
+use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::{error, fmt, thread, time};
 
@@ -119,4 +122,27 @@ pub mod db_common {
         thread::sleep(time::Duration::from_millis(sleep_count));
         true
     }
+}
+
+/// Write any `serde_json` object directly to a file
+pub fn serialize_json_to_file<J, P>(json: &J, path: P) -> Result<(), std::io::Error>
+where
+    J: ?Sized + serde::Serialize,
+    P: AsRef<Path>,
+{
+    let file = File::create(path)?;
+    let mut writer = BufWriter::new(file);
+    serde_json::to_writer(&mut writer, json)?;
+    writer.flush()
+}
+
+/// Read any `serde_json` object directly from a file
+pub fn deserialize_json_from_file<J, P>(path: P) -> Result<J, std::io::Error>
+where
+    J: serde::de::DeserializeOwned,
+    P: AsRef<Path>,
+{
+    let file = File::open(path)?;
+    let reader = BufReader::new(file);
+    serde_json::from_reader::<_, J>(reader).map_err(std::io::Error::from)
 }
