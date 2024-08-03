@@ -125,9 +125,12 @@ impl InvGenerator {
         tip_block_id: &StacksBlockId,
         tenure_id_consensus_hash: &ConsensusHash,
     ) -> Result<Option<InvTenureInfo>, NetError> {
+        /*
+        TODO: marf'ed cache?
         if let Some(info_opt) = self.processed_tenures.get(&tenure_id_consensus_hash) {
             return Ok((*info_opt).clone());
         };
+        */
         // not cached so go load it
         let loaded_info_opt =
             InvTenureInfo::load(chainstate, tip_block_id, &tenure_id_consensus_hash)?;
