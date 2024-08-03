@@ -1829,6 +1829,8 @@ pub struct NodeConfig {
     pub use_test_genesis_chainstate: Option<bool>,
     pub always_use_affirmation_maps: bool,
     pub require_affirmed_anchor_blocks: bool,
+    /// Fault injection for failing to push blocks
+    pub fault_injection_block_push_fail_probability: Option<u8>,
     // fault injection for hiding blocks.
     // not part of the config file.
     pub fault_injection_hide_blocks: bool,
@@ -2115,6 +2117,7 @@ impl Default for NodeConfig {
             use_test_genesis_chainstate: None,
             always_use_affirmation_maps: false,
             require_affirmed_anchor_blocks: true,
+            fault_injection_block_push_fail_probability: None,
             fault_injection_hide_blocks: false,
             chain_liveness_poll_time_secs: 300,
             stacker_dbs: vec![],
@@ -2572,6 +2575,8 @@ pub struct NodeConfigFile {
     pub chain_liveness_poll_time_secs: Option<u64>,
     /// Stacker DBs we replicate
     pub stacker_dbs: Option<Vec<String>>,
+    /// fault injection: fail to push blocks with this probability (0-100)
+    pub fault_injection_block_push_fail_probability: Option<u8>,
 }
 
 impl NodeConfigFile {
@@ -2650,6 +2655,14 @@ impl NodeConfigFile {
                 .iter()
                 .filter_map(|contract_id| QualifiedContractIdentifier::parse(contract_id).ok())
                 .collect(),
+            fault_injection_block_push_fail_probability: if self
+                .fault_injection_block_push_fail_probability
+                .is_some()
+            {
+                self.fault_injection_block_push_fail_probability
+            } else {
+                default_node_config.fault_injection_block_push_fail_probability
+            },
         };
         Ok(node_config)
     }
