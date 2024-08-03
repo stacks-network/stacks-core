@@ -174,6 +174,8 @@ impl TenureStartEnd {
         let mut last_tenure_ch = None;
         debug!("Find available tenures in inventory {:?} rc {}", invs, rc);
         for (i, wt) in wanted_tenures.iter().enumerate() {
+            debug!("consider wanted tenure which starts with i={} {:?}", i, &wt);
+
             // advance to next tenure-start sortition
             let bit = u16::try_from(i).expect("FATAL: more sortitions than u16::MAX");
             if !invbits.get(bit).unwrap_or(false) {
