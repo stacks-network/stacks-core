@@ -25,6 +25,7 @@ use hashbrown::HashSet;
 use libsigner::v0::messages::{MinerSlotID, SignerMessage as SignerMessageV0};
 use libsigner::v1::messages::{MessageSlotID, SignerMessage as SignerMessageV1};
 use libsigner::StackerDBSession;
+use rand::{thread_rng, Rng};
 use stacks::burnchains::Burnchain;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::{BlockSnapshot, ConsensusHash};
@@ -619,8 +620,27 @@ impl BlockMinerThread {
             return Ok(());
         }
 
-        // forward to p2p thread
+        // forward to p2p thread, but do fault injection
         let block_id = block.block_id();
+        let drop_prob = self
+            .config
+            .node
+            .fault_injection_block_push_fail_probability
+            .unwrap_or(0)
+            .max(100);
+        let will_drop = if drop_prob > 0 {
+            let throw: u8 = thread_rng().gen_range(0..100);
+            throw < drop_prob
+        } else {
+            false
+        };
+
+        if will_drop {
+            info!("Fault injection: drop block {}", &block_id);
+            return Ok(());
+        }
+
+        debug!("Broadcasting block {}", &block_id);
         if let Err(e) = self.p2p_handle.broadcast_message(
             vec![],
             StacksMessageType::NakamotoBlocks(NakamotoBlocksData {
