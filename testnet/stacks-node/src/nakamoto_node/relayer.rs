@@ -66,11 +66,6 @@ use crate::run_loop::nakamoto::{Globals, RunLoop};
 use crate::run_loop::RegisteredKey;
 use crate::BitcoinRegtestController;
 
-#[cfg(test)]
-lazy_static::lazy_static! {
-    pub static ref TEST_SKIP_COMMIT_OP: std::sync::Mutex<Option<bool>> = std::sync::Mutex::new(None);
-}
-
 /// Command types for the Nakamoto relayer thread, issued to it by other threads
 pub enum RelayerDirective {
     /// Handle some new data that arrived on the network (such as blocks, transactions, and
@@ -412,7 +407,7 @@ impl RelayerThread {
         }
 
         let directive = if sn.sortition {
-            if won_sortition {
+            if won_sortition || self.config.get_node_config(false).mock_mining {
                 MinerDirective::BeginTenure {
                     parent_tenure_start: committed_index_hash,
                     burnchain_tip: sn,
@@ -794,7 +789,7 @@ impl RelayerThread {
 
     fn continue_tenure(&mut self, new_burn_view: ConsensusHash) -> Result<(), NakamotoNodeError> {
         if let Err(e) = self.stop_tenure() {
-            error!("Relayer: Failed to stop tenure: {:?}", e);
+            error!("Relayer: Failed to stop tenure: {e:?}");
             return Ok(());
         }
         debug!("Relayer: successfully stopped tenure.");
@@ -867,7 +862,7 @@ impl RelayerThread {
                 debug!("Relayer: successfully started new tenure.");
             }
             Err(e) => {
-                error!("Relayer: Failed to start new tenure: {:?}", e);
+                error!("Relayer: Failed to start new tenure: {e:?}");
             }
         }
         Ok(())
@@ -879,13 +874,11 @@ impl RelayerThread {
         burn_hash: BurnchainHeaderHash,
         committed_index_hash: StacksBlockId,
     ) -> bool {
-        let miner_instruction =
-            match self.process_sortition(consensus_hash, burn_hash, committed_index_hash) {
-                Ok(mi) => mi,
-                Err(_) => {
-                    return false;
-                }
-            };
+        let Ok(miner_instruction) =
+            self.process_sortition(consensus_hash, burn_hash, committed_index_hash)
+        else {
+            return false;
+        };
 
         match miner_instruction {
             MinerDirective::BeginTenure {
@@ -901,7 +894,7 @@ impl RelayerThread {
                     debug!("Relayer: successfully started new tenure.");
                 }
                 Err(e) => {
-                    error!("Relayer: Failed to start new tenure: {:?}", e);
+                    error!("Relayer: Failed to start new tenure: {e:?}");
                 }
             },
             MinerDirective::ContinueTenure { new_burn_view } => {
@@ -910,7 +903,7 @@ impl RelayerThread {
                         debug!("Relayer: successfully handled continue tenure.");
                     }
                     Err(e) => {
-                        error!("Relayer: Failed to continue tenure: {:?}", e);
+                        error!("Relayer: Failed to continue tenure: {e:?}");
                         return false;
                     }
                 }
@@ -920,7 +913,7 @@ impl RelayerThread {
                     debug!("Relayer: successfully stopped tenure.");
                 }
                 Err(e) => {
-                    error!("Relayer: Failed to stop tenure: {:?}", e);
+                    error!("Relayer: Failed to stop tenure: {e:?}");
                 }
             },
         }
@@ -937,7 +930,15 @@ impl RelayerThread {
         let mut last_committed = self.make_block_commit(&tip_block_ch, &tip_block_bh)?;
         #[cfg(test)]
         {
-            if TEST_SKIP_COMMIT_OP.lock().unwrap().unwrap_or(false) {
+            if self
+                .globals
+                .counters
+                .naka_skip_commit_op
+                .0
+                .lock()
+                .unwrap()
+                .unwrap_or(false)
+            {
                 warn!("Relayer: not submitting block-commit to bitcoin network due to test directive.");
                 return Ok(());
             }
