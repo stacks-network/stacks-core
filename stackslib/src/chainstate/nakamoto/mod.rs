@@ -270,6 +270,10 @@ lazy_static! {
     ];
 }
 
+// Cause an artifical stall in block-processing, for testing.
+#[cfg(any(test, feature = "testing"))]
+pub static TEST_PROCESS_BLOCK_STALL: std::sync::Mutex<Option<bool>> = std::sync::Mutex::new(None);
+
 /// Trait for common MARF getters between StacksDBConn and StacksDBTx
 pub trait StacksDBIndexed {
     fn get(&mut self, tip: &StacksBlockId, key: &str) -> Result<Option<String>, DBError>;
@@ -1722,6 +1726,17 @@ impl NakamotoChainState {
         canonical_sortition_tip: &SortitionId,
         dispatcher_opt: Option<&'a T>,
     ) -> Result<Option<StacksEpochReceipt>, ChainstateError> {
+        #[cfg(any(test, feature = "testing"))]
+        {
+            if *TEST_PROCESS_BLOCK_STALL.lock().unwrap() == Some(true) {
+                // Do an extra check just so we don't log EVERY time.
+                warn!("Block processing is stalled due to testing directive.");
+                while *TEST_PROCESS_BLOCK_STALL.lock().unwrap() == Some(true) {
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                }
+                info!("Block processing is no longer stalled due to testing directive.");
+            }
+        }
         let nakamoto_blocks_db = stacks_chain_state.nakamoto_blocks_db();
         let Some((next_ready_block, block_size)) =
             nakamoto_blocks_db.next_ready_nakamoto_block(stacks_chain_state.db())?

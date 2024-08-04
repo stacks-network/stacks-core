@@ -48,6 +48,7 @@ use crate::chainstate::nakamoto::tests::get_account;
 use crate::chainstate::nakamoto::tests::node::TestStacker;
 use crate::chainstate::nakamoto::{
     NakamotoBlock, NakamotoBlockObtainMethod, NakamotoChainState, NakamotoStagingBlocksConnRef,
+    TEST_PROCESS_BLOCK_STALL,
 };
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::pox_4_tests::{get_stacking_minimum, get_tip};
@@ -2495,6 +2496,7 @@ fn process_next_nakamoto_block_deadlock() {
     info!("Creating peer");
 
     let mut peer = boot_plan.boot_into_nakamoto_peer(vec![], None);
+    let mut sortition_db = peer.sortdb().reopen().unwrap();
     let (chainstate, _) = &mut peer
         .stacks_node
         .as_mut()
@@ -2503,19 +2505,25 @@ fn process_next_nakamoto_block_deadlock() {
         .reopen()
         .unwrap();
 
-    // Lock the sortdb
-    info!("  -------------------------------   TRYING TO LOCK THE SORTDB");
-    let mut sortition_db = peer.sortdb().reopen().unwrap();
-    let sort_tx = sortition_db.tx_begin().unwrap();
-    info!("  -------------------------------   SORTDB LOCKED");
+    TEST_PROCESS_BLOCK_STALL.lock().unwrap().replace(true);
 
     let miner_thread = std::thread::spawn(move || {
         info!("  -------------------------------   MINING TENURE");
         let (block, burn_height, ..) =
             peer.single_block_tenure(&private_key, |_| {}, |_| {}, |_| true);
-        peer.try_process_block(&block).unwrap();
         info!("  -------------------------------   TENURE MINED");
     });
+
+    // Wait a bit, to ensure the miner has reached the stall
+    std::thread::sleep(std::time::Duration::from_secs(10));
+
+    // Lock the sortdb
+    info!("  -------------------------------   TRYING TO LOCK THE SORTDB");
+    let sort_tx = sortition_db.tx_begin().unwrap();
+    info!("  -------------------------------   SORTDB LOCKED");
+
+    // Un-stall the block processing
+    TEST_PROCESS_BLOCK_STALL.lock().unwrap().replace(false);
 
     // Wait a bit, to ensure the tenure will have grabbed any locks it needs
     std::thread::sleep(std::time::Duration::from_secs(10));
