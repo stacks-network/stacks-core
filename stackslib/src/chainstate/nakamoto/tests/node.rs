@@ -737,7 +737,7 @@ impl TestStacksNode {
             let reward_set = load_nakamoto_reward_set(
                 miner
                     .burnchain
-                    .pox_reward_cycle(sort_tip_sn.block_height)
+                    .block_height_to_reward_cycle(sort_tip_sn.block_height)
                     .expect("FATAL: no reward cycle for sortition"),
                 &sort_tip_sn.sortition_id,
                 &miner.burnchain,

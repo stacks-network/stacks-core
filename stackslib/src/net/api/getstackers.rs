@@ -60,7 +60,6 @@ impl GetStackersResponse {
         cycle_number: u64,
     ) -> Result<Self, String> {
         let cycle_start_height = burnchain.reward_cycle_to_block_height(cycle_number);
-
         let pox_contract_name = burnchain
             .pox_constants
             .active_pox_contract(cycle_start_height);
@@ -75,8 +74,8 @@ impl GetStackersResponse {
 
         let provider = OnChainRewardSetProvider::new();
         let stacker_set = provider.read_reward_set_nakamoto(
-            cycle_start_height,
             chainstate,
+            cycle_number,
             burnchain,
             sortdb,
             tip,
