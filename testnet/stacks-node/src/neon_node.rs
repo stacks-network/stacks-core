@@ -818,7 +818,7 @@ impl MicroblockMinerThread {
                 &mined_microblock.block_hash()
             );
 
-            #[cfg(any(test, feature = "testing"))]
+            #[cfg(test)]
             {
                 use std::path::Path;
                 if let Ok(path) = std::env::var("STACKS_BAD_BLOCKS_DIR") {
@@ -1773,7 +1773,7 @@ impl BlockMinerThread {
     ///
     /// In testing, we ignore the parent stacks block hash because we don't have an easy way to
     /// reproduce it in integration tests.
-    #[cfg(not(any(test, feature = "testing")))]
+    #[cfg(not(test))]
     fn make_microblock_private_key(
         &mut self,
         parent_stacks_hash: &StacksBlockId,
@@ -1786,7 +1786,7 @@ impl BlockMinerThread {
 
     /// Get the microblock private key we'll be using for this tenure, should we win.
     /// Return the private key on success
-    #[cfg(any(test, feature = "testing"))]
+    #[cfg(test)]
     fn make_microblock_private_key(
         &mut self,
         _parent_stacks_hash: &StacksBlockId,

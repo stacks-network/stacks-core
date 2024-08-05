@@ -510,7 +510,7 @@ pub fn read_and_sign_block_proposal(
 
     let reward_set = load_nakamoto_reward_set(
         burnchain
-            .pox_reward_cycle(tip.block_height.saturating_add(1))
+            .block_height_to_reward_cycle(tip.block_height)
             .unwrap(),
         &tip.sortition_id,
         &burnchain,

@@ -715,10 +715,11 @@ impl PeerNetwork {
     ) -> bool {
         let Some(rc_data) = self.current_reward_sets.get(&reward_cycle) else {
             info!(
-                "{:?}: Failed to validate Nakamoto block {}/{}: no reward set",
+                "{:?}: Failed to validate Nakamoto block {}/{}: no reward set for cycle {}",
                 self.get_local_peer(),
                 &nakamoto_block.header.consensus_hash,
-                &nakamoto_block.header.block_hash()
+                &nakamoto_block.header.block_hash(),
+                reward_cycle,
             );
             return false;
         };
@@ -733,7 +734,7 @@ impl PeerNetwork {
 
         if let Err(e) = nakamoto_block.header.verify_signer_signatures(reward_set) {
             info!(
-                "{:?}: signature verification failrue for Nakamoto block {}/{} in reward cycle {}: {:?}", self.get_local_peer(), &nakamoto_block.header.consensus_hash, &nakamoto_block.header.block_hash(), reward_cycle, &e
+                "{:?}: signature verification failure for Nakamoto block {}/{} in reward cycle {}: {:?}", self.get_local_peer(), &nakamoto_block.header.consensus_hash, &nakamoto_block.header.block_hash(), reward_cycle, &e
             );
             return false;
         }
@@ -788,7 +789,7 @@ impl PeerNetwork {
 
         let reward_set_sn_rc = self
             .burnchain
-            .pox_reward_cycle(reward_set_sn.block_height)
+            .block_height_to_reward_cycle(reward_set_sn.block_height)
             .expect("FATAL: sortition has no reward cycle");
 
         return (Some(reward_set_sn_rc), can_process);
