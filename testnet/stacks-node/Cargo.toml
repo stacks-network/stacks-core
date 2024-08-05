@@ -63,3 +63,4 @@ monitoring_prom = ["stacks/monitoring_prom", "libsigner/monitoring_prom", "stack
 slog_json = ["stacks/slog_json", "stacks-common/slog_json", "clarity/slog_json"]
 prod-genesis-chainstate = []
 default = []
+testing = []
