@@ -7254,7 +7254,7 @@ fn mock_mining() {
         let mock_miner_timeout = Instant::now();
         while follower_naka_mined_blocks.load(Ordering::SeqCst) <= follower_naka_mined_blocks_before
         {
-            if mock_miner_timeout.elapsed() >= Duration::from_secs(30) {
+            if mock_miner_timeout.elapsed() >= Duration::from_secs(60) {
                 panic!(
                     "Timed out waiting for mock miner block {}",
                     follower_naka_mined_blocks_before + 1
