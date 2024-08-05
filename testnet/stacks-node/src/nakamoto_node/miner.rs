@@ -357,14 +357,6 @@ impl BlockMinerThread {
             .block_height_to_reward_cycle(burn_election_height)
             .expect("FATAL: no reward cycle for sortition");
 
-        #[cfg(test)]
-        {
-            info!(
-                "---- Fetching reward info at height {} for cycle {} ----",
-                burn_election_height, reward_cycle
-            );
-        }
-
         let reward_info = match load_nakamoto_reward_set(
             reward_cycle,
             &self.burn_election_block.sortition_id,
@@ -392,14 +384,6 @@ impl BlockMinerThread {
                 "Current reward cycle did not select a reward set. Cannot mine!".into(),
             ));
         };
-
-        #[cfg(test)]
-        {
-            info!(
-                "---- New reward set has {} signers ----",
-                reward_set.clone().signers.unwrap_or(vec![]).len(),
-            );
-        }
 
         self.signer_set_cache = Some(reward_set.clone());
         Ok(reward_set)

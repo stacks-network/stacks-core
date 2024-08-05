@@ -2080,6 +2080,7 @@ fn empty_sortition() {
                 assert!(matches!(reason_code, RejectCode::SortitionViewMismatch));
                 found_rejection = true;
             } else {
+                error!("Unexpected message type: {:?}", message);
                 panic!("Unexpected message type");
             }
         }

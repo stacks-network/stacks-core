@@ -642,13 +642,6 @@ impl SignCoordinator {
         counters: &Counters,
         election_sortition: &ConsensusHash,
     ) -> Result<Vec<MessageSignature>, NakamotoNodeError> {
-        #[cfg(test)]
-        {
-            info!(
-                "---- Sign coordinator starting. Burn tip height: {} ----",
-                burn_tip.block_height
-            );
-        }
         let sign_id = Self::get_sign_id(burn_tip.block_height, burnchain);
         let sign_iter_id = block_attempt;
         let reward_cycle_id = burnchain
@@ -742,7 +735,7 @@ impl SignCoordinator {
                 continue;
             };
             if signer_set != u32::try_from(reward_cycle_id % 2).unwrap() {
-                info!("Received signer event for other reward cycle. Ignoring.");
+                debug!("Received signer event for other reward cycle. Ignoring.");
                 continue;
             };
             let slot_ids = modified_slots
