@@ -266,6 +266,7 @@ impl PeerThread {
                 cost_estimator: Some(cost_estimator.as_ref()),
                 cost_metric: Some(cost_metric.as_ref()),
                 fee_estimator: fee_estimator.map(|boxed_estimator| boxed_estimator.as_ref()),
+                coord_comms: Some(&self.globals.coord_comms),
                 ..RPCHandlerArgs::default()
             };
             self.net.run(
