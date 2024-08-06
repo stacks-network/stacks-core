@@ -39,6 +39,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs::{File, OpenOptions};
 use std::io::prelude::*;
 use std::io::BufReader;
+use std::path::PathBuf;
 use std::time::Instant;
 use std::{env, fs, io, process, thread};
 
@@ -1341,6 +1342,11 @@ simulating a miner.
         return;
     }
 
+    if argv[1] == "replay-mock-mining" {
+        replay_mock_mining(argv);
+        process::exit(0);
+    }
+
     if argv.len() < 4 {
         eprintln!("Usage: {} blockchain network working_dir", argv[0]);
         process::exit(1);
@@ -1976,4 +1982,88 @@ fn analyze_sortition_mev(argv: Vec<String>) {
     }
 
     process::exit(0);
+}
+
+fn replay_mock_mining(argv: Vec<String>) {
+    let print_help_and_exit = || -> ! {
+        let n = &argv[0];
+        eprintln!("Usage:");
+        eprintln!("  {n} <mock-miner-output-dir>");
+        process::exit(1);
+    };
+
+    // Process CLI args
+    let chainstate_path = argv
+        .get(2)
+        .unwrap_or_else(|| print_help_and_exit());
+
+    let blocks_path = argv
+        .get(3)
+        .map(PathBuf::from)
+        .map(fs::canonicalize)
+        .transpose()
+        .unwrap_or_else(|e| panic!("Not a valid path: {e}"))
+        .unwrap_or_else(|| print_help_and_exit());
+
+    // Validate directory path
+    if !blocks_path.is_dir() {
+        panic!("{blocks_path:?} is not a valid directory");
+    }
+
+    // Read entries in directory
+    let dir_entries = blocks_path
+        .read_dir()
+        .unwrap_or_else(|e| panic!("Failed to read {blocks_path:?}: {e}"))
+        .filter_map(|e| e.ok());
+
+    // Get filenames, filtering out anything that isn't a regular file
+    let filenames = dir_entries.filter_map(|e| match e.file_type() {
+        Ok(t) if t.is_file() => e.file_name().into_string().ok(),
+        _ => None,
+    });
+
+    // Get vec of (block_height, filename), to prepare for sorting
+    //
+    // NOTE: Trusting the filename is not ideal. We could sort on data read from the file,
+    // but that requires reading all files
+    let re = Regex::new(r"^([0-9]+\.json)$").unwrap();
+    let mut indexed_files = filenames
+        .filter_map(|filename| {
+            // Use regex to extract block number from filename
+            let Some(cap) = re.captures(&filename) else {
+                return None;
+            };
+            let Some(m) = cap.get(0) else {
+                return None;
+            };
+            let Ok(bh) = m.as_str().parse::<u64>() else {
+                return None;
+            };
+            Some((bh, filename))
+        })
+        .collect::<Vec<_>>();
+
+    // Sort by block height
+    indexed_files.sort_by_key(|(bh, _)| *bh);
+
+    if indexed_files.is_empty() {
+        panic!("No block files found");
+    }
+
+    info!(
+        "Replaying {} blocks starting at {}",
+        indexed_files.len(),
+        indexed_files[0].0
+    );
+
+    for (bh, filename) in indexed_files {
+        let filepath = blocks_path.join(filename);
+        // let block = AssembledAnchorBlock::deserialize_from_file(&filepath)
+        //     .unwrap_or_else(|e| panic!("Error reading block {bh} from file: {e}"));
+        debug!("Replaying block from {filepath:?}";
+            "block_height" => bh,
+            "block" => ?block
+        );
+        // TODO: Actually replay block
+    }
 }
