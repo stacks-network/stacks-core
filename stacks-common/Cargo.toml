@@ -76,7 +76,6 @@ developer-mode = []
 slog_json = ["slog-json"]
 testing = ["canonical"]
 serde = []
-clippy = []
 bech32_std = []
 bech32_strict = []
 
