@@ -47,7 +47,8 @@ use crate::chainstate::nakamoto::test_signers::TestSigners;
 use crate::chainstate::nakamoto::tests::get_account;
 use crate::chainstate::nakamoto::tests::node::TestStacker;
 use crate::chainstate::nakamoto::{
-    NakamotoBlock, NakamotoBlockObtainMethod, NakamotoChainState, NakamotoStagingBlocksConnRef,
+    disable_process_block_stall, enable_process_block_stall, NakamotoBlock,
+    NakamotoBlockObtainMethod, NakamotoChainState, NakamotoStagingBlocksConnRef,
     TEST_PROCESS_BLOCK_STALL,
 };
 use crate::chainstate::stacks::address::PoxAddress;
@@ -2505,7 +2506,7 @@ fn process_next_nakamoto_block_deadlock() {
         .reopen()
         .unwrap();
 
-    TEST_PROCESS_BLOCK_STALL.lock().unwrap().replace(true);
+    enable_process_block_stall();
 
     let miner_thread = std::thread::spawn(move || {
         info!("  -------------------------------   MINING TENURE");
@@ -2523,7 +2524,7 @@ fn process_next_nakamoto_block_deadlock() {
     info!("  -------------------------------   SORTDB LOCKED");
 
     // Un-stall the block processing
-    TEST_PROCESS_BLOCK_STALL.lock().unwrap().replace(false);
+    disable_process_block_stall();
 
     // Wait a bit, to ensure the tenure will have grabbed any locks it needs
     std::thread::sleep(std::time::Duration::from_secs(10));
