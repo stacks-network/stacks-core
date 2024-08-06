@@ -308,8 +308,20 @@ impl BlockMinerThread {
                 ) {
                     Ok(x) => x,
                     Err(e) => {
-                        error!("Error while gathering signatures: {e:?}. Will try mining again.");
-                        continue;
+                        match e {
+                            NakamotoNodeError::StacksTipChanged => {
+                                info!("Stacks tip changed while waiting for signatures");
+                                return Err(e);
+                            }
+                            NakamotoNodeError::BurnchainTipChanged => {
+                                info!("Burnchain tip changed while waiting for signatures");
+                                return Err(e);
+                            }
+                            _ => {
+                                error!("Error while gathering signatures: {e:?}. Will try mining again.");
+                                continue;
+                            }
+                        }
                     }
                 };
 
@@ -661,7 +673,7 @@ impl BlockMinerThread {
             .node
             .fault_injection_block_push_fail_probability
             .unwrap_or(0)
-            .max(100);
+            .min(100);
         let will_drop = if drop_prob > 0 {
             let throw: u8 = thread_rng().gen_range(0..100);
             throw < drop_prob
