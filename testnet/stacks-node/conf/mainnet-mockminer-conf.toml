@@ -10,4 +10,4 @@ prometheus_bind = "0.0.0.0:9153"
 [burnchain]
 chain = "bitcoin"
 mode = "mainnet"
-peer_host = "bitcoin.hiro.so"
+peer_host = "127.0.0.1"
