@@ -76,6 +76,10 @@ pub enum Error {
     SnapshotNotFoundForChainTip,
     /// The burnchain tip changed while this operation was in progress
     BurnchainTipChanged,
+    /// The Stacks tip changed while this operation was in progress
+    StacksTipChanged,
+    /// Signers rejected a block
+    SignersRejected,
     /// Error while spawning a subordinate thread
     SpawnError(std::io::Error),
     /// Injected testing errors
