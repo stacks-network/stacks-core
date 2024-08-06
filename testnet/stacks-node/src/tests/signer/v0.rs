@@ -2054,35 +2054,38 @@ fn empty_sortition() {
         .collect();
     assert_eq!(signer_slot_ids.len(), num_signers);
 
-    // The miner's proposed block should get rejected by the signers
-    let start_polling = Instant::now();
-    let mut found_rejection = false;
-    while !found_rejection {
-        std::thread::sleep(Duration::from_secs(1));
-        let messages: Vec<SignerMessage> = StackerDB::get_messages(
-            stackerdb
-                .get_session_mut(&MessageSlotID::BlockResponse)
-                .expect("Failed to get BlockResponse stackerdb session"),
-            &signer_slot_ids,
-        )
-        .expect("Failed to get message from stackerdb");
-        for message in messages {
+    // The miner's proposed block should get rejected by all the signers
+    let mut found_rejections = Vec::new();
+    wait_for(short_timeout.as_secs(), || {
+        for slot_id in signer_slot_ids.iter() {
+            if found_rejections.contains(slot_id) {
+                continue;
+            }
+            let mut latest_msgs = StackerDB::get_messages(
+                stackerdb
+                    .get_session_mut(&MessageSlotID::BlockResponse)
+                    .expect("Failed to get BlockResponse stackerdb session"),
+                &[*slot_id]
+            ).expect("Failed to get message from stackerdb");
+            assert!(latest_msgs.len() <= 1);
+            let Some(latest_msg) = latest_msgs.pop() else {
+                info!("No message yet from slot #{slot_id}, will wait to try again");
+                continue;
+            };
             if let SignerMessage::BlockResponse(BlockResponse::Rejected(BlockRejection {
                 reason_code,
                 ..
-            })) = message
+            })) = latest_msg
             {
                 assert!(matches!(reason_code, RejectCode::SortitionViewMismatch));
-                found_rejection = true;
+                found_rejections.push(*slot_id);
             } else {
-                panic!("Unexpected message type");
+                info!("Latest message from slot #{slot_id} isn't a block rejection, will wait to see if the signer updates to a rejection");
             }
         }
-        assert!(
-            start_polling.elapsed() <= short_timeout,
-            "Timed out after waiting for response from signer"
-        );
-    }
+        // wait until we've found rejections for all the signers
+        Ok(found_rejections.len() == signer_slot_ids.len())
+    }).unwrap();
     signer_test.shutdown();
 }
 
