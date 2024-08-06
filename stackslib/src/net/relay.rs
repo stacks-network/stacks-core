@@ -805,9 +805,10 @@ impl Relayer {
         obtained_method: NakamotoBlockObtainMethod,
     ) -> Result<bool, chainstate_error> {
         debug!(
-            "Handle incoming Nakamoto block {}/{}",
+            "Handle incoming Nakamoto block {}/{} obtained via {}",
             &block.header.consensus_hash,
-            &block.header.block_hash()
+            &block.header.block_hash(),
+            &obtained_method,
         );
 
         // do we have this block?  don't lock the DB needlessly if so.
