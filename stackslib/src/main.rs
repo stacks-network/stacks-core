@@ -1701,7 +1701,8 @@ fn replay_block(stacks_path: &str, index_block_hash_hex: &str) {
     // block's parent to this block.
     let next_microblocks = StacksChainState::extract_connecting_microblocks(
         &parent_header_info,
-        &next_staging_block,
+        &next_staging_block.consensus_hash,
+        &next_staging_block.anchored_block_hash,
         &block,
         next_microblocks,
     )

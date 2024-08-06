@@ -5997,13 +5997,14 @@ impl StacksChainState {
     /// the given block.
     pub fn extract_connecting_microblocks(
         parent_block_header_info: &StacksHeaderInfo,
-        next_staging_block: &StagingBlock,
+        next_block_consensus_hash: &ConsensusHash,
+        next_block_hash: &BlockHeaderHash,
         block: &StacksBlock,
         mut next_microblocks: Vec<StacksMicroblock>,
     ) -> Result<Vec<StacksMicroblock>, Error> {
         // NOTE: since we got the microblocks from staging, where their signatures were already
         // validated, we don't need to validate them again.
-        let microblock_terminus = match StacksChainState::validate_parent_microblock_stream(
+        let Some((microblock_terminus, _)) = StacksChainState::validate_parent_microblock_stream(
             parent_block_header_info
                 .anchored_header
                 .as_stacks_epoch2()
@@ -6011,15 +6012,11 @@ impl StacksChainState {
             &block.header,
             &next_microblocks,
             false,
-        ) {
-            Some((terminus, _)) => terminus,
-            None => {
-                debug!(
-                    "Stopping at block {}/{} -- discontiguous header stream",
-                    next_staging_block.consensus_hash, next_staging_block.anchored_block_hash,
-                );
-                return Ok(vec![]);
-            }
+        ) else {
+            debug!(
+                "Stopping at block {next_block_consensus_hash}/{next_block_hash} -- discontiguous header stream"
+            );
+            return Ok(vec![]);
         };
 
         // do not consider trailing microblocks that this anchored block does _not_ confirm
@@ -6214,7 +6211,8 @@ impl StacksChainState {
         // block's parent to this block.
         let next_microblocks = StacksChainState::extract_connecting_microblocks(
             &parent_header_info,
-            &next_staging_block,
+            &parent_header_info.consensus_hash,
+            &next_staging_block.anchored_block_hash,
             &block,
             next_microblocks,
         )?;
