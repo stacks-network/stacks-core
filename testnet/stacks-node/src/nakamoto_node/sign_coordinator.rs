@@ -71,6 +71,7 @@ pub struct SignCoordinator {
     signing_round_timeout: Duration,
     signer_entries: HashMap<u32, NakamotoSignerEntry>,
     weight_threshold: u32,
+    total_weight: u32,
     pub next_signer_bitvec: BitVec<4000>,
 }
 
@@ -300,6 +301,7 @@ impl SignCoordinator {
                     next_signer_bitvec,
                     signer_entries: signer_public_keys,
                     weight_threshold: threshold,
+                    total_weight,
                 };
                 return Ok(sign_coordinator);
             }
@@ -321,6 +323,7 @@ impl SignCoordinator {
             next_signer_bitvec,
             signer_entries: signer_public_keys,
             weight_threshold: threshold,
+            total_weight,
         })
     }
 
@@ -409,6 +412,7 @@ impl SignCoordinator {
     }
 
     #[cfg_attr(test, mutants::skip)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn begin_sign_v1(
         &mut self,
         block: &NakamotoBlock,
@@ -703,6 +707,7 @@ impl SignCoordinator {
         };
 
         let mut total_weight_signed: u32 = 0;
+        let mut total_reject_weight: u32 = 0;
         let mut gathered_signatures = BTreeMap::new();
 
         info!("SignCoordinator: beginning to watch for block signatures OR posted blocks.";
@@ -726,9 +731,10 @@ impl SignCoordinator {
                     ))
                 }
             };
+
             // look in the nakamoto staging db -- a block can only get stored there if it has
             // enough signing weight to clear the threshold
-            if let Ok(Some((block, _sz))) = chain_state
+            if let Ok(Some((stored_block, _sz))) = chain_state
                 .nakamoto_blocks_db()
                 .get_nakamoto_block(&block.block_id())
                 .map_err(|e| {
@@ -741,7 +747,7 @@ impl SignCoordinator {
                 })
             {
                 debug!("SignCoordinator: Found signatures in relayed block");
-                return Ok(block.header.signer_signature);
+                return Ok(stored_block.header.signer_signature);
             }
 
             // we don't have the block we ostensibly mined, but perhaps the tenure has advanced
@@ -759,13 +765,20 @@ impl SignCoordinator {
                         NakamotoNodeError::SignerSignatureError(msg)
                     })?;
 
-            if canonical_stacks_header.anchored_header.height() > block.header.chain_length {
+            debug!(
+                "run_sign_v0: our canonical tip is currently {}/{}",
+                &canonical_stacks_header.consensus_hash,
+                &canonical_stacks_header.anchored_header.block_hash()
+            );
+            if canonical_stacks_header.anchored_header.height() >= block.header.chain_length
+                && canonical_stacks_header.index_block_hash() != block.header.block_id()
+            {
                 info!(
-                    "SignCoordinator: our block {} is superseded by block {}",
+                    "SignCoordinator: our block {} is superceded by block {}",
                     block.header.block_id(),
                     canonical_stacks_header.index_block_hash()
                 );
-                break;
+                return Err(NakamotoNodeError::StacksTipChanged);
             }
 
             // check to see if this event we got is a signer event
@@ -809,8 +822,40 @@ impl SignCoordinator {
                         response_hash,
                         signature,
                     ))) => (response_hash, signature),
-                    SignerMessageV0::BlockResponse(BlockResponse::Rejected(_)) => {
-                        debug!("Received rejected block response. Ignoring.");
+                    SignerMessageV0::BlockResponse(BlockResponse::Rejected(rejected_data)) => {
+                        let Some(signer_entry) = &self.signer_entries.get(&slot_id) else {
+                            return Err(NakamotoNodeError::SignerSignatureError(
+                                "Signer entry not found".into(),
+                            ));
+                        };
+                        if rejected_data.signer_signature_hash
+                            == block.header.signer_signature_hash()
+                        {
+                            debug!(
+                                "Signer {} rejected our block {}/{}",
+                                slot_id,
+                                &block.header.consensus_hash,
+                                &block.header.block_hash()
+                            );
+                            total_reject_weight = total_reject_weight
+                                .checked_add(signer_entry.weight)
+                                .expect("FATAL: total weight rejected exceeds u32::MAX");
+
+                            if total_reject_weight.saturating_add(self.weight_threshold)
+                                > self.total_weight
+                            {
+                                debug!(
+                                    "{}/{} signers vote to reject our block {}/{}",
+                                    total_reject_weight,
+                                    self.total_weight,
+                                    &block.header.consensus_hash,
+                                    &block.header.block_hash()
+                                );
+                                return Err(NakamotoNodeError::SignersRejected);
+                            }
+                        } else {
+                            debug!("Received rejected block response for a block besides my own. Ignoring.");
+                        }
                         continue;
                     }
                     SignerMessageV0::BlockProposal(_) => {
