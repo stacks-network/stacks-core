@@ -142,7 +142,6 @@ use std::cmp::Ordering as CmpOrdering;
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::io::{Read, Write};
 use std::net::SocketAddr;
-use std::path::Path;
 use std::sync::mpsc::{Receiver, TrySendError};
 use std::thread::JoinHandle;
 use std::time::Duration;
@@ -190,7 +189,6 @@ use stacks::net::stackerdb::{StackerDBConfig, StackerDBSync, StackerDBs};
 use stacks::net::{
     Error as NetError, NetworkResult, PeerNetworkComms, RPCHandlerArgs, ServiceFlags,
 };
-use stacks::util::{deserialize_json_from_file, serialize_json_to_file};
 use stacks::util_lib::strings::{UrlString, VecDisplay};
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{
