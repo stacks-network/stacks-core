@@ -416,8 +416,30 @@ impl RelayerThread {
                 MinerDirective::StopTenure
             }
         } else {
-            MinerDirective::ContinueTenure {
-                new_burn_view: consensus_hash,
+            let ih = self.sortdb.index_handle(&sn.sortition_id);
+            let parent_sn = ih.get_last_snapshot_with_sortition(sn.block_height).expect(
+                "FATAL: failed to query sortition DB for last snapshot with non-empty tenure",
+            );
+
+            let parent_epoch =
+                SortitionDB::get_stacks_epoch(self.sortdb.conn(), parent_sn.block_height)
+                    .expect("FATAL: failed to query sortiiton DB for epoch")
+                    .expect("FATAL: no epoch defined for existing sortition");
+
+            let cur_epoch = SortitionDB::get_stacks_epoch(self.sortdb.conn(), sn.block_height)
+                .expect("FATAL: failed to query sortition DB for epoch")
+                .expect("FATAL: no epoch defined for existing sortition");
+
+            if parent_epoch.epoch_id != cur_epoch.epoch_id {
+                // this is the first-ever sortition, so definitely mine
+                MinerDirective::BeginTenure {
+                    parent_tenure_start: committed_index_hash,
+                    burnchain_tip: sn,
+                }
+            } else {
+                MinerDirective::ContinueTenure {
+                    new_burn_view: consensus_hash,
+                }
             }
         };
         Ok(directive)
@@ -748,7 +770,10 @@ impl RelayerThread {
         )?;
 
         let new_miner_handle = std::thread::Builder::new()
-            .name(format!("miner.{parent_tenure_start}"))
+            .name(format!(
+                "miner.{parent_tenure_start} (bound ({},{})",
+                &self.config.node.p2p_bind, &self.config.node.rpc_bind
+            ))
             .stack_size(BLOCK_PROCESSOR_STACK_SIZE)
             .spawn(move || new_miner_state.run_miner(prior_tenure_thread))
             .map_err(|e| {
