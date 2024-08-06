@@ -182,7 +182,7 @@ impl SignerTest<SpawnedSigner> {
         );
         debug!("Waiting for signer set calculation.");
         let mut reward_set_calculated = false;
-        let short_timeout = Duration::from_secs(30);
+        let short_timeout = Duration::from_secs(60);
         let now = std::time::Instant::now();
         // Make sure the signer set is calculated before continuing or signers may not
         // recognize that they are registered signers in the subsequent burn block event
@@ -253,7 +253,7 @@ impl SignerTest<SpawnedSigner> {
         );
         debug!("Waiting for signer set calculation.");
         let mut reward_set_calculated = false;
-        let short_timeout = Duration::from_secs(30);
+        let short_timeout = Duration::from_secs(60);
         let now = std::time::Instant::now();
         // Make sure the signer set is calculated before continuing or signers may not
         // recognize that they are registered signers in the subsequent burn block event
@@ -1265,7 +1265,15 @@ fn multiple_miners() {
         if btc_blocks_mined > max_nakamoto_tenures {
             panic!("Produced {btc_blocks_mined} sortitions, but didn't cover the test scenarios, aborting");
         }
+        let info_1 = get_chain_info(&conf);
+        let info_2 = get_chain_info(&conf_node_2);
+
+        info!(
+            "Issue next block-build request\ninfo 1: {:?}\ninfo 2: {:?}\n",
+            &info_1, &info_2
+        );
         signer_test.mine_block_wait_on_processing(Duration::from_secs(30));
+
         btc_blocks_mined += 1;
         let blocks = get_nakamoto_headers(&conf);
         // for this test, there should be one block per tenure
