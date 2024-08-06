@@ -96,6 +96,8 @@ use crate::util_lib::boot::boot_code_tx_auth;
 use crate::util_lib::db::{DBConn, Error as db_error};
 use crate::util_lib::strings::UrlString;
 
+use crate::chainstate::coordinator::comm::CoordinatorChannels;
+
 /// Implements RPC API
 pub mod api;
 /// Implements `ASEntry4` object, which is used in db.rs to store the AS number of an IP address.
@@ -631,6 +633,8 @@ pub struct RPCHandlerArgs<'a> {
     pub fee_estimator: Option<&'a dyn FeeEstimator>,
     /// tx runtime cost metric
     pub cost_metric: Option<&'a dyn CostMetric>,
+    /// coordinator channels
+    pub coord_comms: Option<&'a CoordinatorChannels>
 }
 
 impl<'a> RPCHandlerArgs<'a> {
