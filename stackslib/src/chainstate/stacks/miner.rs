@@ -66,6 +66,28 @@ use crate::monitoring::{
 use crate::net::relay::Relayer;
 use crate::net::Error as net_error;
 
+/// Fully-assembled Stacks anchored, block as well as some extra metadata pertaining to how it was
+/// linked to the burnchain and what view(s) the miner had of the burnchain before and after
+/// completing the block.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AssembledAnchorBlock {
+    /// Consensus hash of the parent Stacks block
+    pub parent_consensus_hash: ConsensusHash,
+    /// Burnchain tip's block hash when we finished mining
+    pub my_burn_hash: BurnchainHeaderHash,
+    /// Burnchain tip's block height when we finished mining
+    pub my_block_height: u64,
+    /// Burnchain tip's block hash when we started mining (could be different)
+    pub orig_burn_hash: BurnchainHeaderHash,
+    /// The block we produced
+    pub anchored_block: StacksBlock,
+    /// The attempt count of this block (multiple blocks will be attempted per burnchain block)
+    pub attempt: u64,
+    /// Epoch timestamp in milliseconds when we started producing the block.
+    pub tenure_begin: u128,
+}
+impl_file_io_serde_json!(AssembledAnchorBlock);
+
 /// System status for mining.
 /// The miner can be Ready, in which case a miner is allowed to run
 /// The miner can be Blocked, in which case the miner *should not start* and/or *should terminate*

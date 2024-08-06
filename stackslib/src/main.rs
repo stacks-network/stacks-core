@@ -1988,14 +1988,12 @@ fn replay_mock_mining(argv: Vec<String>) {
     let print_help_and_exit = || -> ! {
         let n = &argv[0];
         eprintln!("Usage:");
-        eprintln!("  {n} <mock-miner-output-dir>");
+        eprintln!("  {n} <chainstate-path> <mock-miner-output-path>");
         process::exit(1);
     };
 
     // Process CLI args
-    let chainstate_path = argv
-        .get(2)
-        .unwrap_or_else(|| print_help_and_exit());
+    let chainstate_path = argv.get(2).unwrap_or_else(|| print_help_and_exit());
 
     let blocks_path = argv
         .get(3)
@@ -2058,8 +2056,8 @@ fn replay_mock_mining(argv: Vec<String>) {
 
     for (bh, filename) in indexed_files {
         let filepath = blocks_path.join(filename);
-        // let block = AssembledAnchorBlock::deserialize_from_file(&filepath)
-        //     .unwrap_or_else(|e| panic!("Error reading block {bh} from file: {e}"));
+        let block = AssembledAnchorBlock::deserialize_from_file(&filepath)
+            .unwrap_or_else(|e| panic!("Error reading block {bh} from file: {e}"));
         debug!("Replaying block from {filepath:?}";
             "block_height" => bh,
             "block" => ?block

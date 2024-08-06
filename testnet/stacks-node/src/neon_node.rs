@@ -167,7 +167,8 @@ use stacks::chainstate::stacks::address::PoxAddress;
 use stacks::chainstate::stacks::db::blocks::StagingBlock;
 use stacks::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo, MINER_REWARD_MATURITY};
 use stacks::chainstate::stacks::miner::{
-    signal_mining_blocked, signal_mining_ready, BlockBuilderSettings, StacksMicroblockBuilder,
+    signal_mining_blocked, signal_mining_ready, AssembledAnchorBlock, BlockBuilderSettings,
+    StacksMicroblockBuilder,
 };
 use stacks::chainstate::stacks::{
     CoinbasePayload, Error as ChainstateError, StacksBlock, StacksBlockBuilder, StacksBlockHeader,
@@ -233,28 +234,6 @@ pub(crate) enum MinerThreadResult {
         MinerTip,
     ),
 }
-
-/// Fully-assembled Stacks anchored, block as well as some extra metadata pertaining to how it was
-/// linked to the burnchain and what view(s) the miner had of the burnchain before and after
-/// completing the block.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AssembledAnchorBlock {
-    /// Consensus hash of the parent Stacks block
-    parent_consensus_hash: ConsensusHash,
-    /// Burnchain tip's block hash when we finished mining
-    my_burn_hash: BurnchainHeaderHash,
-    /// Burnchain tip's block height when we finished mining
-    my_block_height: u64,
-    /// Burnchain tip's block hash when we started mining (could be different)
-    orig_burn_hash: BurnchainHeaderHash,
-    /// The block we produced
-    anchored_block: StacksBlock,
-    /// The attempt count of this block (multiple blocks will be attempted per burnchain block)
-    attempt: u64,
-    /// Epoch timestamp in milliseconds when we started producing the block.
-    tenure_begin: u128,
-}
-impl_file_io_serde_json!(AssembledAnchorBlock);
 
 /// Miner chain tip, on top of which to build microblocks
 #[derive(Debug, Clone, PartialEq)]
