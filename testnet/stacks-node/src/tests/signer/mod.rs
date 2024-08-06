@@ -220,6 +220,8 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         for port in 3000..3000 + self.spawned_signers.len() {
             let endpoint = format!("http://localhost:{}", port);
             let path = format!("{endpoint}/status");
+
+            debug!("Issue status request to {}", &path);
             let client = reqwest::blocking::Client::new();
             let response = client
                 .get(path)
@@ -231,7 +233,10 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
 
     /// Wait for the signers to respond to a status check
     pub fn wait_for_states(&mut self, timeout: Duration) -> Vec<StateInfo> {
-        debug!("Waiting for Status...");
+        debug!(
+            "Waiting for Status from {} signers...",
+            self.spawned_signers.len()
+        );
         let now = std::time::Instant::now();
         let mut states = Vec::with_capacity(self.spawned_signers.len());
         for signer in self.spawned_signers.iter() {
@@ -251,6 +256,11 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
                             panic!("Recieved an operation result.");
                         }
                         SignerResult::StatusCheck(state_info) => {
+                            debug!(
+                                "wait_for_states: got {}-th status, {:?}",
+                                states.len(),
+                                &state_info
+                            );
                             states.push(state_info);
                         }
                     }
