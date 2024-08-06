@@ -64,6 +64,7 @@ use crate::burnchains::affirmation::AffirmationMap;
 use crate::burnchains::{Error as burnchain_error, Txid};
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::{ConsensusHash, Opcodes};
+use crate::chainstate::coordinator::comm::CoordinatorChannels;
 use crate::chainstate::coordinator::Error as coordinator_error;
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use crate::chainstate::stacks::boot::{
@@ -95,8 +96,6 @@ use crate::util_lib::bloom::{BloomFilter, BloomNodeHasher};
 use crate::util_lib::boot::boot_code_tx_auth;
 use crate::util_lib::db::{DBConn, Error as db_error};
 use crate::util_lib::strings::UrlString;
-
-use crate::chainstate::coordinator::comm::CoordinatorChannels;
 
 /// Implements RPC API
 pub mod api;
@@ -634,7 +633,7 @@ pub struct RPCHandlerArgs<'a> {
     /// tx runtime cost metric
     pub cost_metric: Option<&'a dyn CostMetric>,
     /// coordinator channels
-    pub coord_comms: Option<&'a CoordinatorChannels>
+    pub coord_comms: Option<&'a CoordinatorChannels>,
 }
 
 impl<'a> RPCHandlerArgs<'a> {

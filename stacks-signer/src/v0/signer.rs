@@ -676,7 +676,10 @@ impl Signer {
         let mut block = block_info.block;
         block.header.signer_signature = signatures;
 
-        debug!("{self}: Broadcasting Stacks block {} to node", &block.block_id());
+        debug!(
+            "{self}: Broadcasting Stacks block {} to node",
+            &block.block_id()
+        );
         let broadcasted = stacks_client
             .post_block(&block)
             .map_err(|e| {
