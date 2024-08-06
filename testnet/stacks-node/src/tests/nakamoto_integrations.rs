@@ -105,7 +105,7 @@ use crate::tests::neon_integrations::{
 };
 use crate::tests::{
     get_chain_info, make_contract_publish, make_contract_publish_versioned, make_stacks_transfer,
-    set_random_binds, to_addr,
+    to_addr,
 };
 use crate::{tests, BitcoinRegtestController, BurnchainController, Config, ConfigFile, Keychain};
 

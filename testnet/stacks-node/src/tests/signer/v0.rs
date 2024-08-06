@@ -2393,7 +2393,7 @@ fn signer_set_rollover() {
     let short_timeout = Duration::from_secs(20);
 
     // Verify that naka_conf has our new signer's event observers
-    for toml in new_signer_configs.clone() {
+    for toml in &new_signer_configs {
         let signer_config = SignerConfig::load_from_str(&toml).unwrap();
         let endpoint = format!("{}", signer_config.endpoint);
         assert!(signer_test

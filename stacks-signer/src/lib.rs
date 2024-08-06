@@ -147,7 +147,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SpawnedSigner
             cmd_send,
             res_recv,
             _phantom: std::marker::PhantomData,
-            config: config.clone(),
+            config,
         }
     }
 }
