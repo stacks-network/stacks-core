@@ -164,7 +164,7 @@ impl SignerTrait<SignerMessage> for Signer {
         stacks_client: &StacksClient,
         _sortition_state: &mut Option<SortitionsView>,
         event: Option<&SignerEvent<SignerMessage>>,
-        res: Sender<Vec<SignerResult>>,
+        res: &Sender<Vec<SignerResult>>,
         current_reward_cycle: u64,
     ) {
         let event_parity = match event {
@@ -182,13 +182,13 @@ impl SignerTrait<SignerMessage> for Signer {
             return;
         }
         if self.approved_aggregate_public_key.is_none() {
-            if let Err(e) = self.refresh_dkg(stacks_client, res.clone(), current_reward_cycle) {
+            if let Err(e) = self.refresh_dkg(stacks_client, res, current_reward_cycle) {
                 error!("{self}: failed to refresh DKG: {e}");
             }
         }
         self.refresh_coordinator();
         if self.approved_aggregate_public_key.is_none() {
-            if let Err(e) = self.refresh_dkg(stacks_client, res.clone(), current_reward_cycle) {
+            if let Err(e) = self.refresh_dkg(stacks_client, res, current_reward_cycle) {
                 error!("{self}: failed to refresh DKG: {e}");
             }
         }
@@ -366,7 +366,7 @@ impl Signer {
     pub fn read_dkg_stackerdb_messages(
         &mut self,
         stacks_client: &StacksClient,
-        res: Sender<Vec<SignerResult>>,
+        res: &Sender<Vec<SignerResult>>,
         current_reward_cycle: u64,
     ) -> Result<(), ClientError> {
         if self.state != State::Uninitialized {
@@ -626,7 +626,7 @@ impl Signer {
         &mut self,
         stacks_client: &StacksClient,
         block_validate_response: &BlockValidateResponse,
-        res: Sender<Vec<SignerResult>>,
+        res: &Sender<Vec<SignerResult>>,
         current_reward_cycle: u64,
     ) {
         let mut block_info = match block_validate_response {
@@ -718,7 +718,7 @@ impl Signer {
     fn handle_signer_messages(
         &mut self,
         stacks_client: &StacksClient,
-        res: Sender<Vec<SignerResult>>,
+        res: &Sender<Vec<SignerResult>>,
         messages: &[SignerMessage],
         current_reward_cycle: u64,
     ) {
@@ -761,7 +761,7 @@ impl Signer {
     fn handle_packets(
         &mut self,
         stacks_client: &StacksClient,
-        res: Sender<Vec<SignerResult>>,
+        res: &Sender<Vec<SignerResult>>,
         packets: &[Packet],
         current_reward_cycle: u64,
     ) {
@@ -1435,7 +1435,7 @@ impl Signer {
     /// Send any operation results across the provided channel
     fn send_operation_results(
         &mut self,
-        res: Sender<Vec<SignerResult>>,
+        res: &Sender<Vec<SignerResult>>,
         operation_results: Vec<OperationResult>,
     ) {
         let nmb_results = operation_results.len();
@@ -1469,7 +1469,7 @@ impl Signer {
     pub fn refresh_dkg(
         &mut self,
         stacks_client: &StacksClient,
-        res: Sender<Vec<SignerResult>>,
+        res: &Sender<Vec<SignerResult>>,
         current_reward_cycle: u64,
     ) -> Result<(), ClientError> {
         // First attempt to retrieve the aggregate key from the contract.

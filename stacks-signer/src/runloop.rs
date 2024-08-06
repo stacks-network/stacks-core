@@ -419,7 +419,7 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug>
         &mut self,
         event: Option<SignerEvent<T>>,
         cmd: Option<RunLoopCommand>,
-        res: Sender<Vec<SignerResult>>,
+        res: &Sender<Vec<SignerResult>>,
     ) -> Option<Vec<SignerResult>> {
         debug!(
             "Running one pass for the signer. state={:?}, cmd={cmd:?}, event={event:?}",
@@ -452,7 +452,7 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug>
                 &self.stacks_client,
                 &mut self.sortition_state,
                 event.as_ref(),
-                res.clone(),
+                res,
                 current_reward_cycle,
             );
             // After processing event, run the next command for each signer

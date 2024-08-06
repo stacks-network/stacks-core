@@ -92,7 +92,7 @@ impl SignerTrait<SignerMessage> for Signer {
         stacks_client: &StacksClient,
         sortition_state: &mut Option<SortitionsView>,
         event: Option<&SignerEvent<SignerMessage>>,
-        _res: Sender<Vec<SignerResult>>,
+        _res: &Sender<Vec<SignerResult>>,
         current_reward_cycle: u64,
     ) {
         let event_parity = match event {
@@ -676,6 +676,7 @@ impl Signer {
         let mut block = block_info.block;
         block.header.signer_signature = signatures;
 
+        debug!("{self}: Broadcasting Stacks block {} to node", &block.block_id());
         let broadcasted = stacks_client
             .post_block(&block)
             .map_err(|e| {

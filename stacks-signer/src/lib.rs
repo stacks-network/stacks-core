@@ -71,7 +71,7 @@ pub trait Signer<T: SignerEventTrait>: Debug + Display {
         stacks_client: &StacksClient,
         sortition_state: &mut Option<SortitionsView>,
         event: Option<&SignerEvent<T>>,
-        res: Sender<Vec<SignerResult>>,
+        res: &Sender<Vec<SignerResult>>,
         current_reward_cycle: u64,
     );
     /// Process a command
