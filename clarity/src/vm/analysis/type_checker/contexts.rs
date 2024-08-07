@@ -86,6 +86,25 @@ impl TypeMap {
         }
     }
 
+    /// Like set_type but forcing a change if already set
+    pub fn override_type(&mut self, expr: &SymbolicExpression, type_sig: TypeSignature) {
+        match self.map {
+            TypeMapDataType::Map(ref mut map) => {
+                map.insert(expr.id, type_sig);
+            }
+            TypeMapDataType::Set(ref mut map) => {
+                map.insert(expr.id);
+            }
+        }
+    }
+
+    pub fn get_type(&self, expr: &SymbolicExpression) -> Option<&TypeSignature> {
+        match self.map {
+            TypeMapDataType::Map(ref map) => map.get(&expr.id),
+            _ => None,
+        }
+    }
+
     pub fn get_type_expected(&self, expr: &SymbolicExpression) -> Option<&TypeSignature> {
         match self.map {
             TypeMapDataType::Map(ref map) => map.get(&expr.id),
