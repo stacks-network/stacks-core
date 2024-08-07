@@ -15,14 +15,13 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::collections::HashMap;
 use std::sync::atomic::AtomicU64;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::database::BurnStateDB;
 use clarity::vm::events::STXEventType;
 use clarity::vm::types::PrincipalData;
 use clarity::vm::{ClarityName, ClarityVersion, ContractName, Value};
-use lazy_static::lazy_static;
 use rand::RngCore;
 use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::stacks::db::StacksChainState;
@@ -86,18 +85,18 @@ pub const SK_3: &'static str = "cb95ddd0fe18ec57f4f3533b95ae564b3f1ae063dbf75b46
 
 pub const ADDR_4: &'static str = "ST31DA6FTSJX2WGTZ69SFY11BH51NZMB0ZZ239N96";
 
-lazy_static! {
-    pub static ref PUBLISH_CONTRACT: Vec<u8> = make_contract_publish(
+pub static PUBLISH_CONTRACT: LazyLock<Vec<u8>> = LazyLock::new(|| {
+    make_contract_publish(
         &StacksPrivateKey::from_hex(
-            "043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3"
+            "043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3",
         )
         .unwrap(),
         0,
         10,
         "store",
-        STORE_CONTRACT
-    );
-}
+        STORE_CONTRACT,
+    )
+});
 
 pub fn serialize_sign_sponsored_sig_tx_anchor_mode_version(
     payload: TransactionPayload,

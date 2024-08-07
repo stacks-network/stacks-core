@@ -15,10 +15,10 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::BTreeMap;
+use std::sync::LazyLock;
 use std::{cmp, fmt};
 
 use hashbrown::HashMap;
-use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use stacks_common::types::StacksEpochId;
 
@@ -50,21 +50,19 @@ pub const COSTS_1_NAME: &'static str = "costs";
 pub const COSTS_2_NAME: &'static str = "costs-2";
 pub const COSTS_3_NAME: &'static str = "costs-3";
 
-lazy_static! {
-    static ref COST_TUPLE_TYPE_SIGNATURE: TypeSignature = {
-        #[allow(clippy::expect_used)]
-        TypeSignature::TupleType(
-            TupleTypeSignature::try_from(vec![
-                ("runtime".into(), TypeSignature::UIntType),
-                ("write_length".into(), TypeSignature::UIntType),
-                ("write_count".into(), TypeSignature::UIntType),
-                ("read_count".into(), TypeSignature::UIntType),
-                ("read_length".into(), TypeSignature::UIntType),
-            ])
-            .expect("BUG: failed to construct type signature for cost tuple"),
-        )
-    };
-}
+static COST_TUPLE_TYPE_SIGNATURE: LazyLock<TypeSignature> = LazyLock::new(|| {
+    #[allow(clippy::expect_used)]
+    TypeSignature::TupleType(
+        TupleTypeSignature::try_from(vec![
+            ("runtime".into(), TypeSignature::UIntType),
+            ("write_length".into(), TypeSignature::UIntType),
+            ("write_count".into(), TypeSignature::UIntType),
+            ("read_count".into(), TypeSignature::UIntType),
+            ("read_length".into(), TypeSignature::UIntType),
+        ])
+        .expect("BUG: failed to construct type signature for cost tuple"),
+    )
+});
 
 pub fn runtime_cost<T: TryInto<u64>, C: CostTracker>(
     cost_function: ClarityCostFunction,

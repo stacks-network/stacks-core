@@ -16,6 +16,7 @@
 
 use std::cmp;
 use std::collections::BTreeMap;
+use std::sync::LazyLock;
 
 use clarity::vm::analysis::CheckErrors;
 use clarity::vm::ast::ASTRules;
@@ -35,7 +36,6 @@ use clarity::vm::types::{
     TypeSignature, Value,
 };
 use clarity::vm::{ClarityVersion, Environment, SymbolicExpression};
-use lazy_static::lazy_static;
 use serde::Deserialize;
 use stacks_common::address::AddressHashMode;
 use stacks_common::codec::StacksMessageCodec;
@@ -108,38 +108,52 @@ pub const MINERS_NAME: &'static str = "miners";
 
 pub mod docs;
 
-lazy_static! {
-    pub static ref BOOT_CODE_POX_MAINNET: String =
-        format!("{}\n{}", BOOT_CODE_POX_MAINNET_CONSTS, BOOT_CODE_POX_BODY);
-    pub static ref BOOT_CODE_POX_TESTNET: String =
-        format!("{}\n{}", BOOT_CODE_POX_TESTNET_CONSTS, BOOT_CODE_POX_BODY);
-    pub static ref POX_2_MAINNET_CODE: String =
-        format!("{}\n{}", BOOT_CODE_POX_MAINNET_CONSTS, POX_2_BODY);
-    pub static ref POX_2_TESTNET_CODE: String =
-        format!("{}\n{}", BOOT_CODE_POX_TESTNET_CONSTS, POX_2_BODY);
-    pub static ref POX_3_MAINNET_CODE: String =
-        format!("{}\n{}", BOOT_CODE_POX_MAINNET_CONSTS, POX_3_BODY);
-    pub static ref POX_3_TESTNET_CODE: String =
-        format!("{}\n{}", BOOT_CODE_POX_TESTNET_CONSTS, POX_3_BODY);
-    pub static ref POX_4_CODE: String = POX_4_BODY.to_string();
-    pub static ref BOOT_CODE_COST_VOTING_TESTNET: String = make_testnet_cost_voting();
-    pub static ref STACKS_BOOT_CODE_MAINNET: [(&'static str, &'static str); 6] = [
-        ("pox", &BOOT_CODE_POX_MAINNET),
-        ("lockup", BOOT_CODE_LOCKUP),
-        ("costs", BOOT_CODE_COSTS),
-        ("cost-voting", BOOT_CODE_COST_VOTING_MAINNET),
-        ("bns", &BOOT_CODE_BNS),
-        ("genesis", &BOOT_CODE_GENESIS),
-    ];
-    pub static ref STACKS_BOOT_CODE_TESTNET: [(&'static str, &'static str); 6] = [
-        ("pox", &BOOT_CODE_POX_TESTNET),
-        ("lockup", BOOT_CODE_LOCKUP),
-        ("costs", BOOT_CODE_COSTS),
-        ("cost-voting", &BOOT_CODE_COST_VOTING_TESTNET),
-        ("bns", &BOOT_CODE_BNS),
-        ("genesis", &BOOT_CODE_GENESIS),
-    ];
-}
+pub static BOOT_CODE_POX_MAINNET: LazyLock<String> =
+    LazyLock::new(|| format!("{}\n{}", BOOT_CODE_POX_MAINNET_CONSTS, BOOT_CODE_POX_BODY));
+
+pub static BOOT_CODE_POX_TESTNET: LazyLock<String> =
+    LazyLock::new(|| format!("{}\n{}", BOOT_CODE_POX_TESTNET_CONSTS, BOOT_CODE_POX_BODY));
+
+pub static POX_2_MAINNET_CODE: LazyLock<String> =
+    LazyLock::new(|| format!("{}\n{}", BOOT_CODE_POX_MAINNET_CONSTS, POX_2_BODY));
+
+pub static POX_2_TESTNET_CODE: LazyLock<String> =
+    LazyLock::new(|| format!("{}\n{}", BOOT_CODE_POX_TESTNET_CONSTS, POX_2_BODY));
+
+pub static POX_3_MAINNET_CODE: LazyLock<String> =
+    LazyLock::new(|| format!("{}\n{}", BOOT_CODE_POX_MAINNET_CONSTS, POX_3_BODY));
+
+pub static POX_3_TESTNET_CODE: LazyLock<String> =
+    LazyLock::new(|| format!("{}\n{}", BOOT_CODE_POX_TESTNET_CONSTS, POX_3_BODY));
+
+pub static POX_4_CODE: LazyLock<String> = LazyLock::new(|| POX_4_BODY.to_string());
+
+pub static BOOT_CODE_COST_VOTING_TESTNET: LazyLock<String> =
+    LazyLock::new(|| make_testnet_cost_voting());
+
+pub static STACKS_BOOT_CODE_MAINNET: LazyLock<[(&'static str, &'static str); 6]> =
+    LazyLock::new(|| {
+        [
+            ("pox", &BOOT_CODE_POX_MAINNET),
+            ("lockup", BOOT_CODE_LOCKUP),
+            ("costs", BOOT_CODE_COSTS),
+            ("cost-voting", BOOT_CODE_COST_VOTING_MAINNET),
+            ("bns", &BOOT_CODE_BNS),
+            ("genesis", &BOOT_CODE_GENESIS),
+        ]
+    });
+
+pub static STACKS_BOOT_CODE_TESTNET: LazyLock<[(&'static str, &'static str); 6]> =
+    LazyLock::new(|| {
+        [
+            ("pox", &BOOT_CODE_POX_TESTNET),
+            ("lockup", BOOT_CODE_LOCKUP),
+            ("costs", BOOT_CODE_COSTS),
+            ("cost-voting", &BOOT_CODE_COST_VOTING_TESTNET),
+            ("bns", &BOOT_CODE_BNS),
+            ("genesis", &BOOT_CODE_GENESIS),
+        ]
+    });
 
 fn make_testnet_cost_voting() -> String {
     BOOT_CODE_COST_VOTING_MAINNET

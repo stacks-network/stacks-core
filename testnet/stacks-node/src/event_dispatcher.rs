@@ -86,7 +86,7 @@ pub static STACKER_DB_CHANNEL: StackerDBChannel = StackerDBChannel::new();
 
 /// This struct receives StackerDB event callbacks without registering
 /// over the JSON/RPC interface. To ensure that any event observer
-/// uses the same channel, we use a lazy_static global for the channel (this
+/// uses the same channel, we use a LazyLock global for the channel (this
 /// implements a singleton using STACKER_DB_CHANNEL).
 ///
 /// This is in place because a Nakamoto miner needs to receive

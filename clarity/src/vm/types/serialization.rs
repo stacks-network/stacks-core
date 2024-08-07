@@ -15,10 +15,10 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::io::{Read, Write};
+use std::sync::LazyLock;
 use std::{cmp, error, fmt, str};
 
 use hashbrown::HashMap;
-use lazy_static::lazy_static;
 use serde_json::Value as JSONValue;
 use stacks_common::codec::{Error as codec_error, StacksMessageCodec};
 use stacks_common::types::StacksEpochId;
@@ -56,12 +56,10 @@ pub enum SerializationError {
     SerializationError(String),
 }
 
-lazy_static! {
-    pub static ref NONE_SERIALIZATION_LEN: u64 = {
-        #[allow(clippy::unwrap_used)]
-        u64::try_from(Value::none().serialize_to_vec().unwrap().len()).unwrap()
-    };
-}
+pub static NONE_SERIALIZATION_LEN: LazyLock<u64> = LazyLock::new(|| {
+    #[allow(clippy::unwrap_used)]
+    u64::try_from(Value::none().serialize_to_vec().unwrap().len()).unwrap()
+});
 
 /// Deserialization uses a specific epoch for passing to the type signature checks
 /// The reason this is pinned to Epoch21 is so that values stored before epoch-2.4

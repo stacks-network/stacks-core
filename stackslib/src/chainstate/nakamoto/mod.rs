@@ -18,6 +18,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::ops::{Deref, DerefMut, Range};
 use std::path::PathBuf;
+use std::sync::LazyLock;
 
 use clarity::types::PublicKey;
 use clarity::util::secp256k1::{secp256k1_recover, Secp256k1PublicKey};
@@ -27,7 +28,6 @@ use clarity::vm::database::{BurnStateDB, ClarityDatabase};
 use clarity::vm::events::StacksTransactionEvent;
 use clarity::vm::types::{PrincipalData, StacksAddressExtensions, TupleData};
 use clarity::vm::{ClarityVersion, SymbolicExpression, Value};
-use lazy_static::{__Deref, lazy_static};
 use rusqlite::blob::Blob;
 use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput};
 use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
@@ -148,114 +148,123 @@ impl FromSql for HeaderTypeNames {
     }
 }
 
-lazy_static! {
-    pub static ref FIRST_STACKS_BLOCK_ID: StacksBlockId = StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH);
+pub static FIRST_STACKS_BLOCK_ID: LazyLock<StacksBlockId> =
+    LazyLock::new(|| StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH));
 
-    pub static ref NAKAMOTO_CHAINSTATE_SCHEMA_1: Vec<String> = vec![
-    r#"
-    -- Table for storing calculated reward sets. This must be in the Chainstate DB because calculation occurs
-    --   during block processing.
-    CREATE TABLE nakamoto_reward_sets (
-                     index_block_hash TEXT NOT NULL,
-                     reward_set TEXT NOT NULL,
-                     PRIMARY KEY (index_block_hash)
-    );"#.into(),
-    NAKAMOTO_TENURES_SCHEMA_1.into(),
-    r#"
-      -- Table for Nakamoto block headers
-      CREATE TABLE nakamoto_block_headers (
-          -- The following fields all correspond to entries in the StacksHeaderInfo struct
-                     block_height INTEGER NOT NULL,
-                     -- root hash of the internal, not-consensus-critical MARF that allows us to track chainstate/fork metadata
-                     index_root TEXT NOT NULL,
-                     -- burn header hash corresponding to the consensus hash (NOT guaranteed to be unique, since we can
-                     --    have 2+ blocks per burn block if there's a PoX fork)
-                     burn_header_hash TEXT NOT NULL,
-                     -- height of the burnchain block header that generated this consensus hash
-                     burn_header_height INT NOT NULL,
-                     -- timestamp from burnchain block header that generated this consensus hash
-                     burn_header_timestamp INT NOT NULL,
-                     -- size of this block, in bytes.
-                     -- encoded as TEXT for compatibility
-                     block_size TEXT NOT NULL,
-          -- The following fields all correspond to entries in the NakamotoBlockHeader struct
-                     version INTEGER NOT NULL,
-                     -- this field is the total number of blocks in the chain history (including this block)
-                     chain_length INTEGER NOT NULL,
-                     -- this field is the total amount of BTC spent in the chain history (including this block)
-                     burn_spent INTEGER NOT NULL,
-                     -- the consensus hash of the burnchain block that selected this block's miner's block-commit
-                     consensus_hash TEXT NOT NULL,
-                     -- the parent StacksBlockId
-                     parent_block_id TEXT NOT NULL,
-                     -- Merkle root of a Merkle tree constructed out of all the block's transactions
-                     tx_merkle_root TEXT NOT NULL,
-                     -- root hash of the Stacks chainstate MARF
-                     state_index_root TEXT NOT NULL,
-                     -- miner's signature over the block
-                     miner_signature TEXT NOT NULL,
-                     -- signers' signatures over the block
-                     signer_signature TEXT NOT NULL,
-                     -- bitvec capturing stacker participation in signature
-                     signer_bitvec TEXT NOT NULL,
-          -- The following fields are not part of either the StacksHeaderInfo struct
-          --   or its contained NakamotoBlockHeader struct, but are used for querying
-                     -- what kind of header this is (nakamoto or stacks 2.x)
-                     header_type TEXT NOT NULL,
-                     -- hash of the block
-                     block_hash TEXT NOT NULL,
-                     -- index_block_hash is the hash of the block hash and consensus hash of the burn block that selected it,
-                     -- and is guaranteed to be globally unique (across all Stacks forks and across all PoX forks).
-                     -- index_block_hash is the block hash fed into the MARF index.
-                     index_block_hash TEXT NOT NULL,
-                     -- the ExecutionCost of the block
-                     cost TEXT NOT NULL,
-                     -- the total cost up to and including this block in the current tenure
-                     total_tenure_cost TEXT NOT NULL,
-                     -- this field is true if this is the first block of a new tenure
-                     tenure_changed INTEGER NOT NULL,
-                     -- this field tracks the total tx fees so far in this tenure. it is a text-serialized u128
-                     tenure_tx_fees TEXT NOT NULL,
-                     -- nakamoto block's VRF proof, if this is a tenure-start block
-                     vrf_proof TEXT,
+pub static NAKAMOTO_CHAINSTATE_SCHEMA_1: LazyLock<Vec<String>> = LazyLock::new(|| {
+    vec![
+r#"
+-- Table for storing calculated reward sets. This must be in the Chainstate DB because calculation occurs
+--   during block processing.
+CREATE TABLE nakamoto_reward_sets (
+                    index_block_hash TEXT NOT NULL,
+                    reward_set TEXT NOT NULL,
+                    PRIMARY KEY (index_block_hash)
+);"#.into(),
+NAKAMOTO_TENURES_SCHEMA_1.into(),
+r#"
+    -- Table for Nakamoto block headers
+    CREATE TABLE nakamoto_block_headers (
+        -- The following fields all correspond to entries in the StacksHeaderInfo struct
+                    block_height INTEGER NOT NULL,
+                    -- root hash of the internal, not-consensus-critical MARF that allows us to track chainstate/fork metadata
+                    index_root TEXT NOT NULL,
+                    -- burn header hash corresponding to the consensus hash (NOT guaranteed to be unique, since we can
+                    --    have 2+ blocks per burn block if there's a PoX fork)
+                    burn_header_hash TEXT NOT NULL,
+                    -- height of the burnchain block header that generated this consensus hash
+                    burn_header_height INT NOT NULL,
+                    -- timestamp from burnchain block header that generated this consensus hash
+                    burn_header_timestamp INT NOT NULL,
+                    -- size of this block, in bytes.
+                    -- encoded as TEXT for compatibility
+                    block_size TEXT NOT NULL,
+        -- The following fields all correspond to entries in the NakamotoBlockHeader struct
+                    version INTEGER NOT NULL,
+                    -- this field is the total number of blocks in the chain history (including this block)
+                    chain_length INTEGER NOT NULL,
+                    -- this field is the total amount of BTC spent in the chain history (including this block)
+                    burn_spent INTEGER NOT NULL,
+                    -- the consensus hash of the burnchain block that selected this block's miner's block-commit
+                    consensus_hash TEXT NOT NULL,
+                    -- the parent StacksBlockId
+                    parent_block_id TEXT NOT NULL,
+                    -- Merkle root of a Merkle tree constructed out of all the block's transactions
+                    tx_merkle_root TEXT NOT NULL,
+                    -- root hash of the Stacks chainstate MARF
+                    state_index_root TEXT NOT NULL,
+                    -- miner's signature over the block
+                    miner_signature TEXT NOT NULL,
+                    -- signers' signatures over the block
+                    signer_signature TEXT NOT NULL,
+                    -- bitvec capturing stacker participation in signature
+                    signer_bitvec TEXT NOT NULL,
+        -- The following fields are not part of either the StacksHeaderInfo struct
+        --   or its contained NakamotoBlockHeader struct, but are used for querying
+                    -- what kind of header this is (nakamoto or stacks 2.x)
+                    header_type TEXT NOT NULL,
+                    -- hash of the block
+                    block_hash TEXT NOT NULL,
+                    -- index_block_hash is the hash of the block hash and consensus hash of the burn block that selected it,
+                    -- and is guaranteed to be globally unique (across all Stacks forks and across all PoX forks).
+                    -- index_block_hash is the block hash fed into the MARF index.
+                    index_block_hash TEXT NOT NULL,
+                    -- the ExecutionCost of the block
+                    cost TEXT NOT NULL,
+                    -- the total cost up to and including this block in the current tenure
+                    total_tenure_cost TEXT NOT NULL,
+                    -- this field is true if this is the first block of a new tenure
+                    tenure_changed INTEGER NOT NULL,
+                    -- this field tracks the total tx fees so far in this tenure. it is a text-serialized u128
+                    tenure_tx_fees TEXT NOT NULL,
+                    -- nakamoto block's VRF proof, if this is a tenure-start block
+                    vrf_proof TEXT,
 
-              PRIMARY KEY(consensus_hash,block_hash)
-          );
-          CREATE INDEX nakamoto_block_headers_by_consensus_hash ON nakamoto_block_headers(consensus_hash);
-    "#.into(),
-    format!(
-        r#"ALTER TABLE payments
-            ADD COLUMN schedule_type TEXT NOT NULL DEFAULT "{}";
-        "#,
-        HeaderTypeNames::Epoch2.get_name_str()),
-    r#"
-    UPDATE db_config SET version = "4";
-    "#.into(),
-    ];
+            PRIMARY KEY(consensus_hash,block_hash)
+        );
+        CREATE INDEX nakamoto_block_headers_by_consensus_hash ON nakamoto_block_headers(consensus_hash);
+"#.into(),
+format!(
+    r#"ALTER TABLE payments
+        ADD COLUMN schedule_type TEXT NOT NULL DEFAULT "{}";
+    "#,
+    HeaderTypeNames::Epoch2.get_name_str()),
+r#"
+UPDATE db_config SET version = "4";
+"#.into(),
+]
+});
 
-    pub static ref NAKAMOTO_CHAINSTATE_SCHEMA_2: Vec<String> = vec![
-    NAKAMOTO_TENURES_SCHEMA_2.into(),
-    r#"
-    ALTER TABLE nakamoto_block_headers
-      ADD COLUMN timestamp INTEGER NOT NULL;
-    "#.into(),
-    r#"
-    UPDATE db_config SET version = "5";
-    "#.into(),
+pub static NAKAMOTO_CHAINSTATE_SCHEMA_2: LazyLock<Vec<String>> = LazyLock::new(|| {
+    vec![
+        NAKAMOTO_TENURES_SCHEMA_2.into(),
+        r#"
+ALTER TABLE nakamoto_block_headers
+    ADD COLUMN timestamp INTEGER NOT NULL;
+"#
+        .into(),
+        r#"
+UPDATE db_config SET version = "5";
+"#
+        .into(),
         // make burn_view NULLable. We could use a default value, but NULL should be safer (because it will error).
         // there should be no entries in nakamoto_block_headers with a NULL entry when this column is added, because
         // nakamoto blocks have not been produced yet.
-    r#"
-    ALTER TABLE nakamoto_block_headers
-    ADD COLUMN burn_view TEXT;
-    "#.into(),
-    ];
+        r#"
+ALTER TABLE nakamoto_block_headers
+ADD COLUMN burn_view TEXT;
+"#
+        .into(),
+    ]
+});
 
-    pub static ref NAKAMOTO_CHAINSTATE_SCHEMA_3: Vec<String> = vec![
-    NAKAMOTO_TENURES_SCHEMA_3.into(),
-    r#"
-    UPDATE db_config SET version = "6";
-    "#.into(),
+pub static NAKAMOTO_CHAINSTATE_SCHEMA_3: LazyLock<Vec<String>> = LazyLock::new(|| {
+    vec![
+        NAKAMOTO_TENURES_SCHEMA_3.into(),
+        r#"
+UPDATE db_config SET version = "6";
+"#
+        .into(),
         // Add a `height_in_tenure` field to the block header row, so we know how high this block is
         // within its tenure.  This is needed to process malleablized Nakamoto blocks with the same
         // height, as well as accidental forks that can arise from slow miners.
@@ -263,12 +272,13 @@ lazy_static! {
         //
         //
         // No default value is needed because at the time of this writing, this table is actually empty.
-    r#"
-    ALTER TABLE nakamoto_block_headers
-    ADD COLUMN height_in_tenure;
-    "#.into(),
-    ];
-}
+        r#"
+ALTER TABLE nakamoto_block_headers
+ADD COLUMN height_in_tenure;
+"#
+        .into(),
+    ]
+});
 
 /// Trait for common MARF getters between StacksDBConn and StacksDBTx
 pub trait StacksDBIndexed {

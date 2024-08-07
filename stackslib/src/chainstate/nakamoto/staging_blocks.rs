@@ -18,7 +18,6 @@ use std::ops::{Deref, DerefMut};
 use std::path::PathBuf;
 use std::{fmt, fs};
 
-use lazy_static::lazy_static;
 use rusqlite::blob::Blob;
 use rusqlite::types::{FromSql, FromSqlError, ToSql};
 use rusqlite::{params, Connection, OpenFlags, OptionalExtension};

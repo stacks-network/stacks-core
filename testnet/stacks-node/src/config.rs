@@ -2,13 +2,12 @@ use std::collections::{HashMap, HashSet};
 use std::net::{Ipv4Addr, SocketAddr, ToSocketAddrs};
 use std::path::PathBuf;
 use std::str::FromStr;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Duration;
 use std::{cmp, fs, thread};
 
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier};
-use lazy_static::lazy_static;
 use rand::RngCore;
 use serde::Deserialize;
 use stacks::burnchains::affirmation::AffirmationMap;
@@ -520,36 +519,35 @@ pub struct Config {
     pub atlas: AtlasConfig,
 }
 
-lazy_static! {
-    static ref HELIUM_DEFAULT_CONNECTION_OPTIONS: ConnectionOptions = ConnectionOptions {
+static HELIUM_DEFAULT_CONNECTION_OPTIONS: LazyLock<ConnectionOptions> =
+    LazyLock::new(|| ConnectionOptions {
         inbox_maxlen: 100,
         outbox_maxlen: 100,
         timeout: 15,
-        idle_timeout: 15,               // how long a HTTP connection can be idle before it's closed
+        idle_timeout: 15, // how long a HTTP connection can be idle before it's closed
         heartbeat: 3600,
         // can't use u64::max, because sqlite stores as i64.
         private_key_lifetime: 9223372036854775807,
-        num_neighbors: 32,              // number of neighbors whose inventories we track
-        num_clients: 750,               // number of inbound p2p connections
-        soft_num_neighbors: 16,         // soft-limit on the number of neighbors whose inventories we track
-        soft_num_clients: 750,          // soft limit on the number of inbound p2p connections
-        max_neighbors_per_host: 1,      // maximum number of neighbors per host we permit
-        max_clients_per_host: 4,        // maximum number of inbound p2p connections per host we permit
+        num_neighbors: 32,         // number of neighbors whose inventories we track
+        num_clients: 750,          // number of inbound p2p connections
+        soft_num_neighbors: 16, // soft-limit on the number of neighbors whose inventories we track
+        soft_num_clients: 750,  // soft limit on the number of inbound p2p connections
+        max_neighbors_per_host: 1, // maximum number of neighbors per host we permit
+        max_clients_per_host: 4, // maximum number of inbound p2p connections per host we permit
         soft_max_neighbors_per_host: 1, // soft limit on the number of neighbors per host we permit
         soft_max_neighbors_per_org: 32, // soft limit on the number of neighbors per AS we permit (TODO: for now it must be greater than num_neighbors)
-        soft_max_clients_per_host: 4,   // soft limit on how many inbound p2p connections per host we permit
-        max_http_clients: 1000,         // maximum number of HTTP connections
-        max_neighbors_of_neighbor: 10,  // maximum number of neighbors we'll handshake with when doing a neighbor walk (I/O for this can be expensive, so keep small-ish)
-        walk_interval: 60,              // how often, in seconds, we do a neighbor walk
-        inv_sync_interval: 45,          // how often, in seconds, we refresh block inventories
-        inv_reward_cycles: 3,           // how many reward cycles to look back on, for mainnet
-        download_interval: 10,          // how often, in seconds, we do a block download scan (should be less than inv_sync_interval)
+        soft_max_clients_per_host: 4, // soft limit on how many inbound p2p connections per host we permit
+        max_http_clients: 1000,       // maximum number of HTTP connections
+        max_neighbors_of_neighbor: 10, // maximum number of neighbors we'll handshake with when doing a neighbor walk (I/O for this can be expensive, so keep small-ish)
+        walk_interval: 60,             // how often, in seconds, we do a neighbor walk
+        inv_sync_interval: 45,         // how often, in seconds, we refresh block inventories
+        inv_reward_cycles: 3,          // how many reward cycles to look back on, for mainnet
+        download_interval: 10, // how often, in seconds, we do a block download scan (should be less than inv_sync_interval)
         dns_timeout: 15_000,
         max_inflight_blocks: 6,
         max_inflight_attachments: 6,
-        .. std::default::Default::default()
-    };
-}
+        ..std::default::Default::default()
+    });
 
 impl Config {
     /// get the up-to-date burnchain options from the config.
