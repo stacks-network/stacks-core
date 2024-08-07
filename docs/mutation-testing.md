@@ -1,7 +1,7 @@
 # Mutation Testing
 
 This document describes how to run mutation testing locally to mimic the outcome of a PR, without the CI limitation it provides by timing out after 6 hours.
-[Here is the script](../contrib/tools/local-mutation-testing.sh) to run mutation locally running the mutants created by the changes between the current branch and develop.
+[Here is the script](../contrib/tools/local-mutation-testing.sh) to run the tests locally by running the mutants created by the changes between `HEAD` and develop. 
 It does automatically all the steps explained below.
 
 From the root level of the stacks-core repository run
