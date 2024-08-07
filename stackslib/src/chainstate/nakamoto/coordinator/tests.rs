@@ -44,12 +44,11 @@ use crate::chainstate::nakamoto::coordinator::load_nakamoto_reward_set;
 use crate::chainstate::nakamoto::miner::NakamotoBlockBuilder;
 use crate::chainstate::nakamoto::signer_set::NakamotoSigners;
 use crate::chainstate::nakamoto::test_signers::TestSigners;
+use crate::chainstate::nakamoto::test_stall::*;
 use crate::chainstate::nakamoto::tests::get_account;
 use crate::chainstate::nakamoto::tests::node::TestStacker;
 use crate::chainstate::nakamoto::{
-    disable_process_block_stall, enable_process_block_stall, NakamotoBlock,
-    NakamotoBlockObtainMethod, NakamotoChainState, NakamotoStagingBlocksConnRef,
-    TEST_PROCESS_BLOCK_STALL,
+    NakamotoBlock, NakamotoBlockObtainMethod, NakamotoChainState, NakamotoStagingBlocksConnRef,
 };
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::pox_4_tests::{get_stacking_minimum, get_tip};
