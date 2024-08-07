@@ -455,17 +455,13 @@ pub struct SymbolicExpression {
     pub id: u64,
 
     #[cfg(feature = "developer-mode")]
-    #[serde(skip)]
     pub span: Span,
 
     #[cfg(feature = "developer-mode")]
-    #[serde(skip)]
     pub pre_comments: Vec<(String, Span)>,
     #[cfg(feature = "developer-mode")]
-    #[serde(skip)]
     pub end_line_comment: Option<String>,
     #[cfg(feature = "developer-mode")]
-    #[serde(skip)]
     pub post_comments: Vec<(String, Span)>,
 }
 
