@@ -262,7 +262,7 @@ impl<
 
         // start receiving events and doing stuff with them
         let runloop_thread = thread::Builder::new()
-            .name("signer_runloop".to_string())
+            .name(format!("signer_runloop:{}", bind_addr.port()))
             .stack_size(THREAD_STACK_SIZE)
             .spawn(move || {
                 signer_loop.main_loop(event_recv, command_receiver, result_sender, stop_signaler)

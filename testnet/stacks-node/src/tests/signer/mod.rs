@@ -49,7 +49,7 @@ use stacks_common::codec::StacksMessageCodec;
 use stacks_common::consts::SIGNER_SLOTS_PER_USER;
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::{hex_bytes, Sha512Trunc256Sum};
-use stacks_signer::client::{SignerSlotID, StacksClient};
+use stacks_signer::client::{ClientError, SignerSlotID, StacksClient};
 use stacks_signer::config::{build_signer_config_tomls, GlobalConfig as SignerConfig, Network};
 use stacks_signer::runloop::{SignerResult, StateInfo};
 use stacks_signer::{Signer, SpawnedSigner};
@@ -64,7 +64,8 @@ use crate::tests::nakamoto_integrations::{
     naka_neon_integration_conf, next_block_and_mine_commit, POX_4_DEFAULT_STACKER_BALANCE,
 };
 use crate::tests::neon_integrations::{
-    next_block_and_wait, run_until_burnchain_height, test_observer, wait_for_runloop,
+    get_chain_info, next_block_and_wait, run_until_burnchain_height, test_observer,
+    wait_for_runloop,
 };
 use crate::tests::to_addr;
 use crate::{BitcoinRegtestController, BurnchainController};
@@ -100,6 +101,8 @@ pub struct SignerTest<S> {
     pub stacks_client: StacksClient,
     // Unique number used to isolate files created during the test
     pub run_stamp: u16,
+    /// The number of cycles to stack for
+    pub num_stacking_cycles: u64,
 }
 
 impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<SpawnedSigner<S, T>> {
@@ -126,7 +129,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         initial_balances: Vec<(StacksAddress, u64)>,
         wait_on_signers: Option<Duration>,
         mut signer_config_modifier: F,
-        node_config_modifier: G,
+        mut node_config_modifier: G,
         btc_miner_pubkeys: &[Secp256k1PublicKey],
     ) -> Self {
         // Generate Signer Data
@@ -135,6 +138,8 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
             .collect::<Vec<StacksPrivateKey>>();
 
         let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
+
+        node_config_modifier(&mut naka_conf);
 
         // Add initial balances to the config
         for (address, amount) in initial_balances.iter() {
@@ -191,15 +196,15 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
                     .unwrap(),
             )
             .unwrap();
-            &[pk]
+            vec![pk]
         } else {
-            btc_miner_pubkeys
+            btc_miner_pubkeys.to_vec()
         };
         let node = setup_stx_btc_node(
             naka_conf,
             &signer_stacks_private_keys,
             &signer_configs,
-            btc_miner_pubkeys,
+            btc_miner_pubkeys.as_slice(),
             node_config_modifier,
         );
         let config = signer_configs.first().unwrap();
@@ -211,6 +216,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
             signer_stacks_private_keys,
             stacks_client,
             run_stamp,
+            num_stacking_cycles: 12_u64,
             signer_configs,
         }
     }
@@ -472,15 +478,15 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
     }
 
     fn get_current_reward_cycle(&self) -> u64 {
-        let block_height = self
+        let block_height = get_chain_info(&self.running_nodes.conf).burn_block_height;
+        let rc = self
             .running_nodes
-            .btc_regtest_controller
-            .get_headers_height();
-        self.running_nodes
             .btc_regtest_controller
             .get_burnchain()
             .block_height_to_reward_cycle(block_height)
-            .unwrap()
+            .unwrap();
+        info!("Get current reward cycle: block_height = {block_height}, rc = {rc}");
+        rc
     }
 
     fn get_signer_index(&self, reward_cycle: u64) -> SignerSlotID {
@@ -499,20 +505,27 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
             .expect("FATAL: signer not registered")
     }
 
-    fn get_signer_indices(&self, reward_cycle: u64) -> Vec<SignerSlotID> {
+    fn get_signer_slots(
+        &self,
+        reward_cycle: u64,
+    ) -> Result<Vec<(StacksAddress, u128)>, ClientError> {
         let valid_signer_set =
             u32::try_from(reward_cycle % 2).expect("FATAL: reward_cycle % 2 exceeds u32::MAX");
         let signer_stackerdb_contract_id = boot_code_id(SIGNERS_NAME, false);
 
         self.stacks_client
             .get_stackerdb_signer_slots(&signer_stackerdb_contract_id, valid_signer_set)
+    }
+
+    fn get_signer_indices(&self, reward_cycle: u64) -> Vec<SignerSlotID> {
+        self.get_signer_slots(reward_cycle)
             .expect("FATAL: failed to get signer slots from stackerdb")
             .iter()
             .enumerate()
             .map(|(pos, _)| {
                 SignerSlotID(u32::try_from(pos).expect("FATAL: number of signers exceeds u32::MAX"))
             })
-            .collect()
+            .collect::<Vec<_>>()
     }
 
     /// Get the wsts public keys for the given reward cycle

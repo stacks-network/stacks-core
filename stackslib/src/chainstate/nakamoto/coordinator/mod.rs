@@ -546,7 +546,7 @@ pub fn load_nakamoto_reward_set<U: RewardSetProvider>(
            "burnchain_height" => %anchor_block_sn.block_height);
 
     let reward_set = provider.get_reward_set_nakamoto(
-        prepare_end_height.saturating_sub(1),
+        prepare_end_height,
         chain_state,
         burnchain,
         sort_db,

@@ -93,6 +93,7 @@ jobs:
           - tests::signer::v0::bitcoind_forking_test
           - tests::signer::v0::multiple_miners
           - tests::signer::v0::mock_sign_epoch_25
+          - tests::signer::v0::signer_set_rollover
           - tests::signer::v0::miner_forking
           - tests::nakamoto_integrations::stack_stx_burn_op_integration_test
           - tests::nakamoto_integrations::check_block_heights

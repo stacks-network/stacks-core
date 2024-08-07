@@ -299,18 +299,16 @@ impl BlockMinerThread {
                     }
                 }
 
-                let (reward_set, signer_signature) = match self.gather_signatures(
-                    &mut new_block,
-                    self.burn_block.block_height,
-                    &mut stackerdbs,
-                    &mut attempts,
-                ) {
-                    Ok(x) => x,
-                    Err(e) => {
-                        error!("Error while gathering signatures: {e:?}. Will try mining again.");
-                        continue;
-                    }
-                };
+                let (reward_set, signer_signature) =
+                    match self.gather_signatures(&mut new_block, &mut stackerdbs, &mut attempts) {
+                        Ok(x) => x,
+                        Err(e) => {
+                            error!(
+                                "Error while gathering signatures: {e:?}. Will try mining again."
+                            );
+                            continue;
+                        }
+                    };
 
                 new_block.header.signer_signature = signer_signature;
                 if let Err(e) = self.broadcast(new_block.clone(), reward_set, &stackerdbs) {
@@ -383,10 +381,13 @@ impl BlockMinerThread {
 
         let burn_election_height = self.burn_election_block.block_height;
 
+        let reward_cycle = self
+            .burnchain
+            .block_height_to_reward_cycle(burn_election_height)
+            .expect("FATAL: no reward cycle for sortition");
+
         let reward_info = match load_nakamoto_reward_set(
-            self.burnchain
-                .pox_reward_cycle(burn_election_height)
-                .expect("FATAL: no reward cycle for sortition"),
+            reward_cycle,
             &self.burn_election_block.sortition_id,
             &self.burnchain,
             &mut chain_state,
@@ -421,7 +422,6 @@ impl BlockMinerThread {
     fn gather_signatures(
         &mut self,
         new_block: &mut NakamotoBlock,
-        burn_block_height: u64,
         stackerdbs: &mut StackerDBs,
         attempts: &mut u64,
     ) -> Result<(RewardSet, Vec<MessageSignature>), NakamotoNodeError> {
@@ -476,7 +476,6 @@ impl BlockMinerThread {
         *attempts += 1;
         let signature = coordinator.begin_sign_v0(
             new_block,
-            burn_block_height,
             *attempts,
             &tip,
             &self.burnchain,
