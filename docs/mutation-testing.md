@@ -1,7 +1,8 @@
 # Mutation Testing
 
 This document describes how to run mutation testing locally to mimic the outcome of a PR, without the CI limitation it provides by timing out after 6 hours.
-[Here is the script](../contrib/tools/local-mutation-testing.sh) to run mutation locally running the mutants created by the changes between the current branch and develop. It does automatically all the steps explained below.
+[Here is the script](../contrib/tools/local-mutation-testing.sh) to run mutation locally running the mutants created by the changes between the current branch and develop.
+It does automatically all the steps explained below.
 
 From the root level of the stacks-core repository run
 ```sh
@@ -17,12 +18,12 @@ cargo install --version 24.7.1 cargo-mutants --locked
 
 
 ## Steps 
-1. be on source branch you would use for the PR.
-2. create diff file comparing this branch with the `develop` branch
+1. Be on source branch you would use for the PR.
+2. Create diff file comparing this branch with the `develop` branch
     ```sh
     git diff origin/develop..HEAD > git.diff
     ```
-3. clean up the diff file and create auxiliary files
+3. Clean up the diff file and create auxiliary files
    ```sh
     awk '
         /^diff --git/ {
@@ -62,8 +63,8 @@ cargo install --version 24.7.1 cargo-mutants --locked
           esac
         done < all_mutants.txt
    ```
-4. based on the package required to run the mutants for  
-   a. stackslib package 
+4. Based on the package required to run the mutants for  
+   a. Stackslib package 
    ```sh
     regex_pattern=$(sed 's/[][()\.^$*+?{}|]/\\&/g' "mutants_by_package/stackslib.txt" | paste -sd'|' -)
 
@@ -74,7 +75,7 @@ cargo install --version 24.7.1 cargo-mutants --locked
         --test-tool=nextest \
         -- --all-targets --test-threads 1
    ```
-   b. stacks-node (testnet) package
+   b. Stacks-node (testnet) package
    ```sh
     regex_pattern=$(sed 's/[][()\.^$*+?{}|]/\\&/g' "mutants_by_package/testnet.txt" | paste -sd'|' -)
 
@@ -85,7 +86,7 @@ cargo install --version 24.7.1 cargo-mutants --locked
         --test-tool=nextest \
         -- --all-targets --test-threads 1
    ```
-   c. stacks-signer
+   c. Stacks-signer
    ```sh
     regex_pattern=$(sed 's/[][()\.^$*+?{}|]/\\&/g' "mutants_by_package/stacks-signer.txt" | paste -sd'|' -)
 
@@ -96,7 +97,7 @@ cargo install --version 24.7.1 cargo-mutants --locked
         --test-tool=nextest \
         -- --all-targets --test-threads 1
    ```
-   d. all other packages combined  
+   d. All other packages combined  
     ```sh
     regex_pattern=$(sed 's/[][()\.^$*+?{}|]/\\&/g' "mutants_by_package/small-packages.txt" | paste -sd'|' -)
 
