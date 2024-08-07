@@ -634,7 +634,6 @@ impl SignCoordinator {
     pub fn begin_sign_v0(
         &mut self,
         block: &NakamotoBlock,
-        burn_block_height: u64,
         block_attempt: u64,
         burn_tip: &BlockSnapshot,
         burnchain: &Burnchain,
@@ -653,7 +652,7 @@ impl SignCoordinator {
 
         let block_proposal = BlockProposal {
             block: block.clone(),
-            burn_height: burn_block_height,
+            burn_height: burn_tip.block_height,
             reward_cycle: reward_cycle_id,
         };
 
@@ -768,6 +767,10 @@ impl SignCoordinator {
                         debug!("Received block pushed message. Ignoring.");
                         continue;
                     }
+                    SignerMessageV0::MockSignature(_) => {
+                        debug!("Received mock signature message. Ignoring.");
+                        continue;
+                    }
                 };
                 let block_sighash = block.header.signer_signature_hash();
                 if block_sighash != response_hash {
@@ -776,6 +779,8 @@ impl SignCoordinator {
                         "signature" => %signature,
                         "block_signer_signature_hash" => %block_sighash,
                         "slot_id" => slot_id,
+                        "reward_cycle_id" => reward_cycle_id,
+                        "response_hash" => %response_hash
                     );
                     continue;
                 }

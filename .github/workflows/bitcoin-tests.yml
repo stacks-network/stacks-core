@@ -91,6 +91,10 @@ jobs:
           - tests::signer::v0::forked_tenure_invalid
           - tests::signer::v0::empty_sortition
           - tests::signer::v0::bitcoind_forking_test
+          - tests::signer::v0::multiple_miners
+          - tests::signer::v0::mock_sign_epoch_25
+          - tests::signer::v0::signer_set_rollover
+          - tests::signer::v0::miner_forking
           - tests::nakamoto_integrations::stack_stx_burn_op_integration_test
           - tests::nakamoto_integrations::check_block_heights
           - tests::nakamoto_integrations::clarity_burn_state
@@ -98,6 +102,7 @@ jobs:
           - tests::nakamoto_integrations::check_block_info
           - tests::nakamoto_integrations::check_block_info_rewards
           - tests::nakamoto_integrations::continue_tenure_extend
+          - tests::nakamoto_integrations::mock_mining
           - tests::nakamoto_integrations::multiple_miners
           # Do not run this one until we figure out why it fails in CI
           # - tests::neon_integrations::bitcoin_reorg_flap
