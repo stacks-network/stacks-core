@@ -10,7 +10,6 @@ miner = true
 mine_microblocks = false # Disable microblocks (ref: https://github.com/stacks-network/stacks-core/pull/4561 )
 
 [burnchain]
-chain = "bitcoin"
 mode = "mainnet"
 peer_host = "127.0.0.1"
 username = "<Bitcoin RPC username>"
