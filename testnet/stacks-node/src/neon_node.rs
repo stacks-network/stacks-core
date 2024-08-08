@@ -2556,6 +2556,7 @@ impl BlockMinerThread {
         let res = bitcoin_controller.submit_operation(target_epoch_id, op, &mut op_signer, attempt);
         let assembled_block = AssembledAnchorBlock {
             parent_consensus_hash: parent_block_info.parent_consensus_hash,
+            consensus_hash: cur_burn_chain_tip.consensus_hash,
             my_burn_hash: cur_burn_chain_tip.burn_header_hash,
             my_block_height: cur_burn_chain_tip.block_height,
             orig_burn_hash: self.burn_block.burn_header_hash,

@@ -651,6 +651,14 @@ impl StacksBlock {
     pub fn has_microblock_parent(&self) -> bool {
         self.header.has_microblock_parent()
     }
+
+    /// Returns size in bytes of `StacksMessageCodec` representation
+    /// Note that this will serialize the block, so don't call if there is a better way to get block size
+    pub fn block_size(&self) -> Result<usize, codec_error> {
+        let mut buf = vec![];
+        self.consensus_serialize(&mut buf)?;
+        Ok(buf.len())
+    }
 }
 
 impl StacksMessageCodec for StacksMicroblockHeader {

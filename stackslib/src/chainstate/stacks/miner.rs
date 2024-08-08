@@ -73,6 +73,8 @@ use crate::net::Error as net_error;
 pub struct AssembledAnchorBlock {
     /// Consensus hash of the parent Stacks block
     pub parent_consensus_hash: ConsensusHash,
+    /// Consensus hash this Stacks block
+    pub consensus_hash: ConsensusHash,
     /// Burnchain tip's block hash when we finished mining
     pub my_burn_hash: BurnchainHeaderHash,
     /// Burnchain tip's block height when we finished mining

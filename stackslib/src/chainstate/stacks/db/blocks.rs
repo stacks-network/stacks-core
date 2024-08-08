@@ -3716,9 +3716,26 @@ impl StacksChainState {
         blocks_conn: &DBConn,
         staging_block: &StagingBlock,
     ) -> Result<Option<Vec<StacksMicroblock>>, Error> {
-        if staging_block.parent_microblock_hash == EMPTY_MICROBLOCK_PARENT_HASH
-            && staging_block.parent_microblock_seq == 0
-        {
+        Self::inner_find_parent_microblock_stream(
+            blocks_conn,
+            &staging_block.anchored_block_hash,
+            &staging_block.parent_anchored_block_hash,
+            &staging_block.parent_consensus_hash,
+            &staging_block.parent_microblock_hash,
+            staging_block.parent_microblock_seq,
+        )
+    }
+
+    /// Allow `find_parent_microblock_stream()` to be called without `StagingBlock`
+    pub fn inner_find_parent_microblock_stream(
+        blocks_conn: &DBConn,
+        anchored_block_hash: &BlockHeaderHash,
+        parent_anchored_block_hash: &BlockHeaderHash,
+        parent_consensus_hash: &ConsensusHash,
+        parent_microblock_hash: &BlockHeaderHash,
+        parent_microblock_seq: u16,
+    ) -> Result<Option<Vec<StacksMicroblock>>, Error> {
+        if *parent_microblock_hash == EMPTY_MICROBLOCK_PARENT_HASH && parent_microblock_seq == 0 {
             // no parent microblocks, ever
             return Ok(Some(vec![]));
         }
@@ -3726,9 +3743,9 @@ impl StacksChainState {
         // find the microblock stream fork that this block confirms
         match StacksChainState::load_microblock_stream_fork(
             blocks_conn,
-            &staging_block.parent_consensus_hash,
-            &staging_block.parent_anchored_block_hash,
-            &staging_block.parent_microblock_hash,
+            parent_consensus_hash,
+            parent_anchored_block_hash,
+            parent_microblock_hash,
         )? {
             Some(microblocks) => {
                 return Ok(Some(microblocks));
@@ -3736,10 +3753,7 @@ impl StacksChainState {
             None => {
                 // parent microblocks haven't arrived yet, or there are none
                 debug!(
-                    "No parent microblock stream for {}: expected a stream with tail {},{}",
-                    staging_block.anchored_block_hash,
-                    staging_block.parent_microblock_hash,
-                    staging_block.parent_microblock_seq
+                    "No parent microblock stream for {anchored_block_hash}: expected a stream with tail {parent_microblock_hash},{parent_microblock_seq}",
                 );
                 return Ok(None);
             }
