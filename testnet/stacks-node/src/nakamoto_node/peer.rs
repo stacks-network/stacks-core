@@ -352,7 +352,9 @@ impl PeerThread {
                     "P2P: Dispatched result to Relayer! {} results remaining",
                     self.results_with_data.len()
                 );
-                self.globals.raise_initiative();
+                self.globals.raise_initiative(
+                    "PeerThread::run_one_pass() with data-bearing network result".to_string(),
+                );
             }
         }
 
