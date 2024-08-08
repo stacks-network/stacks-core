@@ -79,10 +79,6 @@ impl SignerTrait<SignerMessage> for Signer {
         Self::from(config)
     }
 
-    /// Refresh the next signer data from the given configuration data
-    fn update_signer(&mut self, _new_signer_config: &SignerConfig) {
-        // do nothing
-    }
     /// Return the reward cycle of the signer
     fn reward_cycle(&self) -> u64 {
         self.reward_cycle

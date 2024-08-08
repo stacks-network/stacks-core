@@ -61,8 +61,6 @@ use crate::runloop::{RunLoop, RunLoopCommand};
 pub trait Signer<T: SignerEventTrait>: Debug + Display {
     /// Create a new `Signer` instance
     fn new(config: SignerConfig) -> Self;
-    /// Update the `Signer` instance's with the next reward cycle data `SignerConfig`
-    fn update_signer(&mut self, next_signer_config: &SignerConfig);
     /// Get the reward cycle of the signer
     fn reward_cycle(&self) -> u64;
     /// Process an event

@@ -673,54 +673,95 @@ pub fn next_block_and_mine_commit(
     coord_channels: &Arc<Mutex<CoordinatorChannels>>,
     commits_submitted: &Arc<AtomicU64>,
 ) -> Result<(), String> {
-    let commits_submitted = commits_submitted.clone();
-    let blocks_processed_before = coord_channels
-        .lock()
-        .expect("Mutex poisoned")
-        .get_stacks_blocks_processed();
-    let commits_before = commits_submitted.load(Ordering::SeqCst);
-    let mut block_processed_time: Option<Instant> = None;
-    let mut commit_sent_time: Option<Instant> = None;
+    next_block_and_wait_for_commits(
+        btc_controller,
+        timeout_secs,
+        &[coord_channels],
+        &[commits_submitted],
+    )
+}
+
+/// Mine a bitcoin block, and wait until:
+///  (1) a new block has been processed by the coordinator
+///  (2) 2 block commits have been issued ** or ** more than 10 seconds have
+///      passed since (1) occurred
+/// This waits for this check to pass on *all* supplied channels
+pub fn next_block_and_wait_for_commits(
+    btc_controller: &mut BitcoinRegtestController,
+    timeout_secs: u64,
+    coord_channels: &[&Arc<Mutex<CoordinatorChannels>>],
+    commits_submitted: &[&Arc<AtomicU64>],
+) -> Result<(), String> {
+    let commits_submitted: Vec<_> = commits_submitted.iter().cloned().collect();
+    let blocks_processed_before: Vec<_> = coord_channels
+        .iter()
+        .map(|x| {
+            x.lock()
+                .expect("Mutex poisoned")
+                .get_stacks_blocks_processed()
+        })
+        .collect();
+    let commits_before: Vec<_> = commits_submitted
+        .iter()
+        .map(|x| x.load(Ordering::SeqCst))
+        .collect();
+
+    let mut block_processed_time: Vec<Option<Instant>> =
+        (0..commits_before.len()).map(|_| None).collect();
+    let mut commit_sent_time: Vec<Option<Instant>> =
+        (0..commits_before.len()).map(|_| None).collect();
     next_block_and(btc_controller, timeout_secs, || {
-        let commits_sent = commits_submitted.load(Ordering::SeqCst);
-        let blocks_processed = coord_channels
-            .lock()
-            .expect("Mutex poisoned")
-            .get_stacks_blocks_processed();
-        let now = Instant::now();
-        if blocks_processed > blocks_processed_before && block_processed_time.is_none() {
-            block_processed_time.replace(now);
+        for i in 0..commits_submitted.len() {
+            let commits_sent = commits_submitted[i].load(Ordering::SeqCst);
+            let blocks_processed = coord_channels[i]
+                .lock()
+                .expect("Mutex poisoned")
+                .get_stacks_blocks_processed();
+            let now = Instant::now();
+            if blocks_processed > blocks_processed_before[i] && block_processed_time[i].is_none() {
+                block_processed_time[i].replace(now);
+            }
+            if commits_sent > commits_before[i] && commit_sent_time[i].is_none() {
+                commit_sent_time[i].replace(now);
+            }
         }
-        if commits_sent > commits_before && commit_sent_time.is_none() {
-            commit_sent_time.replace(now);
-        }
-        if blocks_processed > blocks_processed_before {
-            let block_processed_time = block_processed_time
-                .as_ref()
-                .ok_or("TEST-ERROR: Processed time wasn't set")?;
-            if commits_sent <= commits_before {
+
+        for i in 0..commits_submitted.len() {
+            let blocks_processed = coord_channels[i]
+                .lock()
+                .expect("Mutex poisoned")
+                .get_stacks_blocks_processed();
+            let commits_sent = commits_submitted[i].load(Ordering::SeqCst);
+
+            if blocks_processed > blocks_processed_before[i] {
+                let block_processed_time = block_processed_time[i]
+                    .as_ref()
+                    .ok_or("TEST-ERROR: Processed time wasn't set")?;
+                if commits_sent <= commits_before[i] {
+                    return Ok(false);
+                }
+                let commit_sent_time = commit_sent_time[i]
+                    .as_ref()
+                    .ok_or("TEST-ERROR: Processed time wasn't set")?;
+                // try to ensure the commit was sent after the block was processed
+                if commit_sent_time > block_processed_time {
+                    continue;
+                }
+                // if two commits have been sent, one of them must have been after
+                if commits_sent >= commits_before[i] + 2 {
+                    continue;
+                }
+                // otherwise, just timeout if the commit was sent and its been long enough
+                //  for a new commit pass to have occurred
+                if block_processed_time.elapsed() > Duration::from_secs(10) {
+                    continue;
+                }
+                return Ok(false);
+            } else {
                 return Ok(false);
             }
-            let commit_sent_time = commit_sent_time
-                .as_ref()
-                .ok_or("TEST-ERROR: Processed time wasn't set")?;
-            // try to ensure the commit was sent after the block was processed
-            if commit_sent_time > block_processed_time {
-                return Ok(true);
-            }
-            // if two commits have been sent, one of them must have been after
-            if commits_sent >= commits_before + 2 {
-                return Ok(true);
-            }
-            // otherwise, just timeout if the commit was sent and its been long enough
-            //  for a new commit pass to have occurred
-            if block_processed_time.elapsed() > Duration::from_secs(10) {
-                return Ok(true);
-            }
-            Ok(false)
-        } else {
-            Ok(false)
         }
+        Ok(true)
     })
 }
 
@@ -1196,15 +1237,11 @@ pub fn boot_to_epoch_3_reward_set(
         btc_regtest_controller,
         num_stacking_cycles,
     );
-    let epoch_3_reward_set_calculation =
-        btc_regtest_controller.get_headers_height().wrapping_add(1);
-    run_until_burnchain_height(
-        btc_regtest_controller,
-        &blocks_processed,
-        epoch_3_reward_set_calculation,
-        &naka_conf,
+    next_block_and_wait(btc_regtest_controller, &blocks_processed);
+    info!(
+        "Bootstrapped to Epoch 3.0 reward set calculation height: {}",
+        get_chain_info(naka_conf).burn_block_height
     );
-    info!("Bootstrapped to Epoch 3.0 reward set calculation height: {epoch_3_reward_set_calculation}.");
 }
 
 /// Wait for a block commit, without producing a block

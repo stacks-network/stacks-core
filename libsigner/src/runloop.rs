@@ -247,13 +247,14 @@ impl<
         let (event_send, event_recv) = channel();
         event_receiver.add_consumer(event_send);
 
+        let bind_port = bind_addr.port();
         event_receiver.bind(bind_addr)?;
         let stop_signaler = event_receiver.get_stop_signaler()?;
         let mut ret_stop_signaler = event_receiver.get_stop_signaler()?;
 
         // start a thread for the event receiver
         let event_thread = thread::Builder::new()
-            .name("event_receiver".to_string())
+            .name(format!("event_receiver:{bind_port}"))
             .stack_size(THREAD_STACK_SIZE)
             .spawn(move || event_receiver.main_loop())
             .map_err(|e| {
@@ -263,7 +264,7 @@ impl<
 
         // start receiving events and doing stuff with them
         let runloop_thread = thread::Builder::new()
-            .name(format!("signer_runloop:{}", bind_addr.port()))
+            .name(format!("signer_runloop:{bind_port}"))
             .stack_size(THREAD_STACK_SIZE)
             .spawn(move || {
                 signer_loop.main_loop(event_recv, command_receiver, result_sender, stop_signaler)

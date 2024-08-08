@@ -212,22 +212,7 @@ impl SignerTest<SpawnedSigner> {
             &mut self.running_nodes.btc_regtest_controller,
             &self.running_nodes.blocks_processed,
         );
-        let now = std::time::Instant::now();
-        loop {
-            self.send_status_request();
-            let states = self.wait_for_states(short_timeout);
-            if states
-                .iter()
-                .all(|state_info| state_info.runloop_state == State::RegisteredSigners)
-            {
-                break;
-            }
-            assert!(
-                now.elapsed() < short_timeout,
-                "Timed out waiting for signers to be registered"
-            );
-            std::thread::sleep(Duration::from_secs(1));
-        }
+        self.wait_for_registered(30);
         debug!("Signers initialized");
 
         info!("Advancing to the first full Epoch 2.5 reward cycle boundary...");
@@ -255,7 +240,7 @@ impl SignerTest<SpawnedSigner> {
             &mut self.running_nodes.btc_regtest_controller,
             Some(self.num_stacking_cycles),
         );
-        debug!("Waiting for signer set calculation.");
+        info!("Waiting for signer set calculation.");
         let mut reward_set_calculated = false;
         let short_timeout = Duration::from_secs(60);
         let now = std::time::Instant::now();
@@ -277,31 +262,16 @@ impl SignerTest<SpawnedSigner> {
                 "Timed out waiting for reward set calculation"
             );
         }
-        debug!("Signer set calculated");
+        info!("Signer set calculated");
 
         // Manually consume one more block to ensure signers refresh their state
-        debug!("Waiting for signers to initialize.");
+        info!("Waiting for signers to initialize.");
         next_block_and_wait(
             &mut self.running_nodes.btc_regtest_controller,
             &self.running_nodes.blocks_processed,
         );
-        let now = std::time::Instant::now();
-        loop {
-            self.send_status_request();
-            let states = self.wait_for_states(short_timeout);
-            if states
-                .iter()
-                .all(|state_info| state_info.runloop_state == State::RegisteredSigners)
-            {
-                break;
-            }
-            assert!(
-                now.elapsed() < short_timeout,
-                "Timed out waiting for signers to be registered"
-            );
-            std::thread::sleep(Duration::from_secs(1));
-        }
-        debug!("Singers initialized");
+        self.wait_for_registered(30);
+        info!("Signers initialized");
 
         self.run_until_epoch_3_boundary();
 
@@ -1244,6 +1214,11 @@ fn multiple_miners() {
     );
 
     let mut run_loop_2 = boot_nakamoto::BootRunLoop::new(conf_node_2.clone()).unwrap();
+    let rl2_coord_channels = run_loop_2.coordinator_channels();
+    let Counters {
+        naka_submitted_commits: rl2_commits,
+        ..
+    } = run_loop_2.counters();
     let _run_loop_2_thread = thread::Builder::new()
         .name("run_loop_2".into())
         .spawn(move || run_loop_2.start(None, 0))
@@ -1260,6 +1235,8 @@ fn multiple_miners() {
     //  is that we keep track of how many tenures each miner produced, and once enough sortitions
     //  have been produced such that each miner has produced 3 tenures, we stop and check the
     //  results at the end
+    let rl1_coord_channels = signer_test.running_nodes.coord_channel.clone();
+    let rl1_commits = signer_test.running_nodes.commits_submitted.clone();
 
     let miner_1_pk = StacksPublicKey::from_private(conf.miner.mining_key.as_ref().unwrap());
     let miner_2_pk = StacksPublicKey::from_private(conf_node_2.miner.mining_key.as_ref().unwrap());
@@ -1270,6 +1247,7 @@ fn multiple_miners() {
         if btc_blocks_mined > max_nakamoto_tenures {
             panic!("Produced {btc_blocks_mined} sortitions, but didn't cover the test scenarios, aborting");
         }
+        
         let info_1 = get_chain_info(&conf);
         let info_2 = get_chain_info(&conf_node_2);
 
@@ -1277,8 +1255,13 @@ fn multiple_miners() {
             "Issue next block-build request\ninfo 1: {:?}\ninfo 2: {:?}\n",
             &info_1, &info_2
         );
-        signer_test.mine_block_wait_on_processing(Duration::from_secs(30));
-
+        
+        signer_test.mine_block_wait_on_processing(
+            &[&rl1_coord_channels, &rl2_coord_channels],
+            &[&rl1_commits, &rl2_commits],
+            Duration::from_secs(30),
+        );
+        
         btc_blocks_mined += 1;
         let blocks = get_nakamoto_headers(&conf);
         // for this test, there should be one block per tenure
@@ -1793,25 +1776,7 @@ fn end_of_tenure() {
         std::thread::sleep(Duration::from_millis(100));
     }
 
-    let now = std::time::Instant::now();
-    // Wait for the signer to process the burn blocks and fully enter the next reward cycle
-    loop {
-        signer_test.send_status_request();
-        let states = signer_test.wait_for_states(short_timeout);
-        if states.iter().all(|state_info| {
-            state_info
-                .reward_cycle_info
-                .map(|info| info.reward_cycle == final_reward_cycle)
-                .unwrap_or(false)
-        }) {
-            break;
-        }
-        assert!(
-            now.elapsed() < short_timeout,
-            "Timed out waiting for signers to be in the next reward cycle"
-        );
-        std::thread::sleep(Duration::from_millis(100));
-    }
+    signer_test.wait_for_cycle(30, final_reward_cycle);
 
     info!("Block proposed and burn blocks consumed. Verifying that stacks block is still not processed");
 

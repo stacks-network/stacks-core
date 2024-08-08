@@ -44,6 +44,7 @@ use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::{ClarityName, ContractName, Value as ClarityValue};
 use libsigner::v0::messages::PeerInfo;
 use reqwest::header::AUTHORIZATION;
+use serde::Deserialize;
 use serde_json::json;
 use slog::{slog_debug, slog_warn};
 use stacks_common::codec::StacksMessageCodec;
@@ -78,6 +79,12 @@ pub struct StacksClient {
     stacks_node_client: reqwest::blocking::Client,
     /// the auth password for the stacks node
     auth_password: String,
+}
+
+#[derive(Deserialize)]
+struct GetStackersErrorResp {
+    err_type: String,
+    err_msg: String,
 }
 
 impl From<&GlobalConfig> for StacksClient {
@@ -514,23 +521,38 @@ impl StacksClient {
         &self,
         reward_cycle: u64,
     ) -> Result<Option<Vec<NakamotoSignerEntry>>, ClientError> {
-        debug!("Getting reward set for reward cycle {reward_cycle}...");
         let timer = crate::monitoring::new_rpc_call_timer(
             &self.reward_set_path(reward_cycle),
             &self.http_origin,
         );
         let send_request = || {
-            self.stacks_node_client
+            let response = self
+                .stacks_node_client
                 .get(self.reward_set_path(reward_cycle))
                 .send()
-                .map_err(backoff::Error::transient)
+                .map_err(|e| backoff::Error::transient(e.into()))?;
+            let status = response.status();
+            if status.is_success() {
+                return response
+                    .json()
+                    .map_err(|e| backoff::Error::permanent(e.into()));
+            }
+            let error_data = response.json::<GetStackersErrorResp>().map_err(|e| {
+                warn!("Failed to parse the GetStackers error response: {e}");
+                backoff::Error::permanent(e.into())
+            })?;
+            if error_data.err_type == "not_available_try_again" {
+                return Err(backoff::Error::transient(ClientError::NoSortitionOnChain));
+            } else {
+                warn!("Got error response ({status}): {}", error_data.err_msg);
+                return Err(backoff::Error::permanent(ClientError::RequestFailure(
+                    status,
+                )));
+            }
         };
-        let response = retry_with_exponential_backoff(send_request)?;
+        let stackers_response =
+            retry_with_exponential_backoff::<_, ClientError, GetStackersResponse>(send_request)?;
         timer.stop_and_record();
-        if !response.status().is_success() {
-            return Err(ClientError::RequestFailure(response.status()));
-        }
-        let stackers_response = response.json::<GetStackersResponse>()?;
         Ok(stackers_response.stacker_set.signers)
     }
 

@@ -873,7 +873,7 @@ impl SignCoordinator {
                 let block_sighash = block.header.signer_signature_hash();
                 if block_sighash != response_hash {
                     warn!(
-                        "Processed signature but didn't validate over the expected block. Returning error.";
+                        "Processed signature for a different block. Will try to continue.";
                         "signature" => %signature,
                         "block_signer_signature_hash" => %block_sighash,
                         "response_hash" => %response_hash,
