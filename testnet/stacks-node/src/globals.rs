@@ -71,7 +71,7 @@ pub struct Globals<T> {
     previous_best_tips: Arc<Mutex<BTreeMap<u64, TipCandidate>>>,
     /// Initiative flag.
     /// Raised when the main loop should wake up and do something.
-    initiative: Arc<Mutex<bool>>,
+    initiative: Arc<Mutex<Option<String>>>,
 }
 
 // Need to manually implement Clone, because [derive(Clone)] requires
@@ -123,7 +123,7 @@ impl<T> Globals<T> {
             start_mining_height: Arc::new(Mutex::new(start_mining_height)),
             estimated_winning_probs: Arc::new(Mutex::new(HashMap::new())),
             previous_best_tips: Arc::new(Mutex::new(BTreeMap::new())),
-            initiative: Arc::new(Mutex::new(false)),
+            initiative: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -435,10 +435,10 @@ impl<T> Globals<T> {
     }
 
     /// Raise the initiative flag
-    pub fn raise_initiative(&self) {
+    pub fn raise_initiative(&self, raiser: String) {
         match self.initiative.lock() {
             Ok(mut initiative) => {
-                *initiative = true;
+                *initiative = Some(raiser);
             }
             Err(_e) => {
                 error!("FATAL: failed to lock initiative");
@@ -448,11 +448,10 @@ impl<T> Globals<T> {
     }
 
     /// Clear the initiative flag and return its value
-    pub fn take_initiative(&self) -> bool {
+    pub fn take_initiative(&self) -> Option<String> {
         match self.initiative.lock() {
             Ok(mut initiative) => {
-                let ret = *initiative;
-                *initiative = false;
+                let ret = (*initiative).take();
                 ret
             }
             Err(_e) => {
