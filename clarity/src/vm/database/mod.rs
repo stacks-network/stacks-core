@@ -37,3 +37,5 @@ mod key_value_wrapper;
 #[cfg(feature = "canonical")]
 pub mod sqlite;
 mod structures;
+#[cfg(test)]
+mod tests;

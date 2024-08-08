@@ -205,7 +205,7 @@ pub struct GlobalContext<'a, 'hooks> {
     pub eval_hooks: Option<Vec<&'hooks mut dyn EvalHook>>,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct ContractContext {
     pub contract_identifier: QualifiedContractIdentifier,
     pub variables: HashMap<ClarityName, Value>,
