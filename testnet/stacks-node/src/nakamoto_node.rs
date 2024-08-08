@@ -275,7 +275,6 @@ impl StacksNode {
             ))
             .map_err(|_| Error::ChannelClosed)?;
 
-        self.globals.raise_initiative();
         Ok(())
     }
 
