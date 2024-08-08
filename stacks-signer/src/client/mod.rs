@@ -567,7 +567,7 @@ pub(crate) mod tests {
             db_path: config.db_path.clone(),
             first_proposal_burn_block_timing: config.first_proposal_burn_block_timing,
             block_proposal_timeout: config.block_proposal_timeout,
-            broadcast_signed_blocks: true
+            broadcast_signed_blocks: true,
         }
     }
 
