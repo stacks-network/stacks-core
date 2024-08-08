@@ -63,6 +63,8 @@ pub struct Signer {
     pub signer_db: SignerDb,
     /// Configuration for proposal evaluation
     pub proposal_config: ProposalEvalConfig,
+    /// Whether or not to broadcast signed blocks if we gather all signatures
+    pub broadcast_signed_blocks: bool,
 }
 
 impl std::fmt::Display for Signer {
@@ -276,6 +278,7 @@ impl From<SignerConfig> for Signer {
             reward_cycle: signer_config.reward_cycle,
             signer_db,
             proposal_config,
+            broadcast_signed_blocks: signer_config.broadcast_signed_blocks,
         }
     }
 }
@@ -580,6 +583,11 @@ impl Signer {
         block_hash: &Sha512Trunc256Sum,
         signature: &MessageSignature,
     ) {
+        if !self.broadcast_signed_blocks {
+            debug!("{self}: Will ignore block-accept signature, since configured not to broadcast signed blocks");
+            return;
+        }
+
         debug!("{self}: Received a block-accept signature: ({block_hash}, {signature})");
 
         // authenticate the signature -- it must be signed by one of the stacking set

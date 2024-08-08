@@ -271,6 +271,7 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
             max_tx_fee_ustx: self.config.max_tx_fee_ustx,
             db_path: self.config.db_path.clone(),
             block_proposal_timeout: self.config.block_proposal_timeout,
+            broadcast_signed_blocks: true,
         })
     }
 
