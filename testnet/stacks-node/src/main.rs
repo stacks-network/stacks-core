@@ -166,10 +166,8 @@ fn cli_get_miner_spend(
                 return 0.0;
             };
             let Ok(active_miners_and_commits) =
-                MinerStats::get_active_miners(&sortdb, Some(burn_block_height)).map_err(|e| {
-                    warn!("Failed to get active miners: {:?}", &e);
-                    e
-                })
+                MinerStats::get_active_miners(&sortdb, Some(burn_block_height))
+                    .inspect_err(|e| warn!("Failed to get active miners: {e:?}"))
             else {
                 return 0.0;
             };
@@ -187,10 +185,7 @@ fn cli_get_miner_spend(
 
             let Ok(unconfirmed_block_commits) = miner_stats
                 .get_unconfirmed_commits(burn_block_height + 1, &active_miners)
-                .map_err(|e| {
-                    warn!("Failed to find unconfirmed block-commits: {}", &e);
-                    e
-                })
+                .inspect_err(|e| warn!("Failed to find unconfirmed block-commits: {e}"))
             else {
                 return 0.0;
             };
@@ -229,10 +224,7 @@ fn cli_get_miner_spend(
                         &commit_outs,
                         at_burnchain_height,
                     )
-                    .map_err(|e| {
-                        warn!("Failed to get unconfirmed burn distribution: {:?}", &e);
-                        e
-                    })
+                    .inspect_err(|e| warn!("Failed to get unconfirmed burn distribution: {e:?}"))
                 else {
                     return 0.0;
                 };
@@ -501,6 +493,11 @@ version\t\tDisplay information about the current version and our release cycle.
 key-for-seed\tOutput the associated secret key for a burnchain signer created with a given seed.
 \t\tCan be passed a config file for the seed via the `--config <file>` option *or* by supplying the hex seed on
 \t\tthe command line directly.
+
+replay-mock-mining\tReplay mock mined blocks from <dir>
+\t\tArguments:
+\t\t  --path: path to directory of mock mined blocks
+\t\t  --config: path to the config file
 
 help\t\tDisplay this help.
 

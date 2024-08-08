@@ -3716,9 +3716,26 @@ impl StacksChainState {
         blocks_conn: &DBConn,
         staging_block: &StagingBlock,
     ) -> Result<Option<Vec<StacksMicroblock>>, Error> {
-        if staging_block.parent_microblock_hash == EMPTY_MICROBLOCK_PARENT_HASH
-            && staging_block.parent_microblock_seq == 0
-        {
+        Self::inner_find_parent_microblock_stream(
+            blocks_conn,
+            &staging_block.anchored_block_hash,
+            &staging_block.parent_anchored_block_hash,
+            &staging_block.parent_consensus_hash,
+            &staging_block.parent_microblock_hash,
+            staging_block.parent_microblock_seq,
+        )
+    }
+
+    /// Allow `find_parent_microblock_stream()` to be called without `StagingBlock`
+    pub fn inner_find_parent_microblock_stream(
+        blocks_conn: &DBConn,
+        anchored_block_hash: &BlockHeaderHash,
+        parent_anchored_block_hash: &BlockHeaderHash,
+        parent_consensus_hash: &ConsensusHash,
+        parent_microblock_hash: &BlockHeaderHash,
+        parent_microblock_seq: u16,
+    ) -> Result<Option<Vec<StacksMicroblock>>, Error> {
+        if *parent_microblock_hash == EMPTY_MICROBLOCK_PARENT_HASH && parent_microblock_seq == 0 {
             // no parent microblocks, ever
             return Ok(Some(vec![]));
         }
@@ -3726,9 +3743,9 @@ impl StacksChainState {
         // find the microblock stream fork that this block confirms
         match StacksChainState::load_microblock_stream_fork(
             blocks_conn,
-            &staging_block.parent_consensus_hash,
-            &staging_block.parent_anchored_block_hash,
-            &staging_block.parent_microblock_hash,
+            parent_consensus_hash,
+            parent_anchored_block_hash,
+            parent_microblock_hash,
         )? {
             Some(microblocks) => {
                 return Ok(Some(microblocks));
@@ -3736,10 +3753,7 @@ impl StacksChainState {
             None => {
                 // parent microblocks haven't arrived yet, or there are none
                 debug!(
-                    "No parent microblock stream for {}: expected a stream with tail {},{}",
-                    staging_block.anchored_block_hash,
-                    staging_block.parent_microblock_hash,
-                    staging_block.parent_microblock_seq
+                    "No parent microblock stream for {anchored_block_hash}: expected a stream with tail {parent_microblock_hash},{parent_microblock_seq}",
                 );
                 return Ok(None);
             }
@@ -5997,13 +6011,14 @@ impl StacksChainState {
     /// the given block.
     pub fn extract_connecting_microblocks(
         parent_block_header_info: &StacksHeaderInfo,
-        next_staging_block: &StagingBlock,
+        next_block_consensus_hash: &ConsensusHash,
+        next_block_hash: &BlockHeaderHash,
         block: &StacksBlock,
         mut next_microblocks: Vec<StacksMicroblock>,
     ) -> Result<Vec<StacksMicroblock>, Error> {
         // NOTE: since we got the microblocks from staging, where their signatures were already
         // validated, we don't need to validate them again.
-        let microblock_terminus = match StacksChainState::validate_parent_microblock_stream(
+        let Some((microblock_terminus, _)) = StacksChainState::validate_parent_microblock_stream(
             parent_block_header_info
                 .anchored_header
                 .as_stacks_epoch2()
@@ -6011,15 +6026,11 @@ impl StacksChainState {
             &block.header,
             &next_microblocks,
             false,
-        ) {
-            Some((terminus, _)) => terminus,
-            None => {
-                debug!(
-                    "Stopping at block {}/{} -- discontiguous header stream",
-                    next_staging_block.consensus_hash, next_staging_block.anchored_block_hash,
-                );
-                return Ok(vec![]);
-            }
+        ) else {
+            debug!(
+                "Stopping at block {next_block_consensus_hash}/{next_block_hash} -- discontiguous header stream"
+            );
+            return Ok(vec![]);
         };
 
         // do not consider trailing microblocks that this anchored block does _not_ confirm
@@ -6214,7 +6225,8 @@ impl StacksChainState {
         // block's parent to this block.
         let next_microblocks = StacksChainState::extract_connecting_microblocks(
             &parent_header_info,
-            &next_staging_block,
+            &parent_header_info.consensus_hash,
+            &next_staging_block.anchored_block_hash,
             &block,
             next_microblocks,
         )?;

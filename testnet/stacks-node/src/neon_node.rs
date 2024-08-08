@@ -140,7 +140,7 @@
 use std::cmp;
 use std::cmp::Ordering as CmpOrdering;
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
-use std::io::{Read, Write};
+use std::io::{ErrorKind, Read, Write};
 use std::net::SocketAddr;
 use std::sync::mpsc::{Receiver, TrySendError};
 use std::thread::JoinHandle;
@@ -167,7 +167,8 @@ use stacks::chainstate::stacks::address::PoxAddress;
 use stacks::chainstate::stacks::db::blocks::StagingBlock;
 use stacks::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo, MINER_REWARD_MATURITY};
 use stacks::chainstate::stacks::miner::{
-    signal_mining_blocked, signal_mining_ready, BlockBuilderSettings, StacksMicroblockBuilder,
+    signal_mining_blocked, signal_mining_ready, AssembledAnchorBlock, BlockBuilderSettings,
+    StacksMicroblockBuilder,
 };
 use stacks::chainstate::stacks::{
     CoinbasePayload, Error as ChainstateError, StacksBlock, StacksBlockBuilder, StacksBlockHeader,
@@ -232,27 +233,6 @@ pub(crate) enum MinerThreadResult {
         Result<Option<(StacksMicroblock, ExecutionCost)>, NetError>,
         MinerTip,
     ),
-}
-
-/// Fully-assembled Stacks anchored, block as well as some extra metadata pertaining to how it was
-/// linked to the burnchain and what view(s) the miner had of the burnchain before and after
-/// completing the block.
-#[derive(Clone)]
-pub struct AssembledAnchorBlock {
-    /// Consensus hash of the parent Stacks block
-    parent_consensus_hash: ConsensusHash,
-    /// Burnchain tip's block hash when we finished mining
-    my_burn_hash: BurnchainHeaderHash,
-    /// Burnchain tip's block height when we finished mining
-    my_block_height: u64,
-    /// Burnchain tip's block hash when we started mining (could be different)
-    orig_burn_hash: BurnchainHeaderHash,
-    /// The block we produced
-    anchored_block: StacksBlock,
-    /// The attempt count of this block (multiple blocks will be attempted per burnchain block)
-    attempt: u64,
-    /// Epoch timestamp in milliseconds when we started producing the block.
-    tenure_begin: u128,
 }
 
 /// Miner chain tip, on top of which to build microblocks
@@ -2567,28 +2547,54 @@ impl BlockMinerThread {
             "attempt" => attempt
         );
 
+        let NodeConfig {
+            mock_mining,
+            mock_mining_output_dir,
+            ..
+        } = self.config.get_node_config(false);
+
         let res = bitcoin_controller.submit_operation(target_epoch_id, op, &mut op_signer, attempt);
+        let assembled_block = AssembledAnchorBlock {
+            parent_consensus_hash: parent_block_info.parent_consensus_hash,
+            consensus_hash: cur_burn_chain_tip.consensus_hash,
+            my_burn_hash: cur_burn_chain_tip.burn_header_hash,
+            my_block_height: cur_burn_chain_tip.block_height,
+            orig_burn_hash: self.burn_block.burn_header_hash,
+            anchored_block,
+            attempt,
+            tenure_begin,
+        };
         if res.is_none() {
             self.failed_to_submit_last_attempt = true;
-            if !self.config.get_node_config(false).mock_mining {
+            if mock_mining {
+                debug!("Relayer: Mock-mining enabled; not sending Bitcoin transaction");
+                if let Some(dir) = mock_mining_output_dir {
+                    fs::create_dir_all(&dir).unwrap_or_else(|e| match e.kind() {
+                        ErrorKind::AlreadyExists => { /* This is fine */ }
+                        _ => error!("Failed to create directory '{dir:?}': {e}"),
+                    });
+                    let stacks_block_height = assembled_block.anchored_block.header.total_work.work;
+                    let filename = format!("{stacks_block_height}.json");
+                    let filepath = dir.join(filename);
+                    assembled_block
+                        .serialize_to_file(&filepath)
+                        .unwrap_or_else(|e| match e.kind() {
+                            ErrorKind::AlreadyExists => {
+                                error!("Failed to overwrite file '{filepath:?}'")
+                            }
+                            _ => error!("Failed to write to file '{filepath:?}': {e}"),
+                        });
+                }
+            } else {
                 warn!("Relayer: Failed to submit Bitcoin transaction");
                 return None;
             }
-            debug!("Relayer: Mock-mining enabled; not sending Bitcoin transaction");
         } else {
             self.failed_to_submit_last_attempt = false;
         }
 
         Some(MinerThreadResult::Block(
-            AssembledAnchorBlock {
-                parent_consensus_hash: parent_block_info.parent_consensus_hash,
-                my_burn_hash: cur_burn_chain_tip.burn_header_hash,
-                my_block_height: cur_burn_chain_tip.block_height,
-                orig_burn_hash: self.burn_block.burn_header_hash,
-                anchored_block,
-                attempt,
-                tenure_begin,
-            },
+            assembled_block,
             microblock_private_key,
             bitcoin_controller.get_ongoing_commit(),
         ))
@@ -3584,22 +3590,17 @@ impl RelayerThread {
             }
         }
 
-        let mut miner_thread_state =
-            match self.create_block_miner(registered_key, last_burn_block, issue_timestamp_ms) {
-                Some(state) => state,
-                None => {
-                    return false;
-                }
-            };
+        let Some(mut miner_thread_state) =
+            self.create_block_miner(registered_key, last_burn_block, issue_timestamp_ms)
+        else {
+            return false;
+        };
 
         if let Ok(miner_handle) = thread::Builder::new()
             .name(format!("miner-block-{}", self.local_peer.data_url))
             .stack_size(BLOCK_PROCESSOR_STACK_SIZE)
             .spawn(move || miner_thread_state.run_tenure())
-            .map_err(|e| {
-                error!("Relayer: Failed to start tenure thread: {:?}", &e);
-                e
-            })
+            .inspect_err(|e| error!("Relayer: Failed to start tenure thread: {e:?}"))
         {
             self.miner_thread = Some(miner_handle);
         }
@@ -3721,11 +3722,9 @@ impl RelayerThread {
             parent_consensus_hash, parent_block_hash
         );
 
-        let mut microblock_thread_state = match MicroblockMinerThread::from_relayer_thread(self) {
-            Some(ts) => ts,
-            None => {
-                return false;
-            }
+        let Some(mut microblock_thread_state) = MicroblockMinerThread::from_relayer_thread(self)
+        else {
+            return false;
         };
 
         if let Ok(miner_handle) = thread::Builder::new()
@@ -3737,10 +3736,7 @@ impl RelayerThread {
                     miner_tip,
                 ))
             })
-            .map_err(|e| {
-                error!("Relayer: Failed to start tenure thread: {:?}", &e);
-                e
-            })
+            .inspect_err(|e| error!("Relayer: Failed to start tenure thread: {e:?}"))
         {
             // thread started!
             self.miner_thread = Some(miner_handle);
