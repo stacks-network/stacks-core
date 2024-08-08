@@ -71,6 +71,7 @@ impl SignerTest<SpawnedSigner> {
             &self.signer_stacks_private_keys,
             &self.signer_stacks_private_keys,
             &mut self.running_nodes.btc_regtest_controller,
+            Some(self.num_stacking_cycles),
         );
         let dkg_vote = self.wait_for_dkg(timeout);
 
@@ -493,6 +494,7 @@ fn dkg() {
         &signer_test.signer_stacks_private_keys,
         &signer_test.signer_stacks_private_keys,
         &mut signer_test.running_nodes.btc_regtest_controller,
+        Some(signer_test.num_stacking_cycles),
     );
 
     info!("Pox 4 activated and at epoch 3.0 reward set calculation (2nd block of its prepare phase)! Ready for signers to perform DKG and Sign!");
@@ -696,6 +698,7 @@ fn delayed_dkg() {
         &signer_test.signer_stacks_private_keys,
         &signer_test.signer_stacks_private_keys,
         &mut signer_test.running_nodes.btc_regtest_controller,
+        Some(signer_test.num_stacking_cycles),
     );
     let reward_cycle = signer_test.get_current_reward_cycle().saturating_add(1);
     let public_keys = signer_test.get_signer_public_keys(reward_cycle);

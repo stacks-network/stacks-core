@@ -345,27 +345,26 @@ impl BlockMinerThread {
                 Self::fault_injection_block_broadcast_stall(&new_block);
                 let (reward_set, signer_signature) = match self.gather_signatures(
                     &mut new_block,
-                    self.burn_block.block_height,
                     &mut stackerdbs,
                     &mut attempts,
                 ) {
                     Ok(x) => x,
-                    Err(e) => {
-                        match e {
-                            NakamotoNodeError::StacksTipChanged => {
-                                info!("Stacks tip changed while waiting for signatures");
-                                return Err(e);
-                            }
-                            NakamotoNodeError::BurnchainTipChanged => {
-                                info!("Burnchain tip changed while waiting for signatures");
-                                return Err(e);
-                            }
-                            _ => {
-                                error!("Error while gathering signatures: {e:?}. Will try mining again.");
-                                continue;
-                            }
+                    Err(e) => match e {
+                        NakamotoNodeError::StacksTipChanged => {
+                            info!("Stacks tip changed while waiting for signatures");
+                            return Err(e);
                         }
-                    }
+                        NakamotoNodeError::BurnchainTipChanged => {
+                            info!("Burnchain tip changed while waiting for signatures");
+                            return Err(e);
+                        }
+                        _ => {
+                            error!(
+                                "Error while gathering signatures: {e:?}. Will try mining again."
+                            );
+                            continue;
+                        }
+                    },
                 };
 
                 new_block.header.signer_signature = signer_signature;
@@ -445,10 +444,13 @@ impl BlockMinerThread {
 
         let burn_election_height = self.burn_election_block.block_height;
 
+        let reward_cycle = self
+            .burnchain
+            .block_height_to_reward_cycle(burn_election_height)
+            .expect("FATAL: no reward cycle for sortition");
+
         let reward_info = match load_nakamoto_reward_set(
-            self.burnchain
-                .pox_reward_cycle(burn_election_height)
-                .expect("FATAL: no reward cycle for sortition"),
+            reward_cycle,
             &self.burn_election_block.sortition_id,
             &self.burnchain,
             &mut chain_state,
@@ -483,7 +485,6 @@ impl BlockMinerThread {
     fn gather_signatures(
         &mut self,
         new_block: &mut NakamotoBlock,
-        burn_block_height: u64,
         stackerdbs: &mut StackerDBs,
         attempts: &mut u64,
     ) -> Result<(RewardSet, Vec<MessageSignature>), NakamotoNodeError> {
@@ -545,7 +546,6 @@ impl BlockMinerThread {
         *attempts += 1;
         let signature = coordinator.run_sign_v0(
             new_block,
-            burn_block_height,
             *attempts,
             &tip,
             &self.burnchain,

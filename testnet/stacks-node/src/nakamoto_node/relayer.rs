@@ -48,9 +48,9 @@ use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksBlockId, StacksPublicKey, VRFSeed,
 };
 use stacks_common::types::StacksEpochId;
+use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::vrf::VRFPublicKey;
-use stacks_common::util::{get_epoch_time_ms, sleep_ms};
 
 use super::miner::MinerReason;
 use super::{
