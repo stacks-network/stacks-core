@@ -140,7 +140,7 @@
 use std::cmp;
 use std::cmp::Ordering as CmpOrdering;
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
-use std::io::{Read, Write};
+use std::io::{ErrorKind, Read, Write};
 use std::net::SocketAddr;
 use std::sync::mpsc::{Receiver, TrySendError};
 use std::thread::JoinHandle;
@@ -2569,12 +2569,21 @@ impl BlockMinerThread {
             if mock_mining {
                 debug!("Relayer: Mock-mining enabled; not sending Bitcoin transaction");
                 if let Some(dir) = mock_mining_output_dir {
+                    fs::create_dir_all(&dir).unwrap_or_else(|e| match e.kind() {
+                        ErrorKind::AlreadyExists => { /* This is fine */ }
+                        _ => error!("Failed to create directory '{dir:?}': {e}"),
+                    });
                     let stacks_block_height = assembled_block.anchored_block.header.total_work.work;
                     let filename = format!("{stacks_block_height}.json");
                     let filepath = dir.join(filename);
                     assembled_block
                         .serialize_to_file(&filepath)
-                        .unwrap_or_else(|e| panic!("Failed to write to file '{filepath:?}': {e}"));
+                        .unwrap_or_else(|e| match e.kind() {
+                            ErrorKind::AlreadyExists => {
+                                error!("Failed to overwrite file '{filepath:?}'")
+                            }
+                            _ => error!("Failed to write to file '{filepath:?}': {e}"),
+                        });
                 }
             } else {
                 warn!("Relayer: Failed to submit Bitcoin transaction");
