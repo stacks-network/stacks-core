@@ -1073,11 +1073,7 @@ fn signer_vote_if_needed(
     }
 }
 
-///
-/// * `stacker_sks` - must be a private key for sending a large `stack-stx` transaction in order
-///   for pox-4 to activate
-/// * `signer_pks` - must be the same size as `stacker_sks`
-pub fn boot_to_epoch_3_reward_set_calculation_boundary(
+pub fn setup_epoch_3_reward_set(
     naka_conf: &Config,
     blocks_processed: &Arc<AtomicU64>,
     stacker_sks: &[StacksPrivateKey],
@@ -1099,9 +1095,6 @@ pub fn boot_to_epoch_3_reward_set_calculation_boundary(
     );
     let epoch_3_reward_cycle_boundary =
         epoch_3_start_height.saturating_sub(epoch_3_start_height % reward_cycle_len);
-    let epoch_3_reward_set_calculation_boundary = epoch_3_reward_cycle_boundary
-        .saturating_sub(prepare_phase_len)
-        .wrapping_add(1);
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
     next_block_and_wait(btc_regtest_controller, &blocks_processed);
     next_block_and_wait(btc_regtest_controller, &blocks_processed);
@@ -1115,13 +1108,13 @@ pub fn boot_to_epoch_3_reward_set_calculation_boundary(
         .block_height_to_reward_cycle(block_height)
         .unwrap();
     let lock_period: u128 = num_stacking_cycles.unwrap_or(12_u64).into();
-    debug!("Test Cycle Info";
-     "prepare_phase_len" => {prepare_phase_len},
-     "reward_cycle_len" => {reward_cycle_len},
-     "block_height" => {block_height},
-     "reward_cycle" => {reward_cycle},
-     "epoch_3_reward_cycle_boundary" => {epoch_3_reward_cycle_boundary},
-     "epoch_3_start_height" => {epoch_3_start_height},
+    info!("Test Cycle Info";
+          "prepare_phase_len" => {prepare_phase_len},
+          "reward_cycle_len" => {reward_cycle_len},
+          "block_height" => {block_height},
+          "reward_cycle" => {reward_cycle},
+          "epoch_3_reward_cycle_boundary" => {epoch_3_reward_cycle_boundary},
+          "epoch_3_start_height" => {epoch_3_start_height},
     );
     for (stacker_sk, signer_sk) in stacker_sks.iter().zip(signer_sks.iter()) {
         let pox_addr = PoxAddress::from_legacy(
@@ -1165,6 +1158,44 @@ pub fn boot_to_epoch_3_reward_set_calculation_boundary(
         );
         submit_tx(&http_origin, &stacking_tx);
     }
+}
+
+///
+/// * `stacker_sks` - must be a private key for sending a large `stack-stx` transaction in order
+///   for pox-4 to activate
+/// * `signer_pks` - must be the same size as `stacker_sks`
+pub fn boot_to_epoch_3_reward_set_calculation_boundary(
+    naka_conf: &Config,
+    blocks_processed: &Arc<AtomicU64>,
+    stacker_sks: &[StacksPrivateKey],
+    signer_sks: &[StacksPrivateKey],
+    btc_regtest_controller: &mut BitcoinRegtestController,
+    num_stacking_cycles: Option<u64>,
+) {
+    setup_epoch_3_reward_set(
+        naka_conf,
+        blocks_processed,
+        stacker_sks,
+        signer_sks,
+        btc_regtest_controller,
+        num_stacking_cycles,
+    );
+
+    let epochs = naka_conf.burnchain.epochs.clone().unwrap();
+    let epoch_3 = &epochs[StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch30).unwrap()];
+    let reward_cycle_len = naka_conf.get_burnchain().pox_constants.reward_cycle_length as u64;
+    let prepare_phase_len = naka_conf.get_burnchain().pox_constants.prepare_length as u64;
+
+    let epoch_3_start_height = epoch_3.start_height;
+    assert!(
+        epoch_3_start_height > 0,
+        "Epoch 3.0 start height must be greater than 0"
+    );
+    let epoch_3_reward_cycle_boundary =
+        epoch_3_start_height.saturating_sub(epoch_3_start_height % reward_cycle_len);
+    let epoch_3_reward_set_calculation_boundary = epoch_3_reward_cycle_boundary
+        .saturating_sub(prepare_phase_len)
+        .saturating_add(1);
 
     run_until_burnchain_height(
         btc_regtest_controller,
