@@ -26,6 +26,7 @@ use libsigner::v0::messages::{
     BlockRejection, BlockResponse, MessageSlotID, RejectCode, SignerMessage,
 };
 use libsigner::{BlockProposal, SignerSession, StackerDBSession};
+use rand::RngCore;
 use stacks::address::AddressHashMode;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader, NakamotoChainState};
@@ -38,6 +39,7 @@ use stacks::libstackerdb::StackerDBChunkData;
 use stacks::net::api::postblock_proposal::TEST_VALIDATE_STALL;
 use stacks::types::chainstate::{StacksAddress, StacksBlockId, StacksPrivateKey, StacksPublicKey};
 use stacks::types::PublicKey;
+use stacks::util::hash::MerkleHashFunc;
 use stacks::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 use stacks::util_lib::boot::boot_code_id;
 use stacks::util_lib::signed_structured_data::pox4::{
@@ -46,19 +48,21 @@ use stacks::util_lib::signed_structured_data::pox4::{
 use stacks_common::bitvec::BitVec;
 use stacks_signer::chainstate::{ProposalEvalConfig, SortitionsView};
 use stacks_signer::client::{SignerSlotID, StackerDB};
+use stacks_signer::config::{build_signer_config_tomls, GlobalConfig as SignerConfig, Network};
 use stacks_signer::runloop::State;
 use stacks_signer::v0::SpawnedSigner;
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{fmt, EnvFilter};
 
 use super::SignerTest;
+use crate::config::{EventKeyType, EventObserverConfig};
 use crate::event_dispatcher::MinedNakamotoBlockEvent;
 use crate::nakamoto_node::miner::TEST_BROADCAST_STALL;
 use crate::neon::Counters;
 use crate::run_loop::boot_nakamoto;
 use crate::tests::nakamoto_integrations::{
     boot_to_epoch_25, boot_to_epoch_3_reward_set, next_block_and, wait_for,
-    POX_4_DEFAULT_STACKER_STX_AMT,
+    POX_4_DEFAULT_STACKER_BALANCE, POX_4_DEFAULT_STACKER_STX_AMT,
 };
 use crate::tests::neon_integrations::{
     get_account, get_chain_info, next_block_and_wait, run_until_burnchain_height, submit_tx,
@@ -171,9 +175,8 @@ impl SignerTest<SpawnedSigner> {
             .wrapping_add(reward_cycle_len)
             .wrapping_add(1);
 
-        let next_reward_cycle_boundary = epoch_25_reward_cycle_boundary
-            .wrapping_add(reward_cycle_len)
-            .saturating_sub(1);
+        let next_reward_cycle_boundary =
+            epoch_25_reward_cycle_boundary.wrapping_add(reward_cycle_len);
         run_until_burnchain_height(
             &mut self.running_nodes.btc_regtest_controller,
             &self.running_nodes.blocks_processed,
@@ -250,6 +253,7 @@ impl SignerTest<SpawnedSigner> {
             &self.signer_stacks_private_keys,
             &self.signer_stacks_private_keys,
             &mut self.running_nodes.btc_regtest_controller,
+            Some(self.num_stacking_cycles),
         );
         debug!("Waiting for signer set calculation.");
         let mut reward_set_calculated = false;
@@ -316,6 +320,7 @@ impl SignerTest<SpawnedSigner> {
     // Only call after already past the epoch 3.0 boundary
     fn mine_and_verify_confirmed_naka_block(&mut self, timeout: Duration, num_signers: usize) {
         info!("------------------------- Try mining one block -------------------------");
+
         self.mine_nakamoto_block(timeout);
 
         // Verify that the signers accepted the proposed block, sending back a validate ok response
@@ -2054,35 +2059,38 @@ fn empty_sortition() {
         .collect();
     assert_eq!(signer_slot_ids.len(), num_signers);
 
-    // The miner's proposed block should get rejected by the signers
-    let start_polling = Instant::now();
-    let mut found_rejection = false;
-    while !found_rejection {
-        std::thread::sleep(Duration::from_secs(1));
-        let messages: Vec<SignerMessage> = StackerDB::get_messages(
-            stackerdb
-                .get_session_mut(&MessageSlotID::BlockResponse)
-                .expect("Failed to get BlockResponse stackerdb session"),
-            &signer_slot_ids,
-        )
-        .expect("Failed to get message from stackerdb");
-        for message in messages {
+    // The miner's proposed block should get rejected by all the signers
+    let mut found_rejections = Vec::new();
+    wait_for(short_timeout.as_secs(), || {
+        for slot_id in signer_slot_ids.iter() {
+            if found_rejections.contains(slot_id) {
+                continue;
+            }
+            let mut latest_msgs = StackerDB::get_messages(
+                stackerdb
+                    .get_session_mut(&MessageSlotID::BlockResponse)
+                    .expect("Failed to get BlockResponse stackerdb session"),
+                &[*slot_id]
+            ).expect("Failed to get message from stackerdb");
+            assert!(latest_msgs.len() <= 1);
+            let Some(latest_msg) = latest_msgs.pop() else {
+                info!("No message yet from slot #{slot_id}, will wait to try again");
+                continue;
+            };
             if let SignerMessage::BlockResponse(BlockResponse::Rejected(BlockRejection {
                 reason_code,
                 ..
-            })) = message
+            })) = latest_msg
             {
                 assert!(matches!(reason_code, RejectCode::SortitionViewMismatch));
-                found_rejection = true;
+                found_rejections.push(*slot_id);
             } else {
-                panic!("Unexpected message type");
+                info!("Latest message from slot #{slot_id} isn't a block rejection, will wait to see if the signer updates to a rejection");
             }
         }
-        assert!(
-            start_polling.elapsed() <= short_timeout,
-            "Timed out after waiting for response from signer"
-        );
-    }
+        // wait until we've found rejections for all the signers
+        Ok(found_rejections.len() == signer_slot_ids.len())
+    }).unwrap();
     signer_test.shutdown();
 }
 
@@ -2140,7 +2148,6 @@ fn mock_sign_epoch_25() {
     info!("------------------------- Test Processing Epoch 2.5 Tenures -------------------------");
 
     // Mine until epoch 3.0 and ensure that no more mock signatures are received
-
     let mut reward_cycle = signer_test.get_current_reward_cycle();
     let mut stackerdb = StackerDB::new(
         &signer_test.running_nodes.conf.node.rpc_bind,
@@ -2157,19 +2164,33 @@ fn mock_sign_epoch_25() {
     assert_eq!(signer_slot_ids.len(), num_signers);
     // Mine until epoch 3.0 and ensure we get a new mock signature per epoch 2.5 sortition
     let main_poll_time = Instant::now();
-    let mut current_burn_block_height = signer_test
+    while signer_test
         .running_nodes
         .btc_regtest_controller
-        .get_headers_height();
-    while current_burn_block_height + 1 < epoch_3_start_height {
-        current_burn_block_height = signer_test
+        .get_headers_height()
+        < epoch_3_start_height
+    {
+        next_block_and(
+            &mut signer_test.running_nodes.btc_regtest_controller,
+            60,
+            || Ok(true),
+        )
+        .unwrap();
+        let current_burn_block_height = signer_test
             .running_nodes
             .btc_regtest_controller
             .get_headers_height();
-        let current_reward_cycle = signer_test.get_current_reward_cycle();
-        if current_reward_cycle != reward_cycle {
-            debug!("Rolling over reward cycle to {:?}", current_reward_cycle);
-            reward_cycle = current_reward_cycle;
+        if current_burn_block_height
+            % signer_test
+                .running_nodes
+                .conf
+                .get_burnchain()
+                .pox_constants
+                .reward_cycle_length as u64
+            == 0
+        {
+            reward_cycle += 1;
+            debug!("Rolling over reward cycle to {:?}", reward_cycle);
             stackerdb = StackerDB::new(
                 &signer_test.running_nodes.conf.node.rpc_bind,
                 StacksPrivateKey::new(), // We are just reading so don't care what the key is
@@ -2184,12 +2205,6 @@ fn mock_sign_epoch_25() {
                 .collect();
             assert_eq!(signer_slot_ids.len(), num_signers);
         }
-        next_block_and(
-            &mut signer_test.running_nodes.btc_regtest_controller,
-            60,
-            || Ok(true),
-        )
-        .unwrap();
         let mut mock_signatures = vec![];
         let mock_poll_time = Instant::now();
         debug!("Waiting for mock signatures for burn block height {current_burn_block_height}");
@@ -2267,4 +2282,287 @@ fn mock_sign_epoch_25() {
         })
         .collect::<Vec<_>>();
     assert_eq!(old_signatures, new_signatures);
+}
+
+#[test]
+#[ignore]
+/// This test asserts that signer set rollover works as expected.
+/// Specifically, if a new set of signers are registered for an upcoming reward cycle,
+/// old signers shut down operation and the new signers take over with the commencement of
+/// the next reward cycle.
+fn signer_set_rollover() {
+    tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(EnvFilter::from_default_env())
+        .init();
+
+    info!("------------------------- Test Setup -------------------------");
+    let num_signers = 5;
+    let new_num_signers = 4;
+
+    let new_signer_private_keys: Vec<_> = (0..new_num_signers)
+        .into_iter()
+        .map(|_| StacksPrivateKey::new())
+        .collect();
+    let new_signer_public_keys: Vec<_> = new_signer_private_keys
+        .iter()
+        .map(|sk| Secp256k1PublicKey::from_private(sk).to_bytes_compressed())
+        .collect();
+    let new_signer_addresses: Vec<_> = new_signer_private_keys
+        .iter()
+        .map(|sk| tests::to_addr(sk))
+        .collect();
+    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_addr = tests::to_addr(&sender_sk);
+    let send_amt = 100;
+    let send_fee = 180;
+    let recipient = PrincipalData::from(StacksAddress::burn_address(false));
+
+    let mut initial_balances = new_signer_addresses
+        .iter()
+        .map(|addr| (addr.clone(), POX_4_DEFAULT_STACKER_BALANCE))
+        .collect::<Vec<_>>();
+
+    initial_balances.push((sender_addr.clone(), (send_amt + send_fee) * 4));
+
+    let run_stamp = rand::random();
+    let mut rng = rand::thread_rng();
+
+    let mut buf = [0u8; 2];
+    rng.fill_bytes(&mut buf);
+    let rpc_port = u16::from_be_bytes(buf.try_into().unwrap()).saturating_add(1025) - 1; // use a non-privileged port between 1024 and 65534
+    let rpc_bind = format!("127.0.0.1:{}", rpc_port);
+
+    // Setup the new signers that will take over
+    let new_signer_configs = build_signer_config_tomls(
+        &new_signer_private_keys,
+        &rpc_bind,
+        Some(Duration::from_millis(128)), // Timeout defaults to 5 seconds. Let's override it to 128 milliseconds.
+        &Network::Testnet,
+        "12345",
+        run_stamp,
+        3000 + num_signers,
+        Some(100_000),
+        None,
+        Some(9000 + num_signers),
+    );
+
+    let new_spawned_signers: Vec<_> = (0..new_num_signers)
+        .into_iter()
+        .map(|i| {
+            info!("spawning signer");
+            let signer_config =
+                SignerConfig::load_from_str(&new_signer_configs[i as usize]).unwrap();
+            SpawnedSigner::new(signer_config)
+        })
+        .collect();
+
+    // Boot with some initial signer set
+    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
+        num_signers,
+        initial_balances,
+        None,
+        |_| {},
+        |naka_conf| {
+            for toml in new_signer_configs.clone() {
+                let signer_config = SignerConfig::load_from_str(&toml).unwrap();
+                info!(
+                    "---- Adding signer endpoint to naka conf ({}) ----",
+                    signer_config.endpoint
+                );
+
+                naka_conf.events_observers.insert(EventObserverConfig {
+                    endpoint: format!("{}", signer_config.endpoint),
+                    events_keys: vec![
+                        EventKeyType::StackerDBChunks,
+                        EventKeyType::BlockProposal,
+                        EventKeyType::BurnchainBlocks,
+                    ],
+                });
+            }
+            naka_conf.node.rpc_bind = rpc_bind.clone();
+        },
+        &[],
+    );
+    assert_eq!(
+        new_spawned_signers[0].config.node_host,
+        signer_test.running_nodes.conf.node.rpc_bind
+    );
+    // Only stack for one cycle so that the signer set changes
+    signer_test.num_stacking_cycles = 1_u64;
+
+    let http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
+    let short_timeout = Duration::from_secs(20);
+
+    // Verify that naka_conf has our new signer's event observers
+    for toml in &new_signer_configs {
+        let signer_config = SignerConfig::load_from_str(&toml).unwrap();
+        let endpoint = format!("{}", signer_config.endpoint);
+        assert!(signer_test
+            .running_nodes
+            .conf
+            .events_observers
+            .iter()
+            .any(|observer| observer.endpoint == endpoint));
+    }
+
+    // Advance to the first reward cycle, stacking to the old signers beforehand
+
+    info!("---- Booting to epoch 3 -----");
+    signer_test.boot_to_epoch_3();
+
+    // verify that the first reward cycle has the old signers in the reward set
+    let reward_cycle = signer_test.get_current_reward_cycle();
+    let signer_test_public_keys: Vec<_> = signer_test
+        .signer_stacks_private_keys
+        .iter()
+        .map(|sk| Secp256k1PublicKey::from_private(sk).to_bytes_compressed())
+        .collect();
+
+    info!("---- Verifying that the current signers are the old signers ----");
+    let current_signers = signer_test.get_reward_set_signers(reward_cycle);
+    assert_eq!(current_signers.len(), num_signers as usize);
+    // Verify that the current signers are the same as the old signers
+    for signer in current_signers.iter() {
+        assert!(signer_test_public_keys.contains(&signer.signing_key.to_vec()));
+        assert!(!new_signer_public_keys.contains(&signer.signing_key.to_vec()));
+    }
+
+    info!("---- Mining a block to trigger the signer set -----");
+    // submit a tx so that the miner will mine an extra block
+    let sender_nonce = 0;
+    let transfer_tx =
+        make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
+    submit_tx(&http_origin, &transfer_tx);
+    let mined_block = signer_test.mine_nakamoto_block(short_timeout);
+    let block_sighash = mined_block.signer_signature_hash;
+    let signer_signatures = mined_block.signer_signature;
+
+    // verify the mined_block signatures against the OLD signer set
+    for signature in signer_signatures.iter() {
+        let pk = Secp256k1PublicKey::recover_to_pubkey(block_sighash.bits(), signature)
+            .expect("FATAL: Failed to recover pubkey from block sighash");
+        assert!(signer_test_public_keys.contains(&pk.to_bytes_compressed()));
+        assert!(!new_signer_public_keys.contains(&pk.to_bytes_compressed()));
+    }
+
+    // advance to the next reward cycle, stacking to the new signers beforehand
+    let reward_cycle = signer_test.get_current_reward_cycle();
+
+    info!("---- Stacking new signers -----");
+
+    let burn_block_height = signer_test
+        .running_nodes
+        .btc_regtest_controller
+        .get_headers_height();
+    for stacker_sk in new_signer_private_keys.iter() {
+        let pox_addr = PoxAddress::from_legacy(
+            AddressHashMode::SerializeP2PKH,
+            tests::to_addr(&stacker_sk).bytes,
+        );
+        let pox_addr_tuple: clarity::vm::Value =
+            pox_addr.clone().as_clarity_tuple().unwrap().into();
+        let signature = make_pox_4_signer_key_signature(
+            &pox_addr,
+            &stacker_sk,
+            reward_cycle.into(),
+            &Pox4SignatureTopic::StackStx,
+            CHAIN_ID_TESTNET,
+            1_u128,
+            u128::MAX,
+            1,
+        )
+        .unwrap()
+        .to_rsv();
+
+        let signer_pk = Secp256k1PublicKey::from_private(stacker_sk);
+        let stacking_tx = tests::make_contract_call(
+            &stacker_sk,
+            0,
+            1000,
+            &StacksAddress::burn_address(false),
+            "pox-4",
+            "stack-stx",
+            &[
+                clarity::vm::Value::UInt(POX_4_DEFAULT_STACKER_STX_AMT),
+                pox_addr_tuple.clone(),
+                clarity::vm::Value::UInt(burn_block_height as u128),
+                clarity::vm::Value::UInt(1),
+                clarity::vm::Value::some(clarity::vm::Value::buff_from(signature).unwrap())
+                    .unwrap(),
+                clarity::vm::Value::buff_from(signer_pk.to_bytes_compressed()).unwrap(),
+                clarity::vm::Value::UInt(u128::MAX),
+                clarity::vm::Value::UInt(1),
+            ],
+        );
+        submit_tx(&http_origin, &stacking_tx);
+    }
+
+    signer_test.mine_nakamoto_block(short_timeout);
+
+    let next_reward_cycle = reward_cycle.saturating_add(1);
+
+    let next_cycle_height = signer_test
+        .running_nodes
+        .btc_regtest_controller
+        .get_burnchain()
+        .reward_cycle_to_block_height(next_reward_cycle)
+        .saturating_add(1);
+
+    info!("---- Mining to next reward set calculation -----");
+    signer_test.run_until_burnchain_height_nakamoto(
+        Duration::from_secs(60),
+        next_cycle_height.saturating_sub(3),
+        new_num_signers,
+    );
+
+    // Verify that the new reward set is the new signers
+    let reward_set = signer_test.get_reward_set_signers(next_reward_cycle);
+    for signer in reward_set.iter() {
+        assert!(!signer_test_public_keys.contains(&signer.signing_key.to_vec()));
+        assert!(new_signer_public_keys.contains(&signer.signing_key.to_vec()));
+    }
+
+    info!(
+        "---- Mining to the next reward cycle (block {}) -----",
+        next_cycle_height
+    );
+    signer_test.run_until_burnchain_height_nakamoto(
+        Duration::from_secs(60),
+        next_cycle_height,
+        new_num_signers,
+    );
+    let new_reward_cycle = signer_test.get_current_reward_cycle();
+    assert_eq!(new_reward_cycle, reward_cycle.saturating_add(1));
+
+    info!("---- Verifying that the current signers are the new signers ----");
+    let current_signers = signer_test.get_reward_set_signers(new_reward_cycle);
+    assert_eq!(current_signers.len(), new_num_signers as usize);
+    for signer in current_signers.iter() {
+        assert!(!signer_test_public_keys.contains(&signer.signing_key.to_vec()));
+        assert!(new_signer_public_keys.contains(&signer.signing_key.to_vec()));
+    }
+
+    info!("---- Mining a block to verify new signer set -----");
+    let sender_nonce = 1;
+    let transfer_tx =
+        make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
+    submit_tx(&http_origin, &transfer_tx);
+    let mined_block = signer_test.mine_nakamoto_block(short_timeout);
+
+    info!("---- Verifying that the new signers signed the block -----");
+    let signer_signatures = mined_block.signer_signature;
+
+    // verify the mined_block signatures against the NEW signer set
+    for signature in signer_signatures.iter() {
+        let pk = Secp256k1PublicKey::recover_to_pubkey(block_sighash.bits(), signature)
+            .expect("FATAL: Failed to recover pubkey from block sighash");
+        assert!(!signer_test_public_keys.contains(&pk.to_bytes_compressed()));
+        assert!(new_signer_public_keys.contains(&pk.to_bytes_compressed()));
+    }
+
+    signer_test.shutdown();
+    for signer in new_spawned_signers {
+        assert!(signer.stop().is_none());
+    }
 }

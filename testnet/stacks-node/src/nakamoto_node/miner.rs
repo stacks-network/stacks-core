@@ -224,6 +224,35 @@ impl BlockMinerThread {
         // now, actually run this tenure
         loop {
             let new_block = loop {
+                // If we're mock mining, we may not have processed the block that the
+                // actual tenure winner committed to yet. So, before attempting to
+                // mock mine, check if the parent is processed.
+                if self.config.get_node_config(false).mock_mining {
+                    let burn_db_path = self.config.get_burn_db_file_path();
+                    let mut burn_db = SortitionDB::open(
+                        &burn_db_path,
+                        true,
+                        self.burnchain.pox_constants.clone(),
+                    )
+                    .expect("FATAL: could not open sortition DB");
+                    let burn_tip_changed = self.check_burn_tip_changed(&burn_db);
+                    let mut chain_state = neon_node::open_chainstate_with_faults(&self.config)
+                        .expect("FATAL: could not open chainstate DB");
+                    match burn_tip_changed
+                        .and_then(|_| self.load_block_parent_info(&mut burn_db, &mut chain_state))
+                    {
+                        Ok(..) => {}
+                        Err(NakamotoNodeError::ParentNotFound) => {
+                            info!("Mock miner has not processed parent block yet, sleeping and trying again");
+                            thread::sleep(Duration::from_millis(ABORT_TRY_AGAIN_MS));
+                            continue;
+                        }
+                        Err(e) => {
+                            warn!("Mock miner failed to load parent info: {e:?}");
+                            return Err(e);
+                        }
+                    }
+                }
                 match self.mine_block(&stackerdbs) {
                     Ok(x) => break Some(x),
                     Err(NakamotoNodeError::MiningFailure(ChainstateError::MinerAborted)) => {
@@ -270,18 +299,16 @@ impl BlockMinerThread {
                     }
                 }
 
-                let (reward_set, signer_signature) = match self.gather_signatures(
-                    &mut new_block,
-                    self.burn_block.block_height,
-                    &mut stackerdbs,
-                    &mut attempts,
-                ) {
-                    Ok(x) => x,
-                    Err(e) => {
-                        error!("Error while gathering signatures: {e:?}. Will try mining again.");
-                        continue;
-                    }
-                };
+                let (reward_set, signer_signature) =
+                    match self.gather_signatures(&mut new_block, &mut stackerdbs, &mut attempts) {
+                        Ok(x) => x,
+                        Err(e) => {
+                            error!(
+                                "Error while gathering signatures: {e:?}. Will try mining again."
+                            );
+                            continue;
+                        }
+                    };
 
                 new_block.header.signer_signature = signer_signature;
                 if let Err(e) = self.broadcast(new_block.clone(), reward_set, &stackerdbs) {
@@ -354,10 +381,13 @@ impl BlockMinerThread {
 
         let burn_election_height = self.burn_election_block.block_height;
 
+        let reward_cycle = self
+            .burnchain
+            .block_height_to_reward_cycle(burn_election_height)
+            .expect("FATAL: no reward cycle for sortition");
+
         let reward_info = match load_nakamoto_reward_set(
-            self.burnchain
-                .pox_reward_cycle(burn_election_height)
-                .expect("FATAL: no reward cycle for sortition"),
+            reward_cycle,
             &self.burn_election_block.sortition_id,
             &self.burnchain,
             &mut chain_state,
@@ -392,7 +422,6 @@ impl BlockMinerThread {
     fn gather_signatures(
         &mut self,
         new_block: &mut NakamotoBlock,
-        burn_block_height: u64,
         stackerdbs: &mut StackerDBs,
         attempts: &mut u64,
     ) -> Result<(RewardSet, Vec<MessageSignature>), NakamotoNodeError> {
@@ -430,6 +459,11 @@ impl BlockMinerThread {
 
         let miner_privkey_as_scalar = Scalar::from(miner_privkey.as_slice().clone());
         let reward_set = self.load_signer_set()?;
+
+        if self.config.get_node_config(false).mock_mining {
+            return Ok((reward_set, Vec::new()));
+        }
+
         let mut coordinator =
             SignCoordinator::new(&reward_set, miner_privkey_as_scalar, &self.config).map_err(
                 |e| {
@@ -442,7 +476,6 @@ impl BlockMinerThread {
         *attempts += 1;
         let signature = coordinator.begin_sign_v0(
             new_block,
-            burn_block_height,
             *attempts,
             &tip,
             &self.burnchain,

@@ -303,11 +303,12 @@ impl SortitionsView {
             let last_in_tenure = signer_db
                 .get_last_signed_block_in_tenure(&block.header.consensus_hash)
                 .map_err(|e| ClientError::InvalidResponse(e.to_string()))?;
-            if last_in_tenure.is_some() {
+            if let Some(last_in_tenure) = last_in_tenure {
                 warn!(
                     "Miner block proposal contains a tenure change, but we've already signed a block in this tenure. Considering proposal invalid.";
                     "proposed_block_consensus_hash" => %block.header.consensus_hash,
                     "proposed_block_signer_sighash" => %block.header.signer_signature_hash(),
+                    "last_in_tenure_signer_sighash" => %last_in_tenure.block.header.signer_signature_hash(),
                 );
                 return Ok(false);
             }

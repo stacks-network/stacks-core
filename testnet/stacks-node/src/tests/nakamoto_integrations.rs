@@ -105,7 +105,7 @@ use crate::tests::neon_integrations::{
 };
 use crate::tests::{
     get_chain_info, make_contract_publish, make_contract_publish_versioned, make_stacks_transfer,
-    set_random_binds, to_addr,
+    to_addr,
 };
 use crate::{tests, BitcoinRegtestController, BurnchainController, Config, ConfigFile, Keychain};
 
@@ -1042,6 +1042,7 @@ pub fn boot_to_epoch_3_reward_set_calculation_boundary(
     stacker_sks: &[StacksPrivateKey],
     signer_sks: &[StacksPrivateKey],
     btc_regtest_controller: &mut BitcoinRegtestController,
+    num_stacking_cycles: Option<u64>,
 ) {
     assert_eq!(stacker_sks.len(), signer_sks.len());
 
@@ -1072,7 +1073,7 @@ pub fn boot_to_epoch_3_reward_set_calculation_boundary(
         .get_burnchain()
         .block_height_to_reward_cycle(block_height)
         .unwrap();
-    let lock_period = 12;
+    let lock_period: u128 = num_stacking_cycles.unwrap_or(12_u64).into();
     debug!("Test Cycle Info";
      "prepare_phase_len" => {prepare_phase_len},
      "reward_cycle_len" => {reward_cycle_len},
@@ -1185,6 +1186,7 @@ pub fn boot_to_epoch_3_reward_set(
     stacker_sks: &[StacksPrivateKey],
     signer_sks: &[StacksPrivateKey],
     btc_regtest_controller: &mut BitcoinRegtestController,
+    num_stacking_cycles: Option<u64>,
 ) {
     boot_to_epoch_3_reward_set_calculation_boundary(
         naka_conf,
@@ -1192,6 +1194,7 @@ pub fn boot_to_epoch_3_reward_set(
         stacker_sks,
         signer_sks,
         btc_regtest_controller,
+        num_stacking_cycles,
     );
     let epoch_3_reward_set_calculation =
         btc_regtest_controller.get_headers_height().wrapping_add(1);
@@ -4986,6 +4989,18 @@ fn signer_chainstate() {
     // query for prometheus metrics
     #[cfg(feature = "monitoring_prom")]
     {
+        let (chainstate, _) = StacksChainState::open(
+            naka_conf.is_mainnet(),
+            naka_conf.burnchain.chain_id,
+            &naka_conf.get_chainstate_path_str(),
+            None,
+        )
+        .unwrap();
+        let block_height_pre_3_0 =
+            NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
+                .unwrap()
+                .unwrap()
+                .stacks_block_height;
         let prom_http_origin = format!("http://{}", prom_bind);
         let client = reqwest::blocking::Client::new();
         let res = client
@@ -7033,4 +7048,284 @@ fn check_block_info_rewards() {
     run_loop_stopper.store(false, Ordering::SeqCst);
 
     run_loop_thread.join().unwrap();
+}
+
+/// Test Nakamoto mock miner by booting a follower node
+#[test]
+#[ignore]
+fn mock_mining() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
+    let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
+    naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
+    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_signer_sk = Secp256k1PrivateKey::new();
+    let sender_signer_addr = tests::to_addr(&sender_signer_sk);
+    let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
+    let tenure_count = 5;
+    let inter_blocks_per_tenure = 9;
+    // setup sender + recipient for some test stx transfers
+    // these are necessary for the interim blocks to get mined at all
+    let sender_addr = tests::to_addr(&sender_sk);
+    let send_amt = 100;
+    let send_fee = 180;
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_addr.clone()).to_string(),
+        (send_amt + send_fee) * tenure_count * inter_blocks_per_tenure,
+    );
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
+    );
+    let recipient = PrincipalData::from(StacksAddress::burn_address(false));
+    let stacker_sk = setup_stacker(&mut naka_conf);
+
+    test_observer::spawn();
+    let observer_port = test_observer::EVENT_OBSERVER_PORT;
+    naka_conf.events_observers.insert(EventObserverConfig {
+        endpoint: format!("localhost:{observer_port}"),
+        events_keys: vec![EventKeyType::AnyEvent],
+    });
+
+    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .expect("Failed starting bitcoind");
+    let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
+    btc_regtest_controller.bootstrap_chain(201);
+
+    let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
+    let run_loop_stopper = run_loop.get_termination_switch();
+    let Counters {
+        blocks_processed,
+        naka_submitted_commits: commits_submitted,
+        naka_proposed_blocks: proposals_submitted,
+        ..
+    } = run_loop.counters();
+
+    let coord_channel = run_loop.coordinator_channels();
+
+    let run_loop_thread = thread::Builder::new()
+        .name("run_loop".into())
+        .spawn(move || run_loop.start(None, 0))
+        .unwrap();
+    wait_for_runloop(&blocks_processed);
+    boot_to_epoch_3(
+        &naka_conf,
+        &blocks_processed,
+        &[stacker_sk],
+        &[sender_signer_sk],
+        &mut Some(&mut signers),
+        &mut btc_regtest_controller,
+    );
+
+    info!("Bootstrapped to Epoch-3.0 boundary, starting nakamoto miner");
+
+    let burnchain = naka_conf.get_burnchain();
+    let sortdb = burnchain.open_sortition_db(true).unwrap();
+    let (chainstate, _) = StacksChainState::open(
+        naka_conf.is_mainnet(),
+        naka_conf.burnchain.chain_id,
+        &naka_conf.get_chainstate_path_str(),
+        None,
+    )
+    .unwrap();
+
+    let block_height_pre_3_0 =
+        NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
+            .unwrap()
+            .unwrap()
+            .stacks_block_height;
+
+    info!("Nakamoto miner started...");
+    blind_signer(&naka_conf, &signers, proposals_submitted);
+
+    // Wait one block to confirm the VRF register, wait until a block commit is submitted
+    next_block_and(&mut btc_regtest_controller, 60, || {
+        let commits_count = commits_submitted.load(Ordering::SeqCst);
+        Ok(commits_count >= 1)
+    })
+    .unwrap();
+
+    let mut follower_conf = naka_conf.clone();
+    follower_conf.node.mock_mining = true;
+    follower_conf.events_observers.clear();
+    follower_conf.node.working_dir = format!("{}-follower", &naka_conf.node.working_dir);
+    follower_conf.node.seed = vec![0x01; 32];
+    follower_conf.node.local_peer_seed = vec![0x02; 32];
+
+    let mut rng = rand::thread_rng();
+    let mut buf = [0u8; 8];
+    rng.fill_bytes(&mut buf);
+
+    let rpc_port = u16::from_be_bytes(buf[0..2].try_into().unwrap()).saturating_add(1025) - 1; // use a non-privileged port between 1024 and 65534
+    let p2p_port = u16::from_be_bytes(buf[2..4].try_into().unwrap()).saturating_add(1025) - 1; // use a non-privileged port between 1024 and 65534
+
+    let localhost = "127.0.0.1";
+    follower_conf.node.rpc_bind = format!("{}:{}", &localhost, rpc_port);
+    follower_conf.node.p2p_bind = format!("{}:{}", &localhost, p2p_port);
+    follower_conf.node.data_url = format!("http://{}:{}", &localhost, rpc_port);
+    follower_conf.node.p2p_address = format!("{}:{}", &localhost, p2p_port);
+
+    let node_info = get_chain_info(&naka_conf);
+    follower_conf.node.add_bootstrap_node(
+        &format!(
+            "{}@{}",
+            &node_info.node_public_key.unwrap(),
+            naka_conf.node.p2p_bind
+        ),
+        CHAIN_ID_TESTNET,
+        PEER_VERSION_TESTNET,
+    );
+
+    let mut follower_run_loop = boot_nakamoto::BootRunLoop::new(follower_conf.clone()).unwrap();
+    let follower_run_loop_stopper = follower_run_loop.get_termination_switch();
+    let follower_coord_channel = follower_run_loop.coordinator_channels();
+
+    let Counters {
+        naka_mined_blocks: follower_naka_mined_blocks,
+        ..
+    } = follower_run_loop.counters();
+
+    let mock_mining_blocks_start = follower_naka_mined_blocks.load(Ordering::SeqCst);
+
+    debug!(
+        "Booting follower-thread ({},{})",
+        &follower_conf.node.p2p_bind, &follower_conf.node.rpc_bind
+    );
+    debug!(
+        "Booting follower-thread: neighbors = {:?}",
+        &follower_conf.node.bootstrap_node
+    );
+
+    // spawn a follower thread
+    let follower_thread = thread::Builder::new()
+        .name("follower-thread".into())
+        .spawn(move || follower_run_loop.start(None, 0))
+        .unwrap();
+
+    debug!("Booted follower-thread");
+
+    // Mine `tenure_count` nakamoto tenures
+    for tenure_ix in 0..tenure_count {
+        let follower_naka_mined_blocks_before = follower_naka_mined_blocks.load(Ordering::SeqCst);
+
+        let commits_before = commits_submitted.load(Ordering::SeqCst);
+        next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
+            .unwrap();
+
+        let mut last_tip = BlockHeaderHash([0x00; 32]);
+        let mut last_tip_height = 0;
+
+        // mine the interim blocks
+        for interim_block_ix in 0..inter_blocks_per_tenure {
+            let blocks_processed_before = coord_channel
+                .lock()
+                .expect("Mutex poisoned")
+                .get_stacks_blocks_processed();
+            // submit a tx so that the miner will mine an extra block
+            let sender_nonce = tenure_ix * inter_blocks_per_tenure + interim_block_ix;
+            let transfer_tx =
+                make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
+            submit_tx(&http_origin, &transfer_tx);
+
+            loop {
+                let blocks_processed = coord_channel
+                    .lock()
+                    .expect("Mutex poisoned")
+                    .get_stacks_blocks_processed();
+                if blocks_processed > blocks_processed_before {
+                    break;
+                }
+                thread::sleep(Duration::from_millis(100));
+            }
+
+            let info = get_chain_info_result(&naka_conf).unwrap();
+            assert_ne!(info.stacks_tip, last_tip);
+            assert_ne!(info.stacks_tip_height, last_tip_height);
+
+            last_tip = info.stacks_tip;
+            last_tip_height = info.stacks_tip_height;
+        }
+
+        let mock_miner_timeout = Instant::now();
+        while follower_naka_mined_blocks.load(Ordering::SeqCst) <= follower_naka_mined_blocks_before
+        {
+            if mock_miner_timeout.elapsed() >= Duration::from_secs(60) {
+                panic!(
+                    "Timed out waiting for mock miner block {}",
+                    follower_naka_mined_blocks_before + 1
+                );
+            }
+            thread::sleep(Duration::from_millis(100));
+        }
+
+        let start_time = Instant::now();
+        while commits_submitted.load(Ordering::SeqCst) <= commits_before {
+            if start_time.elapsed() >= Duration::from_secs(20) {
+                panic!("Timed out waiting for block-commit");
+            }
+            thread::sleep(Duration::from_millis(100));
+        }
+    }
+
+    // load the chain tip, and assert that it is a nakamoto block and at least 30 blocks have advanced in epoch 3
+    let tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
+        .unwrap()
+        .unwrap();
+    info!(
+        "Latest tip";
+        "height" => tip.stacks_block_height,
+        "is_nakamoto" => tip.anchored_header.as_stacks_nakamoto().is_some(),
+    );
+
+    let expected_blocks_mined = (inter_blocks_per_tenure + 1) * tenure_count;
+    let expected_tip_height = block_height_pre_3_0 + expected_blocks_mined;
+    assert!(tip.anchored_header.as_stacks_nakamoto().is_some());
+    assert_eq!(
+        tip.stacks_block_height, expected_tip_height,
+        "Should have mined (1 + interim_blocks_per_tenure) * tenure_count nakamoto blocks"
+    );
+
+    // Check follower's mock miner
+    let mock_mining_blocks_end = follower_naka_mined_blocks.load(Ordering::SeqCst);
+    let blocks_mock_mined = mock_mining_blocks_end - mock_mining_blocks_start;
+    assert_eq!(
+        blocks_mock_mined, tenure_count,
+        "Should have mock mined `tenure_count` nakamoto blocks"
+    );
+
+    // wait for follower to reach the chain tip
+    loop {
+        sleep_ms(1000);
+        let follower_node_info = get_chain_info(&follower_conf);
+
+        info!(
+            "Follower tip is now {}/{}",
+            &follower_node_info.stacks_tip_consensus_hash, &follower_node_info.stacks_tip
+        );
+        if follower_node_info.stacks_tip_consensus_hash == tip.consensus_hash
+            && follower_node_info.stacks_tip == tip.anchored_header.block_hash()
+        {
+            break;
+        }
+    }
+
+    coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .stop_chains_coordinator();
+    run_loop_stopper.store(false, Ordering::SeqCst);
+
+    follower_coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .stop_chains_coordinator();
+    follower_run_loop_stopper.store(false, Ordering::SeqCst);
+
+    run_loop_thread.join().unwrap();
+    follower_thread.join().unwrap();
 }
