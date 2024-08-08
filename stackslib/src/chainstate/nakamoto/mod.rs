@@ -1867,7 +1867,7 @@ impl NakamotoChainState {
                         "stacks_block_id" => %next_ready_block.header.block_id(),
                         "parent_block_id" => %next_ready_block.header.parent_block_id
                     );
-                    ChainstateError::InvalidStacksBlock("Failed to load burn view of parent block ID".into())                    
+                    ChainstateError::InvalidStacksBlock("Failed to load burn view of parent block ID".into())
                 })?;
                 let handle = sort_db.index_handle_at_ch(&tenure_change.burn_view_consensus_hash)?;
                 let connected_sort_id = get_ancestor_sort_id(&handle, parent_burn_view_sn.block_height, &handle.context.chain_tip)?
@@ -1879,7 +1879,7 @@ impl NakamotoChainState {
                             "stacks_block_id" => %next_ready_block.header.block_id(),
                             "parent_block_id" => %next_ready_block.header.parent_block_id
                         );
-                        ChainstateError::InvalidStacksBlock("Failed to load burn view of parent block ID".into())                    
+                        ChainstateError::InvalidStacksBlock("Failed to load burn view of parent block ID".into())
                     })?;
                 if connected_sort_id != parent_burn_view_sn.sortition_id {
                     warn!(
@@ -4232,7 +4232,7 @@ impl NakamotoChainState {
         // mainnet
         let contract_id = boot_code_id(BOOT_TEST_POX_4_AGG_KEY_CONTRACT, false);
         clarity_tx.connection().as_transaction(|clarity| {
-            let (ast, analysis) = clarity
+            let (mut ast, analysis) = clarity
                 .analyze_smart_contract(
                     &contract_id,
                     ClarityVersion::Clarity2,
@@ -4244,7 +4244,8 @@ impl NakamotoChainState {
                 .initialize_smart_contract(
                     &contract_id,
                     ClarityVersion::Clarity2,
-                    &ast,
+                    &mut ast,
+                    &analysis,
                     &contract_content,
                     None,
                     |_, _| false,

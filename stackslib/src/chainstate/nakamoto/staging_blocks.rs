@@ -88,7 +88,7 @@ pub const NAKAMOTO_STAGING_DB_SCHEMA_1: &'static [&'static str] = &[
 
                  -- block data, including its header
                  data BLOB NOT NULL,
-                
+
                  PRIMARY KEY(block_hash,consensus_hash)
     );"#,
     r#"CREATE INDEX nakamoto_staging_blocks_by_index_block_hash ON nakamoto_staging_blocks(index_block_hash);"#,

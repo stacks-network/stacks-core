@@ -25,6 +25,7 @@ pub mod pipe;
 pub mod retry;
 pub mod secp256k1;
 pub mod uint;
+#[cfg(feature = "vrf")]
 pub mod vrf;
 
 use std::collections::HashMap;
@@ -111,7 +112,7 @@ pub mod db_common {
             sleep_count = 5000;
         }
 
-        debug!(
+        crate::debug!(
             "Database is locked; sleeping {}ms and trying again",
             &sleep_count
         );

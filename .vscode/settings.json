@@ -1,4 +1,4 @@
 {
-    "lldb.adapterType": "native",
-    "lldb.launch.sourceLanguages": ["rust"]
+  "lldb.adapterType": "native",
+  "lldb.launch.sourceLanguages": ["rust"]
 }
