@@ -68,6 +68,7 @@ cargo install --version 24.7.1 cargo-mutants --locked
    ```sh
     regex_pattern=$(sed 's/[][()\.^$*+?{}|]/\\&/g' "mutants_by_package/stackslib.txt" | paste -sd'|' -)
 
+    RUST_BACKTRACE=1 BITCOIND_TEST=1 \
     cargo mutants --timeout-multiplier 1.5 --no-shuffle -vV \
         -F "$regex_pattern" \
         -E ": replace .{1,2} with .{1,2} in " \
@@ -79,6 +80,7 @@ cargo install --version 24.7.1 cargo-mutants --locked
    ```sh
     regex_pattern=$(sed 's/[][()\.^$*+?{}|]/\\&/g' "mutants_by_package/testnet.txt" | paste -sd'|' -)
 
+    RUST_BACKTRACE=1 BITCOIND_TEST=1 \
     cargo mutants --timeout-multiplier 1.5 --no-shuffle -vV \
         -F "$regex_pattern" \
         -E ": replace .{1,2} with .{1,2} in " \
@@ -90,6 +92,7 @@ cargo install --version 24.7.1 cargo-mutants --locked
    ```sh
     regex_pattern=$(sed 's/[][()\.^$*+?{}|]/\\&/g' "mutants_by_package/stacks-signer.txt" | paste -sd'|' -)
 
+    RUST_BACKTRACE=1 BITCOIND_TEST=1 \
     cargo mutants --timeout-multiplier 1.5 --no-shuffle -vV \
         -F "$regex_pattern" \
         -E ": replace .{1,2} with .{1,2} in " \
@@ -118,10 +121,26 @@ MISSED   stacks-signer/src/runloop.rs:424:9: replace <impl SignerRunLoop for Run
 
 Example of fix for it
 ```sh
-RUST_BACKTRACE=1 BITCOIND_TEST=1 cargo mutants -vV -F "replace process_stackerdb_event" -E ": replace <impl SignerRunLoop for RunLoop<Signer, T>>::run_one_pass -> Option<Vec<SignerResult>> with None in " --test-tool=nextest -- --run-ignored all --fail-fast --test-threads 1
+RUST_BACKTRACE=1 BITCOIND_TEST=1 \
+cargo mutants -vV \
+  -F "replace process_stackerdb_event" \
+  -E ": replace <impl SignerRunLoop for RunLoop<Signer, T>>::run_one_pass -> Option<Vec<SignerResult>> with None in " \
+  --test-tool=nextest \
+  -- \
+  --run-ignored all \
+  --fail-fast \
+  --test-threads 1
 ```
 
 General command to run
 ```sh
-RUST_BACKTRACE=1 BITCOIND_TEST=1 cargo mutants -vV -F "replace process_stackerdb_event" -E ": replace [modify this] with [modify this] in " --test-tool=nextest -- --run-ignored all --fail-fast --test-threads 1
+RUST_BACKTRACE=1 BITCOIND_TEST=1 \
+cargo mutants -vV \
+  -F "replace process_stackerdb_event" \
+  -E ": replace [modify this] with [modify this] in " \
+  --test-tool=nextest \
+  -- \
+  --run-ignored all \
+  --fail-fast \
+  --test-threads 1
 ```

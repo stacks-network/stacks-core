@@ -64,7 +64,8 @@ run_mutants() {
     
     if [ "$mutant_count" -gt "$threshold" ]; then
         echo "Running mutants for $package ($mutant_count mutants)"
-        RUST_BACKTRACE=1 BITCOIND_TEST=1 cargo mutants --timeout-multiplier 1.5 --no-shuffle -vV \
+        RUST_BACKTRACE=1 BITCOIND_TEST=1 \
+        cargo mutants --timeout-multiplier 1.5 --no-shuffle -vV \
             -F "$regex_pattern" \
             -E ": replace .{1,2} with .{1,2} in " \
             --output "$output_dir" \
