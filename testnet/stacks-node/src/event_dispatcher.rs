@@ -1,3 +1,19 @@
+// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
+// Copyright (C) 2020-2024 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::sync::mpsc::{channel, Receiver, Sender};
@@ -673,19 +689,39 @@ impl EventObserver {
     }
 }
 
+/// Events received from block-processing.
+/// Stacks events are structured as JSON, and are grouped by topic.  An event observer can
+/// subscribe to one or more specific event streams, or the "any" stream to receive all of them.
 #[derive(Clone)]
 pub struct EventDispatcher {
+    /// List of configured event observers to which events will be posted.
+    /// The fields below this contain indexes into this list.
     registered_observers: Vec<EventObserver>,
+    /// Smart contract-specific events, keyed by (contract-id, event-name). Values are indexes into `registered_observers`.
     contract_events_observers_lookup: HashMap<(QualifiedContractIdentifier, String), HashSet<u16>>,
+    /// Asset event observers, keyed by fully-qualified asset identifier. Values are indexes into
+    /// `registered_observers.
     assets_observers_lookup: HashMap<AssetIdentifier, HashSet<u16>>,
+    /// Index into `registered_observers` that will receive burn block events
     burn_block_observers_lookup: HashSet<u16>,
+    /// Index into `registered_observers` that will receive mempool events
     mempool_observers_lookup: HashSet<u16>,
+    /// Index into `registered_observers` that will receive microblock events
     microblock_observers_lookup: HashSet<u16>,
+    /// Index into `registered_observers` that will receive STX events
     stx_observers_lookup: HashSet<u16>,
+    /// Index into `registered_observers` that will receive all events
     any_event_observers_lookup: HashSet<u16>,
+    /// Index into `registered_observers` that will receive block miner events (Stacks 2.5 and
+    /// lower)
     miner_observers_lookup: HashSet<u16>,
+    /// Index into `registered_observers` that will receive microblock miner events (Stacks 2.5 and
+    /// lower)
     mined_microblocks_observers_lookup: HashSet<u16>,
+    /// Index into `registered_observers` that will receive StackerDB events
     stackerdb_observers_lookup: HashSet<u16>,
+    /// Index into `registered_observers` that will receive block proposal events (Nakamoto and
+    /// later)
     block_proposal_observers_lookup: HashSet<u16>,
 }
 
