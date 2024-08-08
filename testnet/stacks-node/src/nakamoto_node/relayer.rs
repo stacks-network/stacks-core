@@ -375,39 +375,16 @@ impl RelayerThread {
         }
     }
 
-    /// Given the pointer to a recently processed sortition, see if we won the sortition.
-    ///
-    /// Returns a directive to the relayer thread to either start, stop, or continue a tenure.
-    pub fn process_sortition(
-        &mut self,
-        consensus_hash: ConsensusHash,
-        burn_hash: BurnchainHeaderHash,
+    /// Choose a miner directive based on the outcome of a sortition
+    pub(crate) fn choose_miner_directive(
+        config: &Config,
+        sortdb: &SortitionDB,
+        sn: BlockSnapshot,
+        won_sortition: bool,
         committed_index_hash: StacksBlockId,
-    ) -> Result<MinerDirective, NakamotoNodeError> {
-        let sn = SortitionDB::get_block_snapshot_consensus(self.sortdb.conn(), &consensus_hash)
-            .expect("FATAL: failed to query sortition DB")
-            .expect("FATAL: unknown consensus hash");
-
-        self.globals.set_last_sortition(sn.clone());
-
-        let won_sortition = sn.sortition && self.last_commits.remove(&sn.winning_block_txid);
-
-        info!(
-            "Relayer: Process sortition";
-            "sortition_ch" => %consensus_hash,
-            "burn_hash" => %burn_hash,
-            "burn_height" => sn.block_height,
-            "winning_txid" => %sn.winning_block_txid,
-            "committed_parent" => %committed_index_hash,
-            "won_sortition?" => won_sortition,
-        );
-
-        if won_sortition {
-            increment_stx_blocks_mined_counter();
-        }
-
+    ) -> MinerDirective {
         let directive = if sn.sortition {
-            if won_sortition || self.config.get_node_config(false).mock_mining {
+            if won_sortition || config.get_node_config(false).mock_mining {
                 MinerDirective::BeginTenure {
                     parent_tenure_start: committed_index_hash,
                     burnchain_tip: sn,
@@ -416,17 +393,16 @@ impl RelayerThread {
                 MinerDirective::StopTenure
             }
         } else {
-            let ih = self.sortdb.index_handle(&sn.sortition_id);
+            let ih = sortdb.index_handle(&sn.sortition_id);
             let parent_sn = ih.get_last_snapshot_with_sortition(sn.block_height).expect(
                 "FATAL: failed to query sortition DB for last snapshot with non-empty tenure",
             );
 
-            let parent_epoch =
-                SortitionDB::get_stacks_epoch(self.sortdb.conn(), parent_sn.block_height)
-                    .expect("FATAL: failed to query sortiiton DB for epoch")
-                    .expect("FATAL: no epoch defined for existing sortition");
+            let parent_epoch = SortitionDB::get_stacks_epoch(sortdb.conn(), parent_sn.block_height)
+                .expect("FATAL: failed to query sortiiton DB for epoch")
+                .expect("FATAL: no epoch defined for existing sortition");
 
-            let cur_epoch = SortitionDB::get_stacks_epoch(self.sortdb.conn(), sn.block_height)
+            let cur_epoch = SortitionDB::get_stacks_epoch(sortdb.conn(), sn.block_height)
                 .expect("FATAL: failed to query sortition DB for epoch")
                 .expect("FATAL: no epoch defined for existing sortition");
 
@@ -438,11 +414,65 @@ impl RelayerThread {
                 }
             } else {
                 MinerDirective::ContinueTenure {
-                    new_burn_view: consensus_hash,
+                    new_burn_view: sn.consensus_hash,
                 }
             }
         };
-        Ok(directive)
+        directive
+    }
+
+    /// Given the pointer to a recently processed sortition, see if we won the sortition, and
+    /// determine what miner action (if any) to take.
+    ///
+    /// Returns a directive to the relayer thread to either start, stop, or continue a tenure, if
+    /// this sortition matches the sortition tip.
+    ///
+    /// Otherwise, returns None, meaning no action will be taken.
+    fn process_sortition(
+        &mut self,
+        consensus_hash: ConsensusHash,
+        burn_hash: BurnchainHeaderHash,
+        committed_index_hash: StacksBlockId,
+    ) -> Result<Option<MinerDirective>, NakamotoNodeError> {
+        let sn = SortitionDB::get_block_snapshot_consensus(self.sortdb.conn(), &consensus_hash)
+            .expect("FATAL: failed to query sortition DB")
+            .expect("FATAL: unknown consensus hash");
+
+        // always clear this even if this isn't the latest sortition
+        let won_sortition = sn.sortition && self.last_commits.remove(&sn.winning_block_txid);
+        if won_sortition {
+            increment_stx_blocks_mined_counter();
+        }
+        self.globals.set_last_sortition(sn.clone());
+
+        info!(
+            "Relayer: Process sortition";
+            "sortition_ch" => %consensus_hash,
+            "burn_hash" => %burn_hash,
+            "burn_height" => sn.block_height,
+            "winning_txid" => %sn.winning_block_txid,
+            "committed_parent" => %committed_index_hash,
+            "won_sortition?" => won_sortition,
+        );
+
+        let cur_sn = SortitionDB::get_canonical_burn_chain_tip(self.sortdb.conn())
+            .expect("FATAL: failed to query sortition DB");
+
+        if cur_sn.consensus_hash != consensus_hash {
+            info!("Relayer: Current sortition {} is ahead of processed sortition {}; taking no action", &cur_sn.consensus_hash, consensus_hash);
+            self.globals
+                .raise_initiative("process_sortition".to_string());
+            return Ok(None);
+        }
+
+        let directive = Self::choose_miner_directive(
+            &self.config,
+            &self.sortdb,
+            sn,
+            won_sortition,
+            committed_index_hash,
+        );
+        Ok(Some(directive))
     }
 
     /// Constructs and returns a LeaderKeyRegisterOp out of the provided params
@@ -899,11 +929,17 @@ impl RelayerThread {
         burn_hash: BurnchainHeaderHash,
         committed_index_hash: StacksBlockId,
     ) -> bool {
-        let Ok(miner_instruction) =
-            self.process_sortition(consensus_hash, burn_hash, committed_index_hash)
-        else {
-            return false;
-        };
+        let miner_instruction =
+            match self.process_sortition(consensus_hash, burn_hash, committed_index_hash) {
+                Ok(Some(miner_instruction)) => miner_instruction,
+                Ok(None) => {
+                    return true;
+                }
+                Err(e) => {
+                    warn!("Relayer: process_sortition returned {:?}", &e);
+                    return false;
+                }
+            };
 
         match miner_instruction {
             MinerDirective::BeginTenure {
@@ -946,6 +982,22 @@ impl RelayerThread {
         true
     }
 
+    #[cfg(test)]
+    fn fault_injection_skip_block_commit(&self) -> bool {
+        self.globals
+            .counters
+            .naka_skip_commit_op
+            .0
+            .lock()
+            .unwrap()
+            .unwrap_or(false)
+    }
+
+    #[cfg(not(test))]
+    fn fault_injection_skip_block_commit(&self) -> bool {
+        false
+    }
+
     /// Generate and submit the next block-commit, and record it locally
     fn issue_block_commit(
         &mut self,
@@ -953,20 +1005,25 @@ impl RelayerThread {
         tip_block_bh: BlockHeaderHash,
     ) -> Result<(), NakamotoNodeError> {
         let mut last_committed = self.make_block_commit(&tip_block_ch, &tip_block_bh)?;
-        #[cfg(test)]
-        {
-            if self
-                .globals
-                .counters
-                .naka_skip_commit_op
-                .0
-                .lock()
-                .unwrap()
-                .unwrap_or(false)
-            {
-                warn!("Relayer: not submitting block-commit to bitcoin network due to test directive.");
-                return Ok(());
-            }
+        if self.fault_injection_skip_block_commit() {
+            warn!("Relayer: not submitting block-commit to bitcoin network due to test directive.");
+            return Ok(());
+        }
+
+        // last chance -- is this still the stacks tip?
+        let (cur_stacks_tip_ch, cur_stacks_tip_bh) =
+            SortitionDB::get_canonical_stacks_chain_tip_hash(self.sortdb.conn()).unwrap_or_else(
+                |e| {
+                    panic!("Failed to load canonical stacks tip: {:?}", &e);
+                },
+            );
+
+        if cur_stacks_tip_ch != tip_block_ch || cur_stacks_tip_bh != tip_block_bh {
+            info!(
+                "Stacks tip changed prior to commit: {}/{} != {}/{}",
+                &cur_stacks_tip_ch, &cur_stacks_tip_bh, &tip_block_ch, &tip_block_bh
+            );
+            return Err(NakamotoNodeError::StacksTipChanged);
         }
 
         // sign and broadcast
@@ -990,6 +1047,7 @@ impl RelayerThread {
             "Relayer: Submitted block-commit";
             "tip_consensus_hash" => %tip_block_ch,
             "tip_block_hash" => %tip_block_bh,
+            "tip_block_id" => %StacksBlockId::new(&tip_block_ch, &tip_block_bh),
             "txid" => %txid,
         );
 
@@ -1005,6 +1063,7 @@ impl RelayerThread {
     /// Determine what the relayer should do to advance the chain.
     /// * If this isn't a miner, then it's always nothing.
     /// * Otherwise, if we haven't done so already, go register a VRF public key
+    /// * If the stacks chain tip or burnchain tip has changed, then issue a block-commit
     fn initiative(&mut self) -> Option<RelayerDirective> {
         if !self.is_miner {
             return None;
@@ -1066,6 +1125,8 @@ impl RelayerThread {
         debug!("Relayer: initiative to commit";
                "sortititon tip" => %sort_tip.consensus_hash,
                "stacks tip" => %stacks_tip,
+               "stacks_tip_ch" => %stacks_tip_ch,
+               "stacks_tip_bh" => %stacks_tip_bh,
                "last-commit burn view" => %self.last_committed.as_ref().map(|cmt| cmt.get_burn_tip().consensus_hash.to_string()).unwrap_or("(not set)".to_string()),
                "last-commit ongoing tenure" => %self.last_committed.as_ref().map(|cmt| cmt.get_tenure_id().to_string()).unwrap_or("(not set)".to_string()),
                "burnchain view changed?" => %burnchain_changed,
@@ -1095,7 +1156,7 @@ impl RelayerThread {
         while self.globals.keep_running() {
             let raised_initiative = self.globals.take_initiative();
             let timed_out = Instant::now() >= self.next_initiative;
-            let directive = if raised_initiative || timed_out {
+            let directive = if raised_initiative.is_some() || timed_out {
                 self.next_initiative =
                     Instant::now() + Duration::from_millis(self.config.node.next_initiative_delay);
                 self.initiative()
@@ -1118,6 +1179,11 @@ impl RelayerThread {
                     }
                 }
             };
+
+            debug!("Relayer: main loop directive";
+                   "directive" => %directive,
+                   "raised_initiative" => %raised_initiative.unwrap_or("relay_rcv".to_string()),
+                   "timed_out" => %timed_out);
 
             if !self.handle_directive(directive) {
                 break;
