@@ -63,6 +63,8 @@ use crate::run_loop::RegisteredKey;
 #[cfg(test)]
 pub static TEST_BROADCAST_STALL: std::sync::Mutex<Option<bool>> = std::sync::Mutex::new(None);
 #[cfg(test)]
+pub static TEST_BLOCK_ANNOUNCE_STALL: std::sync::Mutex<Option<bool>> = std::sync::Mutex::new(None);
+#[cfg(test)]
 pub static TEST_SKIP_P2P_BROADCAST: std::sync::Mutex<Option<bool>> = std::sync::Mutex::new(None);
 
 /// If the miner was interrupted while mining a block, how long should the
@@ -181,6 +183,67 @@ impl BlockMinerThread {
         }
     }
 
+    #[cfg(test)]
+    fn fault_injection_block_broadcast_stall(new_block: &NakamotoBlock) {
+        if *TEST_BROADCAST_STALL.lock().unwrap() == Some(true) {
+            // Do an extra check just so we don't log EVERY time.
+            warn!("Fault injection: Broadcasting is stalled due to testing directive.";
+                      "stacks_block_id" => %new_block.block_id(),
+                      "stacks_block_hash" => %new_block.header.block_hash(),
+                      "height" => new_block.header.chain_length,
+                      "consensus_hash" => %new_block.header.consensus_hash
+            );
+            while *TEST_BROADCAST_STALL.lock().unwrap() == Some(true) {
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            info!("Fault injection: Broadcasting is no longer stalled due to testing directive.";
+                  "block_id" => %new_block.block_id(),
+                  "height" => new_block.header.chain_length,
+                  "consensus_hash" => %new_block.header.consensus_hash
+            );
+        }
+    }
+
+    #[cfg(not(test))]
+    fn fault_injection_block_broadcast_stall(_ignored: &NakamotoBlock) {}
+
+    #[cfg(test)]
+    fn fault_injection_block_announce_stall(new_block: &NakamotoBlock) {
+        if *TEST_BLOCK_ANNOUNCE_STALL.lock().unwrap() == Some(true) {
+            // Do an extra check just so we don't log EVERY time.
+            warn!("Fault injection: Block announcement is stalled due to testing directive.";
+                      "stacks_block_id" => %new_block.block_id(),
+                      "stacks_block_hash" => %new_block.header.block_hash(),
+                      "height" => new_block.header.chain_length,
+                      "consensus_hash" => %new_block.header.consensus_hash
+            );
+            while *TEST_BLOCK_ANNOUNCE_STALL.lock().unwrap() == Some(true) {
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            info!("Fault injection: Block announcement is no longer stalled due to testing directive.";
+                  "block_id" => %new_block.block_id(),
+                  "height" => new_block.header.chain_length,
+                  "consensus_hash" => %new_block.header.consensus_hash
+            );
+        }
+    }
+
+    #[cfg(not(test))]
+    fn fault_injection_block_announce_stall(_ignored: &NakamotoBlock) {}
+
+    #[cfg(test)]
+    fn fault_injection_skip_block_broadcast() -> bool {
+        if *TEST_SKIP_P2P_BROADCAST.lock().unwrap() == Some(true) {
+            return true;
+        }
+        false
+    }
+
+    #[cfg(not(test))]
+    fn fault_injection_skip_block_broadcast() -> bool {
+        false
+    }
+
     /// Stop a miner tenure by blocking the miner and then joining the tenure thread
     pub fn stop_miner(
         globals: &Globals,
@@ -279,27 +342,7 @@ impl BlockMinerThread {
             };
 
             if let Some(mut new_block) = new_block {
-                #[cfg(test)]
-                {
-                    if *TEST_BROADCAST_STALL.lock().unwrap() == Some(true) {
-                        // Do an extra check just so we don't log EVERY time.
-                        warn!("Broadcasting is stalled due to testing directive.";
-                                  "stacks_block_id" => %new_block.block_id(),
-                                  "stacks_block_hash" => %new_block.header.block_hash(),
-                                  "height" => new_block.header.chain_length,
-                                  "consensus_hash" => %new_block.header.consensus_hash
-                        );
-                        while *TEST_BROADCAST_STALL.lock().unwrap() == Some(true) {
-                            std::thread::sleep(std::time::Duration::from_millis(10));
-                        }
-                        info!("Broadcasting is no longer stalled due to testing directive.";
-                              "block_id" => %new_block.block_id(),
-                              "height" => new_block.header.chain_length,
-                              "consensus_hash" => %new_block.header.consensus_hash
-                        );
-                    }
-                }
-
+                Self::fault_injection_block_broadcast_stall(&new_block);
                 let (reward_set, signer_signature) = match self.gather_signatures(
                     &mut new_block,
                     self.burn_block.block_height,
@@ -338,14 +381,20 @@ impl BlockMinerThread {
                         "block_height" => new_block.header.chain_length,
                         "consensus_hash" => %new_block.header.consensus_hash,
                     );
-                    self.globals.coord().announce_new_stacks_block();
                 }
 
+                // update mined-block counters and mined-tenure counters
                 self.globals.counters.bump_naka_mined_blocks();
                 if self.mined_blocks.is_empty() {
                     // this is the first block of the tenure, bump tenure counter
                     self.globals.counters.bump_naka_mined_tenures();
                 }
+
+                // wake up chains coordinator
+                Self::fault_injection_block_announce_stall(&new_block);
+                self.globals.coord().announce_new_stacks_block();
+
+                // store mined block
                 self.mined_blocks.push(new_block);
             }
 
@@ -638,11 +687,12 @@ impl BlockMinerThread {
         block: &NakamotoBlock,
         reward_set: RewardSet,
     ) -> Result<(), ChainstateError> {
-        #[cfg(test)]
-        {
-            if *TEST_SKIP_P2P_BROADCAST.lock().unwrap() == Some(true) {
-                return Ok(());
-            }
+        if Self::fault_injection_skip_block_broadcast() {
+            warn!(
+                "Fault injection: Skipping block broadcast for {}",
+                block.block_id()
+            );
+            return Ok(());
         }
 
         let mut sortition_handle = sort_db.index_handle_at_ch(&block.header.consensus_hash)?;
