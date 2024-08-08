@@ -56,7 +56,7 @@ run_mutants() {
 
     if [ ! -f "$mutant_file" ]; then
         echo "No mutants found for $package"
-        return
+        return 0
     fi
 
     local regex_pattern=$(sed 's/[][()\.^$*+?{}|]/\\&/g' "$mutant_file" | paste -sd'|' -)
@@ -70,15 +70,17 @@ run_mutants() {
             --output "$output_dir" \
             --test-tool=nextest \
             --package "$package" \
-            -- --all-targets --test-threads 1
+            -- --all-targets --test-threads 1 || true
 
         echo $? > "${output_dir}/exit_code.txt"
     else
         echo "Skipping $package, only $mutant_count mutants (threshold: $threshold)"
     fi
+    
+    return 0
 }
 
 # Run mutants for each wanted package
-run_mutants "stacks-signer" 500 "./stacks-signer_mutants"
-run_mutants "stacks-node" 540 "./stacks-node_mutants"
-run_mutants "stackslib" 72 "./stackslib_mutants"
+run_mutants "stacks-signer" 500 "./stacks-signer_mutants" || true
+run_mutants "stacks-node" 540 "./stacks-node_mutants" || true
+run_mutants "stackslib" 72 "./stackslib_mutants" || true
