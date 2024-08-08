@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{mpsc, Arc};
 use std::time::{Duration, Instant};
@@ -12389,6 +12389,7 @@ fn next_block_and_wait_all(
     btc_controller: &mut BitcoinRegtestController,
     miner_blocks_processed: &Arc<AtomicU64>,
     follower_blocks_processed: &[&Arc<AtomicU64>],
+    timeout: Option<Duration>,
 ) -> bool {
     let followers_current: Vec<_> = follower_blocks_processed
         .iter()
@@ -12400,15 +12401,24 @@ fn next_block_and_wait_all(
     }
 
     // wait for followers to catch up
+    let timer = Instant::now();
     loop {
         let finished = follower_blocks_processed
             .iter()
             .zip(followers_current.iter())
-            .map(|(blocks_processed, current)| blocks_processed.load(Ordering::SeqCst) <= *current)
-            .fold(true, |acc, loaded| acc && loaded);
+            .map(|(blocks_processed, start_count)| {
+                blocks_processed.load(Ordering::SeqCst) > *start_count
+            })
+            .all(|b| b);
 
         if finished {
             break;
+        }
+
+        if let Some(t) = timeout {
+            if timer.elapsed() > t {
+                panic!("next_block_and_wait_all() timed out after {t:?}")
+            }
         }
 
         thread::sleep(Duration::from_millis(100));
@@ -12425,6 +12435,7 @@ fn bitcoin_reorg_flap_with_follower() {
     }
 
     let (conf, _miner_account) = neon_integration_test_conf();
+    let timeout = None;
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
@@ -12485,13 +12496,19 @@ fn bitcoin_reorg_flap_with_follower() {
     eprintln!("Follower bootup complete!");
 
     // first block wakes up the run loop
-    next_block_and_wait_all(&mut btc_regtest_controller, &miner_blocks_processed, &[]);
+    next_block_and_wait_all(
+        &mut btc_regtest_controller,
+        &miner_blocks_processed,
+        &[],
+        timeout,
+    );
 
     // first block will hold our VRF registration
     next_block_and_wait_all(
         &mut btc_regtest_controller,
         &miner_blocks_processed,
         &[&follower_blocks_processed],
+        timeout,
     );
 
     let mut miner_sort_height = miner_channel.get_sortitions_processed();
@@ -12506,6 +12523,7 @@ fn bitcoin_reorg_flap_with_follower() {
             &mut btc_regtest_controller,
             &miner_blocks_processed,
             &[&follower_blocks_processed],
+            timeout,
         );
         miner_sort_height = miner_channel.get_sortitions_processed();
         follower_sort_height = miner_channel.get_sortitions_processed();
@@ -12578,6 +12596,159 @@ fn bitcoin_reorg_flap_with_follower() {
 
     assert_eq!(miner_channel.get_sortitions_processed(), 225);
     assert_eq!(follower_channel.get_sortitions_processed(), 225);
+
+    btcd_controller.stop_bitcoind().unwrap();
+    miner_channel.stop_chains_coordinator();
+    follower_channel.stop_chains_coordinator();
+}
+
+/// Tests the following:
+///  - Mock miner output to file
+///  - Test replay of mock mined blocks using `stacks-inspect  replay-mock-mining``
+#[test]
+#[ignore]
+fn mock_miner_replay() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let timeout = Some(Duration::from_secs(30));
+    // Had to add this so that mock miner makes an attempt on EVERY block
+    let block_gap = Duration::from_secs(1);
+
+    let test_dir = PathBuf::from("/tmp/stacks-integration-test-mock_miner_replay");
+    _ = fs::remove_dir_all(&test_dir);
+
+    let (conf, _miner_account) = neon_integration_test_conf();
+
+    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .expect("Failed starting bitcoind");
+
+    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+
+    btc_regtest_controller.bootstrap_chain(201);
+
+    eprintln!("Chain bootstrapped...");
+
+    let mut miner_run_loop = neon::RunLoop::new(conf.clone());
+    let miner_blocks_processed = miner_run_loop.get_blocks_processed_arc();
+    let miner_channel = miner_run_loop.get_coordinator_channel().unwrap();
+
+    let mut follower_conf = conf.clone();
+    follower_conf.events_observers.clear();
+    follower_conf.node.mock_mining = true;
+    follower_conf.node.mock_mining_output_dir = Some(test_dir.join("mock-miner-output"));
+    follower_conf.node.working_dir = format!("{}-follower", &conf.node.working_dir);
+    follower_conf.node.seed = vec![0x01; 32];
+    follower_conf.node.local_peer_seed = vec![0x02; 32];
+
+    let mut rng = rand::thread_rng();
+
+    let (rpc_port, p2p_port) = loop {
+        let a = rng.gen_range(1024..u16::MAX); // use a non-privileged port between 1024 and 65534
+        let b = rng.gen_range(1024..u16::MAX); // use a non-privileged port between 1024 and 65534
+        if a != b {
+            break (a, b);
+        }
+    };
+
+    let localhost = "127.0.0.1";
+    follower_conf.node.rpc_bind = format!("{localhost}:{rpc_port}");
+    follower_conf.node.p2p_bind = format!("{localhost}:{p2p_port}");
+    follower_conf.node.data_url = format!("http://{localhost}:{rpc_port}");
+    follower_conf.node.p2p_address = format!("{localhost}:{p2p_port}");
+
+    thread::spawn(move || miner_run_loop.start(None, 0));
+    wait_for_runloop(&miner_blocks_processed);
+
+    // figure out the started node's port
+    let node_info = get_chain_info(&conf);
+    follower_conf.node.add_bootstrap_node(
+        &format!(
+            "{}@{}",
+            &node_info.node_public_key.unwrap(),
+            conf.node.p2p_bind
+        ),
+        CHAIN_ID_TESTNET,
+        PEER_VERSION_TESTNET,
+    );
+
+    let mut follower_run_loop = neon::RunLoop::new(follower_conf.clone());
+    let follower_blocks_processed = follower_run_loop.get_blocks_processed_arc();
+    let follower_channel = follower_run_loop.get_coordinator_channel().unwrap();
+
+    let miner_blocks_processed_start = miner_channel.get_stacks_blocks_processed();
+    let follower_blocks_processed_start = follower_channel.get_stacks_blocks_processed();
+
+    thread::spawn(move || follower_run_loop.start(None, 0));
+    wait_for_runloop(&follower_blocks_processed);
+
+    eprintln!("Follower bootup complete!");
+
+    // first block wakes up the run loop
+    next_block_and_wait_all(
+        &mut btc_regtest_controller,
+        &miner_blocks_processed,
+        &[],
+        timeout,
+    );
+
+    thread::sleep(block_gap);
+
+    // first block will hold our VRF registration
+    next_block_and_wait_all(
+        &mut btc_regtest_controller,
+        &miner_blocks_processed,
+        &[&follower_blocks_processed],
+        timeout,
+    );
+
+    thread::sleep(block_gap);
+
+    // Third block will be the first mined Stacks block.
+    next_block_and_wait_all(
+        &mut btc_regtest_controller,
+        &miner_blocks_processed,
+        &[&follower_blocks_processed],
+        timeout,
+    );
+
+    thread::sleep(block_gap);
+
+    // ---------- Setup finished, start test ----------
+
+    // Mine some blocks for mock miner output
+    for _ in 0..10 {
+        next_block_and_wait_all(
+            &mut btc_regtest_controller,
+            &miner_blocks_processed,
+            &[&follower_blocks_processed],
+            timeout,
+        );
+        thread::sleep(block_gap);
+    }
+
+    let miner_blocks_processed_end = miner_channel.get_stacks_blocks_processed();
+    let follower_blocks_processed_end = follower_channel.get_stacks_blocks_processed();
+
+    let blocks_dir = follower_conf.node.mock_mining_output_dir.clone().unwrap();
+    let file_count = follower_conf
+        .node
+        .mock_mining_output_dir
+        .unwrap()
+        .read_dir()
+        .unwrap_or_else(|e| panic!("Failed to read directory: {e}"))
+        .count();
+
+    // Check that expected output files exist
+    assert!(test_dir.is_dir());
+    assert!(blocks_dir.is_dir());
+    assert_eq!(file_count, 12);
+    assert_eq!(miner_blocks_processed_end, follower_blocks_processed_end);
+
+    // ---------- Test finished, clean up ----------
 
     btcd_controller.stop_bitcoind().unwrap();
     miner_channel.stop_chains_coordinator();

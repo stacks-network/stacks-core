@@ -76,9 +76,9 @@ pub struct AssembledAnchorBlock {
     /// Consensus hash this Stacks block
     pub consensus_hash: ConsensusHash,
     /// Burnchain tip's block hash when we finished mining
-    pub my_burn_hash: BurnchainHeaderHash,
+    pub burn_hash: BurnchainHeaderHash,
     /// Burnchain tip's block height when we finished mining
-    pub my_block_height: u64,
+    pub burn_block_height: u64,
     /// Burnchain tip's block hash when we started mining (could be different)
     pub orig_burn_hash: BurnchainHeaderHash,
     /// The block we produced
