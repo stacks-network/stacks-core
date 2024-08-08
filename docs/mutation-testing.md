@@ -108,3 +108,20 @@ cargo install --version 24.7.1 cargo-mutants --locked
         --test-tool=nextest \
         -- --all-targets --test-threads 1
    ```
+
+## How to run one specific mutant to test it
+
+Example of output which had a missing mutant
+```sh
+MISSED   stacks-signer/src/runloop.rs:424:9: replace <impl SignerRunLoop for RunLoop<Signer, T>>::run_one_pass -> Option<Vec<SignerResult>> with None in 3.0s build + 9.3s test
+```
+
+Example of fix for it
+```sh
+RUST_BACKTRACE=1 BITCOIND_TEST=1 cargo mutants -vV -F "replace process_stackerdb_event" -E ": replace <impl SignerRunLoop for RunLoop<Signer, T>>::run_one_pass -> Option<Vec<SignerResult>> with None in " --test-tool=nextest -- --run-ignored all --fail-fast --test-threads 1
+```
+
+General command to run
+```sh
+RUST_BACKTRACE=1 BITCOIND_TEST=1 cargo mutants -vV -F "replace process_stackerdb_event" -E ": replace [modify this] with [modify this] in " --test-tool=nextest -- --run-ignored all --fail-fast --test-threads 1
+```
