@@ -85,6 +85,7 @@ pub struct RunningNodes {
     pub blocks_processed: Arc<AtomicU64>,
     pub nakamoto_blocks_proposed: Arc<AtomicU64>,
     pub nakamoto_blocks_mined: Arc<AtomicU64>,
+    pub nakamoto_blocks_rejected: Arc<AtomicU64>,
     pub nakamoto_test_skip_commit_op: TestFlag,
     pub coord_channel: Arc<Mutex<CoordinatorChannels>>,
     pub conf: NeonConfig,
@@ -747,6 +748,7 @@ fn setup_stx_btc_node<G: FnMut(&mut NeonConfig) -> ()>(
         naka_submitted_commits: commits_submitted,
         naka_proposed_blocks: naka_blocks_proposed,
         naka_mined_blocks: naka_blocks_mined,
+        naka_rejected_blocks: naka_blocks_rejected,
         naka_skip_commit_op: nakamoto_test_skip_commit_op,
         ..
     } = run_loop.counters();
@@ -780,6 +782,7 @@ fn setup_stx_btc_node<G: FnMut(&mut NeonConfig) -> ()>(
         blocks_processed: blocks_processed.0,
         nakamoto_blocks_proposed: naka_blocks_proposed.0,
         nakamoto_blocks_mined: naka_blocks_mined.0,
+        nakamoto_blocks_rejected: naka_blocks_rejected.0,
         nakamoto_test_skip_commit_op,
         coord_channel,
         conf: naka_conf,
