@@ -375,47 +375,56 @@ impl RelayerThread {
         }
     }
 
-    /// Choose a miner directive based on the outcome of a sortition
+    /// Choose a miner directive based on the outcome of a sortition.
+    /// We won't always be able to mine -- for example, this could be an empty sortition, but the
+    /// parent block could be an epoch 2 block.  In this case, the right thing to do is to wait for
+    /// the next block-commit.
     pub(crate) fn choose_miner_directive(
         config: &Config,
         sortdb: &SortitionDB,
         sn: BlockSnapshot,
         won_sortition: bool,
         committed_index_hash: StacksBlockId,
-    ) -> MinerDirective {
+    ) -> Option<MinerDirective> {
         let directive = if sn.sortition {
-            if won_sortition || config.get_node_config(false).mock_mining {
-                MinerDirective::BeginTenure {
-                    parent_tenure_start: committed_index_hash,
-                    burnchain_tip: sn,
-                }
-            } else {
-                MinerDirective::StopTenure
-            }
+            Some(
+                if won_sortition || config.get_node_config(false).mock_mining {
+                    MinerDirective::BeginTenure {
+                        parent_tenure_start: committed_index_hash,
+                        burnchain_tip: sn,
+                    }
+                } else {
+                    MinerDirective::StopTenure
+                },
+            )
         } else {
-            let ih = sortdb.index_handle(&sn.sortition_id);
-            let parent_sn = ih.get_last_snapshot_with_sortition(sn.block_height).expect(
-                "FATAL: failed to query sortition DB for last snapshot with non-empty tenure",
-            );
+            // find out what epoch the Stacks tip is in.
+            // If it's in epoch 2.x, then we must always begin a new tenure, but we can't do so
+            // right now since this sortition has no winner.
+            let (cur_stacks_tip_ch, _cur_stacks_tip_bh) =
+                SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn())
+                    .expect("FATAL: failed to query sortition DB for stacks tip");
 
-            let parent_epoch = SortitionDB::get_stacks_epoch(sortdb.conn(), parent_sn.block_height)
-                .expect("FATAL: failed to query sortiiton DB for epoch")
-                .expect("FATAL: no epoch defined for existing sortition");
+            let stacks_tip_sn =
+                SortitionDB::get_block_snapshot_consensus(sortdb.conn(), &cur_stacks_tip_ch)
+                    .expect("FATAL: failed to query sortiiton DB for epoch")
+                    .expect("FATAL: no sortition for canonical stacks tip");
 
-            let cur_epoch = SortitionDB::get_stacks_epoch(sortdb.conn(), sn.block_height)
-                .expect("FATAL: failed to query sortition DB for epoch")
-                .expect("FATAL: no epoch defined for existing sortition");
+            let cur_epoch =
+                SortitionDB::get_stacks_epoch(sortdb.conn(), stacks_tip_sn.block_height)
+                    .expect("FATAL: failed to query sortition DB for epoch")
+                    .expect("FATAL: no epoch defined for existing sortition");
 
-            if parent_epoch.epoch_id != cur_epoch.epoch_id {
-                // this is the first-ever sortition, so definitely mine
-                MinerDirective::BeginTenure {
-                    parent_tenure_start: committed_index_hash,
-                    burnchain_tip: sn,
-                }
+            if cur_epoch.epoch_id != StacksEpochId::Epoch30 {
+                debug!(
+                    "As of sortition {}, there has not yet been a Nakamoto tip. Cannot mine.",
+                    &stacks_tip_sn.consensus_hash
+                );
+                None
             } else {
-                MinerDirective::ContinueTenure {
+                Some(MinerDirective::ContinueTenure {
                     new_burn_view: sn.consensus_hash,
-                }
+                })
             }
         };
         directive
@@ -425,7 +434,7 @@ impl RelayerThread {
     /// determine what miner action (if any) to take.
     ///
     /// Returns a directive to the relayer thread to either start, stop, or continue a tenure, if
-    /// this sortition matches the sortition tip.
+    /// this sortition matches the sortition tip and we have a parent to build atop.
     ///
     /// Otherwise, returns None, meaning no action will be taken.
     fn process_sortition(
@@ -465,14 +474,14 @@ impl RelayerThread {
             return Ok(None);
         }
 
-        let directive = Self::choose_miner_directive(
+        let directive_opt = Self::choose_miner_directive(
             &self.config,
             &self.sortdb,
             sn,
             won_sortition,
             committed_index_hash,
         );
-        Ok(Some(directive))
+        Ok(directive_opt)
     }
 
     /// Constructs and returns a LeaderKeyRegisterOp out of the provided params
