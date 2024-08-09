@@ -986,7 +986,7 @@ fn forked_tenure_testing(
     let blocks = test_observer::get_mined_nakamoto_blocks();
     let mined_c = blocks.last().unwrap().clone();
 
-    assert_eq!(tip_b, tip_c);
+    assert_ne!(tip_b, tip_c);
     assert_ne!(tip_c, tip_a);
 
     let (tip_c_2, mined_c_2) = if !expect_tenure_c {
