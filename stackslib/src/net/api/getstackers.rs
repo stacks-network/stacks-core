@@ -57,10 +57,13 @@ pub enum GetStackersErrors {
 }
 
 impl GetStackersErrors {
+    pub const NOT_AVAILABLE_ERR_TYPE: &'static str = "not_available_try_again";
+    pub const OTHER_ERR_TYPE: &'static str = "other";
+
     pub fn error_type_string(&self) -> &'static str {
         match self {
-            GetStackersErrors::NotAvailableYet(_) => "not_available_try_again",
-            GetStackersErrors::Other(_) => "other",
+            Self::NotAvailableYet(_) => Self::NOT_AVAILABLE_ERR_TYPE,
+            Self::Other(_) => Self::OTHER_ERR_TYPE,
         }
     }
 }
@@ -250,5 +253,33 @@ impl StacksHttpResponse {
         let response: GetStackersResponse = serde_json::from_value(response_json)
             .map_err(|_e| Error::DecodeError("Failed to decode JSON".to_string()))?;
         Ok(response)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::GetStackersErrors;
+
+    #[test]
+    // Test the formatting and error type strings of GetStackersErrors
+    fn get_stackers_errors() {
+        let not_available_err = GetStackersErrors::NotAvailableYet(
+            crate::chainstate::coordinator::Error::PoXNotProcessedYet,
+        );
+        let other_err = GetStackersErrors::Other("foo".into());
+
+        assert_eq!(
+            not_available_err.error_type_string(),
+            GetStackersErrors::NOT_AVAILABLE_ERR_TYPE
+        );
+        assert_eq!(
+            other_err.error_type_string(),
+            GetStackersErrors::OTHER_ERR_TYPE
+        );
+
+        assert!(not_available_err
+            .to_string()
+            .starts_with("Could not read reward set"));
+        assert_eq!(other_err.to_string(), "foo".to_string());
     }
 }

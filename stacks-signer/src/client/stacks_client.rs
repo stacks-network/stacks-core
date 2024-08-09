@@ -33,7 +33,7 @@ use blockstack_lib::net::api::get_tenures_fork_info::{
 use blockstack_lib::net::api::getaccount::AccountEntryResponse;
 use blockstack_lib::net::api::getpoxinfo::RPCPoxInfoData;
 use blockstack_lib::net::api::getsortition::{SortitionInfo, RPC_SORTITION_INFO_PATH};
-use blockstack_lib::net::api::getstackers::GetStackersResponse;
+use blockstack_lib::net::api::getstackers::{GetStackersErrors, GetStackersResponse};
 use blockstack_lib::net::api::postblock::StacksBlockAcceptedData;
 use blockstack_lib::net::api::postblock_proposal::NakamotoBlockProposal;
 use blockstack_lib::net::api::postblock_v3;
@@ -541,7 +541,7 @@ impl StacksClient {
                 warn!("Failed to parse the GetStackers error response: {e}");
                 backoff::Error::permanent(e.into())
             })?;
-            if error_data.err_type == "not_available_try_again" {
+            if &error_data.err_type == GetStackersErrors::NOT_AVAILABLE_ERR_TYPE {
                 return Err(backoff::Error::transient(ClientError::NoSortitionOnChain));
             } else {
                 warn!("Got error response ({status}): {}", error_data.err_msg);

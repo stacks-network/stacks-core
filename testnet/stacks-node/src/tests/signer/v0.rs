@@ -62,8 +62,9 @@ use crate::nakamoto_node::miner::{TEST_BLOCK_ANNOUNCE_STALL, TEST_BROADCAST_STAL
 use crate::neon::Counters;
 use crate::run_loop::boot_nakamoto;
 use crate::tests::nakamoto_integrations::{
-    boot_to_epoch_25, boot_to_epoch_3_reward_set, next_block_and, wait_for,
-    POX_4_DEFAULT_STACKER_BALANCE, POX_4_DEFAULT_STACKER_STX_AMT,
+    boot_to_epoch_25, boot_to_epoch_3_reward_set, boot_to_epoch_3_reward_set_calculation_boundary,
+    next_block_and, setup_epoch_3_reward_set, wait_for, POX_4_DEFAULT_STACKER_BALANCE,
+    POX_4_DEFAULT_STACKER_STX_AMT,
 };
 use crate::tests::neon_integrations::{
     get_account, get_chain_info, next_block_and_wait, run_until_burnchain_height, submit_tx,
@@ -743,6 +744,119 @@ struct TenureForkingResult {
     mined_c: MinedNakamotoBlockEvent,
     mined_c_2: Option<MinedNakamotoBlockEvent>,
     mined_d: MinedNakamotoBlockEvent,
+}
+
+#[test]
+#[ignore]
+/// Test to make sure that the signers are capable of reloading their reward set
+///  if the stacks-node doesn't have it available at the first block of a prepare phase (e.g., if there was no block)
+fn reloads_signer_set_in() {
+    tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(EnvFilter::from_default_env())
+        .init();
+
+    let num_signers = 5;
+    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_addr = tests::to_addr(&sender_sk);
+    let send_amt = 100;
+    let send_fee = 180;
+    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
+        num_signers,
+        vec![(sender_addr.clone(), send_amt + send_fee)],
+        Some(Duration::from_secs(15)),
+        |_config| {},
+        |_| {},
+        &[],
+    );
+
+    setup_epoch_3_reward_set(
+        &signer_test.running_nodes.conf,
+        &signer_test.running_nodes.blocks_processed,
+        &signer_test.signer_stacks_private_keys,
+        &signer_test.signer_stacks_private_keys,
+        &mut signer_test.running_nodes.btc_regtest_controller,
+        Some(signer_test.num_stacking_cycles),
+    );
+
+    let naka_conf = &signer_test.running_nodes.conf;
+    let epochs = naka_conf.burnchain.epochs.clone().unwrap();
+    let epoch_3 = &epochs[StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch30).unwrap()];
+    let reward_cycle_len = naka_conf.get_burnchain().pox_constants.reward_cycle_length as u64;
+    let prepare_phase_len = naka_conf.get_burnchain().pox_constants.prepare_length as u64;
+
+    let epoch_3_start_height = epoch_3.start_height;
+    assert!(
+        epoch_3_start_height > 0,
+        "Epoch 3.0 start height must be greater than 0"
+    );
+    let epoch_3_reward_cycle_boundary =
+        epoch_3_start_height.saturating_sub(epoch_3_start_height % reward_cycle_len);
+    let before_epoch_3_reward_set_calculation =
+        epoch_3_reward_cycle_boundary.saturating_sub(prepare_phase_len);
+    run_until_burnchain_height(
+        &mut signer_test.running_nodes.btc_regtest_controller,
+        &signer_test.running_nodes.blocks_processed,
+        before_epoch_3_reward_set_calculation,
+        naka_conf,
+    );
+
+    info!("Waiting for signer set calculation.");
+    let mut reward_set_calculated = false;
+    let short_timeout = Duration::from_secs(30);
+    let now = std::time::Instant::now();
+    // Make sure the signer set is calculated before continuing or signers may not
+    // recognize that they are registered signers in the subsequent burn block event
+    let reward_cycle = signer_test.get_current_reward_cycle() + 1;
+    signer_test
+        .running_nodes
+        .btc_regtest_controller
+        .build_next_block(1);
+    while !reward_set_calculated {
+        let reward_set = signer_test
+            .stacks_client
+            .get_reward_set_signers(reward_cycle)
+            .expect("Failed to check if reward set is calculated");
+        reward_set_calculated = reward_set.is_some();
+        if reward_set_calculated {
+            info!("Signer set: {:?}", reward_set.unwrap());
+        }
+        std::thread::sleep(Duration::from_secs(1));
+        assert!(
+            now.elapsed() < short_timeout,
+            "Timed out waiting for reward set calculation"
+        );
+    }
+    info!("Signer set calculated");
+
+    // Manually consume one more block to ensure signers refresh their state
+    info!("Waiting for signers to initialize.");
+    next_block_and_wait(
+        &mut signer_test.running_nodes.btc_regtest_controller,
+        &signer_test.running_nodes.blocks_processed,
+    );
+    signer_test.wait_for_registered(30);
+    info!("Signers initialized");
+
+    signer_test.run_until_epoch_3_boundary();
+
+    let commits_submitted = signer_test.running_nodes.commits_submitted.clone();
+
+    info!("Waiting 1 burnchain block for miner VRF key confirmation");
+    // Wait one block to confirm the VRF register, wait until a block commit is submitted
+    next_block_and(
+        &mut signer_test.running_nodes.btc_regtest_controller,
+        60,
+        || {
+            let commits_count = commits_submitted.load(Ordering::SeqCst);
+            Ok(commits_count >= 1)
+        },
+    )
+    .unwrap();
+    info!("Ready to mine Nakamoto blocks!");
+
+    info!("------------------------- Reached Epoch 3.0 -------------------------");
+    signer_test.shutdown();
 }
 
 /// This test spins up a nakamoto-neon node.

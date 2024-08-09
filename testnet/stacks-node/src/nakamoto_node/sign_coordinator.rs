@@ -640,6 +640,9 @@ impl SignCoordinator {
     /// * It waits for the chainstate to contain the relayed block. If so, then its signatures are
     /// loaded and returned. This can happen if the node receives the block via a signer who
     /// fetched all signatures and assembled the signature vector, all before we could.
+    // Mutants skip here: this function is covered via integration tests,
+    //  which the mutation testing does not see.
+    #[cfg_attr(test, mutants::skip)]
     pub fn run_sign_v0(
         &mut self,
         block: &NakamotoBlock,
