@@ -32,7 +32,7 @@ use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader, NakamotoChainState};
 use stacks::chainstate::stacks::address::PoxAddress;
 use stacks::chainstate::stacks::boot::MINERS_NAME;
-use stacks::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
+use stacks::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState, StacksHeaderInfo};
 use stacks::codec::StacksMessageCodec;
 use stacks::core::{StacksEpochId, CHAIN_ID_TESTNET};
 use stacks::libstackerdb::StackerDBChunkData;
@@ -46,6 +46,7 @@ use stacks::util_lib::signed_structured_data::pox4::{
     make_pox_4_signer_key_signature, Pox4SignatureTopic,
 };
 use stacks_common::bitvec::BitVec;
+use stacks_common::util::sleep_ms;
 use stacks_signer::chainstate::{ProposalEvalConfig, SortitionsView};
 use stacks_signer::client::{SignerSlotID, StackerDB};
 use stacks_signer::config::{build_signer_config_tomls, GlobalConfig as SignerConfig, Network};
@@ -57,7 +58,7 @@ use tracing_subscriber::{fmt, EnvFilter};
 use super::SignerTest;
 use crate::config::{EventKeyType, EventObserverConfig};
 use crate::event_dispatcher::MinedNakamotoBlockEvent;
-use crate::nakamoto_node::miner::TEST_BROADCAST_STALL;
+use crate::nakamoto_node::miner::{TEST_BLOCK_ANNOUNCE_STALL, TEST_BROADCAST_STALL};
 use crate::neon::Counters;
 use crate::run_loop::boot_nakamoto;
 use crate::tests::nakamoto_integrations::{
@@ -776,6 +777,9 @@ fn forked_tenure_testing(
         |config| {
             // make the duration long enough that the reorg attempt will definitely be accepted
             config.first_proposal_burn_block_timing = proposal_limit;
+            // don't allow signers to post signed blocks (limits the amount of fault injection we
+            // need)
+            config.broadcast_signed_blocks = false;
         },
         |_| {},
         &[],
@@ -783,6 +787,7 @@ fn forked_tenure_testing(
     let http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
 
     signer_test.boot_to_epoch_3();
+    sleep_ms(1000);
     info!("------------------------- Reached Epoch 3.0 -------------------------");
 
     let naka_conf = signer_test.running_nodes.conf.clone();
@@ -799,8 +804,14 @@ fn forked_tenure_testing(
     let commits_submitted = signer_test.running_nodes.commits_submitted.clone();
     let mined_blocks = signer_test.running_nodes.nakamoto_blocks_mined.clone();
     let proposed_blocks = signer_test.running_nodes.nakamoto_blocks_proposed.clone();
+    let rejected_blocks = signer_test.running_nodes.nakamoto_blocks_rejected.clone();
+    let coord_channel = signer_test.running_nodes.coord_channel.clone();
+    let blocks_processed_before = coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .get_stacks_blocks_processed();
 
-    info!("Starting tenure A.");
+    info!("Starting Tenure A.");
     // In the next block, the miner should win the tenure and submit a stacks block
     let commits_before = commits_submitted.load(Ordering::SeqCst);
     let blocks_before = mined_blocks.load(Ordering::SeqCst);
@@ -810,10 +821,18 @@ fn forked_tenure_testing(
         || {
             let commits_count = commits_submitted.load(Ordering::SeqCst);
             let blocks_count = mined_blocks.load(Ordering::SeqCst);
-            Ok(commits_count > commits_before && blocks_count > blocks_before)
+            let blocks_processed = coord_channel
+                .lock()
+                .expect("Mutex poisoned")
+                .get_stacks_blocks_processed();
+            Ok(commits_count > commits_before
+                && blocks_count > blocks_before
+                && blocks_processed > blocks_processed_before)
         },
     )
     .unwrap();
+
+    sleep_ms(1000);
 
     let tip_a = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
         .unwrap()
@@ -821,9 +840,11 @@ fn forked_tenure_testing(
 
     // For the next tenure, submit the commit op but do not allow any stacks blocks to be broadcasted
     TEST_BROADCAST_STALL.lock().unwrap().replace(true);
+    TEST_BLOCK_ANNOUNCE_STALL.lock().unwrap().replace(true);
     let blocks_before = mined_blocks.load(Ordering::SeqCst);
     let commits_before = commits_submitted.load(Ordering::SeqCst);
-    info!("Starting tenure B.");
+
+    info!("Starting Tenure B.");
     next_block_and(
         &mut signer_test.running_nodes.btc_regtest_controller,
         60,
@@ -837,6 +858,7 @@ fn forked_tenure_testing(
     info!("Commit op is submitted; unpause tenure B's block");
 
     // Unpause the broadcast of Tenure B's block, do not submit commits.
+    // However, do not allow B to be processed just yet
     signer_test
         .running_nodes
         .nakamoto_test_skip_commit_op
@@ -858,13 +880,52 @@ fn forked_tenure_testing(
 
     info!("Tenure B broadcasted a block. Wait {post_btc_block_pause:?}, issue the next bitcon block, and un-stall block commits.");
     thread::sleep(post_btc_block_pause);
-    let tip_b = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
+
+    // the block will be stored, not processed, so load it out of staging
+    let tip_sn = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
+        .expect("Failed to get sortition tip");
+
+    let tip_b_block = chainstate
+        .nakamoto_blocks_db()
+        .get_nakamoto_tenure_start_blocks(&tip_sn.consensus_hash)
         .unwrap()
+        .get(0)
+        .cloned()
         .unwrap();
+
+    // synthesize a StacksHeaderInfo from this unprocessed block
+    let tip_b = StacksHeaderInfo {
+        anchored_header: StacksBlockHeaderTypes::Nakamoto(tip_b_block.header.clone()),
+        microblock_tail: None,
+        stacks_block_height: tip_b_block.header.chain_length.into(),
+        index_root: tip_b_block.header.state_index_root.clone(),
+        consensus_hash: tip_b_block.header.consensus_hash.clone(),
+        burn_header_hash: tip_sn.burn_header_hash.clone(),
+        burn_header_height: tip_sn.block_height as u32,
+        burn_header_timestamp: tip_sn.burn_header_timestamp,
+        anchored_block_size: tip_b_block.serialize_to_vec().len() as u64,
+        burn_view: Some(tip_b_block.header.consensus_hash.clone()),
+    };
+
     let blocks = test_observer::get_mined_nakamoto_blocks();
     let mined_b = blocks.last().unwrap().clone();
 
-    info!("Starting tenure C.");
+    // Block B was built atop block A
+    assert_eq!(tip_b.stacks_block_height, tip_a.stacks_block_height + 1);
+    assert_eq!(
+        mined_b.parent_block_id,
+        tip_a.index_block_hash().to_string()
+    );
+    assert_ne!(tip_b, tip_a);
+
+    if !expect_tenure_c {
+        // allow B to process, so it'll be distinct from C
+        TEST_BLOCK_ANNOUNCE_STALL.lock().unwrap().replace(false);
+        sleep_ms(1000);
+    }
+
+    info!("Starting Tenure C.");
+
     // Submit a block commit op for tenure C
     let commits_before = commits_submitted.load(Ordering::SeqCst);
     let blocks_before = if expect_tenure_c {
@@ -872,6 +933,8 @@ fn forked_tenure_testing(
     } else {
         proposed_blocks.load(Ordering::SeqCst)
     };
+    let rejected_before = rejected_blocks.load(Ordering::SeqCst);
+
     next_block_and(
         &mut signer_test.running_nodes.btc_regtest_controller,
         60,
@@ -883,16 +946,37 @@ fn forked_tenure_testing(
                 .lock()
                 .unwrap()
                 .replace(false);
+
             let commits_count = commits_submitted.load(Ordering::SeqCst);
-            let blocks_count = if expect_tenure_c {
-                mined_blocks.load(Ordering::SeqCst)
+            if commits_count > commits_before {
+                // now allow block B to process.
+                TEST_BLOCK_ANNOUNCE_STALL.lock().unwrap().replace(false);
+            }
+            let rejected_count = rejected_blocks.load(Ordering::SeqCst);
+            let (blocks_count, rbf_count, has_reject_count) = if expect_tenure_c {
+                // if tenure C is going to be canonical, then we expect the miner to RBF its commit
+                // once (i.e. for the block it mines and gets signed), and we expect zero
+                // rejections.
+                (mined_blocks.load(Ordering::SeqCst), 1, true)
             } else {
-                proposed_blocks.load(Ordering::SeqCst)
+                // if tenure C is NOT going to be canonical, then we expect no RBFs (since the
+                // miner can't get its block signed), and we expect at least one rejection
+                (
+                    proposed_blocks.load(Ordering::SeqCst),
+                    0,
+                    rejected_count > rejected_before,
+                )
             };
-            Ok(commits_count > commits_before && blocks_count > blocks_before)
+
+            Ok(commits_count > commits_before + rbf_count
+                && blocks_count > blocks_before
+                && has_reject_count)
         },
     )
     .unwrap();
+
+    // allow blocks B and C to be processed
+    sleep_ms(1000);
 
     info!("Tenure C produced (or proposed) a block!");
     let tip_c = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
@@ -901,6 +985,9 @@ fn forked_tenure_testing(
 
     let blocks = test_observer::get_mined_nakamoto_blocks();
     let mined_c = blocks.last().unwrap().clone();
+
+    assert_eq!(tip_b, tip_c);
+    assert_ne!(tip_c, tip_a);
 
     let (tip_c_2, mined_c_2) = if !expect_tenure_c {
         (None, None)
@@ -922,6 +1009,9 @@ fn forked_tenure_testing(
             thread::sleep(Duration::from_secs(1));
         }
 
+        // give C's second block a moment to process
+        sleep_ms(1000);
+
         info!("Tenure C produced a second block!");
 
         let block_2_tenure_c =
@@ -933,7 +1023,11 @@ fn forked_tenure_testing(
         (Some(block_2_tenure_c), Some(block_2_c))
     };
 
-    info!("Starting tenure D.");
+    // allow block C2 to be processed
+    sleep_ms(1000);
+
+    info!("Starting Tenure D.");
+
     // Submit a block commit op for tenure D and mine a stacks block
     let commits_before = commits_submitted.load(Ordering::SeqCst);
     let blocks_before = mined_blocks.load(Ordering::SeqCst);
@@ -947,6 +1041,9 @@ fn forked_tenure_testing(
         },
     )
     .unwrap();
+
+    // allow block D to be processed
+    sleep_ms(1000);
 
     let tip_d = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
         .unwrap()
@@ -1247,7 +1344,7 @@ fn multiple_miners() {
         if btc_blocks_mined > max_nakamoto_tenures {
             panic!("Produced {btc_blocks_mined} sortitions, but didn't cover the test scenarios, aborting");
         }
-        
+
         let info_1 = get_chain_info(&conf);
         let info_2 = get_chain_info(&conf_node_2);
 
@@ -1255,13 +1352,13 @@ fn multiple_miners() {
             "Issue next block-build request\ninfo 1: {:?}\ninfo 2: {:?}\n",
             &info_1, &info_2
         );
-        
+
         signer_test.mine_block_wait_on_processing(
             &[&rl1_coord_channels, &rl2_coord_channels],
             &[&rl1_commits, &rl2_commits],
             Duration::from_secs(30),
         );
-        
+
         btc_blocks_mined += 1;
         let blocks = get_nakamoto_headers(&conf);
         // for this test, there should be one block per tenure
