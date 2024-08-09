@@ -631,6 +631,9 @@ impl SignCoordinator {
     /// This function begins by sending a `BlockProposal` message
     /// to the signers, and then waits for the signers to respond
     /// with their signatures.
+    // Mutants skip here: this function is covered via integration tests,
+    //  which the mutation testing does not see.
+    #[cfg_attr(test, mutants::skip)]
     pub fn begin_sign_v0(
         &mut self,
         block: &NakamotoBlock,
@@ -775,9 +778,10 @@ impl SignCoordinator {
                 let block_sighash = block.header.signer_signature_hash();
                 if block_sighash != response_hash {
                     warn!(
-                        "Processed signature but didn't validate over the expected block. Returning error.";
+                        "Processed signature for a different block. Will try to continue.";
                         "signature" => %signature,
                         "block_signer_signature_hash" => %block_sighash,
+                        "response_hash" => %response_hash,
                         "slot_id" => slot_id,
                         "reward_cycle_id" => reward_cycle_id,
                         "response_hash" => %response_hash
