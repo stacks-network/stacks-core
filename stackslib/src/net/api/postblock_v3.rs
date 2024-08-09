@@ -121,7 +121,7 @@ impl RPCRequestHandler for RPCPostBlockRequestHandler {
             .ok_or(NetError::SendError("`block` not set".into()))?;
 
         let response = node
-            .with_node_state(|network, sortdb, chainstate, _mempool, _rpc_args| {
+            .with_node_state(|network, sortdb, chainstate, _mempool, rpc_args| {
                 let mut handle_conn = sortdb.index_handle_at_tip();
                 let stacks_tip = network.stacks_tip.block_id();
                 Relayer::process_new_nakamoto_block(
@@ -131,7 +131,7 @@ impl RPCRequestHandler for RPCPostBlockRequestHandler {
                     chainstate,
                     &stacks_tip,
                     &block,
-                    None,
+                    rpc_args.coord_comms,
                     NakamotoBlockObtainMethod::Uploaded,
                 )
             })

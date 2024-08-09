@@ -26,6 +26,7 @@ use stacks::core::StacksEpochExtension;
 use stacks::net::p2p::PeerNetwork;
 use stacks_common::types::{StacksEpoch, StacksEpochId};
 
+use crate::event_dispatcher::EventDispatcher;
 use crate::globals::NeonGlobals;
 use crate::neon::Counters;
 use crate::neon_node::LeaderKeyRegistrationState;
@@ -121,6 +122,14 @@ impl BootRunLoop {
         match &self.active_loop {
             InnerLoops::Epoch2(x) => x.get_termination_switch(),
             InnerLoops::Epoch3(x) => x.get_termination_switch(),
+        }
+    }
+
+    /// Get the event dispatcher
+    pub fn get_event_dispatcher(&self) -> EventDispatcher {
+        match &self.active_loop {
+            InnerLoops::Epoch2(x) => x.get_event_dispatcher(),
+            InnerLoops::Epoch3(x) => x.get_event_dispatcher(),
         }
     }
 

@@ -51,6 +51,35 @@ pub struct GetStackersResponse {
     pub stacker_set: RewardSet,
 }
 
+pub enum GetStackersErrors {
+    NotAvailableYet(crate::chainstate::coordinator::Error),
+    Other(String),
+}
+
+impl GetStackersErrors {
+    pub fn error_type_string(&self) -> &'static str {
+        match self {
+            GetStackersErrors::NotAvailableYet(_) => "not_available_try_again",
+            GetStackersErrors::Other(_) => "other",
+        }
+    }
+}
+
+impl From<&str> for GetStackersErrors {
+    fn from(value: &str) -> Self {
+        GetStackersErrors::Other(value.into())
+    }
+}
+
+impl std::fmt::Display for GetStackersErrors {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            GetStackersErrors::NotAvailableYet(e) => write!(f, "Could not read reward set. Prepare phase may not have started for this cycle yet. Err = {e:?}"),
+            GetStackersErrors::Other(msg) => write!(f, "{msg}")
+        }
+    }
+}
+
 impl GetStackersResponse {
     pub fn load(
         sortdb: &SortitionDB,
@@ -58,7 +87,7 @@ impl GetStackersResponse {
         tip: &StacksBlockId,
         burnchain: &Burnchain,
         cycle_number: u64,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, GetStackersErrors> {
         let cycle_start_height = burnchain.reward_cycle_to_block_height(cycle_number);
 
         let pox_contract_name = burnchain
@@ -74,16 +103,9 @@ impl GetStackersResponse {
         }
 
         let provider = OnChainRewardSetProvider::new();
-        let stacker_set = provider.read_reward_set_nakamoto(
-            cycle_start_height,
-            chainstate,
-            burnchain,
-            sortdb,
-            tip,
-            true,
-        ).map_err(
-            |e| format!("Could not read reward set. Prepare phase may not have started for this cycle yet. Cycle = {cycle_number}, Err = {e:?}")
-        )?;
+        let stacker_set = provider
+            .read_reward_set_nakamoto(cycle_start_height, chainstate, burnchain, sortdb, tip, true)
+            .map_err(GetStackersErrors::NotAvailableYet)?;
 
         Ok(Self { stacker_set })
     }
@@ -173,10 +195,13 @@ impl RPCRequestHandler for GetStackersRequestHandler {
 
         let response = match stacker_response {
             Ok(response) => response,
-            Err(err_str) => {
+            Err(error) => {
                 return StacksHttpResponse::new_error(
                     &preamble,
-                    &HttpBadRequest::new_json(json!({"response": "error", "err_msg": err_str})),
+                    &HttpBadRequest::new_json(json!({
+                        "response": "error",
+                        "err_type": error.error_type_string(),
+                        "err_msg": error.to_string()})),
                 )
                 .try_into_contents()
                 .map_err(NetError::from)

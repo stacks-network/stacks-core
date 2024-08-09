@@ -190,7 +190,7 @@ impl PeerThread {
             info!("`PeerNetwork::bind()` skipped, already bound");
         }
 
-        let poll_timeout = cmp::min(5000, config.miner.first_attempt_time_ms / 2);
+        let poll_timeout = cmp::min(1000, config.miner.first_attempt_time_ms / 2);
 
         PeerThread {
             config,
@@ -266,6 +266,7 @@ impl PeerThread {
                 cost_estimator: Some(cost_estimator.as_ref()),
                 cost_metric: Some(cost_metric.as_ref()),
                 fee_estimator: fee_estimator.map(|boxed_estimator| boxed_estimator.as_ref()),
+                coord_comms: Some(&self.globals.coord_comms),
                 ..RPCHandlerArgs::default()
             };
             self.net.run(
@@ -347,7 +348,13 @@ impl PeerThread {
                     }
                 }
             } else {
-                debug!("P2P: Dispatched result to Relayer!");
+                debug!(
+                    "P2P: Dispatched result to Relayer! {} results remaining",
+                    self.results_with_data.len()
+                );
+                self.globals.raise_initiative(
+                    "PeerThread::run_one_pass() with data-bearing network result".to_string(),
+                );
             }
         }
 

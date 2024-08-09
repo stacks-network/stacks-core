@@ -55,7 +55,7 @@ use blockstack_lib::chainstate::burn::db::sortdb::{
 use blockstack_lib::chainstate::burn::operations::BlockstackOperationType;
 use blockstack_lib::chainstate::burn::{BlockSnapshot, ConsensusHash};
 use blockstack_lib::chainstate::coordinator::{get_reward_cycle_info, OnChainRewardSetProvider};
-use blockstack_lib::chainstate::nakamoto::NakamotoChainState;
+use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use blockstack_lib::chainstate::stacks::db::blocks::{DummyEventDispatcher, StagingBlock};
 use blockstack_lib::chainstate::stacks::db::{
     ChainStateBootData, StacksBlockHeaderTypes, StacksChainState, StacksHeaderInfo,
@@ -233,6 +233,25 @@ fn main() {
             fs::read(block_path).unwrap_or_else(|_| panic!("Failed to open {block_path}"));
 
         let block = StacksBlock::consensus_deserialize(&mut io::Cursor::new(&block_data))
+            .map_err(|_e| {
+                eprintln!("Failed to decode block");
+                process::exit(1);
+            })
+            .unwrap();
+
+        println!("{:#?}", &block);
+        process::exit(0);
+    }
+
+    if argv[1] == "decode-nakamoto-block" {
+        if argv.len() < 3 {
+            eprintln!("Usage: {} decode-nakamoto-block BLOCK_HEX", argv[0]);
+            process::exit(1);
+        }
+
+        let block_hex = &argv[2];
+        let block_data = hex_bytes(block_hex).unwrap_or_else(|_| panic!("Failed to decode hex"));
+        let block = NakamotoBlock::consensus_deserialize(&mut io::Cursor::new(&block_data))
             .map_err(|_e| {
                 eprintln!("Failed to decode block");
                 process::exit(1);

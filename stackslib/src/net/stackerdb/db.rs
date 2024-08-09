@@ -324,6 +324,8 @@ impl<'a> StackerDBTx<'a> {
                     }
                 }
 
+                debug!("Reset slot {} of {}", slot_id, smart_contract);
+
                 // new slot, or existing slot with a different signer
                 let qry = "INSERT OR REPLACE INTO chunks (stackerdb_id,signer,slot_id,version,write_time,data,data_hash,signature) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)";
                 let mut stmt = self.sql_tx.prepare(&qry)?;

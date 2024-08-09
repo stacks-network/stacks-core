@@ -76,7 +76,7 @@ impl<T: SignerEventTrait> SignerRunLoop<Vec<SignerEvent<T>>, Command, T> for Sim
         &mut self,
         event: Option<SignerEvent<T>>,
         _cmd: Option<Command>,
-        _res: Sender<Vec<SignerEvent<T>>>,
+        _res: &Sender<Vec<SignerEvent<T>>>,
     ) -> Option<Vec<SignerEvent<T>>> {
         debug!("Got event: {:?}", &event);
         if let Some(event) = event {

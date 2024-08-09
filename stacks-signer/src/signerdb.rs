@@ -17,9 +17,10 @@
 use std::path::Path;
 use std::time::SystemTime;
 
-use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockVote};
+use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
 use blockstack_lib::util_lib::db::{
-    query_row, sqlite_open, table_exists, tx_begin_immediate, u64_to_sql, Error as DBError,
+    query_row, query_rows, sqlite_open, table_exists, tx_begin_immediate, u64_to_sql,
+    Error as DBError,
 };
 use clarity::types::chainstate::BurnchainHeaderHash;
 use clarity::util::get_epoch_time_secs;
@@ -29,10 +30,41 @@ use rusqlite::{
 };
 use serde::{Deserialize, Serialize};
 use slog::{slog_debug, slog_error};
+use stacks_common::codec::{read_next, write_next, Error as CodecError, StacksMessageCodec};
 use stacks_common::types::chainstate::ConsensusHash;
 use stacks_common::util::hash::Sha512Trunc256Sum;
+use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::{debug, error};
 use wsts::net::NonceRequest;
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// A vote across the signer set for a block
+pub struct NakamotoBlockVote {
+    /// Signer signature hash (i.e. block hash) of the Nakamoto block
+    pub signer_signature_hash: Sha512Trunc256Sum,
+    /// Whether or not the block was rejected
+    pub rejected: bool,
+}
+
+impl StacksMessageCodec for NakamotoBlockVote {
+    fn consensus_serialize<W: std::io::Write>(&self, fd: &mut W) -> Result<(), CodecError> {
+        write_next(fd, &self.signer_signature_hash)?;
+        if self.rejected {
+            write_next(fd, &1u8)?;
+        }
+        Ok(())
+    }
+
+    fn consensus_deserialize<R: std::io::Read>(fd: &mut R) -> Result<Self, CodecError> {
+        let signer_signature_hash = read_next(fd)?;
+        let rejected_byte: Option<u8> = read_next(fd).ok();
+        let rejected = rejected_byte.is_some();
+        Ok(Self {
+            signer_signature_hash,
+            rejected,
+        })
+    }
+}
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Default)]
 /// Information specific to Signer V1
@@ -153,7 +185,7 @@ pub struct SignerDb {
     db: Connection,
 }
 
-static CREATE_BLOCKS_TABLE: &str = "
+static CREATE_BLOCKS_TABLE_1: &str = "
 CREATE TABLE IF NOT EXISTS blocks (
     reward_cycle INTEGER NOT NULL,
     signer_signature_hash TEXT NOT NULL,
@@ -165,7 +197,7 @@ CREATE TABLE IF NOT EXISTS blocks (
     PRIMARY KEY (reward_cycle, signer_signature_hash)
 ) STRICT";
 
-static CREATE_INDEXES: &str = "
+static CREATE_INDEXES_1: &str = "
 CREATE INDEX IF NOT EXISTS blocks_signed_over ON blocks (signed_over);
 CREATE INDEX IF NOT EXISTS blocks_consensus_hash ON blocks (consensus_hash);
 CREATE INDEX IF NOT EXISTS blocks_valid ON blocks ((json_extract(block_info, '$.valid')));
@@ -197,19 +229,66 @@ static DROP_SCHEMA_0: &str = "
    DROP TABLE IF EXISTS blocks;
    DROP TABLE IF EXISTS db_config;";
 
+static DROP_SCHEMA_1: &str = "
+   DROP TABLE IF EXISTS burn_blocks;
+   DROP TABLE IF EXISTS signer_states;
+   DROP TABLE IF EXISTS blocks;
+   DROP TABLE IF EXISTS db_config;";
+
+static CREATE_BLOCKS_TABLE_2: &str = "
+CREATE TABLE IF NOT EXISTS blocks (
+    reward_cycle INTEGER NOT NULL,
+    signer_signature_hash TEXT NOT NULL,
+    block_info TEXT NOT NULL,
+    consensus_hash TEXT NOT NULL,
+    signed_over INTEGER NOT NULL,
+    broadcasted INTEGER NOT NULL,
+    stacks_height INTEGER NOT NULL,
+    burn_block_height INTEGER NOT NULL,
+    PRIMARY KEY (reward_cycle, signer_signature_hash)
+) STRICT";
+
+static CREATE_BLOCK_SIGNATURES_TABLE: &str = r#"
+CREATE TABLE IF NOT EXISTS block_signatures (
+    -- The block sighash commits to all of the stacks and burnchain state as of its parent,
+    -- as well as the tenure itself so there's no need to include the reward cycle.  Just
+    -- the sighash is sufficient to uniquely identify the block across all burnchain, PoX,
+    -- and stacks forks.
+    signer_signature_hash TEXT NOT NULL,
+    -- signtaure itself
+    signature TEXT NOT NULL,
+    PRIMARY KEY (signature)
+) STRICT;"#;
+
+static CREATE_INDEXES_2: &str = r#"
+CREATE INDEX IF NOT EXISTS block_reward_cycle_and_signature ON block_signatures(signer_signature_hash);
+"#;
+
 static SCHEMA_1: &[&str] = &[
     DROP_SCHEMA_0,
     CREATE_DB_CONFIG,
     CREATE_BURN_STATE_TABLE,
-    CREATE_BLOCKS_TABLE,
+    CREATE_BLOCKS_TABLE_1,
     CREATE_SIGNER_STATE_TABLE,
-    CREATE_INDEXES,
+    CREATE_INDEXES_1,
     "INSERT INTO db_config (version) VALUES (1);",
+];
+
+static SCHEMA_2: &[&str] = &[
+    DROP_SCHEMA_1,
+    CREATE_DB_CONFIG,
+    CREATE_BURN_STATE_TABLE,
+    CREATE_BLOCKS_TABLE_2,
+    CREATE_SIGNER_STATE_TABLE,
+    CREATE_BLOCK_SIGNATURES_TABLE,
+    CREATE_INDEXES_1,
+    CREATE_INDEXES_2,
+    "INSERT INTO db_config (version) VALUES (2);",
 ];
 
 impl SignerDb {
     /// The current schema version used in this build of the signer binary.
-    pub const SCHEMA_VERSION: u32 = 1;
+    pub const SCHEMA_VERSION: u32 = 2;
 
     /// Create a new `SignerState` instance.
     /// This will create a new SQLite database at the given path
@@ -253,6 +332,20 @@ impl SignerDb {
         Ok(())
     }
 
+    /// Migrate from schema 1 to schema 2
+    fn schema_2_migration(tx: &Transaction) -> Result<(), DBError> {
+        if Self::get_schema_version(tx)? >= 2 {
+            // no migration necessary
+            return Ok(());
+        }
+
+        for statement in SCHEMA_2.iter() {
+            tx.execute_batch(statement)?;
+        }
+
+        Ok(())
+    }
+
     /// Either instantiate a new database, or migrate an existing one
     /// If the detected version of the existing database is 0 (i.e., a pre-migration
     /// logic DB, the DB will be dropped).
@@ -262,7 +355,8 @@ impl SignerDb {
             let version = Self::get_schema_version(&sql_tx)?;
             match version {
                 0 => Self::schema_1_migration(&sql_tx)?,
-                1 => break,
+                1 => Self::schema_2_migration(&sql_tx)?,
+                2 => break,
                 x => return Err(DBError::Other(format!(
                     "Database schema is newer than supported by this binary. Expected version = {}, Database version = {x}",
                     Self::SCHEMA_VERSION,
@@ -392,6 +486,7 @@ impl SignerDb {
         let hash = &block_info.signer_signature_hash();
         let block_id = &block_info.block.block_id();
         let signed_over = &block_info.signed_over;
+        let broadcasted = false;
         let vote = block_info
             .vote
             .as_ref()
@@ -403,14 +498,16 @@ impl SignerDb {
             "sighash" => %hash,
             "block_id" => %block_id,
             "signed" => %signed_over,
+            "broadcasted" => %broadcasted,
             "vote" => vote
         );
         self.db
             .execute(
-                "INSERT OR REPLACE INTO blocks (reward_cycle, burn_block_height, signer_signature_hash, block_info, signed_over, stacks_height, consensus_hash) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                "INSERT OR REPLACE INTO blocks (reward_cycle, burn_block_height, signer_signature_hash, block_info, signed_over, broadcasted, stacks_height, consensus_hash) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
                 params![
                     u64_to_sql(block_info.reward_cycle)?, u64_to_sql(block_info.burn_block_height)?, hash.to_string(), block_json,
                     signed_over,
+                    &broadcasted,
                     u64_to_sql(block_info.block.header.chain_length)?,
                     block_info.block.header.consensus_hash.to_hex(),
                 ],
@@ -426,6 +523,70 @@ impl SignerDb {
             query_row(&self.db, query, params!(&u64_to_sql(reward_cycle)?))?;
 
         Ok(result.is_some())
+    }
+
+    /// Record an observed block signature
+    pub fn add_block_signature(
+        &self,
+        block_sighash: &Sha512Trunc256Sum,
+        signature: &MessageSignature,
+    ) -> Result<(), DBError> {
+        let qry = "INSERT OR REPLACE INTO block_signatures (signer_signature_hash, signature) VALUES (?1, ?2);";
+        let args = params![
+            block_sighash,
+            serde_json::to_string(signature).map_err(|e| DBError::SerializationError(e))?
+        ];
+
+        debug!("Inserting block signature.";
+            "sighash" => %block_sighash,
+            "signature" => %signature);
+
+        self.db.execute(qry, args)?;
+        Ok(())
+    }
+
+    /// Get all signatures for a block
+    pub fn get_block_signatures(
+        &self,
+        block_sighash: &Sha512Trunc256Sum,
+    ) -> Result<Vec<MessageSignature>, DBError> {
+        let qry = "SELECT signature FROM block_signatures WHERE signer_signature_hash = ?1";
+        let args = params![block_sighash];
+        let sigs_txt: Vec<String> = query_rows(&self.db, qry, args)?;
+        let mut sigs = vec![];
+        for sig_txt in sigs_txt.into_iter() {
+            let sig = serde_json::from_str(&sig_txt).map_err(|_| DBError::ParseError)?;
+            sigs.push(sig);
+        }
+        Ok(sigs)
+    }
+
+    /// Mark a block as having been broadcasted
+    pub fn set_block_broadcasted(
+        &self,
+        reward_cycle: u64,
+        block_sighash: &Sha512Trunc256Sum,
+    ) -> Result<(), DBError> {
+        let qry = "UPDATE blocks SET broadcasted = 1 WHERE reward_cycle = ?1 AND signer_signature_hash = ?2";
+        let args = params![u64_to_sql(reward_cycle)?, block_sighash];
+
+        debug!("Marking block {} as broadcasted", block_sighash);
+        self.db.execute(qry, args)?;
+        Ok(())
+    }
+
+    /// Is a block broadcasted already
+    pub fn is_block_broadcasted(
+        &self,
+        reward_cycle: u64,
+        block_sighash: &Sha512Trunc256Sum,
+    ) -> Result<bool, DBError> {
+        let qry =
+            "SELECT broadcasted FROM blocks WHERE reward_cycle = ?1 AND signer_signature_hash = ?2";
+        let args = params![u64_to_sql(reward_cycle)?, block_sighash];
+
+        let broadcasted: i64 = query_row(&self.db, qry, args)?.unwrap_or(0);
+        Ok(broadcasted != 0)
     }
 }
 
@@ -454,13 +615,12 @@ mod tests {
     use std::fs;
     use std::path::PathBuf;
 
-    use blockstack_lib::chainstate::nakamoto::{
-        NakamotoBlock, NakamotoBlockHeader, NakamotoBlockVote,
-    };
+    use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
     use clarity::util::secp256k1::MessageSignature;
     use libsigner::BlockProposal;
 
     use super::*;
+    use crate::signerdb::NakamotoBlockVote;
 
     fn _wipe_db(db_path: &PathBuf) {
         if fs::metadata(db_path).is_ok() {
@@ -702,5 +862,61 @@ mod tests {
             query_row(&db.db, "SELECT sqlite_version()", []).unwrap(),
             Some("3.45.0".to_string())
         );
+    }
+
+    #[test]
+    fn add_and_get_block_signatures() {
+        let db_path = tmp_db_path();
+        let db = SignerDb::new(db_path).expect("Failed to create signer db");
+
+        let block_id = Sha512Trunc256Sum::from_data("foo".as_bytes());
+        let sig1 = MessageSignature([0x11; 65]);
+        let sig2 = MessageSignature([0x22; 65]);
+
+        assert_eq!(db.get_block_signatures(&block_id).unwrap(), vec![]);
+
+        db.add_block_signature(&block_id, &sig1).unwrap();
+        assert_eq!(
+            db.get_block_signatures(&block_id).unwrap(),
+            vec![sig1.clone()]
+        );
+
+        db.add_block_signature(&block_id, &sig2).unwrap();
+        assert_eq!(
+            db.get_block_signatures(&block_id).unwrap(),
+            vec![sig1.clone(), sig2.clone()]
+        );
+    }
+
+    #[test]
+    fn test_and_set_block_broadcasted() {
+        let db_path = tmp_db_path();
+        let mut db = SignerDb::new(db_path).expect("Failed to create signer db");
+
+        let (block_info_1, _block_proposal) = create_block_override(|b| {
+            b.block.header.miner_signature = MessageSignature([0x01; 65]);
+            b.burn_height = 1;
+        });
+
+        db.insert_block(&block_info_1)
+            .expect("Unable to insert block into db");
+
+        assert!(!db
+            .is_block_broadcasted(
+                block_info_1.reward_cycle,
+                &block_info_1.signer_signature_hash()
+            )
+            .unwrap());
+        db.set_block_broadcasted(
+            block_info_1.reward_cycle,
+            &block_info_1.signer_signature_hash(),
+        )
+        .unwrap();
+        assert!(db
+            .is_block_broadcasted(
+                block_info_1.reward_cycle,
+                &block_info_1.signer_signature_hash()
+            )
+            .unwrap());
     }
 }

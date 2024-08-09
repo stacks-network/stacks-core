@@ -694,7 +694,10 @@ pub fn run_until_burnchain_height(
         if !next_result {
             return false;
         }
-        let tip_info = get_chain_info(&conf);
+        let Ok(tip_info) = get_chain_info_result(&conf) else {
+            sleep_ms(1000);
+            continue;
+        };
         current_height = tip_info.burn_block_height;
     }
 
