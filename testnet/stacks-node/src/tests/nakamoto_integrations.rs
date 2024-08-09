@@ -7127,19 +7127,31 @@ fn mock_mining() {
     }
 
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
-    let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
     naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
     let sender_sk = Secp256k1PrivateKey::new();
     let sender_signer_sk = Secp256k1PrivateKey::new();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
     let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
-    let tenure_count = 5;
-    let inter_blocks_per_tenure = 9;
+    let tenure_count = 3;
+    let inter_blocks_per_tenure = 3;
     // setup sender + recipient for some test stx transfers
     // these are necessary for the interim blocks to get mined at all
     let sender_addr = tests::to_addr(&sender_sk);
     let send_amt = 100;
     let send_fee = 180;
+
+    let node_1_rpc = 51024;
+    let node_1_p2p = 51023;
+    let node_2_rpc = 51026;
+    let node_2_p2p = 51025;
+
+    let localhost = "127.0.0.1";
+    naka_conf.node.rpc_bind = format!("{}:{}", localhost, node_1_rpc);
+    naka_conf.node.p2p_bind = format!("{}:{}", localhost, node_1_p2p);
+    naka_conf.node.data_url = format!("http://{}:{}", localhost, node_1_rpc);
+    naka_conf.node.p2p_address = format!("{}:{}", localhost, node_1_p2p);
+    let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
+
     naka_conf.add_initial_balance(
         PrincipalData::from(sender_addr.clone()).to_string(),
         (send_amt + send_fee) * tenure_count * inter_blocks_per_tenure,
@@ -7212,11 +7224,7 @@ fn mock_mining() {
     blind_signer(&naka_conf, &signers, proposals_submitted);
 
     // Wait one block to confirm the VRF register, wait until a block commit is submitted
-    next_block_and(&mut btc_regtest_controller, 60, || {
-        let commits_count = commits_submitted.load(Ordering::SeqCst);
-        Ok(commits_count >= 1)
-    })
-    .unwrap();
+    wait_for_first_naka_block_commit(60, &commits_submitted);
 
     let mut follower_conf = naka_conf.clone();
     follower_conf.node.mock_mining = true;
@@ -7225,18 +7233,10 @@ fn mock_mining() {
     follower_conf.node.seed = vec![0x01; 32];
     follower_conf.node.local_peer_seed = vec![0x02; 32];
 
-    let mut rng = rand::thread_rng();
-    let mut buf = [0u8; 8];
-    rng.fill_bytes(&mut buf);
-
-    let rpc_port = u16::from_be_bytes(buf[0..2].try_into().unwrap()).saturating_add(1025) - 1; // use a non-privileged port between 1024 and 65534
-    let p2p_port = u16::from_be_bytes(buf[2..4].try_into().unwrap()).saturating_add(1025) - 1; // use a non-privileged port between 1024 and 65534
-
-    let localhost = "127.0.0.1";
-    follower_conf.node.rpc_bind = format!("{}:{}", &localhost, rpc_port);
-    follower_conf.node.p2p_bind = format!("{}:{}", &localhost, p2p_port);
-    follower_conf.node.data_url = format!("http://{}:{}", &localhost, rpc_port);
-    follower_conf.node.p2p_address = format!("{}:{}", &localhost, p2p_port);
+    follower_conf.node.rpc_bind = format!("{}:{}", localhost, node_2_rpc);
+    follower_conf.node.p2p_bind = format!("{}:{}", localhost, node_2_p2p);
+    follower_conf.node.data_url = format!("http://{}:{}", localhost, node_2_rpc);
+    follower_conf.node.p2p_address = format!("{}:{}", localhost, node_2_p2p);
 
     let node_info = get_chain_info(&naka_conf);
     follower_conf.node.add_bootstrap_node(

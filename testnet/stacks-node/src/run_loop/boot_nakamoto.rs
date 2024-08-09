@@ -160,7 +160,12 @@ impl BootRunLoop {
             info!("Shutting down epoch-2/3 transition thread");
             return;
         }
-        info!("Reached Epoch-3.0 boundary, starting nakamoto node");
+
+        info!(
+            "Reached Epoch-3.0 boundary, starting nakamoto node";
+            "with_neon_data" => data_to_naka.is_some(),
+            "with_p2p_stack" => data_to_naka.as_ref().map(|x| x.peer_network.is_some()).unwrap_or(false)
+        );
         termination_switch.store(true, Ordering::SeqCst);
         let naka = NakaRunLoop::new(
             self.config.clone(),
