@@ -44,6 +44,7 @@ use crate::chainstate::nakamoto::coordinator::load_nakamoto_reward_set;
 use crate::chainstate::nakamoto::miner::NakamotoBlockBuilder;
 use crate::chainstate::nakamoto::signer_set::NakamotoSigners;
 use crate::chainstate::nakamoto::test_signers::TestSigners;
+use crate::chainstate::nakamoto::test_stall::*;
 use crate::chainstate::nakamoto::tests::get_account;
 use crate::chainstate::nakamoto::tests::node::TestStacker;
 use crate::chainstate::nakamoto::{
@@ -2452,4 +2453,90 @@ pub fn simple_nakamoto_coordinator_10_extended_tenures_10_sortitions() -> TestPe
 #[test]
 fn test_nakamoto_coordinator_10_tenures_and_extensions_10_blocks() {
     simple_nakamoto_coordinator_10_extended_tenures_10_sortitions();
+}
+
+#[test]
+fn process_next_nakamoto_block_deadlock() {
+    let private_key = StacksPrivateKey::from_seed(&[2]);
+    let addr = StacksAddress::p2pkh(false, &StacksPublicKey::from_private(&private_key));
+
+    let num_stackers: u32 = 4;
+    let mut signing_key_seed = num_stackers.to_be_bytes().to_vec();
+    signing_key_seed.extend_from_slice(&[1, 1, 1, 1]);
+    let signing_key = StacksPrivateKey::from_seed(signing_key_seed.as_slice());
+    let test_stackers = (0..num_stackers)
+        .map(|index| TestStacker {
+            signer_private_key: signing_key.clone(),
+            stacker_private_key: StacksPrivateKey::from_seed(&index.to_be_bytes()),
+            amount: u64::MAX as u128 - 10000,
+            pox_addr: Some(PoxAddress::Standard(
+                StacksAddress::new(
+                    C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+                    Hash160::from_data(&index.to_be_bytes()),
+                ),
+                Some(AddressHashMode::SerializeP2PKH),
+            )),
+            max_amount: None,
+        })
+        .collect::<Vec<_>>();
+    let test_signers = TestSigners::new(vec![signing_key]);
+    let mut pox_constants = TestPeerConfig::default().burnchain.pox_constants;
+    pox_constants.reward_cycle_length = 10;
+    pox_constants.v2_unlock_height = 21;
+    pox_constants.pox_3_activation_height = 26;
+    pox_constants.v3_unlock_height = 27;
+    pox_constants.pox_4_activation_height = 28;
+
+    let mut boot_plan = NakamotoBootPlan::new(function_name!())
+        .with_test_stackers(test_stackers.clone())
+        .with_test_signers(test_signers.clone())
+        .with_private_key(private_key);
+    boot_plan.pox_constants = pox_constants;
+
+    info!("Creating peer");
+
+    let mut peer = boot_plan.boot_into_nakamoto_peer(vec![], None);
+    let mut sortition_db = peer.sortdb().reopen().unwrap();
+    let (chainstate, _) = &mut peer
+        .stacks_node
+        .as_mut()
+        .unwrap()
+        .chainstate
+        .reopen()
+        .unwrap();
+
+    enable_process_block_stall();
+
+    let miner_thread = std::thread::spawn(move || {
+        info!("  -------------------------------   MINING TENURE");
+        let (block, burn_height, ..) =
+            peer.single_block_tenure(&private_key, |_| {}, |_| {}, |_| true);
+        info!("  -------------------------------   TENURE MINED");
+    });
+
+    // Wait a bit, to ensure the miner has reached the stall
+    std::thread::sleep(std::time::Duration::from_secs(10));
+
+    // Lock the sortdb
+    info!("  -------------------------------   TRYING TO LOCK THE SORTDB");
+    let sort_tx = sortition_db.tx_begin().unwrap();
+    info!("  -------------------------------   SORTDB LOCKED");
+
+    // Un-stall the block processing
+    disable_process_block_stall();
+
+    // Wait a bit, to ensure the tenure will have grabbed any locks it needs
+    std::thread::sleep(std::time::Duration::from_secs(10));
+
+    // Lock the chainstate db
+    info!("  -------------------------------   TRYING TO LOCK THE CHAINSTATE");
+    let chainstate_tx = chainstate.chainstate_tx_begin().unwrap();
+
+    info!("  -------------------------------   SORTDB AND CHAINSTATE LOCKED");
+    drop(chainstate_tx);
+    drop(sort_tx);
+    info!("  -------------------------------   MAIN THREAD FINISHED");
+
+    // Wait for the blocker and miner threads to finish
+    miner_thread.join().unwrap();
 }

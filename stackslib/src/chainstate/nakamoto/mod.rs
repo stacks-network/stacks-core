@@ -280,6 +280,31 @@ ADD COLUMN height_in_tenure;
     ]
 });
 
+#[cfg(test)]
+mod test_stall {
+    pub static TEST_PROCESS_BLOCK_STALL: std::sync::Mutex<Option<bool>> =
+        std::sync::Mutex::new(None);
+
+    pub fn stall_block_processing() {
+        if *TEST_PROCESS_BLOCK_STALL.lock().unwrap() == Some(true) {
+            // Do an extra check just so we don't log EVERY time.
+            warn!("Block processing is stalled due to testing directive.");
+            while *TEST_PROCESS_BLOCK_STALL.lock().unwrap() == Some(true) {
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            info!("Block processing is no longer stalled due to testing directive.");
+        }
+    }
+
+    pub fn enable_process_block_stall() {
+        TEST_PROCESS_BLOCK_STALL.lock().unwrap().replace(true);
+    }
+
+    pub fn disable_process_block_stall() {
+        TEST_PROCESS_BLOCK_STALL.lock().unwrap().replace(false);
+    }
+}
+
 /// Trait for common MARF getters between StacksDBConn and StacksDBTx
 pub trait StacksDBIndexed {
     fn get(&mut self, tip: &StacksBlockId, key: &str) -> Result<Option<String>, DBError>;
@@ -1732,6 +1757,9 @@ impl NakamotoChainState {
         canonical_sortition_tip: &SortitionId,
         dispatcher_opt: Option<&'a T>,
     ) -> Result<Option<StacksEpochReceipt>, ChainstateError> {
+        #[cfg(test)]
+        test_stall::stall_block_processing();
+
         let nakamoto_blocks_db = stacks_chain_state.nakamoto_blocks_db();
         let Some((next_ready_block, block_size)) =
             nakamoto_blocks_db.next_ready_nakamoto_block(stacks_chain_state.db())?
@@ -2002,22 +2030,14 @@ impl NakamotoChainState {
             next_ready_block.header.consensus_hash
         );
 
-        // set stacks block accepted
-        let mut sort_tx = sort_db.tx_handle_begin(canonical_sortition_tip)?;
-        sort_tx.set_stacks_block_accepted(
-            &next_ready_block.header.consensus_hash,
-            &next_ready_block.header.block_hash(),
-            next_ready_block.header.chain_length,
-        )?;
-
         // this will panic if the Clarity commit fails.
         clarity_commit.commit();
         chainstate_tx.commit()
-            .unwrap_or_else(|e| {
-                error!("Failed to commit chainstate transaction after committing Clarity block. The chainstate database is now corrupted.";
-                       "error" => ?e);
-                panic!()
-            });
+        .unwrap_or_else(|e| {
+            error!("Failed to commit chainstate transaction after committing Clarity block. The chainstate database is now corrupted.";
+            "error" => ?e);
+            panic!()
+        });
 
         // as a separate transaction, mark this block as processed.
         // This is done separately so that the staging blocks DB, which receives writes
@@ -2028,6 +2048,22 @@ impl NakamotoChainState {
         Self::infallible_set_block_processed(stacks_chain_state, &block_id);
 
         let signer_bitvec = (&next_ready_block).header.pox_treatment.clone();
+
+        // set stacks block accepted
+        let mut sort_tx = sort_db.tx_handle_begin(canonical_sortition_tip)?;
+        sort_tx.set_stacks_block_accepted(
+            &next_ready_block.header.consensus_hash,
+            &next_ready_block.header.block_hash(),
+            next_ready_block.header.chain_length,
+        )?;
+
+        sort_tx
+            .commit()
+            .unwrap_or_else(|e| {
+                error!("Failed to commit sortition db transaction after committing chainstate and clarity block. The chainstate database is now corrupted.";
+                       "error" => ?e);
+                panic!()
+            });
 
         // announce the block, if we're connected to an event dispatcher
         if let Some(dispatcher) = dispatcher_opt {
@@ -2054,14 +2090,6 @@ impl NakamotoChainState {
                 &Some(signer_bitvec),
             );
         }
-
-        sort_tx
-            .commit()
-            .unwrap_or_else(|e| {
-                error!("Failed to commit sortition db transaction after committing chainstate and clarity block. The chainstate database is now corrupted.";
-                       "error" => ?e);
-                panic!()
-            });
 
         Ok(Some(receipt))
     }
