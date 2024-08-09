@@ -631,6 +631,9 @@ impl SignCoordinator {
     /// This function begins by sending a `BlockProposal` message
     /// to the signers, and then waits for the signers to respond
     /// with their signatures.
+    // Mutants skip here: this function is covered via integration tests,
+    //  which the mutation testing does not see.
+    #[cfg_attr(test, mutants::skip)]
     pub fn begin_sign_v0(
         &mut self,
         block: &NakamotoBlock,
