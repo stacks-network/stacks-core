@@ -46,6 +46,7 @@ use stacks::util_lib::signed_structured_data::pox4::{
     make_pox_4_signer_key_signature, Pox4SignatureTopic,
 };
 use stacks_common::bitvec::BitVec;
+use stacks_common::types::chainstate::TrieHash;
 use stacks_common::util::sleep_ms;
 use stacks_signer::chainstate::{ProposalEvalConfig, SortitionsView};
 use stacks_signer::client::{SignerSlotID, StackerDB};
@@ -541,6 +542,9 @@ fn miner_gather_signatures() {
     signer_test.boot_to_epoch_3();
     let timeout = Duration::from_secs(30);
 
+    // give the system a chance to mine a Nakamoto block
+    sleep_ms(30_000);
+
     info!("------------------------- Test Mine and Verify Confirmed Nakamoto Block -------------------------");
     signer_test.mine_and_verify_confirmed_naka_block(timeout, num_signers);
 
@@ -626,8 +630,14 @@ fn forked_tenure_invalid() {
     }
     let result = forked_tenure_testing(Duration::from_secs(5), Duration::from_secs(7), false);
 
-    assert_ne!(result.tip_b, result.tip_a);
-    assert_eq!(result.tip_b, result.tip_c);
+    assert_ne!(
+        result.tip_b.index_block_hash(),
+        result.tip_a.index_block_hash()
+    );
+    assert_eq!(
+        result.tip_b.index_block_hash(),
+        result.tip_c.index_block_hash()
+    );
     assert_ne!(result.tip_c, result.tip_a);
 
     // Block B was built atop block A
@@ -661,7 +671,10 @@ fn forked_tenure_invalid() {
 
     // Tenure D should continue progress
     assert_ne!(result.tip_c, result.tip_d);
-    assert_ne!(result.tip_b, result.tip_d);
+    assert_ne!(
+        result.tip_b.index_block_hash(),
+        result.tip_d.index_block_hash()
+    );
     assert_ne!(result.tip_a, result.tip_d);
 
     // Tenure D builds off of Tenure B
@@ -1012,7 +1025,7 @@ fn forked_tenure_testing(
         anchored_header: StacksBlockHeaderTypes::Nakamoto(tip_b_block.header.clone()),
         microblock_tail: None,
         stacks_block_height: tip_b_block.header.chain_length.into(),
-        index_root: tip_b_block.header.state_index_root.clone(),
+        index_root: TrieHash([0x00; 32]), // we can't know this yet since the block hasn't been processed
         consensus_hash: tip_b_block.header.consensus_hash.clone(),
         burn_header_hash: tip_sn.burn_header_hash.clone(),
         burn_header_height: tip_sn.block_height as u32,
@@ -1063,7 +1076,7 @@ fn forked_tenure_testing(
 
             let commits_count = commits_submitted.load(Ordering::SeqCst);
             if commits_count > commits_before {
-                // now allow block B to process.
+                // now allow block B to process if it hasn't already.
                 TEST_BLOCK_ANNOUNCE_STALL.lock().unwrap().replace(false);
             }
             let rejected_count = rejected_blocks.load(Ordering::SeqCst);
@@ -1100,7 +1113,11 @@ fn forked_tenure_testing(
     let blocks = test_observer::get_mined_nakamoto_blocks();
     let mined_c = blocks.last().unwrap().clone();
 
-    assert_ne!(tip_b, tip_c);
+    if expect_tenure_c {
+        assert_ne!(tip_b.index_block_hash(), tip_c.index_block_hash());
+    } else {
+        assert_eq!(tip_b.index_block_hash(), tip_c.index_block_hash());
+    }
     assert_ne!(tip_c, tip_a);
 
     let (tip_c_2, mined_c_2) = if !expect_tenure_c {
@@ -1893,6 +1910,9 @@ fn end_of_tenure() {
         .reward_cycle_to_block_height(final_reward_cycle)
         - 2;
 
+    // give the system a chance to mine a Nakamoto block
+    sleep_ms(30_000);
+
     info!("------------------------- Test Mine to Next Reward Cycle Boundary  -------------------------");
     signer_test.run_until_burnchain_height_nakamoto(
         long_timeout,
@@ -1969,6 +1989,8 @@ fn end_of_tenure() {
         )
         .unwrap();
     }
+
+    sleep_ms(10_000);
     assert_eq!(signer_test.get_current_reward_cycle(), final_reward_cycle);
 
     while test_observer::get_burn_blocks()

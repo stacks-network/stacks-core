@@ -5720,6 +5720,7 @@ fn continue_tenure_extend() {
         &[sender_signer_sk],
         &signers,
     );
+    sleep_ms(5_000);
 
     info!("Pausing commit ops to trigger a tenure extend.");
     test_skip_commit_op.0.lock().unwrap().replace(true);
@@ -5732,6 +5733,7 @@ fn continue_tenure_extend() {
         &[sender_signer_sk],
         &signers,
     );
+    sleep_ms(5_000);
 
     // Submit a TX
     let transfer_tx = make_stacks_transfer(&sender_sk, 0, send_fee, &recipient, send_amt);
@@ -5766,6 +5768,7 @@ fn continue_tenure_extend() {
         &[sender_signer_sk],
         &signers,
     );
+    sleep_ms(5_000);
 
     next_block_and(&mut btc_regtest_controller, 60, || Ok(true)).unwrap();
 
@@ -5775,6 +5778,7 @@ fn continue_tenure_extend() {
         &[sender_signer_sk],
         &signers,
     );
+    sleep_ms(5_000);
 
     info!("Resuming commit ops to mine regular tenures.");
     test_skip_commit_op.0.lock().unwrap().replace(false);
@@ -5802,6 +5806,8 @@ fn continue_tenure_extend() {
             &[sender_signer_sk],
             &signers,
         );
+
+        sleep_ms(5_000);
     }
 
     // load the chain tip, and assert that it is a nakamoto block and at least 30 blocks have advanced in epoch 3
