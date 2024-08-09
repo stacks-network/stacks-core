@@ -19,6 +19,7 @@ use std::collections::{BTreeMap, HashSet};
 use std::io::prelude::*;
 use std::ops::{Deref, DerefMut};
 use std::path::{Path, PathBuf};
+use std::sync::LazyLock;
 use std::{fmt, fs, io};
 
 use clarity::vm::analysis::analysis_db::AnalysisDatabase;
@@ -34,7 +35,6 @@ use clarity::vm::events::*;
 use clarity::vm::representations::{ClarityName, ContractName};
 use clarity::vm::types::TupleData;
 use clarity::vm::{SymbolicExpression, Value};
-use lazy_static::lazy_static;
 use rusqlite::types::ToSql;
 use rusqlite::{params, Connection, OpenFlags, OptionalExtension, Row, Transaction};
 use serde::de::Error as de_Error;
@@ -97,10 +97,8 @@ pub mod headers;
 pub mod transactions;
 pub mod unconfirmed;
 
-lazy_static! {
-    pub static ref TRANSACTION_LOG: bool =
-        std::env::var("STACKS_TRANSACTION_LOG") == Ok("1".into());
-}
+pub static TRANSACTION_LOG: LazyLock<bool> =
+    LazyLock::new(|| std::env::var("STACKS_TRANSACTION_LOG") == Ok("1".into()));
 
 /// Fault injection struct for various kinds of faults we'd like to introduce into the system
 pub struct StacksChainStateFaults {

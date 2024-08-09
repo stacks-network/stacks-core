@@ -17,11 +17,10 @@
 use std::error::Error;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Mutex;
+use std::sync::{LazyLock, Mutex};
 use std::{fmt, fs};
 
 use clarity::vm::costs::ExecutionCost;
-use lazy_static::lazy_static;
 use rusqlite::{OpenFlags, OptionalExtension};
 use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::util::get_epoch_time_secs;
@@ -38,9 +37,8 @@ use crate::util_lib::db::{sqlite_open, tx_busy_handler, DBConn, Error as Databas
 mod prometheus;
 
 #[cfg(feature = "monitoring_prom")]
-lazy_static! {
-    static ref GLOBAL_BURNCHAIN_SIGNER: Mutex<Option<BurnchainSigner>> = Mutex::new(None);
-}
+static GLOBAL_BURNCHAIN_SIGNER: LazyLock<Mutex<Option<BurnchainSigner>>> =
+    LazyLock::new(|| Mutex::new(None));
 
 pub fn increment_rpc_calls_counter() {
     #[cfg(feature = "monitoring_prom")]

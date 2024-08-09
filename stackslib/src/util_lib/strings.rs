@@ -18,6 +18,7 @@ use std::borrow::Borrow;
 use std::io::prelude::*;
 use std::io::{Read, Write};
 use std::ops::{Deref, DerefMut};
+use std::sync::LazyLock;
 use std::{fmt, io};
 
 use clarity::vm::errors::RuntimeErrorType;
@@ -28,7 +29,6 @@ use clarity::vm::representations::{
 use clarity::vm::types::{
     PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, Value,
 };
-use lazy_static::lazy_static;
 use regex::Regex;
 use stacks_common::codec::{
     read_next, read_next_at_most, write_next, Error as codec_error, StacksMessageCodec,
@@ -37,10 +37,10 @@ use stacks_common::codec::{
 use stacks_common::util::retry::BoundReader;
 use url;
 
-lazy_static! {
-    static ref URL_STRING_REGEX: Regex =
-        Regex::new(r#"^[a-zA-Z0-9._~:/?#\[\]@!$&'()*+,;%=-]*$"#).unwrap();
-}
+static URL_STRING_REGEX: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"^[a-zA-Z0-9._~:/?#\[\]@!$&'()*+,;%=-]*$"#)
+        .expect("Failed to compile URL_STRING_REGEX")
+});
 
 guarded_string!(
     UrlString,

@@ -24,7 +24,6 @@ backoff = "0.4"
 clarity = { path = "../clarity" }
 clap = { version = "4.1.1", features = ["derive", "env"] }
 hashbrown = { workspace = true }
-lazy_static = "1.4.0"
 libsigner = { path = "../libsigner" }
 libstackerdb = { path = "../libstackerdb" }
 prometheus = { version = "0.9", optional = true }

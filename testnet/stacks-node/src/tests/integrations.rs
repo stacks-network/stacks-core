@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::fmt::Write;
-use std::sync::Mutex;
+use std::sync::{LazyLock, Mutex};
 
 use clarity::vm::analysis::contract_interface_builder::{
     build_contract_interface, ContractInterface,
@@ -11,7 +11,6 @@ use clarity::vm::types::{
     QualifiedContractIdentifier, ResponseData, StacksAddressExtensions, TupleData,
 };
 use clarity::vm::{ClarityVersion, Value};
-use lazy_static::lazy_static;
 use reqwest;
 use serde_json::json;
 use stacks::burnchains::Address;
@@ -157,9 +156,7 @@ const IMPL_TRAIT_CONTRACT: &'static str = "
         (define-public (fn-1 (x uint)) (ok u1))
        ";
 
-lazy_static! {
-    static ref HTTP_BINDING: Mutex<Option<String>> = Mutex::new(None);
-}
+static HTTP_BINDING: LazyLock<Mutex<Option<String>>> = LazyLock::new(|| Mutex::new(None));
 
 #[test]
 #[ignore]
@@ -1854,14 +1851,14 @@ fn bad_contract_tx_rollback() {
     run_loop.start(num_rounds).unwrap();
 }
 
-lazy_static! {
-    static ref EXPENSIVE_CONTRACT: String = make_expensive_contract(
+static EXPENSIVE_CONTRACT: LazyLock<String> = LazyLock::new(|| {
+    make_expensive_contract(
         "(define-private (inner-loop (x int)) (begin
-           (map sha256 list-9)
-           0))",
-        ""
-    );
-}
+        (map sha256 list-9)
+        0))",
+        "",
+    )
+});
 
 fn make_expensive_contract(inner_loop: &str, other_decl: &str) -> String {
     let mut contract = "(define-constant list-0 (list 0))".to_string();

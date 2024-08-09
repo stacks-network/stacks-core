@@ -15,6 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::HashMap;
+use std::sync::LazyLock;
 
 use clarity::vm::ast::ASTRules;
 use clarity::vm::clarity::TransactionConnection;
@@ -38,7 +39,6 @@ use clarity::vm::types::{
     AssetIdentifier, OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, Value,
 };
 use clarity::vm::{ClarityVersion, ContractName};
-use lazy_static::lazy_static;
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId};
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::hex_bytes;
@@ -50,12 +50,11 @@ use crate::clarity_vm::database::marf::MarfedKV;
 use crate::core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 use crate::util_lib::boot::boot_code_id;
 
-lazy_static! {
-    static ref COST_VOTING_MAINNET_CONTRACT: QualifiedContractIdentifier =
-        boot_code_id("cost-voting", true);
-    static ref COST_VOTING_TESTNET_CONTRACT: QualifiedContractIdentifier =
-        boot_code_id("cost-voting", false);
-}
+static COST_VOTING_MAINNET_CONTRACT: LazyLock<QualifiedContractIdentifier> =
+    LazyLock::new(|| boot_code_id("cost-voting", true));
+
+static COST_VOTING_TESTNET_CONTRACT: LazyLock<QualifiedContractIdentifier> =
+    LazyLock::new(|| boot_code_id("cost-voting", false));
 
 pub fn get_simple_test(function: &NativeFunctions) -> &'static str {
     use clarity::vm::functions::NativeFunctions::*;

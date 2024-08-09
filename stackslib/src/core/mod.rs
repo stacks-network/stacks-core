@@ -15,9 +15,9 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::HashSet;
+use std::sync::LazyLock;
 
 use clarity::vm::costs::ExecutionCost;
-use lazy_static::lazy_static;
 use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksBlockId};
 use stacks_common::types::StacksEpoch as GenericStacksEpoch;
 pub use stacks_common::types::StacksEpochId;
@@ -124,10 +124,8 @@ pub const BITCOIN_REGTEST_FIRST_BLOCK_HASH: &str =
 pub const FIRST_STACKS_BLOCK_HASH: BlockHeaderHash = BlockHeaderHash([0u8; 32]);
 pub const EMPTY_MICROBLOCK_PARENT_HASH: BlockHeaderHash = BlockHeaderHash([0u8; 32]);
 
-lazy_static! {
-    pub static ref FIRST_STACKS_BLOCK_ID: StacksBlockId =
-        StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH);
-}
+pub static FIRST_STACKS_BLOCK_ID: LazyLock<StacksBlockId> =
+    LazyLock::new(|| StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH));
 
 pub const BOOT_BLOCK_HASH: BlockHeaderHash = BlockHeaderHash([0xff; 32]);
 pub const BURNCHAIN_BOOT_CONSENSUS_HASH: ConsensusHash = ConsensusHash([0xff; 20]);
@@ -236,209 +234,209 @@ pub fn check_fault_injection(fault_name: &str) -> bool {
     env::var(fault_name) == Ok("1".to_string())
 }
 
-lazy_static! {
-    pub static ref STACKS_EPOCHS_MAINNET: [StacksEpoch; 9] = [
+pub static STACKS_EPOCHS_MAINNET: LazyLock<[StacksEpoch; 9]> = LazyLock::new(|| {
+    [
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch10,
             start_height: 0,
             end_height: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT,
             block_limit: BLOCK_LIMIT_MAINNET_10.clone(),
-            network_epoch: PEER_VERSION_EPOCH_1_0
+            network_epoch: PEER_VERSION_EPOCH_1_0,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch20,
             start_height: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT,
             end_height: BITCOIN_MAINNET_STACKS_2_05_BURN_HEIGHT,
             block_limit: BLOCK_LIMIT_MAINNET_20.clone(),
-            network_epoch: PEER_VERSION_EPOCH_2_0
+            network_epoch: PEER_VERSION_EPOCH_2_0,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch2_05,
             start_height: BITCOIN_MAINNET_STACKS_2_05_BURN_HEIGHT,
             end_height: BITCOIN_MAINNET_STACKS_21_BURN_HEIGHT,
             block_limit: BLOCK_LIMIT_MAINNET_205.clone(),
-            network_epoch: PEER_VERSION_EPOCH_2_05
+            network_epoch: PEER_VERSION_EPOCH_2_05,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch21,
             start_height: BITCOIN_MAINNET_STACKS_21_BURN_HEIGHT,
             end_height: BITCOIN_MAINNET_STACKS_22_BURN_HEIGHT,
             block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
-            network_epoch: PEER_VERSION_EPOCH_2_1
+            network_epoch: PEER_VERSION_EPOCH_2_1,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch22,
             start_height: BITCOIN_MAINNET_STACKS_22_BURN_HEIGHT,
             end_height: BITCOIN_MAINNET_STACKS_23_BURN_HEIGHT,
             block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
-            network_epoch: PEER_VERSION_EPOCH_2_2
+            network_epoch: PEER_VERSION_EPOCH_2_2,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch23,
             start_height: BITCOIN_MAINNET_STACKS_23_BURN_HEIGHT,
             end_height: BITCOIN_MAINNET_STACKS_24_BURN_HEIGHT,
             block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
-            network_epoch: PEER_VERSION_EPOCH_2_3
+            network_epoch: PEER_VERSION_EPOCH_2_3,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch24,
             start_height: BITCOIN_MAINNET_STACKS_24_BURN_HEIGHT,
             end_height: BITCOIN_MAINNET_STACKS_25_BURN_HEIGHT,
             block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
-            network_epoch: PEER_VERSION_EPOCH_2_4
+            network_epoch: PEER_VERSION_EPOCH_2_4,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch25,
             start_height: BITCOIN_MAINNET_STACKS_25_BURN_HEIGHT,
             end_height: BITCOIN_MAINNET_STACKS_30_BURN_HEIGHT,
             block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
-            network_epoch: PEER_VERSION_EPOCH_2_5
+            network_epoch: PEER_VERSION_EPOCH_2_5,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch30,
             start_height: BITCOIN_MAINNET_STACKS_30_BURN_HEIGHT,
             end_height: STACKS_EPOCH_MAX,
             block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
-            network_epoch: PEER_VERSION_EPOCH_3_0
+            network_epoch: PEER_VERSION_EPOCH_3_0,
         },
-    ];
-}
+    ]
+});
 
-lazy_static! {
-    pub static ref STACKS_EPOCHS_TESTNET: [StacksEpoch; 9] = [
+pub static STACKS_EPOCHS_TESTNET: LazyLock<[StacksEpoch; 9]> = LazyLock::new(|| {
+    [
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch10,
             start_height: 0,
             end_height: BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT,
             block_limit: BLOCK_LIMIT_MAINNET_10.clone(),
-            network_epoch: PEER_VERSION_EPOCH_1_0
+            network_epoch: PEER_VERSION_EPOCH_1_0,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch20,
             start_height: BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT,
             end_height: BITCOIN_TESTNET_STACKS_2_05_BURN_HEIGHT,
             block_limit: BLOCK_LIMIT_MAINNET_20.clone(),
-            network_epoch: PEER_VERSION_EPOCH_2_0
+            network_epoch: PEER_VERSION_EPOCH_2_0,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch2_05,
             start_height: BITCOIN_TESTNET_STACKS_2_05_BURN_HEIGHT,
             end_height: BITCOIN_TESTNET_STACKS_21_BURN_HEIGHT,
             block_limit: BLOCK_LIMIT_MAINNET_205.clone(),
-            network_epoch: PEER_VERSION_EPOCH_2_05
+            network_epoch: PEER_VERSION_EPOCH_2_05,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch21,
             start_height: BITCOIN_TESTNET_STACKS_21_BURN_HEIGHT,
             end_height: BITCOIN_TESTNET_STACKS_22_BURN_HEIGHT,
             block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
-            network_epoch: PEER_VERSION_EPOCH_2_1
+            network_epoch: PEER_VERSION_EPOCH_2_1,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch22,
             start_height: BITCOIN_TESTNET_STACKS_22_BURN_HEIGHT,
             end_height: BITCOIN_TESTNET_STACKS_23_BURN_HEIGHT,
             block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
-            network_epoch: PEER_VERSION_EPOCH_2_2
+            network_epoch: PEER_VERSION_EPOCH_2_2,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch23,
             start_height: BITCOIN_TESTNET_STACKS_23_BURN_HEIGHT,
             end_height: BITCOIN_TESTNET_STACKS_24_BURN_HEIGHT,
             block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
-            network_epoch: PEER_VERSION_EPOCH_2_3
+            network_epoch: PEER_VERSION_EPOCH_2_3,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch24,
             start_height: BITCOIN_TESTNET_STACKS_24_BURN_HEIGHT,
             end_height: BITCOIN_TESTNET_STACKS_25_BURN_HEIGHT,
             block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
-            network_epoch: PEER_VERSION_EPOCH_2_4
+            network_epoch: PEER_VERSION_EPOCH_2_4,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch25,
             start_height: BITCOIN_TESTNET_STACKS_25_BURN_HEIGHT,
             end_height: BITCOIN_TESTNET_STACKS_30_BURN_HEIGHT,
             block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
-            network_epoch: PEER_VERSION_EPOCH_2_5
+            network_epoch: PEER_VERSION_EPOCH_2_5,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch30,
             start_height: BITCOIN_TESTNET_STACKS_30_BURN_HEIGHT,
             end_height: STACKS_EPOCH_MAX,
             block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
-            network_epoch: PEER_VERSION_EPOCH_3_0
+            network_epoch: PEER_VERSION_EPOCH_3_0,
         },
-    ];
-}
+    ]
+});
 
-lazy_static! {
-    pub static ref STACKS_EPOCHS_REGTEST: [StacksEpoch; 9] = [
+pub static STACKS_EPOCHS_REGTEST: LazyLock<[StacksEpoch; 9]> = LazyLock::new(|| {
+    [
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch10,
             start_height: 0,
             end_height: 0,
             block_limit: BLOCK_LIMIT_MAINNET_10.clone(),
-            network_epoch: PEER_VERSION_EPOCH_1_0
+            network_epoch: PEER_VERSION_EPOCH_1_0,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch20,
             start_height: 0,
             end_height: 1000,
             block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
-            network_epoch: PEER_VERSION_EPOCH_2_0
+            network_epoch: PEER_VERSION_EPOCH_2_0,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch2_05,
             start_height: 1000,
             end_height: 2000,
             block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
-            network_epoch: PEER_VERSION_EPOCH_2_05
+            network_epoch: PEER_VERSION_EPOCH_2_05,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch21,
             start_height: 2000,
             end_height: 3000,
             block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
-            network_epoch: PEER_VERSION_EPOCH_2_1
+            network_epoch: PEER_VERSION_EPOCH_2_1,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch22,
             start_height: 3000,
             end_height: 4000,
             block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
-            network_epoch: PEER_VERSION_EPOCH_2_2
+            network_epoch: PEER_VERSION_EPOCH_2_2,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch23,
             start_height: 4000,
             end_height: 5000,
             block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
-            network_epoch: PEER_VERSION_EPOCH_2_3
+            network_epoch: PEER_VERSION_EPOCH_2_3,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch24,
             start_height: 5000,
             end_height: 6000,
             block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
-            network_epoch: PEER_VERSION_EPOCH_2_4
+            network_epoch: PEER_VERSION_EPOCH_2_4,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch25,
             start_height: 6000,
             end_height: 7001,
             block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
-            network_epoch: PEER_VERSION_EPOCH_2_5
+            network_epoch: PEER_VERSION_EPOCH_2_5,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch30,
             start_height: 7001,
             end_height: STACKS_EPOCH_MAX,
             block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
-            network_epoch: PEER_VERSION_EPOCH_3_0
+            network_epoch: PEER_VERSION_EPOCH_3_0,
         },
-    ];
-}
+    ]
+});
 
 /// Stacks 2.05 epoch marker.  All block-commits in 2.05 must have a memo bitfield with this value
 /// *or greater*.
