@@ -683,6 +683,7 @@ impl SignCoordinator {
         )
         .map_err(NakamotoNodeError::SigningCoordinatorFailure)?;
         counters.bump_naka_proposed_blocks();
+
         #[cfg(test)]
         {
             info!(
@@ -747,37 +748,6 @@ impl SignCoordinator {
             {
                 debug!("SignCoordinator: Found signatures in relayed block");
                 return Ok(stored_block.header.signer_signature);
-            }
-
-            // we don't have the block we ostensibly mined, but perhaps the tenure has advanced
-            // anyway?  If so, then give up.
-            let canonical_stacks_header =
-                NakamotoChainState::get_canonical_block_header(chain_state.db(), sortdb)
-                    .map_err(|e| {
-                        let msg = format!("Failed to query canonical stacks tip: {:?}", &e);
-                        warn!("{}", &msg);
-                        NakamotoNodeError::SignerSignatureError(msg)
-                    })?
-                    .ok_or_else(|| {
-                        let msg = "No canonical stacks tip".to_string();
-                        warn!("{}", &msg);
-                        NakamotoNodeError::SignerSignatureError(msg)
-                    })?;
-
-            debug!(
-                "run_sign_v0: our canonical tip is currently {}/{}",
-                &canonical_stacks_header.consensus_hash,
-                &canonical_stacks_header.anchored_header.block_hash()
-            );
-            if canonical_stacks_header.anchored_header.height() >= block.header.chain_length
-                && canonical_stacks_header.index_block_hash() != block.header.block_id()
-            {
-                info!(
-                    "SignCoordinator: our block {} is superceded by block {}",
-                    block.header.block_id(),
-                    canonical_stacks_header.index_block_hash()
-                );
-                return Err(NakamotoNodeError::StacksTipChanged);
             }
 
             // check to see if this event we got is a signer event
@@ -850,6 +820,7 @@ impl SignCoordinator {
                                     &block.header.consensus_hash,
                                     &block.header.block_hash()
                                 );
+                                counters.bump_naka_rejected_blocks();
                                 return Err(NakamotoNodeError::SignersRejected);
                             }
                         } else {
