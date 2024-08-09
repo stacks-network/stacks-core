@@ -140,6 +140,10 @@ impl BootRunLoop {
         naka_loop.start(burnchain_opt, mine_start, None)
     }
 
+    // configuring mutants::skip -- this function is covered through integration tests (this function
+    //  is pretty definitionally an integration, so thats unavoidable), and the integration tests
+    //  do not get counted in mutants coverage.
+    #[cfg_attr(test, mutants::skip)]
     fn start_from_neon(&mut self, burnchain_opt: Option<Burnchain>, mine_start: u64) {
         let InnerLoops::Epoch2(ref mut neon_loop) = self.active_loop else {
             panic!("FATAL: unexpectedly invoked start_from_neon when active loop wasn't neon");
