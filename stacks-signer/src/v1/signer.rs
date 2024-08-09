@@ -143,16 +143,6 @@ impl SignerTrait<SignerMessage> for Signer {
         Self::from(config)
     }
 
-    /// Refresh the next signer data from the given configuration data
-    fn update_signer(&mut self, new_signer_config: &SignerConfig) {
-        self.next_signer_addresses = new_signer_config
-            .signer_entries
-            .signer_ids
-            .keys()
-            .copied()
-            .collect();
-        self.next_signer_slot_ids = new_signer_config.signer_slot_ids.clone();
-    }
     /// Return the reward cycle of the signer
     fn reward_cycle(&self) -> u64 {
         self.reward_cycle
@@ -354,6 +344,18 @@ impl Signer {
             let selected = self.coordinator_selector.get_coordinator();
             (Some(selected.0), selected.1)
         }
+    }
+
+    /// Refresh the next signer data from the given configuration data
+    #[allow(dead_code)]
+    fn update_signer(&mut self, new_signer_config: &SignerConfig) {
+        self.next_signer_addresses = new_signer_config
+            .signer_entries
+            .signer_ids
+            .keys()
+            .copied()
+            .collect();
+        self.next_signer_slot_ids = new_signer_config.signer_slot_ids.clone();
     }
 
     /// Get the current coordinator for executing DKG
