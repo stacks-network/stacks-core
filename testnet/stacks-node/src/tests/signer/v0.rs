@@ -60,6 +60,7 @@ use super::SignerTest;
 use crate::config::{EventKeyType, EventObserverConfig};
 use crate::event_dispatcher::MinedNakamotoBlockEvent;
 use crate::nakamoto_node::miner::{TEST_BLOCK_ANNOUNCE_STALL, TEST_BROADCAST_STALL};
+use crate::nakamoto_node::sign_coordinator::TEST_IGNORE_SIGNERS;
 use crate::neon::Counters;
 use crate::run_loop::boot_nakamoto;
 use crate::tests::nakamoto_integrations::{
@@ -2136,8 +2137,103 @@ fn retry_on_timeout() {
 
 #[test]
 #[ignore]
+/// This test checks that the signers will broadcast a block once they receive enough signatures.
+fn signers_broadcast_signed_blocks() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(EnvFilter::from_default_env())
+        .init();
+
+    info!("------------------------- Test Setup -------------------------");
+    let num_signers = 5;
+    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_addr = tests::to_addr(&sender_sk);
+    let send_amt = 100;
+    let send_fee = 180;
+    let recipient = PrincipalData::from(StacksAddress::burn_address(false));
+    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new(
+        num_signers,
+        vec![(sender_addr.clone(), send_amt + send_fee)],
+        Some(Duration::from_secs(5)),
+    );
+    let http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
+
+    signer_test.boot_to_epoch_3();
+    sleep_ms(10_000);
+
+    signer_test.mine_nakamoto_block(Duration::from_secs(30));
+    sleep_ms(10_000);
+
+    TEST_IGNORE_SIGNERS.lock().unwrap().replace(true);
+
+    let blocks_before = signer_test
+        .running_nodes
+        .nakamoto_blocks_mined
+        .load(Ordering::SeqCst);
+
+    let signer_pushed_before = signer_test
+        .running_nodes
+        .nakamoto_blocks_signer_pushed
+        .load(Ordering::SeqCst);
+
+    let info_before = get_chain_info(&signer_test.running_nodes.conf);
+
+    // submit a tx so that the miner will mine a block
+    let sender_nonce = 0;
+    let transfer_tx =
+        make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
+    submit_tx(&http_origin, &transfer_tx);
+
+    debug!("Transaction sent; waiting for block-mining");
+
+    let start = Instant::now();
+    let duration = 60;
+    loop {
+        let blocks_mined = signer_test
+            .running_nodes
+            .nakamoto_blocks_mined
+            .load(Ordering::SeqCst);
+        let signer_pushed = signer_test
+            .running_nodes
+            .nakamoto_blocks_signer_pushed
+            .load(Ordering::SeqCst);
+
+        let info = get_chain_info(&signer_test.running_nodes.conf);
+        if blocks_mined > blocks_before
+            && signer_pushed > signer_pushed_before
+            && info.stacks_tip_height > info_before.stacks_tip_height
+        {
+            break;
+        }
+
+        debug!(
+            "blocks_mined: {},{}, signers_pushed: {},{}, stacks_tip_height: {},{}",
+            blocks_mined,
+            blocks_before,
+            signer_pushed,
+            signer_pushed_before,
+            info.stacks_tip_height,
+            info_before.stacks_tip_height
+        );
+
+        std::thread::sleep(Duration::from_millis(100));
+        if start.elapsed() >= Duration::from_secs(duration) {
+            panic!("Timed out");
+        }
+    }
+
+    signer_test.shutdown();
+}
+
+#[test]
+#[ignore]
 /// This test checks the behaviour of signers when a sortition is empty. Specifically:
 /// - An empty sortition will cause the signers to mark a miner as misbehaving once a timeout is exceeded.
+/// - The miner will stop trying to mine once it sees a threshold of signers reject the block
 /// - The empty sortition will trigger the miner to attempt a tenure extend.
 /// - Signers will accept the tenure extend and sign subsequent blocks built off the old sortition
 fn empty_sortition() {
@@ -2238,6 +2334,11 @@ fn empty_sortition() {
         .load(Ordering::SeqCst);
     assert_eq!(blocks_after, blocks_before);
 
+    let rejected_before = signer_test
+        .running_nodes
+        .nakamoto_blocks_rejected
+        .load(Ordering::SeqCst);
+
     // submit a tx so that the miner will mine an extra block
     let sender_nonce = 0;
     let transfer_tx =
@@ -2294,8 +2395,14 @@ fn empty_sortition() {
                 info!("Latest message from slot #{slot_id} isn't a block rejection, will wait to see if the signer updates to a rejection");
             }
         }
-        // wait until we've found rejections for all the signers
-        Ok(found_rejections.len() == signer_slot_ids.len())
+        let rejections = signer_test
+            .running_nodes
+            .nakamoto_blocks_rejected
+            .load(Ordering::SeqCst);
+
+        // wait until we've found rejections for all the signers, and the miner has confirmed that
+        // the signers have rejected the block
+        Ok(found_rejections.len() == signer_slot_ids.len() && rejections > rejected_before)
     }).unwrap();
     signer_test.shutdown();
 }
