@@ -52,6 +52,11 @@ use crate::event_dispatcher::STACKER_DB_CHANNEL;
 use crate::neon::Counters;
 use crate::Config;
 
+/// Fault injection flag to prevent the miner from seeing enough signer signatures.
+/// Used to test that the signers will broadcast a block if it gets enough signatures
+#[cfg(test)]
+pub static TEST_IGNORE_SIGNERS: std::sync::Mutex<Option<bool>> = std::sync::Mutex::new(None);
+
 /// How long should the coordinator poll on the event receiver before
 /// waking up to check timeouts?
 static EVENT_RECEIVER_POLL: Duration = Duration::from_millis(500);
@@ -631,6 +636,20 @@ impl SignCoordinator {
         ))
     }
 
+    /// Do we ignore signer signatures?
+    #[cfg(test)]
+    fn fault_injection_ignore_signatures() -> bool {
+        if *TEST_IGNORE_SIGNERS.lock().unwrap() == Some(true) {
+            return true;
+        }
+        false
+    }
+
+    #[cfg(not(test))]
+    fn fault_injection_ignore_signatures() -> bool {
+        false
+    }
+
     /// Start gathering signatures for a Nakamoto block.
     /// This function begins by sending a `BlockProposal` message
     /// to the signers, and then waits for the signers to respond
@@ -750,6 +769,7 @@ impl SignCoordinator {
                 })
             {
                 debug!("SignCoordinator: Found signatures in relayed block");
+                counters.bump_naka_signer_pushed_blocks();
                 return Ok(stored_block.header.signer_signature);
             }
 
@@ -887,6 +907,21 @@ impl SignCoordinator {
                         .checked_add(signer_entry.weight)
                         .expect("FATAL: total weight signed exceeds u32::MAX");
                 }
+
+                if Self::fault_injection_ignore_signatures() {
+                    debug!("SignCoordinator: fault injection: ignoring well-formed signature for block";
+                        "block_signer_sighash" => %block_sighash,
+                        "signer_pubkey" => signer_pubkey.to_hex(),
+                        "signer_slot_id" => slot_id,
+                        "signature" => %signature,
+                        "signer_weight" => signer_entry.weight,
+                        "total_weight_signed" => total_weight_signed,
+                        "stacks_block_hash" => %block.header.block_hash(),
+                        "stacks_block_id" => %block.header.block_id()
+                    );
+                    continue;
+                }
+
                 debug!("SignCoordinator: Signature Added to block";
                     "block_signer_sighash" => %block_sighash,
                     "signer_pubkey" => signer_pubkey.to_hex(),
