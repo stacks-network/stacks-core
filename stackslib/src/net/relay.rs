@@ -936,14 +936,14 @@ impl Relayer {
         staging_db_tx.commit()?;
 
         if accepted {
-            debug!("{}", &accept_msg);
+            info!("{}", &accept_msg);
             if let Some(coord_comms) = coord_comms {
                 if !coord_comms.announce_new_stacks_block() {
                     return Err(chainstate_error::NetError(net_error::CoordinatorClosed));
                 }
             }
         } else {
-            debug!("{}", &reject_msg);
+            info!("{}", &reject_msg);
         }
 
         Ok(accepted)
