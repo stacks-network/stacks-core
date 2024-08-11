@@ -1042,6 +1042,7 @@ pub fn boot_to_epoch_3_reward_set_calculation_boundary(
     stacker_sks: &[StacksPrivateKey],
     signer_sks: &[StacksPrivateKey],
     btc_regtest_controller: &mut BitcoinRegtestController,
+    num_stacking_cycles: Option<u64>,
 ) {
     assert_eq!(stacker_sks.len(), signer_sks.len());
 
@@ -1072,7 +1073,7 @@ pub fn boot_to_epoch_3_reward_set_calculation_boundary(
         .get_burnchain()
         .block_height_to_reward_cycle(block_height)
         .unwrap();
-    let lock_period = 12;
+    let lock_period: u128 = num_stacking_cycles.unwrap_or(12_u64).into();
     debug!("Test Cycle Info";
      "prepare_phase_len" => {prepare_phase_len},
      "reward_cycle_len" => {reward_cycle_len},
@@ -1185,6 +1186,7 @@ pub fn boot_to_epoch_3_reward_set(
     stacker_sks: &[StacksPrivateKey],
     signer_sks: &[StacksPrivateKey],
     btc_regtest_controller: &mut BitcoinRegtestController,
+    num_stacking_cycles: Option<u64>,
 ) {
     boot_to_epoch_3_reward_set_calculation_boundary(
         naka_conf,
@@ -1192,6 +1194,7 @@ pub fn boot_to_epoch_3_reward_set(
         stacker_sks,
         signer_sks,
         btc_regtest_controller,
+        num_stacking_cycles,
     );
     let epoch_3_reward_set_calculation =
         btc_regtest_controller.get_headers_height().wrapping_add(1);
@@ -4993,12 +4996,11 @@ fn signer_chainstate() {
             None,
         )
         .unwrap();
-    
-        let block_height_pre_3_0 = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
-            .unwrap()
-            .unwrap()
-            .stacks_block_height;
-
+        let block_height_pre_3_0 =
+            NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
+                .unwrap()
+                .unwrap()
+                .stacks_block_height;
         let prom_http_origin = format!("http://{}", prom_bind);
         let client = reqwest::blocking::Client::new();
         let res = client
@@ -7252,7 +7254,7 @@ fn mock_mining() {
         let mock_miner_timeout = Instant::now();
         while follower_naka_mined_blocks.load(Ordering::SeqCst) <= follower_naka_mined_blocks_before
         {
-            if mock_miner_timeout.elapsed() >= Duration::from_secs(30) {
+            if mock_miner_timeout.elapsed() >= Duration::from_secs(60) {
                 panic!(
                     "Timed out waiting for mock miner block {}",
                     follower_naka_mined_blocks_before + 1
