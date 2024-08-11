@@ -14,11 +14,11 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::cell::LazyCell;
 use std::io::Write;
 use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, SystemTime};
 use std::{env, io, thread};
-use std::cell::LazyCell;
 
 use chrono::prelude::*;
 use slog::{BorrowedKV, Drain, FnValue, Level, Logger, OwnedKVList, Record, KV};

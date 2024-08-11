@@ -41,7 +41,7 @@ pub struct GenesisZonefile {
     pub zonefile_content: String,
 }
 
-pub static GENESIS_CHAINSTATE_HASH: &str =
+pub const GENESIS_CHAINSTATE_HASH: &str =
     include_str!(concat!(env!("OUT_DIR"), "/chainstate.txt.sha256"));
 
 pub struct GenesisData {

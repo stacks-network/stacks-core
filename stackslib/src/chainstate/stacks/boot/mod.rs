@@ -110,38 +110,38 @@ pub const MINERS_NAME: &str = "miners";
 pub mod docs;
 
 pub const BOOT_CODE_POX_MAINNET: &str = formatcp!(
-    "{consts}\n{body}", 
-    consts = BOOT_CODE_POX_MAINNET_CONSTS, 
+    "{consts}\n{body}",
+    consts = BOOT_CODE_POX_MAINNET_CONSTS,
     body = BOOT_CODE_POX_BODY
 );
 
 pub const BOOT_CODE_POX_TESTNET: &str = formatcp!(
-    "{consts}\n{body}", 
-    consts = BOOT_CODE_POX_TESTNET_CONSTS, 
+    "{consts}\n{body}",
+    consts = BOOT_CODE_POX_TESTNET_CONSTS,
     body = BOOT_CODE_POX_BODY
 );
 
 pub const POX_2_MAINNET_CODE: &str = formatcp!(
-    "{consts}\n{body}", 
-    consts = BOOT_CODE_POX_MAINNET_CONSTS, 
+    "{consts}\n{body}",
+    consts = BOOT_CODE_POX_MAINNET_CONSTS,
     body = POX_2_BODY
 );
 
 pub const POX_2_TESTNET_CODE: &str = formatcp!(
-    "{consts}\n{body}", 
-    consts = BOOT_CODE_POX_TESTNET_CONSTS, 
+    "{consts}\n{body}",
+    consts = BOOT_CODE_POX_TESTNET_CONSTS,
     body = POX_2_BODY
 );
 
 pub const POX_3_MAINNET_CODE: &str = formatcp!(
-    "{consts}\n{body}", 
-    consts = BOOT_CODE_POX_MAINNET_CONSTS, 
+    "{consts}\n{body}",
+    consts = BOOT_CODE_POX_MAINNET_CONSTS,
     body = POX_3_BODY
 );
 
 pub const POX_3_TESTNET_CODE: &str = formatcp!(
-    "{consts}\n{body}", 
-    consts = BOOT_CODE_POX_TESTNET_CONSTS, 
+    "{consts}\n{body}",
+    consts = BOOT_CODE_POX_TESTNET_CONSTS,
     body = POX_3_BODY
 );
 
@@ -150,29 +150,27 @@ pub const POX_4_CODE: &str = POX_4_BODY;
 pub static BOOT_CODE_COST_VOTING_TESTNET: LazyLock<String> =
     LazyLock::new(make_testnet_cost_voting);
 
-pub static STACKS_BOOT_CODE_MAINNET: LazyLock<[(&str, &str); 6]> =
-    LazyLock::new(|| {
-        [
-            ("pox", &BOOT_CODE_POX_MAINNET),
-            ("lockup", BOOT_CODE_LOCKUP),
-            ("costs", BOOT_CODE_COSTS),
-            ("cost-voting", BOOT_CODE_COST_VOTING_MAINNET),
-            ("bns", &BOOT_CODE_BNS),
-            ("genesis", &BOOT_CODE_GENESIS),
-        ]
-    });
+pub static STACKS_BOOT_CODE_MAINNET: LazyLock<[(&str, &str); 6]> = LazyLock::new(|| {
+    [
+        ("pox", &BOOT_CODE_POX_MAINNET),
+        ("lockup", BOOT_CODE_LOCKUP),
+        ("costs", BOOT_CODE_COSTS),
+        ("cost-voting", BOOT_CODE_COST_VOTING_MAINNET),
+        ("bns", &BOOT_CODE_BNS),
+        ("genesis", &BOOT_CODE_GENESIS),
+    ]
+});
 
-pub static STACKS_BOOT_CODE_TESTNET: LazyLock<[(&str, &str); 6]> =
-    LazyLock::new(|| {
-        [
-            ("pox", &BOOT_CODE_POX_TESTNET),
-            ("lockup", BOOT_CODE_LOCKUP),
-            ("costs", BOOT_CODE_COSTS),
-            ("cost-voting", &BOOT_CODE_COST_VOTING_TESTNET),
-            ("bns", &BOOT_CODE_BNS),
-            ("genesis", &BOOT_CODE_GENESIS),
-        ]
-    });
+pub static STACKS_BOOT_CODE_TESTNET: LazyLock<[(&str, &str); 6]> = LazyLock::new(|| {
+    [
+        ("pox", &BOOT_CODE_POX_TESTNET),
+        ("lockup", BOOT_CODE_LOCKUP),
+        ("costs", BOOT_CODE_COSTS),
+        ("cost-voting", &BOOT_CODE_COST_VOTING_TESTNET),
+        ("bns", &BOOT_CODE_BNS),
+        ("genesis", &BOOT_CODE_GENESIS),
+    ]
+});
 
 fn make_testnet_cost_voting() -> String {
     BOOT_CODE_COST_VOTING_MAINNET

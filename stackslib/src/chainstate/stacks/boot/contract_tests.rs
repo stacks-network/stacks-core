@@ -1,6 +1,6 @@
+use std::cell::LazyCell;
 use std::collections::{HashMap, VecDeque};
 use std::sync::LazyLock;
-use std::cell::LazyCell;
 
 use clarity::vm::analysis::arithmetic_checker::ArithmeticOnlyChecker;
 use clarity::vm::analysis::mem_type_check;
@@ -94,8 +94,7 @@ pub static MINER_ADDR: LazyLock<StacksAddress> = LazyLock::new(|| {
     .expect("Failed to create miner address")
 });
 
-const LIQUID_SUPPLY: LazyCell<u128> =
-    LazyCell::new(|| USTX_PER_HOLDER * (POX_ADDRS.len() as u128));
+const LIQUID_SUPPLY: LazyCell<u128> = LazyCell::new(|| USTX_PER_HOLDER * (POX_ADDRS.len() as u128));
 
 const MIN_THRESHOLD: LazyCell<u128> =
     LazyCell::new(|| *LIQUID_SUPPLY / super::test::TESTNET_STACKING_THRESHOLD_25);

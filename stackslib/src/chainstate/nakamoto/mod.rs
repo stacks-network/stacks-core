@@ -14,12 +14,12 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::cell::LazyCell;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::ops::{Deref, DerefMut, Range};
 use std::path::PathBuf;
 use std::sync::LazyLock;
-use std::cell::LazyCell;
 
 use clarity::types::PublicKey;
 use clarity::util::secp256k1::{secp256k1_recover, Secp256k1PublicKey};
@@ -236,7 +236,7 @@ UPDATE db_config SET version = "4";
 ]
 });
 
-pub static NAKAMOTO_CHAINSTATE_SCHEMA_2: [&str; 4] = [
+pub static NAKAMOTO_CHAINSTATE_SCHEMA_2: &[&str] = &[
     NAKAMOTO_TENURES_SCHEMA_2,
     r#"
     ALTER TABLE nakamoto_block_headers
@@ -254,7 +254,7 @@ pub static NAKAMOTO_CHAINSTATE_SCHEMA_2: [&str; 4] = [
     "#,
 ];
 
-pub static NAKAMOTO_CHAINSTATE_SCHEMA_3: [&str; 3] = [
+pub static NAKAMOTO_CHAINSTATE_SCHEMA_3: &[&str] = &[
     NAKAMOTO_TENURES_SCHEMA_3,
     r#"
     UPDATE db_config SET version = "6";

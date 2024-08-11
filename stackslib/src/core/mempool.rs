@@ -72,9 +72,9 @@ use crate::util_lib::db::{
 use crate::{cost_estimates, monitoring};
 
 // maximum number of confirmations a transaction can have before it's garbage-collected
-pub static MEMPOOL_MAX_TRANSACTION_AGE: u64 = 256;
-pub static MAXIMUM_MEMPOOL_TX_CHAINING: u64 = 25;
-pub static MEMPOOL_NAKAMOTO_MAX_TRANSACTION_AGE: Duration =
+pub const MEMPOOL_MAX_TRANSACTION_AGE: u64 = 256;
+pub const MAXIMUM_MEMPOOL_TX_CHAINING: u64 = 25;
+pub const MEMPOOL_NAKAMOTO_MAX_TRANSACTION_AGE: Duration =
     Duration::from_secs(MEMPOOL_MAX_TRANSACTION_AGE * 10 * 60);
 
 // name of table for storing the counting bloom filter

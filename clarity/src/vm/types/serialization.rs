@@ -14,9 +14,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::cell::LazyCell;
 use std::io::{Read, Write};
 use std::{cmp, error, fmt, str};
-use std::cell::LazyCell;
 
 use hashbrown::HashMap;
 use serde_json::Value as JSONValue;

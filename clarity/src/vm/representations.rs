@@ -15,6 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::borrow::Borrow;
+use std::cell::LazyCell;
 use std::cmp::Ordering;
 use std::fmt;
 use std::io::{Read, Write};
@@ -44,20 +45,21 @@ pub const CONTRACT_NAME_REGEX_STRING: &str = formatcp!(
 );
 pub const CONTRACT_PRINCIPAL_REGEX_STRING: &str = formatcp!(
     r#"{principal}(\.){contract}"#,
-    principal = STANDARD_PRINCIPAL_REGEX_STRING, 
+    principal = STANDARD_PRINCIPAL_REGEX_STRING,
     contract = CONTRACT_NAME_REGEX_STRING
 );
 pub const PRINCIPAL_DATA_REGEX_STRING: &str = formatcp!(
     "({principal})|({contract})",
-    principal = STANDARD_PRINCIPAL_REGEX_STRING, 
+    principal = STANDARD_PRINCIPAL_REGEX_STRING,
     contract = CONTRACT_PRINCIPAL_REGEX_STRING
 );
-pub const CLARITY_NAME_REGEX_STRING: &str = "^[a-zA-Z]([a-zA-Z0-9]|[-_!?+<>=/*])*$|^[-+=/*]$|^[<>]=?$";
-pub static CLARITY_NAME_REGEX: LazyLock<Regex> = LazyLock::new(|| {
+pub const CLARITY_NAME_REGEX_STRING: &str =
+    "^[a-zA-Z]([a-zA-Z0-9]|[-_!?+<>=/*])*$|^[-+=/*]$|^[<>]=?$";
+pub const CLARITY_NAME_REGEX: LazyCell<Regex> = LazyCell::new(|| {
     #[allow(clippy::unwrap_used)]
     Regex::new(CLARITY_NAME_REGEX_STRING).unwrap()
 });
-pub static CONTRACT_NAME_REGEX: LazyLock<Regex> = LazyLock::new(|| {
+pub const CONTRACT_NAME_REGEX: LazyCell<Regex> = LazyCell::new(|| {
     #[allow(clippy::unwrap_used)]
     Regex::new(format!("^{}$|^__transient$", CONTRACT_NAME_REGEX_STRING).as_str()).unwrap()
 });

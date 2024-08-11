@@ -121,18 +121,16 @@ pub const CONTRACT_NAME_REGEX: &str = formatcp!(
 );
 pub const CONTRACT_PRINCIPAL_REGEX: &str = formatcp!(
     r#"{principal}(\.){name}"#,
-    principal = STANDARD_PRINCIPAL_REGEX, 
+    principal = STANDARD_PRINCIPAL_REGEX,
     name = CONTRACT_NAME_REGEX
 );
 pub const PRINCIPAL_DATA_REGEX: &str = formatcp!(
     "({standard})|({contract})",
-    standard = STANDARD_PRINCIPAL_REGEX, 
+    standard = STANDARD_PRINCIPAL_REGEX,
     contract = CONTRACT_PRINCIPAL_REGEX
 );
-pub static CLARITY_NAME_REGEX: &str = formatcp!(
-    r#"([[:word:]]|[-!?+<>=/*]){{1,{}}}"#, 
-    MAX_STRING_LEN
-);
+pub const CLARITY_NAME_REGEX: &str =
+    formatcp!(r#"([[:word:]]|[-!?+<>=/*]){{1,{}}}"#, MAX_STRING_LEN);
 
 static lex_matchers: LazyLock<Vec<LexMatcher>> = LazyLock::new(|| {
     vec![

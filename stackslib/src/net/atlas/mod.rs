@@ -14,9 +14,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::cell::LazyCell;
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
-use std::cell::LazyCell;
 
 use clarity::vm::types::{QualifiedContractIdentifier, SequenceData, TupleData, Value};
 use regex::Regex;
