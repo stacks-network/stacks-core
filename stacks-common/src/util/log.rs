@@ -18,14 +18,15 @@ use std::io::Write;
 use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, SystemTime};
 use std::{env, io, thread};
+use std::cell::LazyCell;
 
 use chrono::prelude::*;
 use slog::{BorrowedKV, Drain, FnValue, Level, Logger, OwnedKVList, Record, KV};
 use slog_term::{CountingWriter, Decorator, RecordDecorator, Serializer};
 
-pub static LOGGER: LazyLock<Logger> = LazyLock::new(|| make_logger());
-pub static STACKS_LOG_FORMAT_TIME: LazyLock<Option<String>> =
-    LazyLock::new(|| env::var("STACKS_LOG_FORMAT_TIME").ok());
+pub static LOGGER: LazyLock<Logger> = LazyLock::new(make_logger);
+pub const STACKS_LOG_FORMAT_TIME: LazyCell<Option<String>> =
+    LazyCell::new(|| env::var("STACKS_LOG_FORMAT_TIME").ok());
 
 struct TermFormat<D: Decorator> {
     decorator: D,
@@ -257,7 +258,7 @@ fn inner_get_loglevel() -> slog::Level {
     }
 }
 
-static LOGLEVEL: LazyLock<slog::Level> = LazyLock::new(|| inner_get_loglevel());
+const LOGLEVEL: LazyCell<slog::Level> = LazyCell::new(inner_get_loglevel);
 
 pub fn get_loglevel() -> slog::Level {
     *LOGLEVEL

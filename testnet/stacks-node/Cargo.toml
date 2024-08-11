@@ -4,7 +4,7 @@ version = "0.1.0"
 authors = ["Jude Nelson <jude@stacks.org>", "Aaron Blankstein <aaron@blockstack.com>", "Ludo Galabru <ludovic@blockstack.com>"]
 edition = "2021"
 resolver = "2"
-rust-version = "1.61"
+rust-version.workspace = true
 
 [dependencies]
 pico-args = "0.5.0"

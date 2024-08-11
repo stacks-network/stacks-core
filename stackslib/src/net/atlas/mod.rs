@@ -16,7 +16,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
-use std::sync::LazyLock;
+use std::cell::LazyCell;
 
 use clarity::vm::types::{QualifiedContractIdentifier, SequenceData, TupleData, Value};
 use regex::Regex;
@@ -47,8 +47,8 @@ pub const MAX_RETRY_DELAY: u64 = 600; // seconds
 ///  waiting for attachments to be processed.
 pub const ATTACHMENTS_CHANNEL_SIZE: usize = 5;
 
-pub static BNS_CHARS_REGEX: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new("^([a-z0-9]|[-_])*$").unwrap());
+pub const BNS_CHARS_REGEX: LazyCell<Regex> =
+    LazyCell::new(|| Regex::new("^([a-z0-9]|[-_])*$").unwrap());
 
 const ATTACHMENTS_MAX_SIZE_MIN: u32 = 1_048_576;
 const MAX_UNINSTANTIATED_ATTACHMENTS_MIN: u32 = 50_000;

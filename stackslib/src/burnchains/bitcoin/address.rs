@@ -79,8 +79,8 @@ pub const ADDRESS_VERSION_TESTNET_SINGLESIG: u8 = 111;
 pub const ADDRESS_VERSION_TESTNET_MULTISIG: u8 = 196;
 
 // segwit hrps
-pub const SEGWIT_MAINNET_HRP: &'static str = "bc";
-pub const SEGWIT_TESTNET_HRP: &'static str = "tb";
+pub const SEGWIT_MAINNET_HRP: &str = "bc";
+pub const SEGWIT_TESTNET_HRP: &str = "tb";
 
 // segwit witnes versions
 pub const SEGWIT_V0: u8 = 0;

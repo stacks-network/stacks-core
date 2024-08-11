@@ -68,7 +68,7 @@ use crate::util_lib::boot::{boot_code_addr, boot_code_id};
 use crate::util_lib::db::{sqlite_open, FromColumn};
 use crate::util_lib::strings::StacksString;
 
-pub static STACKS_BOOT_CODE_MAINNET_2_1: LazyLock<[(&'static str, &'static str); 9]> =
+pub static STACKS_BOOT_CODE_MAINNET_2_1: LazyLock<[(&str, &str); 9]> =
     LazyLock::new(|| {
         [
             ("pox", &BOOT_CODE_POX_MAINNET),
@@ -83,7 +83,7 @@ pub static STACKS_BOOT_CODE_MAINNET_2_1: LazyLock<[(&'static str, &'static str);
         ]
     });
 
-pub static STACKS_BOOT_CODE_TESTNET_2_1: LazyLock<[(&'static str, &'static str); 9]> =
+pub static STACKS_BOOT_CODE_TESTNET_2_1: LazyLock<[(&str, &str); 9]> =
     LazyLock::new(|| {
         [
             ("pox", &BOOT_CODE_POX_TESTNET),

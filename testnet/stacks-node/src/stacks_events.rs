@@ -1,7 +1,7 @@
+use std::cell::LazyCell;
 use std::io::prelude::*;
 use std::io::BufReader;
 use std::net::{TcpListener, TcpStream};
-use std::sync::LazyLock;
 
 use chrono::{SecondsFormat, Utc};
 use regex::Regex;
@@ -41,11 +41,11 @@ fn serve_for_events(addr: &String) {
     }
 }
 
-static RE_POST: LazyLock<Regex> = LazyLock::new(|| {
+const RE_POST: LazyCell<Regex> = LazyCell::new(|| {
     Regex::new(r"^POST /(.*?) HTTP/1.1\r\n$").expect("Failed to compile RE_POST regex")
 });
 
-static RE_CONTENT_LENGTH: LazyLock<Regex> = LazyLock::new(|| {
+const RE_CONTENT_LENGTH: LazyCell<Regex> = LazyCell::new(|| {
     Regex::new(r"^content-length: (\d+)\r\n$").expect("Failed to compile RE_CONTENT_LENGTH regex")
 });
 

@@ -19,6 +19,7 @@ use std::fs;
 use std::ops::{Deref, DerefMut, Range};
 use std::path::PathBuf;
 use std::sync::LazyLock;
+use std::cell::LazyCell;
 
 use clarity::types::PublicKey;
 use clarity::util::secp256k1::{secp256k1_recover, Secp256k1PublicKey};
@@ -148,8 +149,8 @@ impl FromSql for HeaderTypeNames {
     }
 }
 
-pub static FIRST_STACKS_BLOCK_ID: LazyLock<StacksBlockId> =
-    LazyLock::new(|| StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH));
+pub const FIRST_STACKS_BLOCK_ID: LazyCell<StacksBlockId> =
+    LazyCell::new(|| StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH));
 
 pub static NAKAMOTO_CHAINSTATE_SCHEMA_1: LazyLock<Vec<String>> = LazyLock::new(|| {
     vec![
@@ -235,50 +236,38 @@ UPDATE db_config SET version = "4";
 ]
 });
 
-pub static NAKAMOTO_CHAINSTATE_SCHEMA_2: LazyLock<Vec<String>> = LazyLock::new(|| {
-    vec![
-        NAKAMOTO_TENURES_SCHEMA_2.into(),
-        r#"
-ALTER TABLE nakamoto_block_headers
-    ADD COLUMN timestamp INTEGER NOT NULL;
-"#
-        .into(),
-        r#"
-UPDATE db_config SET version = "5";
-"#
-        .into(),
-        // make burn_view NULLable. We could use a default value, but NULL should be safer (because it will error).
-        // there should be no entries in nakamoto_block_headers with a NULL entry when this column is added, because
-        // nakamoto blocks have not been produced yet.
-        r#"
-ALTER TABLE nakamoto_block_headers
-ADD COLUMN burn_view TEXT;
-"#
-        .into(),
-    ]
-});
+pub static NAKAMOTO_CHAINSTATE_SCHEMA_2: [&str; 4] = [
+    NAKAMOTO_TENURES_SCHEMA_2,
+    r#"
+    ALTER TABLE nakamoto_block_headers
+        ADD COLUMN timestamp INTEGER NOT NULL;
+    "#,
+    r#"
+        UPDATE db_config SET version = "5";
+    "#,
+    // make burn_view NULLable. We could use a default value, but NULL should be safer (because it will error).
+    // there should be no entries in nakamoto_block_headers with a NULL entry when this column is added, because
+    // nakamoto blocks have not been produced yet.
+    r#"
+    ALTER TABLE nakamoto_block_headers
+    ADD COLUMN burn_view TEXT;
+    "#,
+];
 
-pub static NAKAMOTO_CHAINSTATE_SCHEMA_3: LazyLock<Vec<String>> = LazyLock::new(|| {
-    vec![
-        NAKAMOTO_TENURES_SCHEMA_3.into(),
-        r#"
-UPDATE db_config SET version = "6";
-"#
-        .into(),
-        // Add a `height_in_tenure` field to the block header row, so we know how high this block is
-        // within its tenure.  This is needed to process malleablized Nakamoto blocks with the same
-        // height, as well as accidental forks that can arise from slow miners.
-        //
-        //
-        //
-        // No default value is needed because at the time of this writing, this table is actually empty.
-        r#"
-ALTER TABLE nakamoto_block_headers
-ADD COLUMN height_in_tenure;
-"#
-        .into(),
-    ]
-});
+pub static NAKAMOTO_CHAINSTATE_SCHEMA_3: [&str; 3] = [
+    NAKAMOTO_TENURES_SCHEMA_3,
+    r#"
+    UPDATE db_config SET version = "6";
+    "#,
+    // Add a `height_in_tenure` field to the block header row, so we know how high this block is
+    // within its tenure.  This is needed to process malleablized Nakamoto blocks with the same
+    // height, as well as accidental forks that can arise from slow miners.
+    //
+    // No default value is needed because at the time of this writing, this table is actually empty.
+    r#"
+    ALTER TABLE nakamoto_block_headers ADD COLUMN height_in_tenure;
+    "#,
+];
 
 /// Trait for common MARF getters between StacksDBConn and StacksDBTx
 pub trait StacksDBIndexed {

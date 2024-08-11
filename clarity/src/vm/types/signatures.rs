@@ -18,7 +18,8 @@ use std::collections::btree_map::Entry;
 use std::collections::{hash_map, BTreeMap};
 use std::hash::{Hash, Hasher};
 use std::ops::Deref;
-use std::sync::{Arc, LazyLock};
+use std::sync::Arc;
+use std::cell::LazyCell;
 use std::{cmp, fmt};
 
 // TypeSignatures
@@ -191,49 +192,49 @@ use self::TypeSignature::{
     ResponseType, SequenceType, TraitReferenceType, TupleType, UIntType,
 };
 
-pub static BUFF_64: LazyLock<TypeSignature> = LazyLock::new(|| {
+pub const BUFF_64: LazyCell<TypeSignature> = LazyCell::new(|| {
     #[allow(clippy::expect_used)]
     SequenceType(SequenceSubtype::BufferType(
         BufferLength::try_from(64u32).expect("BUG: Legal Clarity buffer length marked invalid"),
     ))
 });
-pub static BUFF_65: LazyLock<TypeSignature> = LazyLock::new(|| {
+pub const BUFF_65: LazyCell<TypeSignature> = LazyCell::new(|| {
     #[allow(clippy::expect_used)]
     SequenceType(SequenceSubtype::BufferType(
         BufferLength::try_from(65u32).expect("BUG: Legal Clarity buffer length marked invalid"),
     ))
 });
-pub static BUFF_32: LazyLock<TypeSignature> = LazyLock::new(|| {
+pub const BUFF_32: LazyCell<TypeSignature> = LazyCell::new(|| {
     #[allow(clippy::expect_used)]
     SequenceType(SequenceSubtype::BufferType(
         BufferLength::try_from(32u32).expect("BUG: Legal Clarity buffer length marked invalid"),
     ))
 });
-pub static BUFF_33: LazyLock<TypeSignature> = LazyLock::new(|| {
+pub const BUFF_33: LazyCell<TypeSignature> = LazyCell::new(|| {
     #[allow(clippy::expect_used)]
     SequenceType(SequenceSubtype::BufferType(
         BufferLength::try_from(33u32).expect("BUG: Legal Clarity buffer length marked invalid"),
     ))
 });
-pub static BUFF_20: LazyLock<TypeSignature> = LazyLock::new(|| {
+pub const BUFF_20: LazyCell<TypeSignature> = LazyCell::new(|| {
     #[allow(clippy::expect_used)]
     SequenceType(SequenceSubtype::BufferType(
         BufferLength::try_from(20u32).expect("BUG: Legal Clarity buffer length marked invalid"),
     ))
 });
-pub static BUFF_21: LazyLock<TypeSignature> = LazyLock::new(|| {
+pub const BUFF_21: LazyCell<TypeSignature> = LazyCell::new(|| {
     #[allow(clippy::expect_used)]
     SequenceType(SequenceSubtype::BufferType(
         BufferLength::try_from(21u32).expect("BUG: Legal Clarity buffer length marked invalid"),
     ))
 });
-pub static BUFF_1: LazyLock<TypeSignature> = LazyLock::new(|| {
+pub const BUFF_1: LazyCell<TypeSignature> = LazyCell::new(|| {
     #[allow(clippy::expect_used)]
     SequenceType(SequenceSubtype::BufferType(
         BufferLength::try_from(1u32).expect("BUG: Legal Clarity buffer length marked invalid"),
     ))
 });
-pub static BUFF_16: LazyLock<TypeSignature> = LazyLock::new(|| {
+pub const BUFF_16: LazyCell<TypeSignature> = LazyCell::new(|| {
     #[allow(clippy::expect_used)]
     SequenceType(SequenceSubtype::BufferType(
         BufferLength::try_from(16u32).expect("BUG: Legal Clarity buffer length marked invalid"),

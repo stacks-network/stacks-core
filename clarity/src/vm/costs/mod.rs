@@ -15,8 +15,8 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::BTreeMap;
-use std::sync::LazyLock;
 use std::{cmp, fmt};
+use std::cell::LazyCell;
 
 use hashbrown::HashMap;
 use serde::{Deserialize, Serialize};
@@ -46,11 +46,11 @@ type Result<T> = std::result::Result<T, CostErrors>;
 pub const CLARITY_MEMORY_LIMIT: u64 = 100 * 1000 * 1000;
 
 // TODO: factor out into a boot lib?
-pub const COSTS_1_NAME: &'static str = "costs";
-pub const COSTS_2_NAME: &'static str = "costs-2";
-pub const COSTS_3_NAME: &'static str = "costs-3";
+pub const COSTS_1_NAME: &str = "costs";
+pub const COSTS_2_NAME: &str = "costs-2";
+pub const COSTS_3_NAME: &str = "costs-3";
 
-static COST_TUPLE_TYPE_SIGNATURE: LazyLock<TypeSignature> = LazyLock::new(|| {
+const COST_TUPLE_TYPE_SIGNATURE: LazyCell<TypeSignature> = LazyCell::new(|| {
     #[allow(clippy::expect_used)]
     TypeSignature::TupleType(
         TupleTypeSignature::try_from(vec![

@@ -17,6 +17,7 @@
 use std::cmp;
 use std::sync::LazyLock;
 
+use const_format::formatcp;
 use regex::{Captures, Regex};
 use stacks_common::address::c32::c32_address_decode;
 use stacks_common::util::hash::hex_bytes;
@@ -112,29 +113,26 @@ fn get_lines_at(input: &str) -> Vec<usize> {
     out
 }
 
-pub static STANDARD_PRINCIPAL_REGEX: LazyLock<String> =
-    LazyLock::new(|| "[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{28,41}".into());
-pub static CONTRACT_NAME_REGEX: LazyLock<String> = LazyLock::new(|| {
-    format!(
-        r#"([a-zA-Z](([a-zA-Z0-9]|[-_])){{{},{}}})"#,
-        CONTRACT_MIN_NAME_LENGTH - 1,
-        CONTRACT_MAX_NAME_LENGTH - 1
-    )
-});
-pub static CONTRACT_PRINCIPAL_REGEX: LazyLock<String> = LazyLock::new(|| {
-    format!(
-        r#"{}(\.){}"#,
-        *STANDARD_PRINCIPAL_REGEX, *CONTRACT_NAME_REGEX
-    )
-});
-pub static PRINCIPAL_DATA_REGEX: LazyLock<String> = LazyLock::new(|| {
-    format!(
-        "({})|({})",
-        *STANDARD_PRINCIPAL_REGEX, *CONTRACT_PRINCIPAL_REGEX
-    )
-});
-pub static CLARITY_NAME_REGEX: LazyLock<String> =
-    LazyLock::new(|| format!(r#"([[:word:]]|[-!?+<>=/*]){{1,{}}}"#, MAX_STRING_LEN));
+pub const STANDARD_PRINCIPAL_REGEX: &str = "[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{28,41}";
+pub const CONTRACT_NAME_REGEX: &str = formatcp!(
+    r#"([a-zA-Z](([a-zA-Z0-9]|[-_])){{{},{}}})"#,
+    CONTRACT_MIN_NAME_LENGTH - 1,
+    CONTRACT_MAX_NAME_LENGTH - 1
+);
+pub const CONTRACT_PRINCIPAL_REGEX: &str = formatcp!(
+    r#"{principal}(\.){name}"#,
+    principal = STANDARD_PRINCIPAL_REGEX, 
+    name = CONTRACT_NAME_REGEX
+);
+pub const PRINCIPAL_DATA_REGEX: &str = formatcp!(
+    "({standard})|({contract})",
+    standard = STANDARD_PRINCIPAL_REGEX, 
+    contract = CONTRACT_PRINCIPAL_REGEX
+);
+pub static CLARITY_NAME_REGEX: &str = formatcp!(
+    r#"([[:word:]]|[-!?+<>=/*]){{1,{}}}"#, 
+    MAX_STRING_LEN
+);
 
 static lex_matchers: LazyLock<Vec<LexMatcher>> = LazyLock::new(|| {
     vec![
@@ -165,31 +163,31 @@ static lex_matchers: LazyLock<Vec<LexMatcher>> = LazyLock::new(|| {
         LexMatcher::new(
             &format!(
                 r#"'(?P<value>{}(\.)([[:alnum:]]|[-]){{1,{}}})"#,
-                *CONTRACT_PRINCIPAL_REGEX, MAX_STRING_LEN
+                CONTRACT_PRINCIPAL_REGEX, MAX_STRING_LEN
             ),
             TokenType::FullyQualifiedFieldIdentifierLiteral,
         ),
         LexMatcher::new(
             &format!(
                 r#"(?P<value>(\.){}(\.)([[:alnum:]]|[-]){{1,{}}})"#,
-                *CONTRACT_NAME_REGEX, MAX_STRING_LEN
+                CONTRACT_NAME_REGEX, MAX_STRING_LEN
             ),
             TokenType::SugaredFieldIdentifierLiteral,
         ),
         LexMatcher::new(
-            &format!(r#"'(?P<value>{})"#, *CONTRACT_PRINCIPAL_REGEX),
+            &format!(r#"'(?P<value>{})"#, CONTRACT_PRINCIPAL_REGEX),
             TokenType::FullyQualifiedContractIdentifierLiteral,
         ),
         LexMatcher::new(
-            &format!(r#"(?P<value>(\.){})"#, *CONTRACT_NAME_REGEX),
+            &format!(r#"(?P<value>(\.){})"#, CONTRACT_NAME_REGEX),
             TokenType::SugaredContractIdentifierLiteral,
         ),
         LexMatcher::new(
-            &format!("'(?P<value>{})", *STANDARD_PRINCIPAL_REGEX),
+            &format!("'(?P<value>{})", STANDARD_PRINCIPAL_REGEX),
             TokenType::PrincipalLiteral,
         ),
         LexMatcher::new(
-            &format!("(?P<value>{})", *CLARITY_NAME_REGEX),
+            &format!("(?P<value>{})", CLARITY_NAME_REGEX),
             TokenType::Variable,
         ),
     ]

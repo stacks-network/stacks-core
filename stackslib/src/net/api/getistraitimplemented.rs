@@ -81,7 +81,11 @@ impl HttpRequest for RPCGetIsTraitImplementedRequestHandler {
     fn path_regex(&self) -> Regex {
         Regex::new(&format!(
             "^/v2/traits/(?P<address>{})/(?P<contract>{})/(?P<traitContractAddr>{})/(?P<traitContractName>{})/(?P<traitName>{})$",
-            *STANDARD_PRINCIPAL_REGEX_STRING, *CONTRACT_NAME_REGEX_STRING, *STANDARD_PRINCIPAL_REGEX_STRING, *CONTRACT_NAME_REGEX_STRING, *CLARITY_NAME_REGEX
+            STANDARD_PRINCIPAL_REGEX_STRING, 
+            CONTRACT_NAME_REGEX_STRING, 
+            STANDARD_PRINCIPAL_REGEX_STRING, 
+            CONTRACT_NAME_REGEX_STRING, 
+            CLARITY_NAME_REGEX
         ))
         .unwrap()
     }

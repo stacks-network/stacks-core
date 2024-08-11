@@ -1,8 +1,9 @@
+use std::cell::LazyCell;
 use std::collections::{HashMap, HashSet};
 use std::net::{Ipv4Addr, SocketAddr, ToSocketAddrs};
 use std::path::PathBuf;
 use std::str::FromStr;
-use std::sync::{Arc, LazyLock, Mutex};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use std::{cmp, fs, thread};
 
@@ -519,8 +520,8 @@ pub struct Config {
     pub atlas: AtlasConfig,
 }
 
-static HELIUM_DEFAULT_CONNECTION_OPTIONS: LazyLock<ConnectionOptions> =
-    LazyLock::new(|| ConnectionOptions {
+const HELIUM_DEFAULT_CONNECTION_OPTIONS: LazyCell<ConnectionOptions> =
+    LazyCell::new(|| ConnectionOptions {
         inbox_maxlen: 100,
         outbox_maxlen: 100,
         timeout: 15,
@@ -1500,15 +1501,15 @@ pub struct StacksEpochConfigFile {
     start_height: i64,
 }
 
-pub const EPOCH_CONFIG_1_0_0: &'static str = "1.0";
-pub const EPOCH_CONFIG_2_0_0: &'static str = "2.0";
-pub const EPOCH_CONFIG_2_0_5: &'static str = "2.05";
-pub const EPOCH_CONFIG_2_1_0: &'static str = "2.1";
-pub const EPOCH_CONFIG_2_2_0: &'static str = "2.2";
-pub const EPOCH_CONFIG_2_3_0: &'static str = "2.3";
-pub const EPOCH_CONFIG_2_4_0: &'static str = "2.4";
-pub const EPOCH_CONFIG_2_5_0: &'static str = "2.5";
-pub const EPOCH_CONFIG_3_0_0: &'static str = "3.0";
+pub const EPOCH_CONFIG_1_0_0: &str = "1.0";
+pub const EPOCH_CONFIG_2_0_0: &str = "2.0";
+pub const EPOCH_CONFIG_2_0_5: &str = "2.05";
+pub const EPOCH_CONFIG_2_1_0: &str = "2.1";
+pub const EPOCH_CONFIG_2_2_0: &str = "2.2";
+pub const EPOCH_CONFIG_2_3_0: &str = "2.3";
+pub const EPOCH_CONFIG_2_4_0: &str = "2.4";
+pub const EPOCH_CONFIG_2_5_0: &str = "2.5";
+pub const EPOCH_CONFIG_3_0_0: &str = "3.0";
 
 #[derive(Clone, Deserialize, Default, Debug)]
 pub struct AffirmationOverride {

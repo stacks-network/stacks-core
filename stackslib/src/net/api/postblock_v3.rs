@@ -31,7 +31,7 @@ use crate::net::httpcore::{
 use crate::net::relay::Relayer;
 use crate::net::{Error as NetError, NakamotoBlocksData, StacksMessageType, StacksNodeState};
 
-pub static PATH: &'static str = "/v3/blocks/upload/";
+pub const PATH: &str = "/v3/blocks/upload/";
 
 #[derive(Clone, Default)]
 pub struct RPCPostBlockRequestHandler {

@@ -78,7 +78,7 @@ pub static MEMPOOL_NAKAMOTO_MAX_TRANSACTION_AGE: Duration =
     Duration::from_secs(MEMPOOL_MAX_TRANSACTION_AGE * 10 * 60);
 
 // name of table for storing the counting bloom filter
-pub const BLOOM_COUNTER_TABLE: &'static str = "txid_bloom_counter";
+pub const BLOOM_COUNTER_TABLE: &str = "txid_bloom_counter";
 
 // bloom filter error rate
 pub const BLOOM_COUNTER_ERROR_RATE: f64 = 0.001;
@@ -657,7 +657,7 @@ impl FromRow<(u64, u64)> for (u64, u64) {
     }
 }
 
-const MEMPOOL_INITIAL_SCHEMA: &'static [&'static str] = &[r#"
+const MEMPOOL_INITIAL_SCHEMA: &[&str] = &[r#"
     CREATE TABLE mempool(
         txid TEXT NOT NULL,
         origin_address TEXT NOT NULL,
@@ -682,7 +682,7 @@ const MEMPOOL_INITIAL_SCHEMA: &'static [&'static str] = &[r#"
     );
     "#];
 
-const MEMPOOL_SCHEMA_2_COST_ESTIMATOR: &'static [&'static str] = &[
+const MEMPOOL_SCHEMA_2_COST_ESTIMATOR: &[&str] = &[
     r#"
     CREATE TABLE fee_estimates(
         txid TEXT NOT NULL,
@@ -707,7 +707,7 @@ const MEMPOOL_SCHEMA_2_COST_ESTIMATOR: &'static [&'static str] = &[
     "#,
 ];
 
-const MEMPOOL_SCHEMA_3_BLOOM_STATE: &'static [&'static str] = &[
+const MEMPOOL_SCHEMA_3_BLOOM_STATE: &[&str] = &[
     r#"
     CREATE TABLE IF NOT EXISTS removed_txids(
         txid TEXT PRIMARY KEY NOT NULL,
@@ -728,7 +728,7 @@ const MEMPOOL_SCHEMA_3_BLOOM_STATE: &'static [&'static str] = &[
     "#,
 ];
 
-const MEMPOOL_SCHEMA_4_BLACKLIST: &'static [&'static str] = &[
+const MEMPOOL_SCHEMA_4_BLACKLIST: &[&str] = &[
     r#"
     -- List of transactions that will never be stored to the mempool again, for as long as the rows exist.
     -- `arrival_time` indicates when the entry was created. This is used to garbage-collect the list.
@@ -767,7 +767,7 @@ const MEMPOOL_SCHEMA_4_BLACKLIST: &'static [&'static str] = &[
     "#,
 ];
 
-const MEMPOOL_SCHEMA_5: &'static [&'static str] = &[
+const MEMPOOL_SCHEMA_5: &[&str] = &[
     r#"
     ALTER TABLE mempool ADD COLUMN fee_rate NUMBER;
     "#,
@@ -783,7 +783,7 @@ const MEMPOOL_SCHEMA_5: &'static [&'static str] = &[
     "#,
 ];
 
-const MEMPOOL_SCHEMA_6_NONCES: &'static [&'static str] = &[
+const MEMPOOL_SCHEMA_6_NONCES: &[&str] = &[
     r#"
     CREATE TABLE nonces(
         address TEXT PRIMARY KEY NOT NULL,
@@ -795,7 +795,7 @@ const MEMPOOL_SCHEMA_6_NONCES: &'static [&'static str] = &[
     "#,
 ];
 
-const MEMPOOL_INDEXES: &'static [&'static str] = &[
+const MEMPOOL_INDEXES: &[&str] = &[
     "CREATE INDEX IF NOT EXISTS by_txid ON mempool(txid);",
     "CREATE INDEX IF NOT EXISTS by_height ON mempool(height);",
     "CREATE INDEX IF NOT EXISTS by_txid_and_height ON mempool(txid,height);",

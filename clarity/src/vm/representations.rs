@@ -21,6 +21,7 @@ use std::io::{Read, Write};
 use std::ops::Deref;
 use std::sync::LazyLock;
 
+use const_format::formatcp;
 use regex::Regex;
 use stacks_common::codec::{
     read_next, read_next_at_most, write_next, Error as codec_error, StacksMessageCodec,
@@ -33,38 +34,32 @@ pub const CONTRACT_MIN_NAME_LENGTH: usize = 1;
 pub const CONTRACT_MAX_NAME_LENGTH: usize = 40;
 pub const MAX_STRING_LEN: u8 = 128;
 
-pub static STANDARD_PRINCIPAL_REGEX_STRING: LazyLock<String> =
-    LazyLock::new(|| "[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{28,41}".into());
-pub static CONTRACT_NAME_REGEX_STRING: LazyLock<String> = LazyLock::new(|| {
-    format!(
-        r#"([a-zA-Z](([a-zA-Z0-9]|[-_])){{{},{}}})"#,
-        CONTRACT_MIN_NAME_LENGTH - 1,
-        // NOTE: this is deliberate.  Earlier versions of the node will accept contract principals whose names are up to
-        // 128 bytes.  This behavior must be preserved for backwards-compatibility.
-        MAX_STRING_LEN - 1
-    )
-});
-pub static CONTRACT_PRINCIPAL_REGEX_STRING: LazyLock<String> = LazyLock::new(|| {
-    format!(
-        r#"{}(\.){}"#,
-        *STANDARD_PRINCIPAL_REGEX_STRING, *CONTRACT_NAME_REGEX_STRING
-    )
-});
-pub static PRINCIPAL_DATA_REGEX_STRING: LazyLock<String> = LazyLock::new(|| {
-    format!(
-        "({})|({})",
-        *STANDARD_PRINCIPAL_REGEX_STRING, *CONTRACT_PRINCIPAL_REGEX_STRING
-    )
-});
-pub static CLARITY_NAME_REGEX_STRING: LazyLock<String> =
-    LazyLock::new(|| "^[a-zA-Z]([a-zA-Z0-9]|[-_!?+<>=/*])*$|^[-+=/*]$|^[<>]=?$".into());
+pub const STANDARD_PRINCIPAL_REGEX_STRING: &str = "[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{28,41}";
+pub const CONTRACT_NAME_REGEX_STRING: &str = formatcp!(
+    r#"([a-zA-Z](([a-zA-Z0-9]|[-_])){{{},{}}})"#,
+    CONTRACT_MIN_NAME_LENGTH - 1,
+    // NOTE: this is deliberate.  Earlier versions of the node will accept contract principals whose names are up to
+    // 128 bytes.  This behavior must be preserved for backwards-compatibility.
+    MAX_STRING_LEN - 1
+);
+pub const CONTRACT_PRINCIPAL_REGEX_STRING: &str = formatcp!(
+    r#"{principal}(\.){contract}"#,
+    principal = STANDARD_PRINCIPAL_REGEX_STRING, 
+    contract = CONTRACT_NAME_REGEX_STRING
+);
+pub const PRINCIPAL_DATA_REGEX_STRING: &str = formatcp!(
+    "({principal})|({contract})",
+    principal = STANDARD_PRINCIPAL_REGEX_STRING, 
+    contract = CONTRACT_PRINCIPAL_REGEX_STRING
+);
+pub const CLARITY_NAME_REGEX_STRING: &str = "^[a-zA-Z]([a-zA-Z0-9]|[-_!?+<>=/*])*$|^[-+=/*]$|^[<>]=?$";
 pub static CLARITY_NAME_REGEX: LazyLock<Regex> = LazyLock::new(|| {
     #[allow(clippy::unwrap_used)]
-    Regex::new(CLARITY_NAME_REGEX_STRING.as_str()).unwrap()
+    Regex::new(CLARITY_NAME_REGEX_STRING).unwrap()
 });
 pub static CONTRACT_NAME_REGEX: LazyLock<Regex> = LazyLock::new(|| {
     #[allow(clippy::unwrap_used)]
-    Regex::new(format!("^{}$|^__transient$", CONTRACT_NAME_REGEX_STRING.as_str()).as_str()).unwrap()
+    Regex::new(format!("^{}$|^__transient$", CONTRACT_NAME_REGEX_STRING).as_str()).unwrap()
 });
 
 guarded_string!(

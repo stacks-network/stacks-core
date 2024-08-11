@@ -1,5 +1,6 @@
 [workspace]
 resolver = "2"
+package.rust-version = "1.80"
 members = [
     "stackslib",
     "stacks-common",
@@ -22,6 +23,7 @@ rand_chacha = "0.3.1"
 tikv-jemallocator = "0.5.4"
 wsts = { version = "9.0.0", default-features = false }
 rusqlite = { version = "0.31.0", features = ["blob", "serde_json", "i128_blob", "bundled", "trace"] }
+const_format = "0.2.32"
 
 # Use a bit more than default optimization for
 #  dev builds to speed up test execution

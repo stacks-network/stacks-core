@@ -1,5 +1,6 @@
 use std::collections::{HashMap, VecDeque};
 use std::sync::LazyLock;
+use std::cell::LazyCell;
 
 use clarity::vm::analysis::arithmetic_checker::ArithmeticOnlyChecker;
 use clarity::vm::analysis::mem_type_check;
@@ -52,20 +53,20 @@ use crate::util_lib::db::{DBConn, FromRow};
 
 const USTX_PER_HOLDER: u128 = 1_000_000;
 
-pub static FIRST_INDEX_BLOCK_HASH: LazyLock<StacksBlockId> = LazyLock::new(|| {
+pub const FIRST_INDEX_BLOCK_HASH: LazyCell<StacksBlockId> = LazyCell::new(|| {
     StacksBlockHeader::make_index_block_hash(
         &FIRST_BURNCHAIN_CONSENSUS_HASH,
         &FIRST_STACKS_BLOCK_HASH,
     )
 });
 
-pub static POX_CONTRACT_TESTNET: LazyLock<QualifiedContractIdentifier> =
-    LazyLock::new(|| boot_code_id("pox", false));
-pub static POX_2_CONTRACT_TESTNET: LazyLock<QualifiedContractIdentifier> =
-    LazyLock::new(|| boot_code_id("pox-2", false));
+pub const POX_CONTRACT_TESTNET: LazyCell<QualifiedContractIdentifier> =
+    LazyCell::new(|| boot_code_id("pox", false));
+pub const POX_2_CONTRACT_TESTNET: LazyCell<QualifiedContractIdentifier> =
+    LazyCell::new(|| boot_code_id("pox-2", false));
 
-pub static COST_VOTING_CONTRACT_TESTNET: LazyLock<QualifiedContractIdentifier> =
-    LazyLock::new(|| boot_code_id("cost-voting", false));
+pub const COST_VOTING_CONTRACT_TESTNET: LazyCell<QualifiedContractIdentifier> =
+    LazyCell::new(|| boot_code_id("cost-voting", false));
 
 pub static USER_KEYS: LazyLock<Vec<StacksPrivateKey>> =
     LazyLock::new(|| (0..50).map(|_| StacksPrivateKey::new()).collect());
@@ -81,7 +82,7 @@ pub static POX_ADDRS: LazyLock<Vec<Value>> = LazyLock::new(|| {
         .collect()
 });
 
-pub static MINER_KEY: LazyLock<StacksPrivateKey> = LazyLock::new(|| StacksPrivateKey::new());
+pub static MINER_KEY: LazyLock<StacksPrivateKey> = LazyLock::new(StacksPrivateKey::new);
 
 pub static MINER_ADDR: LazyLock<StacksAddress> = LazyLock::new(|| {
     StacksAddress::from_public_keys(
@@ -93,11 +94,11 @@ pub static MINER_ADDR: LazyLock<StacksAddress> = LazyLock::new(|| {
     .expect("Failed to create miner address")
 });
 
-static LIQUID_SUPPLY: LazyLock<u128> =
-    LazyLock::new(|| USTX_PER_HOLDER * (POX_ADDRS.len() as u128));
+const LIQUID_SUPPLY: LazyCell<u128> =
+    LazyCell::new(|| USTX_PER_HOLDER * (POX_ADDRS.len() as u128));
 
-static MIN_THRESHOLD: LazyLock<u128> =
-    LazyLock::new(|| *LIQUID_SUPPLY / super::test::TESTNET_STACKING_THRESHOLD_25);
+const MIN_THRESHOLD: LazyCell<u128> =
+    LazyCell::new(|| *LIQUID_SUPPLY / super::test::TESTNET_STACKING_THRESHOLD_25);
 
 pub struct ClarityTestSim {
     marf: MarfedKV,

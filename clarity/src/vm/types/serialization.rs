@@ -15,8 +15,8 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::io::{Read, Write};
-use std::sync::LazyLock;
 use std::{cmp, error, fmt, str};
+use std::cell::LazyCell;
 
 use hashbrown::HashMap;
 use serde_json::Value as JSONValue;
@@ -56,7 +56,7 @@ pub enum SerializationError {
     SerializationError(String),
 }
 
-pub static NONE_SERIALIZATION_LEN: LazyLock<u64> = LazyLock::new(|| {
+pub const NONE_SERIALIZATION_LEN: LazyCell<u64> = LazyCell::new(|| {
     #[allow(clippy::unwrap_used)]
     u64::try_from(Value::none().serialize_to_vec().unwrap().len()).unwrap()
 });

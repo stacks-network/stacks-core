@@ -41,8 +41,8 @@ use stacks_common::types::chainstate::StacksPrivateKey;
 
 extern crate alloc;
 
-const GIT_BRANCH: Option<&'static str> = option_env!("GIT_BRANCH");
-const GIT_COMMIT: Option<&'static str> = option_env!("GIT_COMMIT");
+const GIT_BRANCH: Option<&str> = option_env!("GIT_BRANCH");
+const GIT_COMMIT: Option<&str> = option_env!("GIT_COMMIT");
 #[cfg(debug_assertions)]
 const BUILD_TYPE: &str = "debug";
 #[cfg(not(debug_assertions))]

@@ -78,7 +78,7 @@ impl HttpRequest for RPCGetConstantValRequestHandler {
     fn path_regex(&self) -> Regex {
         Regex::new(&format!(
             "^/v2/constant_val/(?P<address>{})/(?P<contract>{})/(?P<constname>{})$",
-            *STANDARD_PRINCIPAL_REGEX_STRING, *CONTRACT_NAME_REGEX_STRING, *CLARITY_NAME_REGEX
+            STANDARD_PRINCIPAL_REGEX_STRING, CONTRACT_NAME_REGEX_STRING, CLARITY_NAME_REGEX
         ))
         .unwrap()
     }

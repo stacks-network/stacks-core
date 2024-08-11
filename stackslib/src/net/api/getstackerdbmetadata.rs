@@ -68,7 +68,7 @@ impl HttpRequest for RPCGetStackerDBMetadataRequestHandler {
     fn path_regex(&self) -> Regex {
         Regex::new(&format!(
             r#"^/v2/stackerdb/(?P<address>{})/(?P<contract>{})$"#,
-            *STANDARD_PRINCIPAL_REGEX_STRING, *CONTRACT_NAME_REGEX_STRING
+            STANDARD_PRINCIPAL_REGEX_STRING, CONTRACT_NAME_REGEX_STRING
         ))
         .unwrap()
     }

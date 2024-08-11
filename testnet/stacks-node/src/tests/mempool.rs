@@ -1,4 +1,4 @@
-use std::sync::{LazyLock, Mutex};
+use std::sync::Mutex;
 
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::database::NULL_BURN_STATE_DB;
@@ -30,13 +30,13 @@ use super::{
 use crate::helium::RunLoop;
 use crate::Keychain;
 
-const FOO_CONTRACT: &'static str = "(define-public (foo) (ok 1))
+const FOO_CONTRACT: &str = "(define-public (foo) (ok 1))
                                     (define-public (bar (x uint)) (ok x))";
-const TRAIT_CONTRACT: &'static str = "(define-trait tr ((value () (response uint uint))))";
-const USE_TRAIT_CONTRACT: &'static str = "(use-trait tr-trait .trait-contract.tr)
+const TRAIT_CONTRACT: &str = "(define-trait tr ((value () (response uint uint))))";
+const USE_TRAIT_CONTRACT: &str = "(use-trait tr-trait .trait-contract.tr)
                                          (define-public (baz (abc <tr-trait>)) (ok (contract-of abc)))";
-const IMPLEMENT_TRAIT_CONTRACT: &'static str = "(define-public (value) (ok u1))";
-const BAD_TRAIT_CONTRACT: &'static str = "(define-public (foo-bar) (ok u1))";
+const IMPLEMENT_TRAIT_CONTRACT: &str = "(define-public (value) (ok u1))";
+const BAD_TRAIT_CONTRACT: &str = "(define-public (foo-bar) (ok u1))";
 
 pub fn make_bad_stacks_transfer(
     sender: &StacksPrivateKey,
@@ -71,7 +71,7 @@ pub fn make_bad_stacks_transfer(
     buf
 }
 
-static CHAINSTATE_PATH: LazyLock<Mutex<Option<String>>> = LazyLock::new(|| Mutex::new(None));
+static CHAINSTATE_PATH: Mutex<Option<String>> = Mutex::new(None);
 
 #[test]
 fn mempool_setup_chainstate() {

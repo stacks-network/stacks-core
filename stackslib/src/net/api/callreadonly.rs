@@ -111,7 +111,7 @@ impl HttpRequest for RPCCallReadOnlyRequestHandler {
     fn path_regex(&self) -> Regex {
         Regex::new(&format!(
             "^/v2/contracts/call-read/(?P<address>{})/(?P<contract>{})/(?P<function>{})$",
-            *STANDARD_PRINCIPAL_REGEX_STRING, *CONTRACT_NAME_REGEX_STRING, *CLARITY_NAME_REGEX
+            STANDARD_PRINCIPAL_REGEX_STRING, CONTRACT_NAME_REGEX_STRING, CLARITY_NAME_REGEX
         ))
         .unwrap()
     }

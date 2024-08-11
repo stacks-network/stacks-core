@@ -73,7 +73,7 @@ impl HttpRequest for RPCGetContractAbiRequestHandler {
     fn path_regex(&self) -> Regex {
         Regex::new(&format!(
             "^/v2/contracts/interface/(?P<address>{})/(?P<contract>{})$",
-            *STANDARD_PRINCIPAL_REGEX_STRING, *CONTRACT_NAME_REGEX_STRING
+            STANDARD_PRINCIPAL_REGEX_STRING, CONTRACT_NAME_REGEX_STRING
         ))
         .unwrap()
     }

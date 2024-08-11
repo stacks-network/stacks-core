@@ -17,7 +17,7 @@
 use std::error::Error;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{LazyLock, Mutex};
+use std::sync::Mutex;
 use std::{fmt, fs};
 
 use clarity::vm::costs::ExecutionCost;
@@ -37,8 +37,7 @@ use crate::util_lib::db::{sqlite_open, tx_busy_handler, DBConn, Error as Databas
 mod prometheus;
 
 #[cfg(feature = "monitoring_prom")]
-static GLOBAL_BURNCHAIN_SIGNER: LazyLock<Mutex<Option<BurnchainSigner>>> =
-    LazyLock::new(|| Mutex::new(None));
+static GLOBAL_BURNCHAIN_SIGNER: Mutex<Option<BurnchainSigner>> = Mutex::new(None);
 
 pub fn increment_rpc_calls_counter() {
     #[cfg(feature = "monitoring_prom")]

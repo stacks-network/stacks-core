@@ -18,8 +18,8 @@ use std::borrow::Borrow;
 use std::io::prelude::*;
 use std::io::{Read, Write};
 use std::ops::{Deref, DerefMut};
-use std::sync::LazyLock;
 use std::{fmt, io};
+use std::cell::LazyCell;
 
 use clarity::vm::errors::RuntimeErrorType;
 use clarity::vm::representations::{
@@ -37,7 +37,7 @@ use stacks_common::codec::{
 use stacks_common::util::retry::BoundReader;
 use url;
 
-static URL_STRING_REGEX: LazyLock<Regex> = LazyLock::new(|| {
+const URL_STRING_REGEX: LazyCell<Regex> = LazyCell::new(|| {
     Regex::new(r#"^[a-zA-Z0-9._~:/?#\[\]@!$&'()*+,;%=-]*$"#)
         .expect("Failed to compile URL_STRING_REGEX")
 });

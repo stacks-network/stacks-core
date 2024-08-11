@@ -52,7 +52,7 @@ impl fmt::Display for NakamotoBlockObtainMethod {
     }
 }
 
-pub const NAKAMOTO_STAGING_DB_SCHEMA_1: &'static [&'static str] = &[
+pub const NAKAMOTO_STAGING_DB_SCHEMA_1: &[&str] = &[
     r#"
   -- Table for staging nakamoto blocks
   CREATE TABLE nakamoto_staging_blocks (
@@ -95,7 +95,7 @@ pub const NAKAMOTO_STAGING_DB_SCHEMA_1: &'static [&'static str] = &[
     r#"CREATE INDEX nakamoto_staging_blocks_by_tenure_start_block ON nakamoto_staging_blocks(is_tenure_start,consensus_hash);"#,
 ];
 
-pub const NAKAMOTO_STAGING_DB_SCHEMA_2: &'static [&'static str] = &[
+pub const NAKAMOTO_STAGING_DB_SCHEMA_2: &[&str] = &[
     r#"
   DROP TABLE nakamoto_staging_blocks;
   "#,
