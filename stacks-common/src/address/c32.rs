@@ -360,7 +360,7 @@ fn c32_check_decode(check_data_unsanitized: &str) -> Result<(u8, Vec<u8>), Error
 }
 
 pub fn c32_address_decode(c32_address_str: &str) -> Result<(u8, Vec<u8>), Error> {
-    if c32_address_str.len() <= 5 {
+    if !c32_address_str.is_ascii() || c32_address_str.len() <= 5 {
         Err(Error::InvalidCrockford32)
     } else {
         c32_check_decode(&c32_address_str[1..])
