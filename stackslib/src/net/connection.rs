@@ -167,8 +167,9 @@ impl<P: ProtocolFamily> NetworkReplyHandle<P> {
     /// is destroyed in the process).
     pub fn try_recv(mut self) -> Result<P::Message, Result<NetworkReplyHandle<P>, net_error>> {
         if self.deadline > 0 && self.deadline < get_epoch_time_secs() {
-            test_debug!(
-                "Reply deadline {} exceeded (now = {})",
+            debug!(
+                "Reply deadline for event {} at {} exceeded (now = {})",
+                self.socket_event_id,
                 self.deadline,
                 get_epoch_time_secs()
             );
@@ -234,10 +235,9 @@ impl<P: ProtocolFamily> NetworkReplyHandle<P> {
                     None
                 } else {
                     // still have data to send, or we will send more.
-                    test_debug!(
+                    debug!(
                         "Still have data to send, drop_on_success = {}, ret = {}",
-                        drop_on_success,
-                        ret
+                        drop_on_success, ret
                     );
                     Some(fd)
                 }
@@ -957,7 +957,7 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
                         || e.kind() == io::ErrorKind::ConnectionReset
                     {
                         // write endpoint is dead
-                        test_debug!("reader was reset: {:?}", &e);
+                        debug!("reader was reset: {:?}", &e);
                         socket_closed = true;
                         blocked = true;
                         Ok(0)
@@ -971,7 +971,7 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
             total_read += num_read;
 
             if num_read > 0 || total_read > 0 {
-                trace!("read {} bytes; {} total", num_read, total_read);
+                debug!("read {} bytes; {} total", num_read, total_read);
             }
 
             if num_read > 0 {
