@@ -236,7 +236,7 @@ UPDATE db_config SET version = "4";
 ]
 });
 
-pub static NAKAMOTO_CHAINSTATE_SCHEMA_2: &[&str] = &[
+pub const NAKAMOTO_CHAINSTATE_SCHEMA_2: &[&str] = &[
     NAKAMOTO_TENURES_SCHEMA_2,
     r#"
     ALTER TABLE nakamoto_block_headers
@@ -254,7 +254,7 @@ pub static NAKAMOTO_CHAINSTATE_SCHEMA_2: &[&str] = &[
     "#,
 ];
 
-pub static NAKAMOTO_CHAINSTATE_SCHEMA_3: &[&str] = &[
+pub const NAKAMOTO_CHAINSTATE_SCHEMA_3: &[&str] = &[
     NAKAMOTO_TENURES_SCHEMA_3,
     r#"
     UPDATE db_config SET version = "6";
