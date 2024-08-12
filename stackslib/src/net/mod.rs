@@ -65,6 +65,7 @@ use crate::burnchains::affirmation::AffirmationMap;
 use crate::burnchains::{Error as burnchain_error, Txid};
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::{ConsensusHash, Opcodes};
+use crate::chainstate::coordinator::comm::CoordinatorChannels;
 use crate::chainstate::coordinator::Error as coordinator_error;
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use crate::chainstate::stacks::boot::{
@@ -626,6 +627,8 @@ pub struct RPCHandlerArgs<'a> {
     pub fee_estimator: Option<&'a dyn FeeEstimator>,
     /// tx runtime cost metric
     pub cost_metric: Option<&'a dyn CostMetric>,
+    /// coordinator channels
+    pub coord_comms: Option<&'a CoordinatorChannels>,
 }
 
 impl<'a> RPCHandlerArgs<'a> {
@@ -1026,6 +1029,7 @@ pub mod NackErrorCodes {
     pub const NoSuchDB: u32 = 6;
     pub const StaleVersion: u32 = 7;
     pub const StaleView: u32 = 8;
+    pub const FutureVersion: u32 = 9;
 }
 
 #[derive(Debug, Clone, PartialEq)]
