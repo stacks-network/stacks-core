@@ -109,16 +109,22 @@ impl NeighborRPC {
                 Ok(Some(response)) => response,
                 Ok(None) => {
                     // keep trying
+                    debug!("Still waiting for next reply from {}", &naddr);
                     inflight.insert(naddr, (event_id, request_opt));
                     continue;
                 }
                 Err(NetError::WaitingForDNS) => {
                     // keep trying
+                    debug!(
+                        "Could not yet poll next reply from {}: waiting for DNS",
+                        &naddr
+                    );
                     inflight.insert(naddr, (event_id, request_opt));
                     continue;
                 }
                 Err(_e) => {
                     // declare this neighbor as dead by default
+                    debug!("Failed to poll next reply from {}: {:?}", &naddr, &_e);
                     dead.push(naddr);
                     continue;
                 }
@@ -201,6 +207,10 @@ impl NeighborRPC {
                 })
             })?;
 
+        debug!(
+            "Send request to {} on event {}: {:?}",
+            &naddr, event_id, &request
+        );
         self.state.insert(naddr, (event_id, Some(request)));
         Ok(())
     }
