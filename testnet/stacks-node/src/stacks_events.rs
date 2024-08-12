@@ -1,9 +1,9 @@
+use std::cell::LazyCell;
 use std::io::prelude::*;
 use std::io::BufReader;
 use std::net::{TcpListener, TcpStream};
 
 use chrono::{SecondsFormat, Utc};
-use lazy_static::lazy_static;
 use regex::Regex;
 use serde_json::{json, Value};
 
@@ -41,10 +41,13 @@ fn serve_for_events(addr: &String) {
     }
 }
 
-lazy_static! {
-    static ref RE_POST: Regex = Regex::new(r"^POST /(.*?) HTTP/1.1\r\n$").unwrap();
-    static ref RE_CONTENT_LENGTH: Regex = Regex::new(r"^content-length: (\d+)\r\n$").unwrap();
-}
+const RE_POST: LazyCell<Regex> = LazyCell::new(|| {
+    Regex::new(r"^POST /(.*?) HTTP/1.1\r\n$").expect("Failed to compile RE_POST regex")
+});
+
+const RE_CONTENT_LENGTH: LazyCell<Regex> = LazyCell::new(|| {
+    Regex::new(r"^content-length: (\d+)\r\n$").expect("Failed to compile RE_CONTENT_LENGTH regex")
+});
 
 fn handle_connection(mut stream: TcpStream) {
     let mut buf = String::with_capacity(10 * 1024);

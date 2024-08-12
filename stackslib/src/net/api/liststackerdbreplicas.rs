@@ -72,7 +72,7 @@ impl HttpRequest for RPCListStackerDBReplicasRequestHandler {
     fn path_regex(&self) -> Regex {
         Regex::new(&format!(
             r#"^/v2/stackerdb/(?P<address>{})/(?P<contract>{})/replicas$"#,
-            *STANDARD_PRINCIPAL_REGEX_STRING, *CONTRACT_NAME_REGEX_STRING
+            STANDARD_PRINCIPAL_REGEX_STRING, CONTRACT_NAME_REGEX_STRING
         ))
         .unwrap()
     }

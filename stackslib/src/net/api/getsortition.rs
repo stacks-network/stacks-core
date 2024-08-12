@@ -53,8 +53,8 @@ pub enum QuerySpecifier {
     Latest,
 }
 
-pub static RPC_SORTITION_INFO_PATH: &str = "/v3/sortitions";
-static PATH_REGEX: &str = "^/v3/sortitions(/(?P<key>[a-z_]{1,15})/(?P<value>[0-9a-f]{1,64}))?$";
+pub const RPC_SORTITION_INFO_PATH: &str = "/v3/sortitions";
+const PATH_REGEX: &str = "^/v3/sortitions(/(?P<key>[a-z_]{1,15})/(?P<value>[0-9a-f]{1,64}))?$";
 
 /// Struct for sortition information returned via the GetSortition API call
 #[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]

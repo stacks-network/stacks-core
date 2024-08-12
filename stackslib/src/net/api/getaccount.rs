@@ -79,7 +79,7 @@ impl HttpRequest for RPCGetAccountRequestHandler {
     fn path_regex(&self) -> Regex {
         Regex::new(&format!(
             "^/v2/accounts/(?P<principal>{})$",
-            *PRINCIPAL_DATA_REGEX_STRING
+            PRINCIPAL_DATA_REGEX_STRING
         ))
         .unwrap()
     }

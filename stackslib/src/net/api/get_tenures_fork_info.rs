@@ -47,9 +47,9 @@ use crate::net::httpcore::{
 use crate::net::{Error as NetError, StacksNodeState, TipRequest, MAX_HEADERS};
 use crate::util_lib::db::{DBConn, Error as DBError};
 
-pub static RPC_TENURE_FORKING_INFO_PATH: &str = "/v3/tenures/fork_info";
+pub const RPC_TENURE_FORKING_INFO_PATH: &str = "/v3/tenures/fork_info";
 
-static DEPTH_LIMIT: usize = 10;
+const DEPTH_LIMIT: usize = 10;
 
 /// Struct for information about a tenure that is used to determine whether
 ///  or not the tenure should have been validly forked.

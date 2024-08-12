@@ -15,6 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::borrow::Borrow;
+use std::cell::LazyCell;
 use std::io::prelude::*;
 use std::io::{Read, Write};
 use std::ops::{Deref, DerefMut};
@@ -28,7 +29,6 @@ use clarity::vm::representations::{
 use clarity::vm::types::{
     PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, Value,
 };
-use lazy_static::lazy_static;
 use regex::Regex;
 use stacks_common::codec::{
     read_next, read_next_at_most, write_next, Error as codec_error, StacksMessageCodec,
@@ -37,10 +37,10 @@ use stacks_common::codec::{
 use stacks_common::util::retry::BoundReader;
 use url;
 
-lazy_static! {
-    static ref URL_STRING_REGEX: Regex =
-        Regex::new(r#"^[a-zA-Z0-9._~:/?#\[\]@!$&'()*+,;%=-]*$"#).unwrap();
-}
+const URL_STRING_REGEX: LazyCell<Regex> = LazyCell::new(|| {
+    Regex::new(r#"^[a-zA-Z0-9._~:/?#\[\]@!$&'()*+,;%=-]*$"#)
+        .expect("Failed to compile URL_STRING_REGEX")
+});
 
 guarded_string!(
     UrlString,

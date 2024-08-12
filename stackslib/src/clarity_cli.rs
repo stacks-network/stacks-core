@@ -18,10 +18,10 @@ use std::ffi::OsStr;
 use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::str::FromStr;
+use std::sync::LazyLock;
 use std::{env, fs, io, process};
 
 use clarity::vm::coverage::CoverageReporter;
-use lazy_static::lazy_static;
 use rand::Rng;
 use rusqlite::types::ToSql;
 use rusqlite::{Connection, OpenFlags, Row, Transaction};
@@ -68,8 +68,8 @@ use crate::util_lib::boot::{boot_code_addr, boot_code_id};
 use crate::util_lib::db::{sqlite_open, FromColumn};
 use crate::util_lib::strings::StacksString;
 
-lazy_static! {
-    pub static ref STACKS_BOOT_CODE_MAINNET_2_1: [(&'static str, &'static str); 9] = [
+pub static STACKS_BOOT_CODE_MAINNET_2_1: LazyLock<[(&str, &str); 9]> = LazyLock::new(|| {
+    [
         ("pox", &BOOT_CODE_POX_MAINNET),
         ("lockup", BOOT_CODE_LOCKUP),
         ("costs", BOOT_CODE_COSTS),
@@ -79,8 +79,11 @@ lazy_static! {
         ("costs-2", BOOT_CODE_COSTS_2),
         ("pox-2", &POX_2_MAINNET_CODE),
         ("costs-3", BOOT_CODE_COSTS_3),
-    ];
-    pub static ref STACKS_BOOT_CODE_TESTNET_2_1: [(&'static str, &'static str); 9] = [
+    ]
+});
+
+pub static STACKS_BOOT_CODE_TESTNET_2_1: LazyLock<[(&str, &str); 9]> = LazyLock::new(|| {
+    [
         ("pox", &BOOT_CODE_POX_TESTNET),
         ("lockup", BOOT_CODE_LOCKUP),
         ("costs", BOOT_CODE_COSTS),
@@ -90,8 +93,8 @@ lazy_static! {
         ("costs-2", BOOT_CODE_COSTS_2_TESTNET),
         ("pox-2", &POX_2_TESTNET_CODE),
         ("costs-3", BOOT_CODE_COSTS_3),
-    ];
-}
+    ]
+});
 
 #[cfg(test)]
 macro_rules! panic_test {

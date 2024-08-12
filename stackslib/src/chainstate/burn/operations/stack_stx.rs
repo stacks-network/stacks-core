@@ -54,7 +54,7 @@ struct ParsedData {
     auth_id: Option<u32>,
 }
 
-pub static OUTPUTS_PER_COMMIT: usize = 2;
+pub const OUTPUTS_PER_COMMIT: usize = 2;
 
 impl PreStxOp {
     #[cfg(test)]

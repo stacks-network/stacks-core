@@ -86,8 +86,8 @@ impl std::ops::Deref for Treatment {
     }
 }
 
-pub static OUTPUTS_PER_COMMIT: usize = 2;
-pub static BURN_BLOCK_MINED_AT_MODULUS: u64 = 5;
+pub const OUTPUTS_PER_COMMIT: usize = 2;
+pub const BURN_BLOCK_MINED_AT_MODULUS: u64 = 5;
 
 impl LeaderBlockCommitOp {
     #[cfg(test)]

@@ -12,7 +12,7 @@ keywords = [ "stacks", "stx", "bitcoin", "crypto", "blockstack", "decentralized"
 readme = "README.md"
 resolver = "2"
 edition = "2021"
-rust-version = "1.61"
+rust-version.workspace = true
 
 [lib]
 name = "blockstack_lib"
@@ -41,7 +41,6 @@ sha3 = "0.10.1"
 ripemd = "0.1.1"
 regex = "1"
 mio = "0.6"
-lazy_static = "1.4.0"
 url = "2.1.0"
 percent-encoding = "2.1.0"
 prometheus = { version = "0.9", optional = true }
@@ -59,6 +58,7 @@ siphasher = "0.3.7"
 wsts = { workspace = true }
 hashbrown = { workspace = true }
 rusqlite = { workspace = true }
+const_format.workspace = true
 
 [target.'cfg(not(any(target_os = "macos",target_os="windows", target_arch = "arm" )))'.dependencies]
 tikv-jemallocator = {workspace = true}

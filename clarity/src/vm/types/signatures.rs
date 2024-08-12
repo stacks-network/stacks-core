@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::cell::LazyCell;
 use std::collections::btree_map::Entry;
 use std::collections::{hash_map, BTreeMap};
 use std::hash::{Hash, Hasher};
@@ -23,7 +24,6 @@ use std::{cmp, fmt};
 
 // TypeSignatures
 use hashbrown::HashSet;
-use lazy_static::lazy_static;
 use stacks_common::address::c32;
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash;
@@ -192,56 +192,54 @@ use self::TypeSignature::{
     ResponseType, SequenceType, TraitReferenceType, TupleType, UIntType,
 };
 
-lazy_static! {
-    pub static ref BUFF_64: TypeSignature = {
-        #[allow(clippy::expect_used)]
-        SequenceType(SequenceSubtype::BufferType(
-            BufferLength::try_from(64u32).expect("BUG: Legal Clarity buffer length marked invalid"),
-        ))
-    };
-    pub static ref BUFF_65: TypeSignature = {
-        #[allow(clippy::expect_used)]
-        SequenceType(SequenceSubtype::BufferType(
-            BufferLength::try_from(65u32).expect("BUG: Legal Clarity buffer length marked invalid"),
-        ))
-    };
-    pub static ref BUFF_32: TypeSignature = {
-        #[allow(clippy::expect_used)]
-        SequenceType(SequenceSubtype::BufferType(
-            BufferLength::try_from(32u32).expect("BUG: Legal Clarity buffer length marked invalid"),
-        ))
-    };
-    pub static ref BUFF_33: TypeSignature = {
-        #[allow(clippy::expect_used)]
-        SequenceType(SequenceSubtype::BufferType(
-            BufferLength::try_from(33u32).expect("BUG: Legal Clarity buffer length marked invalid"),
-        ))
-    };
-    pub static ref BUFF_20: TypeSignature = {
-        #[allow(clippy::expect_used)]
-        SequenceType(SequenceSubtype::BufferType(
-            BufferLength::try_from(20u32).expect("BUG: Legal Clarity buffer length marked invalid"),
-        ))
-    };
-    pub static ref BUFF_21: TypeSignature = {
-        #[allow(clippy::expect_used)]
-        SequenceType(SequenceSubtype::BufferType(
-            BufferLength::try_from(21u32).expect("BUG: Legal Clarity buffer length marked invalid"),
-        ))
-    };
-    pub static ref BUFF_1: TypeSignature = {
-        #[allow(clippy::expect_used)]
-        SequenceType(SequenceSubtype::BufferType(
-            BufferLength::try_from(1u32).expect("BUG: Legal Clarity buffer length marked invalid"),
-        ))
-    };
-    pub static ref BUFF_16: TypeSignature = {
-        #[allow(clippy::expect_used)]
-        SequenceType(SequenceSubtype::BufferType(
-            BufferLength::try_from(16u32).expect("BUG: Legal Clarity buffer length marked invalid"),
-        ))
-    };
-}
+pub const BUFF_64: LazyCell<TypeSignature> = LazyCell::new(|| {
+    #[allow(clippy::expect_used)]
+    SequenceType(SequenceSubtype::BufferType(
+        BufferLength::try_from(64u32).expect("BUG: Legal Clarity buffer length marked invalid"),
+    ))
+});
+pub const BUFF_65: LazyCell<TypeSignature> = LazyCell::new(|| {
+    #[allow(clippy::expect_used)]
+    SequenceType(SequenceSubtype::BufferType(
+        BufferLength::try_from(65u32).expect("BUG: Legal Clarity buffer length marked invalid"),
+    ))
+});
+pub const BUFF_32: LazyCell<TypeSignature> = LazyCell::new(|| {
+    #[allow(clippy::expect_used)]
+    SequenceType(SequenceSubtype::BufferType(
+        BufferLength::try_from(32u32).expect("BUG: Legal Clarity buffer length marked invalid"),
+    ))
+});
+pub const BUFF_33: LazyCell<TypeSignature> = LazyCell::new(|| {
+    #[allow(clippy::expect_used)]
+    SequenceType(SequenceSubtype::BufferType(
+        BufferLength::try_from(33u32).expect("BUG: Legal Clarity buffer length marked invalid"),
+    ))
+});
+pub const BUFF_20: LazyCell<TypeSignature> = LazyCell::new(|| {
+    #[allow(clippy::expect_used)]
+    SequenceType(SequenceSubtype::BufferType(
+        BufferLength::try_from(20u32).expect("BUG: Legal Clarity buffer length marked invalid"),
+    ))
+});
+pub const BUFF_21: LazyCell<TypeSignature> = LazyCell::new(|| {
+    #[allow(clippy::expect_used)]
+    SequenceType(SequenceSubtype::BufferType(
+        BufferLength::try_from(21u32).expect("BUG: Legal Clarity buffer length marked invalid"),
+    ))
+});
+pub const BUFF_1: LazyCell<TypeSignature> = LazyCell::new(|| {
+    #[allow(clippy::expect_used)]
+    SequenceType(SequenceSubtype::BufferType(
+        BufferLength::try_from(1u32).expect("BUG: Legal Clarity buffer length marked invalid"),
+    ))
+});
+pub const BUFF_16: LazyCell<TypeSignature> = LazyCell::new(|| {
+    #[allow(clippy::expect_used)]
+    SequenceType(SequenceSubtype::BufferType(
+        BufferLength::try_from(16u32).expect("BUG: Legal Clarity buffer length marked invalid"),
+    ))
+});
 
 pub const ASCII_40: TypeSignature = SequenceType(SequenceSubtype::StringType(
     StringSubtype::ASCII(BufferLength(40)),

@@ -15,6 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::io::{self, Read};
 use std::path::PathBuf;
+use std::sync::LazyLock;
 
 use blockstack_lib::chainstate::stacks::address::PoxAddress;
 use blockstack_lib::util_lib::signed_structured_data::pox4::Pox4SignatureTopic;
@@ -29,7 +30,6 @@ use clarity::util::hash::Sha256Sum;
 use clarity::util::secp256k1::MessageSignature;
 use clarity::vm::types::{QualifiedContractIdentifier, TupleData};
 use clarity::vm::Value;
-use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use stacks_common::address::{
     b58, AddressHashMode, C32_ADDRESS_VERSION_MAINNET_MULTISIG,
@@ -41,29 +41,27 @@ use stacks_common::types::chainstate::StacksPrivateKey;
 
 extern crate alloc;
 
-const GIT_BRANCH: Option<&'static str> = option_env!("GIT_BRANCH");
-const GIT_COMMIT: Option<&'static str> = option_env!("GIT_COMMIT");
+const GIT_BRANCH: Option<&str> = option_env!("GIT_BRANCH");
+const GIT_COMMIT: Option<&str> = option_env!("GIT_COMMIT");
 #[cfg(debug_assertions)]
 const BUILD_TYPE: &str = "debug";
 #[cfg(not(debug_assertions))]
 const BUILD_TYPE: &str = "release";
 
-lazy_static! {
-    static ref VERSION_STRING: String = {
-        let pkg_version = option_env!("STACKS_NODE_VERSION").unwrap_or(env!("CARGO_PKG_VERSION"));
-        let git_branch = GIT_BRANCH.unwrap_or("");
-        let git_commit = GIT_COMMIT.unwrap_or("");
-        format!(
-            "{} ({}:{}, {} build, {} [{}])",
-            pkg_version,
-            git_branch,
-            git_commit,
-            BUILD_TYPE,
-            std::env::consts::OS,
-            std::env::consts::ARCH
-        )
-    };
-}
+static VERSION_STRING: LazyLock<String> = LazyLock::new(|| {
+    let pkg_version = option_env!("STACKS_NODE_VERSION").unwrap_or(env!("CARGO_PKG_VERSION"));
+    let git_branch = GIT_BRANCH.unwrap_or("");
+    let git_commit = GIT_COMMIT.unwrap_or("");
+    format!(
+        "{} ({}:{}, {} build, {} [{}])",
+        pkg_version,
+        git_branch,
+        git_commit,
+        BUILD_TYPE,
+        std::env::consts::OS,
+        std::env::consts::ARCH
+    )
+});
 
 #[derive(Parser, Debug)]
 #[command(author, version, about)]

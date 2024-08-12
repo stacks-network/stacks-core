@@ -126,7 +126,7 @@ macro_rules! user_enum {
                     where
                         E: $crate::serde::de::Error,
                     {
-                        static FIELDS: &'static [&'static str] = &[$(stringify!($txt)),*];
+                        static FIELDS: &'static [&str] = &[$(stringify!($txt)),*];
 
                         $( if v == $txt { Ok($name::$elem) } )else*
                         else {
@@ -310,7 +310,7 @@ macro_rules! serde_struct_impl {
                 }
                 // end type defs
 
-                static FIELDS: &'static [&'static str] = &[$(stringify!($fe)),*];
+                static FIELDS: &'static [&str] = &[$(stringify!($fe)),*];
 
                 deserializer.deserialize_struct(stringify!($name), FIELDS, Visitor)
             }
@@ -325,7 +325,7 @@ macro_rules! serde_struct_impl {
                 use $crate::serde::ser::SerializeStruct;
 
                 // Only used to get the struct length.
-                static FIELDS: &'static [&'static str] = &[$(stringify!($fe)),*];
+                static FIELDS: &'static [&str] = &[$(stringify!($fe)),*];
 
                 let mut st = serializer.serialize_struct(stringify!($name), FIELDS.len())?;
 

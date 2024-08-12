@@ -46,7 +46,7 @@ use crate::tests::neon_integrations::*;
 use crate::tests::*;
 use crate::{neon, BitcoinRegtestController, BurnchainController, Keychain};
 
-const MINER_BURN_PUBLIC_KEY: &'static str =
+const MINER_BURN_PUBLIC_KEY: &str =
     "03dc62fe0b8964d01fc9ca9a5eec0e22e557a12cc656919e648f04e0b26fea5faa";
 
 fn advance_to_2_1(

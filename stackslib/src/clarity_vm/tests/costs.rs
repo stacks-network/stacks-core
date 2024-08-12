@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::cell::LazyCell;
 use std::collections::HashMap;
 
 use clarity::vm::ast::ASTRules;
@@ -38,7 +39,6 @@ use clarity::vm::types::{
     AssetIdentifier, OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, Value,
 };
 use clarity::vm::{ClarityVersion, ContractName};
-use lazy_static::lazy_static;
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId};
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::hex_bytes;
@@ -50,12 +50,11 @@ use crate::clarity_vm::database::marf::MarfedKV;
 use crate::core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 use crate::util_lib::boot::boot_code_id;
 
-lazy_static! {
-    static ref COST_VOTING_MAINNET_CONTRACT: QualifiedContractIdentifier =
-        boot_code_id("cost-voting", true);
-    static ref COST_VOTING_TESTNET_CONTRACT: QualifiedContractIdentifier =
-        boot_code_id("cost-voting", false);
-}
+const COST_VOTING_MAINNET_CONTRACT: LazyCell<QualifiedContractIdentifier> =
+    LazyCell::new(|| boot_code_id("cost-voting", true));
+
+const COST_VOTING_TESTNET_CONTRACT: LazyCell<QualifiedContractIdentifier> =
+    LazyCell::new(|| boot_code_id("cost-voting", false));
 
 pub fn get_simple_test(function: &NativeFunctions) -> &'static str {
     use clarity::vm::functions::NativeFunctions::*;

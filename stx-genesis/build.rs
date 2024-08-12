@@ -7,17 +7,17 @@ use std::{env, fs};
 use libflate::deflate;
 use sha2::{Digest, Sha256};
 
-pub static CHAINSTATE_FILE: &str = "chainstate.txt";
-pub static CHAINSTATE_SHA256_FILE: &str = "chainstate.txt.sha256";
+pub const CHAINSTATE_FILE: &str = "chainstate.txt";
+pub const CHAINSTATE_SHA256_FILE: &str = "chainstate.txt.sha256";
 
-pub static CHAINSTATE_TEST_FILE: &str = "chainstate-test.txt";
-pub static CHAINSTATE_TEST_SHA256_FILE: &str = "chainstate-test.txt.sha256";
+pub const CHAINSTATE_TEST_FILE: &str = "chainstate-test.txt";
+pub const CHAINSTATE_TEST_SHA256_FILE: &str = "chainstate-test.txt.sha256";
 
-pub static NAME_ZONEFILES_FILE: &str = "name_zonefiles.txt";
-pub static NAME_ZONEFILES_SHA256_FILE: &str = "name_zonefiles.txt.sha256";
+pub const NAME_ZONEFILES_FILE: &str = "name_zonefiles.txt";
+pub const NAME_ZONEFILES_SHA256_FILE: &str = "name_zonefiles.txt.sha256";
 
-pub static NAME_ZONEFILES_TEST_FILE: &str = "name_zonefiles-test.txt";
-pub static NAME_ZONEFILES_TEST_SHA256_FILE: &str = "name_zonefiles-test.txt.sha256";
+pub const NAME_ZONEFILES_TEST_FILE: &str = "name_zonefiles-test.txt";
+pub const NAME_ZONEFILES_TEST_SHA256_FILE: &str = "name_zonefiles-test.txt.sha256";
 
 fn main() {
     verify_name_zonefiles_integrity(true)

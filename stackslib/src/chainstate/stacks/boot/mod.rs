@@ -16,6 +16,7 @@
 
 use std::cmp;
 use std::collections::BTreeMap;
+use std::sync::LazyLock;
 
 use clarity::vm::analysis::CheckErrors;
 use clarity::vm::ast::ASTRules;
@@ -35,7 +36,7 @@ use clarity::vm::types::{
     TypeSignature, Value,
 };
 use clarity::vm::{ClarityVersion, Environment, SymbolicExpression};
-use lazy_static::lazy_static;
+use const_format::formatcp;
 use serde::Deserialize;
 use stacks_common::address::AddressHashMode;
 use stacks_common::codec::StacksMessageCodec;
@@ -63,83 +64,113 @@ use crate::core::{
 use crate::util_lib::boot;
 use crate::util_lib::strings::VecDisplay;
 
-const BOOT_CODE_POX_BODY: &'static str = std::include_str!("pox.clar");
-const BOOT_CODE_POX_TESTNET_CONSTS: &'static str = std::include_str!("pox-testnet.clar");
-const BOOT_CODE_POX_MAINNET_CONSTS: &'static str = std::include_str!("pox-mainnet.clar");
-pub const BOOT_CODE_LOCKUP: &'static str = std::include_str!("lockup.clar");
-pub const BOOT_CODE_COSTS: &'static str = std::include_str!("costs.clar");
-pub const BOOT_CODE_COSTS_2: &'static str = std::include_str!("costs-2.clar");
-pub const BOOT_CODE_COSTS_3: &'static str = std::include_str!("costs-3.clar");
-pub const BOOT_CODE_COSTS_2_TESTNET: &'static str = std::include_str!("costs-2-testnet.clar");
-pub const BOOT_CODE_COST_VOTING_MAINNET: &'static str = std::include_str!("cost-voting.clar");
-pub const BOOT_CODE_BNS: &'static str = std::include_str!("bns.clar");
-pub const BOOT_CODE_GENESIS: &'static str = std::include_str!("genesis.clar");
-pub const POX_1_NAME: &'static str = "pox";
-pub const POX_2_NAME: &'static str = "pox-2";
-pub const POX_3_NAME: &'static str = "pox-3";
-pub const POX_4_NAME: &'static str = "pox-4";
-pub const SIGNERS_NAME: &'static str = "signers";
-pub const SIGNERS_VOTING_NAME: &'static str = "signers-voting";
+const BOOT_CODE_POX_BODY: &str = std::include_str!("pox.clar");
+const BOOT_CODE_POX_TESTNET_CONSTS: &str = std::include_str!("pox-testnet.clar");
+const BOOT_CODE_POX_MAINNET_CONSTS: &str = std::include_str!("pox-mainnet.clar");
+pub const BOOT_CODE_LOCKUP: &str = std::include_str!("lockup.clar");
+pub const BOOT_CODE_COSTS: &str = std::include_str!("costs.clar");
+pub const BOOT_CODE_COSTS_2: &str = std::include_str!("costs-2.clar");
+pub const BOOT_CODE_COSTS_3: &str = std::include_str!("costs-3.clar");
+pub const BOOT_CODE_COSTS_2_TESTNET: &str = std::include_str!("costs-2-testnet.clar");
+pub const BOOT_CODE_COST_VOTING_MAINNET: &str = std::include_str!("cost-voting.clar");
+pub const BOOT_CODE_BNS: &str = std::include_str!("bns.clar");
+pub const BOOT_CODE_GENESIS: &str = std::include_str!("genesis.clar");
+pub const POX_1_NAME: &str = "pox";
+pub const POX_2_NAME: &str = "pox-2";
+pub const POX_3_NAME: &str = "pox-3";
+pub const POX_4_NAME: &str = "pox-4";
+pub const SIGNERS_NAME: &str = "signers";
+pub const SIGNERS_VOTING_NAME: &str = "signers-voting";
 pub const SIGNERS_VOTING_FUNCTION_NAME: &str = "vote-for-aggregate-public-key";
 /// This is the name of a variable in the `.signers` contract which tracks the most recently updated
 /// reward cycle number.
-pub const SIGNERS_UPDATE_STATE: &'static str = "last-set-cycle";
+pub const SIGNERS_UPDATE_STATE: &str = "last-set-cycle";
 pub const SIGNERS_MAX_LIST_SIZE: usize = 4000;
 pub const SIGNERS_PK_LEN: usize = 33;
 
-const POX_2_BODY: &'static str = std::include_str!("pox-2.clar");
-const POX_3_BODY: &'static str = std::include_str!("pox-3.clar");
-const POX_4_BODY: &'static str = std::include_str!("pox-4.clar");
-pub const SIGNERS_BODY: &'static str = std::include_str!("signers.clar");
-pub const SIGNERS_DB_0_BODY: &'static str = std::include_str!("signers-0-xxx.clar");
-pub const SIGNERS_DB_1_BODY: &'static str = std::include_str!("signers-1-xxx.clar");
-pub const SIGNERS_VOTING_BODY: &'static str = std::include_str!("signers-voting.clar");
+const POX_2_BODY: &str = std::include_str!("pox-2.clar");
+const POX_3_BODY: &str = std::include_str!("pox-3.clar");
+const POX_4_BODY: &str = std::include_str!("pox-4.clar");
+pub const SIGNERS_BODY: &str = std::include_str!("signers.clar");
+pub const SIGNERS_DB_0_BODY: &str = std::include_str!("signers-0-xxx.clar");
+pub const SIGNERS_DB_1_BODY: &str = std::include_str!("signers-1-xxx.clar");
+pub const SIGNERS_VOTING_BODY: &str = std::include_str!("signers-voting.clar");
 
-pub const COSTS_1_NAME: &'static str = "costs";
-pub const COSTS_2_NAME: &'static str = "costs-2";
-pub const COSTS_3_NAME: &'static str = "costs-3";
+pub const COSTS_1_NAME: &str = "costs";
+pub const COSTS_2_NAME: &str = "costs-2";
+pub const COSTS_3_NAME: &str = "costs-3";
 /// This contract name is used in testnet **only** to lookup an initial
 ///  setting for the pox-4 aggregate key. This contract should contain a `define-read-only`
 ///  function called `aggregate-key` with zero arguments which returns a (buff 33)
-pub const BOOT_TEST_POX_4_AGG_KEY_CONTRACT: &'static str = "pox-4-agg-test-booter";
-pub const BOOT_TEST_POX_4_AGG_KEY_FNAME: &'static str = "aggregate-key";
+pub const BOOT_TEST_POX_4_AGG_KEY_CONTRACT: &str = "pox-4-agg-test-booter";
+pub const BOOT_TEST_POX_4_AGG_KEY_FNAME: &str = "aggregate-key";
 
-pub const MINERS_NAME: &'static str = "miners";
+pub const MINERS_NAME: &str = "miners";
 
 pub mod docs;
 
-lazy_static! {
-    pub static ref BOOT_CODE_POX_MAINNET: String =
-        format!("{}\n{}", BOOT_CODE_POX_MAINNET_CONSTS, BOOT_CODE_POX_BODY);
-    pub static ref BOOT_CODE_POX_TESTNET: String =
-        format!("{}\n{}", BOOT_CODE_POX_TESTNET_CONSTS, BOOT_CODE_POX_BODY);
-    pub static ref POX_2_MAINNET_CODE: String =
-        format!("{}\n{}", BOOT_CODE_POX_MAINNET_CONSTS, POX_2_BODY);
-    pub static ref POX_2_TESTNET_CODE: String =
-        format!("{}\n{}", BOOT_CODE_POX_TESTNET_CONSTS, POX_2_BODY);
-    pub static ref POX_3_MAINNET_CODE: String =
-        format!("{}\n{}", BOOT_CODE_POX_MAINNET_CONSTS, POX_3_BODY);
-    pub static ref POX_3_TESTNET_CODE: String =
-        format!("{}\n{}", BOOT_CODE_POX_TESTNET_CONSTS, POX_3_BODY);
-    pub static ref POX_4_CODE: String = POX_4_BODY.to_string();
-    pub static ref BOOT_CODE_COST_VOTING_TESTNET: String = make_testnet_cost_voting();
-    pub static ref STACKS_BOOT_CODE_MAINNET: [(&'static str, &'static str); 6] = [
+pub const BOOT_CODE_POX_MAINNET: &str = formatcp!(
+    "{consts}\n{body}",
+    consts = BOOT_CODE_POX_MAINNET_CONSTS,
+    body = BOOT_CODE_POX_BODY
+);
+
+pub const BOOT_CODE_POX_TESTNET: &str = formatcp!(
+    "{consts}\n{body}",
+    consts = BOOT_CODE_POX_TESTNET_CONSTS,
+    body = BOOT_CODE_POX_BODY
+);
+
+pub const POX_2_MAINNET_CODE: &str = formatcp!(
+    "{consts}\n{body}",
+    consts = BOOT_CODE_POX_MAINNET_CONSTS,
+    body = POX_2_BODY
+);
+
+pub const POX_2_TESTNET_CODE: &str = formatcp!(
+    "{consts}\n{body}",
+    consts = BOOT_CODE_POX_TESTNET_CONSTS,
+    body = POX_2_BODY
+);
+
+pub const POX_3_MAINNET_CODE: &str = formatcp!(
+    "{consts}\n{body}",
+    consts = BOOT_CODE_POX_MAINNET_CONSTS,
+    body = POX_3_BODY
+);
+
+pub const POX_3_TESTNET_CODE: &str = formatcp!(
+    "{consts}\n{body}",
+    consts = BOOT_CODE_POX_TESTNET_CONSTS,
+    body = POX_3_BODY
+);
+
+pub const POX_4_CODE: &str = POX_4_BODY;
+
+pub static BOOT_CODE_COST_VOTING_TESTNET: LazyLock<String> =
+    LazyLock::new(make_testnet_cost_voting);
+
+pub static STACKS_BOOT_CODE_MAINNET: LazyLock<[(&str, &str); 6]> = LazyLock::new(|| {
+    [
         ("pox", &BOOT_CODE_POX_MAINNET),
         ("lockup", BOOT_CODE_LOCKUP),
         ("costs", BOOT_CODE_COSTS),
         ("cost-voting", BOOT_CODE_COST_VOTING_MAINNET),
         ("bns", &BOOT_CODE_BNS),
         ("genesis", &BOOT_CODE_GENESIS),
-    ];
-    pub static ref STACKS_BOOT_CODE_TESTNET: [(&'static str, &'static str); 6] = [
+    ]
+});
+
+pub static STACKS_BOOT_CODE_TESTNET: LazyLock<[(&str, &str); 6]> = LazyLock::new(|| {
+    [
         ("pox", &BOOT_CODE_POX_TESTNET),
         ("lockup", BOOT_CODE_LOCKUP),
         ("costs", BOOT_CODE_COSTS),
         ("cost-voting", &BOOT_CODE_COST_VOTING_TESTNET),
         ("bns", &BOOT_CODE_BNS),
         ("genesis", &BOOT_CODE_GENESIS),
-    ];
-}
+    ]
+});
 
 fn make_testnet_cost_voting() -> String {
     BOOT_CODE_COST_VOTING_MAINNET
@@ -239,7 +270,7 @@ pub struct RewardSetData {
     pub reward_set: RewardSet,
     pub cycle_number: u64,
 }
-const POX_CYCLE_START_HANDLED_VALUE: &'static str = "1";
+const POX_CYCLE_START_HANDLED_VALUE: &str = "1";
 
 impl PoxStartCycleInfo {
     pub fn serialize(&self) -> String {

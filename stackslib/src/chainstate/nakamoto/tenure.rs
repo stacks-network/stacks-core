@@ -66,7 +66,6 @@ use clarity::vm::costs::ExecutionCost;
 use clarity::vm::database::BurnStateDB;
 use clarity::vm::events::StacksTransactionEvent;
 use clarity::vm::types::StacksAddressExtensions;
-use lazy_static::{__Deref, lazy_static};
 use rusqlite::types::{FromSql, FromSqlError, ToSql};
 use rusqlite::{params, Connection, OptionalExtension};
 use sha2::{Digest as Sha2Digest, Sha512_256};
@@ -121,7 +120,7 @@ use crate::util_lib::db::{
     FromRow,
 };
 
-pub static NAKAMOTO_TENURES_SCHEMA_1: &'static str = r#"
+pub const NAKAMOTO_TENURES_SCHEMA_1: &str = r#"
     CREATE TABLE nakamoto_tenures (
         -- consensus hash of start-tenure block (i.e. the consensus hash of the sortition in which the miner's block-commit
         -- was mined)
@@ -158,7 +157,7 @@ pub static NAKAMOTO_TENURES_SCHEMA_1: &'static str = r#"
     CREATE INDEX nakamoto_tenures_by_parent ON nakamoto_tenures(tenure_id_consensus_hash,prev_tenure_id_consensus_hash);
 "#;
 
-pub static NAKAMOTO_TENURES_SCHEMA_2: &'static str = r#"
+pub const NAKAMOTO_TENURES_SCHEMA_2: &str = r#"
     -- Drop the nakamoto_tenures table if it exists
     DROP TABLE IF EXISTS nakamoto_tenures;
 
@@ -198,7 +197,7 @@ pub static NAKAMOTO_TENURES_SCHEMA_2: &'static str = r#"
     CREATE INDEX nakamoto_tenures_by_parent ON nakamoto_tenures(tenure_id_consensus_hash,prev_tenure_id_consensus_hash);
 "#;
 
-pub static NAKAMOTO_TENURES_SCHEMA_3: &'static str = r#"
+pub const NAKAMOTO_TENURES_SCHEMA_3: &str = r#"
     -- Drop the nakamoto_tenures table if it exists
     DROP TABLE IF EXISTS nakamoto_tenures;
 

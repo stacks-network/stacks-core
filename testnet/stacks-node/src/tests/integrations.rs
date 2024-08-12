@@ -1,3 +1,4 @@
+use std::cell::LazyCell;
 use std::collections::HashMap;
 use std::fmt::Write;
 use std::sync::Mutex;
@@ -11,7 +12,6 @@ use clarity::vm::types::{
     QualifiedContractIdentifier, ResponseData, StacksAddressExtensions, TupleData,
 };
 use clarity::vm::{ClarityVersion, Value};
-use lazy_static::lazy_static;
 use reqwest;
 use serde_json::json;
 use stacks::burnchains::Address;
@@ -43,7 +43,7 @@ use crate::config::InitialBalance;
 use crate::helium::RunLoop;
 use crate::tests::make_sponsored_stacks_transfer_on_testnet;
 
-const OTHER_CONTRACT: &'static str = "
+const OTHER_CONTRACT: &str = "
   (define-data-var x uint u0)
   (define-public (f1)
     (ok (var-get x)))
@@ -51,14 +51,14 @@ const OTHER_CONTRACT: &'static str = "
     (ok (var-set x val)))
 ";
 
-const CALL_READ_CONTRACT: &'static str = "
+const CALL_READ_CONTRACT: &str = "
   (define-public (public-no-write)
     (ok (contract-call? .other f1)))
   (define-public (public-write)
     (ok (contract-call? .other f2 u5)))
 ";
 
-const GET_INFO_CONTRACT: &'static str = "
+const GET_INFO_CONTRACT: &str = "
         (define-map block-data
           { height: uint }
           { stacks-hash: (buff 32),
@@ -143,7 +143,7 @@ const GET_INFO_CONTRACT: &'static str = "
             (fn-2 (uint) (response uint uint))))
        ";
 
-const IMPL_TRAIT_CONTRACT: &'static str = "
+const IMPL_TRAIT_CONTRACT: &str = "
         ;; explicit trait compliance for trait 1
         (impl-trait .get-info.trait-1)
         (define-private (test-height) burn-block-height)
@@ -157,9 +157,7 @@ const IMPL_TRAIT_CONTRACT: &'static str = "
         (define-public (fn-1 (x uint)) (ok u1))
        ";
 
-lazy_static! {
-    static ref HTTP_BINDING: Mutex<Option<String>> = Mutex::new(None);
-}
+static HTTP_BINDING: Mutex<Option<String>> = Mutex::new(None);
 
 #[test]
 #[ignore]
@@ -1067,7 +1065,7 @@ fn integration_test_get_info() {
     run_loop.start(num_rounds).unwrap();
 }
 
-const FAUCET_CONTRACT: &'static str = "
+const FAUCET_CONTRACT: &str = "
   (define-public (spout)
     (let ((recipient tx-sender))
       (print (as-contract (stx-transfer? u1 .faucet recipient)))))
@@ -1854,14 +1852,14 @@ fn bad_contract_tx_rollback() {
     run_loop.start(num_rounds).unwrap();
 }
 
-lazy_static! {
-    static ref EXPENSIVE_CONTRACT: String = make_expensive_contract(
+const EXPENSIVE_CONTRACT: LazyCell<String> = LazyCell::new(|| {
+    make_expensive_contract(
         "(define-private (inner-loop (x int)) (begin
-           (map sha256 list-9)
-           0))",
-        ""
-    );
-}
+        (map sha256 list-9)
+        0))",
+        "",
+    )
+});
 
 fn make_expensive_contract(inner_loop: &str, other_decl: &str) -> String {
     let mut contract = "(define-constant list-0 (list 0))".to_string();

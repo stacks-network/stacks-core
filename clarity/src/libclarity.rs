@@ -73,9 +73,9 @@ pub mod boot_util {
 }
 
 // set via _compile-time_ envars
-const GIT_BRANCH: Option<&'static str> = option_env!("GIT_BRANCH");
-const GIT_COMMIT: Option<&'static str> = option_env!("GIT_COMMIT");
-const GIT_TREE_CLEAN: Option<&'static str> = option_env!("GIT_TREE_CLEAN");
+const GIT_BRANCH: Option<&str> = option_env!("GIT_BRANCH");
+const GIT_COMMIT: Option<&str> = option_env!("GIT_COMMIT");
+const GIT_TREE_CLEAN: Option<&str> = option_env!("GIT_TREE_CLEAN");
 
 #[cfg(debug_assertions)]
 const BUILD_TYPE: &str = "debug";

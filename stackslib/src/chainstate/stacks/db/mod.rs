@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::cell::LazyCell;
 use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, HashSet};
 use std::io::prelude::*;
@@ -34,7 +35,6 @@ use clarity::vm::events::*;
 use clarity::vm::representations::{ClarityName, ContractName};
 use clarity::vm::types::TupleData;
 use clarity::vm::{SymbolicExpression, Value};
-use lazy_static::lazy_static;
 use rusqlite::types::ToSql;
 use rusqlite::{params, Connection, OpenFlags, OptionalExtension, Row, Transaction};
 use serde::de::Error as de_Error;
@@ -97,10 +97,8 @@ pub mod headers;
 pub mod transactions;
 pub mod unconfirmed;
 
-lazy_static! {
-    pub static ref TRANSACTION_LOG: bool =
-        std::env::var("STACKS_TRANSACTION_LOG") == Ok("1".into());
-}
+pub const TRANSACTION_LOG: LazyCell<bool> =
+    LazyCell::new(|| std::env::var("STACKS_TRANSACTION_LOG") == Ok("1".into()));
 
 /// Fault injection struct for various kinds of faults we'd like to introduce into the system
 pub struct StacksChainStateFaults {
@@ -679,9 +677,9 @@ impl<'a> DerefMut for ChainstateTx<'a> {
     }
 }
 
-pub const CHAINSTATE_VERSION: &'static str = "6";
+pub const CHAINSTATE_VERSION: &str = "6";
 
-const CHAINSTATE_INITIAL_SCHEMA: &'static [&'static str] = &[
+const CHAINSTATE_INITIAL_SCHEMA: &[&str] = &[
     "PRAGMA foreign_keys = ON;",
     r#"
     -- Anchored stacks block headers
@@ -813,7 +811,7 @@ const CHAINSTATE_INITIAL_SCHEMA: &'static [&'static str] = &[
     );"#,
 ];
 
-const CHAINSTATE_SCHEMA_2: &'static [&'static str] = &[
+const CHAINSTATE_SCHEMA_2: &[&str] = &[
     // new in epoch 2.05 (schema version 2)
     // table of blocks that applied an epoch transition
     r#"
@@ -825,7 +823,7 @@ const CHAINSTATE_SCHEMA_2: &'static [&'static str] = &[
     "#,
 ];
 
-const CHAINSTATE_SCHEMA_3: &'static [&'static str] = &[
+const CHAINSTATE_SCHEMA_3: &[&str] = &[
     // new in epoch 2.1 (schema version 3)
     // track mature miner rewards paid out, so we can report them in Clarity.
     r#"
@@ -876,7 +874,7 @@ const CHAINSTATE_SCHEMA_3: &'static [&'static str] = &[
     "#,
 ];
 
-const CHAINSTATE_INDEXES: &'static [&'static str] = &[
+const CHAINSTATE_INDEXES: &[&str] = &[
     "CREATE INDEX IF NOT EXISTS index_block_hash_to_primary_key ON block_headers(index_block_hash,consensus_hash,block_hash);",
     "CREATE INDEX IF NOT EXISTS block_headers_hash_index ON block_headers(block_hash,block_height);",
     "CREATE INDEX IF NOT EXISTS block_index_hash_index ON block_headers(index_block_hash,consensus_hash,block_hash);",

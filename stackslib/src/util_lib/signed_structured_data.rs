@@ -127,7 +127,7 @@ pub mod pox4 {
         structured_data_message_hash(data_tuple, domain_tuple)
     }
 
-    impl Into<Pox4SignatureTopic> for &'static str {
+    impl Into<Pox4SignatureTopic> for &str {
         #[cfg_attr(test, mutants::skip)]
         fn into(self) -> Pox4SignatureTopic {
             match self {

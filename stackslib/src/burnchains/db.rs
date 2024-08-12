@@ -207,9 +207,9 @@ impl FromRow<BlockstackOperationType> for BlockstackOperationType {
     }
 }
 
-pub const BURNCHAIN_DB_VERSION: &'static str = "2";
+pub const BURNCHAIN_DB_VERSION: &str = "2";
 
-const BURNCHAIN_DB_SCHEMA: &'static str = r#"
+const BURNCHAIN_DB_SCHEMA: &str = r#"
 CREATE TABLE burnchain_db_block_headers (
     -- height of the block (non-negative)
     block_height INTEGER NOT NULL,
@@ -299,9 +299,8 @@ CREATE TABLE db_config(version TEXT NOT NULL);
 INSERT INTO affirmation_maps(affirmation_id,weight,affirmation_map) VALUES (0,0,"");
 "#;
 
-const LAST_BURNCHAIN_DB_INDEX: &'static str =
-    "index_block_commit_metadata_burn_block_hash_anchor_block";
-const BURNCHAIN_DB_INDEXES: &'static [&'static str] = &[
+const LAST_BURNCHAIN_DB_INDEX: &str = "index_block_commit_metadata_burn_block_hash_anchor_block";
+const BURNCHAIN_DB_INDEXES: &[&str] = &[
     "CREATE INDEX IF NOT EXISTS index_burnchain_db_block_headers_height_hash ON burnchain_db_block_headers(block_height DESC, block_hash ASC);",
     "CREATE INDEX IF NOT EXISTS index_burnchain_db_block_hash ON burnchain_db_block_ops(block_hash);",
     "CREATE INDEX IF NOT EXISTS index_burnchain_db_txid ON burnchain_db_block_ops(txid);",

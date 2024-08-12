@@ -645,13 +645,13 @@ impl serde::Serialize for All {
 }
 
 /// Empty stack is also FALSE
-pub static OP_FALSE: All = All::OP_PUSHBYTES_0;
+pub const OP_FALSE: All = All::OP_PUSHBYTES_0;
 /// Number 1 is also TRUE
-pub static OP_TRUE: All = All::OP_PUSHNUM_1;
+pub const OP_TRUE: All = All::OP_PUSHNUM_1;
 /// check locktime verify
-pub static OP_CLTV: All = All::OP_NOP2;
+pub const OP_CLTV: All = All::OP_NOP2;
 /// check sequence verify
-pub static OP_CSV: All = All::OP_NOP3;
+pub const OP_CSV: All = All::OP_NOP3;
 
 /// Broad categories of opcodes with similar behavior
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]

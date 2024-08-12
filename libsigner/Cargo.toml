@@ -10,6 +10,7 @@ keywords = [ "stacks", "stx", "bitcoin", "crypto", "blockstack", "decentralized"
 readme = "README.md"
 resolver = "2"
 edition = "2021"
+rust-version.workspace = true
 
 [lib]
 name = "libsigner"
@@ -18,7 +19,6 @@ path = "./src/libsigner.rs"
 [dependencies]
 clarity = { path = "../clarity" }
 hashbrown = { workspace = true }
-lazy_static = "1.4.0"
 libc = "0.2"
 libstackerdb = { path = "../libstackerdb" }
 prometheus = { version = "0.9", optional = true }
