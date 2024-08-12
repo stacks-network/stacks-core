@@ -1021,14 +1021,23 @@ pub struct NackData {
     pub error_code: u32,
 }
 pub mod NackErrorCodes {
+    /// A handshake has not yet been completed with the requester
     pub const HandshakeRequired: u32 = 1;
+    /// The request depends on a burnchain block that this peer does not recognize
     pub const NoSuchBurnchainBlock: u32 = 2;
+    /// The remote peer has exceeded local per-peer bandwidth limits
     pub const Throttled: u32 = 3;
+    /// The request depends on a PoX fork that this peer does not recognize as canonical
     pub const InvalidPoxFork: u32 = 4;
+    /// The message received is not appropriate for the ongoing step in the protocol being executed
     pub const InvalidMessage: u32 = 5;
+    /// The StackerDB requested is not known to this node
     pub const NoSuchDB: u32 = 6;
+    /// The StackerDB chunk request referred to an older copy of the chunk than this node has
     pub const StaleVersion: u32 = 7;
+    /// The remote peer's view of the burnchain is too out-of-date for the protocol to continue
     pub const StaleView: u32 = 8;
+    /// The StackerDB chunk request referred to a newer copy of the chunk that this node has
     pub const FutureVersion: u32 = 9;
 }
 
