@@ -49,7 +49,7 @@ use wsts::curve::point::{Compressed, Point};
 use super::test::*;
 use super::RawRewardSetEntry;
 use crate::burnchains::{Burnchain, PoxConstants};
-use crate::chainstate::burn::db::sortdb::SortitionDB;
+use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandle};
 use crate::chainstate::burn::operations::*;
 use crate::chainstate::burn::{BlockSnapshot, ConsensusHash};
 use crate::chainstate::coordinator::tests::pox_addr_from;
@@ -81,6 +81,7 @@ use crate::clarity_vm::database::marf::{MarfedKV, WritableMarfStore};
 use crate::clarity_vm::database::HeadersDBConn;
 use crate::core::*;
 use crate::net::test::{TestEventObserver, TestEventObserverBlock, TestPeer, TestPeerConfig};
+use crate::net::tests::NakamotoBootPlan;
 use crate::util_lib::boot::boot_code_id;
 use crate::util_lib::db::{DBConn, FromRow};
 use crate::util_lib::signed_structured_data::pox4::Pox4SignatureTopic;
@@ -138,7 +139,7 @@ fn make_simple_pox_4_lock(
     )
 }
 
-pub fn make_test_epochs_pox() -> (Vec<StacksEpoch>, PoxConstants) {
+pub fn make_test_epochs_pox(use_nakamoto: bool) -> (Vec<StacksEpoch>, PoxConstants) {
     let EMPTY_SORTITIONS = 25;
     let EPOCH_2_1_HEIGHT = EMPTY_SORTITIONS + 11; // 36
     let EPOCH_2_2_HEIGHT = EPOCH_2_1_HEIGHT + 14; // 50
@@ -147,8 +148,9 @@ pub fn make_test_epochs_pox() -> (Vec<StacksEpoch>, PoxConstants) {
                                                  //  this means that cycle 11 should also be treated like a "burn"
     let EPOCH_2_4_HEIGHT = EPOCH_2_3_HEIGHT + 4; // 56
     let EPOCH_2_5_HEIGHT = EPOCH_2_4_HEIGHT + 44; // 100
+    let EPOCH_3_0_HEIGHT = EPOCH_2_5_HEIGHT + 23; // 123
 
-    let epochs = vec![
+    let mut epochs = vec![
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch10,
             start_height: 0,
@@ -201,11 +203,27 @@ pub fn make_test_epochs_pox() -> (Vec<StacksEpoch>, PoxConstants) {
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch25,
             start_height: EPOCH_2_5_HEIGHT,
-            end_height: STACKS_EPOCH_MAX,
+            end_height: {
+                if use_nakamoto {
+                    EPOCH_3_0_HEIGHT
+                } else {
+                    STACKS_EPOCH_MAX
+                }
+            },
             block_limit: ExecutionCost::max_value(),
             network_epoch: PEER_VERSION_EPOCH_2_5,
         },
     ];
+
+    if use_nakamoto {
+        epochs.push(StacksEpoch {
+            epoch_id: StacksEpochId::Epoch30,
+            start_height: EPOCH_3_0_HEIGHT,
+            end_height: STACKS_EPOCH_MAX,
+            block_limit: ExecutionCost::max_value(),
+            network_epoch: PEER_VERSION_EPOCH_3_0,
+        });
+    }
 
     let mut pox_constants = PoxConstants::mainnet_default();
     pox_constants.reward_cycle_length = 5;
@@ -230,7 +248,7 @@ fn pox_extend_transition() {
     //  tenures start being tracked.
     let EMPTY_SORTITIONS = 25;
 
-    let (epochs, pox_constants) = make_test_epochs_pox();
+    let (epochs, pox_constants) = make_test_epochs_pox(false);
 
     let mut burnchain = Burnchain::default_unittest(
         0,
@@ -890,7 +908,7 @@ fn pox_lock_unlock() {
     // Config for this test
     // We are going to try locking for 2 reward cycles (10 blocks)
     let lock_period = 2;
-    let (epochs, pox_constants) = make_test_epochs_pox();
+    let (epochs, pox_constants) = make_test_epochs_pox(false);
 
     let mut burnchain = Burnchain::default_unittest(
         0,
@@ -1064,7 +1082,7 @@ fn pox_3_defunct() {
     // Config for this test
     // We are going to try locking for 2 reward cycles (10 blocks)
     let lock_period = 2;
-    let (epochs, pox_constants) = make_test_epochs_pox();
+    let (epochs, pox_constants) = make_test_epochs_pox(false);
 
     let mut burnchain = Burnchain::default_unittest(
         0,
@@ -1199,7 +1217,7 @@ fn pox_3_unlocks() {
     // Config for this test
     // We are going to try locking for 4 reward cycles (20 blocks)
     let lock_period = 4;
-    let (epochs, pox_constants) = make_test_epochs_pox();
+    let (epochs, pox_constants) = make_test_epochs_pox(false);
 
     let mut burnchain = Burnchain::default_unittest(
         0,
@@ -1350,7 +1368,7 @@ fn pox_3_unlocks() {
 #[test]
 fn pox_4_check_cycle_id_range_in_print_events_pool() {
     // Config for this test
-    let (epochs, pox_constants) = make_test_epochs_pox();
+    let (epochs, pox_constants) = make_test_epochs_pox(false);
 
     let mut burnchain = Burnchain::default_unittest(
         0,
@@ -1739,7 +1757,7 @@ fn pox_4_check_cycle_id_range_in_print_events_pool() {
 #[test]
 fn pox_4_check_cycle_id_range_in_print_events_pool_in_prepare_phase() {
     // Config for this test
-    let (epochs, pox_constants) = make_test_epochs_pox();
+    let (epochs, pox_constants) = make_test_epochs_pox(false);
 
     let mut burnchain = Burnchain::default_unittest(
         0,
@@ -2166,7 +2184,7 @@ fn pox_4_check_cycle_id_range_in_print_events_pool_in_prepare_phase() {
 #[test]
 fn pox_4_check_cycle_id_range_in_print_events_pool_in_prepare_phase_skip_cycle() {
     // Config for this test
-    let (epochs, pox_constants) = make_test_epochs_pox();
+    let (epochs, pox_constants) = make_test_epochs_pox(false);
 
     let mut burnchain = Burnchain::default_unittest(
         0,
@@ -2398,7 +2416,7 @@ fn pox_4_check_cycle_id_range_in_print_events_pool_in_prepare_phase_skip_cycle()
 #[test]
 fn pox_4_check_cycle_id_range_in_print_events_before_prepare_phase() {
     // Config for this test
-    let (epochs, pox_constants) = make_test_epochs_pox();
+    let (epochs, pox_constants) = make_test_epochs_pox(false);
 
     let mut burnchain = Burnchain::default_unittest(
         0,
@@ -2519,7 +2537,7 @@ fn pox_4_check_cycle_id_range_in_print_events_before_prepare_phase() {
 #[test]
 fn pox_4_check_cycle_id_range_in_print_events_in_prepare_phase() {
     // Config for this test
-    let (epochs, pox_constants) = make_test_epochs_pox();
+    let (epochs, pox_constants) = make_test_epochs_pox(false);
 
     let mut burnchain = Burnchain::default_unittest(
         0,
@@ -2638,7 +2656,7 @@ fn pox_4_check_cycle_id_range_in_print_events_in_prepare_phase() {
 #[test]
 fn pox_4_delegate_stack_increase_events() {
     // Config for this test
-    let (epochs, pox_constants) = make_test_epochs_pox();
+    let (epochs, pox_constants) = make_test_epochs_pox(false);
 
     let mut burnchain = Burnchain::default_unittest(
         0,
@@ -2744,7 +2762,7 @@ fn pox_4_delegate_stack_increase_events() {
 #[test]
 fn pox_4_revoke_delegate_stx_events() {
     // Config for this test
-    let (epochs, pox_constants) = make_test_epochs_pox();
+    let (epochs, pox_constants) = make_test_epochs_pox(false);
 
     let mut burnchain = Burnchain::default_unittest(
         0,
@@ -2982,7 +3000,7 @@ fn verify_signer_key_sig(
 
 #[test]
 fn verify_signer_key_signatures() {
-    let (epochs, pox_constants) = make_test_epochs_pox();
+    let (epochs, pox_constants) = make_test_epochs_pox(false);
 
     let mut burnchain = Burnchain::default_unittest(
         0,
@@ -3278,8 +3296,8 @@ fn verify_signer_key_signatures() {
 fn stack_stx_verify_signer_sig() {
     let lock_period = 2;
     let observer = TestEventObserver::new();
-    let (burnchain, mut peer, keys, latest_block, block_height, coinbase_nonce) =
-        prepare_pox4_test(function_name!(), Some(&observer));
+    let (burnchain, mut peer, keys, latest_block, block_height, coinbase_nonce, test_signers) =
+        prepare_pox4_test(function_name!(), Some(&observer), false);
 
     let mut coinbase_nonce = coinbase_nonce;
 
@@ -3598,8 +3616,8 @@ fn stack_stx_verify_signer_sig() {
 fn stack_extend_verify_sig() {
     let lock_period = 2;
     let observer = TestEventObserver::new();
-    let (burnchain, mut peer, keys, latest_block, block_height, coinbase_nonce) =
-        prepare_pox4_test(function_name!(), Some(&observer));
+    let (burnchain, mut peer, keys, latest_block, block_height, coinbase_nonce, test_signers) =
+        prepare_pox4_test(function_name!(), Some(&observer), false);
 
     let mut coinbase_nonce = coinbase_nonce;
 
@@ -3851,8 +3869,8 @@ fn stack_extend_verify_sig() {
 fn stack_agg_commit_verify_sig() {
     let lock_period = 2;
     let observer = TestEventObserver::new();
-    let (burnchain, mut peer, keys, latest_block, block_height, coinbase_nonce) =
-        prepare_pox4_test(function_name!(), Some(&observer));
+    let (burnchain, mut peer, keys, latest_block, block_height, coinbase_nonce, test_signers) =
+        prepare_pox4_test(function_name!(), Some(&observer), false);
 
     let mut coinbase_nonce = coinbase_nonce;
 
@@ -4662,8 +4680,8 @@ fn stack_agg_increase() {
 fn stack_increase_verify_signer_key() {
     let lock_period = 1;
     let observer = TestEventObserver::new();
-    let (burnchain, mut peer, keys, latest_block, block_height, coinbase_nonce) =
-        prepare_pox4_test(function_name!(), Some(&observer));
+    let (burnchain, mut peer, keys, latest_block, block_height, coinbase_nonce, test_signers) =
+        prepare_pox4_test(function_name!(), Some(&observer), false);
 
     let mut coinbase_nonce = coinbase_nonce;
 
@@ -4950,8 +4968,8 @@ fn stack_increase_verify_signer_key() {
 fn stack_increase_different_signer_keys() {
     let lock_period = 1;
     let observer = TestEventObserver::new();
-    let (burnchain, mut peer, keys, latest_block, block_height, coinbase_nonce) =
-        prepare_pox4_test(function_name!(), Some(&observer));
+    let (burnchain, mut peer, keys, latest_block, block_height, coinbase_nonce, test_signers) =
+        prepare_pox4_test(function_name!(), Some(&observer), false);
 
     let mut coinbase_nonce = coinbase_nonce;
 
@@ -5133,11 +5151,22 @@ fn balances_from_keys(
         .collect()
 }
 
-#[test]
-fn stack_stx_signer_key() {
+#[rstest]
+#[case(true)]
+#[case(false)]
+fn stack_stx_signer_key(#[case] use_nakamoto: bool) {
     let observer = TestEventObserver::new();
-    let (burnchain, mut peer, keys, latest_block, block_height, mut coinbase_nonce) =
-        prepare_pox4_test(function_name!(), Some(&observer));
+    let (
+        burnchain,
+        mut peer,
+        keys,
+        latest_block,
+        block_height,
+        mut coinbase_nonce,
+        mut test_signers,
+    ) = prepare_pox4_test(function_name!(), Some(&observer), use_nakamoto);
+
+    info!("--- starting stack-stx test ---");
 
     let stacker_nonce = 0;
     let stacker_key = &keys[0];
@@ -5147,6 +5176,7 @@ fn stack_stx_signer_key() {
     let signer_key_val = Value::buff_from(signer_public_key.to_bytes_compressed()).unwrap();
 
     let reward_cycle = get_current_reward_cycle(&peer, &burnchain);
+    info!("Reward cycle: {reward_cycle}");
 
     // (define-public (stack-stx (amount-ustx uint)
     //                       (pox-addr (tuple (version (buff 1)) (hashbytes (buff 32))))
@@ -5181,7 +5211,15 @@ fn stack_stx_signer_key() {
         ],
     )];
 
-    let latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
+    // let latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
+    let latest_block = tenure_with_txs(
+        &mut peer,
+        &txs,
+        &mut coinbase_nonce,
+        &mut test_signers,
+        use_nakamoto,
+    );
+    // peer.make_nakamoto_tenure(tenure_change, coinbase, signers, block_builder)
     let stacking_state = get_stacking_state_pox_4(
         &mut peer,
         &latest_block,
@@ -5209,13 +5247,20 @@ fn stack_stx_signer_key() {
         .block_height_to_reward_cycle(block_height)
         .unwrap();
     let reward_cycle_ht = burnchain.reward_cycle_to_block_height(next_reward_cycle);
-    let mut reward_set = get_reward_set_entries_at(&mut peer, &latest_block, reward_cycle_ht);
-    assert_eq!(reward_set.len(), 1);
-    let reward_entry = reward_set.pop().unwrap();
-    assert_eq!(
-        PoxAddress::try_from_pox_tuple(false, &pox_addr_val).unwrap(),
-        reward_entry.reward_address
-    );
+    let reward_set = get_reward_set_entries_at(&mut peer, &latest_block, reward_cycle_ht);
+    assert_eq!(reward_set.len(), {
+        if use_nakamoto {
+            2
+        } else {
+            1
+        }
+    });
+    let reward_entry = reward_set
+        .iter()
+        .find(|entry| {
+            entry.reward_address == PoxAddress::try_from_pox_tuple(false, &pox_addr_val).unwrap()
+        })
+        .expect("No reward entry found");
     assert_eq!(
         &reward_entry.signer.unwrap(),
         &signer_public_key.to_bytes_compressed().as_slice(),
@@ -5226,8 +5271,8 @@ fn stack_stx_signer_key() {
 /// Test `stack-stx` using signer key authorization
 fn stack_stx_signer_auth() {
     let observer = TestEventObserver::new();
-    let (burnchain, mut peer, keys, latest_block, block_height, mut coinbase_nonce) =
-        prepare_pox4_test(function_name!(), Some(&observer));
+    let (burnchain, mut peer, keys, latest_block, block_height, mut coinbase_nonce, test_signers) =
+        prepare_pox4_test(function_name!(), Some(&observer), false);
 
     let mut stacker_nonce = 0;
     let stacker_key = &keys[0];
@@ -5334,8 +5379,8 @@ fn stack_stx_signer_auth() {
 fn stack_agg_commit_signer_auth() {
     let lock_period = 2;
     let observer = TestEventObserver::new();
-    let (burnchain, mut peer, keys, latest_block, block_height, coinbase_nonce) =
-        prepare_pox4_test(function_name!(), Some(&observer));
+    let (burnchain, mut peer, keys, latest_block, block_height, coinbase_nonce, test_signers) =
+        prepare_pox4_test(function_name!(), Some(&observer), false);
 
     let mut coinbase_nonce = coinbase_nonce;
 
@@ -5455,8 +5500,8 @@ fn stack_agg_commit_signer_auth() {
 fn stack_extend_signer_auth() {
     let lock_period = 2;
     let observer = TestEventObserver::new();
-    let (burnchain, mut peer, keys, latest_block, block_height, coinbase_nonce) =
-        prepare_pox4_test(function_name!(), Some(&observer));
+    let (burnchain, mut peer, keys, latest_block, block_height, coinbase_nonce, test_signers) =
+        prepare_pox4_test(function_name!(), Some(&observer), false);
 
     let mut coinbase_nonce = coinbase_nonce;
 
@@ -5561,8 +5606,8 @@ fn stack_extend_signer_auth() {
 fn test_set_signer_key_auth() {
     let lock_period = 2;
     let observer = TestEventObserver::new();
-    let (burnchain, mut peer, keys, latest_block, block_height, coinbase_nonce) =
-        prepare_pox4_test(function_name!(), Some(&observer));
+    let (burnchain, mut peer, keys, latest_block, block_height, coinbase_nonce, test_signers) =
+        prepare_pox4_test(function_name!(), Some(&observer), false);
 
     let mut coinbase_nonce = coinbase_nonce;
 
@@ -5768,8 +5813,8 @@ fn test_set_signer_key_auth() {
 #[test]
 fn stack_extend_signer_key() {
     let lock_period = 2;
-    let (burnchain, mut peer, keys, latest_block, block_height, mut coinbase_nonce) =
-        prepare_pox4_test(function_name!(), None);
+    let (burnchain, mut peer, keys, latest_block, block_height, mut coinbase_nonce, test_signers) =
+        prepare_pox4_test(function_name!(), None, false);
 
     let mut stacker_nonce = 0;
     let stacker_key = &keys[0];
@@ -5880,8 +5925,8 @@ fn stack_extend_signer_key() {
 #[test]
 fn delegate_stack_stx_signer_key() {
     let lock_period = 2;
-    let (burnchain, mut peer, keys, latest_block, block_height, mut coinbase_nonce) =
-        prepare_pox4_test(function_name!(), None);
+    let (burnchain, mut peer, keys, latest_block, block_height, mut coinbase_nonce, test_signers) =
+        prepare_pox4_test(function_name!(), None, false);
 
     let stacker_nonce = 0;
     let stacker_key = &keys[0];
@@ -5997,8 +6042,8 @@ fn delegate_stack_stx_signer_key() {
 #[test]
 fn delegate_stack_stx_extend_signer_key() {
     let lock_period: u128 = 2;
-    let (burnchain, mut peer, keys, latest_block, block_height, mut coinbase_nonce) =
-        prepare_pox4_test(function_name!(), None);
+    let (burnchain, mut peer, keys, latest_block, block_height, mut coinbase_nonce, test_signers) =
+        prepare_pox4_test(function_name!(), None, false);
 
     let alice_nonce = 0;
     let alice_stacker_key = &keys[0];
@@ -6189,8 +6234,8 @@ fn delegate_stack_stx_extend_signer_key() {
 fn stack_increase() {
     let lock_period = 2;
     let observer = TestEventObserver::new();
-    let (burnchain, mut peer, keys, latest_block, block_height, mut coinbase_nonce) =
-        prepare_pox4_test(function_name!(), Some(&observer));
+    let (burnchain, mut peer, keys, latest_block, block_height, mut coinbase_nonce, test_signers) =
+        prepare_pox4_test(function_name!(), Some(&observer), false);
 
     let mut alice_nonce = 0;
     let alice_stacking_private_key = &keys[0];
@@ -6332,8 +6377,8 @@ fn stack_increase() {
 fn delegate_stack_increase() {
     let lock_period: u128 = 2;
     let observer = TestEventObserver::new();
-    let (burnchain, mut peer, keys, latest_block, block_height, mut coinbase_nonce) =
-        prepare_pox4_test(function_name!(), Some(&observer));
+    let (burnchain, mut peer, keys, latest_block, block_height, mut coinbase_nonce, test_signers) =
+        prepare_pox4_test(function_name!(), Some(&observer), false);
 
     let alice_nonce = 0;
     let alice_key = &keys[0];
@@ -8066,8 +8111,8 @@ fn test_scenario_four() {
 fn delegate_stack_increase_err() {
     let lock_period: u128 = 2;
     let observer = TestEventObserver::new();
-    let (burnchain, mut peer, keys, latest_block, block_height, mut coinbase_nonce) =
-        prepare_pox4_test(function_name!(), Some(&observer));
+    let (burnchain, mut peer, keys, latest_block, block_height, mut coinbase_nonce, test_signers) =
+        prepare_pox4_test(function_name!(), Some(&observer), false);
 
     let alice_nonce = 0;
     let alice_key = &keys[0];
@@ -8358,6 +8403,7 @@ pub fn get_stacking_minimum(peer: &mut TestPeer, latest_block: &StacksBlockId) -
 pub fn prepare_pox4_test<'a>(
     test_name: &str,
     observer: Option<&'a TestEventObserver>,
+    use_nakamoto: bool,
 ) -> (
     Burnchain,
     TestPeer<'a>,
@@ -8365,8 +8411,9 @@ pub fn prepare_pox4_test<'a>(
     StacksBlockId,
     u64,
     usize,
+    TestSigners,
 ) {
-    let (epochs, pox_constants) = make_test_epochs_pox();
+    let (epochs, pox_constants) = make_test_epochs_pox(use_nakamoto);
 
     let mut burnchain = Burnchain::default_unittest(
         0,
@@ -8377,33 +8424,228 @@ pub fn prepare_pox4_test<'a>(
     let (mut peer, keys) =
         instantiate_pox_peer_with_epoch(&burnchain, test_name, Some(epochs.clone()), observer);
 
-    assert_eq!(burnchain.pox_constants.reward_slots(), 6);
-    let mut coinbase_nonce = 0;
+    if use_nakamoto {
+        let test_key = keys[3].clone();
+        let test_keys = vec![test_key.clone()];
 
-    // Advance into pox4
-    let target_height = burnchain.pox_constants.pox_4_activation_height;
-    let mut latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
-    while get_tip(peer.sortdb.as_ref()).block_height < u64::from(target_height) {
-        latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
-        // if we reach epoch 2.1, perform the check
-        if get_tip(peer.sortdb.as_ref()).block_height > epochs[3].start_height {
-            assert_latest_was_burn(&mut peer);
+        let private_key = StacksPrivateKey::from_seed(&[2]);
+        let test_signers = TestSigners::new(test_keys.clone());
+        let test_stackers = test_keys
+            .iter()
+            .map(|key| TestStacker {
+                signer_private_key: key.clone(),
+                stacker_private_key: key.clone(),
+                // amount: u64::MAX as u128 - 10000,
+                // amount: 2048000 * POX_THRESHOLD_STEPS_USTX * 2,
+                amount: 1024 * POX_THRESHOLD_STEPS_USTX,
+                pox_addr: Some(pox_addr_from(&key)),
+                max_amount: None,
+            })
+            .collect::<Vec<_>>();
+        let mut pox_constants = TestPeerConfig::default().burnchain.pox_constants;
+        pox_constants.reward_cycle_length = 10;
+        pox_constants.v2_unlock_height = 21;
+        pox_constants.pox_3_activation_height = 26;
+        pox_constants.v3_unlock_height = 27;
+        pox_constants.pox_4_activation_height = 41;
+        let mut boot_plan = NakamotoBootPlan::new(test_name)
+            .with_test_stackers(test_stackers)
+            .with_test_signers(test_signers.clone())
+            .with_private_key(private_key);
+        boot_plan.add_default_balance = false;
+        let addrs: Vec<StacksAddress> = keys.iter().map(|pk| key_to_stacks_addr(pk)).collect();
+
+        let balances: Vec<(PrincipalData, u64)> = addrs
+            .clone()
+            .into_iter()
+            .map(|addr| (addr.into(), (1024 * POX_THRESHOLD_STEPS_USTX) as u64))
+            .collect();
+        boot_plan.initial_balances = balances;
+        boot_plan.pox_constants = pox_constants.clone();
+        burnchain.pox_constants = pox_constants.clone();
+
+        info!("---- Booting into Nakamoto Peer ----");
+        let peer = boot_plan.boot_into_nakamoto_peer(vec![], observer);
+        // let mut blocks = vec![];
+        let sort_db = peer.sortdb.as_ref().unwrap();
+        let latest_block = sort_db
+            .index_handle_at_tip()
+            .get_nakamoto_tip_block_id()
+            .unwrap()
+            .unwrap();
+        let coinbase_nonce = 0;
+
+        let block_height = get_tip(peer.sortdb.as_ref()).block_height;
+
+        info!("Block height: {}", block_height);
+
+        (
+            burnchain,
+            peer,
+            keys,
+            latest_block,
+            block_height,
+            coinbase_nonce,
+            test_signers,
+        )
+    } else {
+        // assert_eq!(burnchain.pox_constants.reward_slots(), 6);
+
+        // Advance into pox4
+        let target_height = burnchain.pox_constants.pox_4_activation_height;
+        let mut coinbase_nonce = 0;
+        let mut latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
+        while get_tip(peer.sortdb.as_ref()).block_height < u64::from(target_height) {
+            latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
+            // if we reach epoch 2.1, perform the check
+            if get_tip(peer.sortdb.as_ref()).block_height > epochs[3].start_height {
+                assert_latest_was_burn(&mut peer);
+            }
         }
+        let block_height = get_tip(peer.sortdb.as_ref()).block_height;
+        (
+            burnchain,
+            peer,
+            keys,
+            latest_block,
+            block_height,
+            coinbase_nonce,
+            TestSigners::new(vec![]),
+        )
+        // let target_epoch = if use_nakamoto {
+        //     StacksEpochId::Epoch30
+        // } else {
+        //     StacksEpochId::Epoch25
+        // };
+        // let height_25 = epochs
+        //     .iter()
+        //     .find(|e| e.epoch_id == StacksEpochId::Epoch25)
+        //     .unwrap()
+        //     .start_height;
+        // // let height_25 = epochs.iter().find(|e| e.epoch_id == StacksEpochId::Epoch25).unwrap().start_height;
+        // let target_height = epochs
+        //     .iter()
+        //     .find(|e| e.epoch_id == target_epoch)
+        //     .unwrap()
+        //     .start_height;
+        // let mut latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
+        // if use_nakamoto {
+        //     // Go to 2.5, stack, then 3.0
+        //     while get_tip(peer.sortdb.as_ref()).block_height < height_25 {
+        //         latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
+        //     }
+
+        //     let tip = get_tip(peer.sortdb.as_ref());
+        //     let reward_cycle = peer.get_reward_cycle() as u128;
+
+        //     let min_ustx = with_sortdb(&mut peer, |chainstate, sortdb| {
+        //         chainstate.get_stacking_minimum(sortdb, &latest_block)
+        //     })
+        //     .unwrap();
+        //     info!("Building stacking txs");
+        //     // Make all the test Stackers stack
+        //     let stack_txs: Vec<_> = test_stackers
+        //         .clone()
+        //         .iter()
+        //         .map(|test_stacker| {
+        //             info!(
+        //                 "Making PoX-4 lockup for {}; {}",
+        //                 test_stacker.amount,
+        //                 test_stacker.amount > min_ustx
+        //             );
+        //             let pox_addr = test_stacker.pox_addr.clone().unwrap();
+        //             let max_amount = test_stacker.max_amount.unwrap_or(u128::MAX);
+        //             let signature = make_signer_key_signature(
+        //                 &pox_addr,
+        //                 &test_stacker.signer_private_key,
+        //                 reward_cycle.into(),
+        //                 &crate::util_lib::signed_structured_data::pox4::Pox4SignatureTopic::StackStx,
+        //                 12_u128,
+        //                 max_amount,
+        //                 1,
+        //             );
+        //             make_pox_4_lockup(
+        //                 &test_stacker.stacker_private_key,
+        //                 0,
+        //                 test_stacker.amount,
+        //                 &pox_addr,
+        //                 12,
+        //                 &StacksPublicKey::from_private(&test_stacker.signer_private_key),
+        //                 tip.block_height,
+        //                 Some(signature),
+        //                 max_amount,
+        //                 1,
+        //             )
+        //         })
+        //         .collect();
+        //     latest_block = peer.tenure_with_txs(&stack_txs, &mut coinbase_nonce);
+        // }
+        // while get_tip(peer.sortdb.as_ref()).block_height < u64::from(target_height) {
+        //     latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
+        //     // if we reach epoch 2.1, perform the check
+        //     // if get_tip(peer.sortdb.as_ref()).block_height > epochs[3].start_height {
+        //     //     assert_latest_was_burn(&mut peer);
+        //     // }
+        // }
     }
-
-    let block_height = get_tip(peer.sortdb.as_ref()).block_height;
-
-    info!("Block height: {}", block_height);
-
-    (
-        burnchain,
-        peer,
-        keys,
-        latest_block,
-        block_height,
-        coinbase_nonce,
-    )
 }
+
+pub fn tenure_with_txs(
+    peer: &mut TestPeer,
+    txs: &[StacksTransaction],
+    coinbase_nonce: &mut usize,
+    test_signers: &mut TestSigners,
+    use_nakamoto: bool,
+) -> StacksBlockId {
+    if use_nakamoto {
+        let (burn_ops, mut tenure_change, miner_key) =
+            peer.begin_nakamoto_tenure(TenureChangeCause::BlockFound);
+        let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
+        let vrf_proof = peer.make_nakamoto_vrf_proof(miner_key);
+
+        tenure_change.tenure_consensus_hash = consensus_hash.clone();
+        tenure_change.burn_view_consensus_hash = consensus_hash.clone();
+
+        let tenure_change_tx = peer
+            .miner
+            .make_nakamoto_tenure_change(tenure_change.clone());
+        let coinbase_tx = peer.miner.make_nakamoto_coinbase(None, vrf_proof);
+
+        let blocks_and_sizes = peer.make_nakamoto_tenure(
+            tenure_change_tx,
+            coinbase_tx,
+            test_signers,
+            |_miner, _chainstate, _sort_dbconn, _blocks| {
+                info!("Building nakamoto block. Blocks len {}", _blocks.len());
+                if _blocks.len() == 0 {
+                    txs.to_vec()
+                } else {
+                    vec![]
+                }
+            },
+        );
+        let blocks: Vec<_> = blocks_and_sizes
+            .into_iter()
+            .map(|(block, _, _)| block)
+            .collect();
+
+        let chainstate = &mut peer.stacks_node.as_mut().unwrap().chainstate;
+        let sort_db = peer.sortdb.as_mut().unwrap();
+        // let tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), sort_db)
+        //     .unwrap()
+        //     .unwrap();
+        let latest_block = sort_db
+            .index_handle_at_tip()
+            .get_nakamoto_tip_block_id()
+            .unwrap()
+            .unwrap();
+        // let tip = StacksBlockId::
+        latest_block
+    } else {
+        peer.tenure_with_txs(txs, coinbase_nonce)
+    }
+}
+
 pub fn get_last_block_sender_transactions(
     observer: &TestEventObserver,
     address: StacksAddress,
@@ -8434,7 +8676,7 @@ fn missed_slots_no_unlock() {
     //  tenures start being tracked.
     let EMPTY_SORTITIONS = 25;
 
-    let (epochs, mut pox_constants) = make_test_epochs_pox();
+    let (epochs, mut pox_constants) = make_test_epochs_pox(false);
     pox_constants.pox_4_activation_height = u32::try_from(epochs[7].start_height).unwrap() + 1;
 
     let mut burnchain = Burnchain::default_unittest(
@@ -8685,7 +8927,7 @@ fn no_lockups_2_5() {
     //  tenures start being tracked.
     let EMPTY_SORTITIONS = 25;
 
-    let (epochs, mut pox_constants) = make_test_epochs_pox();
+    let (epochs, mut pox_constants) = make_test_epochs_pox(false);
     pox_constants.pox_4_activation_height = u32::try_from(epochs[7].start_height).unwrap() + 1;
 
     let mut burnchain = Burnchain::default_unittest(

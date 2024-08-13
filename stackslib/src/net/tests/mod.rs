@@ -89,6 +89,8 @@ pub struct NakamotoBootPlan {
     pub test_signers: TestSigners,
     pub observer: Option<TestEventObserver>,
     pub num_peers: usize,
+    /// Whether to add an initial balance for `private_key`'s account
+    pub add_default_balance: bool,
 }
 
 impl NakamotoBootPlan {
@@ -103,6 +105,7 @@ impl NakamotoBootPlan {
             test_signers,
             observer: Some(TestEventObserver::new()),
             num_peers: 0,
+            add_default_balance: true,
         }
     }
 
@@ -347,8 +350,12 @@ impl NakamotoBootPlan {
                 + 1)
             .into(),
         ));
-        peer_config.initial_balances =
-            vec![(addr.to_account_principal(), 1_000_000_000_000_000_000)];
+        peer_config.initial_balances = vec![];
+        if self.add_default_balance {
+            peer_config
+                .initial_balances
+                .push((addr.to_account_principal(), 1_000_000_000_000_000_000));
+        }
         peer_config
             .initial_balances
             .append(&mut self.initial_balances.clone());
@@ -467,6 +474,17 @@ impl NakamotoBootPlan {
             .block_height_to_reward_cycle(sortition_height.into())
             .unwrap();
 
+        let sortdb = peer.sortdb();
+        let tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn()).unwrap();
+        let tip_index_block = tip.get_canonical_stacks_block_id();
+
+        let min_ustx = with_sortdb(peer, |chainstate, sortdb| {
+            chainstate.get_stacking_minimum(sortdb, &tip_index_block)
+        })
+        .unwrap();
+
+        info!("Minimum USTX for stacking: {}", min_ustx);
+
         // Make all the test Stackers stack
         let stack_txs: Vec<_> = peer
             .config
@@ -475,6 +493,11 @@ impl NakamotoBootPlan {
             .unwrap_or(vec![])
             .iter()
             .map(|test_stacker| {
+                info!(
+                    "Making PoX-4 lockup for {}; {}",
+                    test_stacker.amount,
+                    test_stacker.amount > min_ustx
+                );
                 let pox_addr = test_stacker
                     .pox_addr
                     .clone()
