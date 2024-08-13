@@ -97,6 +97,14 @@ pub fn get_tip(sortdb: Option<&SortitionDB>) -> BlockSnapshot {
     SortitionDB::get_canonical_burn_chain_tip(&sortdb.unwrap().conn()).unwrap()
 }
 
+/// Helper rstest template for running tests in both 2.5
+/// and 3.0 epochs.
+#[template]
+#[rstest]
+#[case::epoch_30(true)]
+#[case::epoch_25(false)]
+fn nakamoto_cases(#[case] use_nakamoto: bool) {}
+
 fn make_simple_pox_4_lock(
     key: &StacksPrivateKey,
     peer: &mut TestPeer,
@@ -4676,12 +4684,12 @@ fn stack_agg_increase() {
     assert_eq!(bob_aggregate_commit_reward_index, &Value::UInt(1));
 }
 
-#[test]
-fn stack_increase_verify_signer_key() {
+#[apply(nakamoto_cases)]
+fn stack_increase_verify_signer_key(use_nakamoto: bool) {
     let lock_period = 1;
     let observer = TestEventObserver::new();
-    let (burnchain, mut peer, keys, latest_block, block_height, coinbase_nonce, test_signers) =
-        prepare_pox4_test(function_name!(), Some(&observer), false);
+    let (burnchain, mut peer, keys, latest_block, block_height, coinbase_nonce, mut test_signers) =
+        prepare_pox4_test(function_name!(), Some(&observer), use_nakamoto);
 
     let mut coinbase_nonce = coinbase_nonce;
 
@@ -4919,7 +4927,8 @@ fn stack_increase_verify_signer_key() {
         1,
     );
 
-    let latest_block = peer.tenure_with_txs(
+    let latest_block = tenure_with_txs(
+        &mut peer,
         &[
             stack_tx,
             invalid_cycle_tx,
@@ -4933,6 +4942,7 @@ fn stack_increase_verify_signer_key() {
             stack_increase,
         ],
         &mut coinbase_nonce,
+        &mut test_signers,
     );
 
     let txs = get_last_block_sender_transactions(&observer, stacker_addr);
@@ -4961,15 +4971,15 @@ fn stack_increase_verify_signer_key() {
         .expect("Expected ok result from tx");
 }
 
-#[test]
+#[apply(nakamoto_cases)]
 /// Verify that when calling `stack-increase`, the function
 /// fails if the signer key for each cycle being updated is not the same
 /// as the provided `signer-key` argument
-fn stack_increase_different_signer_keys() {
+fn stack_increase_different_signer_keys(use_nakamoto: bool) {
     let lock_period = 1;
     let observer = TestEventObserver::new();
-    let (burnchain, mut peer, keys, latest_block, block_height, coinbase_nonce, test_signers) =
-        prepare_pox4_test(function_name!(), Some(&observer), false);
+    let (burnchain, mut peer, keys, latest_block, block_height, coinbase_nonce, mut test_signers) =
+        prepare_pox4_test(function_name!(), Some(&observer), use_nakamoto);
 
     let mut coinbase_nonce = coinbase_nonce;
 
@@ -5054,8 +5064,12 @@ fn stack_increase_different_signer_keys() {
         1,
     );
 
-    let latest_block =
-        peer.tenure_with_txs(&[stack_tx, extend_tx, stack_increase], &mut coinbase_nonce);
+    let latest_block = tenure_with_txs(
+        &mut peer,
+        &[stack_tx, extend_tx, stack_increase],
+        &mut coinbase_nonce,
+        &mut test_signers,
+    );
 
     let txs = get_last_block_sender_transactions(&observer, stacker_addr.clone());
 
@@ -5151,10 +5165,8 @@ fn balances_from_keys(
         .collect()
 }
 
-#[rstest]
-#[case(true)]
-#[case(false)]
-fn stack_stx_signer_key(#[case] use_nakamoto: bool) {
+#[apply(nakamoto_cases)]
+fn stack_stx_signer_key(use_nakamoto: bool) {
     let observer = TestEventObserver::new();
     let (
         burnchain,
@@ -5212,13 +5224,7 @@ fn stack_stx_signer_key(#[case] use_nakamoto: bool) {
     )];
 
     // let latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
-    let latest_block = tenure_with_txs(
-        &mut peer,
-        &txs,
-        &mut coinbase_nonce,
-        &mut test_signers,
-        use_nakamoto,
-    );
+    let latest_block = tenure_with_txs(&mut peer, &txs, &mut coinbase_nonce, &mut test_signers);
     // peer.make_nakamoto_tenure(tenure_change, coinbase, signers, block_builder)
     let stacking_state = get_stacking_state_pox_4(
         &mut peer,
@@ -5267,12 +5273,19 @@ fn stack_stx_signer_key(#[case] use_nakamoto: bool) {
     );
 }
 
-#[test]
+#[apply(nakamoto_cases)]
 /// Test `stack-stx` using signer key authorization
-fn stack_stx_signer_auth() {
+fn stack_stx_signer_auth(use_nakamoto: bool) {
     let observer = TestEventObserver::new();
-    let (burnchain, mut peer, keys, latest_block, block_height, mut coinbase_nonce, test_signers) =
-        prepare_pox4_test(function_name!(), Some(&observer), false);
+    let (
+        burnchain,
+        mut peer,
+        keys,
+        latest_block,
+        block_height,
+        mut coinbase_nonce,
+        mut test_signers,
+    ) = prepare_pox4_test(function_name!(), Some(&observer), use_nakamoto);
 
     let mut stacker_nonce = 0;
     let stacker_key = &keys[0];
@@ -5336,7 +5349,7 @@ fn stack_stx_signer_auth() {
 
     let txs = vec![failed_stack_tx, enable_auth_tx, valid_stack_tx];
 
-    let latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
+    let latest_block = tenure_with_txs(&mut peer, &txs, &mut coinbase_nonce, &mut test_signers);
     let stacking_state = get_stacking_state_pox_4(
         &mut peer,
         &latest_block,
@@ -5374,13 +5387,13 @@ fn stack_stx_signer_auth() {
     assert_eq!(enable_tx_result, Value::okay_true());
 }
 
-#[test]
+#[apply(nakamoto_cases)]
 /// Test `stack-aggregation-commit` using signer key authorization
-fn stack_agg_commit_signer_auth() {
+fn stack_agg_commit_signer_auth(use_nakamoto: bool) {
     let lock_period = 2;
     let observer = TestEventObserver::new();
-    let (burnchain, mut peer, keys, latest_block, block_height, coinbase_nonce, test_signers) =
-        prepare_pox4_test(function_name!(), Some(&observer), false);
+    let (burnchain, mut peer, keys, latest_block, block_height, coinbase_nonce, mut test_signers) =
+        prepare_pox4_test(function_name!(), Some(&observer), use_nakamoto);
 
     let mut coinbase_nonce = coinbase_nonce;
 
@@ -5479,7 +5492,7 @@ fn stack_agg_commit_signer_auth() {
         valid_agg_tx,
     ];
 
-    let latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
+    let latest_block = tenure_with_txs(&mut peer, &txs, &mut coinbase_nonce, &mut test_signers);
 
     let delegate_txs = get_last_block_sender_transactions(&observer, delegate_addr);
 
@@ -5494,14 +5507,14 @@ fn stack_agg_commit_signer_auth() {
         .expect("Expected ok result from stack-agg-commit tx");
 }
 
-#[test]
+#[apply(nakamoto_cases)]
 /// Test `stack-extend` using signer key authorization
 /// instead of signatures
-fn stack_extend_signer_auth() {
+fn stack_extend_signer_auth(use_nakamoto: bool) {
     let lock_period = 2;
     let observer = TestEventObserver::new();
-    let (burnchain, mut peer, keys, latest_block, block_height, coinbase_nonce, test_signers) =
-        prepare_pox4_test(function_name!(), Some(&observer), false);
+    let (burnchain, mut peer, keys, latest_block, block_height, coinbase_nonce, mut test_signers) =
+        prepare_pox4_test(function_name!(), Some(&observer), use_nakamoto);
 
     let mut coinbase_nonce = coinbase_nonce;
 
@@ -5585,7 +5598,7 @@ fn stack_extend_signer_auth() {
 
     let txs = vec![stack_tx, invalid_cycle_tx, enable_auth_tx, valid_tx];
 
-    let latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
+    let latest_block = tenure_with_txs(&mut peer, &txs, &mut coinbase_nonce, &mut test_signers);
 
     let stacker_txs = get_last_block_sender_transactions(&observer, stacker_addr);
 
@@ -5601,13 +5614,13 @@ fn stack_extend_signer_auth() {
         .expect("Expected ok result from stack-extend tx");
 }
 
-#[test]
+#[apply(nakamoto_cases)]
 /// Test `set-signer-key-authorization` function
-fn test_set_signer_key_auth() {
+fn test_set_signer_key_auth(use_nakamoto: bool) {
     let lock_period = 2;
     let observer = TestEventObserver::new();
-    let (burnchain, mut peer, keys, latest_block, block_height, coinbase_nonce, test_signers) =
-        prepare_pox4_test(function_name!(), Some(&observer), false);
+    let (burnchain, mut peer, keys, latest_block, block_height, coinbase_nonce, mut test_signers) =
+        prepare_pox4_test(function_name!(), Some(&observer), use_nakamoto);
 
     let mut coinbase_nonce = coinbase_nonce;
 
@@ -5684,7 +5697,8 @@ fn test_set_signer_key_auth() {
         1,
     );
 
-    let latest_block = peer.tenure_with_txs(
+    let latest_block = tenure_with_txs(
+        &mut peer,
         &[
             invalid_enable_tx,
             invalid_tx_period,
@@ -5692,6 +5706,7 @@ fn test_set_signer_key_auth() {
             disable_auth_tx,
         ],
         &mut coinbase_nonce,
+        &mut test_signers,
     );
 
     let alice_txs = get_last_block_sender_transactions(&observer, alice_addr);
@@ -5761,7 +5776,12 @@ fn test_set_signer_key_auth() {
         1,
     );
 
-    let latest_block = peer.tenure_with_txs(&[enable_auth_tx], &mut coinbase_nonce);
+    let latest_block = tenure_with_txs(
+        &mut peer,
+        &[enable_auth_tx],
+        &mut coinbase_nonce,
+        &mut test_signers,
+    );
 
     let signer_key_enabled = get_signer_key_authorization_pox_4(
         &mut peer,
@@ -5793,7 +5813,12 @@ fn test_set_signer_key_auth() {
         1,
     );
 
-    let latest_block = peer.tenure_with_txs(&[disable_auth_tx], &mut coinbase_nonce);
+    let latest_block = tenure_with_txs(
+        &mut peer,
+        &[disable_auth_tx],
+        &mut coinbase_nonce,
+        &mut test_signers,
+    );
 
     let signer_key_enabled = get_signer_key_authorization_pox_4(
         &mut peer,
@@ -5810,11 +5835,18 @@ fn test_set_signer_key_auth() {
     assert_eq!(signer_key_enabled.unwrap(), false);
 }
 
-#[test]
-fn stack_extend_signer_key() {
+#[apply(nakamoto_cases)]
+fn stack_extend_signer_key(use_nakamoto: bool) {
     let lock_period = 2;
-    let (burnchain, mut peer, keys, latest_block, block_height, mut coinbase_nonce, test_signers) =
-        prepare_pox4_test(function_name!(), None, false);
+    let (
+        burnchain,
+        mut peer,
+        keys,
+        latest_block,
+        block_height,
+        mut coinbase_nonce,
+        mut test_signers,
+    ) = prepare_pox4_test(function_name!(), None, use_nakamoto);
 
     let mut stacker_nonce = 0;
     let stacker_key = &keys[0];
@@ -5864,7 +5896,7 @@ fn stack_extend_signer_key() {
 
     stacker_nonce += 1;
 
-    let mut latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
+    let mut latest_block = tenure_with_txs(&mut peer, &txs, &mut coinbase_nonce, &mut test_signers);
 
     let signature = make_signer_key_signature(
         &pox_addr,
@@ -5887,7 +5919,12 @@ fn stack_extend_signer_key() {
         1,
     )];
 
-    latest_block = peer.tenure_with_txs(&update_txs, &mut coinbase_nonce);
+    latest_block = tenure_with_txs(
+        &mut peer,
+        &update_txs,
+        &mut coinbase_nonce,
+        &mut test_signers,
+    );
     let new_stacking_state = get_stacking_state_pox_4(
         &mut peer,
         &latest_block,
@@ -5900,21 +5937,35 @@ fn stack_extend_signer_key() {
     let reward_cycle_ht = burnchain.reward_cycle_to_block_height(next_reward_cycle);
     let extend_cycle_ht = burnchain.reward_cycle_to_block_height(extend_reward_cycle);
 
-    let mut reward_set = get_reward_set_entries_at(&mut peer, &latest_block, reward_cycle_ht);
-    assert_eq!(reward_set.len(), 1);
-    let reward_entry = reward_set.pop().unwrap();
-    assert_eq!(
-        PoxAddress::try_from_pox_tuple(false, &pox_addr_val).unwrap(),
-        reward_entry.reward_address
-    );
+    let reward_set = get_reward_set_entries_at(&mut peer, &latest_block, reward_cycle_ht);
+    assert_eq!(reward_set.len(), {
+        if use_nakamoto {
+            2
+        } else {
+            1
+        }
+    });
+    let reward_entry = reward_set
+        .iter()
+        .find(|entry| entry.reward_address == pox_addr)
+        .expect("No reward entry found");
     assert_eq!(&reward_entry.signer.unwrap(), signer_bytes.as_slice(),);
 
-    let mut reward_set = get_reward_set_entries_at(&mut peer, &latest_block, extend_cycle_ht);
-    assert_eq!(reward_set.len(), 1);
-    let reward_entry = reward_set.pop().unwrap();
+    let reward_set = get_reward_set_entries_at(&mut peer, &latest_block, extend_cycle_ht);
+    assert_eq!(reward_set.len(), {
+        if use_nakamoto {
+            2
+        } else {
+            1
+        }
+    });
+    let reward_entry = reward_set
+        .iter()
+        .find(|entry| entry.reward_address == pox_addr)
+        .expect("No reward entry found");
     assert_eq!(
-        PoxAddress::try_from_pox_tuple(false, &pox_addr_val).unwrap(),
-        reward_entry.reward_address
+        &reward_entry.signer.unwrap(),
+        signer_extend_bytes.as_slice(),
     );
     assert_eq!(
         &reward_entry.signer.unwrap(),
@@ -5922,11 +5973,18 @@ fn stack_extend_signer_key() {
     );
 }
 
-#[test]
-fn delegate_stack_stx_signer_key() {
+#[apply(nakamoto_cases)]
+fn delegate_stack_stx_signer_key(use_nakamoto: bool) {
     let lock_period = 2;
-    let (burnchain, mut peer, keys, latest_block, block_height, mut coinbase_nonce, test_signers) =
-        prepare_pox4_test(function_name!(), None, false);
+    let (
+        burnchain,
+        mut peer,
+        keys,
+        latest_block,
+        block_height,
+        mut coinbase_nonce,
+        mut test_signers,
+    ) = prepare_pox4_test(function_name!(), None, use_nakamoto);
 
     let stacker_nonce = 0;
     let stacker_key = &keys[0];
@@ -6000,7 +6058,7 @@ fn delegate_stack_stx_signer_key() {
         ),
     ];
 
-    let latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
+    let latest_block = tenure_with_txs(&mut peer, &txs, &mut coinbase_nonce, &mut test_signers);
 
     let delegation_state = get_delegation_state_pox_4(
         &mut peer,
@@ -6019,13 +6077,18 @@ fn delegate_stack_stx_signer_key() {
     .expect_tuple();
 
     let reward_cycle_ht = burnchain.reward_cycle_to_block_height(next_reward_cycle);
-    let mut reward_set = get_reward_set_entries_at(&mut peer, &latest_block, reward_cycle_ht);
-    assert_eq!(reward_set.len(), 1);
-    let reward_entry = reward_set.pop().unwrap();
-    assert_eq!(
-        PoxAddress::try_from_pox_tuple(false, &pox_addr_val).unwrap(),
-        reward_entry.reward_address
-    );
+    let reward_set = get_reward_set_entries_at(&mut peer, &latest_block, reward_cycle_ht);
+    assert_eq!(reward_set.len(), {
+        if use_nakamoto {
+            2
+        } else {
+            1
+        }
+    });
+    let reward_entry = reward_set
+        .iter()
+        .find(|entry| entry.reward_address == pox_addr)
+        .expect("No reward entry found");
     assert_eq!(
         &reward_entry.signer.unwrap(),
         signer_key.to_bytes_compressed().as_slice()
@@ -6039,11 +6102,18 @@ fn delegate_stack_stx_signer_key() {
 //
 // This test asserts that the signing key in Alice's stacking state
 //  is equal to Bob's 'new' signer key.
-#[test]
-fn delegate_stack_stx_extend_signer_key() {
+#[apply(nakamoto_cases)]
+fn delegate_stack_stx_extend_signer_key(use_nakamoto: bool) {
     let lock_period: u128 = 2;
-    let (burnchain, mut peer, keys, latest_block, block_height, mut coinbase_nonce, test_signers) =
-        prepare_pox4_test(function_name!(), None, false);
+    let (
+        burnchain,
+        mut peer,
+        keys,
+        latest_block,
+        block_height,
+        mut coinbase_nonce,
+        mut test_signers,
+    ) = prepare_pox4_test(function_name!(), None, use_nakamoto);
 
     let alice_nonce = 0;
     let alice_stacker_key = &keys[0];
@@ -6094,7 +6164,7 @@ fn delegate_stack_stx_extend_signer_key() {
     // Both are pox_4 helpers found in mod.rs
     let txs = vec![delegate_stx, delegate_stack_stx];
 
-    let latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
+    let latest_block = tenure_with_txs(&mut peer, &txs, &mut coinbase_nonce, &mut test_signers);
 
     let delegation_state = get_delegation_state_pox_4(
         &mut peer,
@@ -6199,7 +6269,7 @@ fn delegate_stack_stx_extend_signer_key() {
     // Next tx arr calls a delegate_stack_extend pox_4 helper found in mod.rs
     let txs = vec![delegate_stack_extend, agg_tx_0, agg_tx_1];
 
-    let latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
+    let latest_block = tenure_with_txs(&mut peer, &txs, &mut coinbase_nonce, &mut test_signers);
     let new_stacking_state = get_stacking_state_pox_4(&mut peer, &latest_block, &alice_principal)
         .unwrap()
         .expect_tuple();
@@ -6207,16 +6277,32 @@ fn delegate_stack_stx_extend_signer_key() {
     let reward_cycle_ht = burnchain.reward_cycle_to_block_height(next_reward_cycle);
     let extend_cycle_ht = burnchain.reward_cycle_to_block_height(extend_cycle);
 
-    let mut reward_set = get_reward_set_entries_at(&mut peer, &latest_block, reward_cycle_ht);
-    assert_eq!(reward_set.len(), 1);
-    let reward_entry = reward_set.pop().unwrap();
-    assert_eq!(pox_addr, reward_entry.reward_address);
+    let reward_set = get_reward_set_entries_at(&mut peer, &latest_block, reward_cycle_ht);
+    assert_eq!(reward_set.len(), {
+        if use_nakamoto {
+            2
+        } else {
+            1
+        }
+    });
+    let reward_entry = reward_set
+        .iter()
+        .find(|entry| entry.reward_address == pox_addr)
+        .expect("No reward entry found");
     assert_eq!(&reward_entry.signer.unwrap(), signer_bytes.as_slice(),);
 
-    let mut reward_set = get_reward_set_entries_at(&mut peer, &latest_block, extend_cycle_ht);
-    assert_eq!(reward_set.len(), 1);
-    let reward_entry = reward_set.pop().unwrap();
-    assert_eq!(pox_addr, reward_entry.reward_address);
+    let reward_set = get_reward_set_entries_at(&mut peer, &latest_block, extend_cycle_ht);
+    assert_eq!(reward_set.len(), {
+        if use_nakamoto {
+            2
+        } else {
+            1
+        }
+    });
+    let reward_entry = reward_set
+        .iter()
+        .find(|entry| entry.reward_address == pox_addr)
+        .expect("No reward entry found");
     assert_eq!(
         &reward_entry.signer.unwrap(),
         signer_extend_bytes.as_slice(),
@@ -6230,12 +6316,19 @@ fn delegate_stack_stx_extend_signer_key() {
 //
 // This test asserts that Alice's total-locked is equal to
 //  twice the stacking minimum after calling stack-increase.
-#[test]
-fn stack_increase() {
+#[apply(nakamoto_cases)]
+fn stack_increase(use_nakamoto: bool) {
     let lock_period = 2;
     let observer = TestEventObserver::new();
-    let (burnchain, mut peer, keys, latest_block, block_height, mut coinbase_nonce, test_signers) =
-        prepare_pox4_test(function_name!(), Some(&observer), false);
+    let (
+        burnchain,
+        mut peer,
+        keys,
+        latest_block,
+        block_height,
+        mut coinbase_nonce,
+        mut test_signers,
+    ) = prepare_pox4_test(function_name!(), Some(&observer), use_nakamoto);
 
     let mut alice_nonce = 0;
     let alice_stacking_private_key = &keys[0];
@@ -6243,6 +6336,7 @@ fn stack_increase() {
     let signing_sk = StacksPrivateKey::from_seed(&[1]);
     let signing_pk = StacksPublicKey::from_private(&signing_sk);
     let signing_bytes = signing_pk.to_bytes_compressed();
+    let alice_balance = get_balance(&mut peer, &alice_address.into());
 
     let min_ustx = get_stacking_minimum(&mut peer, &latest_block);
     let pox_addr = PoxAddress::from_legacy(
@@ -6278,7 +6372,7 @@ fn stack_increase() {
     // Initial tx arr includes a stack_stx pox_4 helper found in mod.rs
     let txs = vec![stack_stx];
 
-    let latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
+    let latest_block = tenure_with_txs(&mut peer, &txs, &mut coinbase_nonce, &mut test_signers);
     let stacking_state = get_stacking_state_pox_4(
         &mut peer,
         &latest_block,
@@ -6310,7 +6404,7 @@ fn stack_increase() {
     );
     // Next tx arr includes a stack_increase pox_4 helper found in mod.rs
     let txs = vec![stack_increase];
-    let latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
+    let latest_block = tenure_with_txs(&mut peer, &txs, &mut coinbase_nonce, &mut test_signers);
     let stacker_transactions = get_last_block_sender_transactions(&observer, alice_address);
 
     let actual_result = stacker_transactions.first().cloned().unwrap().result;
@@ -6342,12 +6436,29 @@ fn stack_increase() {
         ("auth-id", Value::UInt(1)),
     ]);
 
+    let alice_expected_balance = alice_balance - min_ustx;
+
+    // Compute the expected unlock height because the 3.0 and 2.5 cases
+    // have different PoX constants
+    let cycle_len = burnchain.pox_constants.reward_cycle_length as u128;
+    let unlock_cycle = burnchain
+        .pox_constants
+        .block_height_to_reward_cycle(
+            0,
+            ((block_height as u128) + ((lock_period + 1) * cycle_len))
+                .try_into()
+                .unwrap(),
+        )
+        .unwrap();
+    let expected_unlock_height =
+        unlock_cycle * (burnchain.pox_constants.reward_cycle_length as u64);
+
     let common_data = PoxPrintFields {
         op_name: "stack-increase".to_string(),
         stacker: Value::Principal(PrincipalData::from(alice_address.clone())),
-        balance: Value::UInt(10234866375000),
-        locked: Value::UInt(5133625000),
-        burnchain_unlock_height: Value::UInt(125),
+        balance: Value::UInt(alice_expected_balance),
+        locked: Value::UInt(min_ustx),
+        burnchain_unlock_height: Value::UInt(expected_unlock_height as u128),
     };
 
     check_pox_print_event(&increase_event, common_data, increase_op_data);
@@ -6360,10 +6471,18 @@ fn stack_increase() {
         .block_height_to_reward_cycle(block_height)
         .unwrap();
     let reward_cycle_ht = burnchain.reward_cycle_to_block_height(next_reward_cycle);
-    let mut reward_set = get_reward_set_entries_at(&mut peer, &latest_block, reward_cycle_ht);
-    assert_eq!(reward_set.len(), 1);
-    let reward_entry = reward_set.pop().unwrap();
-    assert_eq!(pox_addr, reward_entry.reward_address);
+    let reward_set = get_reward_set_entries_at(&mut peer, &latest_block, reward_cycle_ht);
+    assert_eq!(reward_set.len(), {
+        if use_nakamoto {
+            2
+        } else {
+            1
+        }
+    });
+    let reward_entry = reward_set
+        .iter()
+        .find(|entry| entry.reward_address == pox_addr)
+        .expect("No reward entry found");
     assert_eq!(&reward_entry.signer.unwrap(), &signing_bytes.as_slice());
 }
 
@@ -6373,12 +6492,19 @@ fn stack_increase() {
 //
 // This test asserts that Alice's total-locked is equal to
 //  twice the stacking minimum after calling delegate-stack-increase.
-#[test]
-fn delegate_stack_increase() {
+#[apply(nakamoto_cases)]
+fn delegate_stack_increase(use_nakamoto: bool) {
     let lock_period: u128 = 2;
     let observer = TestEventObserver::new();
-    let (burnchain, mut peer, keys, latest_block, block_height, mut coinbase_nonce, test_signers) =
-        prepare_pox4_test(function_name!(), Some(&observer), false);
+    let (
+        burnchain,
+        mut peer,
+        keys,
+        latest_block,
+        block_height,
+        mut coinbase_nonce,
+        mut test_signers,
+    ) = prepare_pox4_test(function_name!(), Some(&observer), use_nakamoto);
 
     let alice_nonce = 0;
     let alice_key = &keys[0];
@@ -6425,7 +6551,7 @@ fn delegate_stack_increase() {
     // Initial tx arr includes a delegate_stx & delegate_stack_stx pox_4 helper found in mod.rs
     let txs = vec![delegate_stx, delegate_stack_stx];
 
-    let latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
+    let latest_block = tenure_with_txs(&mut peer, &txs, &mut coinbase_nonce, &mut test_signers);
 
     bob_nonce += 1;
 
@@ -6464,7 +6590,7 @@ fn delegate_stack_increase() {
     // Next tx arr includes a delegate_increase pox_4 helper found in mod.rs
     let txs = vec![delegate_increase, agg_tx];
 
-    let latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
+    let latest_block = tenure_with_txs(&mut peer, &txs, &mut coinbase_nonce, &mut test_signers);
 
     let delegate_transactions =
         get_last_block_sender_transactions(&observer, key_to_stacks_addr(bob_delegate_key));
@@ -6489,9 +6615,18 @@ fn delegate_stack_increase() {
 
     // test that the reward set contains the increased amount and the expected key
     let reward_cycle_ht = burnchain.reward_cycle_to_block_height(next_reward_cycle);
-    let mut reward_set = get_reward_set_entries_at(&mut peer, &latest_block, reward_cycle_ht);
-    assert_eq!(reward_set.len(), 1);
-    let reward_entry = reward_set.pop().unwrap();
+    let reward_set = get_reward_set_entries_at(&mut peer, &latest_block, reward_cycle_ht);
+    assert_eq!(reward_set.len(), {
+        if use_nakamoto {
+            2
+        } else {
+            1
+        }
+    });
+    let reward_entry = reward_set
+        .iter()
+        .find(|entry| entry.reward_address == pox_addr)
+        .expect("No reward entry found");
     assert_eq!(pox_addr, reward_entry.reward_address);
     assert_eq!(min_ustx * 2, reward_entry.amount_stacked);
     assert_eq!(&reward_entry.signer.unwrap(), signer_pk_bytes.as_slice());
@@ -8107,12 +8242,19 @@ fn test_scenario_four() {
 // In this test case, Alice delegates twice the stacking minimum to Bob.
 //  Bob stacks Alice's funds, and then immediately tries to stacks-aggregation-increase.
 //  This should return a clarity user error.
-#[test]
-fn delegate_stack_increase_err() {
+#[apply(nakamoto_cases)]
+fn delegate_stack_increase_err(use_nakamoto: bool) {
     let lock_period: u128 = 2;
     let observer = TestEventObserver::new();
-    let (burnchain, mut peer, keys, latest_block, block_height, mut coinbase_nonce, test_signers) =
-        prepare_pox4_test(function_name!(), Some(&observer), false);
+    let (
+        burnchain,
+        mut peer,
+        keys,
+        latest_block,
+        block_height,
+        mut coinbase_nonce,
+        mut test_signers,
+    ) = prepare_pox4_test(function_name!(), Some(&observer), use_nakamoto);
 
     let alice_nonce = 0;
     let alice_key = &keys[0];
@@ -8158,7 +8300,7 @@ fn delegate_stack_increase_err() {
 
     let txs = vec![delegate_stx, delegate_stack_stx];
 
-    let latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
+    let latest_block = tenure_with_txs(&mut peer, &txs, &mut coinbase_nonce, &mut test_signers);
 
     bob_nonce += 1;
 
@@ -8172,13 +8314,15 @@ fn delegate_stack_increase_err() {
         1,
     );
 
+    let slot_idx = if use_nakamoto { 1 } else { 0 };
+
     // Bob's Aggregate Increase
     let bobs_aggregate_increase = make_pox_4_aggregation_increase(
         &bob_delegate_key,
         bob_nonce,
         &pox_addr,
         next_reward_cycle.into(),
-        0,
+        slot_idx,
         Some(signature),
         &signer_pk,
         u128::MAX,
@@ -8187,7 +8331,7 @@ fn delegate_stack_increase_err() {
 
     let txs = vec![bobs_aggregate_increase];
 
-    let latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
+    let latest_block = tenure_with_txs(&mut peer, &txs, &mut coinbase_nonce, &mut test_signers);
 
     let delegate_transactions =
         get_last_block_sender_transactions(&observer, key_to_stacks_addr(bob_delegate_key));
@@ -8202,7 +8346,11 @@ fn delegate_stack_increase_err() {
     // test that the reward set is empty
     let reward_cycle_ht = burnchain.reward_cycle_to_block_height(next_reward_cycle);
     let reward_set = get_reward_set_entries_at(&mut peer, &latest_block, reward_cycle_ht);
-    assert!(reward_set.is_empty());
+    if use_nakamoto {
+        assert_eq!(reward_set.len(), 1);
+    } else {
+        assert!(reward_set.is_empty());
+    }
 }
 
 pub fn get_stacking_state_pox_4(
@@ -8411,7 +8559,7 @@ pub fn prepare_pox4_test<'a>(
     StacksBlockId,
     u64,
     usize,
-    TestSigners,
+    Option<TestSigners>,
 ) {
     let (epochs, pox_constants) = make_test_epochs_pox(use_nakamoto);
 
@@ -8483,7 +8631,7 @@ pub fn prepare_pox4_test<'a>(
             latest_block,
             block_height,
             coinbase_nonce,
-            test_signers,
+            Some(test_signers),
         )
     } else {
         // Advance into pox4
@@ -8505,7 +8653,7 @@ pub fn prepare_pox4_test<'a>(
             latest_block,
             block_height,
             coinbase_nonce,
-            TestSigners::new(vec![]),
+            None,
         )
     }
 }
@@ -8514,10 +8662,9 @@ pub fn tenure_with_txs(
     peer: &mut TestPeer,
     txs: &[StacksTransaction],
     coinbase_nonce: &mut usize,
-    test_signers: &mut TestSigners,
-    use_nakamoto: bool,
+    test_signers: &mut Option<TestSigners>,
 ) -> StacksBlockId {
-    if use_nakamoto {
+    if let Some(test_signers) = test_signers {
         let (burn_ops, mut tenure_change, miner_key) =
             peer.begin_nakamoto_tenure(TenureChangeCause::BlockFound);
         let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
