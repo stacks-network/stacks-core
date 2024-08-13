@@ -173,7 +173,7 @@ use stacks::chainstate::stacks::boot::MINERS_NAME;
 use stacks::chainstate::stacks::db::blocks::StagingBlock;
 use stacks::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo, MINER_REWARD_MATURITY};
 use stacks::chainstate::stacks::miner::{
-    signal_mining_blocked, signal_mining_ready, BlockBuilderSettings, StacksMicroblockBuilder
+    signal_mining_blocked, signal_mining_ready, BlockBuilderSettings, StacksMicroblockBuilder,
 };
 use stacks::chainstate::stacks::{
     CoinbasePayload, Error as ChainstateError, StacksBlock, StacksBlockBuilder, StacksBlockHeader,
@@ -3735,8 +3735,7 @@ impl RelayerThread {
                     warn!("Failed to respond to mock signatures: {}", e);
                 }
                 result
-
-        })
+            })
             .map_err(|e| {
                 error!("Relayer: Failed to start tenure thread: {:?}", &e);
                 e
