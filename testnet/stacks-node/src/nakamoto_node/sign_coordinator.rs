@@ -774,6 +774,10 @@ impl SignCoordinator {
                         debug!("Received mock signature message. Ignoring.");
                         continue;
                     }
+                    SignerMessageV0::MockMinerMessage(_) => {
+                        debug!("Received mock miner message. Ignoring.");
+                        continue;
+                    }
                 };
                 let block_sighash = block.header.signer_signature_hash();
                 if block_sighash != response_hash {

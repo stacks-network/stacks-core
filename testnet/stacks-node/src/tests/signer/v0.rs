@@ -60,9 +60,8 @@ use crate::nakamoto_node::miner::TEST_BROADCAST_STALL;
 use crate::neon::Counters;
 use crate::run_loop::boot_nakamoto;
 use crate::tests::nakamoto_integrations::{
-    boot_to_epoch_25, boot_to_epoch_3_reward_set,
-    next_block_and, setup_epoch_3_reward_set, wait_for, POX_4_DEFAULT_STACKER_BALANCE,
-    POX_4_DEFAULT_STACKER_STX_AMT,
+    boot_to_epoch_25, boot_to_epoch_3_reward_set, next_block_and, setup_epoch_3_reward_set,
+    wait_for, POX_4_DEFAULT_STACKER_BALANCE, POX_4_DEFAULT_STACKER_STX_AMT,
 };
 use crate::tests::neon_integrations::{
     get_account, get_chain_info, next_block_and_wait, run_until_burnchain_height, submit_tx,

@@ -2799,7 +2799,7 @@ impl MinerConfigFile {
                 .wait_on_signers_ms
                 .map(Duration::from_millis)
                 .unwrap_or(miner_default_config.wait_on_signers),
-            pre_nakamoto_miner_messaging: self.pre_nakamoto_miner_messaging.unwrap_or(true)
+            pre_nakamoto_miner_messaging: self.pre_nakamoto_miner_messaging.unwrap_or(true),
         })
     }
 }

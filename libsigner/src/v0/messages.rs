@@ -88,8 +88,17 @@ MinerSlotID {
     /// Block proposal from the miner
     BlockProposal = 0,
     /// Block pushed from the miner
-    BlockPushed = 1
+    BlockPushed = 1,
+    /// Mock message from the miner
+    MockMinerMessage = 2
 });
+
+#[cfg_attr(test, mutants::skip)]
+impl Display for MinerSlotID {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}({})", self, self.to_u8())
+    }
+}
 
 impl MessageSlotIDTrait for MessageSlotID {
     fn stacker_db_contract(&self, mainnet: bool, reward_cycle: u64) -> QualifiedContractIdentifier {
@@ -116,7 +125,9 @@ SignerMessageTypePrefix {
     /// Block Pushed message from miners
     BlockPushed = 2,
     /// Mock Signature message from Epoch 2.5 signers
-    MockSignature = 3
+    MockSignature = 3,
+    /// Mock Pre-Nakamoto message from Epoch 2.5 miners
+    MockMinerMessage = 4
 });
 
 #[cfg_attr(test, mutants::skip)]
@@ -160,6 +171,7 @@ impl From<&SignerMessage> for SignerMessageTypePrefix {
             SignerMessage::BlockResponse(_) => SignerMessageTypePrefix::BlockResponse,
             SignerMessage::BlockPushed(_) => SignerMessageTypePrefix::BlockPushed,
             SignerMessage::MockSignature(_) => SignerMessageTypePrefix::MockSignature,
+            SignerMessage::MockMinerMessage(_) => SignerMessageTypePrefix::MockMinerMessage,
         }
     }
 }
@@ -175,6 +187,8 @@ pub enum SignerMessage {
     BlockPushed(NakamotoBlock),
     /// A mock signature from the epoch 2.5 signers
     MockSignature(MockSignature),
+    /// A mock message from the epoch 2.5 miners
+    MockMinerMessage(MockMinerMessage),
 }
 
 impl SignerMessage {
@@ -184,7 +198,7 @@ impl SignerMessage {
     #[cfg_attr(test, mutants::skip)]
     pub fn msg_id(&self) -> Option<MessageSlotID> {
         match self {
-            Self::BlockProposal(_) | Self::BlockPushed(_) => None,
+            Self::BlockProposal(_) | Self::BlockPushed(_) | Self::MockMinerMessage(_) => None,
             Self::BlockResponse(_) => Some(MessageSlotID::BlockResponse),
             Self::MockSignature(_) => Some(MessageSlotID::MockSignature),
         }
@@ -201,6 +215,7 @@ impl StacksMessageCodec for SignerMessage {
             SignerMessage::BlockResponse(block_response) => block_response.consensus_serialize(fd),
             SignerMessage::BlockPushed(block) => block.consensus_serialize(fd),
             SignerMessage::MockSignature(signature) => signature.consensus_serialize(fd),
+            SignerMessage::MockMinerMessage(message) => message.consensus_serialize(fd),
         }?;
         Ok(())
     }
@@ -225,6 +240,10 @@ impl StacksMessageCodec for SignerMessage {
             SignerMessageTypePrefix::MockSignature => {
                 let signature = StacksMessageCodec::consensus_deserialize(fd)?;
                 SignerMessage::MockSignature(signature)
+            }
+            SignerMessageTypePrefix::MockMinerMessage => {
+                let message = StacksMessageCodec::consensus_deserialize(fd)?;
+                SignerMessage::MockMinerMessage(message)
             }
         };
         Ok(message)
@@ -437,6 +456,43 @@ impl StacksMessageCodec for MockSignature {
         Ok(Self {
             signature,
             sign_data,
+        })
+    }
+}
+
+/// A mock message for the stacks node to be used for mock mining messages
+/// This is only used by Epoch 2.5 miners to simulate miners responding to mock signatures
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MockMinerMessage {
+    /// The view of the stacks node peer information at the time of the mock signature
+    pub peer_info: PeerInfo,
+    /// The burn block height of the miner's tenure
+    pub tenure_burn_block_height: u64,
+    /// The chain id for the mock signature
+    pub chain_id: u32,
+    /// The mock signatures that the miner received
+    pub mock_signatures: Vec<MockSignature>,
+}
+
+impl StacksMessageCodec for MockMinerMessage {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
+        self.peer_info.consensus_serialize(fd)?;
+        write_next(fd, &self.tenure_burn_block_height)?;
+        write_next(fd, &self.chain_id)?;
+        write_next(fd, &self.mock_signatures)?;
+        Ok(())
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
+        let peer_info = PeerInfo::consensus_deserialize(fd)?;
+        let tenure_burn_block_height = read_next::<u64, _>(fd)?;
+        let chain_id = read_next::<u32, _>(fd)?;
+        let mock_signatures = read_next::<Vec<MockSignature>, _>(fd)?;
+        Ok(Self {
+            peer_info,
+            tenure_burn_block_height,
+            chain_id,
+            mock_signatures,
         })
     }
 }
@@ -939,5 +995,27 @@ mod test {
         let deserialized_data = read_next::<MockSignData, _>(&mut &serialized_data[..])
             .expect("Failed to deserialize MockSignData");
         assert_eq!(sign_data, deserialized_data);
+    }
+
+    #[test]
+    fn serde_mock_miner_message() {
+        let mock_signature_1 = MockSignature {
+            signature: MessageSignature::empty(),
+            sign_data: random_mock_sign_data(),
+        };
+        let mock_signature_2 = MockSignature {
+            signature: MessageSignature::empty(),
+            sign_data: random_mock_sign_data(),
+        };
+        let mock_miner_message = MockMinerMessage {
+            peer_info: random_peer_data(),
+            tenure_burn_block_height: thread_rng().next_u64(),
+            chain_id: thread_rng().gen_range(0..=1),
+            mock_signatures: vec![mock_signature_1, mock_signature_2],
+        };
+        let serialized_data = mock_miner_message.serialize_to_vec();
+        let deserialized_data = read_next::<MockMinerMessage, _>(&mut &serialized_data[..])
+            .expect("Failed to deserialize MockSignData");
+        assert_eq!(mock_miner_message, deserialized_data);
     }
 }
