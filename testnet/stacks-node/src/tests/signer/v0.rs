@@ -49,7 +49,6 @@ use stacks_common::bitvec::BitVec;
 use stacks_signer::chainstate::{ProposalEvalConfig, SortitionsView};
 use stacks_signer::client::{SignerSlotID, StackerDB};
 use stacks_signer::config::{build_signer_config_tomls, GlobalConfig as SignerConfig, Network};
-use stacks_signer::runloop::State;
 use stacks_signer::v0::SpawnedSigner;
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{fmt, EnvFilter};
@@ -61,7 +60,7 @@ use crate::nakamoto_node::miner::TEST_BROADCAST_STALL;
 use crate::neon::Counters;
 use crate::run_loop::boot_nakamoto;
 use crate::tests::nakamoto_integrations::{
-    boot_to_epoch_25, boot_to_epoch_3_reward_set, boot_to_epoch_3_reward_set_calculation_boundary,
+    boot_to_epoch_25, boot_to_epoch_3_reward_set,
     next_block_and, setup_epoch_3_reward_set, wait_for, POX_4_DEFAULT_STACKER_BALANCE,
     POX_4_DEFAULT_STACKER_STX_AMT,
 };
