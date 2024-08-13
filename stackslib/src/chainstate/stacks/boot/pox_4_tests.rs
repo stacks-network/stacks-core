@@ -8435,8 +8435,6 @@ pub fn prepare_pox4_test<'a>(
             .map(|key| TestStacker {
                 signer_private_key: key.clone(),
                 stacker_private_key: key.clone(),
-                // amount: u64::MAX as u128 - 10000,
-                // amount: 2048000 * POX_THRESHOLD_STEPS_USTX * 2,
                 amount: 1024 * POX_THRESHOLD_STEPS_USTX,
                 pox_addr: Some(pox_addr_from(&key)),
                 max_amount: None,
@@ -8466,7 +8464,6 @@ pub fn prepare_pox4_test<'a>(
 
         info!("---- Booting into Nakamoto Peer ----");
         let peer = boot_plan.boot_into_nakamoto_peer(vec![], observer);
-        // let mut blocks = vec![];
         let sort_db = peer.sortdb.as_ref().unwrap();
         let latest_block = sort_db
             .index_handle_at_tip()
@@ -8489,8 +8486,6 @@ pub fn prepare_pox4_test<'a>(
             test_signers,
         )
     } else {
-        // assert_eq!(burnchain.pox_constants.reward_slots(), 6);
-
         // Advance into pox4
         let target_height = burnchain.pox_constants.pox_4_activation_height;
         let mut coinbase_nonce = 0;
@@ -8512,81 +8507,6 @@ pub fn prepare_pox4_test<'a>(
             coinbase_nonce,
             TestSigners::new(vec![]),
         )
-        // let target_epoch = if use_nakamoto {
-        //     StacksEpochId::Epoch30
-        // } else {
-        //     StacksEpochId::Epoch25
-        // };
-        // let height_25 = epochs
-        //     .iter()
-        //     .find(|e| e.epoch_id == StacksEpochId::Epoch25)
-        //     .unwrap()
-        //     .start_height;
-        // // let height_25 = epochs.iter().find(|e| e.epoch_id == StacksEpochId::Epoch25).unwrap().start_height;
-        // let target_height = epochs
-        //     .iter()
-        //     .find(|e| e.epoch_id == target_epoch)
-        //     .unwrap()
-        //     .start_height;
-        // let mut latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
-        // if use_nakamoto {
-        //     // Go to 2.5, stack, then 3.0
-        //     while get_tip(peer.sortdb.as_ref()).block_height < height_25 {
-        //         latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
-        //     }
-
-        //     let tip = get_tip(peer.sortdb.as_ref());
-        //     let reward_cycle = peer.get_reward_cycle() as u128;
-
-        //     let min_ustx = with_sortdb(&mut peer, |chainstate, sortdb| {
-        //         chainstate.get_stacking_minimum(sortdb, &latest_block)
-        //     })
-        //     .unwrap();
-        //     info!("Building stacking txs");
-        //     // Make all the test Stackers stack
-        //     let stack_txs: Vec<_> = test_stackers
-        //         .clone()
-        //         .iter()
-        //         .map(|test_stacker| {
-        //             info!(
-        //                 "Making PoX-4 lockup for {}; {}",
-        //                 test_stacker.amount,
-        //                 test_stacker.amount > min_ustx
-        //             );
-        //             let pox_addr = test_stacker.pox_addr.clone().unwrap();
-        //             let max_amount = test_stacker.max_amount.unwrap_or(u128::MAX);
-        //             let signature = make_signer_key_signature(
-        //                 &pox_addr,
-        //                 &test_stacker.signer_private_key,
-        //                 reward_cycle.into(),
-        //                 &crate::util_lib::signed_structured_data::pox4::Pox4SignatureTopic::StackStx,
-        //                 12_u128,
-        //                 max_amount,
-        //                 1,
-        //             );
-        //             make_pox_4_lockup(
-        //                 &test_stacker.stacker_private_key,
-        //                 0,
-        //                 test_stacker.amount,
-        //                 &pox_addr,
-        //                 12,
-        //                 &StacksPublicKey::from_private(&test_stacker.signer_private_key),
-        //                 tip.block_height,
-        //                 Some(signature),
-        //                 max_amount,
-        //                 1,
-        //             )
-        //         })
-        //         .collect();
-        //     latest_block = peer.tenure_with_txs(&stack_txs, &mut coinbase_nonce);
-        // }
-        // while get_tip(peer.sortdb.as_ref()).block_height < u64::from(target_height) {
-        //     latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
-        //     // if we reach epoch 2.1, perform the check
-        //     // if get_tip(peer.sortdb.as_ref()).block_height > epochs[3].start_height {
-        //     //     assert_latest_was_burn(&mut peer);
-        //     // }
-        // }
     }
 }
 

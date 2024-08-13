@@ -474,17 +474,6 @@ impl NakamotoBootPlan {
             .block_height_to_reward_cycle(sortition_height.into())
             .unwrap();
 
-        let sortdb = peer.sortdb();
-        let tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn()).unwrap();
-        let tip_index_block = tip.get_canonical_stacks_block_id();
-
-        let min_ustx = with_sortdb(peer, |chainstate, sortdb| {
-            chainstate.get_stacking_minimum(sortdb, &tip_index_block)
-        })
-        .unwrap();
-
-        info!("Minimum USTX for stacking: {}", min_ustx);
-
         // Make all the test Stackers stack
         let stack_txs: Vec<_> = peer
             .config
@@ -493,11 +482,6 @@ impl NakamotoBootPlan {
             .unwrap_or(vec![])
             .iter()
             .map(|test_stacker| {
-                info!(
-                    "Making PoX-4 lockup for {}; {}",
-                    test_stacker.amount,
-                    test_stacker.amount > min_ustx
-                );
                 let pox_addr = test_stacker
                     .pox_addr
                     .clone()
