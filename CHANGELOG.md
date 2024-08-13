@@ -4,13 +4,23 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
+## [Unreleased]
+
+## [2.5.0.0.6]
+
+### Changed
+
+- If there is a getchunk/putchunk that fails due to a stale (or future) version NACK, the StackerDB sync state machine should immediately retry sync (#5066)
 
 ## [2.5.0.0.5]
-### Added
-- Added configuration option `connections.antientropy_retry` (#4932)
-### Changed
-- Set default antientropy_retry to run once per hour (#4935)
 
+### Added
+
+- Added configuration option `connections.antientropy_retry` (#4932)
+
+### Changed
+
+- Set default antientropy_retry to run once per hour (#4935)
 
 ## [2.5.0.0.4]
 
