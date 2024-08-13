@@ -38,6 +38,7 @@ use stacks::chainstate::stacks::{
     StacksPublicKey, StacksTransaction, TransactionContractCall, TransactionPayload,
 };
 use stacks::clarity_cli::vm_execute as execute;
+use stacks::cli;
 use stacks::codec::StacksMessageCodec;
 use stacks::core::mempool::MemPoolWalkTxTypes;
 use stacks::core::{
@@ -12630,7 +12631,7 @@ fn mock_miner_replay() {
 
     btc_regtest_controller.bootstrap_chain(201);
 
-    eprintln!("Chain bootstrapped...");
+    info!("Chain bootstrapped...");
 
     let mut miner_run_loop = neon::RunLoop::new(conf.clone());
     let miner_blocks_processed = miner_run_loop.get_blocks_processed_arc();
@@ -12679,13 +12680,10 @@ fn mock_miner_replay() {
     let follower_blocks_processed = follower_run_loop.get_blocks_processed_arc();
     let follower_channel = follower_run_loop.get_coordinator_channel().unwrap();
 
-    let miner_blocks_processed_start = miner_channel.get_stacks_blocks_processed();
-    let follower_blocks_processed_start = follower_channel.get_stacks_blocks_processed();
-
     thread::spawn(move || follower_run_loop.start(None, 0));
     wait_for_runloop(&follower_blocks_processed);
 
-    eprintln!("Follower bootup complete!");
+    info!("Follower bootup complete!");
 
     // first block wakes up the run loop
     next_block_and_wait_all(
@@ -12719,6 +12717,9 @@ fn mock_miner_replay() {
 
     // ---------- Setup finished, start test ----------
 
+    // PART 1
+    // Run mock miner configured to output to files
+
     // Mine some blocks for mock miner output
     for _ in 0..10 {
         next_block_and_wait_all(
@@ -12729,6 +12730,8 @@ fn mock_miner_replay() {
         );
         thread::sleep(block_gap);
     }
+
+    info!("Mock minining finished");
 
     let miner_blocks_processed_end = miner_channel.get_stacks_blocks_processed();
     let follower_blocks_processed_end = follower_channel.get_stacks_blocks_processed();
@@ -12747,6 +12750,15 @@ fn mock_miner_replay() {
     assert!(blocks_dir.is_dir());
     assert_eq!(file_count, 12);
     assert_eq!(miner_blocks_processed_end, follower_blocks_processed_end);
+
+    // PART 2
+    // Run `mock_miner_replay()`
+    let blocks_dir = blocks_dir.into_os_string().into_string().unwrap();
+    let db_path = format!("{}/neon", conf.node.working_dir);
+    let args: Vec<String> = vec!["replay-mock-mining".into(), db_path, blocks_dir];
+
+    info!("Replaying mock mined blocks...");
+    cli::command_replay_mock_mining(&args);
 
     // ---------- Test finished, clean up ----------
 

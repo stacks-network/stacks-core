@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-#![allow(unused_imports)]
 #![allow(dead_code)]
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
@@ -23,14 +22,9 @@
 #[macro_use]
 extern crate stacks_common;
 
-#[macro_use(o, slog_log, slog_trace, slog_debug, slog_info, slog_warn, slog_error)]
+#[macro_use(slog_debug, slog_info, slog_warn)]
 extern crate slog;
 
-use blockstack_lib::clarity_vm::clarity::ClarityInstance;
-use clarity::types::chainstate::SortitionId;
-use db::ChainstateTx;
-use regex::Regex;
-use stacks_common::types::MempoolCollectionBehavior;
 #[cfg(not(any(target_os = "macos", target_os = "windows", target_arch = "arm")))]
 use tikv_jemallocator::Jemalloc;
 
@@ -39,23 +33,16 @@ use tikv_jemallocator::Jemalloc;
 static GLOBAL: Jemalloc = Jemalloc;
 
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::fs::{File, OpenOptions};
+use std::fs::File;
 use std::io::prelude::*;
 use std::io::BufReader;
-use std::path::PathBuf;
-use std::time::Instant;
 use std::{env, fs, io, process, thread};
 
-use blockstack_lib::burnchains::bitcoin::indexer::{
-    BitcoinIndexer, BitcoinIndexerConfig, BitcoinIndexerRuntime,
-};
 use blockstack_lib::burnchains::bitcoin::{spv, BitcoinNetworkType};
 use blockstack_lib::burnchains::db::{BurnchainBlockData, BurnchainDB};
-use blockstack_lib::burnchains::{
-    Address, Burnchain, PoxConstants, Txid, BLOCKSTACK_MAGIC_MAINNET,
-};
+use blockstack_lib::burnchains::{Address, Burnchain, PoxConstants};
 use blockstack_lib::chainstate::burn::db::sortdb::{
-    get_block_commit_by_txid, SortitionDB, SortitionHandle, SortitionHandleContext,
+    get_block_commit_by_txid, SortitionDB, SortitionHandle,
 };
 use blockstack_lib::chainstate::burn::operations::BlockstackOperationType;
 use blockstack_lib::chainstate::burn::{BlockSnapshot, ConsensusHash};
@@ -63,7 +50,7 @@ use blockstack_lib::chainstate::coordinator::{get_reward_cycle_info, OnChainRewa
 use blockstack_lib::chainstate::nakamoto::NakamotoChainState;
 use blockstack_lib::chainstate::stacks::db::blocks::{DummyEventDispatcher, StagingBlock};
 use blockstack_lib::chainstate::stacks::db::{
-    ChainStateBootData, StacksBlockHeaderTypes, StacksChainState, StacksHeaderInfo,
+    ChainStateBootData, StacksBlockHeaderTypes, StacksChainState,
 };
 use blockstack_lib::chainstate::stacks::index::marf::{MARFOpenOpts, MarfConnection, MARF};
 use blockstack_lib::chainstate::stacks::index::ClarityMarfTrieId;
@@ -72,7 +59,6 @@ use blockstack_lib::chainstate::stacks::{StacksBlockHeader, *};
 use blockstack_lib::clarity::vm::costs::ExecutionCost;
 use blockstack_lib::clarity::vm::types::StacksAddressExtensions;
 use blockstack_lib::clarity::vm::ClarityVersion;
-use blockstack_lib::clarity_cli::vm_execute;
 use blockstack_lib::core::{MemPoolDB, *};
 use blockstack_lib::cost_estimates::metrics::UnitMetric;
 use blockstack_lib::cost_estimates::UnitEstimator;
@@ -80,24 +66,24 @@ use blockstack_lib::net::db::LocalPeer;
 use blockstack_lib::net::p2p::PeerNetwork;
 use blockstack_lib::net::relay::Relayer;
 use blockstack_lib::net::StacksMessage;
-use blockstack_lib::util_lib::db::{sqlite_open, IndexDBTx};
+use blockstack_lib::util_lib::db::sqlite_open;
 use blockstack_lib::util_lib::strings::UrlString;
-use blockstack_lib::{clarity_cli, util_lib};
+use blockstack_lib::{clarity_cli, cli};
 use libstackerdb::StackerDBChunkData;
-use rusqlite::types::ToSql;
 use rusqlite::{params, Connection, Error as SqliteError, OpenFlags};
 use serde_json::{json, Value};
 use stacks_common::codec::{read_next, StacksMessageCodec};
 use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, PoxId, StacksAddress, StacksBlockId,
+    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId,
 };
 use stacks_common::types::net::PeerAddress;
 use stacks_common::types::sqlite::NO_PARAMS;
+use stacks_common::types::MempoolCollectionBehavior;
 use stacks_common::util::hash::{hex_bytes, to_hex, Hash160};
 use stacks_common::util::retry::LogReader;
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 use stacks_common::util::vrf::VRFProof;
-use stacks_common::util::{get_epoch_time_ms, log, sleep_ms};
+use stacks_common::util::{get_epoch_time_ms, sleep_ms};
 
 #[cfg_attr(test, mutants::skip)]
 fn main() {
@@ -881,83 +867,6 @@ simulating a miner.
         return;
     }
 
-    if argv[1] == "replay-block" {
-        let print_help_and_exit = || -> ! {
-            let n = &argv[0];
-            eprintln!("Usage:");
-            eprintln!("  {n} <database-path>");
-            eprintln!("  {n} <database-path> prefix <index-block-hash-prefix>");
-            eprintln!("  {n} <database-path> index-range <start-block> <end-block>");
-            eprintln!("  {n} <database-path> range <start-block> <end-block>");
-            eprintln!("  {n} <database-path> <first|last> <block-count>");
-            process::exit(1);
-        };
-        if argv.len() < 2 {
-            print_help_and_exit();
-        }
-        let start = Instant::now();
-        let db_path = &argv[2];
-        let mode = argv.get(3).map(String::as_str);
-        let staging_blocks_db_path = format!("{db_path}/mainnet/chainstate/vm/index.sqlite");
-        let conn =
-            Connection::open_with_flags(&staging_blocks_db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
-                .unwrap();
-
-        let query = match mode {
-            Some("prefix") => format!(
-                "SELECT index_block_hash FROM staging_blocks WHERE orphaned = 0 AND index_block_hash LIKE \"{}%\"",
-                argv[4]
-            ),
-            Some("first") => format!(
-                "SELECT index_block_hash FROM staging_blocks WHERE orphaned = 0 ORDER BY height ASC LIMIT {}",
-                argv[4]
-            ),
-            Some("range") => {
-                let arg4 = argv[4]
-                    .parse::<u64>()
-                    .expect("<start_block> not a valid u64");
-                let arg5 = argv[5].parse::<u64>().expect("<end-block> not a valid u64");
-                let start = arg4.saturating_sub(1);
-                let blocks = arg5.saturating_sub(arg4);
-                format!("SELECT index_block_hash FROM staging_blocks WHERE orphaned = 0 ORDER BY height ASC LIMIT {start}, {blocks}")
-            }
-            Some("index-range") => {
-                let start = argv[4]
-                    .parse::<u64>()
-                    .expect("<start_block> not a valid u64");
-                let end = argv[5].parse::<u64>().expect("<end-block> not a valid u64");
-                let blocks = end.saturating_sub(start);
-                format!("SELECT index_block_hash FROM staging_blocks WHERE orphaned = 0 ORDER BY index_block_hash ASC LIMIT {start}, {blocks}")
-            }
-            Some("last") => format!(
-                "SELECT index_block_hash FROM staging_blocks WHERE orphaned = 0 ORDER BY height DESC LIMIT {}",
-                argv[4]
-            ),
-            Some(_) => print_help_and_exit(),
-            // Default to ALL blocks
-            None => "SELECT index_block_hash FROM staging_blocks WHERE orphaned = 0".into(),
-        };
-
-        let mut stmt = conn.prepare(&query).unwrap();
-        let mut hashes_set = stmt.query(NO_PARAMS).unwrap();
-
-        let mut index_block_hashes: Vec<String> = vec![];
-        while let Ok(Some(row)) = hashes_set.next() {
-            index_block_hashes.push(row.get(0).unwrap());
-        }
-
-        let total = index_block_hashes.len();
-        println!("Will check {total} blocks");
-        for (i, index_block_hash) in index_block_hashes.iter().enumerate() {
-            if i % 100 == 0 {
-                println!("Checked {i}...");
-            }
-            replay_staging_block(db_path, index_block_hash);
-        }
-        println!("Finished. run_time_seconds = {}", start.elapsed().as_secs());
-        process::exit(0);
-    }
-
     if argv[1] == "deserialize-db" {
         if argv.len() < 4 {
             eprintln!("Usage: {} clarity_sqlite_db [byte-prefix]", &argv[0]);
@@ -1345,8 +1254,13 @@ simulating a miner.
         return;
     }
 
+    if argv[1] == "replay-block" {
+        cli::command_replay_block(&argv[1..]);
+        process::exit(0);
+    }
+
     if argv[1] == "replay-mock-mining" {
-        replay_mock_mining(argv);
+        cli::command_replay_mock_mining(&argv[1..]);
         process::exit(0);
     }
 
@@ -1357,7 +1271,7 @@ simulating a miner.
 }
 
 #[cfg_attr(test, mutants::skip)]
-fn tip_mine() {
+pub fn tip_mine() {
     let argv: Vec<String> = env::args().collect();
     if argv.len() < 6 {
         eprintln!(
@@ -1591,352 +1505,6 @@ simulating a miner.
     }
 
     process::exit(0);
-}
-
-fn replay_mock_mining(argv: Vec<String>) {
-    let print_help_and_exit = || -> ! {
-        let n = &argv[0];
-        eprintln!("Usage:");
-        eprintln!("  {n} <database-path> <mock-mined-blocks-path>");
-        process::exit(1);
-    };
-
-    // Process CLI args
-    let db_path = argv.get(2).unwrap_or_else(|| print_help_and_exit());
-
-    let blocks_path = argv
-        .get(3)
-        .map(PathBuf::from)
-        .map(fs::canonicalize)
-        .transpose()
-        .unwrap_or_else(|e| panic!("Not a valid path: {e}"))
-        .unwrap_or_else(|| print_help_and_exit());
-
-    // Validate directory path
-    if !blocks_path.is_dir() {
-        panic!("{blocks_path:?} is not a valid directory");
-    }
-
-    // Read entries in directory
-    let dir_entries = blocks_path
-        .read_dir()
-        .unwrap_or_else(|e| panic!("Failed to read {blocks_path:?}: {e}"))
-        .filter_map(|e| e.ok());
-
-    // Get filenames, filtering out anything that isn't a regular file
-    let filenames = dir_entries.filter_map(|e| match e.file_type() {
-        Ok(t) if t.is_file() => e.file_name().into_string().ok(),
-        _ => None,
-    });
-
-    // Get vec of (block_height, filename), to prepare for sorting
-    //
-    // NOTE: Trusting the filename is not ideal. We could sort on data read from the file,
-    // but that requires reading all files
-    let re = Regex::new(r"^([0-9]+\.json)$").unwrap();
-    let mut indexed_files = filenames
-        .filter_map(|filename| {
-            // Use regex to extract block number from filename
-            let Some(cap) = re.captures(&filename) else {
-                return None;
-            };
-            let Some(m) = cap.get(0) else {
-                return None;
-            };
-            let Ok(bh) = m.as_str().parse::<u64>() else {
-                return None;
-            };
-            Some((bh, filename))
-        })
-        .collect::<Vec<_>>();
-
-    // Sort by block height
-    indexed_files.sort_by_key(|(bh, _)| *bh);
-
-    if indexed_files.is_empty() {
-        panic!("No block files found");
-    }
-
-    info!(
-        "Replaying {} blocks starting at {}",
-        indexed_files.len(),
-        indexed_files[0].0
-    );
-
-    for (bh, filename) in indexed_files {
-        let filepath = blocks_path.join(filename);
-        let block = AssembledAnchorBlock::deserialize_from_file(&filepath)
-            .unwrap_or_else(|e| panic!("Error reading block {bh} from file: {e}"));
-        debug!("Replaying block from {filepath:?}";
-            "block_height" => bh,
-            "block" => ?block
-        );
-        replay_mock_mined_block(&db_path, block);
-    }
-}
-
-/// Fetch and process a `StagingBlock` from database and call `replay_block()` to validate
-fn replay_staging_block(db_path: &str, index_block_hash_hex: &str) {
-    let block_id = StacksBlockId::from_hex(index_block_hash_hex).unwrap();
-    let chain_state_path = format!("{db_path}/mainnet/chainstate/");
-    let sort_db_path = format!("{db_path}/mainnet/burnchain/sortition");
-    let burn_db_path = format!("{db_path}/mainnet/burnchain/burnchain.sqlite");
-    let burnchain_blocks_db = BurnchainDB::open(&burn_db_path, false).unwrap();
-
-    let (mut chainstate, _) =
-        StacksChainState::open(true, CHAIN_ID_MAINNET, &chain_state_path, None).unwrap();
-
-    let mut sortdb = SortitionDB::connect(
-        &sort_db_path,
-        BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT,
-        &BurnchainHeaderHash::from_hex(BITCOIN_MAINNET_FIRST_BLOCK_HASH).unwrap(),
-        BITCOIN_MAINNET_FIRST_BLOCK_TIMESTAMP.into(),
-        STACKS_EPOCHS_MAINNET.as_ref(),
-        PoxConstants::mainnet_default(),
-        None,
-        true,
-    )
-    .unwrap();
-    let sort_tx = sortdb.tx_begin_at_tip();
-
-    let blocks_path = chainstate.blocks_path.clone();
-    let (mut chainstate_tx, clarity_instance) = chainstate
-        .chainstate_tx_begin()
-        .expect("Failed to start chainstate tx");
-    let mut next_staging_block =
-        StacksChainState::load_staging_block_info(&chainstate_tx.tx, &block_id)
-            .expect("Failed to load staging block data")
-            .expect("No such index block hash in block database");
-
-    next_staging_block.block_data = StacksChainState::load_block_bytes(
-        &blocks_path,
-        &next_staging_block.consensus_hash,
-        &next_staging_block.anchored_block_hash,
-    )
-    .unwrap()
-    .unwrap_or_default();
-
-    let Some(parent_header_info) =
-        StacksChainState::get_parent_header_info(&mut chainstate_tx, &next_staging_block).unwrap()
-    else {
-        println!("Failed to load parent head info for block: {index_block_hash_hex}");
-        return;
-    };
-
-    let block =
-        StacksChainState::extract_stacks_block(&next_staging_block).expect("Failed to get block");
-    let block_size = next_staging_block.block_data.len() as u64;
-
-    replay_block(
-        sort_tx,
-        chainstate_tx,
-        clarity_instance,
-        &burnchain_blocks_db,
-        &parent_header_info,
-        &next_staging_block.parent_microblock_hash,
-        next_staging_block.parent_microblock_seq,
-        &block_id,
-        &block,
-        block_size,
-        &next_staging_block.consensus_hash,
-        &next_staging_block.anchored_block_hash,
-        next_staging_block.commit_burn,
-        next_staging_block.sortition_burn,
-    );
-}
-
-/// Process a mock mined block and call `replay_block()` to validate
-fn replay_mock_mined_block(db_path: &str, block: AssembledAnchorBlock) {
-    let chain_state_path = format!("{db_path}/mainnet/chainstate/");
-    let sort_db_path = format!("{db_path}/mainnet/burnchain/sortition");
-    let burn_db_path = format!("{db_path}/mainnet/burnchain/burnchain.sqlite");
-    let burnchain_blocks_db = BurnchainDB::open(&burn_db_path, false).unwrap();
-
-    let (mut chainstate, _) =
-        StacksChainState::open(true, CHAIN_ID_MAINNET, &chain_state_path, None).unwrap();
-
-    let mut sortdb = SortitionDB::connect(
-        &sort_db_path,
-        BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT,
-        &BurnchainHeaderHash::from_hex(BITCOIN_MAINNET_FIRST_BLOCK_HASH).unwrap(),
-        BITCOIN_MAINNET_FIRST_BLOCK_TIMESTAMP.into(),
-        STACKS_EPOCHS_MAINNET.as_ref(),
-        PoxConstants::mainnet_default(),
-        None,
-        true,
-    )
-    .unwrap();
-    let sort_tx = sortdb.tx_begin_at_tip();
-
-    let (mut chainstate_tx, clarity_instance) = chainstate
-        .chainstate_tx_begin()
-        .expect("Failed to start chainstate tx");
-
-    let block_consensus_hash = &block.consensus_hash;
-    let block_hash = block.anchored_block.block_hash();
-    let block_id = StacksBlockId::new(block_consensus_hash, &block_hash);
-    let block_size = block
-        .anchored_block
-        .block_size()
-        .map(u64::try_from)
-        .unwrap_or_else(|e| panic!("Error serializing block {block_hash}: {e}"))
-        .expect("u64 overflow");
-
-    let Some(parent_header_info) = StacksChainState::get_anchored_block_header_info(
-        &mut chainstate_tx,
-        &block.parent_consensus_hash,
-        &block.anchored_block.header.parent_block,
-    )
-    .unwrap() else {
-        println!("Failed to load parent head info for block: {block_hash}");
-        return;
-    };
-
-    replay_block(
-        sort_tx,
-        chainstate_tx,
-        clarity_instance,
-        &burnchain_blocks_db,
-        &parent_header_info,
-        &block.anchored_block.header.parent_microblock,
-        block.anchored_block.header.parent_microblock_sequence,
-        &block_id,
-        &block.anchored_block,
-        block_size,
-        block_consensus_hash,
-        &block_hash,
-        // I think the burn is used for miner rewards but not necessary for validation
-        0,
-        0,
-    );
-}
-
-/// Validate a block against chainstate
-fn replay_block(
-    mut sort_tx: IndexDBTx<SortitionHandleContext, SortitionId>,
-    mut chainstate_tx: ChainstateTx,
-    clarity_instance: &mut ClarityInstance,
-    burnchain_blocks_db: &BurnchainDB,
-    parent_header_info: &StacksHeaderInfo,
-    parent_microblock_hash: &BlockHeaderHash,
-    parent_microblock_seq: u16,
-    block_id: &StacksBlockId,
-    block: &StacksBlock,
-    block_size: u64,
-    block_consensus_hash: &ConsensusHash,
-    block_hash: &BlockHeaderHash,
-    block_commit_burn: u64,
-    block_sortition_burn: u64,
-) {
-    let parent_block_header = match &parent_header_info.anchored_header {
-        StacksBlockHeaderTypes::Epoch2(bh) => bh,
-        StacksBlockHeaderTypes::Nakamoto(_) => panic!("Nakamoto blocks not supported yet"),
-    };
-    let parent_block_hash = parent_block_header.block_hash();
-
-    let Some(next_microblocks) = StacksChainState::inner_find_parent_microblock_stream(
-        &chainstate_tx.tx,
-        &block_hash,
-        &parent_block_hash,
-        &parent_header_info.consensus_hash,
-        parent_microblock_hash,
-        parent_microblock_seq,
-    )
-    .unwrap() else {
-        println!("No microblock stream found for {block_id}");
-        return;
-    };
-
-    let (burn_header_hash, burn_header_height, burn_header_timestamp, _winning_block_txid) =
-        match SortitionDB::get_block_snapshot_consensus(&sort_tx, &block_consensus_hash).unwrap() {
-            Some(sn) => (
-                sn.burn_header_hash,
-                sn.block_height as u32,
-                sn.burn_header_timestamp,
-                sn.winning_block_txid,
-            ),
-            None => {
-                // shouldn't happen
-                panic!("CORRUPTION: staging block {block_consensus_hash}/{block_hash} does not correspond to a burn block");
-            }
-        };
-
-    info!(
-        "Process block {}/{} = {} in burn block {}, parent microblock {}",
-        block_consensus_hash, block_hash, &block_id, &burn_header_hash, parent_microblock_hash,
-    );
-
-    if !StacksChainState::check_block_attachment(&parent_block_header, &block.header) {
-        let msg = format!(
-            "Invalid stacks block {}/{} -- does not attach to parent {}/{}",
-            &block_consensus_hash,
-            block.block_hash(),
-            parent_block_header.block_hash(),
-            &parent_header_info.consensus_hash
-        );
-        println!("{msg}");
-        return;
-    }
-
-    // validation check -- validate parent microblocks and find the ones that connect the
-    // block's parent to this block.
-    let next_microblocks = StacksChainState::extract_connecting_microblocks(
-        &parent_header_info,
-        &block_consensus_hash,
-        &block_hash,
-        block,
-        next_microblocks,
-    )
-    .unwrap();
-    let (last_microblock_hash, last_microblock_seq) = match next_microblocks.len() {
-        0 => (EMPTY_MICROBLOCK_PARENT_HASH.clone(), 0),
-        _ => {
-            let l = next_microblocks.len();
-            (
-                next_microblocks[l - 1].block_hash(),
-                next_microblocks[l - 1].header.sequence,
-            )
-        }
-    };
-    assert_eq!(*parent_microblock_hash, last_microblock_hash);
-    assert_eq!(parent_microblock_seq, last_microblock_seq);
-
-    let block_am = StacksChainState::find_stacks_tip_affirmation_map(
-        burnchain_blocks_db,
-        sort_tx.tx(),
-        block_consensus_hash,
-        block_hash,
-    )
-    .unwrap();
-
-    let pox_constants = sort_tx.context.pox_constants.clone();
-
-    match StacksChainState::append_block(
-        &mut chainstate_tx,
-        clarity_instance,
-        &mut sort_tx,
-        &pox_constants,
-        &parent_header_info,
-        block_consensus_hash,
-        &burn_header_hash,
-        burn_header_height,
-        burn_header_timestamp,
-        &block,
-        block_size,
-        &next_microblocks,
-        block_commit_burn,
-        block_sortition_burn,
-        block_am.weight(),
-        true,
-    ) {
-        Ok((_receipt, _, _)) => {
-            info!("Block processed successfully! block = {block_id}");
-        }
-        Err(e) => {
-            println!("Failed processing block! block = {block_id}, error = {e:?}");
-            process::exit(1);
-        }
-    };
 }
 
 /// Perform an analysis of the anti-MEV algorithm in epoch 3.0, vis-a-vis the status quo.
