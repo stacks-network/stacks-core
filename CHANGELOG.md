@@ -17,6 +17,27 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
     - `get-tenure-info?` added
     - `get-block-info?` removed
 
+## [2.5.0.0.7]
+
+### Added
+
+feat: Neon mock miner replay (#5060)
+chore: add warn logs for block validate rejections (#5079)
+
+### Changed
+
+- bugfix/boot_to_epoch_3 in SignerTest should wait for a new commit (#5087)
+- Fix: Revert BurnchainHeaderHash serialization change (#5094)
+- Feat/mock signing revamp (#5070)
+- Fix block proposal rejection test (#5084)
+- Fix/multi miner fixes jude (#5040)
+
+## [2.5.0.0.6]
+
+### Changed
+
+- If there is a getchunk/putchunk that fails due to a stale (or future) version NACK, the StackerDB sync state machine should immediately retry sync (#5066)
+
 ## [2.5.0.0.5]
 
 ### Added
