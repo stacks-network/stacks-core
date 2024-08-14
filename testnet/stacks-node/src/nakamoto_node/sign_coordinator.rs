@@ -738,22 +738,6 @@ impl SignCoordinator {
 
         let start_ts = Instant::now();
         while start_ts.elapsed() <= self.signing_round_timeout {
-            // one of two things can happen:
-            // * we get enough signatures from stackerdb from the signers, OR
-            // * we see our block get processed in our chainstate (meaning, the signers broadcasted
-            // the block and our node got it and processed it)
-            let event = match receiver.recv_timeout(EVENT_RECEIVER_POLL) {
-                Ok(event) => event,
-                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                    continue;
-                }
-                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                    return Err(NakamotoNodeError::SigningCoordinatorFailure(
-                        "StackerDB event receiver disconnected".into(),
-                    ))
-                }
-            };
-
             // look in the nakamoto staging db -- a block can only get stored there if it has
             // enough signing weight to clear the threshold
             if let Ok(Some((stored_block, _sz))) = chain_state
@@ -772,6 +756,22 @@ impl SignCoordinator {
                 counters.bump_naka_signer_pushed_blocks();
                 return Ok(stored_block.header.signer_signature);
             }
+
+            // one of two things can happen:
+            // * we get enough signatures from stackerdb from the signers, OR
+            // * we see our block get processed in our chainstate (meaning, the signers broadcasted
+            // the block and our node got it and processed it)
+            let event = match receiver.recv_timeout(EVENT_RECEIVER_POLL) {
+                Ok(event) => event,
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                    continue;
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                    return Err(NakamotoNodeError::SigningCoordinatorFailure(
+                        "StackerDB event receiver disconnected".into(),
+                    ))
+                }
+            };
 
             // check to see if this event we got is a signer event
             let is_signer_event =
@@ -821,33 +821,34 @@ impl SignCoordinator {
                             ));
                         };
                         if rejected_data.signer_signature_hash
-                            == block.header.signer_signature_hash()
+                            != block.header.signer_signature_hash()
+                        {
+                            debug!("Received rejected block response for a block besides my own. Ignoring.");
+                            continue;
+                        }
+
+                        debug!(
+                            "Signer {} rejected our block {}/{}",
+                            slot_id,
+                            &block.header.consensus_hash,
+                            &block.header.block_hash()
+                        );
+                        total_reject_weight = total_reject_weight
+                            .checked_add(signer_entry.weight)
+                            .expect("FATAL: total weight rejected exceeds u32::MAX");
+
+                        if total_reject_weight.saturating_add(self.weight_threshold)
+                            > self.total_weight
                         {
                             debug!(
-                                "Signer {} rejected our block {}/{}",
-                                slot_id,
+                                "{}/{} signers vote to reject our block {}/{}",
+                                total_reject_weight,
+                                self.total_weight,
                                 &block.header.consensus_hash,
                                 &block.header.block_hash()
                             );
-                            total_reject_weight = total_reject_weight
-                                .checked_add(signer_entry.weight)
-                                .expect("FATAL: total weight rejected exceeds u32::MAX");
-
-                            if total_reject_weight.saturating_add(self.weight_threshold)
-                                > self.total_weight
-                            {
-                                debug!(
-                                    "{}/{} signers vote to reject our block {}/{}",
-                                    total_reject_weight,
-                                    self.total_weight,
-                                    &block.header.consensus_hash,
-                                    &block.header.block_hash()
-                                );
-                                counters.bump_naka_rejected_blocks();
-                                return Err(NakamotoNodeError::SignersRejected);
-                            }
-                        } else {
-                            debug!("Received rejected block response for a block besides my own. Ignoring.");
+                            counters.bump_naka_rejected_blocks();
+                            return Err(NakamotoNodeError::SignersRejected);
                         }
                         continue;
                     }
@@ -909,7 +910,7 @@ impl SignCoordinator {
                 }
 
                 if Self::fault_injection_ignore_signatures() {
-                    debug!("SignCoordinator: fault injection: ignoring well-formed signature for block";
+                    warn!("SignCoordinator: fault injection: ignoring well-formed signature for block";
                         "block_signer_sighash" => %block_sighash,
                         "signer_pubkey" => signer_pubkey.to_hex(),
                         "signer_slot_id" => slot_id,
@@ -922,7 +923,7 @@ impl SignCoordinator {
                     continue;
                 }
 
-                debug!("SignCoordinator: Signature Added to block";
+                info!("SignCoordinator: Signature Added to block";
                     "block_signer_sighash" => %block_sighash,
                     "signer_pubkey" => signer_pubkey.to_hex(),
                     "signer_slot_id" => slot_id,
