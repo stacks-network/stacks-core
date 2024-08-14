@@ -70,6 +70,40 @@ pub const MAX_RECENT_MESSAGES: usize = 256;
 pub const MAX_RECENT_MESSAGE_AGE: usize = 600; // seconds; equal to the expected epoch length
 pub const RELAY_DUPLICATE_INFERENCE_WARMUP: usize = 128;
 
+#[cfg(any(test, feature = "testing"))]
+pub mod fault_injection {
+    use std::path::Path;
+
+    static IGNORE_BLOCK: std::sync::Mutex<Option<(u64, String)>> = std::sync::Mutex::new(None);
+
+    pub fn ignore_block(height: u64, working_dir: &str) -> bool {
+        if let Some((ignore_height, ignore_dir)) = &*IGNORE_BLOCK.lock().unwrap() {
+            let working_dir_path = Path::new(working_dir);
+            let ignore_dir_path = Path::new(ignore_dir);
+
+            let ignore = *ignore_height == height && working_dir_path.starts_with(ignore_dir_path);
+            if ignore {
+                warn!("Fault injection: ignore block at height {}", height);
+            }
+            return ignore;
+        }
+        false
+    }
+
+    pub fn set_ignore_block(height: u64, working_dir: &str) {
+        warn!(
+            "Fault injection: set ignore block at height {} for working directory {}",
+            height, working_dir
+        );
+        *IGNORE_BLOCK.lock().unwrap() = Some((height, working_dir.to_string()));
+    }
+
+    pub fn clear_ignore_block() {
+        warn!("Fault injection: clear ignore block");
+        *IGNORE_BLOCK.lock().unwrap() = None;
+    }
+}
+
 pub struct Relayer {
     /// Connection to the p2p thread
     p2p: NetworkHandle,
@@ -809,6 +843,11 @@ impl Relayer {
             &block.header.consensus_hash,
             &block.header.block_hash()
         );
+
+        #[cfg(any(test, feature = "testing"))]
+        if fault_injection::ignore_block(block.header.chain_length, &burnchain.working_dir) {
+            return Ok(false);
+        }
 
         // do we have this block?  don't lock the DB needlessly if so.
         if chainstate

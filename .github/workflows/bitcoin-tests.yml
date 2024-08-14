@@ -106,6 +106,7 @@ jobs:
           - tests::nakamoto_integrations::mock_mining
           - tests::nakamoto_integrations::multiple_miners
           - tests::signer::v0::multiple_miners_with_nakamoto_blocks
+          - tests::signer::v0::partial_tenure_fork
           # Do not run this one until we figure out why it fails in CI
           # - tests::neon_integrations::bitcoin_reorg_flap
           # - tests::neon_integrations::bitcoin_reorg_flap_with_follower
