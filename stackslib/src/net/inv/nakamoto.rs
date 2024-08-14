@@ -397,11 +397,17 @@ impl NakamotoTenureInv {
         if self.start_sync_time + inv_sync_interval <= now
             && (self.cur_reward_cycle >= cur_rc || !self.online)
         {
-            debug!("Reset inv comms for {}", &self.neighbor_address);
-            self.online = true;
-            self.start_sync_time = now;
-            self.cur_reward_cycle = start_rc;
+            self.reset_comms(start_rc);
         }
+    }
+
+    /// Reset synchronization state for this peer in the last reward cycle.
+    /// Called as part of processing a new burnchain block
+    pub fn reset_comms(&mut self, start_rc: u64) {
+        debug!("Reset inv comms for {}", &self.neighbor_address);
+        self.online = true;
+        self.start_sync_time = get_epoch_time_secs();
+        self.cur_reward_cycle = start_rc;
     }
 
     /// Get the reward cycle we're sync'ing for
@@ -506,6 +512,19 @@ impl NakamotoTenureInv {
             }
         }
     }
+
+    /// Get the burnchain tip reward cycle for purposes of inv sync
+    fn get_current_reward_cycle(tip: &BlockSnapshot, sortdb: &SortitionDB) -> u64 {
+        // NOTE: reward cycles start when (sortition_height % reward_cycle_len) == 1, not 0, but
+        // .block_height_to_reward_cycle does not account for this.
+        sortdb
+            .pox_constants
+            .block_height_to_reward_cycle(
+                sortdb.first_block_height,
+                tip.block_height.saturating_sub(1),
+            )
+            .expect("FATAL: snapshot occurred before system start")
+    }
 }
 
 /// Nakamoto inventory state machine
@@ -593,15 +612,7 @@ impl<NC: NeighborComms> NakamotoInvStateMachine<NC> {
             .map(|(highest_rc, _)| *highest_rc)
             .unwrap_or(0);
 
-        // NOTE: reward cycles start when (sortition_height % reward_cycle_len) == 1, not 0, but
-        // .block_height_to_reward_cycle does not account for this.
-        let tip_rc = sortdb
-            .pox_constants
-            .block_height_to_reward_cycle(
-                sortdb.first_block_height,
-                tip.block_height.saturating_sub(1),
-            )
-            .expect("FATAL: snapshot occurred before system start");
+        let tip_rc = NakamotoTenureInv::get_current_reward_cycle(tip, sortdb);
 
         debug!(
             "Load all reward cycle consensus hashes from {} to {}",
@@ -794,7 +805,20 @@ impl<NC: NeighborComms> NakamotoInvStateMachine<NC> {
         Ok((num_msgs, learned))
     }
 
+    /// Top-level state machine execution
     pub fn run(&mut self, network: &mut PeerNetwork, sortdb: &SortitionDB, ibd: bool) -> bool {
+        // if the burnchain tip has changed, then force all communications to reset for the current
+        // reward cycle in order to hasten block download
+        if let Some(last_sort_tip) = self.last_sort_tip.as_ref() {
+            if last_sort_tip.consensus_hash != network.burnchain_tip.consensus_hash {
+                debug!("Forcibly restarting all Nakamoto inventory comms due to burnchain tip change ({} != {})", &last_sort_tip.consensus_hash, &network.burnchain_tip.consensus_hash);
+                let tip_rc = NakamotoTenureInv::get_current_reward_cycle(&network.burnchain_tip, sortdb);
+                for inv_state in self.inventories.values_mut() {
+                    inv_state.reset_comms(tip_rc.saturating_sub(1));
+                }
+            }
+        }
+
         if let Err(e) = self.process_getnakamotoinv_begins(network, sortdb, ibd) {
             warn!(
                 "{:?}: Failed to begin Nakamoto tenure inventory sync: {:?}",
