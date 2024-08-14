@@ -774,7 +774,7 @@ impl NakamotoDownloadStateMachine {
         let last_sort_height = last_sort_height_opt.unwrap_or(sort_tip.block_height);
         let sort_rc = sortdb
             .pox_constants
-            .block_height_to_reward_cycle(sortdb.first_block_height, last_sort_height)
+            .block_height_to_reward_cycle(sortdb.first_block_height, last_sort_height.saturating_add(1))
             .expect("FATAL: burnchain tip is before system start");
 
         let next_sort_rc = if last_sort_height == sort_tip.block_height {
@@ -782,13 +782,13 @@ impl NakamotoDownloadStateMachine {
                 .pox_constants
                 .block_height_to_reward_cycle(
                     sortdb.first_block_height,
-                    sort_tip.block_height.saturating_add(1),
+                    sort_tip.block_height.saturating_add(2),
                 )
                 .expect("FATAL: burnchain tip is before system start")
         } else {
             sortdb
                 .pox_constants
-                .block_height_to_reward_cycle(sortdb.first_block_height, sort_tip.block_height)
+                .block_height_to_reward_cycle(sortdb.first_block_height, sort_tip.block_height.saturating_add(1))
                 .expect("FATAL: burnchain tip is before system start")
         };
 
