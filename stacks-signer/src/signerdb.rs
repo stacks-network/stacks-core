@@ -242,7 +242,7 @@ CREATE TABLE IF NOT EXISTS blocks (
     block_info TEXT NOT NULL,
     consensus_hash TEXT NOT NULL,
     signed_over INTEGER NOT NULL,
-    broadcasted INTEGER NOT NULL,
+    broadcasted INTEGER,
     stacks_height INTEGER NOT NULL,
     burn_block_height INTEGER NOT NULL,
     PRIMARY KEY (reward_cycle, signer_signature_hash)
@@ -261,7 +261,7 @@ CREATE TABLE IF NOT EXISTS block_signatures (
 ) STRICT;"#;
 
 static CREATE_INDEXES_2: &str = r#"
-CREATE INDEX IF NOT EXISTS block_reward_cycle_and_signature ON block_signatures(signer_signature_hash);
+CREATE INDEX IF NOT EXISTS block_signatures_on_signer_signature_hash ON block_signatures(signer_signature_hash);
 "#;
 
 static SCHEMA_1: &[&str] = &[
@@ -479,18 +479,18 @@ impl SignerDb {
     }
 
     /// Insert or replace a block into the database.
-    /// `hash` is the `signer_signature_hash` of the block.
+    /// Preserves the `broadcast` column if replacing an existing block.
     pub fn insert_block(&mut self, block_info: &BlockInfo) -> Result<(), DBError> {
         let block_json =
             serde_json::to_string(&block_info).expect("Unable to serialize block info");
         let hash = &block_info.signer_signature_hash();
         let block_id = &block_info.block.block_id();
         let signed_over = &block_info.signed_over;
-        let broadcasted = false;
         let vote = block_info
             .vote
             .as_ref()
             .map(|v| if v.rejected { "REJECT" } else { "ACCEPT" });
+        let broadcasted = self.get_block_broadcasted(block_info.reward_cycle, &hash)?;
 
         debug!("Inserting block_info.";
             "reward_cycle" => %block_info.reward_cycle,
@@ -498,7 +498,7 @@ impl SignerDb {
             "sighash" => %hash,
             "block_id" => %block_id,
             "signed" => %signed_over,
-            "broadcasted" => %broadcasted,
+            "broadcasted" => ?broadcasted,
             "vote" => vote
         );
         self.db
@@ -553,12 +553,12 @@ impl SignerDb {
         let qry = "SELECT signature FROM block_signatures WHERE signer_signature_hash = ?1";
         let args = params![block_sighash];
         let sigs_txt: Vec<String> = query_rows(&self.db, qry, args)?;
-        let mut sigs = vec![];
-        for sig_txt in sigs_txt.into_iter() {
-            let sig = serde_json::from_str(&sig_txt).map_err(|_| DBError::ParseError)?;
-            sigs.push(sig);
-        }
-        Ok(sigs)
+        sigs_txt
+           .into_iter()
+           .map(|sig_txt| {
+                serde_json::from_str(&sig_txt).map_err(|_| DBError::ParseError)
+            })
+           .collect()
     }
 
     /// Mark a block as having been broadcasted
@@ -566,27 +566,33 @@ impl SignerDb {
         &self,
         reward_cycle: u64,
         block_sighash: &Sha512Trunc256Sum,
+        ts: u64
     ) -> Result<(), DBError> {
-        let qry = "UPDATE blocks SET broadcasted = 1 WHERE reward_cycle = ?1 AND signer_signature_hash = ?2";
-        let args = params![u64_to_sql(reward_cycle)?, block_sighash];
+        let qry = "UPDATE blocks SET broadcasted = ?1 WHERE reward_cycle = ?2 AND signer_signature_hash = ?3";
+        let args = params![u64_to_sql(ts)?, u64_to_sql(reward_cycle)?, block_sighash];
 
-        debug!("Marking block {} as broadcasted", block_sighash);
+        debug!("Marking block {} as broadcasted at {}", block_sighash, ts);
         self.db.execute(qry, args)?;
         Ok(())
     }
 
-    /// Is a block broadcasted already
-    pub fn is_block_broadcasted(
+    /// Get the timestamp at which the block was broadcasted.
+    pub fn get_block_broadcasted(
         &self,
         reward_cycle: u64,
         block_sighash: &Sha512Trunc256Sum,
-    ) -> Result<bool, DBError> {
+    ) -> Result<Option<u64>, DBError> {
         let qry =
-            "SELECT broadcasted FROM blocks WHERE reward_cycle = ?1 AND signer_signature_hash = ?2";
+            "SELECT IFNULL(broadcasted,0) AS broadcasted FROM blocks WHERE reward_cycle = ?1 AND signer_signature_hash = ?2";
         let args = params![u64_to_sql(reward_cycle)?, block_sighash];
 
-        let broadcasted: i64 = query_row(&self.db, qry, args)?.unwrap_or(0);
-        Ok(broadcasted != 0)
+        let Some(broadcasted): Option<u64> = query_row(&self.db, qry, args)? else {
+            return Ok(None);
+        };
+        if broadcasted == 0 {
+            return Ok(None);
+        }
+        Ok(u64::try_from(broadcasted).ok())
     }
 }
 
@@ -901,22 +907,29 @@ mod tests {
         db.insert_block(&block_info_1)
             .expect("Unable to insert block into db");
 
-        assert!(!db
-            .is_block_broadcasted(
+        assert!(db
+            .get_block_broadcasted(
                 block_info_1.reward_cycle,
                 &block_info_1.signer_signature_hash()
             )
-            .unwrap());
+            .unwrap()
+            .is_none());
         db.set_block_broadcasted(
             block_info_1.reward_cycle,
             &block_info_1.signer_signature_hash(),
+            12345
         )
         .unwrap();
-        assert!(db
-            .is_block_broadcasted(
+        db.insert_block(&block_info_1)
+            .expect("Unable to insert block into db a second time");
+
+        assert_eq!(db
+            .get_block_broadcasted(
                 block_info_1.reward_cycle,
                 &block_info_1.signer_signature_hash()
             )
-            .unwrap());
+            .unwrap()
+            .unwrap(),
+            12345);
     }
 }
