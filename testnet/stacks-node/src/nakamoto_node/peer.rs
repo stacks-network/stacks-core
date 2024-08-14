@@ -190,8 +190,7 @@ impl PeerThread {
             info!("`PeerNetwork::bind()` skipped, already bound");
         }
 
-        let poll_timeout = cmp::min(1000, config.miner.first_attempt_time_ms / 2);
-
+        let poll_timeout = config.get_poll_time();
         PeerThread {
             config,
             net,
