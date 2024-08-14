@@ -221,12 +221,12 @@ mod tests {
     }
 
     #[test]
-    fn should_load_block_proposal_token() {
+    fn should_load_auth_token() {
         let config = Config::from_config_file(
             ConfigFile::from_str(
                 r#"
                 [connection_options]
-                block_proposal_token = "password"
+                auth_token = "password"
                 "#,
             )
             .unwrap(),
@@ -235,7 +235,7 @@ mod tests {
         .expect("Expected to be able to parse block proposal token from file");
 
         assert_eq!(
-            config.connection_options.block_proposal_token,
+            config.connection_options.auth_token,
             Some("password".to_string())
         );
     }
@@ -1368,7 +1368,7 @@ impl Config {
         let poll_timeout = if self.node.miner {
             cmp::min(1000, self.miner.first_attempt_time_ms / 2)
         } else {
-            5000
+            1000
         };
         poll_timeout
     }
@@ -2425,7 +2425,7 @@ pub struct ConnectionOptionsFile {
     pub force_disconnect_interval: Option<u64>,
     pub antientropy_public: Option<bool>,
     pub private_neighbors: Option<bool>,
-    pub block_proposal_token: Option<String>,
+    pub auth_token: Option<String>,
     pub antientropy_retry: Option<u64>,
 }
 
@@ -2551,7 +2551,7 @@ impl ConnectionOptionsFile {
             max_sockets: self.max_sockets.unwrap_or(800) as usize,
             antientropy_public: self.antientropy_public.unwrap_or(true),
             private_neighbors: self.private_neighbors.unwrap_or(true),
-            block_proposal_token: self.block_proposal_token,
+            auth_token: self.auth_token,
             antientropy_retry: self.antientropy_retry.unwrap_or(default.antientropy_retry),
             ..default
         })
