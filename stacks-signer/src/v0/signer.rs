@@ -31,6 +31,7 @@ use slog::{slog_debug, slog_error, slog_info, slog_warn};
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 use stacks_common::util::secp256k1::MessageSignature;
+use stacks_common::util::get_epoch_time_secs;
 use stacks_common::{debug, error, info, warn};
 
 use crate::chainstate::{ProposalEvalConfig, SortitionsView};
@@ -452,8 +453,7 @@ impl Signer {
         block_validate_response: &BlockValidateResponse,
     ) {
         info!("{self}: Received a block validate response: {block_validate_response:?}");
-        let mut signature_opt = None;
-        let (response, block_info) = match block_validate_response {
+        let (response, block_info, signature_opt) = match block_validate_response {
             BlockValidateResponse::Ok(block_validate_ok) => {
                 crate::monitoring::increment_block_validation_responses(true);
                 let signer_signature_hash = block_validate_ok.signer_signature_hash;
@@ -479,10 +479,10 @@ impl Signer {
                     .sign(&signer_signature_hash.0)
                     .expect("Failed to sign block");
 
-                signature_opt = Some(signature.clone());
                 (
                     BlockResponse::accepted(signer_signature_hash, signature),
                     block_info,
+                    Some(signature.clone())
                 )
             }
             BlockValidateResponse::Reject(block_validate_reject) => {
@@ -507,6 +507,7 @@ impl Signer {
                 (
                     BlockResponse::from(block_validate_reject.clone()),
                     block_info,
+                    None
                 )
             }
         };
@@ -541,35 +542,27 @@ impl Signer {
         }
     }
 
-    /// Compute the signing weight and total weight, given a list of signatures
-    fn compute_signature_weight(
+    /// Compute the signing weight, given a list of signatures
+    fn compute_signature_signing_weight<'a>(
         &self,
-        block_hash: &Sha512Trunc256Sum,
-        sigs: &[MessageSignature],
-    ) -> (u32, u32) {
-        let signing_weight = sigs.iter().fold(0usize, |signing_weight, sig| {
-            let weight = if let Ok(public_key) =
-                Secp256k1PublicKey::recover_to_pubkey(block_hash.bits(), sig)
-            {
-                let stacker_address = StacksAddress::p2pkh(self.mainnet, &public_key);
-                let stacker_weight = self.signer_weights.get(&stacker_address).unwrap_or(&0);
-                *stacker_weight
-            } else {
-                0
-            };
-            signing_weight.saturating_add(weight)
+        addrs: impl Iterator<Item=&'a StacksAddress>
+    ) -> u32 {
+        let signing_weight = addrs.fold(0usize, |signing_weight, stacker_address| {
+            let stacker_weight = self.signer_weights.get(&stacker_address).unwrap_or(&0);
+            signing_weight.saturating_add(*stacker_weight)
         });
+        u32::try_from(signing_weight)
+            .unwrap_or_else(|_| panic!("FATAL: signing weight exceeds u32::MAX"))
+    }
 
+    /// Compute the total signing weight
+    fn compute_signature_total_weight(&self) -> u32 {
         let total_weight = self
             .signer_weights
             .values()
             .fold(0usize, |acc, val| acc.saturating_add(*val));
-        (
-            u32::try_from(signing_weight)
-                .unwrap_or_else(|_| panic!("FATAL: signing weight exceeds u32::MAX")),
-            u32::try_from(total_weight)
-                .unwrap_or_else(|_| panic!("FATAL: total weight exceeds u32::MAX")),
-        )
+        u32::try_from(total_weight)
+            .unwrap_or_else(|_| panic!("FATAL: total weight exceeds u32::MAX"))
     }
 
     /// Handle an observed signature from another signer
@@ -586,16 +579,34 @@ impl Signer {
 
         debug!("{self}: Received a block-accept signature: ({block_hash}, {signature})");
 
+        // have we broadcasted before?
+        if let Some(ts) = self
+            .signer_db
+            .get_block_broadcasted(self.reward_cycle, block_hash)
+            .unwrap_or_else(|_| {
+                panic!("{self}: failed to determine if block {block_hash} was broadcasted")
+            })
+        {
+            debug!("{self}: have already broadcasted block {} at {}, so will not re-attempt", block_hash, ts);
+            return;
+        }
+
+        // recover public key
+        let Ok(public_key) =
+            Secp256k1PublicKey::recover_to_pubkey(block_hash.bits(), signature)
+        else {
+            debug!("{self}: Received unrecovarable signature. Will not store.";
+                   "signature" => %signature,
+                   "block_hash" => %block_hash);
+
+            return;
+        };
+
         // authenticate the signature -- it must be signed by one of the stacking set
         let is_valid_sig = self
             .signer_addresses
             .iter()
             .find(|addr| {
-                let Ok(public_key) =
-                    Secp256k1PublicKey::recover_to_pubkey(block_hash.bits(), signature)
-                else {
-                    return false;
-                };
                 let stacker_address = StacksAddress::p2pkh(true, &public_key);
 
                 // it only matters that the address hash bytes match
@@ -608,55 +619,17 @@ impl Signer {
             return;
         }
 
+        // signature is valid! store it
         self.signer_db
             .add_block_signature(block_hash, signature)
             .unwrap_or_else(|_| panic!("{self}: Failed to save block signature"));
 
         // do we have enough signatures to broadcast?
+        // i.e. is the threshold reached?
         let signatures = self
             .signer_db
             .get_block_signatures(block_hash)
             .unwrap_or_else(|_| panic!("{self}: Failed to load block signatures"));
-
-        let (signature_weight, total_weight) =
-            self.compute_signature_weight(block_hash, &signatures);
-        let min_weight = NakamotoBlockHeader::compute_voting_weight_threshold(total_weight)
-            .unwrap_or_else(|_| {
-                panic!("{self}: Failed to compute threshold weight for {total_weight}")
-            });
-
-        if min_weight > signature_weight {
-            debug!(
-                "{self}: Not enough signatures on block {} (have {}, need at least {}/{})",
-                block_hash, signature_weight, min_weight, total_weight
-            );
-            return;
-        }
-
-        // have enough signatures to broadcast!
-        // have we broadcasted before?
-        if self
-            .signer_db
-            .is_block_broadcasted(self.reward_cycle, block_hash)
-            .unwrap_or_else(|_| {
-                panic!("{self}: failed to determine if block {block_hash} was broadcasted")
-            })
-        {
-            debug!("{self}: will not re-broadcast block {}", block_hash);
-            return;
-        }
-
-        let Ok(Some(block_info)) = self
-            .signer_db
-            .block_lookup(self.reward_cycle, block_hash)
-            .map_err(|e| {
-                warn!("{self}: Failed to load block {block_hash}: {e:?})");
-                e
-            })
-        else {
-            warn!("{self}: No such block {block_hash}");
-            return;
-        };
 
         // put signatures in order by signer address (i.e. reward cycle order)
         let addrs_to_sigs: HashMap<_, _> = signatures
@@ -671,6 +644,46 @@ impl Signer {
             })
             .collect();
 
+        let signature_weight = self.compute_signature_signing_weight(addrs_to_sigs.keys());
+        let total_weight = self.compute_signature_total_weight();
+
+        let min_weight = NakamotoBlockHeader::compute_voting_weight_threshold(total_weight)
+            .unwrap_or_else(|_| {
+                panic!("{self}: Failed to compute threshold weight for {total_weight}")
+            });
+
+        if min_weight > signature_weight {
+            debug!(
+                "{self}: Not enough signatures on block {} (have {}, need at least {}/{})",
+                block_hash, signature_weight, min_weight, total_weight
+            );
+            return;
+        }
+
+        // have enough signatures to broadcast!
+        let Ok(Some(mut block_info)) = self
+            .signer_db
+            .block_lookup(self.reward_cycle, block_hash)
+            .map_err(|e| {
+                warn!("{self}: Failed to load block {block_hash}: {e:?})");
+                e
+            })
+        else {
+            warn!("{self}: No such block {block_hash}");
+            return;
+        };
+
+        // record time at which we reached the threshold
+        block_info.signed_group = Some(get_epoch_time_secs());
+        let _ = self
+            .signer_db
+            .insert_block(&block_info)
+            .map_err(|e| {
+                warn!("Failed to set group threshold signature timestamp for {}: {:?}", block_hash, &e);
+                e
+            });
+
+        // collect signatures for the block
         let signatures: Vec<_> = self
             .signer_addresses
             .iter()
@@ -697,7 +710,7 @@ impl Signer {
 
         if broadcasted {
             self.signer_db
-                .set_block_broadcasted(self.reward_cycle, block_hash)
+                .set_block_broadcasted(self.reward_cycle, block_hash, get_epoch_time_secs())
                 .unwrap_or_else(|_| {
                     panic!("{self}: failed to determine if block {block_hash} was broadcasted")
                 });
