@@ -1255,12 +1255,12 @@ simulating a miner.
     }
 
     if argv[1] == "replay-block" {
-        cli::command_replay_block(&argv[1..]);
+        cli::command_replay_block(&argv[1..], None);
         process::exit(0);
     }
 
     if argv[1] == "replay-mock-mining" {
-        cli::command_replay_mock_mining(&argv[1..]);
+        cli::command_replay_mock_mining(&argv[1..], None);
         process::exit(0);
     }
 

@@ -16,6 +16,7 @@
 
 //! Subcommands used by `stacks-inspect` binary
 
+use std::cell::LazyCell;
 use std::path::PathBuf;
 use std::time::Instant;
 use std::{env, fs, io, process, thread};
@@ -39,10 +40,40 @@ use crate::clarity_vm::clarity::ClarityInstance;
 use crate::core::*;
 use crate::util_lib::db::IndexDBTx;
 
+/// Can be used with CLI commands to support non-mainnet chainstate
+/// Allows integration testing of these functions
+pub struct StacksChainConfig {
+    pub chain_id: u32,
+    pub first_block_height: u64,
+    pub first_burn_header_hash: BurnchainHeaderHash,
+    pub first_burn_header_timestamp: u64,
+    pub pox_constants: PoxConstants,
+    pub epochs: Vec<StacksEpoch>,
+}
+
+impl StacksChainConfig {
+    pub fn default_mainnet() -> Self {
+        Self {
+            chain_id: CHAIN_ID_MAINNET,
+            first_block_height: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT,
+            first_burn_header_hash: BurnchainHeaderHash::from_hex(BITCOIN_MAINNET_FIRST_BLOCK_HASH)
+                .unwrap(),
+            first_burn_header_timestamp: BITCOIN_MAINNET_FIRST_BLOCK_TIMESTAMP.into(),
+            pox_constants: PoxConstants::mainnet_default(),
+            epochs: STACKS_EPOCHS_MAINNET.to_vec(),
+        }
+    }
+}
+
+const STACKS_CHAIN_CONFIG_DEFAULT_MAINNET: LazyCell<StacksChainConfig> =
+    LazyCell::new(StacksChainConfig::default_mainnet);
+
 /// Replay blocks from chainstate database
-/// Takes args in CLI format: `<command-name> [args...]`
 /// Terminates on error using `process::exit()`
-pub fn command_replay_block(argv: &[String]) {
+///
+/// Arguments:
+///  - `argv`: Args in CLI format: `<command-name> [args...]`
+pub fn command_replay_block(argv: &[String], conf: Option<&StacksChainConfig>) {
     let print_help_and_exit = || -> ! {
         let n = &argv[0];
         eprintln!("Usage:");
@@ -110,15 +141,18 @@ pub fn command_replay_block(argv: &[String]) {
         if i % 100 == 0 {
             println!("Checked {i}...");
         }
-        replay_staging_block(db_path, index_block_hash);
+        replay_staging_block(db_path, index_block_hash, conf);
     }
     println!("Finished. run_time_seconds = {}", start.elapsed().as_secs());
 }
 
 /// Replay mock mined blocks from JSON files
-/// Takes args in CLI format: `<command-name> [args...]`
 /// Terminates on error using `process::exit()`
-pub fn command_replay_mock_mining(argv: &[String]) {
+///
+/// Arguments:
+///  - `argv`: Args in CLI format: `<command-name> [args...]`
+///  - `conf`: Optional config for running on non-mainnet chainstate
+pub fn command_replay_mock_mining(argv: &[String], conf: Option<&StacksChainConfig>) {
     let print_help_and_exit = || -> ! {
         let n = &argv[0];
         eprintln!("Usage:");
@@ -202,28 +236,36 @@ pub fn command_replay_mock_mining(argv: &[String]) {
             "block_height" => bh,
             "block" => ?block
         );
-        replay_mock_mined_block(&db_path, block);
+        replay_mock_mined_block(&db_path, block, conf);
     }
 }
 
 /// Fetch and process a `StagingBlock` from database and call `replay_block()` to validate
-fn replay_staging_block(db_path: &str, index_block_hash_hex: &str) {
+fn replay_staging_block(
+    db_path: &str,
+    index_block_hash_hex: &str,
+    conf: Option<&StacksChainConfig>,
+) {
     let block_id = StacksBlockId::from_hex(index_block_hash_hex).unwrap();
     let chain_state_path = format!("{db_path}/chainstate/");
     let sort_db_path = format!("{db_path}/burnchain/sortition");
     let burn_db_path = format!("{db_path}/burnchain/burnchain.sqlite");
     let burnchain_blocks_db = BurnchainDB::open(&burn_db_path, false).unwrap();
 
+    let default_conf = STACKS_CHAIN_CONFIG_DEFAULT_MAINNET;
+    let conf = conf.unwrap_or(&default_conf);
+
+    let mainnet = conf.chain_id == CHAIN_ID_MAINNET;
     let (mut chainstate, _) =
-        StacksChainState::open(true, CHAIN_ID_MAINNET, &chain_state_path, None).unwrap();
+        StacksChainState::open(mainnet, conf.chain_id, &chain_state_path, None).unwrap();
 
     let mut sortdb = SortitionDB::connect(
         &sort_db_path,
-        BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT,
-        &BurnchainHeaderHash::from_hex(BITCOIN_MAINNET_FIRST_BLOCK_HASH).unwrap(),
-        BITCOIN_MAINNET_FIRST_BLOCK_TIMESTAMP.into(),
-        STACKS_EPOCHS_MAINNET.as_ref(),
-        PoxConstants::mainnet_default(),
+        conf.first_block_height,
+        &conf.first_burn_header_hash,
+        conf.first_burn_header_timestamp,
+        &conf.epochs,
+        conf.pox_constants.clone(),
         None,
         true,
     )
@@ -277,22 +319,30 @@ fn replay_staging_block(db_path: &str, index_block_hash_hex: &str) {
 }
 
 /// Process a mock mined block and call `replay_block()` to validate
-fn replay_mock_mined_block(db_path: &str, block: AssembledAnchorBlock) {
+fn replay_mock_mined_block(
+    db_path: &str,
+    block: AssembledAnchorBlock,
+    conf: Option<&StacksChainConfig>,
+) {
     let chain_state_path = format!("{db_path}/chainstate/");
     let sort_db_path = format!("{db_path}/burnchain/sortition");
     let burn_db_path = format!("{db_path}/burnchain/burnchain.sqlite");
     let burnchain_blocks_db = BurnchainDB::open(&burn_db_path, false).unwrap();
 
+    let default_conf = STACKS_CHAIN_CONFIG_DEFAULT_MAINNET;
+    let conf = conf.unwrap_or(&default_conf);
+
+    let mainnet = conf.chain_id == CHAIN_ID_MAINNET;
     let (mut chainstate, _) =
-        StacksChainState::open(true, CHAIN_ID_MAINNET, &chain_state_path, None).unwrap();
+        StacksChainState::open(mainnet, conf.chain_id, &chain_state_path, None).unwrap();
 
     let mut sortdb = SortitionDB::connect(
         &sort_db_path,
-        BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT,
-        &BurnchainHeaderHash::from_hex(BITCOIN_MAINNET_FIRST_BLOCK_HASH).unwrap(),
-        BITCOIN_MAINNET_FIRST_BLOCK_TIMESTAMP.into(),
-        STACKS_EPOCHS_MAINNET.as_ref(),
-        PoxConstants::mainnet_default(),
+        conf.first_block_height,
+        &conf.first_burn_header_hash,
+        conf.first_burn_header_timestamp,
+        &conf.epochs,
+        conf.pox_constants.clone(),
         None,
         true,
     )
