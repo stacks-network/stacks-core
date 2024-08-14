@@ -415,7 +415,7 @@ impl RelayerThread {
                     .expect("FATAL: failed to query sortition DB for epoch")
                     .expect("FATAL: no epoch defined for existing sortition");
 
-            if cur_epoch.epoch_id != StacksEpochId::Epoch30 {
+            if cur_epoch.epoch_id < StacksEpochId::Epoch30 {
                 debug!(
                     "As of sortition {}, there has not yet been a Nakamoto tip. Cannot mine.",
                     &stacks_tip_sn.consensus_hash
@@ -453,6 +453,9 @@ impl RelayerThread {
             increment_stx_blocks_mined_counter();
         }
         self.globals.set_last_sortition(sn.clone());
+
+        // there may be a bufferred stacks block to process, so wake up the coordinator to check
+        self.globals.coord_comms.announce_new_stacks_block();
 
         info!(
             "Relayer: Process sortition";
