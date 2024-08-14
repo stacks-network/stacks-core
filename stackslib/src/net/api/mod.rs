@@ -129,9 +129,9 @@ impl StacksHttp {
         );
         self.register_rpc_endpoint(postblock::RPCPostBlockRequestHandler::new());
         self.register_rpc_endpoint(postblock_proposal::RPCBlockProposalRequestHandler::new(
-            self.block_proposal_token.clone(),
+            self.auth_token.clone(),
         ));
-        self.register_rpc_endpoint(postblock_v3::RPCPostBlockRequestHandler::default());
+        self.register_rpc_endpoint(postblock_v3::RPCPostBlockRequestHandler::new(self.auth_token.clone()));
         self.register_rpc_endpoint(postfeerate::RPCPostFeeRateRequestHandler::new());
         self.register_rpc_endpoint(postmempoolquery::RPCMempoolQueryRequestHandler::new());
         self.register_rpc_endpoint(postmicroblock::RPCPostMicroblockRequestHandler::new());
