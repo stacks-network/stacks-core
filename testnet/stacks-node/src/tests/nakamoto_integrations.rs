@@ -231,7 +231,7 @@ impl TestSigningChannel {
 
 pub fn get_stacker_set(http_origin: &str, cycle: u64) -> GetStackersResponse {
     let client = reqwest::blocking::Client::new();
-    let path = format!("{http_origin}/v2/stacker_set/{cycle}");
+    let path = format!("{http_origin}/v3/stacker_set/{cycle}");
     let res = client
         .get(&path)
         .send()
@@ -2302,7 +2302,7 @@ fn correct_burn_outs() {
     run_loop_thread.join().unwrap();
 }
 
-/// Test `/v2/block_proposal` API endpoint
+/// Test `/v3/block_proposal` API endpoint
 ///
 /// This endpoint allows miners to propose Nakamoto blocks to a node,
 /// and test if they would be accepted or rejected
@@ -2315,7 +2315,7 @@ fn block_proposal_api_endpoint() {
 
     let (mut conf, _miner_account) = naka_neon_integration_conf(None);
     let password = "12345".to_string();
-    conf.connection_options.block_proposal_token = Some(password.clone());
+    conf.connection_options.auth_token = Some(password.clone());
     let account_keys = add_initial_balances(&mut conf, 10, 1_000_000);
     let stacker_sk = setup_stacker(&mut conf);
     let sender_signer_sk = Secp256k1PrivateKey::new();
@@ -2539,7 +2539,7 @@ fn block_proposal_api_endpoint() {
         .expect("Failed to build `reqwest::Client`");
     // Build URL
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
-    let path = format!("{http_origin}/v2/block_proposal");
+    let path = format!("{http_origin}/v3/block_proposal");
 
     let mut hold_proposal_mutex = Some(test_observer::PROPOSAL_RESPONSES.lock().unwrap());
     for (ix, (test_description, block_proposal, expected_http_code, _)) in
@@ -4494,7 +4494,7 @@ fn nakamoto_attempt_time() {
     let mut signers = TestSigners::default();
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
     let password = "12345".to_string();
-    naka_conf.connection_options.block_proposal_token = Some(password.clone());
+    naka_conf.connection_options.auth_token = Some(password.clone());
     // Use fixed timing params for this test
     let nakamoto_attempt_time_ms = 20_000;
     naka_conf.miner.nakamoto_attempt_time_ms = nakamoto_attempt_time_ms;
@@ -5165,7 +5165,7 @@ fn signer_chainstate() {
         socket,
         naka_conf
             .connection_options
-            .block_proposal_token
+            .auth_token
             .clone()
             .unwrap_or("".into()),
         false,
