@@ -121,11 +121,11 @@ impl HttpRequest for GetStackersRequestHandler {
     }
 
     fn path_regex(&self) -> Regex {
-        Regex::new(r#"^/v2/stacker_set/(?P<cycle_num>[0-9]{1,20})$"#).unwrap()
+        Regex::new(r#"^/v3/stacker_set/(?P<cycle_num>[0-9]{1,20})$"#).unwrap()
     }
 
     fn metrics_identifier(&self) -> &str {
-        "/v2/stacker_set/:cycle_num"
+        "/v3/stacker_set/:cycle_num"
     }
 
     /// Try to decode this request.
@@ -239,7 +239,7 @@ impl StacksHttpRequest {
         StacksHttpRequest::new_for_peer(
             host,
             "GET".into(),
-            format!("/v2/stacker_set/{cycle_num}"),
+            format!("/v3/stacker_set/{cycle_num}"),
             HttpRequestContents::new().for_tip(tip_req),
         )
         .expect("FATAL: failed to construct request from infallible data")
