@@ -154,7 +154,7 @@ use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use libsigner::v0::messages::{
     MessageSlotID, MinerSlotID, MockMinerMessage, MockSignature, PeerInfo, SignerMessage,
 };
-use libsigner::StackerDBSession;
+use libsigner::{SignerSession, StackerDBSession};
 use stacks::burnchains::bitcoin::address::{BitcoinAddress, LegacyBitcoinAddressType};
 use stacks::burnchains::db::BurnchainHeaderReader;
 use stacks::burnchains::{Burnchain, BurnchainSigner, PoxConstants, Txid};
@@ -190,7 +190,7 @@ use stacks::net::db::{LocalPeer, PeerDB};
 use stacks::net::dns::{DNSClient, DNSResolver};
 use stacks::net::p2p::PeerNetwork;
 use stacks::net::relay::Relayer;
-use stacks::net::stackerdb::{StackerDBConfig, StackerDBSync, StackerDBs};
+use stacks::net::stackerdb::{StackerDBConfig, StackerDBSync, StackerDBs, MINER_SLOT_COUNT};
 use stacks::net::{
     Error as NetError, NetworkResult, PeerNetworkComms, RPCHandlerArgs, ServiceFlags,
 };
@@ -2263,10 +2263,11 @@ impl BlockMinerThread {
     }
 
     /// Read any mock signatures from stackerdb and respond to them
-    pub fn respond_to_mock_signatures(&mut self) -> Result<(), ChainstateError> {
+    pub fn send_mock_miner_message(&mut self) -> Result<(), ChainstateError> {
+        let new_burn_block_height = self.burn_block.block_height + 1;
         let miner_config = self.config.get_miner_config();
-        if miner_config.pre_nakamoto_miner_messaging {
-            debug!("Pre-Nakamoto miner messaging is disabled");
+        if !miner_config.pre_nakamoto_miner_messaging {
+            debug!("Pre-Nakamoto mock miner messaging is disabled");
             return Ok(());
         }
 
@@ -2274,15 +2275,42 @@ impl BlockMinerThread {
         let burn_db = SortitionDB::open(&burn_db_path, false, self.burnchain.pox_constants.clone())
             .expect("FATAL: could not open sortition DB");
 
-        let target_epoch_id =
-            SortitionDB::get_stacks_epoch(burn_db.conn(), self.burn_block.block_height + 1)?
-                .expect("FATAL: no epoch defined")
-                .epoch_id;
+        let target_epoch_id = SortitionDB::get_stacks_epoch(burn_db.conn(), new_burn_block_height)?
+            .expect("FATAL: no epoch defined")
+            .epoch_id;
         if target_epoch_id != StacksEpochId::Epoch25 {
-            debug!("Mock signing is disabled for non-epoch 2.5 blocks.";
+            debug!("Mock miner messaging is disabled for non-epoch 2.5 blocks.";
                 "target_epoch_id" => target_epoch_id.to_string()
             );
             return Ok(());
+        }
+        let miner_contract_id = boot_code_id(MINERS_NAME, self.config.is_mainnet());
+        let mut miners_stackerdb =
+            StackerDBSession::new(&self.config.node.rpc_bind, miner_contract_id);
+        let slot_id = MinerSlotID::BlockProposal.to_u8().into();
+        if let Ok(messages) =
+            miners_stackerdb.get_latest_chunks(&[slot_id, slot_id * MINER_SLOT_COUNT])
+        {
+            debug!("Miner got messages: {:?}", messages.len());
+            for message in messages {
+                if let Some(message) = message {
+                    if message.is_empty() {
+                        continue;
+                    }
+                    let Ok(SignerMessage::MockMinerMessage(miner_message)) =
+                        SignerMessage::consensus_deserialize(&mut message.as_slice())
+                    else {
+                        continue;
+                    };
+                    if miner_message.peer_info.burn_block_height == new_burn_block_height {
+                        debug!(
+                            "Already sent mock miner message for tenure burn block height {:?}",
+                            self.burn_block.block_height
+                        );
+                        return Ok(());
+                    }
+                }
+            }
         }
         // Retrieve any MockSignatures from stackerdb
         let mut mock_signatures = Vec::new();
@@ -2321,13 +2349,6 @@ impl BlockMinerThread {
                 }
             }
         }
-        info!(
-            "Miner responding to {} mock signatures",
-            mock_signatures.len()
-        );
-        let miner_contract_id = boot_code_id(MINERS_NAME, self.config.is_mainnet());
-        let mut miners_stackerdb =
-            StackerDBSession::new(&self.config.node.rpc_bind, miner_contract_id);
 
         let p2p_net = StacksNode::setup_peer_network(
             &self.config,
@@ -2356,30 +2377,29 @@ impl BlockMinerThread {
             server_version,
         };
 
-        info!("Responding to mock signatures for burn block {:?}", &self.burn_block.block_height;
+        info!("Sending mock miner message in response to mock signatures for burn block {:?}", &self.burn_block.block_height;
             "stacks_tip_consensus_hash" => ?peer_info.stacks_tip_consensus_hash.clone(),
             "stacks_tip" => ?peer_info.stacks_tip.clone(),
             "peer_burn_block_height" => peer_info.burn_block_height,
             "pox_consensus" => ?peer_info.pox_consensus.clone(),
             "server_version" => peer_info.server_version.clone(),
-            "chain_id" => self.config.burnchain.chain_id
+            "chain_id" => self.config.burnchain.chain_id,
+            "num_mock_signatures" => mock_signatures.len(),
         );
         let message = MockMinerMessage {
             peer_info,
-            tenure_burn_block_height: self.burn_block.block_height,
             chain_id: self.config.burnchain.chain_id,
             mock_signatures,
+            tenure_burn_block_height: new_burn_block_height,
         };
-        let sort_db = SortitionDB::open(&burn_db_path, true, self.burnchain.pox_constants.clone())
-            .expect("FATAL: failed to open burnchain DB");
 
         if let Err(e) = SignCoordinator::send_miners_message(
             &miner_config.mining_key.expect("BUG: no mining key"),
-            &sort_db,
+            &burn_db,
             &self.burn_block,
             &stackerdbs,
             SignerMessage::MockMinerMessage(message),
-            MinerSlotID::MockMinerMessage,
+            MinerSlotID::BlockProposal, // We are sending a mock miner message NOT a block proposal, but since we do not propose blocks in epoch 2.5, it is fine
             self.config.is_mainnet(),
             &mut miners_stackerdb,
             &self.burn_block.consensus_hash,
@@ -3731,8 +3751,8 @@ impl RelayerThread {
             .stack_size(BLOCK_PROCESSOR_STACK_SIZE)
             .spawn(move || {
                 let result = miner_thread_state.run_tenure();
-                if let Err(e) = miner_thread_state.respond_to_mock_signatures() {
-                    warn!("Failed to respond to mock signatures: {}", e);
+                if let Err(e) = miner_thread_state.send_mock_miner_message() {
+                    warn!("Failed to send mock miner message: {}", e);
                 }
                 result
             })

@@ -88,17 +88,8 @@ MinerSlotID {
     /// Block proposal from the miner
     BlockProposal = 0,
     /// Block pushed from the miner
-    BlockPushed = 1,
-    /// Mock message from the miner
-    MockMinerMessage = 2
+    BlockPushed = 1
 });
-
-#[cfg_attr(test, mutants::skip)]
-impl Display for MinerSlotID {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}({})", self, self.to_u8())
-    }
-}
 
 impl MessageSlotIDTrait for MessageSlotID {
     fn stacker_db_contract(&self, mainnet: bool, reward_cycle: u64) -> QualifiedContractIdentifier {

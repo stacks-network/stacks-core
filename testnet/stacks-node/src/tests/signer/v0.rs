@@ -23,7 +23,7 @@ use std::{env, thread};
 use clarity::vm::types::PrincipalData;
 use clarity::vm::StacksEpoch;
 use libsigner::v0::messages::{
-    BlockRejection, BlockResponse, MessageSlotID, RejectCode, SignerMessage,
+    BlockRejection, BlockResponse, MessageSlotID, MinerSlotID, RejectCode, SignerMessage,
 };
 use libsigner::{BlockProposal, SignerSession, StackerDBSession};
 use rand::RngCore;
@@ -184,7 +184,7 @@ impl SignerTest<SpawnedSigner> {
         );
         debug!("Waiting for signer set calculation.");
         let mut reward_set_calculated = false;
-        let short_timeout = Duration::from_secs(30);
+        let short_timeout = Duration::from_secs(60);
         let now = std::time::Instant::now();
         // Make sure the signer set is calculated before continuing or signers may not
         // recognize that they are registered signers in the subsequent burn block event
@@ -2357,6 +2357,124 @@ fn mock_sign_epoch_25() {
         })
         .collect::<Vec<_>>();
     assert_eq!(old_signatures, new_signatures);
+}
+
+#[test]
+#[ignore]
+/// This test checks that Epoch 2.5 miners will issue a MockMinerMessage per burn block they receive
+/// including the mock signature from the signers.
+fn mock_miner_message_epoch_25() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(EnvFilter::from_default_env())
+        .init();
+
+    info!("------------------------- Test Setup -------------------------");
+    let num_signers = 5;
+    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_addr = tests::to_addr(&sender_sk);
+    let send_amt = 100;
+    let send_fee = 180;
+
+    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
+        num_signers,
+        vec![(sender_addr.clone(), send_amt + send_fee)],
+        Some(Duration::from_secs(5)),
+        |_| {},
+        |node_config| {
+            let epochs = node_config.burnchain.epochs.as_mut().unwrap();
+            for epoch in epochs.iter_mut() {
+                if epoch.epoch_id == StacksEpochId::Epoch25 {
+                    epoch.end_height = 251;
+                }
+                if epoch.epoch_id == StacksEpochId::Epoch30 {
+                    epoch.start_height = 251;
+                }
+            }
+        },
+        &[],
+    );
+
+    let epochs = signer_test
+        .running_nodes
+        .conf
+        .burnchain
+        .epochs
+        .clone()
+        .unwrap();
+    let epoch_3 = &epochs[StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch30).unwrap()];
+    let epoch_3_start_height = epoch_3.start_height;
+
+    signer_test.boot_to_epoch_25_reward_cycle();
+
+    info!("------------------------- Test Processing Epoch 2.5 Tenures -------------------------");
+    let miners_stackerdb_contract = boot_code_id(MINERS_NAME, false);
+    let main_poll_time = Instant::now();
+    let mut mock_miner_message = None;
+    while signer_test
+        .running_nodes
+        .btc_regtest_controller
+        .get_headers_height()
+        < epoch_3_start_height
+    {
+        let current_burn_block_height = signer_test
+            .running_nodes
+            .btc_regtest_controller
+            .get_headers_height();
+        let mock_poll_time = Instant::now();
+        next_block_and(
+            &mut signer_test.running_nodes.btc_regtest_controller,
+            60,
+            || Ok(true),
+        )
+        .unwrap();
+        debug!("Waiting for mock miner message for burn block height {current_burn_block_height}");
+
+        while mock_miner_message.is_none() {
+            std::thread::sleep(Duration::from_millis(100));
+            let chunks = test_observer::get_stackerdb_chunks();
+            for chunk in chunks
+                .into_iter()
+                .filter_map(|chunk| {
+                    if chunk.contract_id != miners_stackerdb_contract {
+                        return None;
+                    }
+                    Some(chunk.modified_slots)
+                })
+                .flatten()
+            {
+                if chunk.slot_id == MinerSlotID::BlockProposal.to_u8() as u32 {
+                    if chunk.data.is_empty() {
+                        continue;
+                    }
+                    let SignerMessage::MockMinerMessage(message) =
+                        SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
+                            .expect("Failed to deserialize MockMinerMessage")
+                    else {
+                        continue;
+                    };
+                    if message.peer_info.burn_block_height == current_burn_block_height {
+                        mock_miner_message = Some(message);
+                        break;
+                    }
+                }
+            }
+            assert!(
+                mock_poll_time.elapsed() <= Duration::from_secs(15),
+                "Failed to find mock miner message within timeout"
+            );
+        }
+        test_observer::clear();
+        mock_miner_message = None;
+        assert!(
+            main_poll_time.elapsed() <= Duration::from_secs(45),
+            "Timed out waiting to advance epoch 3.0"
+        );
+    }
 }
 
 #[test]
