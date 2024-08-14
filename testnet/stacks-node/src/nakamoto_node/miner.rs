@@ -678,6 +678,24 @@ impl BlockMinerThread {
         Ok(filtered_transactions.into_values().collect())
     }
 
+    /// Fault injection -- possibly fail to broadcast
+    /// Return true to drop the block
+    fn fault_injection_broadcast_fail(&self) -> bool {
+        let drop_prob = self
+            .config
+            .node
+            .fault_injection_block_push_fail_probability
+            .unwrap_or(0)
+            .min(100);
+        let will_drop = if drop_prob > 0 {
+            let throw: u8 = thread_rng().gen_range(0..100);
+            throw < drop_prob
+        } else {
+            false
+        };
+        will_drop
+    }
+
     /// Store a block to the chainstate, and if successful (it should be since we mined it),
     /// broadcast it via the p2p network.
     fn broadcast_p2p(
@@ -717,25 +735,12 @@ impl BlockMinerThread {
         }
 
         // forward to p2p thread, but do fault injection
-        let block_id = block.block_id();
-        let drop_prob = self
-            .config
-            .node
-            .fault_injection_block_push_fail_probability
-            .unwrap_or(0)
-            .min(100);
-        let will_drop = if drop_prob > 0 {
-            let throw: u8 = thread_rng().gen_range(0..100);
-            throw < drop_prob
-        } else {
-            false
-        };
-
-        if will_drop {
-            info!("Fault injection: drop block {}", &block_id);
+        if self.fault_injection_broadcast_fail() {
+            info!("Fault injection: drop block {}", &block.block_id());
             return Ok(());
         }
 
+        let block_id = block.block_id();
         debug!("Broadcasting block {}", &block_id);
         if let Err(e) = self.p2p_handle.broadcast_message(
             vec![],
