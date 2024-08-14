@@ -643,7 +643,7 @@ impl NakamotoTenureDownloader {
         &mut self,
         response: StacksHttpResponse,
     ) -> Result<Option<Vec<NakamotoBlock>>, NetError> {
-        match self.state {
+        let handle_result = match self.state {
             NakamotoTenureDownloadState::GetTenureStartBlock(_block_id) => {
                 debug!(
                     "Got download response for tenure-start block {}",
@@ -654,12 +654,10 @@ impl NakamotoTenureDownloader {
                     e
                 })?;
                 self.try_accept_tenure_start_block(block)?;
-                self.idle = true;
                 Ok(None)
             }
             NakamotoTenureDownloadState::WaitForTenureEndBlock(..) => {
                 debug!("Invalid state -- Got download response for WaitForTenureBlock");
-                self.idle = true;
                 Err(NetError::InvalidState)
             }
             NakamotoTenureDownloadState::GetTenureEndBlock(_block_id) => {
@@ -669,7 +667,6 @@ impl NakamotoTenureDownloader {
                     e
                 })?;
                 self.try_accept_tenure_end_block(&block)?;
-                self.idle = true;
                 Ok(None)
             }
             NakamotoTenureDownloadState::GetTenureBlocks(_end_block_id) => {
@@ -682,14 +679,14 @@ impl NakamotoTenureDownloader {
                     e
                 })?;
                 let blocks_opt = self.try_accept_tenure_blocks(blocks)?;
-                self.idle = true;
                 Ok(blocks_opt)
             }
             NakamotoTenureDownloadState::Done => {
-                self.idle = true;
                 Err(NetError::InvalidState)
             }
-        }
+        };
+        self.idle = true;
+        handle_result
     }
 
     pub fn is_done(&self) -> bool {
