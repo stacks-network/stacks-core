@@ -29,9 +29,9 @@ use libsigner::v0::messages::{
 use libsigner::{BlockProposal, SignerEvent};
 use slog::{slog_debug, slog_error, slog_info, slog_warn};
 use stacks_common::types::chainstate::StacksAddress;
+use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 use stacks_common::util::secp256k1::MessageSignature;
-use stacks_common::util::get_epoch_time_secs;
 use stacks_common::{debug, error, info, warn};
 
 use crate::chainstate::{ProposalEvalConfig, SortitionsView};
@@ -482,7 +482,7 @@ impl Signer {
                 (
                     BlockResponse::accepted(signer_signature_hash, signature),
                     block_info,
-                    Some(signature.clone())
+                    Some(signature.clone()),
                 )
             }
             BlockValidateResponse::Reject(block_validate_reject) => {
@@ -507,7 +507,7 @@ impl Signer {
                 (
                     BlockResponse::from(block_validate_reject.clone()),
                     block_info,
-                    None
+                    None,
                 )
             }
         };
@@ -545,7 +545,7 @@ impl Signer {
     /// Compute the signing weight, given a list of signatures
     fn compute_signature_signing_weight<'a>(
         &self,
-        addrs: impl Iterator<Item=&'a StacksAddress>
+        addrs: impl Iterator<Item = &'a StacksAddress>,
     ) -> u32 {
         let signing_weight = addrs.fold(0usize, |signing_weight, stacker_address| {
             let stacker_weight = self.signer_weights.get(&stacker_address).unwrap_or(&0);
@@ -587,13 +587,15 @@ impl Signer {
                 panic!("{self}: failed to determine if block {block_hash} was broadcasted")
             })
         {
-            debug!("{self}: have already broadcasted block {} at {}, so will not re-attempt", block_hash, ts);
+            debug!(
+                "{self}: have already broadcasted block {} at {}, so will not re-attempt",
+                block_hash, ts
+            );
             return;
         }
 
         // recover public key
-        let Ok(public_key) =
-            Secp256k1PublicKey::recover_to_pubkey(block_hash.bits(), signature)
+        let Ok(public_key) = Secp256k1PublicKey::recover_to_pubkey(block_hash.bits(), signature)
         else {
             debug!("{self}: Received unrecovarable signature. Will not store.";
                    "signature" => %signature,
@@ -675,13 +677,13 @@ impl Signer {
 
         // record time at which we reached the threshold
         block_info.signed_group = Some(get_epoch_time_secs());
-        let _ = self
-            .signer_db
-            .insert_block(&block_info)
-            .map_err(|e| {
-                warn!("Failed to set group threshold signature timestamp for {}: {:?}", block_hash, &e);
-                e
-            });
+        let _ = self.signer_db.insert_block(&block_info).map_err(|e| {
+            warn!(
+                "Failed to set group threshold signature timestamp for {}: {:?}",
+                block_hash, &e
+            );
+            e
+        });
 
         // collect signatures for the block
         let signatures: Vec<_> = self

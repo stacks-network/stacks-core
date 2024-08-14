@@ -812,7 +812,8 @@ impl<NC: NeighborComms> NakamotoInvStateMachine<NC> {
         if let Some(last_sort_tip) = self.last_sort_tip.as_ref() {
             if last_sort_tip.consensus_hash != network.burnchain_tip.consensus_hash {
                 debug!("Forcibly restarting all Nakamoto inventory comms due to burnchain tip change ({} != {})", &last_sort_tip.consensus_hash, &network.burnchain_tip.consensus_hash);
-                let tip_rc = NakamotoTenureInv::get_current_reward_cycle(&network.burnchain_tip, sortdb);
+                let tip_rc =
+                    NakamotoTenureInv::get_current_reward_cycle(&network.burnchain_tip, sortdb);
                 for inv_state in self.inventories.values_mut() {
                     inv_state.reset_comms(tip_rc.saturating_sub(1));
                 }

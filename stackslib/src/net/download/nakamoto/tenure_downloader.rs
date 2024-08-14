@@ -681,9 +681,7 @@ impl NakamotoTenureDownloader {
                 let blocks_opt = self.try_accept_tenure_blocks(blocks)?;
                 Ok(blocks_opt)
             }
-            NakamotoTenureDownloadState::Done => {
-                Err(NetError::InvalidState)
-            }
+            NakamotoTenureDownloadState::Done => Err(NetError::InvalidState),
         };
         self.idle = true;
         handle_result

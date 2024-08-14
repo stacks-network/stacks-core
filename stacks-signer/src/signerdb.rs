@@ -554,11 +554,9 @@ impl SignerDb {
         let args = params![block_sighash];
         let sigs_txt: Vec<String> = query_rows(&self.db, qry, args)?;
         sigs_txt
-           .into_iter()
-           .map(|sig_txt| {
-                serde_json::from_str(&sig_txt).map_err(|_| DBError::ParseError)
-            })
-           .collect()
+            .into_iter()
+            .map(|sig_txt| serde_json::from_str(&sig_txt).map_err(|_| DBError::ParseError))
+            .collect()
     }
 
     /// Mark a block as having been broadcasted
@@ -566,7 +564,7 @@ impl SignerDb {
         &self,
         reward_cycle: u64,
         block_sighash: &Sha512Trunc256Sum,
-        ts: u64
+        ts: u64,
     ) -> Result<(), DBError> {
         let qry = "UPDATE blocks SET broadcasted = ?1 WHERE reward_cycle = ?2 AND signer_signature_hash = ?3";
         let args = params![u64_to_sql(ts)?, u64_to_sql(reward_cycle)?, block_sighash];
@@ -917,19 +915,20 @@ mod tests {
         db.set_block_broadcasted(
             block_info_1.reward_cycle,
             &block_info_1.signer_signature_hash(),
-            12345
+            12345,
         )
         .unwrap();
         db.insert_block(&block_info_1)
             .expect("Unable to insert block into db a second time");
 
-        assert_eq!(db
-            .get_block_broadcasted(
+        assert_eq!(
+            db.get_block_broadcasted(
                 block_info_1.reward_cycle,
                 &block_info_1.signer_signature_hash()
             )
             .unwrap()
             .unwrap(),
-            12345);
+            12345
+        );
     }
 }

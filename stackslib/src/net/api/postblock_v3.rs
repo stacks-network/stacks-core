@@ -16,6 +16,7 @@
 use regex::{Captures, Regex};
 use stacks_common::codec::{Error as CodecError, StacksMessageCodec, MAX_PAYLOAD_LEN};
 use stacks_common::types::net::PeerHost;
+use url::form_urlencoded;
 
 use super::postblock::StacksBlockAcceptedData;
 use crate::chainstate::nakamoto::staging_blocks::NakamotoBlockObtainMethod;
@@ -31,15 +32,13 @@ use crate::net::httpcore::{
 use crate::net::relay::Relayer;
 use crate::net::{Error as NetError, NakamotoBlocksData, StacksMessageType, StacksNodeState};
 
-use url::form_urlencoded;
-
 pub static PATH: &'static str = "/v3/blocks/upload/";
 
 #[derive(Clone, Default)]
 pub struct RPCPostBlockRequestHandler {
     pub block: Option<NakamotoBlock>,
     pub auth: Option<String>,
-    pub broadcast: Option<bool>
+    pub broadcast: Option<bool>,
 }
 
 impl RPCPostBlockRequestHandler {
@@ -47,7 +46,7 @@ impl RPCPostBlockRequestHandler {
         Self {
             block: None,
             auth,
-            broadcast: None
+            broadcast: None,
         }
     }
 
@@ -172,7 +171,7 @@ impl RPCRequestHandler for RPCPostBlockRequestHandler {
                     &block,
                     rpc_args.coord_comms,
                     NakamotoBlockObtainMethod::Uploaded,
-                    self.broadcast.unwrap_or(false)
+                    self.broadcast.unwrap_or(false),
                 )
             })
             .map_err(|e| {
@@ -226,9 +225,13 @@ impl StacksHttpRequest {
         )
         .expect("FATAL: failed to construct request from infallible data")
     }
-    
+
     /// Make a new post-block request, with intent to broadcast
-    pub fn new_post_block_v3_broadcast(host: PeerHost, block: &NakamotoBlock, auth: &str) -> StacksHttpRequest {
+    pub fn new_post_block_v3_broadcast(
+        host: PeerHost,
+        block: &NakamotoBlock,
+        auth: &str,
+    ) -> StacksHttpRequest {
         let mut request = StacksHttpRequest::new_for_peer(
             host,
             "POST".into(),

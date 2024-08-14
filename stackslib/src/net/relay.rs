@@ -790,7 +790,7 @@ impl Relayer {
         }
         Ok(res)
     }
-    
+
     /// Wrapper around inner_process_new_nakamoto_block
     pub fn process_new_nakamoto_block(
         burnchain: &Burnchain,
@@ -811,7 +811,7 @@ impl Relayer {
             block,
             coord_comms,
             obtained_method,
-            false
+            false,
         )
     }
 
@@ -836,7 +836,7 @@ impl Relayer {
         block: &NakamotoBlock,
         coord_comms: Option<&CoordinatorChannels>,
         obtained_method: NakamotoBlockObtainMethod,
-        force_broadcast: bool
+        force_broadcast: bool,
     ) -> Result<bool, chainstate_error> {
         debug!(
             "Handle incoming Nakamoto block {}/{} obtained via {}",
@@ -862,10 +862,12 @@ impl Relayer {
             if force_broadcast {
                 // it's possible that the signer sent this block to us, in which case, we should
                 // broadcast it
-                debug!("Already have Nakamoto block {}, but broadcasting anyway", &block.header.block_id());
+                debug!(
+                    "Already have Nakamoto block {}, but broadcasting anyway",
+                    &block.header.block_id()
+                );
                 return Ok(true);
-            }
-            else {
+            } else {
                 debug!("Already have Nakamoto block {}", &block.header.block_id());
                 return Ok(false);
             }

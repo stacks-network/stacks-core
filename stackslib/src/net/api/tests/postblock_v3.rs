@@ -79,14 +79,14 @@ fn parse_request() {
             &bytes[offset..],
         )
         .unwrap();
-    
+
     parsed_request.clear_headers();
     parsed_request.add_header("authorization".into(), "12345".into());
     let (preamble, _contents) = parsed_request.destruct();
 
     assert_eq!(&preamble, request.preamble());
     assert_eq!(handler.broadcast, Some(true));
-     
+
     handler.restart();
     assert!(handler.block.is_none());
     assert!(handler.broadcast.is_none());
@@ -115,7 +115,8 @@ fn parse_request() {
     assert!(handler.broadcast.is_none());
 
     // deal with bad authentication
-    let request = StacksHttpRequest::new_post_block_v3_broadcast(addr.into(), &block, "wrong password");
+    let request =
+        StacksHttpRequest::new_post_block_v3_broadcast(addr.into(), &block, "wrong password");
     let bytes = request.try_serialize().unwrap();
     let (parsed_preamble, offset) = http.read_preamble(&bytes).unwrap();
     let bad_response = http.handle_try_parse_request(

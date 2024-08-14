@@ -685,7 +685,11 @@ impl StacksClient {
     pub fn post_block(&self, block: &NakamotoBlock) -> Result<bool, ClientError> {
         let response = self
             .stacks_node_client
-            .post(format!("{}{}?broadcast=1", self.http_origin, postblock_v3::PATH))
+            .post(format!(
+                "{}{}?broadcast=1",
+                self.http_origin,
+                postblock_v3::PATH
+            ))
             .header("Content-Type", "application/octet-stream")
             .header(AUTHORIZATION, self.auth_password.clone())
             .body(block.serialize_to_vec())
