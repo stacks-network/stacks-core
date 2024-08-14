@@ -53,7 +53,7 @@ jobs:
     steps:
       - name: Build Binary (${{ matrix.arch }}_${{ matrix.cpu }})
         id: build_binary
-        uses: stacks-network/actions/stacks-core/create-source-binary@main
+        uses: stacks-network/actions/stacks-core/create-source-binary@feat/specific_binaries_stacks-core
         with:
           arch: ${{ matrix.arch }}
           cpu: ${{ matrix.cpu }}
