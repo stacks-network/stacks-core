@@ -398,8 +398,8 @@ pub struct ConnectionOptions {
     /// maximum number of confirmations for a nakamoto block's sortition for which it will be
     /// pushed
     pub max_nakamoto_block_relay_age: u64,
-    /// The authorization token to enable the block proposal RPC endpoint
-    pub block_proposal_token: Option<String>,
+    /// The authorization token to enable privileged RPC endpoints
+    pub auth_token: Option<String>,
 
     // fault injection
     /// Disable neighbor walk and discovery
@@ -521,7 +521,7 @@ impl std::default::Default for ConnectionOptions {
             socket_send_buffer_size: 16384, // Linux default
             private_neighbors: true,
             max_nakamoto_block_relay_age: 6,
-            block_proposal_token: None,
+            auth_token: None,
 
             // no faults on by default
             disable_neighbor_walk: false,
