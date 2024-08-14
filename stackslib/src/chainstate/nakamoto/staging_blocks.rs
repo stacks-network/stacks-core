@@ -339,7 +339,16 @@ impl<'a> NakamotoStagingBlocksConnRef<'a> {
         let block_data: Vec<Vec<u8>> = query_rows(self, qry, args)?;
         Ok(block_data
             .into_iter()
-            .filter_map(|block_vec| NakamotoBlock::consensus_deserialize(&mut &block_vec[..]).ok())
+            .filter_map(|block_vec| {
+                NakamotoBlock::consensus_deserialize(&mut &block_vec[..])
+                    .map_err(|e| {
+                        error!("Failed to deserialize block from DB, likely database corruption";
+                               "consensus_hash" => %consensus_hash,
+                               "error" => ?e);
+                        e
+                    })
+                    .ok()
+            })
             .collect())
     }
 
