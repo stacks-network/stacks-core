@@ -3746,11 +3746,10 @@ impl RelayerThread {
             .name(format!("miner-block-{}", self.local_peer.data_url))
             .stack_size(BLOCK_PROCESSOR_STACK_SIZE)
             .spawn(move || {
-                let result = miner_thread_state.run_tenure();
                 if let Err(e) = miner_thread_state.send_mock_miner_message() {
                     warn!("Failed to send mock miner message: {}", e);
                 }
-                result
+                miner_thread_state.run_tenure()
             })
             .map_err(|e| {
                 error!("Relayer: Failed to start tenure thread: {:?}", &e);
