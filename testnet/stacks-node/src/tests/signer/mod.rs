@@ -155,7 +155,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         // So the combination is... one, two, three, four, five? That's the stupidest combination I've ever heard in my life!
         // That's the kind of thing an idiot would have on his luggage!
         let password = "12345";
-        naka_conf.connection_options.block_proposal_token = Some(password.to_string());
+        naka_conf.connection_options.auth_token = Some(password.to_string());
         if let Some(wait_on_signers) = wait_on_signers {
             naka_conf.miner.wait_on_signers = wait_on_signers;
         } else {
