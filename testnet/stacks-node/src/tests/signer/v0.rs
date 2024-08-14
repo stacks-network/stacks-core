@@ -2468,7 +2468,6 @@ fn mock_miner_message_epoch_25() {
                 "Failed to find mock miner message within timeout"
             );
         }
-        test_observer::clear();
         mock_miner_message = None;
         assert!(
             main_poll_time.elapsed() <= Duration::from_secs(45),

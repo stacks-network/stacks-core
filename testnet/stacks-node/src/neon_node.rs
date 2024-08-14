@@ -2264,7 +2264,6 @@ impl BlockMinerThread {
 
     /// Read any mock signatures from stackerdb and respond to them
     pub fn send_mock_miner_message(&mut self) -> Result<(), ChainstateError> {
-        let new_burn_block_height = self.burn_block.block_height + 1;
         let miner_config = self.config.get_miner_config();
         if !miner_config.pre_nakamoto_miner_messaging {
             debug!("Pre-Nakamoto mock miner messaging is disabled");
@@ -2274,13 +2273,15 @@ impl BlockMinerThread {
         let burn_db_path = self.config.get_burn_db_file_path();
         let burn_db = SortitionDB::open(&burn_db_path, false, self.burnchain.pox_constants.clone())
             .expect("FATAL: could not open sortition DB");
-
-        let target_epoch_id = SortitionDB::get_stacks_epoch(burn_db.conn(), new_burn_block_height)?
-            .expect("FATAL: no epoch defined")
-            .epoch_id;
-        if target_epoch_id != StacksEpochId::Epoch25 {
+        let p2p_net = StacksNode::setup_peer_network(
+            &self.config,
+            &self.config.atlas,
+            self.burnchain.clone(),
+        );
+        let epoch_id = p2p_net.get_current_epoch().epoch_id;
+        if epoch_id != StacksEpochId::Epoch25 {
             debug!("Mock miner messaging is disabled for non-epoch 2.5 blocks.";
-                "target_epoch_id" => target_epoch_id.to_string()
+                "epoch_id" => epoch_id.to_string()
             );
             return Ok(());
         }
@@ -2302,7 +2303,7 @@ impl BlockMinerThread {
                     else {
                         continue;
                     };
-                    if miner_message.peer_info.burn_block_height == new_burn_block_height {
+                    if miner_message.peer_info.burn_block_height == self.burn_block.block_height {
                         debug!(
                             "Already sent mock miner message for tenure burn block height {:?}",
                             self.burn_block.block_height
@@ -2346,12 +2347,6 @@ impl BlockMinerThread {
             }
         }
 
-        let p2p_net = StacksNode::setup_peer_network(
-            &self.config,
-            &self.config.atlas,
-            self.burnchain.clone(),
-        );
-
         let server_version = version_string(
             "stacks-node",
             option_env!("STACKS_NODE_VERSION")
@@ -2386,7 +2381,7 @@ impl BlockMinerThread {
             peer_info,
             chain_id: self.config.burnchain.chain_id,
             mock_signatures,
-            tenure_burn_block_height: new_burn_block_height,
+            tenure_burn_block_height: self.burn_block.block_height,
         };
 
         if let Err(e) = SignCoordinator::send_miners_message(
