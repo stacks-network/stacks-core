@@ -152,7 +152,7 @@ use clarity::vm::ast::ASTRules;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use libsigner::v0::messages::{
-    MessageSlotID, MinerSlotID, MockMinerMessage, MockSignature, PeerInfo, SignerMessage,
+    MessageSlotID, MinerSlotID, MockMinerMessage, PeerInfo, SignerMessage,
 };
 use libsigner::{SignerSession, StackerDBSession};
 use stacks::burnchains::bitcoin::address::{BitcoinAddress, LegacyBitcoinAddressType};
@@ -2334,17 +2334,13 @@ impl BlockMinerThread {
         let chunks = stackerdbs.get_latest_chunks(&signers_contract_id, &slot_ids)?;
         for chunk in chunks {
             if let Some(chunk) = chunk {
-                match MockSignature::consensus_deserialize(&mut chunk.as_slice()) {
-                    Ok(mock_signature) => {
-                        if mock_signature.sign_data.event_burn_block_height
-                            == self.burn_block.block_height
-                        {
-                            mock_signatures.push(mock_signature);
-                        }
-                    }
-                    Err(e) => {
-                        warn!("Failed to deserialize mock signature: {:?}", &e);
-                        continue;
+                if let Ok(SignerMessage::MockSignature(mock_signature)) =
+                    SignerMessage::consensus_deserialize(&mut chunk.as_slice())
+                {
+                    if mock_signature.sign_data.event_burn_block_height
+                        == self.burn_block.block_height
+                    {
+                        mock_signatures.push(mock_signature);
                     }
                 }
             }
