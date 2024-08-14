@@ -214,6 +214,7 @@ impl NakamotoTenureDownloaderSet {
     /// Returns true if the peer gets scheduled.
     /// Returns false if not.
     pub fn try_resume_peer(&mut self, naddr: NeighborAddress) -> bool {
+        debug!("Try resume {}", &naddr);
         if let Some(idx) = self.peers.get(&naddr) {
             let Some(Some(_downloader)) = self.downloaders.get(*idx) else {
                 return false;
@@ -426,16 +427,14 @@ impl NakamotoTenureDownloaderSet {
         count: usize,
         current_reward_cycles: &BTreeMap<u64, CurrentRewardSet>,
     ) {
-        debug!("schedule: {:?}", schedule);
-        debug!("available: {:?}", &available);
-        debug!("tenure_block_ids: {:?}", &tenure_block_ids);
-        debug!("inflight: {}", self.inflight());
-        debug!(
-            "count: {}, running: {}, scheduled: {}",
-            count,
-            self.num_downloaders(),
-            self.num_scheduled_downloaders()
-        );
+        debug!("make_tenure_downloaders";
+               "schedule" => ?schedule,
+               "available" => ?available,
+               "tenure_block_ids" => ?tenure_block_ids,
+               "inflight" => %self.inflight(),
+               "count" => count,
+               "running" => self.num_downloaders(),
+               "scheduled" => self.num_scheduled_downloaders());
 
         self.clear_finished_downloaders();
         self.clear_available_peers();
