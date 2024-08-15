@@ -215,6 +215,14 @@ impl NakamotoBlockProposal {
 
         let mainnet = self.chain_id == CHAIN_ID_MAINNET;
         if self.chain_id != chainstate.chain_id || mainnet != chainstate.mainnet {
+            warn!(
+                "Rejected block proposal";
+                "reason" => "Wrong network/chain_id",
+                "expected_chain_id" => chainstate.chain_id,
+                "expected_mainnet" => chainstate.mainnet,
+                "received_chain_id" => self.chain_id,
+                "received_mainnet" => mainnet,
+            );
             return Err(BlockValidateRejectReason {
                 reason_code: ValidateRejectCode::InvalidBlock,
                 reason: "Wrong network/chain_id".into(),
@@ -227,6 +235,10 @@ impl NakamotoBlockProposal {
         let expected_burn_opt =
             NakamotoChainState::get_expected_burns(&mut db_handle, chainstate.db(), &self.block)?;
         if expected_burn_opt.is_none() {
+            warn!(
+                "Rejected block proposal";
+                "reason" => "Failed to find parent expected burns",
+            );
             return Err(BlockValidateRejectReason {
                 reason_code: ValidateRejectCode::UnknownParent,
                 reason: "Failed to find parent expected burns".into(),
@@ -259,6 +271,12 @@ impl NakamotoBlockProposal {
             &parent_stacks_header.anchored_header
         {
             if self.block.header.timestamp <= parent_nakamoto_header.timestamp {
+                warn!(
+                    "Rejected block proposal";
+                    "reason" => "Block timestamp is not greater than parent block",
+                    "block_timestamp" => self.block.header.timestamp,
+                    "parent_block_timestamp" => parent_nakamoto_header.timestamp,
+                );
                 return Err(BlockValidateRejectReason {
                     reason_code: ValidateRejectCode::InvalidBlock,
                     reason: "Block timestamp is not greater than parent block".into(),
@@ -266,6 +284,12 @@ impl NakamotoBlockProposal {
             }
         }
         if self.block.header.timestamp > get_epoch_time_secs() + 15 {
+            warn!(
+                "Rejected block proposal";
+                "reason" => "Block timestamp is too far into the future",
+                "block_timestamp" => self.block.header.timestamp,
+                "current_time" => get_epoch_time_secs(),
+            );
             return Err(BlockValidateRejectReason {
                 reason_code: ValidateRejectCode::InvalidBlock,
                 reason: "Block timestamp is too far into the future".into(),
