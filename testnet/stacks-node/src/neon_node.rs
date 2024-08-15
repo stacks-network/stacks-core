@@ -194,6 +194,7 @@ use stacks::net::stackerdb::{StackerDBConfig, StackerDBSync, StackerDBs, MINER_S
 use stacks::net::{
     Error as NetError, NetworkResult, PeerNetworkComms, RPCHandlerArgs, ServiceFlags,
 };
+use stacks::types::StacksEpoch;
 use stacks::util_lib::strings::{UrlString, VecDisplay};
 use stacks::{monitoring, version_string};
 use stacks_common::codec::StacksMessageCodec;
@@ -2273,12 +2274,20 @@ impl BlockMinerThread {
         let burn_db_path = self.config.get_burn_db_file_path();
         let burn_db = SortitionDB::open(&burn_db_path, false, self.burnchain.pox_constants.clone())
             .expect("FATAL: could not open sortition DB");
-        let p2p_net = StacksNode::setup_peer_network(
-            &self.config,
-            &self.config.atlas,
-            self.burnchain.clone(),
-        );
-        let epoch_id = p2p_net.get_current_epoch().epoch_id;
+        let epochs = SortitionDB::get_stacks_epochs(burn_db.conn())
+            .expect("Error while loading stacks epochs");
+        let epoch_index = StacksEpoch::find_epoch(&epochs, self.burn_block.block_height)
+            .unwrap_or_else(|| {
+                panic!(
+                    "BUG: block {} is not in a known epoch",
+                    self.burn_block.block_height
+                )
+            });
+        let epoch_id = epochs
+            .get(epoch_index)
+            .expect("BUG: no epoch at found index")
+            .epoch_id;
+
         if epoch_id != StacksEpochId::Epoch25 {
             debug!("Mock miner messaging is disabled for non-epoch 2.5 blocks.";
                 "epoch_id" => epoch_id.to_string()
@@ -2300,7 +2309,7 @@ impl BlockMinerThread {
                     else {
                         continue;
                     };
-                    if miner_message.tenure_burn_block_height == self.burn_block.block_height {
+                    if miner_message.peer_info.burn_block_height == self.burn_block.block_height {
                         debug!(
                             "Already sent mock miner message for tenure burn block height {:?}",
                             self.burn_block.block_height
@@ -2350,11 +2359,11 @@ impl BlockMinerThread {
                 .or(option_env!("CARGO_PKG_VERSION"))
                 .unwrap_or("0.0.0.0"),
         );
-        let stacks_tip_height = p2p_net.stacks_tip.height;
-        let stacks_tip = p2p_net.stacks_tip.block_hash.clone();
-        let stacks_tip_consensus_hash = p2p_net.stacks_tip.consensus_hash.clone();
-        let pox_consensus = p2p_net.burnchain_tip.consensus_hash.clone();
-        let burn_block_height = p2p_net.chain_view.burn_block_height;
+        let stacks_tip_height = self.burn_block.canonical_stacks_tip_height;
+        let stacks_tip = self.burn_block.canonical_stacks_tip_hash;
+        let stacks_tip_consensus_hash = self.burn_block.canonical_stacks_tip_consensus_hash;
+        let pox_consensus = self.burn_block.consensus_hash;
+        let burn_block_height = self.burn_block.block_height;
 
         let peer_info = PeerInfo {
             burn_block_height,
@@ -2369,10 +2378,9 @@ impl BlockMinerThread {
             peer_info,
             chain_id: self.config.burnchain.chain_id,
             mock_signatures,
-            tenure_burn_block_height: self.burn_block.block_height,
         };
 
-        info!("Sending mock miner message in response to mock signatures for burn block {:?}", message.tenure_burn_block_height;
+        info!("Sending mock miner message in response to mock signatures for burn block {:?}", message.peer_info.burn_block_height;
             "stacks_tip_consensus_hash" => ?message.peer_info.stacks_tip_consensus_hash.clone(),
             "stacks_tip" => ?message.peer_info.stacks_tip.clone(),
             "peer_burn_block_height" => message.peer_info.burn_block_height,

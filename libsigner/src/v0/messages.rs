@@ -459,8 +459,6 @@ impl StacksMessageCodec for MockSignature {
 pub struct MockMinerMessage {
     /// The view of the stacks node peer information at the time of the mock signature
     pub peer_info: PeerInfo,
-    /// The burn block height of the miner's tenure
-    pub tenure_burn_block_height: u64,
     /// The chain id for the mock signature
     pub chain_id: u32,
     /// The mock signatures that the miner received
@@ -470,7 +468,6 @@ pub struct MockMinerMessage {
 impl StacksMessageCodec for MockMinerMessage {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
         self.peer_info.consensus_serialize(fd)?;
-        write_next(fd, &self.tenure_burn_block_height)?;
         write_next(fd, &self.chain_id)?;
         write_next(fd, &self.mock_signatures)?;
         Ok(())
@@ -478,12 +475,10 @@ impl StacksMessageCodec for MockMinerMessage {
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
         let peer_info = PeerInfo::consensus_deserialize(fd)?;
-        let tenure_burn_block_height = read_next::<u64, _>(fd)?;
         let chain_id = read_next::<u32, _>(fd)?;
         let mock_signatures = read_next::<Vec<MockSignature>, _>(fd)?;
         Ok(Self {
             peer_info,
-            tenure_burn_block_height,
             chain_id,
             mock_signatures,
         })
@@ -1002,7 +997,6 @@ mod test {
         };
         let mock_miner_message = MockMinerMessage {
             peer_info: random_peer_data(),
-            tenure_burn_block_height: thread_rng().next_u64(),
             chain_id: thread_rng().gen_range(0..=1),
             mock_signatures: vec![mock_signature_1, mock_signature_2],
         };

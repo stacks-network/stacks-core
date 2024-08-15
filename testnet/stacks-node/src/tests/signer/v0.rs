@@ -2457,13 +2457,9 @@ fn mock_miner_message_epoch_25() {
                 else {
                     continue;
                 };
-                if message.tenure_burn_block_height == current_burn_block_height {
+                if message.peer_info.burn_block_height == current_burn_block_height {
                     mock_miner_message = Some(message);
                     break;
-                } else {
-                    info!(
-                            "Received MockMinerMessage for burn block height {} but expected {current_burn_block_height}", message.tenure_burn_block_height
-                        );
                 }
             }
             assert!(
