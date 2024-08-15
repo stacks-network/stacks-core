@@ -2422,10 +2422,6 @@ fn mock_miner_message_epoch_25() {
         .get_headers_height()
         < epoch_3_start_height
     {
-        let current_burn_block_height = signer_test
-            .running_nodes
-            .btc_regtest_controller
-            .get_headers_height();
         let mock_poll_time = Instant::now();
         next_block_and(
             &mut signer_test.running_nodes.btc_regtest_controller,
@@ -2433,6 +2429,10 @@ fn mock_miner_message_epoch_25() {
             || Ok(true),
         )
         .unwrap();
+        let current_burn_block_height = signer_test
+            .running_nodes
+            .btc_regtest_controller
+            .get_headers_height();
         debug!("Waiting for mock miner message for burn block height {current_burn_block_height}");
 
         while mock_miner_message.is_none() {
