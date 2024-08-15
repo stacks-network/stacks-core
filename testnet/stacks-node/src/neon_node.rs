@@ -2362,8 +2362,8 @@ impl BlockMinerThread {
     /// Read any mock signatures from stackerdb and respond to them
     pub fn send_mock_miner_messages(&mut self) -> Result<(), ChainstateError> {
         let miner_config = self.config.get_miner_config();
-        if !miner_config.pre_nakamoto_miner_messaging {
-            debug!("Pre-Nakamoto mock miner messaging is disabled");
+        if !miner_config.pre_nakamoto_mock_signing {
+            debug!("Pre-Nakamoto mock signing is disabled");
             return Ok(());
         }
 

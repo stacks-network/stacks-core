@@ -2332,8 +2332,8 @@ pub struct MinerConfig {
     pub max_reorg_depth: u64,
     /// Amount of time while mining in nakamoto to wait for signers to respond to a proposed block
     pub wait_on_signers: Duration,
-    /// Whether to send miner messages in Epoch 2.5 through the .miners contract. This is used for testing.
-    pub pre_nakamoto_miner_messaging: bool,
+    /// Whether to mock sign in Epoch 2.5 through the .miners and .signers contracts. This is used for testing purposes in Epoch 2.5 only.
+    pub pre_nakamoto_mock_signing: bool,
 }
 
 impl Default for MinerConfig {
@@ -2364,7 +2364,7 @@ impl Default for MinerConfig {
             max_reorg_depth: 3,
             // TODO: update to a sane value based on stackerdb benchmarking
             wait_on_signers: Duration::from_secs(200),
-            pre_nakamoto_miner_messaging: true,
+            pre_nakamoto_mock_signing: true,
         }
     }
 }
@@ -2696,7 +2696,7 @@ pub struct MinerConfigFile {
     pub filter_origins: Option<String>,
     pub max_reorg_depth: Option<u64>,
     pub wait_on_signers_ms: Option<u64>,
-    pub pre_nakamoto_miner_messaging: Option<bool>,
+    pub pre_nakamoto_mock_signing: Option<bool>,
 }
 
 impl MinerConfigFile {
@@ -2799,7 +2799,7 @@ impl MinerConfigFile {
                 .wait_on_signers_ms
                 .map(Duration::from_millis)
                 .unwrap_or(miner_default_config.wait_on_signers),
-            pre_nakamoto_miner_messaging: self.pre_nakamoto_miner_messaging.unwrap_or(true),
+            pre_nakamoto_mock_signing: self.pre_nakamoto_mock_signing.unwrap_or(true),
         })
     }
 }
