@@ -23,7 +23,7 @@ use std::{env, thread};
 use clarity::vm::types::PrincipalData;
 use clarity::vm::StacksEpoch;
 use libsigner::v0::messages::{
-    BlockRejection, BlockResponse, MessageSlotID, MinerSlotID, RejectCode, SignerMessage,
+    BlockRejection, BlockResponse, MessageSlotID, RejectCode, SignerMessage,
 };
 use libsigner::{BlockProposal, SignerSession, StackerDBSession};
 use rand::RngCore;
@@ -2408,6 +2408,7 @@ fn mock_miner_message_epoch_25() {
         .unwrap();
     let epoch_3 = &epochs[StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch30).unwrap()];
     let epoch_3_start_height = epoch_3.start_height;
+    debug!("Epoch 3.0 starts at height {}", epoch_3_start_height);
 
     signer_test.boot_to_epoch_25_reward_cycle();
 
@@ -2447,20 +2448,22 @@ fn mock_miner_message_epoch_25() {
                 })
                 .flatten()
             {
-                if chunk.slot_id == MinerSlotID::BlockProposal.to_u8() as u32 {
-                    if chunk.data.is_empty() {
-                        continue;
-                    }
-                    let SignerMessage::MockMinerMessage(message) =
-                        SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
-                            .expect("Failed to deserialize MockMinerMessage")
-                    else {
-                        continue;
-                    };
-                    if message.peer_info.burn_block_height == current_burn_block_height {
-                        mock_miner_message = Some(message);
-                        break;
-                    }
+                if chunk.data.is_empty() {
+                    continue;
+                }
+                let SignerMessage::MockMinerMessage(message) =
+                    SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
+                        .expect("Failed to deserialize SignerMessage")
+                else {
+                    continue;
+                };
+                if message.tenure_burn_block_height == current_burn_block_height {
+                    mock_miner_message = Some(message);
+                    break;
+                } else {
+                    info!(
+                            "Received MockMinerMessage for burn block height {} but expected {current_burn_block_height}", message.tenure_burn_block_height
+                        );
                 }
             }
             assert!(

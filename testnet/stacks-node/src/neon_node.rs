@@ -2288,11 +2288,8 @@ impl BlockMinerThread {
         let miner_contract_id = boot_code_id(MINERS_NAME, self.config.is_mainnet());
         let mut miners_stackerdb =
             StackerDBSession::new(&self.config.node.rpc_bind, miner_contract_id);
-        let slot_id = MinerSlotID::BlockProposal.to_u8().into();
-        if let Ok(messages) =
-            miners_stackerdb.get_latest_chunks(&[slot_id, slot_id * MINER_SLOT_COUNT])
-        {
-            debug!("Miner got messages: {:?}", messages.len());
+        let miner_slot_ids: Vec<_> = (0..MINER_SLOT_COUNT * 2).collect();
+        if let Ok(messages) = miners_stackerdb.get_latest_chunks(&miner_slot_ids) {
             for message in messages {
                 if let Some(message) = message {
                     if message.is_empty() {
@@ -2303,7 +2300,7 @@ impl BlockMinerThread {
                     else {
                         continue;
                     };
-                    if miner_message.peer_info.burn_block_height == self.burn_block.block_height {
+                    if miner_message.tenure_burn_block_height == self.burn_block.block_height {
                         debug!(
                             "Already sent mock miner message for tenure burn block height {:?}",
                             self.burn_block.block_height
@@ -2368,15 +2365,6 @@ impl BlockMinerThread {
             server_version,
         };
 
-        info!("Sending mock miner message in response to mock signatures for burn block {:?}", &self.burn_block.block_height;
-            "stacks_tip_consensus_hash" => ?peer_info.stacks_tip_consensus_hash.clone(),
-            "stacks_tip" => ?peer_info.stacks_tip.clone(),
-            "peer_burn_block_height" => peer_info.burn_block_height,
-            "pox_consensus" => ?peer_info.pox_consensus.clone(),
-            "server_version" => peer_info.server_version.clone(),
-            "chain_id" => self.config.burnchain.chain_id,
-            "num_mock_signatures" => mock_signatures.len(),
-        );
         let message = MockMinerMessage {
             peer_info,
             chain_id: self.config.burnchain.chain_id,
@@ -2384,13 +2372,23 @@ impl BlockMinerThread {
             tenure_burn_block_height: self.burn_block.block_height,
         };
 
+        info!("Sending mock miner message in response to mock signatures for burn block {:?}", message.tenure_burn_block_height;
+            "stacks_tip_consensus_hash" => ?message.peer_info.stacks_tip_consensus_hash.clone(),
+            "stacks_tip" => ?message.peer_info.stacks_tip.clone(),
+            "peer_burn_block_height" => message.peer_info.burn_block_height,
+            "pox_consensus" => ?message.peer_info.pox_consensus.clone(),
+            "server_version" => message.peer_info.server_version.clone(),
+            "chain_id" => message.chain_id,
+            "num_mock_signatures" => message.mock_signatures.len(),
+        );
+
         if let Err(e) = SignCoordinator::send_miners_message(
             &miner_config.mining_key.expect("BUG: no mining key"),
             &burn_db,
             &self.burn_block,
             &stackerdbs,
-            SignerMessage::MockMinerMessage(message),
-            MinerSlotID::BlockProposal, // We are sending a mock miner message NOT a block proposal, but since we do not propose blocks in epoch 2.5, it is fine
+            SignerMessage::MockMinerMessage(message.clone()),
+            MinerSlotID::MockMinerMessage,
             self.config.is_mainnet(),
             &mut miners_stackerdb,
             &self.burn_block.consensus_hash,
