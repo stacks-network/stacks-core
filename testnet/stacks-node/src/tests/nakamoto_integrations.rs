@@ -3914,8 +3914,6 @@ fn forked_tenure_is_ignored() {
         thread::sleep(Duration::from_secs(1));
     }
 
-    sleep_ms(1000);
-
     info!("Tenure B broadcasted but did not process a block. Issue the next bitcon block and unstall block commits.");
 
     // the block will be stored, not processed, so load it out of staging
@@ -3947,17 +3945,24 @@ fn forked_tenure_is_ignored() {
     // It should also build on block A, since the node has paused processing of block B.
     let commits_before = commits_submitted.load(Ordering::SeqCst);
     let blocks_before = mined_blocks.load(Ordering::SeqCst);
+    let blocks_processed_before = coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .get_stacks_blocks_processed();
     next_block_and(&mut btc_regtest_controller, 60, || {
         test_skip_commit_op.0.lock().unwrap().replace(false);
         TEST_BLOCK_ANNOUNCE_STALL.lock().unwrap().replace(false);
         let commits_count = commits_submitted.load(Ordering::SeqCst);
         let blocks_count = mined_blocks.load(Ordering::SeqCst);
-        Ok(commits_count > commits_before && blocks_count > blocks_before)
+        let blocks_processed = coord_channel
+            .lock()
+            .expect("Mutex poisoned")
+            .get_stacks_blocks_processed();
+        Ok(commits_count > commits_before
+            && blocks_count > blocks_before
+            && blocks_processed > blocks_processed_before)
     })
     .unwrap();
-
-    // allow blocks B and C to be processed
-    sleep_ms(1000);
 
     info!("Tenure C produced a block!");
     let block_tenure_c = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
@@ -3976,6 +3981,10 @@ fn forked_tenure_is_ignored() {
 
     // Now let's produce a second block for tenure C and ensure it builds off of block C.
     let blocks_before = mined_blocks.load(Ordering::SeqCst);
+    let blocks_processed_before = coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .get_stacks_blocks_processed();
     let start_time = Instant::now();
 
     // submit a tx so that the miner will mine an extra block
@@ -3993,8 +4002,14 @@ fn forked_tenure_is_ignored() {
         thread::sleep(Duration::from_secs(1));
     }
 
-    // give C's second block a moment to process
-    sleep_ms(1000);
+    wait_for(10, || {
+        let blocks_processed = coord_channel
+            .lock()
+            .expect("Mutex poisoned")
+            .get_stacks_blocks_processed();
+        Ok(blocks_processed > blocks_processed_before)
+    })
+    .unwrap();
 
     info!("Tenure C produced a second block!");
 
@@ -4014,15 +4029,22 @@ fn forked_tenure_is_ignored() {
     // Submit a block commit op for tenure D and mine a stacks block
     let commits_before = commits_submitted.load(Ordering::SeqCst);
     let blocks_before = mined_blocks.load(Ordering::SeqCst);
+    let blocks_processed_before = coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .get_stacks_blocks_processed();
     next_block_and(&mut btc_regtest_controller, 60, || {
         let commits_count = commits_submitted.load(Ordering::SeqCst);
         let blocks_count = mined_blocks.load(Ordering::SeqCst);
-        Ok(commits_count > commits_before && blocks_count > blocks_before)
+        let blocks_processed = coord_channel
+            .lock()
+            .expect("Mutex poisoned")
+            .get_stacks_blocks_processed();
+        Ok(commits_count > commits_before
+            && blocks_count > blocks_before
+            && blocks_processed > blocks_processed_before)
     })
     .unwrap();
-
-    // give tenure D's block a moment to process
-    sleep_ms(1000);
 
     let block_tenure_d = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
         .unwrap()
@@ -5703,6 +5725,11 @@ fn continue_tenure_extend() {
     info!("Nakamoto miner started...");
     blind_signer(&naka_conf, &signers, proposals_submitted);
 
+    let blocks_processed_before = coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .get_stacks_blocks_processed();
+
     wait_for_first_naka_block_commit(60, &commits_submitted);
 
     // Mine a regular nakamoto tenure
@@ -5720,7 +5747,20 @@ fn continue_tenure_extend() {
         &[sender_signer_sk],
         &signers,
     );
-    sleep_ms(5_000);
+
+    wait_for(5, || {
+        let blocks_processed = coord_channel
+            .lock()
+            .expect("Mutex poisoned")
+            .get_stacks_blocks_processed();
+        Ok(blocks_processed > blocks_processed_before)
+    })
+    .unwrap();
+
+    let blocks_processed_before = coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .get_stacks_blocks_processed();
 
     info!("Pausing commit ops to trigger a tenure extend.");
     test_skip_commit_op.0.lock().unwrap().replace(true);
@@ -5733,7 +5773,15 @@ fn continue_tenure_extend() {
         &[sender_signer_sk],
         &signers,
     );
-    sleep_ms(5_000);
+
+    wait_for(5, || {
+        let blocks_processed = coord_channel
+            .lock()
+            .expect("Mutex poisoned")
+            .get_stacks_blocks_processed();
+        Ok(blocks_processed > blocks_processed_before)
+    })
+    .unwrap();
 
     // Submit a TX
     let transfer_tx = make_stacks_transfer(&sender_sk, 0, send_fee, &recipient, send_amt);
@@ -5759,6 +5807,11 @@ fn continue_tenure_extend() {
         )
         .unwrap();
 
+    let blocks_processed_before = coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .get_stacks_blocks_processed();
+
     next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
         .unwrap();
 
@@ -5768,7 +5821,20 @@ fn continue_tenure_extend() {
         &[sender_signer_sk],
         &signers,
     );
-    sleep_ms(5_000);
+
+    wait_for(5, || {
+        let blocks_processed = coord_channel
+            .lock()
+            .expect("Mutex poisoned")
+            .get_stacks_blocks_processed();
+        Ok(blocks_processed > blocks_processed_before)
+    })
+    .unwrap();
+
+    let blocks_processed_before = coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .get_stacks_blocks_processed();
 
     next_block_and(&mut btc_regtest_controller, 60, || Ok(true)).unwrap();
 
@@ -5778,7 +5844,15 @@ fn continue_tenure_extend() {
         &[sender_signer_sk],
         &signers,
     );
-    sleep_ms(5_000);
+
+    wait_for(5, || {
+        let blocks_processed = coord_channel
+            .lock()
+            .expect("Mutex poisoned")
+            .get_stacks_blocks_processed();
+        Ok(blocks_processed > blocks_processed_before)
+    })
+    .unwrap();
 
     info!("Resuming commit ops to mine regular tenures.");
     test_skip_commit_op.0.lock().unwrap().replace(false);
@@ -5792,11 +5866,7 @@ fn continue_tenure_extend() {
             .get_stacks_blocks_processed();
         next_block_and(&mut btc_regtest_controller, 60, || {
             let commits_count = commits_submitted.load(Ordering::SeqCst);
-            let blocks_processed = coord_channel
-                .lock()
-                .expect("Mutex poisoned")
-                .get_stacks_blocks_processed();
-            Ok(commits_count > commits_before && blocks_processed > blocks_processed_before)
+            Ok(commits_count > commits_before)
         })
         .unwrap();
 
@@ -5806,6 +5876,15 @@ fn continue_tenure_extend() {
             &[sender_signer_sk],
             &signers,
         );
+
+        wait_for(5, || {
+            let blocks_processed = coord_channel
+                .lock()
+                .expect("Mutex poisoned")
+                .get_stacks_blocks_processed();
+            Ok(blocks_processed > blocks_processed_before)
+        })
+        .unwrap();
 
         sleep_ms(5_000);
     }

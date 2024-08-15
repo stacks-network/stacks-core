@@ -540,11 +540,19 @@ fn miner_gather_signatures() {
     info!("------------------------- Test Setup -------------------------");
     let num_signers = 5;
     let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new(num_signers, vec![], None);
-    signer_test.boot_to_epoch_3();
     let timeout = Duration::from_secs(30);
+    let mined_blocks = signer_test.running_nodes.nakamoto_blocks_mined.clone();
+    let blocks_mined_before = mined_blocks.load(Ordering::SeqCst);
 
-    // give the system a chance to mine a Nakamoto block
-    sleep_ms(30_000);
+    signer_test.boot_to_epoch_3();
+
+    // give the system a chance to reach the Nakamoto start tip
+    // mine a Nakamoto block
+    wait_for(30, || {
+        let blocks_mined = mined_blocks.load(Ordering::SeqCst);
+        Ok(blocks_mined > blocks_mined_before)
+    })
+    .unwrap();
 
     info!("------------------------- Test Mine and Verify Confirmed Nakamoto Block -------------------------");
     signer_test.mine_and_verify_confirmed_naka_block(timeout, num_signers);
@@ -943,6 +951,7 @@ fn forked_tenure_testing(
     // In the next block, the miner should win the tenure and submit a stacks block
     let commits_before = commits_submitted.load(Ordering::SeqCst);
     let blocks_before = mined_blocks.load(Ordering::SeqCst);
+
     next_block_and(
         &mut signer_test.running_nodes.btc_regtest_controller,
         60,
