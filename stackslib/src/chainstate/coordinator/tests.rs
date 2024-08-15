@@ -522,7 +522,6 @@ impl RewardSetProvider for StubbedRewardSetProvider {
         &self,
         chainstate: &mut StacksChainState,
         cycle: u64,
-        burnchain: &Burnchain,
         sortdb: &SortitionDB,
         block_id: &StacksBlockId,
     ) -> Result<RewardSet, CoordError> {

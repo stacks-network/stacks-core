@@ -90,7 +90,6 @@ impl<'a, T: BlockEventDispatcher> OnChainRewardSetProvider<'a, T> {
         &self,
         chainstate: &mut StacksChainState,
         cycle: u64,
-        burnchain: &Burnchain,
         sortdb: &SortitionDB,
         block_id: &StacksBlockId,
         debug_log: bool,
@@ -547,13 +546,8 @@ pub fn load_nakamoto_reward_set<U: RewardSetProvider>(
            "cycle_start_height" => %cycle_start_height,
            "burnchain_height" => %anchor_block_sn.block_height);
 
-    let reward_set = provider.get_reward_set_nakamoto(
-        chain_state,
-        reward_cycle,
-        burnchain,
-        sort_db,
-        &block_id,
-    )?;
+    let reward_set =
+        provider.get_reward_set_nakamoto(chain_state, reward_cycle, sort_db, &block_id)?;
     debug!(
         "Stacks anchor block (ch {}) {} cycle {} is processed",
         &anchor_block_header.consensus_hash, &block_id, reward_cycle;

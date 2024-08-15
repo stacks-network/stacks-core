@@ -7210,30 +7210,45 @@ fn test_scenario_one(use_nakamoto: bool) {
         next_reward_cycle,
     );
     bob.nonce += 1;
-    let txs = vec![alice_vote, bob_vote];
+    let mut txs = vec![alice_vote, bob_vote];
 
-    let target_reward_cycle = next_reward_cycle;
+    // Also vote for aggregate key with default test signer if in Nakamoto:
+    if let Some(test_signers) = test_signers.clone() {
+        let tester_key = test_signers.signer_keys[0];
+        let tester_addr = key_to_stacks_addr(&tester_key);
+        let tester_index = get_signer_index(
+            &mut peer,
+            latest_block,
+            tester_addr.clone(),
+            next_reward_cycle,
+        );
+        let tester_vote = make_signers_vote_for_aggregate_public_key(
+            &tester_key,
+            1, // only tx is a stack-stx
+            tester_index,
+            &peer_config.aggregate_public_key.unwrap(),
+            1,
+            next_reward_cycle,
+        );
+        txs.push(tester_vote);
+    }
+
+    let target_reward_cycle = next_reward_cycle + 1;
     // Commit vote txs & advance to the first burn block of reward cycle 8 (block 161)
     let mut target_height = peer
         .config
         .burnchain
         .reward_cycle_to_block_height(target_reward_cycle as u64);
-    info!("Submitting block with vote transactions");
+    info!(
+        "Submitting block with vote transactions and advancing to reward cycle {} at block {}",
+        target_reward_cycle, target_height
+    );
     let (latest_block, tx_block, _receipts) = advance_to_block_height(
         &mut peer,
         &observer,
         &txs,
         &mut peer_nonce,
-        target_height + 1,
-        &mut test_signers,
-    );
-    info!("Submitting empty block.");
-    let (latest_block, _tx_block, _receipts) = advance_to_block_height(
-        &mut peer,
-        &observer,
-        &vec![],
-        &mut peer_nonce,
-        target_height + 2,
+        target_height,
         &mut test_signers,
     );
 
@@ -7250,7 +7265,7 @@ fn test_scenario_one(use_nakamoto: bool) {
         &alice.pox_address,
         lock_period,
         &alice.public_key,
-        161,
+        target_height,
         Some(alice_signature.clone()),
         u128::MAX,
         1,
@@ -7264,7 +7279,7 @@ fn test_scenario_one(use_nakamoto: bool) {
         &bob.pox_address,
         lock_period,
         &bob.public_key,
-        161,
+        target_height,
         None,
         u128::MAX,
         3,
@@ -7303,10 +7318,10 @@ fn test_scenario_one(use_nakamoto: bool) {
     assert_eq!(bob_tx_result, Value::Int(19));
 }
 
-#[apply(nakamoto_cases)]
 // In this test two solo service signers, Alice & Bob, provide auth
 //  for Carl & Dave, solo stackers. Alice provides a signature for Carl,
 //  Bob uses 'set-signer-key...' for Dave.
+#[apply(nakamoto_cases)]
 fn test_scenario_two(use_nakamoto: bool) {
     // Alice service signer setup
     let mut alice = StackerSignerInfo::new();
@@ -7340,6 +7355,13 @@ fn test_scenario_two(use_nakamoto: bool) {
         initial_balances,
         use_nakamoto,
     );
+
+    // Add to test signers
+    if let Some(ref mut test_signers) = test_signers.as_mut() {
+        test_signers
+            .signer_keys
+            .extend(vec![alice.private_key.clone(), bob.private_key.clone()]);
+    }
 
     // Alice Signature For Carl
     let amount = (default_initial_balances / 2).wrapping_sub(1000) as u128;
@@ -7705,6 +7727,15 @@ fn test_scenario_three(use_nakamoto: bool) {
         use_nakamoto,
     );
 
+    // Add to test signers
+    if let Some(ref mut test_signers) = test_signers.as_mut() {
+        test_signers.signer_keys.extend(vec![
+            alice.private_key.clone(),
+            bob.private_key.clone(),
+            carl.private_key.clone(),
+        ]);
+    }
+
     let lock_period = 2;
     let amount = (default_initial_balances / 2).wrapping_sub(1000) as u128;
     let alice_signature_for_alice_err = make_signer_key_signature(
@@ -7945,7 +7976,7 @@ fn test_scenario_three(use_nakamoto: bool) {
         .reward_cycle_to_block_height(next_reward_cycle as u64)
         .saturating_sub(peer_config.burnchain.pox_constants.prepare_length as u64)
         .wrapping_add(2);
-    let (latest_block, tx_block, _receipts) = advance_to_block_height(
+    let (latest_block, tx_block, receipts) = advance_to_block_height(
         &mut peer,
         &observer,
         &txs,
@@ -7956,8 +7987,7 @@ fn test_scenario_three(use_nakamoto: bool) {
 
     // Start of test checks
     // 1. Check that Alice can't stack with an lock_period different than signature
-    let alice_stack_tx_err = tx_block
-        .receipts
+    let alice_stack_tx_err = receipts
         .get(1)
         .unwrap()
         .result
@@ -7967,8 +7997,7 @@ fn test_scenario_three(use_nakamoto: bool) {
     assert_eq!(alice_stack_tx_err, Value::Int(35));
 
     // 2. Check that Alice can solo stack-sign
-    let alice_stack_tx_ok = tx_block
-        .receipts
+    let alice_stack_tx_ok = receipts
         .get(2)
         .unwrap()
         .result
@@ -7997,8 +8026,7 @@ fn test_scenario_three(use_nakamoto: bool) {
     assert_eq!(signer_key_expected, signer_key_actual);
 
     // 3. Check that Bob can't stack with a signature that points to a reward cycle in the past
-    let bob_stack_tx_err = tx_block
-        .receipts
+    let bob_stack_tx_err = receipts
         .get(3)
         .unwrap()
         .result
@@ -8008,8 +8036,7 @@ fn test_scenario_three(use_nakamoto: bool) {
     assert_eq!(bob_stack_tx_err, Value::Int(35));
 
     // 4. Check that Bob can solo stack-sign
-    let bob_stack_tx_ok = tx_block
-        .receipts
+    let bob_stack_tx_ok = receipts
         .get(4)
         .unwrap()
         .result
@@ -8030,8 +8057,7 @@ fn test_scenario_three(use_nakamoto: bool) {
     assert_eq!(signer_key_actual, signer_key_actual);
 
     // 5. Check that David can't delegate-stack-stx Eve if delegation expires during lock period
-    let eve_delegate_stx_to_david_err = tx_block
-        .receipts
+    let eve_delegate_stx_to_david_err = receipts
         .get(9)
         .unwrap()
         .result
@@ -8041,8 +8067,7 @@ fn test_scenario_three(use_nakamoto: bool) {
     assert_eq!(eve_delegate_stx_to_david_err, Value::Int(21));
 
     // 6. Check that Frank is correctly delegated to David
-    let frank_delegate_stx_to_david_tx = tx_block
-        .receipts
+    let frank_delegate_stx_to_david_tx = receipts
         .get(10)
         .unwrap()
         .result
@@ -8071,8 +8096,7 @@ fn test_scenario_three(use_nakamoto: bool) {
     assert_eq!(stacker_expected, stacker_actual);
 
     // 7. Check that Grace is correctly delegated to David
-    let grace_delegate_stx_to_david_tx = tx_block
-        .receipts
+    let grace_delegate_stx_to_david_tx = receipts
         .get(11)
         .unwrap()
         .result
@@ -8101,8 +8125,7 @@ fn test_scenario_three(use_nakamoto: bool) {
     assert_eq!(stacker_expected, stacker_actual);
 
     // 8. Check that Alice can't delegate-stack if already stacking
-    let alice_delegate_stx_to_david_err = tx_block
-        .receipts
+    let alice_delegate_stx_to_david_err = receipts
         .get(12)
         .unwrap()
         .result
@@ -8112,8 +8135,7 @@ fn test_scenario_three(use_nakamoto: bool) {
     assert_eq!(alice_delegate_stx_to_david_err, Value::Int(3));
 
     // 9. Check that David can't aggregate-commit-indexed if pointing to a reward cycle in the future
-    let david_aggregate_commit_indexed_err = tx_block
-        .receipts
+    let david_aggregate_commit_indexed_err = receipts
         .get(13)
         .unwrap()
         .result
@@ -8123,8 +8145,7 @@ fn test_scenario_three(use_nakamoto: bool) {
     assert_eq!(david_aggregate_commit_indexed_err, Value::Int(35));
 
     // 10. Check that David can aggregate-commit-indexed if using the incorrect signature topic
-    let david_aggregate_commit_indexed_err = tx_block
-        .receipts
+    let david_aggregate_commit_indexed_err = receipts
         .get(14)
         .unwrap()
         .result
@@ -8133,16 +8154,17 @@ fn test_scenario_three(use_nakamoto: bool) {
         .unwrap();
     assert_eq!(david_aggregate_commit_indexed_err, Value::Int(35));
 
+    let david_index = if use_nakamoto { 3 } else { 2 };
+
     // 11. Check that David can aggregate-commit-indexed successfully, checking stacking index = 2
-    let david_aggregate_commit_indexed_ok = tx_block
-        .receipts
+    let david_aggregate_commit_indexed_ok = receipts
         .get(15)
         .unwrap()
         .result
         .clone()
         .expect_result_ok()
         .unwrap();
-    assert_eq!(david_aggregate_commit_indexed_ok, Value::UInt(2));
+    assert_eq!(david_aggregate_commit_indexed_ok, Value::UInt(david_index));
 }
 
 #[apply(nakamoto_cases)]
@@ -8177,6 +8199,13 @@ fn test_scenario_four(use_nakamoto: bool) {
         use_nakamoto,
     );
 
+    // Add to test signers
+    if let Some(ref mut test_signers) = test_signers.as_mut() {
+        test_signers
+            .signer_keys
+            .extend(vec![alice.private_key.clone(), bob.private_key.clone()]);
+    }
+
     // Initial Alice Signature
     let amount = (default_initial_balances / 2).wrapping_sub(1000) as u128;
     let lock_period = 2;
@@ -8193,17 +8222,21 @@ fn test_scenario_four(use_nakamoto: bool) {
     let alice_signature_extend_err = make_signer_key_signature(
         &bob.pox_address,
         &bob.private_key,
-        next_reward_cycle.wrapping_add(1),
+        next_reward_cycle,
         &Pox4SignatureTopic::StackExtend,
         lock_period,
         u128::MAX,
         1,
     );
+    info!(
+        "Generating stack-extend signature for cycle {}",
+        next_reward_cycle
+    );
     // Extend Alice Signature Expected
     let alice_signature_extend = make_signer_key_signature(
         &alice.pox_address,
         &alice.private_key,
-        next_reward_cycle.wrapping_add(1),
+        next_reward_cycle,
         &Pox4SignatureTopic::StackExtend,
         lock_period,
         u128::MAX,
@@ -8322,19 +8355,40 @@ fn test_scenario_four(use_nakamoto: bool) {
         next_reward_cycle,
     );
     bob.nonce += 1;
-    let txs = vec![
+    let mut txs = vec![
         alice_vote_err.clone(),
         alice_vote_expected.clone(),
         bob_vote_expected.clone(),
     ];
 
+    // Also vote for aggregate key with default test signer if in Nakamoto:
+    if let Some(test_signers) = test_signers.clone() {
+        let tester_key = test_signers.signer_keys[0];
+        let tester_addr = key_to_stacks_addr(&tester_key);
+        let tester_index = get_signer_index(
+            &mut peer,
+            latest_block,
+            tester_addr.clone(),
+            next_reward_cycle,
+        );
+        let tester_vote = make_signers_vote_for_aggregate_public_key(
+            &tester_key,
+            1, // only tx is a stack-stx
+            tester_index,
+            &peer_config.aggregate_public_key.unwrap(),
+            1,
+            next_reward_cycle,
+        );
+        txs.push(tester_vote);
+    }
+
     // Commit vote txs & move to the prepare phase of reward cycle 7 (block 155)
     let target_height = peer
         .config
         .burnchain
-        .reward_cycle_to_block_height(7 as u64)
-        .wrapping_add(15);
-    let (latest_block, tx_block, _receipts) = advance_to_block_height(
+        .reward_cycle_to_block_height(next_reward_cycle as u64 + 1)
+        .saturating_sub(peer_config.burnchain.pox_constants.prepare_length as u64);
+    let (latest_block, tx_block, receipts) = advance_to_block_height(
         &mut peer,
         &observer,
         &txs,
@@ -8344,8 +8398,7 @@ fn test_scenario_four(use_nakamoto: bool) {
     );
 
     // Check Alice's err vote (err 10 - INVALID_SIGNER_INDEX)
-    let alice_err_vote = tx_block
-        .receipts
+    let alice_err_vote = receipts
         .get(1)
         .unwrap()
         .result
@@ -8355,8 +8408,7 @@ fn test_scenario_four(use_nakamoto: bool) {
     assert_eq!(alice_err_vote, Value::UInt(10));
 
     // Check Alice's expected vote
-    let alice_expected_vote = tx_block
-        .receipts
+    let alice_expected_vote = receipts
         .get(2)
         .unwrap()
         .result
@@ -8366,8 +8418,7 @@ fn test_scenario_four(use_nakamoto: bool) {
     assert_eq!(alice_expected_vote, Value::Bool(true));
 
     // Check Bob's expected vote
-    let bob_expected_vote = tx_block
-        .receipts
+    let bob_expected_vote = receipts
         .get(3)
         .unwrap()
         .result
@@ -8424,7 +8475,7 @@ fn test_scenario_four(use_nakamoto: bool) {
         alice_vote_expected_err.clone(),
     ];
     let target_height = target_height.wrapping_add(1);
-    let (latest_block, tx_block, _receipts) = advance_to_block_height(
+    let (latest_block, tx_block, receipts) = advance_to_block_height(
         &mut peer,
         &observer,
         &txs,
@@ -8434,8 +8485,7 @@ fn test_scenario_four(use_nakamoto: bool) {
     );
 
     // Check Alice's err stack-extend tx (err 35 - INVALID_SIGNATURE_PUBKEY)
-    let alice_err_extend = tx_block
-        .receipts
+    let alice_err_extend = receipts
         .get(1)
         .unwrap()
         .result
@@ -8445,8 +8495,7 @@ fn test_scenario_four(use_nakamoto: bool) {
     assert_eq!(alice_err_extend, Value::Int(35));
 
     // Check Alice's stack-extend tx
-    let alice_extend_receipt = tx_block
-        .receipts
+    let alice_extend_receipt = receipts
         .get(2)
         .unwrap()
         .result
@@ -8455,8 +8504,7 @@ fn test_scenario_four(use_nakamoto: bool) {
         .unwrap();
 
     // Check Alice's expected err vote (err 14 - DUPLICATE_AGGREGATE_PUBLIC_KEY)
-    let alice_expected_vote_err = tx_block
-        .receipts
+    let alice_expected_vote_err = receipts
         .get(3)
         .unwrap()
         .result

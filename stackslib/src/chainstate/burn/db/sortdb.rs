@@ -3908,11 +3908,11 @@ impl<'a> SortitionDBConn<'a> {
         tip: &SortitionId,
         reward_cycle_id: u64,
     ) -> Result<SortitionId, db_error> {
-        let reward_cycle_of_prepare_phase = reward_cycle_id.checked_sub(1).ok_or_else(|| db_error::Other("No prepare phase exists for cycle 0".into()))?;
-        let prepare_phase_start = pox_constants.prepare_phase_start(
-            first_block_height,
-            reward_cycle_of_prepare_phase,
-        );
+        let reward_cycle_of_prepare_phase = reward_cycle_id
+            .checked_sub(1)
+            .ok_or_else(|| db_error::Other("No prepare phase exists for cycle 0".into()))?;
+        let prepare_phase_start =
+            pox_constants.prepare_phase_start(first_block_height, reward_cycle_of_prepare_phase);
 
         let first_sortition =
             get_ancestor_sort_id(self, prepare_phase_start, tip)?.ok_or_else(|| {

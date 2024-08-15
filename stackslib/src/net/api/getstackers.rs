@@ -106,7 +106,7 @@ impl GetStackersResponse {
 
         let provider = OnChainRewardSetProvider::new();
         let stacker_set = provider
-            .read_reward_set_nakamoto(chainstate, cycle_number, burnchain, sortdb, tip, true)
+            .read_reward_set_nakamoto(chainstate, cycle_number, sortdb, tip, true)
             .map_err(GetStackersErrors::NotAvailableYet)?;
 
         Ok(Self { stacker_set })

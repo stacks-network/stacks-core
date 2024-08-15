@@ -517,7 +517,7 @@ impl PoxConstants {
         }
     }
 
-    /// The first block of the prepare phase during `reward_cycle`. This is the prepare phase _for the next cycle_. 
+    /// The first block of the prepare phase during `reward_cycle`. This is the prepare phase _for the next cycle_.
     pub fn prepare_phase_start(&self, first_block_height: u64, reward_cycle: u64) -> u64 {
         let reward_cycle_start =
             self.reward_cycle_to_block_height(first_block_height, reward_cycle);

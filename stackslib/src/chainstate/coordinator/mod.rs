@@ -299,7 +299,6 @@ pub trait RewardSetProvider {
         &self,
         chainstate: &mut StacksChainState,
         cycle: u64,
-        burnchain: &Burnchain,
         sortdb: &SortitionDB,
         block_id: &StacksBlockId,
     ) -> Result<RewardSet, Error>;
@@ -374,11 +373,10 @@ impl<'a, T: BlockEventDispatcher> RewardSetProvider for OnChainRewardSetProvider
         &self,
         chainstate: &mut StacksChainState,
         reward_cycle: u64,
-        burnchain: &Burnchain,
         sortdb: &SortitionDB,
         block_id: &StacksBlockId,
     ) -> Result<RewardSet, Error> {
-        self.read_reward_set_nakamoto(chainstate, reward_cycle, burnchain, sortdb, block_id, false)
+        self.read_reward_set_nakamoto(chainstate, reward_cycle, sortdb, block_id, false)
     }
 }
 
