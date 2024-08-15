@@ -6793,6 +6793,7 @@ pub fn pox_4_scenario_test_setup_nakamoto<'a>(
     pox_constants.pox_3_activation_height = 26;
     pox_constants.v3_unlock_height = 27;
     pox_constants.pox_4_activation_height = 41;
+    pox_constants.prepare_length = 5;
     let mut boot_plan = NakamotoBootPlan::new(test_name)
         .with_test_stackers(test_stackers)
         .with_test_signers(test_signers.clone())
@@ -6807,6 +6808,8 @@ pub fn pox_4_scenario_test_setup_nakamoto<'a>(
     boot_plan.initial_balances = initial_balances;
     boot_plan.pox_constants = pox_constants.clone();
     burnchain.pox_constants = pox_constants.clone();
+    peer_config.burnchain = burnchain.clone();
+    peer_config.test_signers = Some(test_signers.clone());
 
     info!("---- Booting into Nakamoto Peer ----");
     let mut peer = boot_plan.boot_into_nakamoto_peer(vec![], Some(observer));
@@ -8873,6 +8876,7 @@ pub fn prepare_pox4_test<'a>(
         pox_constants.pox_3_activation_height = 26;
         pox_constants.v3_unlock_height = 27;
         pox_constants.pox_4_activation_height = 41;
+        pox_constants.prepare_length = 5;
         let mut boot_plan = NakamotoBootPlan::new(test_name)
             .with_test_stackers(test_stackers)
             .with_test_signers(test_signers.clone())
@@ -9427,6 +9431,17 @@ fn test_scenario_five(use_nakamoto: bool) {
         use_nakamoto,
     );
 
+    // Add to test signers
+    if let Some(ref mut test_signers) = test_signers.as_mut() {
+        test_signers.signer_keys.extend(vec![
+            alice.private_key.clone(),
+            bob.private_key.clone(),
+            carl.private_key.clone(),
+            david.private_key.clone(),
+            eve.private_key.clone(),
+        ]);
+    }
+
     // Lock periods for each stacker
     let carl_lock_period = 3;
     let frank_lock_period = 1;
@@ -9684,6 +9699,12 @@ fn test_scenario_five(use_nakamoto: bool) {
         .reward_cycle_to_block_height(next_reward_cycle as u64)
         .saturating_sub(peer_config.burnchain.pox_constants.prepare_length as u64)
         .wrapping_add(2);
+    info!(
+        "Scenario five: submitting stacking txs.";
+        "target_height" => target_height,
+        "next_reward_cycle" => next_reward_cycle,
+        "prepare_length" => peer_config.burnchain.pox_constants.prepare_length,
+    );
     let (latest_block, tx_block, _receipts) = advance_to_block_height(
         &mut peer,
         &observer,
@@ -9765,12 +9786,15 @@ fn test_scenario_five(use_nakamoto: bool) {
     alice.nonce += 1;
     bob.nonce += 1;
     carl.nonce += 1;
-
     // Mine vote txs & advance to the reward set calculation of the next reward cycle
     let target_height = peer
         .config
         .burnchain
         .reward_cycle_to_block_height(next_reward_cycle as u64);
+    info!(
+        "Scenario five: submitting votes. Target height: {}",
+        target_height
+    );
     let (latest_block, tx_block, _receipts) = advance_to_block_height(
         &mut peer,
         &observer,
@@ -9878,7 +9902,11 @@ fn test_scenario_five(use_nakamoto: bool) {
         .reward_cycle_to_block_height(next_reward_cycle as u64)
         .saturating_sub(peer_config.burnchain.pox_constants.prepare_length as u64)
         .wrapping_add(2);
-    let (latest_block, tx_block, _receipts) = advance_to_block_height(
+    info!(
+        "Scenario five: submitting extend and aggregate commit txs. Target height: {}",
+        target_height
+    );
+    let (latest_block, tx_block, receipts) = advance_to_block_height(
         &mut peer,
         &observer,
         &txs,
@@ -9888,17 +9916,19 @@ fn test_scenario_five(use_nakamoto: bool) {
     );
 
     // Check that all of David's stackers are stacked
-    for (stacker, stacker_lock_period) in davids_stackers {
+    for (idx, (stacker, stacker_lock_period)) in davids_stackers.iter().enumerate() {
         let (pox_address, first_reward_cycle, lock_period, _indices) =
-            get_stacker_info_pox_4(&mut peer, &stacker.principal).expect("Failed to find stacker");
+            get_stacker_info_pox_4(&mut peer, &stacker.principal)
+                .expect(format!("Failed to find stacker {}", idx).as_str());
         assert_eq!(first_reward_cycle, reward_cycle);
         assert_eq!(pox_address, david.pox_address);
         assert_eq!(lock_period, *stacker_lock_period);
     }
     // Check that all of Eve's stackers are stacked
-    for (stacker, stacker_lock_period) in eves_stackers {
+    for (idx, (stacker, stacker_lock_period)) in eves_stackers.iter().enumerate() {
         let (pox_address, first_reward_cycle, lock_period, _indices) =
-            get_stacker_info_pox_4(&mut peer, &stacker.principal).expect("Failed to find stacker");
+            get_stacker_info_pox_4(&mut peer, &stacker.principal)
+                .expect(format!("Failed to find stacker {}", idx).as_str());
         assert_eq!(first_reward_cycle, reward_cycle);
         assert_eq!(pox_address, eve.pox_address);
         assert_eq!(lock_period, *stacker_lock_period);
@@ -9970,6 +10000,10 @@ fn test_scenario_five(use_nakamoto: bool) {
         .burnchain
         .reward_cycle_to_block_height(next_reward_cycle as u64);
     // Submit vote transactions
+    info!(
+        "Scenario five: submitting votes. Target height: {}",
+        target_height
+    );
     let (latest_block, tx_block, _receipts) = advance_to_block_height(
         &mut peer,
         &observer,
@@ -10085,7 +10119,8 @@ fn test_scenario_five(use_nakamoto: bool) {
         (heidi.clone(), heidi_lock_period),
     ];
 
-    let (latest_block, tx_block, _receipts) = advance_to_block_height(
+    info!("Scenario five: submitting increase and aggregate-commit txs");
+    let (latest_block, tx_block, receipts) = advance_to_block_height(
         &mut peer,
         &observer,
         &txs,
@@ -10116,6 +10151,6 @@ fn test_scenario_five(use_nakamoto: bool) {
     assert_eq!(pox_address, carl.pox_address);
 
     // Assert that carl's error is err(40)
-    let carl_increase_err = tx_block.receipts[1].clone().result;
+    let carl_increase_err = receipts[1].clone().result;
     assert_eq!(carl_increase_err, Value::error(Value::Int(40)).unwrap());
 }
