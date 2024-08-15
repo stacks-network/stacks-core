@@ -2418,7 +2418,7 @@ impl BlockMinerThread {
             &self.burn_block,
             &stackerdbs,
             SignerMessage::MockProposal(mock_proposal.clone()),
-            MinerSlotID::BlockProposal, // There is no specific slot for mock miner messages. We use BlockProposal for MockProposal as well.
+            MinerSlotID::BlockProposal, // There is no specific slot for mock miner messages so we use BlockProposal for MockProposal as well.
             self.config.is_mainnet(),
             &mut miners_stackerdb,
             &election_sortition,
@@ -2428,6 +2428,7 @@ impl BlockMinerThread {
         }
 
         // Retrieve any MockSignatures from stackerdb
+        info!("Waiting for mock signatures...");
         let mock_signatures =
             self.wait_for_mock_signatures(&mock_proposal, &stackerdbs, Duration::from_secs(10))?;
 
@@ -2443,7 +2444,7 @@ impl BlockMinerThread {
             &self.burn_block,
             &stackerdbs,
             SignerMessage::MockBlock(mock_block.clone()),
-            MinerSlotID::BlockPushed, // There is no specific slot for mock miner messages
+            MinerSlotID::BlockPushed, // There is no specific slot for mock miner messages. Let's use BlockPushed for MockBlock since MockProposal uses BlockProposal.
             self.config.is_mainnet(),
             &mut miners_stackerdb,
             &election_sortition,
