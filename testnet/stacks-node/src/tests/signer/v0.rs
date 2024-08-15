@@ -2407,8 +2407,7 @@ fn mock_miner_message_epoch_25() {
         .clone()
         .unwrap();
     let epoch_3 = &epochs[StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch30).unwrap()];
-    let epoch_3_start_height = epoch_3.start_height;
-    debug!("Epoch 3.0 starts at height {}", epoch_3_start_height);
+    let epoch_3_boundary = epoch_3.start_height - 1;
 
     signer_test.boot_to_epoch_25_reward_cycle();
 
@@ -2416,11 +2415,12 @@ fn mock_miner_message_epoch_25() {
     let miners_stackerdb_contract = boot_code_id(MINERS_NAME, false);
     let main_poll_time = Instant::now();
     let mut mock_miner_message = None;
+    // Only advance to the boundary as the epoch 2.5 miner will be shut down at this point.
     while signer_test
         .running_nodes
         .btc_regtest_controller
         .get_headers_height()
-        < epoch_3_start_height
+        < epoch_3_boundary
     {
         let mock_poll_time = Instant::now();
         next_block_and(
