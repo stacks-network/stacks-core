@@ -194,7 +194,6 @@ use stacks::net::stackerdb::{StackerDBConfig, StackerDBSync, StackerDBs, MINER_S
 use stacks::net::{
     Error as NetError, NetworkResult, PeerNetworkComms, RPCHandlerArgs, ServiceFlags,
 };
-use stacks::types::StacksEpoch;
 use stacks::util_lib::strings::{UrlString, VecDisplay};
 use stacks::{monitoring, version_string};
 use stacks_common::codec::StacksMessageCodec;
@@ -2274,20 +2273,9 @@ impl BlockMinerThread {
         let burn_db_path = self.config.get_burn_db_file_path();
         let burn_db = SortitionDB::open(&burn_db_path, false, self.burnchain.pox_constants.clone())
             .expect("FATAL: could not open sortition DB");
-        let epochs = SortitionDB::get_stacks_epochs(burn_db.conn())
-            .expect("Error while loading stacks epochs");
-        let epoch_index = StacksEpoch::find_epoch(&epochs, self.burn_block.block_height)
-            .unwrap_or_else(|| {
-                panic!(
-                    "BUG: block {} is not in a known epoch",
-                    self.burn_block.block_height
-                )
-            });
-        let epoch_id = epochs
-            .get(epoch_index)
-            .expect("BUG: no epoch at found index")
+        let epoch_id = SortitionDB::get_stacks_epoch(burn_db.conn(), self.burn_block.block_height)?
+            .expect("FATAL: no epoch defined")
             .epoch_id;
-
         if epoch_id != StacksEpochId::Epoch25 {
             debug!("Mock miner messaging is disabled for non-epoch 2.5 blocks.";
                 "epoch_id" => epoch_id.to_string()
@@ -2405,7 +2393,7 @@ impl BlockMinerThread {
             &self.burn_block,
             &stackerdbs,
             SignerMessage::MockMinerMessage(message.clone()),
-            MinerSlotID::MockMinerMessage,
+            MinerSlotID::BlockProposal, // There is no specific slot for mock miner messages
             self.config.is_mainnet(),
             &mut miners_stackerdb,
             &election_sortition,

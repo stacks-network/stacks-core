@@ -88,9 +88,7 @@ MinerSlotID {
     /// Block proposal from the miner
     BlockProposal = 0,
     /// Block pushed from the miner
-    BlockPushed = 1,
-    /// Mock Miner Message from the miner
-    MockMinerMessage = 2
+    BlockPushed = 1
 });
 
 impl MessageSlotIDTrait for MessageSlotID {
