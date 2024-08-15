@@ -770,12 +770,10 @@ impl SignCoordinator {
                         debug!("Received block pushed message. Ignoring.");
                         continue;
                     }
-                    SignerMessageV0::MockSignature(_) => {
-                        debug!("Received mock signature message. Ignoring.");
-                        continue;
-                    }
-                    SignerMessageV0::MockMinerMessage(_) => {
-                        debug!("Received mock miner message. Ignoring.");
+                    SignerMessageV0::MockSignature(_)
+                    | SignerMessageV0::MockProposal(_)
+                    | SignerMessageV0::MockBlock(_) => {
+                        debug!("Received mock message. Ignoring.");
                         continue;
                     }
                 };

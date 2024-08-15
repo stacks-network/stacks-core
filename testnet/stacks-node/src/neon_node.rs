@@ -144,7 +144,7 @@ use std::io::{Read, Write};
 use std::net::SocketAddr;
 use std::sync::mpsc::{Receiver, TrySendError};
 use std::thread::JoinHandle;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use std::{fs, mem, thread};
 
 use clarity::boot_util::boot_code_id;
@@ -152,7 +152,7 @@ use clarity::vm::ast::ASTRules;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use libsigner::v0::messages::{
-    MessageSlotID, MinerSlotID, MockMinerMessage, PeerInfo, SignerMessage,
+    MessageSlotID, MinerSlotID, MockBlock, MockProposal, MockSignature, PeerInfo, SignerMessage,
 };
 use libsigner::{SignerSession, StackerDBSession};
 use stacks::burnchains::bitcoin::address::{BitcoinAddress, LegacyBitcoinAddressType};
@@ -2262,8 +2262,105 @@ impl BlockMinerThread {
         return false;
     }
 
+    /// Only used in mock signing to generate a peer info view
+    fn generate_peer_info(&self) -> PeerInfo {
+        // Create a peer info view of the current state
+        let server_version = version_string(
+            "stacks-node",
+            option_env!("STACKS_NODE_VERSION")
+                .or(option_env!("CARGO_PKG_VERSION"))
+                .unwrap_or("0.0.0.0"),
+        );
+        let stacks_tip_height = self.burn_block.canonical_stacks_tip_height;
+        let stacks_tip = self.burn_block.canonical_stacks_tip_hash;
+        let stacks_tip_consensus_hash = self.burn_block.canonical_stacks_tip_consensus_hash;
+        let pox_consensus = self.burn_block.consensus_hash;
+        let burn_block_height = self.burn_block.block_height;
+
+        PeerInfo {
+            burn_block_height,
+            stacks_tip_consensus_hash,
+            stacks_tip,
+            stacks_tip_height,
+            pox_consensus,
+            server_version,
+        }
+    }
+
+    /// Only used in mock signing to retrieve the mock signatures for the given mock proposal
+    fn wait_for_mock_signatures(
+        &self,
+        mock_proposal: &MockProposal,
+        stackerdbs: &StackerDBs,
+        timeout: Duration,
+    ) -> Result<Vec<MockSignature>, ChainstateError> {
+        let reward_cycle = self
+            .burnchain
+            .block_height_to_reward_cycle(self.burn_block.block_height)
+            .expect("BUG: block commit exists before first block height");
+        let signers_contract_id = MessageSlotID::BlockResponse
+            .stacker_db_contract(self.config.is_mainnet(), reward_cycle);
+        let slot_ids: Vec<_> = stackerdbs
+            .get_signers(&signers_contract_id)
+            .expect("FATAL: could not get signers from stacker DB")
+            .into_iter()
+            .enumerate()
+            .map(|(slot_id, _)| {
+                u32::try_from(slot_id).expect("FATAL: too many signers to fit into u32 range")
+            })
+            .collect();
+        let mock_poll_start = Instant::now();
+        let mut mock_signatures = vec![];
+        // Because we don't care really if all signers reach quorum and this is just for testing purposes,
+        // we don't need to wait for ALL signers to sign the mock proposal and should not slow down mining too much
+        // Just wait a min amount of time for the mock signatures to come in
+        while mock_signatures.len() < slot_ids.len() && mock_poll_start.elapsed() < timeout {
+            let chunks = stackerdbs.get_latest_chunks(&signers_contract_id, &slot_ids)?;
+            for chunk in chunks {
+                if let Some(chunk) = chunk {
+                    if let Ok(SignerMessage::MockSignature(mock_signature)) =
+                        SignerMessage::consensus_deserialize(&mut chunk.as_slice())
+                    {
+                        if mock_signature.mock_proposal == *mock_proposal
+                            && !mock_signatures.contains(&mock_signature)
+                        {
+                            mock_signatures.push(mock_signature);
+                        }
+                    }
+                }
+            }
+        }
+        Ok(mock_signatures)
+    }
+
+    /// Only used in mock signing to determine if the peer info view was already signed across
+    fn mock_block_exists(&self, peer_info: &PeerInfo) -> bool {
+        let miner_contract_id = boot_code_id(MINERS_NAME, self.config.is_mainnet());
+        let mut miners_stackerdb =
+            StackerDBSession::new(&self.config.node.rpc_bind, miner_contract_id);
+        let miner_slot_ids: Vec<_> = (0..MINER_SLOT_COUNT * 2).collect();
+        if let Ok(messages) = miners_stackerdb.get_latest_chunks(&miner_slot_ids) {
+            for message in messages {
+                if let Some(message) = message {
+                    if message.is_empty() {
+                        continue;
+                    }
+                    let Ok(SignerMessage::MockBlock(mock_block)) =
+                        SignerMessage::consensus_deserialize(&mut message.as_slice())
+                    else {
+                        continue;
+                    };
+                    if mock_block.mock_proposal.peer_info == *peer_info {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    }
+
     /// Read any mock signatures from stackerdb and respond to them
-    pub fn send_mock_miner_message(&mut self) -> Result<(), ChainstateError> {
+    pub fn send_mock_miner_messages(&mut self) -> Result<(), ChainstateError> {
         let miner_config = self.config.get_miner_config();
         if !miner_config.pre_nakamoto_miner_messaging {
             debug!("Pre-Nakamoto mock miner messaging is disabled");
@@ -2282,123 +2379,76 @@ impl BlockMinerThread {
             );
             return Ok(());
         }
-        let miner_contract_id = boot_code_id(MINERS_NAME, self.config.is_mainnet());
-        let mut miners_stackerdb =
-            StackerDBSession::new(&self.config.node.rpc_bind, miner_contract_id);
-        let miner_slot_ids: Vec<_> = (0..MINER_SLOT_COUNT * 2).collect();
-        if let Ok(messages) = miners_stackerdb.get_latest_chunks(&miner_slot_ids) {
-            for message in messages {
-                if let Some(message) = message {
-                    if message.is_empty() {
-                        continue;
-                    }
-                    let Ok(SignerMessage::MockMinerMessage(miner_message)) =
-                        SignerMessage::consensus_deserialize(&mut message.as_slice())
-                    else {
-                        continue;
-                    };
-                    if miner_message.peer_info.burn_block_height == self.burn_block.block_height {
-                        debug!(
-                            "Already sent mock miner message for tenure burn block height {:?}",
-                            self.burn_block.block_height
-                        );
-                        return Ok(());
-                    }
-                }
-            }
+
+        let mining_key = miner_config
+            .mining_key
+            .expect("Cannot mock sign without mining key");
+
+        // Create a peer info view of the current state
+        let peer_info = self.generate_peer_info();
+        if self.mock_block_exists(&peer_info) {
+            debug!(
+                "Already sent mock miner block proposal for current peer info view. Not sending another mock proposal."
+            );
+            return Ok(());
         }
-        // Retrieve any MockSignatures from stackerdb
-        let mut mock_signatures = Vec::new();
-        let reward_cycle = self
-            .burnchain
-            .block_height_to_reward_cycle(self.burn_block.block_height)
-            .expect("BUG: block commit exists before first block height");
-        let signers_contract_id = MessageSlotID::MockSignature
-            .stacker_db_contract(self.config.is_mainnet(), reward_cycle);
-        // Get the slots for every signer
-        let stackerdbs = StackerDBs::connect(&self.config.get_stacker_db_file_path(), false)?;
-        let slot_ids: Vec<_> = stackerdbs
-            .get_signers(&signers_contract_id)
-            .expect("FATAL: could not get signers from stacker DB")
-            .into_iter()
-            .enumerate()
-            .map(|(slot_id, _)| {
-                u32::try_from(slot_id).expect("FATAL: too many signers to fit into u32 range")
-            })
-            .collect();
-        let chunks = stackerdbs.get_latest_chunks(&signers_contract_id, &slot_ids)?;
-        for chunk in chunks {
-            if let Some(chunk) = chunk {
-                if let Ok(SignerMessage::MockSignature(mock_signature)) =
-                    SignerMessage::consensus_deserialize(&mut chunk.as_slice())
-                {
-                    if mock_signature.sign_data.event_burn_block_height
-                        == self.burn_block.block_height
-                    {
-                        mock_signatures.push(mock_signature);
-                    }
-                }
-            }
-        }
-
-        let server_version = version_string(
-            "stacks-node",
-            option_env!("STACKS_NODE_VERSION")
-                .or(option_env!("CARGO_PKG_VERSION"))
-                .unwrap_or("0.0.0.0"),
-        );
-        let stacks_tip_height = self.burn_block.canonical_stacks_tip_height;
-        let stacks_tip = self.burn_block.canonical_stacks_tip_hash;
-        let stacks_tip_consensus_hash = self.burn_block.canonical_stacks_tip_consensus_hash;
-        let pox_consensus = self.burn_block.consensus_hash;
-        let burn_block_height = self.burn_block.block_height;
-
-        let peer_info = PeerInfo {
-            burn_block_height,
-            stacks_tip_consensus_hash,
-            stacks_tip,
-            stacks_tip_height,
-            pox_consensus,
-            server_version,
-        };
-
-        let message = MockMinerMessage {
-            peer_info,
-            chain_id: self.config.burnchain.chain_id,
-            mock_signatures,
-        };
-
-        info!("Sending mock miner message in response to mock signatures for burn block {:?}", message.peer_info.burn_block_height;
-            "stacks_tip_consensus_hash" => ?message.peer_info.stacks_tip_consensus_hash.clone(),
-            "stacks_tip" => ?message.peer_info.stacks_tip.clone(),
-            "peer_burn_block_height" => message.peer_info.burn_block_height,
-            "pox_consensus" => ?message.peer_info.pox_consensus.clone(),
-            "server_version" => message.peer_info.server_version.clone(),
-            "chain_id" => message.chain_id,
-            "num_mock_signatures" => message.mock_signatures.len(),
-        );
-        let (_, miners_info) =
-            NakamotoChainState::make_miners_stackerdb_config(&burn_db, &self.burn_block)?;
 
         // find out which slot we're in. If we are not the latest sortition winner, we should not be sending anymore messages anyway
+        let stackerdbs = StackerDBs::connect(&self.config.get_stacker_db_file_path(), false)?;
+        let (_, miners_info) =
+            NakamotoChainState::make_miners_stackerdb_config(&burn_db, &self.burn_block)?;
         let idx = miners_info.get_latest_winner_index();
         let sortitions = miners_info.get_sortitions();
         let election_sortition = *sortitions
             .get(idx as usize)
             .expect("FATAL: latest winner index out of bounds");
 
+        let miner_contract_id = boot_code_id(MINERS_NAME, self.config.is_mainnet());
+        let mut miners_stackerdb =
+            StackerDBSession::new(&self.config.node.rpc_bind, miner_contract_id);
+
+        let mock_proposal =
+            MockProposal::new(peer_info, self.config.burnchain.chain_id, &mining_key);
+
+        info!("Sending mock proposal to stackerdb: {mock_proposal:?}");
+
+        if let Err(e) = SignCoordinator::send_miners_message(
+            &mining_key,
+            &burn_db,
+            &self.burn_block,
+            &stackerdbs,
+            SignerMessage::MockProposal(mock_proposal.clone()),
+            MinerSlotID::BlockProposal, // There is no specific slot for mock miner messages. We use BlockProposal for MockProposal as well.
+            self.config.is_mainnet(),
+            &mut miners_stackerdb,
+            &election_sortition,
+        ) {
+            warn!("Failed to send mock proposal to stackerdb: {:?}", &e);
+            return Ok(());
+        }
+
+        // Retrieve any MockSignatures from stackerdb
+        let mock_signatures =
+            self.wait_for_mock_signatures(&mock_proposal, &stackerdbs, Duration::from_secs(10))?;
+
+        let mock_block = MockBlock {
+            mock_proposal,
+            mock_signatures,
+        };
+
+        info!("Sending mock block to stackerdb: {mock_block:?}");
         if let Err(e) = SignCoordinator::send_miners_message(
             &miner_config.mining_key.expect("BUG: no mining key"),
             &burn_db,
             &self.burn_block,
             &stackerdbs,
-            SignerMessage::MockMinerMessage(message.clone()),
-            MinerSlotID::BlockProposal, // There is no specific slot for mock miner messages
+            SignerMessage::MockBlock(mock_block.clone()),
+            MinerSlotID::BlockPushed, // There is no specific slot for mock miner messages
             self.config.is_mainnet(),
             &mut miners_stackerdb,
             &election_sortition,
         ) {
-            warn!("Failed to send mock miner message: {:?}", &e);
+            warn!("Failed to send mock block to stackerdb: {:?}", &e);
         }
         Ok(())
     }
@@ -3744,8 +3794,8 @@ impl RelayerThread {
             .name(format!("miner-block-{}", self.local_peer.data_url))
             .stack_size(BLOCK_PROCESSOR_STACK_SIZE)
             .spawn(move || {
-                if let Err(e) = miner_thread_state.send_mock_miner_message() {
-                    warn!("Failed to send mock miner message: {}", e);
+                if let Err(e) = miner_thread_state.send_mock_miner_messages() {
+                    warn!("Failed to send mock miner messages: {}", e);
                 }
                 miner_thread_state.run_tenure()
             })
