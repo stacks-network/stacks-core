@@ -2381,6 +2381,15 @@ impl BlockMinerThread {
             "chain_id" => message.chain_id,
             "num_mock_signatures" => message.mock_signatures.len(),
         );
+        let (_, miners_info) =
+            NakamotoChainState::make_miners_stackerdb_config(&burn_db, &self.burn_block)?;
+
+        // find out which slot we're in. If we are not the latest sortition winner, we should not be sending anymore messages anyway
+        let idx = miners_info.get_latest_winner_index();
+        let sortitions = miners_info.get_sortitions();
+        let election_sortition = *sortitions
+            .get(idx as usize)
+            .expect("FATAL: latest winner index out of bounds");
 
         if let Err(e) = SignCoordinator::send_miners_message(
             &miner_config.mining_key.expect("BUG: no mining key"),
@@ -2391,7 +2400,7 @@ impl BlockMinerThread {
             MinerSlotID::MockMinerMessage,
             self.config.is_mainnet(),
             &mut miners_stackerdb,
-            &self.burn_block.consensus_hash,
+            &election_sortition,
         ) {
             warn!("Failed to send mock miner message: {:?}", &e);
         }
