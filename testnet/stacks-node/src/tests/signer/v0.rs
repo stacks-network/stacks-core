@@ -2645,7 +2645,9 @@ fn signer_set_rollover() {
 
 #[test]
 #[ignore]
-// This test involves two miners, each mining tenures with 6 blocks each.
+/// This test involves two miners, each mining tenures with 6 blocks each. Half
+/// of the signers are attached to each miner, so the test also verifies that
+/// the signers' messages successfully make their way to the active miner.
 fn multiple_miners_with_nakamoto_blocks() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
@@ -2892,11 +2894,11 @@ fn multiple_miners_with_nakamoto_blocks() {
 
 #[test]
 #[ignore]
-// This test involves two miners, 1 and 2. During miner 1's first tenure, miner
-// 2 is forced to ignore one of the blocks in that tenure. The next time miner
-// 2 mines a block, it should attempt to fork the chain at that point. The test
-// verifies that the fork is not successful and that miner 1 is able to
-// continue mining after this fork attempt.
+/// This test involves two miners, 1 and 2. During miner 1's first tenure, miner
+/// 2 is forced to ignore one of the blocks in that tenure. The next time miner
+/// 2 mines a block, it should attempt to fork the chain at that point. The test
+/// verifies that the fork is not successful and that miner 1 is able to
+/// continue mining after this fork attempt.
 fn partial_tenure_fork() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
