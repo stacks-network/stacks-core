@@ -453,6 +453,7 @@ impl RelayerThread {
             increment_stx_blocks_mined_counter();
         }
         self.globals.set_last_sortition(sn.clone());
+        self.globals.counters.bump_blocks_processed();
 
         // there may be a bufferred stacks block to process, so wake up the coordinator to check
         self.globals.coord_comms.announce_new_stacks_block();
@@ -812,10 +813,7 @@ impl RelayerThread {
         )?;
 
         let new_miner_handle = std::thread::Builder::new()
-            .name(format!(
-                "miner.{parent_tenure_start} (bound ({},{})",
-                &self.config.node.p2p_bind, &self.config.node.rpc_bind
-            ))
+            .name(format!("miner.{parent_tenure_start}",))
             .stack_size(BLOCK_PROCESSOR_STACK_SIZE)
             .spawn(move || new_miner_state.run_miner(prior_tenure_thread))
             .map_err(|e| {
