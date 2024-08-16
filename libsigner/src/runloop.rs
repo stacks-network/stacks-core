@@ -53,7 +53,7 @@ pub trait SignerRunLoop<R: Send, CMD: Send, T: SignerEventTrait> {
         &mut self,
         event: Option<SignerEvent<T>>,
         cmd: Option<CMD>,
-        res: Sender<R>,
+        res: &Sender<R>,
     ) -> Option<R>;
 
     /// This is the main loop body for the signer. It continuously receives events from
@@ -70,6 +70,7 @@ pub trait SignerRunLoop<R: Send, CMD: Send, T: SignerEventTrait> {
         result_send: Sender<R>,
         mut event_stop_signaler: EVST,
     ) -> Option<R> {
+        info!("Signer runloop begin");
         loop {
             let poll_timeout = self.get_event_timeout();
             let next_event_opt = match event_recv.recv_timeout(poll_timeout) {
@@ -83,7 +84,7 @@ pub trait SignerRunLoop<R: Send, CMD: Send, T: SignerEventTrait> {
             // Do not block for commands
             let next_command_opt = command_recv.try_recv().ok();
             if let Some(final_state) =
-                self.run_one_pass(next_event_opt, next_command_opt, result_send.clone())
+                self.run_one_pass(next_event_opt, next_command_opt, &result_send)
             {
                 info!("Runloop exit; signaling event-receiver to stop");
                 event_stop_signaler.send();
