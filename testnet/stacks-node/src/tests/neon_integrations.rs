@@ -12408,10 +12408,9 @@ fn next_block_and_wait_all(
         let finished = follower_blocks_processed
             .iter()
             .zip(followers_current.iter())
-            .map(|(blocks_processed, start_count)| {
+            .all(|(blocks_processed, start_count)| {
                 blocks_processed.load(Ordering::SeqCst) > *start_count
-            })
-            .all(|b| b);
+            });
 
         if finished {
             break;
@@ -12702,7 +12701,7 @@ fn mock_miner_replay() {
 
     thread::sleep(block_gap);
 
-    // first block will hold our VRF registration
+    // second block will hold our VRF registration
     next_block_and_wait_all(
         &mut btc_regtest_controller,
         &miner_blocks_processed,
