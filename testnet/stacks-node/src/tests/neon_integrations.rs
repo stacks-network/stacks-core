@@ -694,7 +694,10 @@ pub fn run_until_burnchain_height(
         if !next_result {
             return false;
         }
-        let tip_info = get_chain_info(&conf);
+        let Ok(tip_info) = get_chain_info_result(&conf) else {
+            sleep_ms(1000);
+            continue;
+        };
         current_height = tip_info.burn_block_height;
     }
 
@@ -1394,7 +1397,7 @@ pub fn get_contract_src(
 
 pub fn get_stacker_set(http_origin: &str, reward_cycle: u64) -> GetStackersResponse {
     let client = reqwest::blocking::Client::new();
-    let path = format!("{}/v2/stacker_set/{}", http_origin, reward_cycle);
+    let path = format!("{}/v3/stacker_set/{}", http_origin, reward_cycle);
     let res = client.get(&path).send().unwrap();
 
     info!("Got stacker_set response {:?}", &res);

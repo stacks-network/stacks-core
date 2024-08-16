@@ -1,3 +1,19 @@
+// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
+// Copyright (C) 2020-2024 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 use std::collections::{HashMap, HashSet};
 use std::net::{Ipv4Addr, SocketAddr, ToSocketAddrs};
 use std::path::PathBuf;
@@ -205,12 +221,12 @@ mod tests {
     }
 
     #[test]
-    fn should_load_block_proposal_token() {
+    fn should_load_auth_token() {
         let config = Config::from_config_file(
             ConfigFile::from_str(
                 r#"
                 [connection_options]
-                block_proposal_token = "password"
+                auth_token = "password"
                 "#,
             )
             .unwrap(),
@@ -219,7 +235,7 @@ mod tests {
         .expect("Expected to be able to parse block proposal token from file");
 
         assert_eq!(
-            config.connection_options.block_proposal_token,
+            config.connection_options.auth_token,
             Some("password".to_string())
         );
     }
@@ -1350,9 +1366,9 @@ impl Config {
     /// the poll time is dependent on the first attempt time.
     pub fn get_poll_time(&self) -> u64 {
         let poll_timeout = if self.node.miner {
-            cmp::min(5000, self.miner.first_attempt_time_ms / 2)
+            cmp::min(1000, self.miner.first_attempt_time_ms / 2)
         } else {
-            5000
+            1000
         };
         poll_timeout
     }
@@ -1829,6 +1845,8 @@ pub struct NodeConfig {
     pub use_test_genesis_chainstate: Option<bool>,
     pub always_use_affirmation_maps: bool,
     pub require_affirmed_anchor_blocks: bool,
+    /// Fault injection for failing to push blocks
+    pub fault_injection_block_push_fail_probability: Option<u8>,
     // fault injection for hiding blocks.
     // not part of the config file.
     pub fault_injection_hide_blocks: bool,
@@ -2115,6 +2133,7 @@ impl Default for NodeConfig {
             use_test_genesis_chainstate: None,
             always_use_affirmation_maps: false,
             require_affirmed_anchor_blocks: true,
+            fault_injection_block_push_fail_probability: None,
             fault_injection_hide_blocks: false,
             chain_liveness_poll_time_secs: 300,
             stacker_dbs: vec![],
@@ -2141,7 +2160,6 @@ impl NodeConfig {
                 let contract_name = NakamotoSigners::make_signers_db_name(signer_set, message_id);
                 let contract_id = boot_code_id(contract_name.as_str(), is_mainnet);
                 if !self.stacker_dbs.contains(&contract_id) {
-                    debug!("A miner/stacker must subscribe to the {contract_id} stacker db contract. Forcibly subscribing...");
                     self.stacker_dbs.push(contract_id);
                 }
             }
@@ -2151,7 +2169,6 @@ impl NodeConfig {
     pub fn add_miner_stackerdb(&mut self, is_mainnet: bool) {
         let miners_contract_id = boot_code_id(MINERS_NAME, is_mainnet);
         if !self.stacker_dbs.contains(&miners_contract_id) {
-            debug!("A miner/stacker must subscribe to the {miners_contract_id} stacker db contract. Forcibly subscribing...");
             self.stacker_dbs.push(miners_contract_id);
         }
     }
@@ -2408,7 +2425,7 @@ pub struct ConnectionOptionsFile {
     pub force_disconnect_interval: Option<u64>,
     pub antientropy_public: Option<bool>,
     pub private_neighbors: Option<bool>,
-    pub block_proposal_token: Option<String>,
+    pub auth_token: Option<String>,
     pub antientropy_retry: Option<u64>,
 }
 
@@ -2534,7 +2551,7 @@ impl ConnectionOptionsFile {
             max_sockets: self.max_sockets.unwrap_or(800) as usize,
             antientropy_public: self.antientropy_public.unwrap_or(true),
             private_neighbors: self.private_neighbors.unwrap_or(true),
-            block_proposal_token: self.block_proposal_token,
+            auth_token: self.auth_token,
             antientropy_retry: self.antientropy_retry.unwrap_or(default.antientropy_retry),
             ..default
         })
@@ -2574,6 +2591,8 @@ pub struct NodeConfigFile {
     pub chain_liveness_poll_time_secs: Option<u64>,
     /// Stacker DBs we replicate
     pub stacker_dbs: Option<Vec<String>>,
+    /// fault injection: fail to push blocks with this probability (0-100)
+    pub fault_injection_block_push_fail_probability: Option<u8>,
 }
 
 impl NodeConfigFile {
@@ -2652,6 +2671,14 @@ impl NodeConfigFile {
                 .iter()
                 .filter_map(|contract_id| QualifiedContractIdentifier::parse(contract_id).ok())
                 .collect(),
+            fault_injection_block_push_fail_probability: if self
+                .fault_injection_block_push_fail_probability
+                .is_some()
+            {
+                self.fault_injection_block_push_fail_probability
+            } else {
+                default_node_config.fault_injection_block_push_fail_probability
+            },
         };
         Ok(node_config)
     }

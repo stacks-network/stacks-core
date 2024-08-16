@@ -85,6 +85,8 @@ pub struct RunningNodes {
     pub blocks_processed: Arc<AtomicU64>,
     pub nakamoto_blocks_proposed: Arc<AtomicU64>,
     pub nakamoto_blocks_mined: Arc<AtomicU64>,
+    pub nakamoto_blocks_rejected: Arc<AtomicU64>,
+    pub nakamoto_blocks_signer_pushed: Arc<AtomicU64>,
     pub nakamoto_test_skip_commit_op: TestFlag,
     pub coord_channel: Arc<Mutex<CoordinatorChannels>>,
     pub conf: NeonConfig,
@@ -153,7 +155,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         // So the combination is... one, two, three, four, five? That's the stupidest combination I've ever heard in my life!
         // That's the kind of thing an idiot would have on his luggage!
         let password = "12345";
-        naka_conf.connection_options.block_proposal_token = Some(password.to_string());
+        naka_conf.connection_options.auth_token = Some(password.to_string());
         if let Some(wait_on_signers) = wait_on_signers {
             naka_conf.miner.wait_on_signers = wait_on_signers;
         } else {
@@ -233,6 +235,8 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
             let port = 3000 + signer_ix;
             let endpoint = format!("http://localhost:{}", port);
             let path = format!("{endpoint}/status");
+
+            debug!("Issue status request to {}", &path);
             let client = reqwest::blocking::Client::new();
             let response = client
                 .get(path)
@@ -745,7 +749,9 @@ fn setup_stx_btc_node<G: FnMut(&mut NeonConfig) -> ()>(
         naka_submitted_commits: commits_submitted,
         naka_proposed_blocks: naka_blocks_proposed,
         naka_mined_blocks: naka_blocks_mined,
+        naka_rejected_blocks: naka_blocks_rejected,
         naka_skip_commit_op: nakamoto_test_skip_commit_op,
+        naka_signer_pushed_blocks,
         ..
     } = run_loop.counters();
 
@@ -778,6 +784,8 @@ fn setup_stx_btc_node<G: FnMut(&mut NeonConfig) -> ()>(
         blocks_processed: blocks_processed.0,
         nakamoto_blocks_proposed: naka_blocks_proposed.0,
         nakamoto_blocks_mined: naka_blocks_mined.0,
+        nakamoto_blocks_rejected: naka_blocks_rejected.0,
+        nakamoto_blocks_signer_pushed: naka_signer_pushed_blocks.0,
         nakamoto_test_skip_commit_op,
         coord_channel,
         conf: naka_conf,

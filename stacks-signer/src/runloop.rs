@@ -335,6 +335,7 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
             max_tx_fee_ustx: self.config.max_tx_fee_ustx,
             db_path: self.config.db_path.clone(),
             block_proposal_timeout: self.config.block_proposal_timeout,
+            broadcast_signed_blocks: self.config.broadcast_signed_blocks,
         }))
     }
 
@@ -497,7 +498,7 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug>
         &mut self,
         event: Option<SignerEvent<T>>,
         cmd: Option<RunLoopCommand>,
-        res: Sender<Vec<SignerResult>>,
+        res: &Sender<Vec<SignerResult>>,
     ) -> Option<Vec<SignerResult>> {
         debug!(
             "Running one pass for the signer. state={:?}, cmd={cmd:?}, event={event:?}",
@@ -548,7 +549,7 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug>
                 &self.stacks_client,
                 &mut self.sortition_state,
                 event.as_ref(),
-                res.clone(),
+                res,
                 current_reward_cycle,
             );
             // After processing event, run the next command for each signer
