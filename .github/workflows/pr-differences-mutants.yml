@@ -36,7 +36,7 @@ jobs:
         uses: stacks-network/actions/team-membership@feat/mutation-testing
         with:
           username: ${{ github.actor }}
-          team: 'Blockchain Team'
+          team: 'blockchain-team'
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
 
       - name: Fail if the user does not have the right permissions
