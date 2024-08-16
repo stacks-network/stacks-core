@@ -9,6 +9,16 @@ on:
       - ready_for_review
     paths:
       - '**.rs'
+  workflow_dispatch:
+    inputs:
+      ignore_timeout:
+        description: "Ignore mutants timeout limit"
+        required: false
+        type: choice
+        options:
+          - true
+          - false
+        default: 'true'
 
 concurrency:
   group: pr-differences-${{ github.head_ref || github.ref || github.run_id }}
