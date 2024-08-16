@@ -147,14 +147,14 @@ impl SignerTrait<SignerMessage> for Signer {
                                     return;
                                 }
                             };
-                            debug!("{self}: received a mock block proposal.";
+                            info!("{self}: received a mock block proposal.";
                                 "current_reward_cycle" => current_reward_cycle,
                                 "epoch" => ?epoch
                             );
                             if epoch == StacksEpochId::Epoch25
                                 && self.reward_cycle == current_reward_cycle
                             {
-                                // We are in epoch 2.5, so we should mock mine to prove we are still alive.
+                                // We are in epoch 2.5, so we should mock sign to prove we are still alive.
                                 self.mock_sign(mock_proposal.clone());
                             }
                         }
