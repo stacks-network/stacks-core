@@ -9,6 +9,16 @@ on:
       - ready_for_review
     paths:
       - '**.rs'
+  workflow_dispatch:
+    inputs:
+      ignore_timeout:
+        description: "Ignore mutants timeout limit"
+        required: false
+        type: choice
+        options:
+          - true
+          # - false
+        default: 'true'
 
 concurrency:
   group: pr-differences-${{ github.head_ref || github.ref || github.run_id }}
@@ -16,9 +26,27 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  check-right-permissions:
+    name: Check Right Permissions
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check Right Permissions To Trigger This
+        id: check_right_permissions
+        uses: stacks-network/actions/team-membership@feat/mutation-testing
+        with:
+          username: ${{ github.actor }}
+          team: 'Blockchain Team'
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+
+      - name: Fail if the user does not have the right permissions
+        if: ${{ inputs.ignore_timeout == true && steps.check_right_permissions.outputs.is_team_member != 'true' }}
+        run: exit 1
+
   # Check and output whether to run big (`stacks-node`/`stackslib`) or small (others) packages with or without shards
   check-big-packages-and-shards:
     name: Check Packages and Shards
+    needs: check-right-permissions
 
     runs-on: ubuntu-latest
 
@@ -30,10 +58,13 @@ jobs:
       run_small_packages: ${{ steps.check_packages_and_shards.outputs.run_small_packages }}
       small_packages_with_shards: ${{ steps.check_packages_and_shards.outputs.small_packages_with_shards }}
       run_stacks_signer: ${{ steps.check_packages_and_shards.outputs.run_stacks_signer }}
+      too_many_mutants: ${{ steps.check_packages_and_shards.outputs.too_many_mutants }}
 
     steps:
       - id: check_packages_and_shards
-        uses: stacks-network/actions/stacks-core/mutation-testing/check-packages-and-shards@main
+        uses: stacks-network/actions/stacks-core/mutation-testing/check-packages-and-shards@feat/mutation-testing
+        with:
+          ignore_timeout: ${{ inputs.ignore_timeout }}
 
   # Mutation testing - Execute on PR on small packages that have functions modified (normal run, no shards)
   pr-differences-mutants-small-normal:
@@ -49,7 +80,7 @@ jobs:
 
     steps:
       - name: Run mutants on diffs
-        uses: stacks-network/actions/stacks-core/mutation-testing/pr-differences@main
+        uses: stacks-network/actions/stacks-core/mutation-testing/pr-differences@feat/mutation-testing
         with:
           package: 'small'
 
@@ -72,7 +103,7 @@ jobs:
 
     steps:
       - name: Run mutants on diffs
-        uses: stacks-network/actions/stacks-core/mutation-testing/pr-differences@main
+        uses: stacks-network/actions/stacks-core/mutation-testing/pr-differences@feat/mutation-testing
         with:
           shard: ${{ matrix.shard }}
           package: 'small'
@@ -94,7 +125,7 @@ jobs:
         env:
           BITCOIND_TEST: 1
           RUST_BACKTRACE: full
-        uses: stacks-network/actions/stacks-core/mutation-testing/pr-differences@main
+        uses: stacks-network/actions/stacks-core/mutation-testing/pr-differences@feat/mutation-testing
         with:
           package: 'stackslib'
 
@@ -120,7 +151,7 @@ jobs:
         env:
           BITCOIND_TEST: 1
           RUST_BACKTRACE: full
-        uses: stacks-network/actions/stacks-core/mutation-testing/pr-differences@main
+        uses: stacks-network/actions/stacks-core/mutation-testing/pr-differences@feat/mutation-testing
         with:
           shard: ${{ matrix.shard }}
           package: 'stackslib'
@@ -142,7 +173,7 @@ jobs:
         env:
           BITCOIND_TEST: 1
           RUST_BACKTRACE: full
-        uses: stacks-network/actions/stacks-core/mutation-testing/pr-differences@main
+        uses: stacks-network/actions/stacks-core/mutation-testing/pr-differences@feat/mutation-testing
         with:
           package: 'stacks-node'
 
@@ -168,7 +199,7 @@ jobs:
         env:
           BITCOIND_TEST: 1
           RUST_BACKTRACE: full
-        uses: stacks-network/actions/stacks-core/mutation-testing/pr-differences@main
+        uses: stacks-network/actions/stacks-core/mutation-testing/pr-differences@feat/mutation-testing
         with:
           shard: ${{ matrix.shard }}
           package: 'stacks-node'
@@ -186,7 +217,7 @@ jobs:
 
     steps:
       - name: Run mutants on diffs
-        uses: stacks-network/actions/stacks-core/mutation-testing/pr-differences@main
+        uses: stacks-network/actions/stacks-core/mutation-testing/pr-differences@feat/mutation-testing
         with:
           package: 'stacks-signer'
 
@@ -211,7 +242,7 @@ jobs:
 
     steps:
       - name: Output Mutants
-        uses: stacks-network/actions/stacks-core/mutation-testing/output-pr-mutants@main
+        uses: stacks-network/actions/stacks-core/mutation-testing/output-pr-mutants@feat/mutation-testing
         with:
           stackslib_package: ${{ needs.check-big-packages-and-shards.outputs.run_stackslib }}
           shards_for_stackslib_package: ${{ needs.check-big-packages-and-shards.outputs.stackslib_with_shards }}
@@ -220,3 +251,4 @@ jobs:
           small_packages: ${{ needs.check-big-packages-and-shards.outputs.run_small_packages }}
           shards_for_small_packages: ${{ needs.check-big-packages-and-shards.outputs.small_packages_with_shards }}
           stacks_signer: ${{ needs.check-big-packages-and-shards.outputs.run_stacks_signer }}
+          too_many_mutants: ${{ needs.check-big-packages-and-shards.outputs.too_many_mutants }}
