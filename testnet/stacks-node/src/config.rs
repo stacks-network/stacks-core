@@ -1168,6 +1168,10 @@ impl Config {
             .validate()
             .map_err(|e| format!("Atlas config error: {e}"))?;
 
+        if miner.mining_key.is_none() && miner.pre_nakamoto_mock_signing {
+            return Err("Cannot use pre_nakamoto_mock_signing without a mining_key".to_string());
+        }
+
         Ok(Config {
             config_path: config_file.__path,
             node,
@@ -2384,7 +2388,7 @@ impl Default for MinerConfig {
             max_reorg_depth: 3,
             // TODO: update to a sane value based on stackerdb benchmarking
             wait_on_signers: Duration::from_secs(200),
-            pre_nakamoto_mock_signing: true,
+            pre_nakamoto_mock_signing: false, // Should only default true if mining key is set
         }
     }
 }
@@ -2739,6 +2743,12 @@ pub struct MinerConfigFile {
 
 impl MinerConfigFile {
     fn into_config_default(self, miner_default_config: MinerConfig) -> Result<MinerConfig, String> {
+        let mining_key = self
+            .mining_key
+            .as_ref()
+            .map(|x| Secp256k1PrivateKey::from_hex(x))
+            .transpose()?;
+        let pre_nakamoto_mock_signing = mining_key.is_some();
         Ok(MinerConfig {
             first_attempt_time_ms: self
                 .first_attempt_time_ms
@@ -2837,7 +2847,9 @@ impl MinerConfigFile {
                 .wait_on_signers_ms
                 .map(Duration::from_millis)
                 .unwrap_or(miner_default_config.wait_on_signers),
-            pre_nakamoto_mock_signing: self.pre_nakamoto_mock_signing.unwrap_or(true),
+            pre_nakamoto_mock_signing: self
+                .pre_nakamoto_mock_signing
+                .unwrap_or(pre_nakamoto_mock_signing), // Should only default true if mining key is set
         })
     }
 }
