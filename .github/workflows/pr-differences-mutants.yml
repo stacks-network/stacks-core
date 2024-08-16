@@ -36,7 +36,7 @@ jobs:
         uses: stacks-network/actions/team-membership@main
         with:
           username: ${{ github.actor }}
-          team: 'devops'
+          team: 'blockchain-team'
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
 
       - name: Fail if the user does not have the right permissions
