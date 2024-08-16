@@ -3139,5 +3139,24 @@ fn partial_tenure_fork() {
         u64::try_from(miner_1_tenures + miner_2_tenures).unwrap()
     );
 
+    let sortdb = SortitionDB::open(
+        &conf_node_2.get_burn_db_file_path(),
+        false,
+        conf_node_2.get_burnchain().pox_constants,
+    )
+    .unwrap();
+
+    let (chainstate, _) = StacksChainState::open(
+        false,
+        conf_node_2.burnchain.chain_id,
+        &conf_node_2.get_chainstate_path_str(),
+        None,
+    )
+    .unwrap();
+    let tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
+        .unwrap()
+        .unwrap();
+    assert_eq!(tip.stacks_block_height, ignore_block - 1);
+
     signer_test.shutdown();
 }
