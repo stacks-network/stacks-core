@@ -964,22 +964,21 @@ mod test {
         let bad_private_key = StacksPrivateKey::new();
         let bad_public_key = StacksPublicKey::from_private(&bad_private_key);
 
-        let mut mock_signature = random_mock_proposal();
-        mock_signature.sign(&private_key).unwrap();
-        assert!(!mock_signature
+        let mut mock_proposal = random_mock_proposal();
+        assert!(!mock_proposal
             .verify(&public_key)
-            .expect("Failed to verify MockSignature"));
+            .expect("Failed to verify MockProposal"));
 
-        mock_signature
+        mock_proposal
             .sign(&private_key)
-            .expect("Failed to sign MockSignature");
+            .expect("Failed to sign MockProposal");
 
-        assert!(mock_signature
+        assert!(mock_proposal
             .verify(&public_key)
-            .expect("Failed to verify MockSignature"));
-        assert!(!mock_signature
+            .expect("Failed to verify MockProposal"));
+        assert!(!mock_proposal
             .verify(&bad_public_key)
-            .expect("Failed to verify MockSignature"));
+            .expect("Failed to verify MockProposal"));
     }
 
     #[test]

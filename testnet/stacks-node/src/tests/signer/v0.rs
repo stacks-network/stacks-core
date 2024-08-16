@@ -2440,6 +2440,7 @@ fn mock_sign_epoch_25() {
         Some(Duration::from_secs(5)),
         |_| {},
         |node_config| {
+            node_config.miner.pre_nakamoto_mock_signing = true;
             let epochs = node_config.burnchain.epochs.as_mut().unwrap();
             for epoch in epochs.iter_mut() {
                 if epoch.epoch_id == StacksEpochId::Epoch25 {
