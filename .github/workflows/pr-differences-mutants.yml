@@ -17,7 +17,6 @@ on:
         type: choice
         options:
           - true
-          # - false
         default: 'true'
 
 concurrency:
