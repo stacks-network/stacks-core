@@ -1,25 +1,32 @@
-<!--- Provide a general summary of the issue in the Title above -->
+---
+name: Signer Bug
+about: Create a report to help us improve the signer
+title: "[SIGNER BUG]"
+labels: signer
+assignees: ''
 
-## Expected Behavior
-<!--- Tell us what should happen -->
+---
 
-## Current Behavior
-<!--- Tell us what happens instead of the expected behavior -->
+**Describe the bug**
+A clear and concise description of what the bug is.
 
-## Steps to Reproduce
-<!--- Provide a link to a live example, or an unambiguous set of steps to -->
-<!--- reproduce this bug. Include code to reproduce, if relevant -->
-1.
-2.
-3.
-4.
+**Steps To Reproduce**
+Please provide detailed instructions (e.g. command line invocation with parameters) to reproduce the behavior.
 
-## Context (Environment)
-<!--- Provide some information about your environment in order to help address the issue. -->
+**Expected behavior**
+A clear and concise description of what you expected to happen.
 
-- <!--- Signer public key -->
-- <!--- Signer version -->
-- <!--- Stacks node version -->
-- <!--- Relevant log messages -->
-- <!--- Tx ID of any transaction you were trying to execute -->
-- <!--- Tx ID of `aggregation-commit-indexed` call in registered cycle (if applicable)<!--- Provide a general summary of the issue in the Title above -->
+**Environment (please complete the following information):**
+ - OS: [e.g. Ubuntu / Debian]
+ - Rust version
+ - Version of the appropriate binary / software packages
+ - Signer public key
+ - Relevant log messages
+ - Tx ID of any transaction you were trying to execute 
+ - Tx ID of `aggregation-commit-indexed` call in registered cycle (if applicable)
+
+
+**Additional context**
+Please include any relevant stack traces, error messages and logs.
+
+
