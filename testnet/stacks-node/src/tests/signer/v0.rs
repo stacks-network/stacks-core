@@ -2445,6 +2445,7 @@ fn mock_sign_epoch_25() {
         Some(Duration::from_secs(5)),
         |_| {},
         |node_config| {
+            node_config.miner.pre_nakamoto_mock_signing = true;
             let epochs = node_config.burnchain.epochs.as_mut().unwrap();
             for epoch in epochs.iter_mut() {
                 if epoch.epoch_id == StacksEpochId::Epoch25 {
@@ -2466,35 +2467,36 @@ fn mock_sign_epoch_25() {
         .clone()
         .unwrap();
     let epoch_3 = &epochs[StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch30).unwrap()];
-    let epoch_3_start_height = epoch_3.start_height;
+    let epoch_3_boundary = epoch_3.start_height - 1; // We only advance to the boundary as epoch 2.5 miner gets torn down at the boundary
 
     signer_test.boot_to_epoch_25_reward_cycle();
 
     info!("------------------------- Test Processing Epoch 2.5 Tenures -------------------------");
 
     // Mine until epoch 3.0 and ensure that no more mock signatures are received
-    let mut reward_cycle = signer_test.get_current_reward_cycle();
-    let mut stackerdb = StackerDB::new(
-        &signer_test.running_nodes.conf.node.rpc_bind,
-        StacksPrivateKey::new(), // We are just reading so don't care what the key is
-        false,
-        reward_cycle,
-        SignerSlotID(0), // We are just reading so again, don't care about index.
-    );
-    let mut signer_slot_ids: Vec<_> = signer_test
+    let reward_cycle = signer_test.get_current_reward_cycle();
+    let signer_slot_ids: Vec<_> = signer_test
         .get_signer_indices(reward_cycle)
         .iter()
         .map(|id| id.0)
         .collect();
+    let signer_keys = signer_test.get_signer_public_keys(reward_cycle);
+    let signer_public_keys: Vec<_> = signer_keys.signers.into_values().collect();
     assert_eq!(signer_slot_ids.len(), num_signers);
-    // Mine until epoch 3.0 and ensure we get a new mock signature per epoch 2.5 sortition
+
+    let miners_stackerdb_contract = boot_code_id(MINERS_NAME, false);
+
+    // Mine until epoch 3.0 and ensure we get a new mock block per epoch 2.5 sortition
     let main_poll_time = Instant::now();
+    // Only advance to the boundary as the epoch 2.5 miner will be shut down at this point.
     while signer_test
         .running_nodes
         .btc_regtest_controller
         .get_headers_height()
-        < epoch_3_start_height
+        < epoch_3_boundary
     {
+        let mut mock_block_mesage = None;
+        let mock_poll_time = Instant::now();
         next_block_and(
             &mut signer_test.running_nodes.btc_regtest_controller,
             60,
@@ -2505,108 +2507,59 @@ fn mock_sign_epoch_25() {
             .running_nodes
             .btc_regtest_controller
             .get_headers_height();
-        if current_burn_block_height
-            % signer_test
-                .running_nodes
-                .conf
-                .get_burnchain()
-                .pox_constants
-                .reward_cycle_length as u64
-            == 0
-        {
-            reward_cycle += 1;
-            debug!("Rolling over reward cycle to {:?}", reward_cycle);
-            stackerdb = StackerDB::new(
-                &signer_test.running_nodes.conf.node.rpc_bind,
-                StacksPrivateKey::new(), // We are just reading so don't care what the key is
-                false,
-                reward_cycle,
-                SignerSlotID(0), // We are just reading so again, don't care about index.
-            );
-            signer_slot_ids = signer_test
-                .get_signer_indices(reward_cycle)
-                .iter()
-                .map(|id| id.0)
-                .collect();
-            assert_eq!(signer_slot_ids.len(), num_signers);
-        }
-        let mut mock_signatures = vec![];
-        let mock_poll_time = Instant::now();
-        debug!("Waiting for mock signatures for burn block height {current_burn_block_height}");
-        while mock_signatures.len() != num_signers {
+        debug!("Waiting for mock miner message for burn block height {current_burn_block_height}");
+        while mock_block_mesage.is_none() {
             std::thread::sleep(Duration::from_millis(100));
-            let messages: Vec<SignerMessage> = StackerDB::get_messages(
-                stackerdb
-                    .get_session_mut(&MessageSlotID::MockSignature)
-                    .expect("Failed to get BlockResponse stackerdb session"),
-                &signer_slot_ids,
-            )
-            .expect("Failed to get message from stackerdb");
-            for message in messages {
-                if let SignerMessage::MockSignature(mock_signature) = message {
-                    if mock_signature.sign_data.event_burn_block_height == current_burn_block_height
-                    {
-                        if !mock_signatures.contains(&mock_signature) {
-                            mock_signatures.push(mock_signature);
-                        }
+            let chunks = test_observer::get_stackerdb_chunks();
+            for chunk in chunks
+                .into_iter()
+                .filter_map(|chunk| {
+                    if chunk.contract_id != miners_stackerdb_contract {
+                        return None;
                     }
+                    Some(chunk.modified_slots)
+                })
+                .flatten()
+            {
+                if chunk.data.is_empty() {
+                    continue;
+                }
+                let SignerMessage::MockBlock(mock_block) =
+                    SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
+                        .expect("Failed to deserialize SignerMessage")
+                else {
+                    continue;
+                };
+                if mock_block.mock_proposal.peer_info.burn_block_height == current_burn_block_height
+                {
+                    assert_eq!(mock_block.mock_signatures.len(), num_signers);
+                    mock_block
+                        .mock_signatures
+                        .iter()
+                        .for_each(|mock_signature| {
+                            assert!(signer_public_keys.iter().any(|signer| {
+                                mock_signature
+                                    .verify(
+                                        &StacksPublicKey::from_slice(signer.to_bytes().as_slice())
+                                            .unwrap(),
+                                    )
+                                    .expect("Failed to verify mock signature")
+                            }));
+                        });
+                    mock_block_mesage = Some(mock_block);
+                    break;
                 }
             }
             assert!(
                 mock_poll_time.elapsed() <= Duration::from_secs(15),
-                "Failed to find mock signatures within timeout"
+                "Failed to find mock miner message within timeout"
             );
         }
         assert!(
             main_poll_time.elapsed() <= Duration::from_secs(45),
-            "Timed out waiting to advance epoch 3.0"
+            "Timed out waiting to advance epoch 3.0 boundary"
         );
     }
-
-    info!("------------------------- Test Processing Epoch 3.0 Tenure -------------------------");
-    let old_messages: Vec<SignerMessage> = StackerDB::get_messages(
-        stackerdb
-            .get_session_mut(&MessageSlotID::MockSignature)
-            .expect("Failed to get BlockResponse stackerdb session"),
-        &signer_slot_ids,
-    )
-    .expect("Failed to get message from stackerdb");
-    let old_signatures = old_messages
-        .iter()
-        .filter_map(|message| {
-            if let SignerMessage::MockSignature(mock_signature) = message {
-                Some(mock_signature)
-            } else {
-                None
-            }
-        })
-        .collect::<Vec<_>>();
-    next_block_and(
-        &mut signer_test.running_nodes.btc_regtest_controller,
-        60,
-        || Ok(true),
-    )
-    .unwrap();
-    // Wait a bit to ensure no new mock signatures show up
-    std::thread::sleep(Duration::from_secs(5));
-    let new_messages: Vec<SignerMessage> = StackerDB::get_messages(
-        stackerdb
-            .get_session_mut(&MessageSlotID::MockSignature)
-            .expect("Failed to get BlockResponse stackerdb session"),
-        &signer_slot_ids,
-    )
-    .expect("Failed to get message from stackerdb");
-    let new_signatures = new_messages
-        .iter()
-        .filter_map(|message| {
-            if let SignerMessage::MockSignature(mock_signature) = message {
-                Some(mock_signature)
-            } else {
-                None
-            }
-        })
-        .collect::<Vec<_>>();
-    assert_eq!(old_signatures, new_signatures);
 }
 
 #[test]

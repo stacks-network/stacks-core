@@ -4191,7 +4191,6 @@ impl NakamotoChainState {
                   "stackerdb_slots" => ?stackerdb_config.signers,
                   "queried_sortition" => %election_sortition,
                   "sortition_hashes" => ?miners_info.get_sortitions());
-
             return Ok(None);
         }
         let slot_id_range = signer_ranges.swap_remove(signer_ix);
