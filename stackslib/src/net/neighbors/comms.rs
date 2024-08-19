@@ -466,12 +466,19 @@ impl PeerNetworkComms {
                 Ok(None) => {
                     if let Some(rh) = req_opt {
                         // keep trying
+                        debug!("{:?}: keep polling {}", network.get_local_peer(), naddr);
                         inflight.insert(naddr, rh);
                     }
                     continue;
                 }
                 Err(_e) => {
                     // peer was already marked as dead in the given network set
+                    debug!(
+                        "{:?}: peer {} is dead: {:?}",
+                        network.get_local_peer(),
+                        naddr,
+                        &_e
+                    );
                     continue;
                 }
             };

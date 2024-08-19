@@ -28,11 +28,11 @@ impl_byte_array_serde!(TrieHash);
 
 pub const TRIEHASH_ENCODED_SIZE: usize = 32;
 
-#[derive(Serialize, Deserialize)]
 pub struct BurnchainHeaderHash(pub [u8; 32]);
 impl_array_newtype!(BurnchainHeaderHash, u8, 32);
 impl_array_hexstring_fmt!(BurnchainHeaderHash);
 impl_byte_array_newtype!(BurnchainHeaderHash, u8, 32);
+impl_byte_array_serde!(BurnchainHeaderHash);
 
 pub struct BlockHeaderHash(pub [u8; 32]);
 impl_array_newtype!(BlockHeaderHash, u8, 32);
