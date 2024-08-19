@@ -46,4 +46,4 @@
 - <!--- Stacks node version -->
 - <!--- Relevant log messages -->
 - <!--- Tx ID of any transaction you were trying to execute -->
-- <!--- Tx ID of `aggregation-commit-indexed` call in registered cycle (if applicable)
+- <!--- Tx ID of `stack-aggregation-commit-indexed` call in registered cycle (if applicable) -->
