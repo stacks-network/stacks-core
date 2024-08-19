@@ -63,8 +63,9 @@ use crate::nakamoto_node::sign_coordinator::TEST_IGNORE_SIGNERS;
 use crate::neon::Counters;
 use crate::run_loop::boot_nakamoto;
 use crate::tests::nakamoto_integrations::{
-    boot_to_epoch_25, boot_to_epoch_3_reward_set, next_block_and, setup_epoch_3_reward_set,
-    wait_for, POX_4_DEFAULT_STACKER_BALANCE, POX_4_DEFAULT_STACKER_STX_AMT,
+    boot_to_epoch_25, boot_to_epoch_3_reward_set, next_block_and, next_block_and_mine_commit,
+    setup_epoch_3_reward_set, wait_for, POX_4_DEFAULT_STACKER_BALANCE,
+    POX_4_DEFAULT_STACKER_STX_AMT,
 };
 use crate::tests::neon_integrations::{
     get_account, get_chain_info, next_block_and_wait, run_until_burnchain_height, submit_tx,
@@ -277,14 +278,15 @@ impl SignerTest<SpawnedSigner> {
 
         self.run_until_epoch_3_boundary();
 
-        let commits_submitted = self.running_nodes.commits_submitted.clone();
-
         info!("Waiting 1 burnchain block for miner VRF key confirmation");
         // Wait one block to confirm the VRF register, wait until a block commit is submitted
-        next_block_and(&mut self.running_nodes.btc_regtest_controller, 60, || {
-            let commits_count = commits_submitted.load(Ordering::SeqCst);
-            Ok(commits_count >= 1)
-        })
+        let commits_submitted = self.running_nodes.commits_submitted.clone();
+        next_block_and_mine_commit(
+            &mut self.running_nodes.btc_regtest_controller,
+            30,
+            &self.running_nodes.coord_channel,
+            &commits_submitted,
+        )
         .unwrap();
         info!("Ready to mine Nakamoto blocks!");
     }
