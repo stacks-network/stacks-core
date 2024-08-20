@@ -45,6 +45,7 @@ use stacks::chainstate::stacks::{
 use stacks::net::p2p::NetworkHandle;
 use stacks::net::stackerdb::StackerDBs;
 use stacks::net::{NakamotoBlocksData, StacksMessageType};
+use stacks::util::get_epoch_time_secs;
 use stacks::util::secp256k1::MessageSignature;
 use stacks_common::codec::read_next;
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
@@ -317,6 +318,8 @@ impl BlockMinerThread {
                         }
                     }
                 }
+                self.wait_min_time_between_blocks()?;
+
                 match self.mine_block(&stackerdbs) {
                     Ok(x) => break Some(x),
                     Err(NakamotoNodeError::MiningFailure(ChainstateError::MinerAborted)) => {
@@ -1035,6 +1038,31 @@ impl BlockMinerThread {
             &self.registered_key.vrf_public_key.to_hex()
         );
         Some(vrf_proof)
+    }
+
+    /// Wait the minimum time between blocks before mining a new block (if necessary)
+    /// This is to ensure that the signers do not reject the block due to the block being mined within the same second as the parent block.
+    fn wait_min_time_between_blocks(&self) -> Result<(), NakamotoNodeError> {
+        let burn_db_path = self.config.get_burn_db_file_path();
+        let mut burn_db =
+            SortitionDB::open(&burn_db_path, false, self.burnchain.pox_constants.clone())
+                .expect("FATAL: could not open sortition DB");
+
+        let mut chain_state = neon_node::open_chainstate_with_faults(&self.config)
+            .expect("FATAL: could not open chainstate DB");
+        let parent_block_info = self.load_block_parent_info(&mut burn_db, &mut chain_state)?;
+        let time_since_parent_secs = get_epoch_time_secs()
+            .saturating_sub(parent_block_info.stacks_parent_header.burn_header_timestamp);
+        if time_since_parent_secs < self.config.miner.min_block_time_gap_secs {
+            let wait_secs = self
+                .config
+                .miner
+                .min_block_time_gap_secs
+                .saturating_sub(time_since_parent_secs);
+            info!("Waiting {wait_secs} seconds before mining a new block.");
+            std::thread::sleep(Duration::from_secs(wait_secs));
+        }
+        Ok(())
     }
 
     // TODO: add tests from mutation testing results #4869
