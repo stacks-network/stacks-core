@@ -1484,6 +1484,8 @@ pub struct NetworkResult {
     pub uploaded_microblocks: Vec<MicroblocksData>,
     /// chunks we received from the HTTP server
     pub uploaded_stackerdb_chunks: Vec<StackerDBPushChunkData>,
+    /// chunks we received from p2p push
+    pub pushed_stackerdb_chunks: Vec<StackerDBPushChunkData>,
     /// Atlas attachments we obtained
     pub attachments: Vec<(AttachmentInstance, Attachment)>,
     /// transactions we downloaded via a mempool sync
@@ -1533,6 +1535,7 @@ impl NetworkResult {
             uploaded_blocks: vec![],
             uploaded_microblocks: vec![],
             uploaded_stackerdb_chunks: vec![],
+            pushed_stackerdb_chunks: vec![],
             attachments: vec![],
             synced_transactions: vec![],
             stacker_db_sync_results: vec![],
@@ -1576,6 +1579,7 @@ impl NetworkResult {
             .fold(0, |acc, x| acc + x.chunks_to_store.len())
             > 0
             || self.uploaded_stackerdb_chunks.len() > 0
+            || self.pushed_stackerdb_chunks.len() > 0
     }
 
     pub fn transactions(&self) -> Vec<StacksTransaction> {
@@ -1638,6 +1642,9 @@ impl NetworkResult {
                             self.pushed_nakamoto_blocks
                                 .insert(neighbor_key.clone(), vec![(message.relayers, block_data)]);
                         }
+                    }
+                    StacksMessageType::StackerDBPushChunk(chunk_data) => {
+                        self.pushed_stackerdb_chunks.push(chunk_data)
                     }
                     _ => {
                         // forward along
