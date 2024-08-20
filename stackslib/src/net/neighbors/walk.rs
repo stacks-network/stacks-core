@@ -298,11 +298,25 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
         network: &PeerNetwork,
         ibd: bool,
     ) -> Result<NeighborWalk<DB, NC>, net_error> {
-        let mut allowed_peers = db.get_initial_walk_neighbors(network, ibd)?;
-        let allowed_peer = if let Some(peer) = allowed_peers.pop() {
+        let allowed_peers = db.get_initial_walk_neighbors(network, ibd)?;
+        let allowed_peer_opt = allowed_peers.into_iter().find_map(|peer| {
+            if peer.public_key
+                == Secp256k1PublicKey::from_private(&network.get_local_peer().private_key)
+            {
+                None
+            } else {
+                Some(peer)
+            }
+        });
+
+        let allowed_peer = if let Some(peer) = allowed_peer_opt {
             peer
         } else {
-            // no allowed peers in DB. Try a different strategy
+            // no allowed peers in DB that aren't us. Try a different strategy
+            debug!(
+                "{:?}: No allowed peers in the DB that aren't us",
+                network.get_local_peer()
+            );
             return Err(net_error::NotFoundError);
         };
 
@@ -401,7 +415,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
 
     /// Instantiate a neighbor walk, but go straight to the pingback logic (i.e. we don't have any
     /// immediate neighbors).  That is, try to connect and step to a node that connected to us.
-    /// The returned neighbor walk will be in the PingabckHandshakesBegin state.
+    /// The returned neighbor walk will be in the PingbackHandshakesBegin state.
     ///
     /// Returns the new walk, if we have any pingbacks to connect to.
     /// Returns NoSuchNeighbor if there are no pingbacks to choose from
