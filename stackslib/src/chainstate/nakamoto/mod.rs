@@ -401,6 +401,10 @@ pub trait StacksDBIndexed {
             .is_none()
         {
             // tenure not started
+            debug!(
+                "No tenure-start block for {} off of {}",
+                tenure_id_consensus_hash, tip
+            );
             return Ok(None);
         }
         if self
@@ -411,6 +415,10 @@ pub trait StacksDBIndexed {
             .is_none()
         {
             // tenure has started, but is not done yet
+            debug!(
+                "Tenure {} not finished off of {}",
+                tenure_id_consensus_hash, tip
+            );
             return Ok(Some(false));
         }
 
@@ -629,33 +637,6 @@ impl FromRow<NakamotoBlockHeader> for NakamotoBlockHeader {
             signer_signature,
             miner_signature,
             pox_treatment: signer_bitvec,
-        })
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-/// A vote across the signer set for a block
-pub struct NakamotoBlockVote {
-    pub signer_signature_hash: Sha512Trunc256Sum,
-    pub rejected: bool,
-}
-
-impl StacksMessageCodec for NakamotoBlockVote {
-    fn consensus_serialize<W: std::io::Write>(&self, fd: &mut W) -> Result<(), CodecError> {
-        write_next(fd, &self.signer_signature_hash)?;
-        if self.rejected {
-            write_next(fd, &1u8)?;
-        }
-        Ok(())
-    }
-
-    fn consensus_deserialize<R: std::io::Read>(fd: &mut R) -> Result<Self, CodecError> {
-        let signer_signature_hash = read_next(fd)?;
-        let rejected_byte: Option<u8> = read_next(fd).ok();
-        let rejected = rejected_byte.is_some();
-        Ok(Self {
-            signer_signature_hash,
-            rejected,
         })
     }
 }
@@ -4209,7 +4190,6 @@ impl NakamotoChainState {
                   "stackerdb_slots" => ?stackerdb_config.signers,
                   "queried_sortition" => %election_sortition,
                   "sortition_hashes" => ?miners_info.get_sortitions());
-
             return Ok(None);
         }
         let slot_id_range = signer_ranges.swap_remove(signer_ix);

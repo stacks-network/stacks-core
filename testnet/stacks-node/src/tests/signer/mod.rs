@@ -43,7 +43,9 @@ use stacks::chainstate::nakamoto::signer_set::NakamotoSigners;
 use stacks::chainstate::stacks::boot::{NakamotoSignerEntry, SIGNERS_NAME};
 use stacks::chainstate::stacks::{StacksPrivateKey, ThresholdSignature};
 use stacks::core::StacksEpoch;
-use stacks::net::api::postblock_proposal::BlockValidateResponse;
+use stacks::net::api::postblock_proposal::{
+    BlockValidateOk, BlockValidateReject, BlockValidateResponse,
+};
 use stacks::types::chainstate::StacksAddress;
 use stacks::util::secp256k1::{MessageSignature, Secp256k1PublicKey};
 use stacks_common::codec::StacksMessageCodec;
@@ -85,6 +87,8 @@ pub struct RunningNodes {
     pub blocks_processed: Arc<AtomicU64>,
     pub nakamoto_blocks_proposed: Arc<AtomicU64>,
     pub nakamoto_blocks_mined: Arc<AtomicU64>,
+    pub nakamoto_blocks_rejected: Arc<AtomicU64>,
+    pub nakamoto_blocks_signer_pushed: Arc<AtomicU64>,
     pub nakamoto_test_skip_commit_op: TestFlag,
     pub coord_channel: Arc<Mutex<CoordinatorChannels>>,
     pub conf: NeonConfig,
@@ -97,6 +101,7 @@ pub struct SignerTest<S> {
     // The spawned signers and their threads
     pub spawned_signers: Vec<S>,
     // The spawned signers and their threads
+    #[allow(dead_code)]
     pub signer_configs: Vec<SignerConfig>,
     // the private keys of the signers
     pub signer_stacks_private_keys: Vec<StacksPrivateKey>,
@@ -153,7 +158,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         // So the combination is... one, two, three, four, five? That's the stupidest combination I've ever heard in my life!
         // That's the kind of thing an idiot would have on his luggage!
         let password = "12345";
-        naka_conf.connection_options.block_proposal_token = Some(password.to_string());
+        naka_conf.connection_options.auth_token = Some(password.to_string());
         if let Some(wait_on_signers) = wait_on_signers {
             naka_conf.miner.wait_on_signers = wait_on_signers;
         } else {
@@ -233,6 +238,8 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
             let port = 3000 + signer_ix;
             let endpoint = format!("http://localhost:{}", port);
             let path = format!("{endpoint}/status");
+
+            debug!("Issue status request to {}", &path);
             let client = reqwest::blocking::Client::new();
             let response = client
                 .get(path)
@@ -477,35 +484,47 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         panic!("Timed out while waiting for confirmation of block with signer sighash = {block_signer_sighash}")
     }
 
-    fn wait_for_block_validate_response(&mut self, timeout: Duration) -> BlockValidateResponse {
+    fn wait_for_validate_ok_response(&mut self, timeout: Duration) -> BlockValidateOk {
         // Wait for the block to show up in the test observer
         let t_start = Instant::now();
-        while test_observer::get_proposal_responses().is_empty() {
+        loop {
+            let responses = test_observer::get_proposal_responses();
+            for response in responses {
+                let BlockValidateResponse::Ok(validation) = response else {
+                    continue;
+                };
+                return validation;
+            }
             assert!(
                 t_start.elapsed() < timeout,
-                "Timed out while waiting for block proposal response event"
+                "Timed out while waiting for block proposal ok event"
             );
             thread::sleep(Duration::from_secs(1));
         }
-        test_observer::get_proposal_responses()
-            .pop()
-            .expect("No block proposal")
     }
 
-    fn wait_for_validate_ok_response(&mut self, timeout: Duration) -> Sha512Trunc256Sum {
-        let validate_response = self.wait_for_block_validate_response(timeout);
-        match validate_response {
-            BlockValidateResponse::Ok(block_validated) => block_validated.signer_signature_hash,
-            _ => panic!("Unexpected response"),
-        }
-    }
-
-    fn wait_for_validate_reject_response(&mut self, timeout: Duration) -> Sha512Trunc256Sum {
+    fn wait_for_validate_reject_response(
+        &mut self,
+        timeout: Duration,
+        signer_signature_hash: Sha512Trunc256Sum,
+    ) -> BlockValidateReject {
         // Wait for the block to show up in the test observer
-        let validate_response = self.wait_for_block_validate_response(timeout);
-        match validate_response {
-            BlockValidateResponse::Reject(block_rejection) => block_rejection.signer_signature_hash,
-            _ => panic!("Unexpected response"),
+        let t_start = Instant::now();
+        loop {
+            let responses = test_observer::get_proposal_responses();
+            for response in responses {
+                let BlockValidateResponse::Reject(rejection) = response else {
+                    continue;
+                };
+                if rejection.signer_signature_hash == signer_signature_hash {
+                    return rejection;
+                }
+            }
+            assert!(
+                t_start.elapsed() < timeout,
+                "Timed out while waiting for block proposal reject event"
+            );
+            thread::sleep(Duration::from_secs(1));
         }
     }
 
@@ -745,7 +764,9 @@ fn setup_stx_btc_node<G: FnMut(&mut NeonConfig) -> ()>(
         naka_submitted_commits: commits_submitted,
         naka_proposed_blocks: naka_blocks_proposed,
         naka_mined_blocks: naka_blocks_mined,
+        naka_rejected_blocks: naka_blocks_rejected,
         naka_skip_commit_op: nakamoto_test_skip_commit_op,
+        naka_signer_pushed_blocks,
         ..
     } = run_loop.counters();
 
@@ -778,6 +799,8 @@ fn setup_stx_btc_node<G: FnMut(&mut NeonConfig) -> ()>(
         blocks_processed: blocks_processed.0,
         nakamoto_blocks_proposed: naka_blocks_proposed.0,
         nakamoto_blocks_mined: naka_blocks_mined.0,
+        nakamoto_blocks_rejected: naka_blocks_rejected.0,
+        nakamoto_blocks_signer_pushed: naka_signer_pushed_blocks.0,
         nakamoto_test_skip_commit_op,
         coord_channel,
         conf: naka_conf,

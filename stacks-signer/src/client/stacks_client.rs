@@ -556,7 +556,7 @@ impl StacksClient {
         Ok(stackers_response.stacker_set.signers)
     }
 
-    /// Retreive the current pox data from the stacks node
+    /// Retrieve the current pox data from the stacks node
     pub fn get_pox_data(&self) -> Result<RPCPoxInfoData, ClientError> {
         debug!("Getting pox data...");
         #[cfg(feature = "monitoring_prom")]
@@ -685,8 +685,13 @@ impl StacksClient {
     pub fn post_block(&self, block: &NakamotoBlock) -> Result<bool, ClientError> {
         let response = self
             .stacks_node_client
-            .post(format!("{}{}", self.http_origin, postblock_v3::PATH))
+            .post(format!(
+                "{}{}?broadcast=1",
+                self.http_origin,
+                postblock_v3::PATH
+            ))
             .header("Content-Type", "application/octet-stream")
+            .header(AUTHORIZATION, self.auth_password.clone())
             .body(block.serialize_to_vec())
             .send()?;
         if !response.status().is_success() {
@@ -789,7 +794,7 @@ impl StacksClient {
     }
 
     fn block_proposal_path(&self) -> String {
-        format!("{}/v2/block_proposal", self.http_origin)
+        format!("{}/v3/block_proposal", self.http_origin)
     }
 
     fn sortition_info_path(&self) -> String {
@@ -814,7 +819,7 @@ impl StacksClient {
     }
 
     fn reward_set_path(&self, reward_cycle: u64) -> String {
-        format!("{}/v2/stacker_set/{reward_cycle}", self.http_origin)
+        format!("{}/v3/stacker_set/{reward_cycle}", self.http_origin)
     }
 
     fn fees_transaction_path(&self) -> String {

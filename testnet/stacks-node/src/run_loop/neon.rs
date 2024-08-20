@@ -104,8 +104,10 @@ pub struct Counters {
     pub naka_submitted_vrfs: RunLoopCounter,
     pub naka_submitted_commits: RunLoopCounter,
     pub naka_mined_blocks: RunLoopCounter,
+    pub naka_rejected_blocks: RunLoopCounter,
     pub naka_proposed_blocks: RunLoopCounter,
     pub naka_mined_tenures: RunLoopCounter,
+    pub naka_signer_pushed_blocks: RunLoopCounter,
 
     #[cfg(test)]
     pub naka_skip_commit_op: TestFlag,
@@ -166,6 +168,14 @@ impl Counters {
 
     pub fn bump_naka_proposed_blocks(&self) {
         Counters::inc(&self.naka_proposed_blocks);
+    }
+
+    pub fn bump_naka_rejected_blocks(&self) {
+        Counters::inc(&self.naka_rejected_blocks);
+    }
+
+    pub fn bump_naka_signer_pushed_blocks(&self) {
+        Counters::inc(&self.naka_signer_pushed_blocks);
     }
 
     pub fn bump_naka_mined_tenures(&self) {

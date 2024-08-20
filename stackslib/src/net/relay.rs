@@ -825,9 +825,7 @@ impl Relayer {
         Ok(res)
     }
 
-    /// Insert a staging Nakamoto block that got relayed to us somehow -- e.g. uploaded via http,
-    /// downloaded by us, or pushed via p2p.
-    /// Return Ok(true) if we stored it, Ok(false) if we didn't
+    /// Wrapper around inner_process_new_nakamoto_block
     pub fn process_new_nakamoto_block(
         burnchain: &Burnchain,
         sortdb: &SortitionDB,
@@ -838,10 +836,47 @@ impl Relayer {
         coord_comms: Option<&CoordinatorChannels>,
         obtained_method: NakamotoBlockObtainMethod,
     ) -> Result<bool, chainstate_error> {
+        Self::process_new_nakamoto_block_ext(
+            burnchain,
+            sortdb,
+            sort_handle,
+            chainstate,
+            stacks_tip,
+            block,
+            coord_comms,
+            obtained_method,
+            false,
+        )
+    }
+
+    /// Insert a staging Nakamoto block that got relayed to us somehow -- e.g. uploaded via http,
+    /// downloaded by us, or pushed via p2p.
+    /// Return Ok(true) if we should broadcast the block.  If force_broadcast is true, then this
+    /// function will return Ok(true) even if we already have the block.
+    /// Return Ok(false) if we should not broadcast it (e.g. we already have it, it was invalid,
+    /// etc.)
+    /// Return Err(..) in the following cases, beyond DB errors:
+    /// * If the block is from a tenure we don't recognize
+    /// * If we're not in the Nakamoto epoch
+    /// * If the reward cycle info could not be determined
+    /// * If there was an unrecognized signer
+    /// * If the coordinator is closed, and `coord_comms` is Some(..)
+    pub fn process_new_nakamoto_block_ext(
+        burnchain: &Burnchain,
+        sortdb: &SortitionDB,
+        sort_handle: &mut SortitionHandleConn,
+        chainstate: &mut StacksChainState,
+        stacks_tip: &StacksBlockId,
+        block: &NakamotoBlock,
+        coord_comms: Option<&CoordinatorChannels>,
+        obtained_method: NakamotoBlockObtainMethod,
+        force_broadcast: bool,
+    ) -> Result<bool, chainstate_error> {
         debug!(
-            "Handle incoming Nakamoto block {}/{}",
+            "Handle incoming Nakamoto block {}/{} obtained via {}",
             &block.header.consensus_hash,
-            &block.header.block_hash()
+            &block.header.block_hash(),
+            &obtained_method,
         );
 
         #[cfg(any(test, feature = "testing"))]
@@ -863,8 +898,18 @@ impl Relayer {
                 e
             })?
         {
-            debug!("Already have Nakamoto block {}", &block.header.block_id());
-            return Ok(false);
+            if force_broadcast {
+                // it's possible that the signer sent this block to us, in which case, we should
+                // broadcast it
+                debug!(
+                    "Already have Nakamoto block {}, but broadcasting anyway",
+                    &block.header.block_id()
+                );
+                return Ok(true);
+            } else {
+                debug!("Already have Nakamoto block {}", &block.header.block_id());
+                return Ok(false);
+            }
         }
 
         let block_sn =
@@ -974,14 +1019,14 @@ impl Relayer {
         staging_db_tx.commit()?;
 
         if accepted {
-            debug!("{}", &accept_msg);
+            info!("{}", &accept_msg);
             if let Some(coord_comms) = coord_comms {
                 if !coord_comms.announce_new_stacks_block() {
                     return Err(chainstate_error::NetError(net_error::CoordinatorClosed));
                 }
             }
         } else {
-            debug!("{}", &reject_msg);
+            info!("{}", &reject_msg);
         }
 
         Ok(accepted)
@@ -2579,6 +2624,7 @@ impl Relayer {
         accepted_blocks: Vec<AcceptedNakamotoBlocks>,
         force_send: bool,
     ) {
+        // TODO: we don't relay HTTP-uploaded blocks :(
         debug!(
             "{:?}: relay {} sets of Nakamoto blocks",
             _local_peer,

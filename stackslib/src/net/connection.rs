@@ -167,8 +167,9 @@ impl<P: ProtocolFamily> NetworkReplyHandle<P> {
     /// is destroyed in the process).
     pub fn try_recv(mut self) -> Result<P::Message, Result<NetworkReplyHandle<P>, net_error>> {
         if self.deadline > 0 && self.deadline < get_epoch_time_secs() {
-            test_debug!(
-                "Reply deadline {} exceeded (now = {})",
+            debug!(
+                "Reply deadline for event {} at {} exceeded (now = {})",
+                self.socket_event_id,
                 self.deadline,
                 get_epoch_time_secs()
             );
@@ -234,10 +235,9 @@ impl<P: ProtocolFamily> NetworkReplyHandle<P> {
                     None
                 } else {
                     // still have data to send, or we will send more.
-                    test_debug!(
+                    debug!(
                         "Still have data to send, drop_on_success = {}, ret = {}",
-                        drop_on_success,
-                        ret
+                        drop_on_success, ret
                     );
                     Some(fd)
                 }
@@ -398,8 +398,8 @@ pub struct ConnectionOptions {
     /// maximum number of confirmations for a nakamoto block's sortition for which it will be
     /// pushed
     pub max_nakamoto_block_relay_age: u64,
-    /// The authorization token to enable the block proposal RPC endpoint
-    pub block_proposal_token: Option<String>,
+    /// The authorization token to enable privileged RPC endpoints
+    pub auth_token: Option<String>,
 
     // fault injection
     /// Disable neighbor walk and discovery
@@ -521,7 +521,7 @@ impl std::default::Default for ConnectionOptions {
             socket_send_buffer_size: 16384, // Linux default
             private_neighbors: true,
             max_nakamoto_block_relay_age: 6,
-            block_proposal_token: None,
+            auth_token: None,
 
             // no faults on by default
             disable_neighbor_walk: false,
@@ -990,7 +990,7 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
                         || e.kind() == io::ErrorKind::ConnectionReset
                     {
                         // write endpoint is dead
-                        test_debug!("reader was reset: {:?}", &e);
+                        debug!("reader was reset: {:?}", &e);
                         socket_closed = true;
                         blocked = true;
                         Ok(0)
@@ -1004,7 +1004,7 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
             total_read += num_read;
 
             if num_read > 0 || total_read > 0 {
-                trace!("read {} bytes; {} total", num_read, total_read);
+                debug!("read {} bytes; {} total", num_read, total_read);
             }
 
             if num_read > 0 {

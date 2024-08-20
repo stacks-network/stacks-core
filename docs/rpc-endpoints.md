@@ -427,7 +427,7 @@ Determine whether a given trait is implemented within the specified contract (ei
 
 See OpenAPI [spec](./rpc/openapi.yaml) for details.
 
-### POST /v2/block_proposal
+### POST /v3/block_proposal
 
 Used by miner to validate a proposed Stacks block using JSON encoding.
 
