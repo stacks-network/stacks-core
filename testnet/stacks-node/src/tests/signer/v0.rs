@@ -293,6 +293,8 @@ impl SignerTest<SpawnedSigner> {
     fn mine_and_verify_confirmed_naka_block(&mut self, timeout: Duration, num_signers: usize) {
         info!("------------------------- Try mining one block -------------------------");
 
+        let old_reward_cycle = self.get_current_reward_cycle();
+
         self.mine_nakamoto_block(timeout);
 
         // Verify that the signers accepted the proposed block, sending back a validate ok response
@@ -311,7 +313,16 @@ impl SignerTest<SpawnedSigner> {
         //  whenever it has crossed the threshold.
         assert!(signature.len() >= num_signers * 7 / 10);
 
-        let reward_cycle = self.get_current_reward_cycle();
+        let new_reward_cycle = self.get_current_reward_cycle();
+        let reward_cycle = if new_reward_cycle != old_reward_cycle {
+            old_reward_cycle
+        } else {
+            new_reward_cycle
+        };
+        info!(
+            "Verifying signatures against signers for reward cycle {:?}",
+            reward_cycle
+        );
         let signers = self.get_reward_set_signers(reward_cycle);
 
         // Verify that the signers signed the proposed block
@@ -2784,8 +2795,7 @@ fn signer_set_rollover() {
         .running_nodes
         .btc_regtest_controller
         .get_burnchain()
-        .reward_cycle_to_block_height(next_reward_cycle)
-        .saturating_add(1);
+        .reward_cycle_to_block_height(next_reward_cycle);
 
     info!("---- Mining to next reward set calculation -----");
     signer_test.run_until_burnchain_height_nakamoto(
