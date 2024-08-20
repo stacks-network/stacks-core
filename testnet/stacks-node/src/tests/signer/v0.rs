@@ -2788,7 +2788,8 @@ fn signer_set_rollover() {
         .running_nodes
         .btc_regtest_controller
         .get_burnchain()
-        .reward_cycle_to_block_height(next_reward_cycle);
+        .reward_cycle_to_block_height(next_reward_cycle)
+        .saturating_add(1);
 
     info!("---- Mining to next reward set calculation -----");
     signer_test.run_until_burnchain_height_nakamoto(
@@ -2846,4 +2847,118 @@ fn signer_set_rollover() {
     for signer in new_spawned_signers {
         assert!(signer.stop().is_none());
     }
+}
+
+#[test]
+#[ignore]
+/// This test checks that the signers will broadcast a block once they receive enough signatures.
+fn min_gap_between_blocks() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(EnvFilter::from_default_env())
+        .init();
+
+    info!("------------------------- Test Setup -------------------------");
+    let num_signers = 5;
+    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_addr = tests::to_addr(&sender_sk);
+    let send_amt = 100;
+    let send_fee = 180;
+    let recipient = PrincipalData::from(StacksAddress::burn_address(false));
+    let time_between_blocks_ms = 10_000;
+    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
+        num_signers,
+        vec![(sender_addr.clone(), send_amt + send_fee)],
+        Some(Duration::from_secs(15)),
+        |_config| {},
+        |config| {
+            config.miner.min_time_between_blocks_ms = time_between_blocks_ms;
+        },
+        &[],
+    );
+
+    let http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
+
+    signer_test.boot_to_epoch_3();
+
+    let proposals_before = signer_test
+        .running_nodes
+        .nakamoto_blocks_proposed
+        .load(Ordering::SeqCst);
+
+    let blocks_before = signer_test
+        .running_nodes
+        .nakamoto_blocks_mined
+        .load(Ordering::SeqCst);
+
+    let info_before = get_chain_info(&signer_test.running_nodes.conf);
+
+    // submit a tx so that the miner will mine a block
+    let sender_nonce = 0;
+    let transfer_tx =
+        make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
+    submit_tx(&http_origin, &transfer_tx);
+
+    info!("Submitted transfer tx and waiting for block proposal. Ensure it does not arrive before the gap is exceeded");
+    let start_time = Instant::now();
+    while start_time.elapsed().as_millis() < (time_between_blocks_ms - 1000).into() {
+        let blocks_proposed = signer_test
+            .running_nodes
+            .nakamoto_blocks_proposed
+            .load(Ordering::SeqCst);
+        assert_eq!(
+            blocks_proposed, proposals_before,
+            "Block proposed before gap was exceeded"
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    }
+
+    let start_time = Instant::now();
+    loop {
+        let blocks_proposed = signer_test
+            .running_nodes
+            .nakamoto_blocks_proposed
+            .load(Ordering::SeqCst);
+        if blocks_proposed > proposals_before {
+            break;
+        }
+        assert!(
+            start_time.elapsed().as_secs() < 30,
+            "Block not proposed after gap was exceeded within timeout"
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    }
+
+    debug!("Ensure that the block is mined after the gap is exceeded");
+
+    let start = Instant::now();
+    let duration = 30;
+    loop {
+        let blocks_mined = signer_test
+            .running_nodes
+            .nakamoto_blocks_mined
+            .load(Ordering::SeqCst);
+
+        let info = get_chain_info(&signer_test.running_nodes.conf);
+        if blocks_mined > blocks_before && info.stacks_tip_height > info_before.stacks_tip_height {
+            break;
+        }
+
+        debug!(
+            "blocks_mined: {},{}, stacks_tip_height: {},{}",
+            blocks_mined, blocks_before, info_before.stacks_tip_height, info.stacks_tip_height
+        );
+
+        std::thread::sleep(Duration::from_millis(100));
+        assert!(
+            start.elapsed() < Duration::from_secs(duration),
+            "Block not mined within timeout"
+        );
+    }
+
+    signer_test.shutdown();
 }

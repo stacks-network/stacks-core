@@ -1054,13 +1054,17 @@ impl BlockMinerThread {
         let time_since_parent_ms = get_epoch_time_secs()
             .saturating_sub(parent_block_info.stacks_parent_header.burn_header_timestamp)
             / 1000;
-        if time_since_parent_ms < self.config.miner.min_block_time_gap_ms {
+        if time_since_parent_ms < self.config.miner.min_time_between_blocks_ms {
             let wait_ms = self
                 .config
                 .miner
-                .min_block_time_gap_ms
+                .min_time_between_blocks_ms
                 .saturating_sub(time_since_parent_ms);
-            info!("Waiting {wait_ms} ms before mining a new block.");
+            info!("Parent block mined {} ms ago, waiting {} ms before mining a new block", time_since_parent_ms, wait_ms;
+                "parent_block_id" => %parent_block_info.stacks_parent_header.index_block_hash(),
+                "parent_block_height" => parent_block_info.stacks_parent_header.stacks_block_height,
+                "parent_block_timestamp" => parent_block_info.stacks_parent_header.burn_header_timestamp,
+            );
             sleep_ms(wait_ms);
         }
         Ok(())

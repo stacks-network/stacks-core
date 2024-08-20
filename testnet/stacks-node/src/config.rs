@@ -86,7 +86,7 @@ pub const OP_TX_ANY_ESTIM_SIZE: u64 = fmax!(
 const DEFAULT_MAX_RBF_RATE: u64 = 150; // 1.5x
 const DEFAULT_RBF_FEE_RATE_INCREMENT: u64 = 5;
 const INV_REWARD_CYCLES_TESTNET: u64 = 6;
-const DEFAULT_MINIMUM_GAP_MS: u64 = 1000;
+const DEFAULT_MIN_TIME_BETWEEN_BLOCKS_MS: u64 = 1000;
 
 #[derive(Clone, Deserialize, Default, Debug)]
 pub struct ConfigFile {
@@ -2359,9 +2359,9 @@ pub struct MinerConfig {
     pub wait_on_signers: Duration,
     /// Whether to mock sign in Epoch 2.5 through the .miners and .signers contracts. This is used for testing purposes in Epoch 2.5 only.
     pub pre_nakamoto_mock_signing: bool,
-    /// The minimum gap to wait between blocks in milliseconds. The value must be greater than or equal to 1000 ms because if a block is mined
+    /// The minimum time to wait between mining blocks in milliseconds. The value must be greater than or equal to 1000 ms because if a block is mined
     /// within the same second as its parent, it will be rejected by the signers.
-    pub min_block_time_gap_ms: u64,
+    pub min_time_between_blocks_ms: u64,
 }
 
 impl Default for MinerConfig {
@@ -2393,7 +2393,7 @@ impl Default for MinerConfig {
             // TODO: update to a sane value based on stackerdb benchmarking
             wait_on_signers: Duration::from_secs(200),
             pre_nakamoto_mock_signing: false, // Should only default true if mining key is set
-            min_block_time_gap_ms: DEFAULT_MINIMUM_GAP_MS,
+            min_time_between_blocks_ms: DEFAULT_MIN_TIME_BETWEEN_BLOCKS_MS,
         }
     }
 }
@@ -2744,7 +2744,7 @@ pub struct MinerConfigFile {
     pub max_reorg_depth: Option<u64>,
     pub wait_on_signers_ms: Option<u64>,
     pub pre_nakamoto_mock_signing: Option<bool>,
-    pub min_block_time_gap_ms: Option<u64>,
+    pub min_time_between_blocks_ms: Option<u64>,
 }
 
 impl MinerConfigFile {
@@ -2856,12 +2856,12 @@ impl MinerConfigFile {
             pre_nakamoto_mock_signing: self
                 .pre_nakamoto_mock_signing
                 .unwrap_or(pre_nakamoto_mock_signing), // Should only default true if mining key is set
-            min_block_time_gap_ms: self.min_block_time_gap_ms.map(|ms| if ms < DEFAULT_MINIMUM_GAP_MS {
-                warn!("miner.min_block_time_gap_ms is less than the minimum allowed value of {DEFAULT_MINIMUM_GAP_MS} ms. Using the default value instead.");
-                DEFAULT_MINIMUM_GAP_MS
+                min_time_between_blocks_ms: self.min_time_between_blocks_ms.map(|ms| if ms < DEFAULT_MIN_TIME_BETWEEN_BLOCKS_MS {
+                warn!("miner.min_time_between_blocks_ms is less than the minimum allowed value of {DEFAULT_MIN_TIME_BETWEEN_BLOCKS_MS} ms. Using the default value instead.");
+                DEFAULT_MIN_TIME_BETWEEN_BLOCKS_MS
             } else {
                 ms
-            }).unwrap_or(miner_default_config.min_block_time_gap_ms),
+            }).unwrap_or(miner_default_config.min_time_between_blocks_ms),
         })
     }
 }
