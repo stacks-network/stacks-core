@@ -45,8 +45,8 @@ use stacks::chainstate::stacks::{
 use stacks::net::p2p::NetworkHandle;
 use stacks::net::stackerdb::StackerDBs;
 use stacks::net::{NakamotoBlocksData, StacksMessageType};
-use stacks::util::get_epoch_time_secs;
 use stacks::util::secp256k1::MessageSignature;
+use stacks::util::{get_epoch_time_secs, sleep_ms};
 use stacks_common::codec::read_next;
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
 use stacks_common::types::{PrivateKey, StacksEpochId};
@@ -1051,16 +1051,17 @@ impl BlockMinerThread {
         let mut chain_state = neon_node::open_chainstate_with_faults(&self.config)
             .expect("FATAL: could not open chainstate DB");
         let parent_block_info = self.load_block_parent_info(&mut burn_db, &mut chain_state)?;
-        let time_since_parent_secs = get_epoch_time_secs()
-            .saturating_sub(parent_block_info.stacks_parent_header.burn_header_timestamp);
-        if time_since_parent_secs < self.config.miner.min_block_time_gap_secs {
-            let wait_secs = self
+        let time_since_parent_ms = get_epoch_time_secs()
+            .saturating_sub(parent_block_info.stacks_parent_header.burn_header_timestamp)
+            / 1000;
+        if time_since_parent_ms < self.config.miner.min_block_time_gap_ms {
+            let wait_ms = self
                 .config
                 .miner
-                .min_block_time_gap_secs
-                .saturating_sub(time_since_parent_secs);
-            info!("Waiting {wait_secs} seconds before mining a new block.");
-            std::thread::sleep(Duration::from_secs(wait_secs));
+                .min_block_time_gap_ms
+                .saturating_sub(time_since_parent_ms);
+            info!("Waiting {wait_ms} ms before mining a new block.");
+            sleep_ms(wait_ms);
         }
         Ok(())
     }
