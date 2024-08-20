@@ -293,7 +293,7 @@ impl SignerTest<SpawnedSigner> {
     fn mine_and_verify_confirmed_naka_block(&mut self, timeout: Duration, num_signers: usize) {
         info!("------------------------- Try mining one block -------------------------");
 
-        let old_reward_cycle = self.get_current_reward_cycle();
+        let reward_cycle = self.get_current_reward_cycle();
 
         self.mine_nakamoto_block(timeout);
 
@@ -312,13 +312,6 @@ impl SignerTest<SpawnedSigner> {
         // NOTE: signature.len() does not need to equal signers.len(); the stacks miner can finish the block
         //  whenever it has crossed the threshold.
         assert!(signature.len() >= num_signers * 7 / 10);
-
-        let new_reward_cycle = self.get_current_reward_cycle();
-        let reward_cycle = if new_reward_cycle != old_reward_cycle {
-            old_reward_cycle
-        } else {
-            new_reward_cycle
-        };
         info!(
             "Verifying signatures against signers for reward cycle {:?}",
             reward_cycle
