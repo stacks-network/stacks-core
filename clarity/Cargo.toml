@@ -65,6 +65,5 @@ developer-mode = ["stacks-common/developer-mode"]
 slog_json = ["stacks-common/slog_json"]
 testing = ["canonical", "rstest", "rstest_reuse"]
 devtools = []
-
-[target.'cfg(all(target_arch = "x86_64", not(target_env = "msvc")))'.dependencies]
-sha2-asm = "0.5.3"
+rollback_value_check = []
+disable-costs = []
