@@ -1420,6 +1420,9 @@ impl PeerNetwork {
                         }
                         Ok(all_neighbors.into_iter().collect())
                     }
+                    StacksMessageType::StackerDBPushChunk(ref data) => {
+                        Ok(self.sample_broadcast_peers(&relay_hints, data)?)
+                    }
                     StacksMessageType::Transaction(ref data) => {
                         self.sample_broadcast_peers(&relay_hints, data)
                     }
@@ -4289,6 +4292,7 @@ impl PeerNetwork {
         let ih = sortdb.index_handle(&tip_sn.sortition_id);
 
         for rc in [cur_rc, prev_rc, prev_prev_rc] {
+            debug!("Refresh reward cycle info for cycle {}", rc);
             let rc_start_height = self.burnchain.reward_cycle_to_block_height(rc);
             let Some(ancestor_sort_id) =
                 get_ancestor_sort_id(&ih, rc_start_height, &tip_sn.sortition_id)?
@@ -4313,6 +4317,7 @@ impl PeerNetwork {
                 }
             }
 
+            debug!("Load reward cycle info for cycle {}", rc);
             let Some((reward_set_info, anchor_block_header)) = load_nakamoto_reward_set(
                 rc,
                 &tip_sn.sortition_id,
