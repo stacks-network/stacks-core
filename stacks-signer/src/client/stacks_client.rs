@@ -556,7 +556,7 @@ impl StacksClient {
         Ok(stackers_response.stacker_set.signers)
     }
 
-    /// Retreive the current pox data from the stacks node
+    /// Retrieve the current pox data from the stacks node
     pub fn get_pox_data(&self) -> Result<RPCPoxInfoData, ClientError> {
         debug!("Getting pox data...");
         #[cfg(feature = "monitoring_prom")]

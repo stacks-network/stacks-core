@@ -391,7 +391,8 @@ pub fn get_latest_block_proposal(
                 let message: SignerMessageV0 =
                     miners_stackerdb.get_latest(miner_slot_id.start).ok()??;
                 let SignerMessageV0::BlockProposal(block_proposal) = message else {
-                    panic!("Expected a signer message block proposal. Got {message:?}");
+                    warn!("Expected a block proposal. Got {message:?}");
+                    return None;
                 };
                 block_proposal.block
             };
