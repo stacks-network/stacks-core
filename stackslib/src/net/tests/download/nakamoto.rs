@@ -278,13 +278,7 @@ fn test_nakamoto_tenure_downloader() {
             next_tenure_start_block.header.parent_block_id.clone()
         )
     );
-    assert_eq!(
-        td.tenure_end_header,
-        Some((
-            next_tenure_start_block.header.clone(),
-            next_tenure_change_payload.clone()
-        ))
-    );
+    assert_eq!(td.tenure_end_block, Some(next_tenure_start_block.clone()));
     assert_eq!(td.tenure_length(), Some(11));
 
     let mut td_one_shot = td.clone();
@@ -314,14 +308,17 @@ fn test_nakamoto_tenure_downloader() {
     let res = td.try_accept_tenure_blocks(vec![tenure_start_block.clone()]);
     assert!(res.is_ok());
     let res_blocks = res.unwrap().unwrap();
-    assert_eq!(res_blocks.len(), blocks.len());
-    assert_eq!(res_blocks, blocks);
+    assert_eq!(res_blocks.len(), blocks.len() + 1); // includes tenure-end block
+
+    let mut all_blocks = blocks.clone();
+    all_blocks.push(next_tenure_start_block.clone());
+    assert_eq!(res_blocks, all_blocks);
     assert_eq!(td.state, NakamotoTenureDownloadState::Done);
 
     // also works if we give blocks in one shot
     let res = td_one_shot.try_accept_tenure_blocks(blocks.clone().into_iter().rev().collect());
     assert!(res.is_ok());
-    assert_eq!(res.unwrap().unwrap(), blocks);
+    assert_eq!(res.unwrap().unwrap(), all_blocks);
     assert_eq!(td_one_shot.state, NakamotoTenureDownloadState::Done);
 
     // TODO:
