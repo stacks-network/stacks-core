@@ -302,12 +302,10 @@ impl SeedNode {
             peer.relayer.relay_epoch3_blocks(
                 &local_peer,
                 &sortdb,
-                &stacks_node.chainstate,
                 vec![AcceptedNakamotoBlocks {
                     relayers: vec![],
                     blocks: blocks.clone(),
                 }],
-                true,
             );
 
             peer.sortdb = Some(sortdb);
