@@ -398,6 +398,12 @@ pub struct ConnectionOptions {
     /// maximum number of confirmations for a nakamoto block's sortition for which it will be
     /// pushed
     pub max_nakamoto_block_relay_age: u64,
+    /// minimum amount of time between requests to push nakamoto blocks (millis)
+    pub nakamoto_push_interval_ms: u128,
+    /// minimum amount of time between requests to push nakamoto blocks (millis)
+    pub nakamoto_inv_sync_burst_interval_ms: u128,
+    /// time between unconfirmed downloader runs
+    pub nakamoto_unconfirmed_downloader_interval_ms: u128,
     /// The authorization token to enable privileged RPC endpoints
     pub auth_token: Option<String>,
 
@@ -521,6 +527,9 @@ impl std::default::Default for ConnectionOptions {
             socket_send_buffer_size: 16384, // Linux default
             private_neighbors: true,
             max_nakamoto_block_relay_age: 6,
+            nakamoto_push_interval_ms: 30_000, // re-send a block no more than once every 30 seconds
+            nakamoto_inv_sync_burst_interval_ms: 1_000, // wait 1 second after a sortition before running inventory sync
+            nakamoto_unconfirmed_downloader_interval_ms: 5_000, // run unconfirmed downloader once every 5 seconds
             auth_token: None,
 
             // no faults on by default
