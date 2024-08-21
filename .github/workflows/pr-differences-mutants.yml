@@ -17,13 +17,13 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  check-right-permissions:
-    name: Check Right Permissions
+  check-access-permissions:
+    name: Check Access Permissions
     runs-on: ubuntu-latest
 
     steps:
-      - name: Check Right Permissions To Trigger This
-        id: check_right_permissions
+      - name: Check Access Permissions To Trigger This
+        id: check_access_permissions
         uses: stacks-network/actions/team-membership@main
         with:
           username: ${{ github.actor }}
@@ -31,12 +31,12 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
 
     outputs:
-      ignore_timeout: ${{ steps.check_right_permissions.outputs.is_team_member == 'true' }}
+      ignore_timeout: ${{ steps.check_access_permissions.outputs.is_team_member == 'true' && github.event_name == 'workflow_dispatch' }}
 
   # Check and output whether to run big (`stacks-node`/`stackslib`) or small (others) packages with or without shards
   check-big-packages-and-shards:
     name: Check Packages and Shards
-    needs: check-right-permissions
+    needs: check-access-permissions
 
     runs-on: ubuntu-latest
 
@@ -54,7 +54,7 @@ jobs:
       - id: check_packages_and_shards
         uses: stacks-network/actions/stacks-core/mutation-testing/check-packages-and-shards@main
         with:
-          ignore_timeout: ${{ needs.check-right-permissions.outputs.ignore_timeout }}
+          ignore_timeout: ${{ needs.check-access-permissions.outputs.ignore_timeout }}
 
   # Mutation testing - Execute on PR on small packages that have functions modified (normal run, no shards)
   pr-differences-mutants-small-normal:
