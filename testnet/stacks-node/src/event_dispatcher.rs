@@ -16,20 +16,18 @@
 
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
+use std::io::{Read, Write};
+use std::net::{TcpStream, ToSocketAddrs};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Mutex;
 use std::thread::sleep;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-use async_h1::client;
-use async_std::future::timeout;
-use async_std::net::TcpStream;
-use async_std::task;
 use clarity::vm::analysis::contract_interface_builder::build_contract_interface;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::events::{FTEventType, NFTEventType, STXEventType};
 use clarity::vm::types::{AssetIdentifier, QualifiedContractIdentifier, Value};
-use http_types::{Method, Request, Url};
+use http_types::Url;
 use serde_json::json;
 use stacks::burnchains::{PoxConstants, Txid};
 use stacks::chainstate::burn::operations::BlockstackOperationType;
@@ -313,12 +311,112 @@ impl RewardSetEventPayload {
     }
 }
 
+fn send_request(
+    host: &str,
+    port: u16,
+    body: &[u8],
+    url: &Url,
+    timeout: Duration,
+) -> Result<String, std::io::Error> {
+    let addr = format!("{}:{}", host, port)
+        .to_socket_addrs()?
+        .next()
+        .ok_or_else(|| {
+            std::io::Error::new(std::io::ErrorKind::NotFound, "No valid address found")
+        })?;
+    let mut stream = TcpStream::connect_timeout(&addr, timeout)?;
+    stream.set_read_timeout(Some(timeout))?;
+    stream.set_write_timeout(Some(timeout))?;
+
+    let request = format!(
+        "POST {} HTTP/1.1\r\n\
+         Host: {}\r\n\
+         Content-Type: application/json\r\n\
+         Content-Length: {}\r\n\
+         Connection: close\r\n\
+         \r\n",
+        url.path(),
+        host,
+        body.len(),
+    );
+    debug!("Event dispatcher: Sending request"; "request" => &request);
+
+    stream.write_all(request.as_bytes())?;
+    stream.write_all(body)?;
+    stream.flush()?;
+    debug!("Event dispatcher: Request sent");
+
+    let mut response = Vec::new();
+    let mut buffer = [0; 512];
+    let mut headers_parsed = false;
+    let mut content_length = None;
+    let mut total_read = 0;
+
+    let start_time = Instant::now();
+
+    while total_read < content_length.unwrap_or(usize::MAX) {
+        if start_time.elapsed() >= timeout {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "Response reading timed out",
+            ));
+        }
+
+        let bytes_read = stream.read(&mut buffer)?;
+        if bytes_read == 0 {
+            // Connection closed
+            break;
+        }
+
+        response.extend_from_slice(&buffer[..bytes_read]);
+
+        // Parse headers if not already done
+        if !headers_parsed {
+            if let Some(headers_end) = response.windows(4).position(|window| window == b"\r\n\r\n")
+            {
+                headers_parsed = true;
+                // Parse Content-Length header
+                let headers = &response[..headers_end];
+                let headers_str = String::from_utf8_lossy(headers);
+                if let Some(content_length_line) = headers_str
+                    .lines()
+                    .find(|line| line.to_lowercase().starts_with("content-length:"))
+                {
+                    let length_str = content_length_line
+                        .split(":")
+                        .nth(1)
+                        // This is safe because we already know the line starts with "Content-Length:"
+                        .expect("unreachable");
+                    match length_str.trim().parse::<usize>() {
+                        Ok(len) => content_length = Some(len),
+                        Err(_) => {
+                            return Err(std::io::Error::new(
+                                std::io::ErrorKind::InvalidData,
+                                "Invalid Content-Length header",
+                            ))
+                        }
+                    }
+                }
+                total_read = response[headers_end + 4..].len();
+            }
+        } else {
+            total_read += bytes_read;
+        }
+    }
+
+    let response_str = String::from_utf8_lossy(&response).to_string();
+    debug!("Event dispatcher: Response received"; "response" => &response_str);
+
+    Ok(response_str)
+}
+
 impl EventObserver {
     pub fn send_payload(&self, payload: &serde_json::Value, path: &str) {
         debug!(
             "Event dispatcher: Sending payload"; "url" => %path, "payload" => ?payload
         );
-        let body = match serde_json::to_vec(&payload) {
+
+        let body = match serde_json::to_vec(payload) {
             Ok(body) => body,
             Err(err) => {
                 error!("Event dispatcher: serialization failed  - {:?}", err);
@@ -327,57 +425,37 @@ impl EventObserver {
         };
 
         let url = {
-            let joined_components = match path.starts_with('/') {
-                true => format!("{}{}", &self.endpoint, path),
-                false => format!("{}/{}", &self.endpoint, path),
+            let joined_components = if path.starts_with('/') {
+                format!("{}{}", &self.endpoint, path)
+            } else {
+                format!("{}/{}", &self.endpoint, path)
             };
             let url = format!("http://{}", joined_components);
             Url::parse(&url)
                 .unwrap_or_else(|_| panic!("Event dispatcher: unable to parse {} as a URL", url))
         };
 
-        let backoff = Duration::from_millis((1.0 * 1_000.0) as u64);
-        let connection_timeout = Duration::from_secs(5);
+        let host = url.host_str().expect("Invalid URL: missing host");
+        let port = url.port_or_known_default().unwrap_or(80);
+
+        let backoff = Duration::from_millis(1000); // 1 second
 
         loop {
-            let body = body.clone();
-            let mut req = Request::new(Method::Post, url.clone());
-            req.append_header("Content-Type", "application/json");
-            req.set_body(body);
-
-            let response = task::block_on(async {
-                let stream =
-                    match timeout(connection_timeout, TcpStream::connect(&self.endpoint)).await {
-                        Ok(Ok(stream)) => stream,
-                        Ok(Err(err)) => {
-                            warn!("Event dispatcher: connection failed  - {:?}", err);
-                            return None;
-                        }
-                        Err(_) => {
-                            error!("Event dispatcher: connection attempt timed out");
-                            return None;
-                        }
-                    };
-
-                match client::connect(stream, req).await {
-                    Ok(response) => Some(response),
-                    Err(err) => {
-                        warn!("Event dispatcher: rpc invocation failed  - {:?}", err);
-                        None
+            match send_request(host, port, &body, &url, backoff) {
+                Ok(response) => {
+                    if response.starts_with("HTTP/1.1 200") {
+                        debug!(
+                            "Event dispatcher: Successful POST"; "url" => %url
+                        );
+                        break;
+                    } else {
+                        error!(
+                            "Event dispatcher: Failed POST"; "url" => %url, "response" => ?response
+                        );
                     }
                 }
-            });
-
-            if let Some(response) = response {
-                if response.status().is_success() {
-                    debug!(
-                        "Event dispatcher: Successful POST"; "url" => %url
-                    );
-                    break;
-                } else {
-                    error!(
-                        "Event dispatcher: Failed POST"; "url" => %url, "err" => ?response
-                    );
+                Err(err) => {
+                    warn!("Event dispatcher: connection or request failed - {:?}", err);
                 }
             }
             sleep(backoff);
@@ -1483,6 +1561,10 @@ impl EventDispatcher {
 
 #[cfg(test)]
 mod test {
+    use std::net::TcpListener;
+    use std::thread;
+    use std::time::Instant;
+
     use clarity::vm::costs::ExecutionCost;
     use stacks::burnchains::{PoxConstants, Txid};
     use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
@@ -1494,7 +1576,7 @@ mod test {
     use stacks_common::bitvec::BitVec;
     use stacks_common::types::chainstate::{BurnchainHeaderHash, StacksBlockId};
 
-    use crate::event_dispatcher::EventObserver;
+    use super::*;
 
     #[test]
     fn build_block_processed_event() {
@@ -1614,5 +1696,182 @@ mod test {
             .collect::<Result<Vec<_>, _>>()
             .expect("Unable to deserialize array of MessageSignature");
         assert_eq!(event_signer_signature, signer_signature);
+    }
+
+    #[test]
+    fn test_send_request_connect_timeout() {
+        let timeout_duration = Duration::from_secs(3);
+
+        // Start measuring time
+        let start_time = Instant::now();
+
+        // Attempt to send a request with a timeout
+        let result = send_request(
+            "10.255.255.1", // Non-routable IP for timeout
+            80,             // HTTP port
+            b"{}",          // Example empty JSON body
+            &Url::parse("http://10.255.255.1/").expect("Failed to parse URL"),
+            timeout_duration,
+        );
+
+        // Measure the elapsed time
+        let elapsed_time = start_time.elapsed();
+
+        // Assert that the connection attempt timed out
+        assert!(
+            result.is_err(),
+            "Expected a timeout error, but got {:?}",
+            result
+        );
+        assert_eq!(
+            result.unwrap_err().kind(),
+            std::io::ErrorKind::TimedOut,
+            "Expected a TimedOut error"
+        );
+
+        // Assert that the elapsed time is within an acceptable range
+        assert!(
+            elapsed_time >= timeout_duration,
+            "Timeout occurred too quickly"
+        );
+        assert!(
+            elapsed_time < timeout_duration + Duration::from_secs(1),
+            "Timeout took too long"
+        );
+    }
+
+    #[test]
+    fn test_send_request_timeout() {
+        // Set up a TcpListener that accepts a connection but delays response
+        let listener = TcpListener::bind("127.0.0.1:0").expect("Failed to bind test listener");
+        let addr = listener.local_addr().unwrap();
+
+        // Spawn a thread that will accept the connection and do nothing, simulating a long delay
+        thread::spawn(move || {
+            let (stream, _addr) = listener.accept().unwrap();
+            // Hold the connection open to simulate a delay
+            thread::sleep(Duration::from_secs(10));
+            drop(stream); // Close the stream
+        });
+
+        // Set a timeout shorter than the sleep duration to force a timeout
+        let connection_timeout = Duration::from_secs(2);
+
+        // Attempt to connect, expecting a timeout error
+        let result = send_request(
+            "127.0.0.1",
+            addr.port(),
+            b"{}",
+            &Url::parse("http://127.0.0.1/").unwrap(),
+            connection_timeout,
+        );
+
+        // Assert that the result is an error, specifically a timeout
+        assert!(
+            result.is_err(),
+            "Expected a timeout error, got: {:?}",
+            result
+        );
+
+        if let Err(err) = result {
+            assert_eq!(
+                err.kind(),
+                std::io::ErrorKind::WouldBlock,
+                "Expected TimedOut error, got: {:?}",
+                err
+            );
+        }
+    }
+
+    fn start_mock_server(response: &str, client_done_signal: Receiver<()>) -> String {
+        // Bind to an available port on localhost
+        let listener = TcpListener::bind("127.0.0.1:0").expect("Failed to bind server");
+        let addr = listener.local_addr().unwrap();
+
+        debug!("Mock server listening on {}", addr);
+
+        // Start the server in a new thread
+        let response = response.to_string();
+        thread::spawn(move || {
+            for stream in listener.incoming() {
+                debug!("Mock server accepted connection");
+                let mut stream = stream.expect("Failed to accept connection");
+
+                // Read the client's request (even if we don't do anything with it)
+                let mut buffer = [0; 512];
+                let _ = stream.read(&mut buffer);
+                debug!("Mock server received request");
+
+                // Simulate a basic HTTP response
+                stream
+                    .write_all(response.as_bytes())
+                    .expect("Failed to write response");
+                stream.flush().expect("Failed to flush stream");
+                debug!("Mock server sent response");
+
+                // Wait for the client to signal that it's done reading
+                client_done_signal
+                    .recv()
+                    .expect("Failed to receive client done signal");
+
+                debug!("Mock server closing connection");
+
+                // Explicitly drop the stream after signaling to ensure the client finishes
+                drop(stream);
+                break; // Close after the first request
+            }
+        });
+
+        // Return the address of the mock server
+        format!("{}:{}", addr.ip(), addr.port())
+    }
+
+    fn parse_http_response(response: &str) -> &str {
+        let parts: Vec<&str> = response.split("\r\n\r\n").collect();
+        if parts.len() == 2 {
+            parts[1] // The body is after the second \r\n\r\n
+        } else {
+            ""
+        }
+    }
+
+    #[test]
+    fn test_send_request_success() {
+        // Prepare the mock server to return a successful HTTP response
+        let mock_response = "HTTP/1.1 200 OK\r\nContent-Length: 13\r\n\r\nHello, world!";
+
+        // Create a channel to signal when the client is done reading
+        let (tx_client_done, rx_client_done) = channel();
+        let server_addr = start_mock_server(mock_response, rx_client_done);
+        let timeout_duration = Duration::from_secs(5);
+
+        // Attempt to send a request to the mock server
+        let result = send_request(
+            &server_addr.split(':').collect::<Vec<&str>>()[0], // Host part
+            server_addr.split(':').collect::<Vec<&str>>()[1]
+                .parse()
+                .unwrap(), // Port part
+            b"{}",                                             // Example JSON body
+            &Url::parse(&format!("http://{}/", server_addr)).expect("Failed to parse URL"),
+            timeout_duration,
+        );
+        debug!("Got result: {:?}", result);
+
+        // Ensure the server only closes after the client has finished processing
+        if let Ok(response) = &result {
+            let body = parse_http_response(response);
+            assert_eq!(body, "Hello, world!", "Unexpected response body: {}", body);
+        }
+
+        tx_client_done
+            .send(())
+            .expect("Failed to send close signal");
+
+        // Assert that the connection was successful
+        assert!(
+            result.is_ok(),
+            "Expected a successful request, but got {:?}",
+            result
+        );
     }
 }
