@@ -58,12 +58,9 @@ impl BitcoinCoreController {
             .arg("-server=1")
             .arg("-listenonion=0")
             .arg("-rpcbind=127.0.0.1")
-            .arg(&format!("-port={}", self.config.burnchain.peer_port))
-            .arg(&format!(
-                "-datadir={}",
-                self.config.get_burnchain_path_str()
-            ))
-            .arg(&format!("-rpcport={}", self.config.burnchain.rpc_port));
+            .arg(format!("-port={}", self.config.burnchain.peer_port))
+            .arg(format!("-datadir={}", self.config.get_burnchain_path_str()))
+            .arg(format!("-rpcport={}", self.config.burnchain.rpc_port));
 
         match (
             &self.config.burnchain.username,
@@ -71,8 +68,8 @@ impl BitcoinCoreController {
         ) {
             (Some(username), Some(password)) => {
                 command
-                    .arg(&format!("-rpcuser={}", username))
-                    .arg(&format!("-rpcpassword={}", password));
+                    .arg(format!("-rpcuser={username}"))
+                    .arg(format!("-rpcpassword={password}"));
             }
             _ => {}
         }
@@ -81,7 +78,7 @@ impl BitcoinCoreController {
 
         let mut process = match command.spawn() {
             Ok(child) => child,
-            Err(e) => return Err(BitcoinCoreError::SpawnFailed(format!("{:?}", e))),
+            Err(e) => return Err(BitcoinCoreError::SpawnFailed(format!("{e:?}"))),
         };
 
         let mut out_reader = BufReader::new(process.stdout.take().unwrap());
@@ -111,14 +108,25 @@ impl BitcoinCoreController {
             command
                 .stdout(Stdio::piped())
                 .arg("-rpcconnect=127.0.0.1")
-                .arg("-rpcport=8332")
-                .arg("-rpcuser=neon-tester")
-                .arg("-rpcpassword=neon-tester-pass")
-                .arg("stop");
+                .arg(format!("-rpcport={}", self.config.burnchain.rpc_port));
+
+            match (
+                &self.config.burnchain.username,
+                &self.config.burnchain.password,
+            ) {
+                (Some(username), Some(password)) => {
+                    command
+                        .arg(format!("-rpcuser={username}"))
+                        .arg(format!("-rpcpassword={password}"));
+                }
+                _ => {}
+            }
+
+            command.arg("stop");
 
             let mut process = match command.spawn() {
                 Ok(child) => child,
-                Err(e) => return Err(BitcoinCoreError::SpawnFailed(format!("{:?}", e))),
+                Err(e) => return Err(BitcoinCoreError::SpawnFailed(format!("{e:?}"))),
             };
 
             let mut out_reader = BufReader::new(process.stdout.take().unwrap());
@@ -127,7 +135,7 @@ impl BitcoinCoreController {
                 if bytes_read == 0 {
                     break;
                 }
-                eprintln!("{}", &line);
+                eprintln!("{line}");
             }
         }
         Ok(())
