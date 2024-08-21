@@ -161,14 +161,8 @@ use crate::util_lib::db::{DBConn, Error as DBError};
 mod download_state_machine;
 mod tenure;
 mod tenure_downloader;
-mod tenure_downloader_copy_2;
-mod tenure_downloader_opy_2;
 mod tenure_downloader_set;
-mod tenure_downloader_set_copy_2;
-mod tenure_downloader_set_opy_2;
 mod tenure_downloader_unconfirmed;
-mod tenure_downloader_unconfirmed_copy_2;
-mod tenure_downloader_unconfirmed_opy_2;
 
 pub use crate::net::download::nakamoto::download_state_machine::{
     NakamotoDownloadState, NakamotoDownloadStateMachine,
