@@ -3421,6 +3421,7 @@ dependencies = [
  "stackslib",
  "stx-genesis",
  "tikv-jemallocator",
+ "tiny_http",
  "tokio",
  "toml 0.5.11",
  "tracing",

@@ -1575,6 +1575,7 @@ mod test {
     use stacks::util::secp256k1::MessageSignature;
     use stacks_common::bitvec::BitVec;
     use stacks_common::types::chainstate::{BurnchainHeaderHash, StacksBlockId};
+    use tiny_http::{Method, Response, Server, StatusCode};
 
     use super::*;
 
@@ -1873,5 +1874,96 @@ mod test {
             "Expected a successful request, but got {:?}",
             result
         );
+    }
+
+    fn get_random_port() -> u16 {
+        // Bind to a random port by specifying port 0, then retrieve the port assigned by the OS
+        let listener = TcpListener::bind("127.0.0.1:0").expect("Failed to bind to a random port");
+        listener.local_addr().unwrap().port()
+    }
+
+    #[test]
+    fn test_send_payload_success() {
+        let port = get_random_port();
+
+        // Set up a channel to notify when the server has processed the request
+        let (tx, rx) = channel();
+
+        // Start a mock server in a separate thread
+        let server = Server::http(format!("127.0.0.1:{}", port)).unwrap();
+        thread::spawn(move || {
+            let request = server.recv().unwrap();
+            assert_eq!(request.url(), "/test");
+            assert_eq!(request.method(), &Method::Post);
+
+            // Simulate a successful response
+            let response = Response::from_string("HTTP/1.1 200 OK");
+            request.respond(response).unwrap();
+
+            // Notify the test that the request was processed
+            tx.send(()).unwrap();
+        });
+
+        let observer = EventObserver {
+            endpoint: format!("127.0.0.1:{}", port),
+        };
+
+        let payload = json!({"key": "value"});
+
+        observer.send_payload(&payload, "/test");
+
+        // Wait for the server to process the request
+        rx.recv_timeout(Duration::from_secs(5))
+            .expect("Server did not receive request in time");
+    }
+
+    #[test]
+    fn test_send_payload_retry() {
+        let port = get_random_port();
+
+        // Set up a channel to notify when the server has processed the request
+        let (tx, rx) = channel();
+
+        // Start a mock server in a separate thread
+        let server = Server::http(format!("127.0.0.1:{}", port)).unwrap();
+        thread::spawn(move || {
+            let mut attempt = 0;
+            while let Ok(request) = server.recv() {
+                attempt += 1;
+                if attempt == 1 {
+                    debug!("Mock server received request attempt 1");
+                    // Simulate a failure on the first attempt
+                    let response = Response::new(
+                        StatusCode(500),
+                        vec![],
+                        "Internal Server Error".as_bytes(),
+                        Some(21),
+                        None,
+                    );
+                    request.respond(response).unwrap();
+                } else {
+                    debug!("Mock server received request attempt 2");
+                    // Simulate a successful response on the second attempt
+                    let response = Response::from_string("HTTP/1.1 200 OK");
+                    request.respond(response).unwrap();
+
+                    // Notify the test that the request was processed successfully
+                    tx.send(()).unwrap();
+                    break;
+                }
+            }
+        });
+
+        let observer = EventObserver {
+            endpoint: format!("127.0.0.1:{}", port),
+        };
+
+        let payload = json!({"key": "value"});
+
+        observer.send_payload(&payload, "/test");
+
+        // Wait for the server to process the request
+        rx.recv_timeout(Duration::from_secs(5))
+            .expect("Server did not receive request in time");
     }
 }
