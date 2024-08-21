@@ -44,6 +44,22 @@ impl BitcoinCoreController {
         }
     }
 
+    fn add_rpc_cli_args(&self, command: &mut Command) {
+        command.arg(format!("-rpcport={}", self.config.burnchain.rpc_port));
+
+        match (
+            &self.config.burnchain.username,
+            &self.config.burnchain.password,
+        ) {
+            (Some(username), Some(password)) => {
+                command
+                    .arg(format!("-rpcuser={username}"))
+                    .arg(format!("-rpcpassword={password}"));
+            }
+            _ => {}
+        }
+    }
+
     pub fn start_bitcoind(&mut self) -> BitcoinResult<()> {
         std::fs::create_dir_all(&self.config.get_burnchain_path_str()).unwrap();
 
@@ -59,22 +75,11 @@ impl BitcoinCoreController {
             .arg("-listenonion=0")
             .arg("-rpcbind=127.0.0.1")
             .arg(format!("-port={}", self.config.burnchain.peer_port))
-            .arg(format!("-datadir={}", self.config.get_burnchain_path_str()))
-            .arg(format!("-rpcport={}", self.config.burnchain.rpc_port));
+            .arg(format!("-datadir={}", self.config.get_burnchain_path_str()));
 
-        match (
-            &self.config.burnchain.username,
-            &self.config.burnchain.password,
-        ) {
-            (Some(username), Some(password)) => {
-                command
-                    .arg(format!("-rpcuser={username}"))
-                    .arg(format!("-rpcpassword={password}"));
-            }
-            _ => {}
-        }
+        self.add_rpc_cli_args(&mut command);
 
-        eprintln!("bitcoind spawn: {:?}", command);
+        eprintln!("bitcoind spawn: {command:?}");
 
         let mut process = match command.spawn() {
             Ok(child) => child,
@@ -105,22 +110,9 @@ impl BitcoinCoreController {
     pub fn stop_bitcoind(&mut self) -> Result<(), BitcoinCoreError> {
         if let Some(_) = self.bitcoind_process.take() {
             let mut command = Command::new("bitcoin-cli");
-            command
-                .stdout(Stdio::piped())
-                .arg("-rpcconnect=127.0.0.1")
-                .arg(format!("-rpcport={}", self.config.burnchain.rpc_port));
+            command.stdout(Stdio::piped()).arg("-rpcconnect=127.0.0.1");
 
-            match (
-                &self.config.burnchain.username,
-                &self.config.burnchain.password,
-            ) {
-                (Some(username), Some(password)) => {
-                    command
-                        .arg(format!("-rpcuser={username}"))
-                        .arg(format!("-rpcpassword={password}"));
-                }
-                _ => {}
-            }
+            self.add_rpc_cli_args(&mut command);
 
             command.arg("stop");
 
