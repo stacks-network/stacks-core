@@ -318,7 +318,7 @@ fn send_request(
     url: &Url,
     timeout: Duration,
 ) -> Result<String, std::io::Error> {
-    let addr = format!("{}:{}", host, port)
+    let addr = format!("{host}:{port}")
         .to_socket_addrs()?
         .next()
         .ok_or_else(|| {
