@@ -10,14 +10,6 @@ on:
     paths:
       - '**.rs'
   workflow_dispatch:
-    inputs:
-      ignore_timeout:
-        description: "Ignore mutants timeout limit"
-        required: false
-        type: choice
-        options:
-          - true
-        default: 'true'
 
 concurrency:
   group: pr-differences-${{ github.head_ref || github.ref || github.run_id }}
@@ -38,9 +30,8 @@ jobs:
           team: 'blockchain-team'
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
 
-      - name: Fail if the user does not have the right permissions
-        if: ${{ inputs.ignore_timeout == 'true' && steps.check_right_permissions.outputs.is_team_member != 'true' }}
-        run: exit 1
+    outputs:
+      ignore_timeout: ${{ steps.check_right_permissions.outputs.is_team_member == 'true' }}
 
   # Check and output whether to run big (`stacks-node`/`stackslib`) or small (others) packages with or without shards
   check-big-packages-and-shards:
@@ -63,7 +54,7 @@ jobs:
       - id: check_packages_and_shards
         uses: stacks-network/actions/stacks-core/mutation-testing/check-packages-and-shards@main
         with:
-          ignore_timeout: ${{ inputs.ignore_timeout }}
+          ignore_timeout: ${{ needs.check-right-permissions.outputs.ignore_timeout }}
 
   # Mutation testing - Execute on PR on small packages that have functions modified (normal run, no shards)
   pr-differences-mutants-small-normal:
