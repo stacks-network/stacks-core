@@ -888,8 +888,8 @@ pub struct StacksHttp {
     pub maximum_call_argument_size: u32,
     /// Maximum execution budget of a read-only call
     pub read_only_call_limit: ExecutionCost,
-    /// The authorization token to enable the block proposal RPC endpoint
-    pub block_proposal_token: Option<String>,
+    /// The authorization token to enable access to privileged features, such as the block proposal RPC endpoint
+    pub auth_token: Option<String>,
 }
 
 impl StacksHttp {
@@ -905,7 +905,7 @@ impl StacksHttp {
             request_handlers: vec![],
             maximum_call_argument_size: conn_opts.maximum_call_argument_size,
             read_only_call_limit: conn_opts.read_only_call_limit.clone(),
-            block_proposal_token: conn_opts.block_proposal_token.clone(),
+            auth_token: conn_opts.auth_token.clone(),
         };
         http.register_rpc_methods();
         http

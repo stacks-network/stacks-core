@@ -423,6 +423,8 @@ pub struct StackerDBSync<NC: NeighborComms> {
     /// whether or not we should immediately re-fetch chunks because we learned about new chunks
     /// from our peers when they replied to our chunk-pushes with new inventory state
     need_resync: bool,
+    /// whether or not the fetched inventory was determined to be stale
+    stale_inv: bool,
     /// Track stale neighbors
     pub(crate) stale_neighbors: HashSet<NeighborAddress>,
     /// How many attempted connections have been made in the last pass (gets reset)
@@ -505,7 +507,9 @@ impl PeerNetwork {
             Err(e) => {
                 debug!(
                     "{:?}: failed to get chunk versions for {}: {:?}",
-                    self.local_peer, contract_id, &e
+                    self.get_local_peer(),
+                    contract_id,
+                    &e
                 );
 
                 // most likely indicates that this DB doesn't exist
@@ -514,6 +518,14 @@ impl PeerNetwork {
         };
 
         let num_outbound_replicas = self.count_outbound_stackerdb_replicas(contract_id) as u32;
+
+        debug!(
+            "{:?}: inventory for {} has {} outbound replicas; versions are {:?}",
+            self.get_local_peer(),
+            contract_id,
+            num_outbound_replicas,
+            &slot_versions
+        );
         StacksMessageType::StackerDBChunkInv(StackerDBChunkInvData {
             slot_versions,
             num_outbound_replicas,

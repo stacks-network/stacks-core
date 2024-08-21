@@ -69,7 +69,7 @@ fn test_try_parse_request() {
     let mut request = StacksHttpRequest::new_for_peer(
         addr.into(),
         "POST".into(),
-        "/v2/block_proposal".into(),
+        "/v3/block_proposal".into(),
         HttpRequestContents::new().payload_json(serde_json::to_value(proposal).unwrap()),
     )
     .expect("failed to construct request");
@@ -320,7 +320,7 @@ fn test_try_make_response() {
     let mut request = StacksHttpRequest::new_for_peer(
         rpc_test.peer_1.to_peer_host(),
         "POST".into(),
-        "/v2/block_proposal".into(),
+        "/v3/block_proposal".into(),
         HttpRequestContents::new().payload_json(serde_json::to_value(proposal).unwrap()),
     )
     .expect("failed to construct request");
@@ -340,7 +340,7 @@ fn test_try_make_response() {
     let mut request = StacksHttpRequest::new_for_peer(
         rpc_test.peer_1.to_peer_host(),
         "POST".into(),
-        "/v2/block_proposal".into(),
+        "/v3/block_proposal".into(),
         HttpRequestContents::new().payload_json(serde_json::to_value(proposal).unwrap()),
     )
     .expect("failed to construct request");
@@ -360,7 +360,7 @@ fn test_try_make_response() {
     let mut request = StacksHttpRequest::new_for_peer(
         rpc_test.peer_1.to_peer_host(),
         "POST".into(),
-        "/v2/block_proposal".into(),
+        "/v3/block_proposal".into(),
         HttpRequestContents::new().payload_json(serde_json::to_value(proposal).unwrap()),
     )
     .expect("failed to construct request");
