@@ -45,8 +45,8 @@ use stacks::chainstate::stacks::{
 use stacks::net::p2p::NetworkHandle;
 use stacks::net::stackerdb::StackerDBs;
 use stacks::net::{NakamotoBlocksData, StacksMessageType};
+use stacks::util::get_epoch_time_secs;
 use stacks::util::secp256k1::MessageSignature;
-use stacks::util::{get_epoch_time_secs, sleep_ms};
 use stacks_common::codec::read_next;
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
 use stacks_common::types::{PrivateKey, StacksEpochId};
@@ -318,10 +318,17 @@ impl BlockMinerThread {
                         }
                     }
                 }
-                self.wait_min_time_between_blocks()?;
 
                 match self.mine_block(&stackerdbs) {
-                    Ok(x) => break Some(x),
+                    Ok(x) => {
+                        if !self.validate_timestamp(&x)? {
+                            info!("Block mined too quickly. Will try again.";
+                                  "block_timestamp" => x.header.timestamp,
+                            );
+                            continue;
+                        }
+                        break Some(x);
+                    }
                     Err(NakamotoNodeError::MiningFailure(ChainstateError::MinerAborted)) => {
                         info!("Miner interrupted while mining, will try again");
                         // sleep, and try again. if the miner was interrupted because the burnchain
@@ -1040,34 +1047,40 @@ impl BlockMinerThread {
         Some(vrf_proof)
     }
 
-    /// Wait the minimum time between blocks before mining a new block (if necessary)
+    /// Check that the provided block is not mined too quickly after the parent block.
     /// This is to ensure that the signers do not reject the block due to the block being mined within the same second as the parent block.
-    fn wait_min_time_between_blocks(&self) -> Result<(), NakamotoNodeError> {
-        let burn_db_path = self.config.get_burn_db_file_path();
-        let mut burn_db =
-            SortitionDB::open(&burn_db_path, false, self.burnchain.pox_constants.clone())
-                .expect("FATAL: could not open sortition DB");
-
-        let mut chain_state = neon_node::open_chainstate_with_faults(&self.config)
+    fn validate_timestamp(&self, x: &NakamotoBlock) -> Result<bool, NakamotoNodeError> {
+        let chain_state = neon_node::open_chainstate_with_faults(&self.config)
             .expect("FATAL: could not open chainstate DB");
-        let parent_block_info = self.load_block_parent_info(&mut burn_db, &mut chain_state)?;
-        let time_since_parent_ms = get_epoch_time_secs()
-            .saturating_sub(parent_block_info.stacks_parent_header.burn_header_timestamp)
-            / 1000;
+        let stacks_parent_header =
+            NakamotoChainState::get_block_header(chain_state.db(), &x.header.parent_block_id)
+                .map_err(|e| {
+                    error!(
+                        "Could not query header info for parent block ID {}: {:?}",
+                        &x.header.parent_block_id, &e
+                    );
+                    NakamotoNodeError::ParentNotFound
+                })?
+                .ok_or_else(|| {
+                    error!(
+                        "No header info for parent block ID {}",
+                        &x.header.parent_block_id
+                    );
+                    NakamotoNodeError::ParentNotFound
+                })?;
+        let current_timestamp = get_epoch_time_secs();
+        let time_since_parent_ms =
+            current_timestamp.saturating_sub(stacks_parent_header.burn_header_timestamp) * 1000;
         if time_since_parent_ms < self.config.miner.min_time_between_blocks_ms {
-            let wait_ms = self
-                .config
-                .miner
-                .min_time_between_blocks_ms
-                .saturating_sub(time_since_parent_ms);
-            info!("Parent block mined {} ms ago, waiting {} ms before mining a new block", time_since_parent_ms, wait_ms;
-                "parent_block_id" => %parent_block_info.stacks_parent_header.index_block_hash(),
-                "parent_block_height" => parent_block_info.stacks_parent_header.stacks_block_height,
-                "parent_block_timestamp" => parent_block_info.stacks_parent_header.burn_header_timestamp,
+            debug!("Parent block mined {time_since_parent_ms} ms ago. Required minimum gap between blocks is {} ms", self.config.miner.min_time_between_blocks_ms;
+                "current_timestamp" => current_timestamp,
+                "parent_block_id" => %stacks_parent_header.index_block_hash(),
+                "parent_block_height" => stacks_parent_header.stacks_block_height,
+                "parent_block_timestamp" => stacks_parent_header.burn_header_timestamp,
             );
-            sleep_ms(wait_ms);
+            return Ok(false);
         }
-        Ok(())
+        Ok(true)
     }
 
     // TODO: add tests from mutation testing results #4869

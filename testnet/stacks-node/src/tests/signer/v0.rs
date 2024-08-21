@@ -2890,11 +2890,6 @@ fn min_gap_between_blocks() {
         .nakamoto_blocks_proposed
         .load(Ordering::SeqCst);
 
-    let blocks_before = signer_test
-        .running_nodes
-        .nakamoto_blocks_mined
-        .load(Ordering::SeqCst);
-
     let info_before = get_chain_info(&signer_test.running_nodes.conf);
 
     // submit a tx so that the miner will mine a block
@@ -2905,31 +2900,18 @@ fn min_gap_between_blocks() {
 
     info!("Submitted transfer tx and waiting for block proposal. Ensure it does not arrive before the gap is exceeded");
     let start_time = Instant::now();
-    while start_time.elapsed().as_millis() < (time_between_blocks_ms - 1000).into() {
-        let blocks_proposed = signer_test
-            .running_nodes
-            .nakamoto_blocks_proposed
-            .load(Ordering::SeqCst);
-        assert_eq!(
-            blocks_proposed, proposals_before,
-            "Block proposed before gap was exceeded"
-        );
-        std::thread::sleep(Duration::from_millis(100));
-    }
-
-    let start_time = Instant::now();
     loop {
         let blocks_proposed = signer_test
             .running_nodes
             .nakamoto_blocks_proposed
             .load(Ordering::SeqCst);
         if blocks_proposed > proposals_before {
+            assert!(
+                start_time.elapsed().as_millis() >= time_between_blocks_ms.into(),
+                "Block proposed before gap was exceeded"
+            );
             break;
         }
-        assert!(
-            start_time.elapsed().as_secs() < 30,
-            "Block not proposed after gap was exceeded within timeout"
-        );
         std::thread::sleep(Duration::from_millis(100));
     }
 
@@ -2937,6 +2919,10 @@ fn min_gap_between_blocks() {
 
     let start = Instant::now();
     let duration = 30;
+    let blocks_before = signer_test
+        .running_nodes
+        .nakamoto_blocks_mined
+        .load(Ordering::SeqCst);
     loop {
         let blocks_mined = signer_test
             .running_nodes
@@ -2944,7 +2930,9 @@ fn min_gap_between_blocks() {
             .load(Ordering::SeqCst);
 
         let info = get_chain_info(&signer_test.running_nodes.conf);
-        if blocks_mined > blocks_before && info.stacks_tip_height > info_before.stacks_tip_height {
+        if blocks_mined > blocks_before
+            && info.stacks_tip_height == info_before.stacks_tip_height + 1
+        {
             break;
         }
 
