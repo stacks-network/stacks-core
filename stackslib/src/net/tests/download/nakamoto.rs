@@ -1086,12 +1086,12 @@ fn test_tenure_start_end_from_inventory() {
         wanted_tenures.push(WantedTenure::new(
             ConsensusHash([i as u8; 20]),
             StacksBlockId([i as u8; 32]),
-            u64::from(i) + first_burn_height,
+            u64::from(i) + first_burn_height + 1,
         ));
         next_wanted_tenures.push(WantedTenure::new(
             ConsensusHash([(i + 128) as u8; 20]),
             StacksBlockId([(i + 128) as u8; 32]),
-            u64::from(i) + first_burn_height,
+            u64::from(i) + first_burn_height + 1,
         ));
     }
     let mut all_tenures = wanted_tenures.clone();

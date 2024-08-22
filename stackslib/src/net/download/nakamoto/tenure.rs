@@ -331,7 +331,10 @@ impl TenureStartEnd {
                     first_burn_height,
                     wt_start.burn_height,
                 )
-                .expect("FATAL: tenure from before system start"),
+                .expect(&format!(
+                    "FATAL: tenure from before system start ({} <= {})",
+                    wt_start.burn_height, first_burn_height
+                )),
                 wt.processed,
             );
             tenure_start_end.fetch_end_block = true;
