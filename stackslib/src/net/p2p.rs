@@ -4293,7 +4293,7 @@ impl PeerNetwork {
 
         for rc in [cur_rc, prev_rc, prev_prev_rc] {
             debug!("Refresh reward cycle info for cycle {}", rc);
-            let rc_start_height = self.burnchain.reward_cycle_to_block_height(rc);
+            let rc_start_height = self.burnchain.nakamoto_first_block_of_cycle(rc);
             let Some(ancestor_sort_id) =
                 get_ancestor_sort_id(&ih, rc_start_height, &tip_sn.sortition_id)?
             else {

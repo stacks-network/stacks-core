@@ -2101,7 +2101,10 @@ fn test_nakamoto_download_run_2_peers() {
         .get_nakamoto_tip_block_id()
         .unwrap()
         .unwrap();
-    assert_eq!(tip.block_height, 81);
+    assert_eq!(
+        tip.block_height,
+        41 + bitvecs.iter().map(|x| x.len() as u64).sum::<u64>()
+    );
 
     // make a neighbor from this peer
     let boot_observer = TestEventObserver::new();
