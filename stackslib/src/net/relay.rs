@@ -104,6 +104,17 @@ pub mod fault_injection {
     }
 }
 
+#[cfg(not(any(test, feature = "testing")))]
+pub mod fault_injection {
+    pub fn ignore_block(_height: u64, _working_dir: &str) -> bool {
+        false
+    }
+
+    pub fn set_ignore_block(_height: u64, _working_dir: &str) {}
+
+    pub fn clear_ignore_block() {}
+}
+
 pub struct Relayer {
     /// Connection to the p2p thread
     p2p: NetworkHandle,
@@ -879,7 +890,6 @@ impl Relayer {
             &obtained_method,
         );
 
-        #[cfg(any(test, feature = "testing"))]
         if fault_injection::ignore_block(block.header.chain_length, &burnchain.working_dir) {
             return Ok(false);
         }
