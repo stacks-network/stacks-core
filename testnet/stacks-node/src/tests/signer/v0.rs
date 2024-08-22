@@ -2212,8 +2212,8 @@ fn mock_sign_epoch_25() {
             std::thread::sleep(Duration::from_millis(100));
             let messages: Vec<SignerMessage> = StackerDB::get_messages(
                 stackerdb
-                    .get_session_mut(&MessageSlotID::MockSignature)
-                    .expect("Failed to get BlockResponse stackerdb session"),
+                    .get_session_mut(&MessageSlotID::BlockResponse)
+                    .expect("Failed to get BlockResponse stackerdb session"), // Epoch 2.5 MockSignatures use the BlockResponse slot
                 &signer_slot_ids,
             )
             .expect("Failed to get message from stackerdb");

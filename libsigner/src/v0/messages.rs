@@ -185,8 +185,7 @@ impl SignerMessage {
     pub fn msg_id(&self) -> Option<MessageSlotID> {
         match self {
             Self::BlockProposal(_) | Self::BlockPushed(_) => None,
-            Self::BlockResponse(_) => Some(MessageSlotID::BlockResponse),
-            Self::MockSignature(_) => Some(MessageSlotID::MockSignature),
+            Self::BlockResponse(_) | Self::MockSignature(_) => Some(MessageSlotID::BlockResponse), // Mock signature reuses the same slot as block response since its exclusively used in Epoch 2.5
         }
     }
 }
