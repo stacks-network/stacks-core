@@ -252,7 +252,7 @@ impl NakamotoDownloadStateMachine {
         )
         .expect("FATAL: tip.block_height before system start");
 
-        // careful -- need .saturating_sub(1) since this calculation puts the reward cycle start at
+        // careful -- need .saturating_add(1) since this calculation puts the reward cycle start at
         // block height 1 mod reward cycle len, but we really want 0 mod reward cycle len
         let first_block_height = if let Some(highest_wanted_tenure) = loaded_so_far.last() {
             highest_wanted_tenure.burn_height.saturating_add(1)
@@ -1505,15 +1505,13 @@ impl NakamotoDownloadStateMachine {
 
     /// Run and process all unconfirmed tenure downloads, and highest complete tenure downloads.
     /// Do the needful bookkeeping to remove dead peers.
-    /// Returns map of tenure IDs to blocks we fetched, plus whether or not we returned because we
-    /// were throttled
     fn download_unconfirmed_tenures(
         &mut self,
         network: &mut PeerNetwork,
         sortdb: &SortitionDB,
         chainstate: &StacksChainState,
         highest_processed_block_id: Option<StacksBlockId>,
-    ) -> (HashMap<ConsensusHash, Vec<NakamotoBlock>>, bool) {
+    ) -> HashMap<ConsensusHash, Vec<NakamotoBlock>> {
         // queue up more downloaders
         self.update_unconfirmed_tenure_downloaders(
             network.get_connection_opts(),
@@ -1589,7 +1587,7 @@ impl NakamotoDownloadStateMachine {
             })
             .collect();
 
-        (tenure_blocks, false)
+        tenure_blocks
     }
 
     /// Top-level download state machine execution.
@@ -1669,7 +1667,7 @@ impl NakamotoDownloadStateMachine {
                     &network.stacks_tip.block_hash,
                 );
 
-                let (new_blocks, throttled) = self.download_unconfirmed_tenures(
+                let new_blocks = self.download_unconfirmed_tenures(
                     network,
                     sortdb,
                     chainstate,
@@ -1679,11 +1677,6 @@ impl NakamotoDownloadStateMachine {
                         None
                     },
                 );
-
-                if throttled {
-                    // stay in this state
-                    return new_blocks;
-                }
 
                 if !self.tenure_downloads.is_empty() {
                     // need to go get this scheduled tenure
