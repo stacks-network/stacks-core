@@ -279,12 +279,12 @@ impl SignerTest<SpawnedSigner> {
         self.run_until_epoch_3_boundary();
 
         let commits_submitted = self.running_nodes.commits_submitted.clone();
-
+        let commits_before = commits_submitted.load(Ordering::SeqCst);
         info!("Waiting 1 burnchain block for miner VRF key confirmation");
         // Wait one block to confirm the VRF register, wait until a block commit is submitted
         next_block_and(&mut self.running_nodes.btc_regtest_controller, 60, || {
             let commits_count = commits_submitted.load(Ordering::SeqCst);
-            Ok(commits_count >= 1)
+            Ok(commits_count > commits_before)
         })
         .unwrap();
         info!("Ready to mine Nakamoto blocks!");
@@ -293,6 +293,8 @@ impl SignerTest<SpawnedSigner> {
     // Only call after already past the epoch 3.0 boundary
     fn mine_and_verify_confirmed_naka_block(&mut self, timeout: Duration, num_signers: usize) {
         info!("------------------------- Try mining one block -------------------------");
+
+        let reward_cycle = self.get_current_reward_cycle();
 
         self.mine_nakamoto_block(timeout);
 
@@ -311,8 +313,10 @@ impl SignerTest<SpawnedSigner> {
         // NOTE: signature.len() does not need to equal signers.len(); the stacks miner can finish the block
         //  whenever it has crossed the threshold.
         assert!(signature.len() >= num_signers * 7 / 10);
-
-        let reward_cycle = self.get_current_reward_cycle();
+        info!(
+            "Verifying signatures against signers for reward cycle {:?}",
+            reward_cycle
+        );
         let signers = self.get_reward_set_signers(reward_cycle);
 
         // Verify that the signers signed the proposed block
@@ -2785,8 +2789,7 @@ fn signer_set_rollover() {
         .running_nodes
         .btc_regtest_controller
         .get_burnchain()
-        .reward_cycle_to_block_height(next_reward_cycle)
-        .saturating_add(1);
+        .reward_cycle_to_block_height(next_reward_cycle);
 
     info!("---- Mining to next reward set calculation -----");
     signer_test.run_until_burnchain_height_nakamoto(
