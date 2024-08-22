@@ -12784,7 +12784,6 @@ fn mock_miner_replay() {
 
     // ---------- Test finished, clean up ----------
 
-    btcd_controller.stop_bitcoind().unwrap();
     miner_channel.stop_chains_coordinator();
     follower_channel.stop_chains_coordinator();
 }
