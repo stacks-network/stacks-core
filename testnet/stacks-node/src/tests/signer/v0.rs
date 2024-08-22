@@ -796,7 +796,8 @@ fn reloads_signer_set_in() {
         Some(Duration::from_secs(15)),
         |_config| {},
         |_| {},
-        &[],
+        None,
+        None,
     );
 
     setup_epoch_3_reward_set(
@@ -925,7 +926,8 @@ fn forked_tenure_testing(
             config.broadcast_signed_blocks = false;
         },
         |_| {},
-        &[],
+        None,
+        None,
     );
     let http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
 
@@ -1429,7 +1431,8 @@ fn multiple_miners() {
                 false
             })
         },
-        &[btc_miner_1_pk.clone(), btc_miner_2_pk.clone()],
+        Some(vec![btc_miner_1_pk.clone(), btc_miner_2_pk.clone()]),
+        None,
     );
     let conf = signer_test.running_nodes.conf.clone();
     let mut conf_node_2 = conf.clone();
@@ -1694,7 +1697,8 @@ fn miner_forking() {
                 false
             })
         },
-        &[btc_miner_1_pk.clone(), btc_miner_2_pk.clone()],
+        Some(vec![btc_miner_1_pk.clone(), btc_miner_2_pk.clone()]),
+        None,
     );
     let conf = signer_test.running_nodes.conf.clone();
     let mut conf_node_2 = conf.clone();
@@ -2274,7 +2278,8 @@ fn empty_sortition() {
             config.block_proposal_timeout = block_proposal_timeout;
         },
         |_| {},
-        &[],
+        None,
+        None,
     );
     let http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
     let short_timeout = Duration::from_secs(20);
@@ -2455,7 +2460,8 @@ fn mock_sign_epoch_25() {
                 }
             }
         },
-        &[],
+        None,
+        None,
     );
 
     let epochs = signer_test
@@ -2659,7 +2665,8 @@ fn signer_set_rollover() {
             }
             naka_conf.node.rpc_bind = rpc_bind.clone();
         },
-        &[],
+        None,
+        None,
     );
     assert_eq!(
         new_spawned_signers[0].config.node_host,
@@ -2873,7 +2880,8 @@ fn min_gap_between_blocks() {
         |config| {
             config.miner.min_time_between_blocks_ms = time_between_blocks_ms;
         },
-        &[],
+        None,
+        None,
     );
 
     let http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
@@ -2944,4 +2952,77 @@ fn min_gap_between_blocks() {
     }
 
     signer_test.shutdown();
+}
+
+#[test]
+#[ignore]
+/// Test scenario where there are duplicate signers with the same private key
+/// First submitted signature should take precedence
+fn duplicate_signers() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(EnvFilter::from_default_env())
+        .init();
+
+    // Disable p2p broadcast of the nakamoto blocks, so that we rely
+    //  on the signer's using StackerDB to get pushed blocks
+    *nakamoto_node::miner::TEST_SKIP_P2P_BROADCAST
+        .lock()
+        .unwrap() = Some(true);
+
+    info!("------------------------- Test Setup -------------------------");
+    let num_signers = 5;
+    let mut signer_stacks_private_keys = (0..num_signers)
+        .map(|_| StacksPrivateKey::new())
+        .collect::<Vec<_>>();
+
+    // First two signers have same private key
+    signer_stacks_private_keys[1] = signer_stacks_private_keys[0];
+
+    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
+        num_signers,
+        vec![],
+        None,
+        |_| {},
+        |_| {},
+        None,
+        Some(signer_stacks_private_keys),
+    );
+    let timeout = Duration::from_secs(30);
+    let mined_blocks = signer_test.running_nodes.nakamoto_blocks_mined.clone();
+    let blocks_mined_before = mined_blocks.load(Ordering::SeqCst);
+
+    signer_test.boot_to_epoch_3();
+
+    // give the system a chance to reach the Nakamoto start tip
+    // mine a Nakamoto block
+    wait_for(30, || {
+        let blocks_mined = mined_blocks.load(Ordering::SeqCst);
+        Ok(blocks_mined > blocks_mined_before)
+    })
+    .unwrap();
+
+    info!("------------------------- Test Mine and Verify Confirmed Nakamoto Block -------------------------");
+    signer_test.mine_and_verify_confirmed_naka_block(timeout, num_signers);
+
+    // Test prometheus metrics response
+    #[cfg(feature = "monitoring_prom")]
+    {
+        let metrics_response = signer_test.get_signer_metrics();
+
+        // Because 5 signers are running in the same process, the prometheus metrics
+        // are incremented once for every signer. This is why we expect the metric to be
+        // `5`, even though there is only one block proposed.
+        let expected_result = format!("stacks_signer_block_proposals_received {}", num_signers);
+        assert!(metrics_response.contains(&expected_result));
+        let expected_result = format!(
+            "stacks_signer_block_responses_sent{{response_type=\"accepted\"}} {}",
+            num_signers
+        );
+        assert!(metrics_response.contains(&expected_result));
+    }
 }
