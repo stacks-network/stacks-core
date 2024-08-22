@@ -1373,14 +1373,36 @@ impl BitcoinRegtestController {
         previous_fees: Option<LeaderBlockCommitFees>,
         previous_txids: &Vec<Txid>,
     ) -> Option<Transaction> {
-        let mut estimated_fees = match previous_fees {
+        let _ = self.sortdb_mut();
+        let burn_chain_tip = self.burnchain_db.as_ref()?.get_canonical_chain_tip().ok()?;
+        let estimated_fees = match previous_fees {
             Some(fees) => fees.fees_from_previous_tx(&payload, &self.config),
             None => LeaderBlockCommitFees::estimated_fees_from_payload(&payload, &self.config),
         };
 
-        let _ = self.sortdb_mut();
-        let burn_chain_tip = self.burnchain_db.as_ref()?.get_canonical_chain_tip().ok()?;
+        self.send_block_commit_operation_at_burnchain_height(
+            epoch_id,
+            payload,
+            signer,
+            utxos_to_include,
+            utxos_to_exclude,
+            estimated_fees,
+            previous_txids,
+            burn_chain_tip.block_height,
+        )
+    }
 
+    fn send_block_commit_operation_at_burnchain_height(
+        &mut self,
+        epoch_id: StacksEpochId,
+        payload: LeaderBlockCommitOp,
+        signer: &mut BurnchainOpSigner,
+        utxos_to_include: Option<UTXOSet>,
+        utxos_to_exclude: Option<UTXOSet>,
+        mut estimated_fees: LeaderBlockCommitFees,
+        previous_txids: &Vec<Txid>,
+        burnchain_block_height: u64,
+    ) -> Option<Transaction> {
         let public_key = signer.get_public_key();
         let (mut tx, mut utxos) = self.prepare_tx(
             epoch_id,
@@ -1388,7 +1410,7 @@ impl BitcoinRegtestController {
             estimated_fees.estimated_amount_required(),
             utxos_to_include,
             utxos_to_exclude,
-            burn_chain_tip.block_height,
+            burnchain_block_height,
         )?;
 
         // Serialize the payload
@@ -1817,7 +1839,7 @@ impl BitcoinRegtestController {
             debug!("Not enough change to clear dust limit. Not adding change address.");
         }
 
-        for (i, utxo) in utxos_set.utxos.iter().enumerate() {
+        for (_i, utxo) in utxos_set.utxos.iter().enumerate() {
             let input = TxIn {
                 previous_output: OutPoint {
                     txid: utxo.txid,
@@ -1828,7 +1850,8 @@ impl BitcoinRegtestController {
                 witness: vec![],
             };
             tx.input.push(input);
-
+        }
+        for (i, utxo) in utxos_set.utxos.iter().enumerate() {
             let script_pub_key = utxo.script_pub_key.clone();
             let sig_hash_all = 0x01;
 
@@ -2805,6 +2828,12 @@ mod tests {
     use std::fs::File;
     use std::io::Write;
 
+    use stacks::burnchains::BurnchainSigner;
+    use stacks_common::deps_common::bitcoin::blockdata::script::Builder;
+    use stacks_common::types::chainstate::{BlockHeaderHash, StacksAddress, VRFSeed};
+    use stacks_common::util::hash::to_hex;
+    use stacks_common::util::secp256k1::Secp256k1PrivateKey;
+
     use super::*;
     use crate::config::DEFAULT_SATS_PER_VB;
 
@@ -2824,5 +2853,161 @@ mod tests {
         config.config_path = Some(file_path.to_str().unwrap().to_string());
 
         assert_eq!(get_satoshis_per_byte(&config), 51);
+    }
+
+    /// Verify that we can build a valid Bitcoin transaction with multiple UTXOs.
+    /// Taken from production data.
+    /// Tests `serialize_tx()` and `send_block_commit_operation_at_burnchain_height()`
+    #[test]
+    fn test_multiple_inputs() {
+        let spend_utxos = vec![
+            UTXO {
+                txid: Sha256dHash::from_hex(
+                    "d3eafb3aba3cec925473550ed2e4d00bcb0d00744bb3212e4a8e72878909daee",
+                )
+                .unwrap(),
+                vout: 3,
+                script_pub_key: Builder::from(
+                    hex_bytes("76a9141dc27eba0247f8cc9575e7d45e50a0bc7e72427d88ac").unwrap(),
+                )
+                .into_script(),
+                amount: 42051,
+                confirmations: 1421,
+            },
+            UTXO {
+                txid: Sha256dHash::from_hex(
+                    "01132f2d4a98cc715624e033214c8d841098a1ee15b30188ab89589a320b3b24",
+                )
+                .unwrap(),
+                vout: 0,
+                script_pub_key: Builder::from(
+                    hex_bytes("76a9141dc27eba0247f8cc9575e7d45e50a0bc7e72427d88ac").unwrap(),
+                )
+                .into_script(),
+                amount: 326456,
+                confirmations: 1421,
+            },
+        ];
+
+        // test serialize_tx()
+        let mut config = Config::default();
+        config.burnchain.magic_bytes = "T3".as_bytes().into();
+
+        let mut btc_controller = BitcoinRegtestController::new(config, None);
+        let mut utxo_set = UTXOSet {
+            bhh: BurnchainHeaderHash([0x01; 32]),
+            utxos: spend_utxos.clone(),
+        };
+        let mut transaction = Transaction {
+            input: vec![],
+            output: vec![
+                TxOut {
+                    value: 0,
+                    script_pubkey: Builder::from(hex_bytes("6a4c5054335be88c3d30cb59a142f83de3b27f897a43bbb0f13316911bb98a3229973dae32afd5b9f21bc1f40f24e2c101ecd13c55b8619e5e03dad81de2c62a1cc1d8c1b375000008a300010000059800015a").unwrap()).into_script(),
+                },
+                TxOut {
+                    value: 10000,
+                    script_pubkey: Builder::from(hex_bytes("76a914000000000000000000000000000000000000000088ac").unwrap()).into_script(),
+                },
+                TxOut {
+                    value: 10000,
+                    script_pubkey: Builder::from(hex_bytes("76a914000000000000000000000000000000000000000088ac").unwrap()).into_script(),
+                },
+            ],
+            version: 1,
+            lock_time: 0,
+        };
+
+        let mut signer = BurnchainOpSigner::new(
+            Secp256k1PrivateKey::from_hex(
+                "9e446f6b0c6a96cf2190e54bcd5a8569c3e386f091605499464389b8d4e0bfc201",
+            )
+            .unwrap(),
+            false,
+        );
+        assert!(btc_controller.serialize_tx(
+            StacksEpochId::Epoch25,
+            &mut transaction,
+            44950,
+            &mut utxo_set,
+            &mut signer,
+            true
+        ));
+        assert_eq!(transaction.output[3].value, 323557);
+
+        // test send_block_commit_operation_at_burn_height()
+        let utxo_set = UTXOSet {
+            bhh: BurnchainHeaderHash([0x01; 32]),
+            utxos: spend_utxos.clone(),
+        };
+
+        let commit_op = LeaderBlockCommitOp {
+            block_header_hash: BlockHeaderHash::from_hex(
+                "e88c3d30cb59a142f83de3b27f897a43bbb0f13316911bb98a3229973dae32af",
+            )
+            .unwrap(),
+            new_seed: VRFSeed::from_hex(
+                "d5b9f21bc1f40f24e2c101ecd13c55b8619e5e03dad81de2c62a1cc1d8c1b375",
+            )
+            .unwrap(),
+            parent_block_ptr: 2211, // 0x000008a3
+            parent_vtxindex: 1,     // 0x0001
+            key_block_ptr: 1432,    // 0x00000598
+            key_vtxindex: 1,        // 0x0001
+            memo: vec![11],         // 0x5a >> 3
+
+            burn_fee: 0,
+            input: (Txid([0x00; 32]), 0),
+            burn_parent_modulus: 2, // 0x5a & 0b111
+
+            apparent_sender: BurnchainSigner("mgbpit8FvkVJ9kuXY8QSM5P7eibnhcEMBk".to_string()),
+            commit_outs: vec![
+                PoxAddress::Standard(StacksAddress::burn_address(false), None),
+                PoxAddress::Standard(StacksAddress::burn_address(false), None),
+            ],
+
+            treatment: vec![],
+            sunset_burn: 0,
+
+            txid: Txid([0x00; 32]),
+            vtxindex: 0,
+            block_height: 2212,
+            burn_header_hash: BurnchainHeaderHash([0x01; 32]),
+        };
+
+        assert_eq!(to_hex(&commit_op.serialize_to_vec()), "5be88c3d30cb59a142f83de3b27f897a43bbb0f13316911bb98a3229973dae32afd5b9f21bc1f40f24e2c101ecd13c55b8619e5e03dad81de2c62a1cc1d8c1b375000008a300010000059800015a".to_string());
+
+        let leader_fees = LeaderBlockCommitFees {
+            sunset_fee: 0,
+            fee_rate: 50,
+            sortition_fee: 20000,
+            outputs_len: 2,
+            default_tx_size: 380,
+            spent_in_attempts: 0,
+            is_rbf_enabled: false,
+            final_size: 498,
+        };
+
+        assert_eq!(leader_fees.amount_per_output(), 10000);
+        assert_eq!(leader_fees.total_spent(), 44900);
+
+        let block_commit = btc_controller
+            .send_block_commit_operation_at_burnchain_height(
+                StacksEpochId::Epoch30,
+                commit_op,
+                &mut signer,
+                Some(utxo_set),
+                None,
+                leader_fees,
+                &vec![],
+                2212,
+            )
+            .unwrap();
+
+        debug!("send_block_commit_operation:\n{:#?}", &block_commit);
+        debug!("{}", &SerializedTx::new(block_commit.clone()).to_hex());
+        assert_eq!(block_commit.output[3].value, 323507);
+
+        assert_eq!(&SerializedTx::new(block_commit.clone()).to_hex(), "0100000002eeda098987728e4a2e21b34b74000dcb0bd0e4d20e55735492ec3cba3afbead3030000006a4730440220558286e20e10ce31537f0625dae5cc62fac7961b9d2cf272c990de96323d7e2502202255adbea3d2e0509b80c5d8a3a4fe6397a87bcf18da1852740d5267d89a0cb20121035379aa40c02890d253cfa577964116eb5295570ae9f7287cbae5f2585f5b2c7cfdffffff243b0b329a5889ab8801b315eea19810848d4c2133e0245671cc984a2d2f1301000000006a47304402206d9f8de107f9e1eb15aafac66c2bb34331a7523260b30e18779257e367048d34022013c7dabb32a5c281aa00d405e2ccbd00f34f03a65b2336553a4acd6c52c251ef0121035379aa40c02890d253cfa577964116eb5295570ae9f7287cbae5f2585f5b2c7cfdffffff040000000000000000536a4c5054335be88c3d30cb59a142f83de3b27f897a43bbb0f13316911bb98a3229973dae32afd5b9f21bc1f40f24e2c101ecd13c55b8619e5e03dad81de2c62a1cc1d8c1b375000008a300010000059800015a10270000000000001976a914000000000000000000000000000000000000000088ac10270000000000001976a914000000000000000000000000000000000000000088acb3ef0400000000001976a9141dc27eba0247f8cc9575e7d45e50a0bc7e72427d88ac00000000");
     }
 }

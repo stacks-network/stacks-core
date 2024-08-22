@@ -206,7 +206,6 @@ impl Keychain {
     }
 
     /// Create a BurnchainOpSigner representation of this keychain
-    /// (this is going to be removed in 2.1)
     pub fn generate_op_signer(&self) -> BurnchainOpSigner {
         BurnchainOpSigner::new(self.get_secret_key(), false)
     }
