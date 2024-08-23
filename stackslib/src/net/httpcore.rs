@@ -1356,16 +1356,6 @@ impl StacksHttp {
             &ConnectionOptions::default(),
         );
 
-        if !self.allow_arbitrary_response {
-            let response_handler_index =
-                http.find_response_handler(verb, request_path)
-                    .ok_or(NetError::SendError(format!(
-                        "No such handler for '{} {}'",
-                        verb, request_path
-                    )))?;
-            http.request_handler_index = Some(response_handler_index);
-        }
-
         let (preamble, message_offset) = http.read_preamble(response_buf)?;
         let is_chunked = match preamble {
             StacksHttpPreamble::Response(ref resp) => resp.is_chunked(),
