@@ -178,7 +178,7 @@ impl FromStr for HttpContentType {
         let s = header.to_string().to_lowercase();
         if s == "application/octet-stream" {
             Ok(HttpContentType::Bytes)
-        } else if s == "text/plain" {
+        } else if s == "text/plain" || s.starts_with("text/plain;") {
             Ok(HttpContentType::Text)
         } else if s == "application/json" {
             Ok(HttpContentType::JSON)
