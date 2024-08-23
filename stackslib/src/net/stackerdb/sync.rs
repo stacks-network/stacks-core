@@ -1204,6 +1204,14 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
         network: &mut PeerNetwork,
         config: &StackerDBConfig,
     ) -> Result<Option<StackerDBSyncResult>, net_error> {
+        if network.get_connection_opts().disable_stackerdb_sync {
+            test_debug!(
+                "{:?}: stacker DB sync is disabled",
+                network.get_local_peer()
+            );
+            return Ok(None);
+        }
+
         // throttle to write_freq
         if self.last_run_ts + config.write_freq.max(1) > get_epoch_time_secs() {
             debug!(

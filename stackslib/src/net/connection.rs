@@ -439,6 +439,8 @@ pub struct ConnectionOptions {
     pub disable_inbound_handshakes: bool,
     /// Disable getting chunks from StackerDB (e.g. to test push-only)
     pub disable_stackerdb_get_chunks: bool,
+    /// Disable running stackerdb sync altogether (e.g. to test push-only)
+    pub disable_stackerdb_sync: bool,
     /// Unconditionally disconnect a peer after this amount of time
     pub force_disconnect_interval: Option<u64>,
     /// If set to true, this forces the p2p state machine to believe that it is running in
@@ -548,6 +550,7 @@ impl std::default::Default for ConnectionOptions {
             disable_natpunch: false,
             disable_inbound_handshakes: false,
             disable_stackerdb_get_chunks: false,
+            disable_stackerdb_sync: false,
             force_disconnect_interval: None,
             force_nakamoto_epoch_transition: false,
 

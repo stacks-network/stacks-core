@@ -2918,6 +2918,20 @@ pub mod test {
             ret
         }
 
+        pub fn get_burnchain_db(&self, readwrite: bool) -> BurnchainDB {
+            let burnchain_db =
+                BurnchainDB::open(&self.config.burnchain.get_burnchaindb_path(), readwrite)
+                    .unwrap();
+            burnchain_db
+        }
+
+        pub fn get_sortition_at_height(&self, height: u64) -> Option<BlockSnapshot> {
+            let sortdb = self.sortdb.as_ref().unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+            let sort_handle = sortdb.index_handle(&tip.sortition_id);
+            sort_handle.get_block_snapshot_by_height(height).unwrap()
+        }
+
         pub fn get_burnchain_block_ops(
             &self,
             burn_block_hash: &BurnchainHeaderHash,

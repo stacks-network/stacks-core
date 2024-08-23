@@ -319,8 +319,8 @@ fn test_stackerdb_replica_2_neighbors_1_chunk() {
 fn test_stackerdb_replica_2_neighbors_1_chunk_stale_view() {
     with_timeout(600, || {
         std::env::set_var("STACKS_TEST_DISABLE_EDGE_TRIGGER_TEST", "1");
-        let mut peer_1_config = TestPeerConfig::from_port(BASE_PORT);
-        let mut peer_2_config = TestPeerConfig::from_port(BASE_PORT + 2);
+        let mut peer_1_config = TestPeerConfig::from_port(BASE_PORT + 4);
+        let mut peer_2_config = TestPeerConfig::from_port(BASE_PORT + 8);
 
         peer_1_config.allowed = -1;
         peer_2_config.allowed = -1;
@@ -532,13 +532,13 @@ fn test_stackerdb_replica_2_neighbors_1_chunk_stale_view() {
 #[test]
 #[ignore]
 fn test_stackerdb_replica_2_neighbors_10_chunks() {
-    inner_test_stackerdb_replica_2_neighbors_10_chunks(false, BASE_PORT + 4);
+    inner_test_stackerdb_replica_2_neighbors_10_chunks(false, BASE_PORT + 10);
 }
 
 #[test]
 #[ignore]
 fn test_stackerdb_replica_2_neighbors_10_push_chunks() {
-    inner_test_stackerdb_replica_2_neighbors_10_chunks(true, BASE_PORT + 8);
+    inner_test_stackerdb_replica_2_neighbors_10_chunks(true, BASE_PORT + 30);
 }
 
 fn inner_test_stackerdb_replica_2_neighbors_10_chunks(push_only: bool, base_port: u16) {
@@ -663,16 +663,182 @@ fn inner_test_stackerdb_replica_2_neighbors_10_chunks(push_only: bool, base_port
     })
 }
 
+/// Verify that the relayer will push stackerdb chunks.
+/// Replica A has the data.
+/// Replica B receives the data via StackerDB sync
+/// Replica C receives the data from B's relayer pushes
+#[test]
+fn test_stackerdb_push_relayer() {
+    with_timeout(600, move || {
+        std::env::set_var("STACKS_TEST_DISABLE_EDGE_TRIGGER_TEST", "1");
+        let mut peer_1_config = TestPeerConfig::from_port(BASE_PORT + 100);
+        let mut peer_2_config = TestPeerConfig::from_port(BASE_PORT + 102);
+        let mut peer_3_config = TestPeerConfig::from_port(BASE_PORT + 104);
+
+        peer_1_config.allowed = -1;
+        peer_2_config.allowed = -1;
+        peer_3_config.allowed = -1;
+
+        // short-lived walks...
+        peer_1_config.connection_opts.walk_max_duration = 10;
+        peer_2_config.connection_opts.walk_max_duration = 10;
+        peer_3_config.connection_opts.walk_max_duration = 10;
+
+        peer_3_config.connection_opts.disable_stackerdb_sync = true;
+
+        // peer 1 crawls peer 2, and peer 2 crawls peer 1 and peer 3, and peer 3 crawls peer 2
+        peer_1_config.add_neighbor(&peer_2_config.to_neighbor());
+        peer_2_config.add_neighbor(&peer_1_config.to_neighbor());
+        peer_2_config.add_neighbor(&peer_3_config.to_neighbor());
+        peer_3_config.add_neighbor(&peer_2_config.to_neighbor());
+
+        // set up stacker DBs for both peers
+        let idx_1 = add_stackerdb(&mut peer_1_config, Some(StackerDBConfig::template()));
+        let idx_2 = add_stackerdb(&mut peer_2_config, Some(StackerDBConfig::template()));
+        let idx_3 = add_stackerdb(&mut peer_3_config, Some(StackerDBConfig::template()));
+
+        let mut peer_1 = TestPeer::new(peer_1_config);
+        let mut peer_2 = TestPeer::new(peer_2_config);
+        let mut peer_3 = TestPeer::new(peer_3_config);
+
+        // peer 1 gets the DB
+        setup_stackerdb(&mut peer_1, idx_1, true, 10);
+        setup_stackerdb(&mut peer_2, idx_2, false, 10);
+        setup_stackerdb(&mut peer_3, idx_2, false, 10);
+
+        // verify that peer 1 got the data
+        let peer_1_db_chunks = load_stackerdb(&peer_1, idx_1);
+        assert_eq!(peer_1_db_chunks.len(), 10);
+        for i in 0..10 {
+            assert_eq!(peer_1_db_chunks[i].0.slot_id, i as u32);
+            assert_eq!(peer_1_db_chunks[i].0.slot_version, 1);
+            assert!(peer_1_db_chunks[i].1.len() > 0);
+        }
+
+        // verify that peer 2 and 3 did NOT get the data
+        let peer_2_db_chunks = load_stackerdb(&peer_2, idx_2);
+        assert_eq!(peer_2_db_chunks.len(), 10);
+        for i in 0..10 {
+            assert_eq!(peer_2_db_chunks[i].0.slot_id, i as u32);
+            assert_eq!(peer_2_db_chunks[i].0.slot_version, 0);
+            assert!(peer_2_db_chunks[i].1.len() == 0);
+        }
+
+        let peer_3_db_chunks = load_stackerdb(&peer_3, idx_2);
+        assert_eq!(peer_3_db_chunks.len(), 10);
+        for i in 0..10 {
+            assert_eq!(peer_3_db_chunks[i].0.slot_id, i as u32);
+            assert_eq!(peer_3_db_chunks[i].0.slot_version, 0);
+            assert!(peer_3_db_chunks[i].1.len() == 0);
+        }
+
+        let peer_1_db_configs = peer_1.config.get_stacker_db_configs();
+        let peer_2_db_configs = peer_2.config.get_stacker_db_configs();
+        let peer_3_db_configs = peer_3.config.get_stacker_db_configs();
+
+        let mut i = 0;
+        loop {
+            // run peer network state-machines
+            peer_1.network.stacker_db_configs = peer_1_db_configs.clone();
+            peer_2.network.stacker_db_configs = peer_2_db_configs.clone();
+            peer_3.network.stacker_db_configs = peer_3_db_configs.clone();
+
+            let res_1 = peer_1.step_with_ibd(false);
+            let res_2 = peer_2.step_with_ibd(false);
+            let res_3 = peer_3.step_with_ibd(false);
+
+            if let Ok(res) = res_1 {
+                check_sync_results(&res);
+                peer_1
+                    .relayer
+                    .process_stacker_db_chunks(
+                        &peer_1.network.get_chain_view().rc_consensus_hash,
+                        &peer_1_db_configs,
+                        res.stacker_db_sync_results,
+                        None,
+                    )
+                    .unwrap();
+                peer_1
+                    .relayer
+                    .process_pushed_stacker_db_chunks(
+                        &peer_1.network.get_chain_view().rc_consensus_hash,
+                        &peer_1_db_configs,
+                        res.pushed_stackerdb_chunks,
+                        None,
+                    )
+                    .unwrap();
+            }
+
+            if let Ok(res) = res_2 {
+                check_sync_results(&res);
+                peer_2
+                    .relayer
+                    .process_stacker_db_chunks(
+                        &peer_2.network.get_chain_view().rc_consensus_hash,
+                        &peer_2_db_configs,
+                        res.stacker_db_sync_results,
+                        None,
+                    )
+                    .unwrap();
+                peer_2
+                    .relayer
+                    .process_pushed_stacker_db_chunks(
+                        &peer_2.network.get_chain_view().rc_consensus_hash,
+                        &peer_2_db_configs,
+                        res.pushed_stackerdb_chunks,
+                        None,
+                    )
+                    .unwrap();
+            }
+
+            if let Ok(res) = res_3 {
+                check_sync_results(&res);
+                peer_3
+                    .relayer
+                    .process_stacker_db_chunks(
+                        &peer_3.network.get_chain_view().rc_consensus_hash,
+                        &peer_3_db_configs,
+                        res.stacker_db_sync_results,
+                        None,
+                    )
+                    .unwrap();
+                peer_3
+                    .relayer
+                    .process_pushed_stacker_db_chunks(
+                        &peer_3.network.get_chain_view().rc_consensus_hash,
+                        &peer_3_db_configs,
+                        res.pushed_stackerdb_chunks,
+                        None,
+                    )
+                    .unwrap();
+            }
+
+            let db1 = load_stackerdb(&peer_1, idx_1);
+            let db2 = load_stackerdb(&peer_2, idx_2);
+            let db3 = load_stackerdb(&peer_3, idx_3);
+
+            if db1 == db2 && db2 == db3 {
+                break;
+            }
+            i += 1;
+
+            debug!("StackerDB sync step {}", i);
+        }
+
+        debug!("Completed stacker DB sync in {} step(s)", i);
+    })
+}
+
 #[test]
 #[ignore]
 fn test_stackerdb_10_replicas_10_neighbors_line_10_chunks() {
-    inner_test_stackerdb_10_replicas_10_neighbors_line_10_chunks(false, BASE_PORT + 28);
+    inner_test_stackerdb_10_replicas_10_neighbors_line_10_chunks(false, BASE_PORT + 50);
 }
 
 #[test]
 #[ignore]
 fn test_stackerdb_10_replicas_10_neighbors_line_push_10_chunks() {
-    inner_test_stackerdb_10_replicas_10_neighbors_line_10_chunks(true, BASE_PORT + 68);
+    inner_test_stackerdb_10_replicas_10_neighbors_line_10_chunks(true, BASE_PORT + 70);
 }
 
 fn inner_test_stackerdb_10_replicas_10_neighbors_line_10_chunks(push_only: bool, base_port: u16) {
