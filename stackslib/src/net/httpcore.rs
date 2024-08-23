@@ -44,11 +44,12 @@ use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
 use crate::core::{MemPoolDB, StacksEpoch};
 use crate::net::connection::ConnectionOptions;
-use crate::net::http::common::HTTP_PREAMBLE_MAX_ENCODED_SIZE;
+use crate::net::http::common::{parse_raw_bytes, HTTP_PREAMBLE_MAX_ENCODED_SIZE};
 use crate::net::http::{
-    http_reason, Error as HttpError, HttpBadRequest, HttpContentType, HttpErrorResponse,
-    HttpNotFound, HttpRequest, HttpRequestContents, HttpRequestPreamble, HttpResponse,
-    HttpResponseContents, HttpResponsePayload, HttpResponsePreamble, HttpServerError, HttpVersion,
+    http_reason, parse_bytes, parse_json, Error as HttpError, HttpBadRequest, HttpContentType,
+    HttpErrorResponse, HttpNotFound, HttpRequest, HttpRequestContents, HttpRequestPreamble,
+    HttpResponse, HttpResponseContents, HttpResponsePayload, HttpResponsePreamble, HttpServerError,
+    HttpVersion,
 };
 use crate::net::p2p::PeerNetwork;
 use crate::net::server::HttpPeer;
@@ -855,6 +856,44 @@ struct StacksHttpReplyData {
     stream: StacksHttpRecvStream,
 }
 
+/// Default response handler, for when using StacksHttp to issue arbitrary requests
+#[derive(Clone)]
+struct RPCArbitraryResponseHandler {}
+impl HttpResponse for RPCArbitraryResponseHandler {
+    fn try_parse_response(
+        &self,
+        preamble: &HttpResponsePreamble,
+        body: &[u8],
+    ) -> Result<HttpResponsePayload, HttpError> {
+        match preamble.content_type {
+            HttpContentType::Bytes => {
+                let bytes = parse_bytes(preamble, body, MAX_MESSAGE_LEN.into())?;
+                Ok(HttpResponsePayload::Bytes(bytes))
+            }
+            HttpContentType::JSON => {
+                if body.len() > MAX_MESSAGE_LEN as usize {
+                    return Err(HttpError::DecodeError(
+                        "Message is too long to decode".into(),
+                    ));
+                }
+
+                let json = parse_json(preamble, body)?;
+                Ok(HttpResponsePayload::JSON(json))
+            }
+            HttpContentType::Text => {
+                let text_bytes = parse_raw_bytes(
+                    preamble,
+                    body,
+                    MAX_MESSAGE_LEN.into(),
+                    HttpContentType::Text,
+                )?;
+                let text = String::from_utf8_lossy(&text_bytes).to_string();
+                Ok(HttpResponsePayload::Text(text))
+            }
+        }
+    }
+}
+
 /// Stacks HTTP state machine implementation, for bufferring up data.
 /// One of these exists per Connection<P: Protocol>.
 /// There can be at most one HTTP request in-flight (i.e. we don't do pipelining).
@@ -890,9 +929,13 @@ pub struct StacksHttp {
     pub read_only_call_limit: ExecutionCost,
     /// The authorization token to enable access to privileged features, such as the block proposal RPC endpoint
     pub auth_token: Option<String>,
+    /// Allow arbitrary responses to be handled in addition to request handlers
+    allow_arbitrary_response: bool,
 }
 
 impl StacksHttp {
+    /// Create an HTTP protocol state machine that handles the built-in RPC API.
+    /// Used for building the RPC server
     pub fn new(peer_addr: SocketAddr, conn_opts: &ConnectionOptions) -> StacksHttp {
         let mut http = StacksHttp {
             peer_addr,
@@ -906,9 +949,29 @@ impl StacksHttp {
             maximum_call_argument_size: conn_opts.maximum_call_argument_size,
             read_only_call_limit: conn_opts.read_only_call_limit.clone(),
             auth_token: conn_opts.auth_token.clone(),
+            allow_arbitrary_response: false,
         };
         http.register_rpc_methods();
         http
+    }
+
+    /// Create an HTTP protocol state machine that can handle arbitrary responses.
+    /// Used for building clients.
+    pub fn new_client(peer_addr: SocketAddr, conn_opts: &ConnectionOptions) -> StacksHttp {
+        StacksHttp {
+            peer_addr,
+            body_start: None,
+            num_preamble_bytes: 0,
+            last_four_preamble_bytes: [0u8; 4],
+            reply: None,
+            chunk_size: 8192,
+            request_handler_index: None,
+            request_handlers: vec![],
+            maximum_call_argument_size: conn_opts.maximum_call_argument_size,
+            read_only_call_limit: conn_opts.read_only_call_limit.clone(),
+            auth_token: conn_opts.auth_token.clone(),
+            allow_arbitrary_response: true,
+        }
     }
 
     /// Register an API RPC endpoint
@@ -1164,7 +1227,7 @@ impl StacksHttp {
         match preamble {
             StacksHttpPreamble::Response(ref http_response_preamble) => {
                 // we can only receive a response if we're expecting it
-                if self.request_handler_index.is_none() {
+                if self.request_handler_index.is_none() && !self.allow_arbitrary_response {
                     return Err(NetError::DeserializeError(
                         "Unexpected HTTP response: no active request handler".to_string(),
                     ));
@@ -1293,13 +1356,15 @@ impl StacksHttp {
             &ConnectionOptions::default(),
         );
 
-        let response_handler_index =
-            http.find_response_handler(verb, request_path)
-                .ok_or(NetError::SendError(format!(
-                    "No such handler for '{} {}'",
-                    verb, request_path
-                )))?;
-        http.request_handler_index = Some(response_handler_index);
+        if !self.allow_arbitrary_response {
+            let response_handler_index =
+                http.find_response_handler(verb, request_path)
+                    .ok_or(NetError::SendError(format!(
+                        "No such handler for '{} {}'",
+                        verb, request_path
+                    )))?;
+            http.request_handler_index = Some(response_handler_index);
+        }
 
         let (preamble, message_offset) = http.read_preamble(response_buf)?;
         let is_chunked = match preamble {
@@ -1417,9 +1482,9 @@ impl ProtocolFamily for StacksHttp {
                 }
 
                 // sanity check -- if we're receiving a response, then we must have earlier issued
-                // a request. Thus, we must already know which response handler to use.
-                // Otherwise, someone sent us malforemd data.
-                if self.request_handler_index.is_none() {
+                // a request, or we must be in client mode. Thus, we must already know which
+                // response handler to use. Otherwise, someone sent us malforemd data.
+                if self.request_handler_index.is_none() && !self.allow_arbitrary_response {
                     self.reset();
                     return Err(NetError::DeserializeError(
                         "Unsolicited HTTP response".to_string(),
@@ -1442,18 +1507,28 @@ impl ProtocolFamily for StacksHttp {
                             num_read,
                         );
 
-                        // we now know the content-length, so pass it into the parser.
-                        let handler_index =
-                            self.request_handler_index
-                                .ok_or(NetError::DeserializeError(
-                                    "Unknown HTTP response handler".to_string(),
-                                ))?;
+                        let parse_res = if self.allow_arbitrary_response {
+                            let arbitrary_parser = RPCArbitraryResponseHandler {};
+                            let response_payload = arbitrary_parser
+                                .try_parse_response(http_response_preamble, &message_bytes[..])?;
+                            Ok(StacksHttpResponse::new(
+                                http_response_preamble.clone(),
+                                response_payload,
+                            ))
+                        } else {
+                            // we now know the content-length, so pass it into the parser.
+                            let handler_index =
+                                self.request_handler_index
+                                    .ok_or(NetError::DeserializeError(
+                                        "Unknown HTTP response handler".to_string(),
+                                    ))?;
 
-                        let parse_res = self.try_parse_response(
-                            handler_index,
-                            http_response_preamble,
-                            &message_bytes[..],
-                        );
+                            self.try_parse_response(
+                                handler_index,
+                                http_response_preamble,
+                                &message_bytes[..],
+                            )
+                        };
 
                         // done parsing
                         self.reset();
@@ -1538,6 +1613,32 @@ impl ProtocolFamily for StacksHttp {
                 // message of known length
                 test_debug!("read http response payload of {} bytes", buf.len(),);
 
+                if self.allow_arbitrary_response {
+                    let arbitrary_parser = RPCArbitraryResponseHandler {};
+                    let response_payload =
+                        arbitrary_parser.try_parse_response(http_response_preamble, buf)?;
+                    if http_response_preamble.status_code >= 400 {
+                        return Ok((
+                            StacksHttpMessage::Error(
+                                "(client-given)".into(),
+                                StacksHttpResponse::new(
+                                    http_response_preamble.clone(),
+                                    response_payload,
+                                ),
+                            ),
+                            buf.len(),
+                        ));
+                    } else {
+                        return Ok((
+                            StacksHttpMessage::Response(StacksHttpResponse::new(
+                                http_response_preamble.clone(),
+                                response_payload,
+                            )),
+                            buf.len(),
+                        ));
+                    }
+                }
+
                 // sanity check -- if we're receiving a response, then we must have earlier issued
                 // a request. Thus, we must already know which response handler to use.
                 // Otherwise, someone sent us malformed data.
@@ -1576,27 +1677,36 @@ impl ProtocolFamily for StacksHttp {
     ) -> Result<(), NetError> {
         match *message {
             StacksHttpMessage::Request(ref req) => {
-                // client cannot send more than one request in parallel
-                if self.request_handler_index.is_some() {
-                    test_debug!("Have pending request already");
-                    return Err(NetError::InProgress);
-                }
+                // the node cannot send more than one request in parallel, unless the client is
+                // directing it
+                let handler_index = if !self.allow_arbitrary_response {
+                    if self.request_handler_index.is_some() {
+                        test_debug!("Have pending request already");
+                        return Err(NetError::InProgress);
+                    }
 
-                // find the response handler we'll use
-                let (decoded_path, _) = decode_request_path(&req.preamble().path_and_query_str)?;
-                let handler_index = self
-                    .find_response_handler(&req.preamble().verb, &decoded_path)
-                    .ok_or(NetError::SendError(format!(
-                        "No response handler found for `{} {}`",
-                        &req.preamble().verb,
-                        &decoded_path
-                    )))?;
+                    // find the response handler we'll use
+                    let (decoded_path, _) =
+                        decode_request_path(&req.preamble().path_and_query_str)?;
+                    let handler_index = self
+                        .find_response_handler(&req.preamble().verb, &decoded_path)
+                        .ok_or(NetError::SendError(format!(
+                            "No response handler found for `{} {}`",
+                            &req.preamble().verb,
+                            &decoded_path
+                        )))?;
+                    handler_index
+                } else {
+                    0
+                };
 
                 req.send(fd)?;
 
                 // remember this so we'll know how to decode the response.
                 // The next preamble and message we'll read _must be_ a response!
-                self.request_handler_index = Some(handler_index);
+                if !self.allow_arbitrary_response {
+                    self.request_handler_index = Some(handler_index);
+                }
                 Ok(())
             }
             StacksHttpMessage::Response(ref resp) => resp.send(fd),
