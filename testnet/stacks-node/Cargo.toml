@@ -32,6 +32,7 @@ hashbrown = { workspace = true }
 rusqlite = { workspace = true }
 async-h1 = { version = "2.3.2", optional = true }
 async-std = { version = "1.6", optional = true, features = ["attributes"] }
+http-types = { version = "2.12", optional = true }
 
 [target.'cfg(not(any(target_os = "macos", target_os="windows", target_arch = "arm")))'.dependencies]
 tikv-jemallocator = {workspace = true}
@@ -61,7 +62,7 @@ name = "stacks-events"
 path = "src/stacks_events.rs"
 
 [features]
-monitoring_prom = ["stacks/monitoring_prom", "libsigner/monitoring_prom", "stacks-signer/monitoring_prom", "dep:async-h1", "dep:async-std"]
+monitoring_prom = ["stacks/monitoring_prom", "libsigner/monitoring_prom", "stacks-signer/monitoring_prom", "async-h1", "async-std", "http-types"]
 slog_json = ["stacks/slog_json", "stacks-common/slog_json", "clarity/slog_json"]
 prod-genesis-chainstate = []
 default = []
