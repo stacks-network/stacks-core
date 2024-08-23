@@ -92,7 +92,6 @@ impl GetStackersResponse {
         cycle_number: u64,
     ) -> Result<Self, GetStackersErrors> {
         let cycle_start_height = burnchain.reward_cycle_to_block_height(cycle_number);
-
         let pox_contract_name = burnchain
             .pox_constants
             .active_pox_contract(cycle_start_height);
@@ -107,7 +106,7 @@ impl GetStackersResponse {
 
         let provider = OnChainRewardSetProvider::new();
         let stacker_set = provider
-            .read_reward_set_nakamoto(cycle_start_height, chainstate, burnchain, sortdb, tip, true)
+            .read_reward_set_nakamoto(chainstate, cycle_number, sortdb, tip, true)
             .map_err(GetStackersErrors::NotAvailableYet)?;
 
         Ok(Self { stacker_set })
@@ -121,7 +120,7 @@ impl HttpRequest for GetStackersRequestHandler {
     }
 
     fn path_regex(&self) -> Regex {
-        Regex::new(r#"^/v3/stacker_set/(?P<cycle_num>[0-9]{1,20})$"#).unwrap()
+        Regex::new(r#"^/v3/stacker_set/(?P<cycle_num>[0-9]{1,10})$"#).unwrap()
     }
 
     fn metrics_identifier(&self) -> &str {

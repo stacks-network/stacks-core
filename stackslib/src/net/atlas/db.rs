@@ -494,8 +494,12 @@ impl AtlasDB {
         page_index: u32,
         block_id: &StacksBlockId,
     ) -> Result<Vec<bool>, db_error> {
-        let min = page_index * AttachmentInstance::ATTACHMENTS_INV_PAGE_SIZE;
-        let max = min + AttachmentInstance::ATTACHMENTS_INV_PAGE_SIZE;
+        let min = page_index
+            .checked_mul(AttachmentInstance::ATTACHMENTS_INV_PAGE_SIZE)
+            .ok_or(db_error::Overflow)?;
+        let max = min
+            .checked_add(AttachmentInstance::ATTACHMENTS_INV_PAGE_SIZE)
+            .ok_or(db_error::Overflow)?;
         let qry = "SELECT attachment_index, is_available FROM attachment_instances WHERE attachment_index >= ?1 AND attachment_index < ?2 AND index_block_hash = ?3 ORDER BY attachment_index ASC";
         let args = params![min, max, block_id,];
         let rows = query_rows::<(u32, u32), _>(&self.conn, &qry, args)?;

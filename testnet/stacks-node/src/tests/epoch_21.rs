@@ -1296,12 +1296,7 @@ fn transition_adds_get_pox_addr_recipients() {
                             // NOTE: there's an even number of payouts here, so this works
                             eprintln!("payout at {} = {}", burn_block_height, &payout);
 
-                            if Burnchain::static_is_in_prepare_phase(
-                                0,
-                                pox_constants.reward_cycle_length as u64,
-                                pox_constants.prepare_length.into(),
-                                burn_block_height,
-                            ) {
+                            if pox_constants.is_in_prepare_phase(0, burn_block_height) {
                                 // in prepare phase
                                 eprintln!("{} in prepare phase", burn_block_height);
                                 assert_eq!(payout, conf.burnchain.burn_fee_cap as u128);

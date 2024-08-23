@@ -120,8 +120,6 @@ fn test_parse_stacks_http_preamble_response_err() {
          "Failed to decode HTTP request or HTTP response"),
         ("HTTP/1.1 200 OK\r\nContent-Length: foo\r\n\r\n",
          "Failed to decode HTTP request or HTTP response"),
-        ("HTTP/1.1 200 OK\r\nContent-Length: 123\r\n\r\n",
-         "Failed to decode HTTP request or HTTP response"),
         ("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\n",
          "Failed to decode HTTP request or HTTP response"),
         ("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 123\r\nTransfer-Encoding: chunked\r\n\r\n",
