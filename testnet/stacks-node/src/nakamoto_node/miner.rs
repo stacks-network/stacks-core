@@ -738,7 +738,11 @@ impl BlockMinerThread {
         staging_tx.commit()?;
 
         if !accepted {
-            warn!("Did NOT accept block {} we mined", &block.block_id());
+            // this can happen if the p2p network and relayer manage to receive this block prior to
+            // the thread reaching this point -- this can happen because the signers broadcast the
+            // signed block to the nodes independent of the miner, so the miner itself can receive
+            // and store its own block outside of this thread.
+            debug!("Did NOT accept block {} we mined", &block.block_id());
 
             // not much we can do here, but try and mine again and hope we produce a valid one.
             return Ok(());
