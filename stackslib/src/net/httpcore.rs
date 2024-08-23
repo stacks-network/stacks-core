@@ -1686,17 +1686,17 @@ impl ProtocolFamily for StacksHttp {
                             &req.preamble().verb,
                             &decoded_path
                         )))?;
-                    handler_index
+                    Some(handler_index)
                 } else {
-                    0
+                    None
                 };
 
                 req.send(fd)?;
 
                 // remember this so we'll know how to decode the response.
                 // The next preamble and message we'll read _must be_ a response!
-                if !self.allow_arbitrary_response {
-                    self.request_handler_index = Some(handler_index);
+                if handler_index.is_some() {
+                    self.request_handler_index = handler_index;
                 }
                 Ok(())
             }
@@ -1768,14 +1768,10 @@ pub fn decode_request_path(path: &str) -> Result<(String, String), NetError> {
 
 /// Convert a NetError into an io::Error if appropriate.
 fn handle_net_error(e: NetError, msg: &str) -> io::Error {
-    if let NetError::ReadError(ioe) = e {
-        ioe
-    } else if let NetError::WriteError(ioe) = e {
-        ioe
-    } else if let NetError::RecvTimeout = e {
-        io::Error::new(io::ErrorKind::WouldBlock, "recv timeout")
-    } else {
-        io::Error::new(io::ErrorKind::Other, format!("{}: {:?}", &e, msg).as_str())
+    match e {
+        NetError::ReadError(ioe) | NetError::WriteError(ioe) => ioe,
+        NetError::RecvTimeout => io::Error::new(io::ErrorKind::WouldBlock, "recv timeout"),
+        _ => io::Error::new(io::ErrorKind::Other, format!("{}: {:?}", &e, msg).as_str()),
     }
 }
 
@@ -1911,8 +1907,7 @@ pub fn send_http_request(
     // and dispatched any new messages to the request handle.  If so, then extract the message and
     // check that it's a well-formed HTTP response.
     debug!("send_request(receiving data)");
-    let response;
-    loop {
+    let response = loop {
         // get back the reply
         debug!("send_request(receiving data): try to receive data");
         match connection.recv_data(&mut stream) {
@@ -1932,18 +1927,15 @@ pub fn send_http_request(
         debug!("send_request(receiving data): try receive response");
         let rh = match request_handle.try_recv() {
             Ok(resp) => {
-                response = resp;
-                break;
+                break resp;
             }
-            Err(e) => match e {
-                Ok(handle) => handle,
-                Err(e) => {
-                    return Err(handle_net_error(
-                        e,
-                        "Failed to receive message after socket has been drained",
-                    ));
-                }
-            },
+            Err(Ok(handle)) => handle,
+            Err(Err(e)) => {
+                return Err(handle_net_error(
+                    e,
+                    "Failed to receive message after socket has been drained",
+                ));
+            }
         };
         request_handle = rh;
 
@@ -1953,7 +1945,7 @@ pub fn send_http_request(
                 "Timed out while receiving request",
             ));
         }
-    }
+    };
 
     // Step 5: decode the HTTP message and return it if it's not an error.
     let response_data = match response {
