@@ -183,9 +183,9 @@ impl FromStr for HttpContentType {
         } else if s == "application/json" {
             Ok(HttpContentType::JSON)
         } else {
-            Err(CodecError::DeserializeError(
-                "Unsupported HTTP content type".to_string(),
-            ))
+            Err(CodecError::DeserializeError(format!(
+                "Unsupported HTTP content type: {header}"
+            )))
         }
     }
 }
