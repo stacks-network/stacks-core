@@ -1356,6 +1356,7 @@ impl StacksHttp {
             "127.0.0.1:20443".parse().unwrap(),
             &ConnectionOptions::default(),
         );
+        http.allow_arbitrary_response = true;
 
         let (preamble, message_offset) = http.read_preamble(response_buf)?;
         let is_chunked = match preamble {
@@ -1498,7 +1499,9 @@ impl ProtocolFamily for StacksHttp {
                             num_read,
                         );
 
-                        let parse_res = if self.allow_arbitrary_response {
+                        let parse_res = if self.request_handler_index.is_none()
+                            && self.allow_arbitrary_response
+                        {
                             let arbitrary_parser = RPCArbitraryResponseHandler {};
                             let response_payload = arbitrary_parser
                                 .try_parse_response(http_response_preamble, &message_bytes[..])?;
@@ -1604,7 +1607,7 @@ impl ProtocolFamily for StacksHttp {
                 // message of known length
                 test_debug!("read http response payload of {} bytes", buf.len(),);
 
-                if self.allow_arbitrary_response {
+                if self.request_handler_index.is_none() && self.allow_arbitrary_response {
                     let arbitrary_parser = RPCArbitraryResponseHandler {};
                     let response_payload =
                         arbitrary_parser.try_parse_response(http_response_preamble, buf)?;
