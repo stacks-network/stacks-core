@@ -2280,7 +2280,14 @@ impl NakamotoChainState {
                    "signing_weight" => signing_weight);
             true
         } else {
-            debug!("Will not store alternative copy of block {} ({}) with block hash {}, since it has less signing power", &block_id, &block.header.consensus_hash, &block_hash);
+            if existing_signing_weight > signing_weight {
+                debug!("Will not store alternative copy of block {} ({}) with block hash {}, since it has less signing power", &block_id, &block.header.consensus_hash, &block_hash);
+            } else {
+                debug!(
+                    "Will not store duplicate copy of block {} ({}) with block hash {}",
+                    &block_id, &block.header.consensus_hash, &block_hash
+                );
+            }
             false
         };
 
