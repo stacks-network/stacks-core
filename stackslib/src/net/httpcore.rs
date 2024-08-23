@@ -17,7 +17,8 @@
 /// This module binds the http library to Stacks as a `ProtocolFamily` implementation
 use std::collections::{BTreeMap, HashMap};
 use std::io::{Read, Write};
-use std::net::SocketAddr;
+use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
+use std::time::{Duration, Instant};
 use std::{fmt, io, mem};
 
 use clarity::vm::costs::ExecutionCost;
@@ -32,8 +33,8 @@ use stacks_common::types::chainstate::{
 use stacks_common::types::net::PeerHost;
 use stacks_common::types::Address;
 use stacks_common::util::chunked_encoding::*;
-use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::retry::{BoundReader, RetryReader};
+use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs};
 use url::Url;
 
 use super::rpc::ConversationHttp;
@@ -43,7 +44,7 @@ use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
 use crate::core::{MemPoolDB, StacksEpoch};
-use crate::net::connection::ConnectionOptions;
+use crate::net::connection::{ConnectionOptions, NetworkConnection};
 use crate::net::http::common::{parse_raw_bytes, HTTP_PREAMBLE_MAX_ENCODED_SIZE};
 use crate::net::http::{
     http_reason, parse_bytes, parse_json, Error as HttpError, HttpBadRequest, HttpContentType,
@@ -1763,4 +1764,218 @@ pub fn decode_request_path(path: &str) -> Result<(String, String), NetError> {
         decoded_path.to_string(),
         query_str.unwrap_or("").to_string(),
     ))
+}
+
+/// Convert a NetError into an io::Error if appropriate.
+fn handle_net_error(e: NetError, msg: &str) -> io::Error {
+    if let NetError::ReadError(ioe) = e {
+        ioe
+    } else if let NetError::WriteError(ioe) = e {
+        ioe
+    } else if let NetError::RecvTimeout = e {
+        io::Error::new(io::ErrorKind::WouldBlock, "recv timeout")
+    } else {
+        io::Error::new(io::ErrorKind::Other, format!("{}: {:?}", &e, msg).as_str())
+    }
+}
+
+/// Send an HTTP request to the given host:port.  Returns the decoded response.
+/// Internally, this creates a socket, connects it, sends the HTTP request, and decodes the HTTP
+/// response.  It is a blocking operation.
+///
+/// If the request encounters a network error, then return an error.  Don't retry.
+/// If the request times out after `timeout`, then return an error.
+pub fn send_http_request(
+    host: &str,
+    port: u16,
+    request: StacksHttpRequest,
+    timeout: Duration,
+) -> Result<StacksHttpResponse, io::Error> {
+    // Find the host:port that works.
+    // This is sometimes necessary because `localhost` can resolve to both its ipv4 and ipv6
+    // addresses, but usually, Stacks services like event observers are only bound to ipv4
+    // addresses.  So, be sure to use an address that will lead to a socket connection!
+    let mut stream_and_addr = None;
+    let mut last_err = None;
+    for addr in format!("{host}:{port}").to_socket_addrs()? {
+        debug!("send_request: connect to {}", &addr);
+        match TcpStream::connect_timeout(&addr, timeout) {
+            Ok(sock) => {
+                stream_and_addr = Some((sock, addr));
+                break;
+            }
+            Err(e) => {
+                last_err = Some(e);
+            }
+        }
+    }
+
+    let Some((mut stream, addr)) = stream_and_addr else {
+        return Err(last_err.unwrap_or(io::Error::new(
+            io::ErrorKind::Other,
+            "Unable to connect to {host}:{port}",
+        )));
+    };
+
+    stream.set_read_timeout(Some(timeout))?;
+    stream.set_write_timeout(Some(timeout))?;
+    stream.set_nodelay(true)?;
+
+    let start = Instant::now();
+
+    debug!("send_request: Sending request"; "request" => %request.request_path());
+
+    // Some explanation of what's going on here is in order.
+    //
+    // The networking stack in Stacks is designed to operate on non-blocking sockets, and
+    // furthermore, it operates in a way that the call site in which a network request is issued can
+    // be in a wholly separate stack (or thread) from the connection.  While this is absolutely necessary
+    // within the Stacks node, using it to issue a single blocking request imposes a lot of
+    // overhead.
+    //
+    // First, we will create the network connection and give it a ProtocolFamily implementation
+    // (StacksHttp), which gets used by the connection to encode and deocde messages.
+    //
+    // Second, we'll create a _handle_ to the network connection into which we will write requests
+    // and read responses.  The connection itself is an opaque black box that, internally,
+    // implements a state machine around the ProtocolFamily implementation to incrementally read
+    // ProtocolFamily messages from a Read, and write them to a Write.  The Read + Write is
+    // (usually) a non-blocking socket; the network connection deals with EWOULDBLOCK internally,
+    // as well as underfull socket buffers.
+    //
+    // Third, we need to _drive_ data to the socket.  We have to repeatedly (1) flush the network
+    // handle (which contains the buffered bytes from the message to be fed into the socket), and
+    // (2) drive bytes from the handle into the socket iself via the network connection.  This is a
+    // two-step process mainly because the handle is expected to live in a separate stack (or even
+    // a separate thread).
+    //
+    // Fourth, we need to _drive_ data from the socket.  We have to repeatedly (1) pull data from
+    // the socket into the network connection, and (2) drive parsed messages from the connection to
+    // the handle.  Then, the call site that owns the handle simply polls the handle for new
+    // messages.  Once we have received a message, we can proceed to handle it.
+    //
+    // Finally, we deal with the kind of HTTP message we got. If it's an error response, we convert
+    // it into an error.  If it's a request (i.e. not a response), we also return an error.  We
+    // only return the message if it was a well-formed non-error HTTP response.
+
+    // Step 1-2: set up the connection and request handle
+    // NOTE: we don't need anything special for connection options, so just use the default
+    let conn_opts = ConnectionOptions::default();
+    let http = StacksHttp::new_client(addr, &conn_opts);
+    let mut connection = NetworkConnection::new(http, &conn_opts, None);
+    let mut request_handle = connection
+        .make_request_handle(0, get_epoch_time_secs() + timeout.as_secs(), 0)
+        .map_err(|e| {
+            io::Error::new(
+                io::ErrorKind::Other,
+                format!("Failed to create request handle: {:?}", &e).as_str(),
+            )
+        })?;
+
+    // Step 3: load up the request with the message we're gonna send, and iteratively dump its
+    // bytes from the handle into the socket (the connection does internal buffering and
+    // bookkeeping to deal with the cases where we fail to fill the socket buffer, or we can't send
+    // anymore because the socket buffer is currently full).
+    request
+        .send(&mut request_handle)
+        .map_err(|e| handle_net_error(e, "Failed to serialize request body"))?;
+
+    debug!("send_request(sending data)");
+    loop {
+        let flushed = request_handle
+            .try_flush()
+            .map_err(|e| handle_net_error(e, "Failed to flush request body"))?;
+
+        // send it out
+        let num_sent = connection
+            .send_data(&mut stream)
+            .map_err(|e| handle_net_error(e, "Failed to send socket data"))?;
+
+        debug!(
+            "send_request(sending data): flushed = {}, num_sent = {}",
+            flushed, num_sent
+        );
+        if flushed && num_sent == 0 {
+            break;
+        }
+
+        if Instant::now().saturating_duration_since(start) > timeout {
+            return Err(io::Error::new(
+                io::ErrorKind::WouldBlock,
+                "Timed out while receiving request",
+            ));
+        }
+    }
+
+    // Step 4: pull bytes from the socket back into the handle, and see if the connection decoded
+    // and dispatched any new messages to the request handle.  If so, then extract the message and
+    // check that it's a well-formed HTTP response.
+    debug!("send_request(receiving data)");
+    let response;
+    loop {
+        // get back the reply
+        debug!("send_request(receiving data): try to receive data");
+        match connection.recv_data(&mut stream) {
+            Ok(nr) => {
+                debug!("send_request(receiving data): received {} bytes", nr);
+            }
+            Err(e) => {
+                return Err(handle_net_error(e, "Failed to receive socket data"));
+            }
+        }
+
+        // fullfill the request -- send it to its corresponding handle
+        debug!("send_request(receiving data): drain inbox");
+        connection.drain_inbox();
+
+        // see if we got a message that was fulfilled in our handle
+        debug!("send_request(receiving data): try receive response");
+        let rh = match request_handle.try_recv() {
+            Ok(resp) => {
+                response = resp;
+                break;
+            }
+            Err(e) => match e {
+                Ok(handle) => handle,
+                Err(e) => {
+                    return Err(handle_net_error(
+                        e,
+                        "Failed to receive message after socket has been drained",
+                    ));
+                }
+            },
+        };
+        request_handle = rh;
+
+        if Instant::now().saturating_duration_since(start) > timeout {
+            return Err(io::Error::new(
+                io::ErrorKind::WouldBlock,
+                "Timed out while receiving request",
+            ));
+        }
+    }
+
+    // Step 5: decode the HTTP message and return it if it's not an error.
+    let response_data = match response {
+        StacksHttpMessage::Response(response_data) => response_data,
+        StacksHttpMessage::Error(path, response) => {
+            return Err(io::Error::new(
+                io::ErrorKind::Other,
+                format!(
+                    "Request did not succeed ({} != 200). Path: '{}'",
+                    response.preamble().status_code,
+                    &path
+                )
+                .as_str(),
+            ));
+        }
+        _ => {
+            return Err(io::Error::new(
+                io::ErrorKind::Other,
+                "Did not receive an HTTP response",
+            ));
+        }
+    };
+
+    Ok(response_data)
 }

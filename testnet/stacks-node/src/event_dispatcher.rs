@@ -16,13 +16,10 @@
 
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
-use std::io;
-use std::io::{Read, Write};
-use std::net::{TcpStream, ToSocketAddrs};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Mutex;
 use std::thread::sleep;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use clarity::vm::analysis::contract_interface_builder::build_contract_interface;
 use clarity::vm::costs::ExecutionCost;
@@ -55,17 +52,14 @@ use stacks::net::api::postblock_proposal::{
     BlockValidateOk, BlockValidateReject, BlockValidateResponse,
 };
 use stacks::net::atlas::{Attachment, AttachmentInstance};
-use stacks::net::connection::{ConnectionOptions, NetworkConnection};
-use stacks::net::http::{HttpRequestContents, HttpResponsePayload};
-use stacks::net::httpcore::{StacksHttp, StacksHttpMessage, StacksHttpRequest, StacksHttpResponse};
+use stacks::net::http::HttpRequestContents;
+use stacks::net::httpcore::{send_http_request, StacksHttpRequest};
 use stacks::net::stackerdb::StackerDBEventDispatcher;
-use stacks::net::Error as NetError;
 use stacks::util::hash::to_hex;
 use stacks_common::bitvec::BitVec;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksBlockId};
 use stacks_common::types::net::PeerHost;
-use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::{bytes_to_hex, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::MessageSignature;
 use url::Url;
@@ -318,220 +312,6 @@ impl RewardSetEventPayload {
     }
 }
 
-/// Convert a NetError into an io::Error if appropriate.
-fn handle_net_error(e: NetError, msg: &str) -> io::Error {
-    if let NetError::ReadError(ioe) = e {
-        ioe
-    } else if let NetError::WriteError(ioe) = e {
-        ioe
-    } else if let NetError::RecvTimeout = e {
-        io::Error::new(io::ErrorKind::WouldBlock, "recv timeout")
-    } else {
-        io::Error::new(io::ErrorKind::Other, format!("{}: {:?}", &e, msg).as_str())
-    }
-}
-
-/// Send an HTTP request to the given host:port.  Returns the decoded response.
-/// Internally, this creates a socket, connects it, sends the HTTP request, and decodes the HTTP
-/// response.  It is a blocking operation.
-///
-/// If the request encounters a network error, then return an error.  Don't retry.
-/// If the request times out after `timeout`, then return an error.
-pub fn send_request(
-    host: &str,
-    port: u16,
-    request: StacksHttpRequest,
-    timeout: Duration,
-) -> Result<StacksHttpResponse, io::Error> {
-    // Find the host:port that works.
-    // This is sometimes necessary because `localhost` can resolve to both its ipv4 and ipv6
-    // addresses, but usually, Stacks services like event observers are only bound to ipv4
-    // addresses.  So, be sure to use an address that will lead to a socket connection!
-    let mut stream_and_addr = None;
-    let mut last_err = None;
-    for addr in format!("{host}:{port}").to_socket_addrs()? {
-        debug!("send_request: connect to {}", &addr);
-        match TcpStream::connect_timeout(&addr, timeout) {
-            Ok(sock) => {
-                stream_and_addr = Some((sock, addr));
-                break;
-            }
-            Err(e) => {
-                last_err = Some(e);
-            }
-        }
-    }
-
-    let Some((mut stream, addr)) = stream_and_addr else {
-        return Err(last_err.unwrap_or(io::Error::new(
-            io::ErrorKind::Other,
-            "Unable to connect to {host}:{port}",
-        )));
-    };
-
-    stream.set_read_timeout(Some(timeout))?;
-    stream.set_write_timeout(Some(timeout))?;
-    stream.set_nodelay(true)?;
-
-    let start = Instant::now();
-
-    debug!("send_request: Sending request"; "request" => %request.request_path());
-
-    // Some explanation of what's going on here is in order.
-    //
-    // The networking stack in Stacks is designed to operate on non-blocking sockets, and
-    // furthermore, it operates in a way that the call site in which a network request is issued can
-    // be in a wholly separate stack (or thread) from the connection.  While this is absolutely necessary
-    // within the Stacks node, using it to issue a single blocking request imposes a lot of
-    // overhead.
-    //
-    // First, we will create the network connection and give it a ProtocolFamily implementation
-    // (StacksHttp), which gets used by the connection to encode and deocde messages.
-    //
-    // Second, we'll create a _handle_ to the network connection into which we will write requests
-    // and read responses.  The connection itself is an opaque black box that, internally,
-    // implements a state machine around the ProtocolFamily implementation to incrementally read
-    // ProtocolFamily messages from a Read, and write them to a Write.  The Read + Write is
-    // (usually) a non-blocking socket; the network connection deals with EWOULDBLOCK internally,
-    // as well as underfull socket buffers.
-    //
-    // Third, we need to _drive_ data to the socket.  We have to repeatedly (1) flush the network
-    // handle (which contains the buffered bytes from the message to be fed into the socket), and
-    // (2) drive bytes from the handle into the socket iself via the network connection.  This is a
-    // two-step process mainly because the handle is expected to live in a separate stack (or even
-    // a separate thread).
-    //
-    // Fourth, we need to _drive_ data from the socket.  We have to repeatedly (1) pull data from
-    // the socket into the network connection, and (2) drive parsed messages from the connection to
-    // the handle.  Then, the call site that owns the handle simply polls the handle for new
-    // messages.  Once we have received a message, we can proceed to handle it.
-    //
-    // Finally, we deal with the kind of HTTP message we got. If it's an error response, we convert
-    // it into an error.  If it's a request (i.e. not a response), we also return an error.  We
-    // only return the message if it was a well-formed non-error HTTP response.
-
-    // Step 1-2: set up the connection and request handle
-    // NOTE: we don't need anything special for connection options, so just use the default
-    let conn_opts = ConnectionOptions::default();
-    let http = StacksHttp::new_client(addr, &conn_opts);
-    let mut connection = NetworkConnection::new(http, &conn_opts, None);
-    let mut request_handle = connection
-        .make_request_handle(0, get_epoch_time_secs() + timeout.as_secs(), 0)
-        .map_err(|e| {
-            io::Error::new(
-                io::ErrorKind::Other,
-                format!("Failed to create request handle: {:?}", &e).as_str(),
-            )
-        })?;
-
-    // Step 3: load up the request with the message we're gonna send, and iteratively dump its
-    // bytes from the handle into the socket (the connection does internal buffering and
-    // bookkeeping to deal with the cases where we fail to fill the socket buffer, or we can't send
-    // anymore because the socket buffer is currently full).
-    request
-        .send(&mut request_handle)
-        .map_err(|e| handle_net_error(e, "Failed to serialize request body"))?;
-
-    debug!("send_request(sending data)");
-    loop {
-        let flushed = request_handle
-            .try_flush()
-            .map_err(|e| handle_net_error(e, "Failed to flush request body"))?;
-
-        // send it out
-        let num_sent = connection
-            .send_data(&mut stream)
-            .map_err(|e| handle_net_error(e, "Failed to send socket data"))?;
-
-        debug!(
-            "send_request(sending data): flushed = {}, num_sent = {}",
-            flushed, num_sent
-        );
-        if flushed && num_sent == 0 {
-            break;
-        }
-
-        if Instant::now().saturating_duration_since(start) > timeout {
-            return Err(io::Error::new(
-                io::ErrorKind::WouldBlock,
-                "Timed out while receiving request",
-            ));
-        }
-    }
-
-    // Step 4: pull bytes from the socket back into the handle, and see if the connection decoded
-    // and dispatched any new messages to the request handle.  If so, then extract the message and
-    // check that it's a well-formed HTTP response.
-    debug!("send_request(receiving data)");
-    let response;
-    loop {
-        // get back the reply
-        debug!("send_request(receiving data): try to receive data");
-        match connection.recv_data(&mut stream) {
-            Ok(nr) => {
-                debug!("send_request(receiving data): received {} bytes", nr);
-            }
-            Err(e) => {
-                return Err(handle_net_error(e, "Failed to receive socket data"));
-            }
-        }
-
-        // fullfill the request -- send it to its corresponding handle
-        debug!("send_request(receiving data): drain inbox");
-        connection.drain_inbox();
-
-        // see if we got a message that was fulfilled in our handle
-        debug!("send_request(receiving data): try receive response");
-        let rh = match request_handle.try_recv() {
-            Ok(resp) => {
-                response = resp;
-                break;
-            }
-            Err(e) => match e {
-                Ok(handle) => handle,
-                Err(e) => {
-                    return Err(handle_net_error(
-                        e,
-                        "Failed to receive message after socket has been drained",
-                    ));
-                }
-            },
-        };
-        request_handle = rh;
-
-        if Instant::now().saturating_duration_since(start) > timeout {
-            return Err(io::Error::new(
-                io::ErrorKind::WouldBlock,
-                "Timed out while receiving request",
-            ));
-        }
-    }
-
-    // Step 5: decode the HTTP message and return it if it's not an error.
-    let response_data = match response {
-        StacksHttpMessage::Response(response_data) => response_data,
-        StacksHttpMessage::Error(path, response) => {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                format!(
-                    "Request did not succeed ({} != 200). Path: '{}'",
-                    response.preamble().status_code,
-                    &path
-                )
-                .as_str(),
-            ));
-        }
-        _ => {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                "Did not receive an HTTP response",
-            ));
-        }
-    };
-
-    Ok(response_data)
-}
-
 impl EventObserver {
     pub fn send_payload(&self, payload: &serde_json::Value, path: &str) {
         debug!(
@@ -567,7 +347,7 @@ impl EventObserver {
             .unwrap_or_else(|_| panic!("FATAL: failed to encode infallible data as HTTP request"));
             request.add_header("Connection".into(), "close".into());
 
-            match send_request(host, port, request, backoff) {
+            match send_http_request(host, port, request, backoff) {
                 Ok(response) => {
                     if response.preamble().status_code == 200 {
                         debug!(
@@ -1700,7 +1480,6 @@ mod test {
     use stacks::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksHeaderInfo};
     use stacks::chainstate::stacks::events::StacksBlockEventData;
     use stacks::chainstate::stacks::StacksBlock;
-    use stacks::net::httpcore::StacksHttpResponse;
     use stacks::types::chainstate::BlockHeaderHash;
     use stacks::util::secp256k1::MessageSignature;
     use stacks_common::bitvec::BitVec;
@@ -1708,22 +1487,6 @@ mod test {
     use tiny_http::{Method, Response, Server, StatusCode};
 
     use super::*;
-
-    fn json_body(host: &str, port: u16, path: &str, json_bytes: &[u8]) -> StacksHttpRequest {
-        let peerhost: PeerHost = format!("{host}:{port}")
-            .parse()
-            .unwrap_or(PeerHost::DNS(host.to_string(), port));
-        let mut request = StacksHttpRequest::new_for_peer(
-            peerhost,
-            "POST".into(),
-            path.into(),
-            HttpRequestContents::new().payload_json(serde_json::from_slice(json_bytes).unwrap()),
-        )
-        .unwrap_or_else(|_| panic!("FATAL: failed to encode infallible data as HTTP request"));
-        request.add_header("Connection".into(), "close".into());
-
-        request
-    }
 
     #[test]
     fn build_block_processed_event() {
@@ -1852,13 +1615,23 @@ mod test {
         // Start measuring time
         let start_time = Instant::now();
 
+        let host = "10.255.255.1"; // non-routable IP for timeout
+        let port = 80;
+
+        let peerhost: PeerHost = format!("{host}:{port}")
+            .parse()
+            .unwrap_or(PeerHost::DNS(host.to_string(), port));
+        let mut request = StacksHttpRequest::new_for_peer(
+            peerhost,
+            "POST".into(),
+            "/".into(),
+            HttpRequestContents::new().payload_json(serde_json::from_slice(b"{}").unwrap()),
+        )
+        .unwrap_or_else(|_| panic!("FATAL: failed to encode infallible data as HTTP request"));
+        request.add_header("Connection".into(), "close".into());
+
         // Attempt to send a request with a timeout
-        let result = send_request(
-            "10.255.255.1", // Non-routable IP for timeout
-            80,             // HTTP port
-            json_body("10.255.255.1", 80, "/", b"{}"),
-            timeout_duration,
-        );
+        let result = send_http_request(host, port, request, timeout_duration);
 
         // Measure the elapsed time
         let elapsed_time = start_time.elapsed();
@@ -1883,146 +1656,6 @@ mod test {
         assert!(
             elapsed_time < timeout_duration + Duration::from_secs(1),
             "Timeout took too long"
-        );
-    }
-
-    #[test]
-    fn test_send_request_timeout() {
-        // Set up a TcpListener that accepts a connection but delays response
-        let listener = TcpListener::bind("127.0.0.1:0").expect("Failed to bind test listener");
-        let addr = listener.local_addr().unwrap();
-
-        // Spawn a thread that will accept the connection and do nothing, simulating a long delay
-        thread::spawn(move || {
-            let (stream, _addr) = listener.accept().unwrap();
-            // Hold the connection open to simulate a delay
-            thread::sleep(Duration::from_secs(10));
-            drop(stream); // Close the stream
-        });
-
-        // Set a timeout shorter than the sleep duration to force a timeout
-        let connection_timeout = Duration::from_secs(2);
-
-        // Attempt to connect, expecting a timeout error
-        let result = send_request(
-            "127.0.0.1",
-            addr.port(),
-            json_body("127.0.0.1", 80, "/", b"{}"),
-            connection_timeout,
-        );
-
-        // Assert that the result is an error, specifically a timeout
-        assert!(
-            result.is_err(),
-            "Expected a timeout error, got: {:?}",
-            result
-        );
-
-        if let Err(err) = result {
-            assert_eq!(
-                err.kind(),
-                std::io::ErrorKind::WouldBlock,
-                "Expected TimedOut error, got: {:?}",
-                err
-            );
-        }
-    }
-
-    fn start_mock_server(response: String, client_done_signal: Receiver<()>) -> String {
-        // Bind to an available port on localhost
-        let listener = TcpListener::bind("127.0.0.1:0").expect("Failed to bind server");
-        let addr = listener.local_addr().unwrap();
-
-        debug!("Mock server listening on {}", addr);
-
-        // Start the server in a new thread
-        thread::spawn(move || {
-            for stream in listener.incoming() {
-                debug!("Mock server accepted connection");
-                let mut stream = stream.expect("Failed to accept connection");
-
-                // Read the client's request (even if we don't do anything with it)
-                let mut buffer = [0; 512];
-                let _ = stream.read(&mut buffer);
-                debug!("Mock server received request");
-
-                // Simulate a basic HTTP response
-                stream
-                    .write_all(response.as_bytes())
-                    .expect("Failed to write response");
-                stream.flush().expect("Failed to flush stream");
-                debug!("Mock server sent response");
-
-                // Wait for the client to signal that it's done reading
-                client_done_signal
-                    .recv()
-                    .expect("Failed to receive client done signal");
-
-                // Explicitly drop the stream after signaling to ensure the client finishes
-                // NOTE: this will cause the test to slow down, since `send_request` expects
-                // `Connection: close`
-                drop(stream);
-
-                debug!("Mock server closing connection");
-
-                break; // Close after the first request
-            }
-        });
-
-        // Return the address of the mock server
-        format!("{}:{}", addr.ip(), addr.port())
-    }
-
-    fn parse_http_response(response: StacksHttpResponse) -> String {
-        let response_txt = match response.destruct().1 {
-            HttpResponsePayload::Text(s) => s,
-            HttpResponsePayload::Empty => "".to_string(),
-            HttpResponsePayload::JSON(js) => serde_json::to_string(&js).unwrap(),
-            HttpResponsePayload::Bytes(bytes) => {
-                String::from_utf8_lossy(bytes.as_slice()).to_string()
-            }
-        };
-        response_txt
-    }
-
-    #[test]
-    fn test_send_request_success() {
-        // Prepare the mock server to return a successful HTTP response
-        let mock_response = "HTTP/1.1 200 OK\r\nContent-Length: 13\r\n\r\nHello, world!";
-
-        // Create a channel to signal when the client is done reading
-        let (tx_client_done, rx_client_done) = channel();
-        let server_addr = start_mock_server(mock_response.to_string(), rx_client_done);
-        let timeout_duration = Duration::from_secs(5);
-
-        let parts = server_addr.split(':').collect::<Vec<&str>>();
-        let host = parts[0];
-        let port = parts[1].parse().unwrap();
-
-        // Attempt to send a request to the mock server
-        let result = send_request(
-            host,
-            port,
-            json_body(host, port, "/", b"{}"),
-            timeout_duration,
-        );
-        debug!("Got result: {:?}", result);
-
-        // Ensure the server only closes after the client has finished processing
-        if let Ok(response) = &result {
-            let body = parse_http_response(response.clone());
-            assert_eq!(body, "Hello, world!", "Unexpected response body: {}", body);
-        }
-
-        tx_client_done
-            .send(())
-            .expect("Failed to send close signal");
-
-        // Assert that the connection was successful
-        assert!(
-            result.is_ok(),
-            "Expected a successful request, but got {:?}",
-            result
         );
     }
 
