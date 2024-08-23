@@ -16,6 +16,7 @@
 
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
+use std::io;
 use std::io::{Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
 use std::sync::mpsc::{channel, Receiver, Sender};
@@ -27,7 +28,6 @@ use clarity::vm::analysis::contract_interface_builder::build_contract_interface;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::events::{FTEventType, NFTEventType, STXEventType};
 use clarity::vm::types::{AssetIdentifier, QualifiedContractIdentifier, Value};
-use http_types::Url;
 use serde_json::json;
 use stacks::burnchains::{PoxConstants, Txid};
 use stacks::chainstate::burn::operations::BlockstackOperationType;
@@ -55,13 +55,20 @@ use stacks::net::api::postblock_proposal::{
     BlockValidateOk, BlockValidateReject, BlockValidateResponse,
 };
 use stacks::net::atlas::{Attachment, AttachmentInstance};
+use stacks::net::connection::{ConnectionOptions, NetworkConnection};
+use stacks::net::http::{HttpRequestContents, HttpResponsePayload};
+use stacks::net::httpcore::{StacksHttp, StacksHttpMessage, StacksHttpRequest, StacksHttpResponse};
 use stacks::net::stackerdb::StackerDBEventDispatcher;
+use stacks::net::Error as NetError;
 use stacks::util::hash::to_hex;
 use stacks_common::bitvec::BitVec;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksBlockId};
+use stacks_common::types::net::PeerHost;
+use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::{bytes_to_hex, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::MessageSignature;
+use url::Url;
 
 use super::config::{EventKeyType, EventObserverConfig};
 
@@ -311,103 +318,212 @@ impl RewardSetEventPayload {
     }
 }
 
-fn send_request(
+/// Convert a NetError into an io::Error if appropriate.
+fn handle_net_error(e: NetError, msg: &str) -> io::Error {
+    if let NetError::ReadError(ioe) = e {
+        ioe
+    } else if let NetError::WriteError(ioe) = e {
+        ioe
+    } else if let NetError::RecvTimeout = e {
+        io::Error::new(io::ErrorKind::WouldBlock, "recv timeout")
+    } else {
+        io::Error::new(io::ErrorKind::Other, format!("{}: {:?}", &e, msg).as_str())
+    }
+}
+
+/// Send an HTTP request to the given host:port.  Returns the decoded response.
+/// Interanlly, this creates a socket, connects it, sends the HTTP request, and decodes the HTTP
+/// response.  It is a blocking operation.
+///
+/// If the request encounters a network error, then return an error.  Don't retry.
+/// If the request times out after `timeout`, then return an error.
+pub fn send_request(
     host: &str,
     port: u16,
-    body: &[u8],
-    url: &Url,
+    request: StacksHttpRequest,
     timeout: Duration,
-) -> Result<String, std::io::Error> {
-    let addr = format!("{host}:{port}")
-        .to_socket_addrs()?
-        .next()
-        .ok_or_else(|| {
-            std::io::Error::new(std::io::ErrorKind::NotFound, "No valid address found")
-        })?;
-    let mut stream = TcpStream::connect_timeout(&addr, timeout)?;
-    stream.set_read_timeout(Some(timeout))?;
-    stream.set_write_timeout(Some(timeout))?;
-
-    let request = format!(
-        "POST {} HTTP/1.1\r\n\
-         Host: {}\r\n\
-         Content-Type: application/json\r\n\
-         Content-Length: {}\r\n\
-         Connection: close\r\n\
-         \r\n",
-        url.path(),
-        host,
-        body.len(),
-    );
-    debug!("Event dispatcher: Sending request"; "request" => &request);
-
-    stream.write_all(request.as_bytes())?;
-    stream.write_all(body)?;
-    stream.flush()?;
-    debug!("Event dispatcher: Request sent");
-
-    let mut response = Vec::new();
-    let mut buffer = [0; 512];
-    let mut headers_parsed = false;
-    let mut content_length = None;
-    let mut total_read = 0;
-
-    let start_time = Instant::now();
-
-    while total_read < content_length.unwrap_or(usize::MAX) {
-        if start_time.elapsed() >= timeout {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::TimedOut,
-                "Response reading timed out",
-            ));
-        }
-
-        let bytes_read = stream.read(&mut buffer)?;
-        if bytes_read == 0 {
-            // Connection closed
-            break;
-        }
-
-        response.extend_from_slice(&buffer[..bytes_read]);
-
-        // Parse headers if not already done
-        if !headers_parsed {
-            if let Some(headers_end) = response.windows(4).position(|window| window == b"\r\n\r\n")
-            {
-                headers_parsed = true;
-                // Parse Content-Length header
-                let headers = &response[..headers_end];
-                let headers_str = String::from_utf8_lossy(headers);
-                if let Some(content_length_line) = headers_str
-                    .lines()
-                    .find(|line| line.to_lowercase().starts_with("content-length:"))
-                {
-                    let length_str = content_length_line
-                        .split(":")
-                        .nth(1)
-                        // This is safe because we already know the line starts with "Content-Length:"
-                        .expect("unreachable");
-                    match length_str.trim().parse::<usize>() {
-                        Ok(len) => content_length = Some(len),
-                        Err(_) => {
-                            return Err(std::io::Error::new(
-                                std::io::ErrorKind::InvalidData,
-                                "Invalid Content-Length header",
-                            ))
-                        }
-                    }
-                }
-                total_read = response[headers_end + 4..].len();
+) -> Result<StacksHttpResponse, io::Error> {
+    // Find the host:port that works.
+    // This is sometimes necessary because `localhost` can resolve to both its ipv4 and ipv6
+    // addresses, but usually, Stacks services like event observers are only bound to ipv4
+    // addresses.  So, be sure to use an address that will lead to a socket connection!
+    let mut stream_and_addr = None;
+    let mut last_err = None;
+    for addr in format!("{host}:{port}").to_socket_addrs()? {
+        debug!("send_request: connect to {}", &addr);
+        match TcpStream::connect_timeout(&addr, timeout) {
+            Ok(sock) => {
+                stream_and_addr = Some((sock, addr));
+                break;
             }
-        } else {
-            total_read += bytes_read;
+            Err(e) => {
+                last_err = Some(e);
+            }
         }
     }
 
-    let response_str = String::from_utf8_lossy(&response).to_string();
-    debug!("Event dispatcher: Response received"; "response" => &response_str);
+    let Some((mut stream, addr)) = stream_and_addr else {
+        return Err(last_err.unwrap_or(io::Error::new(
+            io::ErrorKind::Other,
+            "Unable to connect to {host}:{port}",
+        )));
+    };
 
-    Ok(response_str)
+    stream.set_read_timeout(Some(timeout))?;
+    stream.set_write_timeout(Some(timeout))?;
+    stream.set_nodelay(true)?;
+
+    let start = Instant::now();
+
+    debug!("send_request: Sending request"; "request" => %request.request_path());
+
+    // Some explanation of what's going on here is in order.
+    //
+    // The networking stack in Stacks is designed to operate on non-blocking sockets, and
+    // furthermore, it operates in a way that the call site in which a network request is issued can
+    // be in a wholly separate stack (or thread) from the connection.  While this is absolutely necessary
+    // within the Stacks node, using it to issue a single blocking request imposes a lot of
+    // overhead.
+    //
+    // First, we will create the network connection and give it a ProtocolFamily implementation
+    // (StacksHttp), which gets used by the connection to encode and deocde messages.
+    //
+    // Second, we'll create a _handle_ to the network connection into which we will write requests
+    // and read responses.  The connection itself is an opaque black box that, internally,
+    // implements a state machine around the ProtocolFamily implementation to incrementally read
+    // ProtocolFamily messages from a Read, and write them to a Write.  The Read + Write is
+    // (usually) a non-blocking socket; the network connection deals with EWOULDBLOCK internally,
+    // as well as underfull socket buffers.
+    // 
+    // Third, we need to _drive_ data to the socket.  We have to repeatedly (1) flush the network
+    // handle (which contains the buffered bytes from the message to be fed into the socket), and
+    // (2) drive bytes from the handle into the socket iself via the network connection.  This is a
+    // two-step process mainly because the handle is expected to live in a separate stack (or even
+    // a separate thread).
+    //
+    // Fourth, we need to _drive_ data from the socket.  We have to repeatedly (1) pull data from
+    // the socket into the network connection, and (2) drive parsed messages from the connection to
+    // the handle.  Then, the call site that owns the handle simply polls the handle for new
+    // messages.  Once we have received a message, we can proceed to handle it.
+    //
+    // Finally, we deal with the kind of HTTP message we got. If it's an error response, we convert
+    // it into an error.  If it's a request (i.e. not a response), we also return an error.  We
+    // only return the message if it was a well-formed non-error HTTP response.
+
+    // Step 1-2: set up the connection and request handle
+    // NOTE: we don't need anything special for connection options, so just use the default
+    let conn_opts = ConnectionOptions::default();
+    let http = StacksHttp::new_client(addr, &conn_opts);
+    let mut connection = NetworkConnection::new(http, &conn_opts, None);
+    let mut request_handle = connection
+        .make_request_handle(0, get_epoch_time_secs() + timeout.as_secs(), 0)
+        .map_err(|e| {
+            io::Error::new(
+                io::ErrorKind::Other,
+                format!("Failed to create request handle: {:?}", &e).as_str(),
+            )
+        })?;
+
+    // Step 3: load up the request with the message we're gonna send, and iteratively dump its
+    // bytes from the handle into the socket (the connection does internall buffering and
+    // bookkeeping to deal with the cases where we fail to fill the socket buffer, or we can't send
+    // anymore because the socket buffer is currently full).
+    request
+        .send(&mut request_handle)
+        .map_err(|e| handle_net_error(e, "Failed to serialize request body"))?;
+
+    debug!("send_request(sending data)");
+    loop {
+        let flushed = request_handle
+            .try_flush()
+            .map_err(|e| handle_net_error(e, "Failed to flush request body"))?;
+
+        // send it out
+        let num_sent = connection
+            .send_data(&mut stream)
+            .map_err(|e| handle_net_error(e, "Failed to send socket data"))?;
+
+        debug!(
+            "send_request(sending data): flushed = {}, num_sent = {}",
+            flushed, num_sent
+        );
+        if flushed && num_sent == 0 {
+            break;
+        }
+        
+        if Instant::now().saturating_duration_since(start) > timeout {
+            return Err(io::Error::new(io::ErrorKind::WouldBlock, "Timed out while receiving request"));
+        }
+    }
+
+    // Step 4: pull bytes from the socket back into the handle, and see if the connection decoded
+    // and dispatched any new messages to the request handle.  If so, then extract the message and
+    // check that it's a well-formed HTTP response.
+    debug!("send_request(receiving data)");
+    let response;
+    loop {
+        // get back the reply
+        debug!("send_request(receiving data): try to receive data");
+        match connection.recv_data(&mut stream) {
+            Ok(nr) => {
+                debug!("send_request(receiving data): received {} bytes", nr);
+            }
+            Err(e) => {
+                return Err(handle_net_error(e, "Failed to receive socket data"));
+            }
+        }
+
+        // fullfill the request -- send it to its corresponding handle
+        debug!("send_request(receiving data): drain inbox");
+        connection.drain_inbox();
+
+        // see of we got a message that was fulfilled in our handle
+        debug!("send_request(receiving data): try receive response");
+        let rh = match request_handle.try_recv() {
+            Ok(resp) => {
+                response = resp;
+                break;
+            }
+            Err(e) => match e {
+                Ok(handle) => handle,
+                Err(e) => {
+                    return Err(handle_net_error(
+                        e,
+                        "Failed to receive message after socket has been drained",
+                    ));
+                }
+            },
+        };
+        request_handle = rh;
+
+        if Instant::now().saturating_duration_since(start) > timeout {
+            return Err(io::Error::new(io::ErrorKind::WouldBlock, "Timed out while receiving request"));
+        }
+    }
+
+    // Step 5: decode the HTTP message and return it if it's not an error.
+    let response_data = match response {
+        StacksHttpMessage::Response(response_data) => response_data,
+        StacksHttpMessage::Error(path, response) => {
+            return Err(io::Error::new(
+                io::ErrorKind::Other,
+                format!(
+                    "Request did not succeed ({} != 200). Path: '{}'",
+                    response.preamble().status_code,
+                    &path
+                )
+                .as_str(),
+            ));
+        }
+        _ => {
+            return Err(io::Error::new(
+                io::ErrorKind::Other,
+                "Did not receive an HTTP response",
+            ));
+        }
+    };
+
+    Ok(response_data)
 }
 
 impl EventObserver {
@@ -415,14 +531,6 @@ impl EventObserver {
         debug!(
             "Event dispatcher: Sending payload"; "url" => %path, "payload" => ?payload
         );
-
-        let body = match serde_json::to_vec(payload) {
-            Ok(body) => body,
-            Err(err) => {
-                error!("Event dispatcher: serialization failed  - {:?}", err);
-                return;
-            }
-        };
 
         let url = {
             let joined_components = if path.starts_with('/') {
@@ -437,25 +545,40 @@ impl EventObserver {
 
         let host = url.host_str().expect("Invalid URL: missing host");
         let port = url.port_or_known_default().unwrap_or(80);
+        let peerhost: PeerHost = format!("{host}:{port}")
+            .parse()
+            .unwrap_or(PeerHost::DNS(host.to_string(), port));
 
         let backoff = Duration::from_millis(1000); // 1 second
 
         loop {
-            match send_request(host, port, &body, &url, backoff) {
+            let mut request = StacksHttpRequest::new_for_peer(
+                peerhost.clone(),
+                "POST".into(),
+                url.path().into(),
+                HttpRequestContents::new().payload_json(payload.clone()),
+            )
+            .unwrap_or_else(|_| panic!("FATAL: failed to encode infallible data as HTTP request"));
+            request.add_header("Connection".into(), "close".into());
+
+            match send_request(host, port, request, backoff) {
                 Ok(response) => {
-                    if response.starts_with("HTTP/1.1 200") {
+                    if response.preamble().status_code == 200 {
                         debug!(
                             "Event dispatcher: Successful POST"; "url" => %url
                         );
                         break;
                     } else {
                         error!(
-                            "Event dispatcher: Failed POST"; "url" => %url, "response" => ?response
+                            "Event dispatcher: Failed POST"; "url" => %url, "response" => ?response.preamble()
                         );
                     }
                 }
                 Err(err) => {
-                    warn!("Event dispatcher: connection or request failed - {:?}", err);
+                    warn!(
+                        "Event dispatcher: connection or request failed to {}:{} - {:?}",
+                        &host, &port, err
+                    );
                 }
             }
             sleep(backoff);
@@ -1571,6 +1694,7 @@ mod test {
     use stacks::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksHeaderInfo};
     use stacks::chainstate::stacks::events::StacksBlockEventData;
     use stacks::chainstate::stacks::StacksBlock;
+    use stacks::net::httpcore::StacksHttpResponse;
     use stacks::types::chainstate::BlockHeaderHash;
     use stacks::util::secp256k1::MessageSignature;
     use stacks_common::bitvec::BitVec;
@@ -1578,6 +1702,22 @@ mod test {
     use tiny_http::{Method, Response, Server, StatusCode};
 
     use super::*;
+
+    fn json_body(host: &str, port: u16, path: &str, json_bytes: &[u8]) -> StacksHttpRequest {
+        let peerhost: PeerHost = format!("{host}:{port}")
+            .parse()
+            .unwrap_or(PeerHost::DNS(host.to_string(), port));
+        let mut request = StacksHttpRequest::new_for_peer(
+            peerhost,
+            "POST".into(),
+            path.into(),
+            HttpRequestContents::new().payload_json(serde_json::from_slice(json_bytes).unwrap()),
+        )
+        .unwrap_or_else(|_| panic!("FATAL: failed to encode infallible data as HTTP request"));
+        request.add_header("Connection".into(), "close".into());
+
+        request
+    }
 
     #[test]
     fn build_block_processed_event() {
@@ -1710,8 +1850,7 @@ mod test {
         let result = send_request(
             "10.255.255.1", // Non-routable IP for timeout
             80,             // HTTP port
-            b"{}",          // Example empty JSON body
-            &Url::parse("http://10.255.255.1/").expect("Failed to parse URL"),
+            json_body("10.255.255.1", 80, "/", b"{}"),
             timeout_duration,
         );
 
@@ -1762,8 +1901,7 @@ mod test {
         let result = send_request(
             "127.0.0.1",
             addr.port(),
-            b"{}",
-            &Url::parse("http://127.0.0.1/").unwrap(),
+            json_body("127.0.0.1", 80, "/", b"{}"),
             connection_timeout,
         );
 
@@ -1814,11 +1952,14 @@ mod test {
                 client_done_signal
                     .recv()
                     .expect("Failed to receive client done signal");
+                
+                // Explicitly drop the stream after signaling to ensure the client finishes
+                // NOTE: this will cause the test to slow down, since `send_request` expects
+                // `Connection: close`
+                drop(stream);
 
                 debug!("Mock server closing connection");
 
-                // Explicitly drop the stream after signaling to ensure the client finishes
-                drop(stream);
                 break; // Close after the first request
             }
         });
@@ -1827,13 +1968,16 @@ mod test {
         format!("{}:{}", addr.ip(), addr.port())
     }
 
-    fn parse_http_response(response: &str) -> &str {
-        let parts: Vec<&str> = response.split("\r\n\r\n").collect();
-        if parts.len() == 2 {
-            parts[1] // The body is after the second \r\n\r\n
-        } else {
-            ""
-        }
+    fn parse_http_response(response: StacksHttpResponse) -> String {
+        let response_txt = match response.destruct().1 {
+            HttpResponsePayload::Text(s) => s,
+            HttpResponsePayload::Empty => "".to_string(),
+            HttpResponsePayload::JSON(js) => serde_json::to_string(&js).unwrap(),
+            HttpResponsePayload::Bytes(bytes) => {
+                String::from_utf8_lossy(bytes.as_slice()).to_string()
+            }
+        };
+        response_txt
     }
 
     #[test]
@@ -1846,21 +1990,23 @@ mod test {
         let server_addr = start_mock_server(mock_response, rx_client_done);
         let timeout_duration = Duration::from_secs(5);
 
+        let host = server_addr.split(':').collect::<Vec<&str>>()[0]; // Host part
+        let port = server_addr.split(':').collect::<Vec<&str>>()[1]
+            .parse()
+            .unwrap(); // Port part
+
         // Attempt to send a request to the mock server
         let result = send_request(
-            &server_addr.split(':').collect::<Vec<&str>>()[0], // Host part
-            server_addr.split(':').collect::<Vec<&str>>()[1]
-                .parse()
-                .unwrap(), // Port part
-            b"{}",                                             // Example JSON body
-            &Url::parse(&format!("http://{}/", server_addr)).expect("Failed to parse URL"),
+            host,
+            port,
+            json_body(host, port, "/", b"{}"),
             timeout_duration,
         );
         debug!("Got result: {:?}", result);
 
         // Ensure the server only closes after the client has finished processing
         if let Ok(response) = &result {
-            let body = parse_http_response(response);
+            let body = parse_http_response(response.clone());
             assert_eq!(body, "Hello, world!", "Unexpected response body: {}", body);
         }
 
