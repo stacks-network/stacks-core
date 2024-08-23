@@ -332,7 +332,7 @@ fn handle_net_error(e: NetError, msg: &str) -> io::Error {
 }
 
 /// Send an HTTP request to the given host:port.  Returns the decoded response.
-/// Interanlly, this creates a socket, connects it, sends the HTTP request, and decodes the HTTP
+/// Internally, this creates a socket, connects it, sends the HTTP request, and decodes the HTTP
 /// response.  It is a blocking operation.
 ///
 /// If the request encounters a network error, then return an error.  Don't retry.
@@ -425,7 +425,7 @@ pub fn send_request(
         })?;
 
     // Step 3: load up the request with the message we're gonna send, and iteratively dump its
-    // bytes from the handle into the socket (the connection does internall buffering and
+    // bytes from the handle into the socket (the connection does internal buffering and
     // bookkeeping to deal with the cases where we fail to fill the socket buffer, or we can't send
     // anymore because the socket buffer is currently full).
     request
@@ -480,7 +480,7 @@ pub fn send_request(
         debug!("send_request(receiving data): drain inbox");
         connection.drain_inbox();
 
-        // see of we got a message that was fulfilled in our handle
+        // see if we got a message that was fulfilled in our handle
         debug!("send_request(receiving data): try receive response");
         let rh = match request_handle.try_recv() {
             Ok(resp) => {
@@ -1928,7 +1928,7 @@ mod test {
         }
     }
 
-    fn start_mock_server(response: &str, client_done_signal: Receiver<()>) -> String {
+    fn start_mock_server(response: String, client_done_signal: Receiver<()>) -> String {
         // Bind to an available port on localhost
         let listener = TcpListener::bind("127.0.0.1:0").expect("Failed to bind server");
         let addr = listener.local_addr().unwrap();
@@ -1936,7 +1936,6 @@ mod test {
         debug!("Mock server listening on {}", addr);
 
         // Start the server in a new thread
-        let response = response.to_string();
         thread::spawn(move || {
             for stream in listener.incoming() {
                 debug!("Mock server accepted connection");
@@ -1993,13 +1992,12 @@ mod test {
 
         // Create a channel to signal when the client is done reading
         let (tx_client_done, rx_client_done) = channel();
-        let server_addr = start_mock_server(mock_response, rx_client_done);
+        let server_addr = start_mock_server(mock_response.to_string(), rx_client_done);
         let timeout_duration = Duration::from_secs(5);
 
-        let host = server_addr.split(':').collect::<Vec<&str>>()[0]; // Host part
-        let port = server_addr.split(':').collect::<Vec<&str>>()[1]
-            .parse()
-            .unwrap(); // Port part
+        let parts = server_addr.split(':').collect::<Vec<&str>>();
+        let host = parts[0];
+        let port = parts[1].parse().unwrap();
 
         // Attempt to send a request to the mock server
         let result = send_request(
