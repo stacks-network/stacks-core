@@ -180,7 +180,7 @@ impl FromStr for HttpContentType {
             Ok(HttpContentType::Bytes)
         } else if s == "text/plain" || s.starts_with("text/plain;") {
             Ok(HttpContentType::Text)
-        } else if s == "application/json" {
+        } else if s == "application/json" || s.starts_with("application/json;") {
             Ok(HttpContentType::JSON)
         } else {
             Err(CodecError::DeserializeError(format!(
