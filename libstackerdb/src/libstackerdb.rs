@@ -101,10 +101,24 @@ pub struct StackerDBChunkData {
 impl fmt::Debug for StackerDBChunkData {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if self.data.len() < 128 {
-            write!(f, "StackerDBChunkData({},{},{},{})", self.slot_id, self.slot_version, &self.sig, &to_hex(&self.data))
-        }
-        else {
-            write!(f, "StackerDBChunkData({},{},{},{}...({}))", self.slot_id, self.slot_version, &self.sig, &to_hex(&self.data[..128]), self.data.len())
+            write!(
+                f,
+                "StackerDBChunkData({},{},{},{})",
+                self.slot_id,
+                self.slot_version,
+                &self.sig,
+                &to_hex(&self.data)
+            )
+        } else {
+            write!(
+                f,
+                "StackerDBChunkData({},{},{},{}...({}))",
+                self.slot_id,
+                self.slot_version,
+                &self.sig,
+                &to_hex(&self.data[..128]),
+                self.data.len()
+            )
         }
     }
 }
