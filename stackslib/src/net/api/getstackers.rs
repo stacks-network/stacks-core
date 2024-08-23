@@ -121,7 +121,7 @@ impl HttpRequest for GetStackersRequestHandler {
     }
 
     fn path_regex(&self) -> Regex {
-        Regex::new(r#"^/v3/stacker_set/(?P<cycle_num>[0-9]{1,20})$"#).unwrap()
+        Regex::new(r#"^/v3/stacker_set/(?P<cycle_num>[0-9]{1,10})$"#).unwrap()
     }
 
     fn metrics_identifier(&self) -> &str {

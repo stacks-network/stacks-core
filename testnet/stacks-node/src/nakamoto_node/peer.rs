@@ -16,8 +16,8 @@
 use std::collections::VecDeque;
 use std::net::SocketAddr;
 use std::sync::mpsc::TrySendError;
+use std::thread;
 use std::time::Duration;
-use std::{cmp, thread};
 
 use stacks::burnchains::db::BurnchainHeaderReader;
 use stacks::burnchains::PoxConstants;
