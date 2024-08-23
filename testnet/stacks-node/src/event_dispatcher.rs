@@ -394,7 +394,7 @@ pub fn send_request(
     // ProtocolFamily messages from a Read, and write them to a Write.  The Read + Write is
     // (usually) a non-blocking socket; the network connection deals with EWOULDBLOCK internally,
     // as well as underfull socket buffers.
-    // 
+    //
     // Third, we need to _drive_ data to the socket.  We have to repeatedly (1) flush the network
     // handle (which contains the buffered bytes from the message to be fed into the socket), and
     // (2) drive bytes from the handle into the socket iself via the network connection.  This is a
@@ -450,9 +450,12 @@ pub fn send_request(
         if flushed && num_sent == 0 {
             break;
         }
-        
+
         if Instant::now().saturating_duration_since(start) > timeout {
-            return Err(io::Error::new(io::ErrorKind::WouldBlock, "Timed out while receiving request"));
+            return Err(io::Error::new(
+                io::ErrorKind::WouldBlock,
+                "Timed out while receiving request",
+            ));
         }
     }
 
@@ -497,7 +500,10 @@ pub fn send_request(
         request_handle = rh;
 
         if Instant::now().saturating_duration_since(start) > timeout {
-            return Err(io::Error::new(io::ErrorKind::WouldBlock, "Timed out while receiving request"));
+            return Err(io::Error::new(
+                io::ErrorKind::WouldBlock,
+                "Timed out while receiving request",
+            ));
         }
     }
 
@@ -1952,7 +1958,7 @@ mod test {
                 client_done_signal
                     .recv()
                     .expect("Failed to receive client done signal");
-                
+
                 // Explicitly drop the stream after signaling to ensure the client finishes
                 // NOTE: this will cause the test to slow down, since `send_request` expects
                 // `Connection: close`
