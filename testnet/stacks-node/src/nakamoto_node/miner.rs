@@ -45,6 +45,7 @@ use stacks::chainstate::stacks::{
 use stacks::net::p2p::NetworkHandle;
 use stacks::net::stackerdb::StackerDBs;
 use stacks::net::{NakamotoBlocksData, StacksMessageType};
+use stacks::util::get_epoch_time_secs;
 use stacks::util::secp256k1::MessageSignature;
 use stacks_common::codec::read_next;
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
@@ -317,8 +318,17 @@ impl BlockMinerThread {
                         }
                     }
                 }
+
                 match self.mine_block(&stackerdbs) {
-                    Ok(x) => break Some(x),
+                    Ok(x) => {
+                        if !self.validate_timestamp(&x)? {
+                            info!("Block mined too quickly. Will try again.";
+                                  "block_timestamp" => x.header.timestamp,
+                            );
+                            continue;
+                        }
+                        break Some(x);
+                    }
                     Err(NakamotoNodeError::MiningFailure(ChainstateError::MinerAborted)) => {
                         info!("Miner interrupted while mining, will try again");
                         // sleep, and try again. if the miner was interrupted because the burnchain
@@ -1035,6 +1045,42 @@ impl BlockMinerThread {
             &self.registered_key.vrf_public_key.to_hex()
         );
         Some(vrf_proof)
+    }
+
+    /// Check that the provided block is not mined too quickly after the parent block.
+    /// This is to ensure that the signers do not reject the block due to the block being mined within the same second as the parent block.
+    fn validate_timestamp(&self, x: &NakamotoBlock) -> Result<bool, NakamotoNodeError> {
+        let chain_state = neon_node::open_chainstate_with_faults(&self.config)
+            .expect("FATAL: could not open chainstate DB");
+        let stacks_parent_header =
+            NakamotoChainState::get_block_header(chain_state.db(), &x.header.parent_block_id)
+                .map_err(|e| {
+                    error!(
+                        "Could not query header info for parent block ID {}: {:?}",
+                        &x.header.parent_block_id, &e
+                    );
+                    NakamotoNodeError::ParentNotFound
+                })?
+                .ok_or_else(|| {
+                    error!(
+                        "No header info for parent block ID {}",
+                        &x.header.parent_block_id
+                    );
+                    NakamotoNodeError::ParentNotFound
+                })?;
+        let current_timestamp = get_epoch_time_secs();
+        let time_since_parent_ms =
+            current_timestamp.saturating_sub(stacks_parent_header.burn_header_timestamp) * 1000;
+        if time_since_parent_ms < self.config.miner.min_time_between_blocks_ms {
+            debug!("Parent block mined {time_since_parent_ms} ms ago. Required minimum gap between blocks is {} ms", self.config.miner.min_time_between_blocks_ms;
+                "current_timestamp" => current_timestamp,
+                "parent_block_id" => %stacks_parent_header.index_block_hash(),
+                "parent_block_height" => stacks_parent_header.stacks_block_height,
+                "parent_block_timestamp" => stacks_parent_header.burn_header_timestamp,
+            );
+            return Ok(false);
+        }
+        Ok(true)
     }
 
     // TODO: add tests from mutation testing results #4869
