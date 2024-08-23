@@ -1,14 +1,11 @@
-use std::cmp;
+use std::convert::From;
 use std::io::Cursor;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
+use std::{cmp, io};
 
-use async_h1::client;
-use async_std::io::ReadExt;
-use async_std::net::TcpStream;
 use base64::encode;
-use http_types::{Method, Request, Url};
 use serde::Serialize;
 use serde_json::json;
 use serde_json::value::RawValue;
@@ -38,6 +35,9 @@ use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::stacks::address::PoxAddress;
 use stacks::core::{StacksEpoch, StacksEpochId};
 use stacks::monitoring::{increment_btc_blocks_received_counter, increment_btc_ops_sent_counter};
+use stacks::net::http::{HttpRequestContents, HttpResponsePayload};
+use stacks::net::httpcore::{send_http_request, StacksHttpRequest};
+use stacks::net::Error as NetError;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::deps_common::bitcoin::blockdata::opcodes;
 use stacks_common::deps_common::bitcoin::blockdata::script::{Builder, Script};
@@ -50,9 +50,11 @@ use stacks_common::deps_common::bitcoin::network::serialize::deserialize as btc_
 use stacks_common::deps_common::bitcoin::network::serialize::RawEncoder;
 use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
 use stacks_common::types::chainstate::BurnchainHeaderHash;
+use stacks_common::types::net::PeerHost;
 use stacks_common::util::hash::{hex_bytes, Hash160};
 use stacks_common::util::secp256k1::Secp256k1PublicKey;
 use stacks_common::util::sleep_ms;
+use url::Url;
 
 use super::super::operations::BurnchainOpSigner;
 use super::super::Config;
@@ -2419,8 +2421,20 @@ pub enum RPCError {
 
 type RPCResult<T> = Result<T, RPCError>;
 
+impl From<io::Error> for RPCError {
+    fn from(ioe: io::Error) -> Self {
+        Self::Network(format!("IO Error: {:?}", &ioe))
+    }
+}
+
+impl From<NetError> for RPCError {
+    fn from(ne: NetError) -> Self {
+        Self::Network(format!("Net Error: {:?}", &ne))
+    }
+}
+
 impl BitcoinRPCRequest {
-    fn build_rpc_request(config: &Config, payload: &BitcoinRPCRequest) -> Request {
+    fn build_rpc_request(config: &Config, payload: &BitcoinRPCRequest) -> StacksHttpRequest {
         let url = {
             // some methods require a wallet ID
             let wallet_id = match payload.method.as_str() {
@@ -2435,16 +2449,35 @@ impl BitcoinRPCRequest {
             &payload.method, &config.burnchain.username, &config.burnchain.password, &url
         );
 
-        let mut req = Request::new(Method::Post, url);
+        let host = url
+            .host_str()
+            .expect("Invalid bitcoin RPC URL: missing host");
+        let port = url.port_or_known_default().unwrap_or(8333);
+        let peerhost: PeerHost = format!("{host}:{port}")
+            .parse()
+            .unwrap_or_else(|_| panic!("FATAL: could not parse URL into PeerHost"));
+
+        let mut request = StacksHttpRequest::new_for_peer(
+            peerhost,
+            "POST".into(),
+            url.path().into(),
+            HttpRequestContents::new().payload_json(
+                serde_json::to_value(payload).unwrap_or_else(|_| {
+                    panic!("FATAL: failed to encode Bitcoin RPC request as JSON")
+                }),
+            ),
+        )
+        .unwrap_or_else(|_| panic!("FATAL: failed to encode infallible data as HTTP request"));
+        request.add_header("Connection".into(), "close".into());
 
         match (&config.burnchain.username, &config.burnchain.password) {
             (Some(username), Some(password)) => {
                 let auth_token = format!("Basic {}", encode(format!("{}:{}", username, password)));
-                req.append_header("Authorization", auth_token);
+                request.add_header("Authorization".into(), auth_token);
             }
             (_, _) => {}
         };
-        req
+        request
     }
 
     #[cfg(test)]
@@ -2529,10 +2562,10 @@ impl BitcoinRPCRequest {
                     .map_err(|_| RPCError::Parsing("Failed to get bestblockhash".to_string()))?;
                 let bhh = BurnchainHeaderHash::from_hex(&bhh)
                     .map_err(|_| RPCError::Parsing("Failed to get bestblockhash".to_string()))?;
-                Ok(bhh)
+                bhh
             }
             _ => return Err(RPCError::Parsing("Failed to get UTXOs".to_string())),
-        }?;
+        };
 
         let min_conf = 0i64;
         let max_conf = 9999999i64;
@@ -2754,71 +2787,18 @@ impl BitcoinRPCRequest {
     }
 
     fn send(config: &Config, payload: BitcoinRPCRequest) -> RPCResult<serde_json::Value> {
-        let mut request = BitcoinRPCRequest::build_rpc_request(&config, &payload);
+        let request = BitcoinRPCRequest::build_rpc_request(&config, &payload);
+        let timeout = Duration::from_secs(60);
 
-        let body = match serde_json::to_vec(&json!(payload)) {
-            Ok(body) => body,
-            Err(err) => {
-                return Err(RPCError::Network(format!("RPC Error: {}", err)));
-            }
-        };
+        let host = request.preamble().host.hostname();
+        let port = request.preamble().host.port();
 
-        request.append_header("Content-Type", "application/json");
-        request.set_body(body);
-
-        let mut response = async_std::task::block_on(async move {
-            let stream = match TcpStream::connect(config.burnchain.get_rpc_socket_addr()).await {
-                Ok(stream) => stream,
-                Err(err) => {
-                    return Err(RPCError::Network(format!(
-                        "Bitcoin RPC: connection failed - {:?}",
-                        err
-                    )))
-                }
-            };
-
-            match client::connect(stream, request).await {
-                Ok(response) => Ok(response),
-                Err(err) => {
-                    return Err(RPCError::Network(format!(
-                        "Bitcoin RPC: invoking procedure failed - {:?}",
-                        err
-                    )))
-                }
-            }
-        })?;
-
-        let status = response.status();
-
-        let (res, buffer) = async_std::task::block_on(async move {
-            let mut buffer = Vec::new();
-            let mut body = response.take_body();
-            let res = body.read_to_end(&mut buffer).await;
-            (res, buffer)
-        });
-
-        if !status.is_success() {
-            return Err(RPCError::Network(format!(
-                "Bitcoin RPC: status({}) != success, body is '{:?}'",
-                status,
-                match serde_json::from_slice::<serde_json::Value>(&buffer[..]) {
-                    Ok(v) => v,
-                    Err(_e) => serde_json::from_str("\"(unparseable)\"")
-                        .expect("Failed to parse JSON literal"),
-                }
-            )));
+        let response = send_http_request(&host, port, request, timeout)?;
+        if let HttpResponsePayload::JSON(js) = response.destruct().1 {
+            return Ok(js);
+        } else {
+            return Err(RPCError::Parsing("Did not get a JSON response".into()));
         }
-
-        if res.is_err() {
-            return Err(RPCError::Network(format!(
-                "Bitcoin RPC: unable to read body - {:?}",
-                res
-            )));
-        }
-
-        let payload = serde_json::from_slice::<serde_json::Value>(&buffer[..])
-            .map_err(|e| RPCError::Parsing(format!("Bitcoin RPC: {}", e)))?;
-        Ok(payload)
     }
 }
 
