@@ -89,6 +89,8 @@ pub struct NakamotoBootPlan {
     pub test_signers: TestSigners,
     pub observer: Option<TestEventObserver>,
     pub num_peers: usize,
+    /// Whether to add an initial balance for `private_key`'s account
+    pub add_default_balance: bool,
 }
 
 impl NakamotoBootPlan {
@@ -103,6 +105,7 @@ impl NakamotoBootPlan {
             test_signers,
             observer: Some(TestEventObserver::new()),
             num_peers: 0,
+            add_default_balance: true,
         }
     }
 
@@ -347,8 +350,12 @@ impl NakamotoBootPlan {
                 + 1)
             .into(),
         ));
-        peer_config.initial_balances =
-            vec![(addr.to_account_principal(), 1_000_000_000_000_000_000)];
+        peer_config.initial_balances = vec![];
+        if self.add_default_balance {
+            peer_config
+                .initial_balances
+                .push((addr.to_account_principal(), 1_000_000_000_000_000_000));
+        }
         peer_config
             .initial_balances
             .append(&mut self.initial_balances.clone());

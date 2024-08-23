@@ -599,7 +599,7 @@ impl Relayer {
 
             // is the block signed by the active reward set?
             let sn_rc = burnchain
-                .pox_reward_cycle(sn.block_height)
+                .block_height_to_reward_cycle(sn.block_height)
                 .expect("FATAL: sortition has no reward cycle");
             let reward_cycle_info = if let Some(rc_info) = loaded_reward_sets.get(&sn_rc) {
                 rc_info
@@ -885,6 +885,7 @@ impl Relayer {
 
         // NOTE: it's `+ 1` because the first Nakamoto block is built atop the last epoch 2.x
         // tenure, right after the last 2.x sortition
+        // TODO: is this true?
         let epoch_id = SortitionDB::get_stacks_epoch(sort_handle, block_sn.block_height + 1)?
             .expect("FATAL: no epoch defined")
             .epoch_id;
@@ -930,7 +931,7 @@ impl Relayer {
 
         let reward_info = match load_nakamoto_reward_set(
             burnchain
-                .pox_reward_cycle(block_sn.block_height)
+                .block_height_to_reward_cycle(block_sn.block_height)
                 .expect("FATAL: block snapshot has no reward cycle"),
             &tip,
             burnchain,
