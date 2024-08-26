@@ -749,8 +749,8 @@ pub fn wait_for_microblocks(microblocks_processed: &Arc<AtomicU64>, timeout: u64
     return true;
 }
 
-/// returns Txid string
-pub fn submit_tx(http_origin: &str, tx: &Vec<u8>) -> String {
+/// returns Txid string upon success
+pub fn submit_tx_fallible(http_origin: &str, tx: &Vec<u8>) -> Result<String, String> {
     let client = reqwest::blocking::Client::new();
     let path = format!("{}/v2/transactions", http_origin);
     let res = client
@@ -768,11 +768,18 @@ pub fn submit_tx(http_origin: &str, tx: &Vec<u8>) -> String {
                 .txid()
                 .to_string()
         );
-        return res;
+        Ok(res)
     } else {
-        eprintln!("Submit tx error: {}", res.text().unwrap());
-        panic!("");
+        Err(res.text().unwrap())
     }
+}
+
+/// returns Txid string
+pub fn submit_tx(http_origin: &str, tx: &Vec<u8>) -> String {
+    submit_tx_fallible(http_origin, tx).unwrap_or_else(|e| {
+        eprintln!("Submit tx error: {}", e);
+        panic!("");
+    })
 }
 
 pub fn get_unconfirmed_tx(http_origin: &str, txid: &Txid) -> Option<String> {

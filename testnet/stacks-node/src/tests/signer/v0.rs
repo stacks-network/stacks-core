@@ -69,7 +69,7 @@ use crate::tests::nakamoto_integrations::{
 };
 use crate::tests::neon_integrations::{
     get_account, get_chain_info, next_block_and_wait, run_until_burnchain_height, submit_tx,
-    test_observer,
+    submit_tx_fallible, test_observer,
 };
 use crate::tests::{self, make_stacks_transfer};
 use crate::{nakamoto_node, BurnchainController, Config, Keychain};
@@ -3165,6 +3165,7 @@ fn partial_tenure_fork() {
         &[btc_miner_1_pk.clone(), btc_miner_2_pk.clone()],
     );
     let blocks_mined1 = signer_test.running_nodes.nakamoto_blocks_mined.clone();
+    let blocks_proposed = signer_test.running_nodes.nakamoto_blocks_proposed.clone();
 
     let conf = signer_test.running_nodes.conf.clone();
     let mut conf_node_2 = conf.clone();
@@ -3231,6 +3232,8 @@ fn partial_tenure_fork() {
         let mined_before_1 = blocks_mined1.load(Ordering::SeqCst);
         let mined_before_2 = blocks_mined2.load(Ordering::SeqCst);
         let proposed_before_2 = blocks_proposed2.load(Ordering::SeqCst);
+        let proposed_before = blocks_proposed.load(Ordering::SeqCst);
+        info!("proposed_blocks: {proposed_before}, proposed_blocks2: {proposed_before_2}");
         next_block_and(
             &mut signer_test.running_nodes.btc_regtest_controller,
             60,
@@ -3238,6 +3241,10 @@ fn partial_tenure_fork() {
                 let mined_1 = blocks_mined1.load(Ordering::SeqCst);
                 let mined_2 = blocks_mined2.load(Ordering::SeqCst);
                 let proposed_2 = blocks_proposed2.load(Ordering::SeqCst);
+                let proposed_1 = blocks_proposed.load(Ordering::SeqCst);
+                info!(
+                    "Fork initiated: {fork_initiated}, Mined 1 blocks: {mined_1}, Mined 2 blocks {mined_2}, Proposed blocks: {proposed_1}, Proposed blocks 2: {proposed_2}",
+                );
 
                 Ok((fork_initiated && proposed_2 > proposed_before_2)
                     || mined_1 > mined_before_1
@@ -3279,18 +3286,30 @@ fn partial_tenure_fork() {
             let sender_nonce = (btc_blocks_mined - 1) * inter_blocks_per_tenure + interim_block_ix;
             let transfer_tx =
                 make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
-            submit_tx(&http_origin, &transfer_tx);
+            // This may fail if the forking miner wins too many tenures and this account's
+            // nonces get too high (TooMuchChaining)
+            match submit_tx_fallible(&http_origin, &transfer_tx) {
+                Ok(_) => {
+                    wait_for(60, || {
+                        let mined_1 = blocks_mined1.load(Ordering::SeqCst);
+                        let mined_2 = blocks_mined2.load(Ordering::SeqCst);
+                        let proposed_2 = blocks_proposed2.load(Ordering::SeqCst);
 
-            wait_for(60, || {
-                let mined_1 = blocks_mined1.load(Ordering::SeqCst);
-                let mined_2 = blocks_mined2.load(Ordering::SeqCst);
-                let proposed_2 = blocks_proposed2.load(Ordering::SeqCst);
-
-                Ok((fork_initiated && proposed_2 > proposed_before_2)
-                    || mined_1 > mined_before_1
-                    || mined_2 > mined_before_2)
-            })
-            .unwrap();
+                        Ok((fork_initiated && proposed_2 > proposed_before_2)
+                            || mined_1 > mined_before_1
+                            || mined_2 > mined_before_2)
+                    })
+                    .unwrap();
+                }
+                Err(e) => {
+                    if e.to_string().contains("TooMuchChaining") {
+                        info!("TooMuchChaining error, skipping block");
+                        continue;
+                    } else {
+                        panic!("Failed to submit tx: {}", e);
+                    }
+                }
+            }
             info!(
                 "Attempted to mine interim block {}:{}",
                 btc_blocks_mined, interim_block_ix
@@ -3317,9 +3336,6 @@ fn partial_tenure_fork() {
             } else if miner_2_tenures == min_miner_2_tenures {
                 // If this is the forking tenure, miner 2 should have mined 0 blocks
                 assert_eq!(mined_2, mined_before_2);
-
-                // Clear the ignore block
-                clear_ignore_block();
             }
         }
     }
@@ -3363,6 +3379,19 @@ fn partial_tenure_fork() {
         .unwrap()
         .unwrap();
     assert_eq!(tip.stacks_block_height, ignore_block - 1);
+
+    let (chainstate, _) = StacksChainState::open(
+        false,
+        conf.burnchain.chain_id,
+        &conf.get_chainstate_path_str(),
+        None,
+    )
+    .unwrap();
+
+    let blocks = chainstate
+        .get_stacks_chain_tips_at_height(ignore_block)
+        .unwrap();
+    info!("blocks: {:?}", blocks);
 
     signer_test.shutdown();
 }
