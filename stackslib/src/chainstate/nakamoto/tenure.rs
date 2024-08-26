@@ -372,7 +372,7 @@ impl NakamotoChainState {
 
         let matured_coinbase_height = coinbase_height - MINER_REWARD_MATURITY;
         let matured_tenure_block_header = Self::get_header_by_coinbase_height(
-            chainstate_tx,
+            chainstate_tx.deref_mut(),
             &tip_index_hash,
             matured_coinbase_height,
         )?
@@ -964,7 +964,7 @@ impl NakamotoChainState {
 
         let total_coinbase = coinbase_at_block.saturating_add(accumulated_rewards);
         let parent_tenure_start_header: StacksHeaderInfo = Self::get_header_by_coinbase_height(
-            chainstate_tx,
+            chainstate_tx.deref_mut(),
             &block.header.parent_block_id,
             parent_coinbase_height,
         )?
