@@ -4966,7 +4966,7 @@ impl StacksChainState {
         chain_tip_burn_header_height: u32,
         parent_sortition_id: &SortitionId,
     ) -> Result<Vec<StacksTransactionEvent>, Error> {
-        let pox_reward_cycle = Burnchain::static_block_height_to_reward_cycle(
+        let pox_reward_cycle = PoxConstants::static_block_height_to_reward_cycle(
             burn_tip_height,
             burn_dbconn.get_burn_start_height().into(),
             burn_dbconn.get_pox_reward_cycle_length().into(),

@@ -971,7 +971,7 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
             // NOTE: it's important that buf not be too big, since up to buf.len()-1 bytes may need
             // to be copied if a message boundary isn't aligned with buf (which is usually the
             // case).
-            let mut buf = [0u8; 4096];
+            let mut buf = [0u8; 65536];
             let num_read = match fd.read(&mut buf) {
                 Ok(0) => {
                     // remote fd is closed, but do try to consume all remaining bytes in the buffer

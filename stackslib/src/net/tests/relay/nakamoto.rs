@@ -618,7 +618,7 @@ fn test_no_buffer_ready_nakamoto_blocks() {
                                     follower
                                         .network
                                         .burnchain
-                                        .pox_reward_cycle(block_sn.block_height)
+                                        .block_height_to_reward_cycle(block_sn.block_height)
                                         .unwrap()
                                 ),
                                 true
@@ -642,7 +642,7 @@ fn test_no_buffer_ready_nakamoto_blocks() {
                                     follower
                                         .network
                                         .burnchain
-                                        .pox_reward_cycle(
+                                        .block_height_to_reward_cycle(
                                             follower.network.burnchain_tip.block_height
                                         )
                                         .unwrap()
@@ -670,7 +670,7 @@ fn test_no_buffer_ready_nakamoto_blocks() {
                                     follower
                                         .network
                                         .burnchain
-                                        .pox_reward_cycle(ancestor_sn.block_height)
+                                        .block_height_to_reward_cycle(ancestor_sn.block_height)
                                         .unwrap()
                                 ),
                                 true
@@ -816,9 +816,12 @@ fn test_buffer_nonready_nakamoto_blocks() {
     let mut all_blocks = vec![];
 
     thread::scope(|s| {
-        s.spawn(|| {
-            SeedNode::main(peer, rc_len, seed_comms);
-        });
+        thread::Builder::new()
+            .name("seed".into())
+            .spawn_scoped(s, || {
+                SeedNode::main(peer, rc_len, seed_comms);
+            })
+            .unwrap();
 
         let mut seed_exited = false;
         let mut exited_peer = None;
