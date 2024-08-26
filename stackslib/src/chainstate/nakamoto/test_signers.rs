@@ -324,6 +324,12 @@ impl TestSigners {
             .map(|s| s.signing_key.to_vec())
             .collect::<Vec<_>>();
 
+        info!(
+            "TestSigners: Signing Nakamoto block. TestSigners has {} signers. Reward set has {} signers.", 
+            test_signers_by_pk.len(),
+            reward_set_keys.len(),
+        );
+
         let mut signatures = Vec::with_capacity(reward_set_keys.len());
 
         let mut missing_keys = 0;

@@ -98,6 +98,7 @@ jobs:
           - tests::signer::v0::miner_forking
           - tests::signer::v0::reloads_signer_set_in
           - tests::signer::v0::signers_broadcast_signed_blocks
+          - tests::signer::v0::min_gap_between_blocks
           - tests::nakamoto_integrations::stack_stx_burn_op_integration_test
           - tests::nakamoto_integrations::check_block_heights
           - tests::nakamoto_integrations::clarity_burn_state

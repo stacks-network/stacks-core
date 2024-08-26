@@ -815,6 +815,12 @@ impl NakamotoBlockHeader {
             public_key_bytes.copy_from_slice(&public_key.to_bytes_compressed()[..]);
 
             let (signer, signer_index) = signers_by_pk.get(&public_key_bytes).ok_or_else(|| {
+                warn!(
+                    "Found an invalid public key. Reward set has {} signers. Chain length {}. Signatures length {}",
+                    signers.len(),
+                    self.chain_length,
+                    self.signer_signature.len(),
+                );
                 ChainstateError::InvalidStacksBlock(format!(
                     "Public key {} not found in the reward set",
                     public_key.to_hex()

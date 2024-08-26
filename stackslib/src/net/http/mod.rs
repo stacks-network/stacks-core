@@ -178,14 +178,14 @@ impl FromStr for HttpContentType {
         let s = header.to_string().to_lowercase();
         if s == "application/octet-stream" {
             Ok(HttpContentType::Bytes)
-        } else if s == "text/plain" {
+        } else if s == "text/plain" || s.starts_with("text/plain;") {
             Ok(HttpContentType::Text)
-        } else if s == "application/json" {
+        } else if s == "application/json" || s.starts_with("application/json;") {
             Ok(HttpContentType::JSON)
         } else {
-            Err(CodecError::DeserializeError(
-                "Unsupported HTTP content type".to_string(),
-            ))
+            Err(CodecError::DeserializeError(format!(
+                "Unsupported HTTP content type: {header}"
+            )))
         }
     }
 }
