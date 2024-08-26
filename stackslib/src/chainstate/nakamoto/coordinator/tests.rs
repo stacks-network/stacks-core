@@ -1086,8 +1086,6 @@ fn test_nakamoto_chainstate_getters() {
         let chainstate = &mut peer.stacks_node.as_mut().unwrap().chainstate;
         let sort_db = peer.sortdb.as_ref().unwrap();
 
-        let (mut stacks_db_tx, _) = chainstate.chainstate_tx_begin().unwrap();
-
         for coinbase_height in 0..=((tip
             .anchored_header
             .as_stacks_nakamoto()
@@ -1097,7 +1095,7 @@ fn test_nakamoto_chainstate_getters() {
             + 1)
         {
             let header_opt = NakamotoChainState::get_header_by_coinbase_height(
-                &mut stacks_db_tx,
+                &mut chainstate.index_conn(),
                 &tip.index_block_hash(),
                 coinbase_height,
             )

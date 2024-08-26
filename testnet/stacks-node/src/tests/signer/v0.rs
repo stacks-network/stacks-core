@@ -1916,7 +1916,10 @@ fn end_of_tenure() {
     let http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
     let long_timeout = Duration::from_secs(200);
     let short_timeout = Duration::from_secs(20);
-
+    let blocks_before = signer_test
+        .running_nodes
+        .nakamoto_blocks_mined
+        .load(Ordering::SeqCst);
     signer_test.boot_to_epoch_3();
     let curr_reward_cycle = signer_test.get_current_reward_cycle();
     // Advance to one before the next reward cycle to ensure we are on the reward cycle boundary
@@ -1929,7 +1932,18 @@ fn end_of_tenure() {
         - 2;
 
     // give the system a chance to mine a Nakamoto block
-    sleep_ms(30_000);
+    // But it doesn't have to mine one for this test to succeed?
+    let start = Instant::now();
+    while start.elapsed() <= short_timeout {
+        let mined_blocks = signer_test
+            .running_nodes
+            .nakamoto_blocks_mined
+            .load(Ordering::SeqCst);
+        if mined_blocks > blocks_before {
+            break;
+        }
+        sleep_ms(100);
+    }
 
     info!("------------------------- Test Mine to Next Reward Cycle Boundary  -------------------------");
     signer_test.run_until_burnchain_height_nakamoto(
@@ -1937,7 +1951,7 @@ fn end_of_tenure() {
         final_reward_cycle_height_boundary,
         num_signers,
     );
-    println!("Advanced to nexct reward cycle boundary: {final_reward_cycle_height_boundary}");
+    println!("Advanced to next reward cycle boundary: {final_reward_cycle_height_boundary}");
     assert_eq!(
         signer_test.get_current_reward_cycle(),
         final_reward_cycle - 1
@@ -1978,38 +1992,19 @@ fn end_of_tenure() {
         std::thread::sleep(Duration::from_millis(100));
     }
 
-    info!("Triggering a new block to be mined");
-
-    // Mine a block into the next reward cycle
-    let commits_before = signer_test
-        .running_nodes
-        .commits_submitted
-        .load(Ordering::SeqCst);
-    next_block_and(
-        &mut signer_test.running_nodes.btc_regtest_controller,
-        10,
-        || {
-            let commits_count = signer_test
-                .running_nodes
-                .commits_submitted
-                .load(Ordering::SeqCst);
-            Ok(commits_count > commits_before)
-        },
-    )
-    .unwrap();
-
-    // Mine a few blocks so we are well into the next reward cycle
-    for _ in 0..2 {
+    while signer_test.get_current_reward_cycle() != final_reward_cycle {
         next_block_and(
             &mut signer_test.running_nodes.btc_regtest_controller,
             10,
             || Ok(true),
         )
         .unwrap();
+        assert!(
+            start_time.elapsed() <= short_timeout,
+            "Timed out waiting to enter the next reward cycle"
+        );
+        std::thread::sleep(Duration::from_millis(100));
     }
-
-    sleep_ms(10_000);
-    assert_eq!(signer_test.get_current_reward_cycle(), final_reward_cycle);
 
     while test_observer::get_burn_blocks()
         .last()
