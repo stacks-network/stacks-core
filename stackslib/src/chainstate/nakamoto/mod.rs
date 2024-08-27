@@ -2049,6 +2049,8 @@ impl NakamotoChainState {
 
         let signer_bitvec = (&next_ready_block).header.pox_treatment.clone();
 
+        let block_timestamp = next_ready_block.header.timestamp;
+
         // set stacks block accepted
         let mut sort_tx = sort_db.tx_handle_begin(canonical_sortition_tip)?;
         sort_tx.set_stacks_block_accepted(
@@ -2088,6 +2090,7 @@ impl NakamotoChainState {
                 &pox_constants,
                 &reward_set_data,
                 &Some(signer_bitvec),
+                Some(block_timestamp),
             );
         }
 

@@ -2271,6 +2271,13 @@ fn correct_burn_outs() {
         "Blocks should be sorted by cycle number already"
     );
 
+    let block_times: Vec<u64> = new_blocks_with_reward_set
+        .iter()
+        .filter_map(|block| block.get("block_time").and_then(|cn| cn.as_u64()))
+        .collect();
+    // Assert that block_times are all greater than 0
+    assert!(block_times.iter().all(|&t| t > 0));
+
     for block in new_blocks_with_reward_set.iter() {
         let cycle_number = block["cycle_number"].as_u64().unwrap();
         let reward_set = block["reward_set"].as_object().unwrap();

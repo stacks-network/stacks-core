@@ -179,6 +179,7 @@ pub trait BlockEventDispatcher {
         pox_constants: &PoxConstants,
         reward_set_data: &Option<RewardSetData>,
         signer_bitvec: &Option<BitVec<4000>>,
+        block_timestamp: Option<u64>,
     );
 
     /// called whenever a burn block is about to be
