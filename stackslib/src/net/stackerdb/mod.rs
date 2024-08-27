@@ -501,7 +501,7 @@ impl PeerNetwork {
     /// Runs in response to a received StackerDBGetChunksInv or a StackerDBPushChunk
     pub fn make_StackerDBChunksInv_or_Nack(
         &self,
-        sortdb: &SortitionDB,
+        chainstate: &mut StacksChainState,
         contract_id: &QualifiedContractIdentifier,
         rc_consensus_hash: &ConsensusHash,
     ) -> StacksMessageType {
@@ -524,10 +524,13 @@ impl PeerNetwork {
 
         // this DB exists, but is the view of this message recent?
         if &self.get_chain_view().rc_consensus_hash != rc_consensus_hash {
-            // do we know about this consensus hash?
-            if let Ok(true) =
-                SortitionDB::has_block_snapshot_consensus(sortdb.conn(), rc_consensus_hash)
-            {
+            // is there a Stacks block (or tenure) with this consensus hash?
+            let tip_block_id = self.stacks_tip.block_id();
+            if let Ok(Some(_)) = NakamotoChainState::get_tenure_start_block_header(
+                &mut chainstate.index_conn(),
+                &tip_block_id,
+                &rc_consensus_hash,
+            ) {
                 debug!("{:?}: NACK StackerDBGetChunksInv / StackerDBPushChunk since {} != {} (remote is stale)", self.get_local_peer(), &self.get_chain_view().rc_consensus_hash, rc_consensus_hash);
                 return StacksMessageType::Nack(NackData::new(NackErrorCodes::StaleView));
             } else {
@@ -640,14 +643,14 @@ impl PeerNetwork {
     /// *not* be processed.
     pub fn handle_unsolicited_StackerDBPushChunk(
         &mut self,
-        sortdb: &SortitionDB,
+        chainstate: &mut StacksChainState,
         event_id: usize,
         preamble: &Preamble,
         chunk_data: &StackerDBPushChunkData,
         send_reply: bool,
     ) -> Result<(bool, bool), net_error> {
         let mut payload = self.make_StackerDBChunksInv_or_Nack(
-            sortdb,
+            chainstate,
             &chunk_data.contract_id,
             &chunk_data.rc_consensus_hash,
         );
