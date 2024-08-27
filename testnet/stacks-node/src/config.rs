@@ -1440,6 +1440,9 @@ pub struct BurnchainConfig {
     pub wallet_name: String,
     pub ast_precheck_size_height: Option<u64>,
     pub affirmation_overrides: HashMap<u64, AffirmationMap>,
+    /// fault injection to simulate a slow burnchain peer.
+    /// Delay burnchain block downloads by the given number of millseconds
+    pub fault_injection_burnchain_block_delay: u64,
 }
 
 impl BurnchainConfig {
@@ -1479,6 +1482,7 @@ impl BurnchainConfig {
             wallet_name: "".to_string(),
             ast_precheck_size_height: None,
             affirmation_overrides: HashMap::new(),
+            fault_injection_burnchain_block_delay: 0,
         }
     }
     pub fn get_rpc_url(&self, wallet: Option<String>) -> String {
@@ -1573,6 +1577,7 @@ pub struct BurnchainConfigFile {
     pub wallet_name: Option<String>,
     pub ast_precheck_size_height: Option<u64>,
     pub affirmation_overrides: Option<Vec<AffirmationOverride>>,
+    pub fault_injection_burnchain_block_delay: Option<u64>,
 }
 
 impl BurnchainConfigFile {
@@ -1785,6 +1790,9 @@ impl BurnchainConfigFile {
                 .pox_prepare_length
                 .or(default_burnchain_config.pox_prepare_length),
             affirmation_overrides,
+            fault_injection_burnchain_block_delay: self
+                .fault_injection_burnchain_block_delay
+                .unwrap_or(default_burnchain_config.fault_injection_burnchain_block_delay),
         };
 
         if let BitcoinNetworkType::Mainnet = config.get_bitcoin_network().1 {
