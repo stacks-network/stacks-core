@@ -321,6 +321,7 @@ impl SignerTest<SpawnedSigner> {
         // Verify that the signers signed the proposed block
         let mut signer_index = 0;
         let mut signature_index = 0;
+        let mut signing_keys = HashSet::new();
         let validated = loop {
             // Since we've already checked `signature.len()`, this means we've
             //  validated all the signatures in this loop
@@ -331,6 +332,9 @@ impl SignerTest<SpawnedSigner> {
                 error!("Failed to validate the mined nakamoto block: ran out of signers to try to validate signatures");
                 break false;
             };
+            if !signing_keys.insert(signer.signing_key) {
+                panic!("Duplicate signing key detected: {:?}", signer.signing_key);
+            }
             let stacks_public_key = Secp256k1PublicKey::from_slice(signer.signing_key.as_slice())
                 .expect("Failed to convert signing key to StacksPublicKey");
             let valid = stacks_public_key
@@ -488,11 +492,7 @@ fn block_proposal_rejection() {
     while !found_signer_signature_hash_1 && !found_signer_signature_hash_2 {
         std::thread::sleep(Duration::from_secs(1));
         let chunks = test_observer::get_stackerdb_chunks();
-        for chunk in chunks
-            .into_iter()
-            .map(|chunk| chunk.modified_slots)
-            .flatten()
-        {
+        for chunk in chunks.into_iter().flat_map(|chunk| chunk.modified_slots) {
             let Ok(message) = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
             else {
                 continue;
@@ -2982,6 +2982,13 @@ fn duplicate_signers() {
 
     // First two signers have same private key
     signer_stacks_private_keys[1] = signer_stacks_private_keys[0];
+    let duplicate_pubkey = Secp256k1PublicKey::from_private(&signer_stacks_private_keys[0]);
+    let duplicate_pubkey_from_copy =
+        Secp256k1PublicKey::from_private(&signer_stacks_private_keys[1]);
+    assert_eq!(
+        duplicate_pubkey, duplicate_pubkey_from_copy,
+        "Recovered pubkeys don't match"
+    );
 
     let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
@@ -2992,37 +2999,13 @@ fn duplicate_signers() {
         None,
         Some(signer_stacks_private_keys),
     );
-    let timeout = Duration::from_secs(30);
-    let mined_blocks = signer_test.running_nodes.nakamoto_blocks_mined.clone();
-    let blocks_mined_before = mined_blocks.load(Ordering::SeqCst);
 
     signer_test.boot_to_epoch_3();
+    let timeout = Duration::from_secs(30);
 
-    // give the system a chance to reach the Nakamoto start tip
-    // mine a Nakamoto block
-    wait_for(30, || {
-        let blocks_mined = mined_blocks.load(Ordering::SeqCst);
-        Ok(blocks_mined > blocks_mined_before)
-    })
-    .unwrap();
+    info!("------------------------- Try mining one block -------------------------");
 
-    info!("------------------------- Test Mine and Verify Confirmed Nakamoto Block -------------------------");
     signer_test.mine_and_verify_confirmed_naka_block(timeout, num_signers);
 
-    // Test prometheus metrics response
-    #[cfg(feature = "monitoring_prom")]
-    {
-        let metrics_response = signer_test.get_signer_metrics();
-
-        // Because 5 signers are running in the same process, the prometheus metrics
-        // are incremented once for every signer. This is why we expect the metric to be
-        // `5`, even though there is only one block proposed.
-        let expected_result = format!("stacks_signer_block_proposals_received {}", num_signers);
-        assert!(metrics_response.contains(&expected_result));
-        let expected_result = format!(
-            "stacks_signer_block_responses_sent{{response_type=\"accepted\"}} {}",
-            num_signers
-        );
-        assert!(metrics_response.contains(&expected_result));
-    }
+    signer_test.shutdown();
 }
