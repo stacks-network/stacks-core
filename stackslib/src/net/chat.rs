@@ -1917,11 +1917,11 @@ impl ConversationP2P {
     /// Generates a Nack if we don't have this DB, or if the request's consensus hash is invalid.
     fn make_stacker_db_getchunkinv_response(
         network: &PeerNetwork,
-        sortdb: &SortitionDB,
+        chainstate: &mut StacksChainState,
         getchunkinv: &StackerDBGetChunkInvData,
     ) -> Result<StacksMessageType, net_error> {
         Ok(network.make_StackerDBChunksInv_or_Nack(
-            sortdb,
+            chainstate,
             &getchunkinv.contract_id,
             &getchunkinv.rc_consensus_hash,
         ))
@@ -1932,12 +1932,15 @@ impl ConversationP2P {
     fn handle_stacker_db_getchunkinv(
         &mut self,
         network: &PeerNetwork,
-        sortdb: &SortitionDB,
+        chainstate: &mut StacksChainState,
         preamble: &Preamble,
         getchunkinv: &StackerDBGetChunkInvData,
     ) -> Result<ReplyHandleP2P, net_error> {
-        let response =
-            ConversationP2P::make_stacker_db_getchunkinv_response(network, sortdb, getchunkinv)?;
+        let response = ConversationP2P::make_stacker_db_getchunkinv_response(
+            network,
+            chainstate,
+            getchunkinv,
+        )?;
         self.sign_and_reply(
             network.get_local_peer(),
             network.get_chain_view(),
@@ -2354,7 +2357,7 @@ impl ConversationP2P {
                 }
             }
             StacksMessageType::StackerDBGetChunkInv(ref getchunkinv) => {
-                self.handle_stacker_db_getchunkinv(network, sortdb, &msg.preamble, getchunkinv)
+                self.handle_stacker_db_getchunkinv(network, chainstate, &msg.preamble, getchunkinv)
             }
             StacksMessageType::StackerDBGetChunk(ref getchunk) => {
                 self.handle_stacker_db_getchunk(network, &msg.preamble, getchunk)
