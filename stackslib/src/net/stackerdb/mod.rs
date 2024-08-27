@@ -497,11 +497,16 @@ impl PeerNetwork {
         Ok(results)
     }
 
-    /// Create a StackerDBChunksInv, or a Nack if the requested DB isn't replicated here
+    /// Create a StackerDBChunksInv, or a Nack if the requested DB isn't replicated here.
+    /// Runs in response to a received StackerDBGetChunksInv or a StackerDBPushChunk
     pub fn make_StackerDBChunksInv_or_Nack(
         &self,
+        sortdb: &SortitionDB,
         contract_id: &QualifiedContractIdentifier,
+        rc_consensus_hash: &ConsensusHash,
     ) -> StacksMessageType {
+        // N.B. check that the DB exists first, since we want to report StaleView only if the DB
+        // exists
         let slot_versions = match self.stackerdbs.get_slot_versions(contract_id) {
             Ok(versions) => versions,
             Err(e) => {
@@ -516,6 +521,20 @@ impl PeerNetwork {
                 return StacksMessageType::Nack(NackData::new(NackErrorCodes::NoSuchDB));
             }
         };
+
+        // this DB exists, but is the view of this message recent?
+        if &self.get_chain_view().rc_consensus_hash != rc_consensus_hash {
+            // do we know about this consensus hash?
+            if let Ok(true) =
+                SortitionDB::has_block_snapshot_consensus(sortdb.conn(), rc_consensus_hash)
+            {
+                debug!("{:?}: NACK StackerDBGetChunksInv / StackerDBPushChunk since {} != {} (remote is stale)", self.get_local_peer(), &self.get_chain_view().rc_consensus_hash, rc_consensus_hash);
+                return StacksMessageType::Nack(NackData::new(NackErrorCodes::StaleView));
+            } else {
+                debug!("{:?}: NACK StackerDBGetChunksInv / StackerDBPushChunk since {} != {} (local is potentially stale)", self.get_local_peer(), &self.get_chain_view().rc_consensus_hash, rc_consensus_hash);
+                return StacksMessageType::Nack(NackData::new(NackErrorCodes::FutureView));
+            }
+        }
 
         let num_outbound_replicas = self.count_outbound_stackerdb_replicas(contract_id) as u32;
 
@@ -598,8 +617,11 @@ impl PeerNetwork {
     }
 
     /// Handle unsolicited StackerDBPushChunk messages.
-    /// Generate a reply handle for a StackerDBChunksInv to be sent to the remote peer, in which
-    /// the inventory vector is updated with this chunk's data.
+    /// Check to see that the message can be stored or buffered.
+    ///
+    /// Optionally, make a reply handle for a StackerDBChunksInv to be sent to the remote peer, in which
+    /// the inventory vector is updated with this chunk's data.  Or, send a NACK if the chunk
+    /// cannot be buffered or stored.
     ///
     /// Note that this can happen *during* a StackerDB sync's execution, so be very careful about
     /// modifying a state machine's contents!  The only modification possible here is to wakeup
@@ -609,17 +631,30 @@ impl PeerNetwork {
     /// which this chunk arrived will have already bandwidth-throttled the remote peer, and because
     /// messages can be arbitrarily delayed (and bunched up) by the network anyway.
     ///
-    /// Return Ok(true) if we should store the chunk
-    /// Return Ok(false) if we should drop it.
+    /// Returns (true, x) if we should buffer the message and try processing it again later.
+    /// Returns (false, x) if we should *not* buffer this message, because it either *won't* be valid
+    /// later, or if it can be stored right now.
+    ///
+    /// Returns (x, true) if we should forward the message to the relayer, so it can be processed.
+    /// Returns (x, false) if we should *not* forward the message to the relayer, because it will
+    /// *not* be processed.
     pub fn handle_unsolicited_StackerDBPushChunk(
         &mut self,
+        sortdb: &SortitionDB,
         event_id: usize,
         preamble: &Preamble,
         chunk_data: &StackerDBPushChunkData,
-    ) -> Result<bool, net_error> {
-        let mut payload = self.make_StackerDBChunksInv_or_Nack(&chunk_data.contract_id);
+        send_reply: bool,
+    ) -> Result<(bool, bool), net_error> {
+        let mut payload = self.make_StackerDBChunksInv_or_Nack(
+            sortdb,
+            &chunk_data.contract_id,
+            &chunk_data.rc_consensus_hash,
+        );
         match payload {
             StacksMessageType::StackerDBChunkInv(ref mut data) => {
+                // this message corresponds to an existing DB, and comes from the same view of the
+                // stacks chain tip
                 let stackerdb_config = if let Some(config) =
                     self.get_stacker_db_configs().get(&chunk_data.contract_id)
                 {
@@ -630,7 +665,7 @@ impl PeerNetwork {
                         "StackerDBChunk for {} ID {} is not available locally",
                         &chunk_data.contract_id, chunk_data.chunk_data.slot_id
                     );
-                    return Ok(false);
+                    return Ok((false, false));
                 };
 
                 // sanity check
@@ -640,7 +675,7 @@ impl PeerNetwork {
                     &chunk_data.chunk_data,
                     &data.slot_versions,
                 )? {
-                    return Ok(false);
+                    return Ok((false, false));
                 }
 
                 // patch inventory -- we'll accept this chunk
@@ -654,10 +689,28 @@ impl PeerNetwork {
                     }
                 }
             }
-            _ => {}
+            StacksMessageType::Nack(ref nack_data) => {
+                if nack_data.error_code == NackErrorCodes::FutureView {
+                    // chunk corresponds to a known DB but the view of the sender is potentially in
+                    // the future.
+                    // We should buffer this in case it becomes storable, but don't
+                    // store it yet.
+                    return Ok((true, false));
+                } else {
+                    return Ok((false, false));
+                }
+            }
+            _ => {
+                // don't recognize the message, so don't buffer
+                return Ok((false, false));
+            }
         }
 
-        // this is a reply to the pushed chunk
+        if !send_reply {
+            return Ok((false, true));
+        }
+
+        // this is a reply to the pushed chunk, and we can store it right now (so don't buffer it)
         let resp = self.sign_for_p2p_reply(event_id, preamble.seq, payload)?;
         let handle = self.send_p2p_message(
             event_id,
@@ -665,6 +718,6 @@ impl PeerNetwork {
             self.connection_opts.neighbor_request_timeout,
         )?;
         self.add_relay_handle(event_id, handle);
-        Ok(true)
+        Ok((false, true))
     }
 }
