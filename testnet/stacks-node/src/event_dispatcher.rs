@@ -1514,6 +1514,7 @@ mod test {
         let mblock_confirmed_consumed = ExecutionCost::zero();
         let pox_constants = PoxConstants::testnet_default();
         let signer_bitvec = BitVec::zeros(2).expect("Failed to create BitVec with length 2");
+        let block_timestamp = Some(123456);
 
         let payload = observer.make_new_block_processed_payload(
             filtered_events,
@@ -1531,6 +1532,7 @@ mod test {
             &pox_constants,
             &None,
             &Some(signer_bitvec.clone()),
+            block_timestamp,
         );
         assert_eq!(
             payload
@@ -1582,6 +1584,7 @@ mod test {
         let mblock_confirmed_consumed = ExecutionCost::zero();
         let pox_constants = PoxConstants::testnet_default();
         let signer_bitvec = BitVec::zeros(2).expect("Failed to create BitVec with length 2");
+        let block_timestamp = Some(123456);
 
         let payload = observer.make_new_block_processed_payload(
             filtered_events,
@@ -1599,6 +1602,7 @@ mod test {
             &pox_constants,
             &None,
             &Some(signer_bitvec.clone()),
+            block_timestamp,
         );
 
         let event_signer_signature = payload
