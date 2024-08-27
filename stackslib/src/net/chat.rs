@@ -1917,25 +1917,14 @@ impl ConversationP2P {
     /// Generates a Nack if we don't have this DB, or if the request's consensus hash is invalid.
     fn make_stacker_db_getchunkinv_response(
         network: &PeerNetwork,
+        sortdb: &SortitionDB,
         getchunkinv: &StackerDBGetChunkInvData,
     ) -> Result<StacksMessageType, net_error> {
-        let local_peer = network.get_local_peer();
-        let burnchain_view = network.get_chain_view();
-
-        // remote peer's Stacks chain tip is different from ours, meaning it might have a different
-        // stackerdb configuration view (and we won't be able to authenticate their chunks, and
-        // vice versa)
-        if burnchain_view.rc_consensus_hash != getchunkinv.rc_consensus_hash {
-            debug!(
-                "{:?}: NACK StackerDBGetChunkInv; {} != {}",
-                local_peer, &burnchain_view.rc_consensus_hash, &getchunkinv.rc_consensus_hash
-            );
-            return Ok(StacksMessageType::Nack(NackData::new(
-                NackErrorCodes::StaleView,
-            )));
-        }
-
-        Ok(network.make_StackerDBChunksInv_or_Nack(&getchunkinv.contract_id))
+        Ok(network.make_StackerDBChunksInv_or_Nack(
+            sortdb,
+            &getchunkinv.contract_id,
+            &getchunkinv.rc_consensus_hash,
+        ))
     }
 
     /// Handle an inbound StackerDBGetChunkInv request.
@@ -1943,10 +1932,12 @@ impl ConversationP2P {
     fn handle_stacker_db_getchunkinv(
         &mut self,
         network: &PeerNetwork,
+        sortdb: &SortitionDB,
         preamble: &Preamble,
         getchunkinv: &StackerDBGetChunkInvData,
     ) -> Result<ReplyHandleP2P, net_error> {
-        let response = ConversationP2P::make_stacker_db_getchunkinv_response(network, getchunkinv)?;
+        let response =
+            ConversationP2P::make_stacker_db_getchunkinv_response(network, sortdb, getchunkinv)?;
         self.sign_and_reply(
             network.get_local_peer(),
             network.get_chain_view(),
@@ -2363,7 +2354,7 @@ impl ConversationP2P {
                 }
             }
             StacksMessageType::StackerDBGetChunkInv(ref getchunkinv) => {
-                self.handle_stacker_db_getchunkinv(network, &msg.preamble, getchunkinv)
+                self.handle_stacker_db_getchunkinv(network, sortdb, &msg.preamble, getchunkinv)
             }
             StacksMessageType::StackerDBGetChunk(ref getchunk) => {
                 self.handle_stacker_db_getchunk(network, &msg.preamble, getchunk)
