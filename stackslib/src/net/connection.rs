@@ -378,11 +378,18 @@ pub struct ConnectionOptions {
     pub max_microblock_push: u64,
     pub antientropy_retry: u64,
     pub antientropy_public: bool,
+    /// maximum number of Stacks 2.x BlocksAvailable messages that can be buffered before processing
     pub max_buffered_blocks_available: u64,
+    /// maximum number of Stacks 2.x MicroblocksAvailable that can be buffered before processing
     pub max_buffered_microblocks_available: u64,
+    /// maximum number of Stacks 2.x pushed Block messages we can buffer before processing
     pub max_buffered_blocks: u64,
+    /// maximum number of Stacks 2.x pushed Microblock messages we can buffer before processing
     pub max_buffered_microblocks: u64,
+    /// maximum number of pushed Nakamoto Block messages we can buffer before processing
     pub max_buffered_nakamoto_blocks: u64,
+    /// maximum number of pushed StackerDB chunk messages we can buffer before processing
+    pub max_buffered_stackerdb_chunks: u64,
     /// how often to query a remote peer for its mempool, in seconds
     pub mempool_sync_interval: u64,
     /// how many transactions to ask for in a mempool query
@@ -522,6 +529,7 @@ impl std::default::Default for ConnectionOptions {
             max_buffered_blocks: 5,
             max_buffered_microblocks: 1024,
             max_buffered_nakamoto_blocks: 1024,
+            max_buffered_stackerdb_chunks: 4096,
             mempool_sync_interval: 30, // number of seconds in-between mempool sync
             mempool_max_tx_query: 128, // maximum number of transactions to visit per mempool query
             mempool_sync_timeout: 180, // how long a mempool sync can go for (3 minutes)
