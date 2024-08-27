@@ -4616,8 +4616,11 @@ impl PeerNetwork {
             );
             let buffered_stacks_messages =
                 mem::replace(&mut self.pending_stacks_messages, HashMap::new());
-            let unhandled =
-                self.handle_unsolicited_stacks_messages(sortdb, buffered_stacks_messages, false);
+            let unhandled = self.handle_unsolicited_stacks_messages(
+                chainstate,
+                buffered_stacks_messages,
+                false,
+            );
             ret.extend(unhandled);
         }
 
@@ -4706,7 +4709,7 @@ impl PeerNetwork {
         );
 
         let unhandled_messages =
-            self.handle_unsolicited_stacks_messages(sortdb, unhandled_messages, true);
+            self.handle_unsolicited_stacks_messages(chainstate, unhandled_messages, true);
 
         network_result.consume_unsolicited(unhandled_messages);
 
