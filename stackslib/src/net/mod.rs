@@ -91,7 +91,7 @@ use crate::net::http::{
 use crate::net::httpcore::{
     HttpRequestContentsExtensions, StacksHttp, StacksHttpRequest, StacksHttpResponse, TipRequest,
 };
-use crate::net::p2p::PeerNetwork;
+use crate::net::p2p::{PeerNetwork, PendingMessages};
 use crate::util_lib::bloom::{BloomFilter, BloomNodeHasher};
 use crate::util_lib::boot::boot_code_tx_auth;
 use crate::util_lib::db::{DBConn, Error as db_error};
@@ -1039,15 +1039,26 @@ pub struct NackData {
     pub error_code: u32,
 }
 pub mod NackErrorCodes {
+    /// A handshake is required before the protocol can proceed
     pub const HandshakeRequired: u32 = 1;
+    /// The protocol could not find a required burnchain block
     pub const NoSuchBurnchainBlock: u32 = 2;
+    /// The requester is sending too many requests
     pub const Throttled: u32 = 3;
+    /// The state the requester referenced referrs to a PoX fork we do not recognize
     pub const InvalidPoxFork: u32 = 4;
+    /// The message is inappropriate for this step of the protocol
     pub const InvalidMessage: u32 = 5;
+    /// The referenced StackerDB does not exist on this node
     pub const NoSuchDB: u32 = 6;
+    /// The referenced StackerDB chunk is out-of-date with respect to our replica
     pub const StaleVersion: u32 = 7;
+    /// The referenced StackerDB state view is out-of-date with respect to our replica
     pub const StaleView: u32 = 8;
+    /// The referenced StackerDB chunk is stale locally relative to the requested version
     pub const FutureVersion: u32 = 9;
+    /// The referenced StackerDB state view is stale locally relative to the requested version
+    pub const FutureView: u32 = 10;
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1600,11 +1611,8 @@ impl NetworkResult {
             || self.has_stackerdb_chunks()
     }
 
-    pub fn consume_unsolicited(
-        &mut self,
-        unhandled_messages: HashMap<NeighborKey, Vec<StacksMessage>>,
-    ) {
-        for (neighbor_key, messages) in unhandled_messages.into_iter() {
+    pub fn consume_unsolicited(&mut self, unhandled_messages: PendingMessages) {
+        for ((_event_id, neighbor_key), messages) in unhandled_messages.into_iter() {
             for message in messages.into_iter() {
                 match message.payload {
                     StacksMessageType::Blocks(block_data) => {
