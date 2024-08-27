@@ -188,7 +188,7 @@ impl<'a, T: BlockEventDispatcher> OnChainRewardSetProvider<'a, T> {
         debug_log: bool,
     ) -> Result<RewardSet, Error> {
         let Some(reward_set_block) = NakamotoChainState::get_header_by_coinbase_height(
-            &mut chainstate.index_tx_begin(),
+            &mut chainstate.index_conn(),
             block_id,
             coinbase_height_of_calculation,
         )?

@@ -300,6 +300,13 @@ pub trait StacksDBIndexed {
     fn get(&mut self, tip: &StacksBlockId, key: &str) -> Result<Option<String>, DBError>;
     fn sqlite(&self) -> &Connection;
 
+    /// Get the ancestor block hash given a height
+    fn get_ancestor_block_id(
+        &mut self,
+        coinbase_height: u64,
+        tip_index_hash: &StacksBlockId,
+    ) -> Result<Option<StacksBlockId>, DBError>;
+
     /// Get the block ID for a specific coinbase height in the fork identified by `tip`
     fn get_nakamoto_block_id_at_coinbase_height(
         &mut self,
@@ -452,6 +459,14 @@ impl StacksDBIndexed for StacksDBConn<'_> {
     fn sqlite(&self) -> &Connection {
         self.conn()
     }
+
+    fn get_ancestor_block_id(
+        &mut self,
+        coinbase_height: u64,
+        tip_index_hash: &StacksBlockId,
+    ) -> Result<Option<StacksBlockId>, DBError> {
+        self.get_ancestor_block_hash(coinbase_height, tip_index_hash)
+    }
 }
 
 impl StacksDBIndexed for StacksDBTx<'_> {
@@ -461,6 +476,14 @@ impl StacksDBIndexed for StacksDBTx<'_> {
 
     fn sqlite(&self) -> &Connection {
         self.tx().deref()
+    }
+
+    fn get_ancestor_block_id(
+        &mut self,
+        coinbase_height: u64,
+        tip_index_hash: &StacksBlockId,
+    ) -> Result<Option<StacksBlockId>, DBError> {
+        self.get_ancestor_block_hash(coinbase_height, tip_index_hash)
     }
 }
 
@@ -2419,22 +2442,22 @@ impl NakamotoChainState {
     /// Return a Nakamoto StacksHeaderInfo at a given coinbase height in the fork identified by `tip_index_hash`.
     /// * For Stacks 2.x, this is the Stacks block's header
     /// * For Stacks 3.x (Nakamoto), this is the first block in the miner's tenure.
-    pub fn get_header_by_coinbase_height(
-        tx: &mut StacksDBTx,
+    pub fn get_header_by_coinbase_height<SDBI: StacksDBIndexed>(
+        conn: &mut SDBI,
         tip_index_hash: &StacksBlockId,
         coinbase_height: u64,
     ) -> Result<Option<StacksHeaderInfo>, ChainstateError> {
         // nakamoto block?
         if let Some(block_id) =
-            tx.get_nakamoto_block_id_at_coinbase_height(tip_index_hash, coinbase_height)?
+            conn.get_nakamoto_block_id_at_coinbase_height(tip_index_hash, coinbase_height)?
         {
-            return Self::get_block_header_nakamoto(tx.sqlite(), &block_id);
+            return Self::get_block_header_nakamoto(conn.sqlite(), &block_id);
         }
 
         // epcoh2 block?
-        let Some(ancestor_at_height) = tx
-            .get_ancestor_block_hash(coinbase_height, tip_index_hash)?
-            .map(|ancestor| Self::get_block_header(tx.tx(), &ancestor))
+        let Some(ancestor_at_height) = conn
+            .get_ancestor_block_id(coinbase_height, tip_index_hash)?
+            .map(|ancestor| Self::get_block_header(conn.sqlite(), &ancestor))
             .transpose()?
             .flatten()
         else {
