@@ -11,6 +11,14 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ### Changed
 
+## [2.5.0.0.5.2]
+
+### Added
+
+### Changed
+
+- Reuse BlockResponse slot for MockSignature message type (#5103)
+
 ## [2.5.0.0.5.2-rc1]
 
 ### Added
