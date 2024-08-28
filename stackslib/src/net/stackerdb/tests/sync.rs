@@ -862,7 +862,7 @@ fn test_stackerdb_push_relayer_late_chunks() {
         peer_2_config.add_neighbor(&peer_3_config.to_neighbor());
         peer_3_config.add_neighbor(&peer_2_config.to_neighbor());
 
-        // set up stacker DBs for both peers
+        // set up stacker DBs for all peers
         let idx_1 = add_stackerdb(&mut peer_1_config, Some(StackerDBConfig::template()));
         let idx_2 = add_stackerdb(&mut peer_2_config, Some(StackerDBConfig::template()));
         let idx_3 = add_stackerdb(&mut peer_3_config, Some(StackerDBConfig::template()));
