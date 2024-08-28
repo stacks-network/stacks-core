@@ -3942,6 +3942,9 @@ fn forked_tenure_is_ignored() {
 
     info!("Starting Tenure C.");
 
+    // force the timestamp to be different
+    sleep_ms(2000);
+
     // Submit a block commit op for tenure C.
     // It should also build on block A, since the node has paused processing of block B.
     let commits_before = commits_submitted.load(Ordering::SeqCst);
@@ -3973,6 +3976,7 @@ fn forked_tenure_is_ignored() {
     let block_c = blocks.last().unwrap();
     info!("Tenure C tip block: {}", &block_tenure_c.index_block_hash());
     info!("Tenure C last block: {}", &block_c.block_id);
+    assert_ne!(block_tenure_b.block_id(), block_tenure_c.index_block_hash());
 
     // Block C was built AFTER Block B was built, but BEFORE it was broadcasted (processed), so it should be built off of Block A
     assert_eq!(
