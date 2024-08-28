@@ -21,15 +21,15 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ### Added
 
-- Neon mock miner replay (#5060)
 - Add warn logs for block validate rejections (#5079)
+- Neon mock miner replay (#5060)
 
 ### Changed
 
-- boot_to_epoch_3 in SignerTest should wait for a new commit (#5087)
 - Revert BurnchainHeaderHash serialization change (#5094)
-- Mock signing revamp (#5070)
+- boot_to_epoch_3 in SignerTest should wait for a new commit (#5087)
 - Fix block proposal rejection test (#5084)
+- Mock signing revamp (#5070)
 - Multi miner fixes jude (#5040)
 
 ## [2.5.0.0.6]
