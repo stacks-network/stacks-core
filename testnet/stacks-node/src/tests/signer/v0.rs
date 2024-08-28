@@ -2982,6 +2982,7 @@ fn duplicate_signers() {
 
     // First two signers have same private key
     signer_stacks_private_keys[1] = signer_stacks_private_keys[0];
+    let unique_signers = num_signers - 1;
     let duplicate_pubkey = Secp256k1PublicKey::from_private(&signer_stacks_private_keys[0]);
     let duplicate_pubkey_from_copy =
         Secp256k1PublicKey::from_private(&signer_stacks_private_keys[1]);
@@ -3006,6 +3007,54 @@ fn duplicate_signers() {
     info!("------------------------- Try mining one block -------------------------");
 
     signer_test.mine_and_verify_confirmed_naka_block(timeout, num_signers);
+
+    info!("------------------------- Read all `BlockResponse::Accepted` messages -------------------------");
+
+    let mut signer_accepted_responses = vec![];
+    let start_polling = Instant::now();
+    while start_polling.elapsed() <= timeout {
+        std::thread::sleep(Duration::from_secs(1));
+        let messages = test_observer::get_stackerdb_chunks()
+            .into_iter()
+            .flat_map(|chunk| chunk.modified_slots)
+            .filter_map(|chunk| {
+                SignerMessage::consensus_deserialize(&mut chunk.data.as_slice()).ok()
+            })
+            .filter_map(|message| match message {
+                SignerMessage::BlockResponse(BlockResponse::Accepted(m)) => {
+                    info!("Message(accepted): {message:?}");
+                    Some(m)
+                }
+                _ => {
+                    debug!("Message(ignored): {message:?}");
+                    None
+                }
+            });
+        signer_accepted_responses.extend(messages);
+    }
+
+    info!("------------------------- Assert there are {unique_signers} unique signatures and recovered pubkeys -------------------------");
+
+    // Pick a message hash
+    let (selected_sighash, _) = signer_accepted_responses
+        .iter()
+        .min_by_key(|(sighash, _)| *sighash)
+        .copied()
+        .expect("No `BlockResponse::Accepted` messages recieved");
+
+    // Filter only resonses for selected block and collect unique pubkeys and signatures
+    let (pubkeys, signatures): (HashSet<_>, HashSet<_>) = signer_accepted_responses
+        .into_iter()
+        .filter(|(hash, _)| *hash == selected_sighash)
+        .map(|(msg, sig)| {
+            let pubkey = Secp256k1PublicKey::recover_to_pubkey(msg.bits(), &sig)
+                .expect("Failed to recover pubkey");
+            (pubkey, sig)
+        })
+        .unzip();
+
+    assert_eq!(pubkeys.len(), unique_signers);
+    assert_eq!(signatures.len(), unique_signers);
 
     signer_test.shutdown();
 }
