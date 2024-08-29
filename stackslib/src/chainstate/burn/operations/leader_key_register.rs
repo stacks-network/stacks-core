@@ -135,18 +135,10 @@ impl LeaderKeyRegisterOp {
         let num_inputs = tx.num_signers();
         let num_outputs = tx.num_recipients();
 
-        if num_inputs == 0 {
+        if num_inputs == 0 || num_outputs < 1 {
             debug!(
                 "Invalid tx: inputs: {}, outputs: {}",
                 num_inputs, num_outputs,
-            );
-            return Err(op_error::InvalidInput);
-        }
-
-        if num_outputs < 1 {
-            debug!(
-                "Invalid tx: inputs: {}, outputs: {}",
-                num_inputs, num_outputs
             );
             return Err(op_error::InvalidInput);
         }
