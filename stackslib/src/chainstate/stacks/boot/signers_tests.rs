@@ -171,7 +171,8 @@ fn make_signer_sanity_panic_1() {
 
 #[test]
 fn signers_get_config() {
-    let (burnchain, mut peer, keys, latest_block, ..) = prepare_pox4_test(function_name!(), None);
+    let (burnchain, mut peer, keys, latest_block, ..) =
+        prepare_pox4_test(function_name!(), None, false);
 
     assert_eq!(
         readonly_call(

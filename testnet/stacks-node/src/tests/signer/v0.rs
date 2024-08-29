@@ -278,12 +278,12 @@ impl SignerTest<SpawnedSigner> {
         self.run_until_epoch_3_boundary();
 
         let commits_submitted = self.running_nodes.commits_submitted.clone();
-
+        let commits_before = commits_submitted.load(Ordering::SeqCst);
         info!("Waiting 1 burnchain block for miner VRF key confirmation");
         // Wait one block to confirm the VRF register, wait until a block commit is submitted
         next_block_and(&mut self.running_nodes.btc_regtest_controller, 60, || {
             let commits_count = commits_submitted.load(Ordering::SeqCst);
-            Ok(commits_count >= 1)
+            Ok(commits_count > commits_before)
         })
         .unwrap();
         info!("Ready to mine Nakamoto blocks!");
@@ -292,6 +292,8 @@ impl SignerTest<SpawnedSigner> {
     // Only call after already past the epoch 3.0 boundary
     fn mine_and_verify_confirmed_naka_block(&mut self, timeout: Duration, num_signers: usize) {
         info!("------------------------- Try mining one block -------------------------");
+
+        let reward_cycle = self.get_current_reward_cycle();
 
         self.mine_nakamoto_block(timeout);
 
@@ -310,8 +312,10 @@ impl SignerTest<SpawnedSigner> {
         // NOTE: signature.len() does not need to equal signers.len(); the stacks miner can finish the block
         //  whenever it has crossed the threshold.
         assert!(signature.len() >= num_signers * 7 / 10);
-
-        let reward_cycle = self.get_current_reward_cycle();
+        info!(
+            "Verifying signatures against signers for reward cycle {:?}",
+            reward_cycle
+        );
         let signers = self.get_reward_set_signers(reward_cycle);
 
         // Verify that the signers signed the proposed block
@@ -1911,7 +1915,10 @@ fn end_of_tenure() {
     let http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
     let long_timeout = Duration::from_secs(200);
     let short_timeout = Duration::from_secs(20);
-
+    let blocks_before = signer_test
+        .running_nodes
+        .nakamoto_blocks_mined
+        .load(Ordering::SeqCst);
     signer_test.boot_to_epoch_3();
     let curr_reward_cycle = signer_test.get_current_reward_cycle();
     // Advance to one before the next reward cycle to ensure we are on the reward cycle boundary
@@ -1924,7 +1931,18 @@ fn end_of_tenure() {
         - 2;
 
     // give the system a chance to mine a Nakamoto block
-    sleep_ms(30_000);
+    // But it doesn't have to mine one for this test to succeed?
+    let start = Instant::now();
+    while start.elapsed() <= short_timeout {
+        let mined_blocks = signer_test
+            .running_nodes
+            .nakamoto_blocks_mined
+            .load(Ordering::SeqCst);
+        if mined_blocks > blocks_before {
+            break;
+        }
+        sleep_ms(100);
+    }
 
     info!("------------------------- Test Mine to Next Reward Cycle Boundary  -------------------------");
     signer_test.run_until_burnchain_height_nakamoto(
@@ -1932,7 +1950,7 @@ fn end_of_tenure() {
         final_reward_cycle_height_boundary,
         num_signers,
     );
-    println!("Advanced to nexct reward cycle boundary: {final_reward_cycle_height_boundary}");
+    println!("Advanced to next reward cycle boundary: {final_reward_cycle_height_boundary}");
     assert_eq!(
         signer_test.get_current_reward_cycle(),
         final_reward_cycle - 1
@@ -1973,38 +1991,19 @@ fn end_of_tenure() {
         std::thread::sleep(Duration::from_millis(100));
     }
 
-    info!("Triggering a new block to be mined");
-
-    // Mine a block into the next reward cycle
-    let commits_before = signer_test
-        .running_nodes
-        .commits_submitted
-        .load(Ordering::SeqCst);
-    next_block_and(
-        &mut signer_test.running_nodes.btc_regtest_controller,
-        10,
-        || {
-            let commits_count = signer_test
-                .running_nodes
-                .commits_submitted
-                .load(Ordering::SeqCst);
-            Ok(commits_count > commits_before)
-        },
-    )
-    .unwrap();
-
-    // Mine a few blocks so we are well into the next reward cycle
-    for _ in 0..2 {
+    while signer_test.get_current_reward_cycle() != final_reward_cycle {
         next_block_and(
             &mut signer_test.running_nodes.btc_regtest_controller,
             10,
             || Ok(true),
         )
         .unwrap();
+        assert!(
+            start_time.elapsed() <= short_timeout,
+            "Timed out waiting to enter the next reward cycle"
+        );
+        std::thread::sleep(Duration::from_millis(100));
     }
-
-    sleep_ms(10_000);
-    assert_eq!(signer_test.get_current_reward_cycle(), final_reward_cycle);
 
     while test_observer::get_burn_blocks()
         .last()
@@ -2843,4 +2842,106 @@ fn signer_set_rollover() {
     for signer in new_spawned_signers {
         assert!(signer.stop().is_none());
     }
+}
+
+#[test]
+#[ignore]
+/// This test checks that the signers will broadcast a block once they receive enough signatures.
+fn min_gap_between_blocks() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(EnvFilter::from_default_env())
+        .init();
+
+    info!("------------------------- Test Setup -------------------------");
+    let num_signers = 5;
+    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_addr = tests::to_addr(&sender_sk);
+    let send_amt = 100;
+    let send_fee = 180;
+    let recipient = PrincipalData::from(StacksAddress::burn_address(false));
+    let time_between_blocks_ms = 10_000;
+    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
+        num_signers,
+        vec![(sender_addr.clone(), send_amt + send_fee)],
+        Some(Duration::from_secs(15)),
+        |_config| {},
+        |config| {
+            config.miner.min_time_between_blocks_ms = time_between_blocks_ms;
+        },
+        &[],
+    );
+
+    let http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
+
+    signer_test.boot_to_epoch_3();
+
+    let proposals_before = signer_test
+        .running_nodes
+        .nakamoto_blocks_proposed
+        .load(Ordering::SeqCst);
+
+    let info_before = get_chain_info(&signer_test.running_nodes.conf);
+
+    // submit a tx so that the miner will mine a block
+    let sender_nonce = 0;
+    let transfer_tx =
+        make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
+    submit_tx(&http_origin, &transfer_tx);
+
+    info!("Submitted transfer tx and waiting for block proposal. Ensure it does not arrive before the gap is exceeded");
+    let start_time = Instant::now();
+    loop {
+        let blocks_proposed = signer_test
+            .running_nodes
+            .nakamoto_blocks_proposed
+            .load(Ordering::SeqCst);
+        if blocks_proposed > proposals_before {
+            assert!(
+                start_time.elapsed().as_millis() >= time_between_blocks_ms.into(),
+                "Block proposed before gap was exceeded"
+            );
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+
+    debug!("Ensure that the block is mined after the gap is exceeded");
+
+    let start = Instant::now();
+    let duration = 30;
+    let blocks_before = signer_test
+        .running_nodes
+        .nakamoto_blocks_mined
+        .load(Ordering::SeqCst);
+    loop {
+        let blocks_mined = signer_test
+            .running_nodes
+            .nakamoto_blocks_mined
+            .load(Ordering::SeqCst);
+
+        let info = get_chain_info(&signer_test.running_nodes.conf);
+        if blocks_mined > blocks_before
+            && info.stacks_tip_height == info_before.stacks_tip_height + 1
+        {
+            break;
+        }
+
+        debug!(
+            "blocks_mined: {},{}, stacks_tip_height: {},{}",
+            blocks_mined, blocks_before, info_before.stacks_tip_height, info.stacks_tip_height
+        );
+
+        std::thread::sleep(Duration::from_millis(100));
+        assert!(
+            start.elapsed() < Duration::from_secs(duration),
+            "Block not mined within timeout"
+        );
+    }
+
+    signer_test.shutdown();
 }

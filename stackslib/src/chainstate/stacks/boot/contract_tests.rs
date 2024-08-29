@@ -490,7 +490,7 @@ impl BurnStateDB for TestSimBurnStateDB {
             let first_block = self.get_burn_start_height();
             let prepare_len = self.get_pox_prepare_length();
             let rc_len = self.get_pox_reward_cycle_length();
-            if Burnchain::static_is_in_prepare_phase(
+            if PoxConstants::static_is_in_prepare_phase(
                 first_block.into(),
                 rc_len.into(),
                 prepare_len.into(),

@@ -1,14 +1,26 @@
-use std::cmp;
+// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
+// Copyright (C) 2020-2024 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 use std::io::Cursor;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
+use std::{cmp, io};
 
-use async_h1::client;
-use async_std::io::ReadExt;
-use async_std::net::TcpStream;
 use base64::encode;
-use http_types::{Method, Request, Url};
 use serde::Serialize;
 use serde_json::json;
 use serde_json::value::RawValue;
@@ -38,6 +50,9 @@ use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::stacks::address::PoxAddress;
 use stacks::core::{StacksEpoch, StacksEpochId};
 use stacks::monitoring::{increment_btc_blocks_received_counter, increment_btc_ops_sent_counter};
+use stacks::net::http::{HttpRequestContents, HttpResponsePayload};
+use stacks::net::httpcore::{send_http_request, StacksHttpRequest};
+use stacks::net::Error as NetError;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::deps_common::bitcoin::blockdata::opcodes;
 use stacks_common::deps_common::bitcoin::blockdata::script::{Builder, Script};
@@ -50,9 +65,11 @@ use stacks_common::deps_common::bitcoin::network::serialize::deserialize as btc_
 use stacks_common::deps_common::bitcoin::network::serialize::RawEncoder;
 use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
 use stacks_common::types::chainstate::BurnchainHeaderHash;
+use stacks_common::types::net::PeerHost;
 use stacks_common::util::hash::{hex_bytes, Hash160};
 use stacks_common::util::secp256k1::Secp256k1PublicKey;
 use stacks_common::util::sleep_ms;
+use url::Url;
 
 use super::super::operations::BurnchainOpSigner;
 use super::super::Config;
@@ -1373,14 +1390,36 @@ impl BitcoinRegtestController {
         previous_fees: Option<LeaderBlockCommitFees>,
         previous_txids: &Vec<Txid>,
     ) -> Option<Transaction> {
-        let mut estimated_fees = match previous_fees {
+        let _ = self.sortdb_mut();
+        let burn_chain_tip = self.burnchain_db.as_ref()?.get_canonical_chain_tip().ok()?;
+        let estimated_fees = match previous_fees {
             Some(fees) => fees.fees_from_previous_tx(&payload, &self.config),
             None => LeaderBlockCommitFees::estimated_fees_from_payload(&payload, &self.config),
         };
 
-        let _ = self.sortdb_mut();
-        let burn_chain_tip = self.burnchain_db.as_ref()?.get_canonical_chain_tip().ok()?;
+        self.send_block_commit_operation_at_burnchain_height(
+            epoch_id,
+            payload,
+            signer,
+            utxos_to_include,
+            utxos_to_exclude,
+            estimated_fees,
+            previous_txids,
+            burn_chain_tip.block_height,
+        )
+    }
 
+    fn send_block_commit_operation_at_burnchain_height(
+        &mut self,
+        epoch_id: StacksEpochId,
+        payload: LeaderBlockCommitOp,
+        signer: &mut BurnchainOpSigner,
+        utxos_to_include: Option<UTXOSet>,
+        utxos_to_exclude: Option<UTXOSet>,
+        mut estimated_fees: LeaderBlockCommitFees,
+        previous_txids: &Vec<Txid>,
+        burnchain_block_height: u64,
+    ) -> Option<Transaction> {
         let public_key = signer.get_public_key();
         let (mut tx, mut utxos) = self.prepare_tx(
             epoch_id,
@@ -1388,7 +1427,7 @@ impl BitcoinRegtestController {
             estimated_fees.estimated_amount_required(),
             utxos_to_include,
             utxos_to_exclude,
-            burn_chain_tip.block_height,
+            burnchain_block_height,
         )?;
 
         // Serialize the payload
@@ -1817,7 +1856,7 @@ impl BitcoinRegtestController {
             debug!("Not enough change to clear dust limit. Not adding change address.");
         }
 
-        for (i, utxo) in utxos_set.utxos.iter().enumerate() {
+        for (_i, utxo) in utxos_set.utxos.iter().enumerate() {
             let input = TxIn {
                 previous_output: OutPoint {
                     txid: utxo.txid,
@@ -1828,7 +1867,8 @@ impl BitcoinRegtestController {
                 witness: vec![],
             };
             tx.input.push(input);
-
+        }
+        for (i, utxo) in utxos_set.utxos.iter().enumerate() {
             let script_pub_key = utxo.script_pub_key.clone();
             let sig_hash_all = 0x01;
 
@@ -2408,8 +2448,20 @@ pub enum RPCError {
 
 type RPCResult<T> = Result<T, RPCError>;
 
+impl From<io::Error> for RPCError {
+    fn from(ioe: io::Error) -> Self {
+        Self::Network(format!("IO Error: {:?}", &ioe))
+    }
+}
+
+impl From<NetError> for RPCError {
+    fn from(ne: NetError) -> Self {
+        Self::Network(format!("Net Error: {:?}", &ne))
+    }
+}
+
 impl BitcoinRPCRequest {
-    fn build_rpc_request(config: &Config, payload: &BitcoinRPCRequest) -> Request {
+    fn build_rpc_request(config: &Config, payload: &BitcoinRPCRequest) -> StacksHttpRequest {
         let url = {
             // some methods require a wallet ID
             let wallet_id = match payload.method.as_str() {
@@ -2424,16 +2476,35 @@ impl BitcoinRPCRequest {
             &payload.method, &config.burnchain.username, &config.burnchain.password, &url
         );
 
-        let mut req = Request::new(Method::Post, url);
+        let host = url
+            .host_str()
+            .expect("Invalid bitcoin RPC URL: missing host");
+        let port = url.port_or_known_default().unwrap_or(8333);
+        let peerhost: PeerHost = format!("{host}:{port}")
+            .parse()
+            .unwrap_or_else(|_| panic!("FATAL: could not parse URL into PeerHost"));
+
+        let mut request = StacksHttpRequest::new_for_peer(
+            peerhost,
+            "POST".into(),
+            url.path().into(),
+            HttpRequestContents::new().payload_json(
+                serde_json::to_value(payload).unwrap_or_else(|_| {
+                    panic!("FATAL: failed to encode Bitcoin RPC request as JSON")
+                }),
+            ),
+        )
+        .unwrap_or_else(|_| panic!("FATAL: failed to encode infallible data as HTTP request"));
+        request.add_header("Connection".into(), "close".into());
 
         match (&config.burnchain.username, &config.burnchain.password) {
             (Some(username), Some(password)) => {
                 let auth_token = format!("Basic {}", encode(format!("{}:{}", username, password)));
-                req.append_header("Authorization", auth_token);
+                request.add_header("Authorization".into(), auth_token);
             }
             (_, _) => {}
         };
-        req
+        request
     }
 
     #[cfg(test)]
@@ -2518,10 +2589,10 @@ impl BitcoinRPCRequest {
                     .map_err(|_| RPCError::Parsing("Failed to get bestblockhash".to_string()))?;
                 let bhh = BurnchainHeaderHash::from_hex(&bhh)
                     .map_err(|_| RPCError::Parsing("Failed to get bestblockhash".to_string()))?;
-                Ok(bhh)
+                bhh
             }
             _ => return Err(RPCError::Parsing("Failed to get UTXOs".to_string())),
-        }?;
+        };
 
         let min_conf = 0i64;
         let max_conf = 9999999i64;
@@ -2743,71 +2814,18 @@ impl BitcoinRPCRequest {
     }
 
     fn send(config: &Config, payload: BitcoinRPCRequest) -> RPCResult<serde_json::Value> {
-        let mut request = BitcoinRPCRequest::build_rpc_request(&config, &payload);
+        let request = BitcoinRPCRequest::build_rpc_request(&config, &payload);
+        let timeout = Duration::from_secs(60);
 
-        let body = match serde_json::to_vec(&json!(payload)) {
-            Ok(body) => body,
-            Err(err) => {
-                return Err(RPCError::Network(format!("RPC Error: {}", err)));
-            }
-        };
+        let host = request.preamble().host.hostname();
+        let port = request.preamble().host.port();
 
-        request.append_header("Content-Type", "application/json");
-        request.set_body(body);
-
-        let mut response = async_std::task::block_on(async move {
-            let stream = match TcpStream::connect(config.burnchain.get_rpc_socket_addr()).await {
-                Ok(stream) => stream,
-                Err(err) => {
-                    return Err(RPCError::Network(format!(
-                        "Bitcoin RPC: connection failed - {:?}",
-                        err
-                    )))
-                }
-            };
-
-            match client::connect(stream, request).await {
-                Ok(response) => Ok(response),
-                Err(err) => {
-                    return Err(RPCError::Network(format!(
-                        "Bitcoin RPC: invoking procedure failed - {:?}",
-                        err
-                    )))
-                }
-            }
-        })?;
-
-        let status = response.status();
-
-        let (res, buffer) = async_std::task::block_on(async move {
-            let mut buffer = Vec::new();
-            let mut body = response.take_body();
-            let res = body.read_to_end(&mut buffer).await;
-            (res, buffer)
-        });
-
-        if !status.is_success() {
-            return Err(RPCError::Network(format!(
-                "Bitcoin RPC: status({}) != success, body is '{:?}'",
-                status,
-                match serde_json::from_slice::<serde_json::Value>(&buffer[..]) {
-                    Ok(v) => v,
-                    Err(_e) => serde_json::from_str("\"(unparseable)\"")
-                        .expect("Failed to parse JSON literal"),
-                }
-            )));
+        let response = send_http_request(&host, port, request, timeout)?;
+        if let HttpResponsePayload::JSON(js) = response.destruct().1 {
+            return Ok(js);
+        } else {
+            return Err(RPCError::Parsing("Did not get a JSON response".into()));
         }
-
-        if res.is_err() {
-            return Err(RPCError::Network(format!(
-                "Bitcoin RPC: unable to read body - {:?}",
-                res
-            )));
-        }
-
-        let payload = serde_json::from_slice::<serde_json::Value>(&buffer[..])
-            .map_err(|e| RPCError::Parsing(format!("Bitcoin RPC: {}", e)))?;
-        Ok(payload)
     }
 }
 
@@ -2816,6 +2834,12 @@ mod tests {
     use std::env::temp_dir;
     use std::fs::File;
     use std::io::Write;
+
+    use stacks::burnchains::BurnchainSigner;
+    use stacks_common::deps_common::bitcoin::blockdata::script::Builder;
+    use stacks_common::types::chainstate::{BlockHeaderHash, StacksAddress, VRFSeed};
+    use stacks_common::util::hash::to_hex;
+    use stacks_common::util::secp256k1::Secp256k1PrivateKey;
 
     use super::*;
     use crate::config::DEFAULT_SATS_PER_VB;
@@ -2836,5 +2860,161 @@ mod tests {
         config.config_path = Some(file_path.to_str().unwrap().to_string());
 
         assert_eq!(get_satoshis_per_byte(&config), 51);
+    }
+
+    /// Verify that we can build a valid Bitcoin transaction with multiple UTXOs.
+    /// Taken from production data.
+    /// Tests `serialize_tx()` and `send_block_commit_operation_at_burnchain_height()`
+    #[test]
+    fn test_multiple_inputs() {
+        let spend_utxos = vec![
+            UTXO {
+                txid: Sha256dHash::from_hex(
+                    "d3eafb3aba3cec925473550ed2e4d00bcb0d00744bb3212e4a8e72878909daee",
+                )
+                .unwrap(),
+                vout: 3,
+                script_pub_key: Builder::from(
+                    hex_bytes("76a9141dc27eba0247f8cc9575e7d45e50a0bc7e72427d88ac").unwrap(),
+                )
+                .into_script(),
+                amount: 42051,
+                confirmations: 1421,
+            },
+            UTXO {
+                txid: Sha256dHash::from_hex(
+                    "01132f2d4a98cc715624e033214c8d841098a1ee15b30188ab89589a320b3b24",
+                )
+                .unwrap(),
+                vout: 0,
+                script_pub_key: Builder::from(
+                    hex_bytes("76a9141dc27eba0247f8cc9575e7d45e50a0bc7e72427d88ac").unwrap(),
+                )
+                .into_script(),
+                amount: 326456,
+                confirmations: 1421,
+            },
+        ];
+
+        // test serialize_tx()
+        let mut config = Config::default();
+        config.burnchain.magic_bytes = "T3".as_bytes().into();
+
+        let mut btc_controller = BitcoinRegtestController::new(config, None);
+        let mut utxo_set = UTXOSet {
+            bhh: BurnchainHeaderHash([0x01; 32]),
+            utxos: spend_utxos.clone(),
+        };
+        let mut transaction = Transaction {
+            input: vec![],
+            output: vec![
+                TxOut {
+                    value: 0,
+                    script_pubkey: Builder::from(hex_bytes("6a4c5054335be88c3d30cb59a142f83de3b27f897a43bbb0f13316911bb98a3229973dae32afd5b9f21bc1f40f24e2c101ecd13c55b8619e5e03dad81de2c62a1cc1d8c1b375000008a300010000059800015a").unwrap()).into_script(),
+                },
+                TxOut {
+                    value: 10000,
+                    script_pubkey: Builder::from(hex_bytes("76a914000000000000000000000000000000000000000088ac").unwrap()).into_script(),
+                },
+                TxOut {
+                    value: 10000,
+                    script_pubkey: Builder::from(hex_bytes("76a914000000000000000000000000000000000000000088ac").unwrap()).into_script(),
+                },
+            ],
+            version: 1,
+            lock_time: 0,
+        };
+
+        let mut signer = BurnchainOpSigner::new(
+            Secp256k1PrivateKey::from_hex(
+                "9e446f6b0c6a96cf2190e54bcd5a8569c3e386f091605499464389b8d4e0bfc201",
+            )
+            .unwrap(),
+            false,
+        );
+        assert!(btc_controller.serialize_tx(
+            StacksEpochId::Epoch25,
+            &mut transaction,
+            44950,
+            &mut utxo_set,
+            &mut signer,
+            true
+        ));
+        assert_eq!(transaction.output[3].value, 323557);
+
+        // test send_block_commit_operation_at_burn_height()
+        let utxo_set = UTXOSet {
+            bhh: BurnchainHeaderHash([0x01; 32]),
+            utxos: spend_utxos.clone(),
+        };
+
+        let commit_op = LeaderBlockCommitOp {
+            block_header_hash: BlockHeaderHash::from_hex(
+                "e88c3d30cb59a142f83de3b27f897a43bbb0f13316911bb98a3229973dae32af",
+            )
+            .unwrap(),
+            new_seed: VRFSeed::from_hex(
+                "d5b9f21bc1f40f24e2c101ecd13c55b8619e5e03dad81de2c62a1cc1d8c1b375",
+            )
+            .unwrap(),
+            parent_block_ptr: 2211, // 0x000008a3
+            parent_vtxindex: 1,     // 0x0001
+            key_block_ptr: 1432,    // 0x00000598
+            key_vtxindex: 1,        // 0x0001
+            memo: vec![11],         // 0x5a >> 3
+
+            burn_fee: 0,
+            input: (Txid([0x00; 32]), 0),
+            burn_parent_modulus: 2, // 0x5a & 0b111
+
+            apparent_sender: BurnchainSigner("mgbpit8FvkVJ9kuXY8QSM5P7eibnhcEMBk".to_string()),
+            commit_outs: vec![
+                PoxAddress::Standard(StacksAddress::burn_address(false), None),
+                PoxAddress::Standard(StacksAddress::burn_address(false), None),
+            ],
+
+            treatment: vec![],
+            sunset_burn: 0,
+
+            txid: Txid([0x00; 32]),
+            vtxindex: 0,
+            block_height: 2212,
+            burn_header_hash: BurnchainHeaderHash([0x01; 32]),
+        };
+
+        assert_eq!(to_hex(&commit_op.serialize_to_vec()), "5be88c3d30cb59a142f83de3b27f897a43bbb0f13316911bb98a3229973dae32afd5b9f21bc1f40f24e2c101ecd13c55b8619e5e03dad81de2c62a1cc1d8c1b375000008a300010000059800015a".to_string());
+
+        let leader_fees = LeaderBlockCommitFees {
+            sunset_fee: 0,
+            fee_rate: 50,
+            sortition_fee: 20000,
+            outputs_len: 2,
+            default_tx_size: 380,
+            spent_in_attempts: 0,
+            is_rbf_enabled: false,
+            final_size: 498,
+        };
+
+        assert_eq!(leader_fees.amount_per_output(), 10000);
+        assert_eq!(leader_fees.total_spent(), 44900);
+
+        let block_commit = btc_controller
+            .send_block_commit_operation_at_burnchain_height(
+                StacksEpochId::Epoch30,
+                commit_op,
+                &mut signer,
+                Some(utxo_set),
+                None,
+                leader_fees,
+                &vec![],
+                2212,
+            )
+            .unwrap();
+
+        debug!("send_block_commit_operation:\n{:#?}", &block_commit);
+        debug!("{}", &SerializedTx::new(block_commit.clone()).to_hex());
+        assert_eq!(block_commit.output[3].value, 323507);
+
+        assert_eq!(&SerializedTx::new(block_commit.clone()).to_hex(), "0100000002eeda098987728e4a2e21b34b74000dcb0bd0e4d20e55735492ec3cba3afbead3030000006a4730440220558286e20e10ce31537f0625dae5cc62fac7961b9d2cf272c990de96323d7e2502202255adbea3d2e0509b80c5d8a3a4fe6397a87bcf18da1852740d5267d89a0cb20121035379aa40c02890d253cfa577964116eb5295570ae9f7287cbae5f2585f5b2c7cfdffffff243b0b329a5889ab8801b315eea19810848d4c2133e0245671cc984a2d2f1301000000006a47304402206d9f8de107f9e1eb15aafac66c2bb34331a7523260b30e18779257e367048d34022013c7dabb32a5c281aa00d405e2ccbd00f34f03a65b2336553a4acd6c52c251ef0121035379aa40c02890d253cfa577964116eb5295570ae9f7287cbae5f2585f5b2c7cfdffffff040000000000000000536a4c5054335be88c3d30cb59a142f83de3b27f897a43bbb0f13316911bb98a3229973dae32afd5b9f21bc1f40f24e2c101ecd13c55b8619e5e03dad81de2c62a1cc1d8c1b375000008a300010000059800015a10270000000000001976a914000000000000000000000000000000000000000088ac10270000000000001976a914000000000000000000000000000000000000000088acb3ef0400000000001976a9141dc27eba0247f8cc9575e7d45e50a0bc7e72427d88ac00000000");
     }
 }

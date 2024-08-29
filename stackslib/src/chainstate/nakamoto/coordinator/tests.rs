@@ -598,7 +598,7 @@ impl<'a> TestPeer<'a> {
         info!(
             "Burnchain block produced: {burn_height}, in_prepare_phase?: {}, first_reward_block?: {}",
             pox_constants.is_in_prepare_phase(first_burn_height, burn_height),
-            pox_constants.is_reward_cycle_start(first_burn_height, burn_height)
+            pox_constants.is_naka_signing_cycle_start(first_burn_height, burn_height)
         );
         let vrf_proof = self.make_nakamoto_vrf_proof(miner_key);
 
@@ -761,6 +761,9 @@ fn pox_treatment() {
             peer.single_block_tenure(&private_key, |_| {}, |_| {}, |_| true);
         blocks.push(block);
 
+        // note: we use `is_reward_cycle_start` here rather than naka_reward_cycle_start
+        //  because in this test, we're interested in getting to the reward blocks,
+        //  not validating the signer set. the reward blocks only begin at modulo 1
         if pox_constants.is_reward_cycle_start(first_burn_height, burn_height + 1) {
             break;
         }
@@ -1083,8 +1086,6 @@ fn test_nakamoto_chainstate_getters() {
         let chainstate = &mut peer.stacks_node.as_mut().unwrap().chainstate;
         let sort_db = peer.sortdb.as_ref().unwrap();
 
-        let (mut stacks_db_tx, _) = chainstate.chainstate_tx_begin().unwrap();
-
         for coinbase_height in 0..=((tip
             .anchored_header
             .as_stacks_nakamoto()
@@ -1094,7 +1095,7 @@ fn test_nakamoto_chainstate_getters() {
             + 1)
         {
             let header_opt = NakamotoChainState::get_header_by_coinbase_height(
-                &mut stacks_db_tx,
+                &mut chainstate.index_conn(),
                 &tip.index_block_hash(),
                 coinbase_height,
             )
@@ -1571,7 +1572,7 @@ pub fn simple_nakamoto_coordinator_10_tenures_10_sortitions<'a>() -> TestPeer<'a
         if peer
             .config
             .burnchain
-            .is_reward_cycle_start(tip.block_height)
+            .is_naka_signing_cycle_start(tip.block_height)
         {
             rc_blocks.push(all_blocks.clone());
             rc_burn_ops.push(all_burn_ops.clone());
@@ -2316,7 +2317,7 @@ pub fn simple_nakamoto_coordinator_10_extended_tenures_10_sortitions() -> TestPe
         if peer
             .config
             .burnchain
-            .is_reward_cycle_start(tip.block_height)
+            .is_naka_signing_cycle_start(tip.block_height)
         {
             rc_blocks.push(all_blocks.clone());
             rc_burn_ops.push(all_burn_ops.clone());
