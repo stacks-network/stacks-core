@@ -490,7 +490,7 @@ impl SignerDb {
             .vote
             .as_ref()
             .map(|v| if v.rejected { "REJECT" } else { "ACCEPT" });
-        let broadcasted = self.get_block_broadcasted(block_info.reward_cycle, &hash)?;
+        let broadcasted = self.get_block_broadcasted(block_info.reward_cycle, hash)?;
 
         debug!("Inserting block_info.";
             "reward_cycle" => %block_info.reward_cycle,
@@ -534,7 +534,7 @@ impl SignerDb {
         let qry = "INSERT OR REPLACE INTO block_signatures (signer_signature_hash, signature) VALUES (?1, ?2);";
         let args = params![
             block_sighash,
-            serde_json::to_string(signature).map_err(|e| DBError::SerializationError(e))?
+            serde_json::to_string(signature).map_err(DBError::SerializationError)?
         ];
 
         debug!("Inserting block signature.";
@@ -590,7 +590,7 @@ impl SignerDb {
         if broadcasted == 0 {
             return Ok(None);
         }
-        Ok(u64::try_from(broadcasted).ok())
+        Ok(Some(broadcasted))
     }
 }
 
@@ -880,15 +880,12 @@ mod tests {
         assert_eq!(db.get_block_signatures(&block_id).unwrap(), vec![]);
 
         db.add_block_signature(&block_id, &sig1).unwrap();
-        assert_eq!(
-            db.get_block_signatures(&block_id).unwrap(),
-            vec![sig1.clone()]
-        );
+        assert_eq!(db.get_block_signatures(&block_id).unwrap(), vec![sig1]);
 
         db.add_block_signature(&block_id, &sig2).unwrap();
         assert_eq!(
             db.get_block_signatures(&block_id).unwrap(),
-            vec![sig1.clone(), sig2.clone()]
+            vec![sig1, sig2]
         );
     }
 

@@ -26,22 +26,30 @@ extern crate serde;
 extern crate serde_json;
 extern crate toml;
 
+use std::collections::HashMap;
 use std::io::{self, Write};
 
+use blockstack_lib::chainstate::nakamoto::signer_set::NakamotoSigners;
+use blockstack_lib::util_lib::boot::boot_code_id;
 use blockstack_lib::util_lib::signed_structured_data::pox4::make_pox_4_signer_key_signature;
 use clap::Parser;
-use clarity::types::chainstate::StacksPublicKey;
+use clarity::codec::read_next;
+use clarity::types::chainstate::{StacksPrivateKey, StacksPublicKey};
+use clarity::util::sleep_ms;
 use clarity::vm::types::QualifiedContractIdentifier;
+use libsigner::v0::messages::{MessageSlotID, SignerMessage};
 use libsigner::{SignerSession, StackerDBSession};
 use libstackerdb::StackerDBChunkData;
-use slog::slog_debug;
-use stacks_common::debug;
+use slog::{slog_debug, slog_info, slog_warn};
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::secp256k1::MessageSignature;
+use stacks_common::{debug, info, warn};
 use stacks_signer::cli::{
     Cli, Command, GenerateStackingSignatureArgs, GenerateVoteArgs, GetChunkArgs,
-    GetLatestChunkArgs, PutChunkArgs, RunSignerArgs, StackerDBArgs, VerifyVoteArgs,
+    GetLatestChunkArgs, MonitorSignersArgs, PutChunkArgs, RunSignerArgs, StackerDBArgs,
+    VerifyVoteArgs,
 };
+use stacks_signer::client::StacksClient;
 use stacks_signer::config::GlobalConfig;
 use stacks_signer::v0::SpawnedSigner;
 use tracing_subscriber::prelude::*;
@@ -188,6 +196,119 @@ fn handle_verify_vote(args: VerifyVoteArgs, do_print: bool) -> bool {
     valid_vote
 }
 
+fn handle_monitor_signers(args: MonitorSignersArgs) {
+    info!("Monitoring signers stackerdb...");
+    let interval_ms = args.interval * 1000;
+    let stacks_client = StacksClient::new(
+        StacksPrivateKey::new(), // We don't need a private key to retrieve the reward cycle
+        args.host,
+        "FOO".to_string(), // We don't care about authorized paths. Just accessing public info
+        args.mainnet,
+    );
+    let mut reward_cycle = stacks_client
+        .get_current_reward_cycle_info()
+        .unwrap()
+        .reward_cycle;
+    let mut contract_name =
+        NakamotoSigners::make_signers_db_name(reward_cycle, MessageSlotID::BlockResponse.to_u32());
+    let mut contract_id = boot_code_id(contract_name.as_str(), args.mainnet);
+    let mut session = stackerdb_session(&args.host.to_string(), contract_id);
+    let mut signers_slots = stacks_client
+        .get_parsed_signer_slots(reward_cycle)
+        .expect("Failed to get signer slots");
+    let mut signers_addresses = HashMap::with_capacity(signers_slots.len());
+    for (signer_address, slot_id) in signers_slots.iter() {
+        signers_addresses.insert(*slot_id, *signer_address);
+    }
+    let mut slot_ids: Vec<_> = signers_slots.values().map(|value| value.0).collect();
+
+    // Poll stackerdb slots every 200 ms to check for new mock signatures.
+    let mut last_messages = HashMap::with_capacity(slot_ids.len());
+    let mut signer_last_write_time = HashMap::with_capacity(slot_ids.len());
+    loop {
+        let mut missing_signers = Vec::with_capacity(slot_ids.len());
+        let mut stale_signers = Vec::with_capacity(slot_ids.len());
+
+        let next_reward_cycle = stacks_client
+            .get_current_reward_cycle_info()
+            .unwrap()
+            .reward_cycle;
+        if next_reward_cycle != reward_cycle {
+            reward_cycle = next_reward_cycle;
+            contract_name = NakamotoSigners::make_signers_db_name(
+                reward_cycle,
+                MessageSlotID::BlockResponse.to_u32(),
+            );
+            contract_id = boot_code_id(contract_name.as_str(), args.mainnet);
+            session = stackerdb_session(&args.host.to_string(), contract_id);
+            signers_slots = stacks_client
+                .get_parsed_signer_slots(reward_cycle)
+                .expect("Failed to get signer slots");
+            slot_ids = signers_slots.values().map(|value| value.0).collect();
+            last_messages = HashMap::with_capacity(slot_ids.len());
+        }
+        let new_messages: Vec<Option<SignerMessage>> = session
+            .get_latest_chunks(&slot_ids)
+            .expect("Failed to get latest signer messages")
+            .into_iter()
+            .map(|chunk_opt| {
+                chunk_opt.and_then(|data| read_next::<SignerMessage, _>(&mut &data[..]).ok())
+            })
+            .collect();
+        for ((signer_address, slot_id), signer_message_opt) in
+            signers_slots.clone().into_iter().zip(new_messages)
+        {
+            if let Some(signer_message) = signer_message_opt {
+                if let Some(last_message) = last_messages.get(&slot_id) {
+                    if last_message == &signer_message {
+                        continue;
+                    }
+                    match last_message {
+                        SignerMessage::MockSignature(_) => {
+                            if args.mainnet {
+                                warn!("Mock signature found for signer {signer_address} in slot {slot_id} but we are on mainnet");
+                                continue;
+                            }
+                        }
+                        SignerMessage::BlockResponse(_) => {
+                            if args.mainnet {
+                                warn!("Block response found for signer {signer_address} in slot {slot_id} but we are on mainnet");
+                                continue;
+                            }
+                        }
+                        _ => {
+                            warn!("Unexpected message found for signer {signer_address} in slot {slot_id}");
+                            continue;
+                        }
+                    }
+                }
+                last_messages.insert(slot_id, signer_message);
+                signer_last_write_time.insert(slot_id, std::time::Instant::now());
+            } else {
+                missing_signers.push(signer_address);
+            }
+        }
+        if !missing_signers.is_empty() {
+            warn!(
+                "Missing messages for {} signers: {missing_signers:?}",
+                missing_signers.len()
+            );
+        }
+        for (slot_id, last_write_time) in signer_last_write_time.iter() {
+            if last_write_time.elapsed().as_secs() > 600 {
+                let address = signers_addresses
+                    .get(slot_id)
+                    .expect("BUG: missing signer address for given slot id");
+                stale_signers.push(*address);
+            }
+        }
+        if !stale_signers.is_empty() {
+            warn!("The following {} signers have not written to stackerdb in over 10 minutes: {stale_signers:?}", stale_signers.len());
+        }
+        sleep_ms(interval_ms);
+    }
+}
+
 fn main() {
     let cli = Cli::parse();
 
@@ -224,6 +345,7 @@ fn main() {
         Command::VerifyVote(args) => {
             handle_verify_vote(args, true);
         }
+        Command::MonitorSigners(args) => handle_monitor_signers(args),
     }
 }
 

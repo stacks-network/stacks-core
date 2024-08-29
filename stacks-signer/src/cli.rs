@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::io::{self, Read};
+use std::net::SocketAddr;
 use std::path::PathBuf;
 
 use blockstack_lib::chainstate::stacks::address::PoxAddress;
@@ -97,6 +98,8 @@ pub enum Command {
     GenerateVote(GenerateVoteArgs),
     /// Verify the vote for a specified SIP against a public key and vote info
     VerifyVote(VerifyVoteArgs),
+    /// Verify signer signatures by checking stackerdb slots contain the correct data
+    MonitorSigners(MonitorSignersArgs),
 }
 
 /// Basic arguments for all cyrptographic and stacker-db functionality
@@ -256,6 +259,20 @@ impl TryFrom<u8> for Vote {
     fn try_from(input: u8) -> Result<Vote, Self::Error> {
         Vote::from_u8(input).ok_or_else(|| format!("Invalid vote: {}. Must be 0 or 1.", input))
     }
+}
+
+#[derive(Parser, Debug, Clone)]
+/// Arguments for the MonitorSigners command
+pub struct MonitorSignersArgs {
+    /// The Stacks node to connect to
+    #[arg(long)]
+    pub host: SocketAddr,
+    /// Whether the node is mainnet. Default is true
+    #[arg(long, default_value = "true")]
+    pub mainnet: bool,
+    /// Set the polling interval in seconds. Default is 60 seconds.
+    #[arg(long, short, default_value = "60")]
+    pub interval: u64,
 }
 
 #[derive(Clone, Debug, PartialEq)]

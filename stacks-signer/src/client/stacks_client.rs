@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
 // Copyright (C) 2020-2024 Stacks Open Internet Foundation
 //
@@ -19,7 +19,7 @@ use std::net::SocketAddr;
 use blockstack_lib::burnchains::Txid;
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
 use blockstack_lib::chainstate::stacks::boot::{
-    NakamotoSignerEntry, SIGNERS_VOTING_FUNCTION_NAME, SIGNERS_VOTING_NAME,
+    NakamotoSignerEntry, SIGNERS_NAME, SIGNERS_VOTING_FUNCTION_NAME, SIGNERS_VOTING_NAME,
 };
 use blockstack_lib::chainstate::stacks::{
     StacksTransaction, StacksTransactionSigner, TransactionAnchorMode, TransactionAuth,
@@ -56,6 +56,7 @@ use stacks_common::types::StacksEpochId;
 use stacks_common::{debug, warn};
 use wsts::curve::point::{Compressed, Point};
 
+use super::SignerSlotID;
 use crate::client::{retry_with_exponential_backoff, ClientError};
 use crate::config::GlobalConfig;
 use crate::runloop::RewardCycleInfo;
@@ -158,7 +159,7 @@ impl StacksClient {
     }
 
     /// Helper function  that attempts to deserialize a clarity hext string as a list of signer slots and their associated number of signer slots
-    pub fn parse_signer_slots(
+    fn parse_signer_slots(
         &self,
         value: ClarityValue,
     ) -> Result<Vec<(StacksAddress, u128)>, ClientError> {
@@ -178,6 +179,29 @@ impl StacksClient {
             signer_slots.push((signer, num_slots));
         }
         Ok(signer_slots)
+    }
+
+    /// Get the stackerdb signer slots for a specific reward cycle
+    pub fn get_parsed_signer_slots(
+        &self,
+        reward_cycle: u64,
+    ) -> Result<HashMap<StacksAddress, SignerSlotID>, ClientError> {
+        let signer_set =
+            u32::try_from(reward_cycle % 2).expect("FATAL: reward_cycle % 2 exceeds u32::MAX");
+        let signer_stackerdb_contract_id = boot_code_id(SIGNERS_NAME, self.mainnet);
+        // Get the signer writers from the stacker-db to find the signer slot id
+        let stackerdb_signer_slots =
+            self.get_stackerdb_signer_slots(&signer_stackerdb_contract_id, signer_set)?;
+        let mut signer_slot_ids = HashMap::with_capacity(stackerdb_signer_slots.len());
+        for (index, (address, _)) in stackerdb_signer_slots.into_iter().enumerate() {
+            signer_slot_ids.insert(
+                address,
+                SignerSlotID(
+                    u32::try_from(index).expect("FATAL: number of signers exceeds u32::MAX"),
+                ),
+            );
+        }
+        Ok(signer_slot_ids)
     }
 
     /// Get the vote for a given  round, reward cycle, and signer address
@@ -541,13 +565,13 @@ impl StacksClient {
                 warn!("Failed to parse the GetStackers error response: {e}");
                 backoff::Error::permanent(e.into())
             })?;
-            if &error_data.err_type == GetStackersErrors::NOT_AVAILABLE_ERR_TYPE {
-                return Err(backoff::Error::transient(ClientError::NoSortitionOnChain));
+            if error_data.err_type == GetStackersErrors::NOT_AVAILABLE_ERR_TYPE {
+                Err(backoff::Error::transient(ClientError::NoSortitionOnChain))
             } else {
                 warn!("Got error response ({status}): {}", error_data.err_msg);
-                return Err(backoff::Error::permanent(ClientError::RequestFailure(
+                Err(backoff::Error::permanent(ClientError::RequestFailure(
                     status,
-                )));
+                )))
             }
         };
         let stackers_response =
