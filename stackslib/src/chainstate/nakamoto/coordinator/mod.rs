@@ -619,8 +619,15 @@ impl<
         let all_epochs = SortitionDB::get_stacks_epochs(self.sortition_db.conn())
             .unwrap_or_else(|e| panic!("FATAL: failed to query sortition DB for epochs: {:?}", &e));
 
-        let epoch_3_idx = StacksEpoch::find_epoch_by_id(&all_epochs, StacksEpochId::Epoch30)
-            .expect("FATAL: epoch3 not defined");
+        let Some(epoch_3_idx) = StacksEpoch::find_epoch_by_id(&all_epochs, StacksEpochId::Epoch30) else {
+            // this is only reachable in tests
+            if cfg!(any(test, feature = "testing")) {
+                return u64::MAX;
+            }
+            else {
+                panic!("FATAL: epoch3 not defined");
+            }
+        };
 
         let epoch3 = &all_epochs[epoch_3_idx];
         let first_epoch3_reward_cycle = self
