@@ -1513,7 +1513,7 @@ pub struct NetworkResult {
     pub num_connected_peers: usize,
     /// The observed burnchain height
     pub burn_height: u64,
-    /// The consensus hash of the burnchain tip (prefixed `rc_` for historical reasons)
+    /// The consensus hash of the stacks tip (prefixed `rc_` for historical reasons)
     pub rc_consensus_hash: ConsensusHash,
     /// The current StackerDB configs
     pub stacker_db_configs: HashMap<QualifiedContractIdentifier, StackerDBConfig>,

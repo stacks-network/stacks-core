@@ -108,6 +108,7 @@ jobs:
           - tests::nakamoto_integrations::continue_tenure_extend
           - tests::nakamoto_integrations::mock_mining
           - tests::nakamoto_integrations::multiple_miners
+          - tests::nakamoto_integrations::follower_bootup_across_multiple_cycles
           # Do not run this one until we figure out why it fails in CI
           # - tests::neon_integrations::bitcoin_reorg_flap
           # - tests::neon_integrations::bitcoin_reorg_flap_with_follower
