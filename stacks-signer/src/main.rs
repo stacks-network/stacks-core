@@ -245,6 +245,9 @@ fn start_monitoring_signers(
         "Monitoring signers stackerdb. Polling interval: {} secs, Max message age: {} secs, Reward cycle: {reward_cycle}, StackerDB contract: {contract}",
         args.interval, args.max_age
     );
+    info!("Confirming messages for {} registered signers", signers_addresses.len();
+        "signer_addresses" => signers_addresses.values().map(|addr| format!("{addr}")).collect::<Vec<_>>().join(", ")
+    );
     loop {
         info!("Polling signers stackerdb for new messages...");
         let mut missing_signers = Vec::with_capacity(slot_ids.len());
@@ -260,9 +263,13 @@ fn start_monitoring_signers(
             reward_cycle = next_reward_cycle;
             signers_slots = stacks_client.get_parsed_signer_slots(reward_cycle)?;
             slot_ids = signers_slots.values().map(|value| value.0).collect();
+            signers_addresses.clear();
             for (signer_address, slot_id) in signers_slots.iter() {
                 signers_addresses.insert(*slot_id, *signer_address);
             }
+            info!("Confirming messages for {} registered signers", signers_addresses.len();
+                "signer_addresses" => signers_addresses.values().map(|addr| format!("{addr}")).collect::<Vec<_>>().join(", ")
+            );
             session = stackerdb_session(
                 &args.host.to_string(),
                 MessageSlotID::BlockResponse.stacker_db_contract(args.mainnet, reward_cycle),
@@ -328,7 +335,7 @@ fn start_monitoring_signers(
                     .join(", ");
                 warn!(
                     "Missing messages for {} of {} signer(s). ", missing_signers.len(), signers_addresses.len();
-                    "signers" => formatted_signers
+                    "signer_addresses" => formatted_signers
                 );
             }
             if !stale_signers.is_empty() {
@@ -342,7 +349,7 @@ fn start_monitoring_signers(
                     stale_signers.len(),
                     signers_addresses.len(),
                     args.max_age;
-                    "signers" => formatted_signers
+                    "signer_addresses" => formatted_signers
                 );
             }
             if !unexpected_messages.is_empty() {
@@ -357,7 +364,7 @@ fn start_monitoring_signers(
                     "Unexpected messages from {} of {} Epoch {epoch} signer(s).",
                     unexpected_messages.len(),
                     signers_addresses.len();
-                    "signers" => formatted_signers
+                    "signer_addresses" => formatted_signers
                 );
             }
         }
@@ -401,7 +408,9 @@ fn main() {
         Command::VerifyVote(args) => {
             handle_verify_vote(args, true);
         }
-        Command::MonitorSigners(args) => handle_monitor_signers(args),
+        Command::MonitorSigners(args) => {
+            handle_monitor_signers(args);
+        }
     }
 }
 
