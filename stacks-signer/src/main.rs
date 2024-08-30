@@ -239,7 +239,7 @@ fn start_monitoring_signers(
     let mut last_messages = HashMap::with_capacity(slot_ids.len());
     let mut last_updates = HashMap::with_capacity(slot_ids.len());
 
-    let contract = MessageSlotID::MockSignature.stacker_db_contract(args.mainnet, reward_cycle);
+    let contract = MessageSlotID::BlockResponse.stacker_db_contract(args.mainnet, reward_cycle);
     let mut session = stackerdb_session(&args.host.to_string(), contract.clone());
     info!(
         "Monitoring signers stackerdb. Polling interval: {} secs, Max message age: {} secs, Reward cycle: {reward_cycle}, StackerDB contract: {contract}",
@@ -265,7 +265,7 @@ fn start_monitoring_signers(
             }
             session = stackerdb_session(
                 &args.host.to_string(),
-                MessageSlotID::MockSignature.stacker_db_contract(args.mainnet, reward_cycle),
+                MessageSlotID::BlockResponse.stacker_db_contract(args.mainnet, reward_cycle),
             );
 
             // Clear the last messages and signer last update times.
