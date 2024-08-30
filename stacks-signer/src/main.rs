@@ -32,7 +32,7 @@ use std::io::{self, Write};
 use blockstack_lib::util_lib::signed_structured_data::pox4::make_pox_4_signer_key_signature;
 use clap::Parser;
 use clarity::codec::read_next;
-use clarity::types::chainstate::{StacksPrivateKey, StacksPublicKey};
+use clarity::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey};
 use clarity::types::StacksEpochId;
 use clarity::util::sleep_ms;
 use clarity::vm::types::QualifiedContractIdentifier;
@@ -229,6 +229,18 @@ fn start_monitoring_signers(
     }
     let mut reward_cycle = stacks_client.get_current_reward_cycle_info()?.reward_cycle;
     let mut signers_slots = stacks_client.get_parsed_signer_slots(reward_cycle)?;
+    let entries = stacks_client
+        .get_reward_set_signers(reward_cycle)?
+        .expect(&format!(
+            "No signers found for the current reward cycle {reward_cycle}"
+        ));
+    let mut signers_keys = HashMap::with_capacity(entries.len());
+    for entry in entries {
+        let public_key = StacksPublicKey::from_slice(entry.signing_key.as_slice())
+            .expect("Failed to convert signing key to StacksPublicKey");
+        let stacks_address = StacksAddress::p2pkh(args.mainnet, &public_key);
+        signers_keys.insert(stacks_address, public_key);
+    }
     let mut signers_addresses = HashMap::with_capacity(signers_slots.len());
     for (signer_address, slot_id) in signers_slots.iter() {
         signers_addresses.insert(*slot_id, *signer_address);
@@ -256,6 +268,8 @@ fn start_monitoring_signers(
 
         let next_reward_cycle = stacks_client.get_current_reward_cycle_info()?.reward_cycle;
         if next_reward_cycle != reward_cycle {
+            signers_addresses.clear();
+            signers_keys.clear();
             info!(
                 "Reward cycle has changed from {} to {}. Updating stacker db session to StackerDB contract {contract}.",
                 reward_cycle, next_reward_cycle
@@ -263,9 +277,19 @@ fn start_monitoring_signers(
             reward_cycle = next_reward_cycle;
             signers_slots = stacks_client.get_parsed_signer_slots(reward_cycle)?;
             slot_ids = signers_slots.values().map(|value| value.0).collect();
-            signers_addresses.clear();
             for (signer_address, slot_id) in signers_slots.iter() {
                 signers_addresses.insert(*slot_id, *signer_address);
+            }
+            let entries = stacks_client
+                .get_reward_set_signers(reward_cycle)?
+                .expect(&format!(
+                    "No signers found for the current reward cycle {reward_cycle}"
+                ));
+            for entry in entries {
+                let public_key = StacksPublicKey::from_slice(entry.signing_key.as_slice())
+                    .expect("Failed to convert signing key to StacksPublicKey");
+                let stacks_address = StacksAddress::p2pkh(args.mainnet, &public_key);
+                signers_keys.insert(stacks_address, public_key);
             }
             info!("Confirming messages for {} registered signers", signers_addresses.len();
                 "signer_addresses" => signers_addresses.values().map(|addr| format!("{addr}")).collect::<Vec<_>>().join(", ")
@@ -333,9 +357,21 @@ fn start_monitoring_signers(
                     .map(|addr| format!("{addr}"))
                     .collect::<Vec<_>>()
                     .join(", ");
+                let formatted_keys = signers_keys
+                    .iter()
+                    .filter_map(|(addr, key)| {
+                        if missing_signers.contains(&addr) {
+                            Some(format!("0x{}", key.to_hex()))
+                        } else {
+                            None
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
                 warn!(
                     "Missing messages for {} of {} signer(s). ", missing_signers.len(), signers_addresses.len();
-                    "signer_addresses" => formatted_signers
+                    "signer_addresses" => formatted_signers,
+                    "signer_keys" => formatted_keys
                 );
             }
             if !stale_signers.is_empty() {
@@ -344,12 +380,24 @@ fn start_monitoring_signers(
                     .map(|addr| format!("{addr}"))
                     .collect::<Vec<_>>()
                     .join(", ");
+                let formatted_keys = signers_keys
+                    .iter()
+                    .filter_map(|(addr, key)| {
+                        if stale_signers.contains(&addr) {
+                            Some(format!("0x{}", key.to_hex()))
+                        } else {
+                            None
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
                 warn!(
                     "No new updates from {} of {} signer(s) in over {} seconds",
                     stale_signers.len(),
                     signers_addresses.len(),
                     args.max_age;
-                    "signer_addresses" => formatted_signers
+                    "signer_addresses" => formatted_signers,
+                    "signer_keys" => formatted_keys
                 );
             }
             if !unexpected_messages.is_empty() {
@@ -360,11 +408,23 @@ fn start_monitoring_signers(
                     })
                     .collect::<Vec<_>>()
                     .join(", ");
+                let formatted_keys = signers_keys
+                    .iter()
+                    .filter_map(|(addr, key)| {
+                        if unexpected_messages.contains_key(&addr) {
+                            Some(format!("0x{}", key.to_hex()))
+                        } else {
+                            None
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
                 warn!(
                     "Unexpected messages from {} of {} Epoch {epoch} signer(s).",
                     unexpected_messages.len(),
                     signers_addresses.len();
-                    "signer_addresses" => formatted_signers
+                    "signer_addresses" => formatted_signers,
+                    "signer_keys" => formatted_keys
                 );
             }
         }
