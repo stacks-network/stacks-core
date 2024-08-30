@@ -40,16 +40,16 @@ use clarity::vm::types::QualifiedContractIdentifier;
 use libsigner::v0::messages::{MessageSlotID, SignerMessage};
 use libsigner::{SignerSession, StackerDBSession};
 use libstackerdb::StackerDBChunkData;
-use slog::{slog_debug, slog_info, slog_warn};
+use slog::{slog_debug, slog_error, slog_info, slog_warn};
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::secp256k1::MessageSignature;
-use stacks_common::{debug, info, warn};
+use stacks_common::{debug, error, info, warn};
 use stacks_signer::cli::{
     Cli, Command, GenerateStackingSignatureArgs, GenerateVoteArgs, GetChunkArgs,
     GetLatestChunkArgs, MonitorSignersArgs, PutChunkArgs, RunSignerArgs, StackerDBArgs,
     VerifyVoteArgs,
 };
-use stacks_signer::client::StacksClient;
+use stacks_signer::client::{ClientError, StacksClient};
 use stacks_signer::config::GlobalConfig;
 use stacks_signer::v0::SpawnedSigner;
 use tracing_subscriber::prelude::*;
@@ -197,7 +197,6 @@ fn handle_verify_vote(args: VerifyVoteArgs, do_print: bool) -> bool {
 }
 
 fn handle_monitor_signers(args: MonitorSignersArgs) {
-    let interval_ms = args.interval * 1000;
     let stacks_client = StacksClient::new(
         StacksPrivateKey::new(), // We don't need a private key to retrieve the reward cycle
         args.host,
@@ -205,18 +204,30 @@ fn handle_monitor_signers(args: MonitorSignersArgs) {
         args.mainnet,
     );
 
-    let epoch = stacks_client.get_node_epoch().unwrap();
-    assert!(
-        epoch >= StacksEpochId::Epoch25,
-        "Cannot Monitor Signers before Epoch 2.5. Current epoch: {epoch:?}",
-    );
-    let mut reward_cycle = stacks_client
-        .get_current_reward_cycle_info()
-        .unwrap()
-        .reward_cycle;
-    let mut signers_slots = stacks_client
-        .get_parsed_signer_slots(reward_cycle)
-        .expect("Failed to get signer slots");
+    loop {
+        if let Err(e) = start_monitoring_signers(&stacks_client, &args) {
+            error!(
+                "Error occurred monitoring signers: {:?}. Waiting and trying again.",
+                e
+            );
+            sleep_ms(1000);
+        }
+    }
+}
+
+fn start_monitoring_signers(
+    stacks_client: &StacksClient,
+    args: &MonitorSignersArgs,
+) -> Result<(), ClientError> {
+    let interval_ms = args.interval * 1000;
+    let epoch = stacks_client.get_node_epoch()?;
+    if epoch < StacksEpochId::Epoch25 {
+        return Err(ClientError::UnsupportedStacksFeature(
+            "Signer monitoring is only supported for Epoch 2.5 and later".into(),
+        ));
+    }
+    let mut reward_cycle = stacks_client.get_current_reward_cycle_info()?.reward_cycle;
+    let mut signers_slots = stacks_client.get_parsed_signer_slots(reward_cycle)?;
     let mut signers_addresses = HashMap::with_capacity(signers_slots.len());
     for (signer_address, slot_id) in signers_slots.iter() {
         signers_addresses.insert(*slot_id, *signer_address);
@@ -244,19 +255,14 @@ fn handle_monitor_signers(args: MonitorSignersArgs) {
         let mut missing_signers = Vec::with_capacity(slot_ids.len());
         let mut stale_signers = Vec::with_capacity(slot_ids.len());
 
-        let next_reward_cycle = stacks_client
-            .get_current_reward_cycle_info()
-            .unwrap()
-            .reward_cycle;
+        let next_reward_cycle = stacks_client.get_current_reward_cycle_info()?.reward_cycle;
         if next_reward_cycle != reward_cycle {
             info!(
                 "Reward cycle has changed from {} to {}. Updating stacker db session.",
                 reward_cycle, next_reward_cycle
             );
             reward_cycle = next_reward_cycle;
-            signers_slots = stacks_client
-                .get_parsed_signer_slots(reward_cycle)
-                .expect("Failed to get signer slots");
+            signers_slots = stacks_client.get_parsed_signer_slots(reward_cycle)?;
             slot_ids = signers_slots.values().map(|value| value.0).collect();
             for (signer_address, slot_id) in signers_slots.iter() {
                 signers_addresses.insert(*slot_id, *signer_address);
@@ -275,8 +281,7 @@ fn handle_monitor_signers(args: MonitorSignersArgs) {
             last_updates.clear();
         }
         let new_messages: Vec<_> = session
-            .get_latest_chunks(&slot_ids)
-            .expect("Failed to get latest signer messages")
+            .get_latest_chunks(&slot_ids)?
             .into_iter()
             .map(|chunk_opt| {
                 chunk_opt.and_then(|data| read_next::<SignerMessage, _>(&mut &data[..]).ok())
