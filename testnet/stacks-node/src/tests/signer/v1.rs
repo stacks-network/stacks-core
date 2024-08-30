@@ -13,7 +13,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::collections::HashSet;
-use std::net::ToSocketAddrs;
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 use std::{env, thread};
@@ -248,15 +247,7 @@ impl SignerTest<SpawnedSigner> {
     }
 
     fn generate_invalid_transactions(&self) -> Vec<StacksTransaction> {
-        let host = self
-            .running_nodes
-            .conf
-            .node
-            .rpc_bind
-            .to_socket_addrs()
-            .unwrap()
-            .next()
-            .unwrap();
+        let host = self.running_nodes.conf.node.rpc_bind.clone();
         // Get the signer indices
         let reward_cycle = self.get_current_reward_cycle();
 

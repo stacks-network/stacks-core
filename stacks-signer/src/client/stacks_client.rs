@@ -1,4 +1,5 @@
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
+
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
 // Copyright (C) 2020-2024 Stacks Open Internet Foundation
 //
@@ -14,12 +15,10 @@ use std::collections::VecDeque;
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-use std::net::SocketAddr;
-
 use blockstack_lib::burnchains::Txid;
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
 use blockstack_lib::chainstate::stacks::boot::{
-    NakamotoSignerEntry, SIGNERS_VOTING_FUNCTION_NAME, SIGNERS_VOTING_NAME,
+    NakamotoSignerEntry, SIGNERS_NAME, SIGNERS_VOTING_FUNCTION_NAME, SIGNERS_VOTING_NAME,
 };
 use blockstack_lib::chainstate::stacks::{
     StacksTransaction, StacksTransactionSigner, TransactionAnchorMode, TransactionAuth,
@@ -55,6 +54,7 @@ use stacks_common::types::StacksEpochId;
 use stacks_common::{debug, warn};
 use wsts::curve::point::{Compressed, Point};
 
+use super::SignerSlotID;
 use crate::client::{retry_with_exponential_backoff, ClientError};
 use crate::config::GlobalConfig;
 use crate::runloop::RewardCycleInfo;
@@ -99,7 +99,7 @@ impl StacksClient {
     /// Create a new signer StacksClient with the provided private key, stacks node host endpoint, version, and auth password
     pub fn new(
         stacks_private_key: StacksPrivateKey,
-        node_host: SocketAddr,
+        node_host: String,
         auth_password: String,
         mainnet: bool,
     ) -> Self {
@@ -171,6 +171,29 @@ impl StacksClient {
             signer_slots.push((signer, num_slots));
         }
         Ok(signer_slots)
+    }
+
+    /// Get the stackerdb signer slots for a specific reward cycle
+    pub fn get_parsed_signer_slots(
+        &self,
+        reward_cycle: u64,
+    ) -> Result<HashMap<StacksAddress, SignerSlotID>, ClientError> {
+        let signer_set =
+            u32::try_from(reward_cycle % 2).expect("FATAL: reward_cycle % 2 exceeds u32::MAX");
+        let signer_stackerdb_contract_id = boot_code_id(SIGNERS_NAME, self.mainnet);
+        // Get the signer writers from the stacker-db to find the signer slot id
+        let stackerdb_signer_slots =
+            self.get_stackerdb_signer_slots(&signer_stackerdb_contract_id, signer_set)?;
+        let mut signer_slot_ids = HashMap::with_capacity(stackerdb_signer_slots.len());
+        for (index, (address, _)) in stackerdb_signer_slots.into_iter().enumerate() {
+            signer_slot_ids.insert(
+                address,
+                SignerSlotID(
+                    u32::try_from(index).expect("FATAL: number of signers exceeds u32::MAX"),
+                ),
+            );
+        }
+        Ok(signer_slot_ids)
     }
 
     /// Get the vote for a given  round, reward cycle, and signer address
