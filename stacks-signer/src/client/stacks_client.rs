@@ -1,4 +1,5 @@
 use std::collections::{HashMap, VecDeque};
+
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
 // Copyright (C) 2020-2024 Stacks Open Internet Foundation
 //
@@ -14,8 +15,6 @@ use std::collections::{HashMap, VecDeque};
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-use std::net::SocketAddr;
-
 use blockstack_lib::burnchains::Txid;
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
 use blockstack_lib::chainstate::stacks::boot::{
@@ -107,7 +106,7 @@ impl StacksClient {
     /// Create a new signer StacksClient with the provided private key, stacks node host endpoint, version, and auth password
     pub fn new(
         stacks_private_key: StacksPrivateKey,
-        node_host: SocketAddr,
+        node_host: String,
         auth_password: String,
         mainnet: bool,
     ) -> Self {

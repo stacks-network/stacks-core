@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::io::{self, Read};
-use std::net::SocketAddr;
 use std::path::PathBuf;
 
 use blockstack_lib::chainstate::stacks::address::PoxAddress;
@@ -266,9 +265,9 @@ impl TryFrom<u8> for Vote {
 pub struct MonitorSignersArgs {
     /// The Stacks node to connect to
     #[arg(long)]
-    pub host: SocketAddr,
-    /// Whether the node is mainnet. Default is true
-    #[arg(long, default_value = "true")]
+    pub host: String,
+    /// Whether the node is mainnet. Default is false.
+    #[arg(long, default_value = "false")]
     pub mainnet: bool,
     /// Set the polling interval in seconds. Default is 60 seconds.
     #[arg(long, short, default_value = "60")]

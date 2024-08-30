@@ -29,7 +29,6 @@ extern crate toml;
 use std::collections::HashMap;
 use std::io::{self, Write};
 
-use blockstack_lib::chainstate::nakamoto::signer_set::NakamotoSigners;
 use blockstack_lib::util_lib::signed_structured_data::pox4::make_pox_4_signer_key_signature;
 use clap::Parser;
 use clarity::codec::read_next;
@@ -197,9 +196,11 @@ fn handle_verify_vote(args: VerifyVoteArgs, do_print: bool) -> bool {
 }
 
 fn handle_monitor_signers(args: MonitorSignersArgs) {
+    // Verify that the host is a valid URL
+    url::Url::parse(&format!("http://{}", args.host)).expect("Failed to parse node host");
     let stacks_client = StacksClient::new(
         StacksPrivateKey::new(), // We don't need a private key to retrieve the reward cycle
-        args.host,
+        args.host.clone(),
         "FOO".to_string(), // We don't care about authorized paths. Just accessing public info
         args.mainnet,
     );
@@ -238,27 +239,22 @@ fn start_monitoring_signers(
     let mut last_messages = HashMap::with_capacity(slot_ids.len());
     let mut last_updates = HashMap::with_capacity(slot_ids.len());
 
-    let mut session = stackerdb_session(
-        &args.host.to_string(),
-        NakamotoSigners::make_signers_db_contract_id(
-            reward_cycle,
-            MessageSlotID::BlockResponse.to_u32(),
-            args.mainnet,
-        ),
-    );
+    let contract = MessageSlotID::BlockResponse.stacker_db_contract(args.mainnet, reward_cycle);
+    let mut session = stackerdb_session(&args.host.to_string(), contract.clone());
     info!(
-        "Monitoring signers stackerdb. Polling interval: {} secs, Max message age: {} secs",
+        "Monitoring signers stackerdb. Polling interval: {} secs, Max message age: {} secs, Reward cycle: {reward_cycle}, StackerDB contract: {contract}",
         args.interval, args.max_age
     );
     loop {
         info!("Polling signers stackerdb for new messages...");
         let mut missing_signers = Vec::with_capacity(slot_ids.len());
         let mut stale_signers = Vec::with_capacity(slot_ids.len());
+        let mut unexpected_messages = HashMap::new();
 
         let next_reward_cycle = stacks_client.get_current_reward_cycle_info()?.reward_cycle;
         if next_reward_cycle != reward_cycle {
             info!(
-                "Reward cycle has changed from {} to {}. Updating stacker db session.",
+                "Reward cycle has changed from {} to {}. Updating stacker db session to StackerDB contract {contract}.",
                 reward_cycle, next_reward_cycle
             );
             reward_cycle = next_reward_cycle;
@@ -269,11 +265,7 @@ fn start_monitoring_signers(
             }
             session = stackerdb_session(
                 &args.host.to_string(),
-                NakamotoSigners::make_signers_db_contract_id(
-                    reward_cycle,
-                    MessageSlotID::BlockResponse.to_u32(),
-                    args.mainnet,
-                ),
+                MessageSlotID::BlockResponse.stacker_db_contract(args.mainnet, reward_cycle),
             );
 
             // Clear the last messages and signer last update times.
@@ -295,29 +287,20 @@ fn start_monitoring_signers(
                     if last_message == &signer_message {
                         continue;
                     }
-                    if epoch == StacksEpochId::Epoch25
-                        && !matches!(last_message, SignerMessage::MockSignature(_))
-                    {
-                        warn!("Epoch 2.5 Signers Should be Sending MockSignature messages. Unexpected message found for signer {signer_address} in slot {slot_id}");
-                        continue;
-                    } else if epoch > StacksEpochId::Epoch25
-                        && !matches!(last_message, SignerMessage::BlockResponse(_))
-                    {
-                        warn!("Nakamoto Signers Should be Sending BlockResponse messages. Unexpected message found for signer {signer_address} in slot {slot_id}");
-                        continue;
-                    }
+                }
+                if (epoch == StacksEpochId::Epoch25
+                    && !matches!(signer_message, SignerMessage::MockSignature(_)))
+                    || (epoch > StacksEpochId::Epoch25
+                        && !matches!(signer_message, SignerMessage::BlockResponse(_)))
+                {
+                    unexpected_messages.insert(signer_address, (signer_message, slot_id));
+                    continue;
                 }
                 last_messages.insert(slot_id, signer_message);
                 last_updates.insert(slot_id, std::time::Instant::now());
             } else {
                 missing_signers.push(signer_address);
             }
-        }
-        if !missing_signers.is_empty() {
-            warn!(
-                "Missing expected messages for {} signers: {missing_signers:?}",
-                missing_signers.len()
-            );
         }
         for (slot_id, last_update_time) in last_updates.iter() {
             if last_update_time.elapsed().as_secs() > args.max_age {
@@ -327,12 +310,56 @@ fn start_monitoring_signers(
                 stale_signers.push(*address);
             }
         }
-        if !stale_signers.is_empty() {
-            warn!(
-                "No new updates from {} signers in over {} seconds: {stale_signers:?}",
-                stale_signers.len(),
-                args.max_age
+        if missing_signers.is_empty()
+            && stale_signers.is_empty()
+            && unexpected_messages.is_empty()
+            && !signers_addresses.is_empty()
+        {
+            info!(
+                "All {} signers are sending messages as expected.",
+                signers_addresses.len()
             );
+        } else {
+            if !missing_signers.is_empty() {
+                let formatted_signers = missing_signers
+                    .iter()
+                    .map(|addr| format!("{addr}"))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                warn!(
+                    "Missing messages for {} of {} signer(s). ", missing_signers.len(), signers_addresses.len();
+                    "signers" => formatted_signers
+                );
+            }
+            if !stale_signers.is_empty() {
+                let formatted_signers = stale_signers
+                    .iter()
+                    .map(|addr| format!("{addr}"))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                warn!(
+                    "No new updates from {} of {} signer(s) in over {} seconds",
+                    stale_signers.len(),
+                    signers_addresses.len(),
+                    args.max_age;
+                    "signers" => formatted_signers
+                );
+            }
+            if !unexpected_messages.is_empty() {
+                let formatted_signers = unexpected_messages
+                    .iter()
+                    .map(|(addr, (msg, slot))| {
+                        format!("(address: {addr}, slot_id: {slot}, message: {msg:?})")
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                warn!(
+                    "Unexpected messages from {} of {} Epoch {epoch} signer(s).",
+                    unexpected_messages.len(),
+                    signers_addresses.len();
+                    "signers" => formatted_signers
+                );
+            }
         }
         sleep_ms(interval_ms);
     }
