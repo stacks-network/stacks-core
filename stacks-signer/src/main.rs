@@ -262,6 +262,9 @@ fn handle_monitor_signers(args: MonitorSignersArgs) {
                 .expect("Failed to get signer slots");
             slot_ids = signers_slots.values().map(|value| value.0).collect();
             last_messages = HashMap::with_capacity(slot_ids.len());
+            for (signer_address, slot_id) in signers_slots.iter() {
+                signers_addresses.insert(*slot_id, *signer_address);
+            }
         }
         let new_messages: Vec<Option<SignerMessage>> = session
             .get_latest_chunks(&slot_ids)
