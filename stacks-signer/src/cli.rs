@@ -273,6 +273,9 @@ pub struct MonitorSignersArgs {
     /// Set the polling interval in seconds. Default is 60 seconds.
     #[arg(long, short, default_value = "60")]
     pub interval: u64,
+    /// Max age in seconds before a signer message is considered stale. Default is 600 seconds.
+    #[arg(long, short, default_value = "600")]
+    pub max_age: u64,
 }
 
 #[derive(Clone, Debug, PartialEq)]
