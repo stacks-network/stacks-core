@@ -30,7 +30,6 @@ use std::collections::HashMap;
 use std::io::{self, Write};
 
 use blockstack_lib::chainstate::nakamoto::signer_set::NakamotoSigners;
-use blockstack_lib::util_lib::boot::boot_code_id;
 use blockstack_lib::util_lib::signed_structured_data::pox4::make_pox_4_signer_key_signature;
 use clap::Parser;
 use clarity::codec::read_next;
@@ -215,10 +214,6 @@ fn handle_monitor_signers(args: MonitorSignersArgs) {
         .get_current_reward_cycle_info()
         .unwrap()
         .reward_cycle;
-    let mut contract_name =
-        NakamotoSigners::make_signers_db_name(reward_cycle, MessageSlotID::BlockResponse.to_u32());
-    let mut contract_id = boot_code_id(contract_name.as_str(), args.mainnet);
-    let mut session = stackerdb_session(&args.host.to_string(), contract_id);
     let mut signers_slots = stacks_client
         .get_parsed_signer_slots(reward_cycle)
         .expect("Failed to get signer slots");
@@ -228,10 +223,18 @@ fn handle_monitor_signers(args: MonitorSignersArgs) {
     }
     let mut slot_ids: Vec<_> = signers_slots.values().map(|value| value.0).collect();
 
-    // Poll stackerdb slots every 200 ms to check for new mock signatures.
+    // Poll stackerdb slots to check for new expected messages
     let mut last_messages = HashMap::with_capacity(slot_ids.len());
-    let mut signer_last_write_time = HashMap::with_capacity(slot_ids.len());
+    let mut last_updates = HashMap::with_capacity(slot_ids.len());
 
+    let mut session = stackerdb_session(
+        &args.host.to_string(),
+        NakamotoSigners::make_signers_db_contract_id(
+            reward_cycle,
+            MessageSlotID::BlockResponse.to_u32(),
+            args.mainnet,
+        ),
+    );
     info!(
         "Monitoring signers stackerdb. Polling interval: {} secs, Max message age: {} secs",
         args.interval, args.max_age
@@ -247,26 +250,31 @@ fn handle_monitor_signers(args: MonitorSignersArgs) {
             .reward_cycle;
         if next_reward_cycle != reward_cycle {
             info!(
-                "Reward cycle has changed from {} to {}.",
+                "Reward cycle has changed from {} to {}. Updating stacker db session.",
                 reward_cycle, next_reward_cycle
             );
             reward_cycle = next_reward_cycle;
-            contract_name = NakamotoSigners::make_signers_db_name(
-                reward_cycle,
-                MessageSlotID::BlockResponse.to_u32(),
-            );
-            contract_id = boot_code_id(contract_name.as_str(), args.mainnet);
-            session = stackerdb_session(&args.host.to_string(), contract_id);
             signers_slots = stacks_client
                 .get_parsed_signer_slots(reward_cycle)
                 .expect("Failed to get signer slots");
             slot_ids = signers_slots.values().map(|value| value.0).collect();
-            last_messages = HashMap::with_capacity(slot_ids.len());
             for (signer_address, slot_id) in signers_slots.iter() {
                 signers_addresses.insert(*slot_id, *signer_address);
             }
+            session = stackerdb_session(
+                &args.host.to_string(),
+                NakamotoSigners::make_signers_db_contract_id(
+                    reward_cycle,
+                    MessageSlotID::BlockResponse.to_u32(),
+                    args.mainnet,
+                ),
+            );
+
+            // Clear the last messages and signer last update times.
+            last_messages.clear();
+            last_updates.clear();
         }
-        let new_messages: Vec<Option<SignerMessage>> = session
+        let new_messages: Vec<_> = session
             .get_latest_chunks(&slot_ids)
             .expect("Failed to get latest signer messages")
             .into_iter()
@@ -295,7 +303,7 @@ fn handle_monitor_signers(args: MonitorSignersArgs) {
                     }
                 }
                 last_messages.insert(slot_id, signer_message);
-                signer_last_write_time.insert(slot_id, std::time::Instant::now());
+                last_updates.insert(slot_id, std::time::Instant::now());
             } else {
                 missing_signers.push(signer_address);
             }
@@ -306,8 +314,8 @@ fn handle_monitor_signers(args: MonitorSignersArgs) {
                 missing_signers.len()
             );
         }
-        for (slot_id, last_write_time) in signer_last_write_time.iter() {
-            if last_write_time.elapsed().as_secs() > args.max_age {
+        for (slot_id, last_update_time) in last_updates.iter() {
+            if last_update_time.elapsed().as_secs() > args.max_age {
                 let address = signers_addresses
                     .get(slot_id)
                     .expect("BUG: missing signer address for given slot id");
@@ -315,7 +323,11 @@ fn handle_monitor_signers(args: MonitorSignersArgs) {
             }
         }
         if !stale_signers.is_empty() {
-            warn!("The following {} signers have not written to stackerdb in over {} seconds: {stale_signers:?}", stale_signers.len(), args.max_age);
+            warn!(
+                "No new updates from {} signers in over {} seconds: {stale_signers:?}",
+                stale_signers.len(),
+                args.max_age
+            );
         }
         sleep_ms(interval_ms);
     }
