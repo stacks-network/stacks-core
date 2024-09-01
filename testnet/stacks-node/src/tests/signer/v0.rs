@@ -3444,10 +3444,12 @@ fn partial_tenure_fork() {
     let peer_1_height = get_chain_info(&conf).stacks_tip_height;
     let peer_2_height = get_chain_info(&conf_node_2).stacks_tip_height;
     assert_eq!(peer_2_height, ignore_block - 1);
-    assert_eq!(
-        peer_1_height,
-        pre_nakamoto_peer_1_height
-            + (miner_1_tenures + min_miner_2_tenures - 1) * (inter_blocks_per_tenure + 1)
+    // The height may be higher than expected due to extra transactions waiting
+    // to be mined during the forking miner's tenure.
+    assert!(
+        peer_1_height
+            >= pre_nakamoto_peer_1_height
+                + (miner_1_tenures + min_miner_2_tenures - 1) * (inter_blocks_per_tenure + 1)
     );
     assert_eq!(
         btc_blocks_mined,
@@ -3472,19 +3474,6 @@ fn partial_tenure_fork() {
         .unwrap()
         .unwrap();
     assert_eq!(tip.stacks_block_height, ignore_block - 1);
-
-    let (chainstate, _) = StacksChainState::open(
-        false,
-        conf.burnchain.chain_id,
-        &conf.get_chainstate_path_str(),
-        None,
-    )
-    .unwrap();
-
-    let blocks = chainstate
-        .get_stacks_chain_tips_at_height(ignore_block)
-        .unwrap();
-    info!("blocks: {:?}", blocks);
 
     signer_test.shutdown();
 }
