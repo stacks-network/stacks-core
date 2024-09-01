@@ -740,7 +740,6 @@ pub fn next_block_and_wait_for_commits(
                     .as_ref()
                     .ok_or("TEST-ERROR: Processed time wasn't set")?;
                 if commits_sent <= commits_before[i] {
-                    info!("NO COMMITS");
                     return Ok(false);
                 }
                 let commit_sent_time = commit_sent_time[i]
@@ -748,28 +747,22 @@ pub fn next_block_and_wait_for_commits(
                     .ok_or("TEST-ERROR: Processed time wasn't set")?;
                 // try to ensure the commit was sent after the block was processed
                 if commit_sent_time > block_processed_time {
-                    info!("COMMIT NOT SENT AFTER BLOCK PROCESSED TIME");
                     continue;
                 }
                 // if two commits have been sent, one of them must have been after
                 if commits_sent >= commits_before[i] + 2 {
-                    info!("MORE THAN ENOUGH COMMITS");
                     continue;
                 }
                 // otherwise, just timeout if the commit was sent and its been long enough
                 //  for a new commit pass to have occurred
                 if block_processed_time.elapsed() > Duration::from_secs(10) {
-                    info!("TIMEOUT COMMIT");
                     continue;
                 }
-                info!("CONDITIONS OF COMMIT CHECK NOT MET");
                 return Ok(false);
             } else {
-                info!("NO BLOCK PROCESSED IN COMMIT CHECK");
                 return Ok(false);
             }
         }
-        info!("ALL CONDITIONS MET IN COMMIT CHECK");
         Ok(true)
     })
 }

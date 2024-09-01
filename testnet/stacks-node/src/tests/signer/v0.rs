@@ -3330,8 +3330,8 @@ fn partial_tenure_fork() {
         let mined_before_1 = blocks_mined1.load(Ordering::SeqCst);
         let mined_before_2 = blocks_mined2.load(Ordering::SeqCst);
         let proposed_before_2 = blocks_proposed2.load(Ordering::SeqCst);
-        let proposed_before = blocks_proposed.load(Ordering::SeqCst);
-        info!("proposed_blocks: {proposed_before}, proposed_blocks2: {proposed_before_2}");
+
+        sleep_ms(1000);
         next_block_and(
             &mut signer_test.running_nodes.btc_regtest_controller,
             60,
@@ -3339,10 +3339,6 @@ fn partial_tenure_fork() {
                 let mined_1 = blocks_mined1.load(Ordering::SeqCst);
                 let mined_2 = blocks_mined2.load(Ordering::SeqCst);
                 let proposed_2 = blocks_proposed2.load(Ordering::SeqCst);
-                let proposed_1 = blocks_proposed.load(Ordering::SeqCst);
-                info!(
-                    "Fork initiated: {fork_initiated}, Mined 1 blocks: {mined_1}, Mined 2 blocks {mined_2}, Proposed blocks: {proposed_1}, Proposed blocks 2: {proposed_2}",
-                );
 
                 Ok((fork_initiated && proposed_2 > proposed_before_2)
                     || mined_1 > mined_before_1
@@ -3431,8 +3427,8 @@ fn partial_tenure_fork() {
         } else {
             if miner_2_tenures < min_miner_2_tenures {
                 assert_eq!(mined_2, mined_before_2 + inter_blocks_per_tenure + 1);
-            } else if miner_2_tenures == min_miner_2_tenures {
-                // If this is the forking tenure, miner 2 should have mined 0 blocks
+            } else {
+                // Miner 2 should have mined 0 blocks after the fork
                 assert_eq!(mined_2, mined_before_2);
             }
         }
@@ -3447,7 +3443,6 @@ fn partial_tenure_fork() {
 
     let peer_1_height = get_chain_info(&conf).stacks_tip_height;
     let peer_2_height = get_chain_info(&conf_node_2).stacks_tip_height;
-    info!("Peer height information"; "peer_1" => peer_1_height, "peer_2" => peer_2_height, "pre_naka_height" => pre_nakamoto_peer_1_height);
     assert_eq!(peer_2_height, ignore_block - 1);
     assert_eq!(
         peer_1_height,
