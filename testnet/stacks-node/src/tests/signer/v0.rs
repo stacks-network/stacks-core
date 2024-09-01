@@ -37,7 +37,7 @@ use stacks::codec::StacksMessageCodec;
 use stacks::core::{StacksEpochId, CHAIN_ID_TESTNET};
 use stacks::libstackerdb::StackerDBChunkData;
 use stacks::net::api::postblock_proposal::{ValidateRejectCode, TEST_VALIDATE_STALL};
-use stacks::net::relay::fault_injection::{clear_ignore_block, set_ignore_block};
+use stacks::net::relay::fault_injection::set_ignore_block;
 use stacks::types::chainstate::{StacksAddress, StacksBlockId, StacksPrivateKey, StacksPublicKey};
 use stacks::types::PublicKey;
 use stacks::util::hash::MerkleHashFunc;
@@ -3263,7 +3263,6 @@ fn partial_tenure_fork() {
         &[btc_miner_1_pk.clone(), btc_miner_2_pk.clone()],
     );
     let blocks_mined1 = signer_test.running_nodes.nakamoto_blocks_mined.clone();
-    let blocks_proposed = signer_test.running_nodes.nakamoto_blocks_proposed.clone();
 
     let conf = signer_test.running_nodes.conf.clone();
     let mut conf_node_2 = conf.clone();
