@@ -5546,7 +5546,12 @@ fn link_print_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
         .func_wrap(
             "clarity",
             "print",
-            |mut caller: Caller<'_, ClarityWasmContext>, value_offset: i32, value_length: i32| {
+            |mut caller: Caller<'_, ClarityWasmContext>,
+             value_offset: i32,
+             value_length: i32,
+             _serialized_ty_offset: i32,
+             _serialized_ty_length: i32| {
+                // NOTE: _serialized_ty_offset and _serialized_ty_length are used in `stacks-network/clarity-wasm`, here we only care about the function stub
                 // runtime_cost(ClarityCostFunction::Print, env, input.size())?;
 
                 // Get the memory from the caller
