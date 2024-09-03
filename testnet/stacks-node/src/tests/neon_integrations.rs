@@ -574,7 +574,7 @@ pub mod test_observer {
     pub fn contains_burn_block_range(range: impl RangeBounds<u64>) -> Result<(), String> {
         // Get set of all burn block heights
         let burn_block_heights = get_blocks()
-            .iter()
+            .into_iter()
             .map(|x| x.get("burn_block_height").unwrap().as_u64().unwrap())
             .collect::<HashSet<_>>();
 

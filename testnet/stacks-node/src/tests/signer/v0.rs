@@ -322,6 +322,7 @@ impl SignerTest<SpawnedSigner> {
         // Verify that the signers signed the proposed block
         let mut signer_index = 0;
         let mut signature_index = 0;
+        let mut signing_keys = HashSet::new();
         let validated = loop {
             // Since we've already checked `signature.len()`, this means we've
             //  validated all the signatures in this loop
@@ -332,6 +333,9 @@ impl SignerTest<SpawnedSigner> {
                 error!("Failed to validate the mined nakamoto block: ran out of signers to try to validate signatures");
                 break false;
             };
+            if !signing_keys.insert(signer.signing_key) {
+                panic!("Duplicate signing key detected: {:?}", signer.signing_key);
+            }
             let stacks_public_key = Secp256k1PublicKey::from_slice(signer.signing_key.as_slice())
                 .expect("Failed to convert signing key to StacksPublicKey");
             let valid = stacks_public_key
@@ -489,11 +493,7 @@ fn block_proposal_rejection() {
     while !found_signer_signature_hash_1 && !found_signer_signature_hash_2 {
         std::thread::sleep(Duration::from_secs(1));
         let chunks = test_observer::get_stackerdb_chunks();
-        for chunk in chunks
-            .into_iter()
-            .map(|chunk| chunk.modified_slots)
-            .flatten()
-        {
+        for chunk in chunks.into_iter().flat_map(|chunk| chunk.modified_slots) {
             let Ok(message) = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
             else {
                 continue;
@@ -797,7 +797,8 @@ fn reloads_signer_set_in() {
         Some(Duration::from_secs(15)),
         |_config| {},
         |_| {},
-        &[],
+        None,
+        None,
     );
 
     setup_epoch_3_reward_set(
@@ -926,7 +927,8 @@ fn forked_tenure_testing(
             config.broadcast_signed_blocks = false;
         },
         |_| {},
-        &[],
+        None,
+        None,
     );
     let http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
 
@@ -1430,7 +1432,8 @@ fn multiple_miners() {
                 false
             })
         },
-        &[btc_miner_1_pk.clone(), btc_miner_2_pk.clone()],
+        Some(vec![btc_miner_1_pk.clone(), btc_miner_2_pk.clone()]),
+        None,
     );
     let conf = signer_test.running_nodes.conf.clone();
     let mut conf_node_2 = conf.clone();
@@ -1695,7 +1698,8 @@ fn miner_forking() {
                 false
             })
         },
-        &[btc_miner_1_pk.clone(), btc_miner_2_pk.clone()],
+        Some(vec![btc_miner_1_pk.clone(), btc_miner_2_pk.clone()]),
+        None,
     );
     let conf = signer_test.running_nodes.conf.clone();
     let mut conf_node_2 = conf.clone();
@@ -2275,7 +2279,8 @@ fn empty_sortition() {
             config.block_proposal_timeout = block_proposal_timeout;
         },
         |_| {},
-        &[],
+        None,
+        None,
     );
     let http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
     let short_timeout = Duration::from_secs(20);
@@ -2456,7 +2461,8 @@ fn mock_sign_epoch_25() {
                 }
             }
         },
-        &[],
+        None,
+        None,
     );
 
     let epochs = signer_test
@@ -2660,7 +2666,8 @@ fn signer_set_rollover() {
             }
             naka_conf.node.rpc_bind = rpc_bind.clone();
         },
-        &[],
+        None,
+        None,
     );
     assert_eq!(
         new_spawned_signers[0].config.node_host,
@@ -2874,7 +2881,8 @@ fn min_gap_between_blocks() {
         |config| {
             config.miner.min_time_between_blocks_ms = time_between_blocks_ms;
         },
-        &[],
+        None,
+        None,
     );
 
     let http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
@@ -2943,6 +2951,111 @@ fn min_gap_between_blocks() {
             "Block not mined within timeout"
         );
     }
+
+    signer_test.shutdown();
+}
+
+#[test]
+#[ignore]
+/// Test scenario where there are duplicate signers with the same private key
+/// First submitted signature should take precedence
+fn duplicate_signers() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(EnvFilter::from_default_env())
+        .init();
+
+    // Disable p2p broadcast of the nakamoto blocks, so that we rely
+    //  on the signer's using StackerDB to get pushed blocks
+    *nakamoto_node::miner::TEST_SKIP_P2P_BROADCAST
+        .lock()
+        .unwrap() = Some(true);
+
+    info!("------------------------- Test Setup -------------------------");
+    let num_signers = 5;
+    let mut signer_stacks_private_keys = (0..num_signers)
+        .map(|_| StacksPrivateKey::new())
+        .collect::<Vec<_>>();
+
+    // First two signers have same private key
+    signer_stacks_private_keys[1] = signer_stacks_private_keys[0];
+    let unique_signers = num_signers - 1;
+    let duplicate_pubkey = Secp256k1PublicKey::from_private(&signer_stacks_private_keys[0]);
+    let duplicate_pubkey_from_copy =
+        Secp256k1PublicKey::from_private(&signer_stacks_private_keys[1]);
+    assert_eq!(
+        duplicate_pubkey, duplicate_pubkey_from_copy,
+        "Recovered pubkeys don't match"
+    );
+
+    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
+        num_signers,
+        vec![],
+        None,
+        |_| {},
+        |_| {},
+        None,
+        Some(signer_stacks_private_keys),
+    );
+
+    signer_test.boot_to_epoch_3();
+    let timeout = Duration::from_secs(30);
+
+    info!("------------------------- Try mining one block -------------------------");
+
+    signer_test.mine_and_verify_confirmed_naka_block(timeout, num_signers);
+
+    info!("------------------------- Read all `BlockResponse::Accepted` messages -------------------------");
+
+    let mut signer_accepted_responses = vec![];
+    let start_polling = Instant::now();
+    while start_polling.elapsed() <= timeout {
+        std::thread::sleep(Duration::from_secs(1));
+        let messages = test_observer::get_stackerdb_chunks()
+            .into_iter()
+            .flat_map(|chunk| chunk.modified_slots)
+            .filter_map(|chunk| {
+                SignerMessage::consensus_deserialize(&mut chunk.data.as_slice()).ok()
+            })
+            .filter_map(|message| match message {
+                SignerMessage::BlockResponse(BlockResponse::Accepted(m)) => {
+                    info!("Message(accepted): {message:?}");
+                    Some(m)
+                }
+                _ => {
+                    debug!("Message(ignored): {message:?}");
+                    None
+                }
+            });
+        signer_accepted_responses.extend(messages);
+    }
+
+    info!("------------------------- Assert there are {unique_signers} unique signatures and recovered pubkeys -------------------------");
+
+    // Pick a message hash
+    let (selected_sighash, _) = signer_accepted_responses
+        .iter()
+        .min_by_key(|(sighash, _)| *sighash)
+        .copied()
+        .expect("No `BlockResponse::Accepted` messages recieved");
+
+    // Filter only resonses for selected block and collect unique pubkeys and signatures
+    let (pubkeys, signatures): (HashSet<_>, HashSet<_>) = signer_accepted_responses
+        .into_iter()
+        .filter(|(hash, _)| *hash == selected_sighash)
+        .map(|(msg, sig)| {
+            let pubkey = Secp256k1PublicKey::recover_to_pubkey(msg.bits(), &sig)
+                .expect("Failed to recover pubkey");
+            (pubkey, sig)
+        })
+        .unzip();
+
+    assert_eq!(pubkeys.len(), unique_signers);
+    assert_eq!(signatures.len(), unique_signers);
 
     signer_test.shutdown();
 }
