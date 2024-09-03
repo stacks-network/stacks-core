@@ -3139,7 +3139,8 @@ fn multiple_miners_with_nakamoto_blocks() {
                 false
             })
         },
-        &[btc_miner_1_pk.clone(), btc_miner_2_pk.clone()],
+        Some(vec![btc_miner_1_pk.clone(), btc_miner_2_pk.clone()]),
+        None,
     );
     let blocks_mined1 = signer_test.running_nodes.nakamoto_blocks_mined.clone();
 
@@ -3373,7 +3374,8 @@ fn partial_tenure_fork() {
             config.burnchain.local_mining_public_key = Some(btc_miner_1_pk.to_hex());
             config.miner.mining_key = Some(Secp256k1PrivateKey::from_seed(&[1]));
         },
-        &[btc_miner_1_pk.clone(), btc_miner_2_pk.clone()],
+        Some(vec![btc_miner_1_pk.clone(), btc_miner_2_pk.clone()]),
+        None,
     );
     let blocks_mined1 = signer_test.running_nodes.nakamoto_blocks_mined.clone();
 
