@@ -655,31 +655,44 @@ impl<'a, C: Clone, T: MarfTrieId> DerefMut for IndexDBTx<'a, C, T> {
     }
 }
 
+/// Called by `rusqlite` if we are waiting too long on a database lock
 pub fn tx_busy_handler(run_count: i32) -> bool {
-    let mut sleep_count = 2;
-    if run_count > 0 {
-        sleep_count = 2u64.saturating_pow(run_count as u32);
+    const TIMEOUT: Duration = Duration::from_secs(60);
+    const AVG_SLEEP_TIME_MS: u64 = 100;
+
+    // First, check if this is taking unreasonably long. If so, it's probably a deadlock
+    let run_count = run_count.unsigned_abs();
+    let approx_time_elapsed =
+        Duration::from_millis(AVG_SLEEP_TIME_MS.saturating_mul(u64::from(run_count)));
+    if approx_time_elapsed > TIMEOUT {
+        error!("Probable deadlock detected. Waited {} seconds (estimated) for database lock. Giving up", approx_time_elapsed.as_secs();
+            "run_count" => run_count,
+            "backtrace" => ?Backtrace::capture()
+        );
+        return false;
     }
-    sleep_count = sleep_count.saturating_add(thread_rng().gen::<u64>() % sleep_count);
 
-    if sleep_count > 100 {
-        let jitter = thread_rng().gen::<u64>() % 20;
-        sleep_count = 100 - jitter;
+    let mut sleep_time_ms = 2u64.saturating_pow(run_count);
+
+    sleep_time_ms = sleep_time_ms.saturating_add(thread_rng().gen_range(0..sleep_time_ms));
+
+    if sleep_time_ms > AVG_SLEEP_TIME_MS {
+        let bound = 10;
+        let jitter = thread_rng().gen_range(0..bound * 2);
+        sleep_time_ms = (AVG_SLEEP_TIME_MS - bound) + jitter;
     }
 
-    debug!(
-        "Database is locked; sleeping {}ms and trying again",
-        &sleep_count;
-        "backtrace" => ?{
-            if run_count > 10 && run_count % 10 == 0 {
-                Some(Backtrace::capture())
-            } else {
-                None
-            }
-        },
-    );
+    let msg = format!("Database is locked; sleeping {sleep_time_ms}ms and trying again");
+    if run_count > 10 && run_count % 10 == 0 {
+        warn!("{msg}";
+            "run_count" => run_count,
+            "backtrace" => ?Backtrace::capture()
+        );
+    } else {
+        debug!("{msg}");
+    }
 
-    sleep_ms(sleep_count);
+    sleep_ms(sleep_time_ms);
     true
 }
 
@@ -696,8 +709,7 @@ pub fn tx_begin_immediate<'a>(conn: &'a mut Connection) -> Result<DBTx<'a>, Erro
 /// Sames as `tx_begin_immediate` except that it returns a rusqlite error.
 pub fn tx_begin_immediate_sqlite<'a>(conn: &'a mut Connection) -> Result<DBTx<'a>, sqlite_error> {
     conn.busy_handler(Some(tx_busy_handler))?;
-    let tx = Transaction::new(conn, TransactionBehavior::Immediate)?;
-    Ok(tx)
+    Transaction::new(conn, TransactionBehavior::Immediate)
 }
 
 #[cfg(feature = "profile-sqlite")]
