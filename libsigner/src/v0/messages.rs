@@ -926,7 +926,7 @@ mod test {
             Sha512Trunc256Sum([0u8; 32]),
             RejectCode::ValidationFailed(ValidateRejectCode::InvalidBlock),
             &StacksPrivateKey::new(),
-            thread_rng().next_u32() % 2 == 0,
+            thread_rng().gen_bool(0.5),
         );
         let serialized_rejection = rejection.serialize_to_vec();
         let deserialized_rejection = read_next::<BlockRejection, _>(&mut &serialized_rejection[..])
@@ -937,7 +937,7 @@ mod test {
             Sha512Trunc256Sum([1u8; 32]),
             RejectCode::ConnectivityIssues,
             &StacksPrivateKey::new(),
-            thread_rng().next_u32() % 2 == 0,
+            thread_rng().gen_bool(0.5),
         );
         let serialized_rejection = rejection.serialize_to_vec();
         let deserialized_rejection = read_next::<BlockRejection, _>(&mut &serialized_rejection[..])
@@ -958,7 +958,7 @@ mod test {
             Sha512Trunc256Sum([1u8; 32]),
             RejectCode::ValidationFailed(ValidateRejectCode::InvalidBlock),
             &StacksPrivateKey::new(),
-            thread_rng().next_u32() % 2 == 0,
+            thread_rng().gen_bool(0.5),
         ));
         let serialized_response = response.serialize_to_vec();
         let deserialized_response = read_next::<BlockResponse, _>(&mut &serialized_response[..])
