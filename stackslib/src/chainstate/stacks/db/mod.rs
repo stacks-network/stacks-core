@@ -160,7 +160,7 @@ pub struct MinerPaymentSchedule {
     pub vtxindex: u32,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum StacksBlockHeaderTypes {
     Epoch2(StacksBlockHeader),
     Nakamoto(NakamotoBlockHeader),
