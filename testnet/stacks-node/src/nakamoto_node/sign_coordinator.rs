@@ -15,7 +15,7 @@
 
 use std::collections::BTreeMap;
 use std::sync::mpsc::Receiver;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use hashbrown::{HashMap, HashSet};
 use libsigner::v0::messages::{BlockResponse, MinerSlotID, SignerMessage as SignerMessageV0};
@@ -73,7 +73,6 @@ pub struct SignCoordinator {
     wsts_public_keys: PublicKeys,
     is_mainnet: bool,
     miners_session: StackerDBSession,
-    signing_round_timeout: Duration,
     signer_entries: HashMap<u32, NakamotoSignerEntry>,
     weight_threshold: u32,
     total_weight: u32,
@@ -302,7 +301,6 @@ impl SignCoordinator {
                     wsts_public_keys,
                     is_mainnet,
                     miners_session,
-                    signing_round_timeout: config.miner.wait_on_signers.clone(),
                     next_signer_bitvec,
                     signer_entries: signer_public_keys,
                     weight_threshold: threshold,
@@ -324,7 +322,6 @@ impl SignCoordinator {
             wsts_public_keys,
             is_mainnet,
             miners_session,
-            signing_round_timeout: config.miner.wait_on_signers.clone(),
             next_signer_bitvec,
             signer_entries: signer_public_keys,
             weight_threshold: threshold,
@@ -485,8 +482,7 @@ impl SignCoordinator {
             ));
         };
 
-        let start_ts = Instant::now();
-        while start_ts.elapsed() <= self.signing_round_timeout {
+        loop {
             let event = match receiver.recv_timeout(EVENT_RECEIVER_POLL) {
                 Ok(event) => event,
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
@@ -630,10 +626,6 @@ impl SignCoordinator {
                 };
             }
         }
-
-        Err(NakamotoNodeError::SignerSignatureError(
-            "Timed out waiting for group signature".into(),
-        ))
     }
 
     /// Do we ignore signer signatures?
@@ -736,8 +728,7 @@ impl SignCoordinator {
             "threshold" => self.weight_threshold,
         );
 
-        let start_ts = Instant::now();
-        while start_ts.elapsed() <= self.signing_round_timeout {
+        loop {
             // look in the nakamoto staging db -- a block can only get stored there if it has
             // enough signing weight to clear the threshold
             if let Ok(Some((stored_block, _sz))) = chain_state
@@ -947,9 +938,5 @@ impl SignCoordinator {
                 return Ok(gathered_signatures.values().cloned().collect());
             }
         }
-
-        Err(NakamotoNodeError::SignerSignatureError(
-            "Timed out waiting for group signature".into(),
-        ))
     }
 }
