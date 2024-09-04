@@ -278,13 +278,14 @@ impl SignerTest<SpawnedSigner> {
 
         self.run_until_epoch_3_boundary();
 
-        let commits_submitted = self.running_nodes.commits_submitted.clone();
-        let commits_before = commits_submitted.load(Ordering::SeqCst);
-        info!("Waiting 1 burnchain block for miner VRF key confirmation");
-        // Wait one block to confirm the VRF register, wait until a block commit is submitted
+        // Wait until we see the first block of epoch 3.0.
+        // Note, we don't use `nakamoto_blocks_mined` counter, because there
+        // could be other miners mining blocks.
+        let height_before = get_chain_info(&self.running_nodes.conf).stacks_tip_height;
+        info!("Waiting for first Nakamoto block: {}", height_before + 1);
         next_block_and(&mut self.running_nodes.btc_regtest_controller, 60, || {
-            let commits_count = commits_submitted.load(Ordering::SeqCst);
-            Ok(commits_count > commits_before)
+            let height = get_chain_info(&self.running_nodes.conf).stacks_tip_height;
+            Ok(height > height_before)
         })
         .unwrap();
         info!("Ready to mine Nakamoto blocks!");
@@ -3202,6 +3203,7 @@ fn multiple_miners_with_nakamoto_blocks() {
     let mut btc_blocks_mined = 1;
     let mut miner_1_tenures = 0;
     let mut miner_2_tenures = 0;
+    let mut sender_nonce = 0;
     while !(miner_1_tenures >= 3 && miner_2_tenures >= 3) {
         if btc_blocks_mined > max_nakamoto_tenures {
             panic!("Produced {btc_blocks_mined} sortitions, but didn't cover the test scenarios, aborting");
@@ -3234,9 +3236,9 @@ fn multiple_miners_with_nakamoto_blocks() {
             let blocks_processed_before =
                 blocks_mined1.load(Ordering::SeqCst) + blocks_mined2.load(Ordering::SeqCst);
             // submit a tx so that the miner will mine an extra block
-            let sender_nonce = (btc_blocks_mined - 1) * inter_blocks_per_tenure + interim_block_ix;
             let transfer_tx =
                 make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
+            sender_nonce += 1;
             submit_tx(&http_origin, &transfer_tx);
 
             wait_for(60, || {
@@ -3300,7 +3302,7 @@ fn multiple_miners_with_nakamoto_blocks() {
     assert_eq!(peer_1_height, peer_2_height);
     assert_eq!(
         peer_1_height,
-        pre_nakamoto_peer_1_height + btc_blocks_mined * (inter_blocks_per_tenure + 1)
+        pre_nakamoto_peer_1_height + (btc_blocks_mined - 1) * (inter_blocks_per_tenure + 1)
     );
     assert_eq!(
         btc_blocks_mined,
