@@ -377,9 +377,10 @@ impl Signer {
         let block_response = if let Some(sortition_state) = sortition_state {
             match sortition_state.check_proposal(
                 stacks_client,
-                &self.signer_db,
+                &mut self.signer_db,
                 &block_proposal.block,
                 miner_pubkey,
+                self.reward_cycle,
             ) {
                 // Error validating block
                 Err(e) => {

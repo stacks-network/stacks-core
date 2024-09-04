@@ -5427,6 +5427,13 @@ fn signer_chainstate() {
         )
         .unwrap();
 
+        let reward_cycle = burnchain
+            .block_height_to_reward_cycle(
+                SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
+                    .unwrap()
+                    .block_height,
+            )
+            .unwrap();
         // this config disallows any reorg due to poorly timed block commits
         let proposal_conf = ProposalEvalConfig {
             first_proposal_burn_block_timing: Duration::from_secs(0),
@@ -5441,7 +5448,13 @@ fn signer_chainstate() {
             last_tenures_proposals
         {
             let valid = sortitions_view
-                .check_proposal(&signer_client, &signer_db, prior_tenure_first, miner_pk)
+                .check_proposal(
+                    &signer_client,
+                    &mut signer_db,
+                    prior_tenure_first,
+                    miner_pk,
+                    reward_cycle,
+                )
                 .unwrap();
             assert!(
                 !valid,
@@ -5449,7 +5462,13 @@ fn signer_chainstate() {
             );
             for block in prior_tenure_interims.iter() {
                 let valid = sortitions_view
-                    .check_proposal(&signer_client, &signer_db, block, miner_pk)
+                    .check_proposal(
+                        &signer_client,
+                        &mut signer_db,
+                        block,
+                        miner_pk,
+                        reward_cycle,
+                    )
                     .unwrap();
                 assert!(
                     !valid,
@@ -5472,20 +5491,26 @@ fn signer_chainstate() {
             thread::sleep(Duration::from_secs(1));
         };
 
-        let valid = sortitions_view
-            .check_proposal(&signer_client, &signer_db, &proposal.0, &proposal.1)
-            .unwrap();
-
-        assert!(
-            valid,
-            "Nakamoto integration test produced invalid block proposal"
-        );
         let burn_block_height = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
             .unwrap()
             .block_height;
         let reward_cycle = burnchain
             .block_height_to_reward_cycle(burn_block_height)
             .unwrap();
+        let valid = sortitions_view
+            .check_proposal(
+                &signer_client,
+                &mut signer_db,
+                &proposal.0,
+                &proposal.1,
+                reward_cycle,
+            )
+            .unwrap();
+
+        assert!(
+            valid,
+            "Nakamoto integration test produced invalid block proposal"
+        );
         signer_db
             .insert_block(&BlockInfo {
                 block: proposal.0.clone(),
@@ -5531,9 +5556,10 @@ fn signer_chainstate() {
         let valid = sortitions_view
             .check_proposal(
                 &signer_client,
-                &signer_db,
+                &mut signer_db,
                 &proposal_interim.0,
                 &proposal_interim.1,
+                reward_cycle,
             )
             .unwrap();
 
@@ -5548,14 +5574,21 @@ fn signer_chainstate() {
             first_proposal_burn_block_timing: Duration::from_secs(0),
             block_proposal_timeout: Duration::from_secs(100),
         };
+        let burn_block_height = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
+            .unwrap()
+            .block_height;
+        let reward_cycle = burnchain
+            .block_height_to_reward_cycle(burn_block_height)
+            .unwrap();
         let mut sortitions_view =
             SortitionsView::fetch_view(proposal_conf, &signer_client).unwrap();
         let valid = sortitions_view
             .check_proposal(
                 &signer_client,
-                &signer_db,
+                &mut signer_db,
                 &proposal_interim.0,
                 &proposal_interim.1,
+                reward_cycle,
             )
             .unwrap();
 
@@ -5618,10 +5651,21 @@ fn signer_chainstate() {
         block_proposal_timeout: Duration::from_secs(100),
     };
     let mut sortitions_view = SortitionsView::fetch_view(proposal_conf, &signer_client).unwrap();
-
+    let burn_block_height = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
+        .unwrap()
+        .block_height;
+    let reward_cycle = burnchain
+        .block_height_to_reward_cycle(burn_block_height)
+        .unwrap();
     assert!(
         !sortitions_view
-            .check_proposal(&signer_client, &signer_db, &sibling_block, &miner_pk)
+            .check_proposal(
+                &signer_client,
+                &mut signer_db,
+                &sibling_block,
+                &miner_pk,
+                reward_cycle
+            )
             .unwrap(),
         "A sibling of a previously approved block must be rejected."
     );
@@ -5672,7 +5716,13 @@ fn signer_chainstate() {
 
     assert!(
         !sortitions_view
-            .check_proposal(&signer_client, &signer_db, &sibling_block, &miner_pk)
+            .check_proposal(
+                &signer_client,
+                &mut signer_db,
+                &sibling_block,
+                &miner_pk,
+                reward_cycle
+            )
             .unwrap(),
         "A sibling of a previously approved block must be rejected."
     );
@@ -5729,7 +5779,13 @@ fn signer_chainstate() {
 
     assert!(
         !sortitions_view
-            .check_proposal(&signer_client, &signer_db, &sibling_block, &miner_pk)
+            .check_proposal(
+                &signer_client,
+                &mut signer_db,
+                &sibling_block,
+                &miner_pk,
+                reward_cycle
+            )
             .unwrap(),
         "A sibling of a previously approved block must be rejected."
     );
@@ -5788,7 +5844,13 @@ fn signer_chainstate() {
 
     assert!(
         !sortitions_view
-            .check_proposal(&signer_client, &signer_db, &sibling_block, &miner_pk)
+            .check_proposal(
+                &signer_client,
+                &mut signer_db,
+                &sibling_block,
+                &miner_pk,
+                reward_cycle
+            )
             .unwrap(),
         "A sibling of a previously approved block must be rejected."
     );

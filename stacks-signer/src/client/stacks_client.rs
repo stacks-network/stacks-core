@@ -21,6 +21,7 @@ use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
 use blockstack_lib::chainstate::stacks::boot::{
     NakamotoSignerEntry, SIGNERS_VOTING_FUNCTION_NAME, SIGNERS_VOTING_NAME,
 };
+use blockstack_lib::chainstate::stacks::db::StacksBlockHeaderTypes;
 use blockstack_lib::chainstate::stacks::{
     StacksTransaction, StacksTransactionSigner, TransactionAnchorMode, TransactionAuth,
     TransactionContractCall, TransactionPayload, TransactionPostConditionMode,
@@ -137,6 +138,28 @@ impl StacksClient {
     /// Get our signer address
     pub const fn get_signer_address(&self) -> &StacksAddress {
         &self.stacks_address
+    }
+
+    /// Get the stacks tip header of the tenure given its consensus hash
+    pub fn get_tenure_tip(
+        &self,
+        consensus_hash: &ConsensusHash,
+    ) -> Result<StacksBlockHeaderTypes, ClientError> {
+        let send_request = || {
+            self.stacks_node_client
+                .get(self.tenure_tip_path(consensus_hash))
+                .send()
+                .map_err(|e| {
+                    warn!("Signer failed to request latest sortition"; "err" => ?e);
+                    e
+                })
+        };
+        let response = send_request()?;
+        if !response.status().is_success() {
+            return Err(ClientError::RequestFailure(response.status()));
+        }
+        let sortition_info = response.json()?;
+        Ok(sortition_info)
     }
 
     /// Retrieve the signer slots stored within the stackerdb contract
@@ -826,6 +849,10 @@ impl StacksClient {
         format!("{}/v2/fees/transaction", self.http_origin)
     }
 
+    fn tenure_tip_path(&self, consensus_hash: &ConsensusHash) -> String {
+        format!("{}/v3/tenures/tip/{}", self.http_origin, consensus_hash)
+    }
+
     /// Helper function to create a stacks transaction for a modifying contract call
     #[allow(clippy::too_many_arguments)]
     pub fn build_unsigned_contract_call_transaction(
@@ -893,12 +920,16 @@ mod tests {
     use blockstack_lib::chainstate::stacks::boot::{
         NakamotoSignerEntry, PoxStartCycleInfo, RewardSet,
     };
+    use clarity::types::chainstate::{StacksBlockId, TrieHash};
+    use clarity::util::hash::Sha512Trunc256Sum;
+    use clarity::util::secp256k1::MessageSignature;
     use clarity::vm::types::{
         ListData, ListTypeData, ResponseData, SequenceData, TupleData, TupleTypeSignature,
         TypeSignature,
     };
     use rand::thread_rng;
     use rand_core::RngCore;
+    use stacks_common::bitvec::BitVec;
     use stacks_common::consts::{CHAIN_ID_TESTNET, SIGNER_SLOTS_PER_USER};
     use wsts::curve::scalar::Scalar;
 
@@ -907,8 +938,9 @@ mod tests {
         build_account_nonce_response, build_get_approved_aggregate_key_response,
         build_get_last_round_response, build_get_medium_estimated_fee_ustx_response,
         build_get_peer_info_response, build_get_pox_data_response, build_get_round_info_response,
-        build_get_vote_for_aggregate_key_response, build_get_weight_threshold_response,
-        build_read_only_response, write_response, MockServerClient,
+        build_get_tenure_tip_response, build_get_vote_for_aggregate_key_response,
+        build_get_weight_threshold_response, build_read_only_response, write_response,
+        MockServerClient,
     };
 
     #[test]
@@ -1541,5 +1573,28 @@ mod tests {
         let h = spawn(move || mock.client.get_medium_estimated_fee_ustx(&unsigned_tx));
         write_response(mock.server, response.as_bytes());
         assert_eq!(h.join().unwrap().unwrap(), estimate);
+    }
+
+    #[test]
+    fn get_tenure_tip_should_succeed() {
+        let mock = MockServerClient::new();
+        let consensus_hash = ConsensusHash([15; 20]);
+        let header = StacksBlockHeaderTypes::Nakamoto(NakamotoBlockHeader {
+            version: 1,
+            chain_length: 10,
+            burn_spent: 10,
+            consensus_hash: ConsensusHash([15; 20]),
+            parent_block_id: StacksBlockId([0; 32]),
+            tx_merkle_root: Sha512Trunc256Sum([0; 32]),
+            state_index_root: TrieHash([0; 32]),
+            timestamp: 3,
+            miner_signature: MessageSignature::empty(),
+            signer_signature: vec![],
+            pox_treatment: BitVec::ones(1).unwrap(),
+        });
+        let response = build_get_tenure_tip_response(&header);
+        let h = spawn(move || mock.client.get_tenure_tip(&consensus_hash));
+        write_response(mock.server, response.as_bytes());
+        assert_eq!(h.join().unwrap().unwrap(), header);
     }
 }

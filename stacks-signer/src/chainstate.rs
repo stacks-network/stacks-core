@@ -27,7 +27,7 @@ use stacks_common::{info, warn};
 
 use crate::client::{ClientError, StacksClient};
 use crate::config::SignerConfig;
-use crate::signerdb::SignerDb;
+use crate::signerdb::{BlockState, SignerDb};
 
 #[derive(thiserror::Error, Debug)]
 /// Error type for the signer chainstate module
@@ -185,9 +185,10 @@ impl SortitionsView {
     pub fn check_proposal(
         &mut self,
         client: &StacksClient,
-        signer_db: &SignerDb,
+        signer_db: &mut SignerDb,
         block: &NakamotoBlock,
         block_pk: &StacksPublicKey,
+        reward_cycle: u64,
     ) -> Result<bool, SignerChainstateError> {
         if self
             .cur_sortition
@@ -284,6 +285,7 @@ impl SortitionsView {
                 &proposed_by,
                 tenure_change,
                 block,
+                reward_cycle,
                 signer_db,
                 client,
             )? {
@@ -434,21 +436,56 @@ impl SortitionsView {
     fn check_tenure_change_confirms_parent(
         tenure_change: &TenureChangePayload,
         block: &NakamotoBlock,
-        signer_db: &SignerDb,
+        reward_cycle: u64,
+        signer_db: &mut SignerDb,
+        client: &StacksClient,
     ) -> Result<bool, ClientError> {
-        let Some(last_globally_accepted_block) = signer_db
+        // If the tenure change block confirms the expected parent block, it should confirm at least one more block than the last globally accepted block in the parent tenure.
+        let last_globally_accepted_block = signer_db
             .get_last_globally_accepted_block(&tenure_change.prev_tenure_consensus_hash)
-            .map_err(|e| ClientError::InvalidResponse(e.to_string()))?
-        else {
-            info!(
-                "Have no globally accepted blocks in the parent tenure, assuming block confirmation is correct";
-                "proposed_block_consensus_hash" => %block.header.consensus_hash,
-                "proposed_block_signer_sighash" => %block.header.signer_signature_hash(),
-                "tenure" => %block.header.consensus_hash,
-            );
-            return Ok(true);
+            .map_err(|e| ClientError::InvalidResponse(e.to_string()))?;
+
+        if let Some(global_info) = last_globally_accepted_block {
+            if block.header.chain_length <= global_info.block.header.chain_length {
+                warn!(
+                    "Miner's block proposal does not confirm as many blocks as we expect";
+                    "proposed_block_consensus_hash" => %block.header.consensus_hash,
+                    "proposed_block_signer_sighash" => %block.header.signer_signature_hash(),
+                    "proposed_chain_length" => block.header.chain_length,
+                    "expected_at_least" => global_info.block.header.chain_length + 1,
+                );
+                return Ok(false);
+            }
+        }
+
+        let tip = match client.get_tenure_tip(&tenure_change.prev_tenure_consensus_hash) {
+            Ok(tip) => tip,
+            Err(e) => {
+                warn!(
+                    "Miner block proposal contains a tenure change, but failed to fetch the tenure tip for the parent tenure: {e:?}. Considering proposal invalid.";
+                    "proposed_block_consensus_hash" => %block.header.consensus_hash,
+                    "proposed_block_signer_sighash" => %block.header.signer_signature_hash(),
+                    "parent_tenure" => %tenure_change.prev_tenure_consensus_hash,
+                );
+                return Ok(false);
+            }
         };
-        if block.header.chain_length > last_globally_accepted_block.block.header.chain_length {
+        if let Some(nakamoto_tip) = tip.as_stacks_nakamoto() {
+            // If we have seen this block already, make sure its state is updated to globally accepted
+            if let Ok(Some(mut block_info)) =
+                signer_db.block_lookup(reward_cycle, &nakamoto_tip.signer_signature_hash())
+            {
+                if block_info.state != BlockState::GloballyAccepted {
+                    if let Err(e) = block_info.mark_globally_accepted() {
+                        warn!("Failed to update block info in db: {e}");
+                    } else if let Err(e) = signer_db.insert_block(&block_info) {
+                        warn!("Failed to update block info in db: {e}");
+                    }
+                }
+            }
+        }
+        let tip_height = tip.height();
+        if block.header.chain_length > tip_height {
             Ok(true)
         } else {
             warn!(
@@ -456,7 +493,7 @@ impl SortitionsView {
                 "proposed_block_consensus_hash" => %block.header.consensus_hash,
                 "proposed_block_signer_sighash" => %block.header.signer_signature_hash(),
                 "proposed_chain_length" => block.header.chain_length,
-                "expected_at_least" => last_globally_accepted_block.block.header.chain_length + 1,
+                "expected_at_least" => tip_height + 1,
             );
             Ok(false)
         }
@@ -471,12 +508,18 @@ impl SortitionsView {
         proposed_by: &ProposedBy,
         tenure_change: &TenureChangePayload,
         block: &NakamotoBlock,
-        signer_db: &SignerDb,
+        reward_cycle: u64,
+        signer_db: &mut SignerDb,
         client: &StacksClient,
     ) -> Result<bool, SignerChainstateError> {
         // Ensure that the tenure change block confirms the expected parent block
-        let confirms_expected_parent =
-            Self::check_tenure_change_confirms_parent(tenure_change, block, signer_db)?;
+        let confirms_expected_parent = Self::check_tenure_change_confirms_parent(
+            tenure_change,
+            block,
+            reward_cycle,
+            signer_db,
+            client,
+        )?;
         if !confirms_expected_parent {
             return Ok(false);
         }

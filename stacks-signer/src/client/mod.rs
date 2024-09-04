@@ -123,6 +123,7 @@ pub(crate) mod tests {
     use std::net::{SocketAddr, TcpListener};
 
     use blockstack_lib::chainstate::stacks::boot::POX_4_NAME;
+    use blockstack_lib::chainstate::stacks::db::StacksBlockHeaderTypes;
     use blockstack_lib::net::api::getaccount::AccountEntryResponse;
     use blockstack_lib::net::api::getinfo::RPCPeerInfoData;
     use blockstack_lib::net::api::getpoxinfo::{
@@ -596,5 +597,11 @@ pub(crate) mod tests {
     pub fn build_get_weight_threshold_response(threshold: u64) -> String {
         let clarity_value = ClarityValue::UInt(threshold as u128);
         build_read_only_response(&clarity_value)
+    }
+
+    pub fn build_get_tenure_tip_response(header_types: &StacksBlockHeaderTypes) -> String {
+        let response_json =
+            serde_json::to_string(header_types).expect("Failed to serialize tenure tip info");
+        format!("HTTP/1.1 200 OK\n\n{response_json}")
     }
 }
