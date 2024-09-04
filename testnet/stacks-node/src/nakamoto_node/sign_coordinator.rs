@@ -722,6 +722,7 @@ impl SignCoordinator {
 
         let mut total_weight_signed: u32 = 0;
         let mut total_reject_weight: u32 = 0;
+        let mut responded_signers = HashSet::new();
         let mut gathered_signatures = BTreeMap::new();
 
         info!("SignCoordinator: beginning to watch for block signatures OR posted blocks.";
@@ -800,24 +801,108 @@ impl SignCoordinator {
             );
 
             for (message, slot_id) in messages.into_iter().zip(slot_ids) {
-                let (response_hash, signature) = match message {
+                let Some(signer_entry) = &self.signer_entries.get(&slot_id) else {
+                    return Err(NakamotoNodeError::SignerSignatureError(
+                        "Signer entry not found".into(),
+                    ));
+                };
+                let Ok(signer_pubkey) = StacksPublicKey::from_slice(&signer_entry.signing_key)
+                else {
+                    return Err(NakamotoNodeError::SignerSignatureError(
+                        "Failed to parse signer public key".into(),
+                    ));
+                };
+
+                if responded_signers.contains(&signer_pubkey) {
+                    debug!(
+                        "Signer {slot_id} already responded for block {}. Ignoring {message:?}.", block.header.signer_signature_hash();
+                        "stacks_block_hash" => %block.header.block_hash(),
+                        "stacks_block_id" => %block.header.block_id()
+                    );
+                    continue;
+                }
+
+                match message {
                     SignerMessageV0::BlockResponse(BlockResponse::Accepted((
                         response_hash,
                         signature,
-                    ))) => (response_hash, signature),
-                    SignerMessageV0::BlockResponse(BlockResponse::Rejected(rejected_data)) => {
-                        let Some(signer_entry) = &self.signer_entries.get(&slot_id) else {
-                            return Err(NakamotoNodeError::SignerSignatureError(
-                                "Signer entry not found".into(),
-                            ));
+                    ))) => {
+                        let block_sighash = block.header.signer_signature_hash();
+                        if block_sighash != response_hash {
+                            warn!(
+                                "Processed signature for a different block. Will try to continue.";
+                                "signature" => %signature,
+                                "block_signer_signature_hash" => %block_sighash,
+                                "response_hash" => %response_hash,
+                                "slot_id" => slot_id,
+                                "reward_cycle_id" => reward_cycle_id,
+                                "response_hash" => %response_hash
+                            );
+                            continue;
+                        }
+                        debug!("SignCoordinator: Received valid signature from signer"; "slot_id" => slot_id, "signature" => %signature);
+                        let Ok(valid_sig) = signer_pubkey.verify(block_sighash.bits(), &signature)
+                        else {
+                            warn!("Got invalid signature from a signer. Ignoring.");
+                            continue;
                         };
-                        if rejected_data.signer_signature_hash
-                            != block.header.signer_signature_hash()
-                        {
-                            debug!("Received rejected block response for a block besides my own. Ignoring.");
+                        if !valid_sig {
+                            warn!(
+                                "Processed signature but didn't validate over the expected block. Ignoring";
+                                "signature" => %signature,
+                                "block_signer_signature_hash" => %block_sighash,
+                                "slot_id" => slot_id,
+                            );
+                            continue;
+                        }
+                        if !gathered_signatures.contains_key(&slot_id) {
+                            total_weight_signed = total_weight_signed
+                                .checked_add(signer_entry.weight)
+                                .expect("FATAL: total weight signed exceeds u32::MAX");
+                        }
+
+                        if Self::fault_injection_ignore_signatures() {
+                            warn!("SignCoordinator: fault injection: ignoring well-formed signature for block";
+                                "block_signer_sighash" => %block_sighash,
+                                "signer_pubkey" => signer_pubkey.to_hex(),
+                                "signer_slot_id" => slot_id,
+                                "signature" => %signature,
+                                "signer_weight" => signer_entry.weight,
+                                "total_weight_signed" => total_weight_signed,
+                                "stacks_block_hash" => %block.header.block_hash(),
+                                "stacks_block_id" => %block.header.block_id()
+                            );
                             continue;
                         }
 
+                        info!("SignCoordinator: Signature Added to block";
+                            "block_signer_sighash" => %block_sighash,
+                            "signer_pubkey" => signer_pubkey.to_hex(),
+                            "signer_slot_id" => slot_id,
+                            "signature" => %signature,
+                            "signer_weight" => signer_entry.weight,
+                            "total_weight_signed" => total_weight_signed,
+                            "stacks_block_hash" => %block.header.block_hash(),
+                            "stacks_block_id" => %block.header.block_id()
+                        );
+                        gathered_signatures.insert(slot_id, signature);
+                        responded_signers.insert(signer_pubkey);
+                    }
+                    SignerMessageV0::BlockResponse(BlockResponse::Rejected(rejected_data)) => {
+                        let rejected_pubkey = match rejected_data.recover_public_key() {
+                            Ok(rejected_pubkey) => {
+                                if rejected_pubkey != signer_pubkey {
+                                    warn!("Recovered public key from rejected data does not match signer's public key. Ignoring.");
+                                    continue;
+                                }
+                                rejected_pubkey
+                            }
+                            Err(e) => {
+                                warn!("Failed to recover public key from rejected data: {e:?}. Ignoring.");
+                                continue;
+                            }
+                        };
+                        responded_signers.insert(rejected_pubkey);
                         debug!(
                             "Signer {} rejected our block {}/{}",
                             slot_id,
@@ -858,75 +943,6 @@ impl SignCoordinator {
                         continue;
                     }
                 };
-                let block_sighash = block.header.signer_signature_hash();
-                if block_sighash != response_hash {
-                    warn!(
-                        "Processed signature for a different block. Will try to continue.";
-                        "signature" => %signature,
-                        "block_signer_signature_hash" => %block_sighash,
-                        "response_hash" => %response_hash,
-                        "slot_id" => slot_id,
-                        "reward_cycle_id" => reward_cycle_id,
-                        "response_hash" => %response_hash
-                    );
-                    continue;
-                }
-                debug!("SignCoordinator: Received valid signature from signer"; "slot_id" => slot_id, "signature" => %signature);
-                let Some(signer_entry) = &self.signer_entries.get(&slot_id) else {
-                    return Err(NakamotoNodeError::SignerSignatureError(
-                        "Signer entry not found".into(),
-                    ));
-                };
-                let Ok(signer_pubkey) = StacksPublicKey::from_slice(&signer_entry.signing_key)
-                else {
-                    return Err(NakamotoNodeError::SignerSignatureError(
-                        "Failed to parse signer public key".into(),
-                    ));
-                };
-                let Ok(valid_sig) = signer_pubkey.verify(block_sighash.bits(), &signature) else {
-                    warn!("Got invalid signature from a signer. Ignoring.");
-                    continue;
-                };
-                if !valid_sig {
-                    warn!(
-                        "Processed signature but didn't validate over the expected block. Ignoring";
-                        "signature" => %signature,
-                        "block_signer_signature_hash" => %block_sighash,
-                        "slot_id" => slot_id,
-                    );
-                    continue;
-                }
-                if !gathered_signatures.contains_key(&slot_id) {
-                    total_weight_signed = total_weight_signed
-                        .checked_add(signer_entry.weight)
-                        .expect("FATAL: total weight signed exceeds u32::MAX");
-                }
-
-                if Self::fault_injection_ignore_signatures() {
-                    warn!("SignCoordinator: fault injection: ignoring well-formed signature for block";
-                        "block_signer_sighash" => %block_sighash,
-                        "signer_pubkey" => signer_pubkey.to_hex(),
-                        "signer_slot_id" => slot_id,
-                        "signature" => %signature,
-                        "signer_weight" => signer_entry.weight,
-                        "total_weight_signed" => total_weight_signed,
-                        "stacks_block_hash" => %block.header.block_hash(),
-                        "stacks_block_id" => %block.header.block_id()
-                    );
-                    continue;
-                }
-
-                info!("SignCoordinator: Signature Added to block";
-                    "block_signer_sighash" => %block_sighash,
-                    "signer_pubkey" => signer_pubkey.to_hex(),
-                    "signer_slot_id" => slot_id,
-                    "signature" => %signature,
-                    "signer_weight" => signer_entry.weight,
-                    "total_weight_signed" => total_weight_signed,
-                    "stacks_block_hash" => %block.header.block_hash(),
-                    "stacks_block_id" => %block.header.block_id()
-                );
-                gathered_signatures.insert(slot_id, signature);
             }
 
             // After gathering all signatures, return them if we've hit the threshold
