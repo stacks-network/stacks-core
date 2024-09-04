@@ -43,7 +43,7 @@ use crate::util_lib::db::{DBConn, Error as DBError};
 
 #[derive(Clone)]
 pub struct RPCNakamotoTenureTipRequestHandler {
-    consensus_hash: Option<ConsensusHash>,
+    pub(crate) consensus_hash: Option<ConsensusHash>,
 }
 
 impl RPCNakamotoTenureTipRequestHandler {
