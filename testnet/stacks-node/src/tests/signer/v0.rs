@@ -501,6 +501,7 @@ fn block_proposal_rejection() {
                 reason: _reason,
                 reason_code,
                 signer_signature_hash,
+                ..
             })) = message
             {
                 if signer_signature_hash == block_signer_signature_hash_1 {

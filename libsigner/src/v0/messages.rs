@@ -42,6 +42,7 @@ use blockstack_lib::util_lib::boot::boot_code_id;
 use blockstack_lib::util_lib::signed_structured_data::{
     make_structured_data_domain, structured_data_message_hash,
 };
+use clarity::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
 use clarity::types::chainstate::{
     BlockHeaderHash, ConsensusHash, StacksPrivateKey, StacksPublicKey,
 };
@@ -615,8 +616,8 @@ impl std::fmt::Display for BlockResponse {
             BlockResponse::Rejected(r) => {
                 write!(
                     f,
-                    "BlockRejected: signer_sighash = {}, code = {}, reason = {}",
-                    r.reason_code, r.reason, r.signer_signature_hash
+                    "BlockRejected: signer_sighash = {}, code = {}, reason = {}, signature = {}",
+                    r.reason_code, r.reason, r.signer_signature_hash, r.signature
                 )
             }
         }
@@ -629,9 +630,14 @@ impl BlockResponse {
         Self::Accepted((hash, sig))
     }
 
-    /// Create a new rejected BlockResponse for the provided block signer signature hash and rejection code
-    pub fn rejected(hash: Sha512Trunc256Sum, reject_code: RejectCode) -> Self {
-        Self::Rejected(BlockRejection::new(hash, reject_code))
+    /// Create a new rejected BlockResponse for the provided block signer signature hash and rejection code and sign it with the provided private key
+    pub fn rejected(
+        hash: Sha512Trunc256Sum,
+        reject_code: RejectCode,
+        private_key: &StacksPrivateKey,
+        mainnet: bool,
+    ) -> Self {
+        Self::Rejected(BlockRejection::new(hash, reject_code, private_key, mainnet))
     }
 }
 
@@ -677,16 +683,94 @@ pub struct BlockRejection {
     pub reason_code: RejectCode,
     /// The signer signature hash of the block that was rejected
     pub signer_signature_hash: Sha512Trunc256Sum,
+    /// The signer's signature across the rejection
+    pub signature: MessageSignature,
+    /// The chain id
+    pub chain_id: u32,
 }
 
 impl BlockRejection {
     /// Create a new BlockRejection for the provided block and reason code
-    pub fn new(signer_signature_hash: Sha512Trunc256Sum, reason_code: RejectCode) -> Self {
-        Self {
+    pub fn new(
+        signer_signature_hash: Sha512Trunc256Sum,
+        reason_code: RejectCode,
+        private_key: &StacksPrivateKey,
+        mainnet: bool,
+    ) -> Self {
+        let chain_id = if mainnet {
+            CHAIN_ID_MAINNET
+        } else {
+            CHAIN_ID_TESTNET
+        };
+        let mut rejection = Self {
             reason: reason_code.to_string(),
             reason_code,
             signer_signature_hash,
+            signature: MessageSignature::empty(),
+            chain_id,
+        };
+        rejection
+            .sign(private_key)
+            .expect("Failed to sign BlockRejection");
+        rejection
+    }
+
+    /// Create a new BlockRejection from a BlockValidateRejection
+    pub fn from_validate_rejection(
+        reject: BlockValidateReject,
+        private_key: &StacksPrivateKey,
+        mainnet: bool,
+    ) -> Self {
+        let chain_id = if mainnet {
+            CHAIN_ID_MAINNET
+        } else {
+            CHAIN_ID_TESTNET
+        };
+        let mut rejection = Self {
+            reason: reject.reason,
+            reason_code: RejectCode::ValidationFailed(reject.reason_code),
+            signer_signature_hash: reject.signer_signature_hash,
+            chain_id,
+            signature: MessageSignature::empty(),
+        };
+        rejection
+            .sign(private_key)
+            .expect("Failed to sign BlockRejection");
+        rejection
+    }
+
+    /// The signature hash for the block rejection
+    pub fn hash(&self) -> Sha256Sum {
+        let domain_tuple = make_structured_data_domain("block-rejection", "1.0.0", self.chain_id);
+        let data = Value::buff_from(self.signer_signature_hash.as_bytes().into()).unwrap();
+        structured_data_message_hash(data, domain_tuple)
+    }
+
+    /// Sign the block rejection and set the internal signature field
+    fn sign(&mut self, private_key: &StacksPrivateKey) -> Result<(), String> {
+        let signature_hash = self.hash();
+        self.signature = private_key.sign(signature_hash.as_bytes())?;
+        Ok(())
+    }
+
+    /// Verify the rejection's signature against the provided signer public key
+    pub fn verify(&self, public_key: &StacksPublicKey) -> Result<bool, String> {
+        if self.signature == MessageSignature::empty() {
+            return Ok(false);
         }
+        let signature_hash = self.hash();
+        public_key
+            .verify(&signature_hash.0, &self.signature)
+            .map_err(|e| e.to_string())
+    }
+
+    /// Recover the public key from the rejection signature
+    pub fn recover_public_key(&self) -> Result<StacksPublicKey, &'static str> {
+        if self.signature == MessageSignature::empty() {
+            return Err("No signature to recover public key from");
+        }
+        let signature_hash = self.hash();
+        StacksPublicKey::recover_to_pubkey(signature_hash.as_bytes(), &self.signature)
     }
 }
 
@@ -695,6 +779,8 @@ impl StacksMessageCodec for BlockRejection {
         write_next(fd, &self.reason.as_bytes().to_vec())?;
         write_next(fd, &self.reason_code)?;
         write_next(fd, &self.signer_signature_hash)?;
+        write_next(fd, &self.chain_id)?;
+        write_next(fd, &self.signature)?;
         Ok(())
     }
 
@@ -705,21 +791,15 @@ impl StacksMessageCodec for BlockRejection {
         })?;
         let reason_code = read_next::<RejectCode, _>(fd)?;
         let signer_signature_hash = read_next::<Sha512Trunc256Sum, _>(fd)?;
+        let chain_id = read_next::<u32, _>(fd)?;
+        let signature = read_next::<MessageSignature, _>(fd)?;
         Ok(Self {
             reason,
             reason_code,
             signer_signature_hash,
+            chain_id,
+            signature,
         })
-    }
-}
-
-impl From<BlockValidateReject> for BlockRejection {
-    fn from(reject: BlockValidateReject) -> Self {
-        Self {
-            reason: reject.reason,
-            reason_code: RejectCode::ValidationFailed(reject.reason_code),
-            signer_signature_hash: reject.signer_signature_hash,
-        }
     }
 }
 
@@ -792,12 +872,6 @@ impl From<BlockResponse> for SignerMessage {
     }
 }
 
-impl From<BlockValidateReject> for BlockResponse {
-    fn from(rejection: BlockValidateReject) -> Self {
-        Self::Rejected(rejection.into())
-    }
-}
-
 #[cfg(test)]
 mod test {
     use blockstack_lib::chainstate::nakamoto::NakamotoBlockHeader;
@@ -851,14 +925,20 @@ mod test {
         let rejection = BlockRejection::new(
             Sha512Trunc256Sum([0u8; 32]),
             RejectCode::ValidationFailed(ValidateRejectCode::InvalidBlock),
+            &StacksPrivateKey::new(),
+            thread_rng().next_u32() % 2 == 0,
         );
         let serialized_rejection = rejection.serialize_to_vec();
         let deserialized_rejection = read_next::<BlockRejection, _>(&mut &serialized_rejection[..])
             .expect("Failed to deserialize BlockRejection");
         assert_eq!(rejection, deserialized_rejection);
 
-        let rejection =
-            BlockRejection::new(Sha512Trunc256Sum([1u8; 32]), RejectCode::ConnectivityIssues);
+        let rejection = BlockRejection::new(
+            Sha512Trunc256Sum([1u8; 32]),
+            RejectCode::ConnectivityIssues,
+            &StacksPrivateKey::new(),
+            thread_rng().next_u32() % 2 == 0,
+        );
         let serialized_rejection = rejection.serialize_to_vec();
         let deserialized_rejection = read_next::<BlockRejection, _>(&mut &serialized_rejection[..])
             .expect("Failed to deserialize BlockRejection");
@@ -877,6 +957,8 @@ mod test {
         let response = BlockResponse::Rejected(BlockRejection::new(
             Sha512Trunc256Sum([1u8; 32]),
             RejectCode::ValidationFailed(ValidateRejectCode::InvalidBlock),
+            &StacksPrivateKey::new(),
+            thread_rng().next_u32() % 2 == 0,
         ));
         let serialized_response = response.serialize_to_vec();
         let deserialized_response = read_next::<BlockResponse, _>(&mut &serialized_response[..])

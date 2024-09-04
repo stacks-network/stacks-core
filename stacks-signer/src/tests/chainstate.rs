@@ -229,7 +229,7 @@ fn reorg_timing_testing(
         reward_cycle: 1,
     };
     let mut block_info_1 = BlockInfo::from(block_proposal_1);
-    block_info_1.mark_signed_and_valid();
+    block_info_1.mark_locally_accepted().unwrap();
     signer_db.insert_block(&block_info_1).unwrap();
 
     let sortition_time = SystemTime::UNIX_EPOCH

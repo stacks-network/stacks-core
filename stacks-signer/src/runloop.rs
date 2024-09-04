@@ -466,7 +466,9 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
                 std::cmp::Ordering::Equal => {
                     // We are the next reward cycle, so check if we were registered and have any pending blocks to process
                     match signer {
-                        ConfiguredSigner::RegisteredSigner(signer) => !signer.has_pending_blocks(),
+                        ConfiguredSigner::RegisteredSigner(signer) => {
+                            !signer.has_unprocessed_blocks()
+                        }
                         _ => true,
                     }
                 }
