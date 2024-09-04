@@ -2501,10 +2501,20 @@ fn block_proposal_api_endpoint() {
         ),
         ("Must wait", sign(&proposal), HTTP_TOO_MANY, None),
         (
-            "Corrupted (bit flipped after signing)",
+            "Non-canonical or absent tenure",
             (|| {
                 let mut sp = sign(&proposal);
                 sp.block.header.consensus_hash.0[3] ^= 0x07;
+                sp
+            })(),
+            HTTP_ACCEPTED,
+            Some(Err(ValidateRejectCode::NonCanonicalTenure)),
+        ),
+        (
+            "Corrupted (bit flipped after signing)",
+            (|| {
+                let mut sp = sign(&proposal);
+                sp.block.header.timestamp ^= 0x07;
                 sp
             })(),
             HTTP_ACCEPTED,
@@ -2624,6 +2634,10 @@ fn block_proposal_api_endpoint() {
         .iter()
         .zip(proposal_responses.iter())
     {
+        info!(
+            "Received response {:?}, expecting {:?}",
+            &response, &expected_response
+        );
         match expected_response {
             Ok(_) => {
                 assert!(matches!(response, BlockValidateResponse::Ok(_)));

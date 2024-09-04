@@ -79,6 +79,7 @@ mod getstackerdbmetadata;
 mod getstxtransfercost;
 mod gettenure;
 mod gettenureinfo;
+mod gettenuretip;
 mod gettransaction_unconfirmed;
 mod liststackerdbreplicas;
 mod postblock;
