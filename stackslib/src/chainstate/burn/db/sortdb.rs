@@ -3456,6 +3456,14 @@ impl SortitionDB {
                         SortitionDB::apply_schema_9(&tx.deref(), epochs)?;
                         tx.commit()?;
                     } else if version == expected_version {
+                        // this transaction is almost never needed
+                        let validated_epochs = StacksEpoch::validate_epochs(epochs);
+                        let existing_epochs = Self::get_stacks_epochs(self.conn())?;
+                        if existing_epochs == validated_epochs {
+                            return Ok(());
+                        }
+
+                        // epochs are out of date
                         let tx = self.tx_begin()?;
                         SortitionDB::validate_and_replace_epochs(&tx, epochs)?;
                         tx.commit()?;
