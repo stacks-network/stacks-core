@@ -7764,3 +7764,147 @@ fn mock_mining() {
     run_loop_thread.join().unwrap();
     follower_thread.join().unwrap();
 }
+
+#[test]
+#[ignore]
+/// This test checks for the proper handling of the case where UTXOs are not
+/// available on startup. After 1 minute, the miner thread should panic.
+fn utxo_check_on_startup_panic() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
+    println!("Nakamoto node started with config: {:?}", naka_conf);
+    let prom_bind = format!("{}:{}", "127.0.0.1", 6000);
+    naka_conf.node.prometheus_bind = Some(prom_bind.clone());
+    naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1000);
+
+    test_observer::spawn();
+    let observer_port = test_observer::EVENT_OBSERVER_PORT;
+    naka_conf.events_observers.insert(EventObserverConfig {
+        endpoint: format!("localhost:{observer_port}"),
+        events_keys: vec![EventKeyType::AnyEvent],
+    });
+
+    let mut epochs = NAKAMOTO_INTEGRATION_EPOCHS.to_vec();
+    let (last, rest) = epochs.split_last_mut().unwrap();
+    for (index, epoch) in rest.iter_mut().enumerate() {
+        epoch.start_height = index as u64;
+        epoch.end_height = (index + 1) as u64;
+    }
+    last.start_height = 131;
+
+    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .expect("Failed starting bitcoind");
+    let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
+    // Do not fully bootstrap the chain, so that the UTXOs are not yet available
+    btc_regtest_controller.bootstrap_chain(99);
+
+    let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
+    let run_loop_stopper = run_loop.get_termination_switch();
+    let coord_channel = run_loop.coordinator_channels();
+
+    let run_loop_thread = thread::spawn(move || run_loop.start(None, 0));
+
+    let timeout = Duration::from_secs(70);
+    let start_time = Instant::now();
+
+    loop {
+        // Check if the thread has panicked
+        if run_loop_thread.is_finished() {
+            match run_loop_thread.join() {
+                Ok(_) => {
+                    // Thread completed without panicking
+                    panic!("Miner should have panicked but it exited cleanly.");
+                }
+                Err(_) => {
+                    // Thread panicked
+                    info!("Thread has panicked!");
+                    break;
+                }
+            }
+        }
+
+        // Check if 70 seconds have passed
+        assert!(
+            start_time.elapsed() < timeout,
+            "Miner should have panicked."
+        );
+
+        thread::sleep(Duration::from_millis(1000));
+    }
+
+    coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .stop_chains_coordinator();
+    run_loop_stopper.store(false, Ordering::SeqCst);
+}
+
+#[test]
+#[ignore]
+/// This test checks for the proper handling of the case where UTXOs are not
+/// available on startup, but become available later, before the 1 minute
+/// timeout. The miner thread should recover and continue mining.
+fn utxo_check_on_startup_recover() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
+    println!("Nakamoto node started with config: {:?}", naka_conf);
+    let prom_bind = format!("{}:{}", "127.0.0.1", 6000);
+    naka_conf.node.prometheus_bind = Some(prom_bind.clone());
+    naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1000);
+
+    test_observer::spawn();
+    let observer_port = test_observer::EVENT_OBSERVER_PORT;
+    naka_conf.events_observers.insert(EventObserverConfig {
+        endpoint: format!("localhost:{observer_port}"),
+        events_keys: vec![EventKeyType::AnyEvent],
+    });
+
+    let mut epochs = NAKAMOTO_INTEGRATION_EPOCHS.to_vec();
+    let (last, rest) = epochs.split_last_mut().unwrap();
+    for (index, epoch) in rest.iter_mut().enumerate() {
+        epoch.start_height = index as u64;
+        epoch.end_height = (index + 1) as u64;
+    }
+    last.start_height = 131;
+
+    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .expect("Failed starting bitcoind");
+    let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
+    // Do not fully bootstrap the chain, so that the UTXOs are not yet available
+    btc_regtest_controller.bootstrap_chain(99);
+    // btc_regtest_controller.bootstrap_chain(108);
+
+    let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
+    let run_loop_stopper = run_loop.get_termination_switch();
+    let Counters {
+        blocks_processed, ..
+    } = run_loop.counters();
+
+    let coord_channel = run_loop.coordinator_channels();
+
+    let run_loop_thread = thread::spawn(move || run_loop.start(None, 0));
+
+    // Sleep for 30s to allow the miner to start and reach the UTXO check loop
+    thread::sleep(Duration::from_secs(30));
+
+    btc_regtest_controller.bootstrap_chain(3);
+
+    wait_for_runloop(&blocks_processed);
+
+    coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .stop_chains_coordinator();
+    run_loop_stopper.store(false, Ordering::SeqCst);
+    run_loop_thread.join().unwrap();
+}

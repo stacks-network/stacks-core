@@ -903,7 +903,7 @@ impl BitcoinRegtestController {
             fee_rate,
             &mut utxos,
             signer,
-            false,
+            true, // key register op requires change output to exist
         )?;
 
         increment_btc_ops_sent_counter();
@@ -1480,7 +1480,7 @@ impl BitcoinRegtestController {
             fee_rate,
             &mut utxos,
             signer,
-            true, // only block commit op requires change output to exist
+            true, // block commit op requires change output to exist
         )?;
 
         let serialized_tx = SerializedTx::new(tx.clone());
