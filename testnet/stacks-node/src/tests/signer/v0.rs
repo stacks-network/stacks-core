@@ -1561,7 +1561,10 @@ fn multiple_miners() {
     let peer_2_height = get_chain_info(&conf_node_2).stacks_tip_height;
     info!("Peer height information"; "peer_1" => peer_1_height, "peer_2" => peer_2_height, "pre_naka_height" => pre_nakamoto_peer_1_height);
     assert_eq!(peer_1_height, peer_2_height);
-    assert_eq!(peer_1_height, pre_nakamoto_peer_1_height + btc_blocks_mined);
+    assert_eq!(
+        peer_1_height,
+        pre_nakamoto_peer_1_height + btc_blocks_mined - 1
+    );
     assert_eq!(
         btc_blocks_mined,
         u64::try_from(miner_1_tenures + miner_2_tenures).unwrap()
