@@ -446,7 +446,7 @@ fn block_proposal_rejection() {
 
     info!("------------------------- Test Setup -------------------------");
     let num_signers = 5;
-    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new(num_signers, vec![], None);
+    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new(num_signers, vec![]);
     signer_test.boot_to_epoch_3();
     let short_timeout = Duration::from_secs(30);
 
@@ -546,7 +546,7 @@ fn miner_gather_signatures() {
 
     info!("------------------------- Test Setup -------------------------");
     let num_signers = 5;
-    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new(num_signers, vec![], None);
+    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new(num_signers, vec![]);
     let timeout = Duration::from_secs(30);
     let mined_blocks = signer_test.running_nodes.nakamoto_blocks_mined.clone();
     let blocks_mined_before = mined_blocks.load(Ordering::SeqCst);
@@ -609,7 +609,7 @@ fn mine_2_nakamoto_reward_cycles() {
     info!("------------------------- Test Setup -------------------------");
     let nmb_reward_cycles = 2;
     let num_signers = 5;
-    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new(num_signers, vec![], None);
+    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new(num_signers, vec![]);
     let timeout = Duration::from_secs(200);
     signer_test.boot_to_epoch_3();
     let curr_reward_cycle = signer_test.get_current_reward_cycle();
@@ -793,7 +793,6 @@ fn reloads_signer_set_in() {
     let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
         vec![(sender_addr.clone(), send_amt + send_fee)],
-        Some(Duration::from_secs(15)),
         |_config| {},
         |_| {},
         None,
@@ -917,7 +916,6 @@ fn forked_tenure_testing(
     let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
         vec![(sender_addr.clone(), send_amt + send_fee)],
-        Some(Duration::from_secs(15)),
         |config| {
             // make the duration long enough that the reorg attempt will definitely be accepted
             config.first_proposal_burn_block_timing = proposal_limit;
@@ -1229,7 +1227,6 @@ fn bitcoind_forking_test() {
     let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new(
         num_signers,
         vec![(sender_addr.clone(), send_amt + send_fee)],
-        Some(Duration::from_secs(15)),
     );
     let conf = signer_test.running_nodes.conf.clone();
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
@@ -1395,7 +1392,6 @@ fn multiple_miners() {
     let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
         vec![(sender_addr.clone(), send_amt + send_fee)],
-        Some(Duration::from_secs(15)),
         |signer_config| {
             let node_host = if signer_config.endpoint.port() % 2 == 0 {
                 &node_1_rpc_bind
@@ -1657,7 +1653,6 @@ fn miner_forking() {
     let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
         vec![(sender_addr.clone(), send_amt + send_fee)],
-        Some(Duration::from_secs(15)),
         |signer_config| {
             let node_host = if signer_config.endpoint.port() % 2 == 0 {
                 &node_1_rpc_bind
@@ -1914,7 +1909,6 @@ fn end_of_tenure() {
     let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new(
         num_signers,
         vec![(sender_addr.clone(), send_amt + send_fee)],
-        Some(Duration::from_secs(500)),
     );
     let http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
     let long_timeout = Duration::from_secs(200);
@@ -2062,96 +2056,6 @@ fn end_of_tenure() {
 
 #[test]
 #[ignore]
-/// This test checks that the miner will retry when signature collection times out.
-fn retry_on_timeout() {
-    if env::var("BITCOIND_TEST") != Ok("1".into()) {
-        return;
-    }
-
-    tracing_subscriber::registry()
-        .with(fmt::layer())
-        .with(EnvFilter::from_default_env())
-        .init();
-
-    info!("------------------------- Test Setup -------------------------");
-    let num_signers = 5;
-    let sender_sk = Secp256k1PrivateKey::new();
-    let sender_addr = tests::to_addr(&sender_sk);
-    let send_amt = 100;
-    let send_fee = 180;
-    let recipient = PrincipalData::from(StacksAddress::burn_address(false));
-    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new(
-        num_signers,
-        vec![(sender_addr.clone(), send_amt + send_fee)],
-        Some(Duration::from_secs(5)),
-    );
-    let http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
-
-    signer_test.boot_to_epoch_3();
-
-    signer_test.mine_nakamoto_block(Duration::from_secs(30));
-
-    // Stall block validation so the signers will not be able to sign.
-    TEST_VALIDATE_STALL.lock().unwrap().replace(true);
-
-    let proposals_before = signer_test
-        .running_nodes
-        .nakamoto_blocks_proposed
-        .load(Ordering::SeqCst);
-    let blocks_before = signer_test
-        .running_nodes
-        .nakamoto_blocks_mined
-        .load(Ordering::SeqCst);
-
-    // submit a tx so that the miner will mine a block
-    let sender_nonce = 0;
-    let transfer_tx =
-        make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
-    submit_tx(&http_origin, &transfer_tx);
-
-    info!("Submitted transfer tx and waiting for block proposal");
-    loop {
-        let blocks_proposed = signer_test
-            .running_nodes
-            .nakamoto_blocks_proposed
-            .load(Ordering::SeqCst);
-        if blocks_proposed > proposals_before {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(100));
-    }
-
-    info!("Block proposed, verifying that it is not processed");
-
-    // Wait 10 seconds to be sure that the timeout has occurred
-    std::thread::sleep(Duration::from_secs(10));
-    assert_eq!(
-        signer_test
-            .running_nodes
-            .nakamoto_blocks_mined
-            .load(Ordering::SeqCst),
-        blocks_before
-    );
-
-    // Disable the stall and wait for the block to be processed on retry
-    info!("Disable the stall and wait for the block to be processed");
-    TEST_VALIDATE_STALL.lock().unwrap().replace(false);
-    loop {
-        let blocks_mined = signer_test
-            .running_nodes
-            .nakamoto_blocks_mined
-            .load(Ordering::SeqCst);
-        if blocks_mined > blocks_before {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(100));
-    }
-
-    signer_test.shutdown();
-}
-
-#[test]
-#[ignore]
 /// This test checks that the signers will broadcast a block once they receive enough signatures.
 fn signers_broadcast_signed_blocks() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
@@ -2173,7 +2077,6 @@ fn signers_broadcast_signed_blocks() {
     let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new(
         num_signers,
         vec![(sender_addr.clone(), send_amt + send_fee)],
-        Some(Duration::from_secs(5)),
     );
     let http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
 
@@ -2272,7 +2175,6 @@ fn empty_sortition() {
     let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
         vec![(sender_addr.clone(), send_amt + send_fee)],
-        Some(Duration::from_secs(5)),
         |config| {
             // make the duration long enough that the miner will be marked as malicious
             config.block_proposal_timeout = block_proposal_timeout;
@@ -2446,7 +2348,6 @@ fn mock_sign_epoch_25() {
     let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
         vec![(sender_addr.clone(), send_amt + send_fee)],
-        Some(Duration::from_secs(5)),
         |_| {},
         |node_config| {
             node_config.miner.pre_nakamoto_mock_signing = true;
@@ -2644,7 +2545,6 @@ fn signer_set_rollover() {
     let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
         initial_balances,
-        None,
         |_| {},
         |naka_conf| {
             for toml in new_signer_configs.clone() {
@@ -2875,7 +2775,6 @@ fn min_gap_between_blocks() {
     let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
         vec![(sender_addr.clone(), send_amt + send_fee)],
-        Some(Duration::from_secs(15)),
         |_config| {},
         |config| {
             config.miner.min_time_between_blocks_ms = time_between_blocks_ms;
@@ -2994,7 +2893,6 @@ fn duplicate_signers() {
     let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
         vec![],
-        None,
         |_| {},
         |_| {},
         None,
