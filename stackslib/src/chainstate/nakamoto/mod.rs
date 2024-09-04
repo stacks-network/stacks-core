@@ -2615,7 +2615,7 @@ impl NakamotoChainState {
         Self::get_block_header_nakamoto(chainstate_conn.sqlite(), &block_id)
     }
 
-    /// Get the highest block in the given tenure.
+    /// Get the highest block in the given tenure on a given fork.
     /// Only works on Nakamoto blocks.
     /// TODO: unit test
     pub fn get_highest_block_header_in_tenure<SDBI: StacksDBIndexed>(
@@ -2629,6 +2629,29 @@ impl NakamotoChainState {
             return Ok(None);
         };
         Self::get_block_header_nakamoto(chainstate_conn.sqlite(), &block_id)
+    }
+
+    /// Get the highest block in a given tenure (identified by its consensus hash).
+    /// Ties will be broken by timestamp.
+    ///
+    /// Used to verify that a signer-submitted block proposal builds atop the highest known block
+    /// in the given tenure, regardless of which fork it's on.
+    ///
+    /// DO NOT USE IN CONSENSUS CODE.  Different nodes can have different blocks for the same
+    /// tenure.
+    pub fn get_highest_known_block_header_in_tenure(
+        db: &Connection,
+        consensus_hash: &ConsensusHash,
+    ) -> Result<Option<StacksHeaderInfo>, ChainstateError> {
+        // see if we have a nakamoto block in this tenure
+        let qry = "SELECT * FROM nakamoto_block_headers WHERE consensus_hash = ?1 ORDER BY block_height DESC, timestamp DESC LIMIT 1";
+        let args = params![consensus_hash];
+        if let Some(header) = query_row(db, qry, args)? {
+            return Ok(Some(header));
+        }
+
+        // see if this is an epoch2 header. If it exists, then there will only be one.
+        Ok(StacksChainState::get_stacks_block_header_info_by_consensus_hash(db, consensus_hash)?)
     }
 
     /// Get the VRF proof for a Stacks block.
