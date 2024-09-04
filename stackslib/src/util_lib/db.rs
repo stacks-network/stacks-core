@@ -677,9 +677,9 @@ pub fn tx_busy_handler(run_count: i32) -> bool {
     sleep_time_ms = sleep_time_ms.saturating_add(thread_rng().gen_range(0..sleep_time_ms));
 
     if sleep_time_ms > AVG_SLEEP_TIME_MS {
-        let bound = 10;
-        let jitter = thread_rng().gen_range(0..bound * 2);
-        sleep_time_ms = (AVG_SLEEP_TIME_MS - bound) + jitter;
+        let jitter = 10;
+        sleep_time_ms =
+            thread_rng().gen_range((AVG_SLEEP_TIME_MS - jitter)..(AVG_SLEEP_TIME_MS + jitter));
     }
 
     let msg = format!("Database is locked; sleeping {sleep_time_ms}ms and trying again");
