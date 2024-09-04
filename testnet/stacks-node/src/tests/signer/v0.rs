@@ -1490,7 +1490,7 @@ fn multiple_miners() {
 
     let miner_1_pk = StacksPublicKey::from_private(conf.miner.mining_key.as_ref().unwrap());
     let miner_2_pk = StacksPublicKey::from_private(conf_node_2.miner.mining_key.as_ref().unwrap());
-    let mut btc_blocks_mined = 0;
+    let mut btc_blocks_mined = 1;
     let mut miner_1_tenures = 0;
     let mut miner_2_tenures = 0;
     while !(miner_1_tenures >= 3 && miner_2_tenures >= 3) {
@@ -1563,7 +1563,7 @@ fn multiple_miners() {
     assert_eq!(peer_1_height, peer_2_height);
     assert_eq!(peer_1_height, pre_nakamoto_peer_1_height + btc_blocks_mined);
     assert_eq!(
-        btc_blocks_mined + 1,
+        btc_blocks_mined,
         u64::try_from(miner_1_tenures + miner_2_tenures).unwrap()
     );
 
