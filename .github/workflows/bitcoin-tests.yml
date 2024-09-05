@@ -135,7 +135,7 @@ jobs:
       ## check bitcoind logs
       - name: Check bitcoind binary
         if: always()
-        id: check_logs
+        id: check_bitcoind
         shell: bash
         run: |
           ls -al /bin/bitcoind
