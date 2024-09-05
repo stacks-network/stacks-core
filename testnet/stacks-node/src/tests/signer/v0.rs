@@ -1641,6 +1641,7 @@ fn miner_forking() {
     let sender_addr = tests::to_addr(&sender_sk);
     let send_amt = 100;
     let send_fee = 180;
+    let first_proposal_burn_block_timing = 1;
 
     let btc_miner_1_seed = vec![1, 1, 1, 1];
     let btc_miner_2_seed = vec![2, 2, 2, 2];
@@ -1673,7 +1674,8 @@ fn miner_forking() {
             // we're deliberately stalling proposals: don't punish this in this test!
             signer_config.block_proposal_timeout = Duration::from_secs(240);
             // make sure that we don't allow forking due to burn block timing
-            signer_config.first_proposal_burn_block_timing = Duration::from_secs(1);
+            signer_config.first_proposal_burn_block_timing =
+                Duration::from_secs(first_proposal_burn_block_timing);
         },
         |config| {
             let localhost = "127.0.0.1";
@@ -1804,8 +1806,8 @@ fn miner_forking() {
         })
         .unwrap();
 
-        // sleep for 1 second to prevent the block timing from allowing a fork by the signer set
-        thread::sleep(Duration::from_secs(1));
+        // sleep for 2*first_proposal_burn_block_timing to prevent the block timing from allowing a fork by the signer set
+        thread::sleep(Duration::from_secs(first_proposal_burn_block_timing * 2));
         (sort_tip, true)
     };
 
@@ -1885,7 +1887,7 @@ fn miner_forking() {
 
     assert_eq!(
         peer_1_height - pre_nakamoto_peer_1_height,
-        u64::try_from(nakamoto_blocks_count).unwrap(),
+        u64::try_from(nakamoto_blocks_count).unwrap() - 1, // subtract 1 for the first Nakamoto block
         "There should be no forks in this test"
     );
 
