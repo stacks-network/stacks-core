@@ -3483,6 +3483,7 @@ fn follower_bootup_across_multiple_cycles() {
     follower_conf.node.working_dir = format!("{}-follower", &naka_conf.node.working_dir);
     follower_conf.node.seed = vec![0x01; 32];
     follower_conf.node.local_peer_seed = vec![0x02; 32];
+    follower_conf.node.miner = false;
 
     let mut rng = rand::thread_rng();
     let mut buf = [0u8; 8];
