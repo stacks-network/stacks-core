@@ -157,6 +157,21 @@ impl Display for BlockState {
     }
 }
 
+impl TryFrom<&str> for BlockState {
+    type Error = String;
+    fn try_from(value: &str) -> Result<BlockState, String> {
+        let state = match value {
+            "Unprocessed" => BlockState::Unprocessed,
+            "LocallyAccepted" => BlockState::LocallyAccepted,
+            "LocallyRejected" => BlockState::LocallyRejected,
+            "GloballyAccepted" => BlockState::GloballyAccepted,
+            "GloballyRejected" => BlockState::GloballyRejected,
+            _ => return Err("Unparsable block state".into()),
+        };
+        Ok(state)
+    }
+}
+
 /// Additional Info about a proposed block
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct BlockInfo {
@@ -812,8 +827,13 @@ impl SignerDb {
     ) -> Result<Option<BlockState>, DBError> {
         let qry = "SELECT json_extract(block_info, '$.state') FROM blocks WHERE reward_cycle = ?1 AND signer_signature_hash = ?2 LIMIT 1";
         let args = params![&u64_to_sql(reward_cycle)?, block_sighash];
-        let state: Option<String> = query_row(&self.db, qry, args)?;
-        try_deserialize(state)
+        let state_opt: Option<String> = query_row(&self.db, qry, args)?;
+        let Some(state) = state_opt else {
+            return Ok(None);
+        };
+        Ok(Some(
+            BlockState::try_from(state.as_str()).map_err(|_| DBError::Corruption)?,
+        ))
     }
 }
 
@@ -907,11 +927,23 @@ mod tests {
             )
             .unwrap();
         assert!(block_info.is_none());
+
+        // test getting the block state
+        let block_state = db
+            .get_block_state(
+                reward_cycle,
+                &block_proposal.block.header.signer_signature_hash(),
+            )
+            .unwrap()
+            .expect("Unable to get block state from db");
+
+        assert_eq!(block_state, BlockInfo::from(block_proposal.clone()).state);
     }
 
     #[test]
     fn test_basic_signer_db() {
         let db_path = tmp_db_path();
+        eprintln!("db path is {}", &db_path.display());
         test_basic_signer_db_with_path(db_path)
     }
 
