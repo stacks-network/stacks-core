@@ -526,7 +526,9 @@ RejectCodeTypePrefix {
     /// The block was rejected due to no sortition view
     NoSortitionView = 3,
     /// The block was rejected due to a mismatch with expected sortition view
-    SortitionViewMismatch = 4
+    SortitionViewMismatch = 4,
+    /// The block was rejected due to a testing directive
+    TestingDirective = 5
 });
 
 impl TryFrom<u8> for RejectCodeTypePrefix {
@@ -546,6 +548,7 @@ impl From<&RejectCode> for RejectCodeTypePrefix {
             RejectCode::RejectedInPriorRound => RejectCodeTypePrefix::RejectedInPriorRound,
             RejectCode::NoSortitionView => RejectCodeTypePrefix::NoSortitionView,
             RejectCode::SortitionViewMismatch => RejectCodeTypePrefix::SortitionViewMismatch,
+            RejectCode::TestingDirective => RejectCodeTypePrefix::TestingDirective,
         }
     }
 }
@@ -563,6 +566,8 @@ pub enum RejectCode {
     RejectedInPriorRound,
     /// The block was rejected due to a mismatch with expected sortition view
     SortitionViewMismatch,
+    /// The block was rejected due to a testing directive
+    TestingDirective,
 }
 
 define_u8_enum!(
@@ -812,7 +817,8 @@ impl StacksMessageCodec for RejectCode {
             RejectCode::ConnectivityIssues
             | RejectCode::RejectedInPriorRound
             | RejectCode::NoSortitionView
-            | RejectCode::SortitionViewMismatch => {
+            | RejectCode::SortitionViewMismatch
+            | RejectCode::TestingDirective => {
                 // No additional data to serialize / deserialize
             }
         };
@@ -835,6 +841,7 @@ impl StacksMessageCodec for RejectCode {
             RejectCodeTypePrefix::RejectedInPriorRound => RejectCode::RejectedInPriorRound,
             RejectCodeTypePrefix::NoSortitionView => RejectCode::NoSortitionView,
             RejectCodeTypePrefix::SortitionViewMismatch => RejectCode::SortitionViewMismatch,
+            RejectCodeTypePrefix::TestingDirective => RejectCode::TestingDirective,
         };
         Ok(code)
     }
@@ -861,6 +868,9 @@ impl std::fmt::Display for RejectCode {
                     f,
                     "The block was rejected due to a mismatch with expected sortition view."
                 )
+            }
+            RejectCode::TestingDirective => {
+                write!(f, "The block was rejected due to a testing directive.")
             }
         }
     }
