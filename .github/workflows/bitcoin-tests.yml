@@ -127,25 +127,18 @@ jobs:
       ## Setup test environment
       - name: Setup Test Environment
         id: setup_tests
-        uses: stacks-network/actions/stacks-core/testenv@main
+        # uses: stacks-network/actions/stacks-core/testenv@main
+        uses: stacks-network/actions/stacks-core/testenv@feat/buildjet
         with:
           btc-version: "25.0"
 
-      - name: Copy bitcoin
+      ## check bitcoind logs
+      - name: Check bitcoind binary
         if: always()
-        id: copy_bitcoin
+        id: check_logs
+        shell: bash
         run: |
-          if [ -f "/bin/bitcoind" ];then
-            rm -f /bin/bitcoind
-          fi
-          echo "check for extracted bitcoind"
-          ls -al ~/bitcoin/bin/bitcoind
-          echo
-          sudo cp -a ~/bitcoin/bin/bitcoind /bin/bitcoind
-          echo $?
-          echo 
-          echo "bitcoind: $(ls -al /bin/bitcoind)"
-          echo "PATH: ${PATH}"
+          ls -al /bin/bitcoind
 
       ## Run test matrix using restored cache of archive file
       ##   - Test will timeout after env.TEST_TIMEOUT minutes
