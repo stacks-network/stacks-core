@@ -2973,8 +2973,7 @@ fn duplicate_signers() {
 /// The miner then attempts to mine N+1', and all signers accept the block.
 ///
 /// Test Assertion:
-/// All signers sign all blocks successfully.
-/// The chain advances 2 full reward cycles.
+/// Stacks tip advances to N+1'
 fn allow_reorg_locally_accepted_block_if_globally_rejected_succeeds() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
