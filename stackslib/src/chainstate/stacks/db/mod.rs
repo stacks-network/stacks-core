@@ -1045,7 +1045,7 @@ impl StacksChainState {
     fn need_schema_migrations(
         conn: &Connection,
         mainnet: bool,
-        chain_id: u32
+        chain_id: u32,
     ) -> Result<bool, Error> {
         let db_config =
             StacksChainState::load_db_config(conn).expect("CORRUPTION: no db_config found");
@@ -1106,7 +1106,9 @@ impl StacksChainState {
                 }
                 "4" => {
                     // migrate to nakamoto 2
-                    info!("Migrating chainstate schema from version 4 to 5: fix nakamoto tenure typo");
+                    info!(
+                        "Migrating chainstate schema from version 4 to 5: fix nakamoto tenure typo"
+                    );
                     for cmd in NAKAMOTO_CHAINSTATE_SCHEMA_2.iter() {
                         tx.execute_batch(cmd)?;
                     }
