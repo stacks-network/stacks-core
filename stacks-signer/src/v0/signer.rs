@@ -43,6 +43,12 @@ use crate::runloop::{RunLoopCommand, SignerResult};
 use crate::signerdb::{BlockInfo, BlockState, SignerDb};
 use crate::Signer as SignerTrait;
 
+#[cfg(any(test, feature = "testing"))]
+/// A global variable that can be used to reject all block proposals if the signer's public key is in the provided list
+pub static TEST_REJECT_ALL_BLOCK_PROPOSAL: std::sync::Mutex<
+    Option<Vec<stacks_common::types::chainstate::StacksPublicKey>>,
+> = std::sync::Mutex::new(None);
+
 /// The stacks signer registered for the reward cycle
 #[derive(Debug)]
 pub struct Signer {
@@ -324,6 +330,7 @@ impl Signer {
             );
             return;
         }
+
         // TODO: should add a check to ignore an old burn block height if we know its outdated. Would require us to store the burn block height we last saw on the side.
         //  the signer needs to be able to determine whether or not the block they're about to sign would conflict with an already-signed Stacks block
         let signer_signature_hash = block_proposal.block.header.signer_signature_hash();
@@ -427,9 +434,38 @@ impl Signer {
             ))
         };
 
+        #[cfg(any(test, feature = "testing"))]
+        let block_response = match &*TEST_REJECT_ALL_BLOCK_PROPOSAL.lock().unwrap() {
+            Some(public_keys) => {
+                if public_keys.contains(
+                    &stacks_common::types::chainstate::StacksPublicKey::from_private(
+                        &self.private_key,
+                    ),
+                ) {
+                    // Do an extra check just so we don't log EVERY time.
+                    warn!("{self}: Rejecting block proposal automatically due to testing directive";
+                        "block_id" => %block_proposal.block.block_id(),
+                        "height" => block_proposal.block.header.chain_length,
+                        "consensus_hash" => %block_proposal.block.header.consensus_hash
+                    );
+                    Some(BlockResponse::rejected(
+                        block_proposal.block.header.signer_signature_hash(),
+                        RejectCode::TestingDirective,
+                        &self.private_key,
+                        self.mainnet,
+                    ))
+                } else {
+                    None
+                }
+            }
+            None => block_response,
+        };
+
         if let Some(block_response) = block_response {
             // We know proposal is invalid. Send rejection message, do not do further validation
-            block_info.valid = Some(false);
+            if let Err(e) = block_info.mark_locally_rejected() {
+                warn!("{self}: Failed to mark block as locally rejected: {e:?}",);
+            };
             debug!("{self}: Broadcasting a block response to stacks node: {block_response:?}");
             let res = self
                 .stackerdb
