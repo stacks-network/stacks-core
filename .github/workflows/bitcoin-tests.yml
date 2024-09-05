@@ -131,6 +131,22 @@ jobs:
         with:
           btc-version: "25.0"
 
+      - name: Copy bitcoin
+        if: always()
+        id: copy_bitcoin
+        run: |
+          if [ -f "/bin/bitcoind" ];then
+            rm -f /bin/bitcoind
+          fi
+          echo "check for extracted bitcoind"
+          ls -al ~/bitcoin/bin/bitcoind
+          echo
+          sudo cp -a ~/bitcoin/bin/bitcoind /bin/bitcoind
+          echo $?
+          echo 
+          echo "bitcoind: $(ls -al /bin/bitcoind)"
+          echo "PATH: ${PATH}"
+
       ## Run test matrix using restored cache of archive file
       ##   - Test will timeout after env.TEST_TIMEOUT minutes
       - name: Run Tests
