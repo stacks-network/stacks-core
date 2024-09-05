@@ -344,6 +344,10 @@ impl BlockMinerThread {
                     }
                     Err(e) => {
                         warn!("Failed to mine block: {e:?}");
+
+                        // try again, in case a new sortition is pending
+                        self.globals
+                            .raise_initiative(format!("MiningFailure: {:?}", &e));
                         return Err(NakamotoNodeError::MiningFailure(
                             ChainstateError::MinerAborted,
                         ));
