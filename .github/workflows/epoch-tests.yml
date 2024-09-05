@@ -21,7 +21,7 @@ jobs:
   # Epoch integration tests with code coverage
   epoch-tests:
     name: Epoch Tests
-    runs-on: ubuntu-latest
+    runs-on: buildjet-2vcpu-ubuntu-2204
     strategy:
       ## Continue with the test matrix even if we've had a failure
       fail-fast: false
@@ -81,7 +81,8 @@ jobs:
 
   check-tests:
     name: Check Tests
-    runs-on: ubuntu-latest
+    # runs-on: ubuntu-latest
+    runs-on: buildjet-2vcpu-ubuntu-2204
     if: always()
     needs:
       - epoch-tests

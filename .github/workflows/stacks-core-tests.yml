@@ -21,7 +21,8 @@ jobs:
   # Full genesis test with code coverage
   full-genesis:
     name: Full Genesis Test
-    runs-on: ubuntu-latest
+    # runs-on: ubuntu-latest
+    runs-on: buildjet-2vcpu-ubuntu-2204
     strategy:
       ## Continue with the test matrix even if we've had a failure
       fail-fast: false
@@ -70,7 +71,8 @@ jobs:
   # Unit tests with code coverage
   unit-tests:
     name: Unit Tests
-    runs-on: ubuntu-latest
+    # runs-on: ubuntu-latest
+    runs-on: buildjet-2vcpu-ubuntu-2204
     ## Continue the workflow in case a step fails (ex a single test fails)
     continue-on-error: true
     strategy:
@@ -141,7 +143,8 @@ jobs:
     defaults:
       run:
         working-directory: "./contrib/core-contract-tests/"
-    runs-on: ubuntu-latest
+    # runs-on: ubuntu-latest
+    runs-on: buildjet-2vcpu-ubuntu-2204
     steps:
       - name: Checkout the latest code
         id: git_checkout
@@ -170,7 +173,8 @@ jobs:
   # Check for false positives/negatives
   core-contracts-clarinet-test-clarinet-v1:
     name: Core Contracts Test Clarinet V1
-    runs-on: ubuntu-latest
+    # runs-on: ubuntu-latest
+    runs-on: buildjet-2vcpu-ubuntu-2204
     steps:
       - name: Checkout the latest code
         id: git_checkout

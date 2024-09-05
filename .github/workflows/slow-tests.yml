@@ -21,7 +21,8 @@ jobs:
   # Slow integration tests with code coverage
   slow-tests:
     name: Slow Tests
-    runs-on: ubuntu-latest
+    # runs-on: ubuntu-latest
+    runs-on: buildjet-2vcpu-ubuntu-2204
     strategy:
       ## Continue with the test matrix even if we've had a failure
       fail-fast: false

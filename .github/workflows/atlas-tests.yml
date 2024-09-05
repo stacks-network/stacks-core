@@ -21,7 +21,8 @@ jobs:
   # Atlas integration tests with code coverage
   atlas-tests:
     name: Atlas Test
-    runs-on: ubuntu-latest
+    # runs-on: ubuntu-latest
+    runs-on: buildjet-2vcpu-ubuntu-2204
     strategy:
       ## Continue with the test matrix even if we've had a failure
       fail-fast: false
@@ -38,7 +39,7 @@ jobs:
         uses: stacks-network/actions/stacks-core/testenv@main
         with:
           btc-version: "25.0"
-          
+
       ## Run test matrix using restored cache of archive file
       ##   - Test will timeout after env.TEST_TIMEOUT minutes
       - name: Run Tests

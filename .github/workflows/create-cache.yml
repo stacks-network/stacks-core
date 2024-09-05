@@ -25,7 +25,8 @@ jobs:
   ## Cache cargo data
   cargo:
     name: Cargo
-    runs-on: ubuntu-latest
+    # runs-on: ubuntu-latest
+    runs-on: buildjet-2vcpu-ubuntu-2204
     steps:
       ## Perform a lookup to check if the cache already exists
       - name: Cargo Cache
@@ -49,7 +50,8 @@ jobs:
   ## Cache nextest archives for tests
   nextest-archive:
     name: Test Archive
-    runs-on: ubuntu-latest
+    # runs-on: ubuntu-latest
+    runs-on: buildjet-4vcpu-ubuntu-2204
     needs:
       - cargo
     steps:
