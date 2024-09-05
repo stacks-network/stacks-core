@@ -481,7 +481,8 @@ impl SortitionsView {
             }
         };
         if let Some(nakamoto_tip) = tip.as_stacks_nakamoto() {
-            // If we have seen this block already, make sure its state is updated to globally accepted
+            // If we have seen this block already, make sure its state is updated to globally accepted.
+            // Otherwise, don't worry about it.
             if let Ok(Some(mut block_info)) =
                 signer_db.block_lookup(reward_cycle, &nakamoto_tip.signer_signature_hash())
             {
