@@ -171,7 +171,6 @@ fn reorg_timing_testing(
     test_name: &str,
     first_proposal_burn_block_timing_secs: u64,
     sortition_timing_secs: u64,
-    check_tip: bool,
 ) -> Result<bool, SignerChainstateError> {
     let (_stacks_client, mut signer_db, block_pk, mut view, mut block) =
         setup_test_environment(test_name);
@@ -261,19 +260,17 @@ fn reorg_timing_testing(
     let h = std::thread::spawn(move || {
         view.check_proposal(&client, &mut signer_db, &block, &block_pk, 1)
     });
+    header_clone.chain_length -= 1;
+    let response = crate::client::tests::build_get_tenure_tip_response(
+        &StacksBlockHeaderTypes::Nakamoto(header_clone),
+    );
+    crate::client::tests::write_response(server, response.as_bytes());
+    server = crate::client::tests::mock_server_from_config(&config);
 
     crate::client::tests::write_response(
         server,
         format!("HTTP/1.1 200 Ok\n\n{}", serde_json::json!(expected_result)).as_bytes(),
     );
-    if check_tip {
-        server = crate::client::tests::mock_server_from_config(&config);
-        header_clone.chain_length -= 1;
-        let response = crate::client::tests::build_get_tenure_tip_response(
-            &StacksBlockHeaderTypes::Nakamoto(header_clone),
-        );
-        crate::client::tests::write_response(server, response.as_bytes());
-    }
 
     let result = h.join().unwrap();
     info!("Result: {result:?}");
@@ -282,13 +279,13 @@ fn reorg_timing_testing(
 
 #[test]
 fn check_proposal_reorg_timing_bad() {
-    let result = reorg_timing_testing("reorg_timing_bad", 30, 31, false);
+    let result = reorg_timing_testing("reorg_timing_bad", 30, 31);
     assert!(!result.unwrap(), "Proposal should not validate, because the reorg occurred in a block whose proposed time was long enough before the sortition");
 }
 
 #[test]
 fn check_proposal_reorg_timing_ok() {
-    let result = reorg_timing_testing("reorg_timing_okay", 30, 30, true);
+    let result = reorg_timing_testing("reorg_timing_okay", 30, 30);
     assert!(result.unwrap(), "Proposal should validate okay, because the reorg occurred in a block whose proposed time was close to the sortition");
 }
 
