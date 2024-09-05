@@ -21,7 +21,7 @@ jobs:
   image:
     name: Build Image
     # runs-on: ubuntu-latest
-    runs-on: buildjet-4vcpu-ubuntu-2004
+    runs-on: buildjet-8vcpu-ubuntu-2204
     strategy:
       fail-fast: false
       ## Build a maximum of 2 images concurrently based on matrix.dist
@@ -74,3 +74,4 @@ jobs:
             GIT_COMMIT=${{ env.GITHUB_SHA_SHORT }}
             TARGET_CPU=x86-64-v3
           push: ${{ env.DOCKER_PUSH }}
+
