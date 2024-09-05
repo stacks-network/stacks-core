@@ -21,7 +21,7 @@ jobs:
   image:
     name: Build Image
     # runs-on: ubuntu-latest
-    runs-on: buildjet-4vcpu-ubuntu-2204
+    runs-on: buildjet-4vcpu-ubuntu-2004
     strategy:
       fail-fast: false
       ## Build a maximum of 2 images concurrently based on matrix.dist
