@@ -3111,6 +3111,7 @@ fn follower_bootup() {
     wait_for_first_naka_block_commit(60, &commits_submitted);
 
     let mut follower_conf = naka_conf.clone();
+    follower_conf.node.miner = false;
     follower_conf.events_observers.clear();
     follower_conf.node.working_dir = format!("{}-follower", &naka_conf.node.working_dir);
     follower_conf.node.seed = vec![0x01; 32];
