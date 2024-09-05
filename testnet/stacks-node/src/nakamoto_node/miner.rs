@@ -250,6 +250,10 @@ impl BlockMinerThread {
         globals: &Globals,
         prior_miner: JoinHandle<Result<(), NakamotoNodeError>>,
     ) -> Result<(), NakamotoNodeError> {
+        debug!(
+            "Stopping prior miner thread ID {:?}",
+            prior_miner.thread().id()
+        );
         globals.block_miner();
         let prior_miner_result = prior_miner
             .join()
