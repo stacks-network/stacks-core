@@ -45,7 +45,6 @@ use stacks::chainstate::stacks::{
 use stacks::net::p2p::NetworkHandle;
 use stacks::net::stackerdb::StackerDBs;
 use stacks::net::{NakamotoBlocksData, StacksMessageType};
-use stacks::util::get_epoch_time_secs;
 use stacks::util::secp256k1::MessageSignature;
 use stacks_common::codec::read_next;
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
@@ -1068,9 +1067,12 @@ impl BlockMinerThread {
                     );
                     NakamotoNodeError::ParentNotFound
                 })?;
-        let current_timestamp = get_epoch_time_secs();
-        let time_since_parent_ms =
-            current_timestamp.saturating_sub(stacks_parent_header.burn_header_timestamp) * 1000;
+        let current_timestamp = x.header.timestamp;
+        let parent_timestamp = match stacks_parent_header.anchored_header.as_stacks_nakamoto() {
+            Some(naka_header) => naka_header.timestamp,
+            None => stacks_parent_header.burn_header_timestamp,
+        };
+        let time_since_parent_ms = current_timestamp.saturating_sub(parent_timestamp) * 1000;
         if time_since_parent_ms < self.config.miner.min_time_between_blocks_ms {
             debug!("Parent block mined {time_since_parent_ms} ms ago. Required minimum gap between blocks is {} ms", self.config.miner.min_time_between_blocks_ms;
                 "current_timestamp" => current_timestamp,

@@ -2895,68 +2895,73 @@ fn min_gap_between_blocks() {
 
     signer_test.boot_to_epoch_3();
 
-    let proposals_before = signer_test
+    let blocks_before = signer_test
         .running_nodes
-        .nakamoto_blocks_proposed
+        .nakamoto_blocks_mined
         .load(Ordering::SeqCst);
 
-    let info_before = get_chain_info(&signer_test.running_nodes.conf);
+    info!("Ensure that the first Nakamoto block is mined after the gap is exceeded");
+    let blocks = get_nakamoto_headers(&signer_test.running_nodes.conf);
+    assert_eq!(blocks.len(), 1);
+    let first_block = blocks.last().unwrap();
+    let blocks = test_observer::get_blocks();
+    let parent = blocks
+        .iter()
+        .find(|b| b.get("block_height").unwrap() == first_block.stacks_block_height - 1)
+        .unwrap();
+    let first_block_time = first_block
+        .anchored_header
+        .as_stacks_nakamoto()
+        .unwrap()
+        .timestamp;
+    let parent_block_time = parent.get("burn_block_time").unwrap().as_u64().unwrap();
+    assert!(
+        Duration::from_secs(first_block_time - parent_block_time)
+            >= Duration::from_millis(time_between_blocks_ms),
+        "First block proposed before gap was exceeded: {}s - {}s > {}ms",
+        first_block_time,
+        parent_block_time,
+        time_between_blocks_ms
+    );
 
-    // submit a tx so that the miner will mine a block
+    // Submit a tx so that the miner will mine a block
     let sender_nonce = 0;
     let transfer_tx =
         make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
     submit_tx(&http_origin, &transfer_tx);
 
-    info!("Submitted transfer tx and waiting for block proposal. Ensure it does not arrive before the gap is exceeded");
-    let start_time = Instant::now();
-    loop {
-        let blocks_proposed = signer_test
-            .running_nodes
-            .nakamoto_blocks_proposed
-            .load(Ordering::SeqCst);
-        if blocks_proposed > proposals_before {
-            assert!(
-                start_time.elapsed().as_millis() >= time_between_blocks_ms.into(),
-                "Block proposed before gap was exceeded"
-            );
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(100));
-    }
-
-    debug!("Ensure that the block is mined after the gap is exceeded");
-
-    let start = Instant::now();
-    let duration = 30;
-    let blocks_before = signer_test
-        .running_nodes
-        .nakamoto_blocks_mined
-        .load(Ordering::SeqCst);
-    loop {
-        let blocks_mined = signer_test
+    info!("Submitted transfer tx and waiting for block to be processed. Ensure it does not arrive before the gap is exceeded");
+    wait_for(60, || {
+        let blocks_processed = signer_test
             .running_nodes
             .nakamoto_blocks_mined
             .load(Ordering::SeqCst);
+        Ok(blocks_processed > blocks_before)
+    })
+    .unwrap();
 
-        let info = get_chain_info(&signer_test.running_nodes.conf);
-        if blocks_mined > blocks_before
-            && info.stacks_tip_height == info_before.stacks_tip_height + 1
-        {
-            break;
-        }
-
-        debug!(
-            "blocks_mined: {},{}, stacks_tip_height: {},{}",
-            blocks_mined, blocks_before, info_before.stacks_tip_height, info.stacks_tip_height
-        );
-
-        std::thread::sleep(Duration::from_millis(100));
-        assert!(
-            start.elapsed() < Duration::from_secs(duration),
-            "Block not mined within timeout"
-        );
-    }
+    // Verify that the second Nakamoto block is mined after the gap is exceeded
+    let blocks = get_nakamoto_headers(&signer_test.running_nodes.conf);
+    let last_block = blocks.last().unwrap();
+    let last_block_time = last_block
+        .anchored_header
+        .as_stacks_nakamoto()
+        .unwrap()
+        .timestamp;
+    let penultimate_block = blocks.get(blocks.len() - 2).unwrap();
+    let penultimate_block_time = penultimate_block
+        .anchored_header
+        .as_stacks_nakamoto()
+        .unwrap()
+        .timestamp;
+    assert!(
+        Duration::from_secs(last_block_time - penultimate_block_time)
+            >= Duration::from_millis(time_between_blocks_ms),
+        "Block proposed before gap was exceeded: {}s - {}s > {}ms",
+        last_block_time,
+        penultimate_block_time,
+        time_between_blocks_ms
+    );
 
     signer_test.shutdown();
 }
