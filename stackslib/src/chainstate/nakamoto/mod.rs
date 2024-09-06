@@ -268,6 +268,26 @@ lazy_static! {
     ADD COLUMN height_in_tenure;
     "#.into(),
     ];
+
+    pub static ref NAKAMOTO_CHAINSTATE_SCHEMA_4: [&'static str; 2] = [
+    r#"
+        UPDATE db_config SET version = "7";
+    "#,
+    // Add a `signer_stats` table to keep track of how many blocks have been signed by each signer
+    r#"
+        -- Table for signer stats
+        CREATE TABLE signer_stats (
+            -- Signers public key
+            public_key TEXT NOT NULL,
+            -- Stacking rewards cycle ID
+            reward_cycle INTEGER NOT NULL,
+            -- Number of blocks signed during reward cycle
+            blocks_signed INTEGER DEFAULT 0 NOT NULL,
+
+            PRIMARY KEY(public_key,reward_cycle)
+        );
+    "#,
+    ];
 }
 
 #[cfg(test)]
