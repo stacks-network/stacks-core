@@ -14,13 +14,12 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::HashMap;
 use std::fs;
 use std::ops::{Deref, DerefMut, Range};
 use std::path::PathBuf;
 
-use clarity::types::PublicKey;
-use clarity::util::secp256k1::{secp256k1_recover, Secp256k1PublicKey};
+use clarity::util::secp256k1::Secp256k1PublicKey;
 use clarity::vm::ast::ASTRules;
 use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::database::{BurnStateDB, ClarityDatabase};
@@ -282,7 +281,7 @@ lazy_static! {
             -- Stacking rewards cycle ID
             reward_cycle INTEGER NOT NULL,
             -- Number of blocks signed during reward cycle
-            blocks_signed INTEGER DEFAULT 0 NOT NULL,
+            blocks_signed INTEGER DEFAULT 1 NOT NULL,
 
             PRIMARY KEY(public_key,reward_cycle)
         );
@@ -3276,6 +3275,24 @@ impl NakamotoChainState {
             .map_err(ChainstateError::from)
     }
 
+    /// Keep track of how many blocks each signer is signing
+    fn record_block_signers(
+        tx: &mut ChainstateTx,
+        block: &NakamotoBlock,
+        reward_cycle: u64,
+    ) -> Result<(), ChainstateError> {
+        let signer_sighash = block.header.signer_signature_hash();
+        for signer_signature in &block.header.signer_signature {
+            let signer_pubkey =
+                StacksPublicKey::recover_to_pubkey(signer_sighash.bits(), &signer_signature)
+                    .map_err(|e| ChainstateError::InvalidStacksBlock(e.to_string()))?;
+            let sql = "INSERT INTO signer_stats(public_key,reward_cycle) VALUES(?1,?2) ON CONFLICT(public_key,reward_cycle) DO UPDATE SET blocks_signed=blocks_signed+1";
+            let args = params![serde_json::to_string(&signer_pubkey).unwrap(), reward_cycle];
+            tx.execute(sql, args)?;
+        }
+        Ok(())
+    }
+
     /// Begin block-processing and return all of the pre-processed state within a
     /// `SetupBlockResult`.
     ///
@@ -4059,6 +4076,11 @@ impl NakamotoChainState {
         let new_block_id = new_tip.index_block_hash();
         chainstate_tx.log_transactions_processed(&new_block_id, &tx_receipts);
 
+        let reward_cycle = pox_constants.block_height_to_reward_cycle(
+            first_block_height.into(),
+            chain_tip_burn_header_height.into(),
+        );
+
         // store the reward set calculated during this block if it happened
         // NOTE: miner and proposal evaluation should not invoke this because
         //  it depends on knowing the StacksBlockId.
@@ -4067,19 +4089,12 @@ impl NakamotoChainState {
         if let Some(signer_calculation) = signer_set_calc {
             Self::write_reward_set(chainstate_tx, &new_block_id, &signer_calculation.reward_set)?;
 
-            let cycle_number = if let Some(cycle) = pox_constants.reward_cycle_of_prepare_phase(
-                first_block_height.into(),
-                chain_tip_burn_header_height.into(),
-            ) {
-                Some(cycle)
-            } else {
-                pox_constants
-                    .block_height_to_reward_cycle(
-                        first_block_height.into(),
-                        chain_tip_burn_header_height.into(),
-                    )
-                    .map(|cycle| cycle + 1)
-            };
+            let cycle_number = pox_constants
+                .reward_cycle_of_prepare_phase(
+                    first_block_height.into(),
+                    chain_tip_burn_header_height.into(),
+                )
+                .or_else(|| reward_cycle.map(|cycle| cycle + 1));
 
             if let Some(cycle) = cycle_number {
                 reward_set_data = Some(RewardSetData::new(
@@ -4087,6 +4102,12 @@ impl NakamotoChainState {
                     cycle,
                 ));
             }
+        }
+
+        if let Some(reward_cycle) = reward_cycle {
+            Self::record_block_signers(chainstate_tx, block, reward_cycle)?;
+        } else {
+            warn!("No reward cycle found, skipping record_block_signers()");
         }
 
         monitoring::set_last_block_transaction_count(u64::try_from(block.txs.len()).unwrap());
