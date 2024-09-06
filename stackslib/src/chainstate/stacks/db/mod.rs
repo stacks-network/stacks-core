@@ -1181,8 +1181,8 @@ impl StacksChainState {
             let mut marf = StacksChainState::open_index(index_path)?;
 
             // do we need to apply a schema change?
-            let db_config =
-                StacksChainState::load_db_config(tx).expect("CORRUPTION: no db_config found");
+            let db_config = StacksChainState::load_db_config(marf.sqlite_conn())
+                .expect("CORRUPTION: no db_config found");
 
             let tx = marf.storage_tx()?;
             StacksChainState::add_indexes(&tx)?;

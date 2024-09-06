@@ -480,17 +480,18 @@ impl Signer {
                 Ok(_) => debug!("{self}: Block rejection accepted by stacker-db"),
             }
         } else {
-            // We don't know if proposal is valid, submit to stacks-node for further checks
+            // We don't know if proposal is valid, submit to stacks-node for further checks and store it locally.
+            // Do not store invalid blocks as this could DOS the signer. We only store blocks that are valid or unknown.
             stacks_client
                 .submit_block_for_validation(block_info.block.clone())
                 .unwrap_or_else(|e| {
                     warn!("{self}: Failed to submit block for validation: {e:?}");
                 });
-        }
 
-        self.signer_db
-            .insert_block(&block_info)
-            .unwrap_or_else(|_| panic!("{self}: Failed to insert block in DB"));
+            self.signer_db
+                .insert_block(&block_info)
+                .unwrap_or_else(|_| panic!("{self}: Failed to insert block in DB"));
+        }
     }
 
     /// Handle block response messages from a signer
