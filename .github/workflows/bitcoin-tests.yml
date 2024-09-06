@@ -138,6 +138,9 @@ jobs:
         id: check_bitcoind
         shell: bash
         run: |
+          echo "ls home"
+          ls ~/
+          echo "ls /bin/bitcoind"
           ls -al /bin/bitcoind
 
       ## Run test matrix using restored cache of archive file
