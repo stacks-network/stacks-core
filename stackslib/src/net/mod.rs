@@ -36,8 +36,7 @@ use libstackerdb::{
 };
 use rand::{thread_rng, RngCore};
 use regex::Regex;
-use rusqlite::types::ToSqlOutput;
-use rusqlite::ToSql;
+use rusqlite::types::{ToSql, ToSqlOutput};
 use serde::de::Error as de_Error;
 use serde::ser::Error as ser_Error;
 use serde::{Deserialize, Serialize};
@@ -126,6 +125,7 @@ pub mod http;
 /// Links http crate to Stacks
 pub mod httpcore;
 pub mod inv;
+pub mod mempool;
 pub mod neighbors;
 pub mod p2p;
 /// Implements wrapper around `mio` crate, which itself is a wrapper around Linux's `epoll(2)` syscall.
@@ -138,6 +138,7 @@ pub mod relay;
 pub mod rpc;
 pub mod server;
 pub mod stackerdb;
+pub mod unsolicited;
 
 pub use crate::net::neighbors::{NeighborComms, PeerNetworkComms};
 use crate::net::stackerdb::{StackerDBConfig, StackerDBSync, StackerDBSyncResult, StackerDBs};
@@ -285,6 +286,8 @@ pub enum Error {
     InvalidState,
     /// Waiting for DNS resolution
     WaitingForDNS,
+    /// No reward set for given reward cycle
+    NoPoXRewardSet(u64),
 }
 
 impl From<libstackerdb_error> for Error {
@@ -433,6 +436,7 @@ impl fmt::Display for Error {
             Error::Http(e) => fmt::Display::fmt(&e, f),
             Error::InvalidState => write!(f, "Invalid state-machine state reached"),
             Error::WaitingForDNS => write!(f, "Waiting for DNS resolution"),
+            Error::NoPoXRewardSet(rc) => write!(f, "No PoX reward set for cycle {}", rc),
         }
     }
 }
@@ -506,6 +510,7 @@ impl error::Error for Error {
             Error::Http(ref e) => Some(e),
             Error::InvalidState => None,
             Error::WaitingForDNS => None,
+            Error::NoPoXRewardSet(..) => None,
         }
     }
 }
@@ -650,6 +655,8 @@ pub struct StacksNodeState<'a> {
     inner_mempool: Option<&'a mut MemPoolDB>,
     inner_rpc_args: Option<&'a RPCHandlerArgs<'a>>,
     relay_message: Option<StacksMessageType>,
+    /// Are we in Initial Block Download (IBD) phase?
+    ibd: bool,
 }
 
 impl<'a> StacksNodeState<'a> {
@@ -659,6 +666,7 @@ impl<'a> StacksNodeState<'a> {
         inner_chainstate: &'a mut StacksChainState,
         inner_mempool: &'a mut MemPoolDB,
         inner_rpc_args: &'a RPCHandlerArgs<'a>,
+        ibd: bool,
     ) -> StacksNodeState<'a> {
         StacksNodeState {
             inner_network: Some(inner_network),
@@ -667,6 +675,7 @@ impl<'a> StacksNodeState<'a> {
             inner_mempool: Some(inner_mempool),
             inner_rpc_args: Some(inner_rpc_args),
             relay_message: None,
+            ibd,
         }
     }
 
@@ -909,13 +918,22 @@ pub struct PoxInvData {
     pub pox_bitvec: Vec<u8>, // a bit will be '1' if the node knows for sure the status of its reward cycle's anchor block; 0 if not.
 }
 
+/// Stacks epoch 2.x pushed block
 #[derive(Debug, Clone, PartialEq)]
 pub struct BlocksDatum(pub ConsensusHash, pub StacksBlock);
 
-/// Blocks pushed
+/// Stacks epoch 2.x blocks pushed
 #[derive(Debug, Clone, PartialEq)]
 pub struct BlocksData {
     pub blocks: Vec<BlocksDatum>,
+}
+
+/// Nakamoto epoch 3.x blocks pushed.
+/// No need for a separate NakamotoBlocksDatum struct, because the consensus hashes that place this
+/// block into the block stream are already embedded within the header
+#[derive(Debug, Clone, PartialEq)]
+pub struct NakamotoBlocksData {
+    pub blocks: Vec<NakamotoBlock>,
 }
 
 /// Microblocks pushed
@@ -1151,6 +1169,7 @@ pub enum StacksMessageType {
     // Nakamoto-specific
     GetNakamotoInv(GetNakamotoInvData),
     NakamotoInv(NakamotoInvData),
+    NakamotoBlocks(NakamotoBlocksData),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -1185,6 +1204,7 @@ pub enum StacksMessageID {
     // nakamoto
     GetNakamotoInv = 26,
     NakamotoInv = 27,
+    NakamotoBlocks = 28,
     // reserved
     Reserved = 255,
 }
@@ -1276,10 +1296,15 @@ pub const GETPOXINV_MAX_BITLEN: u64 = 4096;
 #[cfg(test)]
 pub const GETPOXINV_MAX_BITLEN: u64 = 8;
 
-// maximum number of blocks that can be pushed at once (even if the entire message is undersized).
+// maximum number of Stacks epoch2.x blocks that can be pushed at once (even if the entire message is undersized).
 // This bound is needed since it bounds the amount of I/O a peer can be asked to do to validate the
 // message.
 pub const BLOCKS_PUSHED_MAX: u32 = 32;
+
+// maximum number of Nakamoto blocks that can be pushed at once (even if the entire message is undersized).
+// This bound is needed since it bounds the amount of I/O a peer can be asked to do to validate the
+// message.
+pub const NAKAMOTO_BLOCKS_PUSHED_MAX: u32 = 32;
 
 /// neighbor identifier
 #[derive(Clone, Eq, PartialOrd, Ord)]
@@ -1436,7 +1461,10 @@ pub const DENY_BAN_DURATION: u64 = 86400; // seconds (1 day)
 pub const DENY_MIN_BAN_DURATION: u64 = 2;
 
 /// Result of doing network work
+#[derive(Clone)]
 pub struct NetworkResult {
+    /// Stacks chain tip when we began this pass
+    pub stacks_tip: StacksBlockId,
     /// PoX ID as it was when we begin downloading blocks (set if we have downloaded new blocks)
     pub download_pox_id: Option<PoxId>,
     /// Network messages we received but did not handle
@@ -1453,10 +1481,14 @@ pub struct NetworkResult {
     pub pushed_blocks: HashMap<NeighborKey, Vec<BlocksData>>,
     /// all Stacks 2.x microblocks pushed to us, and the relay hints from the message
     pub pushed_microblocks: HashMap<NeighborKey, Vec<(Vec<RelayData>, MicroblocksData)>>,
+    /// all Stacks 3.x blocks pushed to us
+    pub pushed_nakamoto_blocks: HashMap<NeighborKey, Vec<(Vec<RelayData>, NakamotoBlocksData)>>,
     /// transactions sent to us by the http server
     pub uploaded_transactions: Vec<StacksTransaction>,
     /// blocks sent to us via the http server
     pub uploaded_blocks: Vec<BlocksData>,
+    /// blocks sent to us via the http server
+    pub uploaded_nakamoto_blocks: Vec<NakamotoBlock>,
     /// microblocks sent to us by the http server
     pub uploaded_microblocks: Vec<MicroblocksData>,
     /// chunks we received from the HTTP server
@@ -1473,9 +1505,11 @@ pub struct NetworkResult {
     pub num_inv_sync_passes: u64,
     /// Number of times the Stacks 2.x block downloader has completed one pass
     pub num_download_passes: u64,
+    /// Number of connected peers
+    pub num_connected_peers: usize,
     /// The observed burnchain height
     pub burn_height: u64,
-    /// The consensus hash of the start of this reward cycle
+    /// The consensus hash of the burnchain tip (prefixed `rc_` for historical reasons)
     pub rc_consensus_hash: ConsensusHash,
     /// The current StackerDB configs
     pub stacker_db_configs: HashMap<QualifiedContractIdentifier, StackerDBConfig>,
@@ -1483,14 +1517,17 @@ pub struct NetworkResult {
 
 impl NetworkResult {
     pub fn new(
+        stacks_tip: StacksBlockId,
         num_state_machine_passes: u64,
         num_inv_sync_passes: u64,
         num_download_passes: u64,
+        num_connected_peers: usize,
         burn_height: u64,
         rc_consensus_hash: ConsensusHash,
         stacker_db_configs: HashMap<QualifiedContractIdentifier, StackerDBConfig>,
     ) -> NetworkResult {
         NetworkResult {
+            stacks_tip,
             unhandled_messages: HashMap::new(),
             download_pox_id: None,
             blocks: vec![],
@@ -1499,7 +1536,9 @@ impl NetworkResult {
             pushed_transactions: HashMap::new(),
             pushed_blocks: HashMap::new(),
             pushed_microblocks: HashMap::new(),
+            pushed_nakamoto_blocks: HashMap::new(),
             uploaded_transactions: vec![],
+            uploaded_nakamoto_blocks: vec![],
             uploaded_blocks: vec![],
             uploaded_microblocks: vec![],
             uploaded_stackerdb_chunks: vec![],
@@ -1509,6 +1548,7 @@ impl NetworkResult {
             num_state_machine_passes: num_state_machine_passes,
             num_inv_sync_passes: num_inv_sync_passes,
             num_download_passes: num_download_passes,
+            num_connected_peers,
             burn_height,
             rc_consensus_hash,
             stacker_db_configs,
@@ -1526,7 +1566,7 @@ impl NetworkResult {
     }
 
     pub fn has_nakamoto_blocks(&self) -> bool {
-        self.nakamoto_blocks.len() > 0
+        self.nakamoto_blocks.len() > 0 || self.pushed_nakamoto_blocks.len() > 0
     }
 
     pub fn has_transactions(&self) -> bool {
@@ -1568,7 +1608,7 @@ impl NetworkResult {
     pub fn consume_unsolicited(
         &mut self,
         unhandled_messages: HashMap<NeighborKey, Vec<StacksMessage>>,
-    ) -> () {
+    ) {
         for (neighbor_key, messages) in unhandled_messages.into_iter() {
             for message in messages.into_iter() {
                 match message.payload {
@@ -1598,6 +1638,16 @@ impl NetworkResult {
                                 .insert(neighbor_key.clone(), vec![(message.relayers, tx_data)]);
                         }
                     }
+                    StacksMessageType::NakamotoBlocks(block_data) => {
+                        if let Some(nakamoto_blocks_msgs) =
+                            self.pushed_nakamoto_blocks.get_mut(&neighbor_key)
+                        {
+                            nakamoto_blocks_msgs.push((message.relayers, block_data));
+                        } else {
+                            self.pushed_nakamoto_blocks
+                                .insert(neighbor_key.clone(), vec![(message.relayers, block_data)]);
+                        }
+                    }
                     _ => {
                         // forward along
                         if let Some(messages) = self.unhandled_messages.get_mut(&neighbor_key) {
@@ -1612,8 +1662,8 @@ impl NetworkResult {
         }
     }
 
-    pub fn consume_http_uploads(&mut self, mut msgs: Vec<StacksMessageType>) -> () {
-        for msg in msgs.drain(..) {
+    pub fn consume_http_uploads(&mut self, msgs: Vec<StacksMessageType>) -> () {
+        for msg in msgs.into_iter() {
             match msg {
                 StacksMessageType::Transaction(tx_data) => {
                     self.uploaded_transactions.push(tx_data);
@@ -1626,6 +1676,9 @@ impl NetworkResult {
                 }
                 StacksMessageType::StackerDBPushChunk(chunk_data) => {
                     self.uploaded_stackerdb_chunks.push(chunk_data);
+                }
+                StacksMessageType::NakamotoBlocks(data) => {
+                    self.uploaded_nakamoto_blocks.extend(data.blocks);
                 }
                 _ => {
                     // drop
@@ -1669,13 +1722,13 @@ pub mod test {
     use std::{fs, io, thread};
 
     use clarity::boot_util::boot_code_id;
+    use clarity::types::sqlite::NO_PARAMS;
     use clarity::vm::ast::ASTRules;
     use clarity::vm::costs::ExecutionCost;
     use clarity::vm::database::STXBalance;
     use clarity::vm::types::*;
     use clarity::vm::ClarityVersion;
     use rand::{Rng, RngCore};
-    use rusqlite::NO_PARAMS;
     use stacks_common::address::*;
     use stacks_common::codec::StacksMessageCodec;
     use stacks_common::deps_common::bitcoin::network::serialize::BitcoinHash;
@@ -2034,6 +2087,7 @@ pub mod test {
         /// What services should this peer support?
         pub services: u16,
         /// aggregate public key to use
+        /// (NOTE: will be used post-Nakamoto)
         pub aggregate_public_key: Option<Point>,
         pub test_stackers: Option<Vec<TestStacker>>,
         pub test_signers: Option<TestSigners>,
@@ -2210,6 +2264,8 @@ pub mod test {
             (),
             BitcoinIndexer,
         >,
+        /// list of malleablized blocks produced when mining.
+        pub malleablized_blocks: Vec<NakamotoBlock>,
     }
 
     impl<'a> TestPeer<'a> {
@@ -2553,6 +2609,7 @@ pub mod test {
                     &mut stacks_node.chainstate,
                     &sortdb,
                     old_stackerdb_configs,
+                    config.connection_opts.num_neighbors,
                 )
                 .expect("Failed to refresh stackerdb configs");
 
@@ -2622,6 +2679,7 @@ pub mod test {
                 chainstate_path: chainstate_path,
                 coord: coord,
                 indexer: Some(indexer),
+                malleablized_blocks: vec![],
             }
         }
 
@@ -2734,6 +2792,8 @@ pub mod test {
             let mut mempool = self.mempool.take().unwrap();
             let indexer = self.indexer.take().unwrap();
 
+            let old_tip = self.network.stacks_tip.clone();
+
             let ret = self.network.run(
                 &indexer,
                 &mut sortdb,
@@ -2758,8 +2818,8 @@ pub mod test {
             &mut self,
             ibd: bool,
             dns_client: Option<&mut DNSClient>,
-        ) -> Result<ProcessedNetReceipts, net_error> {
-            let mut net_result = self.step_with_ibd_and_dns(ibd, dns_client)?;
+        ) -> Result<(NetworkResult, ProcessedNetReceipts), net_error> {
+            let net_result = self.step_with_ibd_and_dns(ibd, dns_client)?;
             let mut sortdb = self.sortdb.take().unwrap();
             let mut stacks_node = self.stacks_node.take().unwrap();
             let mut mempool = self.mempool.take().unwrap();
@@ -2767,7 +2827,8 @@ pub mod test {
 
             let receipts_res = self.relayer.process_network_result(
                 self.network.get_local_peer(),
-                &mut net_result,
+                &mut net_result.clone(),
+                &self.network.burnchain,
                 &mut sortdb,
                 &mut stacks_node.chainstate,
                 &mut mempool,
@@ -2785,7 +2846,7 @@ pub mod test {
             self.coord.handle_new_stacks_block().unwrap();
             self.coord.handle_new_nakamoto_stacks_block().unwrap();
 
-            receipts_res
+            receipts_res.and_then(|receipts| Ok((net_result, receipts)))
         }
 
         pub fn step_dns(&mut self, dns_client: &mut DNSClient) -> Result<NetworkResult, net_error> {
@@ -2811,6 +2872,8 @@ pub mod test {
             );
             let indexer = BitcoinIndexer::new_unit_test(&self.config.burnchain.working_dir);
 
+            let old_tip = self.network.stacks_tip.clone();
+
             let ret = self.network.run(
                 &indexer,
                 &mut sortdb,
@@ -2834,6 +2897,9 @@ pub mod test {
             let sortdb = self.sortdb.take().unwrap();
             let mut stacks_node = self.stacks_node.take().unwrap();
             let indexer = BitcoinIndexer::new_unit_test(&self.config.burnchain.working_dir);
+
+            let old_tip = self.network.stacks_tip.clone();
+
             self.network
                 .refresh_burnchain_view(&indexer, &sortdb, &mut stacks_node.chainstate, false)
                 .unwrap();
@@ -3396,12 +3462,24 @@ pub mod test {
             self.next_burnchain_block(vec![])
         }
 
+        pub fn mine_empty_tenure(&mut self) -> (u64, BurnchainHeaderHash, ConsensusHash) {
+            let (burn_ops, ..) = self.begin_nakamoto_tenure(TenureChangeCause::BlockFound);
+            let result = self.next_burnchain_block(burn_ops);
+            // remove the last block commit so that the testpeer doesn't try to build off of this tenure
+            self.miner.block_commits.pop();
+            result
+        }
+
         pub fn mempool(&mut self) -> &mut MemPoolDB {
             self.mempool.as_mut().unwrap()
         }
 
         pub fn chainstate(&mut self) -> &mut StacksChainState {
             &mut self.stacks_node.as_mut().unwrap().chainstate
+        }
+
+        pub fn chainstate_ref(&self) -> &StacksChainState {
+            &self.stacks_node.as_ref().unwrap().chainstate
         }
 
         pub fn sortdb(&mut self) -> &mut SortitionDB {
@@ -3519,6 +3597,7 @@ pub mod test {
                 SortitionDB::get_canonical_burn_chain_tip(&self.sortdb.as_ref().unwrap().conn())
                     .unwrap();
             let burnchain = self.config.burnchain.clone();
+
             let (burn_ops, stacks_block, microblocks) = self.make_tenure(
                 |ref mut miner,
                  ref mut sortdb,
@@ -3544,7 +3623,7 @@ pub mod test {
                         StacksBlockBuilder::make_anchored_block_from_txs(
                             block_builder,
                             chainstate,
-                            &sortdb.index_conn(),
+                            &sortdb.index_handle(&tip.sortition_id),
                             block_txs,
                         )
                         .unwrap();
@@ -3569,6 +3648,14 @@ pub mod test {
             }
 
             self.refresh_burnchain_view();
+
+            let (stacks_tip_ch, stacks_tip_bh) =
+                SortitionDB::get_canonical_stacks_chain_tip_hash(self.sortdb().conn()).unwrap();
+            assert_eq!(
+                self.network.stacks_tip.block_id(),
+                StacksBlockId::new(&stacks_tip_ch, &stacks_tip_bh)
+            );
+
             tip_id
         }
 
@@ -3755,7 +3842,7 @@ pub mod test {
                 |mut builder, ref mut miner, ref sortdb| {
                     let (mut miner_chainstate, _) =
                         StacksChainState::open(false, network_id, &chainstate_path, None).unwrap();
-                    let sort_iconn = sortdb.index_conn();
+                    let sort_iconn = sortdb.index_handle_at_tip();
 
                     let mut miner_epoch_info = builder
                         .pre_epoch_begin(&mut miner_chainstate, &sort_iconn, true)
@@ -3896,29 +3983,12 @@ pub mod test {
         }
 
         /// Verify that the sortition DB migration into Nakamoto worked correctly.
-        /// For now, it's sufficient to check that the `get_last_processed_reward_cycle()` calculation
-        /// works the same across both the original and migration-compatible implementations.
         pub fn check_nakamoto_migration(&mut self) {
             let mut sortdb = self.sortdb.take().unwrap();
             let mut node = self.stacks_node.take().unwrap();
             let chainstate = &mut node.chainstate;
 
             let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
-            for height in 0..=tip.block_height {
-                let sns =
-                    SortitionDB::get_all_snapshots_by_burn_height(sortdb.conn(), height).unwrap();
-                for sn in sns {
-                    let ih = sortdb.index_handle(&sn.sortition_id);
-                    let highest_processed_rc = ih.get_last_processed_reward_cycle().unwrap();
-                    let expected_highest_processed_rc =
-                        ih.legacy_get_last_processed_reward_cycle().unwrap();
-                    assert_eq!(
-                        highest_processed_rc, expected_highest_processed_rc,
-                        "BUG: at burn height {} the highest-processed reward cycles diverge",
-                        height
-                    );
-                }
-            }
             let epochs = SortitionDB::get_stacks_epochs(sortdb.conn()).unwrap();
             let epoch_3_idx =
                 StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch30).unwrap();
@@ -4073,6 +4143,37 @@ pub mod test {
 
             self.sortdb = Some(sortdb);
             self.stacks_node = Some(node);
+        }
+
+        /// Verify that all malleablized blocks are duly processed
+        pub fn check_malleablized_blocks(
+            &self,
+            all_blocks: Vec<NakamotoBlock>,
+            expected_siblings: usize,
+        ) {
+            for block in all_blocks.iter() {
+                let sighash = block.header.signer_signature_hash();
+                let siblings = self
+                    .chainstate_ref()
+                    .nakamoto_blocks_db()
+                    .get_blocks_at_height(block.header.chain_length);
+
+                debug!("Expect {} siblings: {:?}", expected_siblings, &siblings);
+                assert_eq!(siblings.len(), expected_siblings);
+
+                for sibling in siblings {
+                    let (processed, orphaned) = NakamotoChainState::get_nakamoto_block_status(
+                        self.chainstate_ref().nakamoto_blocks_db(),
+                        self.chainstate_ref().db(),
+                        &sibling.header.consensus_hash,
+                        &sibling.header.block_hash(),
+                    )
+                    .unwrap()
+                    .unwrap();
+                    assert!(processed);
+                    assert!(!orphaned);
+                }
+            }
         }
     }
 

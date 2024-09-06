@@ -574,6 +574,11 @@ macro_rules! impl_byte_array_newtype {
                 to_hex(&self.0)
             }
         }
+        impl std::fmt::LowerHex for $thing {
+            fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                write!(f, "{}", self.to_hex())
+            }
+        }
         impl std::fmt::Display for $thing {
             fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
                 write!(f, "{}", self.to_hex())
@@ -607,6 +612,28 @@ macro_rules! impl_byte_array_serde {
             fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<$thing, D::Error> {
                 let inst_str = String::deserialize(d)?;
                 $thing::from_hex(&inst_str).map_err(serde::de::Error::custom)
+            }
+        }
+    };
+}
+
+#[allow(unused_macros)]
+#[macro_export]
+macro_rules! impl_file_io_serde_json {
+    ($thing:ident) => {
+        impl $thing {
+            pub fn serialize_to_file<P>(&self, path: P) -> Result<(), std::io::Error>
+            where
+                P: AsRef<std::path::Path>,
+            {
+                $crate::util::serialize_json_to_file(self, path)
+            }
+
+            pub fn deserialize_from_file<P>(path: P) -> Result<Self, std::io::Error>
+            where
+                P: AsRef<std::path::Path>,
+            {
+                $crate::util::deserialize_json_from_file(path)
             }
         }
     };

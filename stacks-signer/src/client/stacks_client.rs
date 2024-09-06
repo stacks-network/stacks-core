@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
 // Copyright (C) 2020-2024 Stacks Open Internet Foundation
 //
@@ -26,24 +27,33 @@ use blockstack_lib::chainstate::stacks::{
     TransactionSpendingCondition, TransactionVersion,
 };
 use blockstack_lib::net::api::callreadonly::CallReadOnlyResponse;
+use blockstack_lib::net::api::get_tenures_fork_info::{
+    TenureForkingInfo, RPC_TENURE_FORKING_INFO_PATH,
+};
 use blockstack_lib::net::api::getaccount::AccountEntryResponse;
-use blockstack_lib::net::api::getinfo::RPCPeerInfoData;
 use blockstack_lib::net::api::getpoxinfo::RPCPoxInfoData;
-use blockstack_lib::net::api::getstackers::GetStackersResponse;
+use blockstack_lib::net::api::getsortition::{SortitionInfo, RPC_SORTITION_INFO_PATH};
+use blockstack_lib::net::api::getstackers::{GetStackersErrors, GetStackersResponse};
+use blockstack_lib::net::api::postblock::StacksBlockAcceptedData;
 use blockstack_lib::net::api::postblock_proposal::NakamotoBlockProposal;
+use blockstack_lib::net::api::postblock_v3;
 use blockstack_lib::net::api::postfeerate::{FeeRateEstimateRequestBody, RPCFeeEstimateResponse};
 use blockstack_lib::util_lib::boot::{boot_code_addr, boot_code_id};
 use clarity::util::hash::to_hex;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::{ClarityName, ContractName, Value as ClarityValue};
+use libsigner::v0::messages::PeerInfo;
 use reqwest::header::AUTHORIZATION;
+use serde::Deserialize;
 use serde_json::json;
-use slog::slog_debug;
+use slog::{slog_debug, slog_warn};
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
-use stacks_common::debug;
-use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey};
+use stacks_common::types::chainstate::{
+    ConsensusHash, StacksAddress, StacksPrivateKey, StacksPublicKey,
+};
 use stacks_common::types::StacksEpochId;
+use stacks_common::{debug, warn};
 use wsts::curve::point::{Compressed, Point};
 
 use crate::client::{retry_with_exponential_backoff, ClientError};
@@ -69,6 +79,12 @@ pub struct StacksClient {
     stacks_node_client: reqwest::blocking::Client,
     /// the auth password for the stacks node
     auth_password: String,
+}
+
+#[derive(Deserialize)]
+struct GetStackersErrorResp {
+    err_type: String,
+    err_msg: String,
 }
 
 impl From<&GlobalConfig> for StacksClient {
@@ -142,7 +158,7 @@ impl StacksClient {
     }
 
     /// Helper function  that attempts to deserialize a clarity hext string as a list of signer slots and their associated number of signer slots
-    fn parse_signer_slots(
+    pub fn parse_signer_slots(
         &self,
         value: ClarityValue,
     ) -> Result<Vec<(StacksAddress, u128)>, ClientError> {
@@ -358,8 +374,103 @@ impl StacksClient {
         self.get_account_entry(address).map(|entry| entry.nonce)
     }
 
+    /// Get information about the tenures between `chosen_parent` and `last_sortition`
+    pub fn get_tenure_forking_info(
+        &self,
+        chosen_parent: &ConsensusHash,
+        last_sortition: &ConsensusHash,
+    ) -> Result<Vec<TenureForkingInfo>, ClientError> {
+        let mut tenures: VecDeque<TenureForkingInfo> =
+            self.get_tenure_forking_info_step(chosen_parent, last_sortition)?;
+        if tenures.is_empty() {
+            return Ok(vec![]);
+        }
+        while tenures.back().map(|x| &x.consensus_hash) != Some(chosen_parent) {
+            let new_start = tenures.back().ok_or_else(|| {
+                ClientError::InvalidResponse(
+                    "Should have tenure data in forking info response".into(),
+                )
+            })?;
+            let mut next_results =
+                self.get_tenure_forking_info_step(chosen_parent, &new_start.consensus_hash)?;
+            if next_results.pop_front().is_none() {
+                return Err(ClientError::InvalidResponse(
+                    "Could not fetch forking info all the way back to the requested chosen_parent"
+                        .into(),
+                ));
+            }
+            if next_results.is_empty() {
+                return Err(ClientError::InvalidResponse(
+                    "Could not fetch forking info all the way back to the requested chosen_parent"
+                        .into(),
+                ));
+            }
+            tenures.extend(next_results.into_iter());
+        }
+
+        Ok(tenures.into_iter().collect())
+    }
+
+    fn get_tenure_forking_info_step(
+        &self,
+        chosen_parent: &ConsensusHash,
+        last_sortition: &ConsensusHash,
+    ) -> Result<VecDeque<TenureForkingInfo>, ClientError> {
+        let send_request = || {
+            self.stacks_node_client
+                .get(self.tenure_forking_info_path(chosen_parent, last_sortition))
+                .send()
+                .map_err(backoff::Error::transient)
+        };
+        let response = retry_with_exponential_backoff(send_request)?;
+        if !response.status().is_success() {
+            return Err(ClientError::RequestFailure(response.status()));
+        }
+        let tenures = response.json()?;
+
+        Ok(tenures)
+    }
+
+    /// Get the sortition information for the latest sortition
+    pub fn get_latest_sortition(&self) -> Result<SortitionInfo, ClientError> {
+        let send_request = || {
+            self.stacks_node_client
+                .get(self.sortition_info_path())
+                .send()
+                .map_err(|e| {
+                    warn!("Signer failed to request latest sortition"; "err" => ?e);
+                    e
+                })
+        };
+        let response = send_request()?;
+        if !response.status().is_success() {
+            return Err(ClientError::RequestFailure(response.status()));
+        }
+        let sortition_info = response.json()?;
+        Ok(sortition_info)
+    }
+
+    /// Get the sortition information for a given sortition
+    pub fn get_sortition(&self, ch: &ConsensusHash) -> Result<SortitionInfo, ClientError> {
+        let send_request = || {
+            self.stacks_node_client
+                .get(format!("{}/consensus/{}", self.sortition_info_path(), ch.to_hex()))
+                .send()
+                .map_err(|e| {
+                    warn!("Signer failed to request sortition"; "consensus_hash" => %ch, "err" => ?e);
+                    e
+                })
+        };
+        let response = send_request()?;
+        if !response.status().is_success() {
+            return Err(ClientError::RequestFailure(response.status()));
+        }
+        let sortition_info = response.json()?;
+        Ok(sortition_info)
+    }
+
     /// Get the current peer info data from the stacks node
-    pub fn get_peer_info(&self) -> Result<RPCPeerInfoData, ClientError> {
+    pub fn get_peer_info(&self) -> Result<PeerInfo, ClientError> {
         debug!("Getting stacks node info...");
         let timer =
             crate::monitoring::new_rpc_call_timer(&self.core_info_path(), &self.http_origin);
@@ -374,7 +485,7 @@ impl StacksClient {
         if !response.status().is_success() {
             return Err(ClientError::RequestFailure(response.status()));
         }
-        let peer_info_data = response.json::<RPCPeerInfoData>()?;
+        let peer_info_data = response.json::<PeerInfo>()?;
         Ok(peer_info_data)
     }
 
@@ -410,27 +521,42 @@ impl StacksClient {
         &self,
         reward_cycle: u64,
     ) -> Result<Option<Vec<NakamotoSignerEntry>>, ClientError> {
-        debug!("Getting reward set for reward cycle {reward_cycle}...");
         let timer = crate::monitoring::new_rpc_call_timer(
             &self.reward_set_path(reward_cycle),
             &self.http_origin,
         );
         let send_request = || {
-            self.stacks_node_client
+            let response = self
+                .stacks_node_client
                 .get(self.reward_set_path(reward_cycle))
                 .send()
-                .map_err(backoff::Error::transient)
+                .map_err(|e| backoff::Error::transient(e.into()))?;
+            let status = response.status();
+            if status.is_success() {
+                return response
+                    .json()
+                    .map_err(|e| backoff::Error::permanent(e.into()));
+            }
+            let error_data = response.json::<GetStackersErrorResp>().map_err(|e| {
+                warn!("Failed to parse the GetStackers error response: {e}");
+                backoff::Error::permanent(e.into())
+            })?;
+            if &error_data.err_type == GetStackersErrors::NOT_AVAILABLE_ERR_TYPE {
+                return Err(backoff::Error::transient(ClientError::NoSortitionOnChain));
+            } else {
+                warn!("Got error response ({status}): {}", error_data.err_msg);
+                return Err(backoff::Error::permanent(ClientError::RequestFailure(
+                    status,
+                )));
+            }
         };
-        let response = retry_with_exponential_backoff(send_request)?;
+        let stackers_response =
+            retry_with_exponential_backoff::<_, ClientError, GetStackersResponse>(send_request)?;
         timer.stop_and_record();
-        if !response.status().is_success() {
-            return Err(ClientError::RequestFailure(response.status()));
-        }
-        let stackers_response = response.json::<GetStackersResponse>()?;
         Ok(stackers_response.stacker_set.signers)
     }
 
-    /// Retreive the current pox data from the stacks node
+    /// Retrieve the current pox data from the stacks node
     pub fn get_pox_data(&self) -> Result<RPCPoxInfoData, ClientError> {
         debug!("Getting pox data...");
         #[cfg(feature = "monitoring_prom")]
@@ -553,6 +679,28 @@ impl StacksClient {
         Ok(unsigned_tx)
     }
 
+    /// Try to post a completed nakamoto block to our connected stacks-node
+    /// Returns `true` if the block was accepted or `false` if the block
+    ///   was rejected.
+    pub fn post_block(&self, block: &NakamotoBlock) -> Result<bool, ClientError> {
+        let response = self
+            .stacks_node_client
+            .post(format!(
+                "{}{}?broadcast=1",
+                self.http_origin,
+                postblock_v3::PATH
+            ))
+            .header("Content-Type", "application/octet-stream")
+            .header(AUTHORIZATION, self.auth_password.clone())
+            .body(block.serialize_to_vec())
+            .send()?;
+        if !response.status().is_success() {
+            return Err(ClientError::RequestFailure(response.status()));
+        }
+        let post_block_resp = response.json::<StacksBlockAcceptedData>()?;
+        Ok(post_block_resp.accepted)
+    }
+
     /// Helper function to submit a transaction to the Stacks mempool
     pub fn submit_transaction(&self, tx: &StacksTransaction) -> Result<Txid, ClientError> {
         let txid = tx.txid();
@@ -646,7 +794,20 @@ impl StacksClient {
     }
 
     fn block_proposal_path(&self) -> String {
-        format!("{}/v2/block_proposal", self.http_origin)
+        format!("{}/v3/block_proposal", self.http_origin)
+    }
+
+    fn sortition_info_path(&self) -> String {
+        format!("{}{RPC_SORTITION_INFO_PATH}", self.http_origin)
+    }
+
+    fn tenure_forking_info_path(&self, start: &ConsensusHash, stop: &ConsensusHash) -> String {
+        format!(
+            "{}{RPC_TENURE_FORKING_INFO_PATH}/{}/{}",
+            self.http_origin,
+            start.to_hex(),
+            stop.to_hex()
+        )
     }
 
     fn core_info_path(&self) -> String {
@@ -658,7 +819,7 @@ impl StacksClient {
     }
 
     fn reward_set_path(&self, reward_cycle: u64) -> String {
-        format!("{}/v2/stacker_set/{reward_cycle}", self.http_origin)
+        format!("{}/v3/stacker_set/{reward_cycle}", self.http_origin)
     }
 
     fn fees_transaction_path(&self) -> String {
@@ -1253,7 +1414,18 @@ mod tests {
         let (response, peer_info) = build_get_peer_info_response(None, None);
         let h = spawn(move || mock.client.get_peer_info());
         write_response(mock.server, response.as_bytes());
-        assert_eq!(h.join().unwrap().unwrap(), peer_info);
+        let reduced_peer_info = h.join().unwrap().unwrap();
+        assert_eq!(
+            reduced_peer_info.burn_block_height,
+            peer_info.burn_block_height
+        );
+        assert_eq!(reduced_peer_info.pox_consensus, peer_info.pox_consensus);
+        assert_eq!(
+            reduced_peer_info.stacks_tip_consensus_hash,
+            peer_info.stacks_tip_consensus_hash
+        );
+        assert_eq!(reduced_peer_info.stacks_tip, peer_info.stacks_tip);
+        assert_eq!(reduced_peer_info.server_version, peer_info.server_version);
     }
 
     #[test]

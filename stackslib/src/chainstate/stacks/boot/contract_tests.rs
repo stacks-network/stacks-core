@@ -142,6 +142,10 @@ impl ClarityTestSim {
         }
     }
 
+    pub fn burn_block_height(&self) -> u64 {
+        self.tenure_height + 100
+    }
+
     pub fn execute_next_block_as_conn_with_tenure<F, R>(&mut self, new_tenure: bool, f: F) -> R
     where
         F: FnOnce(&mut ClarityBlockConnection) -> R,
@@ -152,8 +156,13 @@ impl ClarityTestSim {
                 &StacksBlockId(test_sim_height_to_hash(self.block_height + 1, self.fork)),
             );
 
+            self.block_height += 1;
+            if new_tenure {
+                self.tenure_height += 1;
+            }
+
             let headers_db = TestSimHeadersDB {
-                height: self.block_height + 1,
+                height: self.block_height,
             };
             let burn_db = TestSimBurnStateDB {
                 epoch_bounds: self.epoch_bounds.clone(),
@@ -164,9 +173,9 @@ impl ClarityTestSim {
             let cur_epoch = Self::check_and_bump_epoch(&mut store, &headers_db, &burn_db);
 
             let mut db = store.as_clarity_db(&headers_db, &burn_db);
-            if cur_epoch >= StacksEpochId::Epoch30 {
+            if cur_epoch.clarity_uses_tip_burn_block() {
                 db.begin();
-                db.set_tenure_height(self.tenure_height as u32 + if new_tenure { 1 } else { 0 })
+                db.set_tenure_height(self.tenure_height as u32)
                     .expect("FAIL: unable to set tenure height in Clarity database");
                 db.commit()
                     .expect("FAIL: unable to commit tenure height in Clarity database");
@@ -180,10 +189,6 @@ impl ClarityTestSim {
             r
         };
 
-        self.block_height += 1;
-        if new_tenure {
-            self.tenure_height += 1;
-        }
         r
     }
 
@@ -203,9 +208,14 @@ impl ClarityTestSim {
             &StacksBlockId(test_sim_height_to_hash(self.block_height + 1, self.fork)),
         );
 
+        self.block_height += 1;
+        if new_tenure {
+            self.tenure_height += 1;
+        }
+
         let r = {
             let headers_db = TestSimHeadersDB {
-                height: self.block_height + 1,
+                height: self.block_height,
             };
             let burn_db = TestSimBurnStateDB {
                 epoch_bounds: self.epoch_bounds.clone(),
@@ -217,9 +227,9 @@ impl ClarityTestSim {
             debug!("Execute block in epoch {}", &cur_epoch);
 
             let mut db = store.as_clarity_db(&headers_db, &burn_db);
-            if cur_epoch >= StacksEpochId::Epoch30 {
+            if cur_epoch.clarity_uses_tip_burn_block() {
                 db.begin();
-                db.set_tenure_height(self.tenure_height as u32 + if new_tenure { 1 } else { 0 })
+                db.set_tenure_height(self.tenure_height as u32)
                     .expect("FAIL: unable to set tenure height in Clarity database");
                 db.commit()
                     .expect("FAIL: unable to commit tenure height in Clarity database");
@@ -229,10 +239,6 @@ impl ClarityTestSim {
         };
 
         store.test_commit();
-        self.block_height += 1;
-        if new_tenure {
-            self.tenure_height += 1;
-        }
 
         r
     }
@@ -347,6 +353,14 @@ fn cost_2_contract_is_arithmetic_only() {
 }
 
 impl BurnStateDB for TestSimBurnStateDB {
+    fn get_tip_burn_block_height(&self) -> Option<u32> {
+        Some(self.height as u32)
+    }
+
+    fn get_tip_sortition_id(&self) -> Option<SortitionId> {
+        panic!("Not implemented in TestSim");
+    }
+
     fn get_burn_block_height(&self, sortition_id: &SortitionId) -> Option<u32> {
         panic!("Not implemented in TestSim");
     }
@@ -527,11 +541,19 @@ impl HeadersDB for TestSimHeadersDB {
         }
     }
 
-    fn get_vrf_seed_for_block(&self, _bhh: &StacksBlockId) -> Option<VRFSeed> {
+    fn get_vrf_seed_for_block(
+        &self,
+        _bhh: &StacksBlockId,
+        _epoch: &StacksEpochId,
+    ) -> Option<VRFSeed> {
         None
     }
 
-    fn get_consensus_hash_for_block(&self, bhh: &StacksBlockId) -> Option<ConsensusHash> {
+    fn get_consensus_hash_for_block(
+        &self,
+        bhh: &StacksBlockId,
+        _epoch: &StacksEpochId,
+    ) -> Option<ConsensusHash> {
         // capture the first 20 bytes of the block ID, which in this case captures the height and
         // fork ID.
         let mut bytes_20 = [0u8; 20];
@@ -542,6 +564,7 @@ impl HeadersDB for TestSimHeadersDB {
     fn get_stacks_block_header_hash_for_block(
         &self,
         id_bhh: &StacksBlockId,
+        _epoch: &StacksEpochId,
     ) -> Option<BlockHeaderHash> {
         if *id_bhh == *FIRST_INDEX_BLOCK_HASH {
             Some(FIRST_STACKS_BLOCK_HASH)
@@ -553,7 +576,11 @@ impl HeadersDB for TestSimHeadersDB {
         }
     }
 
-    fn get_burn_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64> {
+    fn get_burn_block_time_for_block(
+        &self,
+        id_bhh: &StacksBlockId,
+        _epoch: Option<&StacksEpochId>,
+    ) -> Option<u64> {
         if *id_bhh == *FIRST_INDEX_BLOCK_HASH {
             Some(BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP as u64)
         } else {
@@ -563,6 +590,11 @@ impl HeadersDB for TestSimHeadersDB {
                     - BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT as u64,
             )
         }
+    }
+
+    fn get_stacks_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64> {
+        let block_height = test_sim_hash_to_height(&id_bhh.0)?;
+        Some(1713799973 + block_height)
     }
 
     fn get_burn_block_height_for_block(&self, id_bhh: &StacksBlockId) -> Option<u32> {
@@ -583,21 +615,37 @@ impl HeadersDB for TestSimHeadersDB {
         }
     }
 
-    fn get_miner_address(&self, _id_bhh: &StacksBlockId) -> Option<StacksAddress> {
+    fn get_miner_address(
+        &self,
+        _id_bhh: &StacksBlockId,
+        _epoch: &StacksEpochId,
+    ) -> Option<StacksAddress> {
         Some(MINER_ADDR.clone())
     }
 
-    fn get_burnchain_tokens_spent_for_block(&self, id_bhh: &StacksBlockId) -> Option<u128> {
+    fn get_burnchain_tokens_spent_for_block(
+        &self,
+        id_bhh: &StacksBlockId,
+        _epoch: &StacksEpochId,
+    ) -> Option<u128> {
         // if the block is defined at all, then return a constant
         self.get_burn_block_height_for_block(id_bhh).map(|_| 2000)
     }
 
-    fn get_burnchain_tokens_spent_for_winning_block(&self, id_bhh: &StacksBlockId) -> Option<u128> {
+    fn get_burnchain_tokens_spent_for_winning_block(
+        &self,
+        id_bhh: &StacksBlockId,
+        _epoch: &StacksEpochId,
+    ) -> Option<u128> {
         // if the block is defined at all, then return a constant
         self.get_burn_block_height_for_block(id_bhh).map(|_| 1000)
     }
 
-    fn get_tokens_earned_for_block(&self, id_bhh: &StacksBlockId) -> Option<u128> {
+    fn get_tokens_earned_for_block(
+        &self,
+        id_bhh: &StacksBlockId,
+        _epoch: &StacksEpochId,
+    ) -> Option<u128> {
         // if the block is defined at all, then return a constant
         self.get_burn_block_height_for_block(id_bhh).map(|_| 3000)
     }

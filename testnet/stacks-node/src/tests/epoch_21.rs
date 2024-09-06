@@ -1928,6 +1928,7 @@ fn transition_empty_blocks() {
             let burn_parent_modulus =
                 ((tip_info.burn_block_height + 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8;
             let op = BlockstackOperationType::LeaderBlockCommit(LeaderBlockCommitOp {
+                treatment: vec![],
                 sunset_burn: 0,
                 block_header_hash: BlockHeaderHash([0xff; 32]),
                 burn_fee: burn_fee_cap,
@@ -5143,7 +5144,7 @@ fn test_v1_unlock_height_with_current_stackers() {
     let sortdb = btc_regtest_controller.sortdb_mut();
 
     for height in 211..tip_info.burn_block_height {
-        let iconn = sortdb.index_conn();
+        let iconn = sortdb.index_handle_at_block(&chainstate, &tip).unwrap();
         let pox_addrs = chainstate
             .clarity_eval_read_only(
                 &iconn,
@@ -5423,7 +5424,7 @@ fn test_v1_unlock_height_with_delay_and_current_stackers() {
     let sortdb = btc_regtest_controller.sortdb_mut();
 
     for height in 211..tip_info.burn_block_height {
-        let iconn = sortdb.index_conn();
+        let iconn = sortdb.index_handle_at_block(&chainstate, &tip).unwrap();
         let pox_addrs = chainstate
             .clarity_eval_read_only(
                 &iconn,

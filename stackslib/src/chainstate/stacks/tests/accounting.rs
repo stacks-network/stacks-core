@@ -228,7 +228,7 @@ fn test_bad_microblock_fees_pre_v210() {
                     anchored_txs.push(stx_transfer);
                 }
 
-                let sort_ic = sortdb.index_conn();
+                let sort_ic = sortdb.index_handle_at_tip();
                 let (parent_mblock_stream, mblock_pubkey_hash) = {
                     if tenure_id > 0 {
                         chainstate
@@ -357,8 +357,8 @@ fn test_bad_microblock_fees_pre_v210() {
 
         let matured_reward_opt = StacksChainState::get_matured_miner_payment(
             peer.chainstate().db(),
-            &parent_block_id,
-            &block_id,
+            &parent_block_id.into(),
+            &block_id.into(),
         )
         .unwrap();
 
@@ -551,7 +551,7 @@ fn test_bad_microblock_fees_fix_transition() {
                     anchored_txs.push(stx_transfer);
                 }
 
-                let sort_ic = sortdb.index_conn();
+                let sort_ic = sortdb.index_handle_at_tip();
                 let (parent_mblock_stream, mblock_pubkey_hash) = {
                     if tenure_id > 0 {
                         chainstate
@@ -680,8 +680,8 @@ fn test_bad_microblock_fees_fix_transition() {
 
         let matured_reward_opt = StacksChainState::get_matured_miner_payment(
             peer.chainstate().db(),
-            &parent_block_id,
-            &block_id,
+            &parent_block_id.into(),
+            &block_id.into(),
         )
         .unwrap();
 
@@ -907,7 +907,7 @@ fn test_get_block_info_v210() {
                     anchored_txs.push(stx_transfer);
                 }
 
-                let sort_ic = sortdb.index_conn();
+                let sort_ic = sortdb.index_handle_at_tip();
                 let (parent_mblock_stream, mblock_pubkey_hash) = {
                     if tenure_id > 0 {
                         chainstate
@@ -1029,7 +1029,7 @@ fn test_get_block_info_v210() {
         peer
             .chainstate()
             .with_read_only_clarity_tx(
-                &sortdb.index_conn(),
+                &sortdb.index_handle_at_tip(),
                 &stacks_block_id,
                 |clarity_tx| {
                     let list_val = clarity_tx.with_readonly_clarity_env(
@@ -1296,7 +1296,7 @@ fn test_get_block_info_v210_no_microblocks() {
                 )
                 .unwrap();
 
-                let sort_ic = sortdb.index_conn();
+                let sort_ic = sortdb.index_handle_at_tip();
                 let anchored_block = StacksBlockBuilder::make_anchored_block_from_txs(
                     builder,
                     chainstate,
@@ -1333,7 +1333,7 @@ fn test_get_block_info_v210_no_microblocks() {
         peer
             .chainstate()
             .with_read_only_clarity_tx(
-                &sortdb.index_conn(),
+                &sortdb.index_handle_at_tip(),
                 &stacks_block_id,
                 |clarity_tx| {
                     let list_val = clarity_tx.with_readonly_clarity_env(
@@ -1678,7 +1678,7 @@ fn test_coinbase_pay_to_alt_recipient_v210(pay_to_contract: bool) {
                     anchored_txs.push(stx_transfer);
                 }
 
-                let sort_ic = sortdb.index_conn();
+                let sort_ic = sortdb.index_handle_at_tip();
                 let (parent_mblock_stream, mblock_pubkey_hash) = {
                     if tenure_id > 0 {
                         chainstate
@@ -1803,7 +1803,7 @@ fn test_coinbase_pay_to_alt_recipient_v210(pay_to_contract: bool) {
         peer
             .chainstate()
             .with_read_only_clarity_tx(
-                &sortdb.index_conn(),
+                &sortdb.index_handle_at_tip(),
                 &stacks_block_id,
                 |clarity_tx| {
                     let list_val = clarity_tx.with_readonly_clarity_env(
@@ -1911,29 +1911,33 @@ fn test_coinbase_pay_to_alt_recipient_v210(pay_to_contract: bool) {
     // reported correctly.
     let recipient_balance = peer
         .chainstate()
-        .with_read_only_clarity_tx(&sortdb.index_conn(), &stacks_block_id, |clarity_tx| {
-            let recipient_balance_val = clarity_tx
-                .with_readonly_clarity_env(
-                    false,
-                    CHAIN_ID_TESTNET,
-                    ClarityVersion::Clarity2,
-                    PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
-                    None,
-                    LimitedCostTracker::new_free(),
-                    |env| {
-                        if pay_to_contract {
-                            env.eval_raw(&format!(
-                                "(stx-get-balance '{}.{})",
-                                &addr_anchored, contract_name
-                            ))
-                        } else {
-                            env.eval_raw(&format!("(stx-get-balance '{})", &addr_recipient))
-                        }
-                    },
-                )
-                .unwrap();
-            recipient_balance_val.expect_u128().unwrap()
-        })
+        .with_read_only_clarity_tx(
+            &sortdb.index_handle_at_tip(),
+            &stacks_block_id,
+            |clarity_tx| {
+                let recipient_balance_val = clarity_tx
+                    .with_readonly_clarity_env(
+                        false,
+                        CHAIN_ID_TESTNET,
+                        ClarityVersion::Clarity2,
+                        PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
+                        None,
+                        LimitedCostTracker::new_free(),
+                        |env| {
+                            if pay_to_contract {
+                                env.eval_raw(&format!(
+                                    "(stx-get-balance '{}.{})",
+                                    &addr_anchored, contract_name
+                                ))
+                            } else {
+                                env.eval_raw(&format!("(stx-get-balance '{})", &addr_recipient))
+                            }
+                        },
+                    )
+                    .unwrap();
+                recipient_balance_val.expect_u128().unwrap()
+            },
+        )
         .unwrap();
 
     // N.B. `stx-get-balance` will reflect one more block-reward than `get-block-info?

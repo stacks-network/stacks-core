@@ -1,3 +1,19 @@
+// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
+// Copyright (C) 2020-2024 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::sync::mpsc::{channel, Receiver, Sender};
@@ -6,7 +22,9 @@ use std::thread::sleep;
 use std::time::Duration;
 
 use async_h1::client;
+use async_std::future::timeout;
 use async_std::net::TcpStream;
+use async_std::task;
 use clarity::vm::analysis::contract_interface_builder::build_contract_interface;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::events::{FTEventType, NFTEventType, STXEventType};
@@ -138,6 +156,7 @@ pub struct MinedNakamotoBlockEvent {
     pub signer_signature_hash: Sha512Trunc256Sum,
     pub tx_events: Vec<TransactionEvent>,
     pub signer_bitvec: String,
+    pub signer_signature: Vec<MessageSignature>,
 }
 
 impl InnerStackerDBChannel {
@@ -296,6 +315,9 @@ impl RewardSetEventPayload {
 
 impl EventObserver {
     pub fn send_payload(&self, payload: &serde_json::Value, path: &str) {
+        debug!(
+            "Event dispatcher: Sending payload"; "url" => %path, "payload" => ?payload
+        );
         let body = match serde_json::to_vec(&payload) {
             Ok(body) => body,
             Err(err) => {
@@ -315,6 +337,7 @@ impl EventObserver {
         };
 
         let backoff = Duration::from_millis((1.0 * 1_000.0) as u64);
+        let connection_timeout = Duration::from_secs(5);
 
         loop {
             let body = body.clone();
@@ -322,20 +345,25 @@ impl EventObserver {
             req.append_header("Content-Type", "application/json");
             req.set_body(body);
 
-            let response = async_std::task::block_on(async {
-                let stream = match TcpStream::connect(self.endpoint.clone()).await {
-                    Ok(stream) => stream,
-                    Err(err) => {
-                        warn!("Event dispatcher: connection failed  - {:?}", err);
-                        return None;
-                    }
-                };
+            let response = task::block_on(async {
+                let stream =
+                    match timeout(connection_timeout, TcpStream::connect(&self.endpoint)).await {
+                        Ok(Ok(stream)) => stream,
+                        Ok(Err(err)) => {
+                            warn!("Event dispatcher: connection failed  - {:?}", err);
+                            return None;
+                        }
+                        Err(_) => {
+                            error!("Event dispatcher: connection attempt timed out");
+                            return None;
+                        }
+                    };
 
                 match client::connect(stream, req).await {
                     Ok(response) => Some(response),
                     Err(err) => {
                         warn!("Event dispatcher: rpc invocation failed  - {:?}", err);
-                        return None;
+                        None
                     }
                 }
             });
@@ -649,16 +677,12 @@ impl EventObserver {
                 format!("0x{}", header.signer_signature_hash()).into(),
             );
             as_object_mut.insert(
-                "signer_signature".into(),
-                format!("0x{}", header.signer_signature_hash()).into(),
-            );
-            as_object_mut.insert(
                 "miner_signature".into(),
                 format!("0x{}", &header.miner_signature).into(),
             );
             as_object_mut.insert(
                 "signer_signature".into(),
-                format!("0x{}", &header.signer_signature).into(),
+                serde_json::to_value(&header.signer_signature).unwrap_or_default(),
             );
         }
 
@@ -666,19 +690,39 @@ impl EventObserver {
     }
 }
 
+/// Events received from block-processing.
+/// Stacks events are structured as JSON, and are grouped by topic.  An event observer can
+/// subscribe to one or more specific event streams, or the "any" stream to receive all of them.
 #[derive(Clone)]
 pub struct EventDispatcher {
+    /// List of configured event observers to which events will be posted.
+    /// The fields below this contain indexes into this list.
     registered_observers: Vec<EventObserver>,
+    /// Smart contract-specific events, keyed by (contract-id, event-name). Values are indexes into `registered_observers`.
     contract_events_observers_lookup: HashMap<(QualifiedContractIdentifier, String), HashSet<u16>>,
+    /// Asset event observers, keyed by fully-qualified asset identifier. Values are indexes into
+    /// `registered_observers.
     assets_observers_lookup: HashMap<AssetIdentifier, HashSet<u16>>,
+    /// Index into `registered_observers` that will receive burn block events
     burn_block_observers_lookup: HashSet<u16>,
+    /// Index into `registered_observers` that will receive mempool events
     mempool_observers_lookup: HashSet<u16>,
+    /// Index into `registered_observers` that will receive microblock events
     microblock_observers_lookup: HashSet<u16>,
+    /// Index into `registered_observers` that will receive STX events
     stx_observers_lookup: HashSet<u16>,
+    /// Index into `registered_observers` that will receive all events
     any_event_observers_lookup: HashSet<u16>,
+    /// Index into `registered_observers` that will receive block miner events (Stacks 2.5 and
+    /// lower)
     miner_observers_lookup: HashSet<u16>,
+    /// Index into `registered_observers` that will receive microblock miner events (Stacks 2.5 and
+    /// lower)
     mined_microblocks_observers_lookup: HashSet<u16>,
+    /// Index into `registered_observers` that will receive StackerDB events
     stackerdb_observers_lookup: HashSet<u16>,
+    /// Index into `registered_observers` that will receive block proposal events (Nakamoto and
+    /// later)
     block_proposal_observers_lookup: HashSet<u16>,
 }
 
@@ -1245,7 +1289,7 @@ impl EventDispatcher {
             return;
         }
 
-        let signer_bitvec = serde_json::to_value(block.header.signer_bitvec.clone())
+        let signer_bitvec = serde_json::to_value(block.header.pox_treatment.clone())
             .unwrap_or_default()
             .as_str()
             .unwrap_or_default()
@@ -1262,6 +1306,7 @@ impl EventDispatcher {
             tx_events,
             miner_signature: block.header.miner_signature.clone(),
             signer_signature_hash: block.header.signer_signature_hash(),
+            signer_signature: block.header.signer_signature.clone(),
             signer_bitvec,
         })
         .unwrap();
@@ -1278,6 +1323,11 @@ impl EventDispatcher {
         contract_id: QualifiedContractIdentifier,
         modified_slots: Vec<StackerDBChunkData>,
     ) {
+        debug!(
+            "event_dispatcher: New StackerDB chunk events for {}: {:?}",
+            contract_id, modified_slots
+        );
+
         let interested_observers = self.filter_observers(&self.stackerdb_observers_lookup, false);
 
         let interested_receiver = STACKER_DB_CHANNEL.is_active(&contract_id);
@@ -1295,7 +1345,7 @@ impl EventDispatcher {
         if let Some(channel) = interested_receiver {
             if let Err(send_err) = channel.send(event) {
                 warn!(
-                    "Failed to send StackerDB event to WSTS coordinator channel. Miner thread may have exited.";
+                    "Failed to send StackerDB event to signer coordinator channel. Miner thread may have exited.";
                     "err" => ?send_err
                 );
             }
@@ -1435,8 +1485,12 @@ impl EventDispatcher {
 mod test {
     use clarity::vm::costs::ExecutionCost;
     use stacks::burnchains::{PoxConstants, Txid};
-    use stacks::chainstate::stacks::db::StacksHeaderInfo;
+    use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
+    use stacks::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksHeaderInfo};
+    use stacks::chainstate::stacks::events::StacksBlockEventData;
     use stacks::chainstate::stacks::StacksBlock;
+    use stacks::types::chainstate::BlockHeaderHash;
+    use stacks::util::secp256k1::MessageSignature;
     use stacks_common::bitvec::BitVec;
     use stacks_common::types::chainstate::{BurnchainHeaderHash, StacksBlockId};
 
@@ -1498,5 +1552,67 @@ mod test {
             payload.get("signer_bitvec").unwrap().as_str().unwrap(),
             expected_bitvec_str
         );
+    }
+
+    #[test]
+    fn test_block_processed_event_nakamoto() {
+        let observer = EventObserver {
+            endpoint: "nowhere".to_string(),
+        };
+
+        let filtered_events = vec![];
+        let mut block_header = NakamotoBlockHeader::empty();
+        let signer_signature = vec![
+            MessageSignature::from_bytes(&[0; 65]).unwrap(),
+            MessageSignature::from_bytes(&[1; 65]).unwrap(),
+        ];
+        block_header.signer_signature = signer_signature.clone();
+        let block = NakamotoBlock {
+            header: block_header.clone(),
+            txs: vec![],
+        };
+        let mut metadata = StacksHeaderInfo::regtest_genesis();
+        metadata.anchored_header = StacksBlockHeaderTypes::Nakamoto(block_header.clone());
+        let receipts = vec![];
+        let parent_index_hash = StacksBlockId([0; 32]);
+        let winner_txid = Txid([0; 32]);
+        let mature_rewards = serde_json::Value::Array(vec![]);
+        let parent_burn_block_hash = BurnchainHeaderHash([0; 32]);
+        let parent_burn_block_height = 0;
+        let parent_burn_block_timestamp = 0;
+        let anchored_consumed = ExecutionCost::zero();
+        let mblock_confirmed_consumed = ExecutionCost::zero();
+        let pox_constants = PoxConstants::testnet_default();
+        let signer_bitvec = BitVec::zeros(2).expect("Failed to create BitVec with length 2");
+
+        let payload = observer.make_new_block_processed_payload(
+            filtered_events,
+            &StacksBlockEventData::from((block, BlockHeaderHash([0; 32]))),
+            &metadata,
+            &receipts,
+            &parent_index_hash,
+            &winner_txid,
+            &mature_rewards,
+            parent_burn_block_hash,
+            parent_burn_block_height,
+            parent_burn_block_timestamp,
+            &anchored_consumed,
+            &mblock_confirmed_consumed,
+            &pox_constants,
+            &None,
+            &Some(signer_bitvec.clone()),
+        );
+
+        let event_signer_signature = payload
+            .get("signer_signature")
+            .unwrap()
+            .as_array()
+            .expect("Expected signer_signature to be an array")
+            .iter()
+            .cloned()
+            .map(serde_json::from_value::<MessageSignature>)
+            .collect::<Result<Vec<_>, _>>()
+            .expect("Unable to deserialize array of MessageSignature");
+        assert_eq!(event_signer_signature, signer_signature);
     }
 }

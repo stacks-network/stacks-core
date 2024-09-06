@@ -21,6 +21,7 @@ rand = "0.8"
 rand_chacha = "0.3.1"
 tikv-jemallocator = "0.5.4"
 wsts = { version = "9.0.0", default-features = false }
+rusqlite = { version = "0.31.0", features = ["blob", "serde_json", "i128_blob", "bundled", "trace"] }
 
 # Use a bit more than default optimization for
 #  dev builds to speed up test execution

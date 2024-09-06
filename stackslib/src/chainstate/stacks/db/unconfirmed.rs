@@ -232,7 +232,8 @@ impl UnconfirmedState {
             mblocks.len()
         );
 
-        let headers_db = HeadersDBConn(chainstate.db());
+        let stacks_dbconn = chainstate.index_conn();
+        let headers_db = HeadersDBConn(stacks_dbconn);
         let burn_block_hash = headers_db
             .get_burn_header_hash_for_block(&self.confirmed_chain_tip)
             .expect("BUG: unable to get burn block hash based on chain tip");
@@ -240,7 +241,7 @@ impl UnconfirmedState {
             .get_burn_block_height_for_block(&self.confirmed_chain_tip)
             .expect("BUG: unable to get burn block height based on chain tip");
         let burn_block_timestamp = headers_db
-            .get_burn_block_time_for_block(&self.confirmed_chain_tip)
+            .get_burn_block_time_for_block(&self.confirmed_chain_tip, None)
             .expect("BUG: unable to get burn block timestamp based on chain tip");
 
         let ast_rules = burn_dbconn.get_ast_rules(burn_block_height);
@@ -260,14 +261,13 @@ impl UnconfirmedState {
 
         if mblocks.len() > 0 {
             let cur_cost = self.cost_so_far.clone();
-            let headers_db_conn = HeadersDBConn(chainstate.db());
 
             // NOTE: we *must* commit the clarity_tx now that it's begun.
             // Otherwise, microblock miners can leave the MARF in a partially-initialized state,
             // leading to a node crash.
             let mut clarity_tx = StacksChainState::chainstate_begin_unconfirmed(
                 db_config,
-                &headers_db_conn,
+                &headers_db,
                 &mut self.clarity_inst,
                 burn_dbconn,
                 &self.confirmed_chain_tip,
@@ -754,7 +754,7 @@ mod test {
                         StacksBlockBuilder::make_anchored_block_from_txs(
                             block_builder,
                             chainstate,
-                            &sortdb.index_conn(),
+                            &sortdb.index_handle_at_tip(),
                             vec![coinbase_tx],
                         )
                         .unwrap();
@@ -777,8 +777,9 @@ mod test {
             // build 1-block microblock stream
             let microblocks = {
                 let sortdb = peer.sortdb.take().unwrap();
-                let sort_iconn = sortdb.index_conn();
-
+                let sort_iconn = sortdb
+                    .index_handle_at_block(&peer.chainstate(), &canonical_tip)
+                    .unwrap();
                 peer.chainstate()
                     .reload_unconfirmed_state(&sort_iconn, canonical_tip.clone())
                     .unwrap();
@@ -851,13 +852,16 @@ mod test {
 
             // process microblock stream to generate unconfirmed state
             let sortdb = peer.sortdb.take().unwrap();
+            let iconn = sortdb
+                .index_handle_at_block(&peer.chainstate(), &canonical_tip)
+                .unwrap();
             peer.chainstate()
-                .reload_unconfirmed_state(&sortdb.index_conn(), canonical_tip.clone())
+                .reload_unconfirmed_state(&iconn, canonical_tip.clone())
                 .unwrap();
 
             let recv_balance = peer
                 .chainstate()
-                .with_read_only_unconfirmed_clarity_tx(&sortdb.index_conn(), |clarity_tx| {
+                .with_read_only_unconfirmed_clarity_tx(&iconn, |clarity_tx| {
                     clarity_tx.with_clarity_db_readonly(|clarity_db| {
                         clarity_db
                             .get_account_stx_balance(&recv_addr.into())
@@ -874,9 +878,12 @@ mod test {
                 SortitionDB::get_canonical_stacks_chain_tip_hash(peer.sortdb().conn()).unwrap();
 
             let sortdb = peer.sortdb.take().unwrap();
+            let iconn = sortdb
+                .index_handle_at_block(&peer.chainstate(), &canonical_tip)
+                .unwrap();
             let confirmed_recv_balance = peer
                 .chainstate()
-                .with_read_only_clarity_tx(&sortdb.index_conn(), &canonical_tip, |clarity_tx| {
+                .with_read_only_clarity_tx(&iconn, &canonical_tip, |clarity_tx| {
                     clarity_tx.with_clarity_db_readonly(|clarity_db| {
                         clarity_db
                             .get_account_stx_balance(&recv_addr.into())
@@ -984,7 +991,7 @@ mod test {
                         StacksBlockBuilder::make_anchored_block_from_txs(
                             block_builder,
                             chainstate,
-                            &sortdb.index_conn(),
+                            &sortdb.index_handle_at_tip(),
                             vec![coinbase_tx],
                         )
                         .unwrap();
@@ -1007,9 +1014,11 @@ mod test {
             // build microblock stream iteratively, and test balances at each additional microblock
             let sortdb = peer.sortdb.take().unwrap();
             let microblocks = {
-                let sort_iconn = sortdb.index_conn();
+                let sort_iconn = sortdb
+                    .index_handle_at_block(&peer.chainstate(), &canonical_tip)
+                    .unwrap();
                 peer.chainstate()
-                    .reload_unconfirmed_state(&sortdb.index_conn(), canonical_tip.clone())
+                    .reload_unconfirmed_state(&sort_iconn, canonical_tip.clone())
                     .unwrap();
 
                 let mut microblock_builder = StacksMicroblockBuilder::new(
@@ -1083,18 +1092,21 @@ mod test {
                 // process microblock stream to generate unconfirmed state
                 let sortdb = peer.sortdb.take().unwrap();
                 peer.chainstate()
-                    .reload_unconfirmed_state(&sortdb.index_conn(), canonical_tip.clone())
+                    .reload_unconfirmed_state(&sortdb.index_handle_at_tip(), canonical_tip.clone())
                     .unwrap();
 
                 let recv_balance = peer
                     .chainstate()
-                    .with_read_only_unconfirmed_clarity_tx(&sortdb.index_conn(), |clarity_tx| {
-                        clarity_tx.with_clarity_db_readonly(|clarity_db| {
-                            clarity_db
-                                .get_account_stx_balance(&recv_addr.into())
-                                .unwrap()
-                        })
-                    })
+                    .with_read_only_unconfirmed_clarity_tx(
+                        &sortdb.index_handle_at_tip(),
+                        |clarity_tx| {
+                            clarity_tx.with_clarity_db_readonly(|clarity_db| {
+                                clarity_db
+                                    .get_account_stx_balance(&recv_addr.into())
+                                    .unwrap()
+                            })
+                        },
+                    )
                     .unwrap()
                     .unwrap();
                 peer.sortdb = Some(sortdb);
@@ -1110,13 +1122,17 @@ mod test {
                 let sortdb = peer.sortdb.take().unwrap();
                 let confirmed_recv_balance = peer
                     .chainstate()
-                    .with_read_only_clarity_tx(&sortdb.index_conn(), &canonical_tip, |clarity_tx| {
-                        clarity_tx.with_clarity_db_readonly(|clarity_db| {
-                            clarity_db
-                                .get_account_stx_balance(&recv_addr.into())
-                                .unwrap()
-                        })
-                    })
+                    .with_read_only_clarity_tx(
+                        &sortdb.index_handle_at_tip(),
+                        &canonical_tip,
+                        |clarity_tx| {
+                            clarity_tx.with_clarity_db_readonly(|clarity_db| {
+                                clarity_db
+                                    .get_account_stx_balance(&recv_addr.into())
+                                    .unwrap()
+                            })
+                        },
+                    )
                     .unwrap();
                 peer.sortdb = Some(sortdb);
 
@@ -1270,7 +1286,7 @@ mod test {
                         StacksBlockBuilder::make_anchored_block_from_txs(
                             block_builder,
                             chainstate,
-                            &sortdb.index_conn(),
+                            &sortdb.index_handle_at_tip(),
                             vec![coinbase_tx, anchored_tx],
                         )
                         .unwrap();
@@ -1297,7 +1313,7 @@ mod test {
                 Relayer::refresh_unconfirmed(&mut inner_node.chainstate, &mut sortdb);
 
                 let microblock = {
-                    let sort_iconn = sortdb.index_conn();
+                    let sort_iconn = sortdb.index_handle_at_tip();
                     let mut microblock_builder = StacksMicroblockBuilder::resume_unconfirmed(
                         &mut inner_node.chainstate,
                         &sort_iconn,
@@ -1385,13 +1401,16 @@ mod test {
 
         // process microblock stream to generate unconfirmed state
         let sortdb = peer.sortdb.take().unwrap();
+        let iconn = sortdb
+            .index_handle_at_block(&peer.chainstate(), &canonical_tip)
+            .unwrap();
         peer.chainstate()
-            .reload_unconfirmed_state(&sortdb.index_conn(), canonical_tip.clone())
+            .reload_unconfirmed_state(&iconn, canonical_tip.clone())
             .unwrap();
 
         let db_recv_balance = peer
             .chainstate()
-            .with_read_only_unconfirmed_clarity_tx(&sortdb.index_conn(), |clarity_tx| {
+            .with_read_only_unconfirmed_clarity_tx(&iconn, |clarity_tx| {
                 clarity_tx.with_clarity_db_readonly(|clarity_db| {
                     clarity_db
                         .get_account_stx_balance(&recv_addr.into())

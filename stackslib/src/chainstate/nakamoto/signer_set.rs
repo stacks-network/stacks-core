@@ -25,8 +25,8 @@ use clarity::vm::types::{
 };
 use clarity::vm::{ClarityVersion, ContractName, SymbolicExpression, Value};
 use lazy_static::{__Deref, lazy_static};
-use rusqlite::types::{FromSql, FromSqlError};
-use rusqlite::{params, Connection, OptionalExtension, ToSql, NO_PARAMS};
+use rusqlite::types::{FromSql, FromSqlError, ToSql};
+use rusqlite::{params, Connection, OptionalExtension};
 use sha2::{Digest as Sha2Digest, Sha512_256};
 use stacks_common::bitvec::BitVec;
 use stacks_common::codec::{
@@ -40,6 +40,7 @@ use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksAddress, StacksBlockId,
     StacksPrivateKey, StacksPublicKey, TrieHash, VRFSeed,
 };
+use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::types::{PrivateKey, StacksEpochId};
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::{to_hex, Hash160, MerkleHashFunc, MerkleTree, Sha512Trunc256Sum};
@@ -58,7 +59,6 @@ use crate::chainstate::burn::operations::{
 };
 use crate::chainstate::burn::{BlockSnapshot, SortitionHash};
 use crate::chainstate::coordinator::{BlockEventDispatcher, Error};
-use crate::chainstate::nakamoto::tenure::NAKAMOTO_TENURES_SCHEMA;
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::{
     PoxVersions, RawRewardSetEntry, RewardSet, BOOT_TEST_POX_4_AGG_KEY_CONTRACT,
@@ -217,6 +217,8 @@ impl NakamotoSigners {
         Ok(slots)
     }
 
+    /// Compute the reward set for the next reward cycle, store it, and write it to the .signers
+    /// contract.  `reward_cycle` is the _current_ reward cycle.
     pub fn handle_signer_stackerdb_update(
         clarity: &mut ClarityTransactionConnection,
         pox_constants: &PoxConstants,
@@ -238,6 +240,7 @@ impl NakamotoSigners {
         let reward_set =
             StacksChainState::make_reward_set(threshold, reward_slots, StacksEpochId::Epoch30);
 
+        test_debug!("Reward set for cycle {}: {:?}", &reward_cycle, &reward_set);
         let stackerdb_list = if participation == 0 {
             vec![]
         } else {
@@ -351,6 +354,11 @@ impl NakamotoSigners {
         Ok(SignerCalculation { events, reward_set })
     }
 
+    /// If this block is mined in the prepare phase, based on its tenure's `burn_tip_height`.  If
+    /// so, and if we haven't done so yet, then compute the PoX reward set, store it, and update
+    /// the .signers contract.  The stored PoX reward set is the reward set for the next reward
+    /// cycle, and will be used by the Nakamoto chains coordinator to validate its block-commits
+    /// and block signatures.
     pub fn check_and_handle_prepare_phase_start(
         clarity_tx: &mut ClarityTx,
         first_block_height: u64,

@@ -31,6 +31,7 @@ wsts = { workspace = true }
 rand = { workspace = true }
 rand_core = { workspace = true }
 hashbrown = { workspace = true }
+rusqlite = { workspace = true }
 
 [target.'cfg(not(any(target_os = "macos", target_os="windows", target_arch = "arm")))'.dependencies]
 tikv-jemallocator = {workspace = true}
@@ -49,10 +50,6 @@ tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
 wsts = {workspace = true}
 mutants = "0.0.3"
 
-[dependencies.rusqlite]
-version = "=0.24.2"
-features = ["blob", "serde_json", "i128_blob", "bundled", "trace"]
-
 [[bin]]
 name = "stacks-node"
 path = "src/main.rs"
@@ -62,7 +59,8 @@ name = "stacks-events"
 path = "src/stacks_events.rs"
 
 [features]
-monitoring_prom = ["stacks/monitoring_prom", "libsigner/monitoring_prom"]
+monitoring_prom = ["stacks/monitoring_prom", "libsigner/monitoring_prom", "stacks-signer/monitoring_prom"]
 slog_json = ["stacks/slog_json", "stacks-common/slog_json", "clarity/slog_json"]
 prod-genesis-chainstate = []
 default = []
+testing = []

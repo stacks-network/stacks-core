@@ -512,6 +512,7 @@ mod tests {
         let input_txid = Txid(input_txid);
 
         LeaderBlockCommitOp {
+            treatment: vec![],
             block_header_hash: BlockHeaderHash(block_header_hash),
             new_seed: VRFSeed([0; 32]),
             parent_block_ptr: (block_id - 1) as u32,
@@ -884,6 +885,7 @@ mod tests {
         };
 
         let block_commit_1 = LeaderBlockCommitOp {
+            treatment: vec![],
             sunset_burn: 0,
             block_header_hash: BlockHeaderHash::from_bytes(
                 &hex_bytes("2222222222222222222222222222222222222222222222222222222222222222")
@@ -929,6 +931,7 @@ mod tests {
         };
 
         let block_commit_2 = LeaderBlockCommitOp {
+            treatment: vec![],
             sunset_burn: 0,
             block_header_hash: BlockHeaderHash::from_bytes(
                 &hex_bytes("2222222222222222222222222222222222222222222222222222222222222223")
@@ -974,6 +977,7 @@ mod tests {
         };
 
         let block_commit_3 = LeaderBlockCommitOp {
+            treatment: vec![],
             sunset_burn: 0,
             block_header_hash: BlockHeaderHash::from_bytes(
                 &hex_bytes("2222222222222222222222222222222222222222222222222222222222222224")

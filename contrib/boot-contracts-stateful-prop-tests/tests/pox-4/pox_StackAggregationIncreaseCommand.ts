@@ -1,4 +1,7 @@
 import {
+  hasLockedStackers,
+  isATCPositive,
+  isPositive,
   logCommand,
   PoxCommand,
   Real,
@@ -56,9 +59,9 @@ export class StackAggregationIncreaseCommand implements PoxCommand {
     // - The Reward Cycle Index must be positive.
     const operator = model.stackers.get(this.operator.stxAddress)!;
     return (
-      operator.lockedAddresses.length > 0 &&
-      this.rewardCycleIndex >= 0 &&
-      operator.amountToCommit > 0
+      hasLockedStackers(operator) &&
+      isPositive(this.rewardCycleIndex) &&
+      isATCPositive(operator)
     );
   }
 

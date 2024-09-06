@@ -144,20 +144,24 @@ impl RPCRequestHandler for RPCGetConstantValRequestHandler {
 
         let data_resp =
             node.with_node_state(|_network, sortdb, chainstate, _mempool, _rpc_args| {
-                chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), &tip, |clarity_tx| {
-                    clarity_tx.with_clarity_db_readonly(|clarity_db| {
-                        let contract = clarity_db.get_contract(&contract_identifier).ok()?;
+                chainstate.maybe_read_only_clarity_tx(
+                    &sortdb.index_handle_at_block(chainstate, &tip)?,
+                    &tip,
+                    |clarity_tx| {
+                        clarity_tx.with_clarity_db_readonly(|clarity_db| {
+                            let contract = clarity_db.get_contract(&contract_identifier).ok()?;
 
-                        let cst = contract
-                            .contract_context
-                            .lookup_variable(constant_name.as_str())?
-                            .serialize_to_hex()
-                            .ok()?;
+                            let cst = contract
+                                .contract_context
+                                .lookup_variable(constant_name.as_str())?
+                                .serialize_to_hex()
+                                .ok()?;
 
-                        let data = format!("0x{cst}");
-                        Some(ConstantValResponse { data })
-                    })
-                })
+                            let data = format!("0x{cst}");
+                            Some(ConstantValResponse { data })
+                        })
+                    },
+                )
             });
 
         let data_resp = match data_resp {

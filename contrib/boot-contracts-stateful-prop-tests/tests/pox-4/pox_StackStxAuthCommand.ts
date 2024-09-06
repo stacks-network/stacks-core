@@ -1,4 +1,7 @@
 import {
+  isDelegating,
+  isStacking,
+  isStackingMinimumCalculated,
   logCommand,
   PoxCommand,
   Real,
@@ -15,6 +18,7 @@ import {
   isClarityType,
 } from "@stacks/transactions";
 import { currentCycle } from "./pox_Commands.ts";
+import { tx } from "@hirosystems/clarinet-sdk";
 
 /**
  * The `StackStxAuthCommand` locks STX for stacking within PoX-4. This self-service
@@ -66,7 +70,9 @@ export class StackStxAuthCommand implements PoxCommand {
 
     const stacker = model.stackers.get(this.wallet.stxAddress)!;
     return (
-      model.stackingMinimum > 0 && !stacker.isStacking && !stacker.hasDelegated
+      isStackingMinimumCalculated(model) &&
+      !isStacking(stacker) &&
+      !isDelegating(stacker)
     );
   }
 
@@ -80,31 +86,6 @@ export class StackStxAuthCommand implements PoxCommand {
     // generated number passed to the constructor of this class.
     const maxAmount = model.stackingMinimum * this.margin;
 
-    const { result: setAuthorization } = real.network.callPublicFn(
-      "ST000000000000000000002AMW42H.pox-4",
-      "set-signer-key-authorization",
-      [
-        // (pox-addr (tuple (version (buff 1)) (hashbytes (buff 32))))
-        poxAddressToTuple(this.wallet.btcAddress),
-        // (period uint)
-        Cl.uint(this.period),
-        // (reward-cycle uint)
-        Cl.uint(currentRewCycle),
-        // (topic (string-ascii 14))
-        Cl.stringAscii("stack-stx"),
-        // (signer-key (buff 33))
-        Cl.bufferFromHex(this.wallet.signerPubKey),
-        // (allowed bool)
-        Cl.bool(true),
-        // (max-amount uint)
-        Cl.uint(maxAmount),
-        // (auth-id uint)
-        Cl.uint(this.authId),
-      ],
-      this.wallet.stxAddress,
-    );
-
-    expect(setAuthorization).toBeOk(Cl.bool(true));
     const burnBlockHeightCV = real.network.runSnippet("burn-block-height");
     const burnBlockHeight = Number(
       cvToValue(burnBlockHeightCV as ClarityValue),
@@ -115,17 +96,41 @@ export class StackStxAuthCommand implements PoxCommand {
     // signer key.
     const amountUstx = maxAmount;
 
-    // Act
-    const stackStx = real.network.callPublicFn(
-      "ST000000000000000000002AMW42H.pox-4",
-      "stack-stx",
-      [
+    // Include the authorization and the `stack-stx` transactions in a single
+    // block. This way we ensure both the authorization and the stack-stx
+    // transactions are called during the same reward cycle, so the authorization
+    // currentRewCycle param is relevant for the upcoming stack-stx call.
+    const block = real.network.mineBlock([
+      tx.callPublicFn(
+        "ST000000000000000000002AMW42H.pox-4",
+        "set-signer-key-authorization",
+        [
+          // (pox-addr (tuple (version (buff 1)) (hashbytes (buff 32))))
+          poxAddressToTuple(this.wallet.btcAddress),
+          // (period uint)
+          Cl.uint(this.period),
+          // (reward-cycle uint)
+          Cl.uint(currentRewCycle),
+          // (topic (string-ascii 14))
+          Cl.stringAscii("stack-stx"),
+          // (signer-key (buff 33))
+          Cl.bufferFromHex(this.wallet.signerPubKey),
+          // (allowed bool)
+          Cl.bool(true),
+          // (max-amount uint)
+          Cl.uint(maxAmount),
+          // (auth-id uint)
+          Cl.uint(this.authId),
+        ],
+        this.wallet.stxAddress,
+      ),
+      tx.callPublicFn("ST000000000000000000002AMW42H.pox-4", "stack-stx", [
         // (amount-ustx uint)
         Cl.uint(amountUstx),
         // (pox-addr (tuple (version (buff 1)) (hashbytes (buff 32))))
         poxAddressToTuple(this.wallet.btcAddress),
         // (start-burn-ht uint)
-        Cl.uint(burnBlockHeight),
+        Cl.uint(burnBlockHeight + 1),
         // (lock-period uint)
         Cl.uint(this.period),
         // (signer-sig (optional (buff 65)))
@@ -136,9 +141,10 @@ export class StackStxAuthCommand implements PoxCommand {
         Cl.uint(maxAmount),
         // (auth-id uint)
         Cl.uint(this.authId),
-      ],
-      this.wallet.stxAddress,
-    );
+      ], this.wallet.stxAddress),
+    ]);
+
+    expect(block[0].result).toBeOk(Cl.bool(true));
 
     const { result: rewardCycle } = real.network.callReadOnlyFn(
       "ST000000000000000000002AMW42H.pox-4",
@@ -156,8 +162,7 @@ export class StackStxAuthCommand implements PoxCommand {
     );
     assert(isClarityType(unlockBurnHeight, ClarityType.UInt));
 
-    // Assert
-    expect(stackStx.result).toBeOk(
+    expect(block[1].result).toBeOk(
       Cl.tuple({
         "lock-amount": Cl.uint(amountUstx),
         "signer-key": Cl.bufferFromHex(this.wallet.signerPubKey),

@@ -34,16 +34,27 @@ use blockstack_lib::chainstate::nakamoto::signer_set::NakamotoSigners;
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
 use blockstack_lib::chainstate::stacks::events::StackerDBChunksEvent;
 use blockstack_lib::chainstate::stacks::StacksTransaction;
+use blockstack_lib::net::api::getinfo::RPCPeerInfoData;
 use blockstack_lib::net::api::postblock_proposal::{
     BlockValidateReject, BlockValidateResponse, ValidateRejectCode,
 };
 use blockstack_lib::util_lib::boot::boot_code_id;
+use blockstack_lib::util_lib::signed_structured_data::{
+    make_structured_data_domain, structured_data_message_hash,
+};
+use clarity::types::chainstate::{
+    BlockHeaderHash, ConsensusHash, StacksPrivateKey, StacksPublicKey,
+};
+use clarity::types::PrivateKey;
+use clarity::util::hash::Sha256Sum;
 use clarity::util::retry::BoundReader;
 use clarity::util::secp256k1::MessageSignature;
 use clarity::vm::types::serialization::SerializationError;
-use clarity::vm::types::QualifiedContractIdentifier;
+use clarity::vm::types::{QualifiedContractIdentifier, TupleData};
+use clarity::vm::Value;
 use hashbrown::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha512_256};
 use stacks_common::codec::{
     read_next, read_next_at_most, read_next_exact, write_next, Error as CodecError,
     StacksMessageCodec,
@@ -55,17 +66,43 @@ use tiny_http::{
 };
 
 use crate::http::{decode_http_body, decode_http_request};
-use crate::{BlockProposal, EventError};
+use crate::stacks_common::types::PublicKey;
+use crate::{
+    BlockProposal, EventError, MessageSlotID as MessageSlotIDTrait,
+    SignerMessage as SignerMessageTrait,
+};
 
 define_u8_enum!(
 /// Enum representing the stackerdb message identifier: this is
 ///  the contract index in the signers contracts (i.e., X in signers-0-X)
 MessageSlotID {
-    /// Block Proposal message from miners
-    BlockProposal = 0,
     /// Block Response message from signers
     BlockResponse = 1
 });
+
+define_u8_enum!(
+/// Enum representing the slots used by the miner
+MinerSlotID {
+    /// Block proposal from the miner
+    BlockProposal = 0,
+    /// Block pushed from the miner
+    BlockPushed = 1
+});
+
+impl MessageSlotIDTrait for MessageSlotID {
+    fn stacker_db_contract(&self, mainnet: bool, reward_cycle: u64) -> QualifiedContractIdentifier {
+        NakamotoSigners::make_signers_db_contract_id(reward_cycle, self.to_u32(), mainnet)
+    }
+    fn all() -> &'static [Self] {
+        MessageSlotID::ALL
+    }
+}
+
+impl SignerMessageTrait<MessageSlotID> for SignerMessage {
+    fn msg_id(&self) -> Option<MessageSlotID> {
+        self.msg_id()
+    }
+}
 
 define_u8_enum!(
 /// Enum representing the SignerMessage type prefix
@@ -73,7 +110,15 @@ SignerMessageTypePrefix {
     /// Block Proposal message from miners
     BlockProposal = 0,
     /// Block Response message from signers
-    BlockResponse = 1
+    BlockResponse = 1,
+    /// Block Pushed message from miners
+    BlockPushed = 2,
+    /// Mock block proposal message from Epoch 2.5 miners
+    MockProposal = 3,
+    /// Mock block signature message from Epoch 2.5 signers
+    MockSignature = 4,
+    /// Mock block message from Epoch 2.5 miners
+    MockBlock = 5
 });
 
 #[cfg_attr(test, mutants::skip)]
@@ -115,66 +160,91 @@ impl From<&SignerMessage> for SignerMessageTypePrefix {
         match message {
             SignerMessage::BlockProposal(_) => SignerMessageTypePrefix::BlockProposal,
             SignerMessage::BlockResponse(_) => SignerMessageTypePrefix::BlockResponse,
+            SignerMessage::BlockPushed(_) => SignerMessageTypePrefix::BlockPushed,
+            SignerMessage::MockProposal(_) => SignerMessageTypePrefix::MockProposal,
+            SignerMessage::MockSignature(_) => SignerMessageTypePrefix::MockSignature,
+            SignerMessage::MockBlock(_) => SignerMessageTypePrefix::MockBlock,
         }
     }
 }
 
 /// The messages being sent through the stacker db contracts
-#[derive(Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum SignerMessage {
     /// The block proposal from miners for signers to observe and sign
     BlockProposal(BlockProposal),
     /// The block response from signers for miners to observe
     BlockResponse(BlockResponse),
-}
-
-impl Debug for SignerMessage {
-    #[cfg_attr(test, mutants::skip)]
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::BlockProposal(b) => Debug::fmt(b, f),
-            Self::BlockResponse(b) => Debug::fmt(b, f),
-        }
-    }
+    /// A block pushed from miners to the signers set
+    BlockPushed(NakamotoBlock),
+    /// A mock signature from the epoch 2.5 signers
+    MockSignature(MockSignature),
+    /// A mock message from the epoch 2.5 miners
+    MockProposal(MockProposal),
+    /// A mock block from the epoch 2.5 miners
+    MockBlock(MockBlock),
 }
 
 impl SignerMessage {
     /// Helper function to determine the slot ID for the provided stacker-db writer id
+    ///  Not every message has a `MessageSlotID`: messages from the miner do not
+    ///   broadcast over `.signers-0-X` contracts.
     #[cfg_attr(test, mutants::skip)]
-    pub fn msg_id(&self) -> MessageSlotID {
+    pub fn msg_id(&self) -> Option<MessageSlotID> {
         match self {
-            Self::BlockProposal(_) => MessageSlotID::BlockProposal,
-            Self::BlockResponse(_) => MessageSlotID::BlockResponse,
+            Self::BlockProposal(_)
+            | Self::BlockPushed(_)
+            | Self::MockProposal(_)
+            | Self::MockBlock(_) => None,
+            Self::BlockResponse(_) | Self::MockSignature(_) => Some(MessageSlotID::BlockResponse), // Mock signature uses the same slot as block response since its exclusively for epoch 2.5 testing
         }
     }
 }
 
 impl StacksMessageCodec for SignerMessage {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
-        write_next(fd, &(SignerMessageTypePrefix::from(self) as u8))?;
+        SignerMessageTypePrefix::from(self)
+            .to_u8()
+            .consensus_serialize(fd)?;
         match self {
-            SignerMessage::BlockProposal(block_proposal) => {
-                write_next(fd, block_proposal)?;
-            }
-            SignerMessage::BlockResponse(block_response) => {
-                write_next(fd, block_response)?;
-            }
-        };
+            SignerMessage::BlockProposal(block_proposal) => block_proposal.consensus_serialize(fd),
+            SignerMessage::BlockResponse(block_response) => block_response.consensus_serialize(fd),
+            SignerMessage::BlockPushed(block) => block.consensus_serialize(fd),
+            SignerMessage::MockSignature(signature) => signature.consensus_serialize(fd),
+            SignerMessage::MockProposal(message) => message.consensus_serialize(fd),
+            SignerMessage::MockBlock(block) => block.consensus_serialize(fd),
+        }?;
         Ok(())
     }
 
     #[cfg_attr(test, mutants::skip)]
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
-        let type_prefix_byte = read_next::<u8, _>(fd)?;
+        let type_prefix_byte = u8::consensus_deserialize(fd)?;
         let type_prefix = SignerMessageTypePrefix::try_from(type_prefix_byte)?;
         let message = match type_prefix {
             SignerMessageTypePrefix::BlockProposal => {
-                let block_proposal = read_next::<BlockProposal, _>(fd)?;
+                let block_proposal = StacksMessageCodec::consensus_deserialize(fd)?;
                 SignerMessage::BlockProposal(block_proposal)
             }
             SignerMessageTypePrefix::BlockResponse => {
-                let block_response = read_next::<BlockResponse, _>(fd)?;
+                let block_response = StacksMessageCodec::consensus_deserialize(fd)?;
                 SignerMessage::BlockResponse(block_response)
+            }
+            SignerMessageTypePrefix::BlockPushed => {
+                let block = StacksMessageCodec::consensus_deserialize(fd)?;
+                SignerMessage::BlockPushed(block)
+            }
+            SignerMessageTypePrefix::MockProposal => {
+                let message = StacksMessageCodec::consensus_deserialize(fd)?;
+                SignerMessage::MockProposal(message)
+            }
+            SignerMessageTypePrefix::MockSignature => {
+                let signature = StacksMessageCodec::consensus_deserialize(fd)?;
+                SignerMessage::MockSignature(signature)
+            }
+            SignerMessageTypePrefix::MockBlock => {
+                let block = StacksMessageCodec::consensus_deserialize(fd)?;
+                SignerMessage::MockBlock(block)
             }
         };
         Ok(message)
@@ -189,13 +259,273 @@ pub trait StacksMessageCodecExtensions: Sized {
     fn inner_consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError>;
 }
 
+/// The signer relevant peer information from the stacks node
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PeerInfo {
+    /// The burn block height
+    pub burn_block_height: u64,
+    /// The consensus hash of the stacks tip
+    pub stacks_tip_consensus_hash: ConsensusHash,
+    /// The stacks tip
+    pub stacks_tip: BlockHeaderHash,
+    /// The stacks tip height
+    pub stacks_tip_height: u64,
+    /// The pox consensus
+    pub pox_consensus: ConsensusHash,
+    /// The server version
+    pub server_version: String,
+}
+
+impl StacksMessageCodec for PeerInfo {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
+        write_next(fd, &self.burn_block_height)?;
+        write_next(fd, self.stacks_tip_consensus_hash.as_bytes())?;
+        write_next(fd, &self.stacks_tip)?;
+        write_next(fd, &self.stacks_tip_height)?;
+        write_next(fd, &(self.server_version.as_bytes().len() as u8))?;
+        fd.write_all(self.server_version.as_bytes())
+            .map_err(CodecError::WriteError)?;
+        write_next(fd, &self.pox_consensus)?;
+        Ok(())
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
+        let burn_block_height = read_next::<u64, _>(fd)?;
+        let stacks_tip_consensus_hash = read_next::<ConsensusHash, _>(fd)?;
+        let stacks_tip = read_next::<BlockHeaderHash, _>(fd)?;
+        let stacks_tip_height = read_next::<u64, _>(fd)?;
+        let len_byte: u8 = read_next(fd)?;
+        let mut bytes = vec![0u8; len_byte as usize];
+        fd.read_exact(&mut bytes).map_err(CodecError::ReadError)?;
+        // must encode a valid string
+        let server_version = String::from_utf8(bytes).map_err(|_e| {
+            CodecError::DeserializeError(
+                "Failed to parse server version name: could not contruct from utf8".to_string(),
+            )
+        })?;
+        let pox_consensus = read_next::<ConsensusHash, _>(fd)?;
+        Ok(Self {
+            burn_block_height,
+            stacks_tip_consensus_hash,
+            stacks_tip,
+            stacks_tip_height,
+            server_version,
+            pox_consensus,
+        })
+    }
+}
+
+/// A mock block proposal for Epoch 2.5 mock signing
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MockProposal {
+    /// The view of the stacks node peer information at the time of the mock proposal
+    pub peer_info: PeerInfo,
+    /// The chain id for the mock proposal
+    pub chain_id: u32,
+    /// The miner's signature across the peer info
+    signature: MessageSignature,
+}
+
+impl MockProposal {
+    /// Create a new mock proposal data struct from the provided peer info, chain id, and private key.
+    pub fn new(peer_info: PeerInfo, chain_id: u32, stacks_private_key: &StacksPrivateKey) -> Self {
+        let mut sig = Self {
+            signature: MessageSignature::empty(),
+            chain_id,
+            peer_info,
+        };
+        sig.sign(stacks_private_key)
+            .expect("Failed to sign MockProposal");
+        sig
+    }
+
+    /// The signature hash for the mock proposal
+    pub fn miner_signature_hash(&self) -> Sha256Sum {
+        let domain_tuple = make_structured_data_domain("mock-miner", "1.0.0", self.chain_id);
+        let data_tuple = Value::Tuple(
+            TupleData::from_data(vec![
+                (
+                    "stacks-tip-consensus-hash".into(),
+                    Value::buff_from(self.peer_info.stacks_tip_consensus_hash.as_bytes().into())
+                        .unwrap(),
+                ),
+                (
+                    "stacks-tip".into(),
+                    Value::buff_from(self.peer_info.stacks_tip.as_bytes().into()).unwrap(),
+                ),
+                (
+                    "stacks-tip-height".into(),
+                    Value::UInt(self.peer_info.stacks_tip_height.into()),
+                ),
+                (
+                    "server-version".into(),
+                    Value::string_ascii_from_bytes(self.peer_info.server_version.clone().into())
+                        .unwrap(),
+                ),
+                (
+                    "pox-consensus".into(),
+                    Value::buff_from(self.peer_info.pox_consensus.as_bytes().into()).unwrap(),
+                ),
+            ])
+            .expect("Error creating signature hash"),
+        );
+        structured_data_message_hash(data_tuple, domain_tuple)
+    }
+
+    /// The signature hash including the miner's signature. Used by signers.
+    fn signer_signature_hash(&self) -> Sha256Sum {
+        let domain_tuple = make_structured_data_domain("mock-signer", "1.0.0", self.chain_id);
+        let data_tuple = Value::Tuple(
+            TupleData::from_data(vec![
+                (
+                    "miner-signature-hash".into(),
+                    Value::buff_from(self.miner_signature_hash().as_bytes().into()).unwrap(),
+                ),
+                (
+                    "miner-signature".into(),
+                    Value::buff_from(self.signature.as_bytes().into()).unwrap(),
+                ),
+            ])
+            .expect("Error creating signature hash"),
+        );
+        structured_data_message_hash(data_tuple, domain_tuple)
+    }
+
+    /// Sign the mock proposal and set the internal signature field
+    fn sign(&mut self, private_key: &StacksPrivateKey) -> Result<(), String> {
+        let signature_hash = self.miner_signature_hash();
+        self.signature = private_key.sign(signature_hash.as_bytes())?;
+        Ok(())
+    }
+    /// Verify the mock proposal against the provided miner public key
+    pub fn verify(&self, public_key: &StacksPublicKey) -> Result<bool, String> {
+        if self.signature == MessageSignature::empty() {
+            return Ok(false);
+        }
+        let signature_hash = self.miner_signature_hash();
+        public_key
+            .verify(&signature_hash.0, &self.signature)
+            .map_err(|e| e.to_string())
+    }
+}
+
+impl StacksMessageCodec for MockProposal {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
+        self.peer_info.consensus_serialize(fd)?;
+        write_next(fd, &self.chain_id)?;
+        write_next(fd, &self.signature)?;
+        Ok(())
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
+        let peer_info = PeerInfo::consensus_deserialize(fd)?;
+        let chain_id = read_next::<u32, _>(fd)?;
+        let signature = read_next::<MessageSignature, _>(fd)?;
+        Ok(Self {
+            peer_info,
+            chain_id,
+            signature,
+        })
+    }
+}
+
+/// A mock signature for the stacks node to be used for mock signing.
+/// This is only used by Epoch 2.5 signers to simulate the signing of a block for every sortition.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MockSignature {
+    /// The signer's signature across the mock proposal
+    signature: MessageSignature,
+    /// The mock block proposal that was signed across
+    pub mock_proposal: MockProposal,
+}
+
+impl MockSignature {
+    /// Create a new mock signature from the provided proposal and signer private key.
+    pub fn new(mock_proposal: MockProposal, stacks_private_key: &StacksPrivateKey) -> Self {
+        let mut sig = Self {
+            signature: MessageSignature::empty(),
+            mock_proposal,
+        };
+        sig.sign(stacks_private_key)
+            .expect("Failed to sign MockSignature");
+        sig
+    }
+
+    /// Sign the mock signature and set the internal signature field
+    fn sign(&mut self, private_key: &StacksPrivateKey) -> Result<(), String> {
+        let signature_hash = self.mock_proposal.signer_signature_hash();
+        self.signature = private_key.sign(signature_hash.as_bytes())?;
+        Ok(())
+    }
+
+    /// Verify the mock signature against the provided signer public key
+    pub fn verify(&self, public_key: &StacksPublicKey) -> Result<bool, String> {
+        if self.signature == MessageSignature::empty() {
+            return Ok(false);
+        }
+        let signature_hash = self.mock_proposal.signer_signature_hash();
+        public_key
+            .verify(&signature_hash.0, &self.signature)
+            .map_err(|e| e.to_string())
+    }
+}
+
+impl StacksMessageCodec for MockSignature {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
+        write_next(fd, &self.signature)?;
+        self.mock_proposal.consensus_serialize(fd)?;
+        Ok(())
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
+        let signature = read_next::<MessageSignature, _>(fd)?;
+        let mock_proposal = MockProposal::consensus_deserialize(fd)?;
+        Ok(Self {
+            signature,
+            mock_proposal,
+        })
+    }
+}
+
+/// The mock block data for epoch 2.5 miners to broadcast to simulate block signing
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MockBlock {
+    /// The mock proposal that was signed across
+    pub mock_proposal: MockProposal,
+    /// The mock signatures that the miner received
+    pub mock_signatures: Vec<MockSignature>,
+}
+
+impl StacksMessageCodec for MockBlock {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
+        self.mock_proposal.consensus_serialize(fd)?;
+        write_next(fd, &self.mock_signatures)?;
+        Ok(())
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
+        let mock_proposal = MockProposal::consensus_deserialize(fd)?;
+        let mock_signatures = read_next::<Vec<MockSignature>, _>(fd)?;
+        Ok(Self {
+            mock_proposal,
+            mock_signatures,
+        })
+    }
+}
+
 define_u8_enum!(
 /// Enum representing the reject code type prefix
 RejectCodeTypePrefix {
     /// The block was rejected due to validation issues
     ValidationFailed = 0,
     /// The block was rejected due to connectivity issues with the signer
-    ConnectivityIssues = 1
+    ConnectivityIssues = 1,
+    /// The block was rejected in a prior round
+    RejectedInPriorRound = 2,
+    /// The block was rejected due to no sortition view
+    NoSortitionView = 3,
+    /// The block was rejected due to a mismatch with expected sortition view
+    SortitionViewMismatch = 4
 });
 
 impl TryFrom<u8> for RejectCodeTypePrefix {
@@ -212,6 +542,9 @@ impl From<&RejectCode> for RejectCodeTypePrefix {
         match reject_code {
             RejectCode::ValidationFailed(_) => RejectCodeTypePrefix::ValidationFailed,
             RejectCode::ConnectivityIssues => RejectCodeTypePrefix::ConnectivityIssues,
+            RejectCode::RejectedInPriorRound => RejectCodeTypePrefix::RejectedInPriorRound,
+            RejectCode::NoSortitionView => RejectCodeTypePrefix::NoSortitionView,
+            RejectCode::SortitionViewMismatch => RejectCodeTypePrefix::SortitionViewMismatch,
         }
     }
 }
@@ -221,8 +554,14 @@ impl From<&RejectCode> for RejectCodeTypePrefix {
 pub enum RejectCode {
     /// RPC endpoint Validation failed
     ValidationFailed(ValidateRejectCode),
+    /// No Sortition View to verify against
+    NoSortitionView,
     /// The block was rejected due to connectivity issues with the signer
     ConnectivityIssues,
+    /// The block was rejected in a prior round
+    RejectedInPriorRound,
+    /// The block was rejected due to a mismatch with expected sortition view
+    SortitionViewMismatch,
 }
 
 define_u8_enum!(
@@ -390,7 +729,10 @@ impl StacksMessageCodec for RejectCode {
         // Do not do a single match here as we may add other variants in the future and don't want to miss adding it
         match self {
             RejectCode::ValidationFailed(code) => write_next(fd, &(*code as u8))?,
-            RejectCode::ConnectivityIssues => {
+            RejectCode::ConnectivityIssues
+            | RejectCode::RejectedInPriorRound
+            | RejectCode::NoSortitionView
+            | RejectCode::SortitionViewMismatch => {
                 // No additional data to serialize / deserialize
             }
         };
@@ -410,6 +752,9 @@ impl StacksMessageCodec for RejectCode {
                 })?,
             ),
             RejectCodeTypePrefix::ConnectivityIssues => RejectCode::ConnectivityIssues,
+            RejectCodeTypePrefix::RejectedInPriorRound => RejectCode::RejectedInPriorRound,
+            RejectCodeTypePrefix::NoSortitionView => RejectCode::NoSortitionView,
+            RejectCodeTypePrefix::SortitionViewMismatch => RejectCode::SortitionViewMismatch,
         };
         Ok(code)
     }
@@ -424,6 +769,19 @@ impl std::fmt::Display for RejectCode {
                 f,
                 "The block was rejected due to connectivity issues with the signer."
             ),
+            RejectCode::RejectedInPriorRound => write!(
+                f,
+                "The block was proposed before and rejected by the signer."
+            ),
+            RejectCode::NoSortitionView => {
+                write!(f, "The block was rejected due to no sortition view.")
+            }
+            RejectCode::SortitionViewMismatch => {
+                write!(
+                    f,
+                    "The block was rejected due to a mismatch with expected sortition view."
+                )
+            }
         }
     }
 }
@@ -434,15 +792,9 @@ impl From<BlockResponse> for SignerMessage {
     }
 }
 
-impl From<BlockRejection> for SignerMessage {
-    fn from(block_rejection: BlockRejection) -> Self {
-        Self::BlockResponse(BlockResponse::Rejected(block_rejection))
-    }
-}
-
-impl From<BlockValidateReject> for SignerMessage {
+impl From<BlockValidateReject> for BlockResponse {
     fn from(rejection: BlockValidateReject) -> Self {
-        Self::BlockResponse(BlockResponse::Rejected(rejection.into()))
+        Self::Rejected(rejection.into())
     }
 }
 
@@ -454,9 +806,12 @@ mod test {
         TransactionPostConditionMode, TransactionSmartContract, TransactionVersion,
     };
     use blockstack_lib::util_lib::strings::StacksString;
+    use clarity::consts::CHAIN_ID_MAINNET;
     use clarity::types::chainstate::{ConsensusHash, StacksBlockId, TrieHash};
+    use clarity::types::PrivateKey;
     use clarity::util::hash::MerkleTree;
     use clarity::util::secp256k1::MessageSignature;
+    use rand::rngs::mock;
     use rand::{thread_rng, Rng, RngCore};
     use rand_core::OsRng;
     use stacks_common::bitvec::BitVec;
@@ -568,5 +923,110 @@ mod test {
             read_next::<SignerMessage, _>(&mut &serialized_signer_message[..])
                 .expect("Failed to deserialize SignerMessage");
         assert_eq!(signer_message, deserialized_signer_message);
+    }
+
+    fn random_peer_data() -> PeerInfo {
+        let burn_block_height = thread_rng().next_u64();
+        let stacks_tip_consensus_byte: u8 = thread_rng().gen();
+        let stacks_tip_byte: u8 = thread_rng().gen();
+        let stacks_tip_height = thread_rng().next_u64();
+        let server_version = "0.0.0".to_string();
+        let pox_consensus_byte: u8 = thread_rng().gen();
+        PeerInfo {
+            burn_block_height,
+            stacks_tip_consensus_hash: ConsensusHash([stacks_tip_consensus_byte; 20]),
+            stacks_tip: BlockHeaderHash([stacks_tip_byte; 32]),
+            stacks_tip_height,
+            server_version,
+            pox_consensus: ConsensusHash([pox_consensus_byte; 20]),
+        }
+    }
+    fn random_mock_proposal() -> MockProposal {
+        let chain_byte: u8 = thread_rng().gen_range(0..=1);
+        let chain_id = if chain_byte == 1 {
+            CHAIN_ID_TESTNET
+        } else {
+            CHAIN_ID_MAINNET
+        };
+        let peer_info = random_peer_data();
+        MockProposal {
+            peer_info,
+            chain_id,
+            signature: MessageSignature::empty(),
+        }
+    }
+
+    #[test]
+    fn verify_sign_mock_proposal() {
+        let private_key = StacksPrivateKey::new();
+        let public_key = StacksPublicKey::from_private(&private_key);
+
+        let bad_private_key = StacksPrivateKey::new();
+        let bad_public_key = StacksPublicKey::from_private(&bad_private_key);
+
+        let mut mock_proposal = random_mock_proposal();
+        assert!(!mock_proposal
+            .verify(&public_key)
+            .expect("Failed to verify MockProposal"));
+
+        mock_proposal
+            .sign(&private_key)
+            .expect("Failed to sign MockProposal");
+
+        assert!(mock_proposal
+            .verify(&public_key)
+            .expect("Failed to verify MockProposal"));
+        assert!(!mock_proposal
+            .verify(&bad_public_key)
+            .expect("Failed to verify MockProposal"));
+    }
+
+    #[test]
+    fn serde_peer_data() {
+        let peer_data = random_peer_data();
+        let serialized_data = peer_data.serialize_to_vec();
+        let deserialized_data = read_next::<PeerInfo, _>(&mut &serialized_data[..])
+            .expect("Failed to deserialize PeerInfo");
+        assert_eq!(peer_data, deserialized_data);
+    }
+
+    #[test]
+    fn serde_mock_proposal() {
+        let mut mock_signature = random_mock_proposal();
+        mock_signature.sign(&StacksPrivateKey::new()).unwrap();
+        let serialized_signature = mock_signature.serialize_to_vec();
+        let deserialized_signature = read_next::<MockProposal, _>(&mut &serialized_signature[..])
+            .expect("Failed to deserialize MockSignature");
+        assert_eq!(mock_signature, deserialized_signature);
+    }
+
+    #[test]
+    fn serde_mock_signature() {
+        let mut mock_signature = MockSignature {
+            signature: MessageSignature::empty(),
+            mock_proposal: random_mock_proposal(),
+        };
+        mock_signature
+            .sign(&StacksPrivateKey::new())
+            .expect("Failed to sign MockSignature");
+        let serialized_signature = mock_signature.serialize_to_vec();
+        let deserialized_signature = read_next::<MockSignature, _>(&mut &serialized_signature[..])
+            .expect("Failed to deserialize MockSignature");
+        assert_eq!(mock_signature, deserialized_signature);
+    }
+
+    #[test]
+    fn serde_mock_block() {
+        let mock_proposal = random_mock_proposal();
+        let mock_signature_1 = MockSignature::new(mock_proposal.clone(), &StacksPrivateKey::new());
+        let mock_signature_2 = MockSignature::new(mock_proposal.clone(), &StacksPrivateKey::new());
+        let mock_block = MockBlock {
+            mock_proposal,
+            mock_signatures: vec![mock_signature_1, mock_signature_2],
+        };
+        let serialized_data = mock_block.serialize_to_vec();
+        let deserialized_data = read_next::<MockBlock, _>(&mut &serialized_data[..])
+            .expect("Failed to deserialize MockSignData");
+        assert_eq!(mock_block, deserialized_data);
     }
 }

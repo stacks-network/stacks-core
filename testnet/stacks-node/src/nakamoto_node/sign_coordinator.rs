@@ -13,21 +13,27 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::collections::BTreeMap;
 use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
 
 use hashbrown::{HashMap, HashSet};
-use libsigner::v1::messages::{MessageSlotID, SignerMessage};
+use libsigner::v0::messages::{BlockResponse, MinerSlotID, SignerMessage as SignerMessageV0};
+use libsigner::v1::messages::{MessageSlotID, SignerMessage as SignerMessageV1};
 use libsigner::{BlockProposal, SignerEntries, SignerEvent, SignerSession, StackerDBSession};
 use stacks::burnchains::Burnchain;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
-use stacks::chainstate::burn::BlockSnapshot;
-use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
+use stacks::chainstate::burn::{BlockSnapshot, ConsensusHash};
+use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader, NakamotoChainState};
 use stacks::chainstate::stacks::boot::{NakamotoSignerEntry, RewardSet, MINERS_NAME, SIGNERS_NAME};
+use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::chainstate::stacks::events::StackerDBChunksEvent;
 use stacks::chainstate::stacks::{Error as ChainstateError, ThresholdSignature};
 use stacks::libstackerdb::StackerDBChunkData;
 use stacks::net::stackerdb::StackerDBs;
+use stacks::types::PublicKey;
+use stacks::util::hash::MerkleHashFunc;
+use stacks::util::secp256k1::MessageSignature;
 use stacks::util_lib::boot::boot_code_id;
 use stacks_common::bitvec::BitVec;
 use stacks_common::codec::StacksMessageCodec;
@@ -46,9 +52,14 @@ use crate::event_dispatcher::STACKER_DB_CHANNEL;
 use crate::neon::Counters;
 use crate::Config;
 
+/// Fault injection flag to prevent the miner from seeing enough signer signatures.
+/// Used to test that the signers will broadcast a block if it gets enough signatures
+#[cfg(test)]
+pub static TEST_IGNORE_SIGNERS: std::sync::Mutex<Option<bool>> = std::sync::Mutex::new(None);
+
 /// How long should the coordinator poll on the event receiver before
 /// waking up to check timeouts?
-static EVENT_RECEIVER_POLL: Duration = Duration::from_millis(50);
+static EVENT_RECEIVER_POLL: Duration = Duration::from_millis(500);
 
 /// The `SignCoordinator` struct represents a WSTS FIRE coordinator whose
 ///  sole function is to serve as the coordinator for Nakamoto block signing.
@@ -63,6 +74,9 @@ pub struct SignCoordinator {
     is_mainnet: bool,
     miners_session: StackerDBSession,
     signing_round_timeout: Duration,
+    signer_entries: HashMap<u32, NakamotoSignerEntry>,
+    weight_threshold: u32,
+    total_weight: u32,
     pub next_signer_bitvec: BitVec<4000>,
 }
 
@@ -120,6 +134,7 @@ impl NakamotoSigningParams {
     }
 }
 
+#[allow(dead_code)]
 fn get_signer_commitments(
     is_mainnet: bool,
     reward_set: &[NakamotoSignerEntry],
@@ -140,10 +155,10 @@ fn get_signer_commitments(
             );
             continue;
         };
-        let Ok(SignerMessage::DkgResults {
+        let Ok(SignerMessageV1::DkgResults {
             aggregate_key,
             party_polynomials,
-        }) = SignerMessage::consensus_deserialize(&mut signer_data.as_slice())
+        }) = SignerMessageV1::consensus_deserialize(&mut signer_data.as_slice())
         else {
             warn!(
                 "Failed to parse DKG result, will look for results from other signers.";
@@ -192,15 +207,13 @@ impl SignCoordinator {
     /// * `aggregate_public_key` - the active aggregate key for this cycle
     pub fn new(
         reward_set: &RewardSet,
-        reward_cycle: u64,
         message_key: Scalar,
-        aggregate_public_key: Point,
-        stackerdb_conn: &StackerDBs,
         config: &Config,
     ) -> Result<Self, ChainstateError> {
         let is_mainnet = config.is_mainnet();
         let Some(ref reward_set_signers) = reward_set.signers else {
-            error!("Could not initialize WSTS coordinator for reward set without signer");
+            error!("Could not initialize signing coordinator for reward set without signer");
+            debug!("reward set: {:?}", &reward_set);
             return Err(ChainstateError::NoRegisteredSigners(0));
         };
 
@@ -248,7 +261,28 @@ impl SignCoordinator {
             ..Default::default()
         };
 
-        let mut coordinator: FireCoordinator<Aggregator> = FireCoordinator::new(coord_config);
+        let total_weight = reward_set.total_signing_weight().map_err(|e| {
+            warn!("Failed to calculate total weight for the reward set: {e:?}");
+            ChainstateError::NoRegisteredSigners(0)
+        })?;
+
+        let threshold = NakamotoBlockHeader::compute_voting_weight_threshold(total_weight)?;
+
+        let signer_public_keys = reward_set_signers
+            .iter()
+            .cloned()
+            .enumerate()
+            .map(|(idx, signer)| {
+                let Ok(slot_id) = u32::try_from(idx) else {
+                    return Err(ChainstateError::InvalidStacksBlock(
+                        "Signer index exceeds u32".into(),
+                    ));
+                };
+                Ok((slot_id, signer))
+            })
+            .collect::<Result<HashMap<_, _>, ChainstateError>>()?;
+
+        let coordinator: FireCoordinator<Aggregator> = FireCoordinator::new(coord_config);
         #[cfg(test)]
         {
             // In test mode, short-circuit spinning up the SignCoordinator if the TEST_SIGNING
@@ -261,7 +295,7 @@ impl SignCoordinator {
                 if replaced_other {
                     warn!("Replaced the miner/coordinator receiver of a prior thread. Prior thread may have crashed.");
                 }
-                let mut sign_coordinator = Self {
+                let sign_coordinator = Self {
                     coordinator,
                     message_key,
                     receiver: Some(receiver),
@@ -270,25 +304,13 @@ impl SignCoordinator {
                     miners_session,
                     signing_round_timeout: config.miner.wait_on_signers.clone(),
                     next_signer_bitvec,
+                    signer_entries: signer_public_keys,
+                    weight_threshold: threshold,
+                    total_weight,
                 };
-                sign_coordinator
-                    .coordinator
-                    .set_aggregate_public_key(Some(aggregate_public_key));
                 return Ok(sign_coordinator);
             }
         }
-        let party_polynomials = get_signer_commitments(
-            is_mainnet,
-            reward_set_signers.as_slice(),
-            stackerdb_conn,
-            reward_cycle,
-            &aggregate_public_key,
-        )?;
-        if let Err(e) = coordinator
-            .set_key_and_party_polynomials(aggregate_public_key.clone(), party_polynomials)
-        {
-            warn!("Failed to set a valid set of party polynomials"; "error" => %e);
-        };
 
         let (receiver, replaced_other) = STACKER_DB_CHANNEL.register_miner_coordinator();
         if replaced_other {
@@ -304,6 +326,9 @@ impl SignCoordinator {
             miners_session,
             signing_round_timeout: config.miner.wait_on_signers.clone(),
             next_signer_bitvec,
+            signer_entries: signer_public_keys,
+            weight_threshold: threshold,
+            total_weight,
         })
     }
 
@@ -314,25 +339,54 @@ impl SignCoordinator {
             .expect("FATAL: tried to initialize WSTS coordinator before first burn block height")
     }
 
-    fn send_signers_message(
+    /// Send a message over the miners contract using a `Scalar` private key
+    fn send_miners_message_scalar<M: StacksMessageCodec>(
         message_key: &Scalar,
         sortdb: &SortitionDB,
         tip: &BlockSnapshot,
         stackerdbs: &StackerDBs,
-        message: SignerMessage,
+        message: M,
+        miner_slot_id: MinerSlotID,
         is_mainnet: bool,
         miners_session: &mut StackerDBSession,
+        election_sortition: &ConsensusHash,
     ) -> Result<(), String> {
         let mut miner_sk = StacksPrivateKey::from_slice(&message_key.to_bytes()).unwrap();
         miner_sk.set_compress_public(true);
-        let miner_pubkey = StacksPublicKey::from_private(&miner_sk);
-        let Some(slot_range) = NakamotoChainState::get_miner_slot(sortdb, tip, &miner_pubkey)
+        Self::send_miners_message(
+            &miner_sk,
+            sortdb,
+            tip,
+            stackerdbs,
+            message,
+            miner_slot_id,
+            is_mainnet,
+            miners_session,
+            election_sortition,
+        )
+    }
+
+    /// Send a message over the miners contract using a `StacksPrivateKey`
+    pub fn send_miners_message<M: StacksMessageCodec>(
+        miner_sk: &StacksPrivateKey,
+        sortdb: &SortitionDB,
+        tip: &BlockSnapshot,
+        stackerdbs: &StackerDBs,
+        message: M,
+        miner_slot_id: MinerSlotID,
+        is_mainnet: bool,
+        miners_session: &mut StackerDBSession,
+        election_sortition: &ConsensusHash,
+    ) -> Result<(), String> {
+        let Some(slot_range) = NakamotoChainState::get_miner_slot(sortdb, tip, &election_sortition)
             .map_err(|e| format!("Failed to read miner slot information: {e:?}"))?
         else {
             return Err("No slot for miner".into());
         };
-        // We only have one slot per miner
-        let slot_id = slot_range.start;
+
+        let slot_id = slot_range
+            .start
+            .saturating_add(miner_slot_id.to_u8().into());
         if !slot_range.contains(&slot_id) {
             return Err("Not enough slots for miner messages".into());
         }
@@ -363,7 +417,8 @@ impl SignCoordinator {
     }
 
     #[cfg_attr(test, mutants::skip)]
-    pub fn begin_sign(
+    #[cfg(any(test, feature = "testing"))]
+    pub fn begin_sign_v1(
         &mut self,
         block: &NakamotoBlock,
         burn_block_height: u64,
@@ -373,6 +428,7 @@ impl SignCoordinator {
         sortdb: &SortitionDB,
         stackerdbs: &StackerDBs,
         counters: &Counters,
+        election_sortiton: &ConsensusHash,
     ) -> Result<ThresholdSignature, NakamotoNodeError> {
         let sign_id = Self::get_sign_id(burn_tip.block_height, burnchain);
         let sign_iter_id = block_attempt;
@@ -397,14 +453,16 @@ impl SignCoordinator {
                     "Failed to start signing round in FIRE coordinator: {e:?}"
                 ))
             })?;
-        Self::send_signers_message(
+        Self::send_miners_message_scalar::<SignerMessageV1>(
             &self.message_key,
             sortdb,
             burn_tip,
             &stackerdbs,
             nonce_req_msg.into(),
+            MinerSlotID::BlockProposal,
             self.is_mainnet,
             &mut self.miners_session,
+            election_sortiton,
         )
         .map_err(NakamotoNodeError::SigningCoordinatorFailure)?;
         counters.bump_naka_proposed_blocks();
@@ -413,11 +471,11 @@ impl SignCoordinator {
             // In test mode, short-circuit waiting for the signers if the TEST_SIGNING
             //  channel has been created. This allows integration tests for the stacks-node
             //  independent of the stacks-signer.
-            if let Some(signature) =
+            if let Some(_signatures) =
                 crate::tests::nakamoto_integrations::TestSigningChannel::get_signature()
             {
                 debug!("Short-circuiting waiting for signers, using test signature");
-                return Ok(signature);
+                return Ok(ThresholdSignature::empty());
             }
         }
 
@@ -483,11 +541,11 @@ impl SignCoordinator {
             let packets: Vec<_> = messages
                 .into_iter()
                 .filter_map(|msg| match msg {
-                    SignerMessage::DkgResults { .. }
-                    | SignerMessage::BlockResponse(_)
-                    | SignerMessage::EncryptedSignerState(_)
-                    | SignerMessage::Transactions(_) => None,
-                    SignerMessage::Packet(packet) => {
+                    SignerMessageV1::DkgResults { .. }
+                    | SignerMessageV1::BlockResponse(_)
+                    | SignerMessageV1::EncryptedSignerState(_)
+                    | SignerMessageV1::Transactions(_) => None,
+                    SignerMessageV1::Packet(packet) => {
                         debug!("Received signers packet: {packet:?}");
                         if !packet.verify(&self.wsts_public_keys, &coordinator_pk) {
                             warn!("Failed to verify StackerDB packet: {packet:?}");
@@ -548,14 +606,18 @@ impl SignCoordinator {
                 }
             }
             for msg in outbound_msgs {
-                match Self::send_signers_message(
+                match Self::send_miners_message_scalar::<SignerMessageV1>(
                     &self.message_key,
                     sortdb,
                     burn_tip,
                     stackerdbs,
                     msg.into(),
+                    // TODO: note, in v1, we'll want to add a new slot, but for now, it just shares
+                    //   with the block proposal
+                    MinerSlotID::BlockProposal,
                     self.is_mainnet,
                     &mut self.miners_session,
+                    election_sortiton,
                 ) {
                     Ok(()) => {
                         debug!("Miner/Coordinator: sent outbound message.");
@@ -566,6 +628,323 @@ impl SignCoordinator {
                         );
                     }
                 };
+            }
+        }
+
+        Err(NakamotoNodeError::SignerSignatureError(
+            "Timed out waiting for group signature".into(),
+        ))
+    }
+
+    /// Do we ignore signer signatures?
+    #[cfg(test)]
+    fn fault_injection_ignore_signatures() -> bool {
+        if *TEST_IGNORE_SIGNERS.lock().unwrap() == Some(true) {
+            return true;
+        }
+        false
+    }
+
+    #[cfg(not(test))]
+    fn fault_injection_ignore_signatures() -> bool {
+        false
+    }
+
+    /// Start gathering signatures for a Nakamoto block.
+    /// This function begins by sending a `BlockProposal` message
+    /// to the signers, and then waits for the signers to respond
+    /// with their signatures.  It does so in two ways, concurrently:
+    /// * It waits for signer StackerDB messages with signatures. If enough signatures can be
+    /// found, then the block can be broadcast.
+    /// * It waits for the chainstate to contain the relayed block. If so, then its signatures are
+    /// loaded and returned. This can happen if the node receives the block via a signer who
+    /// fetched all signatures and assembled the signature vector, all before we could.
+    // Mutants skip here: this function is covered via integration tests,
+    //  which the mutation testing does not see.
+    #[cfg_attr(test, mutants::skip)]
+    pub fn run_sign_v0(
+        &mut self,
+        block: &NakamotoBlock,
+        block_attempt: u64,
+        burn_tip: &BlockSnapshot,
+        burnchain: &Burnchain,
+        sortdb: &SortitionDB,
+        chain_state: &mut StacksChainState,
+        stackerdbs: &StackerDBs,
+        counters: &Counters,
+        election_sortition: &ConsensusHash,
+    ) -> Result<Vec<MessageSignature>, NakamotoNodeError> {
+        let sign_id = Self::get_sign_id(burn_tip.block_height, burnchain);
+        let sign_iter_id = block_attempt;
+        let reward_cycle_id = burnchain
+            .block_height_to_reward_cycle(burn_tip.block_height)
+            .expect("FATAL: tried to initialize coordinator before first burn block height");
+        self.coordinator.current_sign_id = sign_id;
+        self.coordinator.current_sign_iter_id = sign_iter_id;
+
+        let block_proposal = BlockProposal {
+            block: block.clone(),
+            burn_height: burn_tip.block_height,
+            reward_cycle: reward_cycle_id,
+        };
+
+        let block_proposal_message = SignerMessageV0::BlockProposal(block_proposal);
+        debug!("Sending block proposal message to signers";
+            "signer_signature_hash" => %block.header.signer_signature_hash(),
+        );
+        Self::send_miners_message_scalar::<SignerMessageV0>(
+            &self.message_key,
+            sortdb,
+            burn_tip,
+            &stackerdbs,
+            block_proposal_message,
+            MinerSlotID::BlockProposal,
+            self.is_mainnet,
+            &mut self.miners_session,
+            election_sortition,
+        )
+        .map_err(NakamotoNodeError::SigningCoordinatorFailure)?;
+        counters.bump_naka_proposed_blocks();
+
+        #[cfg(test)]
+        {
+            info!(
+                "SignCoordinator: sent block proposal to .miners, waiting for test signing channel"
+            );
+            // In test mode, short-circuit waiting for the signers if the TEST_SIGNING
+            //  channel has been created. This allows integration tests for the stacks-node
+            //  independent of the stacks-signer.
+            if let Some(signatures) =
+                crate::tests::nakamoto_integrations::TestSigningChannel::get_signature()
+            {
+                debug!("Short-circuiting waiting for signers, using test signature");
+                return Ok(signatures);
+            }
+        }
+
+        let Some(ref mut receiver) = self.receiver else {
+            return Err(NakamotoNodeError::SigningCoordinatorFailure(
+                "Failed to obtain the StackerDB event receiver".into(),
+            ));
+        };
+
+        let mut total_weight_signed: u32 = 0;
+        let mut total_reject_weight: u32 = 0;
+        let mut gathered_signatures = BTreeMap::new();
+
+        info!("SignCoordinator: beginning to watch for block signatures OR posted blocks.";
+            "threshold" => self.weight_threshold,
+        );
+
+        let start_ts = Instant::now();
+        while start_ts.elapsed() <= self.signing_round_timeout {
+            // look in the nakamoto staging db -- a block can only get stored there if it has
+            // enough signing weight to clear the threshold
+            if let Ok(Some((stored_block, _sz))) = chain_state
+                .nakamoto_blocks_db()
+                .get_nakamoto_block(&block.block_id())
+                .map_err(|e| {
+                    warn!(
+                        "Failed to query chainstate for block {}: {:?}",
+                        &block.block_id(),
+                        &e
+                    );
+                    e
+                })
+            {
+                debug!("SignCoordinator: Found signatures in relayed block");
+                counters.bump_naka_signer_pushed_blocks();
+                return Ok(stored_block.header.signer_signature);
+            }
+
+            // one of two things can happen:
+            // * we get enough signatures from stackerdb from the signers, OR
+            // * we see our block get processed in our chainstate (meaning, the signers broadcasted
+            // the block and our node got it and processed it)
+            let event = match receiver.recv_timeout(EVENT_RECEIVER_POLL) {
+                Ok(event) => event,
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                    continue;
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                    return Err(NakamotoNodeError::SigningCoordinatorFailure(
+                        "StackerDB event receiver disconnected".into(),
+                    ))
+                }
+            };
+
+            // check to see if this event we got is a signer event
+            let is_signer_event =
+                event.contract_id.name.starts_with(SIGNERS_NAME) && event.contract_id.is_boot();
+
+            if !is_signer_event {
+                debug!("Ignoring StackerDB event for non-signer contract"; "contract" => %event.contract_id);
+                continue;
+            }
+
+            let modified_slots = &event.modified_slots.clone();
+
+            let Ok(signer_event) = SignerEvent::<SignerMessageV0>::try_from(event).map_err(|e| {
+                warn!("Failure parsing StackerDB event into signer event. Ignoring message."; "err" => ?e);
+            }) else {
+                continue;
+            };
+            let SignerEvent::SignerMessages(signer_set, messages) = signer_event else {
+                debug!("Received signer event other than a signer message. Ignoring.");
+                continue;
+            };
+            if signer_set != u32::try_from(reward_cycle_id % 2).unwrap() {
+                debug!("Received signer event for other reward cycle. Ignoring.");
+                continue;
+            };
+            let slot_ids = modified_slots
+                .iter()
+                .map(|chunk| chunk.slot_id)
+                .collect::<Vec<_>>();
+
+            debug!("SignCoordinator: Received messages from signers";
+                "count" => messages.len(),
+                "slot_ids" => ?slot_ids,
+                "threshold" => self.weight_threshold
+            );
+
+            for (message, slot_id) in messages.into_iter().zip(slot_ids) {
+                let (response_hash, signature) = match message {
+                    SignerMessageV0::BlockResponse(BlockResponse::Accepted((
+                        response_hash,
+                        signature,
+                    ))) => (response_hash, signature),
+                    SignerMessageV0::BlockResponse(BlockResponse::Rejected(rejected_data)) => {
+                        let Some(signer_entry) = &self.signer_entries.get(&slot_id) else {
+                            return Err(NakamotoNodeError::SignerSignatureError(
+                                "Signer entry not found".into(),
+                            ));
+                        };
+                        if rejected_data.signer_signature_hash
+                            != block.header.signer_signature_hash()
+                        {
+                            debug!("Received rejected block response for a block besides my own. Ignoring.");
+                            continue;
+                        }
+
+                        debug!(
+                            "Signer {} rejected our block {}/{}",
+                            slot_id,
+                            &block.header.consensus_hash,
+                            &block.header.block_hash()
+                        );
+                        total_reject_weight = total_reject_weight
+                            .checked_add(signer_entry.weight)
+                            .expect("FATAL: total weight rejected exceeds u32::MAX");
+
+                        if total_reject_weight.saturating_add(self.weight_threshold)
+                            > self.total_weight
+                        {
+                            debug!(
+                                "{}/{} signers vote to reject our block {}/{}",
+                                total_reject_weight,
+                                self.total_weight,
+                                &block.header.consensus_hash,
+                                &block.header.block_hash()
+                            );
+                            counters.bump_naka_rejected_blocks();
+                            return Err(NakamotoNodeError::SignersRejected);
+                        }
+                        continue;
+                    }
+                    SignerMessageV0::BlockProposal(_) => {
+                        debug!("Received block proposal message. Ignoring.");
+                        continue;
+                    }
+                    SignerMessageV0::BlockPushed(_) => {
+                        debug!("Received block pushed message. Ignoring.");
+                        continue;
+                    }
+                    SignerMessageV0::MockSignature(_)
+                    | SignerMessageV0::MockProposal(_)
+                    | SignerMessageV0::MockBlock(_) => {
+                        debug!("Received mock message. Ignoring.");
+                        continue;
+                    }
+                };
+                let block_sighash = block.header.signer_signature_hash();
+                if block_sighash != response_hash {
+                    warn!(
+                        "Processed signature for a different block. Will try to continue.";
+                        "signature" => %signature,
+                        "block_signer_signature_hash" => %block_sighash,
+                        "response_hash" => %response_hash,
+                        "slot_id" => slot_id,
+                        "reward_cycle_id" => reward_cycle_id,
+                        "response_hash" => %response_hash
+                    );
+                    continue;
+                }
+                debug!("SignCoordinator: Received valid signature from signer"; "slot_id" => slot_id, "signature" => %signature);
+                let Some(signer_entry) = &self.signer_entries.get(&slot_id) else {
+                    return Err(NakamotoNodeError::SignerSignatureError(
+                        "Signer entry not found".into(),
+                    ));
+                };
+                let Ok(signer_pubkey) = StacksPublicKey::from_slice(&signer_entry.signing_key)
+                else {
+                    return Err(NakamotoNodeError::SignerSignatureError(
+                        "Failed to parse signer public key".into(),
+                    ));
+                };
+                let Ok(valid_sig) = signer_pubkey.verify(block_sighash.bits(), &signature) else {
+                    warn!("Got invalid signature from a signer. Ignoring.");
+                    continue;
+                };
+                if !valid_sig {
+                    warn!(
+                        "Processed signature but didn't validate over the expected block. Ignoring";
+                        "signature" => %signature,
+                        "block_signer_signature_hash" => %block_sighash,
+                        "slot_id" => slot_id,
+                    );
+                    continue;
+                }
+                if !gathered_signatures.contains_key(&slot_id) {
+                    total_weight_signed = total_weight_signed
+                        .checked_add(signer_entry.weight)
+                        .expect("FATAL: total weight signed exceeds u32::MAX");
+                }
+
+                if Self::fault_injection_ignore_signatures() {
+                    warn!("SignCoordinator: fault injection: ignoring well-formed signature for block";
+                        "block_signer_sighash" => %block_sighash,
+                        "signer_pubkey" => signer_pubkey.to_hex(),
+                        "signer_slot_id" => slot_id,
+                        "signature" => %signature,
+                        "signer_weight" => signer_entry.weight,
+                        "total_weight_signed" => total_weight_signed,
+                        "stacks_block_hash" => %block.header.block_hash(),
+                        "stacks_block_id" => %block.header.block_id()
+                    );
+                    continue;
+                }
+
+                info!("SignCoordinator: Signature Added to block";
+                    "block_signer_sighash" => %block_sighash,
+                    "signer_pubkey" => signer_pubkey.to_hex(),
+                    "signer_slot_id" => slot_id,
+                    "signature" => %signature,
+                    "signer_weight" => signer_entry.weight,
+                    "total_weight_signed" => total_weight_signed,
+                    "stacks_block_hash" => %block.header.block_hash(),
+                    "stacks_block_id" => %block.header.block_id()
+                );
+                gathered_signatures.insert(slot_id, signature);
+            }
+
+            // After gathering all signatures, return them if we've hit the threshold
+            if total_weight_signed >= self.weight_threshold {
+                info!("SignCoordinator: Received enough signatures. Continuing.";
+                    "stacks_block_hash" => %block.header.block_hash(),
+                    "stacks_block_id" => %block.header.block_id()
+                );
+                return Ok(gathered_signatures.values().cloned().collect());
             }
         }
 

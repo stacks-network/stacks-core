@@ -667,7 +667,7 @@ fn make_genesis_block_with_recipients(
     )
     .unwrap();
 
-    let iconn = sort_db.index_conn();
+    let iconn = sort_db.index_handle_at_tip();
     let mut miner_epoch_info = builder.pre_epoch_begin(state, &iconn, true).unwrap();
     let ast_rules = miner_epoch_info.ast_rules.clone();
     let mut epoch_tx = builder
@@ -698,6 +698,7 @@ fn make_genesis_block_with_recipients(
 
     let commit_op = LeaderBlockCommitOp {
         sunset_burn: 0,
+        treatment: vec![],
         block_header_hash: block.block_hash(),
         burn_fee: my_burn,
         input: (Txid([0; 32]), 0),
@@ -922,7 +923,7 @@ fn make_stacks_block_with_input(
 
     let total_burn = parents_sortition.total_burn;
 
-    let iconn = sort_db.index_conn();
+    let iconn = sort_db.index_handle_at_tip();
 
     let mut builder = StacksBlockBuilder::make_regtest_block_builder(
         burnchain,
@@ -970,6 +971,7 @@ fn make_stacks_block_with_input(
 
     let commit_op = LeaderBlockCommitOp {
         sunset_burn,
+        treatment: vec![],
         block_header_hash: block.block_hash(),
         burn_fee: my_burn,
         input,
@@ -1286,7 +1288,7 @@ fn missed_block_commits_2_05() {
     assert_eq!(
         chainstate
             .with_read_only_clarity_tx(
-                &sort_db.index_conn(),
+                &sort_db.index_handle_at_tip(),
                 &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
                 |conn| conn
                     .with_readonly_clarity_env(
@@ -1636,7 +1638,7 @@ fn missed_block_commits_2_1() {
     assert_eq!(
         chainstate
             .with_read_only_clarity_tx(
-                &sort_db.index_conn(),
+                &sort_db.index_handle_at_tip(),
                 &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
                 |conn| conn
                     .with_readonly_clarity_env(
@@ -1981,7 +1983,7 @@ fn late_block_commits_2_1() {
     assert_eq!(
         chainstate
             .with_read_only_clarity_tx(
-                &sort_db.index_conn(),
+                &sort_db.index_handle_at_tip(),
                 &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
                 |conn| conn
                     .with_readonly_clarity_env(
@@ -2154,7 +2156,7 @@ fn test_simple_setup() {
     assert_eq!(
         chainstate
             .with_read_only_clarity_tx(
-                &sort_db.index_conn(),
+                &sort_db.index_handle_at_tip(),
                 &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
                 |conn| conn
                     .with_readonly_clarity_env(
@@ -2408,6 +2410,7 @@ fn test_sortition_with_reward_set() {
             let bad_block_recipients = Some(RewardSetInfo {
                 anchor_block: BlockHeaderHash([0; 32]),
                 recipients,
+                allow_nakamoto_punishment: false,
             });
             let (bad_outs_op, _) = make_stacks_block_with_recipients(
                 &sort_db,
@@ -2464,7 +2467,7 @@ fn test_sortition_with_reward_set() {
     assert_eq!(
         chainstate
             .with_read_only_clarity_tx(
-                &sort_db.index_conn(),
+                &sort_db.index_handle_at_tip(),
                 &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
                 |conn| conn
                     .with_readonly_clarity_env(
@@ -2653,6 +2656,7 @@ fn test_sortition_with_burner_reward_set() {
             let bad_block_recipients = Some(RewardSetInfo {
                 anchor_block: BlockHeaderHash([0; 32]),
                 recipients,
+                allow_nakamoto_punishment: false,
             });
             let (bad_outs_op, _) = make_stacks_block_with_recipients(
                 &sort_db,
@@ -2709,7 +2713,7 @@ fn test_sortition_with_burner_reward_set() {
     assert_eq!(
         chainstate
             .with_read_only_clarity_tx(
-                &sort_db.index_conn(),
+                &sort_db.index_handle_at_tip(),
                 &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
                 |conn| conn
                     .with_readonly_clarity_env(
@@ -2916,7 +2920,7 @@ fn test_pox_btc_ops() {
             let mut chainstate = get_chainstate(path);
             let (stacker_balance, burn_height) = chainstate
                 .with_read_only_clarity_tx(
-                    &sort_db.index_conn(),
+                    &sort_db.index_handle_at_tip(),
                     &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
                     |conn| {
                         conn.with_clarity_db_readonly(|db| {
@@ -3001,7 +3005,7 @@ fn test_pox_btc_ops() {
     assert_eq!(
         chainstate
             .with_read_only_clarity_tx(
-                &sort_db.index_conn(),
+                &sort_db.index_handle_at_tip(),
                 &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
                 |conn| conn
                     .with_readonly_clarity_env(
@@ -3219,7 +3223,7 @@ fn test_stx_transfer_btc_ops() {
             let mut chainstate = get_chainstate(path);
             let (sender_balance, burn_height) = chainstate
                 .with_read_only_clarity_tx(
-                    &sort_db.index_conn(),
+                    &sort_db.index_handle_at_tip(),
                     &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
                     |conn| {
                         conn.with_clarity_db_readonly(|db| {
@@ -3234,7 +3238,7 @@ fn test_stx_transfer_btc_ops() {
 
             let (recipient_balance, burn_height) = chainstate
                 .with_read_only_clarity_tx(
-                    &sort_db.index_conn(),
+                    &sort_db.index_handle_at_tip(),
                     &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
                     |conn| {
                         conn.with_clarity_db_readonly(|db| {
@@ -3348,7 +3352,7 @@ fn test_stx_transfer_btc_ops() {
     assert_eq!(
         chainstate
             .with_read_only_clarity_tx(
-                &sort_db.index_conn(),
+                &sort_db.index_handle_at_tip(),
                 &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
                 |conn| conn
                     .with_readonly_clarity_env(
@@ -3691,13 +3695,13 @@ fn test_delegate_stx_btc_ops() {
             );
             let first_delegation_info = get_delegation_info_pox_2(
                 &mut chainstate,
-                &sort_db.index_conn(),
+                &sort_db.index_handle_at_tip(),
                 &parent_tip,
                 &first_del,
             );
             let second_delegation_info = get_delegation_info_pox_2(
                 &mut chainstate,
-                &sort_db.index_conn(),
+                &sort_db.index_handle_at_tip(),
                 &parent_tip,
                 &second_del,
             );
@@ -3744,7 +3748,7 @@ fn test_delegate_stx_btc_ops() {
     assert_eq!(
         chainstate
             .with_read_only_clarity_tx(
-                &sort_db.index_conn(),
+                &sort_db.index_handle_at_tip(),
                 &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
                 |conn| conn
                     .with_readonly_clarity_env(
@@ -3988,7 +3992,7 @@ fn test_initial_coinbase_reward_distributions() {
     assert_eq!(
         chainstate
             .with_read_only_clarity_tx(
-                &sort_db.index_conn(),
+                &sort_db.index_handle_at_tip(),
                 &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
                 |conn| conn
                     .with_readonly_clarity_env(
@@ -4156,7 +4160,7 @@ fn test_epoch_switch_cost_contract_instantiation() {
         assert_eq!(
             chainstate
                 .with_read_only_clarity_tx(
-                    &sort_db.index_conn(),
+                    &sort_db.index_handle_at_tip(),
                     &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
                     |conn| conn.with_clarity_db_readonly(|db| db
                         .get_stacks_epoch(burn_block_height as u32)
@@ -4176,7 +4180,7 @@ fn test_epoch_switch_cost_contract_instantiation() {
         assert_eq!(
             chainstate
                 .with_read_only_clarity_tx(
-                    &sort_db.index_conn(),
+                    &sort_db.index_handle_at_tip(),
                     &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
                     |conn| {
                         conn.with_clarity_db_readonly(|db| {
@@ -4193,7 +4197,7 @@ fn test_epoch_switch_cost_contract_instantiation() {
         // check that costs-2 contract DNE before epoch 2.05, and that it does exist after
         let does_costs_2_contract_exist = chainstate
             .with_read_only_clarity_tx(
-                &sort_db.index_conn(),
+                &sort_db.index_handle_at_tip(),
                 &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
                 |conn| {
                     conn.with_clarity_db_readonly(|db| {
@@ -4360,7 +4364,7 @@ fn test_epoch_switch_pox_2_contract_instantiation() {
         assert_eq!(
             chainstate
                 .with_read_only_clarity_tx(
-                    &sort_db.index_conn(),
+                    &sort_db.index_handle_at_tip(),
                     &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
                     |conn| conn.with_clarity_db_readonly(|db| db
                         .get_stacks_epoch(burn_block_height as u32)
@@ -4381,7 +4385,7 @@ fn test_epoch_switch_pox_2_contract_instantiation() {
         assert_eq!(
             chainstate
                 .with_read_only_clarity_tx(
-                    &sort_db.index_conn(),
+                    &sort_db.index_handle_at_tip(),
                     &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
                     |conn| {
                         conn.with_clarity_db_readonly(|db| {
@@ -4398,7 +4402,7 @@ fn test_epoch_switch_pox_2_contract_instantiation() {
         // check that pox-2 contract DNE before epoch 2.1, and that it does exist after
         let does_pox_2_contract_exist = chainstate
             .with_read_only_clarity_tx(
-                &sort_db.index_conn(),
+                &sort_db.index_handle_at_tip(),
                 &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
                 |conn| {
                     conn.with_clarity_db_readonly(|db| {
@@ -4569,7 +4573,7 @@ fn test_epoch_switch_pox_3_contract_instantiation() {
         assert_eq!(
             chainstate
                 .with_read_only_clarity_tx(
-                    &sort_db.index_conn(),
+                    &sort_db.index_handle_at_tip(),
                     &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
                     |conn| conn.with_clarity_db_readonly(|db| db
                         .get_stacks_epoch(burn_block_height as u32)
@@ -4590,7 +4594,7 @@ fn test_epoch_switch_pox_3_contract_instantiation() {
         assert_eq!(
             chainstate
                 .with_read_only_clarity_tx(
-                    &sort_db.index_conn(),
+                    &sort_db.index_handle_at_tip(),
                     &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
                     |conn| {
                         conn.with_clarity_db_readonly(|db| {
@@ -4607,7 +4611,7 @@ fn test_epoch_switch_pox_3_contract_instantiation() {
         // check that pox-3 contract DNE before epoch 2.4, and that it does exist after
         let does_pox_3_contract_exist = chainstate
             .with_read_only_clarity_tx(
-                &sort_db.index_conn(),
+                &sort_db.index_handle_at_tip(),
                 &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
                 |conn| {
                     conn.with_clarity_db_readonly(|db| {
@@ -4855,7 +4859,7 @@ fn atlas_stop_start() {
         // check that the bns contract exists
         let does_bns_contract_exist = chainstate
             .with_read_only_clarity_tx(
-                &sort_db.index_conn(),
+                &sort_db.index_handle_at_tip(),
                 &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
                 |conn| {
                     conn.with_clarity_db_readonly(|db| db.get_contract(&boot_code_id("bns", false)))
@@ -5180,7 +5184,7 @@ fn test_epoch_verify_active_pox_contract() {
         // Query the pox.clar contract to ensure the total stacked amount is as expected
         let amount_locked_pox_1_res = get_total_stacked_info(
             &mut chainstate,
-            &sort_db.index_conn(),
+            &sort_db.index_handle_at_tip(),
             &parent_tip,
             curr_reward_cycle,
             false,
@@ -5214,7 +5218,7 @@ fn test_epoch_verify_active_pox_contract() {
         // Query the pox-2.clar contract to ensure the total stacked amount is as expected
         let amount_locked_pox_2_res = get_total_stacked_info(
             &mut chainstate,
-            &sort_db.index_conn(),
+            &sort_db.index_handle_at_tip(),
             &parent_tip,
             curr_reward_cycle,
             true,
@@ -5516,7 +5520,7 @@ fn test_sortition_with_sunset() {
     assert_eq!(
         chainstate
             .with_read_only_clarity_tx(
-                &sort_db.index_conn(),
+                &sort_db.index_handle_at_tip(),
                 &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
                 |conn| conn
                     .with_readonly_clarity_env(
@@ -5864,7 +5868,7 @@ fn test_sortition_with_sunset_and_epoch_switch() {
     assert_eq!(
         chainstate
             .with_read_only_clarity_tx(
-                &sort_db.index_conn(),
+                &sort_db.index_handle_at_tip(),
                 &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
                 |conn| conn
                     .with_readonly_clarity_env(
@@ -6774,7 +6778,7 @@ fn eval_at_chain_tip(chainstate_path: &str, sort_db: &SortitionDB, eval: &str) -
     let mut chainstate = get_chainstate(chainstate_path);
     chainstate
         .with_read_only_clarity_tx(
-            &sort_db.index_conn(),
+            &sort_db.index_handle_at_tip(),
             &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
             |conn| {
                 conn.with_readonly_clarity_env(

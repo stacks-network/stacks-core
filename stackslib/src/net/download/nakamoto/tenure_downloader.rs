@@ -31,7 +31,6 @@ use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs, log};
-use wsts::curve::point::Point;
 
 use crate::burnchains::{Burnchain, BurnchainView, PoxConstants};
 use crate::chainstate::burn::db::sortdb::{
@@ -41,6 +40,7 @@ use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::nakamoto::{
     NakamotoBlock, NakamotoBlockHeader, NakamotoChainState, NakamotoStagingBlocksConnRef,
 };
+use crate::chainstate::stacks::boot::RewardSet;
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::{
     Error as chainstate_error, StacksBlockHeader, TenureChangePayload,
@@ -57,7 +57,7 @@ use crate::net::inv::epoch2x::InvState;
 use crate::net::inv::nakamoto::{NakamotoInvStateMachine, NakamotoTenureInv};
 use crate::net::neighbors::rpc::NeighborRPC;
 use crate::net::neighbors::NeighborComms;
-use crate::net::p2p::PeerNetwork;
+use crate::net::p2p::{CurrentRewardSet, PeerNetwork};
 use crate::net::server::HttpPeer;
 use crate::net::{Error as NetError, Neighbor, NeighborAddress, NeighborKey};
 use crate::util_lib::db::{DBConn, Error as DBError};
@@ -129,8 +129,8 @@ impl fmt::Display for NakamotoTenureDownloadState {
 ///    is configured to fetch the highest complete tenure (i.e. the parent of the ongoing tenure);
 ///    in this case, the end-block is the start-block of the ongoing tenure.
 /// 3. Obtain the blocks that lie between the first and last blocks of the tenure, in reverse
-///    order.  As blocks are found, their signer signatures will be validated against the aggregate
-///    public key for this tenure; their hash-chain continuity will be validated against the start
+///    order.  As blocks are found, their signer signatures will be validated against the signer
+///    public keys for this tenure; their hash-chain continuity will be validated against the start
 ///    and end block hashes; their quantity will be validated against the tenure-change transaction
 ///    in the end-block.
 ///
@@ -149,10 +149,10 @@ pub struct NakamotoTenureDownloader {
     pub tenure_end_block_id: StacksBlockId,
     /// Address of who we're asking for blocks
     pub naddr: NeighborAddress,
-    /// Aggregate public key that signed the start-block of this tenure
-    pub start_aggregate_public_key: Point,
-    /// Aggregate public key that signed the end-block of this tenure
-    pub end_aggregate_public_key: Point,
+    /// Signer public keys that signed the start-block of this tenure, in reward cycle order
+    pub start_signer_keys: RewardSet,
+    /// Signer public keys that signed the end-block of this tenure
+    pub end_signer_keys: RewardSet,
     /// Whether or not we're idle -- i.e. there are no ongoing network requests associated with
     /// this state machine.
     pub idle: bool,
@@ -178,21 +178,20 @@ impl NakamotoTenureDownloader {
         tenure_start_block_id: StacksBlockId,
         tenure_end_block_id: StacksBlockId,
         naddr: NeighborAddress,
-        start_aggregate_public_key: Point,
-        end_aggregate_public_key: Point,
+        start_signer_keys: RewardSet,
+        end_signer_keys: RewardSet,
     ) -> Self {
-        test_debug!(
-            "Instantiate downloader to {} for tenure {}",
-            &naddr,
-            &tenure_id_consensus_hash
+        debug!(
+            "Instantiate downloader to {} for tenure {}: {}-{}",
+            &naddr, &tenure_id_consensus_hash, &tenure_start_block_id, &tenure_end_block_id,
         );
         Self {
             tenure_id_consensus_hash,
             tenure_start_block_id,
             tenure_end_block_id,
             naddr,
-            start_aggregate_public_key,
-            end_aggregate_public_key,
+            start_signer_keys,
+            end_signer_keys,
             idle: false,
             state: NakamotoTenureDownloadState::GetTenureStartBlock(tenure_start_block_id.clone()),
             tenure_start_block: None,
@@ -243,16 +242,16 @@ impl NakamotoTenureDownloader {
             return Err(NetError::InvalidMessage);
         }
 
-        if !tenure_start_block
+        if let Err(e) = tenure_start_block
             .header
-            .verify_signer(&self.start_aggregate_public_key)
+            .verify_signer_signatures(&self.start_signer_keys)
         {
             // signature verification failed
             warn!("Invalid tenure-start block: bad signer signature";
-                  "tenure_id" => %self.tenure_id_consensus_hash,
-                  "block.header.block_id" => %tenure_start_block.header.block_id(),
-                  "start_aggregate_public_key" => %self.start_aggregate_public_key,
-                  "state" => %self.state);
+                   "tenure_id" => %self.tenure_id_consensus_hash,
+                   "block.header.block_id" => %tenure_start_block.header.block_id(),
+                   "state" => %self.state,
+                   "error" => %e);
             return Err(NetError::InvalidMessage);
         }
 
@@ -268,7 +267,7 @@ impl NakamotoTenureDownloader {
             self.state = NakamotoTenureDownloadState::GetTenureBlocks(hdr.parent_block_id.clone());
         } else if let Some(tenure_end_block) = self.tenure_end_block.take() {
             // we already have the tenure-end block, so immediately proceed to accept it.
-            test_debug!(
+            debug!(
                 "Preemptively process tenure-end block {} for tenure {}",
                 tenure_end_block.block_id(),
                 &self.tenure_id_consensus_hash
@@ -310,10 +309,9 @@ impl NakamotoTenureDownloader {
         else {
             return Err(NetError::InvalidState);
         };
-        test_debug!(
+        debug!(
             "Transition downloader to {} to directly fetch tenure-end block {} (direct transition)",
-            &self.naddr,
-            &end_block_id
+            &self.naddr, &end_block_id
         );
         self.state = NakamotoTenureDownloadState::GetTenureEndBlock(end_block_id);
         Ok(())
@@ -325,10 +323,9 @@ impl NakamotoTenureDownloader {
             self.state
         {
             if wait_deadline < Instant::now() {
-                test_debug!(
+                debug!(
                     "Transition downloader to {} to directly fetch tenure-end block {} (timed out)",
-                    &self.naddr,
-                    &end_block_id
+                    &self.naddr, &end_block_id
                 );
                 self.state = NakamotoTenureDownloadState::GetTenureEndBlock(end_block_id);
             }
@@ -369,16 +366,16 @@ impl NakamotoTenureDownloader {
             return Err(NetError::InvalidMessage);
         }
 
-        if !tenure_end_block
+        if let Err(e) = tenure_end_block
             .header
-            .verify_signer(&self.end_aggregate_public_key)
+            .verify_signer_signatures(&self.end_signer_keys)
         {
             // bad signature
             warn!("Invalid tenure-end block: bad signer signature";
                   "tenure_id" => %self.tenure_id_consensus_hash,
                   "block.header.block_id" => %tenure_end_block.header.block_id(),
-                  "end_aggregate_public_key" => %self.end_aggregate_public_key,
-                  "state" => %self.state);
+                  "state" => %self.state,
+                  "error" => %e);
             return Err(NetError::InvalidMessage);
         }
 
@@ -470,12 +467,15 @@ impl NakamotoTenureDownloader {
                 return Err(NetError::InvalidMessage);
             }
 
-            if !block.header.verify_signer(&self.start_aggregate_public_key) {
+            if let Err(e) = block
+                .header
+                .verify_signer_signatures(&self.start_signer_keys)
+            {
                 warn!("Invalid block: bad signer signature";
                       "tenure_id" => %self.tenure_id_consensus_hash,
                       "block.header.block_id" => %block.header.block_id(),
-                      "start_aggregate_public_key" => %self.start_aggregate_public_key,
-                      "state" => %self.state);
+                      "state" => %self.state,
+                      "error" => %e);
                 return Err(NetError::InvalidMessage);
             }
 
@@ -525,11 +525,9 @@ impl NakamotoTenureDownloader {
             return Err(NetError::InvalidState);
         };
 
-        test_debug!(
+        debug!(
             "Accepted tenure blocks for tenure {} cursor={} ({})",
-            &self.tenure_id_consensus_hash,
-            &block_cursor,
-            count
+            &self.tenure_id_consensus_hash, &block_cursor, count
         );
         if earliest_block.block_id() != tenure_start_block.block_id() {
             // still have more blocks to download
@@ -567,24 +565,23 @@ impl NakamotoTenureDownloader {
     ) -> Result<Option<StacksHttpRequest>, ()> {
         let request = match self.state {
             NakamotoTenureDownloadState::GetTenureStartBlock(start_block_id) => {
-                test_debug!("Request tenure-start block {}", &start_block_id);
+                debug!("Request tenure-start block {}", &start_block_id);
                 StacksHttpRequest::new_get_nakamoto_block(peerhost, start_block_id.clone())
             }
             NakamotoTenureDownloadState::WaitForTenureEndBlock(_block_id, _deadline) => {
                 // we're waiting for some other downloader's block-fetch to complete
-                test_debug!(
+                debug!(
                     "Waiting for tenure-end block {} until {:?}",
-                    &_block_id,
-                    _deadline
+                    &_block_id, _deadline
                 );
                 return Ok(None);
             }
             NakamotoTenureDownloadState::GetTenureEndBlock(end_block_id) => {
-                test_debug!("Request tenure-end block {}", &end_block_id);
+                debug!("Request tenure-end block {}", &end_block_id);
                 StacksHttpRequest::new_get_nakamoto_block(peerhost, end_block_id.clone())
             }
             NakamotoTenureDownloadState::GetTenureBlocks(end_block_id) => {
-                test_debug!("Downloading tenure ending at {}", &end_block_id);
+                debug!("Downloading tenure ending at {}", &end_block_id);
                 StacksHttpRequest::new_get_nakamoto_tenure(peerhost, end_block_id.clone(), None)
             }
             NakamotoTenureDownloadState::Done => {
@@ -608,7 +605,7 @@ impl NakamotoTenureDownloader {
         neighbor_rpc: &mut NeighborRPC,
     ) -> Result<bool, NetError> {
         if neighbor_rpc.has_inflight(&self.naddr) {
-            test_debug!("Peer {} has an inflight request", &self.naddr);
+            debug!("Peer {} has an inflight request", &self.naddr);
             return Ok(true);
         }
         if neighbor_rpc.is_dead_or_broken(network, &self.naddr) {
@@ -646,37 +643,48 @@ impl NakamotoTenureDownloader {
         &mut self,
         response: StacksHttpResponse,
     ) -> Result<Option<Vec<NakamotoBlock>>, NetError> {
-        self.idle = true;
-        match self.state {
+        let handle_result = match self.state {
             NakamotoTenureDownloadState::GetTenureStartBlock(_block_id) => {
-                test_debug!(
+                debug!(
                     "Got download response for tenure-start block {}",
                     &_block_id
                 );
-                let block = response.decode_nakamoto_block()?;
+                let block = response.decode_nakamoto_block().map_err(|e| {
+                    warn!("Failed to decode response for a Nakamoto block: {:?}", &e);
+                    e
+                })?;
                 self.try_accept_tenure_start_block(block)?;
                 Ok(None)
             }
             NakamotoTenureDownloadState::WaitForTenureEndBlock(..) => {
-                test_debug!("Invalid state -- Got download response for WaitForTenureBlock");
+                debug!("Invalid state -- Got download response for WaitForTenureBlock");
                 Err(NetError::InvalidState)
             }
             NakamotoTenureDownloadState::GetTenureEndBlock(_block_id) => {
-                test_debug!("Got download response to tenure-end block {}", &_block_id);
-                let block = response.decode_nakamoto_block()?;
+                debug!("Got download response to tenure-end block {}", &_block_id);
+                let block = response.decode_nakamoto_block().map_err(|e| {
+                    warn!("Failed to decode response for a Nakamoto block: {:?}", &e);
+                    e
+                })?;
                 self.try_accept_tenure_end_block(&block)?;
                 Ok(None)
             }
             NakamotoTenureDownloadState::GetTenureBlocks(_end_block_id) => {
-                test_debug!(
+                debug!(
                     "Got download response for tenure blocks ending at {}",
                     &_end_block_id
                 );
-                let blocks = response.decode_nakamoto_tenure()?;
-                self.try_accept_tenure_blocks(blocks)
+                let blocks = response.decode_nakamoto_tenure().map_err(|e| {
+                    warn!("Failed to decode response for a Nakamoto tenure: {:?}", &e);
+                    e
+                })?;
+                let blocks_opt = self.try_accept_tenure_blocks(blocks)?;
+                Ok(blocks_opt)
             }
             NakamotoTenureDownloadState::Done => Err(NetError::InvalidState),
-        }
+        };
+        self.idle = true;
+        handle_result
     }
 
     pub fn is_done(&self) -> bool {

@@ -1,4 +1,6 @@
 import {
+  isDelegating,
+  isStackingMinimumCalculated,
   logCommand,
   PoxCommand,
   Real,
@@ -7,7 +9,15 @@ import {
 } from "./pox_CommandModel.ts";
 import { poxAddressToTuple } from "@stacks/stacking";
 import { expect } from "vitest";
-import { boolCV, Cl } from "@stacks/transactions";
+import {
+  boolCV,
+  Cl,
+  ClarityType,
+  cvToValue,
+  isClarityType,
+  OptionalCV,
+  UIntCV,
+} from "@stacks/transactions";
 
 /**
  * The `DelegateStxCommand` delegates STX for stacking within PoX-4. This
@@ -16,13 +26,11 @@ import { boolCV, Cl } from "@stacks/transactions";
  *
  * Constraints for running this command include:
  * - The Stacker cannot currently be a delegator in another delegation.
- * - The PoX address provided should have a valid version (between 0 and 6
- *   inclusive).
  */
 export class DelegateStxCommand implements PoxCommand {
   readonly wallet: Wallet;
   readonly delegateTo: Wallet;
-  readonly untilBurnHt: number;
+  readonly untilBurnHt: OptionalCV<UIntCV>;
   readonly amount: bigint;
 
   /**
@@ -37,7 +45,7 @@ export class DelegateStxCommand implements PoxCommand {
   constructor(
     wallet: Wallet,
     delegateTo: Wallet,
-    untilBurnHt: number,
+    untilBurnHt: OptionalCV<UIntCV>,
     amount: bigint,
   ) {
     this.wallet = wallet;
@@ -49,10 +57,11 @@ export class DelegateStxCommand implements PoxCommand {
   check(model: Readonly<Stub>): boolean {
     // Constraints for running this command include:
     // - The Stacker cannot currently be a delegator in another delegation.
+    const stackerWallet = model.stackers.get(this.wallet.stxAddress)!;
 
     return (
-      model.stackingMinimum > 0 &&
-      !model.stackers.get(this.wallet.stxAddress)?.hasDelegated
+      isStackingMinimumCalculated(model) &&
+      !isDelegating(stackerWallet)
     );
   }
 
@@ -74,7 +83,7 @@ export class DelegateStxCommand implements PoxCommand {
         // (delegate-to principal)
         Cl.principal(this.delegateTo.stxAddress),
         // (until-burn-ht (optional uint))
-        Cl.some(Cl.uint(this.untilBurnHt)),
+        this.untilBurnHt,
         // (pox-addr (optional { version: (buff 1), hashbytes: (buff 32) }))
         Cl.some(poxAddressToTuple(this.delegateTo.btcAddress)),
       ],
@@ -93,7 +102,10 @@ export class DelegateStxCommand implements PoxCommand {
     wallet.hasDelegated = true;
     wallet.delegatedTo = this.delegateTo.stxAddress;
     wallet.delegatedMaxAmount = amountUstx;
-    wallet.delegatedUntilBurnHt = this.untilBurnHt;
+    wallet.delegatedUntilBurnHt =
+      isClarityType(this.untilBurnHt, ClarityType.OptionalNone)
+        ? undefined
+        : Number(cvToValue(this.untilBurnHt).value);
     wallet.delegatedPoxAddress = this.delegateTo.btcAddress;
 
     delegatedWallet.poolMembers.push(this.wallet.stxAddress);

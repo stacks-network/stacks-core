@@ -1,4 +1,12 @@
 import {
+  isAmountAboveThreshold,
+  isAmountWithinBalance,
+  isAmountWithinDelegationLimit,
+  isStackerDelegatingToOperator,
+  isDelegating,
+  isStacking,
+  isStackingMinimumCalculated,
+  isUBHWithinDelegationLimit,
   logCommand,
   PoxCommand,
   Real,
@@ -26,7 +34,7 @@ import { currentCycle } from "./pox_Commands.ts";
  *   `get-stacking-minimum` function at the time of this call.
  * - The Stacker cannot currently be engaged in another stacking operation.
  * - The Stacker has to currently be delegating to the Operator.
- * - The stacked STX amount should be less than or equal to the delegated
+ * - The stacked uSTX amount should be less than or equal to the delegated
  *   amount.
  * - The stacked uSTX amount should be less than or equal to the Stacker's
  *   balance.
@@ -47,7 +55,7 @@ export class DelegateStackStxCommand implements PoxCommand {
    * on behalf of a Stacker.
    *
    * @param operator - Represents the Pool Operator's wallet.
-   * @param stacker - Represents the STacker's wallet.
+   * @param stacker - Represents the Stacker's wallet.
    * @param period - Number of reward cycles to lock uSTX.
    * @param amountUstx - The uSTX amount stacked by the Operator on behalf
    *                     of the Stacker.
@@ -83,18 +91,17 @@ export class DelegateStackStxCommand implements PoxCommand {
     // - The Operator has to currently be delegated by the Stacker.
     // - The Period has to fit the last delegation burn block height.
 
-    const operatorWallet = model.stackers.get(this.operator.stxAddress)!;
     const stackerWallet = model.stackers.get(this.stacker.stxAddress)!;
 
     return (
-      model.stackingMinimum > 0 &&
-      !stackerWallet.isStacking &&
-      stackerWallet.hasDelegated &&
-      stackerWallet.delegatedMaxAmount >= Number(this.amountUstx) &&
-      Number(this.amountUstx) <= stackerWallet.ustxBalance &&
-      Number(this.amountUstx) >= model.stackingMinimum &&
-      operatorWallet.poolMembers.includes(this.stacker.stxAddress) &&
-      this.unlockBurnHt <= stackerWallet.delegatedUntilBurnHt
+      isStackingMinimumCalculated(model) &&
+      !isStacking(stackerWallet) &&
+      isDelegating(stackerWallet) &&
+      isAmountWithinDelegationLimit(stackerWallet, this.amountUstx) &&
+      isAmountWithinBalance(stackerWallet, this.amountUstx) &&
+      isAmountAboveThreshold(model, this.amountUstx) &&
+      isStackerDelegatingToOperator(stackerWallet, this.operator) &&
+      isUBHWithinDelegationLimit(stackerWallet, this.unlockBurnHt)
     );
   }
 

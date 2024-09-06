@@ -20,6 +20,7 @@ use std::sync::mpsc::sync_channel;
 use std::thread;
 use std::thread::JoinHandle;
 
+use clarity::vm::types::PrincipalData;
 use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
 use stacks_common::codec::{read_next, StacksMessageCodec};
 use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey};
@@ -34,6 +35,7 @@ use crate::chainstate::nakamoto::coordinator::tests::{
     simple_nakamoto_coordinator_10_tenures_10_sortitions,
     simple_nakamoto_coordinator_2_tenures_3_sortitions,
 };
+use crate::chainstate::nakamoto::tests::node::TestStacker;
 use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::{
@@ -170,6 +172,7 @@ fn test_nakamoto_inv_10_tenures_10_sortitions() {
 
     let chainstate = &mut peer.stacks_node.as_mut().unwrap().chainstate;
     let sort_db = peer.sortdb.as_mut().unwrap();
+    let stacks_tip = peer.network.stacks_tip.block_id();
 
     let mut inv_generator = InvGenerator::new();
 
@@ -180,7 +183,7 @@ fn test_nakamoto_inv_10_tenures_10_sortitions() {
     // check the reward cycles
     for (rc, inv) in reward_cycle_invs.into_iter().enumerate() {
         let bitvec = inv_generator
-            .make_tenure_bitvector(&tip, sort_db, chainstate, rc as u64)
+            .make_tenure_bitvector(&tip, sort_db, chainstate, &stacks_tip, rc as u64)
             .unwrap();
         debug!(
             "At reward cycle {}: {:?}, mesasge = {:?}",
@@ -231,6 +234,7 @@ fn test_nakamoto_inv_2_tenures_3_sortitions() {
 
     let chainstate = &mut peer.stacks_node.as_mut().unwrap().chainstate;
     let sort_db = peer.sortdb.as_mut().unwrap();
+    let stacks_tip = peer.network.stacks_tip.block_id();
 
     let mut inv_generator = InvGenerator::new();
 
@@ -240,7 +244,7 @@ fn test_nakamoto_inv_2_tenures_3_sortitions() {
 
     for (rc, inv) in reward_cycle_invs.into_iter().enumerate() {
         let bitvec = inv_generator
-            .make_tenure_bitvector(&tip, sort_db, chainstate, rc as u64)
+            .make_tenure_bitvector(&tip, sort_db, chainstate, &stacks_tip, rc as u64)
             .unwrap();
         debug!(
             "At reward cycle {}: {:?}, mesasge = {:?}",
@@ -283,6 +287,7 @@ fn test_nakamoto_inv_10_extended_tenures_10_sortitions() {
 
     let chainstate = &mut peer.stacks_node.as_mut().unwrap().chainstate;
     let sort_db = peer.sortdb.as_mut().unwrap();
+    let stacks_tip = peer.network.stacks_tip.block_id();
 
     let mut inv_generator = InvGenerator::new();
 
@@ -292,7 +297,7 @@ fn test_nakamoto_inv_10_extended_tenures_10_sortitions() {
 
     for (rc, inv) in reward_cycle_invs.into_iter().enumerate() {
         let bitvec = inv_generator
-            .make_tenure_bitvector(&tip, sort_db, chainstate, rc as u64)
+            .make_tenure_bitvector(&tip, sort_db, chainstate, &stacks_tip, rc as u64)
             .unwrap();
         debug!("At reward cycle {}: {:?}", rc, &bitvec);
 
@@ -332,6 +337,49 @@ pub fn make_nakamoto_peers_from_invs<'a>(
     prepare_len: u32,
     bitvecs: Vec<Vec<bool>>,
     num_peers: usize,
+) -> (TestPeer<'a>, Vec<TestPeer<'a>>) {
+    inner_make_nakamoto_peers_from_invs(
+        test_name,
+        observer,
+        rc_len,
+        prepare_len,
+        bitvecs,
+        num_peers,
+        vec![],
+    )
+}
+
+/// NOTE: The second return value does _not_ need `<'a>`, since `observer` is never installed into
+/// the peers here.  However, it appears unavoidable to the borrow-checker.
+pub fn make_nakamoto_peers_from_invs_and_balances<'a>(
+    test_name: &str,
+    observer: &'a TestEventObserver,
+    rc_len: u32,
+    prepare_len: u32,
+    bitvecs: Vec<Vec<bool>>,
+    num_peers: usize,
+    initial_balances: Vec<(PrincipalData, u64)>,
+) -> (TestPeer<'a>, Vec<TestPeer<'a>>) {
+    inner_make_nakamoto_peers_from_invs(
+        test_name,
+        observer,
+        rc_len,
+        prepare_len,
+        bitvecs,
+        num_peers,
+        initial_balances,
+    )
+}
+
+/// Make peers from inventories and balances
+fn inner_make_nakamoto_peers_from_invs<'a>(
+    test_name: &str,
+    observer: &'a TestEventObserver,
+    rc_len: u32,
+    prepare_len: u32,
+    bitvecs: Vec<Vec<bool>>,
+    num_peers: usize,
+    mut initial_balances: Vec<(PrincipalData, u64)>,
 ) -> (TestPeer<'a>, Vec<TestPeer<'a>>) {
     for bitvec in bitvecs.iter() {
         assert_eq!(bitvec.len() as u32, rc_len);
@@ -406,11 +454,19 @@ pub fn make_nakamoto_peers_from_invs<'a>(
         }
     }
 
+    // make malleablized blocks
+    let (test_signers, test_stackers) = TestStacker::multi_signing_set(&[
+        0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3,
+    ]);
+
+    initial_balances.push((addr.into(), 1_000_000));
     let plan = NakamotoBootPlan::new(test_name)
         .with_private_key(private_key)
         .with_pox_constants(rc_len, prepare_len)
-        .with_initial_balances(vec![(addr.into(), 1_000_000)])
-        .with_extra_peers(num_peers);
+        .with_initial_balances(initial_balances)
+        .with_extra_peers(num_peers)
+        .with_test_signers(test_signers)
+        .with_test_stackers(test_stackers);
 
     let (peer, other_peers) = plan.boot_into_nakamoto_peers(boot_tenures, Some(observer));
     (peer, other_peers)

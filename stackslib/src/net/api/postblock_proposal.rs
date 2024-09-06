@@ -30,17 +30,17 @@ use stacks_common::types::chainstate::{
 };
 use stacks_common::types::net::PeerHost;
 use stacks_common::types::StacksPublicKeyBuffer;
-use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::hash::{hex_bytes, to_hex, Hash160, Sha256Sum, Sha512Trunc256Sum};
 use stacks_common::util::retry::BoundReader;
+use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs};
 
 use crate::burnchains::affirmation::AffirmationMap;
 use crate::burnchains::Txid;
-use crate::chainstate::burn::db::sortdb::SortitionDB;
+use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleConn};
 use crate::chainstate::nakamoto::miner::NakamotoBlockBuilder;
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use crate::chainstate::stacks::db::blocks::MINIMUM_TX_FEE_RATE_PER_BYTE;
-use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState};
 use crate::chainstate::stacks::miner::{BlockBuilder, BlockLimitFunction, TransactionResult};
 use crate::chainstate::stacks::{
     Error as ChainError, StacksBlock, StacksBlockHeader, StacksTransaction, TransactionPayload,
@@ -62,6 +62,9 @@ use crate::net::{
     Attachment, BlocksData, BlocksDatum, Error as NetError, StacksMessageType, StacksNodeState,
 };
 use crate::util_lib::db::Error as DBError;
+
+#[cfg(any(test, feature = "testing"))]
+pub static TEST_VALIDATE_STALL: std::sync::Mutex<Option<bool>> = std::sync::Mutex::new(None);
 
 // This enum is used to supply a `reason_code` for validation
 //  rejection responses. This is serialized as an enum with string
@@ -108,6 +111,18 @@ pub struct BlockValidateRejectReason {
     pub reason_code: ValidateRejectCode,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum BlockProposalResult {
+    Accepted,
+    Error,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BlockProposalResponse {
+    pub result: BlockProposalResult,
+    pub message: String,
+}
+
 impl<T> From<T> for BlockValidateRejectReason
 where
     T: Into<ChainError>,
@@ -148,7 +163,7 @@ impl From<Result<BlockValidateOk, BlockValidateReject>> for BlockValidateRespons
     }
 }
 
-/// Represents a block proposed to the `v2/block_proposal` endpoint for validation
+/// Represents a block proposed to the `v3/block_proposal` endpoint for validation
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NakamotoBlockProposal {
     /// Proposed block
@@ -200,18 +215,30 @@ impl NakamotoBlockProposal {
 
         let mainnet = self.chain_id == CHAIN_ID_MAINNET;
         if self.chain_id != chainstate.chain_id || mainnet != chainstate.mainnet {
+            warn!(
+                "Rejected block proposal";
+                "reason" => "Wrong network/chain_id",
+                "expected_chain_id" => chainstate.chain_id,
+                "expected_mainnet" => chainstate.mainnet,
+                "received_chain_id" => self.chain_id,
+                "received_mainnet" => mainnet,
+            );
             return Err(BlockValidateRejectReason {
                 reason_code: ValidateRejectCode::InvalidBlock,
                 reason: "Wrong network/chain_id".into(),
             });
         }
 
-        let burn_dbconn = sortdb.index_conn();
         let sort_tip = SortitionDB::get_canonical_sortition_tip(sortdb.conn())?;
+        let burn_dbconn: SortitionHandleConn = sortdb.index_handle(&sort_tip);
         let mut db_handle = sortdb.index_handle(&sort_tip);
         let expected_burn_opt =
             NakamotoChainState::get_expected_burns(&mut db_handle, chainstate.db(), &self.block)?;
         if expected_burn_opt.is_none() {
+            warn!(
+                "Rejected block proposal";
+                "reason" => "Failed to find parent expected burns",
+            );
             return Err(BlockValidateRejectReason {
                 reason_code: ValidateRejectCode::UnknownParent,
                 reason: "Failed to find parent expected burns".into(),
@@ -236,6 +263,39 @@ impl NakamotoBlockProposal {
             reason_code: ValidateRejectCode::InvalidBlock,
             reason: "Invalid parent block".into(),
         })?;
+
+        // Validate the block's timestamp. It must be:
+        // - Greater than the parent block's timestamp
+        // - Less than 15 seconds into the future
+        if let StacksBlockHeaderTypes::Nakamoto(parent_nakamoto_header) =
+            &parent_stacks_header.anchored_header
+        {
+            if self.block.header.timestamp <= parent_nakamoto_header.timestamp {
+                warn!(
+                    "Rejected block proposal";
+                    "reason" => "Block timestamp is not greater than parent block",
+                    "block_timestamp" => self.block.header.timestamp,
+                    "parent_block_timestamp" => parent_nakamoto_header.timestamp,
+                );
+                return Err(BlockValidateRejectReason {
+                    reason_code: ValidateRejectCode::InvalidBlock,
+                    reason: "Block timestamp is not greater than parent block".into(),
+                });
+            }
+        }
+        if self.block.header.timestamp > get_epoch_time_secs() + 15 {
+            warn!(
+                "Rejected block proposal";
+                "reason" => "Block timestamp is too far into the future",
+                "block_timestamp" => self.block.header.timestamp,
+                "current_time" => get_epoch_time_secs(),
+            );
+            return Err(BlockValidateRejectReason {
+                reason_code: ValidateRejectCode::InvalidBlock,
+                reason: "Block timestamp is too far into the future".into(),
+            });
+        }
+
         let tenure_change = self
             .block
             .txs
@@ -257,7 +317,7 @@ impl NakamotoBlockProposal {
             self.block.header.burn_spent,
             tenure_change,
             coinbase,
-            self.block.header.signer_bitvec.len(),
+            self.block.header.pox_treatment.len(),
         )?;
 
         let mut miner_tenure_info =
@@ -305,7 +365,10 @@ impl NakamotoBlockProposal {
         block.header.miner_signature = self.block.header.miner_signature.clone();
         block.header.signer_signature = self.block.header.signer_signature.clone();
 
-        // Assuming `tx_nerkle_root` has been checked we don't need to hash the whole block
+        // Clone the timestamp from the block proposal, which has already been validated
+        block.header.timestamp = self.block.header.timestamp;
+
+        // Assuming `tx_merkle_root` has been checked we don't need to hash the whole block
         let expected_block_header_hash = self.block.header.block_hash();
         let computed_block_header_hash = block.header.block_hash();
 
@@ -322,6 +385,24 @@ impl NakamotoBlockProposal {
                 reason: "Block hash is not as expected".into(),
                 reason_code: ValidateRejectCode::BadBlockHash,
             });
+        }
+
+        #[cfg(any(test, feature = "testing"))]
+        {
+            if *TEST_VALIDATE_STALL.lock().unwrap() == Some(true) {
+                // Do an extra check just so we don't log EVERY time.
+                warn!("Block validation is stalled due to testing directive.";
+                    "block_id" => %block.block_id(),
+                    "height" => block.header.chain_length,
+                );
+                while *TEST_VALIDATE_STALL.lock().unwrap() == Some(true) {
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                }
+                info!("Block validation is no longer stalled due to testing directive.";
+                    "block_id" => %block.block_id(),
+                    "height" => block.header.chain_length,
+                );
+            }
         }
 
         info!(
@@ -374,11 +455,11 @@ impl HttpRequest for RPCBlockProposalRequestHandler {
     }
 
     fn path_regex(&self) -> Regex {
-        Regex::new(r#"^/v2/block_proposal$"#).unwrap()
+        Regex::new(r#"^/v3/block_proposal$"#).unwrap()
     }
 
     fn metrics_identifier(&self) -> &str {
-        "/v2/block_proposal"
+        "/v3/block_proposal"
     }
 
     /// Try to decode this request.
@@ -455,6 +536,15 @@ impl RPCRequestHandler for RPCBlockProposalRequestHandler {
             .take()
             .ok_or(NetError::SendError("`block_proposal` not set".into()))?;
 
+        info!(
+            "Received block proposal request";
+            "signer_sighash" => %block_proposal.block.header.signer_signature_hash(),
+            "block_header_hash" => %block_proposal.block.header.block_hash(),
+            "height" => block_proposal.block.header.chain_length,
+            "tx_count" => block_proposal.block.txs.len(),
+            "parent_stacks_block_id" => %block_proposal.block.header.parent_block_id,
+        );
+
         let res = node.with_node_state(|network, sortdb, chainstate, _mempool, rpc_args| {
             if network.is_proposal_thread_running() {
                 return Err((
@@ -519,7 +609,7 @@ impl HttpResponse for RPCBlockProposalRequestHandler {
         preamble: &HttpResponsePreamble,
         body: &[u8],
     ) -> Result<HttpResponsePayload, Error> {
-        let response: BlockValidateResponse = parse_json(preamble, body)?;
+        let response: BlockProposalResponse = parse_json(preamble, body)?;
         HttpResponsePayload::try_from_json(response)
     }
 }

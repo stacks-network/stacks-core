@@ -27,12 +27,13 @@ use std::{cmp, env, error, fmt, fs, io, os};
 use rusqlite::types::{FromSql, ToSql};
 use rusqlite::{
     Connection, Error as SqliteError, ErrorCode as SqliteErrorCode, OpenFlags, OptionalExtension,
-    Transaction, NO_PARAMS,
+    Transaction,
 };
 use sha2::Digest;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, TrieHash, BLOCK_HEADER_HASH_ENCODED_SIZE, TRIEHASH_ENCODED_SIZE,
 };
+use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::log;
 
@@ -1656,7 +1657,7 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
         // save the currently-buffered Trie to disk, and atomically put it into place (possibly to
         // a different block than the one opened, as indicated by final_bhh).
         // Runs once -- subsequent calls are no-ops.
-        // Panics on a failure to rename the Trie file into place (i.e. if the the actual commitment
+        // Panics on a failure to rename the Trie file into place (i.e. if the actual commitment
         // fails).
         self.clear_cached_ancestor_hashes_bytes();
         if self.data.readonly {

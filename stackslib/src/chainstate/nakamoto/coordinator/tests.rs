@@ -15,6 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::{HashMap, HashSet};
+use std::sync::Mutex;
 
 use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::types::PrincipalData;
@@ -22,47 +23,68 @@ use clarity::vm::Value;
 use rand::prelude::SliceRandom;
 use rand::{thread_rng, Rng, RngCore};
 use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
+use stacks_common::bitvec::BitVec;
 use stacks_common::consts::{
     FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH, SIGNER_SLOTS_PER_USER,
 };
 use stacks_common::types::chainstate::{
     StacksAddress, StacksBlockId, StacksPrivateKey, StacksPublicKey,
 };
-use stacks_common::types::{Address, StacksEpoch};
+use stacks_common::types::{Address, StacksEpoch, StacksEpochId};
+use stacks_common::util::hash::Hash160;
 use stacks_common::util::secp256k1::Secp256k1PrivateKey;
 use stacks_common::util::vrf::VRFProof;
 use wsts::curve::point::Point;
 
+use crate::burnchains::PoxConstants;
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandle};
-use crate::chainstate::burn::operations::BlockstackOperationType;
+use crate::chainstate::burn::operations::{BlockstackOperationType, LeaderBlockCommitOp};
 use crate::chainstate::coordinator::tests::{p2pkh_from, pox_addr_from};
+use crate::chainstate::nakamoto::coordinator::load_nakamoto_reward_set;
+use crate::chainstate::nakamoto::miner::NakamotoBlockBuilder;
 use crate::chainstate::nakamoto::signer_set::NakamotoSigners;
 use crate::chainstate::nakamoto::test_signers::TestSigners;
+use crate::chainstate::nakamoto::test_stall::*;
 use crate::chainstate::nakamoto::tests::get_account;
 use crate::chainstate::nakamoto::tests::node::TestStacker;
-use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
+use crate::chainstate::nakamoto::{
+    NakamotoBlock, NakamotoBlockObtainMethod, NakamotoChainState, NakamotoStagingBlocksConnRef,
+};
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::pox_4_tests::{get_stacking_minimum, get_tip};
 use crate::chainstate::stacks::boot::signers_tests::{readonly_call, readonly_call_with_sortdb};
 use crate::chainstate::stacks::boot::test::{
-    key_to_stacks_addr, make_pox_4_lockup, make_signer_key_signature,
-    make_signers_vote_for_aggregate_public_key, make_signers_vote_for_aggregate_public_key_value,
-    with_sortdb,
+    key_to_stacks_addr, make_pox_4_lockup, make_signer_key_signature, with_sortdb,
 };
 use crate::chainstate::stacks::boot::{MINERS_NAME, SIGNERS_NAME};
 use crate::chainstate::stacks::db::{MinerPaymentTxFees, StacksAccount, StacksChainState};
 use crate::chainstate::stacks::{
-    CoinbasePayload, StacksTransaction, StacksTransactionSigner, TenureChangeCause,
-    TokenTransferMemo, TransactionAnchorMode, TransactionAuth, TransactionPayload,
-    TransactionVersion,
+    CoinbasePayload, Error as ChainstateError, StacksTransaction, StacksTransactionSigner,
+    TenureChangeCause, TokenTransferMemo, TransactionAnchorMode, TransactionAuth,
+    TransactionPayload, TransactionVersion,
 };
 use crate::clarity::vm::types::StacksAddressExtensions;
 use crate::core::StacksEpochExtension;
 use crate::net::relay::Relayer;
 use crate::net::stackerdb::StackerDBConfig;
 use crate::net::test::{TestEventObserver, TestPeer, TestPeerConfig};
+use crate::net::tests::NakamotoBootPlan;
+use crate::stacks_common::codec::StacksMessageCodec;
 use crate::util_lib::boot::boot_code_id;
+use crate::util_lib::db::{query_rows, u64_to_sql};
 use crate::util_lib::signed_structured_data::pox4::Pox4SignatureTopic;
+
+impl<'a> NakamotoStagingBlocksConnRef<'a> {
+    pub fn get_blocks_at_height(&self, height: u64) -> Vec<NakamotoBlock> {
+        let sql = "SELECT data FROM nakamoto_staging_blocks WHERE height = ?1";
+        let args = rusqlite::params![&u64_to_sql(height).unwrap()];
+        let serialized_blocks: Vec<Vec<u8>> = query_rows(self, sql, args).unwrap();
+        serialized_blocks
+            .into_iter()
+            .map(|blk_bytes| NakamotoBlock::consensus_deserialize(&mut &blk_bytes[..]).unwrap())
+            .collect()
+    }
+}
 
 /// Bring a TestPeer into the Nakamoto Epoch
 fn advance_to_nakamoto(
@@ -79,6 +101,8 @@ fn advance_to_nakamoto(
         &vec![StacksPublicKey::from_private(&private_key)],
     )
     .unwrap();
+    let default_pox_addr =
+        PoxAddress::from_legacy(AddressHashMode::SerializeP2PKH, addr.bytes.clone());
 
     let mut tip = None;
     for sortition_height in 0..11 {
@@ -88,21 +112,24 @@ fn advance_to_nakamoto(
             test_stackers
                 .iter()
                 .map(|test_stacker| {
-                    let pox_addr = PoxAddress::from_legacy(
-                        AddressHashMode::SerializeP2PKH,
-                        addr.bytes.clone(),
-                    );
+                    let pox_addr = test_stacker
+                        .pox_addr
+                        .clone()
+                        .unwrap_or(default_pox_addr.clone());
+                    let max_amount = test_stacker.max_amount.clone().unwrap_or(u128::MAX);
+
                     let signature = make_signer_key_signature(
                         &pox_addr,
                         &test_stacker.signer_private_key,
                         6,
                         &Pox4SignatureTopic::StackStx,
                         12_u128,
-                        u128::MAX,
+                        max_amount,
                         1,
                     );
                     let signing_key =
                         StacksPublicKey::from_private(&test_stacker.signer_private_key);
+
                     make_pox_4_lockup(
                         &test_stacker.stacker_private_key,
                         0,
@@ -112,22 +139,11 @@ fn advance_to_nakamoto(
                         &signing_key,
                         34,
                         Some(signature),
-                        u128::MAX,
+                        max_amount,
                         1,
                     )
                 })
                 .collect()
-        } else if sortition_height == 8 {
-            with_sortdb(peer, |chainstate, sortdb| {
-                make_all_signers_vote_for_aggregate_key(
-                    chainstate,
-                    sortdb,
-                    &tip.unwrap(),
-                    test_signers,
-                    test_stackers,
-                    7,
-                )
-            })
         } else {
             vec![]
         };
@@ -137,94 +153,8 @@ fn advance_to_nakamoto(
     // peer is at the start of cycle 8
 }
 
-pub fn make_all_signers_vote_for_aggregate_key(
-    chainstate: &mut StacksChainState,
-    sortdb: &SortitionDB,
-    tip: &StacksBlockId,
-    test_signers: &mut TestSigners,
-    test_stackers: &[TestStacker],
-    cycle_id: u128,
-) -> Vec<StacksTransaction> {
-    info!("Trigger signers vote for cycle {}", cycle_id);
-
-    // Check if we already have an aggregate key for this cycle
-    if chainstate
-        .get_aggregate_public_key_pox_4(sortdb, tip, cycle_id as u64)
-        .unwrap()
-        .is_some()
-    {
-        debug!("Aggregate key already set for cycle {}", cycle_id);
-        return vec![];
-    }
-
-    // Generate a new aggregate key
-    test_signers.generate_aggregate_key(cycle_id as u64);
-
-    let signers_res = readonly_call_with_sortdb(
-        chainstate,
-        sortdb,
-        tip,
-        SIGNERS_NAME.into(),
-        "get-signers".into(),
-        vec![Value::UInt(cycle_id)],
-    );
-
-    // If the signers are not set yet, then we're not ready to vote yet.
-    let signer_vec = match signers_res.expect_optional().unwrap() {
-        Some(signer_vec) => signer_vec.expect_list().unwrap(),
-        None => {
-            debug!("No signers set for cycle {}", cycle_id);
-            return vec![];
-        }
-    };
-
-    let mut signers_to_index = HashMap::new();
-    for (index, value) in signer_vec.into_iter().enumerate() {
-        let tuple = value.expect_tuple().unwrap();
-        let signer = tuple
-            .get_owned("signer")
-            .unwrap()
-            .expect_principal()
-            .unwrap();
-        let insert_res = signers_to_index.insert(signer, index);
-        assert!(insert_res.is_none(), "Duplicate signer in signers list");
-    }
-
-    // Build a map of the signers, their private keys, and their index
-    let mut signers = HashMap::new();
-    for test_stacker in test_stackers {
-        let addr = key_to_stacks_addr(&test_stacker.signer_private_key);
-        let principal = PrincipalData::from(addr);
-        signers.insert(
-            addr,
-            (
-                test_stacker.signer_private_key,
-                signers_to_index[&principal],
-            ),
-        );
-    }
-
-    // Vote for the aggregate key for each signer
-    info!("Trigger votes for cycle {}", cycle_id);
-    signers
-        .iter()
-        .map(|(addr, (signer_key, index))| {
-            let account = get_account(chainstate, sortdb, &addr);
-            make_signers_vote_for_aggregate_public_key_value(
-                signer_key,
-                account.nonce,
-                *index as u128,
-                Value::buff_from(test_signers.aggregate_public_key.compress().data.to_vec())
-                    .expect("Failed to serialize aggregate public key"),
-                0,
-                cycle_id,
-            )
-        })
-        .collect()
-}
-
 /// Make a peer and transition it into the Nakamoto epoch.
-/// The node needs to be stacking and it needs to vote for an aggregate key;
+/// The node needs to be stacking.
 /// otherwise, Nakamoto can't activate.
 pub fn boot_nakamoto<'a>(
     test_name: &str,
@@ -233,7 +163,6 @@ pub fn boot_nakamoto<'a>(
     test_stackers: &[TestStacker],
     observer: Option<&'a TestEventObserver>,
 ) -> TestPeer<'a> {
-    let aggregate_public_key = test_signers.aggregate_public_key.clone();
     let mut peer_config = TestPeerConfig::new(test_name, 0, 0);
     let private_key = peer_config.private_key.clone();
     let addr = StacksAddress::from_public_keys(
@@ -248,7 +177,6 @@ pub fn boot_nakamoto<'a>(
     // first 25 blocks are boot-up
     // reward cycle 6 instantiates pox-3
     // we stack in reward cycle 7 so pox-3 is evaluated to find reward set participation
-    peer_config.aggregate_public_key = Some(aggregate_public_key.clone());
     peer_config
         .stacker_dbs
         .push(boot_code_id(MINERS_NAME, false));
@@ -392,6 +320,7 @@ fn replay_reward_cycle(
 
     let sort_tip = SortitionDB::get_canonical_sortition_tip(sortdb.conn()).unwrap();
     let mut sort_handle = sortdb.index_handle(&sort_tip);
+    let nakamoto_tip = sort_handle.get_nakamoto_tip_block_id().unwrap().unwrap();
 
     let mut blocks_to_process = stacks_blocks.to_vec();
     blocks_to_process.shuffle(&mut thread_rng());
@@ -400,13 +329,16 @@ fn replay_reward_cycle(
         info!("Process Nakamoto block {} ({:?}", &block_id, &block.header);
 
         let accepted = Relayer::process_new_nakamoto_block(
+            &peer.config.burnchain,
             &sortdb,
             &mut sort_handle,
             &mut node.chainstate,
-            block.clone(),
+            &nakamoto_tip,
+            &block,
             None,
+            NakamotoBlockObtainMethod::Pushed,
         )
-        .unwrap();
+        .unwrap_or(false);
         if accepted {
             test_debug!("Accepted Nakamoto block {block_id}");
             peer.coord.handle_new_nakamoto_stacks_block().unwrap();
@@ -426,8 +358,7 @@ fn replay_reward_cycle(
 /// Mine a single Nakamoto tenure with a single Nakamoto block
 #[test]
 fn test_simple_nakamoto_coordinator_bootup() {
-    let mut test_signers = TestSigners::default();
-    let test_stackers = TestStacker::common_signing_set(&test_signers);
+    let (mut test_signers, test_stackers) = TestStacker::common_signing_set();
     let mut peer = boot_nakamoto(
         function_name!(),
         vec![],
@@ -491,8 +422,7 @@ fn test_simple_nakamoto_coordinator_1_tenure_10_blocks() {
     )
     .unwrap();
 
-    let mut test_signers = TestSigners::default();
-    let test_stackers = TestStacker::common_signing_set(&test_signers);
+    let (mut test_signers, test_stackers) = TestStacker::common_signing_set();
     let mut peer = boot_nakamoto(
         function_name!(),
         vec![(addr.into(), 100_000_000)],
@@ -522,7 +452,7 @@ fn test_simple_nakamoto_coordinator_1_tenure_10_blocks() {
         tenure_change_tx,
         coinbase_tx,
         &mut test_signers,
-        |miner, chainstate, sortdb, blocks_so_far| {
+        |_miner, chainstate, sortdb, blocks_so_far| {
             if blocks_so_far.len() < 10 {
                 debug!("\n\nProduce block {}\n\n", blocks_so_far.len());
 
@@ -597,12 +527,437 @@ fn test_simple_nakamoto_coordinator_1_tenure_10_blocks() {
     peer.check_nakamoto_migration();
 }
 
+impl<'a> TestPeer<'a> {
+    pub fn mine_single_block_tenure<F, G>(
+        &mut self,
+        sender_key: &StacksPrivateKey,
+        tenure_change_tx: &StacksTransaction,
+        coinbase_tx: &StacksTransaction,
+        miner_setup: F,
+        after_block: G,
+    ) -> NakamotoBlock
+    where
+        F: FnMut(&mut NakamotoBlockBuilder),
+        G: FnMut(&mut NakamotoBlock) -> bool,
+    {
+        let sender_addr = StacksAddress::p2pkh(false, &StacksPublicKey::from_private(&sender_key));
+        let mut test_signers = self.config.test_signers.clone().unwrap();
+        let recipient_addr =
+            StacksAddress::from_string("ST2YM3J4KQK09V670TD6ZZ1XYNYCNGCWCVTASN5VM").unwrap();
+
+        // do a stx transfer in each block to a given recipient
+        let mut blocks_and_sizes = self.make_nakamoto_tenure_and(
+            tenure_change_tx.clone(),
+            coinbase_tx.clone(),
+            &mut test_signers,
+            miner_setup,
+            |_miner, chainstate, sortdb, blocks_so_far| {
+                if blocks_so_far.len() < 1 {
+                    let account = get_account(chainstate, sortdb, &sender_addr);
+                    let stx_transfer = make_token_transfer(
+                        chainstate,
+                        sortdb,
+                        &sender_key,
+                        account.nonce,
+                        100,
+                        1,
+                        &recipient_addr,
+                    );
+
+                    vec![stx_transfer]
+                } else {
+                    vec![]
+                }
+            },
+            after_block,
+        );
+        assert_eq!(blocks_and_sizes.len(), 1);
+        let block = blocks_and_sizes.pop().unwrap().0;
+        block
+    }
+
+    pub fn single_block_tenure<S, F, G>(
+        &mut self,
+        sender_key: &StacksPrivateKey,
+        miner_setup: S,
+        mut after_burn_ops: F,
+        after_block: G,
+    ) -> (NakamotoBlock, u64, StacksTransaction, StacksTransaction)
+    where
+        S: FnMut(&mut NakamotoBlockBuilder),
+        F: FnMut(&mut Vec<BlockstackOperationType>),
+        G: FnMut(&mut NakamotoBlock) -> bool,
+    {
+        let (mut burn_ops, mut tenure_change, miner_key) =
+            self.begin_nakamoto_tenure(TenureChangeCause::BlockFound);
+        after_burn_ops(&mut burn_ops);
+        let (burn_height, _, consensus_hash) = self.next_burnchain_block(burn_ops.clone());
+        let pox_constants = self.sortdb().pox_constants.clone();
+        let first_burn_height = self.sortdb().first_block_height;
+
+        info!(
+            "Burnchain block produced: {burn_height}, in_prepare_phase?: {}, first_reward_block?: {}",
+            pox_constants.is_in_prepare_phase(first_burn_height, burn_height),
+            pox_constants.is_reward_cycle_start(first_burn_height, burn_height)
+        );
+        let vrf_proof = self.make_nakamoto_vrf_proof(miner_key);
+
+        tenure_change.tenure_consensus_hash = consensus_hash.clone();
+        tenure_change.burn_view_consensus_hash = consensus_hash.clone();
+
+        let tenure_change_tx = self
+            .miner
+            .make_nakamoto_tenure_change(tenure_change.clone());
+        let coinbase_tx = self.miner.make_nakamoto_coinbase(None, vrf_proof);
+
+        let block = self.mine_single_block_tenure(
+            sender_key,
+            &tenure_change_tx,
+            &coinbase_tx,
+            miner_setup,
+            after_block,
+        );
+
+        (block, burn_height, tenure_change_tx, coinbase_tx)
+    }
+}
+
+#[test]
+// Test the block commit descendant check in nakamoto
+//   - create a 12 address PoX reward set
+//   - make a normal block commit, assert that the bitvec must contain 1s for those addresses
+//   - make a burn block commit, assert that the bitvec must contain 0s for those addresses
+fn block_descendant() {
+    let private_key = StacksPrivateKey::from_seed(&[2]);
+    let addr = StacksAddress::p2pkh(false, &StacksPublicKey::from_private(&private_key));
+
+    let num_stackers: u32 = 4;
+    let mut signing_key_seed = num_stackers.to_be_bytes().to_vec();
+    signing_key_seed.extend_from_slice(&[1, 1, 1, 1]);
+    let signing_key = StacksPrivateKey::from_seed(signing_key_seed.as_slice());
+    let test_stackers = (0..num_stackers)
+        .map(|index| TestStacker {
+            signer_private_key: signing_key.clone(),
+            stacker_private_key: StacksPrivateKey::from_seed(&index.to_be_bytes()),
+            amount: u64::MAX as u128 - 10000,
+            max_amount: Some(u64::MAX as u128),
+            pox_addr: Some(PoxAddress::Standard(
+                StacksAddress::new(
+                    C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+                    Hash160::from_data(&index.to_be_bytes()),
+                ),
+                Some(AddressHashMode::SerializeP2PKH),
+            )),
+        })
+        .collect::<Vec<_>>();
+    let test_signers = TestSigners::new(vec![signing_key]);
+    let mut pox_constants = TestPeerConfig::default().burnchain.pox_constants;
+    pox_constants.reward_cycle_length = 10;
+    pox_constants.v2_unlock_height = 21;
+    pox_constants.pox_3_activation_height = 26;
+    pox_constants.v3_unlock_height = 27;
+    pox_constants.pox_4_activation_height = 28;
+
+    let mut boot_plan = NakamotoBootPlan::new(function_name!())
+        .with_test_stackers(test_stackers.clone())
+        .with_test_signers(test_signers.clone())
+        .with_private_key(private_key);
+    boot_plan.pox_constants = pox_constants;
+
+    let mut peer = boot_plan.boot_into_nakamoto_peer(vec![], None);
+    let mut blocks = vec![];
+    let pox_constants = peer.sortdb().pox_constants.clone();
+    let first_burn_height = peer.sortdb().first_block_height;
+
+    // mine until we're at the start of the prepare reward phase (so we *know*
+    //  that the reward set contains entries)
+    loop {
+        let (block, burn_height, ..) =
+            peer.single_block_tenure(&private_key, |_| {}, |_| {}, |_| true);
+        blocks.push(block);
+
+        if pox_constants.is_in_prepare_phase(first_burn_height, burn_height + 1) {
+            info!("At prepare phase start"; "burn_height" => burn_height);
+            break;
+        }
+    }
+
+    // mine until right before the end of the prepare phase
+    loop {
+        let (burn_height, ..) = peer.mine_empty_tenure();
+        if pox_constants.is_reward_cycle_start(first_burn_height, burn_height + 3) {
+            info!("At prepare phase end"; "burn_height" => burn_height);
+            break;
+        }
+    }
+
+    // this should get chosen as the anchor block.
+    let (naka_anchor_block, ..) = peer.single_block_tenure(&private_key, |_| {}, |_| {}, |_| true);
+
+    // make the index=0 block empty, because it doesn't get a descendancy check
+    //  so, if this has a tenure mined, the direct parent check won't occur
+    peer.mine_empty_tenure();
+
+    // this would be where things go haywire. this tenure's parent will be the anchor block.
+    let (first_reward_block, ..) = peer.single_block_tenure(&private_key, |_| {}, |_| {}, |_| true);
+
+    assert_eq!(
+        first_reward_block.header.parent_block_id,
+        naka_anchor_block.block_id()
+    );
+}
+
+#[test]
+// Test PoX Reward and Punish treatment in nakamoto
+//   - create a 12 address PoX reward set
+//   - make a normal block commit, assert that the bitvec must contain 1s for those addresses
+//   - make a burn block commit, assert that the bitvec must contain 0s for those addresses
+fn pox_treatment() {
+    let private_key = StacksPrivateKey::from_seed(&[2]);
+    let addr = StacksAddress::p2pkh(false, &StacksPublicKey::from_private(&private_key));
+
+    let num_stackers: u32 = 4;
+    let mut signing_key_seed = num_stackers.to_be_bytes().to_vec();
+    signing_key_seed.extend_from_slice(&[1, 1, 1, 1]);
+    let signing_key = StacksPrivateKey::from_seed(signing_key_seed.as_slice());
+    let test_stackers = (0..num_stackers)
+        .map(|index| TestStacker {
+            signer_private_key: signing_key.clone(),
+            stacker_private_key: StacksPrivateKey::from_seed(&index.to_be_bytes()),
+            amount: u64::MAX as u128 - 10000,
+            pox_addr: Some(PoxAddress::Standard(
+                StacksAddress::new(
+                    C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+                    Hash160::from_data(&index.to_be_bytes()),
+                ),
+                Some(AddressHashMode::SerializeP2PKH),
+            )),
+            max_amount: None,
+        })
+        .collect::<Vec<_>>();
+    let test_signers = TestSigners::new(vec![signing_key]);
+    let mut pox_constants = TestPeerConfig::default().burnchain.pox_constants;
+    pox_constants.reward_cycle_length = 10;
+    pox_constants.v2_unlock_height = 21;
+    pox_constants.pox_3_activation_height = 26;
+    pox_constants.v3_unlock_height = 27;
+    pox_constants.pox_4_activation_height = 28;
+
+    let mut boot_plan = NakamotoBootPlan::new(function_name!())
+        .with_test_stackers(test_stackers.clone())
+        .with_test_signers(test_signers.clone())
+        .with_private_key(private_key);
+    boot_plan.pox_constants = pox_constants;
+
+    let mut peer = boot_plan.boot_into_nakamoto_peer(vec![], None);
+    let mut blocks = vec![];
+    let pox_constants = peer.sortdb().pox_constants.clone();
+    let first_burn_height = peer.sortdb().first_block_height;
+
+    // mine until we're at the start of the next reward phase (so we *know*
+    //  that the reward set contains entries)
+    loop {
+        let (block, burn_height, ..) =
+            peer.single_block_tenure(&private_key, |_| {}, |_| {}, |_| true);
+        blocks.push(block);
+
+        if pox_constants.is_reward_cycle_start(first_burn_height, burn_height + 1) {
+            break;
+        }
+    }
+
+    let mut expected_reward_set = vec![];
+    for stacker in test_stackers.iter() {
+        let pox_addr = stacker.pox_addr.as_ref().unwrap();
+        (0..3).for_each(|_| expected_reward_set.push(pox_addr.clone()));
+    }
+    expected_reward_set.sort_by_key(|addr| addr.to_burnchain_repr());
+    expected_reward_set.reverse();
+    let pox_recipients = Mutex::new(vec![]);
+    info!("Starting the test... beginning with an reward commit");
+    // The next block should be the start of a reward phase, so the PoX recipient should
+    //  be chosen.
+    //
+    // First: perform a normal block commit, and then try to mine a block with all zeros in the
+    //        bitvector.
+    let (invalid_block, _, tenure_change_tx, coinbase_tx) = peer.single_block_tenure(
+        &private_key,
+        |_| {},
+        |burn_ops| {
+            burn_ops.iter().for_each(|op| {
+                if let BlockstackOperationType::LeaderBlockCommit(ref commit) = op {
+                    *pox_recipients.lock().unwrap() = commit.commit_outs.clone();
+                }
+            });
+        },
+        |block| {
+            let pox_recipients = pox_recipients.lock().unwrap();
+            assert_eq!(pox_recipients.len(), 2);
+            info!(
+                "Expected reward set: {:?}",
+                expected_reward_set
+                    .iter()
+                    .map(|x| x.to_burnchain_repr())
+                    .collect::<Vec<_>>()
+            );
+            let target_indexes = pox_recipients.iter().map(|pox_addr| {
+                expected_reward_set
+                    .iter()
+                    .enumerate()
+                    .find_map(|(ix, rs_addr)| if rs_addr == pox_addr { Some(ix) } else { None })
+                    .unwrap()
+            });
+            let mut bitvec = BitVec::ones(12).unwrap();
+            target_indexes.for_each(|ix| {
+                let ix: u16 = ix.try_into().unwrap();
+                bitvec.set(ix, false).unwrap();
+                bitvec.set(1 + ix, false).unwrap();
+                bitvec.set(2 + ix, false).unwrap();
+            });
+            block.header.pox_treatment = bitvec;
+            // don't try to process this block yet, just return it so that
+            //  we can assert the block error.
+            false
+        },
+    );
+    let processing_result = peer.try_process_block(&invalid_block).unwrap_err();
+    assert_eq!(
+        processing_result.to_string(),
+        "Bitvec does not match the block commit's PoX handling".to_string(),
+    );
+    assert!(matches!(
+        processing_result,
+        ChainstateError::InvalidStacksBlock(_),
+    ));
+
+    // set the bitvec to a heterogenous one: either punish or
+    //  reward is acceptable, so this block should just process.
+    let block = peer.mine_single_block_tenure(
+        &private_key,
+        &tenure_change_tx,
+        &coinbase_tx,
+        |_| {},
+        |block| {
+            // each stacker has 3 entries in the bitvec.
+            // entries are ordered by PoxAddr, so this makes every entry a 1-of-3
+            block.header.pox_treatment = BitVec::try_from(
+                [
+                    false, false, true, false, false, true, false, false, true, false, false, true,
+                ]
+                .as_slice(),
+            )
+            .unwrap();
+            true
+        },
+    );
+    blocks.push(block);
+
+    // now we need to test punishment!
+    info!("Testing a punish commit");
+    let pox_recipients = Mutex::new(vec![]);
+    let (invalid_block, _, tenure_change_tx, coinbase_tx) = peer.single_block_tenure(
+        &private_key,
+        |miner| {
+            // we want the miner to finish assembling the block, and then we'll
+            //  alter the bitvec before it signs the block (in a subsequent closure).
+            // this way, we can test the block processing behavior.
+            miner.header.pox_treatment = BitVec::try_from(
+                [
+                    false, false, true, false, false, true, false, false, true, false, false, true,
+                ]
+                .as_slice(),
+            )
+            .unwrap();
+        },
+        |burn_ops| {
+            burn_ops.iter_mut().for_each(|op| {
+                if let BlockstackOperationType::LeaderBlockCommit(ref mut commit) = op {
+                    *pox_recipients.lock().unwrap() = vec![commit.commit_outs[0].clone()];
+                    commit.commit_outs[0] = PoxAddress::standard_burn_address(false);
+                }
+            });
+        },
+        |block| {
+            let pox_recipients = pox_recipients.lock().unwrap();
+            assert_eq!(pox_recipients.len(), 1);
+            info!(
+                "Expected reward set: {:?}",
+                expected_reward_set
+                    .iter()
+                    .map(|x| x.to_burnchain_repr())
+                    .collect::<Vec<_>>()
+            );
+            let target_indexes = pox_recipients.iter().map(|pox_addr| {
+                expected_reward_set
+                    .iter()
+                    .enumerate()
+                    .find_map(|(ix, rs_addr)| if rs_addr == pox_addr { Some(ix) } else { None })
+                    .unwrap()
+            });
+            let mut bitvec = BitVec::zeros(12).unwrap();
+            target_indexes.for_each(|ix| {
+                let ix: u16 = ix.try_into().unwrap();
+                bitvec.set(ix, true).unwrap();
+                bitvec.set(1 + ix, true).unwrap();
+                bitvec.set(2 + ix, true).unwrap();
+            });
+
+            block.header.pox_treatment = bitvec;
+            // don't try to process this block yet, just return it so that
+            //  we can assert the block error.
+            false
+        },
+    );
+    let processing_result = peer.try_process_block(&invalid_block).unwrap_err();
+    assert_eq!(
+        processing_result.to_string(),
+        "Bitvec does not match the block commit's PoX handling".to_string(),
+    );
+    assert!(matches!(
+        processing_result,
+        ChainstateError::InvalidStacksBlock(_),
+    ));
+
+    // set the bitvec to a heterogenous one: either punish or
+    //  reward is acceptable, so this block should just process.
+    let block = peer.mine_single_block_tenure(
+        &private_key,
+        &tenure_change_tx,
+        &coinbase_tx,
+        |miner| {
+            // each stacker has 3 entries in the bitvec.
+            // entries are ordered by PoxAddr, so this makes every entry a 1-of-3
+            miner.header.pox_treatment = BitVec::try_from(
+                [
+                    false, false, true, false, false, true, false, false, true, false, false, true,
+                ]
+                .as_slice(),
+            )
+            .unwrap();
+        },
+        |_block| true,
+    );
+    blocks.push(block);
+
+    let tip = {
+        let chainstate = &mut peer.stacks_node.as_mut().unwrap().chainstate;
+        let sort_db = peer.sortdb.as_mut().unwrap();
+        NakamotoChainState::get_canonical_block_header(chainstate.db(), sort_db)
+            .unwrap()
+            .unwrap()
+    };
+
+    assert_eq!(
+        tip.anchored_header.as_stacks_nakamoto().unwrap(),
+        &blocks.last().unwrap().header
+    );
+}
+
 /// Test chainstate getters against an instantiated epoch2/Nakamoto chain.
 /// There are 11 epoch2 blocks and 2 nakamto tenure with 10 nakamoto blocks each
 /// Tests:
 /// * get_header_by_coinbase_height
-/// * get_parent_vrf_proof
-/// * get_highest_nakamoto_tenure
+/// * get_ongoing_tenure
 /// * check_first_nakamoto_tenure
 /// * check_valid_consensus_hash
 /// * check_nakamoto_tenure
@@ -617,8 +972,7 @@ fn test_nakamoto_chainstate_getters() {
         &vec![StacksPublicKey::from_private(&private_key)],
     )
     .unwrap();
-    let mut test_signers = TestSigners::default();
-    let test_stackers = TestStacker::common_signing_set(&test_signers);
+    let (mut test_signers, test_stackers) = TestStacker::common_signing_set();
     let mut peer = boot_nakamoto(
         function_name!(),
         vec![(addr.into(), 100_000_000)],
@@ -635,18 +989,19 @@ fn test_nakamoto_chainstate_getters() {
         // scope this to drop the chainstate ref and db tx
         let chainstate = &peer.stacks_node.as_mut().unwrap().chainstate;
         let sort_db = peer.sortdb.as_mut().unwrap();
-        let mut sort_tx = sort_db.tx_handle_begin(&sort_tip.sortition_id).unwrap();
+        let sort_handle = sort_db.index_handle(&sort_tip.sortition_id);
 
         // no tenures yet
-        assert!(
-            NakamotoChainState::get_highest_nakamoto_tenure(chainstate.db(), sort_tx.sqlite())
-                .unwrap()
-                .is_none()
-        );
+        assert!(NakamotoChainState::get_ongoing_tenure(
+            &mut chainstate.index_conn(),
+            &sort_handle.get_nakamoto_tip_block_id().unwrap().unwrap()
+        )
+        .unwrap()
+        .is_none());
 
         // sortition-existence-check works
         assert_eq!(
-            NakamotoChainState::check_sortition_exists(&mut sort_tx, &sort_tip.consensus_hash)
+            NakamotoChainState::check_sortition_exists(&sort_handle, &sort_tip.consensus_hash)
                 .unwrap(),
             sort_tip
         );
@@ -771,13 +1126,14 @@ fn test_nakamoto_chainstate_getters() {
         let mut sort_tx = sort_db.tx_handle_begin(&sort_tip.sortition_id).unwrap();
 
         // we now have a tenure, and it confirms the last epoch2 block
-        let highest_tenure =
-            NakamotoChainState::get_highest_nakamoto_tenure(chainstate.db(), sort_tx.sqlite())
-                .unwrap()
-                .unwrap();
+        let highest_tenure = NakamotoChainState::get_ongoing_tenure(
+            &mut chainstate.index_conn(),
+            &sort_tx.get_nakamoto_tip_block_id().unwrap().unwrap(),
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(highest_tenure.coinbase_height, 12);
         assert_eq!(highest_tenure.num_blocks_confirmed, 1);
-        assert_eq!(highest_tenure.tenure_index, 1);
         assert_eq!(highest_tenure.tenure_id_consensus_hash, consensus_hash);
         assert_eq!(highest_tenure.burn_view_consensus_hash, consensus_hash);
 
@@ -799,8 +1155,7 @@ fn test_nakamoto_chainstate_getters() {
         .unwrap()
         .is_some());
         assert!(NakamotoChainState::check_tenure_continuity(
-            chainstate.db(),
-            sort_tx.sqlite(),
+            &mut chainstate.index_conn(),
             &blocks[0].header.consensus_hash,
             &blocks[1].header,
         )
@@ -827,7 +1182,7 @@ fn test_nakamoto_chainstate_getters() {
         // this should return the previous tenure
         assert_eq!(
             NakamotoChainState::check_nakamoto_tenure(
-                chainstate.db(),
+                &mut chainstate.index_conn(),
                 &mut sort_tx,
                 &blocks[0].header,
                 &tenure_change_payload,
@@ -860,7 +1215,7 @@ fn test_nakamoto_chainstate_getters() {
         // check works (this would be the first tenure)
         assert_eq!(
             NakamotoChainState::check_nakamoto_tenure(
-                chainstate.db(),
+                &mut chainstate.index_conn(),
                 &mut sort_tx,
                 &blocks[0].header,
                 &tenure_change_payload,
@@ -884,7 +1239,6 @@ fn test_nakamoto_chainstate_getters() {
             chainstate.db(),
             &blocks[0].header,
             12,
-            1,
             &tenure_change_payload,
         )
         .unwrap();
@@ -916,16 +1270,6 @@ fn test_nakamoto_chainstate_getters() {
     let next_coinbase_tx = peer
         .miner
         .make_nakamoto_coinbase(None, next_vrf_proof.clone());
-
-    // parent VRF proof check
-    let parent_vrf_proof = NakamotoChainState::get_parent_vrf_proof(
-        &peer.stacks_node.as_ref().unwrap().chainstate.db(),
-        peer.sortdb.as_ref().unwrap().conn(),
-        &next_consensus_hash,
-        &txid,
-    )
-    .unwrap();
-    assert_eq!(parent_vrf_proof, vrf_proof);
 
     // make the second tenure's blocks
     let blocks_and_sizes = peer.make_nakamoto_tenure(
@@ -971,13 +1315,14 @@ fn test_nakamoto_chainstate_getters() {
         let mut sort_tx = sort_db.tx_handle_begin(&sort_tip.sortition_id).unwrap();
 
         // we now have a new highest tenure
-        let highest_tenure =
-            NakamotoChainState::get_highest_nakamoto_tenure(chainstate.db(), sort_tx.sqlite())
-                .unwrap()
-                .unwrap();
+        let highest_tenure = NakamotoChainState::get_ongoing_tenure(
+            &mut chainstate.index_conn(),
+            &sort_tx.get_nakamoto_tip_block_id().unwrap().unwrap(),
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(highest_tenure.coinbase_height, 13);
         assert_eq!(highest_tenure.num_blocks_confirmed, 10);
-        assert_eq!(highest_tenure.tenure_index, 2);
         assert_eq!(highest_tenure.tenure_id_consensus_hash, next_consensus_hash);
         assert_eq!(highest_tenure.prev_tenure_id_consensus_hash, consensus_hash);
         assert_eq!(highest_tenure.burn_view_consensus_hash, next_consensus_hash);
@@ -996,15 +1341,13 @@ fn test_nakamoto_chainstate_getters() {
         .unwrap()
         .is_none());
         assert!(NakamotoChainState::check_tenure_continuity(
-            chainstate.db(),
-            sort_tx.sqlite(),
+            &mut chainstate.index_conn(),
             &new_blocks[0].header.consensus_hash,
             &new_blocks[1].header,
         )
         .unwrap());
         assert!(!NakamotoChainState::check_tenure_continuity(
-            chainstate.db(),
-            sort_tx.sqlite(),
+            &mut chainstate.index_conn(),
             &blocks[0].header.consensus_hash,
             &new_blocks[1].header,
         )
@@ -1067,7 +1410,7 @@ fn test_nakamoto_chainstate_getters() {
 
         assert_eq!(
             NakamotoChainState::check_nakamoto_tenure(
-                chainstate.db(),
+                &mut chainstate.index_conn(),
                 &mut sort_tx,
                 &new_blocks[0].header,
                 &tenure_change_payload,
@@ -1081,7 +1424,7 @@ fn test_nakamoto_chainstate_getters() {
         // checks on older confired tenures return the prev tenure
         assert_eq!(
             NakamotoChainState::check_nakamoto_tenure(
-                chainstate.db(),
+                &mut chainstate.index_conn(),
                 &mut sort_tx,
                 &blocks[0].header,
                 &old_tenure_change_payload,
@@ -1105,7 +1448,6 @@ fn test_nakamoto_chainstate_getters() {
             chainstate.db(),
             &new_blocks[0].header,
             13,
-            2,
             &tenure_change_payload,
         )
         .unwrap();
@@ -1126,8 +1468,7 @@ pub fn simple_nakamoto_coordinator_10_tenures_10_sortitions<'a>() -> TestPeer<'a
     )
     .unwrap();
 
-    let mut test_signers = TestSigners::default();
-    let test_stackers = TestStacker::common_signing_set(&test_signers);
+    let (mut test_signers, test_stackers) = TestStacker::common_signing_set();
     let mut peer = boot_nakamoto(
         function_name!(),
         vec![(addr.into(), 100_000_000)],
@@ -1172,33 +1513,6 @@ pub fn simple_nakamoto_coordinator_10_tenures_10_sortitions<'a>() -> TestPeer<'a
         let num_blocks: usize = (thread_rng().gen::<usize>() % 10) + 1;
 
         let block_height = peer.get_burn_block_height();
-        // If we are in the prepare phase, check if we need to generate
-        // aggregate key votes
-        let txs = if peer.config.burnchain.is_in_prepare_phase(block_height) {
-            let cycle_id = peer
-                .config
-                .burnchain
-                .block_height_to_reward_cycle(block_height)
-                .unwrap();
-            let next_cycle_id = cycle_id as u128 + 1;
-
-            with_sortdb(&mut peer, |chainstate, sortdb| {
-                if let Some(tip) = all_blocks.last() {
-                    make_all_signers_vote_for_aggregate_key(
-                        chainstate,
-                        sortdb,
-                        &tip.block_id(),
-                        &mut test_signers,
-                        &test_stackers,
-                        next_cycle_id,
-                    )
-                } else {
-                    vec![]
-                }
-            })
-        } else {
-            vec![]
-        };
 
         // do a stx transfer in each block to a given recipient
         let recipient_addr =
@@ -1208,13 +1522,7 @@ pub fn simple_nakamoto_coordinator_10_tenures_10_sortitions<'a>() -> TestPeer<'a
             coinbase_tx,
             &mut test_signers,
             |miner, chainstate, sortdb, blocks_so_far| {
-                // Include the aggregate key voting transactions in the first block.
-                let mut txs = if blocks_so_far.is_empty() {
-                    txs.clone()
-                } else {
-                    vec![]
-                };
-
+                let mut txs = vec![];
                 if blocks_so_far.len() < num_blocks {
                     debug!("\n\nProduce block {}\n\n", all_blocks.len());
 
@@ -1395,18 +1703,7 @@ pub fn simple_nakamoto_coordinator_10_tenures_10_sortitions<'a>() -> TestPeer<'a
             assert_eq!(matured_reward.parent_miner.coinbase, 1000_000_000);
         }
 
-        if i == 8 {
-            // epoch2
-            assert_eq!(
-                matured_reward.parent_miner.tx_fees,
-                MinerPaymentTxFees::Epoch2 {
-                    // The signers voting transaction is paying a fee of 1 uSTX
-                    // currently, but this may change to pay 0.
-                    anchored: 1,
-                    streamed: 0,
-                }
-            );
-        } else if i < 11 {
+        if i < 11 {
             // epoch2
             assert_eq!(
                 matured_reward.parent_miner.tx_fees,
@@ -1440,18 +1737,7 @@ pub fn simple_nakamoto_coordinator_10_tenures_10_sortitions<'a>() -> TestPeer<'a
         } else {
             assert_eq!(miner_reward.coinbase, 1000_000_000);
         }
-        if i == 7 {
-            // epoch2
-            assert_eq!(
-                miner_reward.tx_fees,
-                MinerPaymentTxFees::Epoch2 {
-                    // The signers voting transaction is paying a fee of 1 uSTX
-                    // currently, but this may change to pay 0.
-                    anchored: 1,
-                    streamed: 0,
-                }
-            );
-        } else if i < 10 {
+        if i < 10 {
             // epoch2
             assert_eq!(
                 miner_reward.tx_fees,
@@ -1527,8 +1813,7 @@ pub fn simple_nakamoto_coordinator_2_tenures_3_sortitions<'a>() -> TestPeer<'a> 
         &vec![StacksPublicKey::from_private(&private_key)],
     )
     .unwrap();
-    let mut test_signers = TestSigners::default();
-    let test_stackers = TestStacker::common_signing_set(&test_signers);
+    let (mut test_signers, test_stackers) = TestStacker::common_signing_set();
     let mut peer = boot_nakamoto(
         function_name!(),
         vec![(addr.into(), 100_000_000)],
@@ -1617,10 +1902,16 @@ pub fn simple_nakamoto_coordinator_2_tenures_3_sortitions<'a>() -> TestPeer<'a> 
         let chainstate = &mut peer.stacks_node.as_mut().unwrap().chainstate;
         let sort_db = peer.sortdb.as_mut().unwrap();
         let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
-        let tenure =
-            NakamotoChainState::get_highest_nakamoto_tenure(chainstate.db(), sort_db.conn())
+        let tenure = NakamotoChainState::get_ongoing_tenure(
+            &mut chainstate.index_conn(),
+            &sort_db
+                .index_handle_at_tip()
+                .get_nakamoto_tip_block_id()
                 .unwrap()
-                .unwrap();
+                .unwrap(),
+        )
+        .unwrap()
+        .unwrap();
         (tenure, tip)
     };
     assert_eq!(highest_tenure.tenure_id_consensus_hash, tip.consensus_hash);
@@ -1631,7 +1922,6 @@ pub fn simple_nakamoto_coordinator_2_tenures_3_sortitions<'a>() -> TestPeer<'a> 
     assert!(tip.consensus_hash == sort_tip.consensus_hash);
     assert_eq!(highest_tenure.coinbase_height, 12);
     assert_eq!(highest_tenure.cause, TenureChangeCause::BlockFound);
-    assert_eq!(highest_tenure.tenure_index, 1);
     assert_eq!(highest_tenure.num_blocks_confirmed, 1);
 
     // extend first tenure
@@ -1709,10 +1999,16 @@ pub fn simple_nakamoto_coordinator_2_tenures_3_sortitions<'a>() -> TestPeer<'a> 
         let chainstate = &mut peer.stacks_node.as_mut().unwrap().chainstate;
         let sort_db = peer.sortdb.as_mut().unwrap();
         let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
-        let tenure =
-            NakamotoChainState::get_highest_nakamoto_tenure(chainstate.db(), sort_db.conn())
+        let tenure = NakamotoChainState::get_ongoing_tenure(
+            &mut chainstate.index_conn(),
+            &sort_db
+                .index_handle_at_tip()
+                .get_nakamoto_tip_block_id()
                 .unwrap()
-                .unwrap();
+                .unwrap(),
+        )
+        .unwrap()
+        .unwrap();
         (tenure, tip)
     };
     assert_eq!(highest_tenure.tenure_id_consensus_hash, tip.consensus_hash);
@@ -1723,7 +2019,6 @@ pub fn simple_nakamoto_coordinator_2_tenures_3_sortitions<'a>() -> TestPeer<'a> 
     assert!(tip.consensus_hash != sort_tip.consensus_hash);
     assert_eq!(highest_tenure.coinbase_height, 12);
     assert_eq!(highest_tenure.cause, TenureChangeCause::Extended);
-    assert_eq!(highest_tenure.tenure_index, 2);
     assert_eq!(highest_tenure.num_blocks_confirmed, 10);
 
     // second tenure
@@ -1804,10 +2099,16 @@ pub fn simple_nakamoto_coordinator_2_tenures_3_sortitions<'a>() -> TestPeer<'a> 
         let chainstate = &mut peer.stacks_node.as_mut().unwrap().chainstate;
         let sort_db = peer.sortdb.as_mut().unwrap();
         let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
-        let tenure =
-            NakamotoChainState::get_highest_nakamoto_tenure(chainstate.db(), sort_db.conn())
+        let tenure = NakamotoChainState::get_ongoing_tenure(
+            &mut chainstate.index_conn(),
+            &sort_db
+                .index_handle_at_tip()
+                .get_nakamoto_tip_block_id()
                 .unwrap()
-                .unwrap();
+                .unwrap(),
+        )
+        .unwrap()
+        .unwrap();
         (tenure, tip)
     };
     assert_eq!(highest_tenure.tenure_id_consensus_hash, tip.consensus_hash);
@@ -1818,7 +2119,6 @@ pub fn simple_nakamoto_coordinator_2_tenures_3_sortitions<'a>() -> TestPeer<'a> 
     assert!(tip.consensus_hash == sort_tip.consensus_hash);
     assert_eq!(highest_tenure.coinbase_height, 13);
     assert_eq!(highest_tenure.cause, TenureChangeCause::BlockFound);
-    assert_eq!(highest_tenure.tenure_index, 3);
     assert_eq!(highest_tenure.num_blocks_confirmed, 20);
 
     // replay the blocks and sortitions in random order, and verify that we still reach the chain
@@ -1865,8 +2165,12 @@ pub fn simple_nakamoto_coordinator_10_extended_tenures_10_sortitions() -> TestPe
         &vec![StacksPublicKey::from_private(&private_key)],
     )
     .unwrap();
-    let mut test_signers = TestSigners::default();
-    let test_stackers = TestStacker::common_signing_set(&test_signers);
+
+    // make enough signers and signing keys so we can create a block and a malleablized block that
+    // are both valid
+    let (mut test_signers, test_stackers) = TestStacker::multi_signing_set(&[
+        0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3,
+    ]);
     let mut peer = boot_nakamoto(
         function_name!(),
         vec![(addr.into(), 100_000_000)],
@@ -1900,33 +2204,6 @@ pub fn simple_nakamoto_coordinator_10_extended_tenures_10_sortitions() -> TestPe
         debug!("Next burnchain block: {}", &consensus_hash);
 
         let block_height = peer.get_burn_block_height();
-        // If we are in the prepare phase, check if we need to generate
-        // aggregate key votes
-        let txs = if peer.config.burnchain.is_in_prepare_phase(block_height) {
-            let cycle_id = peer
-                .config
-                .burnchain
-                .block_height_to_reward_cycle(block_height)
-                .unwrap();
-            let next_cycle_id = cycle_id as u128 + 1;
-
-            with_sortdb(&mut peer, |chainstate, sortdb| {
-                if let Some(tip) = all_blocks.last() {
-                    make_all_signers_vote_for_aggregate_key(
-                        chainstate,
-                        sortdb,
-                        &tip.block_id(),
-                        &mut test_signers,
-                        &test_stackers,
-                        next_cycle_id,
-                    )
-                } else {
-                    vec![]
-                }
-            })
-        } else {
-            vec![]
-        };
 
         // do a stx transfer in each block to a given recipient
         let recipient_addr =
@@ -1937,12 +2214,7 @@ pub fn simple_nakamoto_coordinator_10_extended_tenures_10_sortitions() -> TestPe
             &mut test_signers,
             |miner, chainstate, sortdb, blocks_so_far| {
                 if blocks_so_far.len() < 10 {
-                    // Include the aggregate key voting transactions in the first block.
-                    let mut txs = if blocks_so_far.is_empty() {
-                        txs.clone()
-                    } else {
-                        vec![]
-                    };
+                    let mut txs = vec![];
 
                     debug!("\n\nProduce block {}\n\n", blocks_so_far.len());
 
@@ -2006,10 +2278,16 @@ pub fn simple_nakamoto_coordinator_10_extended_tenures_10_sortitions() -> TestPe
             let chainstate = &mut peer.stacks_node.as_mut().unwrap().chainstate;
             let sort_db = peer.sortdb.as_mut().unwrap();
             let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
-            let tenure =
-                NakamotoChainState::get_highest_nakamoto_tenure(chainstate.db(), sort_db.conn())
+            let tenure = NakamotoChainState::get_ongoing_tenure(
+                &mut chainstate.index_conn(),
+                &sort_db
+                    .index_handle_at_tip()
+                    .get_nakamoto_tip_block_id()
                     .unwrap()
-                    .unwrap();
+                    .unwrap(),
+            )
+            .unwrap()
+            .unwrap();
             (tenure, tip)
         };
 
@@ -2025,7 +2303,6 @@ pub fn simple_nakamoto_coordinator_10_extended_tenures_10_sortitions() -> TestPe
         assert!(last_block.header.consensus_hash == sort_tip.consensus_hash);
         assert_eq!(highest_tenure.coinbase_height, 12 + i);
         assert_eq!(highest_tenure.cause, TenureChangeCause::Extended);
-        assert_eq!(highest_tenure.tenure_index, 10 * (i + 1));
         assert_eq!(
             highest_tenure.num_blocks_confirmed,
             (blocks.len() as u32) - 1
@@ -2054,9 +2331,6 @@ pub fn simple_nakamoto_coordinator_10_extended_tenures_10_sortitions() -> TestPe
 
     rc_blocks.push(all_blocks.clone());
     rc_burn_ops.push(all_burn_ops.clone());
-
-    all_burn_ops.clear();
-    all_blocks.clear();
 
     // in nakamoto, tx fees are rewarded by the next tenure, so the
     // scheduled rewards come 1 tenure after the coinbase reward matures
@@ -2172,10 +2446,97 @@ pub fn simple_nakamoto_coordinator_10_extended_tenures_10_sortitions() -> TestPe
     );
 
     peer.check_nakamoto_migration();
+    peer.check_malleablized_blocks(all_blocks, 2);
     return peer;
 }
 
 #[test]
 fn test_nakamoto_coordinator_10_tenures_and_extensions_10_blocks() {
     simple_nakamoto_coordinator_10_extended_tenures_10_sortitions();
+}
+
+#[test]
+fn process_next_nakamoto_block_deadlock() {
+    let private_key = StacksPrivateKey::from_seed(&[2]);
+    let addr = StacksAddress::p2pkh(false, &StacksPublicKey::from_private(&private_key));
+
+    let num_stackers: u32 = 4;
+    let mut signing_key_seed = num_stackers.to_be_bytes().to_vec();
+    signing_key_seed.extend_from_slice(&[1, 1, 1, 1]);
+    let signing_key = StacksPrivateKey::from_seed(signing_key_seed.as_slice());
+    let test_stackers = (0..num_stackers)
+        .map(|index| TestStacker {
+            signer_private_key: signing_key.clone(),
+            stacker_private_key: StacksPrivateKey::from_seed(&index.to_be_bytes()),
+            amount: u64::MAX as u128 - 10000,
+            pox_addr: Some(PoxAddress::Standard(
+                StacksAddress::new(
+                    C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+                    Hash160::from_data(&index.to_be_bytes()),
+                ),
+                Some(AddressHashMode::SerializeP2PKH),
+            )),
+            max_amount: None,
+        })
+        .collect::<Vec<_>>();
+    let test_signers = TestSigners::new(vec![signing_key]);
+    let mut pox_constants = TestPeerConfig::default().burnchain.pox_constants;
+    pox_constants.reward_cycle_length = 10;
+    pox_constants.v2_unlock_height = 21;
+    pox_constants.pox_3_activation_height = 26;
+    pox_constants.v3_unlock_height = 27;
+    pox_constants.pox_4_activation_height = 28;
+
+    let mut boot_plan = NakamotoBootPlan::new(function_name!())
+        .with_test_stackers(test_stackers.clone())
+        .with_test_signers(test_signers.clone())
+        .with_private_key(private_key);
+    boot_plan.pox_constants = pox_constants;
+
+    info!("Creating peer");
+
+    let mut peer = boot_plan.boot_into_nakamoto_peer(vec![], None);
+    let mut sortition_db = peer.sortdb().reopen().unwrap();
+    let (chainstate, _) = &mut peer
+        .stacks_node
+        .as_mut()
+        .unwrap()
+        .chainstate
+        .reopen()
+        .unwrap();
+
+    enable_process_block_stall();
+
+    let miner_thread = std::thread::spawn(move || {
+        info!("  -------------------------------   MINING TENURE");
+        let (block, burn_height, ..) =
+            peer.single_block_tenure(&private_key, |_| {}, |_| {}, |_| true);
+        info!("  -------------------------------   TENURE MINED");
+    });
+
+    // Wait a bit, to ensure the miner has reached the stall
+    std::thread::sleep(std::time::Duration::from_secs(10));
+
+    // Lock the sortdb
+    info!("  -------------------------------   TRYING TO LOCK THE SORTDB");
+    let sort_tx = sortition_db.tx_begin().unwrap();
+    info!("  -------------------------------   SORTDB LOCKED");
+
+    // Un-stall the block processing
+    disable_process_block_stall();
+
+    // Wait a bit, to ensure the tenure will have grabbed any locks it needs
+    std::thread::sleep(std::time::Duration::from_secs(10));
+
+    // Lock the chainstate db
+    info!("  -------------------------------   TRYING TO LOCK THE CHAINSTATE");
+    let chainstate_tx = chainstate.chainstate_tx_begin().unwrap();
+
+    info!("  -------------------------------   SORTDB AND CHAINSTATE LOCKED");
+    drop(chainstate_tx);
+    drop(sort_tx);
+    info!("  -------------------------------   MAIN THREAD FINISHED");
+
+    // Wait for the blocker and miner threads to finish
+    miner_thread.join().unwrap();
 }

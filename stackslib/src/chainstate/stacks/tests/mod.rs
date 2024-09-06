@@ -1005,7 +1005,7 @@ pub fn get_all_mining_rewards(
     block_height: u64,
 ) -> Vec<Vec<MinerPaymentSchedule>> {
     let mut ret = vec![];
-    let mut tx = chainstate.index_tx_begin().unwrap();
+    let mut tx = chainstate.index_tx_begin();
 
     for i in 0..block_height {
         let block_rewards =
@@ -1418,9 +1418,11 @@ pub fn get_stacks_account(peer: &mut TestPeer, addr: &PrincipalData) -> StacksAc
             let stacks_block_id =
                 StacksBlockHeader::make_index_block_hash(&consensus_hash, &block_bhh);
             let acct = chainstate
-                .with_read_only_clarity_tx(&sortdb.index_conn(), &stacks_block_id, |clarity_tx| {
-                    StacksChainState::get_account(clarity_tx, addr)
-                })
+                .with_read_only_clarity_tx(
+                    &sortdb.index_handle_at_tip(),
+                    &stacks_block_id,
+                    |clarity_tx| StacksChainState::get_account(clarity_tx, addr),
+                )
                 .unwrap();
             Ok(acct)
         })

@@ -1,5 +1,18 @@
 import { Pox4SignatureTopic } from "@stacks/stacking";
-import { logCommand, PoxCommand, Real, Stub, Wallet } from "./pox_CommandModel";
+import {
+  isAmountLockedPositive,
+  isIncreaseAmountGTZero,
+  isIncreaseByWithinUnlockedBalance,
+  isDelegating,
+  isStacking,
+  isStackingSolo,
+  isStackingMinimumCalculated,
+  logCommand,
+  PoxCommand,
+  Real,
+  Stub,
+  Wallet,
+} from "./pox_CommandModel";
 import {
   Cl,
   ClarityType,
@@ -30,7 +43,7 @@ export class StackIncreaseSigCommand implements PoxCommand {
   readonly authId: number;
 
   /**
-   * Constructs a `StackIncreaseSigCommand` to lock uSTX for stacking.
+   * Constructs a `StackIncreaseSigCommand` to increase the locked uSTX amount.
    *
    * @param wallet - Represents the Stacker's wallet.
    * @param increaseBy - Represents the locked amount to be increased by.
@@ -53,13 +66,13 @@ export class StackIncreaseSigCommand implements PoxCommand {
     const stacker = model.stackers.get(this.wallet.stxAddress)!;
 
     return (
-      model.stackingMinimum > 0 &&
-      stacker.isStacking &&
-      stacker.isStackingSolo &&
-      !stacker.hasDelegated &&
-      stacker.amountLocked > 0 &&
-      this.increaseBy <= stacker.amountUnlocked &&
-      this.increaseBy >= 1
+      isStackingMinimumCalculated(model) &&
+      isStacking(stacker) &&
+      isStackingSolo(stacker) &&
+      !isDelegating(stacker) &&
+      isAmountLockedPositive(stacker) &&
+      isIncreaseByWithinUnlockedBalance(stacker, this.increaseBy) &&
+      isIncreaseAmountGTZero(this.increaseBy)
     );
   }
 

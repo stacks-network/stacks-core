@@ -16,11 +16,12 @@
 
 use std::collections::HashMap;
 
+use clarity::types::chainstate::TenureBlockId;
 use clarity::vm::database::clarity_store::*;
 use clarity::vm::database::*;
 use clarity::vm::types::*;
 use rusqlite::types::ToSql;
-use rusqlite::Row;
+use rusqlite::{params, Row};
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
 
 use crate::burnchains::Address;
@@ -413,24 +414,24 @@ impl StacksChainState {
             }
         };
 
-        let args: &[&dyn ToSql] = &[
-            &block_reward.address.to_string(),
-            &block_reward.recipient.to_string(),
-            &block_reward.block_hash,
-            &block_reward.consensus_hash,
-            &block_reward.parent_block_hash,
-            &block_reward.parent_consensus_hash,
-            &block_reward.coinbase.to_string(),
-            &db_tx_fees_anchored.to_string(),
-            &db_tx_fees_streamed.to_string(),
-            &u64_to_sql(block_reward.burnchain_commit_burn)?,
-            &u64_to_sql(block_reward.burnchain_sortition_burn)?,
-            &u64_to_sql(block_reward.stacks_block_height)?,
-            &true,
-            &0i64,
-            &index_block_hash,
-            &payment_type,
-            &"0".to_string(),
+        let args = params![
+            block_reward.address.to_string(),
+            block_reward.recipient.to_string(),
+            block_reward.block_hash,
+            block_reward.consensus_hash,
+            block_reward.parent_block_hash,
+            block_reward.parent_consensus_hash,
+            block_reward.coinbase.to_string(),
+            db_tx_fees_anchored.to_string(),
+            db_tx_fees_streamed.to_string(),
+            u64_to_sql(block_reward.burnchain_commit_burn)?,
+            u64_to_sql(block_reward.burnchain_sortition_burn)?,
+            u64_to_sql(block_reward.stacks_block_height)?,
+            true,
+            0i64,
+            index_block_hash,
+            payment_type,
+            "0".to_string(),
         ];
 
         tx.execute(
@@ -472,8 +473,8 @@ impl StacksChainState {
         // trying to store the same matured rewards for a common ancestor block.
         let cur_rewards = StacksChainState::inner_get_matured_miner_payments(
             tx,
-            parent_block_id,
-            child_block_id,
+            &(*parent_block_id).into(),
+            &(*child_block_id).into(),
         )?;
         if cur_rewards.len() > 0 {
             let mut present = false;
@@ -503,14 +504,14 @@ impl StacksChainState {
             child_index_block_hash
         ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)";
 
-        let args: &[&dyn ToSql] = &[
-            &reward.address.to_string(),
-            &reward.recipient.to_string(),
-            &reward.vtxindex,
-            &reward.coinbase.to_string(),
-            &reward.tx_fees_anchored.to_string(),
-            &reward.tx_fees_streamed_confirmed.to_string(),
-            &reward.tx_fees_streamed_produced.to_string(),
+        let args = params![
+            reward.address.to_string(),
+            reward.recipient.to_string(),
+            reward.vtxindex,
+            reward.coinbase.to_string(),
+            reward.tx_fees_anchored.to_string(),
+            reward.tx_fees_streamed_confirmed.to_string(),
+            reward.tx_fees_streamed_produced.to_string(),
             parent_block_id,
             child_block_id,
         ];
@@ -608,11 +609,11 @@ impl StacksChainState {
 
     fn inner_get_matured_miner_payments(
         conn: &DBConn,
-        parent_block_id: &StacksBlockId,
-        child_block_id: &StacksBlockId,
+        parent_block_id: &TenureBlockId,
+        child_block_id: &TenureBlockId,
     ) -> Result<Vec<MinerReward>, Error> {
         let sql = "SELECT * FROM matured_rewards WHERE parent_index_block_hash = ?1 AND child_index_block_hash = ?2 AND vtxindex = 0";
-        let args: &[&dyn ToSql] = &[parent_block_id, child_block_id];
+        let args = params![parent_block_id.0, child_block_id.0];
         let ret: Vec<MinerReward> = query_rows(conn, sql, args).map_err(|e| Error::DBError(e))?;
         Ok(ret)
     }
@@ -621,8 +622,8 @@ impl StacksChainState {
     /// You'd be querying for the `child_block_id`'s reward.
     pub fn get_matured_miner_payment(
         conn: &DBConn,
-        parent_block_id: &StacksBlockId,
-        child_block_id: &StacksBlockId,
+        parent_block_id: &TenureBlockId,
+        child_block_id: &TenureBlockId,
     ) -> Result<Option<MinerReward>, Error> {
         let config = StacksChainState::load_db_config(conn)?;
         let ret = StacksChainState::inner_get_matured_miner_payments(
@@ -643,8 +644,8 @@ impl StacksChainState {
                 panic!("FATAL: got two parent rewards");
             };
             Ok(Some(reward))
-        } else if child_block_id
-            == &StacksBlockHeader::make_index_block_hash(
+        } else if child_block_id.0
+            == StacksBlockHeader::make_index_block_hash(
                 &FIRST_BURNCHAIN_CONSENSUS_HASH,
                 &FIRST_STACKS_BLOCK_HASH,
             )
@@ -675,7 +676,7 @@ impl StacksChainState {
     ) -> Result<Vec<MinerPaymentSchedule>, Error> {
         let qry =
             "SELECT * FROM payments WHERE index_block_hash = ?1 ORDER BY vtxindex ASC".to_string();
-        let args: &[&dyn ToSql] = &[index_block_hash];
+        let args = params![index_block_hash];
         let rows =
             query_rows::<MinerPaymentSchedule, _>(conn, &qry, args).map_err(Error::DBError)?;
         test_debug!("{} rewards in {}", rows.len(), index_block_hash);
@@ -697,9 +698,9 @@ impl StacksChainState {
         };
 
         let qry = "SELECT * FROM payments WHERE block_hash = ?1 AND consensus_hash = ?2 ORDER BY vtxindex ASC".to_string();
-        let args: &[&dyn ToSql] = &[
-            &ancestor_info.anchored_header.block_hash(),
-            &ancestor_info.consensus_hash,
+        let args = params![
+            ancestor_info.anchored_header.block_hash(),
+            ancestor_info.consensus_hash,
         ];
         let rows = query_rows::<MinerPaymentSchedule, _>(tx, &qry, args).map_err(Error::DBError)?;
         test_debug!(
@@ -733,12 +734,9 @@ impl StacksChainState {
         let qry =
             "SELECT * FROM payments WHERE consensus_hash = ?1 AND block_hash = ?2 AND miner = 1"
                 .to_string();
-        let args = [
-            consensus_hash as &dyn ToSql,
-            stacks_block_hash as &dyn ToSql,
-        ];
+        let args = params![consensus_hash, stacks_block_hash,];
         let mut rows =
-            query_rows::<MinerPaymentSchedule, _>(conn, &qry, &args).map_err(Error::DBError)?;
+            query_rows::<MinerPaymentSchedule, _>(conn, &qry, args).map_err(Error::DBError)?;
         let len = rows.len();
         match len {
             0 => {
@@ -1130,7 +1128,7 @@ mod test {
         block_reward.block_hash = new_tip.anchored_header.block_hash();
         block_reward.consensus_hash = new_tip.consensus_hash.clone();
 
-        let mut tx = chainstate.index_tx_begin().unwrap();
+        let mut tx = chainstate.index_tx_begin();
         let tip = StacksChainState::advance_tip(
             &mut tx,
             parent_header_info
@@ -1186,7 +1184,7 @@ mod test {
         );
 
         {
-            let mut tx = chainstate.index_tx_begin().unwrap();
+            let mut tx = chainstate.index_tx_begin();
             let ancestor_0 = StacksChainState::get_tip_ancestor(
                 &mut tx,
                 &StacksHeaderInfo::regtest_genesis(),
@@ -1203,7 +1201,7 @@ mod test {
         );
 
         {
-            let mut tx = chainstate.index_tx_begin().unwrap();
+            let mut tx = chainstate.index_tx_begin();
             let ancestor_0 = StacksChainState::get_tip_ancestor(&mut tx, &parent_tip, 0).unwrap();
             let ancestor_1 = StacksChainState::get_tip_ancestor(&mut tx, &parent_tip, 1).unwrap();
 
@@ -1216,7 +1214,7 @@ mod test {
         let tip = advance_tip(&mut chainstate, &parent_tip, &mut tip_reward);
 
         {
-            let mut tx = chainstate.index_tx_begin().unwrap();
+            let mut tx = chainstate.index_tx_begin();
             let ancestor_2 = StacksChainState::get_tip_ancestor(&mut tx, &tip, 2).unwrap();
             let ancestor_1 = StacksChainState::get_tip_ancestor(&mut tx, &tip, 1).unwrap();
             let ancestor_0 = StacksChainState::get_tip_ancestor(&mut tx, &tip, 0).unwrap();
@@ -1262,7 +1260,7 @@ mod test {
         let tip = advance_tip(&mut chainstate, &parent_tip, &mut tip_reward);
 
         {
-            let mut tx = chainstate.index_tx_begin().unwrap();
+            let mut tx = chainstate.index_tx_begin();
             let payments_0 =
                 StacksChainState::get_scheduled_block_rewards_in_fork_at_height(&mut tx, &tip, 0)
                     .unwrap();
@@ -1312,7 +1310,7 @@ mod test {
         let tip = advance_tip(&mut chainstate, &parent_tip, &mut tip_reward);
 
         {
-            let mut tx = chainstate.index_tx_begin().unwrap();
+            let mut tx = chainstate.index_tx_begin();
             let payments_0 =
                 StacksChainState::get_scheduled_block_rewards_in_fork_at_height(&mut tx, &tip, 0)
                     .unwrap();

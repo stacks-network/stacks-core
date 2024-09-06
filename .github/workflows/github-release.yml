@@ -9,6 +9,10 @@ on:
         description: "Release Tag"
         required: true
         type: string
+      docker_tag:
+        description: "Docker Release Tag"
+        required: true
+        type: string
     secrets:
       GH_TOKEN:
         required: true
@@ -68,8 +72,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
         with:
-          name: Release ${{ github.event.inputs.tag || github.ref }}
-          tag_name: ${{ github.event.inputs.tag || github.ref }}
+          name: Release ${{ inputs.tag || github.ref }}
+          tag_name: ${{ inputs.tag || github.ref }}
           draft: false
           prerelease: true
           fail_on_unmatched_files: true
@@ -94,4 +98,5 @@ jobs:
       - create-release
     with:
       tag: ${{ inputs.tag }}
+      docker_tag: ${{ inputs.docker_tag }}
     secrets: inherit

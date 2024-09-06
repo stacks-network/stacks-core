@@ -66,7 +66,7 @@ use crate::chainstate::stacks::events::{
     StacksBlockEventData, StacksTransactionEvent, StacksTransactionReceipt, TransactionOrigin,
 };
 use crate::chainstate::stacks::index::marf::MARFOpenOpts;
-use crate::chainstate::stacks::index::MarfTrieId;
+use crate::chainstate::stacks::index::{Error as IndexError, MarfTrieId};
 use crate::chainstate::stacks::miner::{signal_mining_blocked, signal_mining_ready, MinerStatus};
 use crate::chainstate::stacks::{
     Error as ChainstateError, StacksBlock, StacksBlockHeader, TransactionPayload,
@@ -120,7 +120,7 @@ impl NewBurnchainBlockStatus {
     }
 }
 
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct RewardCycleInfo {
     pub reward_cycle: u64,
     pub anchor_status: PoxAnchorBlockStatus,
@@ -252,6 +252,7 @@ pub enum Error {
     NoSortitions,
     FailedToProcessSortition(BurnchainError),
     DBError(DBError),
+    IndexError(IndexError),
     NotPrepareEndBlock,
     NotPoXAnchorBlock,
     NotInPreparePhase,
@@ -275,6 +276,12 @@ impl From<ChainstateError> for Error {
 impl From<DBError> for Error {
     fn from(o: DBError) -> Error {
         Error::DBError(o)
+    }
+}
+
+impl From<IndexError> for Error {
+    fn from(o: IndexError) -> Error {
+        Error::IndexError(o)
     }
 }
 
@@ -752,6 +759,7 @@ pub fn get_reward_cycle_info<U: RewardSetProvider>(
 ) -> Result<Option<RewardCycleInfo>, Error> {
     let epoch_at_height = SortitionDB::get_stacks_epoch(sort_db.conn(), burn_height)?
         .unwrap_or_else(|| panic!("FATAL: no epoch defined for burn height {}", burn_height));
+
     if !burnchain.is_reward_cycle_start(burn_height) {
         return Ok(None);
     }
@@ -788,49 +796,54 @@ pub fn get_reward_cycle_info<U: RewardSetProvider>(
 
         ic.get_chosen_pox_anchor(burnchain_db_conn_opt, &parent_bhh, &burnchain.pox_constants)
     }?;
-    let reward_cycle_info = if let Some((consensus_hash, stacks_block_hash, txid)) =
-        reward_cycle_info
-    {
-        let anchor_block_known = StacksChainState::is_stacks_block_processed(
-            &chain_state.db(),
-            &consensus_hash,
-            &stacks_block_hash,
-        )?;
-        info!(
-            "PoX Anchor block selected";
-            "cycle" => reward_cycle,
-            "consensus_hash" => %consensus_hash,
-            "block_hash" => %stacks_block_hash,
-            "block_id" => %StacksBlockId::new(&consensus_hash, &stacks_block_hash),
-            "is_known" => anchor_block_known,
-            "commit_txid" => %txid,
-            "cycle_burn_height" => burn_height
-        );
-        let anchor_status = if anchor_block_known {
-            let block_id = StacksBlockId::new(&consensus_hash, &stacks_block_hash);
-            let reward_set =
-                provider.get_reward_set(burn_height, chain_state, burnchain, sort_db, &block_id)?;
-            PoxAnchorBlockStatus::SelectedAndKnown(stacks_block_hash, txid, reward_set)
+    let reward_cycle_info =
+        if let Some((consensus_hash, stacks_block_hash, txid)) = reward_cycle_info {
+            let anchor_block_known = StacksChainState::is_stacks_block_processed(
+                &chain_state.db(),
+                &consensus_hash,
+                &stacks_block_hash,
+            )?;
+            let stacks_block_id = StacksBlockId::new(&consensus_hash, &stacks_block_hash);
+            info!(
+                "PoX Anchor block selected";
+                "cycle" => reward_cycle,
+                "consensus_hash" => %consensus_hash,
+                "stacks_block_hash" => %stacks_block_hash,
+                "stacks_block_id" => %stacks_block_id,
+                "is_known" => anchor_block_known,
+                "commit_txid" => %txid,
+                "cycle_burn_height" => burn_height
+            );
+            let anchor_status = if anchor_block_known {
+                let reward_set = provider.get_reward_set(
+                    burn_height,
+                    chain_state,
+                    burnchain,
+                    sort_db,
+                    &stacks_block_id,
+                )?;
+                PoxAnchorBlockStatus::SelectedAndKnown(stacks_block_hash, txid, reward_set)
+            } else {
+                PoxAnchorBlockStatus::SelectedAndUnknown(stacks_block_hash, txid)
+            };
+            RewardCycleInfo {
+                reward_cycle,
+                anchor_status,
+            }
         } else {
-            PoxAnchorBlockStatus::SelectedAndUnknown(stacks_block_hash, txid)
+            info!(
+                "PoX anchor block NOT chosen for reward cycle {} at burn height {}",
+                reward_cycle, burn_height
+            );
+            RewardCycleInfo {
+                reward_cycle,
+                anchor_status: PoxAnchorBlockStatus::NotSelected,
+            }
         };
-        RewardCycleInfo {
-            reward_cycle,
-            anchor_status,
-        }
-    } else {
-        info!(
-            "PoX anchor block NOT chosen for reward cycle {} at burn height {}",
-            reward_cycle, burn_height
-        );
-        RewardCycleInfo {
-            reward_cycle,
-            anchor_status: PoxAnchorBlockStatus::NotSelected,
-        }
-    };
 
     // cache the reward cycle info as of the first sortition in the prepare phase, so that
-    // the Nakamoto epoch can go find it later
+    // the first Nakamoto epoch can go find it later.  Subsequent Nakamoto epochs will use the
+    // reward set stored to the Nakamoto chain state.
     let ic = sort_db.index_handle(sortition_tip);
     let prev_reward_cycle = burnchain
         .block_height_to_reward_cycle(burn_height)
@@ -845,9 +858,29 @@ pub fn get_reward_cycle_info<U: RewardSetProvider>(
                 .expect("FATAL: no start-of-prepare-phase sortition");
 
         let mut tx = sort_db.tx_begin()?;
-        if SortitionDB::get_preprocessed_reward_set(&mut tx, &first_prepare_sn.sortition_id)?
-            .is_none()
-        {
+        let preprocessed_reward_set =
+            SortitionDB::get_preprocessed_reward_set(&mut tx, &first_prepare_sn.sortition_id)?;
+
+        // It's possible that we haven't processed the PoX anchor block at the time we have
+        // processed the burnchain block which commits to it.  In this case, the PoX anchor block
+        // status would be SelectedAndUnknown.  However, it's overwhelmingly likely (and in
+        // Nakamoto, _required_) that the PoX anchor block will be processed shortly thereafter.
+        // When this happens, we need to _update_ the sortition DB with the newly-processed reward
+        // set.  This code performs this check to determine whether or not we need to store this
+        // calculated reward set.
+        let need_to_store = if let Some(reward_cycle_info) = preprocessed_reward_set {
+            // overwrite if we have an unknown anchor block
+            !reward_cycle_info.is_reward_info_known()
+        } else {
+            true
+        };
+        if need_to_store {
+            debug!(
+                "Store preprocessed reward set for cycle";
+                "reward_cycle" => prev_reward_cycle,
+                "prepare-start sortition" => %first_prepare_sn.sortition_id,
+                "reward_cycle_info" => format!("{:?}", &reward_cycle_info)
+            );
             SortitionDB::store_preprocessed_reward_set(
                 &mut tx,
                 &first_prepare_sn.sortition_id,
@@ -2326,13 +2359,13 @@ impl<
                 if self.config.require_affirmed_anchor_blocks {
                     // missing this anchor block -- cannot proceed until we have it
                     info!(
-                        "Burnchain block processing stops due to missing affirmed anchor block {}",
+                        "Burnchain block processing stops due to missing affirmed anchor stacks block hash {}",
                         &missing_anchor_block
                     );
                     return Ok(Some(missing_anchor_block));
                 } else {
                     // this and descendant sortitions might already exist
-                    info!("Burnchain block processing will continue in spite of missing affirmed anchor block {}", &missing_anchor_block);
+                    info!("Burnchain block processing will continue in spite of missing affirmed anchor stacks block hash {}", &missing_anchor_block);
                 }
             }
         }
@@ -2414,6 +2447,8 @@ impl<
         return false;
     }
 
+    // TODO: add tests from mutation testing results #4852
+    #[cfg_attr(test, mutants::skip)]
     /// Handle a new burnchain block, optionally rolling back the canonical PoX sortition history
     /// and setting it up to be replayed in the event the network affirms a different history.  If
     /// this happens, *and* if re-processing the new affirmed history is *blocked on* the
@@ -2585,7 +2620,7 @@ impl<
                     self.check_missing_anchor_block(&header, &canonical_affirmation_map, rc_info)?
                 {
                     info!(
-                        "Burnchain block processing stops due to missing affirmed anchor block {}",
+                        "Burnchain block processing stops due to missing affirmed anchor stacks block hash {}",
                         &missing_anchor_block
                     );
                     return Ok(Some(missing_anchor_block));
@@ -2773,7 +2808,7 @@ impl<
                     self.process_new_pox_anchor(pox_anchor, already_processed_burn_blocks)?
                 {
                     info!(
-                        "Burnchain block processing stops due to missing affirmed anchor block {}",
+                        "Burnchain block processing stops due to missing affirmed anchor stacks block hash {}",
                         &expected_anchor_block_hash
                     );
                     return Ok(Some(expected_anchor_block_hash));
@@ -2929,6 +2964,9 @@ impl<
                 "attachments_count" => attachments_instances.len(),
                 "index_block_hash" => %block_receipt.header.index_block_hash(),
                 "stacks_height" => block_receipt.header.stacks_block_height,
+                "burn_height" => block_receipt.header.burn_header_height,
+                "burn_block_hash" => %block_receipt.header.burn_header_hash,
+                "consensus_hash" => %block_receipt.header.consensus_hash,
             );
             if let Some(atlas_db) = atlas_db {
                 for new_attachment in attachments_instances.into_iter() {
@@ -3109,12 +3147,29 @@ impl<
                 == &AffirmationMapEntry::PoxAnchorBlockPresent
             {
                 // yup, we're expecting this
-                debug!("Discovered an old anchor block: {} (height {}, rc {}) with heaviest affirmation map {}", pox_anchor, commit.block_height, reward_cycle, &heaviest_am);
-                info!("Discovered an old anchor block: {}", pox_anchor);
+                debug!("Discovered an old anchor block: {}", pox_anchor;
+                    "height" => commit.block_height,
+                    "burn_block_hash" => %commit.burn_header_hash,
+                    "stacks_block_hash" => %commit.block_header_hash,
+                    "reward_cycle" => reward_cycle,
+                    "heaviest_affirmation_map" => %heaviest_am
+                );
+                info!("Discovered an old anchor block: {}", pox_anchor;
+                    "height" => commit.block_height,
+                    "burn_block_hash" => %commit.burn_header_hash,
+                    "stacks_block_hash" => %commit.block_header_hash,
+                    "reward_cycle" => reward_cycle
+                );
                 return Ok(Some(pox_anchor.clone()));
             } else {
                 // nope -- can ignore
-                debug!("Discovered unaffirmed old anchor block: {} (height {}, rc {}) with heaviest affirmation map {}", pox_anchor, commit.block_height, reward_cycle, &heaviest_am);
+                debug!("Discovered unaffirmed old anchor block: {}", pox_anchor;
+                    "height" => commit.block_height,
+                    "burn_block_hash" => %commit.burn_header_hash,
+                    "stacks_block_hash" => %commit.block_header_hash,
+                    "reward_cycle" => reward_cycle,
+                    "heaviest_affirmation_map" => %heaviest_am
+                );
                 return Ok(None);
             }
         } else {
@@ -3272,11 +3327,11 @@ impl<
 
                     // update cost estimator
                     if let Some(ref mut estimator) = self.cost_estimator {
-                        let stacks_epoch = self
-                            .sortition_db
-                            .index_conn()
-                            .get_stacks_epoch_by_epoch_id(&block_receipt.evaluated_epoch)
-                            .expect("Could not find a stacks epoch.");
+                        let stacks_epoch = SortitionDB::get_stacks_epoch_by_epoch_id(
+                            self.sortition_db.conn(),
+                            &block_receipt.evaluated_epoch,
+                        )?
+                        .expect("Could not find a stacks epoch.");
                         estimator.notify_block(
                             &block_receipt.tx_receipts,
                             &stacks_epoch.block_limit,
@@ -3286,11 +3341,11 @@ impl<
 
                     // update fee estimator
                     if let Some(ref mut estimator) = self.fee_estimator {
-                        let stacks_epoch = self
-                            .sortition_db
-                            .index_conn()
-                            .get_stacks_epoch_by_epoch_id(&block_receipt.evaluated_epoch)
-                            .expect("Could not find a stacks epoch.");
+                        let stacks_epoch = SortitionDB::get_stacks_epoch_by_epoch_id(
+                            self.sortition_db.conn(),
+                            &block_receipt.evaluated_epoch,
+                        )?
+                        .expect("Could not find a stacks epoch.");
                         if let Err(e) =
                             estimator.notify_block(&block_receipt, &stacks_epoch.block_limit)
                         {
@@ -3393,7 +3448,10 @@ impl<
 
         info!(
             "Reprocessing with anchor block information, starting at block height: {}",
-            prep_end.block_height
+            prep_end.block_height;
+            "consensus_hash" => %prep_end.consensus_hash,
+            "burn_block_hash" => %prep_end.burn_header_hash,
+            "stacks_block_height" => prep_end.stacks_block_height
         );
         let mut pox_id = self.sortition_db.get_pox_id(sortition_id)?;
         pox_id.extend_with_present_block();
@@ -3510,6 +3568,7 @@ impl SortitionDBMigrator {
             .pox_constants
             .reward_cycle_to_block_height(sort_db.first_block_height, reward_cycle)
             .saturating_sub(1);
+
         let sort_tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn())?;
 
         let ancestor_sn = {

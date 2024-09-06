@@ -39,7 +39,9 @@ use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PrivateKey};
 use stacks_common::util::vrf::*;
 
 use crate::burnchains::{Burnchain, PrivateKey, PublicKey};
-use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionDBConn, SortitionHandleTx};
+use crate::chainstate::burn::db::sortdb::{
+    SortitionDB, SortitionDBConn, SortitionHandleConn, SortitionHandleTx,
+};
 use crate::chainstate::burn::operations::*;
 use crate::chainstate::burn::*;
 use crate::chainstate::stacks::address::StacksAddressExtensions;
@@ -63,6 +65,30 @@ use crate::monitoring::{
 };
 use crate::net::relay::Relayer;
 use crate::net::Error as net_error;
+
+/// Fully-assembled Stacks anchored, block as well as some extra metadata pertaining to how it was
+/// linked to the burnchain and what view(s) the miner had of the burnchain before and after
+/// completing the block.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AssembledAnchorBlock {
+    /// Consensus hash of the parent Stacks block
+    pub parent_consensus_hash: ConsensusHash,
+    /// Consensus hash this Stacks block
+    pub consensus_hash: ConsensusHash,
+    /// Burnchain tip's block hash when we finished mining
+    pub burn_hash: BurnchainHeaderHash,
+    /// Burnchain tip's block height when we finished mining
+    pub burn_block_height: u64,
+    /// Burnchain tip's block hash when we started mining (could be different)
+    pub orig_burn_hash: BurnchainHeaderHash,
+    /// The block we produced
+    pub anchored_block: StacksBlock,
+    /// The attempt count of this block (multiple blocks will be attempted per burnchain block)
+    pub attempt: u64,
+    /// Epoch timestamp in milliseconds when we started producing the block.
+    pub tenure_begin: u128,
+}
+impl_file_io_serde_json!(AssembledAnchorBlock);
 
 /// System status for mining.
 /// The miner can be Ready, in which case a miner is allowed to run
@@ -131,6 +157,7 @@ pub fn signal_mining_blocked(miner_status: Arc<Mutex<MinerStatus>>) {
 
 /// resume mining if we blocked it earlier
 pub fn signal_mining_ready(miner_status: Arc<Mutex<MinerStatus>>) {
+    debug!("Signaling miner to resume"; "thread_id" => ?std::thread::current().id());
     match miner_status.lock() {
         Ok(mut status) => {
             status.remove_blocked();
@@ -170,6 +197,8 @@ pub struct BlockBuilderSettings {
 }
 
 impl BlockBuilderSettings {
+    // TODO: add tests from mutation testing results #4873
+    #[cfg_attr(test, mutants::skip)]
     pub fn limited() -> BlockBuilderSettings {
         BlockBuilderSettings {
             max_miner_time_ms: u64::MAX,
@@ -179,6 +208,8 @@ impl BlockBuilderSettings {
         }
     }
 
+    // TODO: add tests from mutation testing results #4873
+    #[cfg_attr(test, mutants::skip)]
     pub fn max_value() -> BlockBuilderSettings {
         BlockBuilderSettings {
             max_miner_time_ms: u64::MAX,
@@ -337,7 +368,7 @@ pub enum TransactionResult {
     Success(TransactionSuccess),
     /// Transaction failed when processed.
     ProcessingError(TransactionError),
-    /// Transaction wasn't ready to be be processed, but might succeed later.
+    /// Transaction wasn't ready to be processed, but might succeed later.
     Skipped(TransactionSkipped),
     /// Transaction is problematic (e.g. a DDoS vector) and should be dropped.
     /// This error variant is a placeholder for fixing Clarity VM quirks in the next network
@@ -353,7 +384,7 @@ pub enum TransactionEvent {
     Success(TransactionSuccessEvent),
     /// Transaction failed. It may succeed later depending on the error.
     ProcessingError(TransactionErrorEvent),
-    /// Transaction wasn't ready to be be processed, but might succeed later.
+    /// Transaction wasn't ready to be processed, but might succeed later.
     /// The bool represents whether mempool propagation should halt or continue
     Skipped(TransactionSkippedEvent),
     /// Transaction is problematic and will be dropped
@@ -725,11 +756,11 @@ impl<'a> StacksMicroblockBuilder<'a> {
             anchor_block,
             anchor_block_consensus_hash,
             anchor_block_height,
-            runtime: runtime,
+            runtime,
             clarity_tx: Some(clarity_tx),
             header_reader,
             unconfirmed: false,
-            settings: settings,
+            settings,
             ast_rules,
         })
     }
@@ -803,11 +834,11 @@ impl<'a> StacksMicroblockBuilder<'a> {
             anchor_block: anchored_block_hash,
             anchor_block_consensus_hash: anchored_consensus_hash,
             anchor_block_height: anchored_block_height,
-            runtime: runtime,
+            runtime,
             clarity_tx: Some(clarity_tx),
             header_reader,
             unconfirmed: true,
-            settings: settings,
+            settings,
             ast_rules,
         })
     }
@@ -1197,7 +1228,6 @@ impl<'a> StacksMicroblockBuilder<'a> {
                 intermediate_result = mem_pool.iterate_candidates(
                     &mut clarity_tx,
                     &mut tx_events,
-                    self.anchor_block_height,
                     mempool_settings.clone(),
                     |clarity_tx, to_consider, estimator| {
                         let mempool_tx = &to_consider.tx;
@@ -1493,6 +1523,7 @@ impl StacksBlockBuilder {
             burn_header_timestamp: genesis_burn_header_timestamp,
             burn_header_height: genesis_burn_header_height,
             anchored_block_size: 0,
+            burn_view: None,
         };
 
         let mut builder = StacksBlockBuilder::from_parent_pubkey_hash(
@@ -1793,6 +1824,8 @@ impl StacksBlockBuilder {
         }
     }
 
+    // TODO: add tests from mutation testing results #4859
+    #[cfg_attr(test, mutants::skip)]
     /// This function should be called before `epoch_begin`.
     /// It loads the parent microblock stream, sets the parent microblock, and returns
     /// data necessary for `epoch_begin`.
@@ -1803,7 +1836,7 @@ impl StacksBlockBuilder {
     pub fn pre_epoch_begin<'a>(
         &mut self,
         chainstate: &'a mut StacksChainState,
-        burn_dbconn: &'a SortitionDBConn,
+        burn_dbconn: &'a SortitionHandleConn,
         confirm_microblocks: bool,
     ) -> Result<MinerEpochInfo<'a>, Error> {
         debug!(
@@ -1912,7 +1945,7 @@ impl StacksBlockBuilder {
     /// returned ClarityTx object.
     pub fn epoch_begin<'a, 'b>(
         &mut self,
-        burn_dbconn: &'a SortitionDBConn,
+        burn_dbconn: &'a SortitionHandleConn,
         info: &'b mut MinerEpochInfo<'a>,
     ) -> Result<(ClarityTx<'b, 'b>, ExecutionCost), Error> {
         let SetupBlockResult {
@@ -1974,7 +2007,7 @@ impl StacksBlockBuilder {
     pub fn make_anchored_block_from_txs(
         builder: StacksBlockBuilder,
         chainstate_handle: &StacksChainState,
-        burn_dbconn: &SortitionDBConn,
+        burn_dbconn: &SortitionHandleConn,
         txs: Vec<StacksTransaction>,
     ) -> Result<(StacksBlock, u64, ExecutionCost), Error> {
         Self::make_anchored_block_and_microblock_from_txs(
@@ -1993,7 +2026,7 @@ impl StacksBlockBuilder {
     pub fn make_anchored_block_and_microblock_from_txs(
         mut builder: StacksBlockBuilder,
         chainstate_handle: &StacksChainState,
-        burn_dbconn: &SortitionDBConn,
+        burn_dbconn: &SortitionHandleConn,
         mut txs: Vec<StacksTransaction>,
         mut mblock_txs: Vec<StacksTransaction>,
     ) -> Result<(StacksBlock, u64, ExecutionCost, Option<StacksMicroblock>), Error> {
@@ -2047,6 +2080,8 @@ impl StacksBlockBuilder {
         Ok((block, size, cost, mblock_opt))
     }
 
+    // TODO: add tests from mutation testing results #4860
+    #[cfg_attr(test, mutants::skip)]
     /// Create a block builder for mining
     pub fn make_block_builder(
         burnchain: &Burnchain,
@@ -2101,6 +2136,8 @@ impl StacksBlockBuilder {
         Ok(builder)
     }
 
+    // TODO: add tests from mutation testing results #4860
+    #[cfg_attr(test, mutants::skip)]
     /// Create a block builder for regtest mining
     pub fn make_regtest_block_builder(
         burnchain: &Burnchain,
@@ -2197,7 +2234,6 @@ impl StacksBlockBuilder {
                 intermediate_result = mempool.iterate_candidates(
                     epoch_tx,
                     &mut tx_events,
-                    tip_height,
                     mempool_settings.clone(),
                     |epoch_tx, to_consider, estimator| {
                         // first, have we been preempted?
@@ -2381,11 +2417,14 @@ impl StacksBlockBuilder {
         Ok((blocked, tx_events))
     }
 
+    // TODO: add tests from mutation testing results #4861
+    // Or keep the skip and remove the comment
+    #[cfg_attr(test, mutants::skip)]
     /// Given access to the mempool, mine an anchored block with no more than the given execution cost.
     ///   returns the assembled block, and the consumed execution budget.
     pub fn build_anchored_block(
         chainstate_handle: &StacksChainState, // not directly used; used as a handle to open other chainstates
-        burn_dbconn: &SortitionDBConn,
+        burn_dbconn: &SortitionHandleConn,
         mempool: &mut MemPoolDB,
         parent_stacks_header: &StacksHeaderInfo, // Stacks header we're building off of
         total_burn: u64, // the burn so far on the burnchain (i.e. from the last burnchain block)
@@ -2499,7 +2538,7 @@ impl StacksBlockBuilder {
 
         info!(
             "Miner: mined anchored block";
-            "block_hash" => %block.block_hash(),
+            "stacks_block_hash" => %block.block_hash(),
             "height" => block.header.total_work.work,
             "tx_count" => block.txs.len(),
             "parent_stacks_block_hash" => %block.header.parent_block,

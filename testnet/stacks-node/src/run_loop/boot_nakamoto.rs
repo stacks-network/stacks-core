@@ -23,12 +23,42 @@ use stacks::burnchains::Burnchain;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::core::StacksEpochExtension;
+use stacks::net::p2p::PeerNetwork;
 use stacks_common::types::{StacksEpoch, StacksEpochId};
 
+use crate::event_dispatcher::EventDispatcher;
+use crate::globals::NeonGlobals;
 use crate::neon::Counters;
+use crate::neon_node::LeaderKeyRegistrationState;
 use crate::run_loop::nakamoto::RunLoop as NakaRunLoop;
 use crate::run_loop::neon::RunLoop as NeonRunLoop;
 use crate::Config;
+
+/// Data which should persist through transition from Neon => Nakamoto run loop
+#[derive(Default)]
+pub struct Neon2NakaData {
+    pub leader_key_registration_state: LeaderKeyRegistrationState,
+    pub peer_network: Option<PeerNetwork>,
+}
+
+impl Neon2NakaData {
+    /// Take needed values from `NeonGlobals` and optionally `PeerNetwork`, consuming them
+    pub fn new(globals: NeonGlobals, peer_network: Option<PeerNetwork>) -> Self {
+        let key_state = globals
+            .leader_key_registration_state
+            .lock()
+            .unwrap_or_else(|e| {
+                // can only happen due to a thread panic in the relayer
+                error!("FATAL: leader key registration mutex is poisoned: {e:?}");
+                panic!();
+            });
+
+        Self {
+            leader_key_registration_state: (*key_state).clone(),
+            peer_network,
+        }
+    }
+}
 
 /// This runloop handles booting to Nakamoto:
 /// During epochs [1.0, 2.5], it runs a neon run_loop.
@@ -95,6 +125,14 @@ impl BootRunLoop {
         }
     }
 
+    /// Get the event dispatcher
+    pub fn get_event_dispatcher(&self) -> EventDispatcher {
+        match &self.active_loop {
+            InnerLoops::Epoch2(x) => x.get_event_dispatcher(),
+            InnerLoops::Epoch3(x) => x.get_event_dispatcher(),
+        }
+    }
+
     /// The main entry point for the run loop. This starts either a 2.x-neon or 3.x-nakamoto
     /// node depending on the current burnchain height.
     pub fn start(&mut self, burnchain_opt: Option<Burnchain>, mine_start: u64) {
@@ -111,6 +149,10 @@ impl BootRunLoop {
         naka_loop.start(burnchain_opt, mine_start, None)
     }
 
+    // configuring mutants::skip -- this function is covered through integration tests (this function
+    //  is pretty definitionally an integration, so thats unavoidable), and the integration tests
+    //  do not get counted in mutants coverage.
+    #[cfg_attr(test, mutants::skip)]
     fn start_from_neon(&mut self, burnchain_opt: Option<Burnchain>, mine_start: u64) {
         let InnerLoops::Epoch2(ref mut neon_loop) = self.active_loop else {
             panic!("FATAL: unexpectedly invoked start_from_neon when active loop wasn't neon");
@@ -120,7 +162,7 @@ impl BootRunLoop {
 
         let boot_thread = Self::spawn_stopper(&self.config, neon_loop)
             .expect("FATAL: failed to spawn epoch-2/3-boot thread");
-        let peer_network = neon_loop.start(burnchain_opt.clone(), mine_start);
+        let data_to_naka = neon_loop.start(burnchain_opt.clone(), mine_start);
 
         let monitoring_thread = neon_loop.take_monitoring_thread();
         // did we exit because of the epoch-3.0 transition, or some other reason?
@@ -131,7 +173,12 @@ impl BootRunLoop {
             info!("Shutting down epoch-2/3 transition thread");
             return;
         }
-        info!("Reached Epoch-3.0 boundary, starting nakamoto node");
+
+        info!(
+            "Reached Epoch-3.0 boundary, starting nakamoto node";
+            "with_neon_data" => data_to_naka.is_some(),
+            "with_p2p_stack" => data_to_naka.as_ref().map(|x| x.peer_network.is_some()).unwrap_or(false)
+        );
         termination_switch.store(true, Ordering::SeqCst);
         let naka = NakaRunLoop::new(
             self.config.clone(),
@@ -150,7 +197,7 @@ impl BootRunLoop {
         let InnerLoops::Epoch3(ref mut naka_loop) = self.active_loop else {
             panic!("FATAL: unexpectedly found epoch2 loop after setting epoch3 active");
         };
-        naka_loop.start(burnchain_opt, mine_start, peer_network)
+        naka_loop.start(burnchain_opt, mine_start, data_to_naka)
     }
 
     fn spawn_stopper(
