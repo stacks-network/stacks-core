@@ -139,7 +139,7 @@ jobs:
         shell: bash
         run: |
           echo "ls home"
-          ls ~/
+          ls -al ~/actions-runner
           echo "ls /bin/bitcoind"
           ls -al /bin/bitcoind
 
