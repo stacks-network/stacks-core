@@ -132,17 +132,6 @@ jobs:
         with:
           btc-version: "25.0"
 
-      ## check bitcoind logs
-      - name: Check bitcoind binary
-        if: always()
-        id: check_bitcoind
-        shell: bash
-        run: |
-          echo "ls home"
-          ls -al ~/actions-runner
-          echo "ls /bin/bitcoind"
-          ls -al /bin/bitcoind
-
       ## Run test matrix using restored cache of archive file
       ##   - Test will timeout after env.TEST_TIMEOUT minutes
       - name: Run Tests
