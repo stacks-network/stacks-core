@@ -11,6 +11,16 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ### Changed
 
+## [2.5.0.0.5.3]
+
+### Added
+
+### Changed
+
+- Update node endpoints to match stacks-core release 2.5.0.0.7
+  - `/v2/block_proposal` -> `/v3/block_proposal`
+  - `/v2/stacker_set` -> `/v3/stacker_set`
+
 ## [2.5.0.0.5.2]
 
 ### Added
