@@ -919,6 +919,17 @@ impl SignCoordinator {
                         responded_signers.insert(signer_pubkey);
                     }
                     SignerMessageV0::BlockResponse(BlockResponse::Rejected(rejected_data)) => {
+                        let block_sighash = block.header.signer_signature_hash();
+                        if block_sighash != rejected_data.signer_signature_hash {
+                            warn!(
+                                "Processed rejection for a different block. Will try to continue.";
+                                "block_signer_signature_hash" => %block_sighash,
+                                "rejected_data.signer_signature_hash" => %rejected_data.signer_signature_hash,
+                                "slot_id" => slot_id,
+                                "reward_cycle_id" => reward_cycle_id,
+                            );
+                            continue;
+                        }
                         let rejected_pubkey = match rejected_data.recover_public_key() {
                             Ok(rejected_pubkey) => {
                                 if rejected_pubkey != signer_pubkey {
