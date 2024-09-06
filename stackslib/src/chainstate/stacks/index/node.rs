@@ -27,7 +27,6 @@ use stacks_common::types::chainstate::{
     BlockHeaderHash, TrieHash, BLOCK_HEADER_HASH_ENCODED_SIZE, TRIEHASH_ENCODED_SIZE,
 };
 use stacks_common::util::hash::to_hex;
-use stacks_common::util::slice_partialeq;
 
 use crate::chainstate::stacks::index::bits::{
     get_path_byte_len, get_ptrs_byte_len, path_from_bytes, ptrs_from_bytes, write_path_to_bytes,
@@ -597,7 +596,7 @@ impl<T: MarfTrieId> TrieCursor<T> {
 
 impl PartialEq for TrieLeaf {
     fn eq(&self, other: &TrieLeaf) -> bool {
-        self.path == other.path && slice_partialeq(self.data.as_bytes(), other.data.as_bytes())
+        self.path == other.path && self.data.as_bytes() == other.data.as_bytes()
     }
 }
 
@@ -730,9 +729,7 @@ impl fmt::Debug for TrieNode48 {
 
 impl PartialEq for TrieNode48 {
     fn eq(&self, other: &TrieNode48) -> bool {
-        self.path == other.path
-            && slice_partialeq(&self.ptrs, &other.ptrs)
-            && slice_partialeq(&self.indexes, &other.indexes)
+        self.path == other.path && self.ptrs == other.ptrs && self.indexes == other.indexes
     }
 }
 
@@ -755,8 +752,8 @@ impl TrieNode48 {
         }
         TrieNode48 {
             path: node16.path.clone(),
-            indexes: indexes,
-            ptrs: ptrs,
+            indexes,
+            ptrs,
         }
     }
 }
@@ -781,7 +778,7 @@ impl fmt::Debug for TrieNode256 {
 
 impl PartialEq for TrieNode256 {
     fn eq(&self, other: &TrieNode256) -> bool {
-        self.path == other.path && slice_partialeq(&self.ptrs, &other.ptrs)
+        self.path == other.path && self.ptrs == other.ptrs
     }
 }
 
