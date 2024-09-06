@@ -138,8 +138,8 @@ pub struct BlockMinerThread {
     keychain: Keychain,
     /// burnchain configuration
     burnchain: Burnchain,
-    /// Set of blocks that we have mined
-    mined_blocks: Vec<NakamotoBlock>,
+    /// Last block mined
+    last_block_mined: Option<NakamotoBlock>,
     /// Copy of the node's registered VRF key
     registered_key: RegisteredKey,
     /// Burnchain block snapshot which elected this miner
@@ -172,7 +172,7 @@ impl BlockMinerThread {
             globals: rt.globals.clone(),
             keychain: rt.keychain.clone(),
             burnchain: rt.burnchain.clone(),
-            mined_blocks: vec![],
+            last_block_mined: None,
             registered_key,
             burn_election_block,
             burn_block,
@@ -402,7 +402,7 @@ impl BlockMinerThread {
 
                 // update mined-block counters and mined-tenure counters
                 self.globals.counters.bump_naka_mined_blocks();
-                if self.mined_blocks.is_empty() {
+                if !self.last_block_mined.is_none() {
                     // this is the first block of the tenure, bump tenure counter
                     self.globals.counters.bump_naka_mined_tenures();
                 }
@@ -411,8 +411,7 @@ impl BlockMinerThread {
                 Self::fault_injection_block_announce_stall(&new_block);
                 self.globals.coord().announce_new_stacks_block();
 
-                // store mined block
-                self.mined_blocks.push(new_block);
+                self.last_block_mined = Some(new_block);
             }
 
             let Ok(sort_db) = SortitionDB::open(
@@ -913,32 +912,42 @@ impl BlockMinerThread {
         burn_db: &mut SortitionDB,
         chain_state: &mut StacksChainState,
     ) -> Result<ParentStacksBlockInfo, NakamotoNodeError> {
+        // load up stacks chain tip
+        let (stacks_tip_ch, stacks_tip_bh) =
+            SortitionDB::get_canonical_stacks_chain_tip_hash(burn_db.conn()).map_err(|e| {
+                error!("Failed to load canonical Stacks tip: {:?}", &e);
+                NakamotoNodeError::ParentNotFound
+            })?;
+
+        let stacks_tip_block_id = StacksBlockId::new(&stacks_tip_ch, &stacks_tip_bh);
+        let tenure_tip_opt = NakamotoChainState::get_highest_block_header_in_tenure(
+            &mut chain_state.index_conn(),
+            &stacks_tip_block_id,
+            &self.burn_election_block.consensus_hash,
+        )
+        .map_err(|e| {
+            error!(
+                "Could not query header info for tenure tip {} off of {}: {:?}",
+                &self.burn_election_block.consensus_hash, &stacks_tip_block_id, &e
+            );
+            NakamotoNodeError::ParentNotFound
+        })?;
+
         // The nakamoto miner must always build off of a chain tip that is the highest of:
         // 1. The highest block in the miner's current tenure
         // 2. The highest block in the current tenure's parent tenure
+        //
         // Where the current tenure's parent tenure is the tenure start block committed to in the current tenure's associated block commit.
-        let stacks_tip_header = if let Some(block) = self.mined_blocks.last() {
-            test_debug!(
-                "Stacks block parent ID is last mined block {}",
-                &block.block_id()
+        let stacks_tip_header = if let Some(tenure_tip) = tenure_tip_opt {
+            debug!(
+                "Stacks block parent ID is last block in tenure ID {}",
+                &tenure_tip.consensus_hash
             );
-            let stacks_block_id = block.block_id();
-            NakamotoChainState::get_block_header(chain_state.db(), &stacks_block_id)
-                .map_err(|e| {
-                    error!(
-                        "Could not query header info for last-mined block ID {}: {:?}",
-                        &stacks_block_id, &e
-                    );
-                    NakamotoNodeError::ParentNotFound
-                })?
-                .ok_or_else(|| {
-                    error!("No header for parent tenure ID {}", &stacks_block_id);
-                    NakamotoNodeError::ParentNotFound
-                })?
+            tenure_tip
         } else {
-            // no mined blocks yet
-            test_debug!(
-                "Stacks block parent ID is last block in parent tenure ID {}",
+            // This tenure is empty on the canonical fork, so mine the first tenure block.
+            debug!(
+                "Stacks block parent ID is last block in parent tenure tipped by {}",
                 &self.parent_tenure_id
             );
 
@@ -957,18 +966,9 @@ impl BlockMinerThread {
                         NakamotoNodeError::ParentNotFound
                     })?;
 
-            // NOTE: this is the soon-to-be parent's block ID, since it's the tip we mine on top
-            // of.  We're only interested in performing queries relative to the canonical tip.
-            let (stacks_tip_ch, stacks_tip_bh) =
-                SortitionDB::get_canonical_stacks_chain_tip_hash(burn_db.conn()).map_err(|e| {
-                    error!("Failed to load canonical Stacks tip: {:?}", &e);
-                    NakamotoNodeError::ParentNotFound
-                })?;
-
-            let stacks_tip = StacksBlockId::new(&stacks_tip_ch, &stacks_tip_bh);
             let header_opt = NakamotoChainState::get_highest_block_header_in_tenure(
                 &mut chain_state.index_conn(),
-                &stacks_tip,
+                &stacks_tip_block_id,
                 &parent_tenure_header.consensus_hash,
             )
             .map_err(|e| {
@@ -1004,7 +1004,7 @@ impl BlockMinerThread {
             }
         };
 
-        test_debug!(
+        debug!(
             "Miner: stacks tip parent header is {} {:?}",
             &stacks_tip_header.index_block_hash(),
             &stacks_tip_header
@@ -1132,7 +1132,7 @@ impl BlockMinerThread {
             .make_vrf_proof()
             .ok_or_else(|| NakamotoNodeError::BadVrfConstruction)?;
 
-        if self.mined_blocks.is_empty() && parent_block_info.parent_tenure.is_none() {
+        if self.last_block_mined.is_none() && parent_block_info.parent_tenure.is_none() {
             warn!("Miner should be starting a new tenure, but failed to load parent tenure info");
             return Err(NakamotoNodeError::ParentNotFound);
         };
