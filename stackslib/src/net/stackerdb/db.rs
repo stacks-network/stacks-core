@@ -22,7 +22,7 @@ use clarity::vm::types::QualifiedContractIdentifier;
 use clarity::vm::ContractName;
 use libstackerdb::{SlotMetadata, STACKERDB_MAX_CHUNK_SIZE};
 use rusqlite::types::ToSql;
-use rusqlite::{Connection, OpenFlags, OptionalExtension, Row, Transaction, NO_PARAMS};
+use rusqlite::{params, Connection, OpenFlags, OptionalExtension, Row, Transaction, NO_PARAMS};
 use stacks_common::types::chainstate::{ConsensusHash, StacksAddress};
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::Sha512Trunc256Sum;
@@ -292,6 +292,15 @@ impl<'a> StackerDBTx<'a> {
         Ok(())
     }
 
+    /// Shrink a StackerDB.  Remove all slots at and beyond a particular slot ID.
+    fn shrink_stackerdb(&self, stackerdb_id: i64, first_slot_id: u32) -> Result<(), net_error> {
+        let qry = "DELETE FROM chunks WHERE stackerdb_id = ?1 AND slot_id >= ?2";
+        let args = params![&stackerdb_id, &first_slot_id];
+        let mut stmt = self.sql_tx.prepare(&qry)?;
+        stmt.execute(args)?;
+        Ok(())
+    }
+
     /// Update a database's storage slots, e.g. from new configuration state in its smart contract.
     /// Chunk data for slots that no longer exist will be dropped.
     /// Newly-created slots will be instantiated with empty data.
@@ -342,6 +351,8 @@ impl<'a> StackerDBTx<'a> {
                 stmt.execute(args)?;
             }
         }
+        debug!("Shrink {} to {} slots", smart_contract, total_slots_read);
+        self.shrink_stackerdb(stackerdb_id, total_slots_read)?;
         Ok(())
     }
 

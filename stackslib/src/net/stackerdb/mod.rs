@@ -306,8 +306,14 @@ impl StackerDBs {
                         &e
                     );
                 }
-            } else if new_config != stackerdb_config && new_config.signers.len() > 0 {
+            } else if (new_config != stackerdb_config && new_config.signers.len() > 0)
+                || (new_config == stackerdb_config
+                    && new_config.signers.len()
+                        != self.get_slot_versions(&stackerdb_contract_id)?.len())
+            {
                 // only reconfigure if the config has changed
+                // (that second check on the length is needed in case the node is a victim of
+                // #5142, which was a bug whereby a stackerdb could never shrink)
                 if let Err(e) = self.reconfigure_stackerdb(&stackerdb_contract_id, &new_config) {
                     warn!(
                         "Failed to create or reconfigure StackerDB {stackerdb_contract_id}: DB error {:?}",
