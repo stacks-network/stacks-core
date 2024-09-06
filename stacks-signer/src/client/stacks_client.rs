@@ -706,17 +706,23 @@ impl StacksClient {
     /// Returns `true` if the block was accepted or `false` if the block
     ///   was rejected.
     pub fn post_block(&self, block: &NakamotoBlock) -> Result<bool, ClientError> {
-        let response = self
-            .stacks_node_client
-            .post(format!(
-                "{}{}?broadcast=1",
-                self.http_origin,
-                postblock_v3::PATH
-            ))
-            .header("Content-Type", "application/octet-stream")
-            .header(AUTHORIZATION, self.auth_password.clone())
-            .body(block.serialize_to_vec())
-            .send()?;
+        let send_request = || {
+            self.stacks_node_client
+                .post(format!(
+                    "{}{}?broadcast=1",
+                    self.http_origin,
+                    postblock_v3::PATH
+                ))
+                .header("Content-Type", "application/octet-stream")
+                .header(AUTHORIZATION, self.auth_password.clone())
+                .body(block.serialize_to_vec())
+                .send()
+                .map_err(|e| {
+                    debug!("Failed to submit block to the Stacks node: {e:?}");
+                    backoff::Error::transient(e)
+                })
+        };
+        let response = retry_with_exponential_backoff(send_request)?;
         if !response.status().is_success() {
             return Err(ClientError::RequestFailure(response.status()));
         }

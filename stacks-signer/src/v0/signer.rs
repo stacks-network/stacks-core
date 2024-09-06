@@ -55,6 +55,14 @@ pub static TEST_IGNORE_ALL_BLOCK_PROPOSALS: std::sync::Mutex<
     Option<Vec<stacks_common::types::chainstate::StacksPublicKey>>,
 > = std::sync::Mutex::new(None);
 
+#[cfg(any(test, feature = "testing"))]
+/// Pause the block broadcast
+pub static TEST_PAUSE_BLOCK_BROADCAST: std::sync::Mutex<Option<bool>> = std::sync::Mutex::new(None);
+
+#[cfg(any(test, feature = "testing"))]
+/// Skip broadcasting the block to the network
+pub static TEST_SKIP_BLOCK_BROADCAST: std::sync::Mutex<Option<bool>> = std::sync::Mutex::new(None);
+
 /// The stacks signer registered for the reward cycle
 #[derive(Debug)]
 pub struct Signer {
@@ -78,8 +86,6 @@ pub struct Signer {
     pub signer_db: SignerDb,
     /// Configuration for proposal evaluation
     pub proposal_config: ProposalEvalConfig,
-    /// Whether or not to broadcast signed blocks if we gather all signatures
-    pub broadcast_signed_blocks: bool,
 }
 
 impl std::fmt::Display for Signer {
@@ -179,13 +185,23 @@ impl SignerTrait<SignerMessage> for Signer {
                             );
                         }
                         SignerMessage::BlockPushed(b) => {
-                            let block_push_result = stacks_client.post_block(b);
+                            // This will infinitely loop until the block is acknowledged by the node
                             info!(
                                 "{self}: Got block pushed message";
                                 "block_id" => %b.block_id(),
                                 "signer_sighash" => %b.header.signer_signature_hash(),
-                                "push_result" => ?block_push_result,
                             );
+                            loop {
+                                match stacks_client.post_block(b) {
+                                    Ok(block_push_result) => {
+                                        debug!("{self}: Block pushed to stacks node: {block_push_result:?}");
+                                        break;
+                                    }
+                                    Err(e) => {
+                                        warn!("{self}: Failed to push block to stacks node: {e}. Retrying...");
+                                    }
+                                };
+                            }
                         }
                         SignerMessage::MockProposal(mock_proposal) => {
                             let epoch = match stacks_client.get_node_epoch() {
@@ -306,7 +322,6 @@ impl From<SignerConfig> for Signer {
             reward_cycle: signer_config.reward_cycle,
             signer_db,
             proposal_config,
-            broadcast_signed_blocks: signer_config.broadcast_signed_blocks,
         }
     }
 }
@@ -555,7 +570,7 @@ impl Signer {
                 return None;
             }
         };
-        if let Err(e) = block_info.mark_locally_accepted() {
+        if let Err(e) = block_info.mark_locally_accepted(false) {
             warn!("{self}: Failed to mark block as locally accepted: {e:?}",);
             return None;
         }
@@ -876,10 +891,11 @@ impl Signer {
             warn!("{self}: No such block {block_hash}");
             return;
         };
-        // move block to globally accepted state. If this is not possible, we have a bug in our block handling logic.
-        if let Err(e) = block_info.mark_globally_accepted() {
+        // move block to LOCALLY accepted state.
+        // We only mark this GLOBALLY accepted if we manage to broadcast it...
+        if let Err(e) = block_info.mark_locally_accepted(true) {
             // Do not abort as we should still try to store the block signature threshold
-            warn!("{self}: Failed to mark block as globally accepted: {e:?}");
+            warn!("{self}: Failed to mark block as locally accepted: {e:?}");
         }
         let _ = self.signer_db.insert_block(&block_info).map_err(|e| {
             warn!(
@@ -888,17 +904,24 @@ impl Signer {
             );
             e
         });
-
-        if self.broadcast_signed_blocks {
-            self.broadcast_signed_block(stacks_client, block_info.block, &addrs_to_sigs);
-        } else {
-            debug!(
-                "{self}: Not broadcasting signed block {block_hash} since broadcast_signed_blocks is false";
-                "stacks_block_id" => %block_info.block.block_id(),
-                "parent_block_id" => %block_info.block.header.parent_block_id,
-                "burnchain_consensus_hash" => %block_info.block.header.consensus_hash
-            );
+        #[cfg(any(test, feature = "testing"))]
+        {
+            if *TEST_PAUSE_BLOCK_BROADCAST.lock().unwrap() == Some(true) {
+                // Do an extra check just so we don't log EVERY time.
+                warn!("Block broadcast is stalled due to testing directive.";
+                    "block_id" => %block_info.block.block_id(),
+                    "height" => block_info.block.header.chain_length,
+                );
+                while *TEST_PAUSE_BLOCK_BROADCAST.lock().unwrap() == Some(true) {
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                }
+                info!("Block validation is no longer stalled due to testing directive.";
+                    "block_id" => %block_info.block.block_id(),
+                    "height" => block_info.block.header.chain_length,
+                );
+            }
         }
+        self.broadcast_signed_block(stacks_client, block_info.block, &addrs_to_sigs);
     }
 
     fn broadcast_signed_block(
@@ -918,11 +941,30 @@ impl Signer {
         block.header.signer_signature_hash();
         block.header.signer_signature = signatures;
 
+        #[cfg(any(test, feature = "testing"))]
+        {
+            if *TEST_SKIP_BLOCK_BROADCAST.lock().unwrap() == Some(true) {
+                warn!(
+                    "{self}: Skipping block broadcast due to testing directive";
+                    "block_id" => %block.block_id(),
+                    "height" => block.header.chain_length,
+                    "consensus_hash" => %block.header.consensus_hash
+                );
+
+                if let Err(e) = self.signer_db.set_block_broadcasted(
+                    self.reward_cycle,
+                    &block_hash,
+                    get_epoch_time_secs(),
+                ) {
+                    warn!("{self}: Failed to set block broadcasted for {block_hash}: {e:?}");
+                }
+                return;
+            }
+        }
         debug!(
             "{self}: Broadcasting Stacks block {} to node",
             &block.block_id()
         );
-
         if let Err(e) = stacks_client.post_block(&block) {
             warn!(
                 "{self}: Failed to post block {block_hash}: {e:?}";

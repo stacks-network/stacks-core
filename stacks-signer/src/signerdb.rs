@@ -225,16 +225,20 @@ impl BlockInfo {
         block_info
     }
 
-    /// Mark this block as locally accepted, valid, signed over, and records a timestamp in the block info if it wasn't
+    /// Mark this block as locally accepted, valid, signed over, and records either the self or group signed timestamp in the block info if it wasn't
     ///  already set.
-    pub fn mark_locally_accepted(&mut self) -> Result<(), String> {
+    pub fn mark_locally_accepted(&mut self, group_signed: bool) -> Result<(), String> {
         self.valid = Some(true);
         self.signed_over = true;
-        self.signed_self.get_or_insert(get_epoch_time_secs());
+        if group_signed {
+            self.signed_group.get_or_insert(get_epoch_time_secs());
+        } else {
+            self.signed_self.get_or_insert(get_epoch_time_secs());
+        }
         self.move_to(BlockState::LocallyAccepted)
     }
 
-    /// Mark this block as globally accepted, valid, signed over, and records a timestamp in the block info if it wasn't
+    /// Mark this block as valid, signed over, and records a group timestamp in the block info if it wasn't
     ///  already set.
     pub fn mark_globally_accepted(&mut self) -> Result<(), String> {
         self.valid = Some(true);
@@ -785,15 +789,20 @@ impl SignerDb {
         query_rows(&self.db, qry, args)
     }
 
-    /// Mark a block as having been broadcasted
+    /// Mark a block as having been broadcasted and therefore GloballyAccepted
     pub fn set_block_broadcasted(
         &self,
         reward_cycle: u64,
         block_sighash: &Sha512Trunc256Sum,
         ts: u64,
     ) -> Result<(), DBError> {
-        let qry = "UPDATE blocks SET broadcasted = ?1 WHERE reward_cycle = ?2 AND signer_signature_hash = ?3";
-        let args = params![u64_to_sql(ts)?, u64_to_sql(reward_cycle)?, block_sighash];
+        let qry = "UPDATE blocks SET broadcasted = ?1, block_info = json_set(block_info, '$.state', ?2) WHERE reward_cycle = ?3 AND signer_signature_hash = ?4";
+        let args = params![
+            u64_to_sql(ts)?,
+            BlockState::GloballyAccepted.to_string(),
+            u64_to_sql(reward_cycle)?,
+            block_sighash
+        ];
 
         debug!("Marking block {} as broadcasted at {}", block_sighash, ts);
         self.db.execute(qry, args)?;
@@ -1015,7 +1024,7 @@ mod tests {
             .is_none());
 
         block_info
-            .mark_locally_accepted()
+            .mark_locally_accepted(false)
             .expect("Failed to mark block as locally accepted");
         db.insert_block(&block_info).unwrap();
 
@@ -1175,12 +1184,32 @@ mod tests {
             )
             .unwrap()
             .is_none());
+        assert_eq!(
+            db.block_lookup(
+                block_info_1.reward_cycle,
+                &block_info_1.signer_signature_hash()
+            )
+            .expect("Unable to get block from db")
+            .expect("Unable to get block from db")
+            .state,
+            BlockState::Unprocessed
+        );
         db.set_block_broadcasted(
             block_info_1.reward_cycle,
             &block_info_1.signer_signature_hash(),
             12345,
         )
         .unwrap();
+        assert_eq!(
+            db.block_lookup(
+                block_info_1.reward_cycle,
+                &block_info_1.signer_signature_hash()
+            )
+            .expect("Unable to get block from db")
+            .expect("Unable to get block from db")
+            .state,
+            BlockState::GloballyAccepted
+        );
         db.insert_block(&block_info_1)
             .expect("Unable to insert block into db a second time");
 

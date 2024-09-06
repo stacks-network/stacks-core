@@ -243,7 +243,7 @@ fn reorg_timing_testing(
     };
     let mut header_clone = block_proposal_1.block.header.clone();
     let mut block_info_1 = BlockInfo::from(block_proposal_1);
-    block_info_1.mark_locally_accepted().unwrap();
+    block_info_1.mark_locally_accepted(false).unwrap();
     signer_db.insert_block(&block_info_1).unwrap();
 
     let sortition_time = SystemTime::UNIX_EPOCH
