@@ -28,7 +28,6 @@ use stacks_common::types::chainstate::{
     BlockHeaderHash, TrieHash, BLOCK_HEADER_HASH_ENCODED_SIZE, TRIEHASH_ENCODED_SIZE,
 };
 use stacks_common::util::hash::to_hex;
-use stacks_common::util::slice_partialeq;
 
 use crate::chainstate::stacks::index::bits::{
     get_leaf_hash, get_node_hash, read_root_hash, write_path_to_bytes,
@@ -118,19 +117,19 @@ impl<T: ClarityMarfTrieId> PartialEq for TrieMerkleProofType<T> {
             (
                 TrieMerkleProofType::Node4((ref chr, ref node, ref hashes)),
                 TrieMerkleProofType::Node4((ref other_chr, ref other_node, ref other_hashes)),
-            ) => chr == other_chr && node == other_node && slice_partialeq(hashes, other_hashes),
+            ) => chr == other_chr && node == other_node && hashes == other_hashes,
             (
                 TrieMerkleProofType::Node16((ref chr, ref node, ref hashes)),
                 TrieMerkleProofType::Node16((ref other_chr, ref other_node, ref other_hashes)),
-            ) => chr == other_chr && node == other_node && slice_partialeq(hashes, other_hashes),
+            ) => chr == other_chr && node == other_node && hashes == other_hashes,
             (
                 TrieMerkleProofType::Node48((ref chr, ref node, ref hashes)),
                 TrieMerkleProofType::Node48((ref other_chr, ref other_node, ref other_hashes)),
-            ) => chr == other_chr && node == other_node && slice_partialeq(hashes, other_hashes),
+            ) => chr == other_chr && node == other_node && hashes == other_hashes,
             (
                 TrieMerkleProofType::Node256((ref chr, ref node, ref hashes)),
                 TrieMerkleProofType::Node256((ref other_chr, ref other_node, ref other_hashes)),
-            ) => chr == other_chr && node == other_node && slice_partialeq(hashes, other_hashes),
+            ) => chr == other_chr && node == other_node && hashes == other_hashes,
             (
                 TrieMerkleProofType::Leaf((ref chr, ref node)),
                 TrieMerkleProofType::Leaf((ref other_chr, ref other_node)),
