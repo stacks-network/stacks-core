@@ -49,6 +49,12 @@ pub static TEST_REJECT_ALL_BLOCK_PROPOSAL: std::sync::Mutex<
     Option<Vec<stacks_common::types::chainstate::StacksPublicKey>>,
 > = std::sync::Mutex::new(None);
 
+#[cfg(any(test, feature = "testing"))]
+/// A global variable that can be used to ignore block proposals if the signer's public key is in the provided list
+pub static TEST_IGNORE_ALL_BLOCK_PROPOSALS: std::sync::Mutex<
+    Option<Vec<stacks_common::types::chainstate::StacksPublicKey>>,
+> = std::sync::Mutex::new(None);
+
 /// The stacks signer registered for the reward cycle
 #[derive(Debug)]
 pub struct Signer {
@@ -148,6 +154,23 @@ impl SignerTrait<SignerMessage> for Signer {
                 for message in messages {
                     match message {
                         SignerMessage::BlockProposal(block_proposal) => {
+                            #[cfg(any(test, feature = "testing"))]
+                            if let Some(public_keys) =
+                                &*TEST_IGNORE_ALL_BLOCK_PROPOSALS.lock().unwrap()
+                            {
+                                if public_keys.contains(
+                                    &stacks_common::types::chainstate::StacksPublicKey::from_private(
+                                        &self.private_key,
+                                    ),
+                                ) {
+                                        warn!("{self}: Ignoring block proposal due to testing directive";
+                                            "block_id" => %block_proposal.block.block_id(),
+                                            "height" => block_proposal.block.header.chain_length,
+                                            "consensus_hash" => %block_proposal.block.header.consensus_hash
+                                        );
+                                        continue;
+                                }
+                            }
                             self.handle_block_proposal(
                                 stacks_client,
                                 sortition_state,
@@ -442,7 +465,6 @@ impl Signer {
                         &self.private_key,
                     ),
                 ) {
-                    // Do an extra check just so we don't log EVERY time.
                     warn!("{self}: Rejecting block proposal automatically due to testing directive";
                         "block_id" => %block_proposal.block.block_id(),
                         "height" => block_proposal.block.header.chain_length,

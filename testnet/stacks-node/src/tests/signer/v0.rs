@@ -51,7 +51,7 @@ use stacks_common::util::sleep_ms;
 use stacks_signer::chainstate::{ProposalEvalConfig, SortitionsView};
 use stacks_signer::client::{SignerSlotID, StackerDB};
 use stacks_signer::config::{build_signer_config_tomls, GlobalConfig as SignerConfig, Network};
-use stacks_signer::v0::signer::TEST_REJECT_ALL_BLOCK_PROPOSAL;
+use stacks_signer::v0::signer::{TEST_IGNORE_ALL_BLOCK_PROPOSALS, TEST_REJECT_ALL_BLOCK_PROPOSAL};
 use stacks_signer::v0::SpawnedSigner;
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{fmt, EnvFilter};
@@ -2962,7 +2962,8 @@ fn duplicate_signers() {
 #[test]
 #[ignore]
 /// Test that signers that accept a block locally, but that was rejected globally will accept a subsequent attempt
-/// by the miner to reorg their prior signed block.
+/// by the miner essentially reorg their prior locally accepted/signed block, i.e. the globally rejected block overrides
+/// their local view.
 ///
 /// Test Setup:
 /// The test spins up five stacks signers, one miner Nakamoto node, and a corresponding bitcoind.
@@ -2974,7 +2975,7 @@ fn duplicate_signers() {
 ///
 /// Test Assertion:
 /// Stacks tip advances to N+1'
-fn allow_reorg_locally_accepted_block_if_globally_rejected_succeeds() {
+fn locally_accepted_blocks_overriden_by_global_rejection() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
     }
@@ -3002,6 +3003,7 @@ fn allow_reorg_locally_accepted_block_if_globally_rejected_succeeds() {
     signer_test.boot_to_epoch_3();
 
     info!("------------------------- Test Mine Nakamoto Block N -------------------------");
+    let info_before = signer_test.stacks_client.get_peer_info().unwrap();
     let mined_blocks = signer_test.running_nodes.nakamoto_blocks_mined.clone();
     let blocks_before = mined_blocks.load(Ordering::SeqCst);
     let start_time = Instant::now();
@@ -3019,6 +3021,14 @@ fn allow_reorg_locally_accepted_block_if_globally_rejected_succeeds() {
         thread::sleep(Duration::from_secs(1));
     }
     sender_nonce += 1;
+    let info_after = signer_test.stacks_client.get_peer_info().unwrap();
+    assert_eq!(
+        info_before.stacks_tip_height + 1,
+        info_after.stacks_tip_height
+    );
+    let nakamoto_blocks = test_observer::get_mined_nakamoto_blocks();
+    let block_n = nakamoto_blocks.last().unwrap();
+    assert_eq!(info_after.stacks_tip.to_string(), block_n.block_hash);
 
     info!("------------------------- Attempt to Mine Nakamoto Block N+1 -------------------------");
     // Make half of the signers reject the block proposal by the miner to ensure its marked globally rejected
@@ -3039,6 +3049,7 @@ fn allow_reorg_locally_accepted_block_if_globally_rejected_succeeds() {
     let start_time = Instant::now();
     let mut rejected_hash = None;
     let blocks_before = mined_blocks.load(Ordering::SeqCst);
+    let info_before = signer_test.stacks_client.get_peer_info().unwrap();
     loop {
         let stackerdb_events = test_observer::get_stackerdb_chunks();
         let block_rejections = stackerdb_events
@@ -3081,6 +3092,12 @@ fn allow_reorg_locally_accepted_block_if_globally_rejected_succeeds() {
     }
 
     assert_eq!(blocks_before, mined_blocks.load(Ordering::SeqCst));
+    let info_after = signer_test.stacks_client.get_peer_info().unwrap();
+    assert_eq!(info_before, info_after);
+    // Ensure that the block was not accepted globally so the stacks tip has not advanced to N+1
+    let nakamoto_blocks = test_observer::get_mined_nakamoto_blocks();
+    let block_n_1 = nakamoto_blocks.last().unwrap();
+    assert_ne!(block_n_1, block_n);
 
     info!("------------------------- Test Mine Nakamoto Block N+1' -------------------------");
     let info_before = signer_test.stacks_client.get_peer_info().unwrap();
@@ -3103,6 +3120,22 @@ fn allow_reorg_locally_accepted_block_if_globally_rejected_succeeds() {
         info_after.stacks_tip_height,
         info_before.stacks_tip_height + 1
     );
+    // Ensure that the block was accepted globally so the stacks tip has advanced to N+1'
+    let start_time = Instant::now();
+    while test_observer::get_mined_nakamoto_blocks().last().unwrap() == block_n_1 {
+        assert!(
+            start_time.elapsed() < short_timeout,
+            "FAIL: Test timed out while waiting for block production",
+        );
+        thread::sleep(Duration::from_secs(1));
+    }
+    let nakamoto_blocks = test_observer::get_mined_nakamoto_blocks();
+    let block_n_1_prime = nakamoto_blocks.last().unwrap();
+    assert_eq!(
+        info_after.stacks_tip.to_string(),
+        block_n_1_prime.block_hash
+    );
+    assert_ne!(block_n_1_prime, block_n_1);
 }
 
 #[test]
@@ -3186,6 +3219,11 @@ fn locally_rejected_blocks_overriden_by_global_acceptance() {
         .signer_signature
         .len();
     assert_eq!(nmb_signatures, num_signers);
+
+    // Ensure that the block was accepted globally so the stacks tip has not advanced to N
+    let nakamoto_blocks = test_observer::get_mined_nakamoto_blocks();
+    let block_n = nakamoto_blocks.last().unwrap();
+    assert_eq!(info_after.stacks_tip.to_string(), block_n.block_hash);
 
     info!("------------------------- Mine Nakamoto Block N+1 -------------------------");
     // Make less than 30% of the signers reject the block to ensure it is marked globally accepted
@@ -3278,7 +3316,13 @@ fn locally_rejected_blocks_overriden_by_global_acceptance() {
         .len();
     assert_eq!(nmb_signatures, num_signers - rejecting_signers.len());
 
-    info!("------------------------- Test Mine Nakamoto Block N+2' -------------------------");
+    // Ensure that the block was accepted globally so the stacks tip has advanced to N+1
+    let nakamoto_blocks = test_observer::get_mined_nakamoto_blocks();
+    let block_n_1 = nakamoto_blocks.last().unwrap();
+    assert_eq!(info_after.stacks_tip.to_string(), block_n_1.block_hash);
+    assert_ne!(block_n_1, block_n);
+
+    info!("------------------------- Test Mine Nakamoto Block N+2 -------------------------");
     let info_before = signer_test.stacks_client.get_peer_info().unwrap();
     let blocks_before = mined_blocks.load(Ordering::SeqCst);
     TEST_REJECT_ALL_BLOCK_PROPOSAL
@@ -3314,4 +3358,223 @@ fn locally_rejected_blocks_overriden_by_global_acceptance() {
         .signer_signature
         .len();
     assert_eq!(nmb_signatures, num_signers);
+    // Ensure that the block was accepted globally so the stacks tip has advanced to N+2
+    let nakamoto_blocks = test_observer::get_mined_nakamoto_blocks();
+    let block_n_2 = nakamoto_blocks.last().unwrap();
+    assert_eq!(info_after.stacks_tip.to_string(), block_n_2.block_hash);
+    assert_ne!(block_n_2, block_n_1);
+}
+
+#[test]
+#[ignore]
+/// Test that signers that have accept a locally signed block N+1 built in tenure A can sign a block proposed during a
+/// new tenure B built upon the last globally accepted block N, i.e. a reorg can occur at a tenure boundary.
+///
+/// Test Setup:
+/// The test spins up five stacks signers, one miner Nakamoto node, and a corresponding bitcoind.
+/// The stacks node is then advanced to Epoch 3.0 boundary to allow block signing.
+///
+/// Test Execution:
+/// The node mines 1 stacks block N (all signers sign it). The subsequent block N+1 is proposed, but <30% accept it. The remaining signers
+/// do not make a decision on the block. A new tenure begins and the miner proposes a new block N+1' which all signers accept.
+///
+/// Test Assertion:
+/// Stacks tip advances to N+1'
+fn reorg_locally_accepted_blocks_across_tenures_succeeds() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(EnvFilter::from_default_env())
+        .init();
+
+    info!("------------------------- Test Setup -------------------------");
+    let num_signers = 5;
+    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_addr = tests::to_addr(&sender_sk);
+    let send_amt = 100;
+    let send_fee = 180;
+    let nmb_txs = 2;
+    let recipient = PrincipalData::from(StacksAddress::burn_address(false));
+    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new(
+        num_signers,
+        vec![(sender_addr.clone(), (send_amt + send_fee) * nmb_txs)],
+    );
+    let http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
+    let short_timeout = Duration::from_secs(30);
+    signer_test.boot_to_epoch_3();
+    info!("------------------------- Test Mine Nakamoto Block N in Tenure B -------------------------");
+    let mined_blocks = signer_test.running_nodes.nakamoto_blocks_mined.clone();
+    let blocks_before = mined_blocks.load(Ordering::SeqCst);
+    let info_before = signer_test
+        .stacks_client
+        .get_peer_info()
+        .expect("Failed to get peer info");
+    let start_time = Instant::now();
+    // submit a tx so that the miner will mine a stacks block
+    let mut sender_nonce = 0;
+    let transfer_tx =
+        make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
+    let tx = submit_tx(&http_origin, &transfer_tx);
+    info!("Submitted tx {tx} in to mine block N");
+    while mined_blocks.load(Ordering::SeqCst) <= blocks_before {
+        assert!(
+            start_time.elapsed() < short_timeout,
+            "FAIL: Test timed out while waiting for block production",
+        );
+        thread::sleep(Duration::from_secs(1));
+    }
+
+    sender_nonce += 1;
+    let info_after = signer_test
+        .stacks_client
+        .get_peer_info()
+        .expect("Failed to get peer info");
+    assert_eq!(
+        info_before.stacks_tip_height + 1,
+        info_after.stacks_tip_height
+    );
+
+    let nakamoto_blocks = test_observer::get_mined_nakamoto_blocks();
+    let block_n = nakamoto_blocks.last().unwrap();
+    assert_eq!(info_after.stacks_tip.to_string(), block_n.block_hash);
+
+    info!("------------------------- Attempt to Mine Nakamoto Block N+1 -------------------------");
+    // Make more than >70% of the signers ignore the block proposal to ensure it it is not globally accepted/rejected
+    let ignoring_signers: Vec<_> = signer_test
+        .signer_stacks_private_keys
+        .iter()
+        .map(StacksPublicKey::from_private)
+        .take(num_signers * 7 / 10)
+        .collect();
+    TEST_IGNORE_ALL_BLOCK_PROPOSALS
+        .lock()
+        .unwrap()
+        .replace(ignoring_signers.clone());
+    // Clear the stackerdb chunks
+    test_observer::clear();
+    let transfer_tx =
+        make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
+    let tx = submit_tx(&http_origin, &transfer_tx);
+    info!("Submitted tx {tx} in to attempt to mine block N+1");
+    let start_time = Instant::now();
+    let blocks_before = mined_blocks.load(Ordering::SeqCst);
+    let info_before = signer_test
+        .stacks_client
+        .get_peer_info()
+        .expect("Failed to get peer info");
+    let mut last_hash = None;
+    loop {
+        let ignored_signers = test_observer::get_stackerdb_chunks()
+            .into_iter()
+            .flat_map(|chunk| chunk.modified_slots)
+            .filter_map(|chunk| {
+                let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
+                    .expect("Failed to deserialize SignerMessage");
+                match message {
+                    SignerMessage::BlockResponse(BlockResponse::Accepted((hash, signature))) => {
+                        // Only care about the last proposed block
+                        if let Some(h) = &last_hash {
+                            if h != &hash {
+                                return None;
+                            }
+                        } else {
+                            last_hash = Some(hash);
+                        }
+                        ignoring_signers
+                            .iter()
+                            .find(|key| key.verify(hash.bits(), &signature).is_ok())
+                    }
+                    _ => None,
+                }
+            })
+            .collect::<Vec<_>>();
+        if ignored_signers.len() + ignoring_signers.len() == num_signers {
+            break;
+        }
+        assert!(
+            start_time.elapsed() < short_timeout,
+            "FAIL: Test timed out while waiting for block proposal acceptance",
+        );
+        sleep_ms(1000);
+    }
+    let blocks_after = mined_blocks.load(Ordering::SeqCst);
+    let info_after = signer_test
+        .stacks_client
+        .get_peer_info()
+        .expect("Failed to get peer info");
+    assert_eq!(blocks_after, blocks_before);
+    assert_eq!(info_after, info_before);
+    // Ensure that the block was not accepted globally so the stacks tip has not advanced to N+1
+    let nakamoto_blocks = test_observer::get_mined_nakamoto_blocks();
+    let block_n_1 = nakamoto_blocks.last().unwrap();
+    assert_ne!(block_n_1, block_n);
+    assert_ne!(info_after.stacks_tip.to_string(), block_n_1.block_hash);
+
+    info!(
+        "------------------------- Mine Nakamoto Block N+1' in Tenure B -------------------------"
+    );
+    let commits_submitted = signer_test.running_nodes.commits_submitted.clone();
+    let commits_before = commits_submitted.load(Ordering::SeqCst);
+    next_block_and(
+        &mut signer_test.running_nodes.btc_regtest_controller,
+        60,
+        || {
+            let commits_count = commits_submitted.load(Ordering::SeqCst);
+            Ok(commits_count > commits_before)
+        },
+    )
+    .unwrap();
+    TEST_IGNORE_ALL_BLOCK_PROPOSALS
+        .lock()
+        .unwrap()
+        .replace(Vec::new());
+    let mined_blocks = signer_test.running_nodes.nakamoto_blocks_mined.clone();
+    let blocks_before = mined_blocks.load(Ordering::SeqCst);
+    let info_before = signer_test
+        .stacks_client
+        .get_peer_info()
+        .expect("Failed to get peer info");
+    let start_time = Instant::now();
+    // submit a tx so that the miner will mine a stacks block
+    let transfer_tx =
+        make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
+    let tx = submit_tx(&http_origin, &transfer_tx);
+    info!("Submitted tx {tx} in to mine block N");
+    while mined_blocks.load(Ordering::SeqCst) <= blocks_before {
+        assert!(
+            start_time.elapsed() < short_timeout,
+            "FAIL: Test timed out while waiting for block production",
+        );
+        thread::sleep(Duration::from_secs(1));
+    }
+
+    let info_after = signer_test
+        .stacks_client
+        .get_peer_info()
+        .expect("Failed to get peer info");
+    assert_eq!(
+        info_before.stacks_tip_height + 1,
+        info_after.stacks_tip_height
+    );
+    let nmb_signatures = signer_test
+        .stacks_client
+        .get_tenure_tip(&info_after.stacks_tip_consensus_hash)
+        .expect("Failed to get tip")
+        .as_stacks_nakamoto()
+        .expect("Not a Nakamoto block")
+        .signer_signature
+        .len();
+    assert_eq!(nmb_signatures, num_signers);
+
+    // Ensure that the block was accepted globally so the stacks tip has advanced to N+1'
+    let nakamoto_blocks = test_observer::get_mined_nakamoto_blocks();
+    let block_n_1_prime = nakamoto_blocks.last().unwrap();
+    assert_eq!(
+        info_after.stacks_tip.to_string(),
+        block_n_1_prime.block_hash
+    );
+    assert_ne!(block_n_1_prime, block_n);
 }

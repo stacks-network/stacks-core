@@ -321,7 +321,7 @@ pub struct TransactionSuccessEvent {
 }
 
 /// Represents an event for a failed transaction. Something went wrong when processing this transaction.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TransactionErrorEvent {
     #[serde(deserialize_with = "hex_deserialize", serialize_with = "hex_serialize")]
     pub txid: Txid,
@@ -378,7 +378,7 @@ pub enum TransactionResult {
 
 /// This struct is used to transmit data about transaction results through either the `mined_block`
 /// or `mined_microblock` event.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum TransactionEvent {
     /// Transaction has already succeeded.
     Success(TransactionSuccessEvent),
