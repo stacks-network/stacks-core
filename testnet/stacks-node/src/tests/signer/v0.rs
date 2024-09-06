@@ -3594,7 +3594,7 @@ fn miner_recovers_when_broadcast_block_delay_across_tenures_occurs() {
     let sender_addr = tests::to_addr(&sender_sk);
     let send_amt = 100;
     let send_fee = 180;
-    let nmb_txs = 2;
+    let nmb_txs = 3;
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new(
         num_signers,
@@ -3603,6 +3603,7 @@ fn miner_recovers_when_broadcast_block_delay_across_tenures_occurs() {
     let http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
     let short_timeout = Duration::from_secs(30);
     signer_test.boot_to_epoch_3();
+
     info!("------------------------- Starting Tenure A -------------------------");
     info!("------------------------- Test Mine Nakamoto Block N -------------------------");
     let mined_blocks = signer_test.running_nodes.nakamoto_blocks_mined.clone();
@@ -3612,12 +3613,36 @@ fn miner_recovers_when_broadcast_block_delay_across_tenures_occurs() {
         .get_peer_info()
         .expect("Failed to get peer info");
     let start_time = Instant::now();
+
+    // wait until we get a sortition.
+    // we might miss a block-commit at the start of epoch 3
+    let burnchain = signer_test.running_nodes.conf.get_burnchain();
+    let sortdb = burnchain.open_sortition_db(true).unwrap();
+
+    loop {
+        next_block_and(
+            &mut signer_test.running_nodes.btc_regtest_controller,
+            60,
+            || Ok(true),
+        )
+        .unwrap();
+
+        sleep_ms(10_000);
+
+        let tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn()).unwrap();
+        if tip.sortition {
+            break;
+        }
+    }
+
     // submit a tx so that the miner will mine a stacks block
     let mut sender_nonce = 0;
     let transfer_tx =
         make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
     let tx = submit_tx(&http_origin, &transfer_tx);
     info!("Submitted tx {tx} in to mine block N");
+
+    // a tenure has begun, so wait until we mine a block
     while mined_blocks.load(Ordering::SeqCst) <= blocks_before {
         assert!(
             start_time.elapsed() < short_timeout,
@@ -3649,16 +3674,20 @@ fn miner_recovers_when_broadcast_block_delay_across_tenures_occurs() {
     info!("Delaying signer block N+1 broadcasting to the miner");
     TEST_PAUSE_BLOCK_BROADCAST.lock().unwrap().replace(true);
     test_observer::clear();
-    let transfer_tx =
-        make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
-    let tx = submit_tx(&http_origin, &transfer_tx);
-    info!("Submitted tx {tx} in to attempt to mine block N+1");
-    let start_time = Instant::now();
     let blocks_before = mined_blocks.load(Ordering::SeqCst);
     let info_before = signer_test
         .stacks_client
         .get_peer_info()
         .expect("Failed to get peer info");
+
+    let transfer_tx =
+        make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
+    sender_nonce += 1;
+
+    let tx = submit_tx(&http_origin, &transfer_tx);
+
+    info!("Submitted tx {tx} in to attempt to mine block N+1");
+    let start_time = Instant::now();
     let mut block = None;
     loop {
         if block.is_none() {
@@ -3813,8 +3842,27 @@ fn miner_recovers_when_broadcast_block_delay_across_tenures_occurs() {
         );
     }
 
+    // Induce block N+2 to get mined
+    let transfer_tx =
+        make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
+    sender_nonce += 1;
+
+    let tx = submit_tx(&http_origin, &transfer_tx);
+    info!("Submitted tx {tx} in to attempt to mine block N+2");
+
     info!("------------------------- Asserting a both N+1 and N+2 are accepted -------------------------");
-    while mined_blocks.load(Ordering::SeqCst) <= blocks_before + 2 {
+    loop {
+        // N.B. have to use /v2/info because mined_blocks only increments if the miner's signing
+        // coordinator returns successfully (meaning, mined_blocks won't increment for block N+1)
+        let info = signer_test
+            .stacks_client
+            .get_peer_info()
+            .expect("Failed to get peer info");
+
+        if info_before.stacks_tip_height + 2 <= info.stacks_tip_height {
+            break;
+        }
+
         assert!(
             start_time.elapsed() < short_timeout,
             "FAIL: Test timed out while waiting for block production",
@@ -3826,6 +3874,7 @@ fn miner_recovers_when_broadcast_block_delay_across_tenures_occurs() {
         .stacks_client
         .get_peer_info()
         .expect("Failed to get peer info");
+
     assert_eq!(
         info_before.stacks_tip_height + 2,
         info_after.stacks_tip_height
