@@ -544,14 +544,17 @@ impl BlockMinerThread {
             return Ok((reward_set, Vec::new()));
         }
 
-        let mut coordinator =
-            SignCoordinator::new(&reward_set, miner_privkey_as_scalar, &self.config).map_err(
-                |e| {
-                    NakamotoNodeError::SigningCoordinatorFailure(format!(
-                        "Failed to initialize the signing coordinator. Cannot mine! {e:?}"
-                    ))
-                },
-            )?;
+        let mut coordinator = SignCoordinator::new(
+            &reward_set,
+            miner_privkey_as_scalar,
+            &self.config,
+            self.globals.should_keep_running.clone(),
+        )
+        .map_err(|e| {
+            NakamotoNodeError::SigningCoordinatorFailure(format!(
+                "Failed to initialize the signing coordinator. Cannot mine! {e:?}"
+            ))
+        })?;
 
         let mut chain_state =
             neon_node::open_chainstate_with_faults(&self.config).map_err(|e| {
