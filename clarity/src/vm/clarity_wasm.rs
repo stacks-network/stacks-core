@@ -11,6 +11,7 @@ use stacks_common::util::secp256k1::{secp256k1_recover, secp256k1_verify, Secp25
 use wasmtime::{AsContextMut, Caller, Engine, Linker, Memory, Module, Store, Trap, Val, ValType};
 
 use super::analysis::{CheckError, CheckErrors};
+use super::ast::parse;
 use super::callables::{DefineType, DefinedFunction};
 use super::contracts::Contract;
 use super::costs::{constants as cost_constants, CostTracker, LimitedCostTracker};
@@ -1671,6 +1672,25 @@ fn pass_argument_to_wasm(
             Ok((buffer, offset, in_mem_offset))
         }
     }
+}
+
+pub fn signature_from_string(
+    val: &str,
+    version: ClarityVersion,
+    epoch: StacksEpochId,
+) -> Result<TypeSignature, Error> {
+    let expr = parse(
+        &QualifiedContractIdentifier::transient(),
+        val,
+        version,
+        epoch,
+    )?;
+    let expr = expr.first().ok_or(CheckErrors::InvalidTypeDescription)?;
+    Ok(TypeSignature::parse_type_repr(
+        StacksEpochId::latest(),
+        expr,
+        &mut (),
+    )?)
 }
 
 /// Reserve space on the Wasm stack for the return value of a function, if
@@ -5548,10 +5568,9 @@ fn link_print_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
             "print",
             |mut caller: Caller<'_, ClarityWasmContext>,
              value_offset: i32,
-             value_length: i32,
-             _serialized_ty_offset: i32,
-             _serialized_ty_length: i32| {
-                // NOTE: _serialized_ty_offset and _serialized_ty_length are used in `stacks-network/clarity-wasm`, here we only care about the function stub
+             _value_length: i32,
+             serialized_ty_offset: i32,
+             serialized_ty_length: i32| {
                 // runtime_cost(ClarityCostFunction::Print, env, input.size())?;
 
                 // Get the memory from the caller
@@ -5560,14 +5579,19 @@ fn link_print_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
                     .and_then(|export| export.into_memory())
                     .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
 
-                // Read in the bytes from the Wasm memory
-                let bytes = read_bytes_from_wasm(memory, &mut caller, value_offset, value_length)?;
+                let serialized_ty = String::from_utf8(read_bytes_from_wasm(
+                    memory,
+                    &mut caller,
+                    serialized_ty_offset,
+                    serialized_ty_length,
+                )?)?;
 
-                let clarity_val = Value::deserialize_read(&mut bytes.as_slice(), None, false)?;
+                let epoch = caller.data().global_context.epoch_id;
+                let version = caller.data().contract_context().get_clarity_version();
 
-                if cfg!(feature = "developer-mode") {
-                    debug!("{}", &clarity_val);
-                }
+                let value_ty = signature_from_string(&serialized_ty, *version, epoch)?;
+                let clarity_val =
+                    read_from_wasm_indirect(memory, &mut caller, &value_ty, value_offset, epoch)?;
 
                 caller.data_mut().register_print_event(clarity_val)?;
 
