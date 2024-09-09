@@ -30,6 +30,7 @@ use lazy_static::{__Deref, lazy_static};
 use rusqlite::blob::Blob;
 use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput};
 use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
+use sha2::digest::typenum::Integer;
 use sha2::{Digest as Sha2Digest, Sha512_256};
 use stacks_common::bitvec::BitVec;
 use stacks_common::codec::{
@@ -3287,10 +3288,35 @@ impl NakamotoChainState {
                 StacksPublicKey::recover_to_pubkey(signer_sighash.bits(), &signer_signature)
                     .map_err(|e| ChainstateError::InvalidStacksBlock(e.to_string()))?;
             let sql = "INSERT INTO signer_stats(public_key,reward_cycle) VALUES(?1,?2) ON CONFLICT(public_key,reward_cycle) DO UPDATE SET blocks_signed=blocks_signed+1";
-            let args = params![serde_json::to_string(&signer_pubkey).unwrap(), reward_cycle];
-            tx.execute(sql, args)?;
+            let params = params![serde_json::to_string(&signer_pubkey).unwrap(), reward_cycle];
+            tx.execute(sql, params)?;
         }
         Ok(())
+    }
+
+    /// Fetch number of blocks signed for a given signer and reward cycle
+    /// This is the data tracked by `record_block_signers()`
+    pub fn get_signer_block_count(
+        chainstate_db: &Connection,
+        signer_pubkey: &Secp256k1PublicKey,
+        reward_cycle: u64,
+    ) -> Result<Option<u64>, ChainstateError> {
+        let sql =
+            "SELECT blocks_signed FROM signer_stats WHERE public_key = ?1 AND reward_cycle = ?2";
+        let params = params![serde_json::to_string(&signer_pubkey).unwrap(), reward_cycle];
+        chainstate_db
+            .query_row(sql, params, |row| {
+                let value: String = row.get(2)?;
+                value.parse::<u64>().map_err(|e| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        size_of::<u64>(),
+                        rusqlite::types::Type::Integer,
+                        e.into(),
+                    )
+                })
+            })
+            .optional()
+            .map_err(ChainstateError::from)
     }
 
     /// Begin block-processing and return all of the pre-processed state within a
