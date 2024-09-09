@@ -2061,6 +2061,143 @@ fn end_of_tenure() {
 
 #[test]
 #[ignore]
+/// This test checks that the miner will retry when enough signers reject the block.
+fn retry_on_rejection() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+    tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(EnvFilter::from_default_env())
+        .init();
+
+    info!("------------------------- Test Setup -------------------------");
+    let num_signers = 5;
+    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_addr = tests::to_addr(&sender_sk);
+    let send_amt = 100;
+    let send_fee = 180;
+    let short_timeout = Duration::from_secs(30);
+    let recipient = PrincipalData::from(StacksAddress::burn_address(false));
+    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new(
+        num_signers,
+        vec![(sender_addr.clone(), (send_amt + send_fee) * 3)],
+    );
+    let http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
+    signer_test.boot_to_epoch_3();
+
+    // wait until we get a sortition.
+    // we might miss a block-commit at the start of epoch 3
+    let burnchain = signer_test.running_nodes.conf.get_burnchain();
+    let sortdb = burnchain.open_sortition_db(true).unwrap();
+
+    loop {
+        next_block_and(
+            &mut signer_test.running_nodes.btc_regtest_controller,
+            60,
+            || Ok(true),
+        )
+        .unwrap();
+
+        sleep_ms(10_000);
+
+        let tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn()).unwrap();
+        if tip.sortition {
+            break;
+        }
+    }
+
+    // mine a nakamoto block
+    let mined_blocks = signer_test.running_nodes.nakamoto_blocks_mined.clone();
+    let blocks_before = mined_blocks.load(Ordering::SeqCst);
+    let start_time = Instant::now();
+    // submit a tx so that the miner will mine a stacks block
+    let mut sender_nonce = 0;
+    let transfer_tx =
+        make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
+    let tx = submit_tx(&http_origin, &transfer_tx);
+    sender_nonce += 1;
+    info!("Submitted tx {tx} in to mine the first Nakamoto block");
+
+    // a tenure has begun, so wait until we mine a block
+    while mined_blocks.load(Ordering::SeqCst) <= blocks_before {
+        assert!(
+            start_time.elapsed() < short_timeout,
+            "FAIL: Test timed out while waiting for block production",
+        );
+        thread::sleep(Duration::from_secs(1));
+    }
+
+    // make all signers reject the block
+    let rejecting_signers: Vec<_> = signer_test
+        .signer_stacks_private_keys
+        .iter()
+        .map(StacksPublicKey::from_private)
+        .take(num_signers)
+        .collect();
+    TEST_REJECT_ALL_BLOCK_PROPOSAL
+        .lock()
+        .unwrap()
+        .replace(rejecting_signers.clone());
+
+    let proposals_before = signer_test
+        .running_nodes
+        .nakamoto_blocks_proposed
+        .load(Ordering::SeqCst);
+    let blocks_before = signer_test
+        .running_nodes
+        .nakamoto_blocks_mined
+        .load(Ordering::SeqCst);
+
+    // submit a tx so that the miner will mine a block
+    let transfer_tx =
+        make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
+    submit_tx(&http_origin, &transfer_tx);
+
+    info!("Submitted transfer tx and waiting for block proposal");
+    loop {
+        let blocks_proposed = signer_test
+            .running_nodes
+            .nakamoto_blocks_proposed
+            .load(Ordering::SeqCst);
+        if blocks_proposed > proposals_before {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+
+    info!("Block proposed, verifying that it is not processed");
+    // Wait 10 seconds to be sure that the timeout has occurred
+    std::thread::sleep(Duration::from_secs(10));
+    assert_eq!(
+        signer_test
+            .running_nodes
+            .nakamoto_blocks_mined
+            .load(Ordering::SeqCst),
+        blocks_before
+    );
+
+    // resume signing
+    info!("Disable unconditional rejection and wait for the block to be processed");
+    TEST_REJECT_ALL_BLOCK_PROPOSAL
+        .lock()
+        .unwrap()
+        .replace(vec![]);
+    loop {
+        let blocks_mined = signer_test
+            .running_nodes
+            .nakamoto_blocks_mined
+            .load(Ordering::SeqCst);
+        if blocks_mined > blocks_before {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    signer_test.shutdown();
+}
+
+#[test]
+#[ignore]
 /// This test checks that the signers will broadcast a block once they receive enough signatures.
 fn signers_broadcast_signed_blocks() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
