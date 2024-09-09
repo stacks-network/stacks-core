@@ -163,7 +163,7 @@ impl From<Result<BlockValidateOk, BlockValidateReject>> for BlockValidateRespons
     }
 }
 
-/// Represents a block proposed to the `v2/block_proposal` endpoint for validation
+/// Represents a block proposed to the `v3/block_proposal` endpoint for validation
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NakamotoBlockProposal {
     /// Proposed block
@@ -431,11 +431,11 @@ impl HttpRequest for RPCBlockProposalRequestHandler {
     }
 
     fn path_regex(&self) -> Regex {
-        Regex::new(r#"^/v2/block_proposal$"#).unwrap()
+        Regex::new(r#"^/v3/block_proposal$"#).unwrap()
     }
 
     fn metrics_identifier(&self) -> &str {
-        "/v2/block_proposal"
+        "/v3/block_proposal"
     }
 
     /// Try to decode this request.
