@@ -14,7 +14,9 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Receiver;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use hashbrown::{HashMap, HashSet};
@@ -77,6 +79,7 @@ pub struct SignCoordinator {
     weight_threshold: u32,
     total_weight: u32,
     config: Config,
+    keep_running: Arc<AtomicBool>,
     pub next_signer_bitvec: BitVec<4000>,
 }
 
@@ -209,6 +212,7 @@ impl SignCoordinator {
         reward_set: &RewardSet,
         message_key: Scalar,
         config: &Config,
+        keep_running: Arc<AtomicBool>,
     ) -> Result<Self, ChainstateError> {
         let is_mainnet = config.is_mainnet();
         let Some(ref reward_set_signers) = reward_set.signers else {
@@ -307,6 +311,7 @@ impl SignCoordinator {
                     weight_threshold: threshold,
                     total_weight,
                     config: config.clone(),
+                    keep_running,
                 };
                 return Ok(sign_coordinator);
             }
@@ -329,6 +334,7 @@ impl SignCoordinator {
             weight_threshold: threshold,
             total_weight,
             config: config.clone(),
+            keep_running,
         })
     }
 
@@ -794,6 +800,12 @@ impl SignCoordinator {
                     ))
                 }
             };
+
+            // was the node asked to stop?
+            if !self.keep_running.load(Ordering::SeqCst) {
+                info!("SignerCoordinator: received node exit request. Aborting");
+                return Err(NakamotoNodeError::ChannelClosed);
+            }
 
             // check to see if this event we got is a signer event
             let is_signer_event =
