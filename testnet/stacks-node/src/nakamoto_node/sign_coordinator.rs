@@ -403,11 +403,16 @@ impl SignCoordinator {
         chunk
             .sign(&miner_sk)
             .map_err(|_| "Failed to sign StackerDB chunk")?;
-
+        debug!("SignCoordinator: sending chunk to stackerdb: {chunk:?}");
         match miners_session.put_chunk(&chunk) {
             Ok(ack) => {
-                debug!("Wrote message to stackerdb: {ack:?}");
-                Ok(())
+                if ack.accepted {
+                    debug!("Wrote message to stackerdb: {ack:?}");
+                    Ok(())
+                } else {
+                    warn!("Failed to write message to stackerdb: {ack:?}");
+                    Err("Failed to write message to stackerdb".into())
+                }
             }
             Err(e) => {
                 warn!("Failed to write message to stackerdb {e:?}");

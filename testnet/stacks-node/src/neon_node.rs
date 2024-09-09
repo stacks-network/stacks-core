@@ -2419,7 +2419,7 @@ impl BlockMinerThread {
 
         info!("Sending mock block to stackerdb: {mock_block:?}");
         if let Err(e) = SignCoordinator::send_miners_message(
-            &miner_config.mining_key.expect("BUG: no mining key"),
+            &mining_key,
             &burn_db,
             &self.burn_block,
             &stackerdbs,
