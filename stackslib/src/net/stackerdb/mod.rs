@@ -119,6 +119,7 @@ pub mod db;
 pub mod sync;
 
 use std::collections::{HashMap, HashSet};
+use std::ops::Range;
 
 use clarity::vm::types::QualifiedContractIdentifier;
 use libstackerdb::{SlotMetadata, STACKERDB_MAX_CHUNK_SIZE};
@@ -205,6 +206,22 @@ impl StackerDBConfig {
     pub fn num_slots(&self) -> u32 {
         self.signers.iter().fold(0, |acc, s| acc + s.1)
     }
+
+    /// What are the slot index ranges for each signer?
+    /// Returns the ranges in the same ordering as `self.signers`
+    pub fn signer_ranges(&self) -> Vec<Range<u32>> {
+        let mut slot_index = 0;
+        let mut result = Vec::with_capacity(self.signers.len());
+        for (_, slot_count) in self.signers.iter() {
+            let end = slot_index + *slot_count;
+            result.push(Range {
+                start: slot_index,
+                end,
+            });
+            slot_index = end;
+        }
+        result
+    }
 }
 
 /// This is the set of replicated chunks in all stacker DBs that this node subscribes to.
@@ -280,14 +297,16 @@ impl StackerDBs {
                 == boot_code_id(MINERS_NAME, chainstate.mainnet)
             {
                 // .miners contract -- directly generate the config
-                NakamotoChainState::make_miners_stackerdb_config(sortdb, &tip).unwrap_or_else(|e| {
-                    warn!(
-                        "Failed to generate .miners StackerDB config";
-                        "contract" => %stackerdb_contract_id,
-                        "err" => ?e,
-                    );
-                    StackerDBConfig::noop()
-                })
+                NakamotoChainState::make_miners_stackerdb_config(sortdb, &tip)
+                    .map(|(config, _)| config)
+                    .unwrap_or_else(|e| {
+                        warn!(
+                            "Failed to generate .miners StackerDB config";
+                            "contract" => %stackerdb_contract_id,
+                            "err" => ?e,
+                        );
+                        StackerDBConfig::noop()
+                    })
             } else {
                 // attempt to load the config from the contract itself
                 StackerDBConfig::from_smart_contract(
@@ -297,11 +316,20 @@ impl StackerDBs {
                     num_neighbors,
                 )
                 .unwrap_or_else(|e| {
-                    warn!(
-                        "Failed to load StackerDB config";
-                        "contract" => %stackerdb_contract_id,
-                        "err" => ?e,
-                    );
+                    if matches!(e, net_error::NoSuchStackerDB(_)) && stackerdb_contract_id.is_boot()
+                    {
+                        debug!(
+                            "Failed to load StackerDB config";
+                            "contract" => %stackerdb_contract_id,
+                            "err" => ?e,
+                        );
+                    } else {
+                        warn!(
+                            "Failed to load StackerDB config";
+                            "contract" => %stackerdb_contract_id,
+                            "err" => ?e,
+                        );
+                    }
                     StackerDBConfig::noop()
                 })
             };
@@ -395,12 +423,18 @@ pub struct StackerDBSync<NC: NeighborComms> {
     /// whether or not we should immediately re-fetch chunks because we learned about new chunks
     /// from our peers when they replied to our chunk-pushes with new inventory state
     need_resync: bool,
+    /// whether or not the fetched inventory was determined to be stale
+    stale_inv: bool,
     /// Track stale neighbors
     pub(crate) stale_neighbors: HashSet<NeighborAddress>,
     /// How many attempted connections have been made in the last pass (gets reset)
     num_attempted_connections: u64,
     /// How many connections have been made in the last pass (gets reset)
     num_connections: u64,
+    /// Number of state machine passes
+    rounds: u128,
+    /// Round when we last pushed
+    push_round: u128,
 }
 
 impl StackerDBSyncResult {
@@ -473,7 +507,9 @@ impl PeerNetwork {
             Err(e) => {
                 debug!(
                     "{:?}: failed to get chunk versions for {}: {:?}",
-                    self.local_peer, contract_id, &e
+                    self.get_local_peer(),
+                    contract_id,
+                    &e
                 );
 
                 // most likely indicates that this DB doesn't exist
@@ -482,6 +518,14 @@ impl PeerNetwork {
         };
 
         let num_outbound_replicas = self.count_outbound_stackerdb_replicas(contract_id) as u32;
+
+        debug!(
+            "{:?}: inventory for {} has {} outbound replicas; versions are {:?}",
+            self.get_local_peer(),
+            contract_id,
+            num_outbound_replicas,
+            &slot_versions
+        );
         StacksMessageType::StackerDBChunkInv(StackerDBChunkInvData {
             slot_versions,
             num_outbound_replicas,

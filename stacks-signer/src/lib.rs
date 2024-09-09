@@ -61,8 +61,6 @@ use crate::runloop::{RunLoop, RunLoopCommand};
 pub trait Signer<T: SignerEventTrait>: Debug + Display {
     /// Create a new `Signer` instance
     fn new(config: SignerConfig) -> Self;
-    /// Update the `Signer` instance's with the next reward cycle data `SignerConfig`
-    fn update_signer(&mut self, next_signer_config: &SignerConfig);
     /// Get the reward cycle of the signer
     fn reward_cycle(&self) -> u64;
     /// Process an event
@@ -71,7 +69,7 @@ pub trait Signer<T: SignerEventTrait>: Debug + Display {
         stacks_client: &StacksClient,
         sortition_state: &mut Option<SortitionsView>,
         event: Option<&SignerEvent<T>>,
-        res: Sender<Vec<SignerResult>>,
+        res: &Sender<Vec<SignerResult>>,
         current_reward_cycle: u64,
     );
     /// Process a command
@@ -100,6 +98,8 @@ pub struct SpawnedSigner<S: Signer<T> + Send, T: SignerEventTrait> {
     pub cmd_send: Sender<RunLoopCommand>,
     /// The result receiver for interacting with the running signer
     pub res_recv: Receiver<Vec<SignerResult>>,
+    /// The spawned signer's config
+    pub config: GlobalConfig,
     /// Phantom data for the signer type
     _phantom: std::marker::PhantomData<S>,
 }
@@ -136,7 +136,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SpawnedSigner
         {
             crate::monitoring::start_serving_monitoring_metrics(config.clone()).ok();
         }
-        let runloop = RunLoop::new(config);
+        let runloop = RunLoop::new(config.clone());
         let mut signer: RunLoopSigner<S, T> =
             libsigner::Signer::new(runloop, ev, cmd_recv, res_send);
         let running_signer = signer.spawn(endpoint).expect("Failed to spawn signer");
@@ -145,6 +145,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SpawnedSigner
             cmd_send,
             res_recv,
             _phantom: std::marker::PhantomData,
+            config,
         }
     }
 }

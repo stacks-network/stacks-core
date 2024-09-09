@@ -36,6 +36,7 @@ use wsts::curve::scalar::Scalar;
 use crate::client::SignerSlotID;
 
 const EVENT_TIMEOUT_MS: u64 = 5000;
+const BLOCK_PROPOSAL_TIMEOUT_MS: u64 = 45_000;
 // Default transaction fee to use in microstacks (if unspecificed in the config file)
 const TX_FEE_USTX: u64 = 10_000;
 
@@ -154,6 +155,10 @@ pub struct SignerConfig {
     /// How much time must pass between the first block proposal in a tenure and the next bitcoin block
     ///  before a subsequent miner isn't allowed to reorg the tenure
     pub first_proposal_burn_block_timing: Duration,
+    /// How much time to wait for a miner to propose a block following a sortition
+    pub block_proposal_timeout: Duration,
+    /// Broadcast a block to the node if we gather enough signatures from other signers
+    pub broadcast_signed_blocks: bool,
 }
 
 /// The parsed configuration for the signer
@@ -196,6 +201,10 @@ pub struct GlobalConfig {
     /// How much time between the first block proposal in a tenure and the next bitcoin block
     ///  must pass before a subsequent miner isn't allowed to reorg the tenure
     pub first_proposal_burn_block_timing: Duration,
+    /// How much time to wait for a miner to propose a block following a sortition
+    pub block_proposal_timeout: Duration,
+    /// Broadcast a block to the node if we gather enough signatures from other signers
+    pub broadcast_signed_blocks: bool,
 }
 
 /// Internal struct for loading up the config file
@@ -236,6 +245,8 @@ struct RawConfigFile {
     /// How much time must pass between the first block proposal in a tenure and the next bitcoin block
     ///  before a subsequent miner isn't allowed to reorg the tenure
     pub first_proposal_burn_block_timing_secs: Option<u64>,
+    /// How much time to wait for a miner to propose a block following a sortition in milliseconds
+    pub block_proposal_timeout_ms: Option<u64>,
 }
 
 impl RawConfigFile {
@@ -324,6 +335,12 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
             None => None,
         };
 
+        let block_proposal_timeout = Duration::from_millis(
+            raw_data
+                .block_proposal_timeout_ms
+                .unwrap_or(BLOCK_PROPOSAL_TIMEOUT_MS),
+        );
+
         Ok(Self {
             node_host: raw_data.node_host,
             endpoint,
@@ -343,6 +360,8 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
             db_path,
             metrics_endpoint,
             first_proposal_burn_block_timing,
+            block_proposal_timeout,
+            broadcast_signed_blocks: true,
         })
     }
 }

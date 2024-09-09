@@ -1,3 +1,19 @@
+// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
+// Copyright (C) 2020-2024 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::sync::mpsc::{channel, Receiver, Sender};
@@ -5,13 +21,10 @@ use std::sync::Mutex;
 use std::thread::sleep;
 use std::time::Duration;
 
-use async_h1::client;
-use async_std::net::TcpStream;
 use clarity::vm::analysis::contract_interface_builder::build_contract_interface;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::events::{FTEventType, NFTEventType, STXEventType};
 use clarity::vm::types::{AssetIdentifier, QualifiedContractIdentifier, Value};
-use http_types::{Method, Request, Url};
 use serde_json::json;
 use stacks::burnchains::{PoxConstants, Txid};
 use stacks::chainstate::burn::operations::BlockstackOperationType;
@@ -39,13 +52,17 @@ use stacks::net::api::postblock_proposal::{
     BlockValidateOk, BlockValidateReject, BlockValidateResponse,
 };
 use stacks::net::atlas::{Attachment, AttachmentInstance};
+use stacks::net::http::HttpRequestContents;
+use stacks::net::httpcore::{send_http_request, StacksHttpRequest};
 use stacks::net::stackerdb::StackerDBEventDispatcher;
 use stacks::util::hash::to_hex;
 use stacks_common::bitvec::BitVec;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksBlockId};
+use stacks_common::types::net::PeerHost;
 use stacks_common::util::hash::{bytes_to_hex, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::MessageSignature;
+use url::Url;
 
 use super::config::{EventKeyType, EventObserverConfig};
 
@@ -138,6 +155,7 @@ pub struct MinedNakamotoBlockEvent {
     pub signer_signature_hash: Sha512Trunc256Sum,
     pub tx_events: Vec<TransactionEvent>,
     pub signer_bitvec: String,
+    pub signer_signature: Vec<MessageSignature>,
 }
 
 impl InnerStackerDBChannel {
@@ -296,59 +314,56 @@ impl RewardSetEventPayload {
 
 impl EventObserver {
     pub fn send_payload(&self, payload: &serde_json::Value, path: &str) {
-        let body = match serde_json::to_vec(&payload) {
-            Ok(body) => body,
-            Err(err) => {
-                error!("Event dispatcher: serialization failed  - {:?}", err);
-                return;
-            }
-        };
+        debug!(
+            "Event dispatcher: Sending payload"; "url" => %path, "payload" => ?payload
+        );
 
         let url = {
-            let joined_components = match path.starts_with('/') {
-                true => format!("{}{}", &self.endpoint, path),
-                false => format!("{}/{}", &self.endpoint, path),
+            let joined_components = if path.starts_with('/') {
+                format!("{}{}", &self.endpoint, path)
+            } else {
+                format!("{}/{}", &self.endpoint, path)
             };
             let url = format!("http://{}", joined_components);
             Url::parse(&url)
                 .unwrap_or_else(|_| panic!("Event dispatcher: unable to parse {} as a URL", url))
         };
 
-        let backoff = Duration::from_millis((1.0 * 1_000.0) as u64);
+        let host = url.host_str().expect("Invalid URL: missing host");
+        let port = url.port_or_known_default().unwrap_or(80);
+        let peerhost: PeerHost = format!("{host}:{port}")
+            .parse()
+            .unwrap_or(PeerHost::DNS(host.to_string(), port));
+
+        let backoff = Duration::from_millis(1000); // 1 second
 
         loop {
-            let body = body.clone();
-            let mut req = Request::new(Method::Post, url.clone());
-            req.append_header("Content-Type", "application/json");
-            req.set_body(body);
+            let mut request = StacksHttpRequest::new_for_peer(
+                peerhost.clone(),
+                "POST".into(),
+                url.path().into(),
+                HttpRequestContents::new().payload_json(payload.clone()),
+            )
+            .unwrap_or_else(|_| panic!("FATAL: failed to encode infallible data as HTTP request"));
+            request.add_header("Connection".into(), "close".into());
 
-            let response = async_std::task::block_on(async {
-                let stream = match TcpStream::connect(self.endpoint.clone()).await {
-                    Ok(stream) => stream,
-                    Err(err) => {
-                        warn!("Event dispatcher: connection failed  - {:?}", err);
-                        return None;
-                    }
-                };
-
-                match client::connect(stream, req).await {
-                    Ok(response) => Some(response),
-                    Err(err) => {
-                        warn!("Event dispatcher: rpc invocation failed  - {:?}", err);
-                        return None;
+            match send_http_request(host, port, request, backoff) {
+                Ok(response) => {
+                    if response.preamble().status_code == 200 {
+                        debug!(
+                            "Event dispatcher: Successful POST"; "url" => %url
+                        );
+                        break;
+                    } else {
+                        error!(
+                            "Event dispatcher: Failed POST"; "url" => %url, "response" => ?response.preamble()
+                        );
                     }
                 }
-            });
-
-            if let Some(response) = response {
-                if response.status().is_success() {
-                    debug!(
-                        "Event dispatcher: Successful POST"; "url" => %url
-                    );
-                    break;
-                } else {
-                    error!(
-                        "Event dispatcher: Failed POST"; "url" => %url, "err" => ?response
+                Err(err) => {
+                    warn!(
+                        "Event dispatcher: connection or request failed to {}:{} - {:?}",
+                        &host, &port, err
                     );
                 }
             }
@@ -662,19 +677,39 @@ impl EventObserver {
     }
 }
 
+/// Events received from block-processing.
+/// Stacks events are structured as JSON, and are grouped by topic.  An event observer can
+/// subscribe to one or more specific event streams, or the "any" stream to receive all of them.
 #[derive(Clone)]
 pub struct EventDispatcher {
+    /// List of configured event observers to which events will be posted.
+    /// The fields below this contain indexes into this list.
     registered_observers: Vec<EventObserver>,
+    /// Smart contract-specific events, keyed by (contract-id, event-name). Values are indexes into `registered_observers`.
     contract_events_observers_lookup: HashMap<(QualifiedContractIdentifier, String), HashSet<u16>>,
+    /// Asset event observers, keyed by fully-qualified asset identifier. Values are indexes into
+    /// `registered_observers.
     assets_observers_lookup: HashMap<AssetIdentifier, HashSet<u16>>,
+    /// Index into `registered_observers` that will receive burn block events
     burn_block_observers_lookup: HashSet<u16>,
+    /// Index into `registered_observers` that will receive mempool events
     mempool_observers_lookup: HashSet<u16>,
+    /// Index into `registered_observers` that will receive microblock events
     microblock_observers_lookup: HashSet<u16>,
+    /// Index into `registered_observers` that will receive STX events
     stx_observers_lookup: HashSet<u16>,
+    /// Index into `registered_observers` that will receive all events
     any_event_observers_lookup: HashSet<u16>,
+    /// Index into `registered_observers` that will receive block miner events (Stacks 2.5 and
+    /// lower)
     miner_observers_lookup: HashSet<u16>,
+    /// Index into `registered_observers` that will receive microblock miner events (Stacks 2.5 and
+    /// lower)
     mined_microblocks_observers_lookup: HashSet<u16>,
+    /// Index into `registered_observers` that will receive StackerDB events
     stackerdb_observers_lookup: HashSet<u16>,
+    /// Index into `registered_observers` that will receive block proposal events (Nakamoto and
+    /// later)
     block_proposal_observers_lookup: HashSet<u16>,
 }
 
@@ -1258,6 +1293,7 @@ impl EventDispatcher {
             tx_events,
             miner_signature: block.header.miner_signature.clone(),
             signer_signature_hash: block.header.signer_signature_hash(),
+            signer_signature: block.header.signer_signature.clone(),
             signer_bitvec,
         })
         .unwrap();
@@ -1274,6 +1310,11 @@ impl EventDispatcher {
         contract_id: QualifiedContractIdentifier,
         modified_slots: Vec<StackerDBChunkData>,
     ) {
+        debug!(
+            "event_dispatcher: New StackerDB chunk events for {}: {:?}",
+            contract_id, modified_slots
+        );
+
         let interested_observers = self.filter_observers(&self.stackerdb_observers_lookup, false);
 
         let interested_receiver = STACKER_DB_CHANNEL.is_active(&contract_id);
@@ -1291,7 +1332,7 @@ impl EventDispatcher {
         if let Some(channel) = interested_receiver {
             if let Err(send_err) = channel.send(event) {
                 warn!(
-                    "Failed to send StackerDB event to WSTS coordinator channel. Miner thread may have exited.";
+                    "Failed to send StackerDB event to signer coordinator channel. Miner thread may have exited.";
                     "err" => ?send_err
                 );
             }
@@ -1429,6 +1470,10 @@ impl EventDispatcher {
 
 #[cfg(test)]
 mod test {
+    use std::net::TcpListener;
+    use std::thread;
+    use std::time::Instant;
+
     use clarity::vm::costs::ExecutionCost;
     use stacks::burnchains::{PoxConstants, Txid};
     use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
@@ -1439,8 +1484,9 @@ mod test {
     use stacks::util::secp256k1::MessageSignature;
     use stacks_common::bitvec::BitVec;
     use stacks_common::types::chainstate::{BurnchainHeaderHash, StacksBlockId};
+    use tiny_http::{Method, Response, Server, StatusCode};
 
-    use crate::event_dispatcher::EventObserver;
+    use super::*;
 
     #[test]
     fn build_block_processed_event() {
@@ -1560,5 +1606,147 @@ mod test {
             .collect::<Result<Vec<_>, _>>()
             .expect("Unable to deserialize array of MessageSignature");
         assert_eq!(event_signer_signature, signer_signature);
+    }
+
+    #[test]
+    fn test_send_request_connect_timeout() {
+        let timeout_duration = Duration::from_secs(3);
+
+        // Start measuring time
+        let start_time = Instant::now();
+
+        let host = "10.255.255.1"; // non-routable IP for timeout
+        let port = 80;
+
+        let peerhost: PeerHost = format!("{host}:{port}")
+            .parse()
+            .unwrap_or(PeerHost::DNS(host.to_string(), port));
+        let mut request = StacksHttpRequest::new_for_peer(
+            peerhost,
+            "POST".into(),
+            "/".into(),
+            HttpRequestContents::new().payload_json(serde_json::from_slice(b"{}").unwrap()),
+        )
+        .unwrap_or_else(|_| panic!("FATAL: failed to encode infallible data as HTTP request"));
+        request.add_header("Connection".into(), "close".into());
+
+        // Attempt to send a request with a timeout
+        let result = send_http_request(host, port, request, timeout_duration);
+
+        // Measure the elapsed time
+        let elapsed_time = start_time.elapsed();
+
+        // Assert that the connection attempt timed out
+        assert!(
+            result.is_err(),
+            "Expected a timeout error, but got {:?}",
+            result
+        );
+        assert_eq!(
+            result.unwrap_err().kind(),
+            std::io::ErrorKind::TimedOut,
+            "Expected a TimedOut error"
+        );
+
+        // Assert that the elapsed time is within an acceptable range
+        assert!(
+            elapsed_time >= timeout_duration,
+            "Timeout occurred too quickly"
+        );
+        assert!(
+            elapsed_time < timeout_duration + Duration::from_secs(1),
+            "Timeout took too long"
+        );
+    }
+
+    fn get_random_port() -> u16 {
+        // Bind to a random port by specifying port 0, then retrieve the port assigned by the OS
+        let listener = TcpListener::bind("127.0.0.1:0").expect("Failed to bind to a random port");
+        listener.local_addr().unwrap().port()
+    }
+
+    #[test]
+    fn test_send_payload_success() {
+        let port = get_random_port();
+
+        // Set up a channel to notify when the server has processed the request
+        let (tx, rx) = channel();
+
+        // Start a mock server in a separate thread
+        let server = Server::http(format!("127.0.0.1:{}", port)).unwrap();
+        thread::spawn(move || {
+            let request = server.recv().unwrap();
+            assert_eq!(request.url(), "/test");
+            assert_eq!(request.method(), &Method::Post);
+
+            // Simulate a successful response
+            let response = Response::from_string("HTTP/1.1 200 OK");
+            request.respond(response).unwrap();
+
+            // Notify the test that the request was processed
+            tx.send(()).unwrap();
+        });
+
+        let observer = EventObserver {
+            endpoint: format!("127.0.0.1:{}", port),
+        };
+
+        let payload = json!({"key": "value"});
+
+        observer.send_payload(&payload, "/test");
+
+        // Wait for the server to process the request
+        rx.recv_timeout(Duration::from_secs(5))
+            .expect("Server did not receive request in time");
+    }
+
+    #[test]
+    fn test_send_payload_retry() {
+        let port = get_random_port();
+
+        // Set up a channel to notify when the server has processed the request
+        let (tx, rx) = channel();
+
+        // Start a mock server in a separate thread
+        let server = Server::http(format!("127.0.0.1:{}", port)).unwrap();
+        thread::spawn(move || {
+            let mut attempt = 0;
+            while let Ok(request) = server.recv() {
+                attempt += 1;
+                if attempt == 1 {
+                    debug!("Mock server received request attempt 1");
+                    // Simulate a failure on the first attempt
+                    let response = Response::new(
+                        StatusCode(500),
+                        vec![],
+                        "Internal Server Error".as_bytes(),
+                        Some(21),
+                        None,
+                    );
+                    request.respond(response).unwrap();
+                } else {
+                    debug!("Mock server received request attempt 2");
+                    // Simulate a successful response on the second attempt
+                    let response = Response::from_string("HTTP/1.1 200 OK");
+                    request.respond(response).unwrap();
+
+                    // Notify the test that the request was processed successfully
+                    tx.send(()).unwrap();
+                    break;
+                }
+            }
+        });
+
+        let observer = EventObserver {
+            endpoint: format!("127.0.0.1:{}", port),
+        };
+
+        let payload = json!({"key": "value"});
+
+        observer.send_payload(&payload, "/test");
+
+        // Wait for the server to process the request
+        rx.recv_timeout(Duration::from_secs(5))
+            .expect("Server did not receive request in time");
     }
 }

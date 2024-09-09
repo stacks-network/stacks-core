@@ -1480,10 +1480,13 @@ fn test_make_tenure_downloaders() {
         NakamotoDownloadStateMachine::load_tenure_start_blocks(
             &wanted_tenures,
             chainstate,
-            &nakamoto_tip,
             &mut tenure_start_blocks,
         )
         .unwrap();
+
+        // remove malleablized blocks
+        tenure_start_blocks.retain(|_, block| block.header.version == 0);
+
         assert_eq!(tenure_start_blocks.len(), wanted_tenures.len());
 
         for wt in wanted_tenures_with_blocks {
@@ -2101,7 +2104,10 @@ fn test_nakamoto_download_run_2_peers() {
         .get_nakamoto_tip_block_id()
         .unwrap()
         .unwrap();
-    assert_eq!(tip.block_height, 81);
+    assert_eq!(
+        tip.block_height,
+        41 + bitvecs.iter().map(|x| x.len() as u64).sum::<u64>()
+    );
 
     // make a neighbor from this peer
     let boot_observer = TestEventObserver::new();

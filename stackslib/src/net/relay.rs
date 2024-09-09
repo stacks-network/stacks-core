@@ -599,7 +599,7 @@ impl Relayer {
 
             // is the block signed by the active reward set?
             let sn_rc = burnchain
-                .pox_reward_cycle(sn.block_height)
+                .block_height_to_reward_cycle(sn.block_height)
                 .expect("FATAL: sortition has no reward cycle");
             let reward_cycle_info = if let Some(rc_info) = loaded_reward_sets.get(&sn_rc) {
                 rc_info
@@ -791,9 +791,7 @@ impl Relayer {
         Ok(res)
     }
 
-    /// Insert a staging Nakamoto block that got relayed to us somehow -- e.g. uploaded via http,
-    /// downloaded by us, or pushed via p2p.
-    /// Return Ok(true) if we stored it, Ok(false) if we didn't
+    /// Wrapper around inner_process_new_nakamoto_block
     pub fn process_new_nakamoto_block(
         burnchain: &Burnchain,
         sortdb: &SortitionDB,
@@ -804,10 +802,47 @@ impl Relayer {
         coord_comms: Option<&CoordinatorChannels>,
         obtained_method: NakamotoBlockObtainMethod,
     ) -> Result<bool, chainstate_error> {
+        Self::process_new_nakamoto_block_ext(
+            burnchain,
+            sortdb,
+            sort_handle,
+            chainstate,
+            stacks_tip,
+            block,
+            coord_comms,
+            obtained_method,
+            false,
+        )
+    }
+
+    /// Insert a staging Nakamoto block that got relayed to us somehow -- e.g. uploaded via http,
+    /// downloaded by us, or pushed via p2p.
+    /// Return Ok(true) if we should broadcast the block.  If force_broadcast is true, then this
+    /// function will return Ok(true) even if we already have the block.
+    /// Return Ok(false) if we should not broadcast it (e.g. we already have it, it was invalid,
+    /// etc.)
+    /// Return Err(..) in the following cases, beyond DB errors:
+    /// * If the block is from a tenure we don't recognize
+    /// * If we're not in the Nakamoto epoch
+    /// * If the reward cycle info could not be determined
+    /// * If there was an unrecognized signer
+    /// * If the coordinator is closed, and `coord_comms` is Some(..)
+    pub fn process_new_nakamoto_block_ext(
+        burnchain: &Burnchain,
+        sortdb: &SortitionDB,
+        sort_handle: &mut SortitionHandleConn,
+        chainstate: &mut StacksChainState,
+        stacks_tip: &StacksBlockId,
+        block: &NakamotoBlock,
+        coord_comms: Option<&CoordinatorChannels>,
+        obtained_method: NakamotoBlockObtainMethod,
+        force_broadcast: bool,
+    ) -> Result<bool, chainstate_error> {
         debug!(
-            "Handle incoming Nakamoto block {}/{}",
+            "Handle incoming Nakamoto block {}/{} obtained via {}",
             &block.header.consensus_hash,
-            &block.header.block_hash()
+            &block.header.block_hash(),
+            &obtained_method,
         );
 
         // do we have this block?  don't lock the DB needlessly if so.
@@ -824,8 +859,18 @@ impl Relayer {
                 e
             })?
         {
-            debug!("Already have Nakamoto block {}", &block.header.block_id());
-            return Ok(false);
+            if force_broadcast {
+                // it's possible that the signer sent this block to us, in which case, we should
+                // broadcast it
+                debug!(
+                    "Already have Nakamoto block {}, but broadcasting anyway",
+                    &block.header.block_id()
+                );
+                return Ok(true);
+            } else {
+                debug!("Already have Nakamoto block {}", &block.header.block_id());
+                return Ok(false);
+            }
         }
 
         let block_sn =
@@ -840,6 +885,7 @@ impl Relayer {
 
         // NOTE: it's `+ 1` because the first Nakamoto block is built atop the last epoch 2.x
         // tenure, right after the last 2.x sortition
+        // TODO: is this true?
         let epoch_id = SortitionDB::get_stacks_epoch(sort_handle, block_sn.block_height + 1)?
             .expect("FATAL: no epoch defined")
             .epoch_id;
@@ -885,7 +931,7 @@ impl Relayer {
 
         let reward_info = match load_nakamoto_reward_set(
             burnchain
-                .pox_reward_cycle(block_sn.block_height)
+                .block_height_to_reward_cycle(block_sn.block_height)
                 .expect("FATAL: block snapshot has no reward cycle"),
             &tip,
             burnchain,
@@ -935,14 +981,14 @@ impl Relayer {
         staging_db_tx.commit()?;
 
         if accepted {
-            debug!("{}", &accept_msg);
+            info!("{}", &accept_msg);
             if let Some(coord_comms) = coord_comms {
                 if !coord_comms.announce_new_stacks_block() {
                     return Err(chainstate_error::NetError(net_error::CoordinatorClosed));
                 }
             }
         } else {
-            debug!("{}", &reject_msg);
+            info!("{}", &reject_msg);
         }
 
         Ok(accepted)
@@ -2540,6 +2586,7 @@ impl Relayer {
         accepted_blocks: Vec<AcceptedNakamotoBlocks>,
         force_send: bool,
     ) {
+        // TODO: we don't relay HTTP-uploaded blocks :(
         debug!(
             "{:?}: relay {} sets of Nakamoto blocks",
             _local_peer,

@@ -14,9 +14,10 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::collections::HashSet;
+use std::io::Write;
 use std::sync::mpsc::Receiver;
-use std::thread;
 use std::thread::JoinHandle;
+use std::{fs, thread};
 
 use stacks::burnchains::{BurnchainSigner, Txid};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
@@ -75,6 +76,10 @@ pub enum Error {
     SnapshotNotFoundForChainTip,
     /// The burnchain tip changed while this operation was in progress
     BurnchainTipChanged,
+    /// The Stacks tip changed while this operation was in progress
+    StacksTipChanged,
+    /// Signers rejected a block
+    SignersRejected,
     /// Error while spawning a subordinate thread
     SpawnError(std::io::Error),
     /// Injected testing errors
@@ -268,7 +273,9 @@ impl StacksNode {
                 snapshot.parent_burn_header_hash,
                 snapshot.winning_stacks_block_hash,
             ))
-            .map_err(|_| Error::ChannelClosed)
+            .map_err(|_| Error::ChannelClosed)?;
+
+        Ok(())
     }
 
     /// Process a state coming from the burnchain, by extracting the validated KeyRegisterOp
@@ -277,6 +284,7 @@ impl StacksNode {
     /// Called from the main thread.
     pub fn process_burnchain_state(
         &mut self,
+        config: &Config,
         sortdb: &SortitionDB,
         sort_id: &SortitionId,
         ibd: bool,
@@ -316,8 +324,17 @@ impl StacksNode {
 
         let num_key_registers = key_registers.len();
 
-        self.globals
+        let activated_key_opt = self
+            .globals
             .try_activate_leader_key_registration(block_height, key_registers);
+
+        // save the registered VRF key
+        if let (Some(activated_key), Some(path)) = (
+            activated_key_opt,
+            config.miner.activated_vrf_key_path.as_ref(),
+        ) {
+            save_activated_vrf_key(path, &activated_key);
+        }
 
         debug!(
             "Processed burnchain state";
@@ -338,4 +355,28 @@ impl StacksNode {
         self.relayer_thread_handle.join().unwrap();
         self.p2p_thread_handle.join().unwrap();
     }
+}
+
+pub(crate) fn save_activated_vrf_key(path: &str, activated_key: &RegisteredKey) {
+    info!("Activated VRF key; saving to {}", path);
+
+    let Ok(key_json) = serde_json::to_string(&activated_key) else {
+        warn!("Failed to serialize VRF key");
+        return;
+    };
+
+    let mut f = match fs::File::create(&path) {
+        Ok(f) => f,
+        Err(e) => {
+            warn!("Failed to create {}: {:?}", &path, &e);
+            return;
+        }
+    };
+
+    if let Err(e) = f.write_all(key_json.as_str().as_bytes()) {
+        warn!("Failed to write activated VRF key to {}: {:?}", &path, &e);
+        return;
+    }
+
+    info!("Saved activated VRF key to {}", &path);
 }

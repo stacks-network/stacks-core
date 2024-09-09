@@ -82,6 +82,17 @@ impl std::ops::Deref for RunLoopCounter {
     }
 }
 
+#[cfg(test)]
+#[derive(Clone)]
+pub struct TestFlag(pub Arc<std::sync::Mutex<Option<bool>>>);
+
+#[cfg(test)]
+impl Default for TestFlag {
+    fn default() -> Self {
+        Self(Arc::new(std::sync::Mutex::new(None)))
+    }
+}
+
 #[derive(Clone, Default)]
 pub struct Counters {
     pub blocks_processed: RunLoopCounter,
@@ -93,8 +104,13 @@ pub struct Counters {
     pub naka_submitted_vrfs: RunLoopCounter,
     pub naka_submitted_commits: RunLoopCounter,
     pub naka_mined_blocks: RunLoopCounter,
+    pub naka_rejected_blocks: RunLoopCounter,
     pub naka_proposed_blocks: RunLoopCounter,
     pub naka_mined_tenures: RunLoopCounter,
+    pub naka_signer_pushed_blocks: RunLoopCounter,
+
+    #[cfg(test)]
+    pub naka_skip_commit_op: TestFlag,
 }
 
 impl Counters {
@@ -152,6 +168,14 @@ impl Counters {
 
     pub fn bump_naka_proposed_blocks(&self) {
         Counters::inc(&self.naka_proposed_blocks);
+    }
+
+    pub fn bump_naka_rejected_blocks(&self) {
+        Counters::inc(&self.naka_rejected_blocks);
+    }
+
+    pub fn bump_naka_signer_pushed_blocks(&self) {
+        Counters::inc(&self.naka_signer_pushed_blocks);
     }
 
     pub fn bump_naka_mined_tenures(&self) {
@@ -334,6 +358,11 @@ impl RunLoop {
         }
     }
 
+    /// Seconds to wait before retrying UTXO check during startup
+    const UTXO_RETRY_INTERVAL: u64 = 10;
+    /// Number of times to retry UTXO check during startup
+    const UTXO_RETRY_COUNT: u64 = 6;
+
     /// Determine if we're the miner.
     /// If there's a network error, then assume that we're not a miner.
     fn check_is_miner(&mut self, burnchain: &mut BitcoinRegtestController) -> bool {
@@ -366,22 +395,26 @@ impl RunLoop {
                 ));
             }
 
-            for (epoch_id, btc_addr) in btc_addrs.into_iter() {
-                info!("Miner node: checking UTXOs at address: {}", &btc_addr);
-                let utxos = burnchain.get_utxos(epoch_id, &op_signer.get_public_key(), 1, None, 0);
-                if utxos.is_none() {
-                    warn!("UTXOs not found for {}. If this is unexpected, please ensure that your bitcoind instance is indexing transactions for the address {} (importaddress)", btc_addr, btc_addr);
-                } else {
-                    info!("UTXOs found - will run as a Miner node");
+            // retry UTXO check a few times, in case bitcoind is still starting up
+            for _ in 0..Self::UTXO_RETRY_COUNT {
+                for (epoch_id, btc_addr) in &btc_addrs {
+                    info!("Miner node: checking UTXOs at address: {btc_addr}");
+                    let utxos =
+                        burnchain.get_utxos(*epoch_id, &op_signer.get_public_key(), 1, None, 0);
+                    if utxos.is_none() {
+                        warn!("UTXOs not found for {btc_addr}. If this is unexpected, please ensure that your bitcoind instance is indexing transactions for the address {btc_addr} (importaddress)");
+                    } else {
+                        info!("UTXOs found - will run as a Miner node");
+                        return true;
+                    }
+                }
+                if self.config.get_node_config(false).mock_mining {
+                    info!("No UTXOs found, but configured to mock mine");
                     return true;
                 }
+                thread::sleep(std::time::Duration::from_secs(Self::UTXO_RETRY_INTERVAL));
             }
-            if self.config.get_node_config(false).mock_mining {
-                info!("No UTXOs found, but configured to mock mine");
-                return true;
-            } else {
-                return false;
-            }
+            panic!("No UTXOs found, exiting");
         } else {
             info!("Will run as a Follower node");
             false

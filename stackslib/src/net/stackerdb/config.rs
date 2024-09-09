@@ -555,10 +555,17 @@ impl StackerDBConfig {
                 reason,
             ));
         } else if let Some(Err(e)) = res {
-            warn!(
-                "Could not use contract {} for StackerDB: {:?}",
-                contract_id, &e
-            );
+            if contract_id.is_boot() {
+                debug!(
+                    "Could not use contract {} for StackerDB: {:?}",
+                    contract_id, &e
+                );
+            } else {
+                warn!(
+                    "Could not use contract {} for StackerDB: {:?}",
+                    contract_id, &e
+                );
+            }
             return Err(e);
         }
 

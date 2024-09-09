@@ -1773,6 +1773,7 @@ pub mod test {
         let data = if let Some(d) = value_opt.expect_optional().unwrap() {
             d
         } else {
+            warn!("get_stacker_info: No PoX info for {}", addr);
             return None;
         };
 

@@ -15,6 +15,8 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use core::fmt;
 use std::collections::HashSet;
+use std::fs;
+use std::io::Read;
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -64,11 +66,6 @@ use crate::run_loop::nakamoto::{Globals, RunLoop};
 use crate::run_loop::RegisteredKey;
 use crate::BitcoinRegtestController;
 
-#[cfg(test)]
-lazy_static::lazy_static! {
-    pub static ref TEST_SKIP_COMMIT_OP: std::sync::Mutex<Option<bool>> = std::sync::Mutex::new(None);
-}
-
 /// Command types for the Nakamoto relayer thread, issued to it by other threads
 pub enum RelayerDirective {
     /// Handle some new data that arrived on the network (such as blocks, transactions, and
@@ -110,6 +107,7 @@ pub struct LastCommit {
     /// the tenure consensus hash for the tip's tenure
     tenure_consensus_hash: ConsensusHash,
     /// the start-block hash of the tip's tenure
+    #[allow(dead_code)]
     start_block_hash: BlockHeaderHash,
     /// What is the epoch in which this was sent?
     epoch_id: StacksEpochId,
@@ -377,22 +375,88 @@ impl RelayerThread {
         }
     }
 
-    /// Given the pointer to a recently processed sortition, see if we won the sortition.
+    /// Choose a miner directive based on the outcome of a sortition.
+    /// We won't always be able to mine -- for example, this could be an empty sortition, but the
+    /// parent block could be an epoch 2 block.  In this case, the right thing to do is to wait for
+    /// the next block-commit.
+    pub(crate) fn choose_miner_directive(
+        config: &Config,
+        sortdb: &SortitionDB,
+        sn: BlockSnapshot,
+        won_sortition: bool,
+        committed_index_hash: StacksBlockId,
+    ) -> Option<MinerDirective> {
+        let directive = if sn.sortition {
+            Some(
+                if won_sortition || config.get_node_config(false).mock_mining {
+                    MinerDirective::BeginTenure {
+                        parent_tenure_start: committed_index_hash,
+                        burnchain_tip: sn,
+                    }
+                } else {
+                    MinerDirective::StopTenure
+                },
+            )
+        } else {
+            // find out what epoch the Stacks tip is in.
+            // If it's in epoch 2.x, then we must always begin a new tenure, but we can't do so
+            // right now since this sortition has no winner.
+            let (cur_stacks_tip_ch, _cur_stacks_tip_bh) =
+                SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn())
+                    .expect("FATAL: failed to query sortition DB for stacks tip");
+
+            let stacks_tip_sn =
+                SortitionDB::get_block_snapshot_consensus(sortdb.conn(), &cur_stacks_tip_ch)
+                    .expect("FATAL: failed to query sortiiton DB for epoch")
+                    .expect("FATAL: no sortition for canonical stacks tip");
+
+            let cur_epoch =
+                SortitionDB::get_stacks_epoch(sortdb.conn(), stacks_tip_sn.block_height)
+                    .expect("FATAL: failed to query sortition DB for epoch")
+                    .expect("FATAL: no epoch defined for existing sortition");
+
+            if cur_epoch.epoch_id < StacksEpochId::Epoch30 {
+                debug!(
+                    "As of sortition {}, there has not yet been a Nakamoto tip. Cannot mine.",
+                    &stacks_tip_sn.consensus_hash
+                );
+                None
+            } else {
+                Some(MinerDirective::ContinueTenure {
+                    new_burn_view: sn.consensus_hash,
+                })
+            }
+        };
+        directive
+    }
+
+    /// Given the pointer to a recently processed sortition, see if we won the sortition, and
+    /// determine what miner action (if any) to take.
     ///
-    /// Returns a directive to the relayer thread to either start, stop, or continue a tenure.
-    pub fn process_sortition(
+    /// Returns a directive to the relayer thread to either start, stop, or continue a tenure, if
+    /// this sortition matches the sortition tip and we have a parent to build atop.
+    ///
+    /// Otherwise, returns None, meaning no action will be taken.
+    fn process_sortition(
         &mut self,
         consensus_hash: ConsensusHash,
         burn_hash: BurnchainHeaderHash,
         committed_index_hash: StacksBlockId,
-    ) -> Result<MinerDirective, NakamotoNodeError> {
+    ) -> Result<Option<MinerDirective>, NakamotoNodeError> {
         let sn = SortitionDB::get_block_snapshot_consensus(self.sortdb.conn(), &consensus_hash)
             .expect("FATAL: failed to query sortition DB")
             .expect("FATAL: unknown consensus hash");
 
-        self.globals.set_last_sortition(sn.clone());
-
+        // always clear this even if this isn't the latest sortition
         let won_sortition = sn.sortition && self.last_commits.remove(&sn.winning_block_txid);
+        if won_sortition {
+            increment_stx_blocks_mined_counter();
+        }
+        self.globals.set_last_sortition(sn.clone());
+        self.globals.counters.bump_blocks_processed();
+
+        // there may be a bufferred stacks block to process, so wake up the coordinator to check
+        self.globals.coord_comms.announce_new_stacks_block();
 
         info!(
             "Relayer: Process sortition";
@@ -404,25 +468,24 @@ impl RelayerThread {
             "won_sortition?" => won_sortition,
         );
 
-        if won_sortition {
-            increment_stx_blocks_mined_counter();
+        let cur_sn = SortitionDB::get_canonical_burn_chain_tip(self.sortdb.conn())
+            .expect("FATAL: failed to query sortition DB");
+
+        if cur_sn.consensus_hash != consensus_hash {
+            info!("Relayer: Current sortition {} is ahead of processed sortition {}; taking no action", &cur_sn.consensus_hash, consensus_hash);
+            self.globals
+                .raise_initiative("process_sortition".to_string());
+            return Ok(None);
         }
 
-        let directive = if sn.sortition {
-            if won_sortition {
-                MinerDirective::BeginTenure {
-                    parent_tenure_start: committed_index_hash,
-                    burnchain_tip: sn,
-                }
-            } else {
-                MinerDirective::StopTenure
-            }
-        } else {
-            MinerDirective::ContinueTenure {
-                new_burn_view: consensus_hash,
-            }
-        };
-        Ok(directive)
+        let directive_opt = Self::choose_miner_directive(
+            &self.config,
+            &self.sortdb,
+            sn,
+            won_sortition,
+            committed_index_hash,
+        );
+        Ok(directive_opt)
     }
 
     /// Constructs and returns a LeaderKeyRegisterOp out of the provided params
@@ -750,7 +813,7 @@ impl RelayerThread {
         )?;
 
         let new_miner_handle = std::thread::Builder::new()
-            .name(format!("miner.{parent_tenure_start}"))
+            .name(format!("miner.{parent_tenure_start}",))
             .stack_size(BLOCK_PROCESSOR_STACK_SIZE)
             .spawn(move || new_miner_state.run_miner(prior_tenure_thread))
             .map_err(|e| {
@@ -791,7 +854,7 @@ impl RelayerThread {
 
     fn continue_tenure(&mut self, new_burn_view: ConsensusHash) -> Result<(), NakamotoNodeError> {
         if let Err(e) = self.stop_tenure() {
-            error!("Relayer: Failed to stop tenure: {:?}", e);
+            error!("Relayer: Failed to stop tenure: {e:?}");
             return Ok(());
         }
         debug!("Relayer: successfully stopped tenure.");
@@ -836,14 +899,20 @@ impl RelayerThread {
                 })?
         };
 
-        if last_winner_snapshot.miner_pk_hash != Some(mining_pkh) {
-            debug!("Relayer: the miner did not win the last sortition. No tenure to continue.";
-                   "current_mining_pkh" => %mining_pkh,
-                   "last_winner_snapshot.miner_pk_hash" => ?last_winner_snapshot.miner_pk_hash,
-            );
+        let won_last_sortition = last_winner_snapshot.miner_pk_hash == Some(mining_pkh);
+        debug!(
+            "Relayer: Current burn block had no sortition. Checking for tenure continuation.";
+            "won_last_sortition" => won_last_sortition,
+            "current_mining_pkh" => %mining_pkh,
+            "last_winner_snapshot.miner_pk_hash" => ?last_winner_snapshot.miner_pk_hash,
+            "canonical_stacks_tip_id" => %canonical_stacks_tip,
+            "canonical_stacks_tip_ch" => %canonical_stacks_tip_ch,
+            "block_election_ch" => %block_election_snapshot.consensus_hash,
+            "burn_view_ch" => %new_burn_view,
+        );
+
+        if !won_last_sortition {
             return Ok(());
-        } else {
-            debug!("Relayer: the miner won the last sortition. Continuing tenure.");
         }
 
         match self.start_new_tenure(
@@ -858,7 +927,7 @@ impl RelayerThread {
                 debug!("Relayer: successfully started new tenure.");
             }
             Err(e) => {
-                error!("Relayer: Failed to start new tenure: {:?}", e);
+                error!("Relayer: Failed to start new tenure: {e:?}");
             }
         }
         Ok(())
@@ -872,8 +941,12 @@ impl RelayerThread {
     ) -> bool {
         let miner_instruction =
             match self.process_sortition(consensus_hash, burn_hash, committed_index_hash) {
-                Ok(mi) => mi,
-                Err(_) => {
+                Ok(Some(miner_instruction)) => miner_instruction,
+                Ok(None) => {
+                    return true;
+                }
+                Err(e) => {
+                    warn!("Relayer: process_sortition returned {:?}", &e);
                     return false;
                 }
             };
@@ -892,7 +965,7 @@ impl RelayerThread {
                     debug!("Relayer: successfully started new tenure.");
                 }
                 Err(e) => {
-                    error!("Relayer: Failed to start new tenure: {:?}", e);
+                    error!("Relayer: Failed to start new tenure: {e:?}");
                 }
             },
             MinerDirective::ContinueTenure { new_burn_view } => {
@@ -901,7 +974,7 @@ impl RelayerThread {
                         debug!("Relayer: successfully handled continue tenure.");
                     }
                     Err(e) => {
-                        error!("Relayer: Failed to continue tenure: {:?}", e);
+                        error!("Relayer: Failed to continue tenure: {e:?}");
                         return false;
                     }
                 }
@@ -911,12 +984,28 @@ impl RelayerThread {
                     debug!("Relayer: successfully stopped tenure.");
                 }
                 Err(e) => {
-                    error!("Relayer: Failed to stop tenure: {:?}", e);
+                    error!("Relayer: Failed to stop tenure: {e:?}");
                 }
             },
         }
 
         true
+    }
+
+    #[cfg(test)]
+    fn fault_injection_skip_block_commit(&self) -> bool {
+        self.globals
+            .counters
+            .naka_skip_commit_op
+            .0
+            .lock()
+            .unwrap()
+            .unwrap_or(false)
+    }
+
+    #[cfg(not(test))]
+    fn fault_injection_skip_block_commit(&self) -> bool {
+        false
     }
 
     /// Generate and submit the next block-commit, and record it locally
@@ -926,12 +1015,25 @@ impl RelayerThread {
         tip_block_bh: BlockHeaderHash,
     ) -> Result<(), NakamotoNodeError> {
         let mut last_committed = self.make_block_commit(&tip_block_ch, &tip_block_bh)?;
-        #[cfg(test)]
-        {
-            if TEST_SKIP_COMMIT_OP.lock().unwrap().unwrap_or(false) {
-                warn!("Relayer: not submitting block-commit to bitcoin network due to test directive.");
-                return Ok(());
-            }
+        if self.fault_injection_skip_block_commit() {
+            warn!("Relayer: not submitting block-commit to bitcoin network due to test directive.");
+            return Ok(());
+        }
+
+        // last chance -- is this still the stacks tip?
+        let (cur_stacks_tip_ch, cur_stacks_tip_bh) =
+            SortitionDB::get_canonical_stacks_chain_tip_hash(self.sortdb.conn()).unwrap_or_else(
+                |e| {
+                    panic!("Failed to load canonical stacks tip: {:?}", &e);
+                },
+            );
+
+        if cur_stacks_tip_ch != tip_block_ch || cur_stacks_tip_bh != tip_block_bh {
+            info!(
+                "Stacks tip changed prior to commit: {}/{} != {}/{}",
+                &cur_stacks_tip_ch, &cur_stacks_tip_bh, &tip_block_ch, &tip_block_bh
+            );
+            return Err(NakamotoNodeError::StacksTipChanged);
         }
 
         // sign and broadcast
@@ -955,6 +1057,7 @@ impl RelayerThread {
             "Relayer: Submitted block-commit";
             "tip_consensus_hash" => %tip_block_ch,
             "tip_block_hash" => %tip_block_bh,
+            "tip_block_id" => %StacksBlockId::new(&tip_block_ch, &tip_block_bh),
             "txid" => %txid,
         );
 
@@ -970,6 +1073,7 @@ impl RelayerThread {
     /// Determine what the relayer should do to advance the chain.
     /// * If this isn't a miner, then it's always nothing.
     /// * Otherwise, if we haven't done so already, go register a VRF public key
+    /// * If the stacks chain tip or burnchain tip has changed, then issue a block-commit
     fn initiative(&mut self) -> Option<RelayerDirective> {
         if !self.is_miner {
             return None;
@@ -1031,6 +1135,8 @@ impl RelayerThread {
         debug!("Relayer: initiative to commit";
                "sortititon tip" => %sort_tip.consensus_hash,
                "stacks tip" => %stacks_tip,
+               "stacks_tip_ch" => %stacks_tip_ch,
+               "stacks_tip_bh" => %stacks_tip_bh,
                "last-commit burn view" => %self.last_committed.as_ref().map(|cmt| cmt.get_burn_tip().consensus_hash.to_string()).unwrap_or("(not set)".to_string()),
                "last-commit ongoing tenure" => %self.last_committed.as_ref().map(|cmt| cmt.get_tenure_id().to_string()).unwrap_or("(not set)".to_string()),
                "burnchain view changed?" => %burnchain_changed,
@@ -1056,8 +1162,11 @@ impl RelayerThread {
 
         self.next_initiative =
             Instant::now() + Duration::from_millis(self.config.node.next_initiative_delay);
+
         while self.globals.keep_running() {
-            let directive = if Instant::now() >= self.next_initiative {
+            let raised_initiative = self.globals.take_initiative();
+            let timed_out = Instant::now() >= self.next_initiative;
+            let directive = if raised_initiative.is_some() || timed_out {
                 self.next_initiative =
                     Instant::now() + Duration::from_millis(self.config.node.next_initiative_delay);
                 self.initiative()
@@ -1065,21 +1174,26 @@ impl RelayerThread {
                 None
             };
 
-            let Some(timeout) = self.next_initiative.checked_duration_since(Instant::now()) else {
-                // next_initiative timeout occurred, so go to next loop iteration.
-                continue;
-            };
-
             let directive = if let Some(directive) = directive {
                 directive
             } else {
-                match relay_rcv.recv_timeout(timeout) {
+                match relay_rcv.recv_timeout(Duration::from_millis(
+                    self.config.node.next_initiative_delay,
+                )) {
                     Ok(directive) => directive,
-                    // timed out, so go to next loop iteration
-                    Err(RecvTimeoutError::Timeout) => continue,
-                    Err(RecvTimeoutError::Disconnected) => break,
+                    Err(RecvTimeoutError::Timeout) => {
+                        continue;
+                    }
+                    Err(RecvTimeoutError::Disconnected) => {
+                        break;
+                    }
                 }
             };
+
+            debug!("Relayer: main loop directive";
+                   "directive" => %directive,
+                   "raised_initiative" => %raised_initiative.unwrap_or("relay_rcv".to_string()),
+                   "timed_out" => %timed_out);
 
             if !self.handle_directive(directive) {
                 break;
@@ -1093,6 +1207,43 @@ impl RelayerThread {
         self.globals.signal_stop();
 
         debug!("Relayer exit!");
+    }
+
+    /// Try loading up a saved VRF key
+    pub(crate) fn load_saved_vrf_key(path: &str, pubkey_hash: &Hash160) -> Option<RegisteredKey> {
+        let mut f = match fs::File::open(path) {
+            Ok(f) => f,
+            Err(e) => {
+                warn!("Could not open {}: {:?}", &path, &e);
+                return None;
+            }
+        };
+        let mut registered_key_bytes = vec![];
+        if let Err(e) = f.read_to_end(&mut registered_key_bytes) {
+            warn!(
+                "Failed to read registered key bytes from {}: {:?}",
+                path, &e
+            );
+            return None;
+        }
+
+        let Ok(registered_key) = serde_json::from_slice::<RegisteredKey>(&registered_key_bytes)
+        else {
+            warn!(
+                "Did not load registered key from {}: could not decode JSON",
+                &path
+            );
+            return None;
+        };
+
+        // Check that the loaded key's memo matches the current miner's key
+        if registered_key.memo != pubkey_hash.as_ref() {
+            warn!("Loaded VRF key does not match mining key");
+            return None;
+        }
+
+        info!("Loaded registered key from {}", &path);
+        Some(registered_key)
     }
 
     /// Top-level dispatcher
@@ -1113,7 +1264,18 @@ impl RelayerThread {
                     info!("In initial block download, will not submit VRF registration");
                     return true;
                 }
-                self.rotate_vrf_and_register(&last_burn_block);
+                let mut saved_key_opt = None;
+                if let Some(path) = self.config.miner.activated_vrf_key_path.as_ref() {
+                    saved_key_opt =
+                        Self::load_saved_vrf_key(&path, &self.keychain.get_nakamoto_pkh());
+                }
+                if let Some(saved_key) = saved_key_opt {
+                    debug!("Relayer: resuming VRF key");
+                    self.globals.resume_leader_key(saved_key);
+                } else {
+                    self.rotate_vrf_and_register(&last_burn_block);
+                    debug!("Relayer: directive Registered VRF key");
+                }
                 self.globals.counters.bump_blocks_processed();
                 true
             }
@@ -1152,5 +1314,123 @@ impl RelayerThread {
         };
         debug!("Relayer: handled directive"; "continue_running" => continue_running);
         continue_running
+    }
+}
+
+#[cfg(test)]
+pub mod test {
+    use std::fs::File;
+    use std::io::Write;
+    use std::path::Path;
+
+    use stacks::util::hash::Hash160;
+    use stacks::util::secp256k1::Secp256k1PublicKey;
+    use stacks::util::vrf::VRFPublicKey;
+
+    use super::RelayerThread;
+    use crate::nakamoto_node::save_activated_vrf_key;
+    use crate::run_loop::RegisteredKey;
+    use crate::Keychain;
+
+    #[test]
+    fn load_nonexistent_vrf_key() {
+        let keychain = Keychain::default(vec![0u8; 32]);
+        let pk = Secp256k1PublicKey::from_private(keychain.get_nakamoto_sk());
+        let pubkey_hash = Hash160::from_node_public_key(&pk);
+
+        let path = "/tmp/does_not_exist.json";
+        _ = std::fs::remove_file(&path);
+
+        let res = RelayerThread::load_saved_vrf_key(&path, &pubkey_hash);
+        assert!(res.is_none());
+    }
+
+    #[test]
+    fn load_empty_vrf_key() {
+        let keychain = Keychain::default(vec![0u8; 32]);
+        let pk = Secp256k1PublicKey::from_private(keychain.get_nakamoto_sk());
+        let pubkey_hash = Hash160::from_node_public_key(&pk);
+
+        let path = "/tmp/empty.json";
+        File::create(&path).expect("Failed to create test file");
+        assert!(Path::new(&path).exists());
+
+        let res = RelayerThread::load_saved_vrf_key(&path, &pubkey_hash);
+        assert!(res.is_none());
+
+        std::fs::remove_file(&path).expect("Failed to delete test file");
+    }
+
+    #[test]
+    fn load_bad_vrf_key() {
+        let keychain = Keychain::default(vec![0u8; 32]);
+        let pk = Secp256k1PublicKey::from_private(keychain.get_nakamoto_sk());
+        let pubkey_hash = Hash160::from_node_public_key(&pk);
+
+        let path = "/tmp/invalid_saved_key.json";
+        let json_content = r#"{ "hello": "world" }"#;
+
+        // Write the JSON content to the file
+        let mut file = File::create(&path).expect("Failed to create test file");
+        file.write_all(json_content.as_bytes())
+            .expect("Failed to write to test file");
+        assert!(Path::new(&path).exists());
+
+        let res = RelayerThread::load_saved_vrf_key(&path, &pubkey_hash);
+        assert!(res.is_none());
+
+        std::fs::remove_file(&path).expect("Failed to delete test file");
+    }
+
+    #[test]
+    fn save_load_vrf_key() {
+        let keychain = Keychain::default(vec![0u8; 32]);
+        let pk = Secp256k1PublicKey::from_private(keychain.get_nakamoto_sk());
+        let pubkey_hash = Hash160::from_node_public_key(&pk);
+        let key = RegisteredKey {
+            target_block_height: 101,
+            block_height: 102,
+            op_vtxindex: 1,
+            vrf_public_key: VRFPublicKey::from_hex(
+                "1da75863a7e1ef86f0f550d92b1f77dc60af23694b884b2816b703137ff94e71",
+            )
+            .unwrap(),
+            memo: pubkey_hash.as_ref().to_vec(),
+        };
+        let path = "/tmp/vrf_key.json";
+        save_activated_vrf_key(path, &key);
+
+        let res = RelayerThread::load_saved_vrf_key(&path, &pubkey_hash);
+        assert!(res.is_some());
+
+        std::fs::remove_file(&path).expect("Failed to delete test file");
+    }
+
+    #[test]
+    fn invalid_saved_memo() {
+        let keychain = Keychain::default(vec![0u8; 32]);
+        let pk = Secp256k1PublicKey::from_private(keychain.get_nakamoto_sk());
+        let pubkey_hash = Hash160::from_node_public_key(&pk);
+        let key = RegisteredKey {
+            target_block_height: 101,
+            block_height: 102,
+            op_vtxindex: 1,
+            vrf_public_key: VRFPublicKey::from_hex(
+                "1da75863a7e1ef86f0f550d92b1f77dc60af23694b884b2816b703137ff94e71",
+            )
+            .unwrap(),
+            memo: pubkey_hash.as_ref().to_vec(),
+        };
+        let path = "/tmp/vrf_key.json";
+        save_activated_vrf_key(path, &key);
+
+        let keychain = Keychain::default(vec![1u8; 32]);
+        let pk = Secp256k1PublicKey::from_private(keychain.get_nakamoto_sk());
+        let pubkey_hash = Hash160::from_node_public_key(&pk);
+
+        let res = RelayerThread::load_saved_vrf_key(&path, &pubkey_hash);
+        assert!(res.is_none());
+
+        std::fs::remove_file(&path).expect("Failed to delete test file");
     }
 }

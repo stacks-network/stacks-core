@@ -520,9 +520,8 @@ impl RewardSetProvider for StubbedRewardSetProvider {
 
     fn get_reward_set_nakamoto(
         &self,
-        cycle_start_burn_height: u64,
         chainstate: &mut StacksChainState,
-        burnchain: &Burnchain,
+        cycle: u64,
         sortdb: &SortitionDB,
         block_id: &StacksBlockId,
     ) -> Result<RewardSet, CoordError> {
