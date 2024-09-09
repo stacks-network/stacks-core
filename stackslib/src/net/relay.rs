@@ -1678,6 +1678,8 @@ impl Relayer {
                                 );
                                 accepted_blocks.push(nakamoto_block);
                             } else {
+                                // TODO: this shouldn't be a warning if it's only because we
+                                // already have the block
                                 warn!(
                                     "Rejected Nakamoto block {} ({}) from {}",
                                     &block_id, &nakamoto_block.header.consensus_hash, &neighbor_key,

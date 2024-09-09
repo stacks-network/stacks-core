@@ -89,7 +89,7 @@ use stacks_common::util::hash::{to_hex, Hash160, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PrivateKey, Secp256k1PublicKey};
 use stacks_common::util::{get_epoch_time_secs, sleep_ms};
 use stacks_signer::chainstate::{ProposalEvalConfig, SortitionsView};
-use stacks_signer::signerdb::{BlockInfo, ExtraBlockInfo, SignerDb};
+use stacks_signer::signerdb::{BlockInfo, BlockState, ExtraBlockInfo, SignerDb};
 use wsts::net::Message;
 
 use super::bitcoin_regtest::BitcoinCoreController;
@@ -2501,10 +2501,20 @@ fn block_proposal_api_endpoint() {
         ),
         ("Must wait", sign(&proposal), HTTP_TOO_MANY, None),
         (
-            "Corrupted (bit flipped after signing)",
+            "Non-canonical or absent tenure",
             (|| {
                 let mut sp = sign(&proposal);
                 sp.block.header.consensus_hash.0[3] ^= 0x07;
+                sp
+            })(),
+            HTTP_ACCEPTED,
+            Some(Err(ValidateRejectCode::NonCanonicalTenure)),
+        ),
+        (
+            "Corrupted (bit flipped after signing)",
+            (|| {
+                let mut sp = sign(&proposal);
+                sp.block.header.timestamp ^= 0x07;
                 sp
             })(),
             HTTP_ACCEPTED,
@@ -2624,6 +2634,10 @@ fn block_proposal_api_endpoint() {
         .iter()
         .zip(proposal_responses.iter())
     {
+        info!(
+            "Received response {:?}, expecting {:?}",
+            &response, &expected_response
+        );
         match expected_response {
             Ok(_) => {
                 assert!(matches!(response, BlockValidateResponse::Ok(_)));
@@ -3111,6 +3125,7 @@ fn follower_bootup() {
     wait_for_first_naka_block_commit(60, &commits_submitted);
 
     let mut follower_conf = naka_conf.clone();
+    follower_conf.node.miner = false;
     follower_conf.events_observers.clear();
     follower_conf.node.working_dir = format!("{}-follower", &naka_conf.node.working_dir);
     follower_conf.node.seed = vec![0x01; 32];
@@ -3468,6 +3483,7 @@ fn follower_bootup_across_multiple_cycles() {
     follower_conf.node.working_dir = format!("{}-follower", &naka_conf.node.working_dir);
     follower_conf.node.seed = vec![0x01; 32];
     follower_conf.node.local_peer_seed = vec![0x02; 32];
+    follower_conf.node.miner = false;
 
     let mut rng = rand::thread_rng();
     let mut buf = [0u8; 8];
@@ -5427,6 +5443,13 @@ fn signer_chainstate() {
         )
         .unwrap();
 
+        let reward_cycle = burnchain
+            .block_height_to_reward_cycle(
+                SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
+                    .unwrap()
+                    .block_height,
+            )
+            .unwrap();
         // this config disallows any reorg due to poorly timed block commits
         let proposal_conf = ProposalEvalConfig {
             first_proposal_burn_block_timing: Duration::from_secs(0),
@@ -5441,7 +5464,13 @@ fn signer_chainstate() {
             last_tenures_proposals
         {
             let valid = sortitions_view
-                .check_proposal(&signer_client, &signer_db, prior_tenure_first, miner_pk)
+                .check_proposal(
+                    &signer_client,
+                    &mut signer_db,
+                    prior_tenure_first,
+                    miner_pk,
+                    reward_cycle,
+                )
                 .unwrap();
             assert!(
                 !valid,
@@ -5449,7 +5478,13 @@ fn signer_chainstate() {
             );
             for block in prior_tenure_interims.iter() {
                 let valid = sortitions_view
-                    .check_proposal(&signer_client, &signer_db, block, miner_pk)
+                    .check_proposal(
+                        &signer_client,
+                        &mut signer_db,
+                        block,
+                        miner_pk,
+                        reward_cycle,
+                    )
                     .unwrap();
                 assert!(
                     !valid,
@@ -5472,20 +5507,26 @@ fn signer_chainstate() {
             thread::sleep(Duration::from_secs(1));
         };
 
-        let valid = sortitions_view
-            .check_proposal(&signer_client, &signer_db, &proposal.0, &proposal.1)
-            .unwrap();
-
-        assert!(
-            valid,
-            "Nakamoto integration test produced invalid block proposal"
-        );
         let burn_block_height = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
             .unwrap()
             .block_height;
         let reward_cycle = burnchain
             .block_height_to_reward_cycle(burn_block_height)
             .unwrap();
+        let valid = sortitions_view
+            .check_proposal(
+                &signer_client,
+                &mut signer_db,
+                &proposal.0,
+                &proposal.1,
+                reward_cycle,
+            )
+            .unwrap();
+
+        assert!(
+            valid,
+            "Nakamoto integration test produced invalid block proposal"
+        );
         signer_db
             .insert_block(&BlockInfo {
                 block: proposal.0.clone(),
@@ -5498,6 +5539,7 @@ fn signer_chainstate() {
                 signed_self: None,
                 signed_group: None,
                 ext: ExtraBlockInfo::None,
+                state: BlockState::Unprocessed,
             })
             .unwrap();
 
@@ -5530,9 +5572,10 @@ fn signer_chainstate() {
         let valid = sortitions_view
             .check_proposal(
                 &signer_client,
-                &signer_db,
+                &mut signer_db,
                 &proposal_interim.0,
                 &proposal_interim.1,
+                reward_cycle,
             )
             .unwrap();
 
@@ -5547,14 +5590,21 @@ fn signer_chainstate() {
             first_proposal_burn_block_timing: Duration::from_secs(0),
             block_proposal_timeout: Duration::from_secs(100),
         };
+        let burn_block_height = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
+            .unwrap()
+            .block_height;
+        let reward_cycle = burnchain
+            .block_height_to_reward_cycle(burn_block_height)
+            .unwrap();
         let mut sortitions_view =
             SortitionsView::fetch_view(proposal_conf, &signer_client).unwrap();
         let valid = sortitions_view
             .check_proposal(
                 &signer_client,
-                &signer_db,
+                &mut signer_db,
                 &proposal_interim.0,
                 &proposal_interim.1,
+                reward_cycle,
             )
             .unwrap();
 
@@ -5575,6 +5625,7 @@ fn signer_chainstate() {
                 signed_self: None,
                 signed_group: None,
                 ext: ExtraBlockInfo::None,
+                state: BlockState::Unprocessed,
             })
             .unwrap();
 
@@ -5616,10 +5667,21 @@ fn signer_chainstate() {
         block_proposal_timeout: Duration::from_secs(100),
     };
     let mut sortitions_view = SortitionsView::fetch_view(proposal_conf, &signer_client).unwrap();
-
+    let burn_block_height = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
+        .unwrap()
+        .block_height;
+    let reward_cycle = burnchain
+        .block_height_to_reward_cycle(burn_block_height)
+        .unwrap();
     assert!(
         !sortitions_view
-            .check_proposal(&signer_client, &signer_db, &sibling_block, &miner_pk)
+            .check_proposal(
+                &signer_client,
+                &mut signer_db,
+                &sibling_block,
+                &miner_pk,
+                reward_cycle
+            )
             .unwrap(),
         "A sibling of a previously approved block must be rejected."
     );
@@ -5670,7 +5732,13 @@ fn signer_chainstate() {
 
     assert!(
         !sortitions_view
-            .check_proposal(&signer_client, &signer_db, &sibling_block, &miner_pk)
+            .check_proposal(
+                &signer_client,
+                &mut signer_db,
+                &sibling_block,
+                &miner_pk,
+                reward_cycle
+            )
             .unwrap(),
         "A sibling of a previously approved block must be rejected."
     );
@@ -5727,7 +5795,13 @@ fn signer_chainstate() {
 
     assert!(
         !sortitions_view
-            .check_proposal(&signer_client, &signer_db, &sibling_block, &miner_pk)
+            .check_proposal(
+                &signer_client,
+                &mut signer_db,
+                &sibling_block,
+                &miner_pk,
+                reward_cycle
+            )
             .unwrap(),
         "A sibling of a previously approved block must be rejected."
     );
@@ -5786,7 +5860,13 @@ fn signer_chainstate() {
 
     assert!(
         !sortitions_view
-            .check_proposal(&signer_client, &signer_db, &sibling_block, &miner_pk)
+            .check_proposal(
+                &signer_client,
+                &mut signer_db,
+                &sibling_block,
+                &miner_pk,
+                reward_cycle
+            )
             .unwrap(),
         "A sibling of a previously approved block must be rejected."
     );
