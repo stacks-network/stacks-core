@@ -2558,8 +2558,10 @@ impl NakamotoChainState {
         Ok(result.is_some())
     }
 
+    /// DO NOT CALL IN CONSENSUS CODE, such as during Stacks block processing
+    /// (including during Clarity VM evaluation). This function returns the latest data
+    /// known to the node, which may not have been at the time of original block assembly.
     /// Load the canonical Stacks block header (either epoch-2 rules or Nakamoto)
-    /// DO NOT CALL during Stacks block processing (including during Clarity VM evaluation). This function returns the latest data known to the node, which may not have been at the time of original block assembly.
     pub fn get_canonical_block_header(
         chainstate_conn: &Connection,
         sortdb: &SortitionDB,
@@ -2631,14 +2633,14 @@ impl NakamotoChainState {
         Self::get_block_header_nakamoto(chainstate_conn.sqlite(), &block_id)
     }
 
+    /// DO NOT USE IN CONSENSUS CODE.  Different nodes can have different blocks for the same
+    /// tenure.
+    ///
     /// Get the highest block in a given tenure (identified by its consensus hash).
     /// Ties will be broken by timestamp.
     ///
     /// Used to verify that a signer-submitted block proposal builds atop the highest known block
     /// in the given tenure, regardless of which fork it's on.
-    ///
-    /// DO NOT USE IN CONSENSUS CODE.  Different nodes can have different blocks for the same
-    /// tenure.
     pub fn get_highest_known_block_header_in_tenure(
         db: &Connection,
         consensus_hash: &ConsensusHash,
@@ -4258,10 +4260,10 @@ impl NakamotoChainState {
         Ok(Some(slot_id_range))
     }
 
+    /// DO NOT USE IN MAINNET
     /// Boot code instantiation for the aggregate public key.
     /// TODO: This should be removed once it's possible for stackers to vote on the aggregate
     /// public key
-    /// DO NOT USE IN MAINNET
     pub fn aggregate_public_key_bootcode(clarity_tx: &mut ClarityTx, apk: &Point) {
         let agg_pub_key = to_hex(&apk.compress().data);
         let contract_content = format!(
