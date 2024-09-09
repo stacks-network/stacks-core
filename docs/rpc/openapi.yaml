@@ -675,3 +675,33 @@ paths:
         schema:
           type: string
 
+  /v3/signer/{signer}/{cycle_number}:
+    get:
+      summary: Get number of blocks signed by signer during a given reward cycle
+      tags:
+        - Blocks
+        - Signers
+      operationId: get_signer
+      description: Get number of blocks signed by signer during a given reward cycle
+      parameters:
+        - name: signer
+          in: path
+          required: true
+          description: Hex-encoded compressed Secp256k1 public key of signer
+          schema:
+            type: string
+      parameters:
+        - name: cycle_number
+          in: path
+          required: true
+          description: Reward cycle number
+          schema:
+            type: integer
+      responses:
+        200:
+          description: Number of blocks signed
+          content:
+            text/plain:
+              schema:
+                type: integer
+                example: 7

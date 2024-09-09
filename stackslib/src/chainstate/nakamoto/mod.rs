@@ -3300,7 +3300,7 @@ impl NakamotoChainState {
         chainstate_db: &Connection,
         signer_pubkey: &Secp256k1PublicKey,
         reward_cycle: u64,
-    ) -> Result<Option<u64>, ChainstateError> {
+    ) -> Result<u64, ChainstateError> {
         let sql =
             "SELECT blocks_signed FROM signer_stats WHERE public_key = ?1 AND reward_cycle = ?2";
         let params = params![serde_json::to_string(&signer_pubkey).unwrap(), reward_cycle];
@@ -3316,6 +3316,7 @@ impl NakamotoChainState {
                 })
             })
             .optional()
+            .map(Option::unwrap_or_default) // It's fine to map `NONE` to `0`, because it's impossible to have `Some(0)`
             .map_err(ChainstateError::from)
     }
 
