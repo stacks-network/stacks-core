@@ -3573,7 +3573,7 @@ impl NakamotoChainState {
                                 .map_err(|_| ChainstateError::InvalidStacksBlock("Reward set index outside of u16".into()))?;
                             let bitvec_value = block_bitvec.get(ix)
                                 .unwrap_or_else(|| {
-                                    info!("Block header's bitvec is smaller than the reward set, defaulting higher indexes to 1");
+                                    warn!("Block header's bitvec is smaller than the reward set, defaulting higher indexes to 1");
                                     true
                                 });
                             Ok(bitvec_value)
