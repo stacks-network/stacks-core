@@ -194,12 +194,13 @@ impl SignerTrait<SignerMessage> for Signer {
                     self.signer_db
                         .insert_burn_block(burn_header_hash, *burn_height, received_time)
                 {
-                    warn!(
+                    error!(
                         "Failed to write burn block event to signerdb";
                         "err" => ?e,
                         "burn_header_hash" => %burn_header_hash,
                         "burn_height" => burn_height
                     );
+                    panic!("{self} Failed to write burn block event to signerdb: {e}");
                 }
                 *sortition_state = None;
             }
@@ -679,13 +680,13 @@ impl Signer {
 
         // record time at which we reached the threshold
         block_info.signed_group = Some(get_epoch_time_secs());
-        let _ = self.signer_db.insert_block(&block_info).map_err(|e| {
-            warn!(
+        if let Err(e) = self.signer_db.insert_block(&block_info) {
+            error!(
                 "Failed to set group threshold signature timestamp for {}: {:?}",
                 block_hash, &e
             );
-            e
-        });
+            panic!("{self} Failed to write block to signerdb: {e}");
+        };
 
         // collect signatures for the block
         let signatures: Vec<_> = self
