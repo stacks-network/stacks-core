@@ -687,11 +687,11 @@ const SORTITION_DB_SCHEMA_4: &'static [&'static str] = &[
         delegated_ustx TEXT NOT NULL,
         until_burn_height INTEGER,
 
-        PRIMARY KEY(txid,burn_header_Hash)
+        PRIMARY KEY(txid,burn_header_hash)
     );"#,
     r#"
     CREATE TABLE ast_rule_heights (
-        ast_rule_id INTEGER PRIMAR KEY NOT NULL,
+        ast_rule_id INTEGER PRIMARY KEY NOT NULL,
         block_height INTEGER NOT NULL
     );"#,
 ];
