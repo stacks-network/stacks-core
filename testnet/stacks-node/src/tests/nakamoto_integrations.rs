@@ -231,7 +231,7 @@ impl TestSigningChannel {
 
 pub fn get_stacker_set(http_origin: &str, cycle: u64) -> GetStackersResponse {
     let client = reqwest::blocking::Client::new();
-    let path = format!("{http_origin}/v2/stacker_set/{cycle}");
+    let path = format!("{http_origin}/v3/stacker_set/{cycle}");
     let res = client
         .get(&path)
         .send()
@@ -2234,7 +2234,7 @@ fn correct_burn_outs() {
     run_loop_thread.join().unwrap();
 }
 
-/// Test `/v2/block_proposal` API endpoint
+/// Test `/v3/block_proposal` API endpoint
 ///
 /// This endpoint allows miners to propose Nakamoto blocks to a node,
 /// and test if they would be accepted or rejected
@@ -2471,7 +2471,7 @@ fn block_proposal_api_endpoint() {
         .expect("Failed to build `reqwest::Client`");
     // Build URL
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
-    let path = format!("{http_origin}/v2/block_proposal");
+    let path = format!("{http_origin}/v3/block_proposal");
 
     let mut hold_proposal_mutex = Some(test_observer::PROPOSAL_RESPONSES.lock().unwrap());
     for (ix, (test_description, block_proposal, expected_http_code, _)) in

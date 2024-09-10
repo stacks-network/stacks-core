@@ -1394,7 +1394,7 @@ pub fn get_contract_src(
 
 pub fn get_stacker_set(http_origin: &str, reward_cycle: u64) -> GetStackersResponse {
     let client = reqwest::blocking::Client::new();
-    let path = format!("{}/v2/stacker_set/{}", http_origin, reward_cycle);
+    let path = format!("{}/v3/stacker_set/{}", http_origin, reward_cycle);
     let res = client.get(&path).send().unwrap();
 
     info!("Got stacker_set response {:?}", &res);

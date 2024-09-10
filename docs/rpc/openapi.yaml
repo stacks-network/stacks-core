@@ -568,7 +568,7 @@ paths:
           description: The Stacks chain tip to query from. If tip == latest, the query will be run from the latest
             known tip (includes unconfirmed state).
 
-  /v2/block_proposal:
+  /v3/block_proposal:
     post:
       summary: Validate a proposed Stacks block
       tags:
@@ -600,7 +600,7 @@ paths:
             example:
               $ref: ./api/core-node/post-block-proposal-req.example.json
 
-  /v2/stacker_set/{cycle_number}:
+  /v3/stacker_set/{cycle_number}:
     get:
       summary: Fetch the stacker and signer set information for a given cycle.
       tags:

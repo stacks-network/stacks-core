@@ -767,7 +767,7 @@ impl StacksClient {
     }
 
     fn block_proposal_path(&self) -> String {
-        format!("{}/v2/block_proposal", self.http_origin)
+        format!("{}/v3/block_proposal", self.http_origin)
     }
 
     fn sortition_info_path(&self) -> String {
@@ -792,7 +792,7 @@ impl StacksClient {
     }
 
     fn reward_set_path(&self, reward_cycle: u64) -> String {
-        format!("{}/v2/stacker_set/{reward_cycle}", self.http_origin)
+        format!("{}/v3/stacker_set/{reward_cycle}", self.http_origin)
     }
 
     fn fees_transaction_path(&self) -> String {
