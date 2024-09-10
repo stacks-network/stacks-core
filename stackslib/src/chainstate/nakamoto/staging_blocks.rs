@@ -593,8 +593,15 @@ impl<'a> NakamotoStagingBlocksTx<'a> {
         signing_weight: u32,
         obtain_method: NakamotoBlockObtainMethod,
     ) -> Result<(), ChainstateError> {
-        self.execute("UPDATE nakamoto_staging_blocks SET data = ?1, signing_weight = ?2, obtain_method = ?3 WHERE consensus_hash = ?4 AND block_hash = ?5",
-                    params![&block.serialize_to_vec(), &signing_weight, &obtain_method.to_string(), &block.header.consensus_hash, &block.header.block_hash()])?;
+        self.execute("UPDATE nakamoto_staging_blocks SET data = ?1, signing_weight = ?2, obtain_method = ?3, processed_time = ?4 WHERE consensus_hash = ?5 AND block_hash = ?6",
+                    params![
+                        &block.serialize_to_vec(),
+                        &signing_weight,
+                        &obtain_method.to_string(),
+                        u64_to_sql(get_epoch_time_secs())?,
+                        &block.header.consensus_hash,
+                        &block.header.block_hash(),
+                    ])?;
         Ok(())
     }
 }
