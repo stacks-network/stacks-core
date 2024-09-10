@@ -197,18 +197,17 @@ impl SignerTrait<SignerMessage> for Signer {
                 received_time,
             } => {
                 info!("{self}: Received a new burn block event for block height {burn_height}");
-                if let Err(e) =
-                    self.signer_db
-                        .insert_burn_block(burn_header_hash, *burn_height, received_time)
-                {
-                    error!(
-                        "Failed to write burn block event to signerdb";
-                        "err" => ?e,
-                        "burn_header_hash" => %burn_header_hash,
-                        "burn_height" => burn_height
-                    );
-                    panic!("{self} Failed to write burn block event to signerdb: {e}");
-                }
+                self.signer_db
+                    .insert_burn_block(burn_header_hash, *burn_height, received_time)
+                    .unwrap_or_else(|e| {
+                        error!(
+                            "Failed to write burn block event to signerdb";
+                            "err" => ?e,
+                            "burn_header_hash" => %burn_header_hash,
+                            "burn_height" => burn_height
+                        );
+                        panic!("{self} Failed to write burn block event to signerdb: {e}");
+                    });
                 *sortition_state = None;
             }
         }
