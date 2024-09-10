@@ -51,7 +51,7 @@ use stacks::chainstate::stacks::address::PoxAddress;
 use stacks::core::{StacksEpoch, StacksEpochId};
 use stacks::monitoring::{increment_btc_blocks_received_counter, increment_btc_ops_sent_counter};
 use stacks::net::http::{HttpRequestContents, HttpResponsePayload};
-use stacks::net::httpcore::{send_http_request, StacksHttpRequest};
+use stacks::net::httpcore::StacksHttpRequest;
 use stacks::net::Error as NetError;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::deps_common::bitcoin::blockdata::opcodes;
@@ -79,6 +79,7 @@ use crate::config::{
     OP_TX_PRE_STACKS_ESTIM_SIZE, OP_TX_STACK_STX_ESTIM_SIZE, OP_TX_TRANSFER_STACKS_ESTIM_SIZE,
     OP_TX_VOTE_AGG_ESTIM_SIZE,
 };
+use crate::event_dispatcher::send_request;
 
 /// The number of bitcoin blocks that can have
 ///  passed since the UTXO cache was last refreshed before
@@ -2808,7 +2809,7 @@ impl BitcoinRPCRequest {
         let host = request.preamble().host.hostname();
         let port = request.preamble().host.port();
 
-        let response = send_http_request(&host, port, request, timeout)?;
+        let response = send_request(&host, port, request, timeout)?;
         if let HttpResponsePayload::JSON(js) = response.destruct().1 {
             return Ok(js);
         } else {
