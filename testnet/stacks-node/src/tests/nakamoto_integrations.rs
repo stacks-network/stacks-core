@@ -928,10 +928,13 @@ pub fn boot_to_epoch_3(
     info!("Bootstrapped to Epoch-3.0 boundary, Epoch2x miner should stop");
 }
 
+/// Boot the chain to just before the Epoch 3.0 boundary to allow for flash blocks
+/// This function is similar to `boot_to_epoch_3`, but it stops at epoch 3 start height - 2,
+/// allowing for flash blocks to occur when the epoch changes.
 ///
-/// * `stacker_sks` - must be a private key for sending a large `stack-stx` transaction in order
-///   for pox-4 to activate
-pub fn boot_to_epoch_3_flash_blocks(
+/// * `stacker_sks` - private keys for sending large `stack-stx` transactions to activate pox-4
+/// * `signer_sks` - corresponding signer keys for the stackers
+pub fn boot_to_pre_epoch_3_boundary(
     naka_conf: &Config,
     blocks_processed: &Arc<AtomicU64>,
     stacker_sks: &[StacksPrivateKey],
@@ -1077,7 +1080,7 @@ pub fn boot_to_epoch_3_flash_blocks(
         &naka_conf,
     );
 
-    info!("Bootstrapped to Epoch-3.0 boundary, Epoch2x miner should stop");
+    info!("Bootstrapped to one block before Epoch 3.0 boundary, Epoch 2.x miner should continue for one more block");
 }
 
 fn get_signer_index(
@@ -1737,7 +1740,7 @@ fn simple_neon_integration_with_flash_blocks_on_epoch_3() {
 
     let run_loop_thread = thread::spawn(move || run_loop.start(None, 0));
     wait_for_runloop(&blocks_processed);
-    boot_to_epoch_3_flash_blocks(
+    boot_to_pre_epoch_3_boundary(
         &naka_conf,
         &blocks_processed,
         &[stacker_sk],
@@ -1746,10 +1749,10 @@ fn simple_neon_integration_with_flash_blocks_on_epoch_3() {
         &mut btc_regtest_controller,
     );
 
-    // mine 3 blocks which should be the ones for setting up the miner
-    next_block_and_wait_with_timeout(&mut btc_regtest_controller, &blocks_processed, 10);
-    next_block_and_wait_with_timeout(&mut btc_regtest_controller, &blocks_processed, 10);
-    next_block_and_wait_with_timeout(&mut btc_regtest_controller, &blocks_processed, 10);
+    // Mine 3 Bitcoin blocks quickly without waiting for Stacks blocks to be processed
+    for _ in 0..3 {
+        btc_regtest_controller.build_next_block(1);
+    }
 
     info!("Bootstrapped to Epoch-3.0 boundary, starting nakamoto miner");
 
