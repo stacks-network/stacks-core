@@ -88,7 +88,7 @@ pub const NAKAMOTO_STAGING_DB_SCHEMA_1: &'static [&'static str] = &[
 
                  -- block data, including its header
                  data BLOB NOT NULL,
-                
+
                  PRIMARY KEY(block_hash,consensus_hash)
     );"#,
     r#"CREATE INDEX nakamoto_staging_blocks_by_index_block_hash ON nakamoto_staging_blocks(index_block_hash);"#,
@@ -136,7 +136,7 @@ pub const NAKAMOTO_STAGING_DB_SCHEMA_2: &'static [&'static str] = &[
 
                  -- block data, including its header
                  data BLOB NOT NULL,
-               
+
                  PRIMARY KEY(block_hash,consensus_hash)
     );"#,
     r#"CREATE INDEX nakamoto_staging_blocks_by_index_block_hash ON nakamoto_staging_blocks(index_block_hash);"#,
@@ -148,6 +148,8 @@ pub const NAKAMOTO_STAGING_DB_SCHEMA_2: &'static [&'static str] = &[
     );"#,
     r#"INSERT INTO db_version (version) VALUES (2)"#,
 ];
+
+pub const NAKAMOTO_STAGING_DB_SCHEMA_LATEST: u32 = 2;
 
 pub struct NakamotoStagingBlocksConn(rusqlite::Connection);
 
@@ -527,7 +529,7 @@ impl<'a> NakamotoStagingBlocksTx<'a> {
                      processed_time,
                      obtain_method,
                      signing_weight,
-                     
+
                      data
             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
             params![
@@ -671,7 +673,7 @@ impl StacksChainState {
             Ok(x) => x,
             Err(e) => {
                 debug!("Failed to get Nakamoto staging blocks DB version: {:?}", &e);
-                return Ok(1);
+                return Ok(NAKAMOTO_STAGING_DB_SCHEMA_LATEST);
             }
         };
 
