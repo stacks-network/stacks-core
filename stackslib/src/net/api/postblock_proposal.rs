@@ -283,7 +283,7 @@ impl NakamotoBlockProposal {
                 });
             }
         }
-        if self.block.header.timestamp > get_epoch_time_secs() + 15 {
+        if self.block.header.timestamp >= get_epoch_time_secs() + 15 {
             warn!(
                 "Rejected block proposal";
                 "reason" => "Block timestamp is too far into the future",
