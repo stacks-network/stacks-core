@@ -282,6 +282,9 @@ impl NakamotoBlockBuilder {
             warn!(
                 "Cannot process Nakamoto block: could not find height at which the PoX reward set was calculated";
                 "err" => ?e,
+                "stacks_tip" => %self.header.parent_block_id,
+                "elected_height" => elected_height,
+                "elected_cycle" => elected_in_cycle
             );
             Error::NoSuchBlockError
         })?;
