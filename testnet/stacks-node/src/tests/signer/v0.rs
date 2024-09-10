@@ -2832,7 +2832,7 @@ fn signer_set_rollover() {
         .running_nodes
         .btc_regtest_controller
         .get_burnchain()
-        .reward_cycle_to_block_height(next_reward_cycle)
+        .nakamoto_first_block_of_cycle(next_reward_cycle)
         .saturating_add(1);
 
     info!("---- Mining to next reward set calculation -----");
