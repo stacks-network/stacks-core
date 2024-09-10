@@ -280,7 +280,7 @@ impl NakamotoBlockBuilder {
             &self.header.parent_block_id,
         ).map_err(|e| {
             warn!(
-                "Cannot process Nakamoto block: could not retrieve coinbase POX height of the elected block";
+                "Cannot process Nakamoto block: could not find height at which the PoX reward set was calculated";
                 "err" => ?e,
             );
             Error::NoSuchBlockError
