@@ -998,7 +998,7 @@ impl BitcoinRegtestController {
             let mut bytes = self.config.burnchain.magic_bytes.as_bytes().to_vec();
             payload
                 .consensus_serialize(&mut bytes)
-                .map_err(|_| BurnchainControllerError::SerializerError)?;
+                .map_err(|e| BurnchainControllerError::SerializerError(e))?;
             bytes
         };
 
@@ -1084,7 +1084,7 @@ impl BitcoinRegtestController {
             let mut bytes = self.config.burnchain.magic_bytes.as_bytes().to_vec();
             payload
                 .consensus_serialize(&mut bytes)
-                .map_err(|_| BurnchainControllerError::SerializerError)?;
+                .map_err(|e| BurnchainControllerError::SerializerError(e))?;
             bytes
         };
 
@@ -1165,7 +1165,7 @@ impl BitcoinRegtestController {
             let mut bytes = self.config.burnchain.magic_bytes.as_bytes().to_vec();
             payload
                 .consensus_serialize(&mut bytes)
-                .map_err(|_| BurnchainControllerError::SerializerError)?;
+                .map_err(|e| BurnchainControllerError::SerializerError(e))?;
             bytes
         };
 
@@ -1332,7 +1332,7 @@ impl BitcoinRegtestController {
             let mut bytes = self.config.burnchain.magic_bytes.as_bytes().to_vec();
             payload
                 .consensus_serialize(&mut bytes)
-                .map_err(|_| BurnchainControllerError::SerializerError)?;
+                .map_err(|e| BurnchainControllerError::SerializerError(e))?;
             bytes
         };
 

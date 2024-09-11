@@ -10,6 +10,7 @@ use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::BlockstackOperationType;
 use stacks::chainstate::burn::BlockSnapshot;
 use stacks::core::{StacksEpoch, StacksEpochId};
+use stacks_common::codec::Error as CodecError;
 
 pub use self::bitcoin_regtest_controller::{make_bitcoin_indexer, BitcoinRegtestController};
 pub use self::mocknet_controller::MocknetController;
@@ -24,7 +25,7 @@ pub enum Error {
     IdenticalOperation,
     NoUTXOs,
     TransactionSubmissionFailed(String),
-    SerializerError,
+    SerializerError(CodecError),
 }
 
 impl fmt::Display for Error {
@@ -39,7 +40,7 @@ impl fmt::Display for Error {
             Error::TransactionSubmissionFailed(e) => {
                 write!(f, "Transaction submission failed: {e}")
             }
-            Error::SerializerError => write!(f, "Serializer error"),
+            Error::SerializerError(e) => write!(f, "Serializer error: {e}"),
         }
     }
 }
