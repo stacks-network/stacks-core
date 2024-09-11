@@ -1,4 +1,6 @@
 {
-  "okay": false,
-  "cause": "Unchecked(PublicFunctionNotReadOnly(..."
+  "value": {
+    "okay": false,
+    "cause": "Unchecked(PublicFunctionNotReadOnly(..."
+  }
 }
