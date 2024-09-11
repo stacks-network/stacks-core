@@ -15,16 +15,32 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::backtrace::Backtrace;
-use std::time::Duration;
+use std::sync::{LazyLock, Mutex};
+use std::thread;
+use std::time::{Duration, Instant};
 
+use hashbrown::HashMap;
 use rand::{thread_rng, Rng};
 
 use crate::util::sleep_ms;
 
+/// Keep track of DB locks, for deadlock debugging
+///  - **key:** `rusqlite::Connection` debug print
+///  - **value:** Lock holder (thread name + timestamp)
+///
+/// This uses a `Mutex` inside of `LazyLock` because:
+///  - Using `Mutex` alone, it can't be statically initialized because `HashMap::new()` isn't `const`
+///  - Using `LazyLock` alone doesn't allow interior mutability
+pub static LOCK_TABLE: LazyLock<Mutex<HashMap<String, String>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+/// Generate timestanps for use in `LOCK_TABLE`
+/// `Instant` is preferable to `SystemTime` because it uses `CLOCK_MONOTONIC` and is not affected by NTP adjustments
+pub static LOCK_TABLE_TIMER: LazyLock<Instant> = LazyLock::new(Instant::now);
+
 /// Called by `rusqlite` if we are waiting too long on a database lock
-/// If called too many times, will fail to avoid deadlocks
+/// If called too many times, will assume a deadlock and panic
 pub fn tx_busy_handler(run_count: i32) -> bool {
-    const TIMEOUT: Duration = Duration::from_secs(60);
+    const TIMEOUT: Duration = Duration::from_secs(300);
     const AVG_SLEEP_TIME_MS: u64 = 100;
 
     // First, check if this is taking unreasonably long. If so, it's probably a deadlock
@@ -32,11 +48,14 @@ pub fn tx_busy_handler(run_count: i32) -> bool {
     let approx_time_elapsed =
         Duration::from_millis(AVG_SLEEP_TIME_MS.saturating_mul(u64::from(run_count)));
     if approx_time_elapsed > TIMEOUT {
-        error!("Probable deadlock detected. Waited {} seconds (estimated) for database lock. Giving up", approx_time_elapsed.as_secs();
+        error!("Deadlock detected. Waited {} seconds (estimated) for database lock. Giving up", approx_time_elapsed.as_secs();
             "run_count" => run_count,
             "backtrace" => ?Backtrace::capture()
         );
-        return false;
+        for (k, v) in LOCK_TABLE.lock().unwrap().iter() {
+            error!("Database '{k}' last locked by {v}");
+        }
+        panic!("Deadlock in thread {:?}", thread::current().name());
     }
 
     let mut sleep_time_ms = 2u64.saturating_pow(run_count);

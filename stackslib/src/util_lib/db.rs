@@ -18,7 +18,7 @@ use std::backtrace::Backtrace;
 use std::io::Error as IOError;
 use std::ops::{Deref, DerefMut};
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 use std::{error, fmt, fs, io};
 
 use clarity::vm::types::QualifiedContractIdentifier;
@@ -32,6 +32,7 @@ use serde_json::Error as serde_error;
 use stacks_common::types::chainstate::{SortitionId, StacksAddress, StacksBlockId, TrieHash};
 use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::types::Address;
+use stacks_common::util::db::{LOCK_TABLE, LOCK_TABLE_TIMER};
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 use stacks_common::util::sleep_ms;
@@ -673,7 +674,12 @@ pub fn tx_begin_immediate<'a>(conn: &'a mut Connection) -> Result<DBTx<'a>, Erro
 /// Sames as `tx_begin_immediate` except that it returns a rusqlite error.
 pub fn tx_begin_immediate_sqlite<'a>(conn: &'a mut Connection) -> Result<DBTx<'a>, sqlite_error> {
     conn.busy_handler(Some(tx_busy_handler))?;
-    Transaction::new(conn, TransactionBehavior::Immediate)
+    let tx = Transaction::new(conn, TransactionBehavior::Immediate)?;
+    let time = LOCK_TABLE_TIMER.elapsed().as_millis();
+    let k = format!("{:?}", tx.deref());
+    let v = format!("{:?}@{time}", std::thread::current().name());
+    LOCK_TABLE.lock().unwrap().insert(k, v);
+    Ok(tx)
 }
 
 #[cfg(feature = "profile-sqlite")]
