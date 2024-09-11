@@ -533,7 +533,7 @@ paths:
           description: The Stacks chain tip to query from. If tip == latest, the query will be run from the latest
             known tip (includes unconfirmed state).
 
-  /v2/block_proposal:
+  /v3/block_proposal:
     post:
       summary: Validate a proposed Stacks block
       tags:
@@ -545,16 +545,19 @@ paths:
         **This API endpoint requires a basic Authorization header.**
       responses:
         "202":
-          description: Block proposal has been accepted for processing. The result will be returned via the event observer.
+          description: Block proposal has been accepted for processing.
+            The result will be returned via the event observer.
           content:
             application/json:
               example:
                 $ref: ./api/core-node/post-block-proposal-response.example.json
-        "403":
-          description: Request not over loopback interface
+        "400":
+          description: Endpoint not enabled.
+        "401":
+          description: Unauthorized.
         "429":
-          description: There is an ongoing proposal validation being processed, the new request cannot be accepted
-            until the prior request has been processed.
+          description: There is an ongoing proposal validation being processed,
+            the new request cannot be accepted until the prior request has been processed.
           content:
             application/json:
               example:
