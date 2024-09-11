@@ -22,8 +22,8 @@ pub enum Error {
     BurnchainError,
     MaxFeeRateExceeded,
     IdenticalOperation,
-    NoUtxos,
-    TransactionSubmissionFailed,
+    NoUTXOs,
+    TransactionSubmissionFailed(String),
     SerializerError,
 }
 
@@ -35,8 +35,10 @@ impl fmt::Display for Error {
             Error::BurnchainError => write!(f, "Burnchain error"),
             Error::MaxFeeRateExceeded => write!(f, "Max fee rate exceeded"),
             Error::IdenticalOperation => write!(f, "Identical operation, not submitting"),
-            Error::NoUtxos => write!(f, "No UTXOs available"),
-            Error::TransactionSubmissionFailed => write!(f, "Transaction submission failed"),
+            Error::NoUTXOs => write!(f, "No UTXOs available"),
+            Error::TransactionSubmissionFailed(e) => {
+                write!(f, "Transaction submission failed: {e}")
+            }
             Error::SerializerError => write!(f, "Serializer error"),
         }
     }

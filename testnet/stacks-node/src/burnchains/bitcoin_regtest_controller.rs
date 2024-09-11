@@ -1721,7 +1721,7 @@ impl BitcoinRegtestController {
                         &addr2str(&addr),
                         epoch_id
                     );
-                    return Err(BurnchainControllerError::NoUtxos);
+                    return Err(BurnchainControllerError::NoUTXOs);
                 }
             };
             utxos
@@ -1941,7 +1941,7 @@ impl BitcoinRegtestController {
             })
             .map_err(|e| {
                 error!("Bitcoin RPC error: transaction submission failed - {:?}", e);
-                BurnchainControllerError::TransactionSubmissionFailed
+                BurnchainControllerError::TransactionSubmissionFailed(format!("{:?}", e))
             })
     }
 
