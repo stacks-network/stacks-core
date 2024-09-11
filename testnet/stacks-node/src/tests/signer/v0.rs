@@ -39,7 +39,7 @@ use stacks::libstackerdb::StackerDBChunkData;
 use stacks::net::api::postblock_proposal::{ValidateRejectCode, TEST_VALIDATE_STALL};
 use stacks::types::chainstate::{StacksAddress, StacksBlockId, StacksPrivateKey, StacksPublicKey};
 use stacks::types::PublicKey;
-use stacks::util::hash::{Hash160, MerkleHashFunc};
+use stacks::util::hash::MerkleHashFunc;
 use stacks::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 use stacks::util_lib::boot::boot_code_id;
 use stacks::util_lib::signed_structured_data::pox4::{
@@ -63,9 +63,8 @@ use crate::nakamoto_node::sign_coordinator::TEST_IGNORE_SIGNERS;
 use crate::neon::Counters;
 use crate::run_loop::boot_nakamoto;
 use crate::tests::nakamoto_integrations::{
-    boot_to_epoch_25, boot_to_epoch_3_reward_set, next_block_and, next_block_and_mine_commit,
-    setup_epoch_3_reward_set, wait_for, POX_4_DEFAULT_STACKER_BALANCE,
-    POX_4_DEFAULT_STACKER_STX_AMT,
+    boot_to_epoch_25, boot_to_epoch_3_reward_set, next_block_and, setup_epoch_3_reward_set,
+    wait_for, POX_4_DEFAULT_STACKER_BALANCE, POX_4_DEFAULT_STACKER_STX_AMT,
 };
 use crate::tests::neon_integrations::{
     get_account, get_chain_info, next_block_and_wait, run_until_burnchain_height, submit_tx,
@@ -2629,7 +2628,8 @@ fn multiple_miners_mock_sign_epoch_25() {
                 false
             })
         },
-        &[btc_miner_1_pk.clone(), btc_miner_2_pk.clone()],
+        Some(vec![btc_miner_1_pk.clone(), btc_miner_2_pk.clone()]),
+        None,
     );
     let conf = signer_test.running_nodes.conf.clone();
     let mut conf_node_2 = conf.clone();
