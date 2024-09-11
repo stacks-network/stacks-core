@@ -595,7 +595,7 @@ impl<'a> NakamotoStagingBlocksTx<'a> {
         signing_weight: u32,
         obtain_method: NakamotoBlockObtainMethod,
     ) -> Result<(), ChainstateError> {
-        self.execute("UPDATE nakamoto_staging_blocks SET data = ?1, signing_weight = ?2, obtain_method = ?3, processed_time = ?4 WHERE consensus_hash = ?5 AND block_hash = ?6",
+        self.execute("UPDATE nakamoto_staging_blocks SET data = ?1, signing_weight = ?2, obtain_method = ?3 WHERE consensus_hash = ?4 AND block_hash = ?5",
                     params![
                         &block.serialize_to_vec(),
                         &signing_weight,
