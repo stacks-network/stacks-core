@@ -2862,7 +2862,7 @@ impl SortitionDB {
         sql_pragma(self.conn(), "journal_mode", &"WAL")?;
         sql_pragma(self.conn(), "foreign_keys", &true)?;
 
-        let mut db_tx = SortitionHandleTx::begin(self, &SortitionId::sentinel())?;
+        let db_tx = SortitionHandleTx::begin(self, &SortitionId::sentinel())?;
 
         // create first (sentinel) snapshot
         debug!("Make first snapshot");
@@ -2888,6 +2888,12 @@ impl SortitionDB {
         SortitionDB::apply_schema_6(&db_tx, epochs_ref)?;
         SortitionDB::apply_schema_7(&db_tx, epochs_ref)?;
         SortitionDB::apply_schema_8_tables(&db_tx, epochs_ref)?;
+        // `apply_schema_8_migration` creates new transactions, so
+        // commit this first.
+        db_tx.commit()?;
+        // NOTE: we don't need to provide a migrator here because we're not migrating
+        self.apply_schema_8_migration(None)?;
+        let mut db_tx = SortitionHandleTx::begin(self, &SortitionId::sentinel())?;
         SortitionDB::apply_schema_9(&db_tx, epochs_ref)?;
 
         db_tx.instantiate_index()?;
@@ -2905,9 +2911,6 @@ impl SortitionDB {
         )?;
 
         db_tx.commit()?;
-
-        // NOTE: we don't need to provide a migrator here because we're not migrating
-        self.apply_schema_8_migration(None)?;
 
         self.add_indexes()?;
 
@@ -3352,11 +3355,6 @@ impl SortitionDB {
     ) -> Result<(), db_error> {
         let canonical_tip = SortitionDB::get_canonical_burn_chain_tip(self.conn())?;
 
-        let schema_version = SortitionDB::get_schema_version(self.conn())?
-            .unwrap_or("0".to_string())
-            .parse::<u8>()
-            .unwrap_or(0);
-
         // port over `stacks_chain_tips` table
         info!("Instantiating `stacks_chain_tips` table...");
         self.apply_schema_8_stacks_chain_tips(&canonical_tip)?;
@@ -3370,14 +3368,12 @@ impl SortitionDB {
             info!("No migrator implementation given; `preprocessed_reward_sets` will not be prepopulated");
         }
 
-        if schema_version < 8 {
-            let tx = self.tx_begin()?;
-            tx.execute(
-                "INSERT OR REPLACE INTO db_config (version) VALUES (?1)",
-                &["8"],
-            )?;
-            tx.commit()?;
-        }
+        let tx = self.tx_begin()?;
+        tx.execute(
+            "INSERT OR REPLACE INTO db_config (version) VALUES (?1)",
+            &["8"],
+        )?;
+        tx.commit()?;
 
         Ok(())
     }
