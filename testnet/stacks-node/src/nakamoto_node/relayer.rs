@@ -1049,7 +1049,7 @@ impl RelayerThread {
                 1,
             )
             .map_err(|e| {
-                warn!("Failed to submit block-commit bitcoin transaction: {}", e);
+                warn!("Failed to submit block-commit bitcoin transaction: {e}");
                 NakamotoNodeError::BurnchainSubmissionFailed(e)
             })?;
 
