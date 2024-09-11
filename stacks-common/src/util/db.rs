@@ -21,6 +21,7 @@ use std::time::{Duration, Instant};
 
 use hashbrown::HashMap;
 use rand::{thread_rng, Rng};
+use rusqlite::Connection;
 
 use crate::util::sleep_ms;
 
@@ -31,11 +32,20 @@ use crate::util::sleep_ms;
 /// This uses a `Mutex` inside of `LazyLock` because:
 ///  - Using `Mutex` alone, it can't be statically initialized because `HashMap::new()` isn't `const`
 ///  - Using `LazyLock` alone doesn't allow interior mutability
-pub static LOCK_TABLE: LazyLock<Mutex<HashMap<String, String>>> =
+static LOCK_TABLE: LazyLock<Mutex<HashMap<String, String>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 /// Generate timestanps for use in `LOCK_TABLE`
 /// `Instant` is preferable to `SystemTime` because it uses `CLOCK_MONOTONIC` and is not affected by NTP adjustments
-pub static LOCK_TABLE_TIMER: LazyLock<Instant> = LazyLock::new(Instant::now);
+static LOCK_TABLE_TIMER: LazyLock<Instant> = LazyLock::new(Instant::now);
+
+/// Call when using an operation which locks a database
+/// Updates `LOCK_TABLE`
+pub fn update_lock_table(conn: &Connection) {
+    let timestamp = LOCK_TABLE_TIMER.elapsed().as_millis();
+    let k = format!("{conn:?}");
+    let v = format!("{:?}@{timestamp}", std::thread::current().name());
+    LOCK_TABLE.lock().unwrap().insert(k, v);
+}
 
 /// Called by `rusqlite` if we are waiting too long on a database lock
 /// If called too many times, will assume a deadlock and panic
