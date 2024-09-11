@@ -1,13 +1,14 @@
-openapi: 3.0.2
+openapi: 3.1.0
 servers:
   - url: http://localhost:20443
     description: Local
 info:
-  title: Stacks 2.0+ RPC API
+  title: Stacks 3.0+ RPC API
   version: '1.0.0'
   description: |
     This is the documentation for the `stacks-node` RPC interface.
-  license: CC-0
+  license:
+    name: CC-0
 
 paths:
   /v2/transactions:
