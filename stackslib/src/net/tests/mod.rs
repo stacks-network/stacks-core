@@ -62,7 +62,7 @@ use crate::chainstate::stacks::{
 };
 use crate::clarity::vm::types::StacksAddressExtensions;
 use crate::core::{StacksEpoch, StacksEpochExtension};
-use crate::net::relay::Relayer;
+use crate::net::relay::{BlockAcceptResponse, Relayer};
 use crate::net::stackerdb::StackerDBConfig;
 use crate::net::test::{TestEventObserver, TestPeer, TestPeerConfig};
 use crate::util_lib::boot::boot_code_id;
@@ -256,7 +256,7 @@ impl NakamotoBootPlan {
                     NakamotoBlockObtainMethod::Pushed,
                 )
                 .unwrap();
-                if accepted {
+                if matches!(BlockAcceptResponse::Accepted, accepted) {
                     test_debug!("Accepted Nakamoto block {block_id} to other peer {}", i);
                     peer.coord.handle_new_nakamoto_stacks_block().unwrap();
                 } else {
@@ -293,7 +293,7 @@ impl NakamotoBootPlan {
                     NakamotoBlockObtainMethod::Pushed,
                 )
                 .unwrap();
-                if accepted {
+                if matches!(BlockAcceptResponse::Accepted, accepted) {
                     test_debug!(
                         "Accepted malleablized Nakamoto block {block_id} to other peer {}",
                         i
