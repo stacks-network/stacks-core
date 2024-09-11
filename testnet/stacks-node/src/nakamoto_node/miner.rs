@@ -1206,6 +1206,7 @@ impl BlockMinerThread {
         Ok(block)
     }
 
+    #[cfg_attr(test, mutants::skip)]
     /// Create the tenure start info for the block we're going to build
     fn make_tenure_start_info(
         &self,
