@@ -42,8 +42,9 @@ static LOCK_TABLE_TIMER: LazyLock<Instant> = LazyLock::new(Instant::now);
 /// Updates `LOCK_TABLE`
 pub fn update_lock_table(conn: &Connection) {
     let timestamp = LOCK_TABLE_TIMER.elapsed().as_millis();
+    // The debug format for `Connection` includes the path
     let k = format!("{conn:?}");
-    let v = format!("{:?}@{timestamp}", std::thread::current().name());
+    let v = format!("{:?}@{timestamp}", thread::current().name());
     LOCK_TABLE.lock().unwrap().insert(k, v);
 }
 
