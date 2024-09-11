@@ -19,6 +19,12 @@ use super::operations::BurnchainOpSigner;
 pub enum Error {
     CoordinatorClosed,
     IndexerError(burnchains::Error),
+    BurnchainError,
+    MaxFeeRateExceeded,
+    IdenticalOperation,
+    NoUtxos,
+    TransactionSubmissionFailed,
+    SerializerError,
 }
 
 impl fmt::Display for Error {
@@ -26,6 +32,12 @@ impl fmt::Display for Error {
         match self {
             Error::CoordinatorClosed => write!(f, "ChainsCoordinator closed"),
             Error::IndexerError(ref e) => write!(f, "Indexer error: {:?}", e),
+            Error::BurnchainError => write!(f, "Burnchain error"),
+            Error::MaxFeeRateExceeded => write!(f, "Max fee rate exceeded"),
+            Error::IdenticalOperation => write!(f, "Identical operation, not submitting"),
+            Error::NoUtxos => write!(f, "No UTXOs available"),
+            Error::TransactionSubmissionFailed => write!(f, "Transaction submission failed"),
+            Error::SerializerError => write!(f, "Serializer error"),
         }
     }
 }
@@ -45,7 +57,7 @@ pub trait BurnchainController {
         operation: BlockstackOperationType,
         op_signer: &mut BurnchainOpSigner,
         attempt: u64,
-    ) -> Option<Txid>;
+    ) -> Result<Txid, Error>;
     fn sync(&mut self, target_block_height_opt: Option<u64>) -> Result<(BurnchainTip, u64), Error>;
     fn sortdb_ref(&self) -> &SortitionDB;
     fn sortdb_mut(&mut self) -> &mut SortitionDB;

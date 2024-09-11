@@ -1934,7 +1934,7 @@ fn stx_transfer_btc_integration_test() {
                 &mut miner_signer,
                 1
             )
-            .is_some(),
+            .is_ok(),
         "Pre-stx operation should submit successfully"
     );
 
@@ -1964,7 +1964,7 @@ fn stx_transfer_btc_integration_test() {
                 &mut spender_signer,
                 1
             )
-            .is_some(),
+            .is_ok(),
         "Transfer operation should submit successfully"
     );
     // should be elected in the same block as the transfer, so balances should be unchanged.
@@ -2215,7 +2215,7 @@ fn stx_delegate_btc_integration_test() {
                 &mut miner_signer,
                 1
             )
-            .is_some(),
+            .is_ok(),
         "Pre-stx operation should submit successfully"
     );
 
@@ -2244,7 +2244,7 @@ fn stx_delegate_btc_integration_test() {
                 &mut spender_signer,
                 1
             )
-            .is_some(),
+            .is_ok(),
         "Delegate operation should submit successfully"
     );
 
@@ -2507,7 +2507,7 @@ fn stack_stx_burn_op_test() {
                 &mut miner_signer_1,
                 1
             )
-            .is_some(),
+            .is_ok(),
         "Pre-stx operation should submit successfully"
     );
 
@@ -2528,7 +2528,7 @@ fn stack_stx_burn_op_test() {
                 &mut miner_signer_2,
                 1
             )
-            .is_some(),
+            .is_ok(),
         "Pre-stx operation should submit successfully"
     );
     info!("Submitted 2 pre-stx ops at block {block_height}, mining a few blocks...");
@@ -2614,7 +2614,7 @@ fn stack_stx_burn_op_test() {
                 &mut spender_signer_1,
                 1
             )
-            .is_some(),
+            .is_ok(),
         "Stack STX operation with some signer key should submit successfully"
     );
 
@@ -2642,7 +2642,7 @@ fn stack_stx_burn_op_test() {
                 &mut spender_signer_2,
                 1
             )
-            .is_some(),
+            .is_ok(),
         "Stack STX operation with no signer key should submit successfully"
     );
 
@@ -2949,7 +2949,7 @@ fn vote_for_aggregate_key_burn_op_test() {
                 &mut miner_signer,
                 1
             )
-            .is_some(),
+            .is_ok(),
         "Pre-stx operation should submit successfully"
     );
 
@@ -3006,7 +3006,7 @@ fn vote_for_aggregate_key_burn_op_test() {
                 &mut spender_signer,
                 1
             )
-            .is_some(),
+            .is_ok(),
         "Vote for aggregate key operation should submit successfully"
     );
 

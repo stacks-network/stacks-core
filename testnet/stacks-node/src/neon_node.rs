@@ -213,7 +213,7 @@ use super::{BurnchainController, Config, EventDispatcher, Keychain};
 use crate::burnchains::bitcoin_regtest_controller::{
     addr2str, burnchain_params_from_config, BitcoinRegtestController, OngoingBlockCommit,
 };
-use crate::burnchains::make_bitcoin_indexer;
+use crate::burnchains::{make_bitcoin_indexer, Error as BurnchainControllerError};
 use crate::chain_data::MinerStats;
 use crate::config::NodeConfig;
 use crate::globals::{NeonGlobals as Globals, RelayerDirective};
@@ -2753,16 +2753,21 @@ impl BlockMinerThread {
         } = self.config.get_node_config(false);
 
         let res = bitcoin_controller.submit_operation(target_epoch_id, op, &mut op_signer, attempt);
-        if res.is_none() {
-            self.failed_to_submit_last_attempt = true;
-            if !mock_mining {
-                warn!("Relayer: Failed to submit Bitcoin transaction");
-                return None;
+        self.failed_to_submit_last_attempt = match res {
+            Ok(_) => false,
+            Err(BurnchainControllerError::IdenticalOperation) => {
+                info!("Relayer: Block-commit already submitted");
+                true
             }
-            debug!("Relayer: Mock-mining enabled; not sending Bitcoin transaction");
-        } else {
-            self.failed_to_submit_last_attempt = false;
-        }
+            Err(_) if mock_mining => {
+                debug!("Relayer: Mock-mining enabled; not sending Bitcoin transaction");
+                true
+            }
+            Err(e) => {
+                warn!("Relayer: Failed to submit Bitcoin transaction: {:?}", e);
+                true
+            }
+        };
 
         let assembled_block = AssembledAnchorBlock {
             parent_consensus_hash: parent_block_info.parent_consensus_hash,
@@ -3620,7 +3625,7 @@ impl RelayerThread {
         );
 
         let mut one_off_signer = self.keychain.generate_op_signer();
-        if let Some(txid) =
+        if let Ok(txid) =
             self.bitcoin_controller
                 .submit_operation(cur_epoch, op, &mut one_off_signer, 1)
         {

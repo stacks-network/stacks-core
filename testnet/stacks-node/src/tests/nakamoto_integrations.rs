@@ -2876,7 +2876,7 @@ fn vote_for_aggregate_key_burn_op() {
                 &mut miner_signer,
                 1
             )
-            .is_some(),
+            .is_ok(),
         "Pre-stx operation should submit successfully"
     );
 
@@ -2952,7 +2952,7 @@ fn vote_for_aggregate_key_burn_op() {
                 &mut signer_burnop_signer,
                 1
             )
-            .is_some(),
+            .is_ok(),
         "Vote for aggregate key operation should submit successfully"
     );
 
@@ -3433,7 +3433,7 @@ fn stack_stx_burn_op_integration_test() {
                 &mut miner_signer_1,
                 1
             )
-            .is_some(),
+            .is_ok(),
         "Pre-stx operation should submit successfully"
     );
 
@@ -3463,7 +3463,7 @@ fn stack_stx_burn_op_integration_test() {
                 &mut miner_signer_2,
                 1
             )
-            .is_some(),
+            .is_ok(),
         "Pre-stx operation should submit successfully"
     );
     info!("Submitted 2 pre-stx ops at block {block_height}, mining a few blocks...");
@@ -3604,7 +3604,7 @@ fn stack_stx_burn_op_integration_test() {
                 &mut signer_burnop_signer_1,
                 1
             )
-            .is_some(),
+            .is_ok(),
         "Stack STX operation should submit successfully"
     );
 
@@ -3631,7 +3631,7 @@ fn stack_stx_burn_op_integration_test() {
                 &mut signer_burnop_signer_2,
                 1
             )
-            .is_some(),
+            .is_ok(),
         "Stack STX operation should submit successfully"
     );
 
