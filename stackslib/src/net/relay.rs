@@ -517,6 +517,17 @@ pub struct AcceptedNakamotoBlocks {
     pub blocks: Vec<NakamotoBlock>,
 }
 
+/// Block processed result
+#[derive(Debug, Clone, PartialEq)]
+pub enum BlockAcceptResponse {
+    /// block was accepted to the staging DB
+    Accepted,
+    /// we already had this block
+    AlreadyStored,
+    /// block was rejected for some reason
+    Rejected(String),
+}
+
 impl Relayer {
     pub fn new(
         handle: NetworkHandle,
@@ -735,7 +746,7 @@ impl Relayer {
         consensus_hash: &ConsensusHash,
         block: &StacksBlock,
         download_time: u64,
-    ) -> Result<bool, chainstate_error> {
+    ) -> Result<BlockAcceptResponse, chainstate_error> {
         info!(
             "Handle incoming block {}/{}",
             consensus_hash,
@@ -748,7 +759,9 @@ impl Relayer {
         if chainstate.fault_injection.hide_blocks
             && Self::fault_injection_is_block_hidden(&block.header, block_sn.block_height)
         {
-            return Ok(false);
+            return Ok(BlockAcceptResponse::Rejected(
+                "Fault injection: block is hidden".into(),
+            ));
         }
 
         // find the snapshot of the parent of this block
@@ -758,7 +771,9 @@ impl Relayer {
             Some(sn) => sn,
             None => {
                 // doesn't correspond to a PoX-valid sortition
-                return Ok(false);
+                return Ok(BlockAcceptResponse::Rejected(
+                    "Block does not correspond to a known sortition".into(),
+                ));
             }
         };
 
@@ -790,7 +805,7 @@ impl Relayer {
                 "sortition_height" => block_sn.block_height,
                 "ast_rules" => ?ast_rules,
             );
-            return Ok(false);
+            return Ok(BlockAcceptResponse::Rejected("Block is problematic".into()));
         }
 
         let res = chainstate.preprocess_anchored_block(
@@ -806,8 +821,10 @@ impl Relayer {
                 consensus_hash,
                 &block.block_hash()
             );
+            return Ok(BlockAcceptResponse::Accepted);
+        } else {
+            return Ok(BlockAcceptResponse::AlreadyStored);
         }
-        Ok(res)
     }
 
     /// Wrapper around inner_process_new_nakamoto_block
@@ -820,7 +837,7 @@ impl Relayer {
         block: &NakamotoBlock,
         coord_comms: Option<&CoordinatorChannels>,
         obtained_method: NakamotoBlockObtainMethod,
-    ) -> Result<bool, chainstate_error> {
+    ) -> Result<BlockAcceptResponse, chainstate_error> {
         Self::process_new_nakamoto_block_ext(
             burnchain,
             sortdb,
@@ -856,7 +873,7 @@ impl Relayer {
         coord_comms: Option<&CoordinatorChannels>,
         obtained_method: NakamotoBlockObtainMethod,
         force_broadcast: bool,
-    ) -> Result<bool, chainstate_error> {
+    ) -> Result<BlockAcceptResponse, chainstate_error> {
         info!(
             "Handle incoming Nakamoto block {}/{} obtained via {}",
             &block.header.consensus_hash,
@@ -882,13 +899,13 @@ impl Relayer {
                 // it's possible that the signer sent this block to us, in which case, we should
                 // broadcast it
                 debug!(
-                    "Already have Nakamoto block {}, but broadcasting anyway",
+                    "Already have Nakamoto block {}, but treating a new anyway so we can broadcast it",
                     &block.header.block_id()
                 );
-                return Ok(true);
+                return Ok(BlockAcceptResponse::Accepted);
             } else {
                 debug!("Already have Nakamoto block {}", &block.header.block_id());
-                return Ok(false);
+                return Ok(BlockAcceptResponse::AlreadyStored);
             }
         }
 
@@ -931,7 +948,9 @@ impl Relayer {
                 "burn_height" => block.header.chain_length,
                 "sortition_height" => block_sn.block_height,
             );
-            return Ok(false);
+            return Ok(BlockAcceptResponse::Rejected(
+                "Nakamoto block is problematic".into(),
+            ));
         }
 
         let accept_msg = format!(
@@ -1006,11 +1025,11 @@ impl Relayer {
                     return Err(chainstate_error::NetError(net_error::CoordinatorClosed));
                 }
             }
+            return Ok(BlockAcceptResponse::Accepted);
         } else {
             info!("{}", &reject_msg);
+            return Ok(BlockAcceptResponse::AlreadyStored);
         }
-
-        Ok(accepted)
     }
 
     #[cfg_attr(test, mutants::skip)]
@@ -1046,7 +1065,7 @@ impl Relayer {
                     continue;
                 }
             };
-            if accept {
+            if BlockAcceptResponse::Accepted == accept {
                 accepted.push(block);
             }
         }
@@ -1163,8 +1182,8 @@ impl Relayer {
                 block,
                 *download_time,
             ) {
-                Ok(accepted) => {
-                    if accepted {
+                Ok(accept_response) => {
+                    if BlockAcceptResponse::Accepted == accept_response {
                         debug!(
                             "Accepted downloaded block {}/{}",
                             consensus_hash,
@@ -1173,9 +1192,10 @@ impl Relayer {
                         new_blocks.insert((*consensus_hash).clone(), block.clone());
                     } else {
                         debug!(
-                            "Rejected downloaded block {}/{}",
+                            "Rejected downloaded block {}/{}: {:?}",
                             consensus_hash,
-                            &block.block_hash()
+                            &block.block_hash(),
+                            &accept_response
                         );
                     }
                 }
@@ -1302,8 +1322,8 @@ impl Relayer {
                         block,
                         0,
                     ) {
-                        Ok(accepted) => {
-                            if accepted {
+                        Ok(accept_response) => {
+                            if BlockAcceptResponse::Accepted == accept_response {
                                 debug!(
                                     "Accepted block {}/{} from {}",
                                     &consensus_hash, &bhh, &neighbor_key
@@ -1311,8 +1331,8 @@ impl Relayer {
                                 new_blocks.insert(consensus_hash.clone(), block.clone());
                             } else {
                                 debug!(
-                                    "Rejected block {}/{} from {}",
-                                    &consensus_hash, &bhh, &neighbor_key
+                                    "Rejected block {}/{} from {}: {:?}",
+                                    &consensus_hash, &bhh, &neighbor_key, &accept_response
                                 );
                             }
                         }
@@ -1670,22 +1690,30 @@ impl Relayer {
                         coord_comms,
                         NakamotoBlockObtainMethod::Pushed,
                     ) {
-                        Ok(accepted) => {
-                            if accepted {
+                        Ok(accept_response) => match accept_response {
+                            BlockAcceptResponse::Accepted => {
                                 debug!(
                                     "Accepted Nakamoto block {} ({}) from {}",
                                     &block_id, &nakamoto_block.header.consensus_hash, neighbor_key
                                 );
                                 accepted_blocks.push(nakamoto_block);
-                            } else {
-                                // TODO: this shouldn't be a warning if it's only because we
-                                // already have the block
-                                warn!(
-                                    "Rejected Nakamoto block {} ({}) from {}",
+                            }
+                            BlockAcceptResponse::AlreadyStored => {
+                                debug!(
+                                    "Rejected Nakamoto block {} ({}) from {}: already stored",
                                     &block_id, &nakamoto_block.header.consensus_hash, &neighbor_key,
                                 );
                             }
-                        }
+                            BlockAcceptResponse::Rejected(msg) => {
+                                warn!(
+                                    "Rejected Nakamoto block {} ({}) from {}: {:?}",
+                                    &block_id,
+                                    &nakamoto_block.header.consensus_hash,
+                                    &neighbor_key,
+                                    &msg
+                                );
+                            }
+                        },
                         Err(chainstate_error::InvalidStacksBlock(msg)) => {
                             warn!("Invalid pushed Nakamoto block {}: {}", &block_id, msg);
                             bad_neighbors.push((*neighbor_key).clone());

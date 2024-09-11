@@ -3315,7 +3315,11 @@ fn test_block_pay_to_contract_gated_at_v210() {
         123,
     ) {
         Ok(x) => {
-            assert!(x, "Failed to process valid pay-to-contract block");
+            assert_eq!(
+                x,
+                BlockAcceptResponse::Accepted,
+                "Failed to process valid pay-to-contract block"
+            );
         }
         Err(e) => {
             panic!("Got unexpected error {:?}", &e);
@@ -3491,7 +3495,11 @@ fn test_block_versioned_smart_contract_gated_at_v210() {
         123,
     ) {
         Ok(x) => {
-            assert!(x, "Failed to process valid versioned smart contract block");
+            assert_eq!(
+                x,
+                BlockAcceptResponse::Accepted,
+                "Failed to process valid versioned smart contract block"
+            );
         }
         Err(e) => {
             panic!("Got unexpected error {:?}", &e);
@@ -3649,7 +3657,11 @@ fn test_block_versioned_smart_contract_mempool_rejection_until_v210() {
             123,
         ) {
             Ok(x) => {
-                assert!(x, "Did not accept valid block");
+                assert_eq!(
+                    x,
+                    BlockAcceptResponse::Accepted,
+                    "Did not accept valid block"
+                );
             }
             Err(e) => {
                 panic!("Got unexpected error {:?}", &e);
@@ -3702,7 +3714,11 @@ fn test_block_versioned_smart_contract_mempool_rejection_until_v210() {
         123,
     ) {
         Ok(x) => {
-            assert!(x, "Failed to process valid versioned smart contract block");
+            assert_eq!(
+                x,
+                BlockAcceptResponse::Accepted,
+                "Failed to process valid versioned smart contract block"
+            );
         }
         Err(e) => {
             panic!("Got unexpected error {:?}", &e);
