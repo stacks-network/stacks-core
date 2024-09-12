@@ -528,6 +528,13 @@ pub enum BlockAcceptResponse {
     Rejected(String),
 }
 
+impl BlockAcceptResponse {
+    /// Does this response indicate that the block was accepted to the staging DB
+    pub fn is_accepted(&self) -> bool {
+        matches!(self, Self::Accepted)
+    }
+}
+
 impl Relayer {
     pub fn new(
         handle: NetworkHandle,

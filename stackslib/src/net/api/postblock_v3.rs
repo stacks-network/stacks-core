@@ -29,7 +29,7 @@ use crate::net::http::{
 use crate::net::httpcore::{
     HttpPreambleExtensions, RPCRequestHandler, StacksHttpRequest, StacksHttpResponse,
 };
-use crate::net::relay::{BlockAcceptResponse, Relayer};
+use crate::net::relay::Relayer;
 use crate::net::{Error as NetError, NakamotoBlocksData, StacksMessageType, StacksNodeState};
 
 pub static PATH: &'static str = "/v3/blocks/upload/";
@@ -187,7 +187,7 @@ impl RPCRequestHandler for RPCPostBlockRequestHandler {
                     &accepted
                 );
                 StacksBlockAcceptedData {
-                    accepted: matches!(accepted, BlockAcceptResponse::Accepted),
+                    accepted: accepted.is_accepted(),
                     stacks_block_id: block.block_id(),
                 }
             }
