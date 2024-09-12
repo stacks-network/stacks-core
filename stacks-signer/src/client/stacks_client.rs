@@ -564,13 +564,13 @@ impl StacksClient {
                 warn!("Failed to parse the GetStackers error response: {e}");
                 backoff::Error::permanent(e.into())
             })?;
-            if &error_data.err_type == GetStackersErrors::NOT_AVAILABLE_ERR_TYPE {
-                return Err(backoff::Error::transient(ClientError::NoSortitionOnChain));
+            if error_data.err_type == GetStackersErrors::NOT_AVAILABLE_ERR_TYPE {
+                Err(backoff::Error::transient(ClientError::NoSortitionOnChain))
             } else {
                 warn!("Got error response ({status}): {}", error_data.err_msg);
-                return Err(backoff::Error::permanent(ClientError::RequestFailure(
+                Err(backoff::Error::permanent(ClientError::RequestFailure(
                     status,
-                )));
+                )))
             }
         };
         let stackers_response =
