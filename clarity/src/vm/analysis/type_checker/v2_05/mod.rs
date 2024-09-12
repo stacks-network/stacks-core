@@ -576,6 +576,12 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         let mut function_context = context.extend()?;
         for (arg_name, arg_type) in args.iter() {
             self.contract_context.check_name_used(arg_name)?;
+            // Ensure arg_name is not already used as function argument
+            if function_context.traits_references.contains_key(arg_name)
+                || function_context.variable_types.contains_key(arg_name)
+            {
+                return Err(CheckErrors::NameAlreadyUsed(arg_name.to_string()).into());
+            }
 
             match arg_type {
                 TypeSignature::TraitReferenceType(trait_id) => {

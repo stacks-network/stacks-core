@@ -1266,6 +1266,12 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         let mut tracked_mem = 0u64;
         for (arg_name, arg_type) in args.iter() {
             self.contract_context.check_name_used(arg_name)?;
+            // Ensure arg_name is not already used as function argument
+            if function_context.traits_references.contains_key(arg_name)
+                || function_context.variable_types.contains_key(arg_name)
+            {
+                return Err(CheckErrors::NameAlreadyUsed(arg_name.to_string()).into());
+            }
 
             if self.epoch.analysis_memory() {
                 let added_memory = u64::from(arg_name.len())
