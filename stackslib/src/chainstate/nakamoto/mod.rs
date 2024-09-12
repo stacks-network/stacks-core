@@ -2064,6 +2064,12 @@ impl NakamotoChainState {
                 panic!()
             });
 
+        info!(
+            "Advanced to new tip! {}/{}",
+            &receipt.header.consensus_hash,
+            &receipt.header.anchored_header.block_hash()
+        );
+
         // announce the block, if we're connected to an event dispatcher
         if let Some(dispatcher) = dispatcher_opt {
             let block_event = (
@@ -2296,7 +2302,14 @@ impl NakamotoChainState {
                    "signing_weight" => signing_weight);
             true
         } else {
-            debug!("Will not store alternative copy of block {} ({}) with block hash {}, since it has less signing power", &block_id, &block.header.consensus_hash, &block_hash);
+            if existing_signing_weight > signing_weight {
+                debug!("Will not store alternative copy of block {} ({}) with block hash {}, since it has less signing power", &block_id, &block.header.consensus_hash, &block_hash);
+            } else {
+                debug!(
+                    "Will not store duplicate copy of block {} ({}) with block hash {}",
+                    &block_id, &block.header.consensus_hash, &block_hash
+                );
+            }
             false
         };
 
@@ -3022,7 +3035,6 @@ impl NakamotoChainState {
         );
 
         let parent_hash = new_tip.parent_block_id.clone();
-        let new_block_hash = new_tip.block_hash();
         let index_block_hash = new_tip.block_id();
 
         let mut marf_keys = vec![];
@@ -3214,10 +3226,6 @@ impl NakamotoChainState {
             headers_tx.deref_mut().execute(sql, args)?;
         }
 
-        debug!(
-            "Advanced to new tip! {}/{}",
-            &new_tip.consensus_hash, new_block_hash,
-        );
         Ok(new_tip_info)
     }
 

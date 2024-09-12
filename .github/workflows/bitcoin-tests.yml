@@ -110,6 +110,7 @@ jobs:
           - tests::nakamoto_integrations::continue_tenure_extend
           - tests::nakamoto_integrations::mock_mining
           - tests::nakamoto_integrations::multiple_miners
+          - tests::nakamoto_integrations::follower_bootup_across_multiple_cycles
           - tests::nakamoto_integrations::utxo_check_on_startup_panic
           - tests::nakamoto_integrations::utxo_check_on_startup_recover
           - tests::signer::v0::multiple_miners_with_nakamoto_blocks
