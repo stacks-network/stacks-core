@@ -193,10 +193,18 @@ impl SortitionsView {
             .cur_sortition
             .is_timed_out(self.config.block_proposal_timeout, signer_db)?
         {
+            info!(
+                "Current miner timed out, marking as invalid.";
+                "current_sortition_consensus_hash" => ?self.cur_sortition.consensus_hash,
+            );
             self.cur_sortition.miner_status = SortitionMinerStatus::InvalidatedBeforeFirstBlock;
         }
         if let Some(last_sortition) = self.last_sortition.as_mut() {
             if last_sortition.is_timed_out(self.config.block_proposal_timeout, signer_db)? {
+                info!(
+                    "Last miner timed out, marking as invalid.";
+                    "last_sortition_consensus_hash" => ?last_sortition.consensus_hash,
+                );
                 last_sortition.miner_status = SortitionMinerStatus::InvalidatedBeforeFirstBlock;
             }
         }
