@@ -1457,7 +1457,7 @@ impl BurnchainConfig {
             rpc_ssl: false,
             username: None,
             password: None,
-            timeout: 300,
+            timeout: 60,
             magic_bytes: BLOCKSTACK_MAGIC_MAINNET.clone(),
             local_mining_public_key: None,
             process_exit_at_block_height: None,
