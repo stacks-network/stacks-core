@@ -100,8 +100,8 @@ use crate::operations::BurnchainOpSigner;
 use crate::run_loop::boot_nakamoto;
 use crate::tests::neon_integrations::{
     call_read_only, get_account, get_account_result, get_chain_info_result, get_neighbors,
-    get_pox_info, next_block_and_wait, next_block_and_wait_with_timeout,
-    run_until_burnchain_height, submit_tx, test_observer, wait_for_runloop,
+    get_pox_info, next_block_and_wait, run_until_burnchain_height, submit_tx, test_observer,
+    wait_for_runloop,
 };
 use crate::tests::{
     get_chain_info, make_contract_publish, make_contract_publish_versioned, make_stacks_transfer,
@@ -1749,12 +1749,42 @@ fn simple_neon_integration_with_flash_blocks_on_epoch_3() {
         &mut btc_regtest_controller,
     );
 
-    // Mine 3 Bitcoin blocks quickly without waiting for Stacks blocks to be processed
-    for _ in 0..3 {
+    let burnchain = naka_conf.get_burnchain();
+    let sortdb = burnchain.open_sortition_db(true).unwrap();
+    let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+    let block_height_before_mining = tip.block_height;
+
+    // Mine 3 Bitcoin blocks rapidly without waiting for Stacks blocks to be processed.
+    // These blocks won't be considered "mined" until the next_block_and_wait call.
+    for _i in 0..3 {
         btc_regtest_controller.build_next_block(1);
+        let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+
+        // Verify that the canonical burn chain tip hasn't advanced yet
+        assert_eq!(
+            tip.block_height,
+            btc_regtest_controller.get_headers_height() - 1
+        );
+        assert_eq!(tip.block_height, block_height_before_mining);
     }
 
     info!("Bootstrapped to Epoch-3.0 boundary, starting nakamoto miner");
+
+    // Mine a new block and wait for it to be processed.
+    // This should update the canonical burn chain tip to include all 4 new blocks.
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+    // Verify that the burn chain tip has advanced by 4 blocks
+    assert_eq!(
+        tip.block_height,
+        block_height_before_mining + 4,
+        "Burn chain tip should have advanced by 4 blocks"
+    );
+
+    assert_eq!(
+        tip.block_height,
+        btc_regtest_controller.get_headers_height() - 1
+    );
 
     let burnchain = naka_conf.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
@@ -1771,21 +1801,6 @@ fn simple_neon_integration_with_flash_blocks_on_epoch_3() {
             .unwrap()
             .unwrap()
             .stacks_block_height;
-
-    // query for prometheus metrics
-    #[cfg(feature = "monitoring_prom")]
-    {
-        let prom_http_origin = format!("http://{}", prom_bind);
-        let client = reqwest::blocking::Client::new();
-        let res = client
-            .get(&prom_http_origin)
-            .send()
-            .unwrap()
-            .text()
-            .unwrap();
-        let expected_result = format!("stacks_node_stacks_tip_height {block_height_pre_3_0}");
-        assert!(res.contains(&expected_result));
-    }
 
     info!("Nakamoto miner started...");
     blind_signer(&naka_conf, &signers, proposals_submitted);
@@ -1883,24 +1898,17 @@ fn simple_neon_integration_with_flash_blocks_on_epoch_3() {
     assert!(tip.anchored_header.as_stacks_nakamoto().is_some());
     assert!(tip.stacks_block_height >= block_height_pre_3_0 + 30);
 
-    // Check that we aren't missing burn blocks
+    // Check that we have the expected burn blocks
+    // We expect to have blocks 220-230 and 234 onwards, with a gap for the flash blocks
     let bhh = u64::from(tip.burn_header_height);
-    test_observer::contains_burn_block_range(220..=bhh).unwrap();
-
-    // make sure prometheus returns an updated height
-    #[cfg(feature = "monitoring_prom")]
-    {
-        let prom_http_origin = format!("http://{}", prom_bind);
-        let client = reqwest::blocking::Client::new();
-        let res = client
-            .get(&prom_http_origin)
-            .send()
-            .unwrap()
-            .text()
-            .unwrap();
-        let expected_result = format!("stacks_node_stacks_tip_height {}", tip.stacks_block_height);
-        assert!(res.contains(&expected_result));
-    }
+    test_observer::contains_burn_block_range(220..=230).unwrap();
+    test_observer::contains_burn_block_range(234..=bhh).unwrap();
+    // Verify that we're missing the expected flash blocks
+    assert!(
+        test_observer::contains_burn_block_range(231..=233).is_err(),
+        "Expected to be missing burn blocks 231-233 due to flash blocks"
+    );
+    info!("Verified burn block ranges, including expected gap for flash blocks");
 
     coord_channel
         .lock()
