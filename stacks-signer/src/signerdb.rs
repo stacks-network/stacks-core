@@ -228,6 +228,7 @@ impl BlockInfo {
     /// Mark this block as locally accepted, valid, signed over, and records either the self or group signed timestamp in the block info if it wasn't
     ///  already set.
     pub fn mark_locally_accepted(&mut self, group_signed: bool) -> Result<(), String> {
+        self.move_to(BlockState::LocallyAccepted)?;
         self.valid = Some(true);
         self.signed_over = true;
         if group_signed {
@@ -235,28 +236,31 @@ impl BlockInfo {
         } else {
             self.signed_self.get_or_insert(get_epoch_time_secs());
         }
-        self.move_to(BlockState::LocallyAccepted)
+        Ok(())
     }
 
     /// Mark this block as valid, signed over, and records a group timestamp in the block info if it wasn't
     ///  already set.
     pub fn mark_globally_accepted(&mut self) -> Result<(), String> {
+        self.move_to(BlockState::GloballyAccepted)?;
         self.valid = Some(true);
         self.signed_over = true;
         self.signed_group.get_or_insert(get_epoch_time_secs());
-        self.move_to(BlockState::GloballyAccepted)
+        Ok(())
     }
 
     /// Mark the block as locally rejected and invalid
     pub fn mark_locally_rejected(&mut self) -> Result<(), String> {
+        self.move_to(BlockState::LocallyRejected);
         self.valid = Some(false);
-        self.move_to(BlockState::LocallyRejected)
+        Ok(())
     }
 
     /// Mark the block as globally rejected and invalid
     pub fn mark_globally_rejected(&mut self) -> Result<(), String> {
+        self.move_to(BlockState::GloballyRejected);
         self.valid = Some(false);
-        self.move_to(BlockState::GloballyRejected)
+        Ok(())
     }
 
     /// Return the block's signer signature hash
