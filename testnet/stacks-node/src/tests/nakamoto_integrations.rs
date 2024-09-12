@@ -7983,14 +7983,15 @@ fn v3_signer_api_endpoint() {
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
     let get_v3_signer = |pubkey: &Secp256k1PublicKey, reward_cycle: u64| {
-        let url = format!(
+        let url = &format!(
             "{http_origin}/v3/signer/{pk}/{reward_cycle}",
             pk = pubkey.to_hex()
         );
-        info!("Sending GET {url}");
+        info!("Send request: GET {url}");
         reqwest::blocking::get(url)
             .unwrap_or_else(|e| panic!("GET request failed: {e}"))
             .text()
+            .inspect(|response| info!("Recieved response: GET {url} -> {response}"))
             .expect("Empty response")
             .parse::<u64>()
             .unwrap_or_else(|e| panic!("Failed to parse response as `u64`: {e}"))

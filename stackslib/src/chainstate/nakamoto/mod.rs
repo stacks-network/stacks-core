@@ -3305,16 +3305,7 @@ impl NakamotoChainState {
             "SELECT blocks_signed FROM signer_stats WHERE public_key = ?1 AND reward_cycle = ?2";
         let params = params![serde_json::to_string(&signer_pubkey).unwrap(), reward_cycle];
         chainstate_db
-            .query_row(sql, params, |row| {
-                let value: String = row.get(2)?;
-                value.parse::<u64>().map_err(|e| {
-                    rusqlite::Error::FromSqlConversionFailure(
-                        size_of::<u64>(),
-                        rusqlite::types::Type::Integer,
-                        e.into(),
-                    )
-                })
-            })
+            .query_row(sql, params, |row| row.get("blocks_signed"))
             .optional()
             .map(Option::unwrap_or_default) // It's fine to map `NONE` to `0`, because it's impossible to have `Some(0)`
             .map_err(ChainstateError::from)

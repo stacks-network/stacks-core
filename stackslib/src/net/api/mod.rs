@@ -125,6 +125,7 @@ impl StacksHttp {
         self.register_rpc_endpoint(
             gettransaction_unconfirmed::RPCGetTransactionUnconfirmedRequestHandler::new(),
         );
+        self.register_rpc_endpoint(getsigner::GetSignerRequestHandler::default());
         self.register_rpc_endpoint(
             liststackerdbreplicas::RPCListStackerDBReplicasRequestHandler::new(),
         );

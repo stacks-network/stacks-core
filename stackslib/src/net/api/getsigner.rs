@@ -61,10 +61,8 @@ impl HttpRequest for GetSignerRequestHandler {
     }
 
     fn path_regex(&self) -> Regex {
-        Regex::new(
-            r#"^/v3/stacker_set/(?P<signer_pubkey>[0-9a-f]{66})/(?P<cycle_num>[0-9]{1,10})$"#,
-        )
-        .unwrap()
+        Regex::new(r#"^/v3/signer/(?P<signer_pubkey>[0-9a-f]{66})/(?P<cycle_num>[0-9]{1,10})$"#)
+            .unwrap()
     }
 
     fn metrics_identifier(&self) -> &str {

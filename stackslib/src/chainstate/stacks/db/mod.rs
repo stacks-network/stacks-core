@@ -298,14 +298,14 @@ impl DBConfig {
         });
         match epoch_id {
             StacksEpochId::Epoch10 => true,
-            StacksEpochId::Epoch20 => version_u32 >= 1 && version_u32 <= 6,
-            StacksEpochId::Epoch2_05 => version_u32 >= 2 && version_u32 <= 6,
-            StacksEpochId::Epoch21 => version_u32 >= 3 && version_u32 <= 6,
-            StacksEpochId::Epoch22 => version_u32 >= 3 && version_u32 <= 6,
-            StacksEpochId::Epoch23 => version_u32 >= 3 && version_u32 <= 6,
-            StacksEpochId::Epoch24 => version_u32 >= 3 && version_u32 <= 6,
-            StacksEpochId::Epoch25 => version_u32 >= 3 && version_u32 <= 6,
-            StacksEpochId::Epoch30 => version_u32 >= 3 && version_u32 <= 6,
+            StacksEpochId::Epoch20 => version_u32 >= 1 && version_u32 <= 7,
+            StacksEpochId::Epoch2_05 => version_u32 >= 2 && version_u32 <= 7,
+            StacksEpochId::Epoch21 => version_u32 >= 3 && version_u32 <= 7,
+            StacksEpochId::Epoch22 => version_u32 >= 3 && version_u32 <= 7,
+            StacksEpochId::Epoch23 => version_u32 >= 3 && version_u32 <= 7,
+            StacksEpochId::Epoch24 => version_u32 >= 3 && version_u32 <= 7,
+            StacksEpochId::Epoch25 => version_u32 >= 3 && version_u32 <= 7,
+            StacksEpochId::Epoch30 => version_u32 >= 3 && version_u32 <= 7,
         }
     }
 }
