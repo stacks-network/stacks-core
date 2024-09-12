@@ -934,7 +934,9 @@ impl Relayer {
         );
 
         if fault_injection::ignore_block(block.header.chain_length, &burnchain.working_dir) {
-            return Ok(BlockAcceptResponse::Rejected("Fault injection: ignoring block".into()))
+            return Ok(BlockAcceptResponse::Rejected(
+                "Fault injection: ignoring block".into(),
+            ));
         }
 
         // do we have this block?  don't lock the DB needlessly if so.
