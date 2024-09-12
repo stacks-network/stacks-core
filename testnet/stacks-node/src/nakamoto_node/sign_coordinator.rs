@@ -406,13 +406,14 @@ impl SignCoordinator {
 
         match miners_session.put_chunk(&chunk) {
             Ok(ack) => {
-                debug!("Wrote message to stackerdb: {ack:?}");
-                Ok(())
+                if ack.accepted {
+                    debug!("Wrote message to stackerdb: {ack:?}");
+                    Ok(())
+                } else {
+                    Err(format!("{ack:?}"))
+                }
             }
-            Err(e) => {
-                warn!("Failed to write message to stackerdb {e:?}");
-                Err("Failed to write message to stackerdb".into())
-            }
+            Err(e) => Err(format!("{e:?}")),
         }
     }
 
