@@ -113,6 +113,7 @@ jobs:
           - tests::nakamoto_integrations::follower_bootup_across_multiple_cycles
           - tests::nakamoto_integrations::utxo_check_on_startup_panic
           - tests::nakamoto_integrations::utxo_check_on_startup_recover
+          - tests::nakamoto_integrations::v3_signer_api_endpoint
           - tests::signer::v0::multiple_miners_with_nakamoto_blocks
           - tests::signer::v0::partial_tenure_fork
           # Do not run this one until we figure out why it fails in CI

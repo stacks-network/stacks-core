@@ -7910,3 +7910,133 @@ fn utxo_check_on_startup_recover() {
     run_loop_stopper.store(false, Ordering::SeqCst);
     run_loop_thread.join().unwrap();
 }
+
+/// Test `/v3/signer` API endpoint
+///
+/// This endpoint returns a count of how many blocks a signer has signed during a given reward cycle
+#[test]
+#[ignore]
+fn v3_signer_api_endpoint() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let (mut conf, _miner_account) = naka_neon_integration_conf(None);
+    let password = "12345".to_string();
+    conf.connection_options.auth_token = Some(password.clone());
+    let stacker_sk = setup_stacker(&mut conf);
+    let signer_sk = Secp256k1PrivateKey::new();
+    let signer_addr = tests::to_addr(&signer_sk);
+    let signer_pubkey = Secp256k1PublicKey::from_private(&signer_sk);
+    conf.add_initial_balance(PrincipalData::from(signer_addr.clone()).to_string(), 100000);
+
+    // only subscribe to the block proposal events
+    test_observer::spawn();
+    let observer_port = test_observer::EVENT_OBSERVER_PORT;
+    conf.events_observers.insert(EventObserverConfig {
+        endpoint: format!("localhost:{observer_port}"),
+        events_keys: vec![EventKeyType::BlockProposal],
+    });
+
+    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .expect("Failed starting bitcoind");
+    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    btc_regtest_controller.bootstrap_chain(201);
+
+    let mut run_loop = boot_nakamoto::BootRunLoop::new(conf.clone()).unwrap();
+    let run_loop_stopper = run_loop.get_termination_switch();
+    let Counters {
+        blocks_processed,
+        naka_submitted_commits: commits_submitted,
+        naka_proposed_blocks: proposals_submitted,
+        ..
+    } = run_loop.counters();
+
+    let coord_channel = run_loop.coordinator_channels();
+
+    let run_loop_thread = thread::spawn(move || run_loop.start(None, 0));
+    let mut signers = TestSigners::new(vec![signer_sk.clone()]);
+    wait_for_runloop(&blocks_processed);
+    boot_to_epoch_3(
+        &conf,
+        &blocks_processed,
+        &[stacker_sk],
+        &[signer_sk],
+        &mut Some(&mut signers),
+        &mut btc_regtest_controller,
+    );
+
+    info!("------------------------- Reached Epoch 3.0 -------------------------");
+
+    blind_signer(&conf, &signers, proposals_submitted);
+    wait_for_first_naka_block_commit(60, &commits_submitted);
+
+    // TODO (hack) instantiate the sortdb in the burnchain
+    _ = btc_regtest_controller.sortdb_mut();
+
+    info!("------------------------- Setup finished, run test -------------------------");
+
+    let naka_tenures = 20;
+    let pre_naka_reward_cycle = 1;
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+
+    let get_v3_signer = |pubkey: &Secp256k1PublicKey, reward_cycle: u64| {
+        let url = format!(
+            "{http_origin}/v3/signer/{pk}/{reward_cycle}",
+            pk = pubkey.to_hex()
+        );
+        info!("Sending GET {url}");
+        reqwest::blocking::get(url)
+            .unwrap_or_else(|e| panic!("GET request failed: {e}"))
+            .text()
+            .expect("Empty response")
+            .parse::<u64>()
+            .unwrap_or_else(|e| panic!("Failed to parse response as `u64`: {e}"))
+    };
+
+    // Check reward cycle 1, should be 0 (pre-nakamoto)
+    let blocks_signed_pre_naka = get_v3_signer(&signer_pubkey, pre_naka_reward_cycle);
+    assert_eq!(blocks_signed_pre_naka, 0);
+
+    // Keep track of reward cycles encountered
+    let mut reward_cycles = HashSet::new();
+
+    // Mine some nakamoto tenures
+    for _ in 0..naka_tenures {
+        next_block_and_mine_commit(
+            &mut btc_regtest_controller,
+            60,
+            &coord_channel,
+            &commits_submitted,
+        )
+        .unwrap();
+        let block_height = btc_regtest_controller.get_headers_height();
+        let reward_cycle = btc_regtest_controller
+            .get_burnchain()
+            .block_height_to_reward_cycle(block_height)
+            .unwrap();
+        reward_cycles.insert(reward_cycle);
+    }
+
+    // Make sure we got a couple cycles
+    assert!(reward_cycles.len() > 1);
+    assert!(!reward_cycles.contains(&pre_naka_reward_cycle));
+
+    // Since we have only one signer, it must be signing at least 1 block per reward cycle
+    for reward_cycle in reward_cycles.into_iter() {
+        let blocks_signed = get_v3_signer(&signer_pubkey, reward_cycle);
+        assert_ne!(blocks_signed, 0);
+    }
+
+    info!("------------------------- Test finished, clean up -------------------------");
+
+    coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .stop_chains_coordinator();
+    run_loop_stopper.store(false, Ordering::SeqCst);
+
+    run_loop_thread.join().unwrap();
+}
