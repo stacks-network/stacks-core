@@ -1742,6 +1742,10 @@ fn miner_forking() {
         TEST_BROADCAST_STALL.lock().unwrap().replace(true);
 
         let rl2_commits_before = second_miner_commits_submitted.load(Ordering::SeqCst);
+        let rl1_commits_before = signer_test
+            .running_nodes
+            .commits_submitted
+            .load(Ordering::SeqCst);
 
         signer_test
             .running_nodes
@@ -1753,6 +1757,15 @@ fn miner_forking() {
         wait_for(60, || {
             let commits_count = second_miner_commits_submitted.load(Ordering::SeqCst);
             Ok(commits_count > rl2_commits_before)
+        })
+        .unwrap();
+        // wait until a commit is submitted by run_loop_1
+        wait_for(60, || {
+            let commits_count = signer_test
+                .running_nodes
+                .commits_submitted
+                .load(Ordering::SeqCst);
+            Ok(commits_count > rl1_commits_before)
         })
         .unwrap();
 
@@ -1815,7 +1828,10 @@ fn miner_forking() {
 
         let nakamoto_headers: HashMap<_, _> = get_nakamoto_headers(&conf)
             .into_iter()
-            .map(|header| (header.consensus_hash.clone(), header))
+            .map(|header| {
+                info!("Nakamoto block"; "height" => header.stacks_block_height, "consensus_hash" => %header.consensus_hash, "last_sortition_hash" => %sortition_data.consensus_hash);
+                (header.consensus_hash.clone(), header)
+            })
             .collect();
 
         if had_tenure {
