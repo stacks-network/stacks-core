@@ -62,7 +62,7 @@ use crate::chainstate::stacks::{
 };
 use crate::clarity::vm::types::StacksAddressExtensions;
 use crate::core::{StacksEpoch, StacksEpochExtension};
-use crate::net::relay::Relayer;
+use crate::net::relay::{BlockAcceptResponse, Relayer};
 use crate::net::stackerdb::StackerDBConfig;
 use crate::net::test::{TestEventObserver, TestPeer, TestPeerConfig};
 use crate::util_lib::boot::boot_code_id;
@@ -89,6 +89,8 @@ pub struct NakamotoBootPlan {
     pub test_signers: TestSigners,
     pub observer: Option<TestEventObserver>,
     pub num_peers: usize,
+    /// Whether to add an initial balance for `private_key`'s account
+    pub add_default_balance: bool,
 }
 
 impl NakamotoBootPlan {
@@ -103,6 +105,7 @@ impl NakamotoBootPlan {
             test_signers,
             observer: Some(TestEventObserver::new()),
             num_peers: 0,
+            add_default_balance: true,
         }
     }
 
@@ -253,7 +256,7 @@ impl NakamotoBootPlan {
                     NakamotoBlockObtainMethod::Pushed,
                 )
                 .unwrap();
-                if accepted {
+                if accepted.is_accepted() {
                     test_debug!("Accepted Nakamoto block {block_id} to other peer {}", i);
                     peer.coord.handle_new_nakamoto_stacks_block().unwrap();
                 } else {
@@ -290,7 +293,7 @@ impl NakamotoBootPlan {
                     NakamotoBlockObtainMethod::Pushed,
                 )
                 .unwrap();
-                if accepted {
+                if accepted.is_accepted() {
                     test_debug!(
                         "Accepted malleablized Nakamoto block {block_id} to other peer {}",
                         i
@@ -347,12 +350,16 @@ impl NakamotoBootPlan {
                 + 1)
             .into(),
         ));
-        peer_config.initial_balances =
-            vec![(addr.to_account_principal(), 1_000_000_000_000_000_000)];
+        peer_config.initial_balances = vec![];
+        if self.add_default_balance {
+            peer_config
+                .initial_balances
+                .push((addr.to_account_principal(), 1_000_000_000_000_000_000));
+        }
         peer_config
             .initial_balances
             .append(&mut self.initial_balances.clone());
-        peer_config.connection_opts.block_proposal_token = Some("password".to_string());
+        peer_config.connection_opts.auth_token = Some("password".to_string());
 
         // Create some balances for test Stackers
         // They need their stacking amount + enough to pay fees

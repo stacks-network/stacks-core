@@ -15,6 +15,7 @@
 mod v0;
 mod v1;
 
+use std::collections::HashSet;
 // Copyright (C) 2020-2024 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
@@ -42,7 +43,9 @@ use stacks::chainstate::nakamoto::signer_set::NakamotoSigners;
 use stacks::chainstate::stacks::boot::{NakamotoSignerEntry, SIGNERS_NAME};
 use stacks::chainstate::stacks::{StacksPrivateKey, ThresholdSignature};
 use stacks::core::StacksEpoch;
-use stacks::net::api::postblock_proposal::BlockValidateResponse;
+use stacks::net::api::postblock_proposal::{
+    BlockValidateOk, BlockValidateReject, BlockValidateResponse,
+};
 use stacks::types::chainstate::StacksAddress;
 use stacks::util::secp256k1::{MessageSignature, Secp256k1PublicKey};
 use stacks_common::codec::StacksMessageCodec;
@@ -51,17 +54,19 @@ use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::{hex_bytes, Sha512Trunc256Sum};
 use stacks_signer::client::{ClientError, SignerSlotID, StacksClient};
 use stacks_signer::config::{build_signer_config_tomls, GlobalConfig as SignerConfig, Network};
-use stacks_signer::runloop::{SignerResult, StateInfo};
+use stacks_signer::runloop::{SignerResult, State, StateInfo};
 use stacks_signer::{Signer, SpawnedSigner};
 use wsts::state_machine::PublicKeys;
 
+use super::nakamoto_integrations::wait_for;
 use crate::config::{Config as NeonConfig, EventKeyType, EventObserverConfig, InitialBalance};
 use crate::event_dispatcher::MinedNakamotoBlockEvent;
 use crate::neon::{Counters, TestFlag};
 use crate::run_loop::boot_nakamoto;
 use crate::tests::bitcoin_regtest::BitcoinCoreController;
 use crate::tests::nakamoto_integrations::{
-    naka_neon_integration_conf, next_block_and_mine_commit, POX_4_DEFAULT_STACKER_BALANCE,
+    naka_neon_integration_conf, next_block_and_mine_commit, next_block_and_wait_for_commits,
+    POX_4_DEFAULT_STACKER_BALANCE,
 };
 use crate::tests::neon_integrations::{
     get_chain_info, next_block_and_wait, run_until_burnchain_height, test_observer,
@@ -82,6 +87,8 @@ pub struct RunningNodes {
     pub blocks_processed: Arc<AtomicU64>,
     pub nakamoto_blocks_proposed: Arc<AtomicU64>,
     pub nakamoto_blocks_mined: Arc<AtomicU64>,
+    pub nakamoto_blocks_rejected: Arc<AtomicU64>,
+    pub nakamoto_blocks_signer_pushed: Arc<AtomicU64>,
     pub nakamoto_test_skip_commit_op: TestFlag,
     pub coord_channel: Arc<Mutex<CoordinatorChannels>>,
     pub conf: NeonConfig,
@@ -94,6 +101,7 @@ pub struct SignerTest<S> {
     // The spawned signers and their threads
     pub spawned_signers: Vec<S>,
     // The spawned signers and their threads
+    #[allow(dead_code)]
     pub signer_configs: Vec<SignerConfig>,
     // the private keys of the signers
     pub signer_stacks_private_keys: Vec<StacksPrivateKey>,
@@ -117,7 +125,8 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
             wait_on_signers,
             |_| {},
             |_| {},
-            &[],
+            None,
+            None,
         )
     }
 
@@ -130,12 +139,19 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         wait_on_signers: Option<Duration>,
         mut signer_config_modifier: F,
         mut node_config_modifier: G,
-        btc_miner_pubkeys: &[Secp256k1PublicKey],
+        btc_miner_pubkeys: Option<Vec<Secp256k1PublicKey>>,
+        signer_stacks_private_keys: Option<Vec<StacksPrivateKey>>,
     ) -> Self {
         // Generate Signer Data
-        let signer_stacks_private_keys = (0..num_signers)
-            .map(|_| StacksPrivateKey::new())
-            .collect::<Vec<StacksPrivateKey>>();
+        let signer_stacks_private_keys = signer_stacks_private_keys
+            .inspect(|keys| {
+                assert_eq!(
+                    keys.len(),
+                    num_signers,
+                    "Number of private keys does not match number of signers"
+                )
+            })
+            .unwrap_or_else(|| (0..num_signers).map(|_| StacksPrivateKey::new()).collect());
 
         let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
 
@@ -150,12 +166,9 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         // So the combination is... one, two, three, four, five? That's the stupidest combination I've ever heard in my life!
         // That's the kind of thing an idiot would have on his luggage!
         let password = "12345";
-        naka_conf.connection_options.block_proposal_token = Some(password.to_string());
-        if let Some(wait_on_signers) = wait_on_signers {
-            naka_conf.miner.wait_on_signers = wait_on_signers;
-        } else {
-            naka_conf.miner.wait_on_signers = Duration::from_secs(10);
-        }
+        naka_conf.connection_options.auth_token = Some(password.to_string());
+        naka_conf.miner.wait_on_signers =
+            wait_on_signers.unwrap_or_else(|| Duration::from_secs(10));
         let run_stamp = rand::random();
 
         // Setup the signer and coordinator configurations
@@ -187,19 +200,20 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
             .collect();
 
         // Setup the nodes and deploy the contract to it
-        let btc_miner_pubkeys = if btc_miner_pubkeys.is_empty() {
-            let pk = Secp256k1PublicKey::from_hex(
-                naka_conf
-                    .burnchain
-                    .local_mining_public_key
-                    .as_ref()
-                    .unwrap(),
-            )
-            .unwrap();
-            vec![pk]
-        } else {
-            btc_miner_pubkeys.to_vec()
-        };
+        let btc_miner_pubkeys = btc_miner_pubkeys
+            .filter(|keys| !keys.is_empty())
+            .unwrap_or_else(|| {
+                let pk = Secp256k1PublicKey::from_hex(
+                    naka_conf
+                        .burnchain
+                        .local_mining_public_key
+                        .as_ref()
+                        .unwrap(),
+                )
+                .unwrap();
+                vec![pk]
+            });
+
         let node = setup_stx_btc_node(
             naka_conf,
             &signer_stacks_private_keys,
@@ -222,10 +236,16 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
     }
 
     /// Send a status request to each spawned signer
-    pub fn send_status_request(&self) {
-        for port in 3000..3000 + self.spawned_signers.len() {
-            let endpoint = format!("http://localhost:{}", port);
+    pub fn send_status_request(&self, exclude: &HashSet<usize>) {
+        for signer_ix in 0..self.spawned_signers.len() {
+            if exclude.contains(&signer_ix) {
+                continue;
+            }
+            let port = 3000 + signer_ix;
+            let endpoint = format!("http://localhost:{port}");
             let path = format!("{endpoint}/status");
+
+            debug!("Issue status request to {path}");
             let client = reqwest::blocking::Client::new();
             let response = client
                 .get(path)
@@ -235,39 +255,78 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         }
     }
 
-    /// Wait for the signers to respond to a status check
-    pub fn wait_for_states(&mut self, timeout: Duration) -> Vec<StateInfo> {
-        debug!("Waiting for Status...");
-        let now = std::time::Instant::now();
-        let mut states = Vec::with_capacity(self.spawned_signers.len());
-        for signer in self.spawned_signers.iter() {
-            let old_len = states.len();
-            loop {
-                assert!(
-                    now.elapsed() < timeout,
-                    "Timed out waiting for state checks"
-                );
-                let results = signer
-                    .res_recv
-                    .recv_timeout(timeout)
-                    .expect("failed to recv state results");
-                for result in results {
-                    match result {
-                        SignerResult::OperationResult(_operation) => {
-                            panic!("Recieved an operation result.");
-                        }
-                        SignerResult::StatusCheck(state_info) => {
-                            states.push(state_info);
-                        }
-                    }
+    pub fn wait_for_registered(&mut self, timeout_secs: u64) {
+        let mut finished_signers = HashSet::new();
+        wait_for(timeout_secs, || {
+            self.send_status_request(&finished_signers);
+            thread::sleep(Duration::from_secs(1));
+            let latest_states = self.get_states(&finished_signers);
+            for (ix, state) in latest_states.iter().enumerate() {
+                let Some(state) = state else { continue; };
+                if state.runloop_state == State::RegisteredSigners {
+                    finished_signers.insert(ix);
+                } else {
+                    warn!("Signer #{ix} returned state = {:?}, will try to wait for a registered signers state from them.", state.runloop_state);
                 }
-                if states.len() > old_len {
-                    break;
+            }
+            info!("Finished signers: {:?}", finished_signers.iter().collect::<Vec<_>>());
+            Ok(finished_signers.len() == self.spawned_signers.len())
+        }).unwrap();
+    }
+
+    pub fn wait_for_cycle(&mut self, timeout_secs: u64, reward_cycle: u64) {
+        let mut finished_signers = HashSet::new();
+        wait_for(timeout_secs, || {
+            self.send_status_request(&finished_signers);
+            thread::sleep(Duration::from_secs(1));
+            let latest_states = self.get_states(&finished_signers);
+            for (ix, state) in latest_states.iter().enumerate() {
+                let Some(state) = state else { continue; };
+                let Some(reward_cycle_info) = state.reward_cycle_info else { continue; };
+                if reward_cycle_info.reward_cycle == reward_cycle {
+                    finished_signers.insert(ix);
+                } else {
+                    warn!("Signer #{ix} returned state = {:?}, will try to wait for a cycle = {} state from them.", state, reward_cycle);
+                }
+            }
+            info!("Finished signers: {:?}", finished_signers.iter().collect::<Vec<_>>());
+            Ok(finished_signers.len() == self.spawned_signers.len())
+        }).unwrap();
+    }
+
+    /// Get status check results (if returned) from each signer without blocking
+    /// Returns Some() or None() for each signer, in order of `self.spawned_signers`
+    pub fn get_states(&mut self, exclude: &HashSet<usize>) -> Vec<Option<StateInfo>> {
+        let mut output = Vec::new();
+        for (ix, signer) in self.spawned_signers.iter().enumerate() {
+            if exclude.contains(&ix) {
+                output.push(None);
+                continue;
+            }
+            let Ok(mut results) = signer.res_recv.try_recv() else {
+                debug!("Could not receive latest state from signer #{ix}");
+                output.push(None);
+                continue;
+            };
+            if results.len() > 1 {
+                warn!("Received multiple states from the signer receiver: this test function assumes it should only ever receive 1");
+                panic!();
+            }
+            let Some(result) = results.pop() else {
+                debug!("Could not receive latest state from signer #{ix}");
+                output.push(None);
+                continue;
+            };
+            match result {
+                SignerResult::OperationResult(_operation) => {
+                    panic!("Recieved an operation result.");
+                }
+                SignerResult::StatusCheck(state_info) => {
+                    output.push(Some(state_info));
                 }
             }
         }
-        debug!("Finished waiting for state checks!");
-        states
+        output
     }
 
     fn nmb_blocks_to_reward_set_calculation(&mut self) -> u64 {
@@ -337,18 +396,21 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         test_observer::get_mined_nakamoto_blocks().pop().unwrap()
     }
 
-    fn mine_block_wait_on_processing(&mut self, timeout: Duration) {
-        let commits_submitted = self.running_nodes.commits_submitted.clone();
+    fn mine_block_wait_on_processing(
+        &mut self,
+        coord_channels: &[&Arc<Mutex<CoordinatorChannels>>],
+        commits_submitted: &[&Arc<AtomicU64>],
+        timeout: Duration,
+    ) {
         let blocks_len = test_observer::get_blocks().len();
         let mined_block_time = Instant::now();
-        next_block_and_mine_commit(
+        next_block_and_wait_for_commits(
             &mut self.running_nodes.btc_regtest_controller,
             timeout.as_secs(),
-            &self.running_nodes.coord_channel,
-            &commits_submitted,
+            coord_channels,
+            commits_submitted,
         )
         .unwrap();
-
         let t_start = Instant::now();
         while test_observer::get_blocks().len() <= blocks_len {
             assert!(
@@ -428,35 +490,47 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         panic!("Timed out while waiting for confirmation of block with signer sighash = {block_signer_sighash}")
     }
 
-    fn wait_for_block_validate_response(&mut self, timeout: Duration) -> BlockValidateResponse {
+    fn wait_for_validate_ok_response(&mut self, timeout: Duration) -> BlockValidateOk {
         // Wait for the block to show up in the test observer
         let t_start = Instant::now();
-        while test_observer::get_proposal_responses().is_empty() {
+        loop {
+            let responses = test_observer::get_proposal_responses();
+            for response in responses {
+                let BlockValidateResponse::Ok(validation) = response else {
+                    continue;
+                };
+                return validation;
+            }
             assert!(
                 t_start.elapsed() < timeout,
-                "Timed out while waiting for block proposal response event"
+                "Timed out while waiting for block proposal ok event"
             );
             thread::sleep(Duration::from_secs(1));
         }
-        test_observer::get_proposal_responses()
-            .pop()
-            .expect("No block proposal")
     }
 
-    fn wait_for_validate_ok_response(&mut self, timeout: Duration) -> Sha512Trunc256Sum {
-        let validate_response = self.wait_for_block_validate_response(timeout);
-        match validate_response {
-            BlockValidateResponse::Ok(block_validated) => block_validated.signer_signature_hash,
-            _ => panic!("Unexpected response"),
-        }
-    }
-
-    fn wait_for_validate_reject_response(&mut self, timeout: Duration) -> Sha512Trunc256Sum {
+    fn wait_for_validate_reject_response(
+        &mut self,
+        timeout: Duration,
+        signer_signature_hash: Sha512Trunc256Sum,
+    ) -> BlockValidateReject {
         // Wait for the block to show up in the test observer
-        let validate_response = self.wait_for_block_validate_response(timeout);
-        match validate_response {
-            BlockValidateResponse::Reject(block_rejection) => block_rejection.signer_signature_hash,
-            _ => panic!("Unexpected response"),
+        let t_start = Instant::now();
+        loop {
+            let responses = test_observer::get_proposal_responses();
+            for response in responses {
+                let BlockValidateResponse::Reject(rejection) = response else {
+                    continue;
+                };
+                if rejection.signer_signature_hash == signer_signature_hash {
+                    return rejection;
+                }
+            }
+            assert!(
+                t_start.elapsed() < timeout,
+                "Timed out while waiting for block proposal reject event"
+            );
+            thread::sleep(Duration::from_secs(1));
         }
     }
 
@@ -696,7 +770,9 @@ fn setup_stx_btc_node<G: FnMut(&mut NeonConfig) -> ()>(
         naka_submitted_commits: commits_submitted,
         naka_proposed_blocks: naka_blocks_proposed,
         naka_mined_blocks: naka_blocks_mined,
+        naka_rejected_blocks: naka_blocks_rejected,
         naka_skip_commit_op: nakamoto_test_skip_commit_op,
+        naka_signer_pushed_blocks,
         ..
     } = run_loop.counters();
 
@@ -729,6 +805,8 @@ fn setup_stx_btc_node<G: FnMut(&mut NeonConfig) -> ()>(
         blocks_processed: blocks_processed.0,
         nakamoto_blocks_proposed: naka_blocks_proposed.0,
         nakamoto_blocks_mined: naka_blocks_mined.0,
+        nakamoto_blocks_rejected: naka_blocks_rejected.0,
+        nakamoto_blocks_signer_pushed: naka_signer_pushed_blocks.0,
         nakamoto_test_skip_commit_op,
         coord_channel,
         conf: naka_conf,

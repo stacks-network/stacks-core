@@ -559,7 +559,8 @@ impl ConversationHttp {
                           "processing_time_ms" => start_time.elapsed().as_millis(),
                           "latency_ms" => latency,
                           "conn_id" => self.conn_id,
-                          "peer_addr" => &self.peer_addr);
+                          "peer_addr" => &self.peer_addr,
+                          "p2p_msg" => ?msg_opt);
 
                     if let Some(msg) = msg_opt {
                         ret.push(msg);

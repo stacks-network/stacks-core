@@ -106,7 +106,6 @@ macro_rules! panic_test {
     };
 }
 
-#[cfg_attr(tarpaulin, skip)]
 fn print_usage(invoked_by: &str) {
     eprintln!(
         "Usage: {} [command]
@@ -129,7 +128,6 @@ where command is one of:
     panic_test!()
 }
 
-#[cfg_attr(tarpaulin, skip)]
 fn friendly_expect<A, B: std::fmt::Display>(input: Result<A, B>, msg: &str) -> A {
     input.unwrap_or_else(|e| {
         eprintln!("{}\nCaused by: {}", msg, e);
@@ -137,7 +135,6 @@ fn friendly_expect<A, B: std::fmt::Display>(input: Result<A, B>, msg: &str) -> A
     })
 }
 
-#[cfg_attr(tarpaulin, skip)]
 fn friendly_expect_opt<A>(input: Option<A>, msg: &str) -> A {
     input.unwrap_or_else(|| {
         eprintln!("{}", msg);

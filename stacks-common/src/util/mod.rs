@@ -19,6 +19,7 @@ pub mod log;
 #[macro_use]
 pub mod macros;
 pub mod chunked_encoding;
+pub mod db;
 pub mod hash;
 pub mod pair;
 pub mod pipe;
@@ -28,6 +29,9 @@ pub mod uint;
 pub mod vrf;
 
 use std::collections::HashMap;
+use std::fs::File;
+use std::io::{BufReader, BufWriter, Write};
+use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::{error, fmt, thread, time};
 
@@ -82,41 +86,25 @@ impl error::Error for HexError {
     }
 }
 
-/// PartialEq helper method for slices of arbitrary length.
-pub fn slice_partialeq<T: PartialEq>(s1: &[T], s2: &[T]) -> bool {
-    if s1.len() != s2.len() {
-        return false;
-    }
-    for i in 0..s1.len() {
-        if s1[i] != s2[i] {
-            return false;
-        }
-    }
-    true
+/// Write any `serde_json` object directly to a file
+pub fn serialize_json_to_file<J, P>(json: &J, path: P) -> Result<(), std::io::Error>
+where
+    J: ?Sized + serde::Serialize,
+    P: AsRef<Path>,
+{
+    let file = File::create(path)?;
+    let mut writer = BufWriter::new(file);
+    serde_json::to_writer(&mut writer, json)?;
+    writer.flush()
 }
 
-pub mod db_common {
-    use std::{thread, time};
-
-    use rand::{thread_rng, Rng};
-
-    pub fn tx_busy_handler(run_count: i32) -> bool {
-        let mut sleep_count = 10;
-        if run_count > 0 {
-            sleep_count = 2u64.saturating_pow(run_count as u32);
-        }
-        sleep_count = sleep_count.saturating_add(thread_rng().gen::<u64>() % sleep_count);
-
-        if sleep_count > 5000 {
-            sleep_count = 5000;
-        }
-
-        debug!(
-            "Database is locked; sleeping {}ms and trying again",
-            &sleep_count
-        );
-
-        thread::sleep(time::Duration::from_millis(sleep_count));
-        true
-    }
+/// Read any `serde_json` object directly from a file
+pub fn deserialize_json_from_file<J, P>(path: P) -> Result<J, std::io::Error>
+where
+    J: serde::de::DeserializeOwned,
+    P: AsRef<Path>,
+{
+    let file = File::open(path)?;
+    let reader = BufReader::new(file);
+    serde_json::from_reader::<_, J>(reader).map_err(std::io::Error::from)
 }

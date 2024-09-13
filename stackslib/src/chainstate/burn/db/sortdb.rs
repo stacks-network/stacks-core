@@ -3456,6 +3456,14 @@ impl SortitionDB {
                         SortitionDB::apply_schema_9(&tx.deref(), epochs)?;
                         tx.commit()?;
                     } else if version == expected_version {
+                        // this transaction is almost never needed
+                        let validated_epochs = StacksEpoch::validate_epochs(epochs);
+                        let existing_epochs = Self::get_stacks_epochs(self.conn())?;
+                        if existing_epochs == validated_epochs {
+                            return Ok(());
+                        }
+
+                        // epochs are out of date
                         let tx = self.tx_begin()?;
                         SortitionDB::validate_and_replace_epochs(&tx, epochs)?;
                         tx.commit()?;
@@ -3582,42 +3590,6 @@ impl SortitionDB {
         let args = params![sortition_id, rc_json];
         sort_tx.execute(sql, args)?;
         Ok(())
-    }
-
-    /// Get the prepare phase end sortition ID of a reward cycle.  This is the last prepare
-    /// phase sortition for the prepare phase that began this reward cycle (i.e. the returned
-    /// sortition will be in the preceding reward cycle)
-    /// Wrapper around SortitionDBConn::get_prepare_phase_end_sortition_id_for_reward_ccyle()
-    pub fn get_prepare_phase_end_sortition_id_for_reward_cycle(
-        &self,
-        tip: &SortitionId,
-        reward_cycle_id: u64,
-    ) -> Result<SortitionId, db_error> {
-        self.index_conn()
-            .get_prepare_phase_end_sortition_id_for_reward_cycle(
-                &self.pox_constants,
-                self.first_block_height,
-                tip,
-                reward_cycle_id,
-            )
-    }
-
-    /// Get the prepare phase start sortition ID of a reward cycle.  This is the first prepare
-    /// phase sortition for the prepare phase that began this reward cycle (i.e. the returned
-    /// sortition will be in the preceding reward cycle)
-    /// Wrapper around SortitionDBConn::get_prepare_phase_start_sortition_id_for_reward_cycle().
-    pub fn get_prepare_phase_start_sortition_id_for_reward_cycle(
-        &self,
-        tip: &SortitionId,
-        reward_cycle_id: u64,
-    ) -> Result<SortitionId, db_error> {
-        self.index_conn()
-            .get_prepare_phase_start_sortition_id_for_reward_cycle(
-                &self.pox_constants,
-                self.first_block_height,
-                tip,
-                reward_cycle_id,
-            )
     }
 
     /// Figure out the reward cycle for `tip` and lookup the preprocessed
@@ -3934,33 +3906,6 @@ impl<'a> SortitionDBConn<'a> {
         .and_then(|(reward_cycle_info, _anchor_sortition_id)| Ok(reward_cycle_info))
     }
 
-    /// Get the prepare phase end sortition ID of a reward cycle.  This is the last prepare
-    /// phase sortition for the prepare phase that began this reward cycle (i.e. the returned
-    /// sortition will be in the preceding reward cycle)
-    pub fn get_prepare_phase_end_sortition_id_for_reward_cycle(
-        &self,
-        pox_constants: &PoxConstants,
-        first_block_height: u64,
-        tip: &SortitionId,
-        reward_cycle_id: u64,
-    ) -> Result<SortitionId, db_error> {
-        let prepare_phase_end = pox_constants
-            .reward_cycle_to_block_height(first_block_height, reward_cycle_id)
-            .saturating_sub(1);
-
-        let last_sortition =
-            get_ancestor_sort_id(self, prepare_phase_end, tip)?.ok_or_else(|| {
-                error!(
-                    "Could not find prepare phase end ancestor while fetching reward set";
-                    "tip_sortition_id" => %tip,
-                    "reward_cycle_id" => reward_cycle_id,
-                    "prepare_phase_end_height" => prepare_phase_end
-                );
-                db_error::NotFoundError
-            })?;
-        Ok(last_sortition)
-    }
-
     /// Get the prepare phase start sortition ID of a reward cycle.  This is the first prepare
     /// phase sortition for the prepare phase that began this reward cycle (i.e. the returned
     /// sortition will be in the preceding reward cycle)
@@ -3971,9 +3916,11 @@ impl<'a> SortitionDBConn<'a> {
         tip: &SortitionId,
         reward_cycle_id: u64,
     ) -> Result<SortitionId, db_error> {
-        let prepare_phase_start = pox_constants
-            .reward_cycle_to_block_height(first_block_height, reward_cycle_id)
-            .saturating_sub(pox_constants.prepare_length.into());
+        let reward_cycle_of_prepare_phase = reward_cycle_id
+            .checked_sub(1)
+            .ok_or_else(|| db_error::Other("No prepare phase exists for cycle 0".into()))?;
+        let prepare_phase_start =
+            pox_constants.prepare_phase_start(first_block_height, reward_cycle_of_prepare_phase);
 
         let first_sortition =
             get_ancestor_sort_id(self, prepare_phase_start, tip)?.ok_or_else(|| {
@@ -5945,10 +5892,10 @@ impl<'a> SortitionHandleTx<'a> {
 
     /// Get the expected number of PoX payouts per output
     fn get_num_pox_payouts(&self, burn_block_height: u64) -> usize {
-        let op_num_outputs = if Burnchain::static_is_in_prepare_phase(
+        let op_num_outputs = if PoxConstants::static_is_in_prepare_phase(
             self.context.first_block_height,
-            self.context.pox_constants.reward_cycle_length as u64,
-            self.context.pox_constants.prepare_length.into(),
+            u64::from(self.context.pox_constants.reward_cycle_length),
+            u64::from(self.context.pox_constants.prepare_length),
             burn_block_height,
         ) {
             1
@@ -6173,7 +6120,7 @@ impl<'a> SortitionHandleTx<'a> {
                     }
                     // if there are qualifying auto-unlocks, record them
                     if !reward_set.start_cycle_state.is_empty() {
-                        let cycle_number = Burnchain::static_block_height_to_reward_cycle(
+                        let cycle_number = PoxConstants::static_block_height_to_reward_cycle(
                             snapshot.block_height,
                             self.context.first_block_height,
                             self.context.pox_constants.reward_cycle_length.into(),

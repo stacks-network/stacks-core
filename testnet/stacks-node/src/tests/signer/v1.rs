@@ -893,7 +893,9 @@ fn block_proposal() {
 
     info!("------------------------- Test Block Proposal -------------------------");
     // Verify that the signers accepted the proposed block, sending back a validate ok response
-    let proposed_signer_signature_hash = signer_test.wait_for_validate_ok_response(short_timeout);
+    let proposed_signer_signature_hash = signer_test
+        .wait_for_validate_ok_response(short_timeout)
+        .signer_signature_hash;
 
     info!("------------------------- Test Block Signed -------------------------");
     // Verify that the signers signed the proposed block
@@ -1115,7 +1117,9 @@ fn sign_after_signer_reboot() {
     info!("------------------------- Test Mine Block -------------------------");
 
     signer_test.mine_nakamoto_block(timeout);
-    let proposed_signer_signature_hash = signer_test.wait_for_validate_ok_response(short_timeout);
+    let proposed_signer_signature_hash = signer_test
+        .wait_for_validate_ok_response(short_timeout)
+        .signer_signature_hash;
     let signature =
         signer_test.wait_for_confirmed_block_v1(&proposed_signer_signature_hash, short_timeout);
 
@@ -1136,7 +1140,9 @@ fn sign_after_signer_reboot() {
     info!("------------------------- Test Mine Block after restart -------------------------");
 
     let last_block = signer_test.mine_nakamoto_block(timeout);
-    let proposed_signer_signature_hash = signer_test.wait_for_validate_ok_response(short_timeout);
+    let proposed_signer_signature_hash = signer_test
+        .wait_for_validate_ok_response(short_timeout)
+        .signer_signature_hash;
     let frost_signature =
         signer_test.wait_for_confirmed_block_v1(&proposed_signer_signature_hash, short_timeout);
 
