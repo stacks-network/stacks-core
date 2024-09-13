@@ -219,6 +219,7 @@ impl StacksClient {
         &self,
         tx: &StacksTransaction,
     ) -> Result<u64, ClientError> {
+        debug!("stacks_node_client: Getting estimated fee...");
         let request = FeeRateEstimateRequestBody {
             estimated_len: Some(tx.tx_len()),
             transaction_payload: to_hex(&tx.payload.serialize_to_vec()),
@@ -283,6 +284,11 @@ impl StacksClient {
 
     /// Submit the block proposal to the stacks node. The block will be validated and returned via the HTTP endpoint for Block events.
     pub fn submit_block_for_validation(&self, block: NakamotoBlock) -> Result<(), ClientError> {
+        debug!("stacks_node_client: Submitting block for validation...";
+            "signer_sighash" => %block.header.signer_signature_hash(),
+            "block_id" => %block.header.block_id(),
+            "block_height" => %block.header.chain_length,
+        );
         let block_proposal = NakamotoBlockProposal {
             block,
             chain_id: self.chain_id,
@@ -416,6 +422,10 @@ impl StacksClient {
         chosen_parent: &ConsensusHash,
         last_sortition: &ConsensusHash,
     ) -> Result<VecDeque<TenureForkingInfo>, ClientError> {
+        debug!("stacks_node_client: Getting tenure forking info...";
+            "chosen_parent" => %chosen_parent,
+            "last_sortition" => %last_sortition,
+        );
         let send_request = || {
             self.stacks_node_client
                 .get(self.tenure_forking_info_path(chosen_parent, last_sortition))
@@ -433,6 +443,7 @@ impl StacksClient {
 
     /// Get the sortition information for the latest sortition
     pub fn get_latest_sortition(&self) -> Result<SortitionInfo, ClientError> {
+        debug!("stacks_node_client: Getting latest sortition...");
         let send_request = || {
             self.stacks_node_client
                 .get(self.sortition_info_path())
@@ -452,6 +463,7 @@ impl StacksClient {
 
     /// Get the sortition information for a given sortition
     pub fn get_sortition(&self, ch: &ConsensusHash) -> Result<SortitionInfo, ClientError> {
+        debug!("stacks_node_client: Getting sortition with consensus hash {ch}...");
         let send_request = || {
             self.stacks_node_client
                 .get(format!("{}/consensus/{}", self.sortition_info_path(), ch.to_hex()))
@@ -471,7 +483,7 @@ impl StacksClient {
 
     /// Get the current peer info data from the stacks node
     pub fn get_peer_info(&self) -> Result<PeerInfo, ClientError> {
-        debug!("Getting stacks node info...");
+        debug!("stacks_node_client: Getting peer info...");
         let timer =
             crate::monitoring::new_rpc_call_timer(&self.core_info_path(), &self.http_origin);
         let send_request = || {
@@ -521,6 +533,7 @@ impl StacksClient {
         &self,
         reward_cycle: u64,
     ) -> Result<Option<Vec<NakamotoSignerEntry>>, ClientError> {
+        debug!("stacks_node_client: Getting reward set signers for reward cycle {reward_cycle}...");
         let timer = crate::monitoring::new_rpc_call_timer(
             &self.reward_set_path(reward_cycle),
             &self.http_origin,
@@ -558,7 +571,7 @@ impl StacksClient {
 
     /// Retrieve the current pox data from the stacks node
     pub fn get_pox_data(&self) -> Result<RPCPoxInfoData, ClientError> {
-        debug!("Getting pox data...");
+        debug!("stacks_node_client: Getting pox data...");
         #[cfg(feature = "monitoring_prom")]
         let timer = crate::monitoring::new_rpc_call_timer(&self.pox_path(), &self.http_origin);
         let send_request = || {
@@ -606,7 +619,7 @@ impl StacksClient {
         &self,
         address: &StacksAddress,
     ) -> Result<AccountEntryResponse, ClientError> {
-        debug!("Getting account info...");
+        debug!("stacks_node_client: Getting account info...");
         let timer =
             crate::monitoring::new_rpc_call_timer(&self.accounts_path(address), &self.http_origin);
         let send_request = || {
@@ -683,6 +696,10 @@ impl StacksClient {
     /// Returns `true` if the block was accepted or `false` if the block
     ///   was rejected.
     pub fn post_block(&self, block: &NakamotoBlock) -> Result<bool, ClientError> {
+        debug!("stacks_node_client: Posting block to the stacks node...";
+            "block_id" => block.header.block_id(),
+            "block_height" => block.header.chain_length,
+        );
         let response = self
             .stacks_node_client
             .post(format!(
@@ -705,6 +722,9 @@ impl StacksClient {
     pub fn submit_transaction(&self, tx: &StacksTransaction) -> Result<Txid, ClientError> {
         let txid = tx.txid();
         let tx = tx.serialize_to_vec();
+        debug!("stacks_node_client: Submitting transaction to the stacks node...";
+            "txid" => %txid,
+        );
         let timer =
             crate::monitoring::new_rpc_call_timer(&self.transaction_path(), &self.http_origin);
         let send_request = || {
@@ -734,7 +754,7 @@ impl StacksClient {
         function_name: &ClarityName,
         function_args: &[ClarityValue],
     ) -> Result<ClarityValue, ClientError> {
-        debug!("Calling read-only function {function_name} with args {function_args:?}...");
+        debug!("stacks_node_client: Calling read-only function {function_name} with args {function_args:?}...");
         let args = function_args
             .iter()
             .filter_map(|arg| arg.serialize_to_hex().ok())
