@@ -271,15 +271,14 @@ lazy_static! {
 }
 
 #[cfg(test)]
-mod test_stall {
-    pub static TEST_PROCESS_BLOCK_STALL: std::sync::Mutex<Option<bool>> =
-        std::sync::Mutex::new(None);
+mod fault_injection {
+    static PROCESS_BLOCK_STALL: std::sync::Mutex<bool> = std::sync::Mutex::new(false);
 
     pub fn stall_block_processing() {
-        if *TEST_PROCESS_BLOCK_STALL.lock().unwrap() == Some(true) {
+        if *PROCESS_BLOCK_STALL.lock().unwrap() {
             // Do an extra check just so we don't log EVERY time.
             warn!("Block processing is stalled due to testing directive.");
-            while *TEST_PROCESS_BLOCK_STALL.lock().unwrap() == Some(true) {
+            while *PROCESS_BLOCK_STALL.lock().unwrap() {
                 std::thread::sleep(std::time::Duration::from_millis(10));
             }
             info!("Block processing is no longer stalled due to testing directive.");
@@ -287,11 +286,11 @@ mod test_stall {
     }
 
     pub fn enable_process_block_stall() {
-        TEST_PROCESS_BLOCK_STALL.lock().unwrap().replace(true);
+        *PROCESS_BLOCK_STALL.lock().unwrap() = true;
     }
 
     pub fn disable_process_block_stall() {
-        TEST_PROCESS_BLOCK_STALL.lock().unwrap().replace(false);
+        *PROCESS_BLOCK_STALL.lock().unwrap() = false;
     }
 }
 
@@ -299,6 +298,13 @@ mod test_stall {
 pub trait StacksDBIndexed {
     fn get(&mut self, tip: &StacksBlockId, key: &str) -> Result<Option<String>, DBError>;
     fn sqlite(&self) -> &Connection;
+
+    /// Get the ancestor block hash given a height
+    fn get_ancestor_block_id(
+        &mut self,
+        coinbase_height: u64,
+        tip_index_hash: &StacksBlockId,
+    ) -> Result<Option<StacksBlockId>, DBError>;
 
     /// Get the block ID for a specific coinbase height in the fork identified by `tip`
     fn get_nakamoto_block_id_at_coinbase_height(
@@ -402,6 +408,10 @@ pub trait StacksDBIndexed {
             .is_none()
         {
             // tenure not started
+            debug!(
+                "No tenure-start block for {} off of {}",
+                tenure_id_consensus_hash, tip
+            );
             return Ok(None);
         }
         if self
@@ -412,6 +422,10 @@ pub trait StacksDBIndexed {
             .is_none()
         {
             // tenure has started, but is not done yet
+            debug!(
+                "Tenure {} not finished off of {}",
+                tenure_id_consensus_hash, tip
+            );
             return Ok(Some(false));
         }
 
@@ -444,6 +458,14 @@ impl StacksDBIndexed for StacksDBConn<'_> {
     fn sqlite(&self) -> &Connection {
         self.conn()
     }
+
+    fn get_ancestor_block_id(
+        &mut self,
+        coinbase_height: u64,
+        tip_index_hash: &StacksBlockId,
+    ) -> Result<Option<StacksBlockId>, DBError> {
+        self.get_ancestor_block_hash(coinbase_height, tip_index_hash)
+    }
 }
 
 impl StacksDBIndexed for StacksDBTx<'_> {
@@ -453,6 +475,14 @@ impl StacksDBIndexed for StacksDBTx<'_> {
 
     fn sqlite(&self) -> &Connection {
         self.tx().deref()
+    }
+
+    fn get_ancestor_block_id(
+        &mut self,
+        coinbase_height: u64,
+        tip_index_hash: &StacksBlockId,
+    ) -> Result<Option<StacksBlockId>, DBError> {
+        self.get_ancestor_block_hash(coinbase_height, tip_index_hash)
     }
 }
 
@@ -635,33 +665,6 @@ impl FromRow<NakamotoBlockHeader> for NakamotoBlockHeader {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-/// A vote across the signer set for a block
-pub struct NakamotoBlockVote {
-    pub signer_signature_hash: Sha512Trunc256Sum,
-    pub rejected: bool,
-}
-
-impl StacksMessageCodec for NakamotoBlockVote {
-    fn consensus_serialize<W: std::io::Write>(&self, fd: &mut W) -> Result<(), CodecError> {
-        write_next(fd, &self.signer_signature_hash)?;
-        if self.rejected {
-            write_next(fd, &1u8)?;
-        }
-        Ok(())
-    }
-
-    fn consensus_deserialize<R: std::io::Read>(fd: &mut R) -> Result<Self, CodecError> {
-        let signer_signature_hash = read_next(fd)?;
-        let rejected_byte: Option<u8> = read_next(fd).ok();
-        let rejected = rejected_byte.is_some();
-        Ok(Self {
-            signer_signature_hash,
-            rejected,
-        })
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NakamotoBlock {
     pub header: NakamotoBlockHeader,
     pub txs: Vec<StacksTransaction>,
@@ -835,6 +838,12 @@ impl NakamotoBlockHeader {
             public_key_bytes.copy_from_slice(&public_key.to_bytes_compressed()[..]);
 
             let (signer, signer_index) = signers_by_pk.get(&public_key_bytes).ok_or_else(|| {
+                warn!(
+                    "Found an invalid public key. Reward set has {} signers. Chain length {}. Signatures length {}",
+                    signers.len(),
+                    self.chain_length,
+                    self.signer_signature.len(),
+                );
                 ChainstateError::InvalidStacksBlock(format!(
                     "Public key {} not found in the reward set",
                     public_key.to_hex()
@@ -1748,7 +1757,7 @@ impl NakamotoChainState {
         dispatcher_opt: Option<&'a T>,
     ) -> Result<Option<StacksEpochReceipt>, ChainstateError> {
         #[cfg(test)]
-        test_stall::stall_block_processing();
+        fault_injection::stall_block_processing();
 
         let nakamoto_blocks_db = stacks_chain_state.nakamoto_blocks_db();
         let Some((next_ready_block, block_size)) =
@@ -2055,6 +2064,12 @@ impl NakamotoChainState {
                 panic!()
             });
 
+        info!(
+            "Advanced to new tip! {}/{}",
+            &receipt.header.consensus_hash,
+            &receipt.header.anchored_header.block_hash()
+        );
+
         // announce the block, if we're connected to an event dispatcher
         if let Some(dispatcher) = dispatcher_opt {
             let block_event = (
@@ -2287,7 +2302,14 @@ impl NakamotoChainState {
                    "signing_weight" => signing_weight);
             true
         } else {
-            debug!("Will not store alternative copy of block {} ({}) with block hash {}, since it has less signing power", &block_id, &block.header.consensus_hash, &block_hash);
+            if existing_signing_weight > signing_weight {
+                debug!("Will not store alternative copy of block {} ({}) with block hash {}, since it has less signing power", &block_id, &block.header.consensus_hash, &block_hash);
+            } else {
+                debug!(
+                    "Will not store duplicate copy of block {} ({}) with block hash {}",
+                    &block_id, &block.header.consensus_hash, &block_hash
+                );
+            }
             false
         };
 
@@ -2419,22 +2441,22 @@ impl NakamotoChainState {
     /// Return a Nakamoto StacksHeaderInfo at a given coinbase height in the fork identified by `tip_index_hash`.
     /// * For Stacks 2.x, this is the Stacks block's header
     /// * For Stacks 3.x (Nakamoto), this is the first block in the miner's tenure.
-    pub fn get_header_by_coinbase_height(
-        tx: &mut StacksDBTx,
+    pub fn get_header_by_coinbase_height<SDBI: StacksDBIndexed>(
+        conn: &mut SDBI,
         tip_index_hash: &StacksBlockId,
         coinbase_height: u64,
     ) -> Result<Option<StacksHeaderInfo>, ChainstateError> {
         // nakamoto block?
         if let Some(block_id) =
-            tx.get_nakamoto_block_id_at_coinbase_height(tip_index_hash, coinbase_height)?
+            conn.get_nakamoto_block_id_at_coinbase_height(tip_index_hash, coinbase_height)?
         {
-            return Self::get_block_header_nakamoto(tx.sqlite(), &block_id);
+            return Self::get_block_header_nakamoto(conn.sqlite(), &block_id);
         }
 
         // epcoh2 block?
-        let Some(ancestor_at_height) = tx
-            .get_ancestor_block_hash(coinbase_height, tip_index_hash)?
-            .map(|ancestor| Self::get_block_header(tx.tx(), &ancestor))
+        let Some(ancestor_at_height) = conn
+            .get_ancestor_block_id(coinbase_height, tip_index_hash)?
+            .map(|ancestor| Self::get_block_header(conn.sqlite(), &ancestor))
             .transpose()?
             .flatten()
         else {
@@ -3013,7 +3035,6 @@ impl NakamotoChainState {
         );
 
         let parent_hash = new_tip.parent_block_id.clone();
-        let new_block_hash = new_tip.block_hash();
         let index_block_hash = new_tip.block_id();
 
         let mut marf_keys = vec![];
@@ -3205,10 +3226,6 @@ impl NakamotoChainState {
             headers_tx.deref_mut().execute(sql, args)?;
         }
 
-        debug!(
-            "Advanced to new tip! {}/{}",
-            &new_tip.consensus_hash, new_block_hash,
-        );
         Ok(new_tip_info)
     }
 
@@ -4210,7 +4227,6 @@ impl NakamotoChainState {
                   "stackerdb_slots" => ?stackerdb_config.signers,
                   "queried_sortition" => %election_sortition,
                   "sortition_hashes" => ?miners_info.get_sortitions());
-
             return Ok(None);
         }
         let slot_id_range = signer_ranges.swap_remove(signer_ix);

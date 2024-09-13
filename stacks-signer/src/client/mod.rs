@@ -34,6 +34,8 @@ use stacks_common::debug;
 const BACKOFF_INITIAL_INTERVAL: u64 = 128;
 /// Backoff timer max interval in milliseconds
 const BACKOFF_MAX_INTERVAL: u64 = 16384;
+/// Backoff timer max elapsed seconds
+const BACKOFF_MAX_ELAPSED: u64 = 5;
 
 #[derive(thiserror::Error, Debug)]
 /// Client error type
@@ -109,6 +111,7 @@ where
     let backoff_timer = backoff::ExponentialBackoffBuilder::new()
         .with_initial_interval(Duration::from_millis(BACKOFF_INITIAL_INTERVAL))
         .with_max_interval(Duration::from_millis(BACKOFF_MAX_INTERVAL))
+        .with_max_elapsed_time(Some(Duration::from_secs(BACKOFF_MAX_ELAPSED)))
         .build();
 
     backoff::retry_notify(backoff_timer, request_fn, notify).map_err(|_| ClientError::RetryTimeout)
@@ -567,6 +570,7 @@ pub(crate) mod tests {
             db_path: config.db_path.clone(),
             first_proposal_burn_block_timing: config.first_proposal_burn_block_timing,
             block_proposal_timeout: config.block_proposal_timeout,
+            broadcast_signed_blocks: true,
         }
     }
 

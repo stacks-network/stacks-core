@@ -16,6 +16,7 @@
 use regex::{Captures, Regex};
 use stacks_common::codec::{Error as CodecError, StacksMessageCodec, MAX_PAYLOAD_LEN};
 use stacks_common::types::net::PeerHost;
+use url::form_urlencoded;
 
 use super::postblock::StacksBlockAcceptedData;
 use crate::chainstate::nakamoto::staging_blocks::NakamotoBlockObtainMethod;
@@ -36,9 +37,19 @@ pub static PATH: &'static str = "/v3/blocks/upload/";
 #[derive(Clone, Default)]
 pub struct RPCPostBlockRequestHandler {
     pub block: Option<NakamotoBlock>,
+    pub auth: Option<String>,
+    pub broadcast: Option<bool>,
 }
 
 impl RPCPostBlockRequestHandler {
+    pub fn new(auth: Option<String>) -> Self {
+        Self {
+            block: None,
+            auth,
+            broadcast: None,
+        }
+    }
+
     /// Decode a bare block from the body
     fn parse_postblock_octets(mut body: &[u8]) -> Result<NakamotoBlock, Error> {
         let block = NakamotoBlock::consensus_deserialize(&mut body).map_err(|e| {
@@ -87,6 +98,31 @@ impl HttpRequest for RPCPostBlockRequestHandler {
             ));
         }
 
+        // if broadcast=1 is set, then the requester must be authenticated
+        let mut broadcast = false;
+        let mut authenticated = false;
+
+        // look for authorization header
+        if let Some(password) = &self.auth {
+            if let Some(auth_header) = preamble.headers.get("authorization") {
+                if auth_header != password {
+                    return Err(Error::Http(401, "Unauthorized".into()));
+                }
+                authenticated = true;
+            }
+        }
+
+        // see if broadcast=1 is set
+        for (key, value) in form_urlencoded::parse(query.as_ref().unwrap_or(&"").as_bytes()) {
+            if key == "broadcast" {
+                broadcast = broadcast || value == "1";
+            }
+        }
+
+        if broadcast && !authenticated {
+            return Err(Error::Http(401, "Unauthorized".into()));
+        }
+
         if Some(HttpContentType::Bytes) != preamble.content_type || preamble.content_type.is_none()
         {
             return Err(Error::DecodeError(
@@ -97,6 +133,7 @@ impl HttpRequest for RPCPostBlockRequestHandler {
         let block = Self::parse_postblock_octets(body)?;
 
         self.block = Some(block);
+        self.broadcast = Some(broadcast);
         Ok(HttpRequestContents::new().query_string(query))
     }
 }
@@ -105,6 +142,7 @@ impl RPCRequestHandler for RPCPostBlockRequestHandler {
     /// Reset internal state
     fn restart(&mut self) {
         self.block = None;
+        self.broadcast = None;
     }
 
     /// Make the response
@@ -121,18 +159,19 @@ impl RPCRequestHandler for RPCPostBlockRequestHandler {
             .ok_or(NetError::SendError("`block` not set".into()))?;
 
         let response = node
-            .with_node_state(|network, sortdb, chainstate, _mempool, _rpc_args| {
+            .with_node_state(|network, sortdb, chainstate, _mempool, rpc_args| {
                 let mut handle_conn = sortdb.index_handle_at_tip();
                 let stacks_tip = network.stacks_tip.block_id();
-                Relayer::process_new_nakamoto_block(
+                Relayer::process_new_nakamoto_block_ext(
                     &network.burnchain,
                     &sortdb,
                     &mut handle_conn,
                     chainstate,
                     &stacks_tip,
                     &block,
-                    None,
+                    rpc_args.coord_comms,
                     NakamotoBlockObtainMethod::Uploaded,
+                    self.broadcast.unwrap_or(false),
                 )
             })
             .map_err(|e| {
@@ -140,10 +179,18 @@ impl RPCRequestHandler for RPCPostBlockRequestHandler {
             });
 
         let data_resp = match response {
-            Ok(accepted) => StacksBlockAcceptedData {
-                accepted,
-                stacks_block_id: block.block_id(),
-            },
+            Ok(accepted) => {
+                debug!(
+                    "Received POSTed Nakamoto block {}/{}: {:?}",
+                    &block.header.consensus_hash,
+                    &block.header.block_hash(),
+                    &accepted
+                );
+                StacksBlockAcceptedData {
+                    accepted: accepted.is_accepted(),
+                    stacks_block_id: block.block_id(),
+                }
+            }
             Err(e) => {
                 return e.try_into_contents().map_err(NetError::from);
             }
@@ -185,5 +232,24 @@ impl StacksHttpRequest {
             HttpRequestContents::new().payload_stacks(block),
         )
         .expect("FATAL: failed to construct request from infallible data")
+    }
+
+    /// Make a new post-block request, with intent to broadcast
+    pub fn new_post_block_v3_broadcast(
+        host: PeerHost,
+        block: &NakamotoBlock,
+        auth: &str,
+    ) -> StacksHttpRequest {
+        let mut request = StacksHttpRequest::new_for_peer(
+            host,
+            "POST".into(),
+            PATH.into(),
+            HttpRequestContents::new()
+                .query_arg("broadcast".into(), "1".into())
+                .payload_stacks(block),
+        )
+        .expect("FATAL: failed to construct request from infallible data");
+        request.add_header("authorization".into(), auth.into());
+        request
     }
 }

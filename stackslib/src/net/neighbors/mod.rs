@@ -215,7 +215,7 @@ impl PeerNetwork {
             .count_connected_always_allowed_peers()
             .unwrap_or((0, 0));
 
-        // always ensure we're connected to always-allowed outbound peers
+        // always ensure we're connected to always-allowed outbound peers other than ourselves
         let walk_res = if ibd || (num_always_connected == 0 && total_always_connected > 0) {
             // always connect to bootstrap peers if in IBD, or if we're not connected to an
             // always-allowed peer already

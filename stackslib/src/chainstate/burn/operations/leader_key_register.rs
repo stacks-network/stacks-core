@@ -135,33 +135,23 @@ impl LeaderKeyRegisterOp {
         let num_inputs = tx.num_signers();
         let num_outputs = tx.num_recipients();
 
-        if num_inputs == 0 {
-            test_debug!(
+        if num_inputs == 0 || num_outputs < 1 {
+            debug!(
                 "Invalid tx: inputs: {}, outputs: {}",
-                num_inputs,
-                num_outputs,
-            );
-            return Err(op_error::InvalidInput);
-        }
-
-        if num_outputs < 1 {
-            test_debug!(
-                "Invalid tx: inputs: {}, outputs: {}",
-                num_inputs,
-                num_outputs
+                num_inputs, num_outputs,
             );
             return Err(op_error::InvalidInput);
         }
 
         if tx.opcode() != Opcodes::LeaderKeyRegister as u8 {
-            test_debug!("Invalid tx: invalid opcode {}", tx.opcode());
+            debug!("Invalid tx: invalid opcode {}", tx.opcode());
             return Err(op_error::InvalidInput);
         }
 
         let data = match LeaderKeyRegisterOp::parse_data(&tx.data()) {
             Some(data) => data,
             None => {
-                test_debug!("Invalid tx data");
+                debug!("Invalid tx data");
                 return Err(op_error::ParseError);
             }
         };

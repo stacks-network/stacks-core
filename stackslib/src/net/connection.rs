@@ -167,8 +167,9 @@ impl<P: ProtocolFamily> NetworkReplyHandle<P> {
     /// is destroyed in the process).
     pub fn try_recv(mut self) -> Result<P::Message, Result<NetworkReplyHandle<P>, net_error>> {
         if self.deadline > 0 && self.deadline < get_epoch_time_secs() {
-            test_debug!(
-                "Reply deadline {} exceeded (now = {})",
+            debug!(
+                "Reply deadline for event {} at {} exceeded (now = {})",
+                self.socket_event_id,
                 self.deadline,
                 get_epoch_time_secs()
             );
@@ -234,10 +235,9 @@ impl<P: ProtocolFamily> NetworkReplyHandle<P> {
                     None
                 } else {
                     // still have data to send, or we will send more.
-                    test_debug!(
+                    debug!(
                         "Still have data to send, drop_on_success = {}, ret = {}",
-                        drop_on_success,
-                        ret
+                        drop_on_success, ret
                     );
                     Some(fd)
                 }
@@ -378,11 +378,18 @@ pub struct ConnectionOptions {
     pub max_microblock_push: u64,
     pub antientropy_retry: u64,
     pub antientropy_public: bool,
+    /// maximum number of Stacks 2.x BlocksAvailable messages that can be buffered before processing
     pub max_buffered_blocks_available: u64,
+    /// maximum number of Stacks 2.x MicroblocksAvailable that can be buffered before processing
     pub max_buffered_microblocks_available: u64,
+    /// maximum number of Stacks 2.x pushed Block messages we can buffer before processing
     pub max_buffered_blocks: u64,
+    /// maximum number of Stacks 2.x pushed Microblock messages we can buffer before processing
     pub max_buffered_microblocks: u64,
+    /// maximum number of pushed Nakamoto Block messages we can buffer before processing
     pub max_buffered_nakamoto_blocks: u64,
+    /// maximum number of pushed StackerDB chunk messages we can buffer before processing
+    pub max_buffered_stackerdb_chunks: u64,
     /// how often to query a remote peer for its mempool, in seconds
     pub mempool_sync_interval: u64,
     /// how many transactions to ask for in a mempool query
@@ -398,8 +405,14 @@ pub struct ConnectionOptions {
     /// maximum number of confirmations for a nakamoto block's sortition for which it will be
     /// pushed
     pub max_nakamoto_block_relay_age: u64,
-    /// The authorization token to enable the block proposal RPC endpoint
-    pub block_proposal_token: Option<String>,
+    /// minimum amount of time between requests to push nakamoto blocks (millis)
+    pub nakamoto_push_interval_ms: u128,
+    /// minimum amount of time between requests to push nakamoto blocks (millis)
+    pub nakamoto_inv_sync_burst_interval_ms: u128,
+    /// time between unconfirmed downloader runs
+    pub nakamoto_unconfirmed_downloader_interval_ms: u128,
+    /// The authorization token to enable privileged RPC endpoints
+    pub auth_token: Option<String>,
 
     // fault injection
     /// Disable neighbor walk and discovery
@@ -433,6 +446,8 @@ pub struct ConnectionOptions {
     pub disable_inbound_handshakes: bool,
     /// Disable getting chunks from StackerDB (e.g. to test push-only)
     pub disable_stackerdb_get_chunks: bool,
+    /// Disable running stackerdb sync altogether (e.g. to test push-only)
+    pub disable_stackerdb_sync: bool,
     /// Unconditionally disconnect a peer after this amount of time
     pub force_disconnect_interval: Option<u64>,
     /// If set to true, this forces the p2p state machine to believe that it is running in
@@ -514,6 +529,7 @@ impl std::default::Default for ConnectionOptions {
             max_buffered_blocks: 5,
             max_buffered_microblocks: 1024,
             max_buffered_nakamoto_blocks: 1024,
+            max_buffered_stackerdb_chunks: 4096,
             mempool_sync_interval: 30, // number of seconds in-between mempool sync
             mempool_max_tx_query: 128, // maximum number of transactions to visit per mempool query
             mempool_sync_timeout: 180, // how long a mempool sync can go for (3 minutes)
@@ -521,7 +537,10 @@ impl std::default::Default for ConnectionOptions {
             socket_send_buffer_size: 16384, // Linux default
             private_neighbors: true,
             max_nakamoto_block_relay_age: 6,
-            block_proposal_token: None,
+            nakamoto_push_interval_ms: 30_000, // re-send a block no more than once every 30 seconds
+            nakamoto_inv_sync_burst_interval_ms: 1_000, // wait 1 second after a sortition before running inventory sync
+            nakamoto_unconfirmed_downloader_interval_ms: 5_000, // run unconfirmed downloader once every 5 seconds
+            auth_token: None,
 
             // no faults on by default
             disable_neighbor_walk: false,
@@ -539,6 +558,7 @@ impl std::default::Default for ConnectionOptions {
             disable_natpunch: false,
             disable_inbound_handshakes: false,
             disable_stackerdb_get_chunks: false,
+            disable_stackerdb_sync: false,
             force_disconnect_interval: None,
             force_nakamoto_epoch_transition: false,
 
@@ -971,7 +991,7 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
             // NOTE: it's important that buf not be too big, since up to buf.len()-1 bytes may need
             // to be copied if a message boundary isn't aligned with buf (which is usually the
             // case).
-            let mut buf = [0u8; 4096];
+            let mut buf = [0u8; 65536];
             let num_read = match fd.read(&mut buf) {
                 Ok(0) => {
                     // remote fd is closed, but do try to consume all remaining bytes in the buffer
@@ -990,7 +1010,7 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
                         || e.kind() == io::ErrorKind::ConnectionReset
                     {
                         // write endpoint is dead
-                        test_debug!("reader was reset: {:?}", &e);
+                        debug!("reader was reset: {:?}", &e);
                         socket_closed = true;
                         blocked = true;
                         Ok(0)
@@ -1004,7 +1024,7 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
             total_read += num_read;
 
             if num_read > 0 || total_read > 0 {
-                trace!("read {} bytes; {} total", num_read, total_read);
+                debug!("read {} bytes; {} total", num_read, total_read);
             }
 
             if num_read > 0 {
