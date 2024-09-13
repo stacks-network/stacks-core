@@ -11,7 +11,7 @@ use stacks_common::util::secp256k1::{secp256k1_recover, secp256k1_verify, Secp25
 use wasmtime::{AsContextMut, Caller, Engine, Linker, Memory, Module, Store, Trap, Val, ValType};
 
 use super::analysis::{CheckError, CheckErrors};
-use super::ast::parse;
+use super::ast::{build_ast_with_rules, ASTRules};
 use super::callables::{DefineType, DefinedFunction};
 use super::contracts::Contract;
 use super::costs::{constants as cost_constants, CostTracker, LimitedCostTracker};
@@ -1679,12 +1679,15 @@ pub fn signature_from_string(
     version: ClarityVersion,
     epoch: StacksEpochId,
 ) -> Result<TypeSignature, Error> {
-    let expr = parse(
+    let expr = build_ast_with_rules(
         &QualifiedContractIdentifier::transient(),
         val,
+        &mut (),
         version,
         epoch,
-    )?;
+        ASTRules::Typical,
+    )?
+    .expressions;
     let expr = expr.first().ok_or(CheckErrors::InvalidTypeDescription)?;
     Ok(TypeSignature::parse_type_repr(
         StacksEpochId::latest(),
