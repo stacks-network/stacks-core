@@ -358,22 +358,32 @@ impl BlockMinerThread {
                     &mut attempts,
                 ) {
                     Ok(x) => x,
-                    Err(e) => {
-                        match e {
-                            NakamotoNodeError::StacksTipChanged => {
-                                info!("Stacks tip changed while waiting for signatures");
-                                return Err(e);
-                            }
-                            NakamotoNodeError::BurnchainTipChanged => {
-                                info!("Burnchain tip changed while waiting for signatures");
-                                return Err(e);
-                            }
-                            _ => {
-                                error!("Error while gathering signatures: {e:?}. Will try mining again.");
-                                continue;
-                            }
+                    Err(e) => match e {
+                        NakamotoNodeError::StacksTipChanged => {
+                            info!("Stacks tip changed while waiting for signatures";
+                                "signer_sighash" => %new_block.header.signer_signature_hash(),
+                                "block_height" => new_block.header.chain_length,
+                                "consensus_hash" => %new_block.header.consensus_hash,
+                            );
+                            return Err(e);
                         }
-                    }
+                        NakamotoNodeError::BurnchainTipChanged => {
+                            info!("Burnchain tip changed while waiting for signatures";
+                                "signer_sighash" => %new_block.header.signer_signature_hash(),
+                                "block_height" => new_block.header.chain_length,
+                                "consensus_hash" => %new_block.header.consensus_hash,
+                            );
+                            return Err(e);
+                        }
+                        _ => {
+                            error!("Error while gathering signatures: {e:?}. Will try mining again.";
+                                "signer_sighash" => %new_block.header.signer_signature_hash(),
+                                "block_height" => new_block.header.chain_length,
+                                "consensus_hash" => %new_block.header.consensus_hash,
+                            );
+                            continue;
+                        }
+                    },
                 };
 
                 new_block.header.signer_signature = signer_signature;
