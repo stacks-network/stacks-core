@@ -353,7 +353,10 @@ impl StackerDBs {
             // Even if we failed to create or reconfigure the DB, we still want to keep track of them
             // so that we can attempt to create/reconfigure them again later.
             debug!("Reloaded configuration for {}", &stackerdb_contract_id);
-            info!("Configuration for {} is {:?}", &stackerdb_contract_id, &new_config);
+            info!(
+                "Configuration for {} is {:?}",
+                &stackerdb_contract_id, &new_config
+            );
             new_stackerdb_configs.insert(stackerdb_contract_id, new_config);
         }
         Ok(new_stackerdb_configs)
