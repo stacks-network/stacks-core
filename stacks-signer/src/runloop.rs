@@ -430,10 +430,10 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
         if !Self::is_configured_for_cycle(&self.stacks_signers, current_reward_cycle) {
             self.refresh_signer_config(current_reward_cycle);
         }
-        if is_in_next_prepare_phase {
-            if !Self::is_configured_for_cycle(&self.stacks_signers, next_reward_cycle) {
-                self.refresh_signer_config(next_reward_cycle);
-            }
+        if is_in_next_prepare_phase
+            && !Self::is_configured_for_cycle(&self.stacks_signers, next_reward_cycle)
+        {
+            self.refresh_signer_config(next_reward_cycle);
         }
 
         self.cleanup_stale_signers(current_reward_cycle);
