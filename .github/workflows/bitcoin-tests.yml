@@ -94,11 +94,13 @@ jobs:
           - tests::signer::v0::bitcoind_forking_test
           - tests::signer::v0::multiple_miners
           - tests::signer::v0::mock_sign_epoch_25
+          - tests::signer::v0::multiple_miners_mock_sign_epoch_25
           - tests::signer::v0::signer_set_rollover
           - tests::signer::v0::miner_forking
           - tests::signer::v0::reloads_signer_set_in
           - tests::signer::v0::signers_broadcast_signed_blocks
           - tests::signer::v0::min_gap_between_blocks
+          - tests::signer::v0::duplicate_signers
           - tests::nakamoto_integrations::stack_stx_burn_op_integration_test
           - tests::nakamoto_integrations::check_block_heights
           - tests::nakamoto_integrations::clarity_burn_state
@@ -108,6 +110,11 @@ jobs:
           - tests::nakamoto_integrations::continue_tenure_extend
           - tests::nakamoto_integrations::mock_mining
           - tests::nakamoto_integrations::multiple_miners
+          - tests::nakamoto_integrations::follower_bootup_across_multiple_cycles
+          - tests::nakamoto_integrations::utxo_check_on_startup_panic
+          - tests::nakamoto_integrations::utxo_check_on_startup_recover
+          - tests::signer::v0::multiple_miners_with_nakamoto_blocks
+          - tests::signer::v0::partial_tenure_fork
           # Do not run this one until we figure out why it fails in CI
           # - tests::neon_integrations::bitcoin_reorg_flap
           # - tests::neon_integrations::bitcoin_reorg_flap_with_follower

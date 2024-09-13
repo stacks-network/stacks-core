@@ -729,7 +729,9 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                         data.error_code
                     );
                     self.connected_replicas.remove(&naddr);
-                    if data.error_code == NackErrorCodes::StaleView {
+                    if data.error_code == NackErrorCodes::StaleView
+                        || data.error_code == NackErrorCodes::FutureView
+                    {
                         self.stale_neighbors.insert(naddr);
                     }
                     continue;
@@ -846,7 +848,9 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                         data.error_code
                     );
                     self.connected_replicas.remove(&naddr);
-                    if data.error_code == NackErrorCodes::StaleView {
+                    if data.error_code == NackErrorCodes::StaleView
+                        || data.error_code == NackErrorCodes::FutureView
+                    {
                         self.stale_neighbors.insert(naddr);
                     }
                     continue;
@@ -983,7 +987,9 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                         &self.smart_contract_id,
                         data.error_code
                     );
-                    if data.error_code == NackErrorCodes::StaleView {
+                    if data.error_code == NackErrorCodes::StaleView
+                        || data.error_code == NackErrorCodes::FutureView
+                    {
                         self.stale_neighbors.insert(naddr);
                     } else if data.error_code == NackErrorCodes::StaleVersion {
                         // try again immediately, without throttling
@@ -1129,7 +1135,9 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                         &naddr,
                         data.error_code
                     );
-                    if data.error_code == NackErrorCodes::StaleView {
+                    if data.error_code == NackErrorCodes::StaleView
+                        || data.error_code == NackErrorCodes::FutureView
+                    {
                         self.stale_neighbors.insert(naddr);
                     }
                     continue;
@@ -1204,6 +1212,14 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
         network: &mut PeerNetwork,
         config: &StackerDBConfig,
     ) -> Result<Option<StackerDBSyncResult>, net_error> {
+        if network.get_connection_opts().disable_stackerdb_sync {
+            test_debug!(
+                "{:?}: stacker DB sync is disabled",
+                network.get_local_peer()
+            );
+            return Ok(None);
+        }
+
         // throttle to write_freq
         if self.last_run_ts + config.write_freq.max(1) > get_epoch_time_secs() {
             debug!(

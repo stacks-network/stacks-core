@@ -53,8 +53,8 @@ use crate::net::api::gettenureinfo::RPCGetTenureInfo;
 use crate::net::chat::ConversationP2P;
 use crate::net::db::{LocalPeer, PeerDB};
 use crate::net::download::nakamoto::{
-    AvailableTenures, NakamotoTenureDownloader, NakamotoTenureDownloaderSet, TenureStartEnd,
-    WantedTenure,
+    downloader_block_height_to_reward_cycle, AvailableTenures, NakamotoTenureDownloader,
+    NakamotoTenureDownloaderSet, TenureStartEnd, WantedTenure,
 };
 use crate::net::http::HttpRequestContents;
 use crate::net::httpcore::{StacksHttpRequest, StacksHttpResponse};
@@ -319,17 +319,18 @@ impl NakamotoUnconfirmedTenureDownloader {
         }
 
         // we're not finished
-        let tenure_rc = sortdb
-            .pox_constants
-            .block_height_to_reward_cycle(sortdb.first_block_height, local_tenure_sn.block_height)
-            .expect("FATAL: sortition from before system start");
-        let parent_tenure_rc = sortdb
-            .pox_constants
-            .block_height_to_reward_cycle(
-                sortdb.first_block_height,
-                parent_local_tenure_sn.block_height,
-            )
-            .expect("FATAL: sortition from before system start");
+        let tenure_rc = downloader_block_height_to_reward_cycle(
+            &sortdb.pox_constants,
+            sortdb.first_block_height,
+            local_tenure_sn.block_height,
+        )
+        .expect("FATAL: sortition from before system start");
+        let parent_tenure_rc = downloader_block_height_to_reward_cycle(
+            &sortdb.pox_constants,
+            sortdb.first_block_height,
+            parent_local_tenure_sn.block_height,
+        )
+        .expect("FATAL: sortition from before system start");
 
         // get reward set info for the unconfirmed tenure and highest-complete tenure sortitions
         let Some(Some(confirmed_reward_set)) = current_reward_sets

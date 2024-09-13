@@ -33,6 +33,7 @@ use stacks::core::StacksEpochId;
 use stacks::net::atlas::{AtlasConfig, AtlasDB, Attachment};
 use stacks_common::types::PublicKey;
 use stacks_common::util::hash::Hash160;
+use stacks_common::util::{get_epoch_time_secs, sleep_ms};
 use stx_genesis::GenesisData;
 
 use crate::burnchains::make_bitcoin_indexer;
@@ -155,6 +156,11 @@ impl RunLoop {
         self.miner_status.clone()
     }
 
+    /// Seconds to wait before retrying UTXO check during startup
+    const UTXO_RETRY_INTERVAL: u64 = 10;
+    /// Number of times to retry UTXO check during startup
+    const UTXO_RETRY_COUNT: u64 = 6;
+
     /// Determine if we're the miner.
     /// If there's a network error, then assume that we're not a miner.
     fn check_is_miner(&mut self, burnchain: &mut BitcoinRegtestController) -> bool {
@@ -187,22 +193,26 @@ impl RunLoop {
                 ));
             }
 
-            for (epoch_id, btc_addr) in btc_addrs.into_iter() {
-                info!("Miner node: checking UTXOs at address: {}", &btc_addr);
-                let utxos = burnchain.get_utxos(epoch_id, &op_signer.get_public_key(), 1, None, 0);
-                if utxos.is_none() {
-                    warn!("UTXOs not found for {}. If this is unexpected, please ensure that your bitcoind instance is indexing transactions for the address {} (importaddress)", btc_addr, btc_addr);
-                } else {
-                    info!("UTXOs found - will run as a Miner node");
+            // retry UTXO check a few times, in case bitcoind is still starting up
+            for _ in 0..Self::UTXO_RETRY_COUNT {
+                for (epoch_id, btc_addr) in &btc_addrs {
+                    info!("Miner node: checking UTXOs at address: {btc_addr}");
+                    let utxos =
+                        burnchain.get_utxos(*epoch_id, &op_signer.get_public_key(), 1, None, 0);
+                    if utxos.is_none() {
+                        warn!("UTXOs not found for {btc_addr}. If this is unexpected, please ensure that your bitcoind instance is indexing transactions for the address {btc_addr} (importaddress)");
+                    } else {
+                        info!("UTXOs found - will run as a Miner node");
+                        return true;
+                    }
+                }
+                if self.config.get_node_config(false).mock_mining {
+                    info!("No UTXOs found, but configured to mock mine");
                     return true;
                 }
+                thread::sleep(std::time::Duration::from_secs(Self::UTXO_RETRY_INTERVAL));
             }
-            if self.config.get_node_config(false).mock_mining {
-                info!("No UTXOs found, but configured to mock mine");
-                return true;
-            } else {
-                return false;
-            }
+            panic!("No UTXOs found, exiting");
         } else {
             info!("Will run as a Follower node");
             false
@@ -521,6 +531,7 @@ impl RunLoop {
         );
 
         let mut last_tenure_sortition_height = 0;
+        let mut poll_deadline = 0;
 
         loop {
             if !globals.keep_running() {
@@ -579,6 +590,12 @@ impl RunLoop {
                 if !globals.keep_running() {
                     break;
                 }
+
+                if poll_deadline > get_epoch_time_secs() {
+                    sleep_ms(1_000);
+                    continue;
+                }
+                poll_deadline = get_epoch_time_secs() + self.config().burnchain.poll_time_secs;
 
                 let (next_burnchain_tip, tip_burnchain_height) =
                     match burnchain.sync(Some(target_burnchain_block_height)) {

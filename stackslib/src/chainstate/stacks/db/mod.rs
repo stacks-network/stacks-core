@@ -2675,7 +2675,7 @@ impl StacksChainState {
             headers_tx.deref_mut().execute(sql, args)?;
         }
 
-        debug!(
+        info!(
             "Advanced to new tip! {}/{}",
             new_consensus_hash,
             new_tip.block_hash()

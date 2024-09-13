@@ -764,7 +764,7 @@ impl MessageSequence for StacksHttpMessage {
     }
 
     fn get_message_name(&self) -> &'static str {
-        "StachsHttpMessage"
+        "StacksHttpMessage"
     }
 }
 
