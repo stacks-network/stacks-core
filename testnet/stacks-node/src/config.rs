@@ -1,3 +1,19 @@
+// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
+// Copyright (C) 2020-2024 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 use std::collections::{HashMap, HashSet};
 use std::net::{Ipv4Addr, SocketAddr, ToSocketAddrs};
 use std::path::PathBuf;
@@ -70,6 +86,7 @@ pub const OP_TX_ANY_ESTIM_SIZE: u64 = fmax!(
 const DEFAULT_MAX_RBF_RATE: u64 = 150; // 1.5x
 const DEFAULT_RBF_FEE_RATE_INCREMENT: u64 = 5;
 const INV_REWARD_CYCLES_TESTNET: u64 = 6;
+const DEFAULT_MIN_TIME_BETWEEN_BLOCKS_MS: u64 = 1000;
 
 #[derive(Clone, Deserialize, Default, Debug)]
 pub struct ConfigFile {
@@ -205,12 +222,12 @@ mod tests {
     }
 
     #[test]
-    fn should_load_block_proposal_token() {
+    fn should_load_auth_token() {
         let config = Config::from_config_file(
             ConfigFile::from_str(
                 r#"
                 [connection_options]
-                block_proposal_token = "password"
+                auth_token = "password"
                 "#,
             )
             .unwrap(),
@@ -219,7 +236,7 @@ mod tests {
         .expect("Expected to be able to parse block proposal token from file");
 
         assert_eq!(
-            config.connection_options.block_proposal_token,
+            config.connection_options.auth_token,
             Some("password".to_string())
         );
     }
@@ -1152,6 +1169,10 @@ impl Config {
             .validate()
             .map_err(|e| format!("Atlas config error: {e}"))?;
 
+        if miner.mining_key.is_none() && miner.pre_nakamoto_mock_signing {
+            return Err("Cannot use pre_nakamoto_mock_signing without a mining_key".to_string());
+        }
+
         Ok(Config {
             config_path: config_file.__path,
             node,
@@ -1350,9 +1371,9 @@ impl Config {
     /// the poll time is dependent on the first attempt time.
     pub fn get_poll_time(&self) -> u64 {
         let poll_timeout = if self.node.miner {
-            cmp::min(5000, self.miner.first_attempt_time_ms / 2)
+            cmp::min(1000, self.miner.first_attempt_time_ms / 2)
         } else {
-            5000
+            1000
         };
         poll_timeout
     }
@@ -1419,6 +1440,9 @@ pub struct BurnchainConfig {
     pub wallet_name: String,
     pub ast_precheck_size_height: Option<u64>,
     pub affirmation_overrides: HashMap<u64, AffirmationMap>,
+    /// fault injection to simulate a slow burnchain peer.
+    /// Delay burnchain block downloads by the given number of millseconds
+    pub fault_injection_burnchain_block_delay: u64,
 }
 
 impl BurnchainConfig {
@@ -1458,6 +1482,7 @@ impl BurnchainConfig {
             wallet_name: "".to_string(),
             ast_precheck_size_height: None,
             affirmation_overrides: HashMap::new(),
+            fault_injection_burnchain_block_delay: 0,
         }
     }
     pub fn get_rpc_url(&self, wallet: Option<String>) -> String {
@@ -1552,6 +1577,7 @@ pub struct BurnchainConfigFile {
     pub wallet_name: Option<String>,
     pub ast_precheck_size_height: Option<u64>,
     pub affirmation_overrides: Option<Vec<AffirmationOverride>>,
+    pub fault_injection_burnchain_block_delay: Option<u64>,
 }
 
 impl BurnchainConfigFile {
@@ -1764,6 +1790,9 @@ impl BurnchainConfigFile {
                 .pox_prepare_length
                 .or(default_burnchain_config.pox_prepare_length),
             affirmation_overrides,
+            fault_injection_burnchain_block_delay: self
+                .fault_injection_burnchain_block_delay
+                .unwrap_or(default_burnchain_config.fault_injection_burnchain_block_delay),
         };
 
         if let BitcoinNetworkType::Mainnet = config.get_bitcoin_network().1 {
@@ -1810,6 +1839,8 @@ pub struct NodeConfig {
     pub miner: bool,
     pub stacker: bool,
     pub mock_mining: bool,
+    /// Where to output blocks from mock mining
+    pub mock_mining_output_dir: Option<PathBuf>,
     pub mine_microblocks: bool,
     pub microblock_frequency: u64,
     pub max_microblocks: u64,
@@ -1829,6 +1860,8 @@ pub struct NodeConfig {
     pub use_test_genesis_chainstate: Option<bool>,
     pub always_use_affirmation_maps: bool,
     pub require_affirmed_anchor_blocks: bool,
+    /// Fault injection for failing to push blocks
+    pub fault_injection_block_push_fail_probability: Option<u8>,
     // fault injection for hiding blocks.
     // not part of the config file.
     pub fault_injection_hide_blocks: bool,
@@ -2102,6 +2135,7 @@ impl Default for NodeConfig {
             miner: false,
             stacker: false,
             mock_mining: false,
+            mock_mining_output_dir: None,
             mine_microblocks: true,
             microblock_frequency: 30_000,
             max_microblocks: u16::MAX as u64,
@@ -2115,6 +2149,7 @@ impl Default for NodeConfig {
             use_test_genesis_chainstate: None,
             always_use_affirmation_maps: false,
             require_affirmed_anchor_blocks: true,
+            fault_injection_block_push_fail_probability: None,
             fault_injection_hide_blocks: false,
             chain_liveness_poll_time_secs: 300,
             stacker_dbs: vec![],
@@ -2141,7 +2176,6 @@ impl NodeConfig {
                 let contract_name = NakamotoSigners::make_signers_db_name(signer_set, message_id);
                 let contract_id = boot_code_id(contract_name.as_str(), is_mainnet);
                 if !self.stacker_dbs.contains(&contract_id) {
-                    debug!("A miner/stacker must subscribe to the {contract_id} stacker db contract. Forcibly subscribing...");
                     self.stacker_dbs.push(contract_id);
                 }
             }
@@ -2151,7 +2185,6 @@ impl NodeConfig {
     pub fn add_miner_stackerdb(&mut self, is_mainnet: bool) {
         let miners_contract_id = boot_code_id(MINERS_NAME, is_mainnet);
         if !self.stacker_dbs.contains(&miners_contract_id) {
-            debug!("A miner/stacker must subscribe to the {miners_contract_id} stacker db contract. Forcibly subscribing...");
             self.stacker_dbs.push(miners_contract_id);
         }
     }
@@ -2164,7 +2197,7 @@ impl NodeConfig {
     ) -> Neighbor {
         Neighbor {
             addr: NeighborKey {
-                peer_version: peer_version,
+                peer_version,
                 network_id: chain_id,
                 addrbytes: PeerAddress::from_socketaddr(&addr),
                 port: addr.port(),
@@ -2332,6 +2365,11 @@ pub struct MinerConfig {
     pub max_reorg_depth: u64,
     /// Amount of time while mining in nakamoto to wait for signers to respond to a proposed block
     pub wait_on_signers: Duration,
+    /// Whether to mock sign in Epoch 2.5 through the .miners and .signers contracts. This is used for testing purposes in Epoch 2.5 only.
+    pub pre_nakamoto_mock_signing: bool,
+    /// The minimum time to wait between mining blocks in milliseconds. The value must be greater than or equal to 1000 ms because if a block is mined
+    /// within the same second as its parent, it will be rejected by the signers.
+    pub min_time_between_blocks_ms: u64,
 }
 
 impl Default for MinerConfig {
@@ -2362,6 +2400,8 @@ impl Default for MinerConfig {
             max_reorg_depth: 3,
             // TODO: update to a sane value based on stackerdb benchmarking
             wait_on_signers: Duration::from_secs(200),
+            pre_nakamoto_mock_signing: false, // Should only default true if mining key is set
+            min_time_between_blocks_ms: DEFAULT_MIN_TIME_BETWEEN_BLOCKS_MS,
         }
     }
 }
@@ -2408,7 +2448,7 @@ pub struct ConnectionOptionsFile {
     pub force_disconnect_interval: Option<u64>,
     pub antientropy_public: Option<bool>,
     pub private_neighbors: Option<bool>,
-    pub block_proposal_token: Option<String>,
+    pub auth_token: Option<String>,
     pub antientropy_retry: Option<u64>,
 }
 
@@ -2534,7 +2574,7 @@ impl ConnectionOptionsFile {
             max_sockets: self.max_sockets.unwrap_or(800) as usize,
             antientropy_public: self.antientropy_public.unwrap_or(true),
             private_neighbors: self.private_neighbors.unwrap_or(true),
-            block_proposal_token: self.block_proposal_token,
+            auth_token: self.auth_token,
             antientropy_retry: self.antientropy_retry.unwrap_or(default.antientropy_retry),
             ..default
         })
@@ -2556,6 +2596,7 @@ pub struct NodeConfigFile {
     pub miner: Option<bool>,
     pub stacker: Option<bool>,
     pub mock_mining: Option<bool>,
+    pub mock_mining_output_dir: Option<String>,
     pub mine_microblocks: Option<bool>,
     pub microblock_frequency: Option<u64>,
     pub max_microblocks: Option<u64>,
@@ -2574,6 +2615,8 @@ pub struct NodeConfigFile {
     pub chain_liveness_poll_time_secs: Option<u64>,
     /// Stacker DBs we replicate
     pub stacker_dbs: Option<Vec<String>>,
+    /// fault injection: fail to push blocks with this probability (0-100)
+    pub fault_injection_block_push_fail_probability: Option<u8>,
 }
 
 impl NodeConfigFile {
@@ -2595,10 +2638,9 @@ impl NodeConfigFile {
             p2p_address: self.p2p_address.unwrap_or(rpc_bind.clone()),
             bootstrap_node: vec![],
             deny_nodes: vec![],
-            data_url: match self.data_url {
-                Some(data_url) => data_url,
-                None => format!("http://{}", rpc_bind),
-            },
+            data_url: self
+                .data_url
+                .unwrap_or_else(|| format!("http://{rpc_bind}")),
             local_peer_seed: match self.local_peer_seed {
                 Some(seed) => hex_bytes(&seed)
                     .map_err(|_e| format!("node.local_peer_seed should be a hex encoded string"))?,
@@ -2607,6 +2649,14 @@ impl NodeConfigFile {
             miner,
             stacker,
             mock_mining: self.mock_mining.unwrap_or(default_node_config.mock_mining),
+            mock_mining_output_dir: self
+                .mock_mining_output_dir
+                .map(PathBuf::from)
+                .map(fs::canonicalize)
+                .transpose()
+                .unwrap_or_else(|e| {
+                    panic!("Failed to construct PathBuf from node.mock_mining_output_dir: {e}")
+                }),
             mine_microblocks: self
                 .mine_microblocks
                 .unwrap_or(default_node_config.mine_microblocks),
@@ -2652,6 +2702,14 @@ impl NodeConfigFile {
                 .iter()
                 .filter_map(|contract_id| QualifiedContractIdentifier::parse(contract_id).ok())
                 .collect(),
+            fault_injection_block_push_fail_probability: if self
+                .fault_injection_block_push_fail_probability
+                .is_some()
+            {
+                self.fault_injection_block_push_fail_probability
+            } else {
+                default_node_config.fault_injection_block_push_fail_probability
+            },
         };
         Ok(node_config)
     }
@@ -2693,10 +2751,18 @@ pub struct MinerConfigFile {
     pub filter_origins: Option<String>,
     pub max_reorg_depth: Option<u64>,
     pub wait_on_signers_ms: Option<u64>,
+    pub pre_nakamoto_mock_signing: Option<bool>,
+    pub min_time_between_blocks_ms: Option<u64>,
 }
 
 impl MinerConfigFile {
     fn into_config_default(self, miner_default_config: MinerConfig) -> Result<MinerConfig, String> {
+        let mining_key = self
+            .mining_key
+            .as_ref()
+            .map(|x| Secp256k1PrivateKey::from_hex(x))
+            .transpose()?;
+        let pre_nakamoto_mock_signing = mining_key.is_some();
         Ok(MinerConfig {
             first_attempt_time_ms: self
                 .first_attempt_time_ms
@@ -2795,6 +2861,15 @@ impl MinerConfigFile {
                 .wait_on_signers_ms
                 .map(Duration::from_millis)
                 .unwrap_or(miner_default_config.wait_on_signers),
+            pre_nakamoto_mock_signing: self
+                .pre_nakamoto_mock_signing
+                .unwrap_or(pre_nakamoto_mock_signing), // Should only default true if mining key is set
+                min_time_between_blocks_ms: self.min_time_between_blocks_ms.map(|ms| if ms < DEFAULT_MIN_TIME_BETWEEN_BLOCKS_MS {
+                warn!("miner.min_time_between_blocks_ms is less than the minimum allowed value of {DEFAULT_MIN_TIME_BETWEEN_BLOCKS_MS} ms. Using the default value instead.");
+                DEFAULT_MIN_TIME_BETWEEN_BLOCKS_MS
+            } else {
+                ms
+            }).unwrap_or(miner_default_config.min_time_between_blocks_ms),
         })
     }
 }

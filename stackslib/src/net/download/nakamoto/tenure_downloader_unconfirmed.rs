@@ -53,8 +53,8 @@ use crate::net::api::gettenureinfo::RPCGetTenureInfo;
 use crate::net::chat::ConversationP2P;
 use crate::net::db::{LocalPeer, PeerDB};
 use crate::net::download::nakamoto::{
-    AvailableTenures, NakamotoTenureDownloader, NakamotoTenureDownloaderSet, TenureStartEnd,
-    WantedTenure,
+    downloader_block_height_to_reward_cycle, AvailableTenures, NakamotoTenureDownloader,
+    NakamotoTenureDownloaderSet, TenureStartEnd, WantedTenure,
 };
 use crate::net::http::HttpRequestContents;
 use crate::net::httpcore::{StacksHttpRequest, StacksHttpResponse};
@@ -194,8 +194,8 @@ impl NakamotoUnconfirmedTenureDownloader {
             return Err(NetError::InvalidState);
         }
 
-        test_debug!("Got tenure info {:?}", remote_tenure_tip);
-        test_debug!("Local sortition tip is {}", &local_sort_tip.consensus_hash);
+        debug!("Got tenure info {:?}", remote_tenure_tip);
+        debug!("Local sortition tip is {}", &local_sort_tip.consensus_hash);
 
         // authenticate consensus hashes against canonical chain history
         let local_tenure_sn = SortitionDB::get_block_snapshot_consensus(
@@ -319,17 +319,18 @@ impl NakamotoUnconfirmedTenureDownloader {
         }
 
         // we're not finished
-        let tenure_rc = sortdb
-            .pox_constants
-            .block_height_to_reward_cycle(sortdb.first_block_height, local_tenure_sn.block_height)
-            .expect("FATAL: sortition from before system start");
-        let parent_tenure_rc = sortdb
-            .pox_constants
-            .block_height_to_reward_cycle(
-                sortdb.first_block_height,
-                parent_local_tenure_sn.block_height,
-            )
-            .expect("FATAL: sortition from before system start");
+        let tenure_rc = downloader_block_height_to_reward_cycle(
+            &sortdb.pox_constants,
+            sortdb.first_block_height,
+            local_tenure_sn.block_height,
+        )
+        .expect("FATAL: sortition from before system start");
+        let parent_tenure_rc = downloader_block_height_to_reward_cycle(
+            &sortdb.pox_constants,
+            sortdb.first_block_height,
+            parent_local_tenure_sn.block_height,
+        )
+        .expect("FATAL: sortition from before system start");
 
         // get reward set info for the unconfirmed tenure and highest-complete tenure sortitions
         let Some(Some(confirmed_reward_set)) = current_reward_sets
@@ -381,10 +382,9 @@ impl NakamotoUnconfirmedTenureDownloader {
             );
         }
 
-        test_debug!(
+        debug!(
             "Will validate unconfirmed blocks with reward sets in ({},{})",
-            parent_tenure_rc,
-            tenure_rc
+            parent_tenure_rc, tenure_rc
         );
         self.confirmed_signer_keys = Some(confirmed_reward_set.clone());
         self.unconfirmed_signer_keys = Some(unconfirmed_reward_set.clone());
@@ -547,7 +547,7 @@ impl NakamotoUnconfirmedTenureDownloader {
                 break;
             }
 
-            test_debug!("Got unconfirmed tenure block {}", &block.header.block_id());
+            debug!("Got unconfirmed tenure block {}", &block.header.block_id());
 
             // NOTE: this field can get updated by the downloader while this state-machine is in
             // this state.
@@ -597,7 +597,7 @@ impl NakamotoUnconfirmedTenureDownloader {
             let highest_processed_block_height =
                 *self.highest_processed_block_height.as_ref().unwrap_or(&0);
 
-            test_debug!("Finished receiving unconfirmed tenure");
+            debug!("Finished receiving unconfirmed tenure");
             return Ok(self.unconfirmed_tenure_blocks.take().map(|blocks| {
                 blocks
                     .into_iter()
@@ -621,7 +621,7 @@ impl NakamotoUnconfirmedTenureDownloader {
         };
         let next_block_id = earliest_block.header.parent_block_id.clone();
 
-        test_debug!(
+        debug!(
             "Will resume fetching unconfirmed tenure blocks starting at {}",
             &next_block_id
         );
@@ -729,10 +729,9 @@ impl NakamotoUnconfirmedTenureDownloader {
             return Err(NetError::InvalidState);
         };
 
-        test_debug!(
+        debug!(
             "Create downloader for highest complete tenure {} known by {}",
-            &tenure_tip.parent_consensus_hash,
-            &self.naddr,
+            &tenure_tip.parent_consensus_hash, &self.naddr,
         );
         let ntd = NakamotoTenureDownloader::new(
             tenure_tip.parent_consensus_hash.clone(),
@@ -790,7 +789,7 @@ impl NakamotoUnconfirmedTenureDownloader {
         neighbor_rpc: &mut NeighborRPC,
     ) -> Result<(), NetError> {
         if neighbor_rpc.has_inflight(&self.naddr) {
-            test_debug!("Peer {} has an inflight request", &self.naddr);
+            debug!("Peer {} has an inflight request", &self.naddr);
             return Ok(());
         }
         if neighbor_rpc.is_dead_or_broken(network, &self.naddr) {
@@ -831,9 +830,9 @@ impl NakamotoUnconfirmedTenureDownloader {
     ) -> Result<Option<Vec<NakamotoBlock>>, NetError> {
         match &self.state {
             NakamotoUnconfirmedDownloadState::GetTenureInfo => {
-                test_debug!("Got tenure-info response");
+                debug!("Got tenure-info response");
                 let remote_tenure_info = response.decode_nakamoto_tenure_info()?;
-                test_debug!("Got tenure-info response: {:?}", &remote_tenure_info);
+                debug!("Got tenure-info response: {:?}", &remote_tenure_info);
                 self.try_accept_tenure_info(
                     sortdb,
                     local_sort_tip,
@@ -844,16 +843,16 @@ impl NakamotoUnconfirmedTenureDownloader {
                 Ok(None)
             }
             NakamotoUnconfirmedDownloadState::GetTenureStartBlock(..) => {
-                test_debug!("Got tenure start-block response");
+                debug!("Got tenure start-block response");
                 let block = response.decode_nakamoto_block()?;
                 self.try_accept_unconfirmed_tenure_start_block(block)?;
                 Ok(None)
             }
             NakamotoUnconfirmedDownloadState::GetUnconfirmedTenureBlocks(..) => {
-                test_debug!("Got unconfirmed tenure blocks response");
+                debug!("Got unconfirmed tenure blocks response");
                 let blocks = response.decode_nakamoto_tenure()?;
                 let accepted_opt = self.try_accept_unconfirmed_tenure_blocks(blocks)?;
-                test_debug!("Got unconfirmed tenure blocks"; "complete" => accepted_opt.is_some());
+                debug!("Got unconfirmed tenure blocks"; "complete" => accepted_opt.is_some());
                 Ok(accepted_opt)
             }
             NakamotoUnconfirmedDownloadState::Done => {

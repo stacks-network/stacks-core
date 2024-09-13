@@ -22,7 +22,7 @@ use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::nakamoto::NakamotoBlock;
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::{Error as ChainstateError, StacksBlockHeader};
-use crate::net::p2p::{PeerNetwork, PeerNetworkWorkState};
+use crate::net::p2p::{PeerNetwork, PeerNetworkWorkState, PendingMessages};
 use crate::net::{
     BlocksAvailableData, BlocksData, BlocksDatum, Error as NetError, MicroblocksData,
     NakamotoBlocksData, NeighborKey, Preamble, StacksMessage, StacksMessageType,
@@ -62,7 +62,7 @@ impl PeerNetwork {
         else {
             test_debug!(
                 "{:?}: No such neighbor event={}",
-                &self.local_peer,
+                &self.get_local_peer(),
                 event_id
             );
             return None;
@@ -72,7 +72,7 @@ impl PeerNetwork {
             // drop -- a correct peer will have authenticated before sending this message
             test_debug!(
                 "{:?}: Unauthenticated neighbor {:?}",
-                &self.local_peer,
+                &self.get_local_peer(),
                 &remote_neighbor_key
             );
             return None;
@@ -116,7 +116,9 @@ impl PeerNetwork {
             Ok(None) => {
                 debug!(
                     "{:?}: We already know the inventory state in {} for {}",
-                    &self.local_peer, outbound_neighbor_key, consensus_hash
+                    &self.get_local_peer(),
+                    outbound_neighbor_key,
+                    consensus_hash
                 );
                 return Ok(None);
             }
@@ -124,12 +126,12 @@ impl PeerNetwork {
                 // is this remote node simply ahead of us?
                 if let Some(convo) = self.peers.get(&event_id) {
                     if self.chain_view.burn_block_height < convo.burnchain_tip_height {
-                        debug!("{:?}: Unrecognized consensus hash {}; it is possible that {} is ahead of us", &self.local_peer, consensus_hash, outbound_neighbor_key);
+                        debug!("{:?}: Unrecognized consensus hash {}; it is possible that {} is ahead of us", &self.get_local_peer(), consensus_hash, outbound_neighbor_key);
                         return Err(NetError::NotFoundError);
                     }
                 }
                 // not ahead of us -- it's a bad consensus hash
-                debug!("{:?}: Unrecognized consensus hash {}; assuming that {} has a different chain view", &self.local_peer, consensus_hash, outbound_neighbor_key);
+                debug!("{:?}: Unrecognized consensus hash {}; assuming that {} has a different chain view", &self.get_local_peer(), consensus_hash, outbound_neighbor_key);
                 return Ok(None);
             }
             Err(NetError::InvalidMessage) => {
@@ -178,6 +180,7 @@ impl PeerNetwork {
         let mut blocks_data = 0;
         let mut microblocks_data = 0;
         let mut nakamoto_blocks_data = 0;
+        let mut stackerdb_chunks_data = 0;
         for stored_msg in msgs.iter() {
             match &stored_msg.payload {
                 StacksMessageType::BlocksAvailable(_) => {
@@ -187,7 +190,7 @@ impl PeerNetwork {
                     {
                         debug!(
                             "{:?}: Cannot buffer BlocksAvailable from event {} -- already have {} buffered",
-                            &self.local_peer, event_id, blocks_available
+                            &self.get_local_peer(), event_id, blocks_available
                         );
                         return false;
                     }
@@ -200,7 +203,7 @@ impl PeerNetwork {
                     {
                         debug!(
                             "{:?}: Cannot buffer MicroblocksAvailable from event {} -- already have {} buffered",
-                            &self.local_peer, event_id, microblocks_available
+                            &self.get_local_peer(), event_id, microblocks_available
                         );
                         return false;
                     }
@@ -212,7 +215,7 @@ impl PeerNetwork {
                     {
                         debug!(
                             "{:?}: Cannot buffer BlocksData from event {} -- already have {} buffered",
-                            &self.local_peer, event_id, blocks_data
+                            &self.get_local_peer(), event_id, blocks_data
                         );
                         return false;
                     }
@@ -224,7 +227,7 @@ impl PeerNetwork {
                     {
                         debug!(
                             "{:?}: Cannot buffer MicroblocksData from event {} -- already have {} buffered",
-                            &self.local_peer, event_id, microblocks_data
+                            &self.get_local_peer(), event_id, microblocks_data
                         );
                         return false;
                     }
@@ -236,7 +239,20 @@ impl PeerNetwork {
                     {
                         debug!(
                             "{:?}: Cannot buffer NakamotoBlocksData from event {} -- already have {} buffered",
-                            &self.local_peer, event_id, nakamoto_blocks_data
+                            &self.get_local_peer(), event_id, nakamoto_blocks_data
+                        );
+                        return false;
+                    }
+                }
+                StacksMessageType::StackerDBPushChunk(_) => {
+                    stackerdb_chunks_data += 1;
+                    if matches!(&msg.payload, StacksMessageType::StackerDBPushChunk(..))
+                        && stackerdb_chunks_data
+                            >= self.connection_opts.max_buffered_stackerdb_chunks
+                    {
+                        debug!(
+                            "{:?}: Cannot buffer StackerDBPushChunks from event {} -- already have {} buffered",
+                            self.get_local_peer(), event_id, stackerdb_chunks_data
                         );
                         return false;
                     }
@@ -253,12 +269,19 @@ impl PeerNetwork {
     /// If there is no space for the message, then silently drop it.
     /// Returns true if buffered.
     /// Returns false if not.
-    pub(crate) fn buffer_data_message(&mut self, event_id: usize, msg: StacksMessage) -> bool {
-        let Some(msgs) = self.pending_messages.get(&event_id) else {
-            self.pending_messages.insert(event_id, vec![msg]);
+    pub(crate) fn buffer_sortition_data_message(
+        &mut self,
+        event_id: usize,
+        neighbor_key: &NeighborKey,
+        msg: StacksMessage,
+    ) -> bool {
+        let key = (event_id, neighbor_key.clone());
+        let Some(msgs) = self.pending_messages.get(&key) else {
+            self.pending_messages.insert(key.clone(), vec![msg]);
             debug!(
                 "{:?}: Event {} has 1 messages buffered",
-                &self.local_peer, event_id
+                &self.get_local_peer(),
+                event_id
             );
             return true;
         };
@@ -269,15 +292,71 @@ impl PeerNetwork {
             return false;
         }
 
-        if let Some(msgs) = self.pending_messages.get_mut(&event_id) {
+        let debug_msg = format!(
+            "{:?}: buffer message from event {} (buffered: {}): {:?}",
+            self.get_local_peer(),
+            event_id,
+            msgs.len() + 1,
+            &msg
+        );
+        if let Some(msgs) = self.pending_messages.get_mut(&key) {
             // should always be reachable
+            debug!("{}", &debug_msg);
             msgs.push(msg);
+        }
+        true
+    }
+
+    #[cfg_attr(test, mutants::skip)]
+    /// Buffer a message for re-processing once the stacks view updates.
+    /// If there is no space for the message, then silently drop it.
+    /// Returns true if buffered.
+    /// Returns false if not.
+    pub(crate) fn buffer_stacks_data_message(
+        &mut self,
+        event_id: usize,
+        neighbor_key: &NeighborKey,
+        msg: StacksMessage,
+    ) -> bool {
+        let key = (event_id, neighbor_key.clone());
+        let Some(msgs) = self.pending_stacks_messages.get(&key) else {
+            // check limits against connection opts, and if the limit is not met, then buffer up the
+            // message.
+            if !self.can_buffer_data_message(event_id, &[], &msg) {
+                return false;
+            }
             debug!(
-                "{:?}: Event {} has {} messages buffered",
-                &self.local_peer,
+                "{:?}: buffer message from event {}: {:?}",
+                self.get_local_peer(),
                 event_id,
-                msgs.len()
+                &msg
             );
+            self.pending_stacks_messages.insert(key.clone(), vec![msg]);
+            debug!(
+                "{:?}: Event {} has 1 messages buffered",
+                &self.get_local_peer(),
+                event_id
+            );
+            return true;
+        };
+
+        // check limits against connection opts, and if the limit is not met, then buffer up the
+        // message.
+        if !self.can_buffer_data_message(event_id, msgs, &msg) {
+            return false;
+        }
+
+        let debug_msg = format!(
+            "{:?}: buffer message from event {} (buffered: {}): {:?}",
+            self.get_local_peer(),
+            event_id,
+            msgs.len() + 1,
+            &msg
+        );
+        if let Some(msgs) = self.pending_stacks_messages.get_mut(&key) {
+            // should always be reachable
+            debug!("{}", &debug_msg);
+            msgs.push(msg);
         }
         true
     }
@@ -341,7 +420,7 @@ impl PeerNetwork {
 
         debug!(
             "{:?}: Process BlocksAvailable from {:?} with {} entries",
-            &self.local_peer,
+            &self.get_local_peer(),
             &outbound_neighbor_key,
             new_blocks.available.len()
         );
@@ -361,7 +440,7 @@ impl PeerNetwork {
                 }
                 Err(NetError::NotFoundError) => {
                     if buffer {
-                        debug!("{:?}: Will buffer BlocksAvailable for {} until the next burnchain view update", &self.local_peer, &consensus_hash);
+                        debug!("{:?}: Will buffer BlocksAvailable for {} until the next burnchain view update", &self.get_local_peer(), &consensus_hash);
                         to_buffer = true;
                     }
                     continue;
@@ -369,7 +448,11 @@ impl PeerNetwork {
                 Err(e) => {
                     info!(
                         "{:?}: Failed to handle BlocksAvailable({}/{}) from {}: {:?}",
-                        &self.local_peer, &consensus_hash, &block_hash, &outbound_neighbor_key, &e
+                        &self.get_local_peer(),
+                        &consensus_hash,
+                        &block_hash,
+                        &outbound_neighbor_key,
+                        &e
                     );
                     continue;
                 }
@@ -408,7 +491,7 @@ impl PeerNetwork {
 
                         // advance straight to download state if we're in inv state
                         if self.work_state == PeerNetworkWorkState::BlockInvSync {
-                            debug!("{:?}: advance directly to block download with knowledge of block sortition {}", &self.local_peer, block_sortition_height);
+                            debug!("{:?}: advance directly to block download with knowledge of block sortition {}", &self.get_local_peer(), block_sortition_height);
                         }
                         self.have_data_to_download = true;
                     }
@@ -453,7 +536,7 @@ impl PeerNetwork {
 
         debug!(
             "{:?}: Process MicroblocksAvailable from {:?} with {} entries",
-            &self.local_peer,
+            &self.get_local_peer(),
             outbound_neighbor_key,
             new_mblocks.available.len()
         );
@@ -473,7 +556,7 @@ impl PeerNetwork {
                 }
                 Err(NetError::NotFoundError) => {
                     if buffer {
-                        debug!("{:?}: Will buffer MicroblocksAvailable for {} until the next burnchain view update", &self.local_peer, &consensus_hash);
+                        debug!("{:?}: Will buffer MicroblocksAvailable for {} until the next burnchain view update", &self.get_local_peer(), &consensus_hash);
                         to_buffer = true;
                     }
                     continue;
@@ -481,7 +564,11 @@ impl PeerNetwork {
                 Err(e) => {
                     info!(
                         "{:?}: Failed to handle MicroblocksAvailable({}/{}) from {:?}: {:?}",
-                        &self.local_peer, &consensus_hash, &block_hash, &outbound_neighbor_key, &e
+                        &self.get_local_peer(),
+                        &consensus_hash,
+                        &block_hash,
+                        &outbound_neighbor_key,
+                        &e
                     );
                     continue;
                 }
@@ -516,7 +603,7 @@ impl PeerNetwork {
 
                     // advance straight to download state if we're in inv state
                     if self.work_state == PeerNetworkWorkState::BlockInvSync {
-                        debug!("{:?}: advance directly to block download with knowledge of microblock stream {}", &self.local_peer, mblock_sortition_height);
+                        debug!("{:?}: advance directly to block download with knowledge of microblock stream {}", &self.get_local_peer(), mblock_sortition_height);
                     }
                     self.have_data_to_download = true;
                 }
@@ -551,7 +638,7 @@ impl PeerNetwork {
 
         debug!(
             "{:?}: Process BlocksData from {:?} with {} entries",
-            &self.local_peer,
+            &self.get_local_peer(),
             outbound_neighbor_key_opt
                 .clone()
                 .or_else(|| { self.check_peer_authenticated(event_id) }),
@@ -570,7 +657,7 @@ impl PeerNetwork {
                     if buffer {
                         debug!(
                             "{:?}: Will buffer unsolicited BlocksData({}/{}) ({}) -- consensus hash not (yet) recognized",
-                            &self.local_peer,
+                            &self.get_local_peer(),
                             &consensus_hash,
                             &block.block_hash(),
                             StacksBlockHeader::make_index_block_hash(
@@ -582,7 +669,7 @@ impl PeerNetwork {
                     } else {
                         debug!(
                             "{:?}: Will drop unsolicited BlocksData({}/{}) ({}) -- consensus hash not (yet) recognized",
-                            &self.local_peer,
+                            &self.get_local_peer(),
                             &consensus_hash,
                             &block.block_hash(),
                             StacksBlockHeader::make_index_block_hash(
@@ -596,7 +683,9 @@ impl PeerNetwork {
                 Err(e) => {
                     info!(
                         "{:?}: Failed to query block snapshot for {}: {:?}",
-                        &self.local_peer, consensus_hash, &e
+                        &self.get_local_peer(),
+                        consensus_hash,
+                        &e
                     );
                     continue;
                 }
@@ -605,7 +694,8 @@ impl PeerNetwork {
             if !sn.pox_valid {
                 info!(
                     "{:?}: Failed to query snapshot for {}: not on the valid PoX fork",
-                    &self.local_peer, consensus_hash
+                    &self.get_local_peer(),
+                    consensus_hash
                 );
                 continue;
             }
@@ -613,7 +703,7 @@ impl PeerNetwork {
             if sn.winning_stacks_block_hash != block.block_hash() {
                 info!(
                     "{:?}: Ignoring block {} -- winning block was {} (sortition: {})",
-                    &self.local_peer,
+                    &self.get_local_peer(),
                     block.block_hash(),
                     sn.winning_stacks_block_hash,
                     sn.sortition
@@ -667,7 +757,7 @@ impl PeerNetwork {
 
         debug!(
             "{:?}: Process MicroblocksData from {:?} for {} with {} entries",
-            &self.local_peer,
+            &self.get_local_peer(),
             outbound_neighbor_key_opt.or_else(|| { self.check_peer_authenticated(event_id) }),
             &new_microblocks.index_anchor_block,
             new_microblocks.microblocks.len()
@@ -677,20 +767,22 @@ impl PeerNetwork {
         match chainstate.get_block_header_hashes(&new_microblocks.index_anchor_block) {
             Ok(Some(_)) => {
                 // yup; can process now
-                debug!("{:?}: have microblock parent anchored block {}, so can process its microblocks", &self.local_peer, &new_microblocks.index_anchor_block);
+                debug!("{:?}: have microblock parent anchored block {}, so can process its microblocks", &self.get_local_peer(), &new_microblocks.index_anchor_block);
                 !buffer
             }
             Ok(None) => {
                 if buffer {
                     debug!(
                         "{:?}: Will buffer unsolicited MicroblocksData({})",
-                        &self.local_peer, &new_microblocks.index_anchor_block
+                        &self.get_local_peer(),
+                        &new_microblocks.index_anchor_block
                     );
                     true
                 } else {
                     debug!(
                         "{:?}: Will not buffer unsolicited MicroblocksData({})",
-                        &self.local_peer, &new_microblocks.index_anchor_block
+                        &self.get_local_peer(),
+                        &new_microblocks.index_anchor_block
                     );
                     false
                 }
@@ -698,7 +790,9 @@ impl PeerNetwork {
             Err(e) => {
                 warn!(
                     "{:?}: Failed to get header hashes for {:?}: {:?}",
-                    &self.local_peer, &new_microblocks.index_anchor_block, &e
+                    &self.get_local_peer(),
+                    &new_microblocks.index_anchor_block,
+                    &e
                 );
                 false
             }
@@ -715,10 +809,11 @@ impl PeerNetwork {
     ) -> bool {
         let Some(rc_data) = self.current_reward_sets.get(&reward_cycle) else {
             info!(
-                "{:?}: Failed to validate Nakamoto block {}/{}: no reward set",
+                "{:?}: Failed to validate Nakamoto block {}/{}: no reward set for cycle {}",
                 self.get_local_peer(),
                 &nakamoto_block.header.consensus_hash,
-                &nakamoto_block.header.block_hash()
+                &nakamoto_block.header.block_hash(),
+                reward_cycle,
             );
             return false;
         };
@@ -733,7 +828,7 @@ impl PeerNetwork {
 
         if let Err(e) = nakamoto_block.header.verify_signer_signatures(reward_set) {
             info!(
-                "{:?}: signature verification failrue for Nakamoto block {}/{} in reward cycle {}: {:?}", self.get_local_peer(), &nakamoto_block.header.consensus_hash, &nakamoto_block.header.block_hash(), reward_cycle, &e
+                "{:?}: signature verification failure for Nakamoto block {}/{} in reward cycle {}: {:?}", self.get_local_peer(), &nakamoto_block.header.consensus_hash, &nakamoto_block.header.block_hash(), reward_cycle, &e
             );
             return false;
         }
@@ -788,7 +883,7 @@ impl PeerNetwork {
 
         let reward_set_sn_rc = self
             .burnchain
-            .pox_reward_cycle(reward_set_sn.block_height)
+            .block_height_to_reward_cycle(reward_set_sn.block_height)
             .expect("FATAL: sortition has no reward cycle");
 
         return (Some(reward_set_sn_rc), can_process);
@@ -810,7 +905,7 @@ impl PeerNetwork {
         {
             debug!(
                 "{:?}: Aleady have Nakamoto block {}",
-                &self.local_peer,
+                &self.get_local_peer(),
                 &nakamoto_block.block_id()
             );
             return false;
@@ -849,7 +944,7 @@ impl PeerNetwork {
     ) -> bool {
         debug!(
             "{:?}: Process NakamotoBlocksData from {:?} with {} entries",
-            &self.local_peer,
+            &self.get_local_peer(),
             &remote_neighbor_key_opt,
             nakamoto_blocks.blocks.len()
         );
@@ -859,7 +954,7 @@ impl PeerNetwork {
             if self.is_nakamoto_block_bufferable(sortdb, chainstate, nakamoto_block) {
                 debug!(
                     "{:?}: Will buffer unsolicited NakamotoBlocksData({}) ({})",
-                    &self.local_peer,
+                    &self.get_local_peer(),
                     &nakamoto_block.block_id(),
                     &nakamoto_block.header.consensus_hash,
                 );
@@ -904,7 +999,12 @@ impl PeerNetwork {
     /// Handle an unsolicited message, with either the intention of just processing it (in which
     /// case, `buffer` will be `false`), or with the intention of not only processing it, but also
     /// determining if it can be bufferred and retried later (in which case, `buffer` will be
-    /// `true`).
+    /// `true`).  This applies to messages that can be reprocessed after the next sortition (not
+    /// the next Stacks tenure)
+    ///
+    /// This code gets called with `buffer` set to true when the message is first received.  If
+    /// this method returns (true, x), then this code gets called with the same message a
+    /// subsequent time when the sortition changes (and in that case, `buffer` will be false).
     ///
     /// Returns (true, x) if we should buffer the message and try processing it again later.
     /// Returns (false, x) if we should *not* buffer this message, because it *won't* be valid
@@ -913,12 +1013,11 @@ impl PeerNetwork {
     /// Returns (x, true) if we should forward the message to the relayer, so it can be processed.
     /// Returns (x, false) if we should *not* forward the message to the relayer, because it will
     /// *not* be processed.
-    fn handle_unsolicited_message(
+    fn handle_unsolicited_sortition_message(
         &mut self,
         sortdb: &SortitionDB,
         chainstate: &StacksChainState,
         event_id: usize,
-        preamble: &Preamble,
         payload: &StacksMessageType,
         ibd: bool,
         buffer: bool,
@@ -983,29 +1082,115 @@ impl PeerNetwork {
 
                 (to_buffer, true)
             }
+            _ => (false, true),
+        }
+    }
+
+    #[cfg_attr(test, mutants::skip)]
+    /// Handle an unsolicited message, with either the intention of just processing it (in which
+    /// case, `buffer` will be `false`), or with the intention of not only processing it, but also
+    /// determining if it can be bufferred and retried later (in which case, `buffer` will be
+    /// `true`).  This applies to messages that can be reprocessed after the next Stacks tenure.
+    ///
+    /// This code gets called with `buffer` set to true when the message is first received.  If
+    /// this method returns (true, x), then this code gets called with the same message a
+    /// subsequent time when the sortition changes (and in that case, `buffer` will be false).
+    ///
+    /// Returns (true, x) if we should buffer the message and try processing it again later.
+    /// Returns (false, x) if we should *not* buffer this message, because it *won't* be valid
+    /// later.
+    ///
+    /// Returns (x, true) if we should forward the message to the relayer, so it can be processed.
+    /// Returns (x, false) if we should *not* forward the message to the relayer, because it will
+    /// *not* be processed.
+    fn handle_unsolicited_stacks_message(
+        &mut self,
+        chainstate: &mut StacksChainState,
+        event_id: usize,
+        preamble: &Preamble,
+        payload: &StacksMessageType,
+        buffer: bool,
+    ) -> (bool, bool) {
+        match payload {
             StacksMessageType::StackerDBPushChunk(ref data) => {
-                match self.handle_unsolicited_StackerDBPushChunk(event_id, preamble, data) {
-                    Ok(x) => {
-                        // don't buffer, but do reject if invalid
-                        (false, x)
-                    }
-                    Err(e) => {
+                // N.B. send back a reply if we're calling to buffer, since this would be the first
+                // time we're seeing this message (instead of a subsequent time on follow-up
+                // processing).
+                let (can_buffer, can_store) = self
+                    .handle_unsolicited_StackerDBPushChunk(
+                        chainstate, event_id, preamble, data, buffer,
+                    )
+                    .unwrap_or_else(|e| {
                         info!(
-                            "{:?}: failed to handle unsolicited {:?}: {:?}",
-                            &self.local_peer, payload, &e
+                            "{:?}: failed to handle unsolicited {:?} when buffer = {}: {:?}",
+                            self.get_local_peer(),
+                            payload,
+                            buffer,
+                            &e
                         );
                         (false, false)
-                    }
+                    });
+                if buffer && can_buffer && !can_store {
+                    debug!(
+                        "{:?}: Buffering {:?} to retry on next sortition",
+                        self.get_local_peer(),
+                        &payload
+                    );
                 }
+                (can_buffer, can_store)
             }
             _ => (false, true),
         }
+    }
+
+    /// Authenticate unsolicited messages -- find the address of the neighbor that sent them.
+    pub fn authenticate_unsolicited_messages(
+        &self,
+        unsolicited: HashMap<usize, Vec<StacksMessage>>,
+    ) -> PendingMessages {
+        unsolicited.into_iter().filter_map(|(event_id, messages)| {
+            if messages.len() == 0 {
+                // no messages for this event
+                return None;
+            }
+            if self.check_peer_authenticated(event_id).is_none() {
+                if cfg!(test)
+                    && self
+                        .connection_opts
+                        .test_disable_unsolicited_message_authentication
+                {
+                    test_debug!(
+                        "{:?}: skip unsolicited message authentication",
+                        &self.get_local_peer()
+                    );
+                } else {
+                    debug!("Will not handle unsolicited messages from unauthenticated or dead event {}", event_id);
+                    return None;
+                }
+            };
+            let neighbor_key = if let Some(convo) = self.peers.get(&event_id) {
+                convo.to_neighbor_key()
+            } else {
+                debug!(
+                    "{:?}: No longer such neighbor event={}, dropping {} unsolicited messages",
+                    &self.get_local_peer(),
+                    event_id,
+                    messages.len()
+                );
+                return None;
+            };
+            Some(((event_id, neighbor_key), messages))
+        })
+        .collect()
     }
 
     #[cfg_attr(test, mutants::skip)]
     /// Handle unsolicited messages propagated up to us from our ongoing ConversationP2Ps.
     /// Return messages that we couldn't handle here, but key them by neighbor, not event, so the
     /// relayer can do something useful with them.
+    ///
+    /// This applies only to messages that might be processable after the next sortition.  It does
+    /// *NOT* apply to messages that might be processable after the next tenure.
     ///
     /// Invalid messages are dropped silently, with an log message.
     ///
@@ -1015,100 +1200,126 @@ impl PeerNetwork {
     /// If `buffer` is false, then if the message handler deems the message valid, it will be
     /// forwraded to the relayer.
     ///
-    /// Returns the messages to be forward to the relayer, keyed by sender.
-    pub fn handle_unsolicited_messages(
+    /// Returns messages we could not buffer, keyed by sender and event ID.  This can be fed
+    /// directly into `handle_unsolicited_stacks_messages()`
+    pub fn handle_unsolicited_sortition_messages(
         &mut self,
         sortdb: &SortitionDB,
         chainstate: &StacksChainState,
-        unsolicited: HashMap<usize, Vec<StacksMessage>>,
+        mut unsolicited: PendingMessages,
         ibd: bool,
         buffer: bool,
-    ) -> HashMap<NeighborKey, Vec<StacksMessage>> {
-        let mut unhandled: HashMap<NeighborKey, Vec<StacksMessage>> = HashMap::new();
-        for (event_id, messages) in unsolicited.into_iter() {
-            if messages.len() == 0 {
-                // no messages for this event
-                continue;
-            }
-            if buffer && self.check_peer_authenticated(event_id).is_none() {
-                if cfg!(test)
-                    && self
-                        .connection_opts
-                        .test_disable_unsolicited_message_authentication
-                {
-                    test_debug!(
-                        "{:?}: skip unsolicited message authentication",
-                        &self.local_peer
-                    );
-                } else {
-                    // do not buffer messages from unknown peers
-                    // (but it's fine to process messages that were previosuly buffered, since the peer
-                    // may have since disconnected)
-                    debug!("Will not handle unsolicited messages from unauthenticated or dead event {}", event_id);
-                    continue;
-                }
-            };
-            let neighbor_key = if let Some(convo) = self.peers.get(&event_id) {
-                convo.to_neighbor_key()
-            } else {
-                debug!(
-                    "{:?}: No longer such neighbor event={}, dropping {} unsolicited messages",
-                    &self.local_peer,
-                    event_id,
-                    messages.len()
-                );
-                continue;
-            };
-
-            debug!("{:?}: Process {} unsolicited messages from {:?}", &self.local_peer, messages.len(), &neighbor_key; "buffer" => %buffer);
-
-            for message in messages.into_iter() {
+    ) -> HashMap<(usize, NeighborKey), Vec<StacksMessage>> {
+        unsolicited.retain(|(event_id, neighbor_key), messages| {
+            debug!("{:?}: Process {} unsolicited sortition-bound messages from {:?}", &self.get_local_peer(), messages.len(), neighbor_key; "buffer" => %buffer);
+            messages.retain(|message| {
                 if buffer
                     && !self.can_buffer_data_message(
-                        event_id,
-                        self.pending_messages.get(&event_id).unwrap_or(&vec![]),
+                        *event_id,
+                        self.pending_messages.get(&(*event_id, neighbor_key.clone())).unwrap_or(&vec![]),
                         &message,
                     )
                 {
-                    // asked to buffer, but we don't have space
-                    continue;
+                    // unable to store this due to quota being exceeded
+                    return false;
                 }
 
                 if !buffer {
                     debug!(
-                        "{:?}: Re-try handling buffered message {} from {:?}",
-                        &self.local_peer,
+                        "{:?}: Re-try handling buffered sortition-bound message {} from {:?}",
+                        &self.get_local_peer(),
                         &message.payload.get_message_description(),
                         &neighbor_key
                     );
                 }
-                let (to_buffer, relay) = self.handle_unsolicited_message(
+                let (to_buffer, relay) = self.handle_unsolicited_sortition_message(
                     sortdb,
                     chainstate,
-                    event_id,
-                    &message.preamble,
+                    *event_id,
                     &message.payload,
                     ibd,
                     buffer,
                 );
                 if buffer && to_buffer {
-                    self.buffer_data_message(event_id, message);
-                } else if relay {
+                    self.buffer_sortition_data_message(*event_id, neighbor_key, message.clone());
+                    return false;
+                }
+                if relay {
                     // forward to relayer for processing
                     debug!(
                         "{:?}: Will forward message {} from {:?} to relayer",
-                        &self.local_peer,
+                        &self.get_local_peer(),
                         &message.payload.get_message_description(),
                         &neighbor_key
                     );
-                    if let Some(msgs) = unhandled.get_mut(&neighbor_key) {
-                        msgs.push(message);
-                    } else {
-                        unhandled.insert(neighbor_key.clone(), vec![message]);
-                    }
                 }
+                true
+            });
+            messages.len() > 0
+        });
+        unsolicited
+    }
+
+    #[cfg_attr(test, mutants::skip)]
+    /// Handle unsolicited and unhandled messages returned by
+    /// `handle_unsolicited_sortition_messages()`, to see if any of them could be processed at the
+    /// start of the next Stacks tenure.  That is, the `unsolicited` map contains messages that
+    /// came from authenticated peers and do not exceed buffer quotas.
+    ///
+    /// Invalid messages are dropped silently, with a log message.
+    ///
+    /// If `buffer` is true, then this message will be buffered up and tried again in a subsequent
+    /// call if the handler for it deems the message valid.
+    ///
+    /// If `buffer` is false, then if the message handler deems the message valid, it will be
+    /// forwraded to the relayer.
+    ///
+    /// Returns messages we could not buffer, keyed by sender.
+    pub fn handle_unsolicited_stacks_messages(
+        &mut self,
+        chainstate: &mut StacksChainState,
+        mut unsolicited: PendingMessages,
+        buffer: bool,
+    ) -> HashMap<(usize, NeighborKey), Vec<StacksMessage>> {
+        unsolicited.retain(|(event_id, neighbor_key), messages| {
+            if messages.len() == 0 {
+                // no messages for this node
+                return false;
             }
-        }
-        unhandled
+            debug!("{:?}: Process {} unsolicited tenure-bound messages from {:?}", &self.get_local_peer(), messages.len(), &neighbor_key; "buffer" => %buffer);
+            messages.retain(|message| {
+                if !buffer {
+                    debug!(
+                        "{:?}: Re-try handling buffered tenure-bound message {} from {:?}",
+                        &self.get_local_peer(),
+                        &message.payload.get_message_description(),
+                        neighbor_key
+                    );
+                }
+                let (to_buffer, relay) = self.handle_unsolicited_stacks_message(
+                    chainstate,
+                    *event_id,
+                    &message.preamble,
+                    &message.payload,
+                    buffer,
+                );
+                if buffer && to_buffer {
+                    self.buffer_stacks_data_message(*event_id, neighbor_key, message.clone());
+                    return false;
+                }
+                if relay {
+                    // forward to relayer for processing
+                    debug!(
+                        "{:?}: Will forward message {} from {:?} to relayer",
+                        &self.get_local_peer(),
+                        &message.payload.get_message_description(),
+                        &neighbor_key
+                    );
+                }
+                true
+            });
+            messages.len() > 0
+        });
+        unsolicited
     }
 }

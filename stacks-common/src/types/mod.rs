@@ -82,6 +82,7 @@ pub enum StacksEpochId {
     Epoch30 = 0x03000,
 }
 
+#[derive(Debug)]
 pub enum MempoolCollectionBehavior {
     ByStacksHeight,
     ByReceiveTime,

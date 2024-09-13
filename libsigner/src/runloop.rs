@@ -53,7 +53,7 @@ pub trait SignerRunLoop<R: Send, CMD: Send, T: SignerEventTrait> {
         &mut self,
         event: Option<SignerEvent<T>>,
         cmd: Option<CMD>,
-        res: Sender<R>,
+        res: &Sender<R>,
     ) -> Option<R>;
 
     /// This is the main loop body for the signer. It continuously receives events from
@@ -70,6 +70,7 @@ pub trait SignerRunLoop<R: Send, CMD: Send, T: SignerEventTrait> {
         result_send: Sender<R>,
         mut event_stop_signaler: EVST,
     ) -> Option<R> {
+        info!("Signer runloop begin");
         loop {
             let poll_timeout = self.get_event_timeout();
             let next_event_opt = match event_recv.recv_timeout(poll_timeout) {
@@ -83,7 +84,7 @@ pub trait SignerRunLoop<R: Send, CMD: Send, T: SignerEventTrait> {
             // Do not block for commands
             let next_command_opt = command_recv.try_recv().ok();
             if let Some(final_state) =
-                self.run_one_pass(next_event_opt, next_command_opt, result_send.clone())
+                self.run_one_pass(next_event_opt, next_command_opt, &result_send)
             {
                 info!("Runloop exit; signaling event-receiver to stop");
                 event_stop_signaler.send();
@@ -246,13 +247,14 @@ impl<
         let (event_send, event_recv) = channel();
         event_receiver.add_consumer(event_send);
 
+        let bind_port = bind_addr.port();
         event_receiver.bind(bind_addr)?;
         let stop_signaler = event_receiver.get_stop_signaler()?;
         let mut ret_stop_signaler = event_receiver.get_stop_signaler()?;
 
         // start a thread for the event receiver
         let event_thread = thread::Builder::new()
-            .name("event_receiver".to_string())
+            .name(format!("event_receiver:{bind_port}"))
             .stack_size(THREAD_STACK_SIZE)
             .spawn(move || event_receiver.main_loop())
             .map_err(|e| {
@@ -262,7 +264,7 @@ impl<
 
         // start receiving events and doing stuff with them
         let runloop_thread = thread::Builder::new()
-            .name(format!("signer_runloop:{}", bind_addr.port()))
+            .name(format!("signer_runloop:{bind_port}"))
             .stack_size(THREAD_STACK_SIZE)
             .spawn(move || {
                 signer_loop.main_loop(event_recv, command_receiver, result_sender, stop_signaler)

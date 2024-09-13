@@ -9,6 +9,7 @@ on:
       - ready_for_review
     paths:
       - '**.rs'
+  workflow_dispatch:
 
 concurrency:
   group: pr-differences-${{ github.head_ref || github.ref || github.run_id }}
@@ -16,9 +17,26 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  check-access-permissions:
+    name: Check Access Permissions
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check Access Permissions To Trigger This
+        id: check_access_permissions
+        uses: stacks-network/actions/team-membership@main
+        with:
+          username: ${{ github.actor }}
+          team: 'blockchain-team'
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+
+    outputs:
+      ignore_timeout: ${{ steps.check_access_permissions.outputs.is_team_member == 'true' && github.event_name == 'workflow_dispatch' }}
+
   # Check and output whether to run big (`stacks-node`/`stackslib`) or small (others) packages with or without shards
   check-big-packages-and-shards:
     name: Check Packages and Shards
+    needs: check-access-permissions
 
     runs-on: ubuntu-latest
 
@@ -30,10 +48,13 @@ jobs:
       run_small_packages: ${{ steps.check_packages_and_shards.outputs.run_small_packages }}
       small_packages_with_shards: ${{ steps.check_packages_and_shards.outputs.small_packages_with_shards }}
       run_stacks_signer: ${{ steps.check_packages_and_shards.outputs.run_stacks_signer }}
+      too_many_mutants: ${{ steps.check_packages_and_shards.outputs.too_many_mutants }}
 
     steps:
       - id: check_packages_and_shards
         uses: stacks-network/actions/stacks-core/mutation-testing/check-packages-and-shards@main
+        with:
+          ignore_timeout: ${{ needs.check-access-permissions.outputs.ignore_timeout }}
 
   # Mutation testing - Execute on PR on small packages that have functions modified (normal run, no shards)
   pr-differences-mutants-small-normal:
@@ -220,3 +241,4 @@ jobs:
           small_packages: ${{ needs.check-big-packages-and-shards.outputs.run_small_packages }}
           shards_for_small_packages: ${{ needs.check-big-packages-and-shards.outputs.small_packages_with_shards }}
           stacks_signer: ${{ needs.check-big-packages-and-shards.outputs.run_stacks_signer }}
+          too_many_mutants: ${{ needs.check-big-packages-and-shards.outputs.too_many_mutants }}
