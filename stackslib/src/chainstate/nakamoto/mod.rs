@@ -271,15 +271,14 @@ lazy_static! {
 }
 
 #[cfg(test)]
-mod test_stall {
-    pub static TEST_PROCESS_BLOCK_STALL: std::sync::Mutex<Option<bool>> =
-        std::sync::Mutex::new(None);
+mod fault_injection {
+    static PROCESS_BLOCK_STALL: std::sync::Mutex<bool> = std::sync::Mutex::new(false);
 
     pub fn stall_block_processing() {
-        if *TEST_PROCESS_BLOCK_STALL.lock().unwrap() == Some(true) {
+        if *PROCESS_BLOCK_STALL.lock().unwrap() {
             // Do an extra check just so we don't log EVERY time.
             warn!("Block processing is stalled due to testing directive.");
-            while *TEST_PROCESS_BLOCK_STALL.lock().unwrap() == Some(true) {
+            while *PROCESS_BLOCK_STALL.lock().unwrap() {
                 std::thread::sleep(std::time::Duration::from_millis(10));
             }
             info!("Block processing is no longer stalled due to testing directive.");
@@ -287,11 +286,11 @@ mod test_stall {
     }
 
     pub fn enable_process_block_stall() {
-        TEST_PROCESS_BLOCK_STALL.lock().unwrap().replace(true);
+        *PROCESS_BLOCK_STALL.lock().unwrap() = true;
     }
 
     pub fn disable_process_block_stall() {
-        TEST_PROCESS_BLOCK_STALL.lock().unwrap().replace(false);
+        *PROCESS_BLOCK_STALL.lock().unwrap() = false;
     }
 }
 
@@ -1758,7 +1757,7 @@ impl NakamotoChainState {
         dispatcher_opt: Option<&'a T>,
     ) -> Result<Option<StacksEpochReceipt>, ChainstateError> {
         #[cfg(test)]
-        test_stall::stall_block_processing();
+        fault_injection::stall_block_processing();
 
         let nakamoto_blocks_db = stacks_chain_state.nakamoto_blocks_db();
         let Some((next_ready_block, block_size)) =
@@ -2065,6 +2064,12 @@ impl NakamotoChainState {
                 panic!()
             });
 
+        info!(
+            "Advanced to new tip! {}/{}",
+            &receipt.header.consensus_hash,
+            &receipt.header.anchored_header.block_hash()
+        );
+
         // announce the block, if we're connected to an event dispatcher
         if let Some(dispatcher) = dispatcher_opt {
             let block_event = (
@@ -2297,7 +2302,14 @@ impl NakamotoChainState {
                    "signing_weight" => signing_weight);
             true
         } else {
-            debug!("Will not store alternative copy of block {} ({}) with block hash {}, since it has less signing power", &block_id, &block.header.consensus_hash, &block_hash);
+            if existing_signing_weight > signing_weight {
+                debug!("Will not store alternative copy of block {} ({}) with block hash {}, since it has less signing power", &block_id, &block.header.consensus_hash, &block_hash);
+            } else {
+                debug!(
+                    "Will not store duplicate copy of block {} ({}) with block hash {}",
+                    &block_id, &block.header.consensus_hash, &block_hash
+                );
+            }
             false
         };
 
@@ -3023,7 +3035,6 @@ impl NakamotoChainState {
         );
 
         let parent_hash = new_tip.parent_block_id.clone();
-        let new_block_hash = new_tip.block_hash();
         let index_block_hash = new_tip.block_id();
 
         let mut marf_keys = vec![];
@@ -3215,10 +3226,6 @@ impl NakamotoChainState {
             headers_tx.deref_mut().execute(sql, args)?;
         }
 
-        debug!(
-            "Advanced to new tip! {}/{}",
-            &new_tip.consensus_hash, new_block_hash,
-        );
         Ok(new_tip_info)
     }
 
