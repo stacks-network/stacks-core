@@ -1926,17 +1926,13 @@ fn end_of_tenure() {
 
     // give the system a chance to mine a Nakamoto block
     // But it doesn't have to mine one for this test to succeed?
-    let start = Instant::now();
-    while start.elapsed() <= short_timeout {
+    wait_for(short_timeout.as_secs(), || {
         let mined_blocks = signer_test
             .running_nodes
             .nakamoto_blocks_mined
             .load(Ordering::SeqCst);
-        if mined_blocks > blocks_before {
-            break;
-        }
-        sleep_ms(100);
-    }
+        Ok(mined_blocks > blocks_before)
+    });
 
     info!("------------------------- Test Mine to Next Reward Cycle Boundary  -------------------------");
     signer_test.run_until_burnchain_height_nakamoto(
@@ -1957,10 +1953,7 @@ fn end_of_tenure() {
         .running_nodes
         .nakamoto_blocks_proposed
         .load(Ordering::SeqCst);
-    let blocks_before = signer_test
-        .running_nodes
-        .nakamoto_blocks_mined
-        .load(Ordering::SeqCst);
+    let blocks_before = get_chain_info(&signer_test.running_nodes.conf).stacks_tip_height;
 
     let info = get_chain_info(&signer_test.running_nodes.conf);
     let start_height = info.stacks_tip_height;
@@ -2020,29 +2013,18 @@ fn end_of_tenure() {
     info!("Block proposed and burn blocks consumed. Verifying that stacks block is still not processed");
 
     assert_eq!(
-        signer_test
-            .running_nodes
-            .nakamoto_blocks_mined
-            .load(Ordering::SeqCst),
+        get_chain_info(&signer_test.running_nodes.conf).stacks_tip_height,
         blocks_before
     );
 
     info!("Unpausing block validation and waiting for block to be processed");
     // Disable the stall and wait for the block to be processed
     TEST_VALIDATE_STALL.lock().unwrap().replace(false);
-    let start_time = Instant::now();
-    while signer_test
-        .running_nodes
-        .nakamoto_blocks_mined
-        .load(Ordering::SeqCst)
-        <= blocks_before
-    {
-        assert!(
-            start_time.elapsed() <= short_timeout,
-            "Timed out waiting for block to be mined"
-        );
-        std::thread::sleep(Duration::from_millis(100));
-    }
+    wait_for(short_timeout.as_secs(), || {
+        let processed_now = get_chain_info(&signer_test.running_nodes.conf).stacks_tip_height;
+        Ok(processed_now > blocks_before)
+    })
+    .expect("Timed out waiting for block to be mined");
 
     let info = get_chain_info(&signer_test.running_nodes.conf);
     assert_eq!(info.stacks_tip_height, start_height + 1);
