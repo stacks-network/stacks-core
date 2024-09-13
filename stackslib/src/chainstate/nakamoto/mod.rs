@@ -271,15 +271,14 @@ lazy_static! {
 }
 
 #[cfg(test)]
-mod test_stall {
-    pub static TEST_PROCESS_BLOCK_STALL: std::sync::Mutex<Option<bool>> =
-        std::sync::Mutex::new(None);
+mod fault_injection {
+    static PROCESS_BLOCK_STALL: std::sync::Mutex<bool> = std::sync::Mutex::new(false);
 
     pub fn stall_block_processing() {
-        if *TEST_PROCESS_BLOCK_STALL.lock().unwrap() == Some(true) {
+        if *PROCESS_BLOCK_STALL.lock().unwrap() {
             // Do an extra check just so we don't log EVERY time.
             warn!("Block processing is stalled due to testing directive.");
-            while *TEST_PROCESS_BLOCK_STALL.lock().unwrap() == Some(true) {
+            while *PROCESS_BLOCK_STALL.lock().unwrap() {
                 std::thread::sleep(std::time::Duration::from_millis(10));
             }
             info!("Block processing is no longer stalled due to testing directive.");
@@ -287,11 +286,11 @@ mod test_stall {
     }
 
     pub fn enable_process_block_stall() {
-        TEST_PROCESS_BLOCK_STALL.lock().unwrap().replace(true);
+        *PROCESS_BLOCK_STALL.lock().unwrap() = true;
     }
 
     pub fn disable_process_block_stall() {
-        TEST_PROCESS_BLOCK_STALL.lock().unwrap().replace(false);
+        *PROCESS_BLOCK_STALL.lock().unwrap() = false;
     }
 }
 
@@ -1758,7 +1757,7 @@ impl NakamotoChainState {
         dispatcher_opt: Option<&'a T>,
     ) -> Result<Option<StacksEpochReceipt>, ChainstateError> {
         #[cfg(test)]
-        test_stall::stall_block_processing();
+        fault_injection::stall_block_processing();
 
         let nakamoto_blocks_db = stacks_chain_state.nakamoto_blocks_db();
         let Some((next_ready_block, block_size)) =

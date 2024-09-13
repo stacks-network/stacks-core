@@ -41,10 +41,10 @@ use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandle};
 use crate::chainstate::burn::operations::{BlockstackOperationType, LeaderBlockCommitOp};
 use crate::chainstate::coordinator::tests::{p2pkh_from, pox_addr_from};
 use crate::chainstate::nakamoto::coordinator::load_nakamoto_reward_set;
+use crate::chainstate::nakamoto::fault_injection::*;
 use crate::chainstate::nakamoto::miner::NakamotoBlockBuilder;
 use crate::chainstate::nakamoto::signer_set::NakamotoSigners;
 use crate::chainstate::nakamoto::test_signers::TestSigners;
-use crate::chainstate::nakamoto::test_stall::*;
 use crate::chainstate::nakamoto::tests::get_account;
 use crate::chainstate::nakamoto::tests::node::TestStacker;
 use crate::chainstate::nakamoto::{
@@ -341,7 +341,7 @@ fn replay_reward_cycle(
         .unwrap_or(BlockAcceptResponse::Rejected(
             "encountered error on acceptance".into(),
         ));
-        if matches!(BlockAcceptResponse::Accepted, accepted) {
+        if accepted.is_accepted() {
             test_debug!("Accepted Nakamoto block {block_id}");
             peer.coord.handle_new_nakamoto_stacks_block().unwrap();
         } else {
