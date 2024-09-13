@@ -17,7 +17,7 @@ use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Receiver;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use hashbrown::{HashMap, HashSet};
 use libsigner::v0::messages::{BlockResponse, MinerSlotID, SignerMessage as SignerMessageV0};
@@ -78,7 +78,6 @@ pub struct SignCoordinator {
     signer_entries: HashMap<u32, NakamotoSignerEntry>,
     weight_threshold: u32,
     total_weight: u32,
-    config: Config,
     keep_running: Arc<AtomicBool>,
     pub next_signer_bitvec: BitVec<4000>,
 }
@@ -310,7 +309,6 @@ impl SignCoordinator {
                     signer_entries: signer_public_keys,
                     weight_threshold: threshold,
                     total_weight,
-                    config: config.clone(),
                     keep_running,
                 };
                 return Ok(sign_coordinator);
@@ -333,7 +331,6 @@ impl SignCoordinator {
             signer_entries: signer_public_keys,
             weight_threshold: threshold,
             total_weight,
-            config: config.clone(),
             keep_running,
         })
     }
@@ -752,8 +749,6 @@ impl SignCoordinator {
             "threshold" => self.weight_threshold,
         );
 
-        let mut new_burn_tip_ts = None;
-
         loop {
             // look in the nakamoto staging db -- a block can only get stored there if it has
             // enough signing weight to clear the threshold
@@ -774,16 +769,9 @@ impl SignCoordinator {
                 return Ok(stored_block.header.signer_signature);
             }
 
-            if new_burn_tip_ts.is_none() {
-                if Self::check_burn_tip_changed(&sortdb, &burn_tip.consensus_hash) {
-                    new_burn_tip_ts = Some(Instant::now());
-                }
-            }
-            if let Some(ref new_burn_tip_ts) = new_burn_tip_ts.as_ref() {
-                if new_burn_tip_ts.elapsed() >= self.config.miner.wait_on_interim_blocks {
-                    debug!("SignCoordinator: Exiting due to new burnchain tip");
-                    return Err(NakamotoNodeError::BurnchainTipChanged);
-                }
+            if Self::check_burn_tip_changed(&sortdb, &burn_tip.consensus_hash) {
+                debug!("SignCoordinator: Exiting due to new burnchain tip");
+                return Err(NakamotoNodeError::BurnchainTipChanged);
             }
 
             // one of two things can happen:

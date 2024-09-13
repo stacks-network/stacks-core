@@ -272,7 +272,10 @@ impl BlockInfo {
                 matches!(prev_state, BlockState::Unprocessed)
             }
             BlockState::LocallyAccepted => {
-                matches!(prev_state, BlockState::Unprocessed)
+                matches!(
+                    prev_state,
+                    BlockState::Unprocessed | BlockState::LocallyAccepted
+                )
             }
             BlockState::LocallyRejected => {
                 matches!(prev_state, BlockState::Unprocessed)
