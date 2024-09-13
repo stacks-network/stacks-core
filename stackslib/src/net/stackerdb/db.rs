@@ -274,6 +274,8 @@ impl<'a> StackerDBTx<'a> {
                 slot_id += 1;
             }
         }
+        // Delete any remaining unused slots
+        self.delete_trailing_slots(smart_contract, slot_id)?;
 
         Ok(())
     }
@@ -312,6 +314,7 @@ impl<'a> StackerDBTx<'a> {
                         "Slot count exceeeds u32::MAX".to_string(),
                     ))?;
             let slots_before_principal = total_slots_read - slot_count;
+            let mut last_slot_id = 0;
             for cur_principal_slot in 0..*slot_count {
                 let slot_id = slots_before_principal + cur_principal_slot;
                 if let Some(existing_validation) =
@@ -341,8 +344,25 @@ impl<'a> StackerDBTx<'a> {
                 ];
 
                 stmt.execute(args)?;
+                last_slot_id = slot_id;
             }
+            // Delete any remaining unused slots
+            self.delete_trailing_slots(smart_contract, last_slot_id)?;
         }
+        Ok(())
+    }
+
+    /// Delete slots from the chunks table equal to and greater than the provided slot_id
+    pub fn delete_trailing_slots(
+        &self,
+        smart_contract: &QualifiedContractIdentifier,
+        slot_id: u32,
+    ) -> Result<(), net_error> {
+        let stackerdb_id = self.get_stackerdb_id(smart_contract)?;
+        let qry = "DELETE FROM chunks WHERE stackerdb_id = ?1 AND slot_id >= ?2";
+        let args = params![stackerdb_id, slot_id];
+        let mut stmt = self.sql_tx.prepare(&qry)?;
+        stmt.execute(args)?;
         Ok(())
     }
 

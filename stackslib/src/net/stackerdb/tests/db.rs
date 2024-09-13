@@ -725,3 +725,62 @@ fn test_reconfigure_stackerdb() {
 }
 
 // TODO: max chunk size
+
+#[test]
+fn delete_trailing_slots() {
+    let path = "/tmp/test_delete_trailing_slots.sqlite";
+    setup_test_path(path);
+
+    let sc = QualifiedContractIdentifier::new(
+        StacksAddress {
+            version: 0x01,
+            bytes: Hash160([0x01; 20]),
+        }
+        .into(),
+        ContractName::try_from("db1").unwrap(),
+    );
+
+    let mut db = StackerDBs::connect(path, true).unwrap();
+
+    let mut db_config = StackerDBConfig::noop();
+    db_config.max_writes = 3;
+    db_config.write_freq = 120;
+
+    let tx = db.tx_begin(db_config.clone()).unwrap();
+
+    let pks: Vec<_> = (0..10).map(|_| StacksPrivateKey::new()).collect();
+    let addrs: Vec<_> = pks
+        .iter()
+        .map(|pk| {
+            StacksAddress::from_public_keys(
+                C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
+                &AddressHashMode::SerializeP2PKH,
+                1,
+                &vec![StacksPublicKey::from_private(&pk)],
+            )
+            .unwrap()
+        })
+        .collect();
+
+    tx.create_stackerdb(
+        &sc,
+        &addrs
+            .clone()
+            .into_iter()
+            .map(|addr| (addr, 1))
+            .collect::<Vec<_>>(),
+    )
+    .unwrap();
+
+    tx.commit().unwrap();
+
+    let nmb_slots = db.get_db_slot_metadata(&sc).unwrap().len();
+    assert_eq!(nmb_slots, 10);
+
+    let tx = db.tx_begin(db_config.clone()).unwrap();
+    tx.delete_trailing_slots(&sc, 4).unwrap();
+    tx.commit().unwrap();
+
+    let nmb_slots = db.get_db_slot_metadata(&sc).unwrap().len();
+    assert_eq!(nmb_slots, 4);
+}
