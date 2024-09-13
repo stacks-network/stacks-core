@@ -3582,7 +3582,6 @@ fn partial_tenure_fork() {
     let node_2_p2p = 51025;
 
     let node_1_rpc_bind = format!("127.0.0.1:{}", node_1_rpc);
-    let node_2_rpc_bind = format!("127.0.0.1:{}", node_2_rpc);
 
     // All signers are listening to node 1
     let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
@@ -3644,12 +3643,13 @@ fn partial_tenure_fork() {
         naka_proposed_blocks: blocks_proposed2,
         ..
     } = run_loop_2.counters();
+
+    signer_test.boot_to_epoch_3();
     let _run_loop_2_thread = thread::Builder::new()
         .name("run_loop_2".into())
         .spawn(move || run_loop_2.start(None, 0))
         .unwrap();
 
-    signer_test.boot_to_epoch_3();
     let pre_nakamoto_peer_1_height = get_chain_info(&conf).stacks_tip_height;
 
     wait_for(120, || {
