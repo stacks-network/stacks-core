@@ -697,8 +697,8 @@ impl StacksClient {
     ///   was rejected.
     pub fn post_block(&self, block: &NakamotoBlock) -> Result<bool, ClientError> {
         debug!("stacks_node_client: Posting block to the stacks node...";
-            "block_id" => block.header.block_id(),
-            "block_height" => block.header.chain_length,
+            "block_id" => %block.header.block_id(),
+            "block_height" => %block.header.chain_length,
         );
         let response = self
             .stacks_node_client
