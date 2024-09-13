@@ -72,8 +72,8 @@ use crate::tests::nakamoto_integrations::{
     wait_for, POX_4_DEFAULT_STACKER_BALANCE, POX_4_DEFAULT_STACKER_STX_AMT,
 };
 use crate::tests::neon_integrations::{
-    get_account, get_chain_info, next_block_and_wait, run_until_burnchain_height, submit_tx,
-    submit_tx_fallible, test_observer,
+    get_account, get_chain_info, get_chain_info_opt, next_block_and_wait,
+    run_until_burnchain_height, submit_tx, submit_tx_fallible, test_observer,
 };
 use crate::tests::{self, make_stacks_transfer};
 use crate::{nakamoto_node, BurnchainController, Config, Keychain};
@@ -1948,7 +1948,8 @@ fn end_of_tenure() {
             .nakamoto_blocks_mined
             .load(Ordering::SeqCst);
         Ok(mined_blocks > blocks_before)
-    });
+    })
+    .unwrap();
 
     info!("------------------------- Test Mine to Next Reward Cycle Boundary  -------------------------");
     signer_test.run_until_burnchain_height_nakamoto(
@@ -3591,12 +3592,7 @@ fn partial_tenure_fork() {
             (send_amt + send_fee) * max_nakamoto_tenures * inter_blocks_per_tenure,
         )],
         |signer_config| {
-            let node_host = if signer_config.endpoint.port() % 2 == 0 {
-                &node_1_rpc_bind
-            } else {
-                &node_2_rpc_bind
-            };
-            signer_config.node_host = node_host.to_string();
+            signer_config.node_host = node_1_rpc_bind.clone();
         },
         |config| {
             let localhost = "127.0.0.1";
@@ -3656,6 +3652,17 @@ fn partial_tenure_fork() {
     signer_test.boot_to_epoch_3();
     let pre_nakamoto_peer_1_height = get_chain_info(&conf).stacks_tip_height;
 
+    wait_for(120, || {
+        let Some(node_1_info) = get_chain_info_opt(&conf) else {
+            return Ok(false);
+        };
+        let Some(node_2_info) = get_chain_info_opt(&conf_node_2) else {
+            return Ok(false);
+        };
+        Ok(node_1_info.stacks_tip_height == node_2_info.stacks_tip_height)
+    })
+    .expect("Timed out waiting for follower to catch up to the miner");
+
     info!("------------------------- Reached Epoch 3.0 -------------------------");
 
     // due to the random nature of mining sortitions, the way this test is structured
@@ -3680,8 +3687,26 @@ fn partial_tenure_fork() {
         let mined_before_1 = blocks_mined1.load(Ordering::SeqCst);
         let mined_before_2 = blocks_mined2.load(Ordering::SeqCst);
         let proposed_before_2 = blocks_proposed2.load(Ordering::SeqCst);
+        let proposed_before_1 = signer_test
+            .running_nodes
+            .nakamoto_blocks_proposed
+            .load(Ordering::SeqCst);
 
         sleep_ms(1000);
+
+        info!(
+            "Next tenure checking";
+            "fork_initiated?" => fork_initiated,
+            "miner_1_tenures" => miner_1_tenures,
+            "miner_2_tenures" => miner_2_tenures,
+            "min_miner_1_tenures" => min_miner_2_tenures,
+            "min_miner_2_tenures" => min_miner_2_tenures,
+            "proposed_before_1" => proposed_before_1,
+            "proposed_before_2" => proposed_before_2,
+            "mined_before_1" => mined_before_1,
+            "mined_before_2" => mined_before_2,
+        );
+
         next_block_and(
             &mut signer_test.running_nodes.btc_regtest_controller,
             60,
@@ -3695,7 +3720,32 @@ fn partial_tenure_fork() {
                     || mined_2 > mined_before_2)
             },
         )
-        .unwrap();
+        .unwrap_or_else(|_| {
+            let mined_1 = blocks_mined1.load(Ordering::SeqCst);
+            let mined_2 = blocks_mined2.load(Ordering::SeqCst);
+            let proposed_1 = signer_test
+                .running_nodes
+                .nakamoto_blocks_proposed
+                .load(Ordering::SeqCst);
+            let proposed_2 = blocks_proposed2.load(Ordering::SeqCst);
+            error!(
+                "Next tenure failed to tick";
+                "fork_initiated?" => fork_initiated,
+                "miner_1_tenures" => miner_1_tenures,
+                "miner_2_tenures" => miner_2_tenures,
+                "min_miner_1_tenures" => min_miner_2_tenures,
+                "min_miner_2_tenures" => min_miner_2_tenures,
+                "proposed_before_1" => proposed_before_1,
+                "proposed_before_2" => proposed_before_2,
+                "mined_before_1" => mined_before_1,
+                "mined_before_2" => mined_before_2,
+                "mined_1" => mined_1,
+                "mined_2" => mined_2,
+                "proposed_1" => proposed_1,
+                "proposed_2" => proposed_2,
+            );
+            panic!();
+        });
         btc_blocks_mined += 1;
 
         let mined_1 = blocks_mined1.load(Ordering::SeqCst);
@@ -3720,11 +3770,22 @@ fn partial_tenure_fork() {
         }
 
         // mine (or attempt to mine) the interim blocks
-        info!("Mining interim blocks");
         for interim_block_ix in 0..inter_blocks_per_tenure {
             let mined_before_1 = blocks_mined1.load(Ordering::SeqCst);
             let mined_before_2 = blocks_mined2.load(Ordering::SeqCst);
             let proposed_before_2 = blocks_proposed2.load(Ordering::SeqCst);
+
+            info!(
+                "Mining interim blocks";
+                "fork_initiated?" => fork_initiated,
+                "miner_1_tenures" => miner_1_tenures,
+                "miner_2_tenures" => miner_2_tenures,
+                "min_miner_1_tenures" => min_miner_2_tenures,
+                "min_miner_2_tenures" => min_miner_2_tenures,
+                "proposed_before_2" => proposed_before_2,
+                "mined_before_1" => mined_before_1,
+                "mined_before_2" => mined_before_2,
+            );
 
             // submit a tx so that the miner will mine an extra block
             let sender_nonce = (btc_blocks_mined - 1) * inter_blocks_per_tenure + interim_block_ix;
@@ -3743,7 +3804,32 @@ fn partial_tenure_fork() {
                             || mined_1 > mined_before_1
                             || mined_2 > mined_before_2)
                     })
-                    .unwrap();
+                    .unwrap_or_else(|_| {
+                        let mined_1 = blocks_mined1.load(Ordering::SeqCst);
+                        let mined_2 = blocks_mined2.load(Ordering::SeqCst);
+                        let proposed_1 = signer_test
+                            .running_nodes
+                            .nakamoto_blocks_proposed
+                            .load(Ordering::SeqCst);
+                        let proposed_2 = blocks_proposed2.load(Ordering::SeqCst);
+                        error!(
+                            "Next tenure failed to tick";
+                            "fork_initiated?" => fork_initiated,
+                            "miner_1_tenures" => miner_1_tenures,
+                            "miner_2_tenures" => miner_2_tenures,
+                            "min_miner_1_tenures" => min_miner_2_tenures,
+                            "min_miner_2_tenures" => min_miner_2_tenures,
+                            "proposed_before_1" => proposed_before_1,
+                            "proposed_before_2" => proposed_before_2,
+                            "mined_before_1" => mined_before_1,
+                            "mined_before_2" => mined_before_2,
+                            "mined_1" => mined_1,
+                            "mined_2" => mined_2,
+                            "proposed_1" => proposed_1,
+                            "proposed_2" => proposed_2,
+                        );
+                        panic!();
+                    });
                 }
                 Err(e) => {
                     if e.to_string().contains("TooMuchChaining") {
@@ -3766,8 +3852,8 @@ fn partial_tenure_fork() {
             miner_2_tenures += 1;
         }
         info!(
-            "Miner 1 tenures: {}, Miner 2 tenures: {}",
-            miner_1_tenures, miner_2_tenures
+            "Miner 1 tenures: {}, Miner 2 tenures: {}, Miner 1 before: {}, Miner 2 before: {}",
+            miner_1_tenures, miner_2_tenures, mined_before_1, mined_before_2,
         );
 
         let mined_1 = blocks_mined1.load(Ordering::SeqCst);
