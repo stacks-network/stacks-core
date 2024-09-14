@@ -311,6 +311,11 @@ impl SignerTest<SpawnedSigner> {
         let mut signer_index = 0;
         let mut signature_index = 0;
         let mut signing_keys = HashSet::new();
+        let start = Instant::now();
+        debug!(
+            "Validating {} signatures against {num_signers} signers",
+            signature.len()
+        );
         let validated = loop {
             // Since we've already checked `signature.len()`, this means we've
             //  validated all the signatures in this loop
@@ -341,6 +346,11 @@ impl SignerTest<SpawnedSigner> {
                 signer_index += 1;
                 signature_index += 1;
             }
+            // Shouldn't really ever timeout, but do this in case there is some sort of overflow/underflow happening.
+            assert!(
+                start.elapsed() < timeout,
+                "Timed out waiting to confirm block signatures"
+            );
         };
 
         assert!(validated);
