@@ -26,7 +26,6 @@ use libsigner::v0::messages::{
     BlockRejection, BlockResponse, MessageSlotID, MinerSlotID, RejectCode, SignerMessage,
 };
 use libsigner::{BlockProposal, SignerSession, StackerDBSession};
-use rand::RngCore;
 use stacks::address::AddressHashMode;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader, NakamotoChainState};
@@ -2850,11 +2849,8 @@ fn signer_set_rollover() {
     initial_balances.push((sender_addr.clone(), (send_amt + send_fee) * 4));
 
     let run_stamp = rand::random();
-    let mut rng = rand::thread_rng();
 
-    let mut buf = [0u8; 2];
-    rng.fill_bytes(&mut buf);
-    let rpc_port = u16::from_be_bytes(buf.try_into().unwrap()).saturating_add(1025) - 1; // use a non-privileged port between 1024 and 65534
+    let rpc_port = 51024;
     let rpc_bind = format!("127.0.0.1:{}", rpc_port);
 
     // Setup the new signers that will take over
