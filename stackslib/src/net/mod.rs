@@ -1571,7 +1571,9 @@ impl NetworkResult {
     }
 
     pub fn has_nakamoto_blocks(&self) -> bool {
-        self.nakamoto_blocks.len() > 0 || self.pushed_nakamoto_blocks.len() > 0
+        self.nakamoto_blocks.len() > 0
+            || self.pushed_nakamoto_blocks.len() > 0
+            || self.uploaded_nakamoto_blocks.len() > 0
     }
 
     pub fn has_transactions(&self) -> bool {

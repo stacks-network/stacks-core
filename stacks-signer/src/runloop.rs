@@ -335,7 +335,6 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
             max_tx_fee_ustx: self.config.max_tx_fee_ustx,
             db_path: self.config.db_path.clone(),
             block_proposal_timeout: self.config.block_proposal_timeout,
-            broadcast_signed_blocks: self.config.broadcast_signed_blocks,
         }))
     }
 
@@ -433,10 +432,10 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
         if !Self::is_configured_for_cycle(&self.stacks_signers, current_reward_cycle) {
             self.refresh_signer_config(current_reward_cycle);
         }
-        if is_in_next_prepare_phase {
-            if !Self::is_configured_for_cycle(&self.stacks_signers, next_reward_cycle) {
-                self.refresh_signer_config(next_reward_cycle);
-            }
+        if is_in_next_prepare_phase
+            && !Self::is_configured_for_cycle(&self.stacks_signers, next_reward_cycle)
+        {
+            self.refresh_signer_config(next_reward_cycle);
         }
 
         self.cleanup_stale_signers(current_reward_cycle);
@@ -479,7 +478,9 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
                 std::cmp::Ordering::Equal => {
                     // We are the next reward cycle, so check if we were registered and have any pending blocks to process
                     match signer {
-                        ConfiguredSigner::RegisteredSigner(signer) => !signer.has_pending_blocks(),
+                        ConfiguredSigner::RegisteredSigner(signer) => {
+                            !signer.has_unprocessed_blocks()
+                        }
                         _ => true,
                     }
                 }

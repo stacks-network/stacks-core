@@ -234,7 +234,9 @@ mod tests {
 
     use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
     use clarity::util::hash::{MerkleTree, Sha512Trunc256Sum};
+    use clarity::util::secp256k1::MessageSignature;
     use libsigner::v0::messages::{BlockRejection, BlockResponse, RejectCode, SignerMessage};
+    use rand::{thread_rng, RngCore};
 
     use super::*;
     use crate::client::tests::{generate_signer_config, mock_server_from_config, write_response};
@@ -278,6 +280,8 @@ mod tests {
             reason: "Did not like it".into(),
             reason_code: RejectCode::RejectedInPriorRound,
             signer_signature_hash: block.header.signer_signature_hash(),
+            chain_id: thread_rng().next_u32(),
+            signature: MessageSignature::empty(),
         };
         let signer_message = SignerMessage::BlockResponse(BlockResponse::Rejected(block_reject));
         let ack = StackerDBChunkAckData {
