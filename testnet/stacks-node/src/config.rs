@@ -1440,6 +1440,9 @@ pub struct BurnchainConfig {
     pub wallet_name: String,
     pub ast_precheck_size_height: Option<u64>,
     pub affirmation_overrides: HashMap<u64, AffirmationMap>,
+    /// fault injection to simulate a slow burnchain peer.
+    /// Delay burnchain block downloads by the given number of millseconds
+    pub fault_injection_burnchain_block_delay: u64,
 }
 
 impl BurnchainConfig {
@@ -1479,6 +1482,7 @@ impl BurnchainConfig {
             wallet_name: "".to_string(),
             ast_precheck_size_height: None,
             affirmation_overrides: HashMap::new(),
+            fault_injection_burnchain_block_delay: 0,
         }
     }
     pub fn get_rpc_url(&self, wallet: Option<String>) -> String {
@@ -1573,6 +1577,7 @@ pub struct BurnchainConfigFile {
     pub wallet_name: Option<String>,
     pub ast_precheck_size_height: Option<u64>,
     pub affirmation_overrides: Option<Vec<AffirmationOverride>>,
+    pub fault_injection_burnchain_block_delay: Option<u64>,
 }
 
 impl BurnchainConfigFile {
@@ -1785,6 +1790,9 @@ impl BurnchainConfigFile {
                 .pox_prepare_length
                 .or(default_burnchain_config.pox_prepare_length),
             affirmation_overrides,
+            fault_injection_burnchain_block_delay: self
+                .fault_injection_burnchain_block_delay
+                .unwrap_or(default_burnchain_config.fault_injection_burnchain_block_delay),
         };
 
         if let BitcoinNetworkType::Mainnet = config.get_bitcoin_network().1 {
@@ -2355,8 +2363,6 @@ pub struct MinerConfig {
     /// When selecting the "nicest" tip, do not consider tips that are more than this many blocks
     /// behind the highest tip.
     pub max_reorg_depth: u64,
-    /// Amount of time while mining in nakamoto to wait for signers to respond to a proposed block
-    pub wait_on_signers: Duration,
     /// Whether to mock sign in Epoch 2.5 through the .miners and .signers contracts. This is used for testing purposes in Epoch 2.5 only.
     pub pre_nakamoto_mock_signing: bool,
     /// The minimum time to wait between mining blocks in milliseconds. The value must be greater than or equal to 1000 ms because if a block is mined
@@ -2390,8 +2396,6 @@ impl Default for MinerConfig {
             txs_to_consider: MemPoolWalkTxTypes::all(),
             filter_origins: HashSet::new(),
             max_reorg_depth: 3,
-            // TODO: update to a sane value based on stackerdb benchmarking
-            wait_on_signers: Duration::from_secs(200),
             pre_nakamoto_mock_signing: false, // Should only default true if mining key is set
             min_time_between_blocks_ms: DEFAULT_MIN_TIME_BETWEEN_BLOCKS_MS,
         }
@@ -2742,7 +2746,6 @@ pub struct MinerConfigFile {
     pub txs_to_consider: Option<String>,
     pub filter_origins: Option<String>,
     pub max_reorg_depth: Option<u64>,
-    pub wait_on_signers_ms: Option<u64>,
     pub pre_nakamoto_mock_signing: Option<bool>,
     pub min_time_between_blocks_ms: Option<u64>,
 }
@@ -2849,10 +2852,6 @@ impl MinerConfigFile {
             max_reorg_depth: self
                 .max_reorg_depth
                 .unwrap_or(miner_default_config.max_reorg_depth),
-            wait_on_signers: self
-                .wait_on_signers_ms
-                .map(Duration::from_millis)
-                .unwrap_or(miner_default_config.wait_on_signers),
             pre_nakamoto_mock_signing: self
                 .pre_nakamoto_mock_signing
                 .unwrap_or(pre_nakamoto_mock_signing), // Should only default true if mining key is set

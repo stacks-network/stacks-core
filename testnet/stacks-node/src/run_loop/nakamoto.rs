@@ -33,6 +33,7 @@ use stacks::core::StacksEpochId;
 use stacks::net::atlas::{AtlasConfig, AtlasDB, Attachment};
 use stacks_common::types::PublicKey;
 use stacks_common::util::hash::Hash160;
+use stacks_common::util::{get_epoch_time_secs, sleep_ms};
 use stx_genesis::GenesisData;
 
 use crate::burnchains::make_bitcoin_indexer;
@@ -530,6 +531,7 @@ impl RunLoop {
         );
 
         let mut last_tenure_sortition_height = 0;
+        let mut poll_deadline = 0;
 
         loop {
             if !globals.keep_running() {
@@ -588,6 +590,12 @@ impl RunLoop {
                 if !globals.keep_running() {
                     break;
                 }
+
+                if poll_deadline > get_epoch_time_secs() {
+                    sleep_ms(1_000);
+                    continue;
+                }
+                poll_deadline = get_epoch_time_secs() + self.config().burnchain.poll_time_secs;
 
                 let (next_burnchain_tip, tip_burnchain_height) =
                     match burnchain.sync(Some(target_burnchain_block_height)) {

@@ -179,10 +179,18 @@ impl RPCRequestHandler for RPCPostBlockRequestHandler {
             });
 
         let data_resp = match response {
-            Ok(accepted) => StacksBlockAcceptedData {
-                accepted,
-                stacks_block_id: block.block_id(),
-            },
+            Ok(accepted) => {
+                debug!(
+                    "Received POSTed Nakamoto block {}/{}: {:?}",
+                    &block.header.consensus_hash,
+                    &block.header.block_hash(),
+                    &accepted
+                );
+                StacksBlockAcceptedData {
+                    accepted: accepted.is_accepted(),
+                    stacks_block_id: block.block_id(),
+                }
+            }
             Err(e) => {
                 return e.try_into_contents().map_err(NetError::from);
             }
