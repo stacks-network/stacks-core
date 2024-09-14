@@ -421,7 +421,9 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
             "reward_cycle_before_refresh" => reward_cycle_before_refresh,
             "current_reward_cycle" => current_reward_cycle,
             "configured_for_current" => Self::is_configured_for_cycle(&self.stacks_signers, current_reward_cycle),
+            "registered_for_current" => Self::is_registered_for_cycle(&self.stacks_signers, current_reward_cycle),
             "configured_for_next" => Self::is_configured_for_cycle(&self.stacks_signers, next_reward_cycle),
+            "registered_for_next" => Self::is_registered_for_cycle(&self.stacks_signers, next_reward_cycle),
             "is_in_next_prepare_phase" => is_in_next_prepare_phase,
         );
 
@@ -454,6 +456,17 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
             return false;
         };
         signer.reward_cycle() == reward_cycle
+    }
+
+    fn is_registered_for_cycle(
+        stacks_signers: &HashMap<u64, ConfiguredSigner<Signer, T>>,
+        reward_cycle: u64,
+    ) -> bool {
+        let Some(signer) = stacks_signers.get(&(reward_cycle % 2)) else {
+            return false;
+        };
+        signer.reward_cycle() == reward_cycle
+            && matches!(signer, ConfiguredSigner::RegisteredSigner(_))
     }
 
     fn cleanup_stale_signers(&mut self, current_reward_cycle: u64) {
