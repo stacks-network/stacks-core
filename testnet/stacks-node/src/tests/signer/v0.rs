@@ -3127,11 +3127,6 @@ fn min_gap_between_blocks() {
 
     signer_test.boot_to_epoch_3();
 
-    let blocks_before = signer_test
-        .running_nodes
-        .nakamoto_blocks_mined
-        .load(Ordering::SeqCst);
-
     info!("Ensure that the first Nakamoto block is mined after the gap is exceeded");
     let blocks = get_nakamoto_headers(&signer_test.running_nodes.conf);
     assert_eq!(blocks.len(), 1);
@@ -3164,11 +3159,8 @@ fn min_gap_between_blocks() {
 
     info!("Submitted transfer tx and waiting for block to be processed. Ensure it does not arrive before the gap is exceeded");
     wait_for(60, || {
-        let blocks_processed = signer_test
-            .running_nodes
-            .nakamoto_blocks_mined
-            .load(Ordering::SeqCst);
-        Ok(blocks_processed > blocks_before)
+        let blocks = get_nakamoto_headers(&signer_test.running_nodes.conf);
+        Ok(blocks.len() >= 2)
     })
     .unwrap();
 
