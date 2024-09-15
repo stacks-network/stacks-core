@@ -27,7 +27,7 @@ use stacks_common::{info, warn};
 
 use crate::client::{ClientError, StacksClient};
 use crate::config::SignerConfig;
-use crate::signerdb::SignerDb;
+use crate::signerdb::{BlockState, SignerDb};
 
 #[derive(thiserror::Error, Debug)]
 /// Error type for the signer chainstate module
@@ -185,9 +185,10 @@ impl SortitionsView {
     pub fn check_proposal(
         &mut self,
         client: &StacksClient,
-        signer_db: &SignerDb,
+        signer_db: &mut SignerDb,
         block: &NakamotoBlock,
         block_pk: &StacksPublicKey,
+        reward_cycle: u64,
     ) -> Result<bool, SignerChainstateError> {
         if self
             .cur_sortition
@@ -288,42 +289,20 @@ impl SortitionsView {
         };
 
         if let Some(tenure_change) = block.get_tenure_change_tx_payload() {
-            // in tenure changes, we need to check:
-            // (1) if the tenure change confirms the expected parent block (i.e.,
-            //     the last block we signed in the parent tenure)
-            // (2) if the parent tenure was a valid choice
-            let confirms_expected_parent =
-                Self::check_tenure_change_block_confirmation(tenure_change, block, signer_db)?;
-            if !confirms_expected_parent {
-                return Ok(false);
-            }
-            // now, we have to check if the parent tenure was a valid choice.
-            let is_valid_parent_tenure = Self::check_parent_tenure_choice(
-                proposed_by.state(),
+            if !self.validate_tenure_change_payload(
+                &proposed_by,
+                tenure_change,
                 block,
+                reward_cycle,
                 signer_db,
                 client,
-                &self.config.first_proposal_burn_block_timing,
-            )?;
-            if !is_valid_parent_tenure {
-                return Ok(false);
-            }
-            let last_in_tenure = signer_db
-                .get_last_signed_block_in_tenure(&block.header.consensus_hash)
-                .map_err(|e| ClientError::InvalidResponse(e.to_string()))?;
-            if let Some(last_in_tenure) = last_in_tenure {
-                warn!(
-                    "Miner block proposal contains a tenure change, but we've already signed a block in this tenure. Considering proposal invalid.";
-                    "proposed_block_consensus_hash" => %block.header.consensus_hash,
-                    "proposed_block_signer_sighash" => %block.header.signer_signature_hash(),
-                    "last_in_tenure_signer_sighash" => %last_in_tenure.block.header.signer_signature_hash(),
-                );
+            )? {
                 return Ok(false);
             }
         } else {
             // check if the new block confirms the last block in the current tenure
             let confirms_latest_in_tenure =
-                Self::confirms_known_blocks_in(block, &block.header.consensus_hash, signer_db)?;
+                Self::confirms_latest_block_in_same_tenure(block, signer_db)?;
             if !confirms_latest_in_tenure {
                 return Ok(false);
             }
@@ -461,32 +440,146 @@ impl SortitionsView {
         Ok(true)
     }
 
-    fn check_tenure_change_block_confirmation(
+    /// Check if the tenure change block confirms the expected parent block (i.e., the last globally accepted block in the parent tenure)
+    /// It checks the local DB first, and if the block is not present in the local DB, it asks the
+    /// Stacks node for the highest processed block header in the given tenure (and then caches it
+    /// in the DB).
+    ///
+    /// The rationale here is that the signer DB can be out-of-sync with the node.  For example,
+    /// the signer may have been added to an already-running node.
+    fn check_tenure_change_confirms_parent(
         tenure_change: &TenureChangePayload,
         block: &NakamotoBlock,
-        signer_db: &SignerDb,
+        reward_cycle: u64,
+        signer_db: &mut SignerDb,
+        client: &StacksClient,
     ) -> Result<bool, ClientError> {
-        // in tenure changes, we need to check:
-        // (1) if the tenure change confirms the expected parent block (i.e.,
-        //     the last block we signed in the parent tenure)
-        // (2) if the parent tenure was a valid choice
-        Self::confirms_known_blocks_in(block, &tenure_change.prev_tenure_consensus_hash, signer_db)
+        // If the tenure change block confirms the expected parent block, it should confirm at least one more block than the last globally accepted block in the parent tenure.
+        let last_globally_accepted_block = signer_db
+            .get_last_globally_accepted_block(&tenure_change.prev_tenure_consensus_hash)
+            .map_err(|e| ClientError::InvalidResponse(e.to_string()))?;
+
+        if let Some(global_info) = last_globally_accepted_block {
+            // N.B. this block might not be the last globally accepted block across the network;
+            // it's just the highest one in this tenure that we know about.  If this given block is
+            // no higher than it, then it's definitely no higher than the last globally accepted
+            // block across the network, so we can do an early rejection here.
+            if block.header.chain_length <= global_info.block.header.chain_length {
+                warn!(
+                    "Miner's block proposal does not confirm as many blocks as we expect";
+                    "proposed_block_consensus_hash" => %block.header.consensus_hash,
+                    "proposed_block_signer_sighash" => %block.header.signer_signature_hash(),
+                    "proposed_chain_length" => block.header.chain_length,
+                    "expected_at_least" => global_info.block.header.chain_length + 1,
+                );
+                return Ok(false);
+            }
+        }
+
+        let tip = match client.get_tenure_tip(&tenure_change.prev_tenure_consensus_hash) {
+            Ok(tip) => tip,
+            Err(e) => {
+                warn!(
+                    "Miner block proposal contains a tenure change, but failed to fetch the tenure tip for the parent tenure: {e:?}. Considering proposal invalid.";
+                    "proposed_block_consensus_hash" => %block.header.consensus_hash,
+                    "proposed_block_signer_sighash" => %block.header.signer_signature_hash(),
+                    "parent_tenure" => %tenure_change.prev_tenure_consensus_hash,
+                );
+                return Ok(false);
+            }
+        };
+        if let Some(nakamoto_tip) = tip.as_stacks_nakamoto() {
+            // If we have seen this block already, make sure its state is updated to globally accepted.
+            // Otherwise, don't worry about it.
+            if let Ok(Some(mut block_info)) =
+                signer_db.block_lookup(reward_cycle, &nakamoto_tip.signer_signature_hash())
+            {
+                if block_info.state != BlockState::GloballyAccepted {
+                    if let Err(e) = block_info.mark_globally_accepted() {
+                        warn!("Failed to update block info in db: {e}");
+                    } else if let Err(e) = signer_db.insert_block(&block_info) {
+                        warn!("Failed to update block info in db: {e}");
+                    }
+                }
+            }
+        }
+        let tip_height = tip.height();
+        if block.header.chain_length > tip_height {
+            Ok(true)
+        } else {
+            warn!(
+                "Miner's block proposal does not confirm as many blocks as we expect";
+                "proposed_block_consensus_hash" => %block.header.consensus_hash,
+                "proposed_block_signer_sighash" => %block.header.signer_signature_hash(),
+                "proposed_chain_length" => block.header.chain_length,
+                "expected_at_least" => tip_height + 1,
+            );
+            Ok(false)
+        }
     }
 
-    fn confirms_known_blocks_in(
+    /// in tenure changes, we need to check:
+    /// (1) if the tenure change confirms the expected parent block (i.e.,
+    /// the last globally accepted block in the parent tenure)
+    /// (2) if the parent tenure was a valid choice
+    fn validate_tenure_change_payload(
+        &self,
+        proposed_by: &ProposedBy,
+        tenure_change: &TenureChangePayload,
         block: &NakamotoBlock,
-        tenure: &ConsensusHash,
+        reward_cycle: u64,
+        signer_db: &mut SignerDb,
+        client: &StacksClient,
+    ) -> Result<bool, SignerChainstateError> {
+        // Ensure that the tenure change block confirms the expected parent block
+        let confirms_expected_parent = Self::check_tenure_change_confirms_parent(
+            tenure_change,
+            block,
+            reward_cycle,
+            signer_db,
+            client,
+        )?;
+        if !confirms_expected_parent {
+            return Ok(false);
+        }
+        // now, we have to check if the parent tenure was a valid choice.
+        let is_valid_parent_tenure = Self::check_parent_tenure_choice(
+            proposed_by.state(),
+            block,
+            signer_db,
+            client,
+            &self.config.first_proposal_burn_block_timing,
+        )?;
+        if !is_valid_parent_tenure {
+            return Ok(false);
+        }
+        let last_in_tenure = signer_db
+            .get_last_globally_accepted_block(&block.header.consensus_hash)
+            .map_err(|e| ClientError::InvalidResponse(e.to_string()))?;
+        if let Some(last_in_tenure) = last_in_tenure {
+            warn!(
+                "Miner block proposal contains a tenure change, but we've already signed a block in this tenure. Considering proposal invalid.";
+                "proposed_block_consensus_hash" => %block.header.consensus_hash,
+                "proposed_block_signer_sighash" => %block.header.signer_signature_hash(),
+                "last_in_tenure_signer_sighash" => %last_in_tenure.block.header.signer_signature_hash(),
+            );
+            return Ok(false);
+        }
+        Ok(true)
+    }
+
+    fn confirms_latest_block_in_same_tenure(
+        block: &NakamotoBlock,
         signer_db: &SignerDb,
     ) -> Result<bool, ClientError> {
         let Some(last_known_block) = signer_db
-            .get_last_signed_block_in_tenure(tenure)
+            .get_last_accepted_block(&block.header.consensus_hash)
             .map_err(|e| ClientError::InvalidResponse(e.to_string()))?
         else {
             info!(
-                "Have not signed off on any blocks in the parent tenure, assuming block confirmation is correct";
+                "Have no accepted blocks in the tenure, assuming block confirmation is correct";
                 "proposed_block_consensus_hash" => %block.header.consensus_hash,
                 "proposed_block_signer_sighash" => %block.header.signer_signature_hash(),
-                "tenure" => %tenure,
             );
             return Ok(true);
         };

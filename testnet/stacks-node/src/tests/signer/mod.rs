@@ -114,15 +114,10 @@ pub struct SignerTest<S> {
 }
 
 impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<SpawnedSigner<S, T>> {
-    fn new(
-        num_signers: usize,
-        initial_balances: Vec<(StacksAddress, u64)>,
-        wait_on_signers: Option<Duration>,
-    ) -> Self {
+    fn new(num_signers: usize, initial_balances: Vec<(StacksAddress, u64)>) -> Self {
         Self::new_with_config_modifications(
             num_signers,
             initial_balances,
-            wait_on_signers,
             |_| {},
             |_| {},
             None,
@@ -136,7 +131,6 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
     >(
         num_signers: usize,
         initial_balances: Vec<(StacksAddress, u64)>,
-        wait_on_signers: Option<Duration>,
         mut signer_config_modifier: F,
         mut node_config_modifier: G,
         btc_miner_pubkeys: Option<Vec<Secp256k1PublicKey>>,
@@ -167,8 +161,6 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         // That's the kind of thing an idiot would have on his luggage!
         let password = "12345";
         naka_conf.connection_options.auth_token = Some(password.to_string());
-        naka_conf.miner.wait_on_signers =
-            wait_on_signers.unwrap_or_else(|| Duration::from_secs(10));
         let run_stamp = rand::random();
 
         // Setup the signer and coordinator configurations
