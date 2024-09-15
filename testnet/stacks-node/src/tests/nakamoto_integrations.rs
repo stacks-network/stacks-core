@@ -4174,6 +4174,7 @@ fn forked_tenure_is_ignored() {
     // It should also build on block A, since the node has paused processing of block B.
     let commits_before = commits_submitted.load(Ordering::SeqCst);
     let blocks_before = mined_blocks.load(Ordering::SeqCst);
+    let blocks_observed_before = test_observer::get_mined_nakamoto_blocks().len();
     let blocks_processed_before = coord_channel
         .lock()
         .expect("Mutex poisoned")
@@ -4197,6 +4198,14 @@ fn forked_tenure_is_ignored() {
     let block_tenure_c = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
         .unwrap()
         .unwrap();
+    let start = Instant::now();
+    while test_observer::get_mined_nakamoto_blocks().len() <= blocks_observed_before {
+        thread::sleep(Duration::from_secs(1));
+        assert!(
+            start.elapsed() < Duration::from_secs(30),
+            "FAIL: Test timed out while waiting to observe new mined nakamoto block",
+        );
+    }
     let blocks = test_observer::get_mined_nakamoto_blocks();
     let block_c = blocks.last().unwrap();
     info!("Tenure C tip block: {}", &block_tenure_c.index_block_hash());
@@ -4210,6 +4219,7 @@ fn forked_tenure_is_ignored() {
     );
 
     // Now let's produce a second block for tenure C and ensure it builds off of block C.
+    let blocks_observed_before = test_observer::get_mined_nakamoto_blocks().len();
     let blocks_before = mined_blocks.load(Ordering::SeqCst);
     let blocks_processed_before = coord_channel
         .lock()
@@ -4246,6 +4256,14 @@ fn forked_tenure_is_ignored() {
     let block_2_tenure_c = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
         .unwrap()
         .unwrap();
+    let start = Instant::now();
+    while test_observer::get_mined_nakamoto_blocks().len() <= blocks_observed_before {
+        thread::sleep(Duration::from_secs(1));
+        assert!(
+            start.elapsed() < Duration::from_secs(30),
+            "FAIL: Test timed out while waiting to observe new mined nakamoto block",
+        );
+    }
     let blocks = test_observer::get_mined_nakamoto_blocks();
     let block_2_c = blocks.last().unwrap();
 
@@ -4257,6 +4275,7 @@ fn forked_tenure_is_ignored() {
 
     info!("Starting tenure D.");
     // Submit a block commit op for tenure D and mine a stacks block
+    let blocks_observed_before = test_observer::get_mined_nakamoto_blocks().len();
     let commits_before = commits_submitted.load(Ordering::SeqCst);
     let blocks_before = mined_blocks.load(Ordering::SeqCst);
     let blocks_processed_before = coord_channel
@@ -4279,6 +4298,14 @@ fn forked_tenure_is_ignored() {
     let block_tenure_d = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
         .unwrap()
         .unwrap();
+    let start = Instant::now();
+    while test_observer::get_mined_nakamoto_blocks().len() <= blocks_observed_before {
+        thread::sleep(Duration::from_secs(1));
+        assert!(
+            start.elapsed() < Duration::from_secs(30),
+            "FAIL: Test timed out while waiting to observe new mined nakamoto block",
+        );
+    }
     let blocks = test_observer::get_mined_nakamoto_blocks();
     let block_d = blocks.last().unwrap();
 
