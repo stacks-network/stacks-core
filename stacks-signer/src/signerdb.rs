@@ -251,14 +251,14 @@ impl BlockInfo {
 
     /// Mark the block as locally rejected and invalid
     pub fn mark_locally_rejected(&mut self) -> Result<(), String> {
-        self.move_to(BlockState::LocallyRejected);
+        self.move_to(BlockState::LocallyRejected)?;
         self.valid = Some(false);
         Ok(())
     }
 
     /// Mark the block as globally rejected and invalid
     pub fn mark_globally_rejected(&mut self) -> Result<(), String> {
-        self.move_to(BlockState::GloballyRejected);
+        self.move_to(BlockState::GloballyRejected)?;
         self.valid = Some(false);
         Ok(())
     }
