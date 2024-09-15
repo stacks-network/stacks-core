@@ -4195,9 +4195,6 @@ fn forked_tenure_is_ignored() {
     .unwrap();
 
     info!("Tenure C produced a block!");
-    let block_tenure_c = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
-        .unwrap()
-        .unwrap();
     let start = Instant::now();
     while test_observer::get_mined_nakamoto_blocks().len() <= blocks_observed_before {
         thread::sleep(Duration::from_secs(1));
@@ -4206,6 +4203,9 @@ fn forked_tenure_is_ignored() {
             "FAIL: Test timed out while waiting to observe new mined nakamoto block",
         );
     }
+    let block_tenure_c = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
+        .unwrap()
+        .unwrap();
     let blocks = test_observer::get_mined_nakamoto_blocks();
     let block_c = blocks.last().unwrap();
     info!("Tenure C tip block: {}", &block_tenure_c.index_block_hash());
@@ -4252,10 +4252,6 @@ fn forked_tenure_is_ignored() {
     .unwrap();
 
     info!("Tenure C produced a second block!");
-
-    let block_2_tenure_c = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
-        .unwrap()
-        .unwrap();
     let start = Instant::now();
     while test_observer::get_mined_nakamoto_blocks().len() <= blocks_observed_before {
         thread::sleep(Duration::from_secs(1));
@@ -4264,6 +4260,9 @@ fn forked_tenure_is_ignored() {
             "FAIL: Test timed out while waiting to observe new mined nakamoto block",
         );
     }
+    let block_2_tenure_c = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
+        .unwrap()
+        .unwrap();
     let blocks = test_observer::get_mined_nakamoto_blocks();
     let block_2_c = blocks.last().unwrap();
 
@@ -4295,9 +4294,6 @@ fn forked_tenure_is_ignored() {
     })
     .unwrap();
 
-    let block_tenure_d = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
-        .unwrap()
-        .unwrap();
     let start = Instant::now();
     while test_observer::get_mined_nakamoto_blocks().len() <= blocks_observed_before {
         thread::sleep(Duration::from_secs(1));
@@ -4306,6 +4302,9 @@ fn forked_tenure_is_ignored() {
             "FAIL: Test timed out while waiting to observe new mined nakamoto block",
         );
     }
+    let block_tenure_d = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
+        .unwrap()
+        .unwrap();
     let blocks = test_observer::get_mined_nakamoto_blocks();
     let block_d = blocks.last().unwrap();
 
