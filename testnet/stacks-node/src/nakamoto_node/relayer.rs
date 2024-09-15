@@ -817,7 +817,14 @@ impl RelayerThread {
         let new_miner_handle = std::thread::Builder::new()
             .name(format!("miner.{parent_tenure_start}",))
             .stack_size(BLOCK_PROCESSOR_STACK_SIZE)
-            .spawn(move || new_miner_state.run_miner(prior_tenure_thread))
+            .spawn(move || {
+                if let Err(e) = new_miner_state.run_miner(prior_tenure_thread) {
+                    info!("Miner thread failed: {:?}", &e);
+                    Err(e)
+                } else {
+                    Ok(())
+                }
+            })
             .map_err(|e| {
                 error!("Relayer: Failed to start tenure thread: {:?}", &e);
                 NakamotoNodeError::SpawnError(e)

@@ -808,7 +808,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
             );
             let chunks_req = self.make_getchunkinv(&network.get_chain_view().rc_consensus_hash);
             if let Err(e) = self.comms.neighbor_send(network, &naddr, chunks_req) {
-                info!(
+                debug!(
                     "{:?}: failed to send StackerDBGetChunkInv to {:?}: {:?}",
                     network.get_local_peer(),
                     &naddr,
