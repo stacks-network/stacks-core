@@ -220,6 +220,7 @@ struct RewardCycleState {
     signers_slots: HashMap<StacksAddress, SignerSlotID>,
     signers_keys: HashMap<StacksAddress, StacksPublicKey>,
     signers_addresses: HashMap<SignerSlotID, StacksAddress>,
+    signers_weights: HashMap<StacksAddress, u32>,
     slot_ids: Vec<u32>,
     /// Reward cycle is not known until the first successful call to the node
     reward_cycle: Option<u64>,
@@ -257,12 +258,6 @@ impl SignerMonitor {
 
         self.cycle_state.signers_slots =
             self.stacks_client.get_parsed_signer_slots(reward_cycle)?;
-        self.cycle_state.slot_ids = self
-            .cycle_state
-            .signers_slots
-            .values()
-            .map(|value| value.0)
-            .collect();
 
         let entries = self
             .stacks_client
@@ -277,15 +272,15 @@ impl SignerMonitor {
             self.cycle_state
                 .signers_keys
                 .insert(stacks_address, public_key);
+            self.cycle_state
+                .signers_weights
+                .insert(stacks_address, entry.weight);
         }
         for (signer_address, slot_id) in self.cycle_state.signers_slots.iter() {
             self.cycle_state
                 .signers_addresses
                 .insert(*slot_id, *signer_address);
         }
-
-        self.cycle_state.signers_slots =
-            self.stacks_client.get_parsed_signer_slots(reward_cycle)?;
 
         for (signer_address, slot_id) in self.cycle_state.signers_slots.iter() {
             self.cycle_state
@@ -318,8 +313,14 @@ impl SignerMonitor {
             })
             .collect::<Vec<_>>()
             .join(", ");
+        let missing_weight = missing_signers
+            .iter()
+            .map(|addr| self.cycle_state.signers_weights.get(addr).unwrap())
+            .sum::<u32>();
+        let total_weight = self.cycle_state.signers_weights.values().sum::<u32>();
+        let percentage_missing = missing_weight as f64 / total_weight as f64 * 100.00;
         warn!(
-            "Missing messages for {} of {} signer(s). ", missing_signers.len(), self.cycle_state.signers_addresses.len();
+            "Missing messages for {} of {} signer(s). Missing {percentage_missing:.2}% of signing weight  ({missing_weight}/{total_weight})", missing_signers.len(), self.cycle_state.signers_addresses.len();
             "signer_addresses" => formatted_signers,
             "signer_keys" => formatted_keys
         );
@@ -442,18 +443,21 @@ impl SignerMonitor {
                     chunk_opt.and_then(|data| read_next::<SignerMessage, _>(&mut &data[..]).ok())
                 })
                 .collect();
-            for ((signer_address, slot_id), signer_message_opt) in self
-                .cycle_state
-                .signers_slots
-                .clone()
-                .into_iter()
-                .zip(new_messages)
+
+            for (signer_message_opt, slot_id) in
+                new_messages.into_iter().zip(&self.cycle_state.slot_ids)
             {
+                let signer_slot_id = SignerSlotID(*slot_id);
+                let signer_address = *self
+                    .cycle_state
+                    .signers_addresses
+                    .get(&signer_slot_id)
+                    .expect("BUG: missing signer address for given slot id");
                 let Some(signer_message) = signer_message_opt else {
                     missing_signers.push(signer_address);
                     continue;
                 };
-                if let Some(last_message) = last_messages.get(&slot_id) {
+                if let Some(last_message) = last_messages.get(&signer_slot_id) {
                     if last_message == &signer_message {
                         continue;
                     }
@@ -467,11 +471,11 @@ impl SignerMonitor {
                     || (epoch > StacksEpochId::Epoch25
                         && !matches!(signer_message, SignerMessage::BlockResponse(_)))
                 {
-                    unexpected_messages.insert(signer_address, (signer_message, slot_id));
+                    unexpected_messages.insert(signer_address, (signer_message, signer_slot_id));
                     continue;
                 }
-                last_messages.insert(slot_id, signer_message);
-                last_updates.insert(slot_id, std::time::Instant::now());
+                last_messages.insert(signer_slot_id, signer_message);
+                last_updates.insert(signer_slot_id, std::time::Instant::now());
             }
             for (slot_id, last_update_time) in last_updates.iter() {
                 if last_update_time.elapsed().as_secs() > self.args.max_age {
