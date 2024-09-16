@@ -2592,7 +2592,9 @@ fn test_get_blocks_and_microblocks_2_peers_buffered_messages() {
                             ret
                         };
                         let mut update_sortition = false;
-                        for (event_id, pending) in peers[1].network.pending_messages.iter() {
+                        for ((event_id, _neighbor_key), pending) in
+                            peers[1].network.pending_messages.iter()
+                        {
                             debug!("Pending at {} is ({}, {})", *i, event_id, pending.len());
                             if pending.len() >= 1 {
                                 update_sortition = true;
@@ -3086,7 +3088,7 @@ fn process_new_blocks_rejects_problematic_asts() {
         },
     ];
     let mut unsolicited = HashMap::new();
-    unsolicited.insert(nk.clone(), bad_msgs.clone());
+    unsolicited.insert((1, nk.clone()), bad_msgs.clone());
 
     let mut network_result = NetworkResult::new(
         peer.network.stacks_tip.block_id(),
@@ -3313,7 +3315,11 @@ fn test_block_pay_to_contract_gated_at_v210() {
         123,
     ) {
         Ok(x) => {
-            assert!(x, "Failed to process valid pay-to-contract block");
+            assert_eq!(
+                x,
+                BlockAcceptResponse::Accepted,
+                "Failed to process valid pay-to-contract block"
+            );
         }
         Err(e) => {
             panic!("Got unexpected error {:?}", &e);
@@ -3489,7 +3495,11 @@ fn test_block_versioned_smart_contract_gated_at_v210() {
         123,
     ) {
         Ok(x) => {
-            assert!(x, "Failed to process valid versioned smart contract block");
+            assert_eq!(
+                x,
+                BlockAcceptResponse::Accepted,
+                "Failed to process valid versioned smart contract block"
+            );
         }
         Err(e) => {
             panic!("Got unexpected error {:?}", &e);
@@ -3647,7 +3657,11 @@ fn test_block_versioned_smart_contract_mempool_rejection_until_v210() {
             123,
         ) {
             Ok(x) => {
-                assert!(x, "Did not accept valid block");
+                assert_eq!(
+                    x,
+                    BlockAcceptResponse::Accepted,
+                    "Did not accept valid block"
+                );
             }
             Err(e) => {
                 panic!("Got unexpected error {:?}", &e);
@@ -3700,7 +3714,11 @@ fn test_block_versioned_smart_contract_mempool_rejection_until_v210() {
         123,
     ) {
         Ok(x) => {
-            assert!(x, "Failed to process valid versioned smart contract block");
+            assert_eq!(
+                x,
+                BlockAcceptResponse::Accepted,
+                "Failed to process valid versioned smart contract block"
+            );
         }
         Err(e) => {
             panic!("Got unexpected error {:?}", &e);
