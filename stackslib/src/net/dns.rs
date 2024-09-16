@@ -355,7 +355,7 @@ impl DNSClient {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 mod test {
     use std::collections::HashMap;
     use std::error::Error;

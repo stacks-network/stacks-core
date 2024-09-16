@@ -143,7 +143,7 @@ pub mod unsolicited;
 pub use crate::net::neighbors::{NeighborComms, PeerNetworkComms};
 use crate::net::stackerdb::{StackerDBConfig, StackerDBSync, StackerDBSyncResult, StackerDBs};
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 pub mod tests;
 
 #[derive(Debug)]
@@ -571,7 +571,7 @@ impl From<InterpreterError> for Error {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 impl PartialEq for Error {
     /// (make I/O errors comparable for testing purposes)
     fn eq(&self, other: &Self) -> bool {
@@ -1293,9 +1293,9 @@ pub const MAX_BROADCAST_INBOUND_RECEIVERS: usize = 16;
 pub const BLOCKS_AVAILABLE_MAX_LEN: u32 = 32;
 
 // maximum number of PoX reward cycles we can ask about
-#[cfg(not(test))]
+#[cfg(not(any(test, feature = "testing")))]
 pub const GETPOXINV_MAX_BITLEN: u64 = 4096;
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 pub const GETPOXINV_MAX_BITLEN: u64 = 8;
 
 // maximum number of Stacks epoch2.x blocks that can be pushed at once (even if the entire message is undersized).
@@ -1455,9 +1455,9 @@ pub const MAX_MICROBLOCKS_UNCONFIRMED: usize = 1024;
 pub const MAX_HEADERS: usize = 2100;
 
 // how long a peer will be denied for if it misbehaves
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 pub const DENY_BAN_DURATION: u64 = 30; // seconds
-#[cfg(not(test))]
+#[cfg(not(any(test, feature = "testing")))]
 pub const DENY_BAN_DURATION: u64 = 86400; // seconds (1 day)
 
 pub const DENY_MIN_BAN_DURATION: u64 = 2;
@@ -1719,8 +1719,9 @@ pub trait Requestable: std::fmt::Display {
     fn make_request_type(&self, peer_host: PeerHost) -> StacksHttpRequest;
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 pub mod test {
+    #![allow(unused)]
     use std::collections::HashMap;
     use std::io::{Cursor, ErrorKind, Read, Write};
     use std::net::*;
@@ -3917,6 +3918,10 @@ pub mod test {
 
         pub fn get_peerdb_conn(&self) -> &DBConn {
             self.network.peerdb.conn()
+        }
+
+        pub fn peerdb_mut(&mut self) -> &mut PeerDB {
+            &mut self.network.peerdb
         }
 
         pub fn get_burnchain_view(&mut self) -> Result<BurnchainView, db_error> {

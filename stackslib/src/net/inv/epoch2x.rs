@@ -47,9 +47,9 @@ use crate::net::{
 use crate::util_lib::db::{DBConn, Error as db_error};
 
 /// This module is responsible for synchronizing block inventories with other peers
-#[cfg(not(test))]
+#[cfg(not(any(test, feature = "testing")))]
 pub const INV_SYNC_INTERVAL: u64 = 150;
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 pub const INV_SYNC_INTERVAL: u64 = 3;
 
 pub const INV_REWARD_CYCLES: u64 = 2;
@@ -1143,7 +1143,7 @@ impl InvState {
         self.block_stats.get_mut(nk)
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn add_peer(&mut self, nk: NeighborKey, is_bootstrap_peer: bool) -> () {
         self.block_stats.insert(
             nk.clone(),
@@ -2848,6 +2848,3 @@ impl PeerNetwork {
         work_state
     }
 }
-
-#[cfg(test)]
-mod test {}

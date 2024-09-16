@@ -56,22 +56,22 @@ use crate::net::{
 };
 use crate::util_lib::db::{DBConn, Error as db_error};
 
-#[cfg(not(test))]
+#[cfg(not(any(test, feature = "testing")))]
 pub const BLOCK_DOWNLOAD_INTERVAL: u64 = 180;
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 pub const BLOCK_DOWNLOAD_INTERVAL: u64 = 0;
 
 /// If a URL never connects, don't use it again for this many seconds
-#[cfg(not(test))]
+#[cfg(not(any(test, feature = "testing")))]
 pub const BLOCK_DOWNLOAD_BAN_URL: u64 = 300;
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 pub const BLOCK_DOWNLOAD_BAN_URL: u64 = 60;
 
 /// If we created a request to download a block or microblock, don't do so again until this many
 /// seconds have passed.
-#[cfg(not(test))]
+#[cfg(not(any(test, feature = "testing")))]
 pub const BLOCK_REREQUEST_INTERVAL: u64 = 60;
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 pub const BLOCK_REREQUEST_INTERVAL: u64 = 30;
 
 /// This module is responsible for downloading blocks and microblocks from other peers, using block

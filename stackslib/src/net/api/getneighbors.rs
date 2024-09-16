@@ -19,6 +19,7 @@ use std::io::{Read, Write};
 use clarity::vm::types::QualifiedContractIdentifier;
 use regex::{Captures, Regex};
 use stacks_common::types::net::{PeerAddress, PeerHost};
+use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::Hash160;
 
 use crate::net::db::PeerDB;
@@ -145,10 +146,11 @@ impl RPCNeighborsInfo {
             peerdb_conn,
             network_id,
             network_epoch,
-            max_neighbor_age,
+            get_epoch_time_secs().saturating_sub(max_neighbor_age),
             MAX_NEIGHBORS_DATA_LEN,
             burnchain_view.burn_block_height,
             false,
+            true,
         )
         .map_err(NetError::DBError)?;
 
