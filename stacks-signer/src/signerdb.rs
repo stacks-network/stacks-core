@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::fmt::Display;
 use std::path::Path;
 use std::time::SystemTime;
 
@@ -22,7 +23,7 @@ use blockstack_lib::util_lib::db::{
     query_row, query_rows, sqlite_open, table_exists, tx_begin_immediate, u64_to_sql,
     Error as DBError,
 };
-use clarity::types::chainstate::BurnchainHeaderHash;
+use clarity::types::chainstate::{BurnchainHeaderHash, StacksAddress};
 use clarity::util::get_epoch_time_secs;
 use libsigner::BlockProposal;
 use rusqlite::{
@@ -34,7 +35,7 @@ use stacks_common::codec::{read_next, write_next, Error as CodecError, StacksMes
 use stacks_common::types::chainstate::ConsensusHash;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 use stacks_common::util::secp256k1::MessageSignature;
-use stacks_common::{debug, error};
+use stacks_common::{debug, define_u8_enum, error};
 use wsts::net::NonceRequest;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -113,6 +114,64 @@ impl ExtraBlockInfo {
     }
 }
 
+define_u8_enum!(
+/// Block state relative to the signer's view of the stacks blockchain
+BlockState {
+    /// The block has not yet been processed by the signer
+    Unprocessed = 0,
+    /// The block is accepted by the signer but a threshold of signers has not yet signed it
+    LocallyAccepted = 1,
+    /// The block is rejected by the signer but a threshold of signers has not accepted/rejected it yet
+    LocallyRejected = 2,
+    /// A threshold number of signers have signed the block
+    GloballyAccepted = 3,
+    /// A threshold number of signers have rejected the block
+    GloballyRejected = 4
+});
+
+impl TryFrom<u8> for BlockState {
+    type Error = String;
+    fn try_from(value: u8) -> Result<BlockState, String> {
+        let state = match value {
+            0 => BlockState::Unprocessed,
+            1 => BlockState::LocallyAccepted,
+            2 => BlockState::LocallyRejected,
+            3 => BlockState::GloballyAccepted,
+            4 => BlockState::GloballyRejected,
+            _ => return Err("Invalid block state".into()),
+        };
+        Ok(state)
+    }
+}
+
+impl Display for BlockState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let state = match self {
+            BlockState::Unprocessed => "Unprocessed",
+            BlockState::LocallyAccepted => "LocallyAccepted",
+            BlockState::LocallyRejected => "LocallyRejected",
+            BlockState::GloballyAccepted => "GloballyAccepted",
+            BlockState::GloballyRejected => "GloballyRejected",
+        };
+        write!(f, "{}", state)
+    }
+}
+
+impl TryFrom<&str> for BlockState {
+    type Error = String;
+    fn try_from(value: &str) -> Result<BlockState, String> {
+        let state = match value {
+            "Unprocessed" => BlockState::Unprocessed,
+            "LocallyAccepted" => BlockState::LocallyAccepted,
+            "LocallyRejected" => BlockState::LocallyRejected,
+            "GloballyAccepted" => BlockState::GloballyAccepted,
+            "GloballyRejected" => BlockState::GloballyRejected,
+            _ => return Err("Unparsable block state".into()),
+        };
+        Ok(state)
+    }
+}
+
 /// Additional Info about a proposed block
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct BlockInfo {
@@ -134,6 +193,8 @@ pub struct BlockInfo {
     pub signed_self: Option<u64>,
     /// Time at which the proposal was signed by a threshold in the signer set (epoch time in seconds)
     pub signed_group: Option<u64>,
+    /// The block state relative to the signer's view of the stacks blockchain
+    pub state: BlockState,
     /// Extra data specific to v0, v1, etc.
     pub ext: ExtraBlockInfo,
 }
@@ -151,6 +212,7 @@ impl From<BlockProposal> for BlockInfo {
             signed_self: None,
             signed_group: None,
             ext: ExtraBlockInfo::default(),
+            state: BlockState::Unprocessed,
         }
     }
 }
@@ -163,17 +225,81 @@ impl BlockInfo {
         block_info
     }
 
-    /// Mark this block as valid, signed over, and record a timestamp in the block info if it wasn't
+    /// Mark this block as locally accepted, valid, signed over, and records either the self or group signed timestamp in the block info if it wasn't
     ///  already set.
-    pub fn mark_signed_and_valid(&mut self) {
+    pub fn mark_locally_accepted(&mut self, group_signed: bool) -> Result<(), String> {
+        self.move_to(BlockState::LocallyAccepted)?;
         self.valid = Some(true);
         self.signed_over = true;
-        self.signed_self.get_or_insert(get_epoch_time_secs());
+        if group_signed {
+            self.signed_group.get_or_insert(get_epoch_time_secs());
+        } else {
+            self.signed_self.get_or_insert(get_epoch_time_secs());
+        }
+        Ok(())
+    }
+
+    /// Mark this block as valid, signed over, and records a group timestamp in the block info if it wasn't
+    ///  already set.
+    pub fn mark_globally_accepted(&mut self) -> Result<(), String> {
+        self.move_to(BlockState::GloballyAccepted)?;
+        self.valid = Some(true);
+        self.signed_over = true;
+        self.signed_group.get_or_insert(get_epoch_time_secs());
+        Ok(())
+    }
+
+    /// Mark the block as locally rejected and invalid
+    pub fn mark_locally_rejected(&mut self) -> Result<(), String> {
+        self.move_to(BlockState::LocallyRejected)?;
+        self.valid = Some(false);
+        Ok(())
+    }
+
+    /// Mark the block as globally rejected and invalid
+    pub fn mark_globally_rejected(&mut self) -> Result<(), String> {
+        self.move_to(BlockState::GloballyRejected)?;
+        self.valid = Some(false);
+        Ok(())
     }
 
     /// Return the block's signer signature hash
     pub fn signer_signature_hash(&self) -> Sha512Trunc256Sum {
         self.block.header.signer_signature_hash()
+    }
+
+    /// Check if the block state transition is valid
+    fn check_state(&self, state: BlockState) -> bool {
+        let prev_state = &self.state;
+        if *prev_state == state {
+            return true;
+        }
+        match state {
+            BlockState::Unprocessed => false,
+            BlockState::LocallyAccepted => {
+                matches!(
+                    prev_state,
+                    BlockState::Unprocessed | BlockState::LocallyAccepted
+                )
+            }
+            BlockState::LocallyRejected => {
+                matches!(prev_state, BlockState::Unprocessed)
+            }
+            BlockState::GloballyAccepted => !matches!(prev_state, BlockState::GloballyRejected),
+            BlockState::GloballyRejected => !matches!(prev_state, BlockState::GloballyAccepted),
+        }
+    }
+
+    /// Attempt to transition the block state
+    pub fn move_to(&mut self, state: BlockState) -> Result<(), String> {
+        if !self.check_state(state) {
+            return Err(format!(
+                "Invalid state transition from {} to {state}",
+                self.state
+            ));
+        }
+        self.state = state;
+        Ok(())
     }
 }
 
@@ -197,12 +323,33 @@ CREATE TABLE IF NOT EXISTS blocks (
     PRIMARY KEY (reward_cycle, signer_signature_hash)
 ) STRICT";
 
+static CREATE_BLOCKS_TABLE_2: &str = "
+CREATE TABLE IF NOT EXISTS blocks (
+    reward_cycle INTEGER NOT NULL,
+    signer_signature_hash TEXT NOT NULL,
+    block_info TEXT NOT NULL,
+    consensus_hash TEXT NOT NULL,
+    signed_over INTEGER NOT NULL,
+    broadcasted INTEGER,
+    stacks_height INTEGER NOT NULL,
+    burn_block_height INTEGER NOT NULL,
+    PRIMARY KEY (reward_cycle, signer_signature_hash)
+) STRICT";
+
 static CREATE_INDEXES_1: &str = "
 CREATE INDEX IF NOT EXISTS blocks_signed_over ON blocks (signed_over);
 CREATE INDEX IF NOT EXISTS blocks_consensus_hash ON blocks (consensus_hash);
 CREATE INDEX IF NOT EXISTS blocks_valid ON blocks ((json_extract(block_info, '$.valid')));
 CREATE INDEX IF NOT EXISTS burn_blocks_height ON burn_blocks (block_height);
 ";
+
+static CREATE_INDEXES_2: &str = r#"
+CREATE INDEX IF NOT EXISTS block_signatures_on_signer_signature_hash ON block_signatures(signer_signature_hash);
+"#;
+
+static CREATE_INDEXES_3: &str = r#"
+CREATE INDEX IF NOT EXISTS block_rejection_signer_addrs_on_block_signature_hash ON block_rejection_signer_addrs(signer_signature_hash);
+"#;
 
 static CREATE_SIGNER_STATE_TABLE: &str = "
 CREATE TABLE IF NOT EXISTS signer_states (
@@ -235,18 +382,11 @@ static DROP_SCHEMA_1: &str = "
    DROP TABLE IF EXISTS blocks;
    DROP TABLE IF EXISTS db_config;";
 
-static CREATE_BLOCKS_TABLE_2: &str = "
-CREATE TABLE IF NOT EXISTS blocks (
-    reward_cycle INTEGER NOT NULL,
-    signer_signature_hash TEXT NOT NULL,
-    block_info TEXT NOT NULL,
-    consensus_hash TEXT NOT NULL,
-    signed_over INTEGER NOT NULL,
-    broadcasted INTEGER,
-    stacks_height INTEGER NOT NULL,
-    burn_block_height INTEGER NOT NULL,
-    PRIMARY KEY (reward_cycle, signer_signature_hash)
-) STRICT";
+static DROP_SCHEMA_2: &str = "
+    DROP TABLE IF EXISTS burn_blocks;
+    DROP TABLE IF EXISTS signer_states;
+    DROP TABLE IF EXISTS blocks;
+    DROP TABLE IF EXISTS db_config;";
 
 static CREATE_BLOCK_SIGNATURES_TABLE: &str = r#"
 CREATE TABLE IF NOT EXISTS block_signatures (
@@ -260,9 +400,17 @@ CREATE TABLE IF NOT EXISTS block_signatures (
     PRIMARY KEY (signature)
 ) STRICT;"#;
 
-static CREATE_INDEXES_2: &str = r#"
-CREATE INDEX IF NOT EXISTS block_signatures_on_signer_signature_hash ON block_signatures(signer_signature_hash);
-"#;
+static CREATE_BLOCK_REJECTION_SIGNER_ADDRS_TABLE: &str = r#"
+CREATE TABLE IF NOT EXISTS block_rejection_signer_addrs (
+    -- The block sighash commits to all of the stacks and burnchain state as of its parent,
+    -- as well as the tenure itself so there's no need to include the reward cycle.  Just
+    -- the sighash is sufficient to uniquely identify the block across all burnchain, PoX,
+    -- and stacks forks.
+    signer_signature_hash TEXT NOT NULL,
+    -- the signer address that rejected the block
+    signer_addr TEXT NOT NULL,
+    PRIMARY KEY (signer_addr)
+) STRICT;"#;
 
 static SCHEMA_1: &[&str] = &[
     DROP_SCHEMA_0,
@@ -286,9 +434,23 @@ static SCHEMA_2: &[&str] = &[
     "INSERT INTO db_config (version) VALUES (2);",
 ];
 
+static SCHEMA_3: &[&str] = &[
+    DROP_SCHEMA_2,
+    CREATE_DB_CONFIG,
+    CREATE_BURN_STATE_TABLE,
+    CREATE_BLOCKS_TABLE_2,
+    CREATE_SIGNER_STATE_TABLE,
+    CREATE_BLOCK_SIGNATURES_TABLE,
+    CREATE_BLOCK_REJECTION_SIGNER_ADDRS_TABLE,
+    CREATE_INDEXES_1,
+    CREATE_INDEXES_2,
+    CREATE_INDEXES_3,
+    "INSERT INTO db_config (version) VALUES (3);",
+];
+
 impl SignerDb {
     /// The current schema version used in this build of the signer binary.
-    pub const SCHEMA_VERSION: u32 = 2;
+    pub const SCHEMA_VERSION: u32 = 3;
 
     /// Create a new `SignerState` instance.
     /// This will create a new SQLite database at the given path
@@ -346,6 +508,20 @@ impl SignerDb {
         Ok(())
     }
 
+    /// Migrate from schema 2 to schema 3
+    fn schema_3_migration(tx: &Transaction) -> Result<(), DBError> {
+        if Self::get_schema_version(tx)? >= 3 {
+            // no migration necessary
+            return Ok(());
+        }
+
+        for statement in SCHEMA_3.iter() {
+            tx.execute_batch(statement)?;
+        }
+
+        Ok(())
+    }
+
     /// Either instantiate a new database, or migrate an existing one
     /// If the detected version of the existing database is 0 (i.e., a pre-migration
     /// logic DB, the DB will be dropped).
@@ -356,7 +532,8 @@ impl SignerDb {
             match version {
                 0 => Self::schema_1_migration(&sql_tx)?,
                 1 => Self::schema_2_migration(&sql_tx)?,
-                2 => break,
+                2 => Self::schema_3_migration(&sql_tx)?,
+                3 => break,
                 x => return Err(DBError::Other(format!(
                     "Database schema is newer than supported by this binary. Expected version = {}, Database version = {x}",
                     Self::SCHEMA_VERSION,
@@ -438,6 +615,34 @@ impl SignerDb {
         try_deserialize(result)
     }
 
+    /// Return the last accepted block in a tenure (identified by its consensus hash).
+    pub fn get_last_accepted_block(
+        &self,
+        tenure: &ConsensusHash,
+    ) -> Result<Option<BlockInfo>, DBError> {
+        let query = "SELECT block_info FROM blocks WHERE consensus_hash = ?1 AND json_extract(block_info, '$.state') IN (?2, ?3) ORDER BY stacks_height DESC LIMIT 1";
+        let args = params![
+            tenure,
+            &BlockState::GloballyAccepted.to_string(),
+            &BlockState::LocallyAccepted.to_string()
+        ];
+        let result: Option<String> = query_row(&self.db, query, args)?;
+
+        try_deserialize(result)
+    }
+
+    /// Return the last globally accepted block in a tenure (identified by its consensus hash).
+    pub fn get_last_globally_accepted_block(
+        &self,
+        tenure: &ConsensusHash,
+    ) -> Result<Option<BlockInfo>, DBError> {
+        let query = "SELECT block_info FROM blocks WHERE consensus_hash = ?1 AND json_extract(block_info, '$.state') = ?2 ORDER BY stacks_height DESC LIMIT 1";
+        let args = params![tenure, &BlockState::GloballyAccepted.to_string()];
+        let result: Option<String> = query_row(&self.db, query, args)?;
+
+        try_deserialize(result)
+    }
+
     /// Insert or replace a burn block into the database
     pub fn insert_burn_block(
         &mut self,
@@ -490,8 +695,7 @@ impl SignerDb {
             .vote
             .as_ref()
             .map(|v| if v.rejected { "REJECT" } else { "ACCEPT" });
-        let broadcasted = self.get_block_broadcasted(block_info.reward_cycle, &hash)?;
-
+        let broadcasted = self.get_block_broadcasted(block_info.reward_cycle, hash)?;
         debug!("Inserting block_info.";
             "reward_cycle" => %block_info.reward_cycle,
             "burn_block_height" => %block_info.burn_block_height,
@@ -516,11 +720,17 @@ impl SignerDb {
         Ok(())
     }
 
-    /// Determine if there are any pending blocks that have not yet been processed by checking the block_info.valid field
-    pub fn has_pending_blocks(&self, reward_cycle: u64) -> Result<bool, DBError> {
-        let query = "SELECT block_info FROM blocks WHERE reward_cycle = ? AND json_extract(block_info, '$.valid') IS NULL LIMIT 1";
-        let result: Option<String> =
-            query_row(&self.db, query, params!(&u64_to_sql(reward_cycle)?))?;
+    /// Determine if there are any unprocessed blocks
+    pub fn has_unprocessed_blocks(&self, reward_cycle: u64) -> Result<bool, DBError> {
+        let query = "SELECT block_info FROM blocks WHERE reward_cycle = ?1 AND json_extract(block_info, '$.state') = ?2 LIMIT 1";
+        let result: Option<String> = query_row(
+            &self.db,
+            query,
+            params!(
+                &u64_to_sql(reward_cycle)?,
+                &BlockState::Unprocessed.to_string()
+            ),
+        )?;
 
         Ok(result.is_some())
     }
@@ -534,7 +744,7 @@ impl SignerDb {
         let qry = "INSERT OR REPLACE INTO block_signatures (signer_signature_hash, signature) VALUES (?1, ?2);";
         let args = params![
             block_sighash,
-            serde_json::to_string(signature).map_err(|e| DBError::SerializationError(e))?
+            serde_json::to_string(signature).map_err(DBError::SerializationError)?
         ];
 
         debug!("Inserting block signature.";
@@ -559,15 +769,48 @@ impl SignerDb {
             .collect()
     }
 
-    /// Mark a block as having been broadcasted
+    /// Record an observed block rejection_signature
+    pub fn add_block_rejection_signer_addr(
+        &self,
+        block_sighash: &Sha512Trunc256Sum,
+        addr: &StacksAddress,
+    ) -> Result<(), DBError> {
+        let qry = "INSERT OR REPLACE INTO block_rejection_signer_addrs (signer_signature_hash, signer_addr) VALUES (?1, ?2);";
+        let args = params![block_sighash, addr.to_string(),];
+
+        debug!("Inserting block rejection.";
+                "block_sighash" => %block_sighash,
+                "signer_address" => %addr);
+
+        self.db.execute(qry, args)?;
+        Ok(())
+    }
+
+    /// Get all signer addresses that rejected the block
+    pub fn get_block_rejection_signer_addrs(
+        &self,
+        block_sighash: &Sha512Trunc256Sum,
+    ) -> Result<Vec<StacksAddress>, DBError> {
+        let qry =
+            "SELECT signer_addr FROM block_rejection_signer_addrs WHERE signer_signature_hash = ?1";
+        let args = params![block_sighash];
+        query_rows(&self.db, qry, args)
+    }
+
+    /// Mark a block as having been broadcasted and therefore GloballyAccepted
     pub fn set_block_broadcasted(
         &self,
         reward_cycle: u64,
         block_sighash: &Sha512Trunc256Sum,
         ts: u64,
     ) -> Result<(), DBError> {
-        let qry = "UPDATE blocks SET broadcasted = ?1 WHERE reward_cycle = ?2 AND signer_signature_hash = ?3";
-        let args = params![u64_to_sql(ts)?, u64_to_sql(reward_cycle)?, block_sighash];
+        let qry = "UPDATE blocks SET broadcasted = ?1, block_info = json_set(block_info, '$.state', ?2) WHERE reward_cycle = ?3 AND signer_signature_hash = ?4";
+        let args = params![
+            u64_to_sql(ts)?,
+            BlockState::GloballyAccepted.to_string(),
+            u64_to_sql(reward_cycle)?,
+            block_sighash
+        ];
 
         debug!("Marking block {} as broadcasted at {}", block_sighash, ts);
         self.db.execute(qry, args)?;
@@ -590,7 +833,24 @@ impl SignerDb {
         if broadcasted == 0 {
             return Ok(None);
         }
-        Ok(u64::try_from(broadcasted).ok())
+        Ok(Some(broadcasted))
+    }
+
+    /// Get the current state of a given block in the database
+    pub fn get_block_state(
+        &self,
+        reward_cycle: u64,
+        block_sighash: &Sha512Trunc256Sum,
+    ) -> Result<Option<BlockState>, DBError> {
+        let qry = "SELECT json_extract(block_info, '$.state') FROM blocks WHERE reward_cycle = ?1 AND signer_signature_hash = ?2 LIMIT 1";
+        let args = params![&u64_to_sql(reward_cycle)?, block_sighash];
+        let state_opt: Option<String> = query_row(&self.db, qry, args)?;
+        let Some(state) = state_opt else {
+            return Ok(None);
+        };
+        Ok(Some(
+            BlockState::try_from(state.as_str()).map_err(|_| DBError::Corruption)?,
+        ))
     }
 }
 
@@ -684,11 +944,23 @@ mod tests {
             )
             .unwrap();
         assert!(block_info.is_none());
+
+        // test getting the block state
+        let block_state = db
+            .get_block_state(
+                reward_cycle,
+                &block_proposal.block.header.signer_signature_hash(),
+            )
+            .unwrap()
+            .expect("Unable to get block state from db");
+
+        assert_eq!(block_state, BlockInfo::from(block_proposal.clone()).state);
     }
 
     #[test]
     fn test_basic_signer_db() {
         let db_path = tmp_db_path();
+        eprintln!("db path is {}", &db_path.display());
         test_basic_signer_db_with_path(db_path)
     }
 
@@ -759,7 +1031,9 @@ mod tests {
             .unwrap()
             .is_none());
 
-        block_info.mark_signed_and_valid();
+        block_info
+            .mark_locally_accepted(false)
+            .expect("Failed to mark block as locally accepted");
         db.insert_block(&block_info).unwrap();
 
         let fetched_info = db
@@ -824,7 +1098,7 @@ mod tests {
     }
 
     #[test]
-    fn test_has_pending_blocks() {
+    fn test_has_unprocessed_blocks() {
         let db_path = tmp_db_path();
         let mut db = SignerDb::new(db_path).expect("Failed to create signer db");
         let (mut block_info_1, _block_proposal) = create_block_override(|b| {
@@ -841,21 +1115,27 @@ mod tests {
         db.insert_block(&block_info_2)
             .expect("Unable to insert block into db");
 
-        assert!(db.has_pending_blocks(block_info_1.reward_cycle).unwrap());
+        assert!(db
+            .has_unprocessed_blocks(block_info_1.reward_cycle)
+            .unwrap());
 
-        block_info_1.valid = Some(true);
+        block_info_1.state = BlockState::LocallyRejected;
 
         db.insert_block(&block_info_1)
             .expect("Unable to update block in db");
 
-        assert!(db.has_pending_blocks(block_info_1.reward_cycle).unwrap());
+        assert!(db
+            .has_unprocessed_blocks(block_info_1.reward_cycle)
+            .unwrap());
 
-        block_info_2.valid = Some(true);
+        block_info_2.state = BlockState::LocallyAccepted;
 
         db.insert_block(&block_info_2)
             .expect("Unable to update block in db");
 
-        assert!(!db.has_pending_blocks(block_info_1.reward_cycle).unwrap());
+        assert!(!db
+            .has_unprocessed_blocks(block_info_1.reward_cycle)
+            .unwrap());
     }
 
     #[test]
@@ -880,15 +1160,12 @@ mod tests {
         assert_eq!(db.get_block_signatures(&block_id).unwrap(), vec![]);
 
         db.add_block_signature(&block_id, &sig1).unwrap();
-        assert_eq!(
-            db.get_block_signatures(&block_id).unwrap(),
-            vec![sig1.clone()]
-        );
+        assert_eq!(db.get_block_signatures(&block_id).unwrap(), vec![sig1]);
 
         db.add_block_signature(&block_id, &sig2).unwrap();
         assert_eq!(
             db.get_block_signatures(&block_id).unwrap(),
-            vec![sig1.clone(), sig2.clone()]
+            vec![sig1, sig2]
         );
     }
 
@@ -912,12 +1189,32 @@ mod tests {
             )
             .unwrap()
             .is_none());
+        assert_eq!(
+            db.block_lookup(
+                block_info_1.reward_cycle,
+                &block_info_1.signer_signature_hash()
+            )
+            .expect("Unable to get block from db")
+            .expect("Unable to get block from db")
+            .state,
+            BlockState::Unprocessed
+        );
         db.set_block_broadcasted(
             block_info_1.reward_cycle,
             &block_info_1.signer_signature_hash(),
             12345,
         )
         .unwrap();
+        assert_eq!(
+            db.block_lookup(
+                block_info_1.reward_cycle,
+                &block_info_1.signer_signature_hash()
+            )
+            .expect("Unable to get block from db")
+            .expect("Unable to get block from db")
+            .state,
+            BlockState::GloballyAccepted
+        );
         db.insert_block(&block_info_1)
             .expect("Unable to insert block into db a second time");
 
@@ -930,5 +1227,46 @@ mod tests {
             .unwrap(),
             12345
         );
+    }
+    #[test]
+    fn state_machine() {
+        let (mut block, _) = create_block();
+        assert_eq!(block.state, BlockState::Unprocessed);
+        assert!(block.check_state(BlockState::Unprocessed));
+        assert!(block.check_state(BlockState::LocallyAccepted));
+        assert!(block.check_state(BlockState::LocallyRejected));
+        assert!(block.check_state(BlockState::GloballyAccepted));
+        assert!(block.check_state(BlockState::GloballyRejected));
+
+        block.move_to(BlockState::LocallyAccepted).unwrap();
+        assert_eq!(block.state, BlockState::LocallyAccepted);
+        assert!(!block.check_state(BlockState::Unprocessed));
+        assert!(block.check_state(BlockState::LocallyAccepted));
+        assert!(!block.check_state(BlockState::LocallyRejected));
+        assert!(block.check_state(BlockState::GloballyAccepted));
+        assert!(block.check_state(BlockState::GloballyRejected));
+
+        block.move_to(BlockState::GloballyAccepted).unwrap();
+        assert_eq!(block.state, BlockState::GloballyAccepted);
+        assert!(!block.check_state(BlockState::Unprocessed));
+        assert!(!block.check_state(BlockState::LocallyAccepted));
+        assert!(!block.check_state(BlockState::LocallyRejected));
+        assert!(block.check_state(BlockState::GloballyAccepted));
+        assert!(!block.check_state(BlockState::GloballyRejected));
+
+        // Must manually override as will not be able to move from GloballyAccepted to LocallyAccepted
+        block.state = BlockState::LocallyRejected;
+        assert!(!block.check_state(BlockState::Unprocessed));
+        assert!(!block.check_state(BlockState::LocallyAccepted));
+        assert!(block.check_state(BlockState::LocallyRejected));
+        assert!(block.check_state(BlockState::GloballyAccepted));
+        assert!(block.check_state(BlockState::GloballyRejected));
+
+        block.move_to(BlockState::GloballyRejected).unwrap();
+        assert!(!block.check_state(BlockState::Unprocessed));
+        assert!(!block.check_state(BlockState::LocallyAccepted));
+        assert!(!block.check_state(BlockState::LocallyRejected));
+        assert!(!block.check_state(BlockState::GloballyAccepted));
+        assert!(block.check_state(BlockState::GloballyRejected));
     }
 }

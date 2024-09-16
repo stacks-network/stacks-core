@@ -2344,23 +2344,24 @@ impl BlockMinerThread {
     }
 
     /// Read any mock signatures from stackerdb and respond to them
-    pub fn send_mock_miner_messages(&mut self) -> Result<(), ChainstateError> {
-        let miner_config = self.config.get_miner_config();
-        if !miner_config.pre_nakamoto_mock_signing {
-            debug!("Pre-Nakamoto mock signing is disabled");
-            return Ok(());
-        }
-
+    pub fn send_mock_miner_messages(&mut self) -> Result<(), String> {
         let burn_db_path = self.config.get_burn_db_file_path();
         let burn_db = SortitionDB::open(&burn_db_path, false, self.burnchain.pox_constants.clone())
             .expect("FATAL: could not open sortition DB");
-        let epoch_id = SortitionDB::get_stacks_epoch(burn_db.conn(), self.burn_block.block_height)?
+        let epoch_id = SortitionDB::get_stacks_epoch(burn_db.conn(), self.burn_block.block_height)
+            .map_err(|e| e.to_string())?
             .expect("FATAL: no epoch defined")
             .epoch_id;
         if epoch_id != StacksEpochId::Epoch25 {
             debug!("Mock miner messaging is disabled for non-epoch 2.5 blocks.";
                 "epoch_id" => epoch_id.to_string()
             );
+            return Ok(());
+        }
+
+        let miner_config = self.config.get_miner_config();
+        if !miner_config.pre_nakamoto_mock_signing {
+            debug!("Pre-Nakamoto mock signing is disabled");
             return Ok(());
         }
 
@@ -2378,25 +2379,31 @@ impl BlockMinerThread {
         }
 
         // find out which slot we're in. If we are not the latest sortition winner, we should not be sending anymore messages anyway
-        let stackerdbs = StackerDBs::connect(&self.config.get_stacker_db_file_path(), false)?;
-        let (_, miners_info) =
-            NakamotoChainState::make_miners_stackerdb_config(&burn_db, &self.burn_block)?;
-        let idx = miners_info.get_latest_winner_index();
-        let sortitions = miners_info.get_sortitions();
-        let election_sortition = *sortitions
-            .get(idx as usize)
-            .expect("FATAL: latest winner index out of bounds");
+        let ih = burn_db.index_handle(&self.burn_block.sortition_id);
+        let last_winner_snapshot = ih
+            .get_last_snapshot_with_sortition(self.burn_block.block_height)
+            .map_err(|e| e.to_string())?;
 
-        let miner_contract_id = boot_code_id(MINERS_NAME, self.config.is_mainnet());
-        let mut miners_stackerdb =
-            StackerDBSession::new(&self.config.node.rpc_bind, miner_contract_id);
-
+        if last_winner_snapshot.miner_pk_hash
+            != Some(Hash160::from_node_public_key(
+                &StacksPublicKey::from_private(&mining_key),
+            ))
+        {
+            return Ok(());
+        }
+        let election_sortition = last_winner_snapshot.consensus_hash;
         let mock_proposal =
             MockProposal::new(peer_info, self.config.burnchain.chain_id, &mining_key);
 
         info!("Sending mock proposal to stackerdb: {mock_proposal:?}");
 
-        if let Err(e) = SignCoordinator::send_miners_message(
+        let stackerdbs = StackerDBs::connect(&self.config.get_stacker_db_file_path(), false)
+            .map_err(|e| e.to_string())?;
+        let miner_contract_id = boot_code_id(MINERS_NAME, self.config.is_mainnet());
+        let mut miners_stackerdb =
+            StackerDBSession::new(&self.config.node.rpc_bind, miner_contract_id);
+
+        SignCoordinator::send_miners_message(
             &mining_key,
             &burn_db,
             &self.burn_block,
@@ -2406,15 +2413,17 @@ impl BlockMinerThread {
             self.config.is_mainnet(),
             &mut miners_stackerdb,
             &election_sortition,
-        ) {
-            warn!("Failed to send mock proposal to stackerdb: {:?}", &e);
-            return Ok(());
-        }
+        )
+        .map_err(|e| {
+            warn!("Failed to write mock proposal to stackerdb.");
+            e
+        })?;
 
         // Retrieve any MockSignatures from stackerdb
         info!("Waiting for mock signatures...");
-        let mock_signatures =
-            self.wait_for_mock_signatures(&mock_proposal, &stackerdbs, Duration::from_secs(10))?;
+        let mock_signatures = self
+            .wait_for_mock_signatures(&mock_proposal, &stackerdbs, Duration::from_secs(10))
+            .map_err(|e| e.to_string())?;
 
         let mock_block = MockBlock {
             mock_proposal,
@@ -2422,8 +2431,8 @@ impl BlockMinerThread {
         };
 
         info!("Sending mock block to stackerdb: {mock_block:?}");
-        if let Err(e) = SignCoordinator::send_miners_message(
-            &miner_config.mining_key.expect("BUG: no mining key"),
+        SignCoordinator::send_miners_message(
+            &mining_key,
             &burn_db,
             &self.burn_block,
             &stackerdbs,
@@ -2432,9 +2441,11 @@ impl BlockMinerThread {
             self.config.is_mainnet(),
             &mut miners_stackerdb,
             &election_sortition,
-        ) {
-            warn!("Failed to send mock block to stackerdb: {:?}", &e);
-        }
+        )
+        .map_err(|e| {
+            warn!("Failed to write mock block to stackerdb.");
+            e
+        })?;
         Ok(())
     }
 
@@ -3799,7 +3810,7 @@ impl RelayerThread {
         }
 
         let Some(mut miner_thread_state) =
-            self.create_block_miner(registered_key, last_burn_block, issue_timestamp_ms)
+            self.create_block_miner(registered_key, last_burn_block.clone(), issue_timestamp_ms)
         else {
             return false;
         };

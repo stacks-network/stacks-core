@@ -273,9 +273,9 @@ impl SignerTrait<SignerMessage> for Signer {
         self.process_next_command(stacks_client, current_reward_cycle);
     }
 
-    fn has_pending_blocks(&self) -> bool {
+    fn has_unprocessed_blocks(&self) -> bool {
         self.signer_db
-            .has_pending_blocks(self.reward_cycle)
+            .has_unprocessed_blocks(self.reward_cycle)
             .unwrap_or_else(|e| {
                 error!("{self}: Failed to check if there are pending blocks: {e:?}");
                 // Assume there are pending blocks to prevent premature cleanup
