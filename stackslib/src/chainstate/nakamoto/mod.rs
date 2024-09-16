@@ -122,7 +122,7 @@ pub mod signer_set;
 pub mod staging_blocks;
 pub mod tenure;
 pub mod test_signers;
-#[cfg(any(test, feature = "testing"))]
+#[cfg(test)]
 pub mod tests;
 
 pub use self::staging_blocks::{
@@ -270,7 +270,7 @@ lazy_static! {
     ];
 }
 
-#[cfg(any(test, feature = "testing"))]
+#[cfg(test)]
 mod fault_injection {
     static PROCESS_BLOCK_STALL: std::sync::Mutex<bool> = std::sync::Mutex::new(false);
 
@@ -1756,7 +1756,7 @@ impl NakamotoChainState {
         canonical_sortition_tip: &SortitionId,
         dispatcher_opt: Option<&'a T>,
     ) -> Result<Option<StacksEpochReceipt>, ChainstateError> {
-        #[cfg(any(test, feature = "testing"))]
+        #[cfg(test)]
         fault_injection::stall_block_processing();
 
         let nakamoto_blocks_db = stacks_chain_state.nakamoto_blocks_db();

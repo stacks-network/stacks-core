@@ -626,7 +626,7 @@ impl StacksChainState {
 
     /// Determine the minimum amount of STX per reward address required to stack in the _next_
     /// reward cycle
-    #[cfg(any(test, feature = "testing"))]
+    #[cfg(test)]
     pub fn get_stacking_minimum(
         &mut self,
         sortdb: &SortitionDB,
@@ -688,7 +688,7 @@ impl StacksChainState {
     }
 
     /// Determine how many uSTX are stacked in a given reward cycle
-    #[cfg(any(test, feature = "testing"))]
+    #[cfg(test)]
     pub fn test_get_total_ustx_stacked(
         &mut self,
         sortdb: &SortitionDB,
@@ -1379,20 +1379,19 @@ impl StacksChainState {
     }
 }
 
-#[cfg(any(test, feature = "testing"))]
+#[cfg(test)]
 pub mod contract_tests;
-#[cfg(any(test, feature = "testing"))]
+#[cfg(test)]
 pub mod pox_2_tests;
-#[cfg(any(test, feature = "testing"))]
+#[cfg(test)]
 pub mod pox_3_tests;
-#[cfg(any(test, feature = "testing"))]
+#[cfg(test)]
 pub mod pox_4_tests;
-#[cfg(any(test, feature = "testing"))]
+#[cfg(test)]
 pub mod signers_tests;
 
-#[cfg(any(test, feature = "testing"))]
+#[cfg(test)]
 pub mod test {
-    #![allow(unused)]
     use std::collections::{HashMap, HashSet};
     use std::fs;
 

@@ -43,7 +43,7 @@ pub fn boot_code_acc(boot_code_address: StacksAddress, boot_code_nonce: u64) -> 
     }
 }
 
-#[cfg(any(test, feature = "testing"))]
+#[cfg(test)]
 pub fn boot_code_test_addr() -> StacksAddress {
     boot_code_addr(false)
 }

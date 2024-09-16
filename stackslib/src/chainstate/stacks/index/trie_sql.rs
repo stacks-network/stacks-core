@@ -422,7 +422,7 @@ pub fn open_trie_blob_readonly<'a>(conn: &'a Connection, block_id: u32) -> Resul
     Ok(blob)
 }
 
-#[cfg(any(test, feature = "testing"))]
+#[cfg(test)]
 pub fn read_all_block_hashes_and_roots<T: MarfTrieId>(
     conn: &Connection,
 ) -> Result<Vec<(TrieHash, T)>, Error> {

@@ -3058,7 +3058,7 @@ impl ConversationP2P {
     }
 }
 
-#[cfg(any(test, feature = "testing"))]
+#[cfg(test)]
 mod test {
     #![allow(unused)]
     use std::fs;

@@ -57,7 +57,7 @@ struct ParsedData {
 pub static OUTPUTS_PER_COMMIT: usize = 2;
 
 impl PreStxOp {
-    #[cfg(any(test, feature = "testing"))]
+    #[cfg(test)]
     pub fn new(sender: &StacksAddress) -> PreStxOp {
         PreStxOp {
             output: sender.clone(),
@@ -155,7 +155,7 @@ impl PreStxOp {
 }
 
 impl StackStxOp {
-    #[cfg(any(test, feature = "testing"))]
+    #[cfg(test)]
     pub fn new(
         sender: &StacksAddress,
         reward_addr: &PoxAddress,

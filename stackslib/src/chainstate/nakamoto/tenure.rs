@@ -484,7 +484,7 @@ impl NakamotoChainState {
 
     /// Drop a nakamoto tenure.
     /// Used for testing
-    #[cfg(any(test, feature = "testing"))]
+    #[cfg(test)]
     pub(crate) fn delete_nakamoto_tenure(
         tx: &Connection,
         ch: &ConsensusHash,

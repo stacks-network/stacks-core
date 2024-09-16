@@ -5,7 +5,7 @@ pub mod boot;
 pub mod signed_structured_data;
 pub mod strings;
 
-#[cfg(any(test, feature = "testing"))]
+#[cfg(test)]
 pub mod test {
     use std::sync::mpsc::sync_channel;
     use std::{panic, process, thread};

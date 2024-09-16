@@ -57,7 +57,7 @@ pub mod burnchain;
 pub mod db;
 pub mod indexer;
 
-#[cfg(any(test, feature = "testing"))]
+#[cfg(test)]
 pub mod tests;
 
 pub struct Txid(pub [u8; 32]);
@@ -351,7 +351,7 @@ impl PoxConstants {
             _shadow: PhantomData,
         }
     }
-    #[cfg(any(test, feature = "testing"))]
+    #[cfg(test)]
     pub fn test_default() -> PoxConstants {
         // 20 reward slots; 10 prepare-phase slots
         PoxConstants::new(
@@ -369,7 +369,7 @@ impl PoxConstants {
         )
     }
 
-    #[cfg(any(test, feature = "testing"))]
+    #[cfg(test)]
     /// Create a PoX constants used in tests with 5-block cycles,
     ///  3-block prepare phases, a threshold of 3, rejection fraction of 25%,
     ///  a participation threshold of 5% and no sunset or transition to pox-2 or beyond.
@@ -821,7 +821,7 @@ impl From<btc_error> for Error {
 }
 
 impl BurnchainView {
-    #[cfg(any(test, feature = "testing"))]
+    #[cfg(test)]
     pub fn make_test_data(&mut self) {
         let oldest_height = if self.burn_stable_block_height < MAX_NEIGHBOR_BLOCK_DELAY {
             0

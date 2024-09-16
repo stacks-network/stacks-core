@@ -44,7 +44,7 @@ pub struct ParsedData {
 }
 
 impl LeaderKeyRegisterOp {
-    #[cfg(any(test, feature = "testing"))]
+    #[cfg(test)]
     pub fn new(public_key: &VRFPublicKey) -> LeaderKeyRegisterOp {
         LeaderKeyRegisterOp {
             public_key: public_key.clone(),
@@ -59,10 +59,10 @@ impl LeaderKeyRegisterOp {
         }
     }
 
-    #[cfg(any(test, feature = "testing"))]
+    #[cfg(test)]
     pub fn new_from_secrets(
-        _num_sigs: u16,
-        _hash_mode: &AddressHashMode,
+        num_sigs: u16,
+        hash_mode: &AddressHashMode,
         prover_key: &VRFPrivateKey,
     ) -> Option<LeaderKeyRegisterOp> {
         let prover_pubk = VRFPublicKey::from_private(prover_key);

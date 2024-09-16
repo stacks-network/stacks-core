@@ -1,4 +1,3 @@
-#![allow(unused)]
 use crate::cost_estimates::FeeRateEstimate;
 
 pub mod common;

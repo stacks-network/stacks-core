@@ -43,20 +43,15 @@ warp = "0.3.5"
 tokio = "1.15"
 reqwest = { version = "0.11", default-features = false, features = ["blocking", "json", "rustls", "rustls-tls"] }
 clarity = { path = "../../clarity", features = ["default", "testing"]}
-rstest = "0.17.0"
-rstest_reuse = "0.5.0"
 stacks-common = { path = "../../stacks-common", features = ["default", "testing"] }
 stacks = { package = "stackslib", path = "../../stackslib", features = ["default", "testing"] }
 stacks-signer = { path = "../../stacks-signer", features = ["testing"] }
-stx-genesis = { path = "../../stx-genesis", features = ["testing"] }
-stdext = "0.3.1"
 tracing = "0.1.37"
 tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
 wsts = {workspace = true}
 mutants = "0.0.3"
 tiny_http = "0.12.0"
 http-types = "2.12"
-rlimit = "0.10.2"
 
 [[bin]]
 name = "stacks-node"

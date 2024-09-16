@@ -69,7 +69,7 @@ pub mod index;
 pub mod miner;
 pub mod transaction;
 
-#[cfg(any(test, feature = "testing"))]
+#[cfg(test)]
 pub mod tests;
 
 pub use stacks_common::address::{
@@ -1131,9 +1131,8 @@ pub const MAX_EPOCH_SIZE: u32 = 2 * 1024 * 1024;
 // $MAX_EPOCH_SIZE bytes (so the average microblock size needs to be 4kb if there are 256 of them)
 pub const MAX_MICROBLOCK_SIZE: u32 = 65536;
 
-#[cfg(any(test, feature = "testing"))]
+#[cfg(test)]
 pub mod test {
-    #![allow(unused)]
     use clarity::util::get_epoch_time_secs;
     use clarity::vm::representations::{ClarityName, ContractName};
     use clarity::vm::ClarityVersion;

@@ -20,7 +20,7 @@ pub mod fee_scalar;
 pub mod metrics;
 pub mod pessimistic;
 
-#[cfg(any(test, feature = "testing"))]
+#[cfg(test)]
 pub mod tests;
 
 use self::metrics::CostMetric;

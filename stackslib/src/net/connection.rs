@@ -1504,9 +1504,8 @@ pub type ReplyHandleP2P = NetworkReplyHandle<StacksP2P>;
 pub type ConnectionHttp = NetworkConnection<StacksHttp>;
 pub type ReplyHandleHttp = NetworkReplyHandle<StacksHttp>;
 
-#[cfg(any(test, feature = "testing"))]
+#[cfg(test)]
 mod test {
-    #![allow(unused)]
     use std::io::prelude::*;
     use std::io::{Read, Write};
     use std::sync::{Arc, Mutex};

@@ -111,7 +111,7 @@
 /// state periodically (whereas Gaia stores data for as long as the back-end storage provider's SLA
 /// indicates).
 
-#[cfg(any(test, feature = "testing"))]
+#[cfg(test)]
 pub mod tests;
 
 pub mod config;

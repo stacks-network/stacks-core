@@ -79,31 +79,31 @@ pub const WALK_STATE_TIMEOUT: u64 = 60;
 
 /// Total number of seconds for which a particular walk can exist.  It will be reset if it exceeds
 /// this age.
-#[cfg(any(test, feature = "testing"))]
+#[cfg(test)]
 pub const WALK_RESET_INTERVAL: u64 = 60;
-#[cfg(not(any(test, feature = "testing")))]
+#[cfg(not(test))]
 pub const WALK_RESET_INTERVAL: u64 = 600;
 
 /// How often the node will consider pruning neighbors from its neighbor set.  The node will prune
 /// neighbors from over-represented hosts and IP ranges in order to maintain connections to a
 /// diverse set of neighbors.
-#[cfg(any(test, feature = "testing"))]
+#[cfg(test)]
 pub const PRUNE_FREQUENCY: u64 = 0;
-#[cfg(not(any(test, feature = "testing")))]
+#[cfg(not(test))]
 pub const PRUNE_FREQUENCY: u64 = 43200;
 
 /// Not all neighbors discovered will have an up-to-date chain tip.  This value is the highest
 /// discrepancy between the local burnchain block height and the remote node's burnchain block
 /// height for which the neighbor will be considered as a worthwhile peer to remember.
-#[cfg(any(test, feature = "testing"))]
+#[cfg(test)]
 pub const MAX_NEIGHBOR_BLOCK_DELAY: u64 = 25;
-#[cfg(not(any(test, feature = "testing")))]
+#[cfg(not(test))]
 pub const MAX_NEIGHBOR_BLOCK_DELAY: u64 = 288;
 
 /// How often to kick off neighbor walks.
-#[cfg(any(test, feature = "testing"))]
+#[cfg(test)]
 pub const NEIGHBOR_WALK_INTERVAL: u64 = 0;
-#[cfg(not(any(test, feature = "testing")))]
+#[cfg(not(test))]
 pub const NEIGHBOR_WALK_INTERVAL: u64 = 120; // seconds
 
 /// Probability that we begin an always-allowed peer walk if we're either in IBD or if we're not
@@ -367,7 +367,7 @@ impl PeerNetwork {
         return true;
     }
 
-    #[cfg(any(test, feature = "testing"))]
+    #[cfg(test)]
     fn print_walk_diagnostics(&mut self) {
         let (mut inbound, mut outbound) = self.dump_peer_table();
 
@@ -397,7 +397,7 @@ impl PeerNetwork {
         debug!("{:?}: Walk finished ===================", &self.local_peer);
     }
 
-    #[cfg(not(any(test, feature = "testing")))]
+    #[cfg(not(test))]
     fn print_walk_diagnostics(&self) {}
 
     /// Update the state of our peer graph walk.

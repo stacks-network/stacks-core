@@ -6,5 +6,5 @@ pub mod special;
 /// Stacks blockchain specific Clarity database implementations and wrappers
 pub mod database;
 
-#[cfg(any(test, feature = "testing"))]
+#[cfg(test)]
 mod tests;

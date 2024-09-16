@@ -22,11 +22,12 @@ use clarity::vm::types::{QualifiedContractIdentifier, StandardPrincipalData};
 use rand::prelude::*;
 use rand::thread_rng;
 use rlimit;
-use stacks::core::PEER_VERSION_TESTNET;
-use stacks::net::db::*;
-use stacks::net::test::*;
-use stacks::net::*;
-use stacks::util_lib::test::*;
+
+use crate::core::PEER_VERSION_TESTNET;
+use crate::net::db::*;
+use crate::net::test::*;
+use crate::net::*;
+use crate::util_lib::test::*;
 
 fn setup_rlimit_nofiles() {
     info!("Attempt to set nofile rlimit to 4096 (required for these tests to run)");

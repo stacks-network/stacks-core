@@ -623,7 +623,7 @@ impl Burnchain {
         ret
     }
 
-    #[cfg(any(test, feature = "testing"))]
+    #[cfg(test)]
     pub fn default_unittest(
         first_block_height: u64,
         first_block_hash: &BurnchainHeaderHash,

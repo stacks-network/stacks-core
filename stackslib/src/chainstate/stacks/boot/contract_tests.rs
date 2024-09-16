@@ -361,7 +361,7 @@ impl BurnStateDB for TestSimBurnStateDB {
         panic!("Not implemented in TestSim");
     }
 
-    fn get_burn_block_height(&self, _sortition_id: &SortitionId) -> Option<u32> {
+    fn get_burn_block_height(&self, sortition_id: &SortitionId) -> Option<u32> {
         panic!("Not implemented in TestSim");
     }
 
@@ -525,7 +525,7 @@ impl BurnStateDB for TestSimBurnStateDB {
     }
 }
 
-#[cfg(any(test, feature = "testing"))]
+#[cfg(test)]
 impl HeadersDB for TestSimHeadersDB {
     fn get_burn_header_hash_for_block(
         &self,

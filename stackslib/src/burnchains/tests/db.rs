@@ -49,7 +49,7 @@ impl BurnchainDB {
 
     /// Get back all of the parsed burnchain operations for a given block.
     /// Used in testing to replay burnchain data.
-    #[cfg(any(test, feature = "testing"))]
+    #[cfg(test)]
     pub fn get_burnchain_block_ops(
         &self,
         block_hash: &BurnchainHeaderHash,

@@ -415,7 +415,7 @@ impl FromRow<StagingBlock> for StagingBlock {
 }
 
 impl StagingMicroblock {
-    #[cfg(any(test, feature = "testing"))]
+    #[cfg(test)]
     pub fn try_into_microblock(self) -> Result<StacksMicroblock, StagingMicroblock> {
         StacksMicroblock::consensus_deserialize(&mut &self.block_data[..]).map_err(|_e| self)
     }
@@ -660,7 +660,7 @@ impl StacksChainState {
     }
 
     /// Store an empty block to the chunk store, named by its hash.
-    #[cfg(any(test, feature = "testing"))]
+    #[cfg(test)]
     fn store_empty_block(
         blocks_path: &str,
         consensus_hash: &ConsensusHash,
@@ -760,10 +760,10 @@ impl StacksChainState {
     }
 
     /// Get a list of all microblocks' hashes, and their anchored blocks' hashes
-    #[cfg(any(test, feature = "testing"))]
+    #[cfg(test)]
     pub fn list_microblocks(
         blocks_conn: &DBConn,
-        _blocks_dir: &str,
+        blocks_dir: &str,
     ) -> Result<Vec<(ConsensusHash, BlockHeaderHash, Vec<BlockHeaderHash>)>, Error> {
         let mut blocks = StacksChainState::list_blocks(blocks_conn)?;
         let mut ret = vec![];
@@ -1025,7 +1025,7 @@ impl StacksChainState {
             .map_err(|e| Error::DBError(db_error::from(e)))
     }
 
-    #[cfg(any(test, feature = "testing"))]
+    #[cfg(test)]
     fn load_staging_block_data(
         block_conn: &DBConn,
         blocks_path: &str,
@@ -1493,7 +1493,7 @@ impl StacksChainState {
 
     /// Get an anchored block's parent block header.
     /// Doesn't matter if it's staging or not.
-    #[cfg(any(test, feature = "testing"))]
+    #[cfg(test)]
     pub fn load_parent_block_header(
         sort_ic: &SortitionDBConn,
         blocks_path: &str,
@@ -2500,7 +2500,7 @@ impl StacksChainState {
         Ok(())
     }
 
-    #[cfg(any(test, feature = "testing"))]
+    #[cfg(test)]
     fn set_block_orphaned<'a>(
         tx: &mut DBTx<'a>,
         blocks_path: &str,
@@ -2522,7 +2522,7 @@ impl StacksChainState {
         // find all orphaned microblocks, and delete the block data
         let find_orphaned_microblocks_sql = "SELECT microblock_hash FROM staging_microblocks WHERE consensus_hash = ?1 AND anchored_block_hash = ?2";
         let find_orphaned_microblocks_args = params![consensus_hash, anchored_block_hash];
-        let _orphaned_microblock_hashes = query_row_columns::<BlockHeaderHash, _>(
+        let orphaned_microblock_hashes = query_row_columns::<BlockHeaderHash, _>(
             tx,
             find_orphaned_microblocks_sql,
             find_orphaned_microblocks_args,
@@ -2801,7 +2801,7 @@ impl StacksChainState {
 
     /// Do we have any microblock available to serve in any capacity, given its parent anchored block's
     /// index block hash?
-    #[cfg(any(test, feature = "testing"))]
+    #[cfg(test)]
     fn has_microblocks_indexed(
         &self,
         parent_index_block_hash: &StacksBlockId,
@@ -2867,7 +2867,7 @@ impl StacksChainState {
 
     /// Get the sqlite rowid for a staging microblock, given the hash of the microblock.
     /// Returns None if no such microblock.
-    #[cfg(any(test, feature = "testing"))]
+    #[cfg(test)]
     fn stream_microblock_get_rowid(
         blocks_conn: &DBConn,
         parent_index_block_hash: &StacksBlockId,
@@ -2883,7 +2883,7 @@ impl StacksChainState {
 
     /// Load up the metadata on a microblock stream (but don't get the data itself)
     /// DO NOT USE IN PRODUCTION -- doesn't work for microblock forks.
-    #[cfg(any(test, feature = "testing"))]
+    #[cfg(test)]
     fn stream_microblock_get_info(
         blocks_conn: &DBConn,
         parent_index_block_hash: &StacksBlockId,
@@ -3576,7 +3576,7 @@ impl StacksChainState {
 
     /// Given a burnchain snapshot, a Stacks block and a microblock stream, preprocess them all.
     /// This does not work when forking
-    #[cfg(any(test, feature = "testing"))]
+    #[cfg(test)]
     pub fn preprocess_stacks_epoch(
         &mut self,
         sort_ic: &SortitionDBConn,
@@ -6438,7 +6438,7 @@ impl StacksChainState {
     ///  PoX aware (i.e., unit tests, and old stacks-node loops),
     /// Elsewhere, block processing is invoked by the ChainsCoordinator,
     ///  which handles tracking the chain tip itself
-    #[cfg(any(test, feature = "testing"))]
+    #[cfg(test)]
     pub fn process_blocks_at_tip(
         &mut self,
         burnchain_db_conn: &DBConn,
@@ -6936,9 +6936,8 @@ impl StacksChainState {
     }
 }
 
-#[cfg(any(test, feature = "testing"))]
+#[cfg(test)]
 pub mod test {
-    #![allow(unused)]
     use std::fs;
 
     use clarity::vm::ast::ASTRules;

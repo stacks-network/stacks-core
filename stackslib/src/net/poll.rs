@@ -481,7 +481,7 @@ impl NetworkState {
     }
 }
 
-#[cfg(any(test, feature = "testing"))]
+#[cfg(test)]
 mod test {
     use std::collections::HashSet;
 
