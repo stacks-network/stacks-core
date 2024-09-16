@@ -783,6 +783,7 @@ impl Signer {
         }
         if let Err(e) = self.signer_db.insert_block(&block_info) {
             warn!("{self}: Failed to update block state: {e:?}",);
+            panic!("{self} Failed to update block state: {e}");
         }
     }
 
@@ -903,7 +904,7 @@ impl Signer {
                 "Failed to set group threshold signature timestamp for {}: {:?}",
                 block_hash, &e
             );
-            e
+            panic!("{self} Failed to write block to signerdb: {e}");
         });
         #[cfg(any(test, feature = "testing"))]
         {
