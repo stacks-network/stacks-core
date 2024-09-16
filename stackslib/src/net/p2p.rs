@@ -2399,7 +2399,7 @@ impl PeerNetwork {
     }
 
     /// Prune inbound and outbound connections if we can
-    fn prune_connections(&mut self) -> () {
+    pub(crate) fn prune_connections(&mut self) -> () {
         if cfg!(test) && self.connection_opts.disable_network_prune {
             return;
         }
@@ -2443,6 +2443,22 @@ impl PeerNetwork {
                 }
             }
 
+            // if we're in the middle of epoch2 inv sync, then don't prune any connections it
+            // established
+            if let Some(inv_state) = self.inv_state.as_ref() {
+                if inv_state.get_pinned_connections().contains(event_id) {
+                    safe.insert(*event_id);
+                }
+            }
+
+            // if we're in the middle of nakamoto inv sync, then don't prune any connections it
+            // established
+            if let Some(nakamoto_inv) = self.inv_state_nakamoto.as_ref() {
+                if nakamoto_inv.get_pinned_connections().contains(event_id) {
+                    safe.insert(*event_id);
+                }
+            }
+
             // if we're running stacker DBs, then don't prune any outbound connections it
             // established
             if let Some(stacker_db_syncs) = self.stacker_db_syncs.as_ref() {
@@ -2454,6 +2470,7 @@ impl PeerNetwork {
             }
         }
 
+        debug!("Pinned connections: {:?}", &safe);
         self.prune_frontier(&safe);
     }
 
