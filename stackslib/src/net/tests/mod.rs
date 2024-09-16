@@ -257,7 +257,7 @@ impl NakamotoBootPlan {
                     NakamotoBlockObtainMethod::Pushed,
                 )
                 .unwrap();
-                if matches!(BlockAcceptResponse::Accepted, accepted) {
+                if accepted.is_accepted() {
                     test_debug!("Accepted Nakamoto block {block_id} to other peer {}", i);
                     peer.coord.handle_new_nakamoto_stacks_block().unwrap();
                 } else {
@@ -294,7 +294,7 @@ impl NakamotoBootPlan {
                     NakamotoBlockObtainMethod::Pushed,
                 )
                 .unwrap();
-                if matches!(BlockAcceptResponse::Accepted, accepted) {
+                if accepted.is_accepted() {
                     test_debug!(
                         "Accepted malleablized Nakamoto block {block_id} to other peer {}",
                         i

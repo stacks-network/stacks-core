@@ -196,11 +196,13 @@ impl NakamotoBlockProposal {
             })
     }
 
+    /// DO NOT CALL FROM CONSENSUS CODE
+    ///
     /// Check to see if a block builds atop the highest block in a given tenure.
     /// That is:
     /// - its parent must exist, and
     /// - its parent must be as high as the highest block in the given tenure.
-    pub(crate) fn check_block_builds_on_highest_block_in_tenure(
+    fn check_block_builds_on_highest_block_in_tenure(
         chainstate: &StacksChainState,
         tenure_id: &ConsensusHash,
         parent_block_id: &StacksBlockId,

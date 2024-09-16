@@ -289,7 +289,7 @@ impl From<SignerConfig> for Signer {
             .signer_entries
             .signer_ids
             .iter()
-            .map(|(addr, id)| (*id, addr.clone()))
+            .map(|(addr, id)| (*id, *addr))
             .collect();
 
         let signer_addresses: Vec<_> = signer_ids_and_addrs.into_values().collect();
@@ -307,7 +307,7 @@ impl From<SignerConfig> for Signer {
                         signer_id, addr
                     );
                 };
-                (addr.clone(), key_ids.len())
+                (*addr, key_ids.len())
             })
             .collect();
 
@@ -671,7 +671,7 @@ impl Signer {
         addrs: impl Iterator<Item = &'a StacksAddress>,
     ) -> u32 {
         let signing_weight = addrs.fold(0usize, |signing_weight, stacker_address| {
-            let stacker_weight = self.signer_weights.get(&stacker_address).unwrap_or(&0);
+            let stacker_weight = self.signer_weights.get(stacker_address).unwrap_or(&0);
             signing_weight.saturating_add(*stacker_weight)
         });
         u32::try_from(signing_weight)
@@ -727,14 +727,10 @@ impl Signer {
         let signer_address = StacksAddress::p2pkh(self.mainnet, &public_key);
 
         // authenticate the signature -- it must be signed by one of the stacking set
-        let is_valid_sig = self
-            .signer_addresses
-            .iter()
-            .find(|addr| {
-                // it only matters that the address hash bytes match
-                signer_address.bytes == addr.bytes
-            })
-            .is_some();
+        let is_valid_sig = self.signer_addresses.iter().any(|addr| {
+            // it only matters that the address hash bytes match
+            signer_address.bytes == addr.bytes
+        });
 
         if !is_valid_sig {
             debug!("{self}: Receive block rejection with an invalid signature. Will not store.";
@@ -822,16 +818,12 @@ impl Signer {
         };
 
         // authenticate the signature -- it must be signed by one of the stacking set
-        let is_valid_sig = self
-            .signer_addresses
-            .iter()
-            .find(|addr| {
-                let stacker_address = StacksAddress::p2pkh(self.mainnet, &public_key);
+        let is_valid_sig = self.signer_addresses.iter().any(|addr| {
+            let stacker_address = StacksAddress::p2pkh(self.mainnet, &public_key);
 
-                // it only matters that the address hash bytes match
-                stacker_address.bytes == addr.bytes
-            })
-            .is_some();
+            // it only matters that the address hash bytes match
+            stacker_address.bytes == addr.bytes
+        });
 
         if !is_valid_sig {
             debug!("{self}: Receive invalid signature {signature}. Will not store.");

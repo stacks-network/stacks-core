@@ -228,6 +228,7 @@ impl BlockInfo {
     /// Mark this block as locally accepted, valid, signed over, and records either the self or group signed timestamp in the block info if it wasn't
     ///  already set.
     pub fn mark_locally_accepted(&mut self, group_signed: bool) -> Result<(), String> {
+        self.move_to(BlockState::LocallyAccepted)?;
         self.valid = Some(true);
         self.signed_over = true;
         if group_signed {
@@ -235,28 +236,31 @@ impl BlockInfo {
         } else {
             self.signed_self.get_or_insert(get_epoch_time_secs());
         }
-        self.move_to(BlockState::LocallyAccepted)
+        Ok(())
     }
 
     /// Mark this block as valid, signed over, and records a group timestamp in the block info if it wasn't
     ///  already set.
     pub fn mark_globally_accepted(&mut self) -> Result<(), String> {
+        self.move_to(BlockState::GloballyAccepted)?;
         self.valid = Some(true);
         self.signed_over = true;
         self.signed_group.get_or_insert(get_epoch_time_secs());
-        self.move_to(BlockState::GloballyAccepted)
+        Ok(())
     }
 
     /// Mark the block as locally rejected and invalid
     pub fn mark_locally_rejected(&mut self) -> Result<(), String> {
+        self.move_to(BlockState::LocallyRejected)?;
         self.valid = Some(false);
-        self.move_to(BlockState::LocallyRejected)
+        Ok(())
     }
 
     /// Mark the block as globally rejected and invalid
     pub fn mark_globally_rejected(&mut self) -> Result<(), String> {
+        self.move_to(BlockState::GloballyRejected)?;
         self.valid = Some(false);
-        self.move_to(BlockState::GloballyRejected)
+        Ok(())
     }
 
     /// Return the block's signer signature hash
@@ -267,12 +271,16 @@ impl BlockInfo {
     /// Check if the block state transition is valid
     fn check_state(&self, state: BlockState) -> bool {
         let prev_state = &self.state;
+        if *prev_state == state {
+            return true;
+        }
         match state {
-            BlockState::Unprocessed => {
-                matches!(prev_state, BlockState::Unprocessed)
-            }
+            BlockState::Unprocessed => false,
             BlockState::LocallyAccepted => {
-                matches!(prev_state, BlockState::Unprocessed)
+                matches!(
+                    prev_state,
+                    BlockState::Unprocessed | BlockState::LocallyAccepted
+                )
             }
             BlockState::LocallyRejected => {
                 matches!(prev_state, BlockState::Unprocessed)
@@ -687,7 +695,7 @@ impl SignerDb {
             .vote
             .as_ref()
             .map(|v| if v.rejected { "REJECT" } else { "ACCEPT" });
-        let broadcasted = self.get_block_broadcasted(block_info.reward_cycle, &hash)?;
+        let broadcasted = self.get_block_broadcasted(block_info.reward_cycle, hash)?;
         debug!("Inserting block_info.";
             "reward_cycle" => %block_info.reward_cycle,
             "burn_block_height" => %block_info.burn_block_height,
@@ -736,7 +744,7 @@ impl SignerDb {
         let qry = "INSERT OR REPLACE INTO block_signatures (signer_signature_hash, signature) VALUES (?1, ?2);";
         let args = params![
             block_sighash,
-            serde_json::to_string(signature).map_err(|e| DBError::SerializationError(e))?
+            serde_json::to_string(signature).map_err(DBError::SerializationError)?
         ];
 
         debug!("Inserting block signature.";
@@ -825,7 +833,7 @@ impl SignerDb {
         if broadcasted == 0 {
             return Ok(None);
         }
-        Ok(u64::try_from(broadcasted).ok())
+        Ok(Some(broadcasted))
     }
 
     /// Get the current state of a given block in the database
@@ -1152,15 +1160,12 @@ mod tests {
         assert_eq!(db.get_block_signatures(&block_id).unwrap(), vec![]);
 
         db.add_block_signature(&block_id, &sig1).unwrap();
-        assert_eq!(
-            db.get_block_signatures(&block_id).unwrap(),
-            vec![sig1.clone()]
-        );
+        assert_eq!(db.get_block_signatures(&block_id).unwrap(), vec![sig1]);
 
         db.add_block_signature(&block_id, &sig2).unwrap();
         assert_eq!(
             db.get_block_signatures(&block_id).unwrap(),
-            vec![sig1.clone(), sig2.clone()]
+            vec![sig1, sig2]
         );
     }
 
@@ -1222,5 +1227,46 @@ mod tests {
             .unwrap(),
             12345
         );
+    }
+    #[test]
+    fn state_machine() {
+        let (mut block, _) = create_block();
+        assert_eq!(block.state, BlockState::Unprocessed);
+        assert!(block.check_state(BlockState::Unprocessed));
+        assert!(block.check_state(BlockState::LocallyAccepted));
+        assert!(block.check_state(BlockState::LocallyRejected));
+        assert!(block.check_state(BlockState::GloballyAccepted));
+        assert!(block.check_state(BlockState::GloballyRejected));
+
+        block.move_to(BlockState::LocallyAccepted).unwrap();
+        assert_eq!(block.state, BlockState::LocallyAccepted);
+        assert!(!block.check_state(BlockState::Unprocessed));
+        assert!(block.check_state(BlockState::LocallyAccepted));
+        assert!(!block.check_state(BlockState::LocallyRejected));
+        assert!(block.check_state(BlockState::GloballyAccepted));
+        assert!(block.check_state(BlockState::GloballyRejected));
+
+        block.move_to(BlockState::GloballyAccepted).unwrap();
+        assert_eq!(block.state, BlockState::GloballyAccepted);
+        assert!(!block.check_state(BlockState::Unprocessed));
+        assert!(!block.check_state(BlockState::LocallyAccepted));
+        assert!(!block.check_state(BlockState::LocallyRejected));
+        assert!(block.check_state(BlockState::GloballyAccepted));
+        assert!(!block.check_state(BlockState::GloballyRejected));
+
+        // Must manually override as will not be able to move from GloballyAccepted to LocallyAccepted
+        block.state = BlockState::LocallyRejected;
+        assert!(!block.check_state(BlockState::Unprocessed));
+        assert!(!block.check_state(BlockState::LocallyAccepted));
+        assert!(block.check_state(BlockState::LocallyRejected));
+        assert!(block.check_state(BlockState::GloballyAccepted));
+        assert!(block.check_state(BlockState::GloballyRejected));
+
+        block.move_to(BlockState::GloballyRejected).unwrap();
+        assert!(!block.check_state(BlockState::Unprocessed));
+        assert!(!block.check_state(BlockState::LocallyAccepted));
+        assert!(!block.check_state(BlockState::LocallyRejected));
+        assert!(!block.check_state(BlockState::GloballyAccepted));
+        assert!(block.check_state(BlockState::GloballyRejected));
     }
 }

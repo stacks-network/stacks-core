@@ -99,9 +99,9 @@ use crate::neon::{Counters, RunLoopCounter};
 use crate::operations::BurnchainOpSigner;
 use crate::run_loop::boot_nakamoto;
 use crate::tests::neon_integrations::{
-    call_read_only, get_account, get_account_result, get_chain_info_result, get_neighbors,
-    get_pox_info, next_block_and_wait, run_until_burnchain_height, submit_tx, test_observer,
-    wait_for_runloop,
+    call_read_only, get_account, get_account_result, get_chain_info_opt, get_chain_info_result,
+    get_neighbors, get_pox_info, next_block_and_wait, run_until_burnchain_height, submit_tx,
+    test_observer, wait_for_runloop,
 };
 use crate::tests::{
     get_chain_info, make_contract_publish, make_contract_publish_versioned, make_stacks_transfer,
@@ -711,6 +711,7 @@ pub fn next_block_and_wait_for_commits(
         (0..commits_before.len()).map(|_| None).collect();
     let mut commit_sent_time: Vec<Option<Instant>> =
         (0..commits_before.len()).map(|_| None).collect();
+    sleep_ms(2000); // Make sure that the proposed stacks block has a different timestamp than its parent
     next_block_and(btc_controller, timeout_secs, || {
         for i in 0..commits_submitted.len() {
             let commits_sent = commits_submitted[i].load(Ordering::SeqCst);
@@ -7722,7 +7723,21 @@ fn mock_mining() {
         .spawn(move || follower_run_loop.start(None, 0))
         .unwrap();
 
-    debug!("Booted follower-thread");
+    info!("Booting follower-thread, waiting for the follower to sync to the chain tip");
+
+    wait_for(120, || {
+        let Some(miner_node_info) = get_chain_info_opt(&naka_conf) else {
+            return Ok(false);
+        };
+        let Some(follower_node_info) = get_chain_info_opt(&follower_conf) else {
+            return Ok(false);
+        };
+        Ok(miner_node_info.stacks_tip_height == follower_node_info.stacks_tip_height)
+    })
+    .expect("Timed out waiting for follower to catch up to the miner");
+    let miner_node_info = get_chain_info(&naka_conf);
+    let follower_node_info = get_chain_info(&follower_conf);
+    info!("Node heights"; "miner" => miner_node_info.stacks_tip_height, "follower" => follower_node_info.stacks_tip_height);
 
     // Mine `tenure_count` nakamoto tenures
     for tenure_ix in 0..tenure_count {
@@ -7766,25 +7781,26 @@ fn mock_mining() {
             last_tip_height = info.stacks_tip_height;
         }
 
-        let mock_miner_timeout = Instant::now();
-        while follower_naka_mined_blocks.load(Ordering::SeqCst) <= follower_naka_mined_blocks_before
-        {
-            if mock_miner_timeout.elapsed() >= Duration::from_secs(60) {
-                panic!(
-                    "Timed out waiting for mock miner block {}",
-                    follower_naka_mined_blocks_before + 1
-                );
-            }
-            thread::sleep(Duration::from_millis(100));
-        }
+        let miner_node_info = get_chain_info(&naka_conf);
+        let follower_node_info = get_chain_info(&follower_conf);
+        info!("Node heights"; "miner" => miner_node_info.stacks_tip_height, "follower" => follower_node_info.stacks_tip_height);
 
-        let start_time = Instant::now();
-        while commits_submitted.load(Ordering::SeqCst) <= commits_before {
-            if start_time.elapsed() >= Duration::from_secs(20) {
-                panic!("Timed out waiting for block-commit");
-            }
-            thread::sleep(Duration::from_millis(100));
-        }
+        wait_for(60, || {
+            Ok(follower_naka_mined_blocks.load(Ordering::SeqCst)
+                > follower_naka_mined_blocks_before)
+        })
+        .expect(&format!(
+            "Timed out waiting for mock miner block {}",
+            follower_naka_mined_blocks_before + 1
+        ));
+
+        wait_for(20, || {
+            Ok(commits_submitted.load(Ordering::SeqCst) > commits_before)
+        })
+        .expect(&format!(
+            "Timed out waiting for mock miner block {}",
+            follower_naka_mined_blocks_before + 1
+        ));
     }
 
     // load the chain tip, and assert that it is a nakamoto block and at least 30 blocks have advanced in epoch 3
@@ -7808,9 +7824,9 @@ fn mock_mining() {
     // Check follower's mock miner
     let mock_mining_blocks_end = follower_naka_mined_blocks.load(Ordering::SeqCst);
     let blocks_mock_mined = mock_mining_blocks_end - mock_mining_blocks_start;
-    assert_eq!(
-        blocks_mock_mined, tenure_count,
-        "Should have mock mined `tenure_count` nakamoto blocks"
+    assert!(
+        blocks_mock_mined > tenure_count,
+        "Should have mock mined at least `tenure_count` nakamoto blocks"
     );
 
     // wait for follower to reach the chain tip

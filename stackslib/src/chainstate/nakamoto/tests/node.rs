@@ -824,7 +824,7 @@ impl TestStacksNode {
                 } else {
                     BlockAcceptResponse::Rejected("try_to_process is false".into())
                 };
-                if matches!(BlockAcceptResponse::Accepted, accepted) {
+                if accepted.is_accepted() {
                     test_debug!("Accepted Nakamoto block {}", &block_to_store.block_id());
                     coord.handle_new_nakamoto_stacks_block().unwrap();
                     processed_blocks.push(block_to_store.clone());
@@ -1247,7 +1247,7 @@ impl<'a> TestPeer<'a> {
             None,
             NakamotoBlockObtainMethod::Pushed,
         )?;
-        if !matches!(BlockAcceptResponse::Accepted, accepted) {
+        if !accepted.is_accepted() {
             return Ok(false);
         }
         let sort_tip = SortitionDB::get_canonical_sortition_tip(self.sortdb().conn()).unwrap();
@@ -1491,7 +1491,7 @@ impl<'a> TestPeer<'a> {
                 NakamotoBlockObtainMethod::Pushed,
             )
             .unwrap();
-            if matches!(BlockAcceptResponse::Accepted, accepted) {
+            if accepted.is_accepted() {
                 test_debug!("Accepted Nakamoto block {}", &block_id);
                 self.coord.handle_new_nakamoto_stacks_block().unwrap();
 
