@@ -1416,6 +1416,7 @@ pub struct BurnchainConfig {
     pub rpc_ssl: bool,
     pub username: Option<String>,
     pub password: Option<String>,
+    /// Timeout, in seconds, for communication with bitcoind
     pub timeout: u32,
     pub magic_bytes: MagicBytes,
     pub local_mining_public_key: Option<String>,
@@ -1460,7 +1461,7 @@ impl BurnchainConfig {
             rpc_ssl: false,
             username: None,
             password: None,
-            timeout: 300,
+            timeout: 60,
             magic_bytes: BLOCKSTACK_MAGIC_MAINNET.clone(),
             local_mining_public_key: None,
             process_exit_at_block_height: None,
@@ -1555,6 +1556,7 @@ pub struct BurnchainConfigFile {
     pub rpc_ssl: Option<bool>,
     pub username: Option<String>,
     pub password: Option<String>,
+    /// Timeout, in seconds, for communication with bitcoind
     pub timeout: Option<u32>,
     pub magic_bytes: Option<String>,
     pub local_mining_public_key: Option<String>,
@@ -2376,7 +2378,7 @@ impl Default for MinerConfig {
             first_attempt_time_ms: 10,
             subsequent_attempt_time_ms: 120_000,
             microblock_attempt_time_ms: 30_000,
-            nakamoto_attempt_time_ms: 20_000,
+            nakamoto_attempt_time_ms: 5_000,
             probability_pick_no_estimate_tx: 25,
             block_reward_recipient: None,
             segwit: false,

@@ -400,6 +400,7 @@ impl Signer {
             "{self}: received a block proposal for a new block. Submit block for validation. ";
             "signer_sighash" => %signer_signature_hash,
             "block_id" => %block_proposal.block.block_id(),
+            "burn_height" => block_proposal.burn_height,
         );
         crate::monitoring::increment_block_proposals_received();
         let mut block_info = BlockInfo::from(block_proposal.clone());
