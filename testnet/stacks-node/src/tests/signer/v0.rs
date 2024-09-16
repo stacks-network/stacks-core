@@ -3178,6 +3178,7 @@ fn min_gap_between_blocks() {
         .as_stacks_nakamoto()
         .unwrap()
         .timestamp;
+    assert!(blocks.len() >= 2, "Expected at least 2 mined blocks");
     let penultimate_block = blocks.get(blocks.len() - 2).unwrap();
     let penultimate_block_time = penultimate_block
         .anchored_header
