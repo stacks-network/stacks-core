@@ -450,7 +450,10 @@ impl StacksClient {
             "last_sortition" => %last_sortition,
         );
         let path = self.tenure_forking_info_path(chosen_parent, last_sortition);
-        let timer = crate::monitoring::new_rpc_call_timer(&path, &self.http_origin);
+        let timer = crate::monitoring::new_rpc_call_timer(
+            "/v3/tenures/fork_info/:start/:stop",
+            &self.http_origin,
+        );
         let send_request = || {
             self.stacks_node_client
                 .get(&path)
@@ -491,7 +494,8 @@ impl StacksClient {
     pub fn get_sortition(&self, ch: &ConsensusHash) -> Result<SortitionInfo, ClientError> {
         debug!("stacks_node_client: Getting sortition with consensus hash {ch}...");
         let path = format!("{}/consensus/{}", self.sortition_info_path(), ch.to_hex());
-        let timer = crate::monitoring::new_rpc_call_timer(&path, &self.http_origin);
+        let timer_label = format!("{}/consensus/:consensus_hash", self.sortition_info_path());
+        let timer = crate::monitoring::new_rpc_call_timer(&timer_label, &self.http_origin);
         let send_request = || {
             self.stacks_node_client.get(&path).send().map_err(|e| {
                 warn!("Signer failed to request sortition"; "consensus_hash" => %ch, "err" => ?e);
@@ -561,7 +565,7 @@ impl StacksClient {
     ) -> Result<Option<Vec<NakamotoSignerEntry>>, ClientError> {
         debug!("stacks_node_client: Getting reward set signers for reward cycle {reward_cycle}...");
         let timer = crate::monitoring::new_rpc_call_timer(
-            &self.reward_set_path(reward_cycle),
+            &format!("{}/v3/stacker_set/:reward_cycle", self.http_origin),
             &self.http_origin,
         );
         let send_request = || {
@@ -644,8 +648,8 @@ impl StacksClient {
         address: &StacksAddress,
     ) -> Result<AccountEntryResponse, ClientError> {
         debug!("stacks_node_client: Getting account info...");
-        let timer =
-            crate::monitoring::new_rpc_call_timer(&self.accounts_path(address), &self.http_origin);
+        let timer_label = format!("{}/v2/accounts/:stacks_address", self.http_origin);
+        let timer = crate::monitoring::new_rpc_call_timer(&timer_label, &self.http_origin);
         let send_request = || {
             self.stacks_node_client
                 .get(self.accounts_path(address))
@@ -797,7 +801,11 @@ impl StacksClient {
         let body =
             json!({"sender": self.stacks_address.to_string(), "arguments": args}).to_string();
         let path = self.read_only_path(contract_addr, contract_name, function_name);
-        let timer = crate::monitoring::new_rpc_call_timer(&path, &self.http_origin);
+        let timer_label = format!(
+            "{}/v2/contracts/call-read/:principal/{contract_name}/{function_name}",
+            self.http_origin
+        );
+        let timer = crate::monitoring::new_rpc_call_timer(&timer_label, &self.http_origin);
         let response = self
             .stacks_node_client
             .post(path)
