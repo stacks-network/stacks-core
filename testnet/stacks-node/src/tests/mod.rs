@@ -62,6 +62,7 @@ mod integrations;
 mod mempool;
 pub mod nakamoto_integrations;
 pub mod neon_integrations;
+pub mod p2p;
 mod signer;
 mod stackerdb;
 
