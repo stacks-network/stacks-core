@@ -2753,19 +2753,21 @@ impl BlockMinerThread {
         } = self.config.get_node_config(false);
 
         let res = bitcoin_controller.submit_operation(target_epoch_id, op, &mut op_signer, attempt);
-        self.failed_to_submit_last_attempt = match res {
-            Ok(_) => false,
-            Err(BurnchainControllerError::IdenticalOperation) => {
-                info!("Relayer: Block-commit already submitted");
-                true
-            }
+        match res {
+            Ok(_) => self.failed_to_submit_last_attempt = false,
             Err(_) if mock_mining => {
                 debug!("Relayer: Mock-mining enabled; not sending Bitcoin transaction");
-                true
+                self.failed_to_submit_last_attempt = true;
+            }
+            Err(BurnchainControllerError::IdenticalOperation) => {
+                info!("Relayer: Block-commit already submitted");
+                self.failed_to_submit_last_attempt = true;
+                return None;
             }
             Err(e) => {
                 warn!("Relayer: Failed to submit Bitcoin transaction: {:?}", e);
-                true
+                self.failed_to_submit_last_attempt = true;
+                return None;
             }
         };
 
