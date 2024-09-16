@@ -117,6 +117,19 @@ jobs:
           - tests::nakamoto_integrations::follower_bootup_across_multiple_cycles
           - tests::nakamoto_integrations::utxo_check_on_startup_panic
           - tests::nakamoto_integrations::utxo_check_on_startup_recover
+          - tests::p2p::convergence::test_walk_ring_allow_15
+          - tests::p2p::convergence::test_walk_ring_15_plain
+          - tests::p2p::convergence::test_walk_ring_15_pingback
+          - tests::p2p::convergence::test_walk_ring_15_org_biased
+          - tests::p2p::convergence::test_walk_line_allowed_15
+          - tests::p2p::convergence::test_walk_line_15_plain
+          - tests::p2p::convergence::test_walk_line_15_org_biased
+          - tests::p2p::convergence::test_walk_line_15_pingback
+          - tests::p2p::convergence::test_walk_star_allowed_15
+          - tests::p2p::convergence::test_walk_star_15_plain
+          - tests::p2p::convergence::test_walk_star_15_pingback
+          - tests::p2p::convergence::test_walk_star_15_org_biased
+          - tests::p2p::convergence::test_walk_inbound_line_15
           # Do not run this one until we figure out why it fails in CI
           # - tests::neon_integrations::bitcoin_reorg_flap
           # - tests::neon_integrations::bitcoin_reorg_flap_with_follower
