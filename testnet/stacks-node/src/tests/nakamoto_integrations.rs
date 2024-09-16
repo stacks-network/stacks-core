@@ -592,7 +592,7 @@ pub fn naka_neon_integration_conf(seed: Option<&[u8]>) -> (Config, StacksAddress
 
     conf.node.mine_microblocks = false;
     conf.miner.microblock_attempt_time_ms = 10;
-    conf.miner.nakamoto_attempt_time_ms = 20_000;
+    conf.miner.nakamoto_attempt_time_ms = 60_000;
     conf.node.microblock_frequency = 0;
     conf.node.wait_time_for_blocks = 200;
 
