@@ -114,18 +114,14 @@ pub struct SignerTest<S> {
 }
 
 impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<SpawnedSigner<S, T>> {
-    fn new(
-        num_signers: usize,
-        initial_balances: Vec<(StacksAddress, u64)>,
-        wait_on_signers: Option<Duration>,
-    ) -> Self {
+    fn new(num_signers: usize, initial_balances: Vec<(StacksAddress, u64)>) -> Self {
         Self::new_with_config_modifications(
             num_signers,
             initial_balances,
-            wait_on_signers,
             |_| {},
             |_| {},
-            &[],
+            None,
+            None,
         )
     }
 
@@ -135,15 +131,21 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
     >(
         num_signers: usize,
         initial_balances: Vec<(StacksAddress, u64)>,
-        wait_on_signers: Option<Duration>,
         mut signer_config_modifier: F,
         mut node_config_modifier: G,
-        btc_miner_pubkeys: &[Secp256k1PublicKey],
+        btc_miner_pubkeys: Option<Vec<Secp256k1PublicKey>>,
+        signer_stacks_private_keys: Option<Vec<StacksPrivateKey>>,
     ) -> Self {
         // Generate Signer Data
-        let signer_stacks_private_keys = (0..num_signers)
-            .map(|_| StacksPrivateKey::new())
-            .collect::<Vec<StacksPrivateKey>>();
+        let signer_stacks_private_keys = signer_stacks_private_keys
+            .inspect(|keys| {
+                assert_eq!(
+                    keys.len(),
+                    num_signers,
+                    "Number of private keys does not match number of signers"
+                )
+            })
+            .unwrap_or_else(|| (0..num_signers).map(|_| StacksPrivateKey::new()).collect());
 
         let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
 
@@ -159,11 +161,6 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         // That's the kind of thing an idiot would have on his luggage!
         let password = "12345";
         naka_conf.connection_options.auth_token = Some(password.to_string());
-        if let Some(wait_on_signers) = wait_on_signers {
-            naka_conf.miner.wait_on_signers = wait_on_signers;
-        } else {
-            naka_conf.miner.wait_on_signers = Duration::from_secs(10);
-        }
         let run_stamp = rand::random();
 
         // Setup the signer and coordinator configurations
@@ -195,19 +192,20 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
             .collect();
 
         // Setup the nodes and deploy the contract to it
-        let btc_miner_pubkeys = if btc_miner_pubkeys.is_empty() {
-            let pk = Secp256k1PublicKey::from_hex(
-                naka_conf
-                    .burnchain
-                    .local_mining_public_key
-                    .as_ref()
-                    .unwrap(),
-            )
-            .unwrap();
-            vec![pk]
-        } else {
-            btc_miner_pubkeys.to_vec()
-        };
+        let btc_miner_pubkeys = btc_miner_pubkeys
+            .filter(|keys| !keys.is_empty())
+            .unwrap_or_else(|| {
+                let pk = Secp256k1PublicKey::from_hex(
+                    naka_conf
+                        .burnchain
+                        .local_mining_public_key
+                        .as_ref()
+                        .unwrap(),
+                )
+                .unwrap();
+                vec![pk]
+            });
+
         let node = setup_stx_btc_node(
             naka_conf,
             &signer_stacks_private_keys,
@@ -236,10 +234,10 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
                 continue;
             }
             let port = 3000 + signer_ix;
-            let endpoint = format!("http://localhost:{}", port);
+            let endpoint = format!("http://localhost:{port}");
             let path = format!("{endpoint}/status");
 
-            debug!("Issue status request to {}", &path);
+            debug!("Issue status request to {path}");
             let client = reqwest::blocking::Client::new();
             let response = client
                 .get(path)

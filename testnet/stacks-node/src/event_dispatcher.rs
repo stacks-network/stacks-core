@@ -142,7 +142,7 @@ pub struct MinedMicroblockEvent {
     pub anchor_block: BlockHeaderHash,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct MinedNakamotoBlockEvent {
     pub target_burn_height: u64,
     pub parent_block_id: String,
