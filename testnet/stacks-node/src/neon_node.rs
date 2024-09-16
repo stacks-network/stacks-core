@@ -1715,6 +1715,10 @@ impl BlockMinerThread {
                         info!("Relayer: Stacks tip has changed to {}/{} since we last tried to mine a block in {} at burn height {}; attempt was {} (for Stacks tip {}/{})",
                                parent_consensus_hash, stacks_parent_header.anchored_header.block_hash(), prev_block.burn_hash, parent_block_burn_height, prev_block.attempt, &prev_block.parent_consensus_hash, &prev_block.anchored_block.header.parent_block);
                         best_attempt = cmp::max(best_attempt, prev_block.attempt);
+                        // Since the chain tip has changed, we should try to mine a new block, even
+                        // if it has less transactions than the previous block we mined, since that
+                        // previous block would now be a reorg.
+                        max_txs = 0;
                     } else {
                         info!("Relayer: Burn tip has changed to {} ({}) since we last tried to mine a block in {}",
                                &self.burn_block.burn_header_hash, self.burn_block.block_height, &prev_block.burn_hash);

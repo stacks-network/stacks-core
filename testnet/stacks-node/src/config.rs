@@ -1418,6 +1418,7 @@ pub struct BurnchainConfig {
     pub rpc_ssl: bool,
     pub username: Option<String>,
     pub password: Option<String>,
+    /// Timeout, in seconds, for communication with bitcoind
     pub timeout: u32,
     pub magic_bytes: MagicBytes,
     pub local_mining_public_key: Option<String>,
@@ -1557,6 +1558,7 @@ pub struct BurnchainConfigFile {
     pub rpc_ssl: Option<bool>,
     pub username: Option<String>,
     pub password: Option<String>,
+    /// Timeout, in seconds, for communication with bitcoind
     pub timeout: Option<u32>,
     pub magic_bytes: Option<String>,
     pub local_mining_public_key: Option<String>,
