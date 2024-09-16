@@ -609,6 +609,10 @@ impl ConversationP2P {
         }
     }
 
+    pub fn age(&self) -> u64 {
+        get_epoch_time_secs().saturating_sub(self.instantiated)
+    }
+
     pub fn set_public_key(&mut self, pubkey_opt: Option<Secp256k1PublicKey>) -> () {
         self.connection.set_public_key(pubkey_opt);
     }
