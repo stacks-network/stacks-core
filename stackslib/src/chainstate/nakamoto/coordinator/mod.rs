@@ -506,7 +506,7 @@ pub fn load_nakamoto_reward_set<U: RewardSetProvider>(
                 Err(e) => return Some(Err(e)),
                 Ok(None) => {
                     // no header for this snapshot (possibly invalid)
-                    info!("Failed to find block by consensus hash"; "consensus_hash" => %sn.consensus_hash);
+                    debug!("Failed to find Stacks block by consensus hash"; "consensus_hash" => %sn.consensus_hash);
                     return None
                 }
             }
