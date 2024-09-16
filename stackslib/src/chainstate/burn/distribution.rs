@@ -424,7 +424,7 @@ impl BurnSamplePoint {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 mod tests {
     use std::marker::PhantomData;
 

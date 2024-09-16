@@ -257,7 +257,7 @@ impl MarfedKV {
         &mut self.marf
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn sql_conn(&self) -> &Connection {
         self.marf.sqlite_conn()
     }
@@ -526,7 +526,7 @@ impl<'a> WritableMarfStore<'a> {
         Ok(())
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn test_commit(self) {
         let bhh = self.chain_tip.clone();
         self.commit_to(&bhh).unwrap();

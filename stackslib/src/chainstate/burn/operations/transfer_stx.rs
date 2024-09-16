@@ -46,7 +46,7 @@ struct ParsedData {
 }
 
 impl TransferStxOp {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn new(
         sender: &StacksAddress,
         recipient: &StacksAddress,

@@ -543,7 +543,7 @@ impl<'a, 'b> ClarityTx<'a, 'b> {
         self.block.seal()
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn commit_block(self) -> () {
         self.block.commit_block();
     }
@@ -2713,8 +2713,9 @@ impl StacksChainState {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 pub mod test {
+    #![allow(unused)]
     use std::{env, fs};
 
     use clarity::vm::test_util::TEST_BURN_STATE_DB;

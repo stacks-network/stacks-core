@@ -13,6 +13,7 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
+#![allow(unused)]
 
 use std::cmp;
 use std::collections::{BTreeMap, HashSet, VecDeque};

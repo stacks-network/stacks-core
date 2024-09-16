@@ -1603,7 +1603,7 @@ impl StacksBlockBuilder {
 
     /// Append a transaction if doing so won't exceed the epoch data size.
     /// Does not check for errors
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn force_mine_tx(
         &mut self,
         clarity_tx: &mut ClarityTx,
@@ -1626,7 +1626,7 @@ impl StacksBlockBuilder {
         if !self.anchored_done {
             // save
             match StacksChainState::process_transaction(clarity_tx, tx, quiet, ASTRules::Typical) {
-                Ok((fee, receipt)) => {
+                Ok((fee, _receipt)) => {
                     self.total_anchored_fees += fee;
                 }
                 Err(e) => {
@@ -1637,7 +1637,7 @@ impl StacksBlockBuilder {
             self.txs.push(tx.clone());
         } else {
             match StacksChainState::process_transaction(clarity_tx, tx, quiet, ASTRules::Typical) {
-                Ok((fee, receipt)) => {
+                Ok((fee, _receipt)) => {
                     self.total_streamed_fees += fee;
                 }
                 Err(e) => {
@@ -2003,7 +2003,7 @@ impl StacksBlockBuilder {
     }
     /// Unconditionally build an anchored block from a list of transactions.
     ///  Used in test cases
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn make_anchored_block_from_txs(
         builder: StacksBlockBuilder,
         chainstate_handle: &StacksChainState,
@@ -2022,7 +2022,7 @@ impl StacksBlockBuilder {
 
     /// Unconditionally build an anchored block from a list of transactions.
     ///  Used in test cases
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn make_anchored_block_and_microblock_from_txs(
         mut builder: StacksBlockBuilder,
         chainstate_handle: &StacksChainState,

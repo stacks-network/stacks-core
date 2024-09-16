@@ -592,7 +592,7 @@ impl BloomHash for BloomNodeHasher {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 pub mod test {
     use std::fs;
 

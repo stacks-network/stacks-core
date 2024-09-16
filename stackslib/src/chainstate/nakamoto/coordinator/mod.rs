@@ -58,7 +58,7 @@ use crate::monitoring::increment_stx_blocks_processed_counter;
 use crate::net::Error as NetError;
 use crate::util_lib::db::Error as DBError;
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 pub mod tests;
 
 macro_rules! err_or_debug {
@@ -506,7 +506,7 @@ pub fn load_nakamoto_reward_set<U: RewardSetProvider>(
                 Err(e) => return Some(Err(e)),
                 Ok(None) => {
                     // no header for this snapshot (possibly invalid)
-                    info!("Failed to find block by consensus hash"; "consensus_hash" => %sn.consensus_hash);
+                    debug!("Failed to find Stacks block by consensus hash"; "consensus_hash" => %sn.consensus_hash);
                     return None
                 }
             }

@@ -1025,7 +1025,7 @@ impl NonceCache {
     where
         C: ClarityConnection,
     {
-        #[cfg(test)]
+        #[cfg(any(test, feature = "testing"))]
         assert!(self.cache.len() <= self.max_cache_size);
 
         // Check in-memory cache
@@ -1111,7 +1111,7 @@ fn db_get_nonce(conn: &DBConn, address: &StacksAddress) -> Result<Option<u64>, d
     query_row(conn, sql, params![addr_str])
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 pub fn db_get_all_nonces(conn: &DBConn) -> Result<Vec<(StacksAddress, u64)>, db_error> {
     let sql = "SELECT * FROM nonces";
     let mut stmt = conn.prepare(&sql).map_err(|e| db_error::SqliteError(e))?;
@@ -1162,7 +1162,7 @@ impl CandidateCache {
             self.next.push_back(tx);
         }
 
-        #[cfg(test)]
+        #[cfg(any(test, feature = "testing"))]
         assert!(self.cache.len() + self.next.len() <= self.max_cache_size);
     }
 
@@ -1177,7 +1177,7 @@ impl CandidateCache {
         self.next.append(&mut self.cache);
         self.cache = std::mem::take(&mut self.next);
 
-        #[cfg(test)]
+        #[cfg(any(test, feature = "testing"))]
         {
             assert!(self.cache.len() <= self.max_cache_size + 1);
             assert!(self.next.len() <= self.max_cache_size + 1);
@@ -1365,7 +1365,7 @@ impl MemPoolDB {
             .map(String::from)
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn open_test(
         mainnet: bool,
         chain_id: u32,
@@ -1934,7 +1934,7 @@ impl MemPoolDB {
     }
 
     /// Get all transactions across all tips
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn get_all_txs(conn: &DBConn) -> Result<Vec<MemPoolTxInfo>, db_error> {
         let sql = "SELECT * FROM mempool";
         let rows = query_rows::<MemPoolTxInfo, _>(conn, &sql, NO_PARAMS)?;
@@ -1942,7 +1942,7 @@ impl MemPoolDB {
     }
 
     /// Get all transactions at a specific block
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn get_num_tx_at_block(
         conn: &DBConn,
         consensus_hash: &ConsensusHash,
@@ -1955,7 +1955,7 @@ impl MemPoolDB {
     }
 
     /// Get a number of transactions after a given timestamp on a given chain tip.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn get_txs_after(
         conn: &DBConn,
         consensus_hash: &ConsensusHash,
@@ -2283,7 +2283,7 @@ impl MemPoolDB {
         Ok(())
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn clear_before_coinbase_height(
         &mut self,
         min_coinbase_height: u64,
@@ -2666,7 +2666,7 @@ impl MemPoolDB {
         Ok(())
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn dump_txs(&self) {
         let sql = "SELECT * FROM mempool";
         let txs: Vec<MemPoolTxMetadata> = query_rows(&self.db, sql, NO_PARAMS).unwrap();

@@ -5482,7 +5482,7 @@ impl<'a> SortitionHandleTx<'a> {
             sn.canonical_stacks_tip_height,
         )?;
 
-        #[cfg(test)]
+        #[cfg(any(test, feature = "testing"))]
         {
             let (block_consensus_hash, block_bhh) =
                 SortitionDB::get_canonical_stacks_chain_tip_hash(self).unwrap();
@@ -6566,7 +6566,7 @@ impl ChainstateDB for SortitionDB {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 pub mod tests {
     use std::sync::mpsc::sync_channel;
     use std::thread;

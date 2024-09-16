@@ -364,7 +364,7 @@ impl<T: MarfTrieId> UncommittedState<T> {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn print_to_stderr(&self) {
         self.trie_ram_ref().print_to_stderr()
     }
@@ -535,7 +535,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
         result
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     #[allow(dead_code)]
     pub fn stats(&mut self) -> (u64, u64) {
         let r = self.read_count;
@@ -545,7 +545,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
         (r, w)
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     #[allow(dead_code)]
     pub fn node_stats(&mut self) -> (u64, u64, u64) {
         let nr = self.read_node_count;
@@ -559,7 +559,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
         (nr, br, nw)
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     #[allow(dead_code)]
     pub fn leaf_stats(&mut self) -> (u64, u64) {
         let lr = self.read_leaf_count;
@@ -677,7 +677,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn test_inner_seal(
         &mut self,
         storage_tx: &mut TrieStorageTransaction<T>,
@@ -1113,14 +1113,14 @@ impl<T: MarfTrieId> TrieRAM<T> {
         Ok(self.data.len() as u32)
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn print_to_stderr(&self) {
         for dat in self.data.iter() {
             eprintln!("{}: {:?}", &dat.1, &dat.0);
         }
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn data(&self) -> &Vec<(TrieNodeType, TrieHash)> {
         &self.data
     }
@@ -2035,7 +2035,7 @@ impl<'a, T: MarfTrieId> TrieStorageConnection<'a, T> {
     }
 
     /// Read the Trie root node's hash from the block table.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn read_block_root_hash(&mut self, bhh: &T) -> Result<TrieHash, Error> {
         let root_hash_ptr = TriePtr::new(
             TrieNodeID::Node256 as u8,
@@ -2051,7 +2051,7 @@ impl<'a, T: MarfTrieId> TrieStorageConnection<'a, T> {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     fn inner_read_persisted_root_to_blocks(&mut self) -> Result<HashMap<TrieHash, T>, Error> {
         let ret = match self.blobs.as_mut() {
             Some(blobs) => {
@@ -2065,7 +2065,7 @@ impl<'a, T: MarfTrieId> TrieStorageConnection<'a, T> {
     }
 
     /// Generate a mapping between Trie root hashes and the blocks that contain them
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn read_root_to_block_table(&mut self) -> Result<HashMap<TrieHash, T>, Error> {
         let mut ret = self.inner_read_persisted_root_to_blocks()?;
         let uncommitted_writes = match self.data.uncommitted_writes.take() {
@@ -2738,12 +2738,12 @@ impl<'a, T: MarfTrieId> TrieStorageConnection<'a, T> {
         self.bench.reset();
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn transient_data(&self) -> &TrieStorageTransientData<T> {
         &self.data
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn transient_data_mut(&mut self) -> &mut TrieStorageTransientData<T> {
         &mut self.data
     }

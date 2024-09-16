@@ -27,11 +27,11 @@ extern crate slog;
 #[macro_use]
 extern crate serde_derive;
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 #[macro_use]
 extern crate rstest;
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 #[macro_use]
 extern crate rstest_reuse;
 

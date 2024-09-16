@@ -1571,6 +1571,7 @@ impl StacksChainState {
 
 #[cfg(test)]
 pub mod test {
+    #![allow(unused)]
     use clarity::vm::clarity::TransactionConnection;
     use clarity::vm::contracts::Contract;
     use clarity::vm::representations::{ClarityName, ContractName};
