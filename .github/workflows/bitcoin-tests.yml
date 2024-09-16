@@ -153,6 +153,11 @@ jobs:
         with:
           btc-version: "25.0"
 
+      ## Increase open file descriptors limit
+      - name: Increase Open File Descriptors
+        run: |
+          sudo prlimit --nofile=4096:4096
+
       ## Run test matrix using restored cache of archive file
       ##   - Test will timeout after env.TEST_TIMEOUT minutes
       - name: Run Tests
