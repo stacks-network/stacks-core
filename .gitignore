@@ -58,7 +58,7 @@ testnet/index.html
 
 # will have compiled files and executables
 /target/
-/testnet/helium/target/
+/testnet/regtest/target/
 /contrib/tools/puppet-chain/target/
 /contrib/core-contract-tests/.cache/
 

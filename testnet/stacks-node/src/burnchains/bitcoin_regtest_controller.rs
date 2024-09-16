@@ -454,8 +454,8 @@ impl BitcoinRegtestController {
         }
     }
 
-    /// Helium (devnet) blocks receiver.  Returns the new burnchain tip.
-    fn receive_blocks_helium(&mut self) -> BurnchainTip {
+    /// Local testnet blocks receiver.  Returns the new burnchain tip.
+    fn receive_blocks_local_testnet(&mut self) -> BurnchainTip {
         let mut burnchain = self.get_burnchain();
         let (block_snapshot, state_transition) = loop {
             match burnchain.sync_with_indexer_deprecated(&mut self.indexer) {
@@ -521,8 +521,8 @@ impl BitcoinRegtestController {
         let coordinator_comms = match self.use_coordinator.as_ref() {
             Some(x) => x.clone(),
             None => {
-                // pre-PoX helium node
-                let tip = self.receive_blocks_helium();
+                // pre-PoX local testnet node
+                let tip = self.receive_blocks_local_testnet();
                 let height = tip.block_snapshot.block_height;
                 return Ok((tip, height));
             }
@@ -2246,8 +2246,8 @@ impl BurnchainController for BitcoinRegtestController {
         &mut self,
         target_block_height_opt: Option<u64>,
     ) -> Result<(BurnchainTip, u64), BurnchainControllerError> {
-        let (burnchain_tip, burnchain_height) = if self.config.burnchain.mode == "helium" {
-            // Helium: this node is responsible for mining new burnchain blocks
+        let (burnchain_tip, burnchain_height) = if self.config.burnchain.mode == "regtest" {
+            // Local testnet: this node is responsible for mining new burnchain blocks
             self.build_next_block(1);
             self.receive_blocks(true, None)?
         } else {

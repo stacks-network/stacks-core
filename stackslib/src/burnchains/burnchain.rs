@@ -1076,7 +1076,7 @@ impl Burnchain {
     }
 
     /// Hand off the block to the ChainsCoordinator _and_ process the sortition
-    ///   *only* to be used by legacy stacks node interfaces, like the Helium node
+    ///   *only* to be used by legacy stacks node interfaces, like the local testnet node
     fn process_block_and_sortition_deprecated<B: BurnchainHeaderReader>(
         db: &mut SortitionDB,
         burnchain_db: &mut BurnchainDB,
@@ -1110,7 +1110,7 @@ impl Burnchain {
 
         // extract block-commit metadata
         // Do not emit sortition/burn block events to event observer in this method, because this
-        // method is deprecated and only used in defunct helium nodes
+        // method is deprecated and only used in defunct local testnet nodes
 
         db.evaluate_sortition(
             &header,
