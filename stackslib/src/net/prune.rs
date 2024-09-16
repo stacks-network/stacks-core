@@ -82,7 +82,7 @@ impl PeerNetwork {
             };
         }
 
-        #[cfg(test)]
+        #[cfg(any(test, feature = "testing"))]
         {
             test_debug!(
                 "==== ORG NEIGHBOR DISTRIBUTION OF {:?} ===",
@@ -199,9 +199,11 @@ impl PeerNetwork {
             match org_neighbors.get_mut(&org) {
                 None => {}
                 Some(ref mut neighbor_infos) => {
-                    neighbor_infos.sort_by(|&(ref _nk1, ref stats1), &(ref _nk2, ref stats2)| {
-                        PeerNetwork::compare_neighbor_uptime_health(stats1, stats2)
-                    });
+                    neighbor_infos.sort_unstable_by(
+                        |&(ref _nk1, ref stats1), &(ref _nk2, ref stats2)| {
+                            PeerNetwork::compare_neighbor_uptime_health(stats1, stats2)
+                        },
+                    );
                 }
             }
         }
@@ -374,7 +376,7 @@ impl PeerNetwork {
     }
 
     /// Dump our peer table
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn dump_peer_table(&mut self) -> (Vec<String>, Vec<String>) {
         let mut inbound: Vec<String> = vec![];
         let mut outbound: Vec<String> = vec![];
@@ -445,7 +447,7 @@ impl PeerNetwork {
             }
         }
 
-        #[cfg(test)]
+        #[cfg(any(test, feature = "testing"))]
         {
             if pruned_by_ip.len() > 0 || pruned_by_org.len() > 0 {
                 let (mut inbound, mut outbound) = self.dump_peer_table();
