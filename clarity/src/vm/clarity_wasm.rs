@@ -7647,11 +7647,10 @@ mod tests {
 mod error_mapping {
     use wasmtime::{AsContextMut, Instance, Trap};
 
+    use super::read_identifier_from_wasm;
     use crate::vm::errors::{CheckErrors, Error, RuntimeErrorType, ShortReturnType, WasmError};
     use crate::vm::types::ResponseData;
     use crate::vm::Value;
-
-    use super::read_identifier_from_wasm;
 
     const LOG2_ERROR_MESSAGE: &str = "log2 must be passed a positive integer";
     const SQRTI_ERROR_MESSAGE: &str = "sqrti must be passed a positive integer";
