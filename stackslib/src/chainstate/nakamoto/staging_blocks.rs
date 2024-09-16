@@ -600,7 +600,6 @@ impl<'a> NakamotoStagingBlocksTx<'a> {
                         &block.serialize_to_vec(),
                         &signing_weight,
                         &obtain_method.to_string(),
-                        u64_to_sql(get_epoch_time_secs())?,
                         &block.header.consensus_hash,
                         &block.header.block_hash(),
                     ])?;
