@@ -2374,6 +2374,7 @@ impl Relayer {
     /// this far at all means that they were novel, and thus potentially novel to our neighbors).
     pub fn process_uploaded_stackerdb_chunks(
         &mut self,
+        rc_consensus_hash: &ConsensusHash,
         uploaded_chunks: Vec<StackerDBPushChunkData>,
         event_observer: Option<&dyn StackerDBEventDispatcher>,
     ) {
@@ -2381,12 +2382,25 @@ impl Relayer {
             let mut all_events: HashMap<QualifiedContractIdentifier, Vec<StackerDBChunkData>> =
                 HashMap::new();
             for chunk in uploaded_chunks.into_iter() {
-                debug!("Got uploaded StackerDB chunk"; "stackerdb_contract_id" => &format!("{}", &chunk.contract_id), "slot_id" => chunk.chunk_data.slot_id, "slot_version" => chunk.chunk_data.slot_version);
                 if let Some(events) = all_events.get_mut(&chunk.contract_id) {
                     events.push(chunk.chunk_data.clone());
                 } else {
                     all_events.insert(chunk.contract_id.clone(), vec![chunk.chunk_data.clone()]);
                 }
+
+                // forward if not stale
+                if chunk.rc_consensus_hash != *rc_consensus_hash {
+                    debug!("Drop stale uploaded StackerDB chunk";
+                           "stackerdb_contract_id" => &format!("{}", &chunk.contract_id),
+                           "slot_id" => chunk.chunk_data.slot_id,
+                           "slot_version" => chunk.chunk_data.slot_version,
+                           "chunk.rc_consensus_hash" => %chunk.rc_consensus_hash,
+                           "network.rc_consensus_hash" => %rc_consensus_hash);
+                    continue;
+                }
+
+                debug!("Got uploaded StackerDB chunk"; "stackerdb_contract_id" => &format!("{}", &chunk.contract_id), "slot_id" => chunk.chunk_data.slot_id, "slot_version" => chunk.chunk_data.slot_version);
+
                 let msg = StacksMessageType::StackerDBPushChunk(chunk);
                 if let Err(e) = self.p2p.broadcast_message(vec![], msg) {
                     warn!("Failed to broadcast Nakamoto blocks: {:?}", &e);
@@ -2918,6 +2932,7 @@ impl Relayer {
 
         // push events for HTTP-uploaded stacker DB chunks
         self.process_uploaded_stackerdb_chunks(
+            &network_result.rc_consensus_hash,
             mem::replace(&mut network_result.uploaded_stackerdb_chunks, vec![]),
             event_observer.map(|obs| obs.as_stackerdb_event_dispatcher()),
         );
