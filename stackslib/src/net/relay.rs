@@ -2049,11 +2049,9 @@ impl Relayer {
             }
         }
         if !http_uploaded_blocks.is_empty() {
-            if let Some(comm) = coord_comms {
-                if !comm.announce_new_stacks_block() {
-                    return Err(net_error::CoordinatorClosed);
-                }
-            };
+            coord_comms.inspect(|comm| {
+                comm.announce_new_stacks_block();
+            });
         }
 
         accepted_nakamoto_blocks_and_relayers.extend(pushed_blocks_and_relayers);
