@@ -598,7 +598,6 @@ impl StacksClient {
     /// Retrieve the current pox data from the stacks node
     pub fn get_pox_data(&self) -> Result<RPCPoxInfoData, ClientError> {
         debug!("stacks_node_client: Getting pox data...");
-        #[cfg(feature = "monitoring_prom")]
         let timer = crate::monitoring::new_rpc_call_timer(&self.pox_path(), &self.http_origin);
         let send_request = || {
             self.stacks_node_client
