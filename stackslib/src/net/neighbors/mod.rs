@@ -42,9 +42,9 @@ pub use db::{NeighborReplacements, NeighborWalkDB, PeerDBNeighborWalk};
 pub use walk::{NeighborPingback, NeighborWalk, NeighborWalkResult};
 
 /// How often we can contact other neighbors, at a minimim
-#[cfg(any(test, feature = "testing"))]
+#[cfg(test)]
 pub const NEIGHBOR_MINIMUM_CONTACT_INTERVAL: u64 = 0;
-#[cfg(not(any(test, feature = "testing")))]
+#[cfg(not(test))]
 pub const NEIGHBOR_MINIMUM_CONTACT_INTERVAL: u64 = 600;
 
 /// Default number of seconds to wait for a reply from a neighbor
