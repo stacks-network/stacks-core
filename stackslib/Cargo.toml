@@ -59,6 +59,10 @@ siphasher = "0.3.7"
 wsts = { workspace = true }
 hashbrown = { workspace = true }
 rusqlite = { workspace = true }
+rstest = { version = "0.17.0", optional = true }
+rstest_reuse = { version = "0.5.0", optional = true }
+stdext = { version = "0.3.1", optional = true }
+stx-genesis = { path = "../stx-genesis", optional = true }
 
 [target.'cfg(not(any(target_os = "macos",target_os="windows", target_arch = "arm" )))'.dependencies]
 tikv-jemallocator = {workspace = true}
@@ -95,7 +99,7 @@ features = ["std"]
 assert-json-diff = "1.0.0"
 criterion = "0.3.5"
 stdext = "0.3.1"
-stx-genesis = { path = "../stx-genesis"}
+stx-genesis = { path = "../stx-genesis" }
 clarity = { features = ["default", "testing"], path = "../clarity" }
 stacks-common = { features = ["default", "testing"], path = "../stacks-common" }
 rstest = "0.17.0"
@@ -109,7 +113,7 @@ disable-costs = []
 developer-mode = ["clarity/developer-mode"]
 monitoring_prom = ["prometheus"]
 slog_json = ["slog-json", "stacks-common/slog_json", "clarity/slog_json", "pox-locking/slog_json"]
-testing = []
+testing = ["stdext", "rstest", "rstest_reuse", "stx-genesis"]
 
 [target.'cfg(all(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64"), not(any(target_os="windows"))))'.dependencies]
 sha2 = { version = "0.10", features = ["asm"] }
