@@ -82,7 +82,7 @@ pub struct SlotMetadata {
 }
 
 /// Stacker DB chunk (i.e. as a reply to a chunk request)
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct StackerDBChunkData {
     /// slot ID
     pub slot_id: u32,
@@ -96,6 +96,31 @@ pub struct StackerDBChunkData {
         deserialize_with = "stackerdb_chunk_hex_deserialize"
     )]
     pub data: Vec<u8>,
+}
+
+impl fmt::Debug for StackerDBChunkData {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.data.len() < 128 {
+            write!(
+                f,
+                "StackerDBChunkData({},{},{},{})",
+                self.slot_id,
+                self.slot_version,
+                &self.sig,
+                &to_hex(&self.data)
+            )
+        } else {
+            write!(
+                f,
+                "StackerDBChunkData({},{},{},{}...({}))",
+                self.slot_id,
+                self.slot_version,
+                &self.sig,
+                &to_hex(&self.data[..128]),
+                self.data.len()
+            )
+        }
+    }
 }
 
 /// StackerDB post chunk acknowledgement

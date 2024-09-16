@@ -19,7 +19,7 @@ use std::collections::{BTreeMap, HashMap};
 use stacks_common::bitvec::BitVec;
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::StacksEpochId;
-use stacks_common::util::get_epoch_time_secs;
+use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs};
 
 use crate::burnchains::PoxConstants;
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandle};
@@ -515,8 +515,6 @@ impl NakamotoTenureInv {
 
     /// Get the burnchain tip reward cycle for purposes of inv sync
     fn get_current_reward_cycle(tip: &BlockSnapshot, sortdb: &SortitionDB) -> u64 {
-        // NOTE: reward cycles start when (sortition_height % reward_cycle_len) == 1, not 0, but
-        // .block_height_to_reward_cycle does not account for this.
         sortdb
             .pox_constants
             .block_height_to_reward_cycle(
@@ -537,6 +535,10 @@ pub struct NakamotoInvStateMachine<NC: NeighborComms> {
     reward_cycle_consensus_hashes: BTreeMap<u64, ConsensusHash>,
     /// last observed sortition tip
     last_sort_tip: Option<BlockSnapshot>,
+    /// deadline to stop inv sync burst
+    burst_deadline_ms: u128,
+    /// time we did our last burst
+    last_burst_ms: u128,
 }
 
 impl<NC: NeighborComms> NakamotoInvStateMachine<NC> {
@@ -546,6 +548,8 @@ impl<NC: NeighborComms> NakamotoInvStateMachine<NC> {
             inventories: HashMap::new(),
             reward_cycle_consensus_hashes: BTreeMap::new(),
             last_sort_tip: None,
+            burst_deadline_ms: get_epoch_time_ms(),
+            last_burst_ms: get_epoch_time_ms(),
         }
     }
 
@@ -805,19 +809,39 @@ impl<NC: NeighborComms> NakamotoInvStateMachine<NC> {
         Ok((num_msgs, learned))
     }
 
+    /// Do we need to do an inv sync burst?
+    /// This happens after `burst_interval` milliseconds have passed since we noticed the sortition
+    /// changed.
+    fn need_inv_burst(&self) -> bool {
+        self.burst_deadline_ms < get_epoch_time_ms() && self.last_burst_ms < self.burst_deadline_ms
+    }
+
     /// Top-level state machine execution
     pub fn run(&mut self, network: &mut PeerNetwork, sortdb: &SortitionDB, ibd: bool) -> bool {
         // if the burnchain tip has changed, then force all communications to reset for the current
         // reward cycle in order to hasten block download
         if let Some(last_sort_tip) = self.last_sort_tip.as_ref() {
             if last_sort_tip.consensus_hash != network.burnchain_tip.consensus_hash {
-                debug!("Forcibly restarting all Nakamoto inventory comms due to burnchain tip change ({} != {})", &last_sort_tip.consensus_hash, &network.burnchain_tip.consensus_hash);
-                let tip_rc =
-                    NakamotoTenureInv::get_current_reward_cycle(&network.burnchain_tip, sortdb);
-                for inv_state in self.inventories.values_mut() {
-                    inv_state.reset_comms(tip_rc.saturating_sub(1));
-                }
+                debug!(
+                    "Sortition tip changed: {} != {}. Configuring inventory burst",
+                    &last_sort_tip.consensus_hash, &network.burnchain_tip.consensus_hash
+                );
+                self.burst_deadline_ms = get_epoch_time_ms()
+                    .saturating_add(network.connection_opts.nakamoto_inv_sync_burst_interval_ms);
             }
+        }
+        if self.need_inv_burst() {
+            debug!("Forcibly restarting all Nakamoto inventory comms due to inventory burst");
+
+            let tip_rc =
+                NakamotoTenureInv::get_current_reward_cycle(&network.burnchain_tip, sortdb);
+            for inv_state in self.inventories.values_mut() {
+                inv_state.reset_comms(tip_rc.saturating_sub(1));
+            }
+
+            self.last_burst_ms = get_epoch_time_ms()
+                .saturating_add(network.connection_opts.nakamoto_inv_sync_burst_interval_ms)
+                .max(self.burst_deadline_ms);
         }
 
         if let Err(e) = self.process_getnakamotoinv_begins(network, sortdb, ibd) {

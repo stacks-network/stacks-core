@@ -19,6 +19,7 @@ pub mod log;
 #[macro_use]
 pub mod macros;
 pub mod chunked_encoding;
+pub mod db;
 pub mod hash;
 pub mod pair;
 pub mod pipe;
@@ -82,32 +83,6 @@ impl error::Error for HexError {
             HexError::BadLength(_) => "hex string non-64 length",
             HexError::BadCharacter(_) => "bad hex character",
         }
-    }
-}
-
-pub mod db_common {
-    use std::{thread, time};
-
-    use rand::{thread_rng, Rng};
-
-    pub fn tx_busy_handler(run_count: i32) -> bool {
-        let mut sleep_count = 10;
-        if run_count > 0 {
-            sleep_count = 2u64.saturating_pow(run_count as u32);
-        }
-        sleep_count = sleep_count.saturating_add(thread_rng().gen::<u64>() % sleep_count);
-
-        if sleep_count > 5000 {
-            sleep_count = 5000;
-        }
-
-        debug!(
-            "Database is locked; sleeping {}ms and trying again",
-            &sleep_count
-        );
-
-        thread::sleep(time::Duration::from_millis(sleep_count));
-        true
     }
 }
 

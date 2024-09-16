@@ -607,8 +607,22 @@ impl BitcoinRegtestController {
             received_at: Instant::now(),
         };
 
+        let received = self
+            .chain_tip
+            .as_ref()
+            .map(|tip| tip.block_snapshot.block_height)
+            .unwrap_or(0)
+            == burnchain_tip.block_snapshot.block_height;
         self.chain_tip = Some(burnchain_tip.clone());
         debug!("Done receiving blocks");
+
+        if self.config.burnchain.fault_injection_burnchain_block_delay > 0 && received {
+            info!(
+                "Fault injection: delaying burnchain blocks by {} milliseconds",
+                self.config.burnchain.fault_injection_burnchain_block_delay
+            );
+            sleep_ms(self.config.burnchain.fault_injection_burnchain_block_delay);
+        }
 
         Ok((burnchain_tip, burnchain_height))
     }
@@ -2804,7 +2818,7 @@ impl BitcoinRPCRequest {
 
     fn send(config: &Config, payload: BitcoinRPCRequest) -> RPCResult<serde_json::Value> {
         let request = BitcoinRPCRequest::build_rpc_request(&config, &payload);
-        let timeout = Duration::from_secs(60);
+        let timeout = Duration::from_secs(u64::from(config.burnchain.timeout));
 
         let host = request.preamble().host.hostname();
         let port = request.preamble().host.port();
