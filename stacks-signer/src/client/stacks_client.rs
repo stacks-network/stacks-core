@@ -449,13 +449,16 @@ impl StacksClient {
             "chosen_parent" => %chosen_parent,
             "last_sortition" => %last_sortition,
         );
+        let path = self.tenure_forking_info_path(chosen_parent, last_sortition);
+        let timer = crate::monitoring::new_rpc_call_timer(&path, &self.http_origin);
         let send_request = || {
             self.stacks_node_client
-                .get(self.tenure_forking_info_path(chosen_parent, last_sortition))
+                .get(&path)
                 .send()
                 .map_err(backoff::Error::transient)
         };
         let response = retry_with_exponential_backoff(send_request)?;
+        timer.stop_and_record();
         if !response.status().is_success() {
             return Err(ClientError::RequestFailure(response.status()));
         }
@@ -467,16 +470,16 @@ impl StacksClient {
     /// Get the sortition information for the latest sortition
     pub fn get_latest_sortition(&self) -> Result<SortitionInfo, ClientError> {
         debug!("stacks_node_client: Getting latest sortition...");
+        let path = self.sortition_info_path();
+        let timer = crate::monitoring::new_rpc_call_timer(&path, &self.http_origin);
         let send_request = || {
-            self.stacks_node_client
-                .get(self.sortition_info_path())
-                .send()
-                .map_err(|e| {
-                    warn!("Signer failed to request latest sortition"; "err" => ?e);
-                    e
-                })
+            self.stacks_node_client.get(&path).send().map_err(|e| {
+                warn!("Signer failed to request latest sortition"; "err" => ?e);
+                e
+            })
         };
         let response = send_request()?;
+        timer.stop_and_record();
         if !response.status().is_success() {
             return Err(ClientError::RequestFailure(response.status()));
         }
@@ -487,16 +490,16 @@ impl StacksClient {
     /// Get the sortition information for a given sortition
     pub fn get_sortition(&self, ch: &ConsensusHash) -> Result<SortitionInfo, ClientError> {
         debug!("stacks_node_client: Getting sortition with consensus hash {ch}...");
+        let path = format!("{}/consensus/{}", self.sortition_info_path(), ch.to_hex());
+        let timer = crate::monitoring::new_rpc_call_timer(&path, &self.http_origin);
         let send_request = || {
-            self.stacks_node_client
-                .get(format!("{}/consensus/{}", self.sortition_info_path(), ch.to_hex()))
-                .send()
-                .map_err(|e| {
-                    warn!("Signer failed to request sortition"; "consensus_hash" => %ch, "err" => ?e);
-                    e
-                })
+            self.stacks_node_client.get(&path).send().map_err(|e| {
+                warn!("Signer failed to request sortition"; "consensus_hash" => %ch, "err" => ?e);
+                e
+            })
         };
         let response = send_request()?;
+        timer.stop_and_record();
         if !response.status().is_success() {
             return Err(ClientError::RequestFailure(response.status()));
         }
@@ -604,7 +607,6 @@ impl StacksClient {
                 .map_err(backoff::Error::transient)
         };
         let response = retry_with_exponential_backoff(send_request)?;
-        #[cfg(feature = "monitoring_prom")]
         timer.stop_and_record();
         if !response.status().is_success() {
             return Err(ClientError::RequestFailure(response.status()));
@@ -723,13 +725,11 @@ impl StacksClient {
             "block_id" => %block.header.block_id(),
             "block_height" => %block.header.chain_length,
         );
+        let path = format!("{}{}?broadcast=1", self.http_origin, postblock_v3::PATH);
+        let timer = crate::monitoring::new_rpc_call_timer(&path, &self.http_origin);
         let send_request = || {
             self.stacks_node_client
-                .post(format!(
-                    "{}{}?broadcast=1",
-                    self.http_origin,
-                    postblock_v3::PATH
-                ))
+                .post(&path)
                 .header("Content-Type", "application/octet-stream")
                 .header(AUTHORIZATION, self.auth_password.clone())
                 .body(block.serialize_to_vec())
@@ -740,6 +740,7 @@ impl StacksClient {
                 })
         };
         let response = retry_with_exponential_backoff(send_request)?;
+        timer.stop_and_record();
         if !response.status().is_success() {
             return Err(ClientError::RequestFailure(response.status()));
         }
