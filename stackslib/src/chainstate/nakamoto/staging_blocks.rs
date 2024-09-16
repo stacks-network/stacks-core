@@ -673,7 +673,7 @@ impl StacksChainState {
             Ok(x) => x,
             Err(e) => {
                 debug!("Failed to get Nakamoto staging blocks DB version: {:?}", &e);
-                return Ok(NAKAMOTO_STAGING_DB_SCHEMA_LATEST);
+                return Ok(1);
             }
         };
 
