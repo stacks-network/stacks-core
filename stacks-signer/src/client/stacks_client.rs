@@ -19,7 +19,7 @@ use std::net::SocketAddr;
 use blockstack_lib::burnchains::Txid;
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
 use blockstack_lib::chainstate::stacks::boot::{
-    NakamotoSignerEntry, SIGNERS_VOTING_FUNCTION_NAME, SIGNERS_VOTING_NAME,
+    NakamotoSignerEntry, SIGNERS_NAME, SIGNERS_VOTING_FUNCTION_NAME, SIGNERS_VOTING_NAME,
 };
 use blockstack_lib::chainstate::stacks::db::StacksBlockHeaderTypes;
 use blockstack_lib::chainstate::stacks::{
@@ -160,6 +160,20 @@ impl StacksClient {
         }
         let sortition_info = response.json()?;
         Ok(sortition_info)
+    }
+
+    /// Get the last set reward cycle stored within the stackerdb contract
+    pub fn get_last_set_cycle(&self) -> Result<u128, ClientError> {
+        let signer_stackerdb_contract_id = boot_code_id(SIGNERS_NAME, self.mainnet);
+        let function_name_str = "stackerdb-get-last-set-cycle";
+        let function_name = ClarityName::from(function_name_str);
+        let value = self.read_only_contract_call(
+            &signer_stackerdb_contract_id.issuer.clone().into(),
+            &signer_stackerdb_contract_id.name,
+            &function_name,
+            &[],
+        )?;
+        Ok(value.expect_u128()?)
     }
 
     /// Retrieve the signer slots stored within the stackerdb contract
@@ -962,11 +976,11 @@ mod tests {
     use super::*;
     use crate::client::tests::{
         build_account_nonce_response, build_get_approved_aggregate_key_response,
-        build_get_last_round_response, build_get_medium_estimated_fee_ustx_response,
-        build_get_peer_info_response, build_get_pox_data_response, build_get_round_info_response,
-        build_get_tenure_tip_response, build_get_vote_for_aggregate_key_response,
-        build_get_weight_threshold_response, build_read_only_response, write_response,
-        MockServerClient,
+        build_get_last_round_response, build_get_last_set_cycle_response,
+        build_get_medium_estimated_fee_ustx_response, build_get_peer_info_response,
+        build_get_pox_data_response, build_get_round_info_response, build_get_tenure_tip_response,
+        build_get_vote_for_aggregate_key_response, build_get_weight_threshold_response,
+        build_read_only_response, write_response, MockServerClient,
     };
 
     #[test]
@@ -1622,5 +1636,15 @@ mod tests {
         let h = spawn(move || mock.client.get_tenure_tip(&consensus_hash));
         write_response(mock.server, response.as_bytes());
         assert_eq!(h.join().unwrap().unwrap(), header);
+    }
+
+    #[test]
+    fn get_last_set_cycle_should_succeed() {
+        let mock = MockServerClient::new();
+        let reward_cycle = thread_rng().next_u64();
+        let response = build_get_last_set_cycle_response(reward_cycle);
+        let h = spawn(move || mock.client.get_last_set_cycle());
+        write_response(mock.server, response.as_bytes());
+        assert_eq!(h.join().unwrap().unwrap(), reward_cycle as u128);
     }
 }

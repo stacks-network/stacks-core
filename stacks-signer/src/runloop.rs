@@ -34,6 +34,17 @@ use crate::client::{retry_with_exponential_backoff, ClientError, SignerSlotID, S
 use crate::config::{GlobalConfig, SignerConfig};
 use crate::Signer as SignerTrait;
 
+#[derive(thiserror::Error, Debug)]
+/// Configuration error type
+pub enum ConfigurationError {
+    /// Error occurred while fetching data from the stacks node
+    #[error("{0}")]
+    ClientError(#[from] ClientError),
+    /// The stackerdb signer config is not yet updated
+    #[error("The stackerdb config is not yet updated")]
+    StackerDBNotUpdated,
+}
+
 /// The internal signer state info
 #[derive(PartialEq, Clone, Debug)]
 pub struct StateInfo {
@@ -274,14 +285,23 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
     fn get_signer_config(
         &mut self,
         reward_cycle: u64,
-    ) -> Result<Option<SignerConfig>, ClientError> {
+    ) -> Result<Option<SignerConfig>, ConfigurationError> {
+        // We can only register for a reward cycle if its stackerdb has been updated
+        let last_calculated_reward_cycle =
+            self.stacks_client.get_last_set_cycle().inspect_err(|e| {
+                warn!("Error while fetching last calculated reward cycle: {e:?}");
+            })?;
+        if last_calculated_reward_cycle < reward_cycle as u128 {
+            return Err(ConfigurationError::StackerDBNotUpdated);
+        }
+
         // We can only register for a reward cycle if a reward set exists.
         let signer_entries = match self.get_parsed_reward_set(reward_cycle) {
             Ok(Some(x)) => x,
             Ok(None) => return Ok(None),
             Err(e) => {
                 warn!("Error while fetching reward set {reward_cycle}: {e:?}");
-                return Err(e);
+                return Err(e.into());
             }
         };
         let signer_slot_ids = match self.get_parsed_signer_slots(&self.stacks_client, reward_cycle)
@@ -289,7 +309,7 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
             Ok(x) => x,
             Err(e) => {
                 warn!("Error while fetching stackerdb slots {reward_cycle}: {e:?}");
-                return Err(e);
+                return Err(e.into());
             }
         };
         let current_addr = self.stacks_client.get_signer_address();
