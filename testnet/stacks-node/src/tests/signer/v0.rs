@@ -4796,7 +4796,6 @@ fn miner_recovers_when_broadcast_block_delay_across_tenures_occurs() {
     // Induce block N+2 to get mined
     let transfer_tx =
         make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
-    sender_nonce += 1;
 
     let tx = submit_tx(&http_origin, &transfer_tx);
     info!("Submitted tx {tx} in to attempt to mine block N+2");

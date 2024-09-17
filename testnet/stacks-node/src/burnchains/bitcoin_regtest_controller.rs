@@ -2314,6 +2314,10 @@ impl UTXOSet {
     pub fn total_available(&self) -> u64 {
         self.utxos.iter().map(|o| o.amount).sum()
     }
+
+    pub fn num_utxos(&self) -> usize {
+        self.utxos.len()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -2599,9 +2603,6 @@ impl BitcoinRPCRequest {
         let min_conf = 0i64;
         let max_conf = 9999999i64;
         let minimum_amount = ParsedUTXO::sat_to_serialized_btc(minimum_sum_amount);
-        // Specify the maximum number of UTXOs to get from listunspent, to
-        // ensure the response is not too large.
-        let maximum_count = 1024;
 
         let payload = BitcoinRPCRequest {
             method: "listunspent".to_string(),
@@ -2610,7 +2611,7 @@ impl BitcoinRPCRequest {
                 max_conf.into(),
                 addresses.into(),
                 include_unsafe.into(),
-                json!({ "minimumAmount": minimum_amount, "maximumCount": maximum_count }),
+                json!({ "minimumAmount": minimum_amount, "maximumCount": config.burnchain.max_unspent_utxos }),
             ],
             id: "stacks".to_string(),
             jsonrpc: "2.0".to_string(),
