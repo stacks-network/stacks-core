@@ -265,8 +265,10 @@ impl SignerTest<SpawnedSigner> {
 
         self.run_until_epoch_3_boundary();
         std::thread::sleep(Duration::from_secs(1));
-        wait_for(60, || Ok(get_chain_info_opt(&self.running_nodes.conf).is_some()))
-            .expect("Timed out waiting for network to restart after 3.0 boundary reached");
+        wait_for(60, || {
+            Ok(get_chain_info_opt(&self.running_nodes.conf).is_some())
+        })
+        .expect("Timed out waiting for network to restart after 3.0 boundary reached");
 
         // Wait until we see the first block of epoch 3.0.
         // Note, we don't use `nakamoto_blocks_mined` counter, because there
