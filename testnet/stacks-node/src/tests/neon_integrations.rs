@@ -12840,8 +12840,4 @@ fn listunspent_max_utxos() {
     let res = BitcoinRPCRequest::list_unspent(&conf, filter_addresses, false, 1, &None, 0);
     let utxos = res.expect("Failed to get utxos");
     assert_eq!(utxos.num_utxos(), 10);
-
-    btcd_controller
-        .stop_bitcoind()
-        .expect("Failed to stop bitcoind");
 }
