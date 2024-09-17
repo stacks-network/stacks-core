@@ -648,7 +648,7 @@ impl StacksClient {
         address: &StacksAddress,
     ) -> Result<AccountEntryResponse, ClientError> {
         debug!("stacks_node_client: Getting account info...");
-        let timer_label = format!("{}/v2/accounts/:stacks_address", self.http_origin);
+        let timer_label = format!("{}/v2/accounts/:principal", self.http_origin);
         let timer = crate::monitoring::new_rpc_call_timer(&timer_label, &self.http_origin);
         let send_request = || {
             self.stacks_node_client
