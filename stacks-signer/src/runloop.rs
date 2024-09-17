@@ -286,15 +286,6 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
         &mut self,
         reward_cycle: u64,
     ) -> Result<Option<SignerConfig>, ConfigurationError> {
-        // We can only register for a reward cycle if its stackerdb has been updated
-        let last_calculated_reward_cycle =
-            self.stacks_client.get_last_set_cycle().inspect_err(|e| {
-                warn!("Error while fetching last calculated reward cycle: {e:?}");
-            })?;
-        if last_calculated_reward_cycle < reward_cycle as u128 {
-            return Err(ConfigurationError::StackerDBNotUpdated);
-        }
-
         // We can only register for a reward cycle if a reward set exists.
         let signer_entries = match self.get_parsed_reward_set(reward_cycle) {
             Ok(Some(x)) => x,
@@ -304,6 +295,25 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
                 return Err(e.into());
             }
         };
+
+        // Ensure that the stackerdb has been updated for the reward cycle before proceeding
+        retry_with_exponential_backoff(|| {
+            let last_calculated_reward_cycle = self
+                .stacks_client
+                .get_last_set_cycle()
+                .map_err(|e| backoff::Error::transient(e.into()))?;
+            if last_calculated_reward_cycle < reward_cycle as u128 {
+                warn!(
+                    "Stackerdb has not been updated for reward cycle {reward_cycle}. Last calculated reward cycle is {last_calculated_reward_cycle}."
+                );
+                Err(backoff::Error::transient(
+                    ConfigurationError::StackerDBNotUpdated,
+                ))
+            } else {
+                Ok(())
+            }
+        })?;
+
         let signer_slot_ids = match self.get_parsed_signer_slots(&self.stacks_client, reward_cycle)
         {
             Ok(x) => x,
