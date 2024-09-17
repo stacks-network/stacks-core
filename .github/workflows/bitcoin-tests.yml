@@ -105,6 +105,10 @@ jobs:
           - tests::signer::v0::locally_rejected_blocks_overriden_by_global_acceptance
           - tests::signer::v0::reorg_locally_accepted_blocks_across_tenures_succeeds
           - tests::signer::v0::miner_recovers_when_broadcast_block_delay_across_tenures_occurs
+          - tests::signer::v0::multiple_miners_with_nakamoto_blocks
+          - tests::signer::v0::partial_tenure_fork
+          - tests::signer::v0::mine_2_nakamoto_reward_cycles
+          - tests::signer::v0::signer_set_rollover
           - tests::nakamoto_integrations::stack_stx_burn_op_integration_test
           - tests::nakamoto_integrations::check_block_heights
           - tests::nakamoto_integrations::clarity_burn_state
@@ -117,10 +121,6 @@ jobs:
           - tests::nakamoto_integrations::follower_bootup_across_multiple_cycles
           - tests::nakamoto_integrations::utxo_check_on_startup_panic
           - tests::nakamoto_integrations::utxo_check_on_startup_recover
-          - tests::signer::v0::multiple_miners_with_nakamoto_blocks
-          - tests::signer::v0::partial_tenure_fork
-          - tests::signer::v0::mine_2_nakamoto_reward_cycles
-          - tests::signer::v0::signer_set_rollover
           # Do not run this one until we figure out why it fails in CI
           # - tests::neon_integrations::bitcoin_reorg_flap
           # - tests::neon_integrations::bitcoin_reorg_flap_with_follower

@@ -348,6 +348,9 @@ pub struct PeerNetwork {
     pub walk_pingbacks: HashMap<NeighborAddress, NeighborPingback>, // inbound peers for us to try to ping back and add to our frontier, mapped to (peer_version, network_id, timeout, pubkey)
     pub walk_result: NeighborWalkResult, // last successful neighbor walk result
 
+    /// last time we logged neigbhors
+    last_neighbor_log: u128,
+
     /// Epoch 2.x inventory state
     pub inv_state: Option<InvState>,
     /// Epoch 3.x inventory state
@@ -536,6 +539,8 @@ impl PeerNetwork {
             walk_total_step_count: 0,
             walk_pingbacks: HashMap::new(),
             walk_result: NeighborWalkResult::new(),
+
+            last_neighbor_log: 0,
 
             inv_state: None,
             inv_state_nakamoto: None,
@@ -5017,6 +5022,33 @@ impl PeerNetwork {
         false
     }
 
+    /// Log our neighbors.
+    /// Used for testing and debuggin
+    fn log_neighbors(&mut self) {
+        if self.get_connection_opts().log_neighbors_freq == 0 {
+            return;
+        }
+
+        let now = get_epoch_time_ms();
+        if self.last_neighbor_log + u128::from(self.get_connection_opts().log_neighbors_freq) >= now
+        {
+            return;
+        }
+
+        let convo_strs: Vec<_> = self
+            .peers
+            .values()
+            .map(|convo| format!("{:?}", &convo))
+            .collect();
+
+        debug!(
+            "{:?}: current neighbors are {:?}",
+            self.get_local_peer(),
+            &convo_strs
+        );
+        self.last_neighbor_log = now;
+    }
+
     /// Top-level main-loop circuit to take.
     /// -- polls the peer network and http network server sockets to get new sockets and detect ready sockets
     /// -- carries out network conversations
@@ -5130,6 +5162,7 @@ impl PeerNetwork {
             p2p_poll_state,
         );
 
+        self.log_neighbors();
         debug!("<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< End Network Dispatch <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<");
         Ok(network_result)
     }
