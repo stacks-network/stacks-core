@@ -557,9 +557,12 @@ impl NeighborWalkDB for PeerDBNeighborWalk {
 
         if let Some(data) = new_data {
             cur_neighbor.handshake_update(&tx, &data.handshake)?;
-            if let Some(db_data) = new_db_data {
-                cur_neighbor.save_update(&tx, Some(db_data.smart_contracts.as_slice()))?;
-            }
+        }
+
+        if let Some(db_data) = new_db_data {
+            cur_neighbor.save_update(&tx, Some(db_data.smart_contracts.as_slice()))?;
+        } else {
+            cur_neighbor.save_update(&tx, None)?;
         }
 
         tx.commit()?;
