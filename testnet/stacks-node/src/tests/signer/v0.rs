@@ -831,9 +831,7 @@ fn reloads_signer_set_in() {
     );
 
     info!("Waiting for signer set calculation.");
-    let mut reward_set_calculated = false;
     let short_timeout = Duration::from_secs(30);
-    let now = std::time::Instant::now();
     // Make sure the signer set is calculated before continuing or signers may not
     // recognize that they are registered signers in the subsequent burn block event
     let reward_cycle = signer_test.get_current_reward_cycle() + 1;
@@ -841,21 +839,23 @@ fn reloads_signer_set_in() {
         .running_nodes
         .btc_regtest_controller
         .build_next_block(1);
-    while !reward_set_calculated {
-        let reward_set = signer_test
+    wait_for(short_timeout.as_secs(), || {
+        let reward_set = match signer_test
             .stacks_client
             .get_reward_set_signers(reward_cycle)
-            .expect("Failed to check if reward set is calculated");
-        reward_set_calculated = reward_set.is_some();
-        if reward_set_calculated {
-            info!("Signer set: {:?}", reward_set.unwrap());
+        {
+            Ok(x) => x,
+            Err(e) => {
+                warn!("Failed to check if reward set is calculated yet: {e:?}. Will try again");
+                return Ok(false);
+            }
+        };
+        if let Some(ref set) = reward_set {
+            info!("Signer set: {:?}", set);
         }
-        std::thread::sleep(Duration::from_secs(1));
-        assert!(
-            now.elapsed() < short_timeout,
-            "Timed out waiting for reward set calculation"
-        );
-    }
+        Ok(reward_set.is_some())
+    })
+    .expect("Timed out waiting for reward set to be calculated");
     info!("Signer set calculated");
 
     // Manually consume one more block to ensure signers refresh their state
