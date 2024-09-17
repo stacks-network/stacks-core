@@ -165,7 +165,7 @@ impl StacksClient {
     /// Get the last set reward cycle stored within the stackerdb contract
     pub fn get_last_set_cycle(&self) -> Result<u128, ClientError> {
         let signer_stackerdb_contract_id = boot_code_id(SIGNERS_NAME, self.mainnet);
-        let function_name_str = "stackerdb-get-last-set-cycle";
+        let function_name_str = "get-last-set-cycle";
         let function_name = ClarityName::from(function_name_str);
         let value = self.read_only_contract_call(
             &signer_stackerdb_contract_id.issuer.clone().into(),
@@ -173,7 +173,7 @@ impl StacksClient {
             &function_name,
             &[],
         )?;
-        Ok(value.expect_u128()?)
+        Ok(value.expect_result_ok()?.expect_u128()?)
     }
 
     /// Retrieve the signer slots stored within the stackerdb contract

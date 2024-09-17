@@ -605,7 +605,7 @@ pub(crate) mod tests {
     }
 
     pub fn build_get_last_set_cycle_response(cycle: u64) -> String {
-        let clarity_value = ClarityValue::UInt(cycle as u128);
+        let clarity_value = ClarityValue::okay(ClarityValue::UInt(cycle as u128)).unwrap();
         build_read_only_response(&clarity_value)
     }
 }

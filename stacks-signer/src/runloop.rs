@@ -297,31 +297,28 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
         };
 
         // Ensure that the stackerdb has been updated for the reward cycle before proceeding
-        retry_with_exponential_backoff(|| {
-            let last_calculated_reward_cycle = self
-                .stacks_client
-                .get_last_set_cycle()
-                .map_err(|e| backoff::Error::transient(e.into()))?;
-            if last_calculated_reward_cycle < reward_cycle as u128 {
+        let last_calculated_reward_cycle =
+            self.stacks_client.get_last_set_cycle().map_err(|e| {
                 warn!(
-                    "Stackerdb has not been updated for reward cycle {reward_cycle}. Last calculated reward cycle is {last_calculated_reward_cycle}."
+                    "Failed to fetch last calculated stackerdb cycle from stacks-node";
+                    "reward_cycle" => reward_cycle,
+                    "err" => ?e
                 );
-                Err(backoff::Error::transient(
-                    ConfigurationError::StackerDBNotUpdated,
-                ))
-            } else {
-                Ok(())
-            }
-        })?;
+                ConfigurationError::StackerDBNotUpdated
+            })?;
+        if last_calculated_reward_cycle < reward_cycle as u128 {
+            warn!(
+                "Stackerdb has not been updated for reward cycle {reward_cycle}. Last calculated reward cycle is {last_calculated_reward_cycle}."
+            );
+            return Err(ConfigurationError::StackerDBNotUpdated);
+        }
 
-        let signer_slot_ids = match self.get_parsed_signer_slots(&self.stacks_client, reward_cycle)
-        {
-            Ok(x) => x,
-            Err(e) => {
+        let signer_slot_ids = self
+            .get_parsed_signer_slots(&self.stacks_client, reward_cycle)
+            .map_err(|e| {
                 warn!("Error while fetching stackerdb slots {reward_cycle}: {e:?}");
-                return Err(e.into());
-            }
-        };
+                e
+            })?;
         let current_addr = self.stacks_client.get_signer_address();
 
         let Some(signer_slot_id) = signer_slot_ids.get(current_addr) else {
