@@ -2187,6 +2187,10 @@ impl MemPoolDB {
         let prior_txids: Vec<_> = prior_txs.iter().map(|tx| tx.txid.clone()).collect();
         tx.update_bloom_counter(height, &txid, &prior_txids)?;
 
+        debug!("Inserting TX into mempool";
+               "txid" => %txid,
+               "replaced_txids" => ?prior_txids);
+
         let sql = "DELETE FROM mempool WHERE txid = ?";
         for txid in prior_txids.iter() {
             tx.execute(sql, &[txid])
