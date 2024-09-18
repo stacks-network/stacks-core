@@ -196,7 +196,7 @@ pub enum PeerNetworkWorkState {
 }
 
 pub type PeerMap = HashMap<usize, ConversationP2P>;
-pub type PendingMessages = HashMap<usize, Vec<StacksMessage>>;
+pub type PendingMessages = HashMap<(usize, NeighborKey), Vec<StacksMessage>>;
 
 pub struct ConnectingPeer {
     socket: mio_net::TcpStream,
@@ -348,6 +348,9 @@ pub struct PeerNetwork {
     pub walk_pingbacks: HashMap<NeighborAddress, NeighborPingback>, // inbound peers for us to try to ping back and add to our frontier, mapped to (peer_version, network_id, timeout, pubkey)
     pub walk_result: NeighborWalkResult, // last successful neighbor walk result
 
+    /// last time we logged neigbhors
+    last_neighbor_log: u128,
+
     /// Epoch 2.x inventory state
     pub inv_state: Option<InvState>,
     /// Epoch 3.x inventory state
@@ -416,8 +419,12 @@ pub struct PeerNetwork {
 
     /// Pending messages (BlocksAvailable, MicroblocksAvailable, BlocksData, Microblocks,
     /// NakamotoBlocks) that we can't process yet, but might be able to process on a subsequent
-    /// chain view update.
+    /// burnchain view update.
     pub pending_messages: PendingMessages,
+
+    /// Pending messages (StackerDBPushChunk) that we can't process yet, but might be able
+    /// to process on a subsequent Stacks view update
+    pub pending_stacks_messages: PendingMessages,
 
     // fault injection -- force disconnects
     fault_last_disconnect: u64,
@@ -533,6 +540,8 @@ impl PeerNetwork {
             walk_pingbacks: HashMap::new(),
             walk_result: NeighborWalkResult::new(),
 
+            last_neighbor_log: 0,
+
             inv_state: None,
             inv_state_nakamoto: None,
             pox_id: PoxId::initial(),
@@ -575,6 +584,7 @@ impl PeerNetwork {
             antientropy_start_reward_cycle: 0,
 
             pending_messages: PendingMessages::new(),
+            pending_stacks_messages: PendingMessages::new(),
 
             fault_last_disconnect: 0,
 
@@ -1420,6 +1430,9 @@ impl PeerNetwork {
                         }
                         Ok(all_neighbors.into_iter().collect())
                     }
+                    StacksMessageType::StackerDBPushChunk(ref data) => {
+                        Ok(self.sample_broadcast_peers(&relay_hints, data)?)
+                    }
                     StacksMessageType::Transaction(ref data) => {
                         self.sample_broadcast_peers(&relay_hints, data)
                     }
@@ -1899,8 +1912,10 @@ impl PeerNetwork {
                     "{:?}: Remove inventory state for Nakamoto {:?}",
                     &self.local_peer, &nk
                 );
-                inv_state.del_peer(&NeighborAddress::from_neighbor_key(nk, pubkh));
+                inv_state.del_peer(&NeighborAddress::from_neighbor_key(nk.clone(), pubkh));
             }
+            self.pending_messages.remove(&(event_id, nk.clone()));
+            self.pending_stacks_messages.remove(&(event_id, nk.clone()));
         }
 
         match self.network {
@@ -1919,7 +1934,6 @@ impl PeerNetwork {
 
         self.relay_handles.remove(&event_id);
         self.peers.remove(&event_id);
-        self.pending_messages.remove(&event_id);
     }
 
     /// Deregister by neighbor key
@@ -4289,6 +4303,7 @@ impl PeerNetwork {
         let ih = sortdb.index_handle(&tip_sn.sortition_id);
 
         for rc in [cur_rc, prev_rc, prev_prev_rc] {
+            debug!("Refresh reward cycle info for cycle {}", rc);
             let rc_start_height = self.burnchain.nakamoto_first_block_of_cycle(rc);
             let Some(ancestor_sort_id) =
                 get_ancestor_sort_id(&ih, rc_start_height, &tip_sn.sortition_id)?
@@ -4313,6 +4328,7 @@ impl PeerNetwork {
                 }
             }
 
+            debug!("Load reward cycle info for cycle {}", rc);
             let Some((reward_set_info, anchor_block_header)) = load_nakamoto_reward_set(
                 rc,
                 &tip_sn.sortition_id,
@@ -4363,7 +4379,7 @@ impl PeerNetwork {
         sortdb: &SortitionDB,
         chainstate: &mut StacksChainState,
         ibd: bool,
-    ) -> Result<HashMap<NeighborKey, Vec<StacksMessage>>, net_error> {
+    ) -> Result<PendingMessages, net_error> {
         // update burnchain snapshot if we need to (careful -- it's expensive)
         let canonical_sn = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())?;
         let (stacks_tip_ch, stacks_tip_bhh, stacks_tip_height) =
@@ -4401,8 +4417,6 @@ impl PeerNetwork {
                 &new_stacks_tip_block_id,
             )?;
         }
-
-        let mut ret: HashMap<NeighborKey, Vec<StacksMessage>> = HashMap::new();
 
         let (parent_stacks_tip, tenure_start_block_id) = if stacks_tip_changed {
             let tenure_start_block_id = if let Some(header) =
@@ -4571,12 +4585,48 @@ impl PeerNetwork {
         }
 
         // can't fail after this point
-
+        let mut ret = PendingMessages::new();
         if burnchain_tip_changed {
             // try processing previously-buffered messages (best-effort)
+            debug!(
+                "{:?}: handle unsolicited stacks messages: burnchain changed {} != {}, {} buffered",
+                self.get_local_peer(),
+                &self.burnchain_tip.consensus_hash,
+                &canonical_sn.consensus_hash,
+                self.pending_messages
+                    .iter()
+                    .fold(0, |acc, (_, msgs)| acc + msgs.len())
+            );
             let buffered_messages = mem::replace(&mut self.pending_messages, HashMap::new());
-            ret =
-                self.handle_unsolicited_messages(sortdb, chainstate, buffered_messages, ibd, false);
+            let unhandled = self.handle_unsolicited_sortition_messages(
+                sortdb,
+                chainstate,
+                buffered_messages,
+                ibd,
+                false,
+            );
+            ret.extend(unhandled);
+        }
+
+        if self.stacks_tip.consensus_hash != stacks_tip_ch {
+            // try processing previously-buffered messages (best-effort)
+            debug!(
+                "{:?}: handle unsolicited stacks messages: tenure changed {} != {}, {} buffered",
+                self.get_local_peer(),
+                &self.burnchain_tip.consensus_hash,
+                &canonical_sn.consensus_hash,
+                self.pending_stacks_messages
+                    .iter()
+                    .fold(0, |acc, (_, msgs)| acc + msgs.len())
+            );
+            let buffered_stacks_messages =
+                mem::replace(&mut self.pending_stacks_messages, HashMap::new());
+            let unhandled = self.handle_unsolicited_stacks_messages(
+                chainstate,
+                buffered_stacks_messages,
+                false,
+            );
+            ret.extend(unhandled);
         }
 
         // update cached stacks chain view for /v2/info and /v3/tenures/info
@@ -4652,8 +4702,20 @@ impl PeerNetwork {
             );
             self.deregister_peer(error_event);
         }
+
+        // filter out unsolicited messages and buffer up ones that might become processable
+        let unhandled_messages = self.authenticate_unsolicited_messages(unsolicited_messages);
+        let unhandled_messages = self.handle_unsolicited_sortition_messages(
+            sortdb,
+            chainstate,
+            unhandled_messages,
+            ibd,
+            true,
+        );
+
         let unhandled_messages =
-            self.handle_unsolicited_messages(sortdb, chainstate, unsolicited_messages, ibd, true);
+            self.handle_unsolicited_stacks_messages(chainstate, unhandled_messages, true);
+
         network_result.consume_unsolicited(unhandled_messages);
 
         // schedule now-authenticated inbound convos for pingback
@@ -4960,6 +5022,33 @@ impl PeerNetwork {
         false
     }
 
+    /// Log our neighbors.
+    /// Used for testing and debuggin
+    fn log_neighbors(&mut self) {
+        if self.get_connection_opts().log_neighbors_freq == 0 {
+            return;
+        }
+
+        let now = get_epoch_time_ms();
+        if self.last_neighbor_log + u128::from(self.get_connection_opts().log_neighbors_freq) >= now
+        {
+            return;
+        }
+
+        let convo_strs: Vec<_> = self
+            .peers
+            .values()
+            .map(|convo| format!("{:?}", &convo))
+            .collect();
+
+        debug!(
+            "{:?}: current neighbors are {:?}",
+            self.get_local_peer(),
+            &convo_strs
+        );
+        self.last_neighbor_log = now;
+    }
+
     /// Top-level main-loop circuit to take.
     /// -- polls the peer network and http network server sockets to get new sockets and detect ready sockets
     /// -- carries out network conversations
@@ -5073,6 +5162,7 @@ impl PeerNetwork {
             p2p_poll_state,
         );
 
+        self.log_neighbors();
         debug!("<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< End Network Dispatch <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<");
         Ok(network_result)
     }

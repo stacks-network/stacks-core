@@ -34,6 +34,17 @@ use crate::client::{retry_with_exponential_backoff, ClientError, SignerSlotID, S
 use crate::config::{GlobalConfig, SignerConfig};
 use crate::Signer as SignerTrait;
 
+#[derive(thiserror::Error, Debug)]
+/// Configuration error type
+pub enum ConfigurationError {
+    /// Error occurred while fetching data from the stacks node
+    #[error("{0}")]
+    ClientError(#[from] ClientError),
+    /// The stackerdb signer config is not yet updated
+    #[error("The stackerdb config is not yet updated")]
+    StackerDBNotUpdated,
+}
+
 /// The internal signer state info
 #[derive(PartialEq, Clone, Debug)]
 pub struct StateInfo {
@@ -274,24 +285,40 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
     fn get_signer_config(
         &mut self,
         reward_cycle: u64,
-    ) -> Result<Option<SignerConfig>, ClientError> {
+    ) -> Result<Option<SignerConfig>, ConfigurationError> {
         // We can only register for a reward cycle if a reward set exists.
         let signer_entries = match self.get_parsed_reward_set(reward_cycle) {
             Ok(Some(x)) => x,
             Ok(None) => return Ok(None),
             Err(e) => {
                 warn!("Error while fetching reward set {reward_cycle}: {e:?}");
-                return Err(e);
+                return Err(e.into());
             }
         };
-        let signer_slot_ids = match self.get_parsed_signer_slots(&self.stacks_client, reward_cycle)
-        {
-            Ok(x) => x,
-            Err(e) => {
+
+        // Ensure that the stackerdb has been updated for the reward cycle before proceeding
+        let last_calculated_reward_cycle =
+            self.stacks_client.get_last_set_cycle().map_err(|e| {
+                warn!(
+                    "Failed to fetch last calculated stackerdb cycle from stacks-node";
+                    "reward_cycle" => reward_cycle,
+                    "err" => ?e
+                );
+                ConfigurationError::StackerDBNotUpdated
+            })?;
+        if last_calculated_reward_cycle < reward_cycle as u128 {
+            warn!(
+                "Stackerdb has not been updated for reward cycle {reward_cycle}. Last calculated reward cycle is {last_calculated_reward_cycle}."
+            );
+            return Err(ConfigurationError::StackerDBNotUpdated);
+        }
+
+        let signer_slot_ids = self
+            .get_parsed_signer_slots(&self.stacks_client, reward_cycle)
+            .map_err(|e| {
                 warn!("Error while fetching stackerdb slots {reward_cycle}: {e:?}");
-                return Err(e);
-            }
-        };
+                e
+            })?;
         let current_addr = self.stacks_client.get_signer_address();
 
         let Some(signer_slot_id) = signer_slot_ids.get(current_addr) else {
@@ -335,7 +362,6 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
             max_tx_fee_ustx: self.config.max_tx_fee_ustx,
             db_path: self.config.db_path.clone(),
             block_proposal_timeout: self.config.block_proposal_timeout,
-            broadcast_signed_blocks: self.config.broadcast_signed_blocks,
         }))
     }
 
@@ -421,7 +447,9 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
             "reward_cycle_before_refresh" => reward_cycle_before_refresh,
             "current_reward_cycle" => current_reward_cycle,
             "configured_for_current" => Self::is_configured_for_cycle(&self.stacks_signers, current_reward_cycle),
+            "registered_for_current" => Self::is_registered_for_cycle(&self.stacks_signers, current_reward_cycle),
             "configured_for_next" => Self::is_configured_for_cycle(&self.stacks_signers, next_reward_cycle),
+            "registered_for_next" => Self::is_registered_for_cycle(&self.stacks_signers, next_reward_cycle),
             "is_in_next_prepare_phase" => is_in_next_prepare_phase,
         );
 
@@ -431,10 +459,10 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
         if !Self::is_configured_for_cycle(&self.stacks_signers, current_reward_cycle) {
             self.refresh_signer_config(current_reward_cycle);
         }
-        if is_in_next_prepare_phase {
-            if !Self::is_configured_for_cycle(&self.stacks_signers, next_reward_cycle) {
-                self.refresh_signer_config(next_reward_cycle);
-            }
+        if is_in_next_prepare_phase
+            && !Self::is_configured_for_cycle(&self.stacks_signers, next_reward_cycle)
+        {
+            self.refresh_signer_config(next_reward_cycle);
         }
 
         self.cleanup_stale_signers(current_reward_cycle);
@@ -456,6 +484,17 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
         signer.reward_cycle() == reward_cycle
     }
 
+    fn is_registered_for_cycle(
+        stacks_signers: &HashMap<u64, ConfiguredSigner<Signer, T>>,
+        reward_cycle: u64,
+    ) -> bool {
+        let Some(signer) = stacks_signers.get(&(reward_cycle % 2)) else {
+            return false;
+        };
+        signer.reward_cycle() == reward_cycle
+            && matches!(signer, ConfiguredSigner::RegisteredSigner(_))
+    }
+
     fn cleanup_stale_signers(&mut self, current_reward_cycle: u64) {
         let mut to_delete = Vec::new();
         for (idx, signer) in &mut self.stacks_signers {
@@ -466,7 +505,9 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
                 std::cmp::Ordering::Equal => {
                     // We are the next reward cycle, so check if we were registered and have any pending blocks to process
                     match signer {
-                        ConfiguredSigner::RegisteredSigner(signer) => !signer.has_pending_blocks(),
+                        ConfiguredSigner::RegisteredSigner(signer) => {
+                            !signer.has_unprocessed_blocks()
+                        }
                         _ => true,
                     }
                 }

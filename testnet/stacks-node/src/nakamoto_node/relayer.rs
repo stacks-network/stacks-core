@@ -812,10 +812,19 @@ impl RelayerThread {
             reason,
         )?;
 
+        debug!("Relayer: starting new tenure thread");
+
         let new_miner_handle = std::thread::Builder::new()
             .name(format!("miner.{parent_tenure_start}",))
             .stack_size(BLOCK_PROCESSOR_STACK_SIZE)
-            .spawn(move || new_miner_state.run_miner(prior_tenure_thread))
+            .spawn(move || {
+                if let Err(e) = new_miner_state.run_miner(prior_tenure_thread) {
+                    info!("Miner thread failed: {:?}", &e);
+                    Err(e)
+                } else {
+                    Ok(())
+                }
+            })
             .map_err(|e| {
                 error!("Relayer: Failed to start tenure thread: {:?}", &e);
                 NakamotoNodeError::SpawnError(e)
@@ -1036,6 +1045,25 @@ impl RelayerThread {
             return Err(NakamotoNodeError::StacksTipChanged);
         }
 
+        let Some(tip_height) = NakamotoChainState::get_block_header(
+            self.chainstate.db(),
+            &StacksBlockId::new(&tip_block_ch, &tip_block_bh),
+        )
+        .map_err(|e| {
+            warn!(
+                "Relayer: failed to load tip {}/{}: {:?}",
+                &tip_block_ch, &tip_block_bh, &e
+            );
+            NakamotoNodeError::ParentNotFound
+        })?
+        .map(|header| header.stacks_block_height) else {
+            warn!(
+                "Relayer: failed to load height for tip {}/{} (got None)",
+                &tip_block_ch, &tip_block_bh
+            );
+            return Err(NakamotoNodeError::ParentNotFound);
+        };
+
         // sign and broadcast
         let mut op_signer = self.keychain.generate_op_signer();
         let txid = self
@@ -1057,6 +1085,7 @@ impl RelayerThread {
             "Relayer: Submitted block-commit";
             "tip_consensus_hash" => %tip_block_ch,
             "tip_block_hash" => %tip_block_bh,
+            "tip_height" => %tip_height,
             "tip_block_id" => %StacksBlockId::new(&tip_block_ch, &tip_block_bh),
             "txid" => %txid,
         );

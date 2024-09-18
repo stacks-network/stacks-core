@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+pub mod convergence;
 pub mod download;
 pub mod httpcore;
 pub mod inv;
@@ -62,7 +63,7 @@ use crate::chainstate::stacks::{
 };
 use crate::clarity::vm::types::StacksAddressExtensions;
 use crate::core::{StacksEpoch, StacksEpochExtension};
-use crate::net::relay::Relayer;
+use crate::net::relay::{BlockAcceptResponse, Relayer};
 use crate::net::stackerdb::StackerDBConfig;
 use crate::net::test::{TestEventObserver, TestPeer, TestPeerConfig};
 use crate::util_lib::boot::boot_code_id;
@@ -256,7 +257,7 @@ impl NakamotoBootPlan {
                     NakamotoBlockObtainMethod::Pushed,
                 )
                 .unwrap();
-                if accepted {
+                if accepted.is_accepted() {
                     test_debug!("Accepted Nakamoto block {block_id} to other peer {}", i);
                     peer.coord.handle_new_nakamoto_stacks_block().unwrap();
                 } else {
@@ -293,7 +294,7 @@ impl NakamotoBootPlan {
                     NakamotoBlockObtainMethod::Pushed,
                 )
                 .unwrap();
-                if accepted {
+                if accepted.is_accepted() {
                     test_debug!(
                         "Accepted malleablized Nakamoto block {block_id} to other peer {}",
                         i
