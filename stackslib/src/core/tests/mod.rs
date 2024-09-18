@@ -1408,15 +1408,16 @@ fn mempool_db_load_store_replace_tx(#[case] behavior: MempoolCollectionBehavior)
     let mut mempool_tx = mempool.tx_begin().unwrap();
 
     eprintln!("add all txs");
-    for (i, mut tx) in txs.drain(..).enumerate() {
+    let txs_len = txs.len();
+    for (ix, mut tx) in txs.drain(..).enumerate() {
         // make sure each address is unique per tx (not the case in codec_all_transactions)
         let origin_address = StacksAddress {
             version: 22,
-            bytes: Hash160::from_data(&i.to_be_bytes()),
+            bytes: Hash160::from_data(&ix.to_be_bytes()),
         };
         let sponsor_address = StacksAddress {
             version: 22,
-            bytes: Hash160::from_data(&(i + 1).to_be_bytes()),
+            bytes: Hash160::from_data(&(ix + txs_len).to_be_bytes()),
         };
 
         tx.set_tx_fee(123);
