@@ -341,8 +341,14 @@ impl StackerDBs {
                         &e
                     );
                 }
-            } else if new_config != stackerdb_config && new_config.signers.len() > 0 {
+            } else if (new_config != stackerdb_config && new_config.signers.len() > 0)
+                || (new_config == stackerdb_config
+                    && new_config.signers.len()
+                        != self.get_slot_versions(&stackerdb_contract_id)?.len())
+            {
                 // only reconfigure if the config has changed
+                // (that second check on the length is needed in case the node is a victim of
+                // #5142, which was a bug whereby a stackerdb could never shrink)
                 if let Err(e) = self.reconfigure_stackerdb(&stackerdb_contract_id, &new_config) {
                     warn!(
                         "Failed to create or reconfigure StackerDB {stackerdb_contract_id}: DB error {:?}",
@@ -380,6 +386,8 @@ pub enum StackerDBSyncState {
 pub struct StackerDBSync<NC: NeighborComms> {
     /// what state are we in?
     state: StackerDBSyncState,
+    /// What was the rc consensus hash at the start of sync?
+    pub rc_consensus_hash: Option<ConsensusHash>,
     /// which contract this is a replica for
     pub smart_contract_id: QualifiedContractIdentifier,
     /// number of chunks in this DB
@@ -501,6 +509,7 @@ impl PeerNetwork {
     /// Runs in response to a received StackerDBGetChunksInv or a StackerDBPushChunk
     pub fn make_StackerDBChunksInv_or_Nack(
         &self,
+        naddr: NeighborAddress,
         chainstate: &mut StacksChainState,
         contract_id: &QualifiedContractIdentifier,
         rc_consensus_hash: &ConsensusHash,
@@ -531,10 +540,10 @@ impl PeerNetwork {
                 &tip_block_id,
                 &rc_consensus_hash,
             ) {
-                debug!("{:?}: NACK StackerDBGetChunksInv / StackerDBPushChunk since {} != {} (remote is stale)", self.get_local_peer(), &self.get_chain_view().rc_consensus_hash, rc_consensus_hash);
+                debug!("{:?}: NACK StackerDBGetChunksInv / StackerDBPushChunk from {} since {} != {} (remote is stale)", self.get_local_peer(), &naddr, &self.get_chain_view().rc_consensus_hash, rc_consensus_hash);
                 return StacksMessageType::Nack(NackData::new(NackErrorCodes::StaleView));
             } else {
-                debug!("{:?}: NACK StackerDBGetChunksInv / StackerDBPushChunk since {} != {} (local is potentially stale)", self.get_local_peer(), &self.get_chain_view().rc_consensus_hash, rc_consensus_hash);
+                debug!("{:?}: NACK StackerDBGetChunksInv / StackerDBPushChunk from {} since {} != {} (local is potentially stale)", self.get_local_peer(), &naddr, &self.get_chain_view().rc_consensus_hash, rc_consensus_hash);
                 return StacksMessageType::Nack(NackData::new(NackErrorCodes::FutureView));
             }
         }
@@ -649,7 +658,19 @@ impl PeerNetwork {
         chunk_data: &StackerDBPushChunkData,
         send_reply: bool,
     ) -> Result<(bool, bool), net_error> {
+        let Some(naddr) = self
+            .get_p2p_convo(event_id)
+            .map(|convo| convo.to_neighbor_address())
+        else {
+            debug!(
+                "Drop unsolicited StackerDBPushChunk: event ID {} is not connected",
+                event_id
+            );
+            return Ok((false, false));
+        };
+
         let mut payload = self.make_StackerDBChunksInv_or_Nack(
+            naddr,
             chainstate,
             &chunk_data.contract_id,
             &chunk_data.rc_consensus_hash,

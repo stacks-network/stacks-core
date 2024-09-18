@@ -2066,6 +2066,19 @@ fn test_make_tenure_downloaders() {
 fn test_nakamoto_download_run_2_peers() {
     let observer = TestEventObserver::new();
     let bitvecs = vec![
+        // a reward cycle with one prepare phase sortition at the start
+        vec![
+            true, true, true, true, true, true, true, false, false, false,
+        ],
+        // a reward cycle with one prepare phase sortition at the end,
+        // and no tenures in the first three reward phase sortitions
+        vec![
+            false, false, false, true, true, false, false, true, true, false,
+        ],
+        // full reward cycle, minus the first three tenures
+        vec![
+            false, false, false, true, true, true, true, true, true, true,
+        ],
         // full reward cycle
         vec![true, true, true, true, true, true, true, true, true, true],
         // alternating reward cycle, but with a full prepare phase

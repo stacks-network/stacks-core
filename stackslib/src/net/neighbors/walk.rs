@@ -359,8 +359,8 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
         // pick a random search index
         let mut idx = thread_rng().gen::<usize>() % event_ids.len();
 
-        test_debug!(
-            "{:?}: try inbound neighbors -- sample out of {}. idx = {}",
+        debug!(
+            "{:?}: instantiate inbound walk: try inbound neighbors -- sample out of {}. idx = {}",
             network.get_local_peer(),
             network.get_num_p2p_convos(),
             idx
@@ -410,6 +410,10 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
         }
 
         // no inbound peers
+        debug!(
+            "{:?}: no inbound peers to talk to",
+            network.get_local_peer()
+        );
         return Err(net_error::NoSuchNeighbor);
     }
 
@@ -426,13 +430,14 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
         network: &PeerNetwork,
     ) -> Result<NeighborWalk<DB, NC>, net_error> {
         if network.get_walk_pingbacks().len() == 0 {
+            debug!("{:?}: no walk pingbacks", network.get_local_peer());
             return Err(net_error::NoSuchNeighbor);
         }
 
         // random search
         let idx = thread_rng().gen::<usize>() % network.get_walk_pingbacks().len();
 
-        test_debug!(
+        debug!(
             "{:?}: try pingback candidates -- sample out of {}. idx = {}",
             network.get_local_peer(),
             network.get_walk_pingbacks().len(),
@@ -490,7 +495,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
         next_neighbor: Neighbor,
         next_neighbor_outbound: bool,
     ) -> NeighborWalkResult {
-        test_debug!(
+        debug!(
             "{:?}: Walk reset to {} neighbor {:?}",
             local_peer,
             if self.next_walk_outbound {
@@ -686,9 +691,10 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
         // if the neighbor accidentally gave us a private IP address, then
         // just use the one we used to contact it.  This can happen if the
         // node is behind a load-balancer, or is doing port-forwarding,
-        // etc.
-        if neighbor_from_handshake.addr.addrbytes.is_in_private_range()
-            || neighbor_from_handshake.addr.addrbytes.is_anynet()
+        // etc. But do nothing if both cur_neighbor and its reported address are private.
+        if (neighbor_from_handshake.addr.addrbytes.is_in_private_range()
+            || neighbor_from_handshake.addr.addrbytes.is_anynet())
+            && !self.cur_neighbor.addr.addrbytes.is_in_private_range()
         {
             debug!(
                 "{}: outbound neighbor gave private IP address {:?}; assuming it meant {:?}",

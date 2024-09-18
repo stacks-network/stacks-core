@@ -190,6 +190,7 @@ impl BlockEventDispatcher for DummyEventDispatcher {
         _pox_constants: &PoxConstants,
         _reward_set_data: &Option<RewardSetData>,
         _signer_bitvec: &Option<BitVec<4000>>,
+        _block_timestamp: Option<u64>,
     ) {
         assert!(
             false,
@@ -6409,6 +6410,7 @@ impl StacksChainState {
                 &pox_constants,
                 &reward_set_data,
                 &None,
+                None,
             );
         }
 

@@ -142,7 +142,7 @@ pub struct MinedMicroblockEvent {
     pub anchor_block: BlockHeaderHash,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct MinedNakamotoBlockEvent {
     pub target_burn_height: u64,
     pub parent_block_id: String,
@@ -594,6 +594,7 @@ impl EventObserver {
         pox_constants: &PoxConstants,
         reward_set_data: &Option<RewardSetData>,
         signer_bitvec_opt: &Option<BitVec<4000>>,
+        block_timestamp: Option<u64>,
     ) -> serde_json::Value {
         // Serialize events to JSON
         let serialized_events: Vec<serde_json::Value> = filtered_events
@@ -631,6 +632,7 @@ impl EventObserver {
         let mut payload = json!({
             "block_hash": format!("0x{}", block.block_hash),
             "block_height": metadata.stacks_block_height,
+            "block_time": block_timestamp,
             "burn_block_hash": format!("0x{}", metadata.burn_header_hash),
             "burn_block_height": metadata.burn_header_height,
             "miner_txid": format!("0x{}", winner_txid),
@@ -852,6 +854,7 @@ impl BlockEventDispatcher for EventDispatcher {
         pox_constants: &PoxConstants,
         reward_set_data: &Option<RewardSetData>,
         signer_bitvec: &Option<BitVec<4000>>,
+        block_timestamp: Option<u64>,
     ) {
         self.process_chain_tip(
             block,
@@ -869,6 +872,7 @@ impl BlockEventDispatcher for EventDispatcher {
             pox_constants,
             reward_set_data,
             signer_bitvec,
+            block_timestamp,
         );
     }
 
@@ -1051,6 +1055,7 @@ impl EventDispatcher {
         pox_constants: &PoxConstants,
         reward_set_data: &Option<RewardSetData>,
         signer_bitvec: &Option<BitVec<4000>>,
+        block_timestamp: Option<u64>,
     ) {
         let all_receipts = receipts.to_owned();
         let (dispatch_matrix, events) = self.create_dispatch_matrix_and_event_vector(&all_receipts);
@@ -1102,6 +1107,7 @@ impl EventDispatcher {
                         pox_constants,
                         reward_set_data,
                         signer_bitvec,
+                        block_timestamp,
                     );
 
                 // Send payload
@@ -1508,6 +1514,7 @@ mod test {
         let mblock_confirmed_consumed = ExecutionCost::zero();
         let pox_constants = PoxConstants::testnet_default();
         let signer_bitvec = BitVec::zeros(2).expect("Failed to create BitVec with length 2");
+        let block_timestamp = Some(123456);
 
         let payload = observer.make_new_block_processed_payload(
             filtered_events,
@@ -1525,6 +1532,7 @@ mod test {
             &pox_constants,
             &None,
             &Some(signer_bitvec.clone()),
+            block_timestamp,
         );
         assert_eq!(
             payload
@@ -1576,6 +1584,7 @@ mod test {
         let mblock_confirmed_consumed = ExecutionCost::zero();
         let pox_constants = PoxConstants::testnet_default();
         let signer_bitvec = BitVec::zeros(2).expect("Failed to create BitVec with length 2");
+        let block_timestamp = Some(123456);
 
         let payload = observer.make_new_block_processed_payload(
             filtered_events,
@@ -1593,6 +1602,7 @@ mod test {
             &pox_constants,
             &None,
             &Some(signer_bitvec.clone()),
+            block_timestamp,
         );
 
         let event_signer_signature = payload

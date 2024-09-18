@@ -2314,6 +2314,10 @@ impl UTXOSet {
     pub fn total_available(&self) -> u64 {
         self.utxos.iter().map(|o| o.amount).sum()
     }
+
+    pub fn num_utxos(&self) -> usize {
+        self.utxos.len()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -2607,7 +2611,7 @@ impl BitcoinRPCRequest {
                 max_conf.into(),
                 addresses.into(),
                 include_unsafe.into(),
-                json!({ "minimumAmount": minimum_amount }),
+                json!({ "minimumAmount": minimum_amount, "maximumCount": config.burnchain.max_unspent_utxos }),
             ],
             id: "stacks".to_string(),
             jsonrpc: "2.0".to_string(),
@@ -2817,7 +2821,7 @@ impl BitcoinRPCRequest {
 
     fn send(config: &Config, payload: BitcoinRPCRequest) -> RPCResult<serde_json::Value> {
         let request = BitcoinRPCRequest::build_rpc_request(&config, &payload);
-        let timeout = Duration::from_secs(60);
+        let timeout = Duration::from_secs(u64::from(config.burnchain.timeout));
 
         let host = request.preamble().host.hostname();
         let port = request.preamble().host.port();
