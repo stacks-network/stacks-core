@@ -61,6 +61,8 @@ use crate::run_loop::nakamoto::Globals;
 use crate::run_loop::RegisteredKey;
 
 #[cfg(test)]
+pub static TEST_MINE_STALL: std::sync::Mutex<Option<bool>> = std::sync::Mutex::new(None);
+#[cfg(test)]
 pub static TEST_BROADCAST_STALL: std::sync::Mutex<Option<bool>> = std::sync::Mutex::new(None);
 #[cfg(test)]
 pub static TEST_BLOCK_ANNOUNCE_STALL: std::sync::Mutex<Option<bool>> = std::sync::Mutex::new(None);
@@ -291,6 +293,15 @@ impl BlockMinerThread {
         let mut attempts = 0;
         // now, actually run this tenure
         loop {
+            #[cfg(test)]
+            if *TEST_MINE_STALL.lock().unwrap() == Some(true) {
+                // Do an extra check just so we don't log EVERY time.
+                warn!("Mining is stalled due to testing directive");
+                while *TEST_MINE_STALL.lock().unwrap() == Some(true) {
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                }
+                warn!("Mining is no longer stalled due to testing directive. Continuing...");
+            }
             let new_block = loop {
                 // If we're mock mining, we may not have processed the block that the
                 // actual tenure winner committed to yet. So, before attempting to
