@@ -45,8 +45,17 @@ use crate::util_lib::db::Error as DBError;
 
 #[derive(Clone, Default)]
 pub struct GetSignerRequestHandler {
-    signer_pubkey: Option<Secp256k1PublicKey>,
-    reward_cycle: Option<u64>,
+    pub signer_pubkey: Option<Secp256k1PublicKey>,
+    pub reward_cycle: Option<u64>,
+}
+
+impl GetSignerRequestHandler {
+    pub fn new() -> Self {
+        Self {
+            signer_pubkey: None,
+            reward_cycle: None,
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -61,8 +70,10 @@ impl HttpRequest for GetSignerRequestHandler {
     }
 
     fn path_regex(&self) -> Regex {
-        Regex::new(r#"^/v3/signer/(?P<signer_pubkey>[0-9a-f]{66})/(?P<cycle_num>[0-9]{1,10})$"#)
-            .unwrap()
+        Regex::new(
+            r#"^/v3/signer/(?P<signer_pubkey>0[23][0-9a-f]{64})/(?P<cycle_num>[0-9]{1,10})$"#,
+        )
+        .unwrap()
     }
 
     fn metrics_identifier(&self) -> &str {
