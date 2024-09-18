@@ -1446,6 +1446,10 @@ pub struct BurnchainConfig {
     /// fault injection to simulate a slow burnchain peer.
     /// Delay burnchain block downloads by the given number of millseconds
     pub fault_injection_burnchain_block_delay: u64,
+    /// The maximum number of unspent UTXOs to request from the bitcoin node.
+    /// This value is passed as the `maximumCount` query option to the
+    /// `listunspent` RPC call.
+    pub max_unspent_utxos: Option<u64>,
 }
 
 impl BurnchainConfig {
@@ -1486,6 +1490,7 @@ impl BurnchainConfig {
             ast_precheck_size_height: None,
             affirmation_overrides: HashMap::new(),
             fault_injection_burnchain_block_delay: 0,
+            max_unspent_utxos: Some(1024),
         }
     }
     pub fn get_rpc_url(&self, wallet: Option<String>) -> String {
@@ -1582,6 +1587,7 @@ pub struct BurnchainConfigFile {
     pub ast_precheck_size_height: Option<u64>,
     pub affirmation_overrides: Option<Vec<AffirmationOverride>>,
     pub fault_injection_burnchain_block_delay: Option<u64>,
+    pub max_unspent_utxos: Option<u64>,
 }
 
 impl BurnchainConfigFile {
@@ -1797,6 +1803,13 @@ impl BurnchainConfigFile {
             fault_injection_burnchain_block_delay: self
                 .fault_injection_burnchain_block_delay
                 .unwrap_or(default_burnchain_config.fault_injection_burnchain_block_delay),
+            max_unspent_utxos: self
+                .max_unspent_utxos
+                .map(|val| {
+                    assert!(val <= 1024, "Value for max_unspent_utxos should be <= 1024");
+                    val
+                })
+                .or(default_burnchain_config.max_unspent_utxos),
         };
 
         if let BitcoinNetworkType::Mainnet = config.get_bitcoin_network().1 {
