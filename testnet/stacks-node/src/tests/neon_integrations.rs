@@ -12794,3 +12794,44 @@ fn mock_miner_replay() {
     miner_channel.stop_chains_coordinator();
     follower_channel.stop_chains_coordinator();
 }
+
+#[test]
+#[ignore]
+/// Test out stopping bitcoind and restarting it
+fn start_stop_bitcoind() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let (mut conf, _miner_account) = neon_integration_test_conf();
+    let prom_bind = format!("{}:{}", "127.0.0.1", 6000);
+    conf.node.prometheus_bind = Some(prom_bind.clone());
+
+    conf.burnchain.max_rbf = 1000000;
+
+    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .map_err(|_e| ())
+        .expect("Failed starting bitcoind");
+
+    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+
+    btc_regtest_controller.bootstrap_chain(201);
+
+    eprintln!("Chain bootstrapped...");
+
+    btcd_controller
+        .stop_bitcoind()
+        .expect("Failed to stop bitcoind");
+
+    thread::sleep(Duration::from_secs(5));
+
+    btcd_controller
+        .start_bitcoind()
+        .expect("Failed to start bitcoind");
+
+    btcd_controller
+        .stop_bitcoind()
+        .expect("Failed to stop bitcoind");
+}

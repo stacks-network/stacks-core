@@ -74,6 +74,9 @@ jobs:
           - tests::neon_integrations::min_txs
           - tests::neon_integrations::vote_for_aggregate_key_burn_op_test
           - tests::neon_integrations::mock_miner_replay
+          - tests::neon_integrations::bitcoin_reorg_flap
+          - tests::neon_integrations::bitcoin_reorg_flap_with_follower
+          - tests::neon_integrations::start_stop_bitcoind
           - tests::epoch_25::microblocks_disabled
           - tests::should_succeed_handling_malformed_and_valid_txs
           - tests::nakamoto_integrations::simple_neon_integration
@@ -121,9 +124,6 @@ jobs:
           - tests::nakamoto_integrations::follower_bootup_across_multiple_cycles
           - tests::nakamoto_integrations::utxo_check_on_startup_panic
           - tests::nakamoto_integrations::utxo_check_on_startup_recover
-          # Do not run this one until we figure out why it fails in CI
-          # - tests::neon_integrations::bitcoin_reorg_flap
-          # - tests::neon_integrations::bitcoin_reorg_flap_with_follower
           # TODO: enable these once v1 signer is supported by a new nakamoto epoch
           # - tests::signer::v1::dkg
           # - tests::signer::v1::sign_request_rejected

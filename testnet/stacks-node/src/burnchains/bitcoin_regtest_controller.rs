@@ -2815,7 +2815,7 @@ impl BitcoinRPCRequest {
         Ok(())
     }
 
-    fn send(config: &Config, payload: BitcoinRPCRequest) -> RPCResult<serde_json::Value> {
+    pub fn send(config: &Config, payload: BitcoinRPCRequest) -> RPCResult<serde_json::Value> {
         let request = BitcoinRPCRequest::build_rpc_request(&config, &payload);
         let timeout = Duration::from_secs(u64::from(config.burnchain.timeout));
 
