@@ -2135,15 +2135,15 @@ impl MemPoolDB {
             for prior_tx in prior_txs.iter() {
                 if tx_fee > prior_tx.tx_fee {
                     // is this a replace-by-fee ?
-                    debug!(
-                        "Can replace {} with {} for {},{} by fee ({} < {})",
-                        &prior_tx.txid,
-                        &txid,
-                        origin_address,
-                        origin_nonce,
-                        &prior_tx.tx_fee,
-                        &tx_fee
-                    );
+                    debug!("Can replace TX by fee";
+                           "new_txid" => %txid,
+                           "old_txid" => %prior_tx.txid,
+                           "origin_addr" => %origin_address,
+                           "origin_nonce" => origin_nonce,
+                           "sponsor_addr" => %sponsor_address,
+                           "sponsor_nonce" => sponsor_nonce,
+                           "new_fee" => tx_fee,
+                           "old_fee" => prior_tx.tx_fee);
                     replace_reason = MemPoolDropReason::REPLACE_BY_FEE;
                 } else if !MemPoolDB::are_blocks_in_same_fork(
                     chainstate,
@@ -2153,10 +2153,15 @@ impl MemPoolDB {
                     &block_header_hash,
                 )? {
                     // is this a replace-across-fork ?
-                    debug!(
-                        "Can replace {} with {} for {},{} across fork",
-                        &prior_tx.txid, &txid, origin_address, origin_nonce
-                    );
+                    debug!("Can replace TX across fork";
+                           "new_txid" => %txid,
+                           "old_txid" => %prior_tx.txid,
+                           "origin_addr" => %origin_address,
+                           "origin_nonce" => origin_nonce,
+                           "sponsor_addr" => %sponsor_address,
+                           "sponsor_nonce" => sponsor_nonce,
+                           "new_fee" => tx_fee,
+                           "old_fee" => prior_tx.tx_fee);
                     replace_reason = MemPoolDropReason::REPLACE_ACROSS_FORK;
                 } else {
                     // there's a >= fee tx in this fork, cannot add
