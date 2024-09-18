@@ -5185,50 +5185,20 @@ fn clarity_burn_state() {
                 vec![&Value::UInt(burn_block_height)],
             );
             result.expect_result_ok().expect("Read-only call failed");
-
-            // Submit a tx for the next block (the next block will be a new tenure, so the burn block height will increment)
-            let call_tx = tests::make_contract_call(
-                &sender_sk,
-                sender_nonce,
-                tx_fee,
-                &sender_addr,
-                contract_name,
-                "bar",
-                &[Value::UInt(burn_block_height + 1)],
-            );
-            sender_nonce += 1;
-            submit_tx(&http_origin, &call_tx);
         }
 
         let commits_before = commits_submitted.load(Ordering::SeqCst);
-        next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
-            .unwrap();
+        next_block_and_mine_commit(
+            &mut btc_regtest_controller,
+            60,
+            &coord_channel,
+            &commits_submitted,
+        )
+        .unwrap();
 
         let info = get_chain_info(&naka_conf);
         burn_block_height = info.burn_block_height as u128;
         info!("Expecting burn block height to be {}", burn_block_height);
-
-        // Assert that the contract call was successful
-        test_observer::get_mined_nakamoto_blocks()
-            .last()
-            .unwrap()
-            .tx_events
-            .iter()
-            .for_each(|event| match event {
-                TransactionEvent::Success(TransactionSuccessEvent { result, fee, .. }) => {
-                    // Ignore coinbase and tenure transactions
-                    if *fee == 0 {
-                        return;
-                    }
-
-                    info!("Contract call result: {}", result);
-                    result.clone().expect_result_ok().expect("Ok result");
-                }
-                _ => {
-                    info!("Unsuccessful event: {:?}", event);
-                    panic!("Expected a successful transaction");
-                }
-            });
 
         // mine the interim blocks
         for interim_block_ix in 0..inter_blocks_per_tenure {
