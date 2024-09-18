@@ -2274,8 +2274,6 @@ fn correct_burn_outs() {
 
     let mut last_block_time = None;
     for block in new_blocks_with_reward_set.iter() {
-        let cycle_number = block["cycle_number"].as_u64().unwrap();
-        let reward_set = block["reward_set"].as_object().unwrap();
         if let Some(block_time) = block["block_time"].as_u64() {
             if let Some(last) = last_block_time {
                 assert!(block_time > last, "Block times should be increasing");
