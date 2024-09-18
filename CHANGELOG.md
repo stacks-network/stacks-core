@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 ## [Unreleased]
 
+## [2.5.0.0.7]
+
+### Fixed
+
+- Fix the RBF logic in the mempool admission which did not previously handle sponsor and origin nonce interactions correctly.
+
 ## [2.5.0.0.6]
 
 ### Changed
