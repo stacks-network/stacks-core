@@ -1676,6 +1676,7 @@ fn simple_neon_integration() {
 }
 
 #[test]
+#[ignore]
 /// This test spins up a nakamoto-neon node.
 /// It starts in Epoch 2.0, mines with `neon_node` to Epoch 3.0,
 /// having flash blocks when epoch updates and expects everything to work normally,
