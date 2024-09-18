@@ -1676,7 +1676,6 @@ fn simple_neon_integration() {
 }
 
 #[test]
-#[ignore]
 /// This test spins up a nakamoto-neon node.
 /// It starts in Epoch 2.0, mines with `neon_node` to Epoch 3.0,
 /// having flash blocks when epoch updates and expects everything to work normally,
@@ -1900,15 +1899,35 @@ fn simple_neon_integration_with_flash_blocks_on_epoch_3() {
     assert!(tip.stacks_block_height >= block_height_pre_3_0 + 30);
 
     // Check that we have the expected burn blocks
-    // We expect to have blocks 220-230 and 234 onwards, with a gap for the flash blocks
+    // We expect to have around the blocks 220-230 and 234 onwards, with a gap of 3 blocks for the flash blocks
     let bhh = u64::from(tip.burn_header_height);
-    test_observer::contains_burn_block_range(220..=230).unwrap();
-    test_observer::contains_burn_block_range(234..=bhh).unwrap();
-    // Verify that we're missing the expected flash blocks
-    assert!(
-        test_observer::contains_burn_block_range(231..=233).is_err(),
-        "Expected to be missing burn blocks 231-233 due to flash blocks"
+    // Find the gap in burn blocks
+    let mut gap_start = 0;
+    let mut gap_end = 0;
+    for i in 220..=bhh {
+        if test_observer::contains_burn_block_range(i..=i).is_err() {
+            if gap_start == 0 {
+                gap_start = i;
+            }
+            gap_end = i;
+        } else if gap_start != 0 {
+            break;
+        }
+    }
+
+    // Verify that there's a gap of exactly 3 blocks
+    assert_eq!(
+        gap_end - gap_start + 1,
+        3,
+        "Expected a gap of exactly 3 burn blocks due to flash blocks, found gap from {} to {}",
+        gap_start,
+        gap_end
     );
+
+    // Verify blocks before and after the gap
+    test_observer::contains_burn_block_range(220..=(gap_start - 1)).unwrap();
+    test_observer::contains_burn_block_range((gap_end + 1)..=bhh).unwrap();
+
     info!("Verified burn block ranges, including expected gap for flash blocks");
 
     coord_channel
