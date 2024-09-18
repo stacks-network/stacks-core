@@ -19,7 +19,7 @@ use std::net::SocketAddr;
 use blockstack_lib::burnchains::Txid;
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
 use blockstack_lib::chainstate::stacks::boot::{
-    NakamotoSignerEntry, SIGNERS_VOTING_FUNCTION_NAME, SIGNERS_VOTING_NAME,
+    NakamotoSignerEntry, SIGNERS_NAME, SIGNERS_VOTING_FUNCTION_NAME, SIGNERS_VOTING_NAME,
 };
 use blockstack_lib::chainstate::stacks::db::StacksBlockHeaderTypes;
 use blockstack_lib::chainstate::stacks::{
@@ -160,6 +160,20 @@ impl StacksClient {
         }
         let sortition_info = response.json()?;
         Ok(sortition_info)
+    }
+
+    /// Get the last set reward cycle stored within the stackerdb contract
+    pub fn get_last_set_cycle(&self) -> Result<u128, ClientError> {
+        let signer_stackerdb_contract_id = boot_code_id(SIGNERS_NAME, self.mainnet);
+        let function_name_str = "get-last-set-cycle";
+        let function_name = ClarityName::from(function_name_str);
+        let value = self.read_only_contract_call(
+            &signer_stackerdb_contract_id.issuer.clone().into(),
+            &signer_stackerdb_contract_id.name,
+            &function_name,
+            &[],
+        )?;
+        Ok(value.expect_result_ok()?.expect_u128()?)
     }
 
     /// Retrieve the signer slots stored within the stackerdb contract
@@ -450,7 +464,10 @@ impl StacksClient {
             "last_sortition" => %last_sortition,
         );
         let path = self.tenure_forking_info_path(chosen_parent, last_sortition);
-        let timer = crate::monitoring::new_rpc_call_timer(&path, &self.http_origin);
+        let timer = crate::monitoring::new_rpc_call_timer(
+            "/v3/tenures/fork_info/:start/:stop",
+            &self.http_origin,
+        );
         let send_request = || {
             self.stacks_node_client
                 .get(&path)
@@ -491,7 +508,8 @@ impl StacksClient {
     pub fn get_sortition(&self, ch: &ConsensusHash) -> Result<SortitionInfo, ClientError> {
         debug!("stacks_node_client: Getting sortition with consensus hash {ch}...");
         let path = format!("{}/consensus/{}", self.sortition_info_path(), ch.to_hex());
-        let timer = crate::monitoring::new_rpc_call_timer(&path, &self.http_origin);
+        let timer_label = format!("{}/consensus/:consensus_hash", self.sortition_info_path());
+        let timer = crate::monitoring::new_rpc_call_timer(&timer_label, &self.http_origin);
         let send_request = || {
             self.stacks_node_client.get(&path).send().map_err(|e| {
                 warn!("Signer failed to request sortition"; "consensus_hash" => %ch, "err" => ?e);
@@ -561,7 +579,7 @@ impl StacksClient {
     ) -> Result<Option<Vec<NakamotoSignerEntry>>, ClientError> {
         debug!("stacks_node_client: Getting reward set signers for reward cycle {reward_cycle}...");
         let timer = crate::monitoring::new_rpc_call_timer(
-            &self.reward_set_path(reward_cycle),
+            &format!("{}/v3/stacker_set/:reward_cycle", self.http_origin),
             &self.http_origin,
         );
         let send_request = || {
@@ -581,7 +599,7 @@ impl StacksClient {
                 backoff::Error::permanent(e.into())
             })?;
             if error_data.err_type == GetStackersErrors::NOT_AVAILABLE_ERR_TYPE {
-                Err(backoff::Error::transient(ClientError::NoSortitionOnChain))
+                Err(backoff::Error::permanent(ClientError::NoSortitionOnChain))
             } else {
                 warn!("Got error response ({status}): {}", error_data.err_msg);
                 Err(backoff::Error::permanent(ClientError::RequestFailure(
@@ -644,8 +662,8 @@ impl StacksClient {
         address: &StacksAddress,
     ) -> Result<AccountEntryResponse, ClientError> {
         debug!("stacks_node_client: Getting account info...");
-        let timer =
-            crate::monitoring::new_rpc_call_timer(&self.accounts_path(address), &self.http_origin);
+        let timer_label = format!("{}/v2/accounts/:principal", self.http_origin);
+        let timer = crate::monitoring::new_rpc_call_timer(&timer_label, &self.http_origin);
         let send_request = || {
             self.stacks_node_client
                 .get(self.accounts_path(address))
@@ -797,7 +815,11 @@ impl StacksClient {
         let body =
             json!({"sender": self.stacks_address.to_string(), "arguments": args}).to_string();
         let path = self.read_only_path(contract_addr, contract_name, function_name);
-        let timer = crate::monitoring::new_rpc_call_timer(&path, &self.http_origin);
+        let timer_label = format!(
+            "{}/v2/contracts/call-read/:principal/{contract_name}/{function_name}",
+            self.http_origin
+        );
+        let timer = crate::monitoring::new_rpc_call_timer(&timer_label, &self.http_origin);
         let response = self
             .stacks_node_client
             .post(path)
@@ -962,11 +984,11 @@ mod tests {
     use super::*;
     use crate::client::tests::{
         build_account_nonce_response, build_get_approved_aggregate_key_response,
-        build_get_last_round_response, build_get_medium_estimated_fee_ustx_response,
-        build_get_peer_info_response, build_get_pox_data_response, build_get_round_info_response,
-        build_get_tenure_tip_response, build_get_vote_for_aggregate_key_response,
-        build_get_weight_threshold_response, build_read_only_response, write_response,
-        MockServerClient,
+        build_get_last_round_response, build_get_last_set_cycle_response,
+        build_get_medium_estimated_fee_ustx_response, build_get_peer_info_response,
+        build_get_pox_data_response, build_get_round_info_response, build_get_tenure_tip_response,
+        build_get_vote_for_aggregate_key_response, build_get_weight_threshold_response,
+        build_read_only_response, write_response, MockServerClient,
     };
 
     #[test]
@@ -1622,5 +1644,15 @@ mod tests {
         let h = spawn(move || mock.client.get_tenure_tip(&consensus_hash));
         write_response(mock.server, response.as_bytes());
         assert_eq!(h.join().unwrap().unwrap(), header);
+    }
+
+    #[test]
+    fn get_last_set_cycle_should_succeed() {
+        let mock = MockServerClient::new();
+        let reward_cycle = thread_rng().next_u64();
+        let response = build_get_last_set_cycle_response(reward_cycle);
+        let h = spawn(move || mock.client.get_last_set_cycle());
+        write_response(mock.server, response.as_bytes());
+        assert_eq!(h.join().unwrap().unwrap(), reward_cycle as u128);
     }
 }

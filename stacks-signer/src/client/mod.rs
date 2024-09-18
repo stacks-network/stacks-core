@@ -603,4 +603,9 @@ pub(crate) mod tests {
             serde_json::to_string(header_types).expect("Failed to serialize tenure tip info");
         format!("HTTP/1.1 200 OK\n\n{response_json}")
     }
+
+    pub fn build_get_last_set_cycle_response(cycle: u64) -> String {
+        let clarity_value = ClarityValue::okay(ClarityValue::UInt(cycle as u128)).unwrap();
+        build_read_only_response(&clarity_value)
+    }
 }
