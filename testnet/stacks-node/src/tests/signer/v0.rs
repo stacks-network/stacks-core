@@ -264,6 +264,11 @@ impl SignerTest<SpawnedSigner> {
         info!("Signers initialized");
 
         self.run_until_epoch_3_boundary();
+        std::thread::sleep(Duration::from_secs(1));
+        wait_for(60, || {
+            Ok(get_chain_info_opt(&self.running_nodes.conf).is_some())
+        })
+        .expect("Timed out waiting for network to restart after 3.0 boundary reached");
 
         // Wait until we see the first block of epoch 3.0.
         // Note, we don't use `nakamoto_blocks_mined` counter, because there
@@ -831,9 +836,7 @@ fn reloads_signer_set_in() {
     );
 
     info!("Waiting for signer set calculation.");
-    let mut reward_set_calculated = false;
     let short_timeout = Duration::from_secs(30);
-    let now = std::time::Instant::now();
     // Make sure the signer set is calculated before continuing or signers may not
     // recognize that they are registered signers in the subsequent burn block event
     let reward_cycle = signer_test.get_current_reward_cycle() + 1;
@@ -841,21 +844,23 @@ fn reloads_signer_set_in() {
         .running_nodes
         .btc_regtest_controller
         .build_next_block(1);
-    while !reward_set_calculated {
-        let reward_set = signer_test
+    wait_for(short_timeout.as_secs(), || {
+        let reward_set = match signer_test
             .stacks_client
             .get_reward_set_signers(reward_cycle)
-            .expect("Failed to check if reward set is calculated");
-        reward_set_calculated = reward_set.is_some();
-        if reward_set_calculated {
-            info!("Signer set: {:?}", reward_set.unwrap());
+        {
+            Ok(x) => x,
+            Err(e) => {
+                warn!("Failed to check if reward set is calculated yet: {e:?}. Will try again");
+                return Ok(false);
+            }
+        };
+        if let Some(ref set) = reward_set {
+            info!("Signer set: {:?}", set);
         }
-        std::thread::sleep(Duration::from_secs(1));
-        assert!(
-            now.elapsed() < short_timeout,
-            "Timed out waiting for reward set calculation"
-        );
-    }
+        Ok(reward_set.is_some())
+    })
+    .expect("Timed out waiting for reward set to be calculated");
     info!("Signer set calculated");
 
     // Manually consume one more block to ensure signers refresh their state
@@ -4128,25 +4133,24 @@ fn locally_rejected_blocks_overriden_by_global_acceptance() {
     signer_test.boot_to_epoch_3();
     info!("------------------------- Test Mine Nakamoto Block N -------------------------");
     let mined_blocks = signer_test.running_nodes.nakamoto_blocks_mined.clone();
-    let blocks_before = mined_blocks.load(Ordering::SeqCst);
     let info_before = signer_test
         .stacks_client
         .get_peer_info()
         .expect("Failed to get peer info");
-    let start_time = Instant::now();
     // submit a tx so that the miner will mine a stacks block
     let mut sender_nonce = 0;
     let transfer_tx =
         make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
     let tx = submit_tx(&http_origin, &transfer_tx);
     info!("Submitted tx {tx} in to mine block N");
-    while mined_blocks.load(Ordering::SeqCst) <= blocks_before {
-        assert!(
-            start_time.elapsed() < short_timeout,
-            "FAIL: Test timed out while waiting for block production",
-        );
-        thread::sleep(Duration::from_secs(1));
-    }
+    wait_for(short_timeout.as_secs(), || {
+        let info_after = signer_test
+            .stacks_client
+            .get_peer_info()
+            .expect("Failed to get peer info");
+        Ok(info_after.stacks_tip_height > info_before.stacks_tip_height)
+    })
+    .expect("Timed out waiting for block to be mined and processed");
 
     sender_nonce += 1;
     let info_after = signer_test
@@ -4196,13 +4200,14 @@ fn locally_rejected_blocks_overriden_by_global_acceptance() {
         .stacks_client
         .get_peer_info()
         .expect("Failed to get peer info");
-    while mined_blocks.load(Ordering::SeqCst) <= blocks_before {
-        assert!(
-            start_time.elapsed() < short_timeout,
-            "FAIL: Test timed out while waiting for block production",
-        );
-        thread::sleep(Duration::from_secs(1));
-    }
+    wait_for(short_timeout.as_secs(), || {
+        let info_after = signer_test
+            .stacks_client
+            .get_peer_info()
+            .expect("Failed to get peer info");
+        Ok(info_after.stacks_tip_height > info_before.stacks_tip_height)
+    })
+    .expect("Timed out waiting for block to be mined and processed");
     loop {
         let stackerdb_events = test_observer::get_stackerdb_chunks();
         let block_rejections = stackerdb_events
@@ -4274,13 +4279,14 @@ fn locally_rejected_blocks_overriden_by_global_acceptance() {
         make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
     let tx = submit_tx(&http_origin, &transfer_tx);
     info!("Submitted tx {tx} in to mine block N+2");
-    while mined_blocks.load(Ordering::SeqCst) <= blocks_before {
-        assert!(
-            start_time.elapsed() < short_timeout,
-            "FAIL: Test timed out while waiting for block production",
-        );
-        thread::sleep(Duration::from_secs(1));
-    }
+    wait_for(short_timeout.as_secs(), || {
+        let info_after = signer_test
+            .stacks_client
+            .get_peer_info()
+            .expect("Failed to get peer info");
+        Ok(info_after.stacks_tip_height > info_before.stacks_tip_height)
+    })
+    .expect("Timed out waiting for block to be mined and processed");
     let blocks_after = mined_blocks.load(Ordering::SeqCst);
     assert_eq!(blocks_after, blocks_before + 1);
 
@@ -4348,31 +4354,31 @@ fn reorg_locally_accepted_blocks_across_tenures_succeeds() {
     info!("------------------------- Starting Tenure A -------------------------");
     info!("------------------------- Test Mine Nakamoto Block N -------------------------");
     let mined_blocks = signer_test.running_nodes.nakamoto_blocks_mined.clone();
-    let blocks_before = mined_blocks.load(Ordering::SeqCst);
     let info_before = signer_test
         .stacks_client
         .get_peer_info()
         .expect("Failed to get peer info");
-    let start_time = Instant::now();
     // submit a tx so that the miner will mine a stacks block
     let mut sender_nonce = 0;
     let transfer_tx =
         make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
     let tx = submit_tx(&http_origin, &transfer_tx);
     info!("Submitted tx {tx} in to mine block N");
-    while mined_blocks.load(Ordering::SeqCst) <= blocks_before {
-        assert!(
-            start_time.elapsed() < short_timeout,
-            "FAIL: Test timed out while waiting for block production",
-        );
-        thread::sleep(Duration::from_secs(1));
-    }
+    wait_for(short_timeout.as_secs(), || {
+        let info_after = signer_test
+            .stacks_client
+            .get_peer_info()
+            .expect("Failed to get peer info");
+        Ok(info_after.stacks_tip_height > info_before.stacks_tip_height)
+    })
+    .expect("Timed out waiting for block to be mined and processed");
 
     sender_nonce += 1;
     let info_after = signer_test
         .stacks_client
         .get_peer_info()
         .expect("Failed to get peer info");
+
     assert_eq!(
         info_before.stacks_tip_height + 1,
         info_after.stacks_tip_height
@@ -4400,13 +4406,12 @@ fn reorg_locally_accepted_blocks_across_tenures_succeeds() {
         make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
     let tx = submit_tx(&http_origin, &transfer_tx);
     info!("Submitted tx {tx} in to attempt to mine block N+1");
-    let start_time = Instant::now();
     let blocks_before = mined_blocks.load(Ordering::SeqCst);
     let info_before = signer_test
         .stacks_client
         .get_peer_info()
         .expect("Failed to get peer info");
-    loop {
+    wait_for(short_timeout.as_secs(), || {
         let ignored_signers = test_observer::get_stackerdb_chunks()
             .into_iter()
             .flat_map(|chunk| chunk.modified_slots)
@@ -4423,15 +4428,9 @@ fn reorg_locally_accepted_blocks_across_tenures_succeeds() {
                 }
             })
             .collect::<Vec<_>>();
-        if ignored_signers.len() + ignoring_signers.len() == num_signers {
-            break;
-        }
-        assert!(
-            start_time.elapsed() < short_timeout,
-            "FAIL: Test timed out while waiting for block proposal acceptance",
-        );
-        sleep_ms(1000);
-    }
+        Ok(ignored_signers.len() + ignoring_signers.len() == num_signers)
+    })
+    .expect("FAIL: Timed out waiting for block proposal acceptance");
     let blocks_after = mined_blocks.load(Ordering::SeqCst);
     let info_after = signer_test
         .stacks_client
@@ -4464,25 +4463,23 @@ fn reorg_locally_accepted_blocks_across_tenures_succeeds() {
         .lock()
         .unwrap()
         .replace(Vec::new());
-    let mined_blocks = signer_test.running_nodes.nakamoto_blocks_mined.clone();
-    let blocks_before = mined_blocks.load(Ordering::SeqCst);
     let info_before = signer_test
         .stacks_client
         .get_peer_info()
         .expect("Failed to get peer info");
-    let start_time = Instant::now();
     // submit a tx so that the miner will mine a stacks block
     let transfer_tx =
         make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
     let tx = submit_tx(&http_origin, &transfer_tx);
     info!("Submitted tx {tx} in to mine block N");
-    while mined_blocks.load(Ordering::SeqCst) <= blocks_before {
-        assert!(
-            start_time.elapsed() < short_timeout,
-            "FAIL: Test timed out while waiting for block production",
-        );
-        thread::sleep(Duration::from_secs(1));
-    }
+    wait_for(short_timeout.as_secs(), || {
+        let info_after = signer_test
+            .stacks_client
+            .get_peer_info()
+            .expect("Failed to get peer info");
+        Ok(info_after.stacks_tip_height > info_before.stacks_tip_height)
+    })
+    .expect("Timed out waiting for block to be mined and processed");
 
     let info_after = signer_test
         .stacks_client
