@@ -2838,3 +2838,105 @@ fn test_filter_txs_by_type() {
         },
     );
 }
+
+#[test]
+/// Test the handling of Origin/Sponsor RBF interactions
+///  when origin and sponsor interact across two txs.
+fn mempool_db_rbf_origin_sponsor() {
+    let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+    let chainstate_path = chainstate_path(function_name!());
+    let mut mempool = MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
+
+    // create initial transaction
+    let mut mempool_tx = mempool.tx_begin().unwrap();
+    let height = 100;
+
+    let make_tx = |o_h160: &Hash160, o_nonce, s_h160: &Hash160, s_nonce, fee| {
+        let origin_condition =
+            TransactionSpendingCondition::Singlesig(SinglesigSpendingCondition {
+                signer: o_h160.clone(),
+                hash_mode: SinglesigHashMode::P2PKH,
+                key_encoding: TransactionPublicKeyEncoding::Compressed,
+                nonce: o_nonce,
+                tx_fee: 0,
+                signature: MessageSignature::from_raw(&vec![0xff; 65]),
+            });
+        let sponsor_condition =
+            TransactionSpendingCondition::Singlesig(SinglesigSpendingCondition {
+                signer: s_h160.clone(),
+                hash_mode: SinglesigHashMode::P2PKH,
+                key_encoding: TransactionPublicKeyEncoding::Compressed,
+                nonce: s_nonce,
+                tx_fee: fee,
+                signature: MessageSignature::from_raw(&vec![0xff; 65]),
+            });
+        let stx_address = StacksAddress {
+            version: 1,
+            bytes: Hash160([0xff; 20]),
+        };
+        let payload = TransactionPayload::TokenTransfer(
+            PrincipalData::from(QualifiedContractIdentifier {
+                issuer: stx_address.into(),
+                name: "hello-contract-name".into(),
+            }),
+            123,
+            TokenTransferMemo([0u8; 34]),
+        );
+        StacksTransaction {
+            version: TransactionVersion::Testnet,
+            chain_id: 0x80000000,
+            auth: TransactionAuth::Sponsored(origin_condition, sponsor_condition),
+            anchor_mode: TransactionAnchorMode::Any,
+            post_condition_mode: TransactionPostConditionMode::Allow,
+            post_conditions: Vec::new(),
+            payload,
+        }
+    };
+
+    let p_0 = Hash160::from_data(&[0; 16]);
+    let p_1 = Hash160::from_data(&[1; 16]);
+
+    let tx_1 = make_tx(&p_0, 1, &p_1, 2, 100);
+    let tx_2 = make_tx(&p_1, 2, &p_0, 1, 110);
+
+    assert!(!MemPoolDB::db_has_tx(&mempool_tx, &tx_1.txid()).unwrap());
+    assert!(!MemPoolDB::db_has_tx(&mempool_tx, &tx_2.txid()).unwrap());
+    MemPoolDB::try_add_tx(
+        &mut mempool_tx,
+        &mut chainstate,
+        &ConsensusHash([0x1; 20]),
+        &BlockHeaderHash([0x2; 32]),
+        tx_1.txid(),
+        tx_1.serialize_to_vec(),
+        tx_1.get_tx_fee(),
+        height,
+        &tx_1.origin_address(),
+        tx_1.get_origin_nonce(),
+        tx_1.sponsor_address().as_ref().unwrap(),
+        tx_1.get_sponsor_nonce().unwrap(),
+        None,
+    )
+    .unwrap();
+
+    assert!(MemPoolDB::db_has_tx(&mempool_tx, &tx_1.txid()).unwrap());
+    assert!(!MemPoolDB::db_has_tx(&mempool_tx, &tx_2.txid()).unwrap());
+
+    MemPoolDB::try_add_tx(
+        &mut mempool_tx,
+        &mut chainstate,
+        &ConsensusHash([0x1; 20]),
+        &BlockHeaderHash([0x2; 32]),
+        tx_2.txid(),
+        tx_2.serialize_to_vec(),
+        tx_2.get_tx_fee(),
+        height,
+        &tx_2.origin_address(),
+        tx_2.get_origin_nonce(),
+        tx_2.sponsor_address().as_ref().unwrap(),
+        tx_2.get_sponsor_nonce().unwrap(),
+        None,
+    )
+    .unwrap();
+    assert!(MemPoolDB::db_has_tx(&mempool_tx, &tx_2.txid()).unwrap());
+    assert!(!MemPoolDB::db_has_tx(&mempool_tx, &tx_1.txid()).unwrap());
+}

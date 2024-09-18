@@ -17,7 +17,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
     - `get-tenure-info?` added
     - `get-block-info?` removed
 
-## [2.5.0.0.7]
+## [2.5.0.0.8]
 
 ### Added
 
@@ -32,6 +32,12 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 - Mock signing revamp (#5070)
 - Multi miner fixes jude (#5040)
 - Remove spurious deadlock condition whenever the sortition DB is opened
+
+## [2.5.0.0.7]
+
+### Fixed
+
+- Fix the RBF logic in the mempool admission which did not previously handle sponsor and origin nonce interactions correctly.
 
 ## [2.5.0.0.6]
 
