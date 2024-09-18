@@ -2823,22 +2823,24 @@ fn mempool_db_rbf_origin_sponsor() {
     let height = 100;
 
     let make_tx = |o_h160: &Hash160, o_nonce, s_h160: &Hash160, s_nonce, fee| {
-        let origin_condition = TransactionSpendingCondition::Singlesig(SinglesigSpendingCondition {
-            signer: o_h160.clone(),
-            hash_mode: SinglesigHashMode::P2PKH,
-            key_encoding: TransactionPublicKeyEncoding::Compressed,
-            nonce: o_nonce,
-            tx_fee: 0,
-            signature: MessageSignature::from_raw(&vec![0xff; 65]),
-        });
-        let sponsor_condition = TransactionSpendingCondition::Singlesig(SinglesigSpendingCondition {
-            signer: s_h160.clone(),
-            hash_mode: SinglesigHashMode::P2PKH,
-            key_encoding: TransactionPublicKeyEncoding::Compressed,
-            nonce: s_nonce,
-            tx_fee: fee,
-            signature: MessageSignature::from_raw(&vec![0xff; 65]),
-        });
+        let origin_condition =
+            TransactionSpendingCondition::Singlesig(SinglesigSpendingCondition {
+                signer: o_h160.clone(),
+                hash_mode: SinglesigHashMode::P2PKH,
+                key_encoding: TransactionPublicKeyEncoding::Compressed,
+                nonce: o_nonce,
+                tx_fee: 0,
+                signature: MessageSignature::from_raw(&vec![0xff; 65]),
+            });
+        let sponsor_condition =
+            TransactionSpendingCondition::Singlesig(SinglesigSpendingCondition {
+                signer: s_h160.clone(),
+                hash_mode: SinglesigHashMode::P2PKH,
+                key_encoding: TransactionPublicKeyEncoding::Compressed,
+                nonce: s_nonce,
+                tx_fee: fee,
+                signature: MessageSignature::from_raw(&vec![0xff; 65]),
+            });
         let stx_address = StacksAddress {
             version: 1,
             bytes: Hash160([0xff; 20]),
