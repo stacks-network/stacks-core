@@ -916,7 +916,7 @@ impl<'a> MemPoolTx<'a> {
         &mut self,
         coinbase_height: u64,
         txid: &Txid,
-        prior_txid: Option<Txid>,
+        prior_txids: &[Txid],
     ) -> Result<Option<Txid>, MemPoolRejection> {
         // is this the first-ever txid at this coinbase height?
         let sql = "SELECT 1 FROM mempool WHERE height = ?1";
@@ -931,7 +931,7 @@ impl<'a> MemPoolTx<'a> {
 
         MemPoolTx::with_bloom_state(self, |ref mut dbtx, ref mut bloom_counter| {
             // remove replaced transaction
-            if let Some(prior_txid) = prior_txid {
+            for prior_txid in prior_txids.iter() {
                 bloom_counter.remove_raw(dbtx, &prior_txid.0)?;
             }
 
@@ -2075,6 +2075,17 @@ impl MemPoolDB {
     ) -> Result<(), MemPoolRejection> {
         let length = tx_bytes.len() as u64;
 
+        // don't allow a self sponsor with different nonces
+        if origin_address == sponsor_address && origin_nonce != sponsor_nonce {
+            info!("TX conflicts with own sponsor/origin nonces";
+                  "new_txid" => %txid,
+                  "origin_addr" => %origin_address,
+                  "origin_nonce" => origin_nonce,
+                  "sponsor_addr" => %sponsor_address,
+                  "sponsor_nonce" => sponsor_nonce);
+            return Err(MemPoolRejection::ConflictingNonceInMempool);
+        }
+
         // this transaction is said to arrive during this _tenure_, not during this _block_.
         // In epoch 2.x, these are the same as `tip_consensus_hash` and `tip_block_header_hash`.
         // In Nakamoto, they may be different.
@@ -2102,71 +2113,97 @@ impl MemPoolDB {
         };
 
         // do we already have txs with either the same origin nonce or sponsor nonce ?
-        let prior_tx = {
-            match MemPoolDB::get_tx_metadata_by_address(tx, true, origin_address, origin_nonce)? {
-                Some(prior_tx) => Some(prior_tx),
-                None => MemPoolDB::get_tx_metadata_by_address(
-                    tx,
-                    false,
-                    sponsor_address,
-                    sponsor_nonce,
-                )?,
+        let mut prior_txs: Vec<MemPoolTxMetadata> = vec![];
+        let prior_txs_to_check = [
+            MemPoolDB::get_tx_metadata_by_address(tx, true, origin_address, origin_nonce)?,
+            MemPoolDB::get_tx_metadata_by_address(tx, false, origin_address, origin_nonce)?,
+            MemPoolDB::get_tx_metadata_by_address(tx, true, sponsor_address, sponsor_nonce)?,
+            MemPoolDB::get_tx_metadata_by_address(tx, false, sponsor_address, sponsor_nonce)?,
+        ];
+        for prior_tx_opt in prior_txs_to_check {
+            let Some(prior_tx) = prior_tx_opt else {
+                continue;
+            };
+            // only add if not already found before
+            let found_before = prior_txs
+                .iter()
+                .find(|already_in_list| already_in_list.txid == prior_tx.txid)
+                .is_some();
+            if !found_before {
+                prior_txs.push(prior_tx);
             }
-        };
+        }
 
         let mut replace_reason = MemPoolDropReason::REPLACE_BY_FEE;
 
-        // if so, is this a replace-by-fee? or a replace-in-chain-tip?
-        let add_tx = if let Some(ref prior_tx) = prior_tx {
-            if tx_fee > prior_tx.tx_fee {
-                // is this a replace-by-fee ?
-                debug!(
-                    "Can replace {} with {} for {},{} by fee ({} < {})",
-                    &prior_tx.txid, &txid, origin_address, origin_nonce, &prior_tx.tx_fee, &tx_fee
-                );
-                replace_reason = MemPoolDropReason::REPLACE_BY_FEE;
-                true
-            } else if !MemPoolDB::are_blocks_in_same_fork(
-                chainstate,
-                &prior_tx.tenure_consensus_hash,
-                &prior_tx.tenure_block_header_hash,
-                &consensus_hash,
-                &block_header_hash,
-            )? {
-                // is this a replace-across-fork ?
-                debug!(
-                    "Can replace {} with {} for {},{} across fork",
-                    &prior_tx.txid, &txid, origin_address, origin_nonce
-                );
-                replace_reason = MemPoolDropReason::REPLACE_ACROSS_FORK;
-                true
-            } else {
-                // there's a >= fee tx in this fork, cannot add
-                info!("TX conflicts with sponsor/origin nonce in same fork with >= fee";
-                      "new_txid" => %txid,
-                      "old_txid" => %prior_tx.txid,
-                      "origin_addr" => %origin_address,
-                      "origin_nonce" => origin_nonce,
-                      "sponsor_addr" => %sponsor_address,
-                      "sponsor_nonce" => sponsor_nonce,
-                      "new_fee" => tx_fee,
-                      "old_fee" => prior_tx.tx_fee);
-                false
-            }
-        } else {
-            // no conflicting TX with this origin/sponsor, go ahead and add
+        let add_tx = if prior_txs.len() == 0 {
             true
+        } else {
+            let mut all_passed = true;
+            for prior_tx in prior_txs.iter() {
+                if tx_fee > prior_tx.tx_fee {
+                    // is this a replace-by-fee ?
+                    debug!("Can replace TX by fee";
+                           "new_txid" => %txid,
+                           "old_txid" => %prior_tx.txid,
+                           "origin_addr" => %origin_address,
+                           "origin_nonce" => origin_nonce,
+                           "sponsor_addr" => %sponsor_address,
+                           "sponsor_nonce" => sponsor_nonce,
+                           "new_fee" => tx_fee,
+                           "old_fee" => prior_tx.tx_fee);
+                    replace_reason = MemPoolDropReason::REPLACE_BY_FEE;
+                } else if !MemPoolDB::are_blocks_in_same_fork(
+                    chainstate,
+                    &prior_tx.tenure_consensus_hash,
+                    &prior_tx.tenure_block_header_hash,
+                    &consensus_hash,
+                    &block_header_hash,
+                )? {
+                    // is this a replace-across-fork ?
+                    debug!("Can replace TX across fork";
+                           "new_txid" => %txid,
+                           "old_txid" => %prior_tx.txid,
+                           "origin_addr" => %origin_address,
+                           "origin_nonce" => origin_nonce,
+                           "sponsor_addr" => %sponsor_address,
+                           "sponsor_nonce" => sponsor_nonce,
+                           "new_fee" => tx_fee,
+                           "old_fee" => prior_tx.tx_fee);
+                    replace_reason = MemPoolDropReason::REPLACE_ACROSS_FORK;
+                } else {
+                    // there's a >= fee tx in this fork, cannot add
+                    info!("TX conflicts with sponsor/origin nonce in same fork with >= fee";
+                          "new_txid" => %txid,
+                          "old_txid" => %prior_tx.txid,
+                          "origin_addr" => %origin_address,
+                          "origin_nonce" => origin_nonce,
+                          "sponsor_addr" => %sponsor_address,
+                          "sponsor_nonce" => sponsor_nonce,
+                          "new_fee" => tx_fee,
+                          "old_fee" => prior_tx.tx_fee);
+                    all_passed = false;
+                }
+            }
+            all_passed
         };
 
         if !add_tx {
             return Err(MemPoolRejection::ConflictingNonceInMempool);
         }
 
-        tx.update_bloom_counter(
-            coinbase_height,
-            &txid,
-            prior_tx.as_ref().map(|tx| tx.txid.clone()),
-        )?;
+        let prior_txids: Vec<_> = prior_txs.iter().map(|tx| tx.txid.clone()).collect();
+        tx.update_bloom_counter(coinbase_height, &txid, &prior_txids)?;
+
+        debug!("Inserting TX into mempool";
+               "txid" => %txid,
+               "replaced_txids" => ?prior_txids);
+
+        let sql = "DELETE FROM mempool WHERE txid = ?";
+        for txid in prior_txids.iter() {
+            tx.execute(sql, &[txid])
+                .map_err(|e| MemPoolRejection::DBError(db_error::SqliteError(e)))?;
+        }
 
         let sql = "INSERT OR REPLACE INTO mempool (
             txid,
@@ -2204,8 +2241,10 @@ impl MemPoolDB {
         tx.update_mempool_pager(&txid)?;
 
         // broadcast drop event if a tx is being replaced
-        if let (Some(prior_tx), Some(event_observer)) = (prior_tx, event_observer) {
-            event_observer.mempool_txs_dropped(vec![prior_tx.txid], replace_reason);
+        if let Some(event_observer) = event_observer {
+            if !prior_txids.is_empty() {
+                event_observer.mempool_txs_dropped(prior_txids, replace_reason);
+            }
         };
 
         Ok(())
