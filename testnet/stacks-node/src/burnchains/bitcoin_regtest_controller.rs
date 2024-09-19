@@ -1662,7 +1662,10 @@ impl BitcoinRegtestController {
             )
         } else {
             // Case 2) ii): Attempt to RBF
-            info!("Attempt to replace by fee an outdated leader block commit");
+            info!(
+                "Attempt to replace by fee an outdated leader block commit";
+                "ongoing_txids" => ?ongoing_op.txids
+            );
             self.send_block_commit_operation(
                 epoch_id,
                 payload,
@@ -1674,7 +1677,7 @@ impl BitcoinRegtestController {
             )
         };
 
-        if res.is_ok() {
+        if res.is_err() {
             self.ongoing_block_commit = Some(ongoing_op);
         }
 
