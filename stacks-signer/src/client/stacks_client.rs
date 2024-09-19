@@ -88,6 +88,15 @@ struct GetStackersErrorResp {
     err_msg: String,
 }
 
+/// Result from fetching current and last sortition:
+///  two sortition infos
+pub struct CurrentAndLastSortition {
+    /// the latest winning sortition in the current burnchain fork
+    pub current_sortition: SortitionInfo,
+    /// the last winning sortition prior to `current_sortition`, if there was one
+    pub last_sortition: Option<SortitionInfo>,
+}
+
 impl From<&GlobalConfig> for StacksClient {
     fn from(config: &GlobalConfig) -> Self {
         Self {
@@ -482,6 +491,47 @@ impl StacksClient {
         let tenures = response.json()?;
 
         Ok(tenures)
+    }
+
+    /// Get the current winning sortition and the last winning sortition
+    pub fn get_current_and_last_sortition(&self) -> Result<CurrentAndLastSortition, ClientError> {
+        debug!("stacks_node_client: Getting current and prior sortition...");
+        let path = format!("{}/latest_and_last", self.sortition_info_path());
+        let timer = crate::monitoring::new_rpc_call_timer(&path, &self.http_origin);
+        let send_request = || {
+            self.stacks_node_client.get(&path).send().map_err(|e| {
+                warn!("Signer failed to request latest sortition"; "err" => ?e);
+                e
+            })
+        };
+        let response = send_request()?;
+        timer.stop_and_record();
+        if !response.status().is_success() {
+            return Err(ClientError::RequestFailure(response.status()));
+        }
+        let mut info_list: VecDeque<SortitionInfo> = response.json()?;
+        let Some(current_sortition) = info_list.pop_front() else {
+            return Err(ClientError::UnexpectedResponseFormat(
+                "Empty SortitionInfo returned".into(),
+            ));
+        };
+        if !current_sortition.was_sortition {
+            return Err(ClientError::UnexpectedResponseFormat(
+                "'Current' SortitionInfo returned which was not a winning sortition".into(),
+            ));
+        }
+        let last_sortition = if current_sortition.last_sortition_ch.is_some() {
+            let Some(last_sortition) = info_list.pop_back() else {
+                return Err(ClientError::UnexpectedResponseFormat("'Current' SortitionInfo has `last_sortition_ch` field, but corresponding data not returned".into()));
+            };
+            Some(last_sortition)
+        } else {
+            None
+        };
+        Ok(CurrentAndLastSortition {
+            current_sortition,
+            last_sortition,
+        })
     }
 
     /// Get the sortition information for the latest sortition
