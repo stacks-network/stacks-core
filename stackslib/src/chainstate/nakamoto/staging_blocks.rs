@@ -35,7 +35,7 @@ use crate::chainstate::stacks::{Error as ChainstateError, StacksBlock, StacksBlo
 use crate::stacks_common::codec::StacksMessageCodec;
 use crate::util_lib::db::{
     query_int, query_row, query_row_columns, query_row_panic, query_rows, sqlite_open,
-    tx_begin_immediate, u64_to_sql, DBConn, Error as DBError, FromRow,
+    table_exists, tx_begin_immediate, u64_to_sql, DBConn, Error as DBError, FromRow,
 };
 
 /// The means by which a block is obtained.
@@ -666,13 +666,17 @@ impl StacksChainState {
     pub fn get_nakamoto_staging_blocks_db_version(
         conn: &Connection,
     ) -> Result<u32, ChainstateError> {
+        let db_version_exists = table_exists(&conn, "db_version")?;
+        if !db_version_exists {
+            return Ok(1);
+        }
         let qry = "SELECT version FROM db_version ORDER BY version DESC LIMIT 1";
         let args = NO_PARAMS;
         let version: Option<i64> = match query_row(&conn, qry, args) {
             Ok(x) => x,
             Err(e) => {
                 debug!("Failed to get Nakamoto staging blocks DB version: {:?}", &e);
-                return Ok(1);
+                return Err(ChainstateError::DBError(DBError::Corruption));
             }
         };
 
@@ -684,7 +688,7 @@ impl StacksChainState {
             }
             None => {
                 debug!("No version present in Nakamoto staging blocks DB; defaulting to 1");
-                Ok(1)
+                Err(ChainstateError::DBError(DBError::Corruption))
             }
         }
     }
