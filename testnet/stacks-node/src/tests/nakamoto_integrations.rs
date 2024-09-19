@@ -1902,6 +1902,12 @@ fn simple_neon_integration_with_flash_blocks_on_epoch_3() {
     // Check that we have the expected burn blocks
     // We expect to have around the blocks 220-230 and 234 onwards, with a gap of 3 blocks for the flash blocks
     let bhh = u64::from(tip.burn_header_height);
+
+    // Get the Epoch 3.0 activation height (in terms of Bitcoin block height)
+    let epochs = naka_conf.burnchain.epochs.clone().unwrap();
+    let epoch_3 = &epochs[StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch30).unwrap()];
+    let epoch_3_start_height = epoch_3.start_height;
+
     // Find the gap in burn blocks
     let mut gap_start = 0;
     let mut gap_end = 0;
@@ -1925,11 +1931,21 @@ fn simple_neon_integration_with_flash_blocks_on_epoch_3() {
         gap_end
     );
 
+    // Verify that the gap includes the Epoch 3.0 activation height
+    assert!(
+        gap_start <= epoch_3_start_height && epoch_3_start_height <= gap_end,
+        "Expected the gap ({}..={}) to include the Epoch 3.0 activation height ({})",
+        gap_start,
+        gap_end,
+        epoch_3_start_height
+    );
+
     // Verify blocks before and after the gap
     test_observer::contains_burn_block_range(220..=(gap_start - 1)).unwrap();
     test_observer::contains_burn_block_range((gap_end + 1)..=bhh).unwrap();
 
     info!("Verified burn block ranges, including expected gap for flash blocks");
+    info!("Confirmed that the gap includes the Epoch 3.0 activation height (Bitcoin block height): {}", epoch_3_start_height);
 
     coord_channel
         .lock()
