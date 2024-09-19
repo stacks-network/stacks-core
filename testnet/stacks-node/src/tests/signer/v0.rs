@@ -3610,6 +3610,17 @@ fn partial_tenure_fork() {
             config.node.local_peer_seed = btc_miner_1_seed.clone();
             config.burnchain.local_mining_public_key = Some(btc_miner_1_pk.to_hex());
             config.miner.mining_key = Some(Secp256k1PrivateKey::from_seed(&[1]));
+
+            // Move epoch 2.5 and 3.0 earlier, so we have more time for the
+            // test before re-stacking is required.
+            if let Some(epochs) = config.burnchain.epochs.as_mut() {
+                epochs[6].end_height = 121;
+                epochs[7].start_height = 121;
+                epochs[7].end_height = 151;
+                epochs[8].start_height = 151;
+            } else {
+                panic!("Expected epochs to be set");
+            }
         },
         Some(vec![btc_miner_1_pk.clone(), btc_miner_2_pk.clone()]),
         None,
