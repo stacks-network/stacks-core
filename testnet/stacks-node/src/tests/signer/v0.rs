@@ -2227,26 +2227,39 @@ fn signers_broadcast_signed_blocks() {
     let http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
 
     signer_test.boot_to_epoch_3();
-    sleep_ms(10_000);
-
-    signer_test.mine_nakamoto_block(Duration::from_secs(30));
-    sleep_ms(10_000);
-
-    TEST_IGNORE_SIGNERS.lock().unwrap().replace(true);
-
+    let info_before = get_chain_info(&signer_test.running_nodes.conf);
     let blocks_before = signer_test
         .running_nodes
         .nakamoto_blocks_mined
         .load(Ordering::SeqCst);
+    signer_test.mine_nakamoto_block(Duration::from_secs(30));
 
+    wait_for(30, || {
+        let blocks_mined = signer_test
+            .running_nodes
+            .nakamoto_blocks_mined
+            .load(Ordering::SeqCst);
+        let info = get_chain_info(&signer_test.running_nodes.conf);
+        debug!(
+            "blocks_mined: {},{}, stacks_tip_height: {},{}",
+            blocks_mined, blocks_before, info.stacks_tip_height, info_before.stacks_tip_height
+        );
+        Ok(blocks_mined > blocks_before && info.stacks_tip_height > info_before.stacks_tip_height)
+    })
+    .expect("Timed out waiting for first nakamoto block to be mined");
+
+    TEST_IGNORE_SIGNERS.lock().unwrap().replace(true);
+    let blocks_before = signer_test
+        .running_nodes
+        .nakamoto_blocks_mined
+        .load(Ordering::SeqCst);
     let signer_pushed_before = signer_test
         .running_nodes
         .nakamoto_blocks_signer_pushed
         .load(Ordering::SeqCst);
-
     let info_before = get_chain_info(&signer_test.running_nodes.conf);
 
-    // submit a tx so that the miner will mine a block
+    // submit a tx so that the miner will mine a blockn
     let sender_nonce = 0;
     let transfer_tx =
         make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
@@ -2254,26 +2267,16 @@ fn signers_broadcast_signed_blocks() {
 
     debug!("Transaction sent; waiting for block-mining");
 
-    let start = Instant::now();
-    let duration = 60;
-    loop {
-        let blocks_mined = signer_test
-            .running_nodes
-            .nakamoto_blocks_mined
-            .load(Ordering::SeqCst);
+    wait_for(30, || {
         let signer_pushed = signer_test
             .running_nodes
             .nakamoto_blocks_signer_pushed
             .load(Ordering::SeqCst);
-
+        let blocks_mined = signer_test
+            .running_nodes
+            .nakamoto_blocks_mined
+            .load(Ordering::SeqCst);
         let info = get_chain_info(&signer_test.running_nodes.conf);
-        if blocks_mined > blocks_before
-            && signer_pushed > signer_pushed_before
-            && info.stacks_tip_height > info_before.stacks_tip_height
-        {
-            break;
-        }
-
         debug!(
             "blocks_mined: {},{}, signers_pushed: {},{}, stacks_tip_height: {},{}",
             blocks_mined,
@@ -2283,12 +2286,11 @@ fn signers_broadcast_signed_blocks() {
             info.stacks_tip_height,
             info_before.stacks_tip_height
         );
-
-        std::thread::sleep(Duration::from_millis(100));
-        if start.elapsed() >= Duration::from_secs(duration) {
-            panic!("Timed out");
-        }
-    }
+        Ok(blocks_mined > blocks_before
+            && info.stacks_tip_height > info_before.stacks_tip_height
+            && signer_pushed > signer_pushed_before)
+    })
+    .expect("Timed out waiting for second nakamoto block to be mined");
 
     signer_test.shutdown();
 }
@@ -4754,7 +4756,7 @@ fn miner_recovers_when_broadcast_block_delay_across_tenures_occurs() {
 
     info!("Allowing miner to accept block responses again. ");
     TEST_IGNORE_SIGNERS.lock().unwrap().replace(false);
-    info!("Allowing singers to broadcast block N+1 to the miner");
+    info!("Allowing signers to broadcast block N+1 to the miner");
     TEST_PAUSE_BLOCK_BROADCAST.lock().unwrap().replace(false);
 
     // Assert the N+1' block was rejected
