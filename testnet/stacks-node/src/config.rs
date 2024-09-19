@@ -558,6 +558,8 @@ lazy_static! {
         max_http_clients: 1000,         // maximum number of HTTP connections
         max_neighbors_of_neighbor: 10,  // maximum number of neighbors we'll handshake with when doing a neighbor walk (I/O for this can be expensive, so keep small-ish)
         walk_interval: 60,              // how often, in seconds, we do a neighbor walk
+        walk_seed_probability: 0.1,     // 10% of the time when not in IBD, walk to a non-seed node even if we aren't connected to a seed node
+        log_neighbors_freq: 60_000,     // every minute, log all peer connections
         inv_sync_interval: 45,          // how often, in seconds, we refresh block inventories
         inv_reward_cycles: 3,           // how many reward cycles to look back on, for mainnet
         download_interval: 10,          // how often, in seconds, we do a block download scan (should be less than inv_sync_interval)
@@ -1444,6 +1446,10 @@ pub struct BurnchainConfig {
     /// fault injection to simulate a slow burnchain peer.
     /// Delay burnchain block downloads by the given number of millseconds
     pub fault_injection_burnchain_block_delay: u64,
+    /// The maximum number of unspent UTXOs to request from the bitcoin node.
+    /// This value is passed as the `maximumCount` query option to the
+    /// `listunspent` RPC call.
+    pub max_unspent_utxos: Option<u64>,
 }
 
 impl BurnchainConfig {
@@ -1484,6 +1490,7 @@ impl BurnchainConfig {
             ast_precheck_size_height: None,
             affirmation_overrides: HashMap::new(),
             fault_injection_burnchain_block_delay: 0,
+            max_unspent_utxos: Some(1024),
         }
     }
     pub fn get_rpc_url(&self, wallet: Option<String>) -> String {
@@ -1580,6 +1587,7 @@ pub struct BurnchainConfigFile {
     pub ast_precheck_size_height: Option<u64>,
     pub affirmation_overrides: Option<Vec<AffirmationOverride>>,
     pub fault_injection_burnchain_block_delay: Option<u64>,
+    pub max_unspent_utxos: Option<u64>,
 }
 
 impl BurnchainConfigFile {
@@ -1795,6 +1803,13 @@ impl BurnchainConfigFile {
             fault_injection_burnchain_block_delay: self
                 .fault_injection_burnchain_block_delay
                 .unwrap_or(default_burnchain_config.fault_injection_burnchain_block_delay),
+            max_unspent_utxos: self
+                .max_unspent_utxos
+                .map(|val| {
+                    assert!(val <= 1024, "Value for max_unspent_utxos should be <= 1024");
+                    val
+                })
+                .or(default_burnchain_config.max_unspent_utxos),
         };
 
         if let BitcoinNetworkType::Mainnet = config.get_bitcoin_network().1 {
@@ -2426,6 +2441,8 @@ pub struct ConnectionOptionsFile {
     pub soft_max_clients_per_host: Option<u64>,
     pub max_sockets: Option<u64>,
     pub walk_interval: Option<u64>,
+    pub walk_seed_probability: Option<f64>,
+    pub log_neighbors_freq: Option<u64>,
     pub dns_timeout: Option<u64>,
     pub max_inflight_blocks: Option<u64>,
     pub max_inflight_attachments: Option<u64>,
@@ -2530,6 +2547,12 @@ impl ConnectionOptionsFile {
             walk_interval: self
                 .walk_interval
                 .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.walk_interval.clone()),
+            walk_seed_probability: self
+                .walk_seed_probability
+                .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.walk_seed_probability),
+            log_neighbors_freq: self
+                .log_neighbors_freq
+                .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.log_neighbors_freq),
             dns_timeout: self
                 .dns_timeout
                 .map(|dns_timeout| dns_timeout as u128)

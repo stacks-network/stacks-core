@@ -2036,6 +2036,7 @@ pub mod test {
             pox_constants: &PoxConstants,
             reward_set_data: &Option<RewardSetData>,
             _signer_bitvec: &Option<BitVec<4000>>,
+            _block_timestamp: Option<u64>,
         ) {
             self.blocks.lock().unwrap().push(TestEventObserverBlock {
                 block: block.clone(),
