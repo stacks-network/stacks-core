@@ -608,7 +608,7 @@ impl Signer {
 
         // authenticate the signature -- it must be signed by one of the stacking set
         let is_valid_sig = self.signer_addresses.iter().any(|addr| {
-            let stacker_address = StacksAddress::p2pkh(true, &public_key);
+            let stacker_address = StacksAddress::p2pkh(self.mainnet, &public_key);
 
             // it only matters that the address hash bytes match
             stacker_address.bytes == addr.bytes
