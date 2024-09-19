@@ -748,9 +748,22 @@ fn setup_stx_btc_node<G: FnMut(&mut NeonConfig) -> ()>(
     info!("Make new BitcoinRegtestController");
     let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
 
-    info!("Bootstraping...");
-    // Should be 201 for other tests?
-    btc_regtest_controller.bootstrap_chain_to_pks(195, btc_miner_pubkeys);
+    let epoch_2_5_start = usize::try_from(
+        naka_conf
+            .burnchain
+            .epochs
+            .as_ref()
+            .unwrap()
+            .iter()
+            .find(|epoch| epoch.epoch_id == StacksEpochId::Epoch25)
+            .unwrap()
+            .start_height,
+    )
+    .expect("Failed to get epoch 2.5 start height");
+    let bootstrap_block = epoch_2_5_start - 6;
+
+    info!("Bootstraping to block {bootstrap_block}...");
+    btc_regtest_controller.bootstrap_chain_to_pks(bootstrap_block, btc_miner_pubkeys);
 
     info!("Chain bootstrapped...");
 
