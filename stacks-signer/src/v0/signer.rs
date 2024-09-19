@@ -944,24 +944,8 @@ impl Signer {
         block.header.signer_signature = signatures;
 
         #[cfg(any(test, feature = "testing"))]
-        {
-            if *TEST_SKIP_BLOCK_BROADCAST.lock().unwrap() == Some(true) {
-                warn!(
-                    "{self}: Skipping block broadcast due to testing directive";
-                    "block_id" => %block.block_id(),
-                    "height" => block.header.chain_length,
-                    "consensus_hash" => %block.header.consensus_hash
-                );
-
-                if let Err(e) = self.signer_db.set_block_broadcasted(
-                    self.reward_cycle,
-                    &block_hash,
-                    get_epoch_time_secs(),
-                ) {
-                    warn!("{self}: Failed to set block broadcasted for {block_hash}: {e:?}");
-                }
-                return;
-            }
+        if self.test_skip_block_broadcast(&block) {
+            return;
         }
         debug!(
             "{self}: Broadcasting Stacks block {} to node",
@@ -984,6 +968,29 @@ impl Signer {
         ) {
             warn!("{self}: Failed to set block broadcasted for {block_hash}: {e:?}");
         }
+    }
+
+    #[cfg(any(test, feature = "testing"))]
+    fn test_skip_block_broadcast(&self, block: &NakamotoBlock) -> bool {
+        if *TEST_SKIP_BLOCK_BROADCAST.lock().unwrap() == Some(true) {
+            let block_hash = block.header.signer_signature_hash();
+            warn!(
+                "{self}: Skipping block broadcast due to testing directive";
+                "block_id" => %block.block_id(),
+                "height" => block.header.chain_length,
+                "consensus_hash" => %block.header.consensus_hash
+            );
+
+            if let Err(e) = self.signer_db.set_block_broadcasted(
+                self.reward_cycle,
+                &block_hash,
+                get_epoch_time_secs(),
+            ) {
+                warn!("{self}: Failed to set block broadcasted for {block_hash}: {e:?}");
+            }
+            return true;
+        }
+        false
     }
 
     /// Send a mock signature to stackerdb to prove we are still alive
