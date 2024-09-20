@@ -62,6 +62,7 @@ use stacks::net::atlas::{
     AtlasConfig, AtlasDB, GetAttachmentResponse, GetAttachmentsInvResponse,
     MAX_ATTACHMENT_INV_PAGES_PER_REQUEST,
 };
+use stacks::types::PublicKey;
 use stacks::util_lib::boot::{boot_code_addr, boot_code_id};
 use stacks::util_lib::db::{query_row_columns, query_rows, u64_to_sql};
 use stacks::util_lib::signed_structured_data::pox4::{
@@ -82,7 +83,7 @@ use super::{
     make_microblock, make_stacks_transfer, make_stacks_transfer_mblock_only, to_addr, ADDR_4, SK_1,
     SK_2, SK_3,
 };
-use crate::burnchains::bitcoin_regtest_controller::{self, BitcoinRPCRequest, UTXO};
+use crate::burnchains::bitcoin_regtest_controller::{self, addr2str, BitcoinRPCRequest, UTXO};
 use crate::config::{EventKeyType, EventObserverConfig, FeeEstimatorName, InitialBalance};
 use crate::neon_node::RelayerThread;
 use crate::operations::BurnchainOpSigner;
@@ -1941,7 +1942,7 @@ fn stx_transfer_btc_integration_test() {
                 &mut miner_signer,
                 1
             )
-            .is_some(),
+            .is_ok(),
         "Pre-stx operation should submit successfully"
     );
 
@@ -1971,7 +1972,7 @@ fn stx_transfer_btc_integration_test() {
                 &mut spender_signer,
                 1
             )
-            .is_some(),
+            .is_ok(),
         "Transfer operation should submit successfully"
     );
     // should be elected in the same block as the transfer, so balances should be unchanged.
@@ -2222,7 +2223,7 @@ fn stx_delegate_btc_integration_test() {
                 &mut miner_signer,
                 1
             )
-            .is_some(),
+            .is_ok(),
         "Pre-stx operation should submit successfully"
     );
 
@@ -2251,7 +2252,7 @@ fn stx_delegate_btc_integration_test() {
                 &mut spender_signer,
                 1
             )
-            .is_some(),
+            .is_ok(),
         "Delegate operation should submit successfully"
     );
 
@@ -2514,7 +2515,7 @@ fn stack_stx_burn_op_test() {
                 &mut miner_signer_1,
                 1
             )
-            .is_some(),
+            .is_ok(),
         "Pre-stx operation should submit successfully"
     );
 
@@ -2535,7 +2536,7 @@ fn stack_stx_burn_op_test() {
                 &mut miner_signer_2,
                 1
             )
-            .is_some(),
+            .is_ok(),
         "Pre-stx operation should submit successfully"
     );
     info!("Submitted 2 pre-stx ops at block {block_height}, mining a few blocks...");
@@ -2621,7 +2622,7 @@ fn stack_stx_burn_op_test() {
                 &mut spender_signer_1,
                 1
             )
-            .is_some(),
+            .is_ok(),
         "Stack STX operation with some signer key should submit successfully"
     );
 
@@ -2649,7 +2650,7 @@ fn stack_stx_burn_op_test() {
                 &mut spender_signer_2,
                 1
             )
-            .is_some(),
+            .is_ok(),
         "Stack STX operation with no signer key should submit successfully"
     );
 
@@ -2956,7 +2957,7 @@ fn vote_for_aggregate_key_burn_op_test() {
                 &mut miner_signer,
                 1
             )
-            .is_some(),
+            .is_ok(),
         "Pre-stx operation should submit successfully"
     );
 
@@ -3013,7 +3014,7 @@ fn vote_for_aggregate_key_burn_op_test() {
                 &mut spender_signer,
                 1
             )
-            .is_some(),
+            .is_ok(),
         "Vote for aggregate key operation should submit successfully"
     );
 
@@ -12793,4 +12794,50 @@ fn mock_miner_replay() {
 
     miner_channel.stop_chains_coordinator();
     follower_channel.stop_chains_coordinator();
+}
+
+#[test]
+#[ignore]
+/// Verify that the config option, `burnchain.max_unspent_utxos`, is respected.
+fn listunspent_max_utxos() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let (mut conf, _miner_account) = neon_integration_test_conf();
+    let prom_bind = format!("{}:{}", "127.0.0.1", 6000);
+    conf.node.prometheus_bind = Some(prom_bind.clone());
+
+    conf.burnchain.max_rbf = 1000000;
+    conf.burnchain.max_unspent_utxos = Some(10);
+
+    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .map_err(|_e| ())
+        .expect("Failed starting bitcoind");
+
+    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+
+    btc_regtest_controller.bootstrap_chain(201);
+
+    eprintln!("Chain bootstrapped...");
+
+    let keychain = Keychain::default(conf.node.seed.clone());
+    let mut op_signer = keychain.generate_op_signer();
+
+    let (_, network_id) = conf.burnchain.get_bitcoin_network();
+    let hash160 = Hash160::from_data(&op_signer.get_public_key().to_bytes());
+    let address = BitcoinAddress::from_bytes_legacy(
+        network_id,
+        LegacyBitcoinAddressType::PublicKeyHash,
+        &hash160.0,
+    )
+    .expect("Public key incorrect");
+
+    let filter_addresses = vec![addr2str(&address)];
+
+    let res = BitcoinRPCRequest::list_unspent(&conf, filter_addresses, false, 1, &None, 0);
+    let utxos = res.expect("Failed to get utxos");
+    assert_eq!(utxos.num_utxos(), 10);
 }

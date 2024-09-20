@@ -20,6 +20,7 @@ use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
 use blockstack_lib::chainstate::stacks::boot::{
     NakamotoSignerEntry, SIGNERS_NAME, SIGNERS_VOTING_FUNCTION_NAME, SIGNERS_VOTING_NAME,
 };
+use blockstack_lib::chainstate::stacks::db::StacksBlockHeaderTypes;
 use blockstack_lib::chainstate::stacks::{
     StacksTransaction, StacksTransactionSigner, TransactionAnchorMode, TransactionAuth,
     TransactionContractCall, TransactionPayload, TransactionPostConditionMode,
@@ -139,6 +140,42 @@ impl StacksClient {
         &self.stacks_address
     }
 
+    /// Get the stacks tip header of the tenure given its consensus hash
+    pub fn get_tenure_tip(
+        &self,
+        consensus_hash: &ConsensusHash,
+    ) -> Result<StacksBlockHeaderTypes, ClientError> {
+        let send_request = || {
+            self.stacks_node_client
+                .get(self.tenure_tip_path(consensus_hash))
+                .send()
+                .map_err(|e| {
+                    warn!("Signer failed to request latest sortition"; "err" => ?e);
+                    e
+                })
+        };
+        let response = send_request()?;
+        if !response.status().is_success() {
+            return Err(ClientError::RequestFailure(response.status()));
+        }
+        let sortition_info = response.json()?;
+        Ok(sortition_info)
+    }
+
+    /// Get the last set reward cycle stored within the stackerdb contract
+    pub fn get_last_set_cycle(&self) -> Result<u128, ClientError> {
+        let signer_stackerdb_contract_id = boot_code_id(SIGNERS_NAME, self.mainnet);
+        let function_name_str = "get-last-set-cycle";
+        let function_name = ClarityName::from(function_name_str);
+        let value = self.read_only_contract_call(
+            &signer_stackerdb_contract_id.issuer.clone().into(),
+            &signer_stackerdb_contract_id.name,
+            &function_name,
+            &[],
+        )?;
+        Ok(value.expect_result_ok()?.expect_u128()?)
+    }
+
     /// Retrieve the signer slots stored within the stackerdb contract
     pub fn get_stackerdb_signer_slots(
         &self,
@@ -242,6 +279,7 @@ impl StacksClient {
         &self,
         tx: &StacksTransaction,
     ) -> Result<u64, ClientError> {
+        debug!("stacks_node_client: Getting estimated fee...");
         let request = FeeRateEstimateRequestBody {
             estimated_len: Some(tx.tx_len()),
             transaction_payload: to_hex(&tx.payload.serialize_to_vec()),
@@ -306,6 +344,11 @@ impl StacksClient {
 
     /// Submit the block proposal to the stacks node. The block will be validated and returned via the HTTP endpoint for Block events.
     pub fn submit_block_for_validation(&self, block: NakamotoBlock) -> Result<(), ClientError> {
+        debug!("stacks_node_client: Submitting block for validation...";
+            "signer_sighash" => %block.header.signer_signature_hash(),
+            "block_id" => %block.header.block_id(),
+            "block_height" => %block.header.chain_length,
+        );
         let block_proposal = NakamotoBlockProposal {
             block,
             chain_id: self.chain_id,
@@ -439,13 +482,23 @@ impl StacksClient {
         chosen_parent: &ConsensusHash,
         last_sortition: &ConsensusHash,
     ) -> Result<VecDeque<TenureForkingInfo>, ClientError> {
+        debug!("stacks_node_client: Getting tenure forking info...";
+            "chosen_parent" => %chosen_parent,
+            "last_sortition" => %last_sortition,
+        );
+        let path = self.tenure_forking_info_path(chosen_parent, last_sortition);
+        let timer = crate::monitoring::new_rpc_call_timer(
+            "/v3/tenures/fork_info/:start/:stop",
+            &self.http_origin,
+        );
         let send_request = || {
             self.stacks_node_client
-                .get(self.tenure_forking_info_path(chosen_parent, last_sortition))
+                .get(&path)
                 .send()
                 .map_err(backoff::Error::transient)
         };
         let response = retry_with_exponential_backoff(send_request)?;
+        timer.stop_and_record();
         if !response.status().is_success() {
             return Err(ClientError::RequestFailure(response.status()));
         }
@@ -456,16 +509,17 @@ impl StacksClient {
 
     /// Get the sortition information for the latest sortition
     pub fn get_latest_sortition(&self) -> Result<SortitionInfo, ClientError> {
+        debug!("stacks_node_client: Getting latest sortition...");
+        let path = self.sortition_info_path();
+        let timer = crate::monitoring::new_rpc_call_timer(&path, &self.http_origin);
         let send_request = || {
-            self.stacks_node_client
-                .get(self.sortition_info_path())
-                .send()
-                .map_err(|e| {
-                    warn!("Signer failed to request latest sortition"; "err" => ?e);
-                    e
-                })
+            self.stacks_node_client.get(&path).send().map_err(|e| {
+                warn!("Signer failed to request latest sortition"; "err" => ?e);
+                e
+            })
         };
         let response = send_request()?;
+        timer.stop_and_record();
         if !response.status().is_success() {
             return Err(ClientError::RequestFailure(response.status()));
         }
@@ -475,16 +529,18 @@ impl StacksClient {
 
     /// Get the sortition information for a given sortition
     pub fn get_sortition(&self, ch: &ConsensusHash) -> Result<SortitionInfo, ClientError> {
+        debug!("stacks_node_client: Getting sortition with consensus hash {ch}...");
+        let path = format!("{}/consensus/{}", self.sortition_info_path(), ch.to_hex());
+        let timer_label = format!("{}/consensus/:consensus_hash", self.sortition_info_path());
+        let timer = crate::monitoring::new_rpc_call_timer(&timer_label, &self.http_origin);
         let send_request = || {
-            self.stacks_node_client
-                .get(format!("{}/consensus/{}", self.sortition_info_path(), ch.to_hex()))
-                .send()
-                .map_err(|e| {
-                    warn!("Signer failed to request sortition"; "consensus_hash" => %ch, "err" => ?e);
-                    e
-                })
+            self.stacks_node_client.get(&path).send().map_err(|e| {
+                warn!("Signer failed to request sortition"; "consensus_hash" => %ch, "err" => ?e);
+                e
+            })
         };
         let response = send_request()?;
+        timer.stop_and_record();
         if !response.status().is_success() {
             return Err(ClientError::RequestFailure(response.status()));
         }
@@ -494,7 +550,7 @@ impl StacksClient {
 
     /// Get the current peer info data from the stacks node
     pub fn get_peer_info(&self) -> Result<PeerInfo, ClientError> {
-        debug!("Getting stacks node info...");
+        debug!("stacks_node_client: Getting peer info...");
         let timer =
             crate::monitoring::new_rpc_call_timer(&self.core_info_path(), &self.http_origin);
         let send_request = || {
@@ -544,8 +600,9 @@ impl StacksClient {
         &self,
         reward_cycle: u64,
     ) -> Result<Option<Vec<NakamotoSignerEntry>>, ClientError> {
+        debug!("stacks_node_client: Getting reward set signers for reward cycle {reward_cycle}...");
         let timer = crate::monitoring::new_rpc_call_timer(
-            &self.reward_set_path(reward_cycle),
+            &format!("{}/v3/stacker_set/:reward_cycle", self.http_origin),
             &self.http_origin,
         );
         let send_request = || {
@@ -556,16 +613,17 @@ impl StacksClient {
                 .map_err(|e| backoff::Error::transient(e.into()))?;
             let status = response.status();
             if status.is_success() {
-                return response
-                    .json()
-                    .map_err(|e| backoff::Error::permanent(e.into()));
+                return response.json().map_err(|e| {
+                    warn!("Failed to parse the GetStackers response: {e}");
+                    backoff::Error::permanent(e.into())
+                });
             }
             let error_data = response.json::<GetStackersErrorResp>().map_err(|e| {
                 warn!("Failed to parse the GetStackers error response: {e}");
                 backoff::Error::permanent(e.into())
             })?;
             if error_data.err_type == GetStackersErrors::NOT_AVAILABLE_ERR_TYPE {
-                Err(backoff::Error::transient(ClientError::NoSortitionOnChain))
+                Err(backoff::Error::permanent(ClientError::NoSortitionOnChain))
             } else {
                 warn!("Got error response ({status}): {}", error_data.err_msg);
                 Err(backoff::Error::permanent(ClientError::RequestFailure(
@@ -581,8 +639,7 @@ impl StacksClient {
 
     /// Retrieve the current pox data from the stacks node
     pub fn get_pox_data(&self) -> Result<RPCPoxInfoData, ClientError> {
-        debug!("Getting pox data...");
-        #[cfg(feature = "monitoring_prom")]
+        debug!("stacks_node_client: Getting pox data...");
         let timer = crate::monitoring::new_rpc_call_timer(&self.pox_path(), &self.http_origin);
         let send_request = || {
             self.stacks_node_client
@@ -591,7 +648,6 @@ impl StacksClient {
                 .map_err(backoff::Error::transient)
         };
         let response = retry_with_exponential_backoff(send_request)?;
-        #[cfg(feature = "monitoring_prom")]
         timer.stop_and_record();
         if !response.status().is_success() {
             return Err(ClientError::RequestFailure(response.status()));
@@ -629,9 +685,9 @@ impl StacksClient {
         &self,
         address: &StacksAddress,
     ) -> Result<AccountEntryResponse, ClientError> {
-        debug!("Getting account info...");
-        let timer =
-            crate::monitoring::new_rpc_call_timer(&self.accounts_path(address), &self.http_origin);
+        debug!("stacks_node_client: Getting account info...");
+        let timer_label = format!("{}/v2/accounts/:principal", self.http_origin);
+        let timer = crate::monitoring::new_rpc_call_timer(&timer_label, &self.http_origin);
         let send_request = || {
             self.stacks_node_client
                 .get(self.accounts_path(address))
@@ -706,17 +762,26 @@ impl StacksClient {
     /// Returns `true` if the block was accepted or `false` if the block
     ///   was rejected.
     pub fn post_block(&self, block: &NakamotoBlock) -> Result<bool, ClientError> {
-        let response = self
-            .stacks_node_client
-            .post(format!(
-                "{}{}?broadcast=1",
-                self.http_origin,
-                postblock_v3::PATH
-            ))
-            .header("Content-Type", "application/octet-stream")
-            .header(AUTHORIZATION, self.auth_password.clone())
-            .body(block.serialize_to_vec())
-            .send()?;
+        debug!("stacks_node_client: Posting block to the stacks node...";
+            "block_id" => %block.header.block_id(),
+            "block_height" => %block.header.chain_length,
+        );
+        let path = format!("{}{}?broadcast=1", self.http_origin, postblock_v3::PATH);
+        let timer = crate::monitoring::new_rpc_call_timer(&path, &self.http_origin);
+        let send_request = || {
+            self.stacks_node_client
+                .post(&path)
+                .header("Content-Type", "application/octet-stream")
+                .header(AUTHORIZATION, self.auth_password.clone())
+                .body(block.serialize_to_vec())
+                .send()
+                .map_err(|e| {
+                    debug!("Failed to submit block to the Stacks node: {e:?}");
+                    backoff::Error::transient(e)
+                })
+        };
+        let response = retry_with_exponential_backoff(send_request)?;
+        timer.stop_and_record();
         if !response.status().is_success() {
             return Err(ClientError::RequestFailure(response.status()));
         }
@@ -728,6 +793,9 @@ impl StacksClient {
     pub fn submit_transaction(&self, tx: &StacksTransaction) -> Result<Txid, ClientError> {
         let txid = tx.txid();
         let tx = tx.serialize_to_vec();
+        debug!("stacks_node_client: Submitting transaction to the stacks node...";
+            "txid" => %txid,
+        );
         let timer =
             crate::monitoring::new_rpc_call_timer(&self.transaction_path(), &self.http_origin);
         let send_request = || {
@@ -757,7 +825,7 @@ impl StacksClient {
         function_name: &ClarityName,
         function_args: &[ClarityValue],
     ) -> Result<ClarityValue, ClientError> {
-        debug!("Calling read-only function {function_name} with args {function_args:?}...");
+        debug!("stacks_node_client: Calling read-only function {function_name} with args {function_args:?}...");
         let args = function_args
             .iter()
             .filter_map(|arg| arg.serialize_to_hex().ok())
@@ -771,7 +839,11 @@ impl StacksClient {
         let body =
             json!({"sender": self.stacks_address.to_string(), "arguments": args}).to_string();
         let path = self.read_only_path(contract_addr, contract_name, function_name);
-        let timer = crate::monitoring::new_rpc_call_timer(&path, &self.http_origin);
+        let timer_label = format!(
+            "{}/v2/contracts/call-read/:principal/{contract_name}/{function_name}",
+            self.http_origin
+        );
+        let timer = crate::monitoring::new_rpc_call_timer(&timer_label, &self.http_origin);
         let response = self
             .stacks_node_client
             .post(path)
@@ -849,6 +921,10 @@ impl StacksClient {
         format!("{}/v2/fees/transaction", self.http_origin)
     }
 
+    fn tenure_tip_path(&self, consensus_hash: &ConsensusHash) -> String {
+        format!("{}/v3/tenures/tip/{}", self.http_origin, consensus_hash)
+    }
+
     /// Helper function to create a stacks transaction for a modifying contract call
     #[allow(clippy::too_many_arguments)]
     pub fn build_unsigned_contract_call_transaction(
@@ -916,20 +992,25 @@ mod tests {
     use blockstack_lib::chainstate::stacks::boot::{
         NakamotoSignerEntry, PoxStartCycleInfo, RewardSet,
     };
+    use clarity::types::chainstate::{StacksBlockId, TrieHash};
+    use clarity::util::hash::Sha512Trunc256Sum;
+    use clarity::util::secp256k1::MessageSignature;
     use clarity::vm::types::{
         ListData, ListTypeData, ResponseData, SequenceData, TupleData, TupleTypeSignature,
         TypeSignature,
     };
     use rand::thread_rng;
     use rand_core::RngCore;
+    use stacks_common::bitvec::BitVec;
     use stacks_common::consts::{CHAIN_ID_TESTNET, SIGNER_SLOTS_PER_USER};
     use wsts::curve::scalar::Scalar;
 
     use super::*;
     use crate::client::tests::{
         build_account_nonce_response, build_get_approved_aggregate_key_response,
-        build_get_last_round_response, build_get_medium_estimated_fee_ustx_response,
-        build_get_peer_info_response, build_get_pox_data_response, build_get_round_info_response,
+        build_get_last_round_response, build_get_last_set_cycle_response,
+        build_get_medium_estimated_fee_ustx_response, build_get_peer_info_response,
+        build_get_pox_data_response, build_get_round_info_response, build_get_tenure_tip_response,
         build_get_vote_for_aggregate_key_response, build_get_weight_threshold_response,
         build_read_only_response, write_response, MockServerClient,
     };
@@ -1564,5 +1645,38 @@ mod tests {
         let h = spawn(move || mock.client.get_medium_estimated_fee_ustx(&unsigned_tx));
         write_response(mock.server, response.as_bytes());
         assert_eq!(h.join().unwrap().unwrap(), estimate);
+    }
+
+    #[test]
+    fn get_tenure_tip_should_succeed() {
+        let mock = MockServerClient::new();
+        let consensus_hash = ConsensusHash([15; 20]);
+        let header = StacksBlockHeaderTypes::Nakamoto(NakamotoBlockHeader {
+            version: 1,
+            chain_length: 10,
+            burn_spent: 10,
+            consensus_hash: ConsensusHash([15; 20]),
+            parent_block_id: StacksBlockId([0; 32]),
+            tx_merkle_root: Sha512Trunc256Sum([0; 32]),
+            state_index_root: TrieHash([0; 32]),
+            timestamp: 3,
+            miner_signature: MessageSignature::empty(),
+            signer_signature: vec![],
+            pox_treatment: BitVec::ones(1).unwrap(),
+        });
+        let response = build_get_tenure_tip_response(&header);
+        let h = spawn(move || mock.client.get_tenure_tip(&consensus_hash));
+        write_response(mock.server, response.as_bytes());
+        assert_eq!(h.join().unwrap().unwrap(), header);
+    }
+
+    #[test]
+    fn get_last_set_cycle_should_succeed() {
+        let mock = MockServerClient::new();
+        let reward_cycle = thread_rng().next_u64();
+        let response = build_get_last_set_cycle_response(reward_cycle);
+        let h = spawn(move || mock.client.get_last_set_cycle());
+        write_response(mock.server, response.as_bytes());
+        assert_eq!(h.join().unwrap().unwrap(), reward_cycle as u128);
     }
 }

@@ -255,7 +255,7 @@ fn test_nakamoto_tenure_downloader() {
         .try_accept_tenure_start_block(blocks.first().unwrap().clone())
         .is_ok());
 
-    let NakamotoTenureDownloadState::WaitForTenureEndBlock(block_id, _) = td.state else {
+    let NakamotoTenureDownloadState::GetTenureEndBlock(block_id) = td.state else {
         panic!("wrong state");
     };
     assert_eq!(block_id, next_tenure_start_block.header.block_id());
@@ -1456,46 +1456,6 @@ fn test_make_tenure_downloaders() {
         }
     }
 
-    // test load_tenure_start_blocks
-    {
-        let sortdb = peer.sortdb();
-        let ih = peer.sortdb().index_handle(&tip.sortition_id);
-        let wanted_tenures = NakamotoDownloadStateMachine::load_wanted_tenures(
-            &ih,
-            nakamoto_start,
-            tip.block_height + 1,
-        )
-        .unwrap();
-
-        // the first block loaded won't have data, since the blocks are loaded by consensus hash
-        // but the resulting map is keyed by block ID (and we don't have the first block ID)
-        let wanted_tenures_with_blocks = wanted_tenures[1..].to_vec();
-
-        let nakamoto_tip = peer.network.stacks_tip.block_id();
-        let chainstate = peer.chainstate();
-        let mut tenure_start_blocks = HashMap::new();
-        NakamotoDownloadStateMachine::load_tenure_start_blocks(
-            &wanted_tenures,
-            chainstate,
-            &mut tenure_start_blocks,
-        )
-        .unwrap();
-
-        // remove malleablized blocks
-        tenure_start_blocks.retain(|_, block| block.header.version == 0);
-
-        assert_eq!(tenure_start_blocks.len(), wanted_tenures.len());
-
-        for wt in wanted_tenures_with_blocks {
-            if tenure_start_blocks.get(&wt.winning_block_id).is_none() {
-                warn!("No tenure start block for wanted tenure {:?}", &wt);
-            }
-
-            let block = tenure_start_blocks.get(&wt.winning_block_id).unwrap();
-            assert!(block.is_wellformed_tenure_start_block().unwrap());
-        }
-    }
-
     // test find_available_tenures
     {
         // test for reward cycle
@@ -2066,6 +2026,19 @@ fn test_make_tenure_downloaders() {
 fn test_nakamoto_download_run_2_peers() {
     let observer = TestEventObserver::new();
     let bitvecs = vec![
+        // a reward cycle with one prepare phase sortition at the start
+        vec![
+            true, true, true, true, true, true, true, false, false, false,
+        ],
+        // a reward cycle with one prepare phase sortition at the end,
+        // and no tenures in the first three reward phase sortitions
+        vec![
+            false, false, false, true, true, false, false, true, true, false,
+        ],
+        // full reward cycle, minus the first three tenures
+        vec![
+            false, false, false, true, true, true, true, true, true, true,
+        ],
         // full reward cycle
         vec![true, true, true, true, true, true, true, true, true, true],
         // alternating reward cycle, but with a full prepare phase

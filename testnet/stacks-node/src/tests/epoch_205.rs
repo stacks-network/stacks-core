@@ -629,7 +629,7 @@ fn transition_empty_blocks() {
                 &mut op_signer,
                 1,
             );
-            assert!(res.is_some(), "Failed to submit block-commit");
+            assert!(res.is_ok(), "Failed to submit block-commit");
         }
 
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);

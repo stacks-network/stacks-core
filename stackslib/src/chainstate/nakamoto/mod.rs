@@ -2048,6 +2048,8 @@ impl NakamotoChainState {
 
         let signer_bitvec = (&next_ready_block).header.pox_treatment.clone();
 
+        let block_timestamp = next_ready_block.header.timestamp;
+
         // set stacks block accepted
         let mut sort_tx = sort_db.tx_handle_begin(canonical_sortition_tip)?;
         sort_tx.set_stacks_block_accepted(
@@ -2093,6 +2095,7 @@ impl NakamotoChainState {
                 &pox_constants,
                 &reward_set_data,
                 &Some(signer_bitvec),
+                Some(block_timestamp),
             );
         }
 
@@ -2557,8 +2560,10 @@ impl NakamotoChainState {
         Ok(result.is_some())
     }
 
+    /// DO NOT CALL IN CONSENSUS CODE, such as during Stacks block processing
+    /// (including during Clarity VM evaluation). This function returns the latest data
+    /// known to the node, which may not have been at the time of original block assembly.
     /// Load the canonical Stacks block header (either epoch-2 rules or Nakamoto)
-    /// DO NOT CALL during Stacks block processing (including during Clarity VM evaluation). This function returns the latest data known to the node, which may not have been at the time of original block assembly.
     pub fn get_canonical_block_header(
         chainstate_conn: &Connection,
         sortdb: &SortitionDB,
@@ -2614,7 +2619,7 @@ impl NakamotoChainState {
         Self::get_block_header_nakamoto(chainstate_conn.sqlite(), &block_id)
     }
 
-    /// Get the highest block in the given tenure.
+    /// Get the highest block in the given tenure on a given fork.
     /// Only works on Nakamoto blocks.
     /// TODO: unit test
     pub fn get_highest_block_header_in_tenure<SDBI: StacksDBIndexed>(
@@ -2628,6 +2633,29 @@ impl NakamotoChainState {
             return Ok(None);
         };
         Self::get_block_header_nakamoto(chainstate_conn.sqlite(), &block_id)
+    }
+
+    /// DO NOT USE IN CONSENSUS CODE.  Different nodes can have different blocks for the same
+    /// tenure.
+    ///
+    /// Get the highest block in a given tenure (identified by its consensus hash).
+    /// Ties will be broken by timestamp.
+    ///
+    /// Used to verify that a signer-submitted block proposal builds atop the highest known block
+    /// in the given tenure, regardless of which fork it's on.
+    pub fn get_highest_known_block_header_in_tenure(
+        db: &Connection,
+        consensus_hash: &ConsensusHash,
+    ) -> Result<Option<StacksHeaderInfo>, ChainstateError> {
+        // see if we have a nakamoto block in this tenure
+        let qry = "SELECT * FROM nakamoto_block_headers WHERE consensus_hash = ?1 ORDER BY block_height DESC, timestamp DESC LIMIT 1";
+        let args = params![consensus_hash];
+        if let Some(header) = query_row(db, qry, args)? {
+            return Ok(Some(header));
+        }
+
+        // see if this is an epoch2 header. If it exists, then there will only be one.
+        Ok(StacksChainState::get_stacks_block_header_info_by_consensus_hash(db, consensus_hash)?)
     }
 
     /// Get the VRF proof for a Stacks block.
@@ -4234,10 +4262,10 @@ impl NakamotoChainState {
         Ok(Some(slot_id_range))
     }
 
+    /// DO NOT USE IN MAINNET
     /// Boot code instantiation for the aggregate public key.
     /// TODO: This should be removed once it's possible for stackers to vote on the aggregate
     /// public key
-    /// DO NOT USE IN MAINNET
     pub fn aggregate_public_key_bootcode(clarity_tx: &mut ClarityTx, apk: &Point) {
         let agg_pub_key = to_hex(&apk.compress().data);
         let contract_content = format!(

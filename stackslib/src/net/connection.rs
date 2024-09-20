@@ -43,7 +43,7 @@ use crate::net::inv::{INV_REWARD_CYCLES, INV_SYNC_INTERVAL};
 use crate::net::neighbors::{
     MAX_NEIGHBOR_AGE, NEIGHBOR_REQUEST_TIMEOUT, NEIGHBOR_WALK_INTERVAL, NUM_INITIAL_WALKS,
     WALK_MAX_DURATION, WALK_MIN_DURATION, WALK_RESET_INTERVAL, WALK_RESET_PROB, WALK_RETRY_COUNT,
-    WALK_STATE_TIMEOUT,
+    WALK_SEED_PROBABILITY, WALK_STATE_TIMEOUT,
 };
 use crate::net::{
     Error as net_error, MessageSequence, Preamble, ProtocolFamily, RelayData, StacksHttp, StacksP2P,
@@ -235,9 +235,10 @@ impl<P: ProtocolFamily> NetworkReplyHandle<P> {
                     None
                 } else {
                     // still have data to send, or we will send more.
-                    debug!(
+                    test_debug!(
                         "Still have data to send, drop_on_success = {}, ret = {}",
-                        drop_on_success, ret
+                        drop_on_success,
+                        ret
                     );
                     Some(fd)
                 }
@@ -345,15 +346,37 @@ pub struct ConnectionOptions {
     pub max_http_clients: u64,
     pub neighbor_request_timeout: u64,
     pub max_neighbor_age: u64,
+    /// How many walk steps to take when the node has booted up.  This influences how quickly the
+    /// node will find new peers on start-up.  This describes the maximum length of such walks.
     pub num_initial_walks: u64,
+    /// How many walk state-machine restarts to take when the node has boote dup.  This influences
+    /// how quickly the node will find new peers on start-up.  This describes the maximum number of
+    /// such walk state-machine run-throughs.
     pub walk_retry_count: u64,
+    /// How often, in seconds, to run the walk state machine.
     pub walk_interval: u64,
+    /// The regularity of doing an inbound neighbor walk (as opposed to an outbound neighbor walk).
+    /// Every `walk_inbound_ratio + 1`-th walk will be an inbound neighbor walk.
     pub walk_inbound_ratio: u64,
+    /// Minimum number of steps a walk will run until it can be reset.
     pub walk_min_duration: u64,
+    /// Maximum number of steps a walk will run until forcibly reset.
     pub walk_max_duration: u64,
+    /// Probabiility that the walk will be reset once `walk_min_duration` steps are taken.
     pub walk_reset_prob: f64,
+    /// Maximum number of seconds a walk can last before being reset.
     pub walk_reset_interval: u64,
+    /// Maximum number of seconds a walk can remain in the same state before being reset.
     pub walk_state_timeout: u64,
+    /// If the node is booting up, or if the node is not connected to an always-allowed peer and
+    /// there are one or more such peers in the peers DB, then this controls the probability that
+    /// the node will attempt to start a walk to an always-allowed peer.  It's good to have this
+    /// close to, but not equal to 1.0, so that if the node can't reach any always-allowed peer for
+    /// some reason but can reach other neighbors, then neighbor walks can continue.
+    pub walk_seed_probability: f64,
+    /// How often, if ever, to log our neighbors via DEBG.
+    /// Units are milliseconds.  A value of 0 means "never".
+    pub log_neighbors_freq: u64,
     pub inv_sync_interval: u64,
     pub inv_reward_cycles: u64,
     pub download_interval: u64,
@@ -494,6 +517,8 @@ impl std::default::Default for ConnectionOptions {
             walk_reset_prob: WALK_RESET_PROB,
             walk_reset_interval: WALK_RESET_INTERVAL,
             walk_state_timeout: WALK_STATE_TIMEOUT,
+            walk_seed_probability: WALK_SEED_PROBABILITY,
+            log_neighbors_freq: 60_000,
             inv_sync_interval: INV_SYNC_INTERVAL, // how often to synchronize block inventories
             inv_reward_cycles: INV_REWARD_CYCLES, // how many reward cycles of blocks to sync in a non-full inventory sync
             download_interval: BLOCK_DOWNLOAD_INTERVAL, // how often to scan for blocks to download
@@ -1024,7 +1049,7 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
             total_read += num_read;
 
             if num_read > 0 || total_read > 0 {
-                debug!("read {} bytes; {} total", num_read, total_read);
+                test_debug!("read {} bytes; {} total", num_read, total_read);
             }
 
             if num_read > 0 {

@@ -62,6 +62,7 @@ pub mod getstackers;
 pub mod getstxtransfercost;
 pub mod gettenure;
 pub mod gettenureinfo;
+pub mod gettenuretip;
 pub mod gettransaction_unconfirmed;
 pub mod liststackerdbreplicas;
 pub mod postblock;
@@ -120,6 +121,7 @@ impl StacksHttp {
         self.register_rpc_endpoint(getsortition::GetSortitionHandler::new());
         self.register_rpc_endpoint(gettenure::RPCNakamotoTenureRequestHandler::new());
         self.register_rpc_endpoint(gettenureinfo::RPCNakamotoTenureInfoRequestHandler::new());
+        self.register_rpc_endpoint(gettenuretip::RPCNakamotoTenureTipRequestHandler::new());
         self.register_rpc_endpoint(get_tenures_fork_info::GetTenuresForkInfo::default());
         self.register_rpc_endpoint(
             gettransaction_unconfirmed::RPCGetTransactionUnconfirmedRequestHandler::new(),
