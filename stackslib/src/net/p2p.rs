@@ -3577,8 +3577,8 @@ impl PeerNetwork {
         let prune = if cur_epoch.epoch_id >= StacksEpochId::Epoch30 {
             debug!("{:?}: run Nakamoto work loop", self.get_local_peer());
 
-            // in Nakamoto epoch, so do Nakamoto things
-            let prune = self.do_network_work_nakamoto(
+            // in Nakamoto epoch, so we can always prune
+            self.do_network_work_nakamoto(
                 burnchain_height,
                 sortdb,
                 chainstate,
@@ -3610,9 +3610,10 @@ impl PeerNetwork {
                     "{:?}: ran Epoch 2.x work loop in Nakamoto epoch",
                     self.get_local_peer()
                 );
-                prune || epoch2_prune
+                epoch2_prune
             } else {
-                prune
+                // we can always prune in Nakamoto, since all state machines pin their connections
+                true
             }
         } else {
             // in epoch 2.x, so do epoch 2.x things
@@ -3640,89 +3641,41 @@ impl PeerNetwork {
         chainstate: &mut StacksChainState,
         ibd: bool,
         network_result: &mut NetworkResult,
-    ) -> bool {
-        // do some Actual Work(tm)
-        let mut do_prune = false;
-        let mut did_cycle = false;
+    ) {
+        // always do an inv sync
+        let learned = self.do_network_inv_sync_nakamoto(sortdb, ibd);
+        debug!(
+            "{:?}: network work state is {:?}",
+            self.get_local_peer(),
+            &self.nakamoto_work_state;
+            "learned_new_blocks?" => learned
+        );
 
-        while !did_cycle {
-            // always do an inv sync
-            let learned = self.do_network_inv_sync_nakamoto(sortdb, ibd);
-            debug!(
-                "{:?}: network work state is {:?}",
-                self.get_local_peer(),
-                &self.nakamoto_work_state;
-                "learned_new_blocks?" => learned
-            );
+        // always do block download
+        let new_blocks = self
+            .do_network_block_sync_nakamoto(burnchain_height, sortdb, chainstate, ibd)
+            .map_err(|e| {
+                warn!(
+                    "{:?}: Failed to perform Nakamoto block sync: {:?}",
+                    &self.get_local_peer(),
+                    &e
+                );
+                e
+            })
+            .unwrap_or(HashMap::new());
 
-            // always do block download
-            let new_blocks = self
-                .do_network_block_sync_nakamoto(burnchain_height, sortdb, chainstate, ibd)
-                .map_err(|e| {
-                    warn!(
-                        "{:?}: Failed to perform Nakamoto block sync: {:?}",
-                        &self.get_local_peer(),
-                        &e
-                    );
-                    e
-                })
-                .unwrap_or(HashMap::new());
+        network_result.consume_nakamoto_blocks(new_blocks);
 
-            network_result.consume_nakamoto_blocks(new_blocks);
-
-            let cur_state = self.nakamoto_work_state;
-            match self.nakamoto_work_state {
-                PeerNetworkWorkState::GetPublicIP => {
-                    if cfg!(test) && self.connection_opts.disable_natpunch {
-                        self.nakamoto_work_state = PeerNetworkWorkState::BlockDownload;
-                    } else {
-                        // (re)determine our public IP address
-                        let done = self.do_get_public_ip();
-                        if done {
-                            self.nakamoto_work_state = PeerNetworkWorkState::BlockDownload;
-                        }
-                    }
-                }
-                PeerNetworkWorkState::BlockInvSync => {
-                    // this state is useless in Nakamoto since we're always doing inv-syncs
-                    self.nakamoto_work_state = PeerNetworkWorkState::BlockDownload;
-                }
-                PeerNetworkWorkState::BlockDownload => {
-                    // this state is useless in Nakamoto since we're always doing download-syncs
-                    self.nakamoto_work_state = PeerNetworkWorkState::AntiEntropy;
-                }
-                PeerNetworkWorkState::AntiEntropy => {
-                    debug!(
-                        "{:?}: Block anti-entropy for Nakamoto is not yet implemented",
-                        self.get_local_peer()
-                    );
-                    self.nakamoto_work_state = PeerNetworkWorkState::Prune;
-                }
-                PeerNetworkWorkState::Prune => {
-                    // did one pass
-                    did_cycle = true;
-                    do_prune = true;
-
-                    // restart
-                    self.nakamoto_work_state = PeerNetworkWorkState::GetPublicIP;
-                }
-            }
-
-            if self.nakamoto_work_state == cur_state {
-                // only break early if we can't make progress
-                break;
-            }
+        // make sure our public IP is fresh (this self-throttles if we recently learned it).
+        if !self.connection_opts.disable_natpunch {
+            self.do_get_public_ip();
         }
 
-        if did_cycle {
-            self.num_state_machine_passes += 1;
-            debug!(
-                "{:?}: Finished full p2p state-machine pass for Nakamoto ({})",
-                &self.local_peer, self.num_state_machine_passes
-            );
-        }
-
-        do_prune
+        self.num_state_machine_passes += 1;
+        debug!(
+            "{:?}: Finished full p2p state-machine pass for Nakamoto ({})",
+            &self.local_peer, self.num_state_machine_passes
+        );
     }
 
     /// Do the actual work in the state machine.
