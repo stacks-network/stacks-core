@@ -685,17 +685,18 @@ paths:
         Fetch sortition information about a burnchain block. If the `lookup_kind` and `lookup` parameters are empty, it will return information about the latest burn block.
       responses:
         "200":
-          description: Information for the given reward cycle
+          description: Information for the burn block or in the case of `latest_and_last`, multiple burn blocks
           content:
             application/json:
-              example:
-                $ref: ./api/core-node/get_sortitions.example.json
-        "200":
-          description: Sortition information about the latest burn block with a winning miner, and the previous such burn block.
-          content:
-            application/json:
-              example:
-                $ref: ./api/core-node/get_sortitions_latest_and_prior.example.json
+              examples:
+                Latest:
+                  description: A single element list is returned when just one sortition is requested
+                  value:
+                    $ref: ./api/core-node/get_sortitions.example.json
+                LatestAndLast:
+                  description: Sortition information about the latest burn block with a winning miner, and the previous such burn block.
+                  value:
+                    $ref: ./api/core-node/get_sortitions_latest_and_prior.example.json
     parameters:
       - name: lookup_kind
         in: path
