@@ -110,8 +110,8 @@ use crate::net::Error as net_error;
 use crate::util_lib::boot;
 use crate::util_lib::boot::boot_code_id;
 use crate::util_lib::db::{
-    query_int, query_row, query_row_panic, query_rows, sqlite_open, tx_begin_immediate, u64_to_sql,
-    DBConn, Error as DBError, FromRow,
+    query_int, query_row, query_row_columns, query_row_panic, query_rows, sqlite_open,
+    tx_begin_immediate, u64_to_sql, DBConn, Error as DBError, FromRow,
 };
 use crate::{chainstate, monitoring};
 
@@ -2477,6 +2477,26 @@ impl NakamotoChainState {
         }
 
         Ok(None)
+    }
+
+    /// Load the parent block ID of a Nakamoto block
+    pub fn get_nakamoto_parent_block_id(
+        chainstate_conn: &Connection,
+        index_block_hash: &StacksBlockId,
+    ) -> Result<Option<StacksBlockId>, ChainstateError> {
+        let sql = "SELECT parent_block_id FROM nakamoto_block_headers WHERE index_block_hash = ?1";
+        let mut result = query_row_columns(
+            chainstate_conn,
+            sql,
+            &[&index_block_hash],
+            "parent_block_id",
+        )?;
+        if result.len() > 1 {
+            // even though `(consensus_hash,block_hash)` is the primary key, these are hashed to
+            // produce `index_block_hash`.  So, `index_block_hash` is also unique w.h.p.
+            unreachable!("FATAL: multiple instances of index_block_hash");
+        }
+        Ok(result.pop())
     }
 
     /// Load a Nakamoto header
