@@ -678,7 +678,7 @@ fn transition_fixes_bitcoin_rigidity() {
                 &mut miner_signer,
                 1
             )
-            .is_some(),
+            .is_ok(),
         "Pre-stx operation should submit successfully"
     );
 
@@ -713,7 +713,7 @@ fn transition_fixes_bitcoin_rigidity() {
                 &mut spender_signer,
                 1
             )
-            .is_some(),
+            .is_ok(),
         "Transfer operation should submit successfully"
     );
 
@@ -835,7 +835,7 @@ fn transition_fixes_bitcoin_rigidity() {
                 &mut miner_signer,
                 1
             )
-            .is_some(),
+            .is_ok(),
         "Pre-stx operation should submit successfully"
     );
 
@@ -866,7 +866,7 @@ fn transition_fixes_bitcoin_rigidity() {
                 &mut spender_signer,
                 1
             )
-            .is_some(),
+            .is_ok(),
         "Transfer operation should submit successfully"
     );
 
@@ -1946,7 +1946,7 @@ fn transition_empty_blocks() {
             let mut op_signer = keychain.generate_op_signer();
             let res =
                 bitcoin_controller.submit_operation(StacksEpochId::Epoch21, op, &mut op_signer, 1);
-            assert!(res.is_some(), "Failed to submit block-commit");
+            assert!(res.is_ok(), "Failed to submit block-commit");
         }
 
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
