@@ -94,7 +94,9 @@ use wsts::net::Message;
 
 use super::bitcoin_regtest::BitcoinCoreController;
 use crate::config::{EventKeyType, EventObserverConfig, InitialBalance};
-use crate::nakamoto_node::miner::{TEST_BLOCK_ANNOUNCE_STALL, TEST_BROADCAST_STALL};
+use crate::nakamoto_node::miner::{
+    TEST_BLOCK_ANNOUNCE_STALL, TEST_BROADCAST_STALL, TEST_MINE_STALL,
+};
 use crate::neon::{Counters, RunLoopCounter};
 use crate::operations::BurnchainOpSigner;
 use crate::run_loop::boot_nakamoto;
@@ -5186,6 +5188,8 @@ fn clarity_burn_state() {
             );
             result.expect_result_ok().expect("Read-only call failed");
 
+            // Pause mining to prevent the stacks block from being mined before the tenure change is processed
+            TEST_MINE_STALL.lock().unwrap().replace(true);
             // Submit a tx for the next block (the next block will be a new tenure, so the burn block height will increment)
             let call_tx = tests::make_contract_call(
                 &sender_sk,
@@ -5201,8 +5205,23 @@ fn clarity_burn_state() {
         }
 
         let commits_before = commits_submitted.load(Ordering::SeqCst);
-        next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
-            .unwrap();
+        let blocks_processed_before = coord_channel
+            .lock()
+            .expect("Mutex poisoned")
+            .get_stacks_blocks_processed();
+        next_block_and(&mut btc_regtest_controller, 60, || {
+            Ok(commits_submitted.load(Ordering::SeqCst) > commits_before)
+        })
+        .unwrap();
+        TEST_MINE_STALL.lock().unwrap().replace(false);
+        wait_for(20, || {
+            Ok(coord_channel
+                .lock()
+                .expect("Mutex poisoned")
+                .get_stacks_blocks_processed()
+                > blocks_processed_before)
+        })
+        .unwrap();
 
         let info = get_chain_info(&naka_conf);
         burn_block_height = info.burn_block_height as u128;
