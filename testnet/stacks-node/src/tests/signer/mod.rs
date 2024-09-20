@@ -724,7 +724,6 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         &self,
         timeout_secs: u64,
         expected_signers: &[StacksPublicKey],
-        reject_code: Option<RejectCode>,
     ) -> Result<(), String> {
         wait_for(timeout_secs, || {
             let stackerdb_events = test_observer::get_stackerdb_chunks();
@@ -740,11 +739,6 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
                                 .recover_public_key()
                                 .expect("Failed to recover public key from rejection");
                             if expected_signers.contains(&rejected_pubkey) {
-                                if let Some(reject_code) = reject_code.as_ref() {
-                                    if reject_code != &rejection.reason_code {
-                                        return None;
-                                    }
-                                }
                                 Some(rejection)
                             } else {
                                 None

@@ -3952,6 +3952,7 @@ fn locally_accepted_blocks_overriden_by_global_rejection() {
     let send_fee = 180;
     let nmb_txs = 2;
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
+    let short_timeout_secs = 20;
     let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new(
         num_signers,
         vec![(sender_addr.clone(), (send_amt + send_fee) * nmb_txs)],
@@ -3976,7 +3977,7 @@ fn locally_accepted_blocks_overriden_by_global_rejection() {
         make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
     let tx = submit_tx(&http_origin, &transfer_tx);
     info!("Submitted tx {tx} in to mine block N");
-    wait_for(30, || {
+    wait_for(short_timeout_secs, || {
         Ok(mined_blocks.load(Ordering::SeqCst) > blocks_before
             && signer_test
                 .stacks_client
@@ -3996,7 +3997,11 @@ fn locally_accepted_blocks_overriden_by_global_rejection() {
     let block_n = nakamoto_blocks.last().unwrap();
     assert_eq!(info_after.stacks_tip.to_string(), block_n.block_hash);
     signer_test
-        .wait_for_block_acceptance(30, &block_n.signer_signature_hash, &all_signers)
+        .wait_for_block_acceptance(
+            short_timeout_secs,
+            &block_n.signer_signature_hash,
+            &all_signers,
+        )
         .expect("Timed out waiting for block acceptance of N");
 
     info!("------------------------- Attempt to Mine Nakamoto Block N+1 -------------------------");
@@ -4014,8 +4019,9 @@ fn locally_accepted_blocks_overriden_by_global_rejection() {
 
     let blocks_before = mined_blocks.load(Ordering::SeqCst);
     let info_before = signer_test.stacks_client.get_peer_info().unwrap();
+    // We cannot gaurantee that ALL signers will reject due to the testing directive as we may hit majority first..So ensure that we only assert that up to the threshold number rejected
     signer_test
-        .wait_for_block_rejections(60, &rejecting_signers, Some(RejectCode::TestingDirective))
+        .wait_for_block_rejections(short_timeout_secs, &rejecting_signers)
         .expect("Timed out waiting for block rejection of N+1");
 
     assert_eq!(blocks_before, mined_blocks.load(Ordering::SeqCst));
@@ -4032,7 +4038,7 @@ fn locally_accepted_blocks_overriden_by_global_rejection() {
         .lock()
         .unwrap()
         .replace(Vec::new());
-    wait_for(30, || {
+    wait_for(short_timeout_secs, || {
         Ok(mined_blocks.load(Ordering::SeqCst) > blocks_before
             && signer_test
                 .stacks_client
@@ -4061,7 +4067,11 @@ fn locally_accepted_blocks_overriden_by_global_rejection() {
     assert_ne!(block_n_1_prime, block_n_1);
     // Verify that all signers accepted the new block proposal
     signer_test
-        .wait_for_block_acceptance(30, &block_n_1_prime.signer_signature_hash, &all_signers)
+        .wait_for_block_acceptance(
+            short_timeout_secs,
+            &block_n_1_prime.signer_signature_hash,
+            &all_signers,
+        )
         .expect("Timed out waiting for block acceptance of N+1'");
 }
 
@@ -4195,11 +4205,7 @@ fn locally_rejected_blocks_overriden_by_global_acceptance() {
     .expect("Timed out waiting for stacks block N+1 to be mined");
 
     signer_test
-        .wait_for_block_rejections(
-            short_timeout,
-            &rejecting_signers,
-            Some(RejectCode::TestingDirective),
-        )
+        .wait_for_block_rejections(short_timeout, &rejecting_signers)
         .expect("Timed out waiting for block rejection of N+1");
 
     // Assert the block was mined
