@@ -228,16 +228,18 @@ impl StacksClient {
         // Get the signer writers from the stacker-db to find the signer slot id
         let stackerdb_signer_slots =
             self.get_stackerdb_signer_slots(&signer_stackerdb_contract_id, signer_set)?;
-        let mut signer_slot_ids = HashMap::with_capacity(stackerdb_signer_slots.len());
-        for (index, (address, _)) in stackerdb_signer_slots.into_iter().enumerate() {
-            signer_slot_ids.insert(
-                address,
-                SignerSlotID(
-                    u32::try_from(index).expect("FATAL: number of signers exceeds u32::MAX"),
-                ),
-            );
-        }
-        Ok(signer_slot_ids)
+        Ok(stackerdb_signer_slots
+            .into_iter()
+            .enumerate()
+            .map(|(index, (address, _))| {
+                (
+                    address,
+                    SignerSlotID(
+                        u32::try_from(index).expect("FATAL: number of signers exceeds u32::MAX"),
+                    ),
+                )
+            })
+            .collect())
     }
 
     /// Get the vote for a given  round, reward cycle, and signer address

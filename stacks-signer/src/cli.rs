@@ -269,10 +269,10 @@ pub struct MonitorSignersArgs {
     /// Whether the node is mainnet. Default is false.
     #[arg(long, default_value = "false")]
     pub mainnet: bool,
-    /// Set the polling interval in seconds. Default is 60 seconds.
+    /// Set the polling interval in seconds.
     #[arg(long, short, default_value = "60")]
     pub interval: u64,
-    /// Max age in seconds before a signer message is considered stale. Default is 1200 seconds.
+    /// Max age in seconds before a signer message is considered stale.
     #[arg(long, short, default_value = "1200")]
     pub max_age: u64,
 }
