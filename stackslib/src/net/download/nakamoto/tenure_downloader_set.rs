@@ -172,9 +172,6 @@ impl NakamotoTenureDownloaderSet {
             if downloader.idle {
                 continue;
             }
-            if downloader.is_waiting() {
-                continue;
-            }
             if downloader.is_done() {
                 continue;
             }
@@ -233,9 +230,6 @@ impl NakamotoTenureDownloaderSet {
             if !downloader.idle {
                 continue;
             }
-            if downloader.is_waiting() {
-                continue;
-            }
             if downloader.naddr != naddr {
                 continue;
             }
@@ -264,7 +258,7 @@ impl NakamotoTenureDownloaderSet {
                 idled.push(naddr.clone());
                 continue;
             };
-            if downloader.idle || downloader.is_waiting() {
+            if downloader.idle {
                 debug!(
                     "Remove idled peer {} for tenure download {}",
                     &naddr, &downloader.tenure_id_consensus_hash
@@ -306,43 +300,6 @@ impl NakamotoTenureDownloaderSet {
         ret
     }
 
-    /// Given a set of tenure-start blocks, pass them into downloaders that are waiting for their
-    /// tenure-end blocks.
-    /// Return a list of peers driving downloaders with failing `tenure_start_blocks`
-    pub(crate) fn handle_tenure_end_blocks(
-        &mut self,
-        tenure_start_blocks: &HashMap<StacksBlockId, NakamotoBlock>,
-    ) -> Vec<NeighborAddress> {
-        debug!(
-            "handle tenure-end blocks: {:?}",
-            &tenure_start_blocks.keys().collect::<Vec<_>>()
-        );
-        let mut dead = vec![];
-        for downloader_opt in self.downloaders.iter_mut() {
-            let Some(downloader) = downloader_opt else {
-                continue;
-            };
-            let NakamotoTenureDownloadState::WaitForTenureEndBlock(end_block_id, ..) =
-                &downloader.state
-            else {
-                continue;
-            };
-            let Some(end_block) = tenure_start_blocks.get(end_block_id) else {
-                continue;
-            };
-            if let Err(e) = downloader.try_accept_tenure_end_block(end_block) {
-                warn!(
-                    "Failed to accept tenure end-block {} for tenure {}: {:?}",
-                    &end_block.block_id(),
-                    &downloader.tenure_id_consensus_hash,
-                    &e
-                );
-                dead.push(downloader.naddr.clone());
-            }
-        }
-        dead
-    }
-
     /// Does there exist a downloader (possibly unscheduled) for the given tenure?
     pub(crate) fn has_downloader_for_tenure(&self, tenure_id: &ConsensusHash) -> bool {
         for downloader_opt in self.downloaders.iter() {
@@ -351,69 +308,13 @@ impl NakamotoTenureDownloaderSet {
             };
             if &downloader.tenure_id_consensus_hash == tenure_id {
                 debug!(
-                    "Have downloader for tenure {} already (idle={}, waiting={}, state={})",
-                    tenure_id,
-                    downloader.idle,
-                    downloader.is_waiting(),
-                    &downloader.state
+                    "Have downloader for tenure {} already (idle={}, state={})",
+                    tenure_id, downloader.idle, &downloader.state
                 );
                 return true;
             }
         }
         false
-    }
-
-    /// In the event that the last confirmed tenure in a reward cycle contains the PoX anchor
-    /// block, we need to go and directly fetch its end block instead of waiting for another
-    /// NakamotoTenureDownloader to provide it as its tenure-start block.  Naively, this method
-    /// just unconditionally sets the highest available tenure downloader to fetch its tenure end block.
-    pub(crate) fn try_transition_fetch_tenure_end_blocks(
-        &mut self,
-        tenure_block_ids: &HashMap<NeighborAddress, AvailableTenures>,
-    ) {
-        for downloader_opt in self.downloaders.iter_mut() {
-            let Some(downloader) = downloader_opt.as_mut() else {
-                continue;
-            };
-            downloader.transition_to_fetch_end_block_on_timeout();
-        }
-
-        // find tenures in which we need to fetch the tenure-end block directly.
-        let mut last_available_tenures: HashSet<StacksBlockId> = HashSet::new();
-        for (_, all_available) in tenure_block_ids.iter() {
-            for (_, available) in all_available.iter() {
-                if available.fetch_end_block {
-                    last_available_tenures.insert(available.end_block_id.clone());
-                }
-            }
-        }
-
-        // is anyone downloading this tenure, and if so, are they waiting?  If so, then flip to
-        // fetching
-        for downloader_opt in self.downloaders.iter_mut() {
-            let Some(downloader) = downloader_opt.as_mut() else {
-                continue;
-            };
-            if !downloader.idle {
-                continue;
-            }
-            if !downloader.is_waiting() {
-                continue;
-            }
-            if !last_available_tenures.contains(&downloader.tenure_end_block_id) {
-                continue;
-            }
-            debug!(
-                "Transition downloader for {} from waiting to fetching",
-                &downloader.tenure_id_consensus_hash
-            );
-            if let Err(e) = downloader.transition_to_fetch_end_block() {
-                warn!(
-                    "Downloader for {} failed to transition to fetch end block: {:?}",
-                    &downloader.tenure_id_consensus_hash, &e
-                );
-            }
-        }
     }
 
     /// Create a given number of downloads from a schedule and availability set.
@@ -438,7 +339,6 @@ impl NakamotoTenureDownloaderSet {
 
         self.clear_finished_downloaders();
         self.clear_available_peers();
-        self.try_transition_fetch_tenure_end_blocks(tenure_block_ids);
         while self.inflight() < count {
             let Some(ch) = schedule.front() else {
                 break;

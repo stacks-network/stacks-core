@@ -168,10 +168,10 @@ impl BurnchainController for MocknetController {
         operation: BlockstackOperationType,
         _op_signer: &mut BurnchainOpSigner,
         _attempt: u64,
-    ) -> Option<Txid> {
+    ) -> Result<Txid, BurnchainControllerError> {
         let txid = operation.txid();
         self.queued_operations.push_back(operation);
-        Some(txid)
+        Ok(txid)
     }
 
     fn sync(
