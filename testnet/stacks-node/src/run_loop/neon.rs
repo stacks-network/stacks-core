@@ -497,7 +497,7 @@ impl RunLoop {
                             return burnchain_error::ShutdownInitiated;
                         }
                     }
-                    Error::IndexerError(_) => {}
+                    _ => {}
                 }
                 error!("Burnchain controller stopped: {}", e);
                 panic!();
