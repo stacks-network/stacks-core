@@ -5072,6 +5072,7 @@ fn paramaterized_mempool_walk_test(
                         },
                     )
                     .unwrap()
+                    .0
                     == 0
                 {
                     break;
