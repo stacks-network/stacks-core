@@ -4164,20 +4164,35 @@ fn locally_rejected_blocks_overriden_by_global_acceptance() {
         info_before.stacks_tip_height + 1,
         info_after.stacks_tip_height
     );
-    let nmb_signatures = signer_test
-        .stacks_client
-        .get_tenure_tip(&info_after.stacks_tip_consensus_hash)
-        .expect("Failed to get tip")
-        .as_stacks_nakamoto()
-        .expect("Not a Nakamoto block")
-        .signer_signature
-        .len();
-    assert_eq!(nmb_signatures, num_signers);
 
     // Ensure that the block was accepted globally so the stacks tip has advanced to N
     let nakamoto_blocks = test_observer::get_mined_nakamoto_blocks();
     let block_n = nakamoto_blocks.last().unwrap();
     assert_eq!(info_after.stacks_tip.to_string(), block_n.block_hash);
+
+    // Make sure that ALL signers accepted the block proposal
+    wait_for(short_timeout, || {
+        let signatures = test_observer::get_stackerdb_chunks()
+            .into_iter()
+            .flat_map(|chunk| chunk.modified_slots)
+            .filter_map(|chunk| {
+                let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
+                    .expect("Failed to deserialize SignerMessage");
+                match message {
+                    SignerMessage::BlockResponse(BlockResponse::Accepted((hash, signature))) => {
+                        if hash == block_n.signer_signature_hash {
+                            Some(signature)
+                        } else {
+                            None
+                        }
+                    }
+                    _ => None,
+                }
+            })
+            .collect::<Vec<_>>();
+        Ok(signatures.len() == num_signers)
+    })
+    .expect("FAIL: Timed out waiting for block proposal acceptance by ALL signers");
 
     info!("------------------------- Mine Nakamoto Block N+1 -------------------------");
     // Make less than 30% of the signers reject the block and ensure it is STILL marked globally accepted
