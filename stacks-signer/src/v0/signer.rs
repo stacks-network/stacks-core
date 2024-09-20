@@ -782,7 +782,7 @@ impl Signer {
             warn!("{self}: Failed to mark block as globally rejected: {e:?}",);
         }
         if let Err(e) = self.signer_db.insert_block(&block_info) {
-            warn!("{self}: Failed to update block state: {e:?}",);
+            error!("{self}: Failed to update block state: {e:?}",);
             panic!("{self} Failed to update block state: {e}");
         }
     }
