@@ -275,6 +275,8 @@ pub struct PeerInfo {
     pub pox_consensus: ConsensusHash,
     /// The server version
     pub server_version: String,
+    /// The network id
+    pub network_id: u32,
 }
 
 impl StacksMessageCodec for PeerInfo {
@@ -287,6 +289,7 @@ impl StacksMessageCodec for PeerInfo {
         fd.write_all(self.server_version.as_bytes())
             .map_err(CodecError::WriteError)?;
         write_next(fd, &self.pox_consensus)?;
+        write_next(fd, &self.network_id)?;
         Ok(())
     }
 
@@ -305,6 +308,7 @@ impl StacksMessageCodec for PeerInfo {
             )
         })?;
         let pox_consensus = read_next::<ConsensusHash, _>(fd)?;
+        let network_id = read_next(fd)?;
         Ok(Self {
             burn_block_height,
             stacks_tip_consensus_hash,
@@ -312,6 +316,7 @@ impl StacksMessageCodec for PeerInfo {
             stacks_tip_height,
             server_version,
             pox_consensus,
+            network_id,
         })
     }
 }
@@ -321,18 +326,15 @@ impl StacksMessageCodec for PeerInfo {
 pub struct MockProposal {
     /// The view of the stacks node peer information at the time of the mock proposal
     pub peer_info: PeerInfo,
-    /// The chain id for the mock proposal
-    pub chain_id: u32,
     /// The miner's signature across the peer info
     signature: MessageSignature,
 }
 
 impl MockProposal {
     /// Create a new mock proposal data struct from the provided peer info, chain id, and private key.
-    pub fn new(peer_info: PeerInfo, chain_id: u32, stacks_private_key: &StacksPrivateKey) -> Self {
+    pub fn new(peer_info: PeerInfo, stacks_private_key: &StacksPrivateKey) -> Self {
         let mut sig = Self {
             signature: MessageSignature::empty(),
-            chain_id,
             peer_info,
         };
         sig.sign(stacks_private_key)
@@ -342,7 +344,8 @@ impl MockProposal {
 
     /// The signature hash for the mock proposal
     pub fn miner_signature_hash(&self) -> Sha256Sum {
-        let domain_tuple = make_structured_data_domain("mock-miner", "1.0.0", self.chain_id);
+        let domain_tuple =
+            make_structured_data_domain("mock-miner", "1.0.0", self.peer_info.network_id);
         let data_tuple = Value::Tuple(
             TupleData::from_data(vec![
                 (
@@ -375,7 +378,8 @@ impl MockProposal {
 
     /// The signature hash including the miner's signature. Used by signers.
     fn signer_signature_hash(&self) -> Sha256Sum {
-        let domain_tuple = make_structured_data_domain("mock-signer", "1.0.0", self.chain_id);
+        let domain_tuple =
+            make_structured_data_domain("mock-signer", "1.0.0", self.peer_info.network_id);
         let data_tuple = Value::Tuple(
             TupleData::from_data(vec![
                 (
@@ -413,18 +417,15 @@ impl MockProposal {
 impl StacksMessageCodec for MockProposal {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
         self.peer_info.consensus_serialize(fd)?;
-        write_next(fd, &self.chain_id)?;
         write_next(fd, &self.signature)?;
         Ok(())
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
         let peer_info = PeerInfo::consensus_deserialize(fd)?;
-        let chain_id = read_next::<u32, _>(fd)?;
         let signature = read_next::<MessageSignature, _>(fd)?;
         Ok(Self {
             peer_info,
-            chain_id,
             signature,
         })
     }
@@ -1024,6 +1025,12 @@ mod test {
         let stacks_tip_height = thread_rng().next_u64();
         let server_version = "0.0.0".to_string();
         let pox_consensus_byte: u8 = thread_rng().gen();
+        let network_byte: u8 = thread_rng().gen_range(0..=1);
+        let network_id = if network_byte == 1 {
+            CHAIN_ID_TESTNET
+        } else {
+            CHAIN_ID_MAINNET
+        };
         PeerInfo {
             burn_block_height,
             stacks_tip_consensus_hash: ConsensusHash([stacks_tip_consensus_byte; 20]),
@@ -1031,19 +1038,13 @@ mod test {
             stacks_tip_height,
             server_version,
             pox_consensus: ConsensusHash([pox_consensus_byte; 20]),
+            network_id,
         }
     }
     fn random_mock_proposal() -> MockProposal {
-        let chain_byte: u8 = thread_rng().gen_range(0..=1);
-        let chain_id = if chain_byte == 1 {
-            CHAIN_ID_TESTNET
-        } else {
-            CHAIN_ID_MAINNET
-        };
         let peer_info = random_peer_data();
         MockProposal {
             peer_info,
-            chain_id,
             signature: MessageSignature::empty(),
         }
     }

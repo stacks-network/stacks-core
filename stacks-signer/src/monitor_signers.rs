@@ -51,15 +51,15 @@ pub struct RewardCycleState {
 }
 
 impl SignerMonitor {
-    /// Create a new `SignerMonitor` instance from the given command line args
+    /// Create a new `SignerMonitor` instance
     pub fn new(args: MonitorSignersArgs) -> Self {
         url::Url::parse(&format!("http://{}", args.host)).expect("Failed to parse node host");
-        let stacks_client = StacksClient::new(
+        let stacks_client = StacksClient::try_from_host(
             StacksPrivateKey::new(), // We don't need a private key to read
             args.host.clone(),
             "FOO".to_string(), // We don't care about authorized paths. Just accessing public info
-            args.mainnet,
-        );
+        )
+        .expect("Failed to connect to provided host.");
         Self {
             stacks_client,
             cycle_state: RewardCycleState::default(),
@@ -93,7 +93,7 @@ impl SignerMonitor {
         for entry in entries {
             let public_key = StacksPublicKey::from_slice(entry.signing_key.as_slice())
                 .expect("Failed to convert signing key to StacksPublicKey");
-            let stacks_address = StacksAddress::p2pkh(self.args.mainnet, &public_key);
+            let stacks_address = StacksAddress::p2pkh(self.stacks_client.mainnet, &public_key);
             self.cycle_state
                 .signers_keys
                 .insert(stacks_address, public_key);
@@ -228,8 +228,8 @@ impl SignerMonitor {
             .cycle_state
             .reward_cycle
             .expect("BUG: reward cycle not set");
-        let contract =
-            MessageSlotID::BlockResponse.stacker_db_contract(self.args.mainnet, reward_cycle);
+        let contract = MessageSlotID::BlockResponse
+            .stacker_db_contract(self.stacks_client.mainnet, reward_cycle);
         info!(
             "Monitoring signers stackerdb. Polling interval: {} secs, Max message age: {} secs, Reward cycle: {reward_cycle}, StackerDB contract: {contract}",
             self.args.interval, self.args.max_age
@@ -252,7 +252,7 @@ impl SignerMonitor {
                     .reward_cycle
                     .expect("BUG: reward cycle not set");
                 let contract = MessageSlotID::BlockResponse
-                    .stacker_db_contract(self.args.mainnet, reward_cycle);
+                    .stacker_db_contract(self.stacks_client.mainnet, reward_cycle);
                 info!(
                     "Reward cycle has changed to {reward_cycle}. Updating stacker db session to StackerDB contract {contract}.",
                 );

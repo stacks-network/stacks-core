@@ -75,7 +75,7 @@ pub struct StacksClient {
     /// The chain we are interacting with
     chain_id: u32,
     /// Whether we are mainnet or not
-    mainnet: bool,
+    pub mainnet: bool,
     /// The Client used to make HTTP connects
     stacks_node_client: reqwest::blocking::Client,
     /// the auth password for the stacks node
@@ -133,6 +133,28 @@ impl StacksClient {
             mainnet,
             auth_password,
         }
+    }
+
+    /// Create a new signer StacksClient and attempt to connect to the stacks node to determine the version
+    pub fn try_from_host(
+        stacks_private_key: StacksPrivateKey,
+        node_host: String,
+        auth_password: String,
+    ) -> Result<Self, ClientError> {
+        let mut stacks_client = Self::new(stacks_private_key, node_host, auth_password, true);
+        let pubkey = StacksPublicKey::from_private(&stacks_private_key);
+        let info = stacks_client.get_peer_info()?;
+        if info.network_id == CHAIN_ID_MAINNET {
+            stacks_client.mainnet = true;
+            stacks_client.chain_id = CHAIN_ID_MAINNET;
+            stacks_client.tx_version = TransactionVersion::Mainnet;
+        } else {
+            stacks_client.mainnet = false;
+            stacks_client.chain_id = CHAIN_ID_TESTNET;
+            stacks_client.tx_version = TransactionVersion::Testnet;
+        }
+        stacks_client.stacks_address = StacksAddress::p2pkh(stacks_client.mainnet, &pubkey);
+        Ok(stacks_client)
     }
 
     /// Get our signer address

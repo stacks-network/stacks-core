@@ -266,9 +266,6 @@ pub struct MonitorSignersArgs {
     /// The Stacks node to connect to
     #[arg(long)]
     pub host: String,
-    /// Whether the node is mainnet. Default is false.
-    #[arg(long, default_value = "false")]
-    pub mainnet: bool,
     /// Set the polling interval in seconds.
     #[arg(long, short, default_value = "60")]
     pub interval: u64,
