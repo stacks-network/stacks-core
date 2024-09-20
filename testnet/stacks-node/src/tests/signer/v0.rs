@@ -3567,7 +3567,7 @@ fn partial_tenure_fork() {
     }
 
     let num_signers = 5;
-    let max_nakamoto_tenures = 20;
+    let max_nakamoto_tenures = 30;
     let inter_blocks_per_tenure = 5;
 
     // setup sender + recipient for a test stx transfer
@@ -3611,13 +3611,18 @@ fn partial_tenure_fork() {
             config.burnchain.local_mining_public_key = Some(btc_miner_1_pk.to_hex());
             config.miner.mining_key = Some(Secp256k1PrivateKey::from_seed(&[1]));
 
+            // Increase the reward cycle length to avoid missing a prepare phase
+            // while we are intentionally forking.
+            config.burnchain.pox_reward_length = Some(40);
+            config.burnchain.pox_prepare_length = Some(10);
+
             // Move epoch 2.5 and 3.0 earlier, so we have more time for the
             // test before re-stacking is required.
             if let Some(epochs) = config.burnchain.epochs.as_mut() {
-                epochs[6].end_height = 121;
-                epochs[7].start_height = 121;
-                epochs[7].end_height = 151;
-                epochs[8].start_height = 151;
+                epochs[6].end_height = 131;
+                epochs[7].start_height = 131;
+                epochs[7].end_height = 166;
+                epochs[8].start_height = 166;
             } else {
                 panic!("Expected epochs to be set");
             }
@@ -3694,8 +3699,8 @@ fn partial_tenure_fork() {
     let mut min_miner_2_tenures = u64::MAX;
     let mut ignore_block = 0;
 
-    while !(miner_1_tenures >= min_miner_1_tenures && miner_2_tenures >= min_miner_2_tenures) {
-        if btc_blocks_mined > max_nakamoto_tenures {
+    while miner_1_tenures < min_miner_1_tenures || miner_2_tenures < min_miner_2_tenures {
+        if btc_blocks_mined >= max_nakamoto_tenures {
             panic!("Produced {btc_blocks_mined} sortitions, but didn't cover the test scenarios, aborting");
         }
 
@@ -3851,7 +3856,7 @@ fn partial_tenure_fork() {
                 Err(e) => {
                     if e.to_string().contains("TooMuchChaining") {
                         info!("TooMuchChaining error, skipping block");
-                        continue;
+                        break;
                     } else {
                         panic!("Failed to submit tx: {}", e);
                     }
