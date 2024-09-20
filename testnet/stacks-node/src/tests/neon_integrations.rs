@@ -12398,6 +12398,10 @@ fn bitcoin_reorg_flap() {
     channel.stop_chains_coordinator();
 }
 
+/// Advance the bitcoin chain and wait for the miner and any followers to
+/// process the next block.
+/// NOTE: This only works if the followers are mock-mining, or else the counter
+///       will not be updated.
 fn next_block_and_wait_all(
     btc_controller: &mut BitcoinRegtestController,
     miner_blocks_processed: &Arc<AtomicU64>,
@@ -12447,7 +12451,7 @@ fn bitcoin_reorg_flap_with_follower() {
     }
 
     let (conf, _miner_account) = neon_integration_test_conf();
-    let timeout = None;
+    let timeout = Some(Duration::from_secs(60));
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
@@ -12461,10 +12465,12 @@ fn bitcoin_reorg_flap_with_follower() {
     eprintln!("Chain bootstrapped...");
 
     let mut miner_run_loop = neon::RunLoop::new(conf.clone());
+    let run_loop_stopper = miner_run_loop.get_termination_switch();
     let miner_blocks_processed = miner_run_loop.get_blocks_processed_arc();
     let miner_channel = miner_run_loop.get_coordinator_channel().unwrap();
 
     let mut follower_conf = conf.clone();
+    follower_conf.node.mock_mining = true;
     follower_conf.events_observers.clear();
     follower_conf.node.working_dir = format!("{}-follower", &conf.node.working_dir);
     follower_conf.node.seed = vec![0x01; 32];
@@ -12483,7 +12489,7 @@ fn bitcoin_reorg_flap_with_follower() {
     follower_conf.node.data_url = format!("http://{}:{}", &localhost, rpc_port);
     follower_conf.node.p2p_address = format!("{}:{}", &localhost, p2p_port);
 
-    thread::spawn(move || miner_run_loop.start(None, 0));
+    let run_loop_thread = thread::spawn(move || miner_run_loop.start(None, 0));
     wait_for_runloop(&miner_blocks_processed);
 
     // figure out the started node's port
@@ -12499,23 +12505,20 @@ fn bitcoin_reorg_flap_with_follower() {
     );
 
     let mut follower_run_loop = neon::RunLoop::new(follower_conf.clone());
+    let follower_run_loop_stopper = follower_run_loop.get_termination_switch();
     let follower_blocks_processed = follower_run_loop.get_blocks_processed_arc();
     let follower_channel = follower_run_loop.get_coordinator_channel().unwrap();
 
-    thread::spawn(move || follower_run_loop.start(None, 0));
+    let follower_thread = thread::spawn(move || follower_run_loop.start(None, 0));
     wait_for_runloop(&follower_blocks_processed);
 
     eprintln!("Follower bootup complete!");
 
     // first block wakes up the run loop
-    next_block_and_wait_all(
-        &mut btc_regtest_controller,
-        &miner_blocks_processed,
-        &[],
-        timeout,
-    );
+    next_block_and_wait_with_timeout(&mut btc_regtest_controller, &miner_blocks_processed, 60);
 
-    // first block will hold our VRF registration
+    // next block will hold our VRF registration
+    // Note that the follower will not see its block processed counter bumped here
     next_block_and_wait_all(
         &mut btc_regtest_controller,
         &miner_blocks_processed,
@@ -12609,9 +12612,11 @@ fn bitcoin_reorg_flap_with_follower() {
     assert_eq!(miner_channel.get_sortitions_processed(), 225);
     assert_eq!(follower_channel.get_sortitions_processed(), 225);
 
-    btcd_controller.stop_bitcoind().unwrap();
-    miner_channel.stop_chains_coordinator();
-    follower_channel.stop_chains_coordinator();
+    run_loop_stopper.store(false, Ordering::SeqCst);
+    follower_run_loop_stopper.store(false, Ordering::SeqCst);
+
+    run_loop_thread.join().unwrap();
+    follower_thread.join().unwrap();
 }
 
 /// Tests the following:
