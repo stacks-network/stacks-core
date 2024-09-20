@@ -675,7 +675,7 @@ impl StacksChainState {
         let version: Option<i64> = match query_row(&conn, qry, args) {
             Ok(x) => x,
             Err(e) => {
-                debug!("Failed to get Nakamoto staging blocks DB version: {:?}", &e);
+                error!("Failed to get Nakamoto staging blocks DB version: {:?}", &e);
                 return Err(ChainstateError::DBError(DBError::Corruption));
             }
         };
@@ -687,7 +687,7 @@ impl StacksChainState {
                 Ok(ver)
             }
             None => {
-                debug!("No version present in Nakamoto staging blocks DB; defaulting to 1");
+                error!("No version present in Nakamoto staging blocks `db_version` table");
                 Err(ChainstateError::DBError(DBError::Corruption))
             }
         }
