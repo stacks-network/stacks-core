@@ -54,6 +54,7 @@ pub trait SignerRunLoop<R: Send, CMD: Send, T: SignerEventTrait> {
         event: Option<SignerEvent<T>>,
         cmd: Option<CMD>,
         res: &Sender<R>,
+        stop_recv: &Receiver<()>,
     ) -> Option<R>;
 
     /// This is the main loop body for the signer. It continuously receives events from
@@ -69,6 +70,7 @@ pub trait SignerRunLoop<R: Send, CMD: Send, T: SignerEventTrait> {
         command_recv: Receiver<CMD>,
         result_send: Sender<R>,
         mut event_stop_signaler: EVST,
+        stop_recv: Receiver<()>,
     ) -> Option<R> {
         info!("Signer runloop begin");
         loop {
@@ -84,7 +86,7 @@ pub trait SignerRunLoop<R: Send, CMD: Send, T: SignerEventTrait> {
             // Do not block for commands
             let next_command_opt = command_recv.try_recv().ok();
             if let Some(final_state) =
-                self.run_one_pass(next_event_opt, next_command_opt, &result_send)
+                self.run_one_pass(next_event_opt, next_command_opt, &result_send, &stop_recv)
             {
                 info!("Runloop exit; signaling event-receiver to stop");
                 event_stop_signaler.send();
@@ -229,7 +231,11 @@ impl<
     ///
     /// On success, this method consumes the Signer and returns a RunningSigner with the relevant
     /// inter-thread communication primitives for the caller to shut down the system.
-    pub fn spawn(&mut self, bind_addr: SocketAddr) -> Result<RunningSigner<EV, R, T>, EventError> {
+    pub fn spawn(
+        &mut self,
+        bind_addr: SocketAddr,
+        stop_recv: Receiver<()>,
+    ) -> Result<RunningSigner<EV, R, T>, EventError> {
         let mut event_receiver = self
             .event_receiver
             .take()
@@ -267,7 +273,13 @@ impl<
             .name(format!("signer_runloop:{bind_port}"))
             .stack_size(THREAD_STACK_SIZE)
             .spawn(move || {
-                signer_loop.main_loop(event_recv, command_receiver, result_sender, stop_signaler)
+                signer_loop.main_loop(
+                    event_recv,
+                    command_receiver,
+                    result_sender,
+                    stop_signaler,
+                    stop_recv,
+                )
             })
             .map_err(|e| {
                 error!("SignerRunLoop failed to start: {:?}", &e);

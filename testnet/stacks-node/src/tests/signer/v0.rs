@@ -2863,16 +2863,15 @@ fn signer_set_rollover() {
         None,
         Some(9000 + num_signers),
     );
-
-    let new_spawned_signers: Vec<_> = (0..new_num_signers)
-        .into_iter()
-        .map(|i| {
-            info!("spawning signer");
-            let signer_config =
-                SignerConfig::load_from_str(&new_signer_configs[i as usize]).unwrap();
-            SpawnedSigner::new(signer_config)
-        })
-        .collect();
+    let mut stop_signals = Vec::with_capacity(new_num_signers);
+    let mut new_spawned_signers = Vec::with_capacity(new_num_signers);
+    for i in 0..new_num_signers {
+        let (stop_send, stop_recv) = std::sync::mpsc::channel::<()>();
+        info!("spawning signer");
+        let signer_config = SignerConfig::load_from_str(&new_signer_configs[i as usize]).unwrap();
+        stop_signals.push(stop_send);
+        new_spawned_signers.push(SpawnedSigner::new(signer_config, stop_recv));
+    }
 
     // Boot with some initial signer set
     let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
@@ -3079,6 +3078,9 @@ fn signer_set_rollover() {
     }
 
     signer_test.shutdown();
+    for stop_signal in stop_signals {
+        stop_signal.send(()).unwrap();
+    }
     for signer in new_spawned_signers {
         assert!(signer.stop().is_none());
     }

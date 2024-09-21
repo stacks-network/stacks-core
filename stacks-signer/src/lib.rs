@@ -48,7 +48,7 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 
 use chainstate::SortitionsView;
 use config::GlobalConfig;
-use libsigner::{SignerEvent, SignerEventReceiver, SignerEventTrait};
+use libsigner::{EventStopSignaler, SignerEvent, SignerEventReceiver, SignerEventTrait};
 use runloop::SignerResult;
 use slog::{slog_info, slog_warn};
 use stacks_common::{info, warn};
@@ -56,6 +56,28 @@ use stacks_common::{info, warn};
 use crate::client::StacksClient;
 use crate::config::SignerConfig;
 use crate::runloop::{RunLoop, RunLoopCommand};
+
+/// Stop signaler for the signer
+pub struct StopSignaler {
+    sender: Sender<()>,
+}
+
+// Implement the trait for `StopSignaler`
+impl EventStopSignaler for StopSignaler {
+    fn send(&mut self) {
+        // Send a signal to stop the loop
+        if let Err(e) = self.sender.send(()) {
+            eprintln!("Error sending stop signal: {}", e);
+        }
+    }
+}
+
+impl StopSignaler {
+    /// Create a new `StopSignaler` instance
+    pub fn new(sender: Sender<()>) -> Self {
+        StopSignaler { sender }
+    }
+}
 
 /// A trait which provides a common `Signer` interface for `v0` and `v1`
 pub trait Signer<T: SignerEventTrait>: Debug + Display {
@@ -71,6 +93,7 @@ pub trait Signer<T: SignerEventTrait>: Debug + Display {
         event: Option<&SignerEvent<T>>,
         res: &Sender<Vec<SignerResult>>,
         current_reward_cycle: u64,
+        stop_recv: &Receiver<()>,
     );
     /// Process a command
     fn process_command(
@@ -118,7 +141,7 @@ impl<S: Signer<T> + Send, T: SignerEventTrait> SpawnedSigner<S, T> {
 
 impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SpawnedSigner<S, T> {
     /// Create a new spawned signer
-    pub fn new(config: GlobalConfig) -> Self {
+    pub fn new(config: GlobalConfig, stop_recv: Receiver<()>) -> Self {
         let endpoint = config.endpoint;
         info!("Starting signer with config: {:?}", config);
         warn!(
@@ -139,7 +162,9 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SpawnedSigner
         let runloop = RunLoop::new(config.clone());
         let mut signer: RunLoopSigner<S, T> =
             libsigner::Signer::new(runloop, ev, cmd_recv, res_send);
-        let running_signer = signer.spawn(endpoint).expect("Failed to spawn signer");
+        let running_signer = signer
+            .spawn(endpoint, stop_recv)
+            .expect("Failed to spawn signer");
         SpawnedSigner {
             running_signer,
             cmd_send,

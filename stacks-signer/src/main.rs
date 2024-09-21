@@ -32,7 +32,7 @@ use blockstack_lib::util_lib::signed_structured_data::pox4::make_pox_4_signer_ke
 use clap::Parser;
 use clarity::types::chainstate::StacksPublicKey;
 use clarity::vm::types::QualifiedContractIdentifier;
-use libsigner::{SignerSession, StackerDBSession};
+use libsigner::{set_runloop_signal_handler, SignerSession, StackerDBSession};
 use libstackerdb::StackerDBChunkData;
 use slog::slog_debug;
 use stacks_common::debug;
@@ -44,6 +44,7 @@ use stacks_signer::cli::{
 };
 use stacks_signer::config::GlobalConfig;
 use stacks_signer::v0::SpawnedSigner;
+use stacks_signer::StopSignaler;
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{fmt, EnvFilter};
 
@@ -104,7 +105,10 @@ fn handle_put_chunk(args: PutChunkArgs) {
 fn handle_run(args: RunSignerArgs) {
     debug!("Running signer...");
     let config = GlobalConfig::try_from(&args.config).unwrap();
-    let spawned_signer = SpawnedSigner::new(config);
+    let (stop_send, stop_recv) = std::sync::mpsc::channel();
+    let signaler = StopSignaler::new(stop_send);
+    set_runloop_signal_handler(signaler);
+    let spawned_signer = SpawnedSigner::new(config, stop_recv);
     println!("Signer spawned successfully. Waiting for messages to process...");
     // Wait for the spawned signer to stop (will only occur if an error occurs)
     let _ = spawned_signer.join();

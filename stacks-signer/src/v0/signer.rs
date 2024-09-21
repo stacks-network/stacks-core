@@ -14,7 +14,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::Debug;
-use std::sync::mpsc::Sender;
+use std::sync::mpsc::{Receiver, Sender};
 
 use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
 use blockstack_lib::net::api::postblock_proposal::{
@@ -62,6 +62,42 @@ pub static TEST_PAUSE_BLOCK_BROADCAST: std::sync::Mutex<Option<bool>> = std::syn
 #[cfg(any(test, feature = "testing"))]
 /// Skip broadcasting the block to the network
 pub static TEST_SKIP_BLOCK_BROADCAST: std::sync::Mutex<Option<bool>> = std::sync::Mutex::new(None);
+
+/// Fault injection logic to artificially pause block broadcasts
+/// Only used in testing
+#[cfg(test)]
+pub(crate) fn fault_injection_pause_broadcast() {
+    if *TEST_PAUSE_BLOCK_BROADCAST.lock().unwrap() == Some(true) {
+        // Do an extra check just so we don't log EVERY time.
+        warn!("Block broadcast is stalled due to testing directive.");
+        while *TEST_PAUSE_BLOCK_BROADCAST.lock().unwrap() == Some(true) {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        info!("Block validation is no longer stalled due to testing directive.");
+    }
+}
+
+#[cfg(not(test))]
+pub(crate) fn fault_injection_pause_broadcast() {}
+
+/// Fault injection logic to artificially skip block braodcasts
+/// Only used in testing
+#[cfg(test)]
+pub(crate) fn fault_injection_skip_broadcast() -> bool {
+    if *TEST_SKIP_BLOCK_BROADCAST.lock().unwrap() == Some(true) {
+        warn!(
+            "Skipping block broadcast due to testing directive";
+        );
+        true
+    } else {
+        false
+    }
+}
+
+#[cfg(not(test))]
+pub(crate) fn fault_injection_skip_broadcast() -> bool {
+    false
+}
 
 /// The stacks signer registered for the reward cycle
 #[derive(Debug)]
@@ -113,6 +149,7 @@ impl SignerTrait<SignerMessage> for Signer {
         event: Option<&SignerEvent<SignerMessage>>,
         _res: &Sender<Vec<SignerResult>>,
         current_reward_cycle: u64,
+        stop_recv: &Receiver<()>,
     ) {
         let event_parity = match event {
             // Block proposal events do have reward cycles, but each proposal has its own cycle,
@@ -137,7 +174,11 @@ impl SignerTrait<SignerMessage> for Signer {
         match event {
             SignerEvent::BlockValidationResponse(block_validate_response) => {
                 debug!("{self}: Received a block proposal result from the stacks node...");
-                self.handle_block_validate_response(stacks_client, block_validate_response)
+                self.handle_block_validate_response(
+                    stacks_client,
+                    block_validate_response,
+                    stop_recv,
+                )
             }
             SignerEvent::SignerMessages(_signer_set, messages) => {
                 debug!(
@@ -149,7 +190,7 @@ impl SignerTrait<SignerMessage> for Signer {
                     let SignerMessage::BlockResponse(block_response) = message else {
                         continue;
                     };
-                    self.handle_block_response(stacks_client, block_response);
+                    self.handle_block_response(stacks_client, block_response, stop_recv);
                 }
             }
             SignerEvent::MinerMessages(messages, miner_pubkey) => {
@@ -191,17 +232,7 @@ impl SignerTrait<SignerMessage> for Signer {
                                 "block_id" => %b.block_id(),
                                 "signer_sighash" => %b.header.signer_signature_hash(),
                             );
-                            loop {
-                                match stacks_client.post_block(b) {
-                                    Ok(block_push_result) => {
-                                        debug!("{self}: Block pushed to stacks node: {block_push_result:?}");
-                                        break;
-                                    }
-                                    Err(e) => {
-                                        warn!("{self}: Failed to push block to stacks node: {e}. Retrying...");
-                                    }
-                                };
-                            }
+                            self.post_block(stacks_client, b, stop_recv);
                         }
                         SignerMessage::MockProposal(mock_proposal) => {
                             let epoch = match stacks_client.get_node_epoch() {
@@ -537,10 +568,16 @@ impl Signer {
         &mut self,
         stacks_client: &StacksClient,
         block_response: &BlockResponse,
+        stop_recv: &Receiver<()>,
     ) {
         match block_response {
-            BlockResponse::Accepted((block_hash, signature)) => {
-                self.handle_block_signature(stacks_client, block_hash, signature);
+            BlockResponse::Accepted((signer_signature_hash, signature)) => {
+                self.handle_block_signature(
+                    stacks_client,
+                    signer_signature_hash,
+                    signature,
+                    stop_recv,
+                );
             }
             BlockResponse::Rejected(block_rejection) => {
                 self.handle_block_rejection(block_rejection);
@@ -552,6 +589,7 @@ impl Signer {
         &mut self,
         stacks_client: &StacksClient,
         block_validate_ok: &BlockValidateOk,
+        stop_recv: &Receiver<()>,
     ) -> Option<BlockResponse> {
         crate::monitoring::increment_block_validation_responses(true);
         let signer_signature_hash = block_validate_ok.signer_signature_hash;
@@ -588,6 +626,7 @@ impl Signer {
             stacks_client,
             &block_info.signer_signature_hash(),
             &signature,
+            stop_recv,
         );
         Some(BlockResponse::accepted(signer_signature_hash, signature))
     }
@@ -635,11 +674,12 @@ impl Signer {
         &mut self,
         stacks_client: &StacksClient,
         block_validate_response: &BlockValidateResponse,
+        stop_recv: &Receiver<()>,
     ) {
         info!("{self}: Received a block validate response: {block_validate_response:?}");
         let block_response = match block_validate_response {
             BlockValidateResponse::Ok(block_validate_ok) => {
-                self.handle_block_validate_ok(stacks_client, block_validate_ok)
+                self.handle_block_validate_ok(stacks_client, block_validate_ok, stop_recv)
             }
             BlockValidateResponse::Reject(block_validate_reject) => {
                 self.handle_block_validate_reject(block_validate_reject)
@@ -778,44 +818,42 @@ impl Signer {
         }
     }
 
-    /// Handle an observed signature from another signer
-    fn handle_block_signature(
-        &mut self,
-        stacks_client: &StacksClient,
-        block_hash: &Sha512Trunc256Sum,
+    /// Check if the signature is valid and not already stored
+    fn validate_signature(
+        &self,
+        signer_signature_hash: &Sha512Trunc256Sum,
         signature: &MessageSignature,
-    ) {
-        debug!("{self}: Received a block-accept signature: ({block_hash}, {signature})");
-
+    ) -> bool {
         // Have we already processed this block?
         match self
             .signer_db
-            .get_block_state(self.reward_cycle, block_hash)
+            .get_block_state(self.reward_cycle, signer_signature_hash)
         {
             Ok(Some(state)) => {
                 if state == BlockState::GloballyAccepted || state == BlockState::GloballyRejected {
                     debug!("{self}: Received block signature for a block that is already marked as {}. Ignoring...", state);
-                    return;
+                    return false;
                 }
             }
             Ok(None) => {
                 debug!("{self}: Received block signature for a block we have not seen before. Ignoring...");
-                return;
+                return false;
             }
             Err(e) => {
                 warn!("{self}: Failed to load block state: {e:?}",);
-                return;
+                return false;
             }
         }
 
         // recover public key
-        let Ok(public_key) = Secp256k1PublicKey::recover_to_pubkey(block_hash.bits(), signature)
+        let Ok(public_key) =
+            Secp256k1PublicKey::recover_to_pubkey(signer_signature_hash.bits(), signature)
         else {
             debug!("{self}: Received unrecovarable signature. Will not store.";
-                   "signature" => %signature,
-                   "block_hash" => %block_hash);
+                       "signature" => %signature,
+                       "signer_signature_hash" => %signer_signature_hash);
 
-            return;
+            return false;
         };
 
         // authenticate the signature -- it must be signed by one of the stacking set
@@ -828,26 +866,42 @@ impl Signer {
 
         if !is_valid_sig {
             debug!("{self}: Receive invalid signature {signature}. Will not store.");
+            return false;
+        }
+        true
+    }
+
+    /// Handle an observed signature from another signer
+    fn handle_block_signature(
+        &mut self,
+        stacks_client: &StacksClient,
+        signer_signature_hash: &Sha512Trunc256Sum,
+        signature: &MessageSignature,
+        stop_recv: &Receiver<()>,
+    ) {
+        debug!("{self}: Received a block-accept signature: ({signer_signature_hash}, {signature})");
+        if !self.validate_signature(signer_signature_hash, signature) {
             return;
         }
 
         // signature is valid! store it
         self.signer_db
-            .add_block_signature(block_hash, signature)
+            .add_block_signature(signer_signature_hash, signature)
             .unwrap_or_else(|_| panic!("{self}: Failed to save block signature"));
 
         // do we have enough signatures to broadcast?
         // i.e. is the threshold reached?
         let signatures = self
             .signer_db
-            .get_block_signatures(block_hash)
+            .get_block_signatures(signer_signature_hash)
             .unwrap_or_else(|_| panic!("{self}: Failed to load block signatures"));
 
         // put signatures in order by signer address (i.e. reward cycle order)
         let addrs_to_sigs: HashMap<_, _> = signatures
             .into_iter()
             .filter_map(|sig| {
-                let Ok(public_key) = Secp256k1PublicKey::recover_to_pubkey(block_hash.bits(), &sig)
+                let Ok(public_key) =
+                    Secp256k1PublicKey::recover_to_pubkey(signer_signature_hash.bits(), &sig)
                 else {
                     return None;
                 };
@@ -867,7 +921,7 @@ impl Signer {
         if min_weight > signature_weight {
             debug!(
                 "{self}: Not enough signatures on block {} (have {}, need at least {}/{})",
-                block_hash, signature_weight, min_weight, total_weight
+                signer_signature_hash, signature_weight, min_weight, total_weight
             );
             return;
         }
@@ -875,13 +929,13 @@ impl Signer {
         // have enough signatures to broadcast!
         let Ok(Some(mut block_info)) = self
             .signer_db
-            .block_lookup(self.reward_cycle, block_hash)
+            .block_lookup(self.reward_cycle, signer_signature_hash)
             .map_err(|e| {
-                warn!("{self}: Failed to load block {block_hash}: {e:?})");
+                warn!("{self}: Failed to load block {signer_signature_hash}: {e:?})");
                 e
             })
         else {
-            warn!("{self}: No such block {block_hash}");
+            warn!("{self}: No such block {signer_signature_hash}");
             return;
         };
         // move block to LOCALLY accepted state.
@@ -893,28 +947,12 @@ impl Signer {
         let _ = self.signer_db.insert_block(&block_info).map_err(|e| {
             warn!(
                 "Failed to set group threshold signature timestamp for {}: {:?}",
-                block_hash, &e
+                signer_signature_hash, &e
             );
             e
         });
-        #[cfg(any(test, feature = "testing"))]
-        {
-            if *TEST_PAUSE_BLOCK_BROADCAST.lock().unwrap() == Some(true) {
-                // Do an extra check just so we don't log EVERY time.
-                warn!("Block broadcast is stalled due to testing directive.";
-                    "block_id" => %block_info.block.block_id(),
-                    "height" => block_info.block.header.chain_length,
-                );
-                while *TEST_PAUSE_BLOCK_BROADCAST.lock().unwrap() == Some(true) {
-                    std::thread::sleep(std::time::Duration::from_millis(10));
-                }
-                info!("Block validation is no longer stalled due to testing directive.";
-                    "block_id" => %block_info.block.block_id(),
-                    "height" => block_info.block.header.chain_length,
-                );
-            }
-        }
-        self.broadcast_signed_block(stacks_client, block_info.block, &addrs_to_sigs);
+        fault_injection_pause_broadcast();
+        self.broadcast_signed_block(stacks_client, block_info.block, &addrs_to_sigs, stop_recv);
     }
 
     fn broadcast_signed_block(
@@ -922,8 +960,9 @@ impl Signer {
         stacks_client: &StacksClient,
         mut block: NakamotoBlock,
         addrs_to_sigs: &HashMap<StacksAddress, MessageSignature>,
+        stop_recv: &Receiver<()>,
     ) {
-        let block_hash = block.header.signer_signature_hash();
+        let signer_signature_hash = block.header.signer_signature_hash();
         // collect signatures for the block
         let signatures: Vec<_> = self
             .signer_addresses
@@ -931,50 +970,58 @@ impl Signer {
             .filter_map(|addr| addrs_to_sigs.get(addr).cloned())
             .collect();
 
-        block.header.signer_signature_hash();
         block.header.signer_signature = signatures;
 
-        #[cfg(any(test, feature = "testing"))]
-        {
-            if *TEST_SKIP_BLOCK_BROADCAST.lock().unwrap() == Some(true) {
-                warn!(
-                    "{self}: Skipping block broadcast due to testing directive";
-                    "block_id" => %block.block_id(),
-                    "height" => block.header.chain_length,
-                    "consensus_hash" => %block.header.consensus_hash
-                );
-
-                if let Err(e) = self.signer_db.set_block_broadcasted(
-                    self.reward_cycle,
-                    &block_hash,
-                    get_epoch_time_secs(),
-                ) {
-                    warn!("{self}: Failed to set block broadcasted for {block_hash}: {e:?}");
-                }
+        if !fault_injection_skip_broadcast() {
+            if !self.post_block(stacks_client, &block, stop_recv) {
+                warn!("{self}: Failed to post block to stacks node. Aborting broadcast.");
                 return;
             }
         }
+        if let Err(e) = self.signer_db.set_block_broadcasted(
+            self.reward_cycle,
+            &signer_signature_hash,
+            get_epoch_time_secs(),
+        ) {
+            warn!("{self}: Failed to set block broadcasted for {signer_signature_hash}: {e:?}");
+        }
+    }
+
+    /// Post a block to the stacks node. Will infinitely loop until the block is acknowledged by the node or a stop signal is received.
+    /// Returns true if the block was successfully posted, false if a stop signal was received before it could be posted successfully.
+    fn post_block(
+        &self,
+        stacks_client: &StacksClient,
+        block: &NakamotoBlock,
+        stop_recv: &Receiver<()>,
+    ) -> bool {
         debug!(
             "{self}: Broadcasting Stacks block {} to node",
             &block.block_id()
         );
-        if let Err(e) = stacks_client.post_block(&block) {
-            warn!(
-                "{self}: Failed to post block {block_hash}: {e:?}";
-                "stacks_block_id" => %block.block_id(),
-                "parent_block_id" => %block.header.parent_block_id,
-                "burnchain_consensus_hash" => %block.header.consensus_hash
-            );
-            return;
+        let signer_signature_hash = block.header.signer_signature_hash();
+        loop {
+            match stacks_client.post_block(&block) {
+                Ok(block_push_result) => {
+                    debug!("{self}: Block pushed to stacks node: {block_push_result:?}");
+                    break;
+                }
+                Err(e) => {
+                    warn!(
+                        "{self}: Failed to post block {signer_signature_hash}: {e:?}. Retrying...";
+                        "stacks_block_id" => %block.block_id(),
+                        "parent_block_id" => %block.header.parent_block_id,
+                        "burnchain_consensus_hash" => %block.header.consensus_hash,
+                        "block_hash" => &block.header.block_hash()
+                    );
+                }
+            };
+            if stop_recv.try_recv().is_ok() {
+                warn!("{self}: Stopping block broadcast due to stop signal. Attempting graceful termination...");
+                return false;
+            }
         }
-
-        if let Err(e) = self.signer_db.set_block_broadcasted(
-            self.reward_cycle,
-            &block_hash,
-            get_epoch_time_secs(),
-        ) {
-            warn!("{self}: Failed to set block broadcasted for {block_hash}: {e:?}");
-        }
+        true
     }
 
     /// Send a mock signature to stackerdb to prove we are still alive

@@ -16,7 +16,7 @@
 use std::collections::VecDeque;
 use std::fmt::Debug;
 use std::path::PathBuf;
-use std::sync::mpsc::Sender;
+use std::sync::mpsc::{Receiver, Sender};
 use std::time::Instant;
 
 use blockstack_lib::chainstate::burn::ConsensusHashExtensions;
@@ -156,6 +156,7 @@ impl SignerTrait<SignerMessage> for Signer {
         event: Option<&SignerEvent<SignerMessage>>,
         res: &Sender<Vec<SignerResult>>,
         current_reward_cycle: u64,
+        _stop_recv: &Receiver<()>,
     ) {
         let event_parity = match event {
             Some(SignerEvent::BlockValidationResponse(_)) => Some(current_reward_cycle % 2),

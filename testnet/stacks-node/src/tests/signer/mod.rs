@@ -31,6 +31,7 @@ use std::collections::HashSet;
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -111,6 +112,8 @@ pub struct SignerTest<S> {
     pub run_stamp: u16,
     /// The number of cycles to stack for
     pub num_stacking_cycles: u64,
+    /// The stop signals for the signers
+    pub stop_signals: Vec<Sender<()>>,
 }
 
 impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<SpawnedSigner<S, T>> {
@@ -185,11 +188,14 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         .collect();
         assert_eq!(signer_configs.len(), num_signers);
 
-        let spawned_signers = signer_configs
-            .iter()
-            .cloned()
-            .map(SpawnedSigner::new)
-            .collect();
+        let mut stop_signals = Vec::with_capacity(num_signers);
+        let mut spawned_signers = Vec::with_capacity(num_signers);
+        for i in 0..num_signers {
+            let (stop_send, stop_recv) = std::sync::mpsc::channel::<()>();
+            info!("spawning signer");
+            stop_signals.push(stop_send);
+            spawned_signers.push(SpawnedSigner::new(signer_configs[i].clone(), stop_recv));
+        }
 
         // Setup the nodes and deploy the contract to it
         let btc_miner_pubkeys = btc_miner_pubkeys
@@ -224,6 +230,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
             run_stamp,
             num_stacking_cycles: 12_u64,
             signer_configs,
+            stop_signals,
         }
     }
 
@@ -659,8 +666,10 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
 
         info!("Restarting signer");
         let config = SignerConfig::load_from_str(&signer_config).unwrap();
-        let signer = SpawnedSigner::new(config);
+        let (stop_send, stop_recv) = std::sync::mpsc::channel::<()>();
+        let signer = SpawnedSigner::new(config, stop_recv);
         self.spawned_signers.insert(signer_idx, signer);
+        self.stop_signals.insert(signer_idx, stop_send);
     }
 
     pub fn shutdown(self) {
@@ -674,6 +683,9 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
             .run_loop_stopper
             .store(false, Ordering::SeqCst);
         self.running_nodes.run_loop_thread.join().unwrap();
+        for stop_signal in self.stop_signals {
+            stop_signal.send(()).unwrap();
+        }
         for signer in self.spawned_signers {
             assert!(signer.stop().is_none());
         }

@@ -59,7 +59,7 @@ pub use crate::events::{
     BlockProposal, EventReceiver, EventStopSignaler, SignerEvent, SignerEventReceiver,
     SignerEventTrait, SignerStopSignaler,
 };
-pub use crate::runloop::{RunningSigner, Signer, SignerRunLoop};
+pub use crate::runloop::{set_runloop_signal_handler, RunningSigner, Signer, SignerRunLoop};
 pub use crate::session::{SignerSession, StackerDBSession};
 pub use crate::signer_set::{Error as ParseSignerEntriesError, SignerEntries};
 

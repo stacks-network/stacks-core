@@ -15,7 +15,7 @@ use std::fmt::Debug;
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-use std::sync::mpsc::Sender;
+use std::sync::mpsc::{Receiver, Sender};
 use std::time::Duration;
 
 use blockstack_lib::chainstate::stacks::boot::SIGNERS_NAME;
@@ -540,11 +540,16 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug>
         event: Option<SignerEvent<T>>,
         cmd: Option<RunLoopCommand>,
         res: &Sender<Vec<SignerResult>>,
+        stop_recv: &Receiver<()>,
     ) -> Option<Vec<SignerResult>> {
         debug!(
             "Running one pass for the signer. state={:?}, cmd={cmd:?}, event={event:?}",
             self.state
         );
+        if stop_recv.try_recv().is_ok() {
+            info!("Signer runloop received stop signal.");
+            return Some(vec![]);
+        }
         // This is the only event that we respond to from the outer signer runloop
         if let Some(SignerEvent::StatusCheck) = event {
             info!("Signer status check requested: {:?}.", self.state);
@@ -592,6 +597,7 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug>
                 event.as_ref(),
                 res,
                 current_reward_cycle,
+                stop_recv,
             );
             // After processing event, run the next command for each signer
             signer.process_command(

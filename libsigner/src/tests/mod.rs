@@ -77,6 +77,7 @@ impl<T: SignerEventTrait> SignerRunLoop<Vec<SignerEvent<T>>, Command, T> for Sim
         event: Option<SignerEvent<T>>,
         _cmd: Option<Command>,
         _res: &Sender<Vec<SignerEvent<T>>>,
+        _stop: &Receiver<()>,
     ) -> Option<Vec<SignerEvent<T>>> {
         debug!("Got event: {:?}", &event);
         if let Some(event) = event {
@@ -150,8 +151,9 @@ fn test_simple_signer() {
             num_sent += 1;
         }
     });
+    let (stop_send, stop_recv) = channel();
 
-    let running_signer = signer.spawn(endpoint).unwrap();
+    let running_signer = signer.spawn(endpoint, stop_recv).unwrap();
     sleep_ms(5000);
     let accepted_events = running_signer.stop().unwrap();
 
@@ -208,7 +210,8 @@ fn test_status_endpoint() {
         sock.flush().unwrap();
     });
 
-    let running_signer = signer.spawn(endpoint).unwrap();
+    let (_stop_send, stop_recv) = channel();
+    let running_signer = signer.spawn(endpoint, stop_recv).unwrap();
     sleep_ms(3000);
     let accepted_events = running_signer.stop().unwrap();
 
