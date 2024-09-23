@@ -37,6 +37,7 @@ use std::time::{Duration, Instant};
 
 use clarity::boot_util::boot_code_id;
 use clarity::vm::types::PrincipalData;
+use libsigner::v0::messages::{BlockResponse, SignerMessage};
 use libsigner::{SignerEntries, SignerEventTrait};
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::nakamoto::signer_set::NakamotoSigners;
@@ -46,7 +47,9 @@ use stacks::core::StacksEpoch;
 use stacks::net::api::postblock_proposal::{
     BlockValidateOk, BlockValidateReject, BlockValidateResponse,
 };
-use stacks::types::chainstate::StacksAddress;
+use stacks::types::chainstate::{StacksAddress, StacksPublicKey};
+use stacks::types::PublicKey;
+use stacks::util::hash::MerkleHashFunc;
 use stacks::util::secp256k1::{MessageSignature, Secp256k1PublicKey};
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::consts::SIGNER_SLOTS_PER_USER;
@@ -677,6 +680,76 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         for signer in self.spawned_signers {
             assert!(signer.stop().is_none());
         }
+    }
+
+    pub fn wait_for_block_acceptance(
+        &self,
+        timeout_secs: u64,
+        signer_signature_hash: &Sha512Trunc256Sum,
+        expected_signers: &[StacksPublicKey],
+    ) -> Result<(), String> {
+        // Make sure that ALL signers accepted the block proposal
+        wait_for(timeout_secs, || {
+            let signatures = test_observer::get_stackerdb_chunks()
+                .into_iter()
+                .flat_map(|chunk| chunk.modified_slots)
+                .filter_map(|chunk| {
+                    let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
+                        .expect("Failed to deserialize SignerMessage");
+                    match message {
+                        SignerMessage::BlockResponse(BlockResponse::Accepted((
+                            hash,
+                            signature,
+                        ))) => {
+                            if hash == *signer_signature_hash
+                                && expected_signers.iter().any(|pk| {
+                                    pk.verify(hash.bits(), &signature)
+                                        .expect("Failed to verify signature")
+                                })
+                            {
+                                Some(signature)
+                            } else {
+                                None
+                            }
+                        }
+                        _ => None,
+                    }
+                })
+                .collect::<HashSet<_>>();
+            Ok(signatures.len() == expected_signers.len())
+        })
+    }
+
+    pub fn wait_for_block_rejections(
+        &self,
+        timeout_secs: u64,
+        expected_signers: &[StacksPublicKey],
+    ) -> Result<(), String> {
+        wait_for(timeout_secs, || {
+            let stackerdb_events = test_observer::get_stackerdb_chunks();
+            let block_rejections = stackerdb_events
+                .into_iter()
+                .flat_map(|chunk| chunk.modified_slots)
+                .filter_map(|chunk| {
+                    let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
+                        .expect("Failed to deserialize SignerMessage");
+                    match message {
+                        SignerMessage::BlockResponse(BlockResponse::Rejected(rejection)) => {
+                            let rejected_pubkey = rejection
+                                .recover_public_key()
+                                .expect("Failed to recover public key from rejection");
+                            if expected_signers.contains(&rejected_pubkey) {
+                                Some(rejection)
+                            } else {
+                                None
+                            }
+                        }
+                        _ => None,
+                    }
+                })
+                .collect::<Vec<_>>();
+            Ok(block_rejections.len() == expected_signers.len())
+        })
     }
 }
 

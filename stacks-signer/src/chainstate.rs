@@ -25,7 +25,7 @@ use stacks_common::types::chainstate::{ConsensusHash, StacksPublicKey};
 use stacks_common::util::hash::Hash160;
 use stacks_common::{info, warn};
 
-use crate::client::{ClientError, StacksClient};
+use crate::client::{ClientError, CurrentAndLastSortition, StacksClient};
 use crate::config::SignerConfig;
 use crate::signerdb::{BlockState, SignerDb};
 
@@ -138,8 +138,6 @@ pub struct SortitionsView {
     pub last_sortition: Option<SortitionState>,
     /// the current successful sortition (this corresponds to the "current" miner slot)
     pub cur_sortition: SortitionState,
-    /// the hash at which the sortitions view was fetched
-    pub latest_consensus_hash: ConsensusHash,
     /// configuration settings for evaluating proposals
     pub config: ProposalEvalConfig,
 }
@@ -608,42 +606,21 @@ impl SortitionsView {
         config: ProposalEvalConfig,
         client: &StacksClient,
     ) -> Result<Self, ClientError> {
-        let latest_state = client.get_latest_sortition()?;
-        let latest_ch = latest_state.consensus_hash;
+        let CurrentAndLastSortition {
+            current_sortition,
+            last_sortition,
+        } = client.get_current_and_last_sortition()?;
 
-        // figure out what cur_sortition will be set to.
-        //  if the latest sortition wasn't successful, query the last one that was.
-        let latest_success = if latest_state.was_sortition {
-            latest_state
-        } else {
-            info!("Latest state wasn't a sortition: {latest_state:?}");
-            let last_sortition_ch = latest_state
-                .last_sortition_ch
-                .as_ref()
-                .ok_or_else(|| ClientError::NoSortitionOnChain)?;
-            client.get_sortition(last_sortition_ch)?
-        };
-
-        // now, figure out what `last_sortition` will be set to.
-        let last_sortition = latest_success
-            .last_sortition_ch
-            .as_ref()
-            .map(|ch| client.get_sortition(ch))
-            .transpose()?;
-
-        let cur_sortition = SortitionState::try_from(latest_success)?;
+        let cur_sortition = SortitionState::try_from(current_sortition)?;
         let last_sortition = last_sortition
             .map(SortitionState::try_from)
             .transpose()
             .ok()
             .flatten();
 
-        let latest_consensus_hash = latest_ch;
-
         Ok(Self {
             cur_sortition,
             last_sortition,
-            latest_consensus_hash,
             config,
         })
     }
