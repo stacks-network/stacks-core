@@ -412,7 +412,7 @@ impl NakamotoBlockProposal {
 
         // Validate the block's timestamp. It must be:
         // - Greater than the parent block's timestamp
-        // - Less than 15 seconds into the future
+        // - At most 15 seconds into the future
         if let StacksBlockHeaderTypes::Nakamoto(parent_nakamoto_header) =
             &parent_stacks_header.anchored_header
         {

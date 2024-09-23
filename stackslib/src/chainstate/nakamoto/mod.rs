@@ -612,7 +612,7 @@ pub struct NakamotoBlockHeader {
     /// A Unix time timestamp of when this block was mined, according to the miner.
     /// For the signers to consider a block valid, this timestamp must be:
     ///  * Greater than the timestamp of its parent block
-    ///  * Less than 15 seconds into the future
+    ///  * At most 15 seconds into the future
     pub timestamp: u64,
     /// Recoverable ECDSA signature from the tenure's miner.
     pub miner_signature: MessageSignature,
@@ -3629,7 +3629,7 @@ impl NakamotoChainState {
                                 .map_err(|_| ChainstateError::InvalidStacksBlock("Reward set index outside of u16".into()))?;
                             let bitvec_value = block_bitvec.get(ix)
                                 .unwrap_or_else(|| {
-                                    info!("Block header's bitvec is smaller than the reward set, defaulting higher indexes to 1");
+                                    warn!("Block header's bitvec is smaller than the reward set, defaulting higher indexes to 1");
                                     true
                                 });
                             Ok(bitvec_value)

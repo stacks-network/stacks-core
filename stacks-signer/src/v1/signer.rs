@@ -239,12 +239,13 @@ impl SignerTrait<SignerMessage> for Signer {
                     self.signer_db
                         .insert_burn_block(burn_header_hash, *burn_height, received_time)
                 {
-                    warn!(
+                    error!(
                         "Failed to write burn block event to signerdb";
                         "err" => ?e,
                         "burn_header_hash" => %burn_header_hash,
                         "burn_height" => burn_height
                     );
+                    panic!("Failed to write burn block event to signerdb");
                 }
             }
         }
