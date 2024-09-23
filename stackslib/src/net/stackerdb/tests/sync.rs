@@ -1070,6 +1070,19 @@ fn inner_test_stackerdb_10_replicas_10_neighbors_line_10_chunks(push_only: bool,
                 peer_config.connection_opts.disable_stackerdb_get_chunks = true;
             }
 
+            // run up against pruner limits
+            peer_config.connection_opts.disable_network_prune = false;
+            peer_config.connection_opts.num_neighbors = 5;
+            peer_config.connection_opts.num_clients = 5;
+            peer_config.connection_opts.soft_num_neighbors = 5;
+            peer_config.connection_opts.soft_num_clients = 5;
+            peer_config.connection_opts.max_neighbors_per_host = 5;
+            peer_config.connection_opts.max_clients_per_host = 5;
+            peer_config.connection_opts.soft_max_neighbors_per_host = 5;
+            peer_config.connection_opts.soft_max_neighbors_per_org = 5;
+            peer_config.connection_opts.soft_max_clients_per_host = 5;
+            peer_config.connection_opts.max_neighbors_of_neighbor = 5;
+
             // short-lived walks...
             peer_config.connection_opts.walk_max_duration = 10;
             let idx = add_stackerdb(&mut peer_config, Some(StackerDBConfig::template()));
@@ -1128,6 +1141,9 @@ fn inner_test_stackerdb_10_replicas_10_neighbors_line_10_chunks(push_only: bool,
             for i in 0..num_peers {
                 peers[i].network.stacker_db_configs = peer_db_configs[i].clone();
                 let res = peers[i].step_with_ibd(false);
+
+                // force this to run
+                peers[i].network.prune_connections();
 
                 if let Ok(res) = res {
                     check_sync_results(&res);
