@@ -574,7 +574,7 @@ const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
         block_height INTEGER NOT NULL,
         burn_header_hash TEXT NOT NULL,
         sortition_id TEXT NOT NULL,
-        
+
         consensus_hash TEXT NOT NULL,
         public_key TEXT NOT NULL,
         memo TEXT,
@@ -619,7 +619,7 @@ const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
         stacked_ustx TEXT NOT NULL,
         num_cycles INTEGER NOT NULL,
 
-        -- The primary key here is (txid, burn_header_hash) because 
+        -- The primary key here is (txid, burn_header_hash) because
         -- this transaction will be accepted regardless of which sortition
         -- history it is in.
         PRIMARY KEY(txid,burn_header_hash)
@@ -636,7 +636,7 @@ const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
         transfered_ustx TEXT NOT NULL,
         memo TEXT NOT NULL,
 
-        -- The primary key here is (txid, burn_header_hash) because 
+        -- The primary key here is (txid, burn_header_hash) because
         -- this transaction will be accepted regardless of which sortition
         -- history it is in.
         PRIMARY KEY(txid,burn_header_hash)
@@ -687,11 +687,11 @@ const SORTITION_DB_SCHEMA_4: &'static [&'static str] = &[
         delegated_ustx TEXT NOT NULL,
         until_burn_height INTEGER,
 
-        PRIMARY KEY(txid,burn_header_Hash)
+        PRIMARY KEY(txid,burn_header_hash)
     );"#,
     r#"
     CREATE TABLE ast_rule_heights (
-        ast_rule_id INTEGER PRIMAR KEY NOT NULL,
+        ast_rule_id INTEGER PRIMARY KEY NOT NULL,
         block_height INTEGER NOT NULL
     );"#,
 ];
@@ -2261,7 +2261,7 @@ impl<'a> SortitionHandleConn<'a> {
 
     /// Get a block commit by txid. In the event of a burnchain fork, this may not be unique.
     ///   this function simply returns one of those block commits: only use data that is
-    ///   immutable across burnchain/pox forks, e.g., parent block ptr,  
+    ///   immutable across burnchain/pox forks, e.g., parent block ptr,
     pub fn get_block_commit_by_txid(
         &self,
         sort_id: &SortitionId,
@@ -2909,7 +2909,6 @@ impl SortitionDB {
         SortitionDB::apply_schema_6(&db_tx, epochs_ref)?;
         SortitionDB::apply_schema_7(&db_tx, epochs_ref)?;
         SortitionDB::apply_schema_8_tables(&db_tx, epochs_ref)?;
-        SortitionDB::apply_schema_9(&db_tx, epochs_ref)?;
 
         db_tx.instantiate_index()?;
 
@@ -2929,6 +2928,11 @@ impl SortitionDB {
 
         // NOTE: we don't need to provide a migrator here because we're not migrating
         self.apply_schema_8_migration(None)?;
+
+        let db_tx = SortitionHandleTx::begin(self, &SortitionId::sentinel())?;
+        SortitionDB::apply_schema_9(&db_tx, epochs_ref)?;
+
+        db_tx.commit()?;
 
         self.add_indexes()?;
 
@@ -5046,7 +5050,7 @@ impl SortitionDB {
         conn: &Connection,
         sortition: &SortitionId,
     ) -> Result<Option<u16>, db_error> {
-        let qry = "SELECT vtxindex FROM block_commits WHERE sortition_id = ?1 
+        let qry = "SELECT vtxindex FROM block_commits WHERE sortition_id = ?1
                     AND txid = (
                       SELECT winning_block_txid FROM snapshots WHERE sortition_id = ?2 LIMIT 1) LIMIT 1";
         let args = params![sortition, sortition];

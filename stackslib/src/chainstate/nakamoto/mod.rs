@@ -612,7 +612,7 @@ pub struct NakamotoBlockHeader {
     /// A Unix time timestamp of when this block was mined, according to the miner.
     /// For the signers to consider a block valid, this timestamp must be:
     ///  * Greater than the timestamp of its parent block
-    ///  * Less than 15 seconds into the future
+    ///  * At most 15 seconds into the future
     pub timestamp: u64,
     /// Recoverable ECDSA signature from the tenure's miner.
     pub miner_signature: MessageSignature,
@@ -734,6 +734,7 @@ impl NakamotoBlockHeader {
         write_next(fd, &self.tx_merkle_root)?;
         write_next(fd, &self.state_index_root)?;
         write_next(fd, &self.timestamp)?;
+        write_next(fd, &self.pox_treatment)?;
         Ok(Sha512Trunc256Sum::from_hasher(hasher))
     }
 
@@ -1876,7 +1877,7 @@ impl NakamotoChainState {
                         "stacks_block_id" => %next_ready_block.header.block_id(),
                         "parent_block_id" => %next_ready_block.header.parent_block_id
                     );
-                    ChainstateError::InvalidStacksBlock("Failed to load burn view of parent block ID".into())                    
+                    ChainstateError::InvalidStacksBlock("Failed to load burn view of parent block ID".into())
                 })?;
                 let handle = sort_db.index_handle_at_ch(&tenure_change.burn_view_consensus_hash)?;
                 let connected_sort_id = get_ancestor_sort_id(&handle, parent_burn_view_sn.block_height, &handle.context.chain_tip)?
@@ -1888,7 +1889,7 @@ impl NakamotoChainState {
                             "stacks_block_id" => %next_ready_block.header.block_id(),
                             "parent_block_id" => %next_ready_block.header.parent_block_id
                         );
-                        ChainstateError::InvalidStacksBlock("Failed to load burn view of parent block ID".into())                    
+                        ChainstateError::InvalidStacksBlock("Failed to load burn view of parent block ID".into())
                     })?;
                 if connected_sort_id != parent_burn_view_sn.sortition_id {
                     warn!(
@@ -3608,7 +3609,7 @@ impl NakamotoChainState {
                                 .map_err(|_| ChainstateError::InvalidStacksBlock("Reward set index outside of u16".into()))?;
                             let bitvec_value = block_bitvec.get(ix)
                                 .unwrap_or_else(|| {
-                                    info!("Block header's bitvec is smaller than the reward set, defaulting higher indexes to 1");
+                                    warn!("Block header's bitvec is smaller than the reward set, defaulting higher indexes to 1");
                                     true
                                 });
                             Ok(bitvec_value)
