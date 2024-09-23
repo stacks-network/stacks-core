@@ -415,9 +415,11 @@ impl StacksChainState {
     ) {
         clarity_tx
             .with_clarity_db(|ref mut db| {
-                let next_nonce = cur_nonce
-                    .checked_add(1)
-                    .unwrap_or_else(|| panic!("OUT OF NONCES"));
+                let next_nonce = cur_nonce.checked_add(1).unwrap_or_else(|| {
+                    error!("OUT OF NONCES");
+                    panic!();
+                });
+
                 db.set_account_nonce(&principal, next_nonce)?;
                 Ok(())
             })
