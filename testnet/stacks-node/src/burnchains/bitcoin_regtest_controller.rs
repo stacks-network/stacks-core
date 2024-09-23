@@ -669,7 +669,7 @@ impl BitcoinRegtestController {
                 max_conf.into(),
                 filter_addresses.clone().into(),
                 true.into(),
-                json!({ "minimumAmount": minimum_amount }),
+                json!({ "minimumAmount": minimum_amount, "maximumCount": self.config.burnchain.max_unspent_utxos }),
             ],
             id: "stacks".to_string(),
             jsonrpc: "2.0".to_string(),
