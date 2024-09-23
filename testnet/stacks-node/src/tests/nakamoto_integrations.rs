@@ -5525,7 +5525,7 @@ fn signer_chainstate() {
         let time_start = Instant::now();
         let proposal = loop {
             let proposal = get_latest_block_proposal(&naka_conf, &sortdb).unwrap();
-            if proposal.0.header.consensus_hash == sortitions_view.latest_consensus_hash {
+            if proposal.0.header.consensus_hash == sortitions_view.cur_sortition.consensus_hash {
                 break proposal;
             }
             if time_start.elapsed() > Duration::from_secs(20) {
