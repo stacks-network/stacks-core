@@ -185,6 +185,14 @@ impl SignerTrait<SignerMessage> for Signer {
                             );
                         }
                         SignerMessage::BlockPushed(b) => {
+                            let block_push_result = stacks_client.post_block(b);
+                            if let Err(ref e) = &block_push_result {
+                                warn!(
+                                    "{self}: Failed to post block {} (id {}): {e:?}",
+                                    &b.header.signer_signature_hash(),
+                                    &b.block_id()
+                                );
+                            };
                             // This will infinitely loop until the block is acknowledged by the node
                             info!(
                                 "{self}: Got block pushed message";
@@ -235,17 +243,17 @@ impl SignerTrait<SignerMessage> for Signer {
                 received_time,
             } => {
                 info!("{self}: Received a new burn block event for block height {burn_height}");
-                if let Err(e) =
-                    self.signer_db
-                        .insert_burn_block(burn_header_hash, *burn_height, received_time)
-                {
-                    warn!(
-                        "Failed to write burn block event to signerdb";
-                        "err" => ?e,
-                        "burn_header_hash" => %burn_header_hash,
-                        "burn_height" => burn_height
-                    );
-                }
+                self.signer_db
+                    .insert_burn_block(burn_header_hash, *burn_height, received_time)
+                    .unwrap_or_else(|e| {
+                        error!(
+                            "Failed to write burn block event to signerdb";
+                            "err" => ?e,
+                            "burn_header_hash" => %burn_header_hash,
+                            "burn_height" => burn_height
+                        );
+                        panic!("{self} Failed to write burn block event to signerdb: {e}");
+                    });
                 *sortition_state = None;
             }
         }
@@ -774,7 +782,8 @@ impl Signer {
             warn!("{self}: Failed to mark block as globally rejected: {e:?}",);
         }
         if let Err(e) = self.signer_db.insert_block(&block_info) {
-            warn!("{self}: Failed to update block state: {e:?}",);
+            error!("{self}: Failed to update block state: {e:?}",);
+            panic!("{self} Failed to update block state: {e}");
         }
     }
 
@@ -895,7 +904,7 @@ impl Signer {
                 "Failed to set group threshold signature timestamp for {}: {:?}",
                 block_hash, &e
             );
-            e
+            panic!("{self} Failed to write block to signerdb: {e}");
         });
         #[cfg(any(test, feature = "testing"))]
         {
@@ -935,24 +944,8 @@ impl Signer {
         block.header.signer_signature = signatures;
 
         #[cfg(any(test, feature = "testing"))]
-        {
-            if *TEST_SKIP_BLOCK_BROADCAST.lock().unwrap() == Some(true) {
-                warn!(
-                    "{self}: Skipping block broadcast due to testing directive";
-                    "block_id" => %block.block_id(),
-                    "height" => block.header.chain_length,
-                    "consensus_hash" => %block.header.consensus_hash
-                );
-
-                if let Err(e) = self.signer_db.set_block_broadcasted(
-                    self.reward_cycle,
-                    &block_hash,
-                    get_epoch_time_secs(),
-                ) {
-                    warn!("{self}: Failed to set block broadcasted for {block_hash}: {e:?}");
-                }
-                return;
-            }
+        if self.test_skip_block_broadcast(&block) {
+            return;
         }
         debug!(
             "{self}: Broadcasting Stacks block {} to node",
@@ -975,6 +968,29 @@ impl Signer {
         ) {
             warn!("{self}: Failed to set block broadcasted for {block_hash}: {e:?}");
         }
+    }
+
+    #[cfg(any(test, feature = "testing"))]
+    fn test_skip_block_broadcast(&self, block: &NakamotoBlock) -> bool {
+        if *TEST_SKIP_BLOCK_BROADCAST.lock().unwrap() == Some(true) {
+            let block_hash = block.header.signer_signature_hash();
+            warn!(
+                "{self}: Skipping block broadcast due to testing directive";
+                "block_id" => %block.block_id(),
+                "height" => block.header.chain_length,
+                "consensus_hash" => %block.header.consensus_hash
+            );
+
+            if let Err(e) = self.signer_db.set_block_broadcasted(
+                self.reward_cycle,
+                &block_hash,
+                get_epoch_time_secs(),
+            ) {
+                warn!("{self}: Failed to set block broadcasted for {block_hash}: {e:?}");
+            }
+            return true;
+        }
+        false
     }
 
     /// Send a mock signature to stackerdb to prove we are still alive

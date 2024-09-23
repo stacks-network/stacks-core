@@ -25,8 +25,6 @@ use std::{io, net};
 
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::BOUND_VALUE_SERIALIZATION_HEX;
-use mio;
-use mio::net as mio_net;
 use stacks_common::codec::{StacksMessageCodec, MAX_MESSAGE_LEN};
 use stacks_common::types::net::PeerAddress;
 use stacks_common::util::hash::to_hex;
