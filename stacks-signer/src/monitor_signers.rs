@@ -1,18 +1,3 @@
-use std::collections::HashMap;
-
-use clarity::codec::read_next;
-use clarity::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey};
-use clarity::types::StacksEpochId;
-use clarity::util::sleep_ms;
-use libsigner::v0::messages::{MessageSlotID, SignerMessage};
-use libsigner::SignerSession;
-use slog::{slog_info, slog_warn};
-use stacks_common::{info, warn};
-
-use crate::cli::MonitorSignersArgs;
-use crate::client::{ClientError, SignerSlotID, StacksClient};
-use crate::utils::stackerdb_session;
-
 // Copyright (C) 2020-2024 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
@@ -27,6 +12,21 @@ use crate::utils::stackerdb_session;
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+use std::collections::HashMap;
+
+use clarity::codec::read_next;
+use clarity::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey};
+use clarity::types::StacksEpochId;
+use clarity::util::sleep_ms;
+use libsigner::v0::messages::{MessageSlotID, SignerMessage};
+use libsigner::SignerSession;
+use slog::{slog_info, slog_warn};
+use stacks_common::{info, warn};
+
+use crate::cli::MonitorSignersArgs;
+use crate::client::{ClientError, SignerSlotID, StacksClient};
+use crate::utils::stackerdb_session;
 
 /// The `SignerMonitor` struct is used to monitor the signers stackerdb slots for expected new messages
 pub struct SignerMonitor {
