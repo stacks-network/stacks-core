@@ -734,6 +734,7 @@ impl NakamotoBlockHeader {
         write_next(fd, &self.tx_merkle_root)?;
         write_next(fd, &self.state_index_root)?;
         write_next(fd, &self.timestamp)?;
+        write_next(fd, &self.pox_treatment)?;
         Ok(Sha512Trunc256Sum::from_hasher(hasher))
     }
 
@@ -1876,7 +1877,7 @@ impl NakamotoChainState {
                         "stacks_block_id" => %next_ready_block.header.block_id(),
                         "parent_block_id" => %next_ready_block.header.parent_block_id
                     );
-                    ChainstateError::InvalidStacksBlock("Failed to load burn view of parent block ID".into())                    
+                    ChainstateError::InvalidStacksBlock("Failed to load burn view of parent block ID".into())
                 })?;
                 let handle = sort_db.index_handle_at_ch(&tenure_change.burn_view_consensus_hash)?;
                 let connected_sort_id = get_ancestor_sort_id(&handle, parent_burn_view_sn.block_height, &handle.context.chain_tip)?
@@ -1888,7 +1889,7 @@ impl NakamotoChainState {
                             "stacks_block_id" => %next_ready_block.header.block_id(),
                             "parent_block_id" => %next_ready_block.header.parent_block_id
                         );
-                        ChainstateError::InvalidStacksBlock("Failed to load burn view of parent block ID".into())                    
+                        ChainstateError::InvalidStacksBlock("Failed to load burn view of parent block ID".into())
                     })?;
                 if connected_sort_id != parent_burn_view_sn.sortition_id {
                     warn!(
