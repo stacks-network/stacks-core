@@ -886,11 +886,6 @@ impl SignCoordinator {
                             );
                             continue;
                         }
-                        if !gathered_signatures.contains_key(&slot_id) {
-                            total_weight_signed = total_weight_signed
-                                .checked_add(signer_entry.weight)
-                                .expect("FATAL: total weight signed exceeds u32::MAX");
-                        }
 
                         if Self::fault_injection_ignore_signatures() {
                             warn!("SignCoordinator: fault injection: ignoring well-formed signature for block";
@@ -904,6 +899,12 @@ impl SignCoordinator {
                                 "stacks_block_id" => %block.header.block_id()
                             );
                             continue;
+                        }
+
+                        if !gathered_signatures.contains_key(&slot_id) {
+                            total_weight_signed = total_weight_signed
+                                .checked_add(signer_entry.weight)
+                                .expect("FATAL: total weight signed exceeds u32::MAX");
                         }
 
                         info!("SignCoordinator: Signature Added to block";
@@ -986,7 +987,6 @@ impl SignCoordinator {
                     }
                 };
             }
-
             // After gathering all signatures, return them if we've hit the threshold
             if total_weight_signed >= self.weight_threshold {
                 info!("SignCoordinator: Received enough signatures. Continuing.";

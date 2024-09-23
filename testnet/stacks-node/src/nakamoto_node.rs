@@ -33,6 +33,7 @@ use stacks_common::types::StacksEpochId;
 
 use super::{Config, EventDispatcher, Keychain};
 use crate::burnchains::bitcoin_regtest_controller::addr2str;
+use crate::burnchains::Error as BurnchainsError;
 use crate::neon_node::{LeaderKeyRegistrationState, StacksNode as NeonNode};
 use crate::run_loop::boot_nakamoto::Neon2NakaData;
 use crate::run_loop::nakamoto::{Globals, RunLoop};
@@ -93,7 +94,7 @@ pub enum Error {
     /// Something unexpected happened (e.g., hash mismatches)
     UnexpectedChainState,
     /// A burnchain operation failed when submitting it to the burnchain
-    BurnchainSubmissionFailed,
+    BurnchainSubmissionFailed(BurnchainsError),
     /// A new parent has been discovered since mining started
     NewParentDiscovered,
     /// A failure occurred while constructing a VRF Proof
