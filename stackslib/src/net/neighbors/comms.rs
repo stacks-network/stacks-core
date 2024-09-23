@@ -50,6 +50,8 @@ pub trait NeighborComms {
     fn get_connecting<NK: ToNeighborKey>(&self, network: &PeerNetwork, nk: &NK) -> Option<usize>;
     /// Remove a neighbor from connecting state
     fn remove_connecting<NK: ToNeighborKey>(&mut self, network: &PeerNetwork, nk: &NK);
+    /// Remove a neighbor from connecting state due to an error
+    fn remove_connecting_error<NK: ToNeighborKey>(&mut self, network: &PeerNetwork, nk: &NK);
     /// Mark a neighbor as dead (inactive, unreachable, etc.)
     fn add_dead<NK: ToNeighborKey>(&mut self, network: &PeerNetwork, nk: &NK);
     /// Mark a neighbor as broken (in protocol violation)
@@ -150,7 +152,7 @@ pub trait NeighborComms {
             // is the peer network still working?
             if !network.is_connecting(event_id) {
                 debug!("{:?}: Failed to connect to {:?} (event {} no longer connecting; assumed timed out)", network.get_local_peer(), event_id, &nk);
-                self.remove_connecting(network, &nk);
+                self.remove_connecting_error(network, &nk);
                 return Err(net_error::PeerNotConnected);
             }
 
@@ -518,7 +520,13 @@ impl NeighborComms for PeerNetworkComms {
             .map(|event_ref| *event_ref)
     }
 
+    /// Remove a connecting neighbor because it connected
     fn remove_connecting<NK: ToNeighborKey>(&mut self, network: &PeerNetwork, nk: &NK) {
+        self.connecting.remove(&nk.to_neighbor_key(network));
+    }
+
+    /// Remove a connecting neighbor due to an error.  The connection will be unpinned.
+    fn remove_connecting_error<NK: ToNeighborKey>(&mut self, network: &PeerNetwork, nk: &NK) {
         let event_id_opt = self.connecting.remove(&nk.to_neighbor_key(network));
         if let Some(event_id) = event_id_opt {
             self.unpin_connection(event_id);
