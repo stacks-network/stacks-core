@@ -31,28 +31,24 @@ use std::io::{self, Write};
 use blockstack_lib::util_lib::signed_structured_data::pox4::make_pox_4_signer_key_signature;
 use clap::Parser;
 use clarity::types::chainstate::StacksPublicKey;
-use clarity::vm::types::QualifiedContractIdentifier;
-use libsigner::{SignerSession, StackerDBSession};
+use clarity::util::sleep_ms;
+use libsigner::SignerSession;
 use libstackerdb::StackerDBChunkData;
-use slog::slog_debug;
-use stacks_common::debug;
+use slog::{slog_debug, slog_error};
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::secp256k1::MessageSignature;
+use stacks_common::{debug, error};
 use stacks_signer::cli::{
     Cli, Command, GenerateStackingSignatureArgs, GenerateVoteArgs, GetChunkArgs,
-    GetLatestChunkArgs, PutChunkArgs, RunSignerArgs, StackerDBArgs, VerifyVoteArgs,
+    GetLatestChunkArgs, MonitorSignersArgs, PutChunkArgs, RunSignerArgs, StackerDBArgs,
+    VerifyVoteArgs,
 };
 use stacks_signer::config::GlobalConfig;
+use stacks_signer::monitor_signers::SignerMonitor;
+use stacks_signer::utils::stackerdb_session;
 use stacks_signer::v0::SpawnedSigner;
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{fmt, EnvFilter};
-
-/// Create a new stacker db session
-fn stackerdb_session(host: &str, contract: QualifiedContractIdentifier) -> StackerDBSession {
-    let mut session = StackerDBSession::new(host, contract.clone());
-    session.connect(host.to_string(), contract).unwrap();
-    session
-}
 
 /// Write the chunk to stdout
 fn write_chunk_to_stdout(chunk_opt: Option<Vec<u8>>) {
@@ -188,6 +184,20 @@ fn handle_verify_vote(args: VerifyVoteArgs, do_print: bool) -> bool {
     valid_vote
 }
 
+fn handle_monitor_signers(args: MonitorSignersArgs) {
+    // Verify that the host is a valid URL
+    let mut signer_monitor = SignerMonitor::new(args);
+    loop {
+        if let Err(e) = signer_monitor.start() {
+            error!(
+                "Error occurred monitoring signers: {:?}. Waiting and trying again.",
+                e
+            );
+            sleep_ms(1000);
+        }
+    }
+}
+
 fn main() {
     let cli = Cli::parse();
 
@@ -223,6 +233,9 @@ fn main() {
         }
         Command::VerifyVote(args) => {
             handle_verify_vote(args, true);
+        }
+        Command::MonitorSigners(args) => {
+            handle_monitor_signers(args);
         }
     }
 }

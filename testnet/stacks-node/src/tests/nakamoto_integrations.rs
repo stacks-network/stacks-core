@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::net::ToSocketAddrs;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
@@ -5868,16 +5867,9 @@ fn signer_chainstate() {
     info!("Nakamoto miner started...");
     blind_signer(&naka_conf, &signers, proposals_submitted.clone());
 
-    let socket = naka_conf
-        .node
-        .rpc_bind
-        .to_socket_addrs()
-        .unwrap()
-        .next()
-        .unwrap();
     let signer_client = stacks_signer::client::StacksClient::new(
         StacksPrivateKey::from_seed(&[0, 1, 2, 3]),
-        socket,
+        naka_conf.node.rpc_bind.clone(),
         naka_conf
             .connection_options
             .auth_token
