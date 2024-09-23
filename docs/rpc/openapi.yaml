@@ -731,7 +731,6 @@ paths:
           description: Hex-encoded compressed Secp256k1 public key of signer
           schema:
             type: string
-      parameters:
         - name: cycle_number
           in: path
           required: true
