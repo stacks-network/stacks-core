@@ -530,9 +530,9 @@ impl RelayerThread {
         let op = Self::make_key_register_op(vrf_pk, burnchain_tip_consensus_hash, &miner_pkh);
 
         let mut op_signer = self.keychain.generate_op_signer();
-        if let Some(txid) =
-            self.bitcoin_controller
-                .submit_operation(cur_epoch, op, &mut op_signer, 1)
+        if let Ok(txid) = self
+            .bitcoin_controller
+            .submit_operation(cur_epoch, op, &mut op_signer, 1)
         {
             // advance key registration state
             self.last_vrf_key_burn_height = Some(burn_block.block_height);
@@ -1076,9 +1076,9 @@ impl RelayerThread {
                 &mut op_signer,
                 1,
             )
-            .ok_or_else(|| {
-                warn!("Failed to submit block-commit bitcoin transaction");
-                NakamotoNodeError::BurnchainSubmissionFailed
+            .map_err(|e| {
+                warn!("Failed to submit block-commit bitcoin transaction: {e}");
+                NakamotoNodeError::BurnchainSubmissionFailed(e)
             })?;
 
         info!(

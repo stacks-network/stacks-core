@@ -1953,15 +1953,16 @@ pub fn send_http_request(
     // Step 5: decode the HTTP message and return it if it's not an error.
     let response_data = match response {
         StacksHttpMessage::Response(response_data) => response_data,
-        StacksHttpMessage::Error(path, response) => {
+        StacksHttpMessage::Error(_path, response) => {
+            let verb = &request.preamble().verb;
+            let path = &request.preamble().path_and_query_str;
+            let resp_status_code = response.preamble().status_code;
+            let resp_body = response.body();
             return Err(io::Error::new(
                 io::ErrorKind::Other,
                 format!(
-                    "Request did not succeed ({} != 200). Path: '{}'",
-                    response.preamble().status_code,
-                    &path
-                )
-                .as_str(),
+                    "HTTP '{verb} {path}' did not succeed ({resp_status_code} != 200). Response body = {resp_body:?}"
+                ),
             ));
         }
         _ => {

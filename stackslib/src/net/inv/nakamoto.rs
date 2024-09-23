@@ -150,7 +150,7 @@ impl InvGenerator {
     /// messages.
     ///
     /// If found, then return the ancestor block ID represented in `self.processed_tenures`.
-    /// If not, then reutrn None.
+    /// If not, then return None.
     pub(crate) fn find_ancestor_processed_tenures(
         &self,
         chainstate: &StacksChainState,

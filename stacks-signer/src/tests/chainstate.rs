@@ -82,7 +82,6 @@ fn setup_test_environment(
     });
 
     let view = SortitionsView {
-        latest_consensus_hash: cur_sortition.consensus_hash,
         cur_sortition,
         last_sortition,
         config: ProposalEvalConfig {

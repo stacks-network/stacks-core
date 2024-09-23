@@ -94,7 +94,9 @@ use wsts::net::Message;
 
 use super::bitcoin_regtest::BitcoinCoreController;
 use crate::config::{EventKeyType, EventObserverConfig, InitialBalance};
-use crate::nakamoto_node::miner::{TEST_BLOCK_ANNOUNCE_STALL, TEST_BROADCAST_STALL};
+use crate::nakamoto_node::miner::{
+    TEST_BLOCK_ANNOUNCE_STALL, TEST_BROADCAST_STALL, TEST_MINE_STALL,
+};
 use crate::neon::{Counters, RunLoopCounter};
 use crate::operations::BurnchainOpSigner;
 use crate::run_loop::boot_nakamoto;
@@ -2898,7 +2900,7 @@ fn vote_for_aggregate_key_burn_op() {
                 &mut miner_signer,
                 1
             )
-            .is_some(),
+            .is_ok(),
         "Pre-stx operation should submit successfully"
     );
 
@@ -2974,7 +2976,7 @@ fn vote_for_aggregate_key_burn_op() {
                 &mut signer_burnop_signer,
                 1
             )
-            .is_some(),
+            .is_ok(),
         "Vote for aggregate key operation should submit successfully"
     );
 
@@ -3664,7 +3666,7 @@ fn stack_stx_burn_op_integration_test() {
                 &mut miner_signer_1,
                 1
             )
-            .is_some(),
+            .is_ok(),
         "Pre-stx operation should submit successfully"
     );
 
@@ -3694,7 +3696,7 @@ fn stack_stx_burn_op_integration_test() {
                 &mut miner_signer_2,
                 1
             )
-            .is_some(),
+            .is_ok(),
         "Pre-stx operation should submit successfully"
     );
     info!("Submitted 2 pre-stx ops at block {block_height}, mining a few blocks...");
@@ -3835,7 +3837,7 @@ fn stack_stx_burn_op_integration_test() {
                 &mut signer_burnop_signer_1,
                 1
             )
-            .is_some(),
+            .is_ok(),
         "Stack STX operation should submit successfully"
     );
 
@@ -3862,7 +3864,7 @@ fn stack_stx_burn_op_integration_test() {
                 &mut signer_burnop_signer_2,
                 1
             )
-            .is_some(),
+            .is_ok(),
         "Stack STX operation should submit successfully"
     );
 
@@ -5186,6 +5188,8 @@ fn clarity_burn_state() {
             );
             result.expect_result_ok().expect("Read-only call failed");
 
+            // Pause mining to prevent the stacks block from being mined before the tenure change is processed
+            TEST_MINE_STALL.lock().unwrap().replace(true);
             // Submit a tx for the next block (the next block will be a new tenure, so the burn block height will increment)
             let call_tx = tests::make_contract_call(
                 &sender_sk,
@@ -5201,8 +5205,23 @@ fn clarity_burn_state() {
         }
 
         let commits_before = commits_submitted.load(Ordering::SeqCst);
-        next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
-            .unwrap();
+        let blocks_processed_before = coord_channel
+            .lock()
+            .expect("Mutex poisoned")
+            .get_stacks_blocks_processed();
+        next_block_and(&mut btc_regtest_controller, 60, || {
+            Ok(commits_submitted.load(Ordering::SeqCst) > commits_before)
+        })
+        .unwrap();
+        TEST_MINE_STALL.lock().unwrap().replace(false);
+        wait_for(20, || {
+            Ok(coord_channel
+                .lock()
+                .expect("Mutex poisoned")
+                .get_stacks_blocks_processed()
+                > blocks_processed_before)
+        })
+        .unwrap();
 
         let info = get_chain_info(&naka_conf);
         burn_block_height = info.burn_block_height as u128;
@@ -5506,7 +5525,7 @@ fn signer_chainstate() {
         let time_start = Instant::now();
         let proposal = loop {
             let proposal = get_latest_block_proposal(&naka_conf, &sortdb).unwrap();
-            if proposal.0.header.consensus_hash == sortitions_view.latest_consensus_hash {
+            if proposal.0.header.consensus_hash == sortitions_view.cur_sortition.consensus_hash {
                 break proposal;
             }
             if time_start.elapsed() > Duration::from_secs(20) {
