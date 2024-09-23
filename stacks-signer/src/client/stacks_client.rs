@@ -13,8 +13,7 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-use std::collections::VecDeque;
-use std::net::SocketAddr;
+use std::collections::{HashMap, VecDeque};
 
 use blockstack_lib::burnchains::Txid;
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
@@ -57,6 +56,7 @@ use stacks_common::types::StacksEpochId;
 use stacks_common::{debug, warn};
 use wsts::curve::point::{Compressed, Point};
 
+use super::SignerSlotID;
 use crate::client::{retry_with_exponential_backoff, ClientError};
 use crate::config::GlobalConfig;
 use crate::runloop::RewardCycleInfo;
@@ -75,7 +75,7 @@ pub struct StacksClient {
     /// The chain we are interacting with
     chain_id: u32,
     /// Whether we are mainnet or not
-    mainnet: bool,
+    pub mainnet: bool,
     /// The Client used to make HTTP connects
     stacks_node_client: reqwest::blocking::Client,
     /// the auth password for the stacks node
@@ -116,7 +116,7 @@ impl StacksClient {
     /// Create a new signer StacksClient with the provided private key, stacks node host endpoint, version, and auth password
     pub fn new(
         stacks_private_key: StacksPrivateKey,
-        node_host: SocketAddr,
+        node_host: String,
         auth_password: String,
         mainnet: bool,
     ) -> Self {
@@ -142,6 +142,28 @@ impl StacksClient {
             mainnet,
             auth_password,
         }
+    }
+
+    /// Create a new signer StacksClient and attempt to connect to the stacks node to determine the version
+    pub fn try_from_host(
+        stacks_private_key: StacksPrivateKey,
+        node_host: String,
+        auth_password: String,
+    ) -> Result<Self, ClientError> {
+        let mut stacks_client = Self::new(stacks_private_key, node_host, auth_password, true);
+        let pubkey = StacksPublicKey::from_private(&stacks_private_key);
+        let info = stacks_client.get_peer_info()?;
+        if info.network_id == CHAIN_ID_MAINNET {
+            stacks_client.mainnet = true;
+            stacks_client.chain_id = CHAIN_ID_MAINNET;
+            stacks_client.tx_version = TransactionVersion::Mainnet;
+        } else {
+            stacks_client.mainnet = false;
+            stacks_client.chain_id = CHAIN_ID_TESTNET;
+            stacks_client.tx_version = TransactionVersion::Testnet;
+        }
+        stacks_client.stacks_address = StacksAddress::p2pkh(stacks_client.mainnet, &pubkey);
+        Ok(stacks_client)
     }
 
     /// Get our signer address
@@ -204,7 +226,7 @@ impl StacksClient {
     }
 
     /// Helper function  that attempts to deserialize a clarity hext string as a list of signer slots and their associated number of signer slots
-    pub fn parse_signer_slots(
+    fn parse_signer_slots(
         &self,
         value: ClarityValue,
     ) -> Result<Vec<(StacksAddress, u128)>, ClientError> {
@@ -224,6 +246,31 @@ impl StacksClient {
             signer_slots.push((signer, num_slots));
         }
         Ok(signer_slots)
+    }
+
+    /// Get the stackerdb signer slots for a specific reward cycle
+    pub fn get_parsed_signer_slots(
+        &self,
+        reward_cycle: u64,
+    ) -> Result<HashMap<StacksAddress, SignerSlotID>, ClientError> {
+        let signer_set =
+            u32::try_from(reward_cycle % 2).expect("FATAL: reward_cycle % 2 exceeds u32::MAX");
+        let signer_stackerdb_contract_id = boot_code_id(SIGNERS_NAME, self.mainnet);
+        // Get the signer writers from the stacker-db to find the signer slot id
+        let stackerdb_signer_slots =
+            self.get_stackerdb_signer_slots(&signer_stackerdb_contract_id, signer_set)?;
+        Ok(stackerdb_signer_slots
+            .into_iter()
+            .enumerate()
+            .map(|(index, (address, _))| {
+                (
+                    address,
+                    SignerSlotID(
+                        u32::try_from(index).expect("FATAL: number of signers exceeds u32::MAX"),
+                    ),
+                )
+            })
+            .collect())
     }
 
     /// Get the vote for a given  round, reward cycle, and signer address

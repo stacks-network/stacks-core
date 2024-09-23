@@ -18,19 +18,16 @@ use std::fmt::Debug;
 use std::sync::mpsc::Sender;
 use std::time::Duration;
 
-use blockstack_lib::chainstate::stacks::boot::SIGNERS_NAME;
-use blockstack_lib::util_lib::boot::boot_code_id;
 use clarity::codec::StacksMessageCodec;
 use hashbrown::HashMap;
 use libsigner::{BlockProposal, SignerEntries, SignerEvent, SignerRunLoop};
 use slog::{slog_debug, slog_error, slog_info, slog_warn};
-use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::{debug, error, info, warn};
 use wsts::common::MerkleRoot;
 use wsts::state_machine::OperationResult;
 
 use crate::chainstate::SortitionsView;
-use crate::client::{retry_with_exponential_backoff, ClientError, SignerSlotID, StacksClient};
+use crate::client::{retry_with_exponential_backoff, ClientError, StacksClient};
 use crate::config::{GlobalConfig, SignerConfig};
 use crate::Signer as SignerTrait;
 
@@ -257,30 +254,6 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
         Ok(Some(entries))
     }
 
-    /// Get the stackerdb signer slots for a specific reward cycle
-    pub fn get_parsed_signer_slots(
-        &self,
-        stacks_client: &StacksClient,
-        reward_cycle: u64,
-    ) -> Result<HashMap<StacksAddress, SignerSlotID>, ClientError> {
-        let signer_set =
-            u32::try_from(reward_cycle % 2).expect("FATAL: reward_cycle % 2 exceeds u32::MAX");
-        let signer_stackerdb_contract_id =
-            boot_code_id(SIGNERS_NAME, self.config.network.is_mainnet());
-        // Get the signer writers from the stacker-db to find the signer slot id
-        let stackerdb_signer_slots =
-            stacks_client.get_stackerdb_signer_slots(&signer_stackerdb_contract_id, signer_set)?;
-        let mut signer_slot_ids = HashMap::with_capacity(stackerdb_signer_slots.len());
-        for (index, (address, _)) in stackerdb_signer_slots.into_iter().enumerate() {
-            signer_slot_ids.insert(
-                address,
-                SignerSlotID(
-                    u32::try_from(index).expect("FATAL: number of signers exceeds u32::MAX"),
-                ),
-            );
-        }
-        Ok(signer_slot_ids)
-    }
     /// Get a signer configuration for a specific reward cycle from the stacks node
     fn get_signer_config(
         &mut self,
@@ -314,7 +287,8 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
         }
 
         let signer_slot_ids = self
-            .get_parsed_signer_slots(&self.stacks_client, reward_cycle)
+            .stacks_client
+            .get_parsed_signer_slots(reward_cycle)
             .map_err(|e| {
                 warn!("Error while fetching stackerdb slots {reward_cycle}: {e:?}");
                 e

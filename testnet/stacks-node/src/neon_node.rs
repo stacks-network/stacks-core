@@ -2268,6 +2268,7 @@ impl BlockMinerThread {
             stacks_tip_height,
             pox_consensus,
             server_version,
+            network_id: self.config.get_burnchain_config().chain_id,
         }
     }
 
@@ -2392,8 +2393,7 @@ impl BlockMinerThread {
             return Ok(());
         }
         let election_sortition = last_winner_snapshot.consensus_hash;
-        let mock_proposal =
-            MockProposal::new(peer_info, self.config.burnchain.chain_id, &mining_key);
+        let mock_proposal = MockProposal::new(peer_info, &mining_key);
 
         info!("Sending mock proposal to stackerdb: {mock_proposal:?}");
 
