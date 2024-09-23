@@ -1244,6 +1244,7 @@ impl BlockMinerThread {
         Ok(block)
     }
 
+    #[cfg_attr(test, mutants::skip)]
     /// Create the tenure start info for the block we're going to build
     fn make_tenure_start_info(
         &self,
@@ -1288,7 +1289,11 @@ impl BlockMinerThread {
                     &parent_block_id,
                 )
                 .map_err(NakamotoNodeError::MiningFailure)?;
-                debug!("Miner: Extending tenure"; "burn_view_consensus_hash" => %burn_view_consensus_hash, "parent_block_id" => %parent_block_id, "num_blocks_so_far" => num_blocks_so_far);
+                debug!("Miner: Extending tenure";
+                    "burn_view_consensus_hash" => %burn_view_consensus_hash,
+                    "parent_block_id" => %parent_block_id,
+                    "num_blocks_so_far" => num_blocks_so_far,
+                );
                 payload = payload.extend(
                     *burn_view_consensus_hash,
                     parent_block_id,
