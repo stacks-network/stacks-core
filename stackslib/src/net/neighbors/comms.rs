@@ -520,7 +520,7 @@ impl NeighborComms for PeerNetworkComms {
             .map(|event_ref| *event_ref)
     }
 
-    /// Remove a connecting neighbor because it conected
+    /// Remove a connecting neighbor because it connected
     fn remove_connecting<NK: ToNeighborKey>(&mut self, network: &PeerNetwork, nk: &NK) {
         self.connecting.remove(&nk.to_neighbor_key(network));
     }
