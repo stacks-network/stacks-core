@@ -67,6 +67,7 @@ use stacks::core::{
 use stacks::libstackerdb::SlotMetadata;
 use stacks::net::api::callreadonly::CallReadOnlyRequestBody;
 use stacks::net::api::get_tenures_fork_info::TenureForkingInfo;
+use stacks::net::api::getsigner::GetSignerResponse;
 use stacks::net::api::getstackers::GetStackersResponse;
 use stacks::net::api::postblock_proposal::{
     BlockValidateReject, BlockValidateResponse, NakamotoBlockProposal, ValidateRejectCode,
@@ -8555,11 +8556,9 @@ fn v3_signer_api_endpoint() {
         info!("Send request: GET {url}");
         reqwest::blocking::get(url)
             .unwrap_or_else(|e| panic!("GET request failed: {e}"))
-            .text()
-            .inspect(|response| info!("Recieved response: GET {url} -> {response}"))
-            .expect("Empty response")
-            .parse::<u64>()
-            .unwrap_or_else(|e| panic!("Failed to parse response as `u64`: {e}"))
+            .json::<GetSignerResponse>()
+            .unwrap()
+            .blocks_signed
     };
 
     // Check reward cycle 1, should be 0 (pre-nakamoto)

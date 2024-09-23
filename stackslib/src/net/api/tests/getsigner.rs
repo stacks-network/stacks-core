@@ -94,3 +94,56 @@ fn test_try_parse_request() {
         }
     }
 }
+
+#[test]
+fn test_try_make_response() {
+    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
+
+    let test_observer = TestEventObserver::new();
+    let rpc_test = TestRPC::setup_nakamoto(function_name!(), &test_observer);
+    // Copy pasta of the test setup values
+    let cycle_num = 5;
+    let public_key = StacksPublicKey::from_hex(
+        "0243311589af63c2adda04fcd7792c038a05c12a4fe40351b3eb1612ff6b2e5a0e",
+    )
+    .unwrap();
+
+    let random_private_key = StacksPrivateKey::new();
+    let random_public_key = StacksPublicKey::from_private(&random_private_key);
+
+    let nakamoto_chain_tip = rpc_test.canonical_tip.clone();
+
+    let mut requests = vec![];
+
+    // Query existing signer
+    let info = StacksHttpRequest::new_getsigner(
+        addr.into(),
+        &public_key,
+        cycle_num,
+        TipRequest::SpecificTip(nakamoto_chain_tip),
+    );
+    requests.push(info);
+
+    // query random signer that doesn't exist
+    let request = StacksHttpRequest::new_getsigner(
+        addr.into(),
+        &random_public_key,
+        cycle_num,
+        TipRequest::SpecificTip(nakamoto_chain_tip),
+    );
+    requests.push(request);
+
+    let mut responses = rpc_test.run(requests);
+
+    // Existing signer
+    let response = responses.remove(0);
+    info!("response: {:?}", &response);
+    let signer_response = response.decode_signer().unwrap();
+    assert_eq!(signer_response.blocks_signed, 40);
+
+    // Signer doesn't exist so it should not have signed anything
+    let response = responses.remove(0);
+    info!("response: {:?}", &response);
+    let signer_response = response.decode_signer().unwrap();
+    assert_eq!(signer_response.blocks_signed, 0);
+}

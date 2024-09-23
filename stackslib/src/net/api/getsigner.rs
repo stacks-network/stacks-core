@@ -151,7 +151,7 @@ impl RPCRequestHandler for GetSignerRequestHandler {
             )
         });
 
-        let response = match result {
+        let blocks_signed = match result {
             Ok(response) => response,
             Err(error) => {
                 return StacksHttpResponse::new_error(
@@ -162,6 +162,8 @@ impl RPCRequestHandler for GetSignerRequestHandler {
                 .map_err(NetError::from);
             }
         };
+
+        let response = GetSignerResponse { blocks_signed };
 
         let mut preamble = HttpResponsePreamble::ok_json(&preamble);
         preamble.set_canonical_stacks_tip_height(Some(node.canonical_stacks_tip_height()));
