@@ -590,9 +590,10 @@ impl StacksClient {
                 .map_err(|e| backoff::Error::transient(e.into()))?;
             let status = response.status();
             if status.is_success() {
-                return response
-                    .json()
-                    .map_err(|e| backoff::Error::permanent(e.into()));
+                return response.json().map_err(|e| {
+                    warn!("Failed to parse the GetStackers response: {e}");
+                    backoff::Error::permanent(e.into())
+                });
             }
             let error_data = response.json::<GetStackersErrorResp>().map_err(|e| {
                 warn!("Failed to parse the GetStackers error response: {e}");

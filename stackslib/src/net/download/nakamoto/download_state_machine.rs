@@ -115,8 +115,6 @@ pub struct NakamotoDownloadStateMachine {
     unconfirmed_tenure_downloads: HashMap<NeighborAddress, NakamotoUnconfirmedTenureDownloader>,
     /// Ongoing confirmed tenure downloads for when we know the start and end block hashes.
     tenure_downloads: NakamotoTenureDownloaderSet,
-    /// resolved tenure-start blocks
-    tenure_start_blocks: HashMap<StacksBlockId, NakamotoBlock>,
     /// comms to remote neighbors
     pub(super) neighbor_rpc: NeighborRPC,
     /// Nakamoto chain tip
@@ -140,7 +138,6 @@ impl NakamotoDownloadStateMachine {
             unconfirmed_tenure_download_schedule: VecDeque::new(),
             tenure_downloads: NakamotoTenureDownloaderSet::new(),
             unconfirmed_tenure_downloads: HashMap::new(),
-            tenure_start_blocks: HashMap::new(),
             neighbor_rpc: NeighborRPC::new(),
             nakamoto_tip,
             last_unconfirmed_download_run_ms: 0,
@@ -364,48 +361,6 @@ impl NakamotoDownloadStateMachine {
             &mut self.wanted_tenures,
             chainstate,
             &self.nakamoto_tip,
-        )
-    }
-
-    /// Find all stored (but not necessarily processed) tenure-start blocks for a list
-    /// of wanted tenures that this node has locally.  NOTE: these tenure-start blocks
-    /// do not correspond to the tenure; they correspond to the _parent_ tenure (since a
-    /// `WantedTenure` captures the tenure-start block hash of the parent tenure; the same data
-    /// captured by a sortition).
-    ///
-    /// This method is static to ease testing.
-    ///
-    /// Returns Ok(()) on success and fills in newly-discovered blocks into `tenure_start_blocks`.
-    /// Returns Err(..) on DB error.
-    pub(crate) fn load_tenure_start_blocks(
-        wanted_tenures: &[WantedTenure],
-        chainstate: &mut StacksChainState,
-        tenure_start_blocks: &mut HashMap<StacksBlockId, NakamotoBlock>,
-    ) -> Result<(), NetError> {
-        for wt in wanted_tenures {
-            let candidate_tenure_start_blocks = chainstate
-                .nakamoto_blocks_db()
-                .get_nakamoto_tenure_start_blocks(&wt.tenure_id_consensus_hash)?;
-
-            for candidate_tenure_start_block in candidate_tenure_start_blocks.into_iter() {
-                tenure_start_blocks.insert(
-                    candidate_tenure_start_block.block_id(),
-                    candidate_tenure_start_block,
-                );
-            }
-        }
-        Ok(())
-    }
-
-    /// Update our local tenure start block data
-    fn update_tenure_start_blocks(
-        &mut self,
-        chainstate: &mut StacksChainState,
-    ) -> Result<(), NetError> {
-        Self::load_tenure_start_blocks(
-            &self.wanted_tenures,
-            chainstate,
-            &mut self.tenure_start_blocks,
         )
     }
 
@@ -670,7 +625,6 @@ impl NakamotoDownloadStateMachine {
         &mut self,
         network: &PeerNetwork,
         sortdb: &SortitionDB,
-        chainstate: &mut StacksChainState,
     ) -> Result<(), NetError> {
         let sort_tip = &network.burnchain_tip;
 
@@ -688,7 +642,6 @@ impl NakamotoDownloadStateMachine {
             // not at a reward cycle boundary, so just extend self.wanted_tenures
             debug!("Extend wanted tenures since no sort_rc change and we have tenure data");
             self.extend_wanted_tenures(network, sortdb)?;
-            self.update_tenure_start_blocks(chainstate)?;
             return Ok(());
         }
 
@@ -728,7 +681,6 @@ impl NakamotoDownloadStateMachine {
         self.wanted_tenures = new_wanted_tenures;
         self.reward_cycle = sort_rc;
 
-        self.update_tenure_start_blocks(chainstate)?;
         Ok(())
     }
 
@@ -1485,21 +1437,6 @@ impl NakamotoDownloadStateMachine {
         // run all downloaders
         let new_blocks = self.tenure_downloads.run(network, &mut self.neighbor_rpc);
 
-        // give blocked downloaders their tenure-end blocks from other downloaders that have
-        // obtained their tenure-start blocks
-        let new_tenure_starts = self.tenure_downloads.find_new_tenure_start_blocks();
-        self.tenure_start_blocks
-            .extend(new_tenure_starts.into_iter());
-
-        let dead = self
-            .tenure_downloads
-            .handle_tenure_end_blocks(&self.tenure_start_blocks);
-
-        // bookkeeping
-        for naddr in dead.into_iter() {
-            self.neighbor_rpc.add_dead(network, &naddr);
-        }
-
         new_blocks
     }
 
@@ -1729,7 +1666,7 @@ impl NakamotoDownloadStateMachine {
     ) -> Result<HashMap<ConsensusHash, Vec<NakamotoBlock>>, NetError> {
         self.nakamoto_tip = network.stacks_tip.block_id();
         debug!("Downloader: Nakamoto tip is {:?}", &self.nakamoto_tip);
-        self.update_wanted_tenures(&network, sortdb, chainstate)?;
+        self.update_wanted_tenures(&network, sortdb)?;
         self.update_processed_tenures(chainstate)?;
         let new_blocks = self.run_downloads(burnchain_height, network, sortdb, chainstate, ibd);
         self.last_sort_tip = Some(network.burnchain_tip.clone());
