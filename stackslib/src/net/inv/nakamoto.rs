@@ -218,7 +218,7 @@ impl InvGenerator {
         };
 
         // this tip has a known table
-        if let Some(loaded_tenure_info) = tenure_infos.get_mut(tenure_id_consensus_hash) {
+        if let Some(loaded_tenure_info) = tenure_infos.get(tenure_id_consensus_hash) {
             // we've loaded this tenure info before for this tip
             return Ok(loaded_tenure_info.clone());
         } else {
