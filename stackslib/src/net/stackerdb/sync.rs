@@ -27,6 +27,7 @@ use stacks_common::util::hash::Hash160;
 use crate::net::chat::ConversationP2P;
 use crate::net::connection::ReplyHandleP2P;
 use crate::net::db::PeerDB;
+use crate::net::neighbors::comms::ToNeighborKey;
 use crate::net::neighbors::NeighborComms;
 use crate::net::p2p::PeerNetwork;
 use crate::net::stackerdb::{
@@ -216,8 +217,22 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
         self.expected_versions.clear();
         self.downloaded_chunks.clear();
 
-        // reset comms, but keep all replicas pinned
+        // reset comms, but keep all connected replicas pinned
         self.comms.reset();
+        if let Some(network) = network {
+            for naddr in self.replicas.iter() {
+                if let Some(event_id) = network.get_event_id(&naddr.to_neighbor_key(network)) {
+                    self.comms.pin_connection(event_id);
+                    debug!(
+                        "{:?}: {}: reuse connection for replica {:?} on event {}",
+                        network.get_local_peer(),
+                        &self.smart_contract_id,
+                        &naddr,
+                        event_id
+                    );
+                }
+            }
+        }
 
         // reload from config
         self.num_slots = config.num_slots() as usize;
@@ -238,6 +253,15 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
     /// Get the set of connection IDs in use
     pub fn get_pinned_connections(&self) -> &HashSet<usize> {
         self.comms.get_pinned_connections()
+    }
+
+    /// Unpin and remove a connected replica by naddr
+    pub fn unpin_connected_replica(&mut self, network: &PeerNetwork, naddr: &NeighborAddress) {
+        let nk = naddr.to_neighbor_key(network);
+        if let Some(event_id) = network.get_event_id(&nk) {
+            self.comms.unpin_connection(event_id);
+        }
+        self.connected_replicas.remove(&naddr);
     }
 
     /// Make a chunk inv request
@@ -743,6 +767,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                             &network.get_chain_view().rc_consensus_hash,
                             &db_data.rc_consensus_hash
                         );
+                        // don't unpin, since it's usually transient
                         self.connected_replicas.remove(&naddr);
                         continue;
                     }
@@ -756,11 +781,13 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                         &naddr,
                         data.error_code
                     );
-                    self.connected_replicas.remove(&naddr);
                     if data.error_code == NackErrorCodes::StaleView
                         || data.error_code == NackErrorCodes::FutureView
                     {
+                        self.connected_replicas.remove(&naddr);
                         self.stale_neighbors.insert(naddr);
+                    } else {
+                        self.unpin_connected_replica(network, &naddr);
                     }
                     continue;
                 }
@@ -788,7 +815,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                 );
 
                 // disconnect
-                self.connected_replicas.remove(&naddr);
+                self.unpin_connected_replica(network, &naddr);
                 continue;
             }
 
@@ -887,11 +914,13 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                         &naddr,
                         data.error_code
                     );
-                    self.connected_replicas.remove(&naddr);
                     if data.error_code == NackErrorCodes::StaleView
                         || data.error_code == NackErrorCodes::FutureView
                     {
+                        self.connected_replicas.remove(&naddr);
                         self.stale_neighbors.insert(naddr);
+                    } else {
+                        self.unpin_connected_replica(network, &naddr);
                     }
                     continue;
                 }
@@ -902,7 +931,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                         &self.smart_contract_id,
                         &x
                     );
-                    self.connected_replicas.remove(&naddr);
+                    self.unpin_connected_replica(network, &naddr);
                     continue;
                 }
             };
@@ -958,6 +987,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
         );
 
         let mut requested = 0;
+        let mut unpin = HashSet::new();
 
         // fill up our comms with $capacity requests
         for _i in 0..self.request_capacity {
@@ -1001,7 +1031,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                     &selected_neighbor,
                     &e
                 );
-                self.connected_replicas.remove(&selected_neighbor);
+                unpin.insert(selected_neighbor.clone());
                 continue;
             }
 
@@ -1013,6 +1043,10 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
             // next-prioritized chunk
             cur_priority = (cur_priority + 1) % self.chunk_fetch_priorities.len();
         }
+        let _ = unpin
+            .into_iter()
+            .map(|naddr| self.unpin_connected_replica(network, &naddr));
+
         if requested == 0 && self.comms.count_inflight() == 0 {
             return Err(net_error::PeerNotConnected);
         }
@@ -1058,7 +1092,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                         &self.smart_contract_id,
                         &x
                     );
-                    self.connected_replicas.remove(&naddr);
+                    self.unpin_connected_replica(network, &naddr);
                     continue;
                 }
             };
@@ -1072,7 +1106,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                     &naddr,
                     data.slot_id
                 );
-                self.connected_replicas.remove(&naddr);
+                self.unpin_connected_replica(network, &naddr);
                 continue;
             }
 

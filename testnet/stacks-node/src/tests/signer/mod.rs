@@ -37,7 +37,7 @@ use std::time::{Duration, Instant};
 
 use clarity::boot_util::boot_code_id;
 use clarity::vm::types::PrincipalData;
-use libsigner::v0::messages::{BlockResponse, RejectCode, SignerMessage};
+use libsigner::v0::messages::{BlockResponse, SignerMessage};
 use libsigner::{SignerEntries, SignerEventTrait};
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::nakamoto::signer_set::NakamotoSigners;
