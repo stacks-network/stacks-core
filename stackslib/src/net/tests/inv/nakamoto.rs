@@ -46,7 +46,7 @@ use crate::clarity::vm::types::StacksAddressExtensions;
 use crate::core::StacksEpochExtension;
 use crate::net::inv::nakamoto::{InvGenerator, NakamotoInvStateMachine, NakamotoTenureInv};
 use crate::net::neighbors::comms::NeighborComms;
-use crate::net::test::{TestEventObserver, TestPeer};
+use crate::net::test::{to_addr, TestEventObserver, TestPeer};
 use crate::net::tests::{NakamotoBootPlan, NakamotoBootStep, NakamotoBootTenure};
 use crate::net::{
     Error as NetError, GetNakamotoInvData, HandshakeData, NakamotoInvData, NeighborAddress,
@@ -806,7 +806,7 @@ fn test_nakamoto_inv_sync_state_machine() {
         vec![
             true, false, false, false, false, false, false, true, true, true,
         ],
-        // atlernating rc
+        // alternating rc
         vec![
             false, true, false, true, false, true, false, true, true, true,
         ],
@@ -938,7 +938,7 @@ fn test_nakamoto_inv_sync_across_epoch_change() {
         vec![
             true, false, false, false, false, false, false, true, true, true,
         ],
-        // atlernating rc
+        // alternating rc
         vec![
             false, true, false, true, false, true, false, true, true, true,
         ],
@@ -1076,4 +1076,596 @@ fn test_nakamoto_inv_sync_across_epoch_change() {
             highest_rc_1, highest_rc_2, total_rcs
         );
     }
+}
+
+#[test]
+fn test_nakamoto_make_tenure_inv_in_forks() {
+    let sender_key = StacksPrivateKey::new();
+    let sender_addr = to_addr(&sender_key);
+    let initial_balances = vec![(sender_addr.to_account_principal(), 1000000000)];
+
+    let observer = TestEventObserver::new();
+    let bitvecs = vec![
+        // full rc
+        vec![true, true, true, true, true, true, true, true, true, true],
+    ];
+
+    let (mut peer, _) = make_nakamoto_peers_from_invs_and_balances(
+        function_name!(),
+        &observer,
+        10,
+        3,
+        bitvecs.clone(),
+        0,
+        initial_balances,
+    );
+    peer.refresh_burnchain_view();
+    peer.mine_malleablized_blocks = false;
+
+    let mut invgen = InvGenerator::new().with_tip_ancestor_search_depth(5);
+
+    //
+    // ---------------------- basic operations ----------------------
+    //
+
+    let sortdb = peer.sortdb_ref().reopen().unwrap();
+    let (chainstate, _) = peer.chainstate_ref().reopen().unwrap();
+
+    let first_burn_block_height = sortdb.first_block_height;
+
+    let sort_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+    let tip_rc = sortdb
+        .pox_constants
+        .block_height_to_reward_cycle(first_burn_block_height, sort_tip.block_height)
+        .unwrap();
+
+    let naka_tip = peer.network.stacks_tip.block_id();
+    let first_naka_tip = naka_tip.clone();
+    let first_sort_tip = sort_tip.clone();
+
+    // find the first block in this tenure
+    let naka_tip_header = NakamotoChainState::get_block_header_nakamoto(chainstate.db(), &naka_tip)
+        .unwrap()
+        .unwrap();
+    let naka_tenure_start_header = NakamotoChainState::get_nakamoto_tenure_start_block_header(
+        &mut chainstate.index_conn(),
+        &naka_tip,
+        &naka_tip_header.consensus_hash,
+    )
+    .unwrap()
+    .unwrap();
+    let (naka_tenure_start_block, _) = chainstate
+        .nakamoto_blocks_db()
+        .get_nakamoto_block(&naka_tenure_start_header.index_block_hash())
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(invgen.cache_misses(), 0);
+
+    let bits = invgen
+        .make_tenure_bitvector(&sort_tip, &sortdb, &chainstate, &naka_tip, tip_rc)
+        .unwrap();
+    debug!("test: Bits at rc {}: {:?}", tip_rc, &bits);
+    debug!("test: invgen.cache_misses() = {}", invgen.cache_misses());
+
+    assert_eq!(bits, vec![true, true]);
+    assert_eq!(invgen.cache_misses(), 3);
+
+    let bits = invgen
+        .make_tenure_bitvector(&sort_tip, &sortdb, &chainstate, &naka_tip, tip_rc)
+        .unwrap();
+    debug!("test: Bits at rc {}: {:?}", tip_rc, &bits);
+    debug!("test: invgen.cache_misses() = {}", invgen.cache_misses());
+
+    assert_eq!(bits, vec![true, true]);
+    assert_eq!(invgen.cache_misses(), 3);
+
+    let bits = invgen
+        .make_tenure_bitvector(&sort_tip, &sortdb, &chainstate, &naka_tip, tip_rc - 1)
+        .unwrap();
+    debug!("test: Bits at rc {}: {:?}", tip_rc, &bits);
+    debug!("test: invgen.cache_misses() = {}", invgen.cache_misses());
+
+    assert_eq!(
+        bits,
+        vec![false, false, true, true, true, true, true, true, true, true]
+    );
+    assert_eq!(invgen.cache_misses(), 13);
+
+    let bits = invgen
+        .make_tenure_bitvector(&sort_tip, &sortdb, &chainstate, &naka_tip, tip_rc - 1)
+        .unwrap();
+    debug!("test: Bits at rc {}: {:?}", tip_rc, &bits);
+    debug!("test: invgen.cache_misses() = {}", invgen.cache_misses());
+
+    assert_eq!(
+        bits,
+        vec![false, false, true, true, true, true, true, true, true, true]
+    );
+    assert_eq!(invgen.cache_misses(), 13);
+
+    //
+    // ---------------------- the inv generator can keep up with new blocks ----------------------
+    //
+
+    let mut expected_bits = vec![true, true];
+    let mut expected_cache_misses = 13;
+    let mut naka_tip_block = None;
+
+    for i in 0..3 {
+        let (naka_block, ..) = peer.single_block_tenure(&sender_key, |_| {}, |_| {}, |_| true);
+        debug!(
+            "test: produced {}: {:?}",
+            &naka_block.block_id(),
+            &naka_block
+        );
+
+        peer.refresh_burnchain_view();
+        let naka_tip = peer.network.stacks_tip.block_id();
+        let sort_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+        let tip_rc = sortdb
+            .pox_constants
+            .block_height_to_reward_cycle(first_burn_block_height, sort_tip.block_height)
+            .unwrap();
+
+        let bits = invgen
+            .make_tenure_bitvector(&sort_tip, &sortdb, &chainstate, &naka_tip, tip_rc)
+            .unwrap();
+        debug!("test: Bits at rc {}: {:?}", tip_rc, &bits);
+        debug!("test: invgen.cache_misses() = {}", invgen.cache_misses());
+
+        // only one additional cache miss
+        expected_bits.push(true);
+        expected_cache_misses += 1;
+
+        assert_eq!(bits, expected_bits);
+        assert_eq!(invgen.cache_misses(), expected_cache_misses);
+
+        naka_tip_block = Some(naka_block);
+    }
+
+    let naka_tip_block = naka_tip_block.unwrap();
+
+    peer.refresh_burnchain_view();
+    let naka_tip = peer.network.stacks_tip.block_id();
+
+    //
+    // ---------------------- the inv generator can track multiple forks at once ----------------------
+    //
+
+    peer.mine_nakamoto_on(vec![naka_tenure_start_block.clone()]);
+    let (fork_naka_block, ..) = peer.single_block_tenure(&sender_key, |_| {}, |_| {}, |_| true);
+    debug!(
+        "test: produced fork {}: {:?}",
+        &fork_naka_block.block_id(),
+        &fork_naka_block
+    );
+
+    peer.refresh_burnchain_view();
+    let new_naka_tip = peer.network.stacks_tip.block_id();
+    let sort_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+    let tip_rc = sortdb
+        .pox_constants
+        .block_height_to_reward_cycle(first_burn_block_height, sort_tip.block_height)
+        .unwrap();
+
+    // this will not have reorged
+    assert_eq!(naka_tip, new_naka_tip);
+
+    // load inv off of the canonical tip.
+    // It should show a missed sortition.
+    let bits = invgen
+        .make_tenure_bitvector(&sort_tip, &sortdb, &chainstate, &naka_tip, tip_rc)
+        .unwrap();
+    debug!(
+        "test: Bits in fork on {} at rc {}: {:?}",
+        &naka_tip, tip_rc, &bits
+    );
+    debug!(
+        "test: invgen.cache_misses() in fork = {}",
+        invgen.cache_misses()
+    );
+
+    assert_eq!(bits, [true, true, true, true, true, false]);
+    assert_eq!(invgen.cache_misses(), 17);
+
+    // load inv off of the non-canonical tip.
+    // it should show the last 3 canonical tenures as missing, and this forked block as present
+    let bits = invgen
+        .make_tenure_bitvector(
+            &sort_tip,
+            &sortdb,
+            &chainstate,
+            &fork_naka_block.block_id(),
+            tip_rc,
+        )
+        .unwrap();
+    debug!(
+        "test: Bits in fork on {} at rc {}: {:?}",
+        &fork_naka_block.block_id(),
+        tip_rc,
+        &bits
+    );
+    debug!(
+        "test: invgen.cache_misses() in fork = {}",
+        invgen.cache_misses()
+    );
+
+    assert_eq!(bits, [true, true, false, false, false, true]);
+    assert_eq!(invgen.cache_misses(), 21);
+
+    // add more to the fork
+    peer.mine_nakamoto_on(vec![fork_naka_block.clone()]);
+
+    let (fork_naka_block, ..) = peer.single_block_tenure(&sender_key, |_| {}, |_| {}, |_| true);
+    debug!(
+        "test: produced fork {}: {:?}",
+        &fork_naka_block.block_id(),
+        &fork_naka_block
+    );
+
+    peer.refresh_burnchain_view();
+    let new_naka_tip = peer.network.stacks_tip.block_id();
+    let sort_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+    let tip_rc = sortdb
+        .pox_constants
+        .block_height_to_reward_cycle(first_burn_block_height, sort_tip.block_height)
+        .unwrap();
+
+    // this will not have reorged (yet)
+    assert_eq!(naka_tip, new_naka_tip);
+
+    // load inv off of the canonical tip.
+    // It should show two missed sortitions, for each fork.
+    // only one additional cache miss
+    let bits = invgen
+        .make_tenure_bitvector(&sort_tip, &sortdb, &chainstate, &naka_tip, tip_rc)
+        .unwrap();
+    debug!(
+        "test: Bits in fork on {} at rc {}: {:?}",
+        &naka_tip, tip_rc, &bits
+    );
+    debug!(
+        "test: invgen.cache_misses() in fork = {}",
+        invgen.cache_misses()
+    );
+
+    assert_eq!(bits, [true, true, true, true, true, false, false]);
+    assert_eq!(invgen.cache_misses(), 22);
+
+    // load inv off of the non-canonical tip again.
+    // it should show the last 3 last canonical tenures as missing, and this forked block as
+    // present. Only one additional cache miss should manifest.
+    let bits = invgen
+        .make_tenure_bitvector(
+            &sort_tip,
+            &sortdb,
+            &chainstate,
+            &fork_naka_block.block_id(),
+            tip_rc,
+        )
+        .unwrap();
+    debug!(
+        "test: Bits in fork on {} at rc {}: {:?}",
+        &fork_naka_block.block_id(),
+        tip_rc,
+        &bits
+    );
+    debug!(
+        "test: invgen.cache_misses() in fork = {}",
+        invgen.cache_misses()
+    );
+
+    // only one more cache miss
+    assert_eq!(bits, [true, true, false, false, false, true, true]);
+    assert_eq!(invgen.cache_misses(), 23);
+
+    // load inv off of the canonical tip again.
+    // It should show two missed sortitions.
+    let bits = invgen
+        .make_tenure_bitvector(&sort_tip, &sortdb, &chainstate, &naka_tip, tip_rc)
+        .unwrap();
+    debug!(
+        "test: Bits in fork on {} at rc {}: {:?}",
+        &naka_tip, tip_rc, &bits
+    );
+    debug!(
+        "test: invgen.cache_misses() in fork = {}",
+        invgen.cache_misses()
+    );
+
+    // no new cache misses
+    assert_eq!(bits, [true, true, true, true, true, false, false]);
+    assert_eq!(invgen.cache_misses(), 23);
+
+    //
+    // ---------------------- the inv generator will search only a maximum depth before giving up ----------------------
+    //
+
+    // advance the canonical chain by 3 more blocks, so the delta between `first_naka_tip` and
+    // `naka_tip` is now 6 blocks
+    peer.mine_nakamoto_on(vec![naka_tip_block.clone()]);
+    for i in 0..3 {
+        let (naka_block, ..) = peer.single_block_tenure(&sender_key, |_| {}, |_| {}, |_| true);
+        debug!(
+            "test: produced {}: {:?}",
+            &naka_block.block_id(),
+            &naka_block
+        );
+
+        peer.refresh_burnchain_view();
+        peer.mine_nakamoto_on(vec![naka_block.clone()]);
+    }
+    let naka_tip = peer.network.stacks_tip.block_id();
+    let sort_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+
+    // new inv generator with a search depth of 3
+    let mut invgen = InvGenerator::new().with_tip_ancestor_search_depth(3);
+
+    // load an old tip on the canonical chain
+    let bits = invgen
+        .make_tenure_bitvector(
+            &first_sort_tip,
+            &sortdb,
+            &chainstate,
+            &first_naka_tip,
+            tip_rc,
+        )
+        .unwrap();
+    assert_eq!(bits, [true, true]);
+    assert_eq!(invgen.cache_misses(), 3);
+
+    // load a descendant that is 6 blocks higher
+    let bits = invgen
+        .make_tenure_bitvector(&sort_tip, &sortdb, &chainstate, &naka_tip, tip_rc)
+        .unwrap();
+    assert_eq!(
+        bits,
+        [true, true, true, true, true, false, false, true, true, true]
+    );
+
+    // all 10 tenures were loaded, because we had to search more than 5 blocks back
+    assert_eq!(invgen.cache_misses(), 12);
+
+    // new inv generator with a search depth of 10
+    let mut invgen = InvGenerator::new().with_tip_ancestor_search_depth(10);
+
+    // load an old tip on the canonical chain
+    let bits = invgen
+        .make_tenure_bitvector(
+            &first_sort_tip,
+            &sortdb,
+            &chainstate,
+            &first_naka_tip,
+            tip_rc,
+        )
+        .unwrap();
+    assert_eq!(bits, [true, true]);
+    assert_eq!(invgen.cache_misses(), 3);
+
+    // load a descendant that is 6 blocks higher
+    let bits = invgen
+        .make_tenure_bitvector(&sort_tip, &sortdb, &chainstate, &naka_tip, tip_rc)
+        .unwrap();
+    assert_eq!(
+        bits,
+        [true, true, true, true, true, false, false, true, true, true]
+    );
+
+    // reused old canonical tip information
+    assert_eq!(invgen.cache_misses(), 9);
+}
+
+#[test]
+fn test_nakamoto_make_tenure_inv_in_many_reward_cycles() {
+    let sender_key = StacksPrivateKey::new();
+    let sender_addr = to_addr(&sender_key);
+    let initial_balances = vec![(sender_addr.to_account_principal(), 1000000000)];
+
+    let observer = TestEventObserver::new();
+    let bitvecs = vec![
+        // full rc
+        vec![true, true, true, true, true, true, true, true, true, true],
+        // sparce rc
+        vec![
+            true, false, false, false, false, false, false, true, true, true,
+        ],
+        // alternating rc
+        vec![
+            false, true, false, true, false, true, false, true, true, true,
+        ],
+        // sparse rc
+        vec![
+            false, false, false, false, false, false, true, true, true, true,
+        ],
+        // full rc
+        vec![true, true, true, true, true, true, true, true, true, true],
+    ];
+
+    let (mut peer, _) = make_nakamoto_peers_from_invs_and_balances(
+        function_name!(),
+        &observer,
+        10,
+        3,
+        bitvecs.clone(),
+        0,
+        initial_balances,
+    );
+    peer.refresh_burnchain_view();
+    peer.mine_malleablized_blocks = false;
+
+    let mut invgen = InvGenerator::new().with_tip_ancestor_search_depth(5);
+
+    let sortdb = peer.sortdb_ref().reopen().unwrap();
+    let (chainstate, _) = peer.chainstate_ref().reopen().unwrap();
+
+    let first_burn_block_height = sortdb.first_block_height;
+
+    let sort_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+    let tip_rc = sortdb
+        .pox_constants
+        .block_height_to_reward_cycle(first_burn_block_height, sort_tip.block_height)
+        .unwrap();
+
+    let naka_tip = peer.network.stacks_tip.block_id();
+    let first_naka_tip = naka_tip.clone();
+    let first_sort_tip = sort_tip.clone();
+
+    // find the first block in this tenure
+    let naka_tip_header = NakamotoChainState::get_block_header_nakamoto(chainstate.db(), &naka_tip)
+        .unwrap()
+        .unwrap();
+    let naka_tenure_start_header = NakamotoChainState::get_nakamoto_tenure_start_block_header(
+        &mut chainstate.index_conn(),
+        &naka_tip,
+        &naka_tip_header.consensus_hash,
+    )
+    .unwrap()
+    .unwrap();
+    let (naka_tenure_start_block, _) = chainstate
+        .nakamoto_blocks_db()
+        .get_nakamoto_block(&naka_tenure_start_header.index_block_hash())
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(invgen.cache_misses(), 0);
+
+    let bits = invgen
+        .make_tenure_bitvector(&sort_tip, &sortdb, &chainstate, &naka_tip, tip_rc)
+        .unwrap();
+    debug!("test: Bits at rc {}: {:?}", tip_rc, &bits);
+    debug!("test: invgen.cache_misses() = {}", invgen.cache_misses());
+
+    assert_eq!(bits, [true, true]);
+    assert_eq!(invgen.cache_misses(), 3);
+
+    let bits = invgen
+        .make_tenure_bitvector(&sort_tip, &sortdb, &chainstate, &naka_tip, tip_rc - 1)
+        .unwrap();
+    debug!("test: Bits at rc {}: {:?}", tip_rc - 1, &bits);
+    debug!("test: invgen.cache_misses() = {}", invgen.cache_misses());
+
+    assert_eq!(
+        bits,
+        [true, true, true, true, true, true, true, true, true, true]
+    );
+    assert_eq!(invgen.cache_misses(), 13);
+
+    let bits = invgen
+        .make_tenure_bitvector(&sort_tip, &sortdb, &chainstate, &naka_tip, tip_rc - 2)
+        .unwrap();
+    debug!("test: Bits at rc {}: {:?}", tip_rc - 2, &bits);
+    debug!("test: invgen.cache_misses() = {}", invgen.cache_misses());
+
+    assert_eq!(
+        bits,
+        [true, true, false, false, false, false, false, false, true, true]
+    );
+    assert_eq!(invgen.cache_misses(), 17);
+
+    let bits = invgen
+        .make_tenure_bitvector(&sort_tip, &sortdb, &chainstate, &naka_tip, tip_rc - 3)
+        .unwrap();
+    debug!("test: Bits at rc {}: {:?}", tip_rc - 3, &bits);
+    debug!("test: invgen.cache_misses() = {}", invgen.cache_misses());
+
+    assert_eq!(
+        bits,
+        [true, true, false, true, false, true, false, true, false, true]
+    );
+    assert_eq!(invgen.cache_misses(), 23);
+
+    let bits = invgen
+        .make_tenure_bitvector(&sort_tip, &sortdb, &chainstate, &naka_tip, tip_rc - 4)
+        .unwrap();
+    debug!("test: Bits at rc {}: {:?}", tip_rc - 4, &bits);
+    debug!("test: invgen.cache_misses() = {}", invgen.cache_misses());
+
+    assert_eq!(
+        bits,
+        [true, true, true, false, false, false, false, false, false, true]
+    );
+    assert_eq!(invgen.cache_misses(), 27);
+
+    let bits = invgen
+        .make_tenure_bitvector(&sort_tip, &sortdb, &chainstate, &naka_tip, tip_rc - 5)
+        .unwrap();
+    debug!("test: Bits at rc {}: {:?}", tip_rc - 5, &bits);
+    debug!("test: invgen.cache_misses() = {}", invgen.cache_misses());
+
+    assert_eq!(
+        bits,
+        [false, false, true, true, true, true, true, true, true, true]
+    );
+    assert_eq!(invgen.cache_misses(), 37);
+
+    // load them all again.  cache misses should remain the same.
+    let bits = invgen
+        .make_tenure_bitvector(&sort_tip, &sortdb, &chainstate, &naka_tip, tip_rc)
+        .unwrap();
+    debug!("test: Bits at rc {}: {:?}", tip_rc, &bits);
+    debug!("test: invgen.cache_misses() = {}", invgen.cache_misses());
+
+    assert_eq!(bits, [true, true]);
+    assert_eq!(invgen.cache_misses(), 37);
+
+    let bits = invgen
+        .make_tenure_bitvector(&sort_tip, &sortdb, &chainstate, &naka_tip, tip_rc - 1)
+        .unwrap();
+    debug!("test: Bits at rc {}: {:?}", tip_rc - 1, &bits);
+    debug!("test: invgen.cache_misses() = {}", invgen.cache_misses());
+
+    assert_eq!(
+        bits,
+        [true, true, true, true, true, true, true, true, true, true]
+    );
+    assert_eq!(invgen.cache_misses(), 37);
+
+    let bits = invgen
+        .make_tenure_bitvector(&sort_tip, &sortdb, &chainstate, &naka_tip, tip_rc - 2)
+        .unwrap();
+    debug!("test: Bits at rc {}: {:?}", tip_rc - 2, &bits);
+    debug!("test: invgen.cache_misses() = {}", invgen.cache_misses());
+
+    assert_eq!(
+        bits,
+        [true, true, false, false, false, false, false, false, true, true]
+    );
+    assert_eq!(invgen.cache_misses(), 37);
+
+    let bits = invgen
+        .make_tenure_bitvector(&sort_tip, &sortdb, &chainstate, &naka_tip, tip_rc - 3)
+        .unwrap();
+    debug!("test: Bits at rc {}: {:?}", tip_rc - 3, &bits);
+    debug!("test: invgen.cache_misses() = {}", invgen.cache_misses());
+
+    assert_eq!(
+        bits,
+        [true, true, false, true, false, true, false, true, false, true]
+    );
+    assert_eq!(invgen.cache_misses(), 37);
+
+    let bits = invgen
+        .make_tenure_bitvector(&sort_tip, &sortdb, &chainstate, &naka_tip, tip_rc - 4)
+        .unwrap();
+    debug!("test: Bits at rc {}: {:?}", tip_rc - 4, &bits);
+    debug!("test: invgen.cache_misses() = {}", invgen.cache_misses());
+
+    assert_eq!(
+        bits,
+        [true, true, true, false, false, false, false, false, false, true]
+    );
+    assert_eq!(invgen.cache_misses(), 37);
+
+    let bits = invgen
+        .make_tenure_bitvector(&sort_tip, &sortdb, &chainstate, &naka_tip, tip_rc - 5)
+        .unwrap();
+    debug!("test: Bits at rc {}: {:?}", tip_rc - 5, &bits);
+    debug!("test: invgen.cache_misses() = {}", invgen.cache_misses());
+
+    assert_eq!(
+        bits,
+        [false, false, true, true, true, true, true, true, true, true]
+    );
+    assert_eq!(invgen.cache_misses(), 37);
 }
