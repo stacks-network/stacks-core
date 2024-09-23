@@ -231,27 +231,20 @@ impl SignerTest<SpawnedSigner> {
             Some(self.num_stacking_cycles),
         );
         info!("Waiting for signer set calculation.");
-        let mut reward_set_calculated = false;
-        let short_timeout = Duration::from_secs(60);
-        let now = std::time::Instant::now();
         // Make sure the signer set is calculated before continuing or signers may not
         // recognize that they are registered signers in the subsequent burn block event
         let reward_cycle = self.get_current_reward_cycle() + 1;
-        while !reward_set_calculated {
-            let reward_set = self
+        wait_for(30, || {
+            Ok(self
                 .stacks_client
                 .get_reward_set_signers(reward_cycle)
-                .expect("Failed to check if reward set is calculated");
-            reward_set_calculated = reward_set.is_some();
-            if reward_set_calculated {
-                debug!("Signer set: {:?}", reward_set.unwrap());
-            }
-            std::thread::sleep(Duration::from_secs(1));
-            assert!(
-                now.elapsed() < short_timeout,
-                "Timed out waiting for reward set calculation"
-            );
-        }
+                .expect("Failed to check if reward set is calculated")
+                .map(|reward_set| {
+                    debug!("Signer set: {:?}", reward_set);
+                })
+                .is_some())
+        })
+        .expect("Timed out waiting for reward set calculation");
         info!("Signer set calculated");
 
         // Manually consume one more block to ensure signers refresh their state
@@ -264,8 +257,7 @@ impl SignerTest<SpawnedSigner> {
         info!("Signers initialized");
 
         self.run_until_epoch_3_boundary();
-        std::thread::sleep(Duration::from_secs(1));
-        wait_for(60, || {
+        wait_for(30, || {
             Ok(get_chain_info_opt(&self.running_nodes.conf).is_some())
         })
         .expect("Timed out waiting for network to restart after 3.0 boundary reached");
@@ -275,11 +267,11 @@ impl SignerTest<SpawnedSigner> {
         // could be other miners mining blocks.
         let height_before = get_chain_info(&self.running_nodes.conf).stacks_tip_height;
         info!("Waiting for first Nakamoto block: {}", height_before + 1);
-        next_block_and(&mut self.running_nodes.btc_regtest_controller, 60, || {
-            let height = get_chain_info(&self.running_nodes.conf).stacks_tip_height;
-            Ok(height > height_before)
+        self.mine_nakamoto_block(Duration::from_secs(30));
+        wait_for(30, || {
+            Ok(get_chain_info(&self.running_nodes.conf).stacks_tip_height > height_before)
         })
-        .unwrap();
+        .expect("Timed out waiting for first Nakamoto block after 3.0 boundary");
         info!("Ready to mine Nakamoto blocks!");
     }
 
@@ -553,18 +545,8 @@ fn miner_gather_signatures() {
     let num_signers = 5;
     let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new(num_signers, vec![]);
     let timeout = Duration::from_secs(30);
-    let mined_blocks = signer_test.running_nodes.nakamoto_blocks_mined.clone();
-    let blocks_mined_before = mined_blocks.load(Ordering::SeqCst);
 
     signer_test.boot_to_epoch_3();
-
-    // give the system a chance to reach the Nakamoto start tip
-    // mine a Nakamoto block
-    wait_for(30, || {
-        let blocks_mined = mined_blocks.load(Ordering::SeqCst);
-        Ok(blocks_mined > blocks_mined_before)
-    })
-    .unwrap();
 
     info!("------------------------- Test Mine and Verify Confirmed Nakamoto Block -------------------------");
     signer_test.mine_and_verify_confirmed_naka_block(timeout, num_signers);
@@ -2319,7 +2301,7 @@ fn empty_sortition() {
     let send_amt = 100;
     let send_fee = 180;
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
-    let block_proposal_timeout = Duration::from_secs(5);
+    let block_proposal_timeout = Duration::from_secs(20);
     let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
         vec![(sender_addr.clone(), send_amt + send_fee)],
