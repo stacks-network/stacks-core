@@ -3316,7 +3316,7 @@ impl NakamotoChainState {
                 StacksPublicKey::recover_to_pubkey(signer_sighash.bits(), &signer_signature)
                     .map_err(|e| ChainstateError::InvalidStacksBlock(e.to_string()))?;
             let sql = "INSERT INTO signer_stats(public_key,reward_cycle) VALUES(?1,?2) ON CONFLICT(public_key,reward_cycle) DO UPDATE SET blocks_signed=blocks_signed+1";
-            let params = params![serde_json::to_string(&signer_pubkey).unwrap(), reward_cycle];
+            let params = params![signer_pubkey.to_hex(), reward_cycle];
             tx.execute(sql, params)?;
         }
         Ok(())
@@ -3331,7 +3331,7 @@ impl NakamotoChainState {
     ) -> Result<u64, ChainstateError> {
         let sql =
             "SELECT blocks_signed FROM signer_stats WHERE public_key = ?1 AND reward_cycle = ?2";
-        let params = params![serde_json::to_string(&signer_pubkey).unwrap(), reward_cycle];
+        let params = params![signer_pubkey.to_hex(), reward_cycle];
         chainstate_db
             .query_row(sql, params, |row| row.get("blocks_signed"))
             .optional()
@@ -4135,12 +4135,19 @@ impl NakamotoChainState {
         if let Some(signer_calculation) = signer_set_calc {
             Self::write_reward_set(chainstate_tx, &new_block_id, &signer_calculation.reward_set)?;
 
-            let cycle_number = pox_constants
-                .reward_cycle_of_prepare_phase(
-                    first_block_height.into(),
-                    chain_tip_burn_header_height.into(),
-                )
-                .or_else(|| reward_cycle.map(|cycle| cycle + 1));
+            let cycle_number = if let Some(cycle) = pox_constants.reward_cycle_of_prepare_phase(
+                first_block_height.into(),
+                chain_tip_burn_header_height.into(),
+            ) {
+                Some(cycle)
+            } else {
+                pox_constants
+                    .block_height_to_reward_cycle(
+                        first_block_height.into(),
+                        chain_tip_burn_header_height.into(),
+                    )
+                    .map(|cycle| cycle + 1)
+            };
 
             if let Some(cycle) = cycle_number {
                 reward_set_data = Some(RewardSetData::new(

@@ -8025,11 +8025,23 @@ fn v3_signer_api_endpoint() {
     let (mut conf, _miner_account) = naka_neon_integration_conf(None);
     let password = "12345".to_string();
     conf.connection_options.auth_token = Some(password.clone());
+    conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
     let stacker_sk = setup_stacker(&mut conf);
     let signer_sk = Secp256k1PrivateKey::new();
     let signer_addr = tests::to_addr(&signer_sk);
     let signer_pubkey = Secp256k1PublicKey::from_private(&signer_sk);
+    let sender_sk = Secp256k1PrivateKey::new();
+    // setup sender + recipient for some test stx transfers
+    // these are necessary for the interim blocks to get mined at all
+    let sender_addr = tests::to_addr(&sender_sk);
+    let send_amt = 100;
+    let send_fee = 180;
+    conf.add_initial_balance(
+        PrincipalData::from(sender_addr.clone()).to_string(),
+        send_amt + send_fee,
+    );
     conf.add_initial_balance(PrincipalData::from(signer_addr.clone()).to_string(), 100000);
+    let recipient = PrincipalData::from(StacksAddress::burn_address(false));
 
     // only subscribe to the block proposal events
     test_observer::spawn();
@@ -8070,16 +8082,13 @@ fn v3_signer_api_endpoint() {
     );
 
     info!("------------------------- Reached Epoch 3.0 -------------------------");
-
     blind_signer(&conf, &signers, proposals_submitted);
-    wait_for_first_naka_block_commit(60, &commits_submitted);
-
     // TODO (hack) instantiate the sortdb in the burnchain
     _ = btc_regtest_controller.sortdb_mut();
 
     info!("------------------------- Setup finished, run test -------------------------");
 
-    let naka_tenures = 20;
+    let naka_tenures = conf.burnchain.pox_reward_length.unwrap().into();
     let pre_naka_reward_cycle = 1;
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
@@ -8102,11 +8111,23 @@ fn v3_signer_api_endpoint() {
     let blocks_signed_pre_naka = get_v3_signer(&signer_pubkey, pre_naka_reward_cycle);
     assert_eq!(blocks_signed_pre_naka, 0);
 
-    // Keep track of reward cycles encountered
-    let mut reward_cycles = HashSet::new();
+    let block_height = btc_regtest_controller.get_headers_height();
+    let first_reward_cycle = btc_regtest_controller
+        .get_burnchain()
+        .block_height_to_reward_cycle(block_height)
+        .unwrap();
+
+    let second_reward_cycle = first_reward_cycle.saturating_add(1);
+    let second_reward_cycle_start = btc_regtest_controller
+        .get_burnchain()
+        .reward_cycle_to_block_height(second_reward_cycle)
+        .saturating_sub(1);
+
+    let nmb_naka_blocks_in_first_cycle = second_reward_cycle_start - block_height;
+    let nmb_naka_blocks_in_second_cycle = naka_tenures - nmb_naka_blocks_in_first_cycle;
 
     // Mine some nakamoto tenures
-    for _ in 0..naka_tenures {
+    for _i in 0..naka_tenures {
         next_block_and_mine_commit(
             &mut btc_regtest_controller,
             60,
@@ -8114,23 +8135,45 @@ fn v3_signer_api_endpoint() {
             &commits_submitted,
         )
         .unwrap();
-        let block_height = btc_regtest_controller.get_headers_height();
-        let reward_cycle = btc_regtest_controller
-            .get_burnchain()
-            .block_height_to_reward_cycle(block_height)
-            .unwrap();
-        reward_cycles.insert(reward_cycle);
     }
+    let block_height = btc_regtest_controller.get_headers_height();
+    let reward_cycle = btc_regtest_controller
+        .get_burnchain()
+        .block_height_to_reward_cycle(block_height)
+        .unwrap();
 
-    // Make sure we got a couple cycles
-    assert!(reward_cycles.len() > 1);
-    assert!(!reward_cycles.contains(&pre_naka_reward_cycle));
+    assert_eq!(reward_cycle, second_reward_cycle);
 
-    // Since we have only one signer, it must be signing at least 1 block per reward cycle
-    for reward_cycle in reward_cycles.into_iter() {
-        let blocks_signed = get_v3_signer(&signer_pubkey, reward_cycle);
-        assert_ne!(blocks_signed, 0);
-    }
+    // Assert that we mined a single block (the commit op) per tenure
+    let nmb_signed_first_cycle = get_v3_signer(&signer_pubkey, first_reward_cycle);
+    let nmb_signed_second_cycle = get_v3_signer(&signer_pubkey, second_reward_cycle);
+
+    assert_eq!(nmb_signed_first_cycle, nmb_naka_blocks_in_first_cycle);
+    assert_eq!(nmb_signed_second_cycle, nmb_naka_blocks_in_second_cycle);
+
+    let blocks_processed_before = coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .get_stacks_blocks_processed();
+    // submit a tx so that the miner will mine an extra stacks block
+    let sender_nonce = 0;
+    let transfer_tx =
+        make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
+    submit_tx(&http_origin, &transfer_tx);
+
+    wait_for(30, || {
+        Ok(coord_channel
+            .lock()
+            .expect("Mutex poisoned")
+            .get_stacks_blocks_processed()
+            > blocks_processed_before)
+    })
+    .unwrap();
+    // Assert that we mined an additional block in the second cycle
+    assert_eq!(
+        get_v3_signer(&signer_pubkey, second_reward_cycle),
+        nmb_naka_blocks_in_second_cycle + 1
+    );
 
     info!("------------------------- Test finished, clean up -------------------------");
 
