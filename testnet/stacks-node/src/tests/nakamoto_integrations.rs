@@ -82,7 +82,7 @@ use stacks_common::codec::StacksMessageCodec;
 use stacks_common::consts::{CHAIN_ID_TESTNET, STACKS_EPOCH_MAX};
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksPrivateKey, StacksPublicKey,
-    TrieHash,
+    TrieHash, StacksBlockId
 };
 use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::hash::{to_hex, Hash160, Sha512Trunc256Sum};
@@ -2318,7 +2318,6 @@ fn correct_burn_outs() {
 /// This endpoint allows miners to propose Nakamoto blocks to a node,
 /// and test if they would be accepted or rejected
 #[test]
-#[ignore]
 fn block_proposal_api_endpoint() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
@@ -2550,6 +2549,35 @@ fn block_proposal_api_endpoint() {
             HTTP_ACCEPTED,
             Some(Err(ValidateRejectCode::ChainstateError)),
         ),
+        // (
+        //     "Bad block hash",
+        //     (|| {
+        //         let mut sp = sign(&proposal);
+        //         sp.block.header.parent_block_id = StacksBlockId([0xff; 32]);
+        //         sp
+        //     })(),
+        //     HTTP_ACCEPTED,
+        //     Some(Err(ValidateRejectCode::BadBlockHash)),
+        // ),
+        (
+            "Bad transaction",
+            (|| {
+                let mut sp = sign(&proposal);
+                let bad_tx = make_stacks_transfer(
+                    &account_keys[0],
+                    0,
+                    u64::MAX, // Invalid amount
+                    &to_addr(&account_keys[1]).into(),
+                    10000,
+                );
+                let bad_tx = StacksTransaction::consensus_deserialize(&mut &bad_tx[..])
+                    .expect("Failed to deserialize transaction");
+                sp.block.txs.push(bad_tx);
+                sp
+            })(),
+            HTTP_ACCEPTED,
+            Some(Err(ValidateRejectCode::BadTransaction)),
+        ),
         ("Not authorized", sign(&proposal), HTTP_NOT_AUTHORIZED, None),
     ];
 
@@ -2603,6 +2631,7 @@ fn block_proposal_api_endpoint() {
 
         let response_code = response.status().as_u16();
         let response_json = if expected_http_code != &HTTP_NOT_AUTHORIZED {
+            info!("Response here is plain text instead of json: {:?}. Response Finished", response);
             response.json::<serde_json::Value>().unwrap().to_string()
         } else {
             "No json response".to_string()
