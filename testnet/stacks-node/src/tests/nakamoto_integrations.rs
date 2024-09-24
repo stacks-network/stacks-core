@@ -6750,7 +6750,7 @@ fn check_block_times() {
     let observer_port = test_observer::EVENT_OBSERVER_PORT;
     naka_conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{observer_port}"),
-        events_keys: vec![EventKeyType::AnyEvent],
+        events_keys: vec![EventKeyType::MinedBlocks],
     });
 
     let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
@@ -7118,26 +7118,22 @@ fn check_block_times() {
     // Pause mining to prevent the stacks block from being mined before the tenure change is processed
     // TEST_MINE_STALL.lock().unwrap().replace(true);
 
-    let transfer_tx =
-        make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
-    // sender_nonce += 1;
-    let txid_string = submit_tx(&http_origin, &transfer_tx);
+    let call_tx = tests::make_contract_call(
+        &sender_sk,
+        sender_nonce,
+        call_fee,
+        &sender_addr,
+        contract3_name,
+        "get-tenure-time-public",
+        &[clarity::vm::Value::UInt(last_stacks_block_height - 1)],
+    );
 
-    // let call_tx = tests::make_contract_call(
-    //     &sender_sk,
-    //     sender_nonce,
-    //     call_fee,
-    //     &sender_addr,
-    //     contract3_name,
-    //     "get-tenure-time-public",
-    //     &[clarity::vm::Value::UInt(last_stacks_block_height - 1)],
-    // );
-
-    // let txid_string = submit_tx(&http_origin, &call_tx);
+    let txid_string = submit_tx(&http_origin, &call_tx);
     let submitted_txid = Txid::from_hex(&txid_string).unwrap();
 
     wait_for(60, || {
         let mined_nakamoto_blocks = test_observer::get_mined_nakamoto_blocks();
+        info!("Mined blocks: {}", mined_nakamoto_blocks.len());
         let block_opt = mined_nakamoto_blocks.last();
         if let Some(last_block) = block_opt {
             last_block
@@ -7153,17 +7149,17 @@ fn check_block_times() {
                     TransactionEvent::Problematic(TransactionProblematicEvent { txid, error })
                         if txid == &submitted_txid =>
                     {
-                        panic!("Transaction was problematic: {:?}", error);
+                        panic!("Transaction was problematic: {error}");
                     }
                     TransactionEvent::ProcessingError(TransactionErrorEvent { txid, error })
                         if txid == &submitted_txid =>
                     {
-                        panic!("Transaction processing error: {:?}", error);
+                        panic!("Transaction processing error: {error}");
                     }
                     TransactionEvent::Skipped(TransactionSkippedEvent { txid, error })
                         if txid == &submitted_txid =>
                     {
-                        panic!("Transaction was skipped: {:?}", txid);
+                        panic!("Transaction was skipped: {error}");
                     }
                     _ => None,
                 })
