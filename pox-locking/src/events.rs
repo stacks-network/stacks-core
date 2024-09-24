@@ -116,7 +116,7 @@ fn create_event_info_data_code(
     // If a given burn block height is in a prepare phase, then the stacker will be in the _next_ reward cycle, so bump the cycle by 1
     // `prepare_offset` is 1 or 0, depending on whether current execution is in a prepare phase or not
     //
-    // "is-in-next-pox-set" == effective-height < (reward-length - prepare-length)
+    // "is-in-next-pox-set" == effective-height < (cycle-length - prepare-length)
     // "<" since the txs of the first block of the prepare phase are NOT considered in the pox-set,
     // the pox-set is locked in the first block of the prepare phase, before the transactions of that block are run.
     let pox_set_offset = r#"
