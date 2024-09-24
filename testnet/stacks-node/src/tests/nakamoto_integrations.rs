@@ -48,7 +48,9 @@ use stacks::chainstate::stacks::boot::{
 };
 use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::chainstate::stacks::miner::{
-    BlockBuilder, BlockLimitFunction, TransactionEvent, TransactionResult, TransactionSuccessEvent,
+    BlockBuilder, BlockLimitFunction, TransactionErrorEvent, TransactionEvent,
+    TransactionProblematicEvent, TransactionResult, TransactionSkippedEvent,
+    TransactionSuccessEvent,
 };
 use stacks::chainstate::stacks::{
     SinglesigHashMode, SinglesigSpendingCondition, StacksTransaction, TenureChangeCause,
@@ -6732,9 +6734,10 @@ fn check_block_times() {
     let send_amt = 100;
     let send_fee = 180;
     let deploy_fee = 3000;
+    let call_fee = 1000;
     naka_conf.add_initial_balance(
         PrincipalData::from(sender_addr.clone()).to_string(),
-        3 * deploy_fee + (send_amt + send_fee) * 2,
+        3 * deploy_fee + (send_amt + send_fee) * 2 + call_fee,
     );
     naka_conf.add_initial_balance(
         PrincipalData::from(sender_signer_addr.clone()).to_string(),
@@ -6839,7 +6842,8 @@ fn check_block_times() {
     let contract3_name = "test-contract-3";
     let contract_clarity3 =
         "(define-read-only (get-block-time (height uint)) (get-stacks-block-info? time height))
-         (define-read-only (get-tenure-time (height uint)) (get-tenure-info? time height))";
+         (define-read-only (get-tenure-time (height uint)) (get-tenure-info? time height))
+         (define-public (get-tenure-time-public (height uint)) (ok (get-tenure-info? time height)))";
 
     let contract_tx3 = make_contract_publish(
         &sender_sk,
@@ -7038,7 +7042,11 @@ fn check_block_times() {
     // submit a tx so that the miner will mine an extra block
     let transfer_tx =
         make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
+    sender_nonce += 1;
     submit_tx(&http_origin, &transfer_tx);
+
+    next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
+        .unwrap();
 
     loop {
         let blocks_processed = coord_channel
@@ -7105,6 +7113,66 @@ fn check_block_times() {
         time3b_block - time3a_block >= 1,
         "get-stacks-block-info? time should have changed"
     );
+
+    // Test tenure-height in a block
+    // Pause mining to prevent the stacks block from being mined before the tenure change is processed
+    // TEST_MINE_STALL.lock().unwrap().replace(true);
+
+    let transfer_tx =
+        make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
+    // sender_nonce += 1;
+    let txid_string = submit_tx(&http_origin, &transfer_tx);
+
+    // let call_tx = tests::make_contract_call(
+    //     &sender_sk,
+    //     sender_nonce,
+    //     call_fee,
+    //     &sender_addr,
+    //     contract3_name,
+    //     "get-tenure-time-public",
+    //     &[clarity::vm::Value::UInt(last_stacks_block_height - 1)],
+    // );
+
+    // let txid_string = submit_tx(&http_origin, &call_tx);
+    let submitted_txid = Txid::from_hex(&txid_string).unwrap();
+
+    wait_for(60, || {
+        let mined_nakamoto_blocks = test_observer::get_mined_nakamoto_blocks();
+        let block_opt = mined_nakamoto_blocks.last();
+        if let Some(last_block) = block_opt {
+            last_block
+                .tx_events
+                .iter()
+                .find_map(|event| match event {
+                    TransactionEvent::Success(TransactionSuccessEvent { txid, .. })
+                        if txid == &submitted_txid =>
+                    {
+                        info!("Transaction was successful");
+                        Some(Ok(true))
+                    }
+                    TransactionEvent::Problematic(TransactionProblematicEvent { txid, error })
+                        if txid == &submitted_txid =>
+                    {
+                        panic!("Transaction was problematic: {:?}", error);
+                    }
+                    TransactionEvent::ProcessingError(TransactionErrorEvent { txid, error })
+                        if txid == &submitted_txid =>
+                    {
+                        panic!("Transaction processing error: {:?}", error);
+                    }
+                    TransactionEvent::Skipped(TransactionSkippedEvent { txid, error })
+                        if txid == &submitted_txid =>
+                    {
+                        panic!("Transaction was skipped: {:?}", txid);
+                    }
+                    _ => None,
+                })
+                .unwrap_or_else(|| Ok(false))
+        } else {
+            Ok(false)
+        }
+    })
+    .expect("Timed out waiting for transaction to be mined");
 
     coord_channel
         .lock()
