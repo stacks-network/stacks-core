@@ -4044,6 +4044,10 @@ fn burn_ops_integration_test() {
     let stacker_sk_2 = Secp256k1PrivateKey::new();
     let stacker_addr_2 = tests::to_addr(&stacker_sk_2);
 
+    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_addr = tests::to_addr(&sender_sk);
+    let mut sender_nonce = 0;
+
     let mut signers = TestSigners::new(vec![signer_sk_1.clone()]);
 
     let stacker_sk = setup_stacker(&mut naka_conf);
@@ -4056,6 +4060,10 @@ fn burn_ops_integration_test() {
     naka_conf.add_initial_balance(
         PrincipalData::from(stacker_addr_2.clone()).to_string(),
         1000000,
+    );
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_addr.clone()).to_string(),
+        100_000_000,
     );
 
     test_observer::spawn();
@@ -4426,7 +4434,8 @@ fn burn_ops_integration_test() {
 
     info!("Submitted 2 stack STX ops at height {block_height}, mining a few blocks...");
 
-    // the second block should process the vote, after which the balances should be unchanged
+    // the second block should process the ops
+    // Also mine 2 interim blocks to ensure the stack-stx ops are not processed in them
     for _i in 0..2 {
         next_block_and_mine_commit(
             &mut btc_regtest_controller,
@@ -4435,6 +4444,29 @@ fn burn_ops_integration_test() {
             &commits_submitted,
         )
         .unwrap();
+        for interim_block_ix in 0..2 {
+            info!("Mining interim block {interim_block_ix}");
+            let blocks_processed_before = coord_channel
+                .lock()
+                .expect("Mutex poisoned")
+                .get_stacks_blocks_processed();
+            // submit a tx so that the miner will mine an extra block
+            let transfer_tx =
+                make_stacks_transfer(&sender_sk, sender_nonce, 200, &stacker_addr_1.into(), 10000);
+            sender_nonce += 1;
+            submit_tx(&http_origin, &transfer_tx);
+
+            loop {
+                let blocks_processed = coord_channel
+                    .lock()
+                    .expect("Mutex poisoned")
+                    .get_stacks_blocks_processed();
+                if blocks_processed > blocks_processed_before {
+                    break;
+                }
+                thread::sleep(Duration::from_millis(100));
+            }
+        }
     }
 
     let mut stack_stx_found = false;
@@ -4449,10 +4481,12 @@ fn burn_ops_integration_test() {
             "stack event observer num transactions: {:?}",
             transactions.len()
         );
-        for tx in transactions.iter() {
+        let mut block_has_tenure_change = false;
+        for tx in transactions.iter().rev() {
             let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
             if raw_tx == "0x00" {
                 info!("Found a burn op: {:?}", tx);
+                assert!(block_has_tenure_change, "Block should have a tenure change");
                 let burnchain_op = tx.get("burnchain_op").unwrap().as_object().unwrap();
                 if burnchain_op.contains_key("transfer_stx") {
                     let transfer_stx_obj = burnchain_op.get("transfer_stx").unwrap();
@@ -4472,6 +4506,7 @@ fn burn_ops_integration_test() {
                         "Transfer STX op: sender: {}, recipient: {}, transfered_ustx: {}",
                         sender, recipient, transfered_ustx
                     );
+                    assert!(!transfer_stx_found, "Transfer STX op should be unique");
                     transfer_stx_found = true;
                     continue;
                 }
@@ -4490,6 +4525,7 @@ fn burn_ops_integration_test() {
                     assert_eq!(sender, stacker_addr_2.to_string());
                     assert_eq!(delegate_to, stacker_addr_1.to_string());
                     assert_eq!(delegated_ustx, 100_000);
+                    assert!(!delegate_stx_found, "Delegate STX op should be unique");
                     delegate_stx_found = true;
                     continue;
                 }
@@ -4529,8 +4565,16 @@ fn burn_ops_integration_test() {
                     .expect_result_ok()
                     .expect("Expected OK result for stack-stx op");
 
+                assert!(!stack_stx_found, "Stack STX op should be unique");
                 stack_stx_found = true;
                 stack_stx_burn_op_tx_count += 1;
+            } else {
+                let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
+                let parsed =
+                    StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
+                if let TransactionPayload::TenureChange(_tenure_change) = parsed.payload {
+                    block_has_tenure_change = true;
+                }
             }
         }
     }
