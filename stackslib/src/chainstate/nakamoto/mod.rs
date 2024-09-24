@@ -14,13 +14,12 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::HashMap;
 use std::fs;
 use std::ops::{Deref, DerefMut, Range};
 use std::path::PathBuf;
 
-use clarity::types::PublicKey;
-use clarity::util::secp256k1::{secp256k1_recover, Secp256k1PublicKey};
+use clarity::util::secp256k1::Secp256k1PublicKey;
 use clarity::vm::ast::ASTRules;
 use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::database::{BurnStateDB, ClarityDatabase};
@@ -31,6 +30,7 @@ use lazy_static::{__Deref, lazy_static};
 use rusqlite::blob::Blob;
 use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput};
 use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
+use sha2::digest::typenum::Integer;
 use sha2::{Digest as Sha2Digest, Sha512_256};
 use stacks_common::bitvec::BitVec;
 use stacks_common::codec::{
@@ -267,6 +267,26 @@ lazy_static! {
     ALTER TABLE nakamoto_block_headers
     ADD COLUMN height_in_tenure;
     "#.into(),
+    ];
+
+    pub static ref NAKAMOTO_CHAINSTATE_SCHEMA_4: [&'static str; 2] = [
+    r#"
+        UPDATE db_config SET version = "7";
+    "#,
+    // Add a `signer_stats` table to keep track of how many blocks have been signed by each signer
+    r#"
+        -- Table for signer stats
+        CREATE TABLE signer_stats (
+            -- Signers public key
+            public_key TEXT NOT NULL,
+            -- Stacking rewards cycle ID
+            reward_cycle INTEGER NOT NULL,
+            -- Number of blocks signed during reward cycle
+            blocks_signed INTEGER DEFAULT 1 NOT NULL,
+
+            PRIMARY KEY(public_key,reward_cycle)
+        );
+    "#,
     ];
 }
 
@@ -3305,6 +3325,41 @@ impl NakamotoChainState {
             .map_err(ChainstateError::from)
     }
 
+    /// Keep track of how many blocks each signer is signing
+    fn record_block_signers(
+        tx: &mut ChainstateTx,
+        block: &NakamotoBlock,
+        reward_cycle: u64,
+    ) -> Result<(), ChainstateError> {
+        let signer_sighash = block.header.signer_signature_hash();
+        for signer_signature in &block.header.signer_signature {
+            let signer_pubkey =
+                StacksPublicKey::recover_to_pubkey(signer_sighash.bits(), &signer_signature)
+                    .map_err(|e| ChainstateError::InvalidStacksBlock(e.to_string()))?;
+            let sql = "INSERT INTO signer_stats(public_key,reward_cycle) VALUES(?1,?2) ON CONFLICT(public_key,reward_cycle) DO UPDATE SET blocks_signed=blocks_signed+1";
+            let params = params![signer_pubkey.to_hex(), reward_cycle];
+            tx.execute(sql, params)?;
+        }
+        Ok(())
+    }
+
+    /// Fetch number of blocks signed for a given signer and reward cycle
+    /// This is the data tracked by `record_block_signers()`
+    pub fn get_signer_block_count(
+        chainstate_db: &Connection,
+        signer_pubkey: &Secp256k1PublicKey,
+        reward_cycle: u64,
+    ) -> Result<u64, ChainstateError> {
+        let sql =
+            "SELECT blocks_signed FROM signer_stats WHERE public_key = ?1 AND reward_cycle = ?2";
+        let params = params![signer_pubkey.to_hex(), reward_cycle];
+        chainstate_db
+            .query_row(sql, params, |row| row.get("blocks_signed"))
+            .optional()
+            .map(Option::unwrap_or_default) // It's fine to map `NONE` to `0`, because it's impossible to have `Some(0)`
+            .map_err(ChainstateError::from)
+    }
+
     /// Begin block-processing and return all of the pre-processed state within a
     /// `SetupBlockResult`.
     ///
@@ -4088,6 +4143,11 @@ impl NakamotoChainState {
         let new_block_id = new_tip.index_block_hash();
         chainstate_tx.log_transactions_processed(&new_block_id, &tx_receipts);
 
+        let reward_cycle = pox_constants.block_height_to_reward_cycle(
+            first_block_height.into(),
+            chain_tip_burn_header_height.into(),
+        );
+
         // store the reward set calculated during this block if it happened
         // NOTE: miner and proposal evaluation should not invoke this because
         //  it depends on knowing the StacksBlockId.
@@ -4116,6 +4176,12 @@ impl NakamotoChainState {
                     cycle,
                 ));
             }
+        }
+
+        if let Some(reward_cycle) = reward_cycle {
+            Self::record_block_signers(chainstate_tx, block, reward_cycle)?;
+        } else {
+            warn!("No reward cycle found, skipping record_block_signers()");
         }
 
         monitoring::set_last_block_transaction_count(u64::try_from(block.txs.len()).unwrap());

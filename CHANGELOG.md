@@ -16,6 +16,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
     - `get-stacks-block-info?` added
     - `get-tenure-info?` added
     - `get-block-info?` removed
+- Added `/v3/signer/{signer_pubkey}/{reward_cycle}` endpoint
 
 ## [2.5.0.0.7]
 
