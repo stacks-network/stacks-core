@@ -1369,8 +1369,9 @@ fn multiple_miners() {
     let node_2_rpc = 51026;
     let node_2_p2p = 51025;
 
-    let node_1_rpc_bind = format!("127.0.0.1:{}", node_1_rpc);
-    let node_2_rpc_bind = format!("127.0.0.1:{}", node_2_rpc);
+    let localhost = "127.0.0.1";
+    let node_1_rpc_bind = format!("{localhost}:{node_1_rpc}");
+    let node_2_rpc_bind = format!("{localhost}:{node_2_rpc}");
     let mut node_2_listeners = Vec::new();
 
     // partition the signer set so that ~half are listening and using node 1 for RPC and events,
@@ -1388,11 +1389,12 @@ fn multiple_miners() {
             signer_config.node_host = node_host.to_string();
         },
         |config| {
-            let localhost = "127.0.0.1";
-            config.node.rpc_bind = format!("{}:{}", localhost, node_1_rpc);
-            config.node.p2p_bind = format!("{}:{}", localhost, node_1_p2p);
-            config.node.data_url = format!("http://{}:{}", localhost, node_1_rpc);
-            config.node.p2p_address = format!("{}:{}", localhost, node_1_p2p);
+            config.node.rpc_bind = format!("{localhost}:{node_1_rpc}");
+            config.node.p2p_bind = format!("{localhost}:{node_1_p2p}");
+            config.node.data_url = format!("http://{localhost}:{node_1_rpc}");
+            config.node.p2p_address = format!("{localhost}:{node_1_p2p}");
+            config.node.pox_sync_sample_secs = 5;
+            config.miner.wait_on_interim_blocks = Duration::from_secs(5);
 
             config.node.seed = btc_miner_1_seed.clone();
             config.node.local_peer_seed = btc_miner_1_seed.clone();
@@ -1419,11 +1421,10 @@ fn multiple_miners() {
     );
     let conf = signer_test.running_nodes.conf.clone();
     let mut conf_node_2 = conf.clone();
-    let localhost = "127.0.0.1";
-    conf_node_2.node.rpc_bind = format!("{}:{}", localhost, node_2_rpc);
-    conf_node_2.node.p2p_bind = format!("{}:{}", localhost, node_2_p2p);
-    conf_node_2.node.data_url = format!("http://{}:{}", localhost, node_2_rpc);
-    conf_node_2.node.p2p_address = format!("{}:{}", localhost, node_2_p2p);
+    conf_node_2.node.rpc_bind = format!("{localhost}:{node_2_rpc}");
+    conf_node_2.node.p2p_bind = format!("{localhost}:{node_2_p2p}");
+    conf_node_2.node.data_url = format!("http://{localhost}:{node_2_rpc}");
+    conf_node_2.node.p2p_address = format!("{localhost}:{node_2_p2p}");
     conf_node_2.node.seed = btc_miner_2_seed.clone();
     conf_node_2.burnchain.local_mining_public_key = Some(btc_miner_2_pk.to_hex());
     conf_node_2.node.local_peer_seed = btc_miner_2_seed.clone();
@@ -3317,8 +3318,9 @@ fn multiple_miners_with_nakamoto_blocks() {
     let node_2_rpc = 51026;
     let node_2_p2p = 51025;
 
-    let node_1_rpc_bind = format!("127.0.0.1:{}", node_1_rpc);
-    let node_2_rpc_bind = format!("127.0.0.1:{}", node_2_rpc);
+    let localhost = "127.0.0.1";
+    let node_1_rpc_bind = format!("{localhost}:{node_1_rpc}");
+    let node_2_rpc_bind = format!("{localhost}:{node_2_rpc}");
     let mut node_2_listeners = Vec::new();
 
     // partition the signer set so that ~half are listening and using node 1 for RPC and events,
@@ -3338,11 +3340,11 @@ fn multiple_miners_with_nakamoto_blocks() {
             signer_config.node_host = node_host.to_string();
         },
         |config| {
-            let localhost = "127.0.0.1";
-            config.node.rpc_bind = format!("{}:{}", localhost, node_1_rpc);
-            config.node.p2p_bind = format!("{}:{}", localhost, node_1_p2p);
-            config.node.data_url = format!("http://{}:{}", localhost, node_1_rpc);
-            config.node.p2p_address = format!("{}:{}", localhost, node_1_p2p);
+            config.node.rpc_bind = format!("{localhost}:{node_1_rpc}");
+            config.node.p2p_bind = format!("{localhost}:{node_1_p2p}");
+            config.node.data_url = format!("http://{localhost}:{node_1_rpc}");
+            config.node.p2p_address = format!("{localhost}:{node_1_p2p}");
+            config.miner.wait_on_interim_blocks = Duration::from_secs(5);
 
             config.node.seed = btc_miner_1_seed.clone();
             config.node.local_peer_seed = btc_miner_1_seed.clone();
@@ -3371,11 +3373,10 @@ fn multiple_miners_with_nakamoto_blocks() {
 
     let conf = signer_test.running_nodes.conf.clone();
     let mut conf_node_2 = conf.clone();
-    let localhost = "127.0.0.1";
-    conf_node_2.node.rpc_bind = format!("{}:{}", localhost, node_2_rpc);
-    conf_node_2.node.p2p_bind = format!("{}:{}", localhost, node_2_p2p);
-    conf_node_2.node.data_url = format!("http://{}:{}", localhost, node_2_rpc);
-    conf_node_2.node.p2p_address = format!("{}:{}", localhost, node_2_p2p);
+    conf_node_2.node.rpc_bind = format!("{localhost}:{node_2_rpc}");
+    conf_node_2.node.p2p_bind = format!("{localhost}:{node_2_p2p}");
+    conf_node_2.node.data_url = format!("http://{localhost}:{node_2_rpc}");
+    conf_node_2.node.p2p_address = format!("{localhost}:{node_2_p2p}");
     conf_node_2.node.seed = btc_miner_2_seed.clone();
     conf_node_2.burnchain.local_mining_public_key = Some(btc_miner_2_pk.to_hex());
     conf_node_2.node.local_peer_seed = btc_miner_2_seed.clone();

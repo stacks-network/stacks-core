@@ -375,14 +375,10 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         )
         .unwrap();
 
-        let t_start = Instant::now();
-        while test_observer::get_mined_nakamoto_blocks().is_empty() {
-            assert!(
-                t_start.elapsed() < timeout,
-                "Timed out while waiting for mined nakamoto block event"
-            );
-            thread::sleep(Duration::from_secs(1));
-        }
+        wait_for(timeout.as_secs(), || {
+            Ok(!test_observer::get_mined_nakamoto_blocks().is_empty())
+        })
+        .unwrap();
         let mined_block_elapsed_time = mined_block_time.elapsed();
         info!(
             "Nakamoto block mine time elapsed: {:?}",
