@@ -117,9 +117,10 @@ fn create_event_info_data_code(
     // `prepare_offset` is 1 or 0, depending on whether current execution is in a prepare phase or not
     //
     // "is-in-next-pox-set" == effective-height <= (reward-length - prepare-length)
-    // "<=" since the txs of the first block of the prepare phase are considered in the pox-set
+    // "<" since the txs of the first block of the prepare phase are NOT considered in the pox-set,
+    // the pox-set is locked in the first block of the prepare phase, before the transactions of that block are run.
     let pox_set_offset = r#"
-        (pox-set-offset (if (<=
+        (pox-set-offset (if (<
             (mod (- %height% (var-get first-burnchain-block-height)) (var-get pox-reward-cycle-length))
             (- (var-get pox-reward-cycle-length) (var-get pox-prepare-cycle-length))
         ) u0 u1))
