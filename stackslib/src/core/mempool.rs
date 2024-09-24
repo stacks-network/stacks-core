@@ -460,6 +460,7 @@ pub struct MemPoolTxMetadata {
     pub last_known_origin_nonce: Option<u64>,
     pub last_known_sponsor_nonce: Option<u64>,
     pub accept_time: u64,
+    pub time_estimate_ms: Option<u64>,
 }
 
 impl MemPoolTxMetadata {
@@ -594,6 +595,7 @@ impl FromRow<MemPoolTxMetadata> for MemPoolTxMetadata {
         let sponsor_nonce = u64::from_column(row, "sponsor_nonce")?;
         let last_known_sponsor_nonce = u64::from_column(row, "last_known_sponsor_nonce")?;
         let last_known_origin_nonce = u64::from_column(row, "last_known_origin_nonce")?;
+        let time_estimate_ms: Option<u64> = row.get("time_estimate_ms")?;
 
         Ok(MemPoolTxMetadata {
             txid,
@@ -609,6 +611,7 @@ impl FromRow<MemPoolTxMetadata> for MemPoolTxMetadata {
             last_known_origin_nonce,
             last_known_sponsor_nonce,
             accept_time,
+            time_estimate_ms,
         })
     }
 }
@@ -624,10 +627,7 @@ impl FromRow<MemPoolTxInfo> for MemPoolTxInfo {
             return Err(db_error::ParseError);
         }
 
-        Ok(MemPoolTxInfo {
-            tx: tx,
-            metadata: md,
-        })
+        Ok(MemPoolTxInfo { tx, metadata: md })
     }
 }
 
@@ -800,6 +800,16 @@ const MEMPOOL_SCHEMA_6_NONCES: &'static [&'static str] = &[
     "#,
     r#"
     INSERT INTO schema_version (version) VALUES (6)
+    "#,
+];
+
+const MEMPOOL_SCHEMA_7_TIME_ESTIMATES: &'static [&'static str] = &[
+    r#"
+    -- ALLOW NULL
+    ALTER TABLE mempool ADD COLUMN time_estimate_ms NUMBER;
+    "#,
+    r#"
+    INSERT INTO schema_version (version) VALUES (7)
     "#,
 ];
 
@@ -1287,6 +1297,9 @@ impl MemPoolDB {
                     MemPoolDB::instantiate_nonces(tx)?;
                 }
                 6 => {
+                    MemPoolDB::instantiate_schema_7(tx)?;
+                }
+                7 => {
                     break;
                 }
                 _ => {
@@ -1357,6 +1370,16 @@ impl MemPoolDB {
     #[cfg_attr(test, mutants::skip)]
     fn instantiate_nonces(tx: &DBTx) -> Result<(), db_error> {
         for sql_exec in MEMPOOL_SCHEMA_6_NONCES {
+            tx.execute_batch(sql_exec)?;
+        }
+
+        Ok(())
+    }
+
+    /// Add the nonce table
+    #[cfg_attr(test, mutants::skip)]
+    fn instantiate_schema_7(tx: &DBTx) -> Result<(), db_error> {
+        for sql_exec in MEMPOOL_SCHEMA_7_TIME_ESTIMATES {
             tx.execute_batch(sql_exec)?;
         }
 
@@ -2647,6 +2670,24 @@ impl MemPoolDB {
         let mempool_tx = self.tx_begin()?;
         MemPoolDB::inner_drop_txs(&mempool_tx, txids)?;
         mempool_tx.commit()?;
+        Ok(())
+    }
+
+    /// Drop and blacklist transactions, so we don't re-broadcast them or re-fetch them.
+    /// Do *NOT* remove them from the bloom filter.  This will cause them to continue to be
+    /// reported as present, which is exactly what we want because we don't want these transactions
+    /// to be seen again (so we don't want anyone accidentally "helpfully" pushing them to us, nor
+    /// do we want the mempool sync logic to "helpfully" re-discover and re-download them).
+    pub fn update_tx_time_estimates(&mut self, txs: &[(Txid, u64)]) -> Result<(), db_error> {
+        let sql = "UPDATE mempool SET time_estimate_ms = ? WHERE txid = ?";
+        let mempool_tx = self.tx_begin()?;
+        for (txid, time_estimate_ms) in txs.iter() {
+            mempool_tx
+                .tx
+                .execute(sql, params![time_estimate_ms, txid])?;
+        }
+        mempool_tx.commit()?;
+
         Ok(())
     }
 
