@@ -6843,7 +6843,8 @@ fn check_block_times() {
     let contract_clarity3 =
         "(define-read-only (get-block-time (height uint)) (get-stacks-block-info? time height))
          (define-read-only (get-tenure-time (height uint)) (get-tenure-info? time height))
-         (define-public (get-tenure-time-public (height uint)) (ok (get-tenure-info? time height)))";
+         (define-read-only (get-current-tenure-time) (get-tenure-info? time stacks-block-height))
+         (define-public (get-tenure-time-public) (ok (get-tenure-info? time stacks-block-height)))";
 
     let contract_tx3 = make_contract_publish(
         &sender_sk,
@@ -6916,8 +6917,8 @@ fn check_block_times() {
         &naka_conf,
         &sender_addr,
         contract3_name,
-        "get-tenure-time",
-        vec![&clarity::vm::Value::UInt(last_stacks_block_height)],
+        "get-current-tenure-time",
+        vec![],
     );
     let time3b_tenure = time3b_tenure_value
         .expect_optional()
@@ -7125,7 +7126,7 @@ fn check_block_times() {
         &sender_addr,
         contract3_name,
         "get-tenure-time-public",
-        &[clarity::vm::Value::UInt(last_stacks_block_height - 1)],
+        &[],
     );
 
     let txid_string = submit_tx(&http_origin, &call_tx);
@@ -7140,7 +7141,7 @@ fn check_block_times() {
                 .tx_events
                 .iter()
                 .find_map(|event| match event {
-                    TransactionEvent::Success(TransactionSuccessEvent { txid, .. })
+                    TransactionEvent::Success(TransactionSuccessEvent { txid, result, .. })
                         if txid == &submitted_txid =>
                     {
                         info!("Transaction was successful");
