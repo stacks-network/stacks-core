@@ -6857,7 +6857,6 @@ fn check_block_times() {
     let info = get_chain_info_result(&naka_conf).unwrap();
     info!("Chain info: {:?}", info);
     let last_stacks_block_height = info.stacks_tip_height as u128;
-    let last_tenure_height = last_stacks_block_height as u128;
 
     let time0_value = call_read_only(
         &naka_conf,
@@ -6891,22 +6890,40 @@ fn check_block_times() {
         "Time from pre- and post-epoch 3.0 contracts should match"
     );
 
-    let time3_tenure_value = call_read_only(
+    let time3a_tenure_value = call_read_only(
         &naka_conf,
         &sender_addr,
         contract3_name,
         "get-tenure-time",
-        vec![&clarity::vm::Value::UInt(last_tenure_height - 1)],
+        vec![&clarity::vm::Value::UInt(last_stacks_block_height - 1)],
     );
-    let time3_tenure = time3_tenure_value
+    let time3a_tenure = time3a_tenure_value
         .expect_optional()
         .unwrap()
         .unwrap()
         .expect_u128()
         .unwrap();
     assert_eq!(
-        time0, time3_tenure,
+        time0, time3a_tenure,
         "Tenure time should match Clarity 2 block time"
+    );
+
+    let time3b_tenure_value = call_read_only(
+        &naka_conf,
+        &sender_addr,
+        contract3_name,
+        "get-tenure-time",
+        vec![&clarity::vm::Value::UInt(last_stacks_block_height)],
+    );
+    let time3b_tenure = time3b_tenure_value
+        .expect_optional()
+        .unwrap()
+        .unwrap()
+        .expect_u128()
+        .unwrap();
+    assert!(
+        time3a_tenure < time3b_tenure,
+        "Latest tenure height should have a later time"
     );
 
     let time3_block_value = call_read_only(

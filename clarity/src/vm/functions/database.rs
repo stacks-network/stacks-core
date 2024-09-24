@@ -1069,7 +1069,7 @@ pub fn special_get_tenure_info(
     };
 
     let current_height = env.global_context.database.get_current_block_height();
-    if height_value >= current_height {
+    if height_value > current_height {
         return Ok(Value::none());
     }
 
