@@ -47,7 +47,6 @@ use stacks_common::util::hash::{to_hex, Hash160, MerkleHashFunc, MerkleTree, Sha
 use stacks_common::util::retry::BoundReader;
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::util::vrf::{VRFProof, VRFPublicKey, VRF};
-use wsts::curve::point::{Compressed, Point};
 
 use crate::burnchains::{Burnchain, PoxConstants, Txid};
 use crate::chainstate::burn::db::sortdb::{
@@ -73,8 +72,8 @@ use crate::chainstate::stacks::db::{
 use crate::chainstate::stacks::events::{StacksTransactionReceipt, TransactionOrigin};
 use crate::chainstate::stacks::{
     Error as ChainstateError, StacksBlock, StacksBlockHeader, StacksMicroblock, StacksTransaction,
-    TenureChangeCause, TenureChangeError, TenureChangePayload, ThresholdSignature,
-    TransactionPayload, MINER_BLOCK_CONSENSUS_HASH, MINER_BLOCK_HEADER_HASH,
+    TenureChangeCause, TenureChangeError, TenureChangePayload, TransactionPayload,
+    MINER_BLOCK_CONSENSUS_HASH, MINER_BLOCK_HEADER_HASH,
 };
 use crate::clarity::vm::clarity::{ClarityConnection, TransactionConnection};
 use crate::clarity_vm::clarity::{
@@ -101,7 +100,7 @@ pub struct SignerCalculation {
 
 pub struct AggregateKeyVoteParams {
     pub signer_index: u64,
-    pub aggregate_key: Point,
+    pub aggregate_key: Vec<u8>,
     pub voting_round: u64,
     pub reward_cycle: u64,
 }
@@ -547,10 +546,8 @@ impl NakamotoSigners {
         }
         let signer_index_value = payload.function_args.first()?;
         let signer_index = u64::try_from(signer_index_value.clone().expect_u128().ok()?).ok()?;
-        let point_value = payload.function_args.get(1)?;
-        let point_bytes = point_value.clone().expect_buff(33).ok()?;
-        let compressed_data = Compressed::try_from(point_bytes.as_slice()).ok()?;
-        let aggregate_key = Point::try_from(&compressed_data).ok()?;
+        let aggregate_key_value = payload.function_args.get(1)?;
+        let aggregate_key = aggregate_key_value.clone().expect_buff(33).ok()?;
         let round_value = payload.function_args.get(2)?;
         let voting_round = u64::try_from(round_value.clone().expect_u128().ok()?).ok()?;
         let reward_cycle =

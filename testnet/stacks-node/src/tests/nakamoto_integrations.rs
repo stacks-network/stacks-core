@@ -871,9 +871,8 @@ pub fn boot_to_epoch_3(
     if let Some(signers) = self_signing {
         // Get the aggregate key
         let aggregate_key = signers.clone().generate_aggregate_key(reward_cycle + 1);
-        let aggregate_public_key =
-            clarity::vm::Value::buff_from(aggregate_key.compress().data.to_vec())
-                .expect("Failed to serialize aggregate public key");
+        let aggregate_public_key = clarity::vm::Value::buff_from(aggregate_key)
+            .expect("Failed to serialize aggregate public key");
         let signer_sks_unique: HashMap<_, _> = signer_sks.iter().map(|x| (x.to_hex(), x)).collect();
         let signer_set = get_stacker_set(&http_origin, reward_cycle + 1);
         // Vote on the aggregate public key
@@ -1026,9 +1025,8 @@ pub fn boot_to_pre_epoch_3_boundary(
     if let Some(signers) = self_signing {
         // Get the aggregate key
         let aggregate_key = signers.clone().generate_aggregate_key(reward_cycle + 1);
-        let aggregate_public_key =
-            clarity::vm::Value::buff_from(aggregate_key.compress().data.to_vec())
-                .expect("Failed to serialize aggregate public key");
+        let aggregate_public_key = clarity::vm::Value::buff_from(aggregate_key)
+            .expect("Failed to serialize aggregate public key");
         let signer_sks_unique: HashMap<_, _> = signer_sks.iter().map(|x| (x.to_hex(), x)).collect();
         let signer_set = get_stacker_set(&http_origin, reward_cycle + 1);
         // Vote on the aggregate public key
@@ -1183,9 +1181,8 @@ fn signer_vote_if_needed(
 
         // Get the aggregate key
         let aggregate_key = signers.clone().generate_aggregate_key(reward_cycle + 1);
-        let aggregate_public_key =
-            clarity::vm::Value::buff_from(aggregate_key.compress().data.to_vec())
-                .expect("Failed to serialize aggregate public key");
+        let aggregate_public_key = clarity::vm::Value::buff_from(aggregate_key)
+            .expect("Failed to serialize aggregate public key");
 
         for (i, signer_sk) in signer_sks.iter().enumerate() {
             let signer_nonce = get_account(&http_origin, &to_addr(signer_sk)).nonce;

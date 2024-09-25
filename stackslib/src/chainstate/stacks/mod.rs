@@ -734,49 +734,6 @@ pub enum TenureChangeError {
     NotNakamoto,
 }
 
-/// Schnorr threshold signature using types from `wsts`
-#[derive(Debug, Clone, PartialEq)]
-pub struct ThresholdSignature(pub wsts::common::Signature);
-impl FromSql for ThresholdSignature {
-    fn column_result(value: ValueRef) -> FromSqlResult<ThresholdSignature> {
-        let hex_str = value.as_str()?;
-        let bytes = hex_bytes(&hex_str).map_err(|_| FromSqlError::InvalidType)?;
-        let ts = ThresholdSignature::consensus_deserialize(&mut &bytes[..])
-            .map_err(|_| FromSqlError::InvalidType)?;
-        Ok(ts)
-    }
-}
-
-impl fmt::Display for ThresholdSignature {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        to_hex(&self.serialize_to_vec()).fmt(f)
-    }
-}
-
-impl ToSql for ThresholdSignature {
-    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput> {
-        let bytes = self.serialize_to_vec();
-        let hex_str = to_hex(&bytes);
-        Ok(hex_str.into())
-    }
-}
-
-impl serde::Serialize for ThresholdSignature {
-    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-        let bytes = self.serialize_to_vec();
-        s.serialize_str(&to_hex(&bytes))
-    }
-}
-
-impl<'de> serde::Deserialize<'de> for ThresholdSignature {
-    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        let hex_str = String::deserialize(d)?;
-        let bytes = hex_bytes(&hex_str).map_err(serde::de::Error::custom)?;
-        ThresholdSignature::consensus_deserialize(&mut bytes.as_slice())
-            .map_err(serde::de::Error::custom)
-    }
-}
-
 /// A transaction from Stackers to signal new mining tenure
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TenureChangePayload {

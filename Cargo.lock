@@ -3523,7 +3523,6 @@ dependencies = [
  "time 0.2.27",
  "url",
  "winapi 0.3.9",
- "wsts",
 ]
 
 [[package]]
