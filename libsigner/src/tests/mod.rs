@@ -40,7 +40,6 @@ use stacks_common::codec::{
 };
 use stacks_common::util::secp256k1::Secp256k1PrivateKey;
 use stacks_common::util::sleep_ms;
-use wsts::net::{DkgBegin, Packet};
 
 use crate::events::{SignerEvent, SignerEventTrait};
 use crate::v0::messages::{BlockRejection, SignerMessage};

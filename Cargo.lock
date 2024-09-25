@@ -1926,7 +1926,6 @@ dependencies = [
  "stackslib",
  "thiserror",
  "tiny_http",
- "wsts",
 ]
 
 [[package]]
