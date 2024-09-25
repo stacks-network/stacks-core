@@ -806,7 +806,7 @@ const MEMPOOL_SCHEMA_6_NONCES: &'static [&'static str] = &[
 const MEMPOOL_SCHEMA_7_TIME_ESTIMATES: &'static [&'static str] = &[
     r#"
     -- ALLOW NULL
-    ALTER TABLE mempool ADD COLUMN time_estimate_ms NUMBER;
+    ALTER TABLE mempool ADD COLUMN time_estimate_ms INTEGER;
     "#,
     r#"
     INSERT INTO schema_version (version) VALUES (7)
