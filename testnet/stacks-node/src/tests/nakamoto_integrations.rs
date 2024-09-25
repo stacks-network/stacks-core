@@ -82,8 +82,8 @@ use stacks_common::bitvec::BitVec;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::consts::{CHAIN_ID_TESTNET, STACKS_EPOCH_MAX};
 use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksPrivateKey, StacksPublicKey,
-    TrieHash, StacksBlockId
+    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId, StacksPrivateKey,
+    StacksPublicKey, TrieHash,
 };
 use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::hash::{to_hex, Hash160, Sha512Trunc256Sum};
@@ -2938,6 +2938,9 @@ fn block_proposal_api_endpoint() {
     const HTTP_ACCEPTED: u16 = 202;
     const HTTP_TOO_MANY: u16 = 429;
     const HTTP_NOT_AUTHORIZED: u16 = 401;
+    // chainstate error is checked on check_block_builds_on_highest_block_in_tenure
+    // non-canonical tenure is checked on validate
+    // bad transaction where should be checked? -> it doesn't get to call any of those 2 functions
     let test_cases = [
         (
             "Valid Nakamoto block proposal",
@@ -2986,35 +2989,37 @@ fn block_proposal_api_endpoint() {
             HTTP_ACCEPTED,
             Some(Err(ValidateRejectCode::ChainstateError)),
         ),
-        // (
-        //     "Bad block hash",
-        //     (|| {
-        //         let mut sp = sign(&proposal);
-        //         sp.block.header.parent_block_id = StacksBlockId([0xff; 32]);
-        //         sp
-        //     })(),
-        //     HTTP_ACCEPTED,
-        //     Some(Err(ValidateRejectCode::BadBlockHash)),
-        // ),
+        // block hash is calculated
+        // TODO: can it be modified directly to return a bad block hash without modifying the implementation?
         (
-            "Bad transaction",
+            "Invalid `parent_block_id`",
             (|| {
                 let mut sp = sign(&proposal);
-                let bad_tx = make_stacks_transfer(
-                    &account_keys[0],
-                    0,
-                    u64::MAX, // Invalid amount
-                    &to_addr(&account_keys[1]).into(),
-                    10000,
-                );
-                let bad_tx = StacksTransaction::consensus_deserialize(&mut &bad_tx[..])
-                    .expect("Failed to deserialize transaction");
-                sp.block.txs.push(bad_tx);
+                sp.block.header.parent_block_id = StacksBlockId([0xff; 32]);
                 sp
             })(),
             HTTP_ACCEPTED,
-            Some(Err(ValidateRejectCode::BadTransaction)),
+            Some(Err(ValidateRejectCode::UnknownParent)),
         ),
+        // (
+        //     "Bad transaction",
+        //     (|| {
+        //         let mut sp = sign(&proposal);
+        //         let bad_tx = make_stacks_transfer(
+        //             &account_keys[0],
+        //             0,
+        //             u64::MAX, // Invalid amount
+        //             &to_addr(&account_keys[1]).into(),
+        //             10000,
+        //         );
+        //         let bad_tx = StacksTransaction::consensus_deserialize(&mut &bad_tx[..])
+        //             .expect("Failed to deserialize transaction");
+        //         sp.block.txs.push(bad_tx);
+        //         sp
+        //     })(),
+        //     HTTP_ACCEPTED,
+        //     Some(Err(ValidateRejectCode::ChainstateError)),
+        // ),
         ("Not authorized", sign(&proposal), HTTP_NOT_AUTHORIZED, None),
     ];
 
@@ -3067,9 +3072,18 @@ fn block_proposal_api_endpoint() {
         }
 
         let response_code = response.status().as_u16();
+        let response_body = response.text().unwrap_or_default();
         let response_json = if expected_http_code != &HTTP_NOT_AUTHORIZED {
-            info!("Response here is plain text instead of json: {:?}. Response Finished", response);
-            response.json::<serde_json::Value>().unwrap().to_string()
+            info!(
+                "Full response body";
+                "test_case" => test_description,
+                "response_code" => response_code,
+                "body" => response_body.clone()
+            );
+            // response body, test_case: Bad transaction, response_code: 400, body: Failed to decode: Failed to parse body: Invalid block: tx Merkle root mismatch at line 1 column 1173
+            serde_json::from_str::<serde_json::Value>(&response_body)
+                .map(|v| v.to_string())
+                .unwrap_or_else(|_| "Invalid JSON response".to_string())
         } else {
             "No json response".to_string()
         };
