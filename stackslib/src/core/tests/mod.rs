@@ -1381,7 +1381,7 @@ fn mempool_do_not_replace_tx() {
     .unwrap_err();
     assert!(match err_resp {
         MemPoolRejection::ConflictingNonceInMempool => true,
-        _ => false,
+        e => panic!("Failed: {e:?}"),
     });
 
     assert!(MemPoolDB::db_has_tx(&mempool_tx, &prior_txid).unwrap());

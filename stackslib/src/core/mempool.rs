@@ -2015,21 +2015,7 @@ impl MemPoolDB {
         nonce: u64,
     ) -> Result<Option<MemPoolTxMetadata>, db_error> {
         let sql = format!(
-            "SELECT
-                          txid,
-                          origin_address,
-                          origin_nonce,
-                          sponsor_address,
-                          sponsor_nonce,
-                          tx_fee,
-                          length,
-                          consensus_hash,
-                          block_header_hash,
-                          height,
-                          accept_time,
-                          last_known_sponsor_nonce,
-                          last_known_origin_nonce
-                          FROM mempool WHERE {0}_address = ?1 AND {0}_nonce = ?2",
+            "SELECT * FROM mempool WHERE {0}_address = ?1 AND {0}_nonce = ?2",
             if is_origin { "origin" } else { "sponsor" }
         );
         let args = params![addr.to_string(), u64_to_sql(nonce)?];
