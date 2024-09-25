@@ -2462,7 +2462,7 @@ fn pox_4_check_cycle_id_range_in_print_events_before_prepare_phase() {
     while get_tip(peer.sortdb.as_ref()).block_height < u64::from(target_height) {
         latest_block = Some(peer.tenure_with_txs(&[], &mut coinbase_nonce));
     }
-    // produce blocks until the we're 1 before the prepare phase (first block of prepare-phase not yet mined)
+    // produce blocks until the we're 1 before the prepare phase (first block of prepare-phase not yet mined, whatever txs we create now won't be included in the reward set)
     while !burnchain.is_in_prepare_phase(get_tip(peer.sortdb.as_ref()).block_height + 1) {
         latest_block = Some(peer.tenure_with_txs(&[], &mut coinbase_nonce));
     }
@@ -2519,7 +2519,7 @@ fn pox_4_check_cycle_id_range_in_print_events_before_prepare_phase() {
     let steph_stacking_receipt = txs.get(&steph_stacking.txid()).unwrap().clone();
     assert_eq!(steph_stacking_receipt.events.len(), 2);
     let steph_stacking_op_data = HashMap::from([
-        ("start-cycle-id", Value::UInt(next_cycle)),
+        ("start-cycle-id", Value::UInt(next_cycle + 1)), // +1 because steph stacked in the block before the prepare phase (too late)
         (
             "end-cycle-id",
             Value::some(Value::UInt(next_cycle + steph_lock_period)).unwrap(),
