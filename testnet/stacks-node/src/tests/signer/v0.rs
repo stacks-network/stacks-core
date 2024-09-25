@@ -1992,35 +1992,29 @@ fn end_of_tenure() {
         std::thread::sleep(Duration::from_millis(100));
     }
 
-    while signer_test.get_current_reward_cycle() != final_reward_cycle {
-        next_block_and(
-            &mut signer_test.running_nodes.btc_regtest_controller,
-            10,
-            || Ok(true),
-        )
-        .unwrap();
-        assert!(
-            start_time.elapsed() <= short_timeout,
-            "Timed out waiting to enter the next reward cycle"
-        );
-        std::thread::sleep(Duration::from_millis(100));
-    }
+    wait_for(short_timeout.as_secs(), || {
+        let result = signer_test.get_current_reward_cycle() == final_reward_cycle;
+        if !result {
+            signer_test
+                .running_nodes
+                .btc_regtest_controller
+                .build_next_block(1);
+        }
+        Ok(result)
+    })
+    .expect("Timed out waiting to enter the next reward cycle");
 
-    while test_observer::get_burn_blocks()
-        .last()
-        .unwrap()
-        .get("burn_block_height")
-        .unwrap()
-        .as_u64()
-        .unwrap()
-        < final_reward_cycle_height_boundary + 1
-    {
-        assert!(
-            start_time.elapsed() <= short_timeout,
-            "Timed out waiting for burn block events"
-        );
-        std::thread::sleep(Duration::from_millis(100));
-    }
+    wait_for(short_timeout.as_secs(), || {
+        let blocks = test_observer::get_burn_blocks()
+            .last()
+            .unwrap()
+            .get("burn_block_height")
+            .unwrap()
+            .as_u64()
+            .unwrap();
+        Ok(blocks > final_reward_cycle_height_boundary)
+    })
+    .expect("Timed out waiting for burn block events");
 
     signer_test.wait_for_cycle(30, final_reward_cycle);
 
@@ -2078,21 +2072,11 @@ fn retry_on_rejection() {
     let burnchain = signer_test.running_nodes.conf.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
 
-    loop {
-        next_block_and(
-            &mut signer_test.running_nodes.btc_regtest_controller,
-            60,
-            || Ok(true),
-        )
-        .unwrap();
-
-        sleep_ms(10_000);
-
+    wait_for(30, || {
         let tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn()).unwrap();
-        if tip.sortition {
-            break;
-        }
-    }
+        Ok(tip.sortition)
+    })
+    .expect("Timed out waiting for sortition");
 
     // mine a nakamoto block
     let mined_blocks = signer_test.running_nodes.nakamoto_blocks_mined.clone();
@@ -2534,12 +2518,10 @@ fn mock_sign_epoch_25() {
     {
         let mut mock_block_mesage = None;
         let mock_poll_time = Instant::now();
-        next_block_and(
-            &mut signer_test.running_nodes.btc_regtest_controller,
-            60,
-            || Ok(true),
-        )
-        .unwrap();
+        signer_test
+            .running_nodes
+            .btc_regtest_controller
+            .build_next_block(1);
         let current_burn_block_height = signer_test
             .running_nodes
             .btc_regtest_controller
@@ -2747,12 +2729,10 @@ fn multiple_miners_mock_sign_epoch_25() {
     {
         let mut mock_block_mesage = None;
         let mock_poll_time = Instant::now();
-        next_block_and(
-            &mut signer_test.running_nodes.btc_regtest_controller,
-            60,
-            || Ok(true),
-        )
-        .unwrap();
+        signer_test
+            .running_nodes
+            .btc_regtest_controller
+            .build_next_block(1);
         let current_burn_block_height = signer_test
             .running_nodes
             .btc_regtest_controller
@@ -4539,21 +4519,11 @@ fn miner_recovers_when_broadcast_block_delay_across_tenures_occurs() {
     let burnchain = signer_test.running_nodes.conf.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
 
-    loop {
-        next_block_and(
-            &mut signer_test.running_nodes.btc_regtest_controller,
-            60,
-            || Ok(true),
-        )
-        .unwrap();
-
-        sleep_ms(10_000);
-
+    wait_for(30, || {
         let tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn()).unwrap();
-        if tip.sortition {
-            break;
-        }
-    }
+        Ok(tip.sortition)
+    })
+    .expect("Timed out waiting for sortition");
 
     // submit a tx so that the miner will mine a stacks block
     let mut sender_nonce = 0;
@@ -4833,15 +4803,7 @@ fn signing_in_0th_tenure_of_reward_cycle() {
 
     info!("------------------------- Test Setup -------------------------");
     let num_signers = 5;
-    let sender_sk = Secp256k1PrivateKey::new();
-    let sender_addr = tests::to_addr(&sender_sk);
-    let send_amt = 100;
-    let send_fee = 180;
-    let recipient = PrincipalData::from(StacksAddress::burn_address(false));
-    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new(
-        num_signers,
-        vec![(sender_addr.clone(), send_amt + send_fee)],
-    );
+    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new(num_signers, vec![]);
     let signer_public_keys = signer_test
         .signer_stacks_private_keys
         .iter()
@@ -4888,28 +4850,18 @@ fn signing_in_0th_tenure_of_reward_cycle() {
     }
 
     info!("------------------------- Enter Reward Cycle {next_reward_cycle} -------------------------");
-    next_block_and(
-        &mut signer_test.running_nodes.btc_regtest_controller,
-        60,
-        || Ok(true),
-    )
-    .unwrap();
-
     for signer in &signer_public_keys {
         let blocks_signed = get_v3_signer(&signer, next_reward_cycle);
         assert_eq!(blocks_signed, 0);
     }
-
     let blocks_before = signer_test
         .running_nodes
         .nakamoto_blocks_mined
         .load(Ordering::SeqCst);
-
-    // submit a tx so that the miner will mine a stacks block in the 0th block of the new reward cycle
-    let sender_nonce = 0;
-    let transfer_tx =
-        make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
-    let _tx = submit_tx(&http_origin, &transfer_tx);
+    signer_test
+        .running_nodes
+        .btc_regtest_controller
+        .build_next_block(1);
 
     wait_for(30, || {
         Ok(signer_test
