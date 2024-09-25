@@ -31,7 +31,10 @@ use libsigner::v0::messages::SignerMessage as SignerMessageV0;
 use libsigner::v1::messages::SignerMessage as SignerMessageV1;
 use libsigner::{BlockProposal, SignerSession, StackerDBSession};
 use rand::RngCore;
-use stacks::burnchains::bitcoin::address::{BitcoinAddress, LegacyBitcoinAddressType};
+use stacks::burnchains::bitcoin::address::{
+    BitcoinAddress, LegacyBitcoinAddress, LegacyBitcoinAddressType,
+};
+use stacks::burnchains::bitcoin::keys::BitcoinPublicKey;
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::{MagicBytes, Txid};
 use stacks::chainstate::burn::db::sortdb::{get_block_commit_by_txid, SortitionDB};
@@ -74,7 +77,7 @@ use stacks::net::api::getstackers::GetStackersResponse;
 use stacks::net::api::postblock_proposal::{
     BlockValidateReject, BlockValidateResponse, NakamotoBlockProposal, ValidateRejectCode,
 };
-use stacks::types::PublicKey;
+use stacks::types::{Address, PublicKey};
 use stacks::util::hash::hex_bytes;
 use stacks::util_lib::boot::boot_code_id;
 use stacks::util_lib::signed_structured_data::pox4::{
@@ -2470,8 +2473,8 @@ fn new_tenure_stop_fast_blocks() {
         naka_conf.burnchain.peer_version,
     );
 
-    let miner_a_pubkey = Secp256k1PublicKey::from_private(&naka_conf.miner.mining_key.unwrap());
-    let miner_b_pubkey = Secp256k1PublicKey::from_private(&conf_node_2.miner.mining_key.unwrap());
+    let miner_a_pubkey = BitcoinPublicKey::from_private(&naka_conf.miner.mining_key.unwrap());
+    let miner_b_pubkey = BitcoinPublicKey::from_private(&conf_node_2.miner.mining_key.unwrap());
 
     // Create Bitcoin addresses from public keys
     let miner_a_address = BitcoinAddress::from_bytes_legacy(
@@ -2642,7 +2645,18 @@ fn new_tenure_stop_fast_blocks() {
         )
         .unwrap()
         .unwrap();
-        info!("Miner Address: {}", blocks_commits.apparent_sender);
+        let winner_address = blocks_commits.apparent_sender;
+        let winner_bitcoin_address = BitcoinAddress::Legacy(
+            LegacyBitcoinAddress::from_string(winner_address.to_string().as_str()).unwrap(),
+        );
+
+        info!("Winner Miner Address: {}", winner_bitcoin_address);
+
+        let a_utxos = btc_regtest_controller.get_all_utxos(&miner_a_pubkey);
+        let b_utxos = btc_regtest_controller.get_all_utxos(&miner_b_pubkey);
+
+        info!("Miner A UTXOs: {}", a_utxos.len());
+        info!("Miner B UTXOs: {}", b_utxos.len());
 
         // sortition db
         // block_commits -> block_height to be what i am looking for
