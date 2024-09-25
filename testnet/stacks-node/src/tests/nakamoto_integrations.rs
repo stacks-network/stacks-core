@@ -2473,23 +2473,6 @@ fn new_tenure_stop_fast_blocks() {
         naka_conf.burnchain.peer_version,
     );
 
-    let miner_a_pubkey = BitcoinPublicKey::from_private(&naka_conf.miner.mining_key.unwrap());
-    let miner_b_pubkey = BitcoinPublicKey::from_private(&conf_node_2.miner.mining_key.unwrap());
-
-    // Create Bitcoin addresses from public keys
-    let miner_a_address = BitcoinAddress::from_bytes_legacy(
-        BitcoinNetworkType::Testnet,
-        LegacyBitcoinAddressType::PublicKeyHash,
-        &Hash160::from_data(&miner_a_pubkey.to_bytes()).0,
-    )
-    .expect("Failed to create Bitcoin address for miner A");
-    let miner_b_address = BitcoinAddress::from_bytes_legacy(
-        BitcoinNetworkType::Testnet,
-        LegacyBitcoinAddressType::PublicKeyHash,
-        &Hash160::from_data(&miner_b_pubkey.to_bytes()).0,
-    )
-    .expect("Failed to create Bitcoin address for miner B");
-
     test_observer::spawn();
     let observer_port = test_observer::EVENT_OBSERVER_PORT;
     naka_conf.events_observers.insert(EventObserverConfig {
@@ -2627,6 +2610,26 @@ fn new_tenure_stop_fast_blocks() {
         )
         .unwrap();
 
+        let node_2_sk = Secp256k1PrivateKey::from_seed(&conf_node_2.node.local_peer_seed);
+        let node_2_pk = StacksPublicKey::from_private(&node_2_sk);
+    
+        let miner_a_pubkey = BitcoinPublicKey::from_private(&naka_conf.miner.mining_key.unwrap());
+        let miner_b_pubkey = BitcoinPublicKey::from_private(&conf_node_2.miner.mining_key.unwrap());
+    
+        // Create Bitcoin addresses from public keys
+        let miner_a_address = BitcoinAddress::from_bytes_legacy(
+            BitcoinNetworkType::Regtest,
+            LegacyBitcoinAddressType::PublicKeyHash,
+            &Hash160::from_data(&node_1_pk.to_bytes()).0,
+        )
+        .expect("Failed to create Bitcoin address for miner A");
+        let miner_b_address = BitcoinAddress::from_bytes_legacy(
+            BitcoinNetworkType::Regtest,
+            LegacyBitcoinAddressType::PublicKeyHash,
+            &Hash160::from_data(&node_2_pk.to_bytes()).0,
+        )
+        .expect("Failed to create Bitcoin address for miner B");
+
         info!("Miner A address: {}", miner_a_address);
         info!("Miner B address: {}", miner_b_address);
 
@@ -2652,11 +2655,11 @@ fn new_tenure_stop_fast_blocks() {
 
         info!("Winner Miner Address: {}", winner_bitcoin_address);
 
-        let a_utxos = btc_regtest_controller.get_all_utxos(&miner_a_pubkey);
-        let b_utxos = btc_regtest_controller.get_all_utxos(&miner_b_pubkey);
+        // let a_utxos = btc_regtest_controller.get_all_utxos(&node_1_pk);
+        // let b_utxos = btc_regtest_controller.get_all_utxos(&);
 
-        info!("Miner A UTXOs: {}", a_utxos.len());
-        info!("Miner B UTXOs: {}", b_utxos.len());
+        // info!("Miner A UTXOs: {}", a_utxos.len());
+        // info!("Miner B UTXOs: {}", b_utxos.len());
 
         // sortition db
         // block_commits -> block_height to be what i am looking for
