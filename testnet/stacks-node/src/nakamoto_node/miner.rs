@@ -50,7 +50,6 @@ use stacks_common::codec::read_next;
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
 use stacks_common::types::{PrivateKey, StacksEpochId};
 use stacks_common::util::vrf::VRFProof;
-use wsts::curve::scalar::Scalar;
 
 use super::relayer::RelayerThread;
 use super::sign_coordinator::SignCoordinator;
@@ -290,7 +289,6 @@ impl BlockMinerThread {
         let mut stackerdbs = StackerDBs::connect(&self.config.get_stacker_db_file_path(), true)
             .map_err(|e| NakamotoNodeError::MiningFailure(ChainstateError::NetError(e)))?;
 
-        let mut attempts = 0;
         // now, actually run this tenure
         loop {
             #[cfg(test)]
@@ -371,11 +369,9 @@ impl BlockMinerThread {
 
             if let Some(mut new_block) = new_block {
                 Self::fault_injection_block_broadcast_stall(&new_block);
-                let (reward_set, signer_signature) = match self.gather_signatures(
-                    &mut new_block,
-                    &mut stackerdbs,
-                    &mut attempts,
-                ) {
+                let (reward_set, signer_signature) = match self
+                    .gather_signatures(&mut new_block, &mut stackerdbs)
+                {
                     Ok(x) => x,
                     Err(e) => match e {
                         NakamotoNodeError::StacksTipChanged => {
@@ -523,7 +519,6 @@ impl BlockMinerThread {
         &mut self,
         new_block: &mut NakamotoBlock,
         stackerdbs: &mut StackerDBs,
-        attempts: &mut u64,
     ) -> Result<(RewardSet, Vec<MessageSignature>), NakamotoNodeError> {
         let Some(miner_privkey) = self.config.miner.mining_key else {
             return Err(NakamotoNodeError::MinerConfigurationFailed(
@@ -557,7 +552,6 @@ impl BlockMinerThread {
             })
         })?;
 
-        let miner_privkey_as_scalar = Scalar::from(miner_privkey.as_slice().clone());
         let reward_set = self.load_signer_set()?;
 
         if self.config.get_node_config(false).mock_mining {
@@ -566,7 +560,7 @@ impl BlockMinerThread {
 
         let mut coordinator = SignCoordinator::new(
             &reward_set,
-            miner_privkey_as_scalar,
+            miner_privkey,
             &self.config,
             self.globals.should_keep_running.clone(),
         )
@@ -583,10 +577,8 @@ impl BlockMinerThread {
                 ))
             })?;
 
-        *attempts += 1;
         let signature = coordinator.run_sign_v0(
             new_block,
-            *attempts,
             &tip,
             &self.burnchain,
             &sort_db,

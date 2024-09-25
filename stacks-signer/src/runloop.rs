@@ -301,7 +301,7 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
                 );
             return Ok(None);
         };
-        let Some(signer_id) = signer_entries.signer_ids.get(current_addr) else {
+        let Some(signer_id) = signer_entries.signer_addr_to_id.get(current_addr) else {
             warn!(
                 "Signer {current_addr} was found in stacker db but not the reward set for reward cycle {reward_cycle}."
             );
@@ -310,20 +310,13 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
         info!(
             "Signer #{signer_id} ({current_addr}) is registered for reward cycle {reward_cycle}."
         );
-        let key_ids = signer_entries
-            .signer_key_ids
-            .get(signer_id)
-            .cloned()
-            .unwrap_or_default();
         Ok(Some(SignerConfig {
             reward_cycle,
             signer_id: *signer_id,
             signer_slot_id: *signer_slot_id,
-            key_ids,
             signer_entries,
             signer_slot_ids: signer_slot_ids.into_values().collect(),
             first_proposal_burn_block_timing: self.config.first_proposal_burn_block_timing,
-            ecdsa_private_key: self.config.ecdsa_private_key,
             stacks_private_key: self.config.stacks_private_key,
             node_host: self.config.node_host.to_string(),
             mainnet: self.config.network.is_mainnet(),
@@ -608,8 +601,11 @@ mod tests {
         }
 
         let parsed_entries = SignerEntries::parse(false, &signer_entries).unwrap();
-        assert_eq!(parsed_entries.signer_ids.len(), nmb_signers);
-        let mut signer_ids = parsed_entries.signer_ids.into_values().collect::<Vec<_>>();
+        assert_eq!(parsed_entries.signer_id_to_pk.len(), nmb_signers);
+        let mut signer_ids = parsed_entries
+            .signer_id_to_pk
+            .into_keys()
+            .collect::<Vec<_>>();
         signer_ids.sort();
         assert_eq!(
             signer_ids,

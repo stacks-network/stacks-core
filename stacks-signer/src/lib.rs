@@ -39,10 +39,8 @@ pub mod runloop;
 pub mod signerdb;
 /// The util module for the signer
 pub mod utils;
-/// The v0 implementation of the signer. This does not include WSTS support
+/// The v0 implementation of the signer.
 pub mod v0;
-/// The v1 implementation of the singer. This includes WSTS support
-pub mod v1;
 
 #[cfg(test)]
 mod tests;

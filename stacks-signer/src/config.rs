@@ -29,9 +29,7 @@ use stacks_common::address::{
 };
 use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
 use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey};
-use stacks_common::types::PrivateKey;
 use stacks_common::util::hash::Hash160;
-use wsts::curve::scalar::Scalar;
 
 use crate::client::SignerSlotID;
 
@@ -122,14 +120,10 @@ pub struct SignerConfig {
     pub signer_id: u32,
     /// The signer stackerdb slot id (may be different from signer_id)
     pub signer_slot_id: SignerSlotID,
-    /// This signer's key ids
-    pub key_ids: Vec<u32>,
     /// The registered signers for this reward cycle
     pub signer_entries: SignerEntries,
     /// The signer slot ids of all signers registered for this reward cycle
     pub signer_slot_ids: Vec<SignerSlotID>,
-    /// The Scalar representation of the private key for signer communication
-    pub ecdsa_private_key: Scalar,
     /// The private key for this signer
     pub stacks_private_key: StacksPrivateKey,
     /// The node host for this signer
@@ -166,8 +160,6 @@ pub struct GlobalConfig {
     pub node_host: String,
     /// endpoint to the event receiver
     pub endpoint: SocketAddr,
-    /// The Scalar representation of the private key for signer communication
-    pub ecdsa_private_key: Scalar,
     /// The signer's Stacks private key
     pub stacks_private_key: StacksPrivateKey,
     /// The signer's Stacks address
@@ -295,14 +287,6 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
                     raw_data.stacks_private_key.clone(),
                 )
             })?;
-
-        let ecdsa_private_key =
-            Scalar::try_from(&stacks_private_key.to_bytes()[..32]).map_err(|_| {
-                ConfigError::BadField(
-                    "stacks_private_key".to_string(),
-                    raw_data.stacks_private_key.clone(),
-                )
-            })?;
         let stacks_public_key = StacksPublicKey::from_private(&stacks_private_key);
         let signer_hash = Hash160::from_data(stacks_public_key.to_bytes_compressed().as_slice());
         let stacks_address =
@@ -341,7 +325,6 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
             node_host: raw_data.node_host,
             endpoint,
             stacks_private_key,
-            ecdsa_private_key,
             stacks_address,
             network: raw_data.network,
             event_timeout,
