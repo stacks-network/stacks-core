@@ -6382,7 +6382,8 @@ fn continue_tenure_extend() {
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
     let prom_bind = format!("{}:{}", "127.0.0.1", 6000);
     naka_conf.node.prometheus_bind = Some(prom_bind.clone());
-    naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1000);
+    naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
+    let http_origin = naka_conf.node.data_url.clone();
     let sender_sk = Secp256k1PrivateKey::new();
     // setup sender + recipient for a test stx transfer
     let sender_addr = tests::to_addr(&sender_sk);
@@ -6571,12 +6572,13 @@ fn continue_tenure_extend() {
         &signers,
     );
 
-    wait_for(5, || {
+    wait_for(25, || {
         let blocks_processed = coord_channel
             .lock()
             .expect("Mutex poisoned")
             .get_stacks_blocks_processed();
-        Ok(blocks_processed > blocks_processed_before)
+        let sender_nonce = get_account(&http_origin, &to_addr(&sender_sk)).nonce;
+        Ok(blocks_processed > blocks_processed_before && sender_nonce >= 1)
     })
     .unwrap();
 
