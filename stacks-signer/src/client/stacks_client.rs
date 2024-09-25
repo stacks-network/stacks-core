@@ -18,7 +18,7 @@ use std::collections::{HashMap, VecDeque};
 use blockstack_lib::burnchains::Txid;
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
 use blockstack_lib::chainstate::stacks::boot::{
-    NakamotoSignerEntry, SIGNERS_NAME, SIGNERS_VOTING_FUNCTION_NAME, SIGNERS_VOTING_NAME,
+    NakamotoSignerEntry, SIGNERS_NAME, SIGNERS_VOTING_NAME,
 };
 use blockstack_lib::chainstate::stacks::db::StacksBlockHeaderTypes;
 use blockstack_lib::chainstate::stacks::{
@@ -54,7 +54,6 @@ use stacks_common::types::chainstate::{
 };
 use stacks_common::types::StacksEpochId;
 use stacks_common::{debug, warn};
-use wsts::curve::point::{Compressed, Point};
 
 use super::SignerSlotID;
 use crate::client::{retry_with_exponential_backoff, ClientError};
@@ -273,40 +272,6 @@ impl StacksClient {
             .collect())
     }
 
-    /// Get the vote for a given  round, reward cycle, and signer address
-    pub fn get_vote_for_aggregate_public_key(
-        &self,
-        round: u64,
-        reward_cycle: u64,
-        signer: StacksAddress,
-    ) -> Result<Option<Point>, ClientError> {
-        debug!("Getting vote for aggregate public key...");
-        let function_name = ClarityName::from("get-vote");
-        let function_args = &[
-            ClarityValue::UInt(reward_cycle as u128),
-            ClarityValue::UInt(round as u128),
-            ClarityValue::Principal(signer.into()),
-        ];
-        let value = self.read_only_contract_call(
-            &boot_code_addr(self.mainnet),
-            &ContractName::from(SIGNERS_VOTING_NAME),
-            &function_name,
-            function_args,
-        )?;
-        // Return value is of type:
-        // ```clarity
-        // (option { aggregate-public-key: (buff 33), signer-weight: uint })
-        // ```
-        let inner_data = value.expect_optional()?;
-        if let Some(inner_data) = inner_data {
-            let tuple = inner_data.expect_tuple()?;
-            let key_value = tuple.get_owned("aggregate-public-key")?;
-            self.parse_aggregate_public_key(key_value)
-        } else {
-            Ok(None)
-        }
-    }
-
     /// Retrieve the medium estimated transaction fee in uSTX from the stacks node for the given transaction
     pub fn get_medium_estimated_fee_ustx(
         &self,
@@ -404,27 +369,6 @@ impl StacksClient {
             return Err(ClientError::RequestFailure(response.status()));
         }
         Ok(())
-    }
-
-    /// Retrieve the approved DKG aggregate public key for the given reward cycle
-    pub fn get_approved_aggregate_key(
-        &self,
-        reward_cycle: u64,
-    ) -> Result<Option<Point>, ClientError> {
-        let function_name = ClarityName::from("get-approved-aggregate-key");
-        let voting_contract_id = boot_code_id(SIGNERS_VOTING_NAME, self.mainnet);
-        let function_args = &[ClarityValue::UInt(reward_cycle as u128)];
-        let value = self.read_only_contract_call(
-            &voting_contract_id.issuer.into(),
-            &voting_contract_id.name,
-            &function_name,
-            function_args,
-        )?;
-        let inner_data = value.expect_optional()?;
-        inner_data.map_or_else(
-            || Ok(None),
-            |key_value| self.parse_aggregate_public_key(key_value),
-        )
     }
 
     /// Retrieve the current consumed weight for the given reward cycle and DKG round
@@ -736,61 +680,6 @@ impl StacksClient {
         Ok(account_entry)
     }
 
-    /// Helper function that attempts to deserialize a clarity hex string as the aggregate public key
-    fn parse_aggregate_public_key(
-        &self,
-        value: ClarityValue,
-    ) -> Result<Option<Point>, ClientError> {
-        debug!("Parsing aggregate public key...");
-        let data = value.expect_buff(33)?;
-        // It is possible that the point was invalid though when voted upon and this cannot be prevented by pox 4 definitions...
-        // Pass up this error if the conversions fail.
-        let compressed_data = Compressed::try_from(data.as_slice()).map_err(|e| {
-            ClientError::MalformedClarityValue(format!(
-                "Failed to convert aggregate public key to compressed data: {e}"
-            ))
-        })?;
-        let dkg_public_key = Point::try_from(&compressed_data).map_err(|e| {
-            ClientError::MalformedClarityValue(format!(
-                "Failed to convert aggregate public key to a point: {e}"
-            ))
-        })?;
-        Ok(Some(dkg_public_key))
-    }
-
-    /// Helper function to create a stacks transaction for a modifying contract call
-    pub fn build_unsigned_vote_for_aggregate_public_key(
-        &self,
-        signer_index: u32,
-        round: u64,
-        dkg_public_key: Point,
-        reward_cycle: u64,
-        nonce: u64,
-    ) -> Result<StacksTransaction, ClientError> {
-        debug!("Building {SIGNERS_VOTING_FUNCTION_NAME} transaction...");
-        let contract_address = boot_code_addr(self.mainnet);
-        let contract_name = ContractName::from(SIGNERS_VOTING_NAME);
-        let function_name = ClarityName::from(SIGNERS_VOTING_FUNCTION_NAME);
-        let function_args = vec![
-            ClarityValue::UInt(signer_index as u128),
-            ClarityValue::buff_from(dkg_public_key.compress().data.to_vec())?,
-            ClarityValue::UInt(round as u128),
-            ClarityValue::UInt(reward_cycle as u128),
-        ];
-
-        let unsigned_tx = Self::build_unsigned_contract_call_transaction(
-            &contract_address,
-            contract_name,
-            function_name,
-            &function_args,
-            &self.stacks_private_key,
-            self.tx_version,
-            self.chain_id,
-            nonce,
-        )?;
-        Ok(unsigned_tx)
-    }
-
     /// Try to post a completed nakamoto block to our connected stacks-node
     /// Returns `true` if the block was accepted or `false` if the block
     ///   was rejected.
@@ -1036,15 +925,13 @@ mod tests {
     use rand_core::RngCore;
     use stacks_common::bitvec::BitVec;
     use stacks_common::consts::{CHAIN_ID_TESTNET, SIGNER_SLOTS_PER_USER};
-    use wsts::curve::scalar::Scalar;
 
     use super::*;
     use crate::client::tests::{
-        build_account_nonce_response, build_get_approved_aggregate_key_response,
-        build_get_last_round_response, build_get_last_set_cycle_response,
-        build_get_medium_estimated_fee_ustx_response, build_get_peer_info_response,
-        build_get_pox_data_response, build_get_round_info_response, build_get_tenure_tip_response,
-        build_get_vote_for_aggregate_key_response, build_get_weight_threshold_response,
+        build_account_nonce_response, build_get_last_round_response,
+        build_get_last_set_cycle_response, build_get_medium_estimated_fee_ustx_response,
+        build_get_peer_info_response, build_get_pox_data_response, build_get_round_info_response,
+        build_get_tenure_tip_response, build_get_weight_threshold_response,
         build_read_only_response, write_response, MockServerClient,
     };
 
@@ -1175,45 +1062,6 @@ mod tests {
     }
 
     #[test]
-    fn get_aggregate_public_key_should_succeed() {
-        let orig_point = Point::from(Scalar::random(&mut rand::thread_rng()));
-        let response = build_get_approved_aggregate_key_response(Some(orig_point));
-        let mock = MockServerClient::new();
-        let h = spawn(move || mock.client.get_approved_aggregate_key(0));
-        write_response(mock.server, response.as_bytes());
-        let res = h.join().unwrap().unwrap();
-        assert_eq!(res, Some(orig_point));
-
-        let response = build_get_approved_aggregate_key_response(None);
-        let mock = MockServerClient::new();
-        let h = spawn(move || mock.client.get_approved_aggregate_key(0));
-        write_response(mock.server, response.as_bytes());
-        let res = h.join().unwrap().unwrap();
-        assert!(res.is_none());
-    }
-
-    #[test]
-    fn parse_valid_aggregate_public_key_should_succeed() {
-        let mock = MockServerClient::new();
-        let orig_point = Point::from(Scalar::random(&mut rand::thread_rng()));
-        let clarity_value = ClarityValue::buff_from(orig_point.compress().as_bytes().to_vec())
-            .expect("BUG: Failed to create clarity value from point");
-        let result = mock
-            .client
-            .parse_aggregate_public_key(clarity_value)
-            .unwrap();
-        assert_eq!(result, Some(orig_point));
-    }
-
-    #[test]
-    fn parse_invalid_aggregate_public_key_should_fail() {
-        let mock = MockServerClient::new();
-        let value = ClarityValue::UInt(10_u128);
-        let result = mock.client.parse_aggregate_public_key(value);
-        assert!(result.is_err())
-    }
-
-    #[test]
     fn transaction_contract_call_should_send_bytes_to_node() {
         let mock = MockServerClient::new();
         let private_key = StacksPrivateKey::new();
@@ -1263,58 +1111,6 @@ mod tests {
                 .any(|window| window == &tx_bytes[..bytes_len]),
             "Request bytes did not contain the transaction bytes"
         );
-    }
-
-    #[test]
-    fn build_vote_for_aggregate_public_key_should_succeed() {
-        let mock = MockServerClient::new();
-        let point = Point::from(Scalar::random(&mut rand::thread_rng()));
-        let nonce = thread_rng().next_u64();
-        let signer_index = thread_rng().next_u32();
-        let round = thread_rng().next_u64();
-        let reward_cycle = thread_rng().next_u64();
-
-        let h = spawn(move || {
-            mock.client.build_unsigned_vote_for_aggregate_public_key(
-                signer_index,
-                round,
-                point,
-                reward_cycle,
-                nonce,
-            )
-        });
-        assert!(h.join().unwrap().is_ok());
-    }
-
-    #[test]
-    fn broadcast_vote_for_aggregate_public_key_should_succeed() {
-        let mock = MockServerClient::new();
-        let point = Point::from(Scalar::random(&mut rand::thread_rng()));
-        let nonce = thread_rng().next_u64();
-        let signer_index = thread_rng().next_u32();
-        let round = thread_rng().next_u64();
-        let reward_cycle = thread_rng().next_u64();
-        let unsigned_tx = mock
-            .client
-            .build_unsigned_vote_for_aggregate_public_key(
-                signer_index,
-                round,
-                point,
-                reward_cycle,
-                nonce,
-            )
-            .unwrap();
-        let tx = mock.client.sign_transaction(unsigned_tx).unwrap();
-        let tx_clone = tx.clone();
-        let h = spawn(move || mock.client.submit_transaction(&tx_clone));
-
-        write_response(
-            mock.server,
-            format!("HTTP/1.1 200 OK\n\n{}", tx.txid()).as_bytes(),
-        );
-        let returned_txid = h.join().unwrap().unwrap();
-
-        assert_eq!(returned_txid, tx.txid());
     }
 
     #[test]
@@ -1579,9 +1375,10 @@ mod tests {
     #[test]
     fn get_reward_set_should_succeed() {
         let mock = MockServerClient::new();
-        let point = Point::from(Scalar::random(&mut rand::thread_rng())).compress();
+        let private_key = StacksPrivateKey::new();
+        let public_key = StacksPublicKey::from_private(&private_key);
         let mut bytes = [0u8; 33];
-        bytes.copy_from_slice(point.as_bytes());
+        bytes.copy_from_slice(&public_key.to_bytes_compressed());
         let stacker_set = RewardSet {
             rewarded_addresses: vec![PoxAddress::standard_burn_address(false)],
             start_cycle_state: PoxStartCycleInfo {
@@ -1604,30 +1401,6 @@ mod tests {
         let h = spawn(move || mock.client.get_reward_set_signers(0));
         write_response(mock.server, response.as_bytes());
         assert_eq!(h.join().unwrap().unwrap(), stacker_set.signers);
-    }
-
-    #[test]
-    fn get_vote_for_aggregate_public_key_should_succeed() {
-        let mock = MockServerClient::new();
-        let point = Point::from(Scalar::random(&mut rand::thread_rng()));
-        let stacks_address = mock.client.stacks_address;
-        let key_response = build_get_vote_for_aggregate_key_response(Some(point));
-        let h = spawn(move || {
-            mock.client
-                .get_vote_for_aggregate_public_key(0, 0, stacks_address)
-        });
-        write_response(mock.server, key_response.as_bytes());
-        assert_eq!(h.join().unwrap().unwrap(), Some(point));
-
-        let mock = MockServerClient::new();
-        let stacks_address = mock.client.stacks_address;
-        let key_response = build_get_vote_for_aggregate_key_response(None);
-        let h = spawn(move || {
-            mock.client
-                .get_vote_for_aggregate_public_key(0, 0, stacks_address)
-        });
-        write_response(mock.server, key_response.as_bytes());
-        assert_eq!(h.join().unwrap().unwrap(), None);
     }
 
     #[test]

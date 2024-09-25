@@ -39,7 +39,7 @@ use stacks_common::{debug, error, info, warn};
 use crate::chainstate::{ProposalEvalConfig, SortitionsView};
 use crate::client::{SignerSlotID, StackerDB, StacksClient};
 use crate::config::SignerConfig;
-use crate::runloop::{RunLoopCommand, SignerResult};
+use crate::runloop::SignerResult;
 use crate::signerdb::{BlockInfo, BlockState, SignerDb};
 use crate::Signer as SignerTrait;
 
@@ -256,17 +256,6 @@ impl SignerTrait<SignerMessage> for Signer {
                     });
                 *sortition_state = None;
             }
-        }
-    }
-
-    fn process_command(
-        &mut self,
-        _stacks_client: &StacksClient,
-        _current_reward_cycle: u64,
-        command: Option<RunLoopCommand>,
-    ) {
-        if let Some(command) = command {
-            warn!("{self}: Received a command: {command:?}. V0 Signers do not support commands. Ignoring...")
         }
     }
 

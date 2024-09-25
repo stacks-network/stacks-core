@@ -302,19 +302,12 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
                 warn!("Received multiple states from the signer receiver: this test function assumes it should only ever receive 1");
                 panic!();
             }
-            let Some(result) = results.pop() else {
+            let Some(SignerResult::StatusCheck(state_info)) = results.pop() else {
                 debug!("Could not receive latest state from signer #{ix}");
                 output.push(None);
                 continue;
             };
-            match result {
-                SignerResult::OperationResult(_operation) => {
-                    panic!("Recieved an operation result.");
-                }
-                SignerResult::StatusCheck(state_info) => {
-                    output.push(Some(state_info));
-                }
-            }
+            output.push(Some(state_info));
         }
         output
     }

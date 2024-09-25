@@ -3473,7 +3473,6 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url",
- "wsts",
 ]
 
 [[package]]

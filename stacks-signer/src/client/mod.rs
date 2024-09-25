@@ -148,7 +148,6 @@ pub(crate) mod tests {
     };
     use stacks_common::types::{StacksEpochId, StacksPublicKeyBuffer};
     use stacks_common::util::hash::{Hash160, Sha256Sum};
-    use wsts::curve::point::Point;
 
     use super::*;
     use crate::config::{GlobalConfig, SignerConfig};
@@ -323,41 +322,6 @@ pub(crate) mod tests {
         };
         let pox_info_json = serde_json::to_string(&pox_info).expect("Failed to serialize pox info");
         (format!("HTTP/1.1 200 Ok\n\n{pox_info_json}"), pox_info)
-    }
-
-    /// Build a response for the get_approved_aggregate_key request
-    pub fn build_get_approved_aggregate_key_response(point: Option<Point>) -> String {
-        let clarity_value = if let Some(point) = point {
-            ClarityValue::some(
-                ClarityValue::buff_from(point.compress().as_bytes().to_vec())
-                    .expect("BUG: Failed to create clarity value from point"),
-            )
-            .expect("BUG: Failed to create clarity value from point")
-        } else {
-            ClarityValue::none()
-        };
-        build_read_only_response(&clarity_value)
-    }
-
-    /// Build a response for the get_approved_aggregate_key request
-    pub fn build_get_vote_for_aggregate_key_response(point: Option<Point>) -> String {
-        let clarity_value = if let Some(point) = point {
-            ClarityValue::some(ClarityValue::Tuple(
-                TupleData::from_data(vec![
-                    (
-                        "aggregate-public-key".into(),
-                        ClarityValue::buff_from(point.compress().as_bytes().to_vec())
-                            .expect("BUG: Failed to create clarity value from point"),
-                    ),
-                    ("signer-weight".into(), ClarityValue::UInt(1)), // fixed for testing purposes
-                ])
-                .expect("BUG: Failed to create clarity value from tuple data"),
-            ))
-            .expect("BUG: Failed to create clarity value from tuple data")
-        } else {
-            ClarityValue::none()
-        };
-        build_read_only_response(&clarity_value)
     }
 
     /// Build a response for the get_peer_info_with_retry request with a specific stacks tip height and consensus hash
