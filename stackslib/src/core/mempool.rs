@@ -2659,11 +2659,7 @@ impl MemPoolDB {
         Ok(())
     }
 
-    /// Drop and blacklist transactions, so we don't re-broadcast them or re-fetch them.
-    /// Do *NOT* remove them from the bloom filter.  This will cause them to continue to be
-    /// reported as present, which is exactly what we want because we don't want these transactions
-    /// to be seen again (so we don't want anyone accidentally "helpfully" pushing them to us, nor
-    /// do we want the mempool sync logic to "helpfully" re-discover and re-download them).
+    /// Update the time estimates for the supplied txs in the mempool db
     pub fn update_tx_time_estimates(&mut self, txs: &[(Txid, u64)]) -> Result<(), db_error> {
         let sql = "UPDATE mempool SET time_estimate_ms = ? WHERE txid = ?";
         let mempool_tx = self.tx_begin()?;
