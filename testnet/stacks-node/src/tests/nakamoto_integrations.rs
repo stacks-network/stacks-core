@@ -34,7 +34,8 @@ use rand::RngCore;
 use stacks::burnchains::{MagicBytes, Txid};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::{
-    BlockstackOperationType, PreStxOp, StackStxOp, VoteForAggregateKeyOp,
+    BlockstackOperationType, DelegateStxOp, PreStxOp, StackStxOp, TransferStxOp,
+    VoteForAggregateKeyOp,
 };
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::coordinator::OnChainRewardSetProvider;
@@ -4012,7 +4013,17 @@ fn follower_bootup_across_multiple_cycles() {
 
 #[test]
 #[ignore]
-fn stack_stx_burn_op_integration_test() {
+/// Test out various burn operations being processed in Nakamoto.
+///
+/// There are 4 burn ops submitted:
+///
+/// - stx-transfer
+/// - delegate-stx
+/// - stack-stx
+///
+/// Additionally, a stack-stx without a signer key is submitted, which should
+/// not be processed in Nakamoto.
+fn burn_ops_integration_test() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
     }
@@ -4027,9 +4038,33 @@ fn stack_stx_burn_op_integration_test() {
     let signer_sk_2 = Secp256k1PrivateKey::new();
     let signer_addr_2 = tests::to_addr(&signer_sk_2);
 
+    let stacker_sk_1 = Secp256k1PrivateKey::new();
+    let stacker_addr_1 = tests::to_addr(&stacker_sk_1);
+
+    let stacker_sk_2 = Secp256k1PrivateKey::new();
+    let stacker_addr_2 = tests::to_addr(&stacker_sk_2);
+
+    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_addr = tests::to_addr(&sender_sk);
+    let mut sender_nonce = 0;
+
     let mut signers = TestSigners::new(vec![signer_sk_1.clone()]);
 
     let stacker_sk = setup_stacker(&mut naka_conf);
+
+    // Add the initial balances to the other accounts
+    naka_conf.add_initial_balance(
+        PrincipalData::from(stacker_addr_1.clone()).to_string(),
+        1000000,
+    );
+    naka_conf.add_initial_balance(
+        PrincipalData::from(stacker_addr_2.clone()).to_string(),
+        1000000,
+    );
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_addr.clone()).to_string(),
+        100_000_000,
+    );
 
     test_observer::spawn();
     let observer_port = test_observer::EVENT_OBSERVER_PORT;
@@ -4135,7 +4170,49 @@ fn stack_stx_burn_op_integration_test() {
             .is_ok(),
         "Pre-stx operation should submit successfully"
     );
-    info!("Submitted 2 pre-stx ops at block {block_height}, mining a few blocks...");
+
+    let mut miner_signer_3 = Keychain::default(naka_conf.node.seed.clone()).generate_op_signer();
+    info!("Submitting third pre-stx op");
+    let pre_stx_op_3 = PreStxOp {
+        output: stacker_addr_1.clone(),
+        txid: Txid([0u8; 32]),
+        vtxindex: 0,
+        block_height: 0,
+        burn_header_hash: BurnchainHeaderHash([0u8; 32]),
+    };
+    assert!(
+        btc_regtest_controller
+            .submit_operation(
+                StacksEpochId::Epoch30,
+                BlockstackOperationType::PreStx(pre_stx_op_3),
+                &mut miner_signer_3,
+                1
+            )
+            .is_ok(),
+        "Pre-stx operation should submit successfully"
+    );
+
+    info!("Submitting fourth pre-stx op");
+    let mut miner_signer_4 = Keychain::default(naka_conf.node.seed.clone()).generate_op_signer();
+    let pre_stx_op_4 = PreStxOp {
+        output: stacker_addr_2.clone(),
+        txid: Txid([0u8; 32]),
+        vtxindex: 0,
+        block_height: 0,
+        burn_header_hash: BurnchainHeaderHash([0u8; 32]),
+    };
+    assert!(
+        btc_regtest_controller
+            .submit_operation(
+                StacksEpochId::Epoch30,
+                BlockstackOperationType::PreStx(pre_stx_op_4),
+                &mut miner_signer_4,
+                1
+            )
+            .is_ok(),
+        "Pre-stx operation should submit successfully"
+    );
+    info!("Submitted 4 pre-stx ops at block {block_height}, mining a few blocks...");
 
     // Mine until the next prepare phase
     let block_height = btc_regtest_controller.get_headers_height();
@@ -4216,6 +4293,8 @@ fn stack_stx_burn_op_integration_test() {
 
     let mut signer_burnop_signer_1 = BurnchainOpSigner::new(signer_sk_1.clone(), false);
     let mut signer_burnop_signer_2 = BurnchainOpSigner::new(signer_sk_2.clone(), false);
+    let mut stacker_burnop_signer_1 = BurnchainOpSigner::new(stacker_sk_1.clone(), false);
+    let mut stacker_burnop_signer_2 = BurnchainOpSigner::new(stacker_sk_2.clone(), false);
 
     info!(
         "Before stack-stx op, signer 1 total: {}",
@@ -4246,6 +4325,55 @@ fn stack_stx_burn_op_integration_test() {
 
     info!("Signer 1 addr: {}", signer_addr_1.to_b58());
     info!("Signer 2 addr: {}", signer_addr_2.to_b58());
+
+    info!("Submitting transfer STX op");
+    let transfer_stx_op = TransferStxOp {
+        sender: stacker_addr_1.clone(),
+        recipient: stacker_addr_2.clone(),
+        transfered_ustx: 10000,
+        memo: vec![],
+        txid: Txid([0u8; 32]),
+        vtxindex: 0,
+        block_height: 0,
+        burn_header_hash: BurnchainHeaderHash([0u8; 32]),
+    };
+    assert!(
+        btc_regtest_controller
+            .submit_operation(
+                StacksEpochId::Epoch30,
+                BlockstackOperationType::TransferStx(transfer_stx_op),
+                &mut stacker_burnop_signer_1,
+                1
+            )
+            .is_ok(),
+        "Transfer STX operation should submit successfully"
+    );
+
+    info!("Submitting delegate STX op");
+    let del_stx_op = DelegateStxOp {
+        sender: stacker_addr_2.clone(),
+        delegate_to: stacker_addr_1.clone(),
+        reward_addr: None,
+        delegated_ustx: 100_000,
+        // to be filled in
+        txid: Txid([0u8; 32]),
+        vtxindex: 0,
+        block_height: 0,
+        burn_header_hash: BurnchainHeaderHash([0u8; 32]),
+        until_burn_height: None,
+    };
+
+    assert!(
+        btc_regtest_controller
+            .submit_operation(
+                StacksEpochId::Epoch30,
+                BlockstackOperationType::DelegateStx(del_stx_op),
+                &mut stacker_burnop_signer_2,
+                1
+            )
+            .is_ok(),
+        "Delegate STX operation should submit successfully"
+    );
 
     let pox_info = get_pox_info(&http_origin).unwrap();
     let min_stx = pox_info.next_cycle.min_threshold_ustx;
@@ -4306,7 +4434,8 @@ fn stack_stx_burn_op_integration_test() {
 
     info!("Submitted 2 stack STX ops at height {block_height}, mining a few blocks...");
 
-    // the second block should process the vote, after which the balances should be unchanged
+    // the second block should process the ops
+    // Also mine 2 interim blocks to ensure the stack-stx ops are not processed in them
     for _i in 0..2 {
         next_block_and_mine_commit(
             &mut btc_regtest_controller,
@@ -4315,9 +4444,34 @@ fn stack_stx_burn_op_integration_test() {
             &commits_submitted,
         )
         .unwrap();
+        for interim_block_ix in 0..2 {
+            info!("Mining interim block {interim_block_ix}");
+            let blocks_processed_before = coord_channel
+                .lock()
+                .expect("Mutex poisoned")
+                .get_stacks_blocks_processed();
+            // submit a tx so that the miner will mine an extra block
+            let transfer_tx =
+                make_stacks_transfer(&sender_sk, sender_nonce, 200, &stacker_addr_1.into(), 10000);
+            sender_nonce += 1;
+            submit_tx(&http_origin, &transfer_tx);
+
+            loop {
+                let blocks_processed = coord_channel
+                    .lock()
+                    .expect("Mutex poisoned")
+                    .get_stacks_blocks_processed();
+                if blocks_processed > blocks_processed_before {
+                    break;
+                }
+                thread::sleep(Duration::from_millis(100));
+            }
+        }
     }
 
     let mut stack_stx_found = false;
+    let mut transfer_stx_found = false;
+    let mut delegate_stx_found = false;
     let mut stack_stx_burn_op_tx_count = 0;
     let blocks = test_observer::get_blocks();
     info!("stack event observer num blocks: {:?}", blocks.len());
@@ -4327,11 +4481,54 @@ fn stack_stx_burn_op_integration_test() {
             "stack event observer num transactions: {:?}",
             transactions.len()
         );
-        for tx in transactions.iter() {
+        let mut block_has_tenure_change = false;
+        for tx in transactions.iter().rev() {
             let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
             if raw_tx == "0x00" {
                 info!("Found a burn op: {:?}", tx);
+                assert!(block_has_tenure_change, "Block should have a tenure change");
                 let burnchain_op = tx.get("burnchain_op").unwrap().as_object().unwrap();
+                if burnchain_op.contains_key("transfer_stx") {
+                    let transfer_stx_obj = burnchain_op.get("transfer_stx").unwrap();
+                    let sender_obj = transfer_stx_obj.get("sender").unwrap();
+                    let sender = sender_obj.get("address").unwrap().as_str().unwrap();
+                    let recipient_obj = transfer_stx_obj.get("recipient").unwrap();
+                    let recipient = recipient_obj.get("address").unwrap().as_str().unwrap();
+                    let transfered_ustx = transfer_stx_obj
+                        .get("transfered_ustx")
+                        .unwrap()
+                        .as_u64()
+                        .unwrap();
+                    assert_eq!(sender, stacker_addr_1.to_string());
+                    assert_eq!(recipient, stacker_addr_2.to_string());
+                    assert_eq!(transfered_ustx, 10000);
+                    info!(
+                        "Transfer STX op: sender: {}, recipient: {}, transfered_ustx: {}",
+                        sender, recipient, transfered_ustx
+                    );
+                    assert!(!transfer_stx_found, "Transfer STX op should be unique");
+                    transfer_stx_found = true;
+                    continue;
+                }
+                if burnchain_op.contains_key("delegate_stx") {
+                    info!("Got delegate STX op: {:?}", burnchain_op);
+                    let delegate_stx_obj = burnchain_op.get("delegate_stx").unwrap();
+                    let sender_obj = delegate_stx_obj.get("sender").unwrap();
+                    let sender = sender_obj.get("address").unwrap().as_str().unwrap();
+                    let delegate_to_obj = delegate_stx_obj.get("delegate_to").unwrap();
+                    let delegate_to = delegate_to_obj.get("address").unwrap().as_str().unwrap();
+                    let delegated_ustx = delegate_stx_obj
+                        .get("delegated_ustx")
+                        .unwrap()
+                        .as_u64()
+                        .unwrap();
+                    assert_eq!(sender, stacker_addr_2.to_string());
+                    assert_eq!(delegate_to, stacker_addr_1.to_string());
+                    assert_eq!(delegated_ustx, 100_000);
+                    assert!(!delegate_stx_found, "Delegate STX op should be unique");
+                    delegate_stx_found = true;
+                    continue;
+                }
                 if !burnchain_op.contains_key("stack_stx") {
                     warn!("Got unexpected burnchain op: {:?}", burnchain_op);
                     panic!("unexpected btc transaction type");
@@ -4368,8 +4565,16 @@ fn stack_stx_burn_op_integration_test() {
                     .expect_result_ok()
                     .expect("Expected OK result for stack-stx op");
 
+                assert!(!stack_stx_found, "Stack STX op should be unique");
                 stack_stx_found = true;
                 stack_stx_burn_op_tx_count += 1;
+            } else {
+                let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
+                let parsed =
+                    StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
+                if let TransactionPayload::TenureChange(_tenure_change) = parsed.payload {
+                    block_has_tenure_change = true;
+                }
             }
         }
     }
@@ -4378,7 +4583,8 @@ fn stack_stx_burn_op_integration_test() {
         stack_stx_burn_op_tx_count, 1,
         "Stack-stx tx without a signer_key shouldn't have been submitted"
     );
-
+    assert!(transfer_stx_found, "Expected transfer STX op");
+    assert!(delegate_stx_found, "Expected delegate STX op");
     let sortdb = btc_regtest_controller.sortdb_mut();
     let sortdb_conn = sortdb.conn();
     let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb_conn).unwrap();
