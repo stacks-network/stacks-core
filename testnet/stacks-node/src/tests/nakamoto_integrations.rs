@@ -585,7 +585,7 @@ pub fn naka_neon_integration_conf(seed: Option<&[u8]>) -> (Config, StacksAddress
 
     conf.burnchain.magic_bytes = MagicBytes::from(['T' as u8, '3' as u8].as_ref());
     conf.burnchain.poll_time_secs = 1;
-    conf.node.pox_sync_sample_secs = 5;
+    conf.node.pox_sync_sample_secs = 0;
 
     conf.miner.first_attempt_time_ms = i64::max_value() as u64;
     conf.miner.subsequent_attempt_time_ms = i64::max_value() as u64;
@@ -2159,6 +2159,7 @@ fn multiple_miners() {
     let node_2_p2p = 51025;
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
     naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
+    naka_conf.node.pox_sync_sample_secs = 1;
     let sender_sk = Secp256k1PrivateKey::new();
     let sender_signer_sk = Secp256k1PrivateKey::new();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
