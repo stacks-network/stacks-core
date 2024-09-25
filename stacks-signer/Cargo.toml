@@ -67,3 +67,4 @@ features = ["serde", "recovery"]
 
 [features]
 monitoring_prom = ["libsigner/monitoring_prom", "prometheus", "tiny_http"]
+testing = []

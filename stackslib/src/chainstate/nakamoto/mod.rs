@@ -14,13 +14,12 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::HashMap;
 use std::fs;
 use std::ops::{Deref, DerefMut, Range};
 use std::path::PathBuf;
 
-use clarity::types::PublicKey;
-use clarity::util::secp256k1::{secp256k1_recover, Secp256k1PublicKey};
+use clarity::util::secp256k1::Secp256k1PublicKey;
 use clarity::vm::ast::ASTRules;
 use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::database::{BurnStateDB, ClarityDatabase};
@@ -31,6 +30,7 @@ use lazy_static::{__Deref, lazy_static};
 use rusqlite::blob::Blob;
 use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput};
 use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
+use sha2::digest::typenum::Integer;
 use sha2::{Digest as Sha2Digest, Sha512_256};
 use stacks_common::bitvec::BitVec;
 use stacks_common::codec::{
@@ -110,8 +110,8 @@ use crate::net::Error as net_error;
 use crate::util_lib::boot;
 use crate::util_lib::boot::boot_code_id;
 use crate::util_lib::db::{
-    query_int, query_row, query_row_panic, query_rows, sqlite_open, tx_begin_immediate, u64_to_sql,
-    DBConn, Error as DBError, FromRow,
+    query_int, query_row, query_row_columns, query_row_panic, query_rows, sqlite_open,
+    tx_begin_immediate, u64_to_sql, DBConn, Error as DBError, FromRow,
 };
 use crate::{chainstate, monitoring};
 
@@ -268,18 +268,37 @@ lazy_static! {
     ADD COLUMN height_in_tenure;
     "#.into(),
     ];
+
+    pub static ref NAKAMOTO_CHAINSTATE_SCHEMA_4: [&'static str; 2] = [
+    r#"
+        UPDATE db_config SET version = "7";
+    "#,
+    // Add a `signer_stats` table to keep track of how many blocks have been signed by each signer
+    r#"
+        -- Table for signer stats
+        CREATE TABLE signer_stats (
+            -- Signers public key
+            public_key TEXT NOT NULL,
+            -- Stacking rewards cycle ID
+            reward_cycle INTEGER NOT NULL,
+            -- Number of blocks signed during reward cycle
+            blocks_signed INTEGER DEFAULT 1 NOT NULL,
+
+            PRIMARY KEY(public_key,reward_cycle)
+        );
+    "#,
+    ];
 }
 
 #[cfg(test)]
-mod test_stall {
-    pub static TEST_PROCESS_BLOCK_STALL: std::sync::Mutex<Option<bool>> =
-        std::sync::Mutex::new(None);
+mod fault_injection {
+    static PROCESS_BLOCK_STALL: std::sync::Mutex<bool> = std::sync::Mutex::new(false);
 
     pub fn stall_block_processing() {
-        if *TEST_PROCESS_BLOCK_STALL.lock().unwrap() == Some(true) {
+        if *PROCESS_BLOCK_STALL.lock().unwrap() {
             // Do an extra check just so we don't log EVERY time.
             warn!("Block processing is stalled due to testing directive.");
-            while *TEST_PROCESS_BLOCK_STALL.lock().unwrap() == Some(true) {
+            while *PROCESS_BLOCK_STALL.lock().unwrap() {
                 std::thread::sleep(std::time::Duration::from_millis(10));
             }
             info!("Block processing is no longer stalled due to testing directive.");
@@ -287,11 +306,11 @@ mod test_stall {
     }
 
     pub fn enable_process_block_stall() {
-        TEST_PROCESS_BLOCK_STALL.lock().unwrap().replace(true);
+        *PROCESS_BLOCK_STALL.lock().unwrap() = true;
     }
 
     pub fn disable_process_block_stall() {
-        TEST_PROCESS_BLOCK_STALL.lock().unwrap().replace(false);
+        *PROCESS_BLOCK_STALL.lock().unwrap() = false;
     }
 }
 
@@ -613,7 +632,7 @@ pub struct NakamotoBlockHeader {
     /// A Unix time timestamp of when this block was mined, according to the miner.
     /// For the signers to consider a block valid, this timestamp must be:
     ///  * Greater than the timestamp of its parent block
-    ///  * Less than 15 seconds into the future
+    ///  * At most 15 seconds into the future
     pub timestamp: u64,
     /// Recoverable ECDSA signature from the tenure's miner.
     pub miner_signature: MessageSignature,
@@ -735,6 +754,7 @@ impl NakamotoBlockHeader {
         write_next(fd, &self.tx_merkle_root)?;
         write_next(fd, &self.state_index_root)?;
         write_next(fd, &self.timestamp)?;
+        write_next(fd, &self.pox_treatment)?;
         Ok(Sha512Trunc256Sum::from_hasher(hasher))
     }
 
@@ -1758,7 +1778,7 @@ impl NakamotoChainState {
         dispatcher_opt: Option<&'a T>,
     ) -> Result<Option<StacksEpochReceipt>, ChainstateError> {
         #[cfg(test)]
-        test_stall::stall_block_processing();
+        fault_injection::stall_block_processing();
 
         let nakamoto_blocks_db = stacks_chain_state.nakamoto_blocks_db();
         let Some((next_ready_block, block_size)) =
@@ -2049,6 +2069,8 @@ impl NakamotoChainState {
 
         let signer_bitvec = (&next_ready_block).header.pox_treatment.clone();
 
+        let block_timestamp = next_ready_block.header.timestamp;
+
         // set stacks block accepted
         let mut sort_tx = sort_db.tx_handle_begin(canonical_sortition_tip)?;
         sort_tx.set_stacks_block_accepted(
@@ -2064,6 +2086,12 @@ impl NakamotoChainState {
                        "error" => ?e);
                 panic!()
             });
+
+        info!(
+            "Advanced to new tip! {}/{}",
+            &receipt.header.consensus_hash,
+            &receipt.header.anchored_header.block_hash()
+        );
 
         // announce the block, if we're connected to an event dispatcher
         if let Some(dispatcher) = dispatcher_opt {
@@ -2088,6 +2116,7 @@ impl NakamotoChainState {
                 &pox_constants,
                 &reward_set_data,
                 &Some(signer_bitvec),
+                Some(block_timestamp),
             );
         }
 
@@ -2297,7 +2326,14 @@ impl NakamotoChainState {
                    "signing_weight" => signing_weight);
             true
         } else {
-            debug!("Will not store alternative copy of block {} ({}) with block hash {}, since it has less signing power", &block_id, &block.header.consensus_hash, &block_hash);
+            if existing_signing_weight > signing_weight {
+                debug!("Will not store alternative copy of block {} ({}) with block hash {}, since it has less signing power", &block_id, &block.header.consensus_hash, &block_hash);
+            } else {
+                debug!(
+                    "Will not store duplicate copy of block {} ({}) with block hash {}",
+                    &block_id, &block.header.consensus_hash, &block_hash
+                );
+            }
             false
         };
 
@@ -2464,6 +2500,26 @@ impl NakamotoChainState {
         Ok(None)
     }
 
+    /// Load the parent block ID of a Nakamoto block
+    pub fn get_nakamoto_parent_block_id(
+        chainstate_conn: &Connection,
+        index_block_hash: &StacksBlockId,
+    ) -> Result<Option<StacksBlockId>, ChainstateError> {
+        let sql = "SELECT parent_block_id FROM nakamoto_block_headers WHERE index_block_hash = ?1";
+        let mut result = query_row_columns(
+            chainstate_conn,
+            sql,
+            &[&index_block_hash],
+            "parent_block_id",
+        )?;
+        if result.len() > 1 {
+            // even though `(consensus_hash,block_hash)` is the primary key, these are hashed to
+            // produce `index_block_hash`.  So, `index_block_hash` is also unique w.h.p.
+            unreachable!("FATAL: multiple instances of index_block_hash");
+        }
+        Ok(result.pop())
+    }
+
     /// Load a Nakamoto header
     pub fn get_block_header_nakamoto(
         chainstate_conn: &Connection,
@@ -2545,8 +2601,10 @@ impl NakamotoChainState {
         Ok(result.is_some())
     }
 
+    /// DO NOT CALL IN CONSENSUS CODE, such as during Stacks block processing
+    /// (including during Clarity VM evaluation). This function returns the latest data
+    /// known to the node, which may not have been at the time of original block assembly.
     /// Load the canonical Stacks block header (either epoch-2 rules or Nakamoto)
-    /// DO NOT CALL during Stacks block processing (including during Clarity VM evaluation). This function returns the latest data known to the node, which may not have been at the time of original block assembly.
     pub fn get_canonical_block_header(
         chainstate_conn: &Connection,
         sortdb: &SortitionDB,
@@ -2602,7 +2660,7 @@ impl NakamotoChainState {
         Self::get_block_header_nakamoto(chainstate_conn.sqlite(), &block_id)
     }
 
-    /// Get the highest block in the given tenure.
+    /// Get the highest block in the given tenure on a given fork.
     /// Only works on Nakamoto blocks.
     /// TODO: unit test
     pub fn get_highest_block_header_in_tenure<SDBI: StacksDBIndexed>(
@@ -2616,6 +2674,29 @@ impl NakamotoChainState {
             return Ok(None);
         };
         Self::get_block_header_nakamoto(chainstate_conn.sqlite(), &block_id)
+    }
+
+    /// DO NOT USE IN CONSENSUS CODE.  Different nodes can have different blocks for the same
+    /// tenure.
+    ///
+    /// Get the highest block in a given tenure (identified by its consensus hash).
+    /// Ties will be broken by timestamp.
+    ///
+    /// Used to verify that a signer-submitted block proposal builds atop the highest known block
+    /// in the given tenure, regardless of which fork it's on.
+    pub fn get_highest_known_block_header_in_tenure(
+        db: &Connection,
+        consensus_hash: &ConsensusHash,
+    ) -> Result<Option<StacksHeaderInfo>, ChainstateError> {
+        // see if we have a nakamoto block in this tenure
+        let qry = "SELECT * FROM nakamoto_block_headers WHERE consensus_hash = ?1 ORDER BY block_height DESC, timestamp DESC LIMIT 1";
+        let args = params![consensus_hash];
+        if let Some(header) = query_row(db, qry, args)? {
+            return Ok(Some(header));
+        }
+
+        // see if this is an epoch2 header. If it exists, then there will only be one.
+        Ok(StacksChainState::get_stacks_block_header_info_by_consensus_hash(db, consensus_hash)?)
     }
 
     /// Get the VRF proof for a Stacks block.
@@ -3023,7 +3104,6 @@ impl NakamotoChainState {
         );
 
         let parent_hash = new_tip.parent_block_id.clone();
-        let new_block_hash = new_tip.block_hash();
         let index_block_hash = new_tip.block_id();
 
         let mut marf_keys = vec![];
@@ -3215,10 +3295,6 @@ impl NakamotoChainState {
             headers_tx.deref_mut().execute(sql, args)?;
         }
 
-        debug!(
-            "Advanced to new tip! {}/{}",
-            &new_tip.consensus_hash, new_block_hash,
-        );
         Ok(new_tip_info)
     }
 
@@ -3246,6 +3322,41 @@ impl NakamotoChainState {
                 Ok(reward_set)
             })
             .optional()
+            .map_err(ChainstateError::from)
+    }
+
+    /// Keep track of how many blocks each signer is signing
+    fn record_block_signers(
+        tx: &mut ChainstateTx,
+        block: &NakamotoBlock,
+        reward_cycle: u64,
+    ) -> Result<(), ChainstateError> {
+        let signer_sighash = block.header.signer_signature_hash();
+        for signer_signature in &block.header.signer_signature {
+            let signer_pubkey =
+                StacksPublicKey::recover_to_pubkey(signer_sighash.bits(), &signer_signature)
+                    .map_err(|e| ChainstateError::InvalidStacksBlock(e.to_string()))?;
+            let sql = "INSERT INTO signer_stats(public_key,reward_cycle) VALUES(?1,?2) ON CONFLICT(public_key,reward_cycle) DO UPDATE SET blocks_signed=blocks_signed+1";
+            let params = params![signer_pubkey.to_hex(), reward_cycle];
+            tx.execute(sql, params)?;
+        }
+        Ok(())
+    }
+
+    /// Fetch number of blocks signed for a given signer and reward cycle
+    /// This is the data tracked by `record_block_signers()`
+    pub fn get_signer_block_count(
+        chainstate_db: &Connection,
+        signer_pubkey: &Secp256k1PublicKey,
+        reward_cycle: u64,
+    ) -> Result<u64, ChainstateError> {
+        let sql =
+            "SELECT blocks_signed FROM signer_stats WHERE public_key = ?1 AND reward_cycle = ?2";
+        let params = params![signer_pubkey.to_hex(), reward_cycle];
+        chainstate_db
+            .query_row(sql, params, |row| row.get("blocks_signed"))
+            .optional()
+            .map(Option::unwrap_or_default) // It's fine to map `NONE` to `0`, because it's impossible to have `Some(0)`
             .map_err(ChainstateError::from)
     }
 
@@ -3573,7 +3684,7 @@ impl NakamotoChainState {
                                 .map_err(|_| ChainstateError::InvalidStacksBlock("Reward set index outside of u16".into()))?;
                             let bitvec_value = block_bitvec.get(ix)
                                 .unwrap_or_else(|| {
-                                    info!("Block header's bitvec is smaller than the reward set, defaulting higher indexes to 1");
+                                    warn!("Block header's bitvec is smaller than the reward set, defaulting higher indexes to 1");
                                     true
                                 });
                             Ok(bitvec_value)
@@ -4032,6 +4143,11 @@ impl NakamotoChainState {
         let new_block_id = new_tip.index_block_hash();
         chainstate_tx.log_transactions_processed(&new_block_id, &tx_receipts);
 
+        let reward_cycle = pox_constants.block_height_to_reward_cycle(
+            first_block_height.into(),
+            chain_tip_burn_header_height.into(),
+        );
+
         // store the reward set calculated during this block if it happened
         // NOTE: miner and proposal evaluation should not invoke this because
         //  it depends on knowing the StacksBlockId.
@@ -4060,6 +4176,12 @@ impl NakamotoChainState {
                     cycle,
                 ));
             }
+        }
+
+        if let Some(reward_cycle) = reward_cycle {
+            Self::record_block_signers(chainstate_tx, block, reward_cycle)?;
+        } else {
+            warn!("No reward cycle found, skipping record_block_signers()");
         }
 
         monitoring::set_last_block_transaction_count(u64::try_from(block.txs.len()).unwrap());
@@ -4227,10 +4349,10 @@ impl NakamotoChainState {
         Ok(Some(slot_id_range))
     }
 
+    /// DO NOT USE IN MAINNET
     /// Boot code instantiation for the aggregate public key.
     /// TODO: This should be removed once it's possible for stackers to vote on the aggregate
     /// public key
-    /// DO NOT USE IN MAINNET
     pub fn aggregate_public_key_bootcode(clarity_tx: &mut ClarityTx, apk: &Point) {
         let agg_pub_key = to_hex(&apk.compress().data);
         let contract_content = format!(

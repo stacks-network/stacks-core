@@ -267,14 +267,26 @@ impl StacksChainState {
                 })
             })
             .map_err(Error::ClarityError)
-            .unwrap()
+            .unwrap_or_else(|e| {
+                error!(
+                    "FATAL: Failed to query account for {:?}: {:?}",
+                    principal, &e
+                );
+                panic!();
+            })
     }
 
     pub fn get_nonce<T: ClarityConnection>(clarity_tx: &mut T, principal: &PrincipalData) -> u64 {
         clarity_tx
             .with_clarity_db_readonly(|ref mut db| db.get_account_nonce(principal))
             .map_err(|x| Error::ClarityError(x.into()))
-            .unwrap()
+            .unwrap_or_else(|e| {
+                error!(
+                    "FATAL: Failed to query account nonce for {:?}: {:?}",
+                    principal, &e
+                );
+                panic!();
+            })
     }
 
     pub fn get_account_ft(
@@ -337,7 +349,13 @@ impl StacksChainState {
                 snapshot.save()?;
                 Ok(())
             })
-            .expect("FATAL: failed to debit account")
+            .unwrap_or_else(|e| {
+                error!(
+                    "FATAL: failed to debit account {:?} for {} uSTX: {:?}",
+                    principal, amount, &e
+                );
+                panic!();
+            })
     }
 
     /// Called each time a transaction sends STX to this principal.
@@ -358,7 +376,13 @@ impl StacksChainState {
                 info!("{} credited: {} uSTX", principal, new_balance);
                 Ok(())
             })
-            .expect("FATAL: failed to credit account")
+            .unwrap_or_else(|e| {
+                error!(
+                    "FATAL: failed to credit account {:?} for {} uSTX: {:?}",
+                    principal, amount, &e
+                );
+                panic!();
+            })
     }
 
     /// Called during the genesis / boot sequence.
@@ -374,7 +398,13 @@ impl StacksChainState {
                 snapshot.save()?;
                 Ok(())
             })
-            .expect("FATAL: failed to credit account")
+            .unwrap_or_else(|e| {
+                error!(
+                    "FATAL: failed to credit genesis account {:?} for {} uSTX: {:?}",
+                    principal, amount, &e
+                );
+                panic!();
+            })
     }
 
     /// Increment an account's nonce
@@ -385,11 +415,21 @@ impl StacksChainState {
     ) {
         clarity_tx
             .with_clarity_db(|ref mut db| {
-                let next_nonce = cur_nonce.checked_add(1).expect("OUT OF NONCES");
+                let next_nonce = cur_nonce.checked_add(1).unwrap_or_else(|| {
+                    error!("OUT OF NONCES");
+                    panic!();
+                });
+
                 db.set_account_nonce(&principal, next_nonce)?;
                 Ok(())
             })
-            .expect("FATAL: failed to set account nonce")
+            .unwrap_or_else(|e| {
+                error!(
+                    "FATAL: failed to update account nonce for account {:?} from {}: {:?}",
+                    principal, cur_nonce, &e
+                );
+                panic!();
+            })
     }
 
     /// Schedule a miner payment in the future.

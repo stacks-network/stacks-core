@@ -19,6 +19,7 @@ pub mod log;
 #[macro_use]
 pub mod macros;
 pub mod chunked_encoding;
+pub mod db;
 pub mod hash;
 pub mod pair;
 pub mod pipe;
@@ -83,45 +84,6 @@ impl error::Error for HexError {
             HexError::BadLength(_) => "hex string non-64 length",
             HexError::BadCharacter(_) => "bad hex character",
         }
-    }
-}
-
-/// PartialEq helper method for slices of arbitrary length.
-pub fn slice_partialeq<T: PartialEq>(s1: &[T], s2: &[T]) -> bool {
-    if s1.len() != s2.len() {
-        return false;
-    }
-    for i in 0..s1.len() {
-        if s1[i] != s2[i] {
-            return false;
-        }
-    }
-    true
-}
-
-pub mod db_common {
-    use std::{thread, time};
-
-    use rand::{thread_rng, Rng};
-
-    pub fn tx_busy_handler(run_count: i32) -> bool {
-        let mut sleep_count = 10;
-        if run_count > 0 {
-            sleep_count = 2u64.saturating_pow(run_count as u32);
-        }
-        sleep_count = sleep_count.saturating_add(thread_rng().gen::<u64>() % sleep_count);
-
-        if sleep_count > 5000 {
-            sleep_count = 5000;
-        }
-
-        crate::debug!(
-            "Database is locked; sleeping {}ms and trying again",
-            &sleep_count
-        );
-
-        thread::sleep(time::Duration::from_millis(sleep_count));
-        true
     }
 }
 

@@ -11,6 +11,7 @@ use stacks::core::StacksEpochId;
 use stacks_common::util::hash::hex_bytes;
 
 use super::PUBLISH_CONTRACT;
+use crate::burnchains::bitcoin_regtest_controller::BitcoinRPCRequest;
 use crate::config::InitialBalance;
 use crate::helium::RunLoop;
 use crate::tests::to_addr;
@@ -19,12 +20,14 @@ use crate::Config;
 #[derive(Debug)]
 pub enum BitcoinCoreError {
     SpawnFailed(String),
+    StopFailed(String),
 }
 
 impl std::fmt::Display for BitcoinCoreError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::SpawnFailed(msg) => write!(f, "bitcoind spawn failed: {msg}"),
+            Self::StopFailed(msg) => write!(f, "bitcoind stop failed: {msg}"),
         }
     }
 }
@@ -109,25 +112,25 @@ impl BitcoinCoreController {
 
     pub fn stop_bitcoind(&mut self) -> Result<(), BitcoinCoreError> {
         if let Some(_) = self.bitcoind_process.take() {
-            let mut command = Command::new("bitcoin-cli");
-            command.stdout(Stdio::piped()).arg("-rpcconnect=127.0.0.1");
-
-            self.add_rpc_cli_args(&mut command);
-
-            command.arg("stop");
-
-            let mut process = match command.spawn() {
-                Ok(child) => child,
-                Err(e) => return Err(BitcoinCoreError::SpawnFailed(format!("{e:?}"))),
+            let payload = BitcoinRPCRequest {
+                method: "stop".to_string(),
+                params: vec![],
+                id: "stacks".to_string(),
+                jsonrpc: "2.0".to_string(),
             };
 
-            let mut out_reader = BufReader::new(process.stdout.take().unwrap());
-            let mut line = String::new();
-            while let Ok(bytes_read) = out_reader.read_line(&mut line) {
-                if bytes_read == 0 {
-                    break;
+            let res = BitcoinRPCRequest::send(&self.config, payload)
+                .map_err(|e| BitcoinCoreError::StopFailed(format!("{e:?}")))?;
+
+            if let Some(err) = res.get("error") {
+                if !err.is_null() {
+                    return Err(BitcoinCoreError::StopFailed(format!("{err}")));
                 }
-                eprintln!("{line}");
+            } else {
+                return Err(BitcoinCoreError::StopFailed(format!(
+                    "Invalid response: {:?}",
+                    res
+                )));
             }
         }
         Ok(())

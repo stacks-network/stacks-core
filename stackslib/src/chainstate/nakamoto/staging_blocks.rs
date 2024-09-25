@@ -35,7 +35,7 @@ use crate::chainstate::stacks::{Error as ChainstateError, StacksBlock, StacksBlo
 use crate::stacks_common::codec::StacksMessageCodec;
 use crate::util_lib::db::{
     query_int, query_row, query_row_columns, query_row_panic, query_rows, sqlite_open,
-    tx_begin_immediate, u64_to_sql, DBConn, Error as DBError, FromRow,
+    table_exists, tx_begin_immediate, u64_to_sql, DBConn, Error as DBError, FromRow,
 };
 
 /// The means by which a block is obtained.
@@ -136,7 +136,7 @@ pub const NAKAMOTO_STAGING_DB_SCHEMA_2: &'static [&'static str] = &[
 
                  -- block data, including its header
                  data BLOB NOT NULL,
-               
+
                  PRIMARY KEY(block_hash,consensus_hash)
     );"#,
     r#"CREATE INDEX nakamoto_staging_blocks_by_index_block_hash ON nakamoto_staging_blocks(index_block_hash);"#,
@@ -148,6 +148,8 @@ pub const NAKAMOTO_STAGING_DB_SCHEMA_2: &'static [&'static str] = &[
     );"#,
     r#"INSERT INTO db_version (version) VALUES (2)"#,
 ];
+
+pub const NAKAMOTO_STAGING_DB_SCHEMA_LATEST: u32 = 2;
 
 pub struct NakamotoStagingBlocksConn(rusqlite::Connection);
 
@@ -527,7 +529,7 @@ impl<'a> NakamotoStagingBlocksTx<'a> {
                      processed_time,
                      obtain_method,
                      signing_weight,
-                     
+
                      data
             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
             params![
@@ -594,7 +596,13 @@ impl<'a> NakamotoStagingBlocksTx<'a> {
         obtain_method: NakamotoBlockObtainMethod,
     ) -> Result<(), ChainstateError> {
         self.execute("UPDATE nakamoto_staging_blocks SET data = ?1, signing_weight = ?2, obtain_method = ?3 WHERE consensus_hash = ?4 AND block_hash = ?5",
-                    params![&block.serialize_to_vec(), &signing_weight, &obtain_method.to_string(), &block.header.consensus_hash, &block.header.block_hash()])?;
+                    params![
+                        &block.serialize_to_vec(),
+                        &signing_weight,
+                        &obtain_method.to_string(),
+                        &block.header.consensus_hash,
+                        &block.header.block_hash(),
+                    ])?;
         Ok(())
     }
 }
@@ -658,13 +666,17 @@ impl StacksChainState {
     pub fn get_nakamoto_staging_blocks_db_version(
         conn: &Connection,
     ) -> Result<u32, ChainstateError> {
+        let db_version_exists = table_exists(&conn, "db_version")?;
+        if !db_version_exists {
+            return Ok(1);
+        }
         let qry = "SELECT version FROM db_version ORDER BY version DESC LIMIT 1";
         let args = NO_PARAMS;
         let version: Option<i64> = match query_row(&conn, qry, args) {
             Ok(x) => x,
             Err(e) => {
-                debug!("Failed to get Nakamoto staging blocks DB version: {:?}", &e);
-                return Ok(1);
+                error!("Failed to get Nakamoto staging blocks DB version: {:?}", &e);
+                return Err(ChainstateError::DBError(DBError::Corruption));
             }
         };
 
@@ -675,8 +687,8 @@ impl StacksChainState {
                 Ok(ver)
             }
             None => {
-                debug!("No version present in Nakamoto staging blocks DB; defaulting to 1");
-                Ok(1)
+                error!("No version present in Nakamoto staging blocks `db_version` table");
+                Err(ChainstateError::DBError(DBError::Corruption))
             }
         }
     }

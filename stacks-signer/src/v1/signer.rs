@@ -239,12 +239,13 @@ impl SignerTrait<SignerMessage> for Signer {
                     self.signer_db
                         .insert_burn_block(burn_header_hash, *burn_height, received_time)
                 {
-                    warn!(
+                    error!(
                         "Failed to write burn block event to signerdb";
                         "err" => ?e,
                         "burn_header_hash" => %burn_header_hash,
                         "burn_height" => burn_height
                     );
+                    panic!("Failed to write burn block event to signerdb");
                 }
             }
         }
@@ -273,9 +274,9 @@ impl SignerTrait<SignerMessage> for Signer {
         self.process_next_command(stacks_client, current_reward_cycle);
     }
 
-    fn has_pending_blocks(&self) -> bool {
+    fn has_unprocessed_blocks(&self) -> bool {
         self.signer_db
-            .has_pending_blocks(self.reward_cycle)
+            .has_unprocessed_blocks(self.reward_cycle)
             .unwrap_or_else(|e| {
                 error!("{self}: Failed to check if there are pending blocks: {e:?}");
                 // Assume there are pending blocks to prevent premature cleanup

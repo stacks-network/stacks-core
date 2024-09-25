@@ -176,7 +176,8 @@ pub trait NeighborWalkDB {
     /// Get the number of peers in a given AS
     fn get_asn_count(&self, network: &PeerNetwork, asn: u32) -> u64;
 
-    /// Pick neighbors with a minimum age for a walk
+    /// Pick neighbors with a minimum age for a walk.
+    /// If there are none, then fall back to seed nodes.
     fn pick_walk_neighbors(
         network: &PeerNetwork,
         num_neighbors: u64,
@@ -196,10 +197,18 @@ pub trait NeighborWalkDB {
 
         if neighbors.len() == 0 {
             debug!(
-                "{:?}: No neighbors available in the peer DB!",
-                network.get_local_peer()
+                "{:?}: No neighbors available in the peer DB newer than {}!",
+                network.get_local_peer(),
+                min_age
             );
-            return Err(net_error::NoSuchNeighbor);
+            let seed_nodes = PeerDB::get_bootstrap_peers(
+                &network.peerdb_conn(),
+                network.get_local_peer().network_id,
+            )?;
+            if seed_nodes.len() == 0 {
+                return Err(net_error::NoSuchNeighbor);
+            }
+            return Ok(seed_nodes);
         }
         Ok(neighbors)
     }
@@ -548,9 +557,12 @@ impl NeighborWalkDB for PeerDBNeighborWalk {
 
         if let Some(data) = new_data {
             cur_neighbor.handshake_update(&tx, &data.handshake)?;
-            if let Some(db_data) = new_db_data {
-                cur_neighbor.save_update(&tx, Some(db_data.smart_contracts.as_slice()))?;
-            }
+        }
+
+        if let Some(db_data) = new_db_data {
+            cur_neighbor.save_update(&tx, Some(db_data.smart_contracts.as_slice()))?;
+        } else {
+            cur_neighbor.save_update(&tx, None)?;
         }
 
         tx.commit()?;

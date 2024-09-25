@@ -1,4 +1,7 @@
 {
-  "lldb.adapterType": "native",
-  "lldb.launch.sourceLanguages": ["rust"]
+    "lldb.adapterType": "native",
+    "lldb.launch.sourceLanguages": ["rust"],
+    "rust-analyzer.runnables.extraEnv": {
+        "BITCOIND_TEST": "1"
+    }
 }

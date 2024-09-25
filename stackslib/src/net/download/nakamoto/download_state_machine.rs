@@ -52,10 +52,11 @@ use crate::core::{
 };
 use crate::net::api::gettenureinfo::RPCGetTenureInfo;
 use crate::net::chat::ConversationP2P;
+use crate::net::connection::ConnectionOptions;
 use crate::net::db::{LocalPeer, PeerDB};
 use crate::net::download::nakamoto::{
-    AvailableTenures, NakamotoTenureDownloader, NakamotoTenureDownloaderSet,
-    NakamotoUnconfirmedTenureDownloader, TenureStartEnd, WantedTenure,
+    downloader_block_height_to_reward_cycle, AvailableTenures, NakamotoTenureDownloader,
+    NakamotoTenureDownloaderSet, NakamotoUnconfirmedTenureDownloader, TenureStartEnd, WantedTenure,
 };
 use crate::net::http::HttpRequestContents;
 use crate::net::httpcore::{StacksHttpRequest, StacksHttpResponse};
@@ -114,12 +115,12 @@ pub struct NakamotoDownloadStateMachine {
     unconfirmed_tenure_downloads: HashMap<NeighborAddress, NakamotoUnconfirmedTenureDownloader>,
     /// Ongoing confirmed tenure downloads for when we know the start and end block hashes.
     tenure_downloads: NakamotoTenureDownloaderSet,
-    /// resolved tenure-start blocks
-    tenure_start_blocks: HashMap<StacksBlockId, NakamotoBlock>,
     /// comms to remote neighbors
     pub(super) neighbor_rpc: NeighborRPC,
     /// Nakamoto chain tip
     nakamoto_tip: StacksBlockId,
+    /// last time an unconfirmed downloader was run
+    last_unconfirmed_download_run_ms: u128,
 }
 
 impl NakamotoDownloadStateMachine {
@@ -137,9 +138,9 @@ impl NakamotoDownloadStateMachine {
             unconfirmed_tenure_download_schedule: VecDeque::new(),
             tenure_downloads: NakamotoTenureDownloaderSet::new(),
             unconfirmed_tenure_downloads: HashMap::new(),
-            tenure_start_blocks: HashMap::new(),
             neighbor_rpc: NeighborRPC::new(),
             nakamoto_tip,
+            last_unconfirmed_download_run_ms: 0,
         }
     }
 
@@ -194,8 +195,6 @@ impl NakamotoDownloadStateMachine {
     ) -> Result<(), NetError> {
         let highest_tenure_height = wanted_tenures.last().map(|wt| wt.burn_height).unwrap_or(0);
 
-        // careful -- need .saturating_sub(1) since this calculation puts the reward cycle start at
-        // block height 1 mod reward cycle len, but we really want 0 mod reward cycle len
         let first_block_height = sortdb
             .pox_constants
             .reward_cycle_to_block_height(sortdb.first_block_height, cur_rc)
@@ -243,18 +242,22 @@ impl NakamotoDownloadStateMachine {
         sortdb: &SortitionDB,
         loaded_so_far: &[WantedTenure],
     ) -> Result<Vec<WantedTenure>, NetError> {
-        let tip_rc = sortdb
-            .pox_constants
-            .block_height_to_reward_cycle(sortdb.first_block_height, tip.block_height)
-            .unwrap_or(0);
+        let tip_rc = downloader_block_height_to_reward_cycle(
+            &sortdb.pox_constants,
+            sortdb.first_block_height,
+            tip.block_height,
+        )
+        .expect("FATAL: tip.block_height before system start");
 
+        // careful -- need .saturating_add(1) since this calculation puts the reward cycle start at
+        // block height 1 mod reward cycle len, but we really want 0 mod reward cycle len
         let first_block_height = if let Some(highest_wanted_tenure) = loaded_so_far.last() {
             highest_wanted_tenure.burn_height.saturating_add(1)
         } else if let Some(last_tip) = last_tip.as_ref() {
             last_tip.block_height.saturating_add(1)
         } else {
             // careful -- need .saturating_sub(1) since this calculation puts the reward cycle start at
-            // block height 1 mod reward cycle len, but we really want 0 mod reward cycle len.
+            // block height 1 mod reward cycle len, but we really want 0 mod reward cycle len
             sortdb
                 .pox_constants
                 .reward_cycle_to_block_height(sortdb.first_block_height, tip_rc)
@@ -361,92 +364,13 @@ impl NakamotoDownloadStateMachine {
         )
     }
 
-    /// Find all stored (but not necessarily processed) tenure-start blocks for a list
-    /// of wanted tenures that this node has locally.  NOTE: these tenure-start blocks
-    /// do not correspond to the tenure; they correspond to the _parent_ tenure (since a
-    /// `WantedTenure` captures the tenure-start block hash of the parent tenure; the same data
-    /// captured by a sortition).
-    ///
-    /// This method is static to ease testing.
-    ///
-    /// Returns Ok(()) on success and fills in newly-discovered blocks into `tenure_start_blocks`.
-    /// Returns Err(..) on DB error.
-    pub(crate) fn load_tenure_start_blocks(
-        wanted_tenures: &[WantedTenure],
-        chainstate: &mut StacksChainState,
-        tenure_start_blocks: &mut HashMap<StacksBlockId, NakamotoBlock>,
-    ) -> Result<(), NetError> {
-        for wt in wanted_tenures {
-            let candidate_tenure_start_blocks = chainstate
-                .nakamoto_blocks_db()
-                .get_nakamoto_tenure_start_blocks(&wt.tenure_id_consensus_hash)?;
-
-            for candidate_tenure_start_block in candidate_tenure_start_blocks.into_iter() {
-                tenure_start_blocks.insert(
-                    candidate_tenure_start_block.block_id(),
-                    candidate_tenure_start_block,
-                );
-            }
-        }
-        Ok(())
-    }
-
-    /// Update our local tenure start block data
-    fn update_tenure_start_blocks(
-        &mut self,
-        chainstate: &mut StacksChainState,
-    ) -> Result<(), NetError> {
-        Self::load_tenure_start_blocks(
-            &self.wanted_tenures,
-            chainstate,
-            &mut self.tenure_start_blocks,
-        )
-    }
-
-    /// Update `self.wanted_tenures` and `self.prev_wanted_tenures` with newly-discovered sortition
-    /// data.  These lists are extended in three possible ways, depending on the sortition tip:
-    ///
-    /// * If the sortition tip is in the same reward cycle that the block downloader is tracking,
-    /// then any newly-available sortitions are loaded via `load_wanted_tenures_at_tip()` and appended
-    /// to `self.wanted_tenures`.  This is what happens most of the time in steady-state.
-    ///
-    /// * Otherwise, if the sortition tip is different (i.e. ahead) of the block downloader's
-    /// tracked reward cycle, _and_ if it's safe to do so (discussed below), then the next reward
-    /// cycle's sortitions are loaded.  `self.prev_wanted_tenures` is populated with all of the
-    /// wanted tenures from the prior reward cycle, and `self.wanted_tenures` is populated with all
-    /// of the wanted tenures from the current reward cycle.
-    ///
-    /// Due to the way the chains coordinator works, the sortition DB will never be more than one
-    /// reward cycle ahead of the block downloader.  This is because sortitions cannot be processed
-    /// (and will not be processed) until their corresponding PoX anchor block has been processed.
-    /// As such, the second case above only occurs at a reward cycle boundary -- specifically, the
-    /// sortition DB is in the process of being updated by the chains coordinator with the next
-    /// reward cycle's sortitions.
-    ///
-    /// Naturally, processing a new reward cycle is disruptive to the download state machine, which
-    /// can be in the process of finishing up downloading the prepare phase for a reward cycle at
-    /// the same time as the sortition DB processing the next reward cycle.  To ensure that the
-    /// downloader doesn't miss anything, this code checks (via `have_unprocessed_tenures()`) that
-    /// all wanted tenures for which we have inventory data have been downloaded before advancing
-    /// `self.wanted_tenures` and `self.prev_wanted_tenures.`
+    /// Update `self.wanted_tenures` with newly-discovered sortition data.
     fn extend_wanted_tenures(
         &mut self,
         network: &PeerNetwork,
         sortdb: &SortitionDB,
     ) -> Result<(), NetError> {
         let sort_tip = &network.burnchain_tip;
-        let Some(invs) = network.inv_state_nakamoto.as_ref() else {
-            // nothing to do
-            debug!("No network inventories");
-            return Err(NetError::PeerNotConnected);
-        };
-
-        let last_sort_height_opt = self.last_sort_tip.as_ref().map(|sn| sn.block_height);
-        let last_sort_height = last_sort_height_opt.unwrap_or(sort_tip.block_height);
-        let sort_rc = sortdb
-            .pox_constants
-            .block_height_to_reward_cycle(sortdb.first_block_height, last_sort_height)
-            .expect("FATAL: burnchain tip is before system start");
 
         let mut new_wanted_tenures = Self::load_wanted_tenures_at_tip(
             self.last_sort_tip.as_ref(),
@@ -455,76 +379,13 @@ impl NakamotoDownloadStateMachine {
             &self.wanted_tenures,
         )?;
 
-        let can_advance_wanted_tenures =
-            if let Some(prev_wanted_tenures) = self.prev_wanted_tenures.as_ref() {
-                !Self::have_unprocessed_tenures(
-                    sortdb
-                        .pox_constants
-                        .block_height_to_reward_cycle(
-                            sortdb.first_block_height,
-                            self.nakamoto_start_height,
-                        )
-                        .expect("FATAL: first nakamoto block from before system start"),
-                    &self.tenure_downloads.completed_tenures,
-                    prev_wanted_tenures,
-                    &self.tenure_block_ids,
-                    &sortdb.pox_constants,
-                    sortdb.first_block_height,
-                    invs.inventories.values(),
-                )
-            } else {
-                debug!("No prev_wanted_tenures yet");
-                true
-            };
-
-        if can_advance_wanted_tenures && self.reward_cycle != sort_rc {
-            let mut prev_wanted_tenures = vec![];
-            let mut cur_wanted_tenures = vec![];
-            let prev_wts = self.prev_wanted_tenures.take().unwrap_or(vec![]);
-            let cur_wts = std::mem::replace(&mut self.wanted_tenures, vec![]);
-
-            for wt in new_wanted_tenures
-                .into_iter()
-                .chain(prev_wts.into_iter())
-                .chain(cur_wts.into_iter())
-            {
-                debug!("Consider wanted tenure: {:?}", &wt);
-                let wt_rc = sortdb
-                    .pox_constants
-                    .block_height_to_reward_cycle(sortdb.first_block_height, wt.burn_height)
-                    .expect("FATAL: height before system start");
-                if wt_rc + 1 == sort_rc {
-                    prev_wanted_tenures.push(wt);
-                } else if wt_rc == sort_rc {
-                    cur_wanted_tenures.push(wt);
-                } else {
-                    debug!("Drop wanted tenure: {:?}", &wt);
-                }
-            }
-
-            prev_wanted_tenures.sort_unstable_by_key(|wt| wt.burn_height);
-            cur_wanted_tenures.sort_unstable_by_key(|wt| wt.burn_height);
-
-            debug!("prev_wanted_tenures is now {:?}", &prev_wanted_tenures);
-            debug!("wanted_tenures is now {:?}", &cur_wanted_tenures);
-            debug!("set self.reward_cycle = {}", sort_rc);
-
-            self.prev_wanted_tenures = if prev_wanted_tenures.is_empty() {
-                None
-            } else {
-                Some(prev_wanted_tenures)
-            };
-            self.wanted_tenures = cur_wanted_tenures;
-            self.reward_cycle = sort_rc;
-        } else {
-            debug!(
-                "Append {} wanted tenures: {:?}",
-                new_wanted_tenures.len(),
-                &new_wanted_tenures
-            );
-            self.wanted_tenures.append(&mut new_wanted_tenures);
-            debug!("wanted_tenures is now {:?}", &self.wanted_tenures);
-        }
+        debug!(
+            "Append {} wanted tenures: {:?}",
+            new_wanted_tenures.len(),
+            &new_wanted_tenures
+        );
+        self.wanted_tenures.append(&mut new_wanted_tenures);
+        debug!("extended wanted_tenures is now {:?}", &self.wanted_tenures);
 
         Ok(())
     }
@@ -556,15 +417,17 @@ impl NakamotoDownloadStateMachine {
                 .expect("FATAL: usize cannot support reward cycle length")
         {
             // this is the first-ever pass, so load up the last full reward cycle
-            let sort_rc = sortdb
-                .pox_constants
-                .block_height_to_reward_cycle(sortdb.first_block_height, sort_tip.block_height)
-                .expect("FATAL: burnchain tip is before system start")
-                .saturating_sub(1);
+            let prev_sort_rc = downloader_block_height_to_reward_cycle(
+                &sortdb.pox_constants,
+                sortdb.first_block_height,
+                sort_tip.block_height,
+            )
+            .expect("FATAL: burnchain tip is before system start")
+            .saturating_sub(1);
 
             let mut prev_wanted_tenures = vec![];
             Self::update_wanted_tenures_for_reward_cycle(
-                sort_rc,
+                prev_sort_rc,
                 sort_tip,
                 sortdb,
                 &mut prev_wanted_tenures,
@@ -572,16 +435,18 @@ impl NakamotoDownloadStateMachine {
 
             debug!(
                 "initial prev_wanted_tenures (rc {}): {:?}",
-                sort_rc, &prev_wanted_tenures
+                prev_sort_rc, &prev_wanted_tenures
             );
             self.prev_wanted_tenures = Some(prev_wanted_tenures);
         }
         if self.wanted_tenures.is_empty() {
             // this is the first-ever pass, so load up the current reward cycle
-            let sort_rc = sortdb
-                .pox_constants
-                .block_height_to_reward_cycle(sortdb.first_block_height, sort_tip.block_height)
-                .expect("FATAL: burnchain tip is before system start");
+            let sort_rc = downloader_block_height_to_reward_cycle(
+                &sortdb.pox_constants,
+                sortdb.first_block_height,
+                sort_tip.block_height,
+            )
+            .expect("FATAL: burnchain tip is before system start");
 
             let mut wanted_tenures = vec![];
             Self::update_wanted_tenures_for_reward_cycle(
@@ -625,12 +490,12 @@ impl NakamotoDownloadStateMachine {
         let prev_wanted_rc = prev_wanted_tenures
             .last()
             .map(|wt| {
-                pox_constants
-                    .block_height_to_reward_cycle(
-                        first_burn_height,
-                        wt.burn_height.saturating_sub(1),
-                    )
-                    .expect("FATAL: wanted tenure before system start")
+                downloader_block_height_to_reward_cycle(
+                    pox_constants,
+                    first_burn_height,
+                    wt.burn_height,
+                )
+                .expect("FATAL: wanted tenure before system start")
             })
             .unwrap_or(u64::MAX);
 
@@ -760,90 +625,30 @@ impl NakamotoDownloadStateMachine {
         &mut self,
         network: &PeerNetwork,
         sortdb: &SortitionDB,
-        chainstate: &mut StacksChainState,
     ) -> Result<(), NetError> {
         let sort_tip = &network.burnchain_tip;
-        let Some(invs) = network.inv_state_nakamoto.as_ref() else {
-            // nothing to do
-            debug!("No network inventories");
-            return Err(NetError::PeerNotConnected);
-        };
 
         self.initialize_wanted_tenures(sort_tip, sortdb)?;
         let last_sort_height_opt = self.last_sort_tip.as_ref().map(|sn| sn.block_height);
         let last_sort_height = last_sort_height_opt.unwrap_or(sort_tip.block_height);
-        let sort_rc = sortdb
-            .pox_constants
-            .block_height_to_reward_cycle(
-                sortdb.first_block_height,
-                last_sort_height.saturating_add(1),
-            )
-            .expect("FATAL: burnchain tip is before system start");
-
-        let next_sort_rc = if last_sort_height == sort_tip.block_height {
-            sortdb
-                .pox_constants
-                .block_height_to_reward_cycle(
-                    sortdb.first_block_height,
-                    sort_tip.block_height.saturating_add(2),
-                )
-                .expect("FATAL: burnchain tip is before system start")
-        } else {
-            sortdb
-                .pox_constants
-                .block_height_to_reward_cycle(
-                    sortdb.first_block_height,
-                    sort_tip.block_height.saturating_add(1),
-                )
-                .expect("FATAL: burnchain tip is before system start")
-        };
-
-        debug!(
-            "last_sort_height = {}, sort_rc = {}, next_sort_rc = {}, self.reward_cycle = {}, sort_tip.block_height = {}",
+        let sort_rc = downloader_block_height_to_reward_cycle(
+            &sortdb.pox_constants,
+            sortdb.first_block_height,
             last_sort_height,
-            sort_rc,
-            next_sort_rc,
-            self.reward_cycle,
-            sort_tip.block_height,
-        );
+        )
+        .expect("FATAL: burnchain tip is before system start");
 
         if self.reward_cycle == sort_rc {
             // not at a reward cycle boundary, so just extend self.wanted_tenures
             debug!("Extend wanted tenures since no sort_rc change and we have tenure data");
             self.extend_wanted_tenures(network, sortdb)?;
-            self.update_tenure_start_blocks(chainstate)?;
-            return Ok(());
-        }
-
-        let can_advance_wanted_tenures =
-            if let Some(prev_wanted_tenures) = self.prev_wanted_tenures.as_ref() {
-                !Self::have_unprocessed_tenures(
-                    sortdb
-                        .pox_constants
-                        .block_height_to_reward_cycle(
-                            sortdb.first_block_height,
-                            self.nakamoto_start_height,
-                        )
-                        .expect("FATAL: nakamoto starts before system start"),
-                    &self.tenure_downloads.completed_tenures,
-                    prev_wanted_tenures,
-                    &self.tenure_block_ids,
-                    &sortdb.pox_constants,
-                    sortdb.first_block_height,
-                    invs.inventories.values(),
-                )
-            } else {
-                debug!("No prev_wanted_tenures yet");
-                true
-            };
-        if !can_advance_wanted_tenures {
             return Ok(());
         }
 
         // crossed reward cycle boundary
         let mut new_wanted_tenures = vec![];
         Self::update_wanted_tenures_for_reward_cycle(
-            sort_rc + 1,
+            sort_rc,
             sort_tip,
             sortdb,
             &mut new_wanted_tenures,
@@ -851,15 +656,20 @@ impl NakamotoDownloadStateMachine {
 
         let mut new_prev_wanted_tenures = vec![];
         Self::update_wanted_tenures_for_reward_cycle(
-            sort_rc,
+            sort_rc.saturating_sub(1),
             sort_tip,
             sortdb,
             &mut new_prev_wanted_tenures,
         )?;
 
-        debug!("new_wanted_tenures is now {:?}", &new_wanted_tenures);
         debug!(
-            "new_prev_wanted_tenures is now {:?}",
+            "new_wanted_tenures is now {} {:?}",
+            new_wanted_tenures.len(),
+            &new_wanted_tenures
+        );
+        debug!(
+            "new_prev_wanted_tenures is now {} {:?}",
+            new_prev_wanted_tenures.len(),
             &new_prev_wanted_tenures
         );
 
@@ -871,7 +681,6 @@ impl NakamotoDownloadStateMachine {
         self.wanted_tenures = new_wanted_tenures;
         self.reward_cycle = sort_rc;
 
-        self.update_tenure_start_blocks(chainstate)?;
         Ok(())
     }
 
@@ -1200,6 +1009,43 @@ impl NakamotoDownloadStateMachine {
         )
     }
 
+    /// Find the two highest tenure IDs that are available for download.
+    /// These are the ones that must be fetched via the unconfirmed tenure downloader.
+    /// They are returned in block order -- .0 has a lower block height than .1
+    pub(crate) fn find_unconfirmed_tenure_ids(
+        wanted_tenures: &[WantedTenure],
+        prev_wanted_tenures: &[WantedTenure],
+        available: &HashMap<ConsensusHash, Vec<NeighborAddress>>,
+    ) -> (Option<ConsensusHash>, Option<ConsensusHash>) {
+        // map each tenure ID to its block height
+        let tenure_block_heights: BTreeMap<_, _> = wanted_tenures
+            .iter()
+            .chain(prev_wanted_tenures.iter())
+            .map(|wt| (wt.burn_height, &wt.tenure_id_consensus_hash))
+            .collect();
+
+        debug!("Check availability {:?}", available);
+        let mut highest_available = Vec::with_capacity(2);
+        for (_, ch) in tenure_block_heights.iter().rev() {
+            let available_count = available
+                .get(ch)
+                .map(|neighbors| neighbors.len())
+                .unwrap_or(0);
+
+            debug!("Check is {} available: {}", ch, available_count);
+            if available_count == 0 {
+                continue;
+            }
+            highest_available.push((*ch).clone());
+            if highest_available.len() == 2 {
+                break;
+            }
+        }
+
+        highest_available.reverse();
+        (highest_available.pop(), highest_available.pop())
+    }
+
     /// Determine whether or not we can start downloading the highest complete tenure and the
     /// unconfirmed tenure.  Only do this if (1) the sortition DB is at the burnchain tip and (2)
     /// all of our wanted tenures are marked as either downloaded or complete.
@@ -1209,17 +1055,15 @@ impl NakamotoDownloadStateMachine {
     ///
     /// This method is static to facilitate testing.
     pub(crate) fn need_unconfirmed_tenures<'a>(
-        nakamoto_start_block: u64,
         burnchain_height: u64,
         sort_tip: &BlockSnapshot,
-        completed_tenures: &HashSet<ConsensusHash>,
         wanted_tenures: &[WantedTenure],
         prev_wanted_tenures: &[WantedTenure],
         tenure_block_ids: &HashMap<NeighborAddress, AvailableTenures>,
-        pox_constants: &PoxConstants,
-        first_burn_height: u64,
-        inventory_iter: impl Iterator<Item = &'a NakamotoTenureInv>,
+        available_tenures: &HashMap<ConsensusHash, Vec<NeighborAddress>>,
     ) -> bool {
+        debug!("Check if we need unconfirmed tenures");
+
         if sort_tip.block_height < burnchain_height {
             debug!(
                 "sort_tip {} < burn tip {}",
@@ -1238,34 +1082,53 @@ impl NakamotoDownloadStateMachine {
             return false;
         }
 
-        // there are still confirmed tenures we have to go and get
-        if Self::have_unprocessed_tenures(
-            pox_constants
-                .block_height_to_reward_cycle(first_burn_height, nakamoto_start_block)
-                .expect("FATAL: nakamoto starts before system start"),
-            completed_tenures,
-            prev_wanted_tenures,
-            tenure_block_ids,
-            pox_constants,
-            first_burn_height,
-            inventory_iter,
-        ) {
-            debug!("Still have unprocessed tenures, so we don't need unconfirmed tenures");
+        if tenure_block_ids.is_empty() {
+            debug!("No tenure availability known");
             return false;
         }
 
-        // see if we need any tenures still
-        for wt in wanted_tenures.iter() {
-            if completed_tenures.contains(&wt.tenure_id_consensus_hash) {
-                continue;
-            }
-            let is_available = tenure_block_ids
-                .iter()
-                .any(|(_, available)| available.contains_key(&wt.tenure_id_consensus_hash));
+        let (unconfirmed_tenure_opt, confirmed_tenure_opt) = Self::find_unconfirmed_tenure_ids(
+            wanted_tenures,
+            prev_wanted_tenures,
+            available_tenures,
+        );
+        debug!(
+            "Check unconfirmed tenures: highest two available tenures are {:?}, {:?}",
+            &unconfirmed_tenure_opt, &confirmed_tenure_opt
+        );
 
-            if is_available && !wt.processed {
+        // see if we need any tenures still
+        for wt in wanted_tenures.iter().chain(prev_wanted_tenures.iter()) {
+            debug!("Check unconfirmed tenures: check {:?}", &wt);
+            let is_available_and_processed = tenure_block_ids.iter().any(|(_, available)| {
+                if let Some(tenure_start_end) = available.get(&wt.tenure_id_consensus_hash) {
+                    tenure_start_end.processed
+                } else {
+                    true
+                }
+            });
+
+            if !is_available_and_processed {
+                let is_unconfirmed = unconfirmed_tenure_opt
+                    .as_ref()
+                    .map(|ch| *ch == wt.tenure_id_consensus_hash)
+                    .unwrap_or(false)
+                    || confirmed_tenure_opt
+                        .as_ref()
+                        .map(|ch| *ch == wt.tenure_id_consensus_hash)
+                        .unwrap_or(false);
+
+                if is_unconfirmed {
+                    debug!(
+                        "Tenure {} is only available via the unconfirmed tenure downloader",
+                        &wt.tenure_id_consensus_hash
+                    );
+                    continue;
+                }
+
                 // a tenure is available but not yet processed, so we can't yet transition to
                 // fetching unconfirmed tenures (we'd have no way to validate them).
+                // TODO: also check that this cannot be fetched by confirmed downloader
                 debug!(
                     "Tenure {} is available but not yet processed",
                     &wt.tenure_id_consensus_hash
@@ -1345,15 +1208,30 @@ impl NakamotoDownloadStateMachine {
     /// Update our unconfirmed tenure download state machines
     fn update_unconfirmed_tenure_downloaders(
         &mut self,
+        connection_opts: &ConnectionOptions,
         count: usize,
         highest_processed_block_id: Option<StacksBlockId>,
     ) {
+        if self
+            .last_unconfirmed_download_run_ms
+            .saturating_add(connection_opts.nakamoto_unconfirmed_downloader_interval_ms)
+            > get_epoch_time_ms()
+        {
+            debug!(
+                "Throttle starting new unconfirmed downloaders until {}",
+                self.last_unconfirmed_download_run_ms
+                    .saturating_add(connection_opts.nakamoto_unconfirmed_downloader_interval_ms)
+                    / 1000
+            );
+            return;
+        }
         Self::make_unconfirmed_tenure_downloaders(
             &mut self.unconfirmed_tenure_download_schedule,
             count,
             &mut self.unconfirmed_tenure_downloads,
             highest_processed_block_id,
         );
+        self.last_unconfirmed_download_run_ms = get_epoch_time_ms();
     }
 
     /// Run unconfirmed tenure download state machines.
@@ -1559,21 +1437,6 @@ impl NakamotoDownloadStateMachine {
         // run all downloaders
         let new_blocks = self.tenure_downloads.run(network, &mut self.neighbor_rpc);
 
-        // give blocked downloaders their tenure-end blocks from other downloaders that have
-        // obtained their tenure-start blocks
-        let new_tenure_starts = self.tenure_downloads.find_new_tenure_start_blocks();
-        self.tenure_start_blocks
-            .extend(new_tenure_starts.into_iter());
-
-        let dead = self
-            .tenure_downloads
-            .handle_tenure_end_blocks(&self.tenure_start_blocks);
-
-        // bookkeeping
-        for naddr in dead.into_iter() {
-            self.neighbor_rpc.add_dead(network, &naddr);
-        }
-
         new_blocks
     }
 
@@ -1588,6 +1451,7 @@ impl NakamotoDownloadStateMachine {
     ) -> HashMap<ConsensusHash, Vec<NakamotoBlock>> {
         // queue up more downloaders
         self.update_unconfirmed_tenure_downloaders(
+            network.get_connection_opts(),
             usize::try_from(network.get_connection_opts().max_inflight_blocks)
                 .expect("FATAL: max_inflight_blocks exceeds usize::MAX"),
             highest_processed_block_id,
@@ -1650,7 +1514,7 @@ impl NakamotoDownloadStateMachine {
             }
         }
 
-        coalesced_blocks
+        let tenure_blocks = coalesced_blocks
             .into_iter()
             .map(|(consensus_hash, block_map)| {
                 let mut block_list: Vec<_> =
@@ -1658,7 +1522,9 @@ impl NakamotoDownloadStateMachine {
                 block_list.sort_unstable_by_key(|blk| blk.header.chain_length);
                 (consensus_hash, block_list)
             })
-            .collect()
+            .collect();
+
+        tenure_blocks
     }
 
     /// Top-level download state machine execution.
@@ -1697,6 +1563,16 @@ impl NakamotoDownloadStateMachine {
             ibd,
         );
 
+        // check this now, since we mutate self.available
+        let need_unconfirmed_tenures = Self::need_unconfirmed_tenures(
+            burnchain_height,
+            &network.burnchain_tip,
+            &self.wanted_tenures,
+            self.prev_wanted_tenures.as_ref().unwrap_or(&vec![]),
+            &self.tenure_block_ids,
+            &self.available_tenures,
+        );
+
         match self.state {
             NakamotoDownloadState::Confirmed => {
                 let new_blocks = self.download_confirmed_tenures(
@@ -1705,28 +1581,7 @@ impl NakamotoDownloadStateMachine {
                         .expect("FATAL: max_inflight_blocks exceeds usize::MAX"),
                 );
 
-                // keep borrow-checker happy by instantiang this ref again, now that `network` is
-                // no longer mutably borrowed.
-                let Some(invs) = network.inv_state_nakamoto.as_ref() else {
-                    // nothing to do
-                    debug!("No network inventories");
-                    return HashMap::new();
-                };
-
-                if self.tenure_downloads.is_empty()
-                    && Self::need_unconfirmed_tenures(
-                        self.nakamoto_start_height,
-                        burnchain_height,
-                        &network.burnchain_tip,
-                        &self.tenure_downloads.completed_tenures,
-                        &self.wanted_tenures,
-                        self.prev_wanted_tenures.as_ref().unwrap_or(&vec![]),
-                        &self.tenure_block_ids,
-                        &sortdb.pox_constants,
-                        sortdb.first_block_height,
-                        invs.inventories.values(),
-                    )
-                {
+                if self.tenure_downloads.is_empty() && need_unconfirmed_tenures {
                     debug!(
                         "Transition from {} to {}",
                         &self.state,
@@ -1760,14 +1615,6 @@ impl NakamotoDownloadStateMachine {
                     },
                 );
 
-                // keep borrow-checker happy by instantiang this ref again, now that `network` is
-                // no longer mutably borrowed.
-                let Some(invs) = network.inv_state_nakamoto.as_ref() else {
-                    // nothing to do
-                    debug!("No network inventories");
-                    return HashMap::new();
-                };
-
                 if !self.tenure_downloads.is_empty() {
                     // need to go get this scheduled tenure
                     debug!(
@@ -1779,18 +1626,7 @@ impl NakamotoDownloadStateMachine {
                 } else if self.unconfirmed_tenure_downloads.is_empty()
                     && self.unconfirmed_tenure_download_schedule.is_empty()
                 {
-                    if Self::need_unconfirmed_tenures(
-                        self.nakamoto_start_height,
-                        burnchain_height,
-                        &network.burnchain_tip,
-                        &self.tenure_downloads.completed_tenures,
-                        &self.wanted_tenures,
-                        self.prev_wanted_tenures.as_ref().unwrap_or(&vec![]),
-                        &self.tenure_block_ids,
-                        &sortdb.pox_constants,
-                        sortdb.first_block_height,
-                        invs.inventories.values(),
-                    ) {
+                    if need_unconfirmed_tenures {
                         // do this again
                         self.unconfirmed_tenure_download_schedule =
                             Self::make_unconfirmed_tenure_download_schedule(
@@ -1830,7 +1666,7 @@ impl NakamotoDownloadStateMachine {
     ) -> Result<HashMap<ConsensusHash, Vec<NakamotoBlock>>, NetError> {
         self.nakamoto_tip = network.stacks_tip.block_id();
         debug!("Downloader: Nakamoto tip is {:?}", &self.nakamoto_tip);
-        self.update_wanted_tenures(&network, sortdb, chainstate)?;
+        self.update_wanted_tenures(&network, sortdb)?;
         self.update_processed_tenures(chainstate)?;
         let new_blocks = self.run_downloads(burnchain_height, network, sortdb, chainstate, ibd);
         self.last_sort_tip = Some(network.burnchain_tip.clone());

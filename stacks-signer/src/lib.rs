@@ -29,12 +29,16 @@ pub mod cli;
 pub mod client;
 /// The configuration module for the signer
 pub mod config;
+/// The signer monitor for observing signer behaviours in the network
+pub mod monitor_signers;
 /// The monitoring server for the signer
 pub mod monitoring;
 /// The primary runloop for the signer
 pub mod runloop;
 /// The signer state module
 pub mod signerdb;
+/// The util module for the signer
+pub mod utils;
 /// The v0 implementation of the signer. This does not include WSTS support
 pub mod v0;
 /// The v1 implementation of the singer. This includes WSTS support
@@ -80,7 +84,7 @@ pub trait Signer<T: SignerEventTrait>: Debug + Display {
         command: Option<RunLoopCommand>,
     );
     /// Check if the signer is in the middle of processing blocks
-    fn has_pending_blocks(&self) -> bool;
+    fn has_unprocessed_blocks(&self) -> bool;
 }
 
 /// A wrapper around the running signer type for the signer

@@ -68,31 +68,7 @@ use crate::util_lib::db::{DBConn, Error as DBError};
 pub enum NakamotoTenureDownloadState {
     /// Getting the tenure-start block (the given StacksBlockId is it's block ID).
     GetTenureStartBlock(StacksBlockId),
-    /// Waiting for the child tenure's tenure-start block to arrive, which is usually (but not
-    /// always) handled by the execution of another NakamotoTenureDownloader.  The only
-    /// exceptions are as follows:
-    ///
-    /// * if this tenure contains the anchor block, and it's the last tenure in the
-    /// reward cycle.  In this case, the end-block must be directly fetched, since there will be no
-    /// follow-on NakamotTenureDownloader in the same reward cycle who can provide this.
-    ///
-    /// * if this tenure is the highest complete tenure, and we just learned the start-block of the
-    /// ongoing tenure, then a NakamotoTenureDownloader will be instantiated with this tenure-end-block
-    /// already known.  This step will be skipped because the end-block is already present in the
-    /// state machine.
-    ///
-    /// * if the deadline (second parameter) is exceeded, the state machine transitions to
-    /// GetTenureEndBlock.
-    ///
-    /// The two fields here are:
-    /// * the block ID of the last block in the tenure (which happens to be the block ID of the
-    /// start block of the next tenure)
-    /// * the deadline by which this state machine needs to have obtained the tenure end-block
-    /// before transitioning to `GetTenureEndBlock`.
-    WaitForTenureEndBlock(StacksBlockId, Instant),
-    /// Getting the tenure-end block directly.  This only happens for tenures whose end-blocks
-    /// cannot be provided by tenure downloaders within the same reward cycle, and for tenures in
-    /// which we cannot quickly get the tenure-end block.
+    /// Getting the tenure-end block.
     ///
     /// The field here is the block ID of the tenure end block.
     GetTenureEndBlock(StacksBlockId),
@@ -161,13 +137,10 @@ pub struct NakamotoTenureDownloader {
     pub state: NakamotoTenureDownloadState,
     /// Tenure-start block
     pub tenure_start_block: Option<NakamotoBlock>,
-    /// Pre-stored tenure end block (used by the unconfirmed block downloader).
+    /// Pre-stored tenure end block.
     /// An instance of this state machine will be used to fetch the highest-confirmed tenure, once
-    /// the start-block for the current tenure is downloaded.  This is that start-block, which is
-    /// used to transition from the `WaitForTenureEndBlock` step to the `GetTenureBlocks` step.
+    /// the start-block for the current tenure is downloaded.
     pub tenure_end_block: Option<NakamotoBlock>,
-    /// Tenure-end block header and TenureChange
-    pub tenure_end_header: Option<(NakamotoBlockHeader, TenureChangePayload)>,
     /// Tenure blocks
     pub tenure_blocks: Option<Vec<NakamotoBlock>>,
 }
@@ -195,7 +168,6 @@ impl NakamotoTenureDownloader {
             idle: false,
             state: NakamotoTenureDownloadState::GetTenureStartBlock(tenure_start_block_id.clone()),
             tenure_start_block: None,
-            tenure_end_header: None,
             tenure_end_block: None,
             tenure_blocks: None,
         }
@@ -206,16 +178,6 @@ impl NakamotoTenureDownloader {
     pub fn with_tenure_end_block(mut self, tenure_end_block: NakamotoBlock) -> Self {
         self.tenure_end_block = Some(tenure_end_block);
         self
-    }
-
-    /// Is this downloader waiting for the tenure-end block data from some other downloader?  Per
-    /// the struct documentation, this is case 2(a).
-    pub fn is_waiting(&self) -> bool {
-        if let NakamotoTenureDownloadState::WaitForTenureEndBlock(..) = self.state {
-            return true;
-        } else {
-            return false;
-        }
     }
 
     /// Validate and accept a given tenure-start block.  If accepted, then advance the state.
@@ -262,74 +224,20 @@ impl NakamotoTenureDownloader {
         );
         self.tenure_start_block = Some(tenure_start_block);
 
-        if let Some((hdr, _tc_payload)) = self.tenure_end_header.as_ref() {
-            // tenure_end_header supplied externally
-            self.state = NakamotoTenureDownloadState::GetTenureBlocks(hdr.parent_block_id.clone());
-        } else if let Some(tenure_end_block) = self.tenure_end_block.take() {
+        if let Some(tenure_end_block) = self.tenure_end_block.take() {
             // we already have the tenure-end block, so immediately proceed to accept it.
             debug!(
                 "Preemptively process tenure-end block {} for tenure {}",
                 tenure_end_block.block_id(),
                 &self.tenure_id_consensus_hash
             );
-            self.state = NakamotoTenureDownloadState::WaitForTenureEndBlock(
-                tenure_end_block.block_id(),
-                Instant::now()
-                    .checked_add(Duration::new(WAIT_FOR_TENURE_END_BLOCK_TIMEOUT, 0))
-                    .ok_or(NetError::OverflowError("Deadline is too big".into()))?,
-            );
             self.try_accept_tenure_end_block(&tenure_end_block)?;
         } else {
-            // need to get tenure_end_header.  By default, assume that another
-            // NakamotoTenureDownloader will provide this block, and allow the
-            // NakamotoTenureDownloaderSet instance that manages a collection of these
-            // state-machines make the call to require this one to fetch the block directly.
-            self.state = NakamotoTenureDownloadState::WaitForTenureEndBlock(
-                self.tenure_end_block_id.clone(),
-                Instant::now()
-                    .checked_add(Duration::new(WAIT_FOR_TENURE_END_BLOCK_TIMEOUT, 0))
-                    .ok_or(NetError::OverflowError("Deadline is too big".into()))?,
-            );
+            // need to get tenure_end_block.
+            self.state =
+                NakamotoTenureDownloadState::GetTenureEndBlock(self.tenure_end_block_id.clone());
         }
         Ok(())
-    }
-
-    /// Transition this state-machine from waiting for its tenure-end block from another
-    /// state-machine to directly fetching it.  This only needs to happen if the tenure this state
-    /// machine is downloading contains the PoX anchor block, and it's also the last confirmed
-    /// tenurein this reward cycle.
-    ///
-    /// This function is called by `NakamotoTenureDownloadSet`, which instantiates, schedules, and
-    /// runs a set of these machines based on the peers' inventory vectors.  But because we don't
-    /// know if this is the PoX anchor block tenure (or even the last tenure) until we have
-    /// inventory vectors for this tenure's reward cycle, this state-transition must be driven
-    /// after this machine's instantiation.
-    pub fn transition_to_fetch_end_block(&mut self) -> Result<(), NetError> {
-        let NakamotoTenureDownloadState::WaitForTenureEndBlock(end_block_id, ..) = self.state
-        else {
-            return Err(NetError::InvalidState);
-        };
-        debug!(
-            "Transition downloader to {} to directly fetch tenure-end block {} (direct transition)",
-            &self.naddr, &end_block_id
-        );
-        self.state = NakamotoTenureDownloadState::GetTenureEndBlock(end_block_id);
-        Ok(())
-    }
-
-    /// Transition to fetching the tenure-end block directly if waiting has taken too long.
-    pub fn transition_to_fetch_end_block_on_timeout(&mut self) {
-        if let NakamotoTenureDownloadState::WaitForTenureEndBlock(end_block_id, wait_deadline) =
-            self.state
-        {
-            if wait_deadline < Instant::now() {
-                debug!(
-                    "Transition downloader to {} to directly fetch tenure-end block {} (timed out)",
-                    &self.naddr, &end_block_id
-                );
-                self.state = NakamotoTenureDownloadState::GetTenureEndBlock(end_block_id);
-            }
-        }
     }
 
     /// Validate and accept a tenure-end block.  If accepted, then advance the state.
@@ -344,8 +252,7 @@ impl NakamotoTenureDownloader {
     ) -> Result<(), NetError> {
         if !matches!(
             &self.state,
-            NakamotoTenureDownloadState::WaitForTenureEndBlock(..)
-                | NakamotoTenureDownloadState::GetTenureEndBlock(_)
+            NakamotoTenureDownloadState::GetTenureEndBlock(_)
         ) {
             warn!("Invalid state for this method";
                   "state" => %self.state);
@@ -411,12 +318,12 @@ impl NakamotoTenureDownloader {
         }
 
         debug!(
-            "Accepted tenure-end header for tenure {} block={}; expect {} blocks",
+            "Accepted tenure-end block for tenure {} block={}; expect {} blocks",
             &self.tenure_id_consensus_hash,
             &tenure_end_block.block_id(),
             tc_payload.previous_tenure_blocks
         );
-        self.tenure_end_header = Some((tenure_end_block.header.clone(), tc_payload.clone()));
+        self.tenure_end_block = Some(tenure_end_block.clone());
         self.state = NakamotoTenureDownloadState::GetTenureBlocks(
             tenure_end_block.header.parent_block_id.clone(),
         );
@@ -426,17 +333,27 @@ impl NakamotoTenureDownloader {
     /// Determine how many blocks must be in this tenure.
     /// Returns None if we don't have the start and end blocks yet.
     pub fn tenure_length(&self) -> Option<u64> {
-        self.tenure_end_header
+        self.tenure_end_block
             .as_ref()
-            .map(|(_hdr, tc_payload)| u64::from(tc_payload.previous_tenure_blocks))
+            .map(|tenure_end_block| {
+                let Some(tc_payload) = tenure_end_block.try_get_tenure_change_payload() else {
+                    return None;
+                };
+
+                Some(u64::from(tc_payload.previous_tenure_blocks))
+            })
+            .flatten()
     }
 
     /// Add downloaded tenure blocks to this machine.
     /// If we have collected all tenure blocks, then return them and transition to the Done state.
     ///
     /// Returns Ok(Some([blocks])) if we got all the blocks in this tenure. The blocks will be in
-    /// ascending order by height, and will include the tenure-start block but exclude the
-    /// tenure-end block.
+    /// ascending order by height, and will include both the tenure-start block and the tenure-end
+    /// block.  Including the tenure-end block is necessary because processing it will mark this
+    /// tenure as "complete" in the chainstate, which will allow the downloader to deduce when all
+    /// confirmed tenures have been completely downloaded.
+    ///
     /// Returns Ok(None) if the given blocks were valid, but we still need more.  The pointer to
     /// the next block to fetch (stored in self.state) will be updated.
     /// Returns Err(..) if the blocks were invalid.
@@ -487,7 +404,8 @@ impl NakamotoTenureDownloader {
                 .map(|blocks| blocks.len())
                 .unwrap_or(0)
                 .saturating_add(count)
-                > self.tenure_length().unwrap_or(0) as usize
+                > self.tenure_length().unwrap_or(0).saturating_add(1) as usize
+            // + 1 due to the inclusion of the tenure-end block
             {
                 // there are more blocks downloaded than indicated by the end-blocks tenure-change
                 // transaction.
@@ -503,6 +421,10 @@ impl NakamotoTenureDownloader {
         if let Some(blocks) = self.tenure_blocks.as_mut() {
             blocks.append(&mut tenure_blocks);
         } else {
+            // include tenure-end block
+            if let Some(tenure_end_block) = self.tenure_end_block.as_ref() {
+                tenure_blocks.insert(0, tenure_end_block.clone());
+            }
             self.tenure_blocks = Some(tenure_blocks);
         }
 
@@ -567,14 +489,6 @@ impl NakamotoTenureDownloader {
             NakamotoTenureDownloadState::GetTenureStartBlock(start_block_id) => {
                 debug!("Request tenure-start block {}", &start_block_id);
                 StacksHttpRequest::new_get_nakamoto_block(peerhost, start_block_id.clone())
-            }
-            NakamotoTenureDownloadState::WaitForTenureEndBlock(_block_id, _deadline) => {
-                // we're waiting for some other downloader's block-fetch to complete
-                debug!(
-                    "Waiting for tenure-end block {} until {:?}",
-                    &_block_id, _deadline
-                );
-                return Ok(None);
             }
             NakamotoTenureDownloadState::GetTenureEndBlock(end_block_id) => {
                 debug!("Request tenure-end block {}", &end_block_id);
@@ -655,10 +569,6 @@ impl NakamotoTenureDownloader {
                 })?;
                 self.try_accept_tenure_start_block(block)?;
                 Ok(None)
-            }
-            NakamotoTenureDownloadState::WaitForTenureEndBlock(..) => {
-                debug!("Invalid state -- Got download response for WaitForTenureBlock");
-                Err(NetError::InvalidState)
             }
             NakamotoTenureDownloadState::GetTenureEndBlock(_block_id) => {
                 debug!("Got download response to tenure-end block {}", &_block_id);
