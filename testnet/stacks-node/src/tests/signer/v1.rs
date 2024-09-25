@@ -202,7 +202,8 @@ impl SignerTest<SpawnedSigner> {
         agg_key: &Point,
         timeout: Duration,
     ) -> MinedNakamotoBlockEvent {
-        let new_block = self.mine_nakamoto_block(timeout);
+        self.mine_nakamoto_block(timeout);
+        let new_block = test_observer::get_mined_nakamoto_blocks().pop().unwrap();
         let signer_sighash = new_block.signer_signature_hash.clone();
         let signature = self.wait_for_confirmed_block_v1(&signer_sighash, timeout);
         assert!(signature.0.verify(&agg_key, signer_sighash.as_bytes()));
@@ -1130,7 +1131,8 @@ fn sign_after_signer_reboot() {
 
     info!("------------------------- Test Mine Block after restart -------------------------");
 
-    let last_block = signer_test.mine_nakamoto_block(timeout);
+    signer_test.mine_nakamoto_block(timeout);
+    let last_block = test_observer::get_mined_nakamoto_blocks().pop().unwrap();
     let proposed_signer_signature_hash = signer_test
         .wait_for_validate_ok_response(short_timeout)
         .signer_signature_hash;

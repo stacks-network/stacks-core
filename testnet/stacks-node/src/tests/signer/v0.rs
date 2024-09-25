@@ -2954,7 +2954,8 @@ fn signer_set_rollover() {
     let transfer_tx =
         make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
     submit_tx(&http_origin, &transfer_tx);
-    let mined_block = signer_test.mine_nakamoto_block(short_timeout);
+    signer_test.mine_nakamoto_block(short_timeout);
+    let mined_block = test_observer::get_mined_nakamoto_blocks().pop().unwrap();
     let block_sighash = mined_block.signer_signature_hash;
     let signer_signatures = mined_block.signer_signature;
 
@@ -3068,7 +3069,8 @@ fn signer_set_rollover() {
     let transfer_tx =
         make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
     submit_tx(&http_origin, &transfer_tx);
-    let mined_block = signer_test.mine_nakamoto_block(short_timeout);
+    signer_test.mine_nakamoto_block(short_timeout);
+    let mined_block = test_observer::get_mined_nakamoto_blocks().pop().unwrap();
 
     info!("---- Verifying that the new signers signed the block -----");
     let signer_signatures = mined_block.signer_signature;

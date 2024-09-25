@@ -63,7 +63,6 @@ use wsts::state_machine::PublicKeys;
 
 use super::nakamoto_integrations::wait_for;
 use crate::config::{Config as NeonConfig, EventKeyType, EventObserverConfig, InitialBalance};
-use crate::event_dispatcher::MinedNakamotoBlockEvent;
 use crate::neon::{Counters, TestFlag};
 use crate::run_loop::boot_nakamoto;
 use crate::tests::bitcoin_regtest::BitcoinCoreController;
@@ -364,9 +363,10 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         reward_cycle_height.saturating_sub(current_block_height)
     }
 
-    fn mine_nakamoto_block(&mut self, timeout: Duration) -> MinedNakamotoBlockEvent {
+    fn mine_nakamoto_block(&mut self, timeout: Duration) {
         let commits_submitted = self.running_nodes.commits_submitted.clone();
         let mined_block_time = Instant::now();
+        let info_before = self.stacks_client.get_peer_info().unwrap();
         next_block_and_mine_commit(
             &mut self.running_nodes.btc_regtest_controller,
             timeout.as_secs(),
@@ -376,7 +376,8 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         .unwrap();
 
         wait_for(timeout.as_secs(), || {
-            Ok(!test_observer::get_mined_nakamoto_blocks().is_empty())
+            let info_after = self.stacks_client.get_peer_info().unwrap();
+            Ok(info_after.stacks_tip_height > info_before.stacks_tip_height)
         })
         .unwrap();
         let mined_block_elapsed_time = mined_block_time.elapsed();
@@ -384,7 +385,6 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
             "Nakamoto block mine time elapsed: {:?}",
             mined_block_elapsed_time
         );
-        test_observer::get_mined_nakamoto_blocks().pop().unwrap()
     }
 
     fn mine_block_wait_on_processing(
