@@ -74,10 +74,11 @@ use url::Url;
 use super::super::operations::BurnchainOpSigner;
 use super::super::Config;
 use super::{BurnchainController, BurnchainTip, Error as BurnchainControllerError};
+use crate::config::BurnchainConfig;
+#[cfg(test)]
 use crate::config::{
-    BurnchainConfig, OP_TX_ANY_ESTIM_SIZE, OP_TX_DELEGATE_STACKS_ESTIM_SIZE,
-    OP_TX_PRE_STACKS_ESTIM_SIZE, OP_TX_STACK_STX_ESTIM_SIZE, OP_TX_TRANSFER_STACKS_ESTIM_SIZE,
-    OP_TX_VOTE_AGG_ESTIM_SIZE,
+    OP_TX_ANY_ESTIM_SIZE, OP_TX_DELEGATE_STACKS_ESTIM_SIZE, OP_TX_PRE_STACKS_ESTIM_SIZE,
+    OP_TX_STACK_STX_ESTIM_SIZE, OP_TX_TRANSFER_STACKS_ESTIM_SIZE, OP_TX_VOTE_AGG_ESTIM_SIZE,
 };
 
 /// The number of bitcoin blocks that can have
@@ -668,7 +669,7 @@ impl BitcoinRegtestController {
                 max_conf.into(),
                 filter_addresses.clone().into(),
                 true.into(),
-                json!({ "minimumAmount": minimum_amount }),
+                json!({ "minimumAmount": minimum_amount, "maximumCount": self.config.burnchain.max_unspent_utxos }),
             ],
             id: "stacks".to_string(),
             jsonrpc: "2.0".to_string(),
@@ -2831,7 +2832,7 @@ impl BitcoinRPCRequest {
         Ok(())
     }
 
-    fn send(config: &Config, payload: BitcoinRPCRequest) -> RPCResult<serde_json::Value> {
+    pub fn send(config: &Config, payload: BitcoinRPCRequest) -> RPCResult<serde_json::Value> {
         let request = BitcoinRPCRequest::build_rpc_request(&config, &payload);
         let timeout = Duration::from_secs(u64::from(config.burnchain.timeout));
 

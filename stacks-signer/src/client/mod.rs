@@ -23,6 +23,7 @@ use std::time::Duration;
 
 use clarity::vm::errors::Error as ClarityError;
 use clarity::vm::types::serialization::SerializationError;
+use libsigner::RPCError;
 use libstackerdb::Error as StackerDBError;
 use slog::slog_debug;
 pub use stackerdb::*;
@@ -94,6 +95,9 @@ pub enum ClientError {
     /// A successful sortition's info response should be parseable into a SortitionState
     #[error("A successful sortition's info response should be parseable into a SortitionState")]
     UnexpectedSortitionInfo,
+    /// An RPC libsigner error occurred
+    #[error("A libsigner RPC error occurred: {0}")]
+    RPCError(#[from] RPCError),
 }
 
 /// Retry a function F with an exponential backoff and notification on transient failure

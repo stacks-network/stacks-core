@@ -30,7 +30,9 @@ use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader, NakamotoC
 use stacks::chainstate::stacks::boot::{NakamotoSignerEntry, RewardSet, MINERS_NAME, SIGNERS_NAME};
 use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::chainstate::stacks::events::StackerDBChunksEvent;
-use stacks::chainstate::stacks::{Error as ChainstateError, ThresholdSignature};
+use stacks::chainstate::stacks::Error as ChainstateError;
+#[cfg(any(test, feature = "testing"))]
+use stacks::chainstate::stacks::ThresholdSignature;
 use stacks::libstackerdb::StackerDBChunkData;
 use stacks::net::stackerdb::StackerDBs;
 use stacks::types::PublicKey;
@@ -41,6 +43,7 @@ use stacks_common::bitvec::BitVec;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{StacksPrivateKey, StacksPublicKey};
 use wsts::common::PolyCommitment;
+#[cfg(any(test, feature = "testing"))]
 use wsts::curve::ecdsa;
 use wsts::curve::point::Point;
 use wsts::curve::scalar::Scalar;
@@ -72,6 +75,7 @@ pub struct SignCoordinator {
     coordinator: FireCoordinator<Aggregator>,
     receiver: Option<Receiver<StackerDBChunksEvent>>,
     message_key: Scalar,
+    #[cfg(any(test, feature = "testing"))]
     wsts_public_keys: PublicKeys,
     is_mainnet: bool,
     miners_session: StackerDBSession,
@@ -324,6 +328,7 @@ impl SignCoordinator {
             coordinator,
             message_key,
             receiver: Some(receiver),
+            #[cfg(any(test, feature = "testing"))]
             wsts_public_keys,
             is_mainnet,
             miners_session,
@@ -886,11 +891,6 @@ impl SignCoordinator {
                             );
                             continue;
                         }
-                        if !gathered_signatures.contains_key(&slot_id) {
-                            total_weight_signed = total_weight_signed
-                                .checked_add(signer_entry.weight)
-                                .expect("FATAL: total weight signed exceeds u32::MAX");
-                        }
 
                         if Self::fault_injection_ignore_signatures() {
                             warn!("SignCoordinator: fault injection: ignoring well-formed signature for block";
@@ -904,6 +904,12 @@ impl SignCoordinator {
                                 "stacks_block_id" => %block.header.block_id()
                             );
                             continue;
+                        }
+
+                        if !gathered_signatures.contains_key(&slot_id) {
+                            total_weight_signed = total_weight_signed
+                                .checked_add(signer_entry.weight)
+                                .expect("FATAL: total weight signed exceeds u32::MAX");
                         }
 
                         info!("SignCoordinator: Signature Added to block";
@@ -986,7 +992,6 @@ impl SignCoordinator {
                     }
                 };
             }
-
             // After gathering all signatures, return them if we've hit the threshold
             if total_weight_signed >= self.weight_threshold {
                 info!("SignCoordinator: Received enough signatures. Continuing.";

@@ -675,3 +675,73 @@ paths:
         schema:
           type: string
 
+  /v3/sortitions/{lookup_kind}/{lookup}:
+    get:
+      summary: Fetch information about evaluated burnchain blocks (i.e., sortitions).
+      tags:
+        - Blocks
+      operationId: get_sortitions
+      description:
+        Fetch sortition information about a burnchain block. If the `lookup_kind` and `lookup` parameters are empty, it will return information about the latest burn block.
+      responses:
+        "200":
+          description: Information for the burn block or in the case of `latest_and_last`, multiple burn blocks
+          content:
+            application/json:
+              examples:
+                Latest:
+                  description: A single element list is returned when just one sortition is requested
+                  value:
+                    $ref: ./api/core-node/get_sortitions.example.json
+                LatestAndLast:
+                  description: Sortition information about the latest burn block with a winning miner, and the previous such burn block.
+                  value:
+                    $ref: ./api/core-node/get_sortitions_latest_and_prior.example.json
+    parameters:
+      - name: lookup_kind
+        in: path
+        description: |-
+          The style of lookup that should be performed. If not given, the most recent burn block processed will be returned.
+          Otherwise, the `lookup_kind` should be one of the following strings:
+            * `consensus` - find the burn block using the consensus hash supplied in the `lookup` field.
+            * `burn_height` - find the burn block using the burn block height supplied in the `lookup` field.
+            * `burn` - find the burn block using the burn block hash supplied in the `lookup` field.
+            * `latest_and_last` - return information about the latest burn block with a winning miner *and* the previous such burn block
+        required: false
+        schema:
+          type: string
+      - name: lookup
+        in: path
+        description: The value to use for the lookup if `lookup_kind` is `consensus`, `burn_height`, or `burn`
+        required: false
+        schema:
+          type: string
+  /v3/signer/{signer}/{cycle_number}:
+    get:
+      summary: Get number of blocks signed by signer during a given reward cycle
+      tags:
+        - Blocks
+        - Signers
+      operationId: get_signer
+      description: Get number of blocks signed by signer during a given reward cycle
+      parameters:
+        - name: signer
+          in: path
+          required: true
+          description: Hex-encoded compressed Secp256k1 public key of signer
+          schema:
+            type: string
+        - name: cycle_number
+          in: path
+          required: true
+          description: Reward cycle number
+          schema:
+            type: integer
+      responses:
+        200:
+          description: Number of blocks signed
+          content:
+            text/plain:
+              schema:
+                type: integer
+                example: 7

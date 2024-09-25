@@ -55,6 +55,7 @@ pub mod getmicroblocks_indexed;
 pub mod getmicroblocks_unconfirmed;
 pub mod getneighbors;
 pub mod getpoxinfo;
+pub mod getsigner;
 pub mod getsortition;
 pub mod getstackerdbchunk;
 pub mod getstackerdbmetadata;
@@ -126,6 +127,7 @@ impl StacksHttp {
         self.register_rpc_endpoint(
             gettransaction_unconfirmed::RPCGetTransactionUnconfirmedRequestHandler::new(),
         );
+        self.register_rpc_endpoint(getsigner::GetSignerRequestHandler::default());
         self.register_rpc_endpoint(
             liststackerdbreplicas::RPCListStackerDBReplicasRequestHandler::new(),
         );

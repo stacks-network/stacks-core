@@ -1,4 +1,3 @@
-use std::collections::VecDeque;
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
 // Copyright (C) 2020-2024 Stacks Open Internet Foundation
 //
@@ -14,7 +13,7 @@ use std::collections::VecDeque;
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-use std::net::SocketAddr;
+use std::collections::{HashMap, VecDeque};
 
 use blockstack_lib::burnchains::Txid;
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
@@ -57,6 +56,7 @@ use stacks_common::types::StacksEpochId;
 use stacks_common::{debug, warn};
 use wsts::curve::point::{Compressed, Point};
 
+use super::SignerSlotID;
 use crate::client::{retry_with_exponential_backoff, ClientError};
 use crate::config::GlobalConfig;
 use crate::runloop::RewardCycleInfo;
@@ -75,7 +75,7 @@ pub struct StacksClient {
     /// The chain we are interacting with
     chain_id: u32,
     /// Whether we are mainnet or not
-    mainnet: bool,
+    pub mainnet: bool,
     /// The Client used to make HTTP connects
     stacks_node_client: reqwest::blocking::Client,
     /// the auth password for the stacks node
@@ -86,6 +86,15 @@ pub struct StacksClient {
 struct GetStackersErrorResp {
     err_type: String,
     err_msg: String,
+}
+
+/// Result from fetching current and last sortition:
+///  two sortition infos
+pub struct CurrentAndLastSortition {
+    /// the latest winning sortition in the current burnchain fork
+    pub current_sortition: SortitionInfo,
+    /// the last winning sortition prior to `current_sortition`, if there was one
+    pub last_sortition: Option<SortitionInfo>,
 }
 
 impl From<&GlobalConfig> for StacksClient {
@@ -107,7 +116,7 @@ impl StacksClient {
     /// Create a new signer StacksClient with the provided private key, stacks node host endpoint, version, and auth password
     pub fn new(
         stacks_private_key: StacksPrivateKey,
-        node_host: SocketAddr,
+        node_host: String,
         auth_password: String,
         mainnet: bool,
     ) -> Self {
@@ -133,6 +142,28 @@ impl StacksClient {
             mainnet,
             auth_password,
         }
+    }
+
+    /// Create a new signer StacksClient and attempt to connect to the stacks node to determine the version
+    pub fn try_from_host(
+        stacks_private_key: StacksPrivateKey,
+        node_host: String,
+        auth_password: String,
+    ) -> Result<Self, ClientError> {
+        let mut stacks_client = Self::new(stacks_private_key, node_host, auth_password, true);
+        let pubkey = StacksPublicKey::from_private(&stacks_private_key);
+        let info = stacks_client.get_peer_info()?;
+        if info.network_id == CHAIN_ID_MAINNET {
+            stacks_client.mainnet = true;
+            stacks_client.chain_id = CHAIN_ID_MAINNET;
+            stacks_client.tx_version = TransactionVersion::Mainnet;
+        } else {
+            stacks_client.mainnet = false;
+            stacks_client.chain_id = CHAIN_ID_TESTNET;
+            stacks_client.tx_version = TransactionVersion::Testnet;
+        }
+        stacks_client.stacks_address = StacksAddress::p2pkh(stacks_client.mainnet, &pubkey);
+        Ok(stacks_client)
     }
 
     /// Get our signer address
@@ -195,7 +226,7 @@ impl StacksClient {
     }
 
     /// Helper function  that attempts to deserialize a clarity hext string as a list of signer slots and their associated number of signer slots
-    pub fn parse_signer_slots(
+    fn parse_signer_slots(
         &self,
         value: ClarityValue,
     ) -> Result<Vec<(StacksAddress, u128)>, ClientError> {
@@ -215,6 +246,31 @@ impl StacksClient {
             signer_slots.push((signer, num_slots));
         }
         Ok(signer_slots)
+    }
+
+    /// Get the stackerdb signer slots for a specific reward cycle
+    pub fn get_parsed_signer_slots(
+        &self,
+        reward_cycle: u64,
+    ) -> Result<HashMap<StacksAddress, SignerSlotID>, ClientError> {
+        let signer_set =
+            u32::try_from(reward_cycle % 2).expect("FATAL: reward_cycle % 2 exceeds u32::MAX");
+        let signer_stackerdb_contract_id = boot_code_id(SIGNERS_NAME, self.mainnet);
+        // Get the signer writers from the stacker-db to find the signer slot id
+        let stackerdb_signer_slots =
+            self.get_stackerdb_signer_slots(&signer_stackerdb_contract_id, signer_set)?;
+        Ok(stackerdb_signer_slots
+            .into_iter()
+            .enumerate()
+            .map(|(index, (address, _))| {
+                (
+                    address,
+                    SignerSlotID(
+                        u32::try_from(index).expect("FATAL: number of signers exceeds u32::MAX"),
+                    ),
+                )
+            })
+            .collect())
     }
 
     /// Get the vote for a given  round, reward cycle, and signer address
@@ -484,10 +540,10 @@ impl StacksClient {
         Ok(tenures)
     }
 
-    /// Get the sortition information for the latest sortition
-    pub fn get_latest_sortition(&self) -> Result<SortitionInfo, ClientError> {
-        debug!("stacks_node_client: Getting latest sortition...");
-        let path = self.sortition_info_path();
+    /// Get the current winning sortition and the last winning sortition
+    pub fn get_current_and_last_sortition(&self) -> Result<CurrentAndLastSortition, ClientError> {
+        debug!("stacks_node_client: Getting current and prior sortition...");
+        let path = format!("{}/latest_and_last", self.sortition_info_path());
         let timer = crate::monitoring::new_rpc_call_timer(&path, &self.http_origin);
         let send_request = || {
             self.stacks_node_client.get(&path).send().map_err(|e| {
@@ -500,29 +556,29 @@ impl StacksClient {
         if !response.status().is_success() {
             return Err(ClientError::RequestFailure(response.status()));
         }
-        let sortition_info = response.json()?;
-        Ok(sortition_info)
-    }
-
-    /// Get the sortition information for a given sortition
-    pub fn get_sortition(&self, ch: &ConsensusHash) -> Result<SortitionInfo, ClientError> {
-        debug!("stacks_node_client: Getting sortition with consensus hash {ch}...");
-        let path = format!("{}/consensus/{}", self.sortition_info_path(), ch.to_hex());
-        let timer_label = format!("{}/consensus/:consensus_hash", self.sortition_info_path());
-        let timer = crate::monitoring::new_rpc_call_timer(&timer_label, &self.http_origin);
-        let send_request = || {
-            self.stacks_node_client.get(&path).send().map_err(|e| {
-                warn!("Signer failed to request sortition"; "consensus_hash" => %ch, "err" => ?e);
-                e
-            })
+        let mut info_list: VecDeque<SortitionInfo> = response.json()?;
+        let Some(current_sortition) = info_list.pop_front() else {
+            return Err(ClientError::UnexpectedResponseFormat(
+                "Empty SortitionInfo returned".into(),
+            ));
         };
-        let response = send_request()?;
-        timer.stop_and_record();
-        if !response.status().is_success() {
-            return Err(ClientError::RequestFailure(response.status()));
+        if !current_sortition.was_sortition {
+            return Err(ClientError::UnexpectedResponseFormat(
+                "'Current' SortitionInfo returned which was not a winning sortition".into(),
+            ));
         }
-        let sortition_info = response.json()?;
-        Ok(sortition_info)
+        let last_sortition = if current_sortition.last_sortition_ch.is_some() {
+            let Some(last_sortition) = info_list.pop_back() else {
+                return Err(ClientError::UnexpectedResponseFormat("'Current' SortitionInfo has `last_sortition_ch` field, but corresponding data not returned".into()));
+            };
+            Some(last_sortition)
+        } else {
+            None
+        };
+        Ok(CurrentAndLastSortition {
+            current_sortition,
+            last_sortition,
+        })
     }
 
     /// Get the current peer info data from the stacks node

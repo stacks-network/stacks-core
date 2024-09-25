@@ -14,8 +14,10 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::borrow::Borrow;
-use std::collections::{HashMap, HashSet};
+#[warn(unused_imports)]
+use std::collections::HashMap;
+#[cfg(any(test, feature = "testing"))]
+use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
 use std::io::prelude::*;
 use std::io::{Read, Write};
@@ -110,7 +112,7 @@ pub mod atlas;
 /// Other functionality includes (but is not limited to):
 ///     * set up & tear down of sessions
 ///     * dealing with and responding to invalid messages
-///     * rate limiting messages  
+///     * rate limiting messages
 pub mod chat;
 /// Implements serialization and deserialization for `StacksMessage` types.
 /// Also has functionality to sign, verify, and ensure well-formedness of messages.
@@ -118,7 +120,7 @@ pub mod codec;
 pub mod connection;
 pub mod db;
 /// Implements `DNSResolver`, a simple DNS resolver state machine. Also implements `DNSClient`,
-/// which serves as an API for `DNSResolver`.  
+/// which serves as an API for `DNSResolver`.
 pub mod dns;
 pub mod download;
 pub mod http;
@@ -2275,6 +2277,10 @@ pub mod test {
         >,
         /// list of malleablized blocks produced when mining.
         pub malleablized_blocks: Vec<NakamotoBlock>,
+        pub mine_malleablized_blocks: bool,
+        /// tenure-start block of tenure to mine on.
+        /// gets consumed on the call to begin_nakamoto_tenure
+        pub nakamoto_parent_tenure_opt: Option<Vec<NakamotoBlock>>,
     }
 
     impl<'a> TestPeer<'a> {
@@ -2689,6 +2695,8 @@ pub mod test {
                 coord: coord,
                 indexer: Some(indexer),
                 malleablized_blocks: vec![],
+                mine_malleablized_blocks: true,
+                nakamoto_parent_tenure_opt: None,
             }
         }
 
@@ -3509,6 +3517,10 @@ pub mod test {
             self.sortdb.as_mut().unwrap()
         }
 
+        pub fn sortdb_ref(&mut self) -> &SortitionDB {
+            self.sortdb.as_ref().unwrap()
+        }
+
         pub fn with_db_state<F, R>(&mut self, f: F) -> Result<R, net_error>
         where
             F: FnOnce(
@@ -4197,6 +4209,43 @@ pub mod test {
                     assert!(!orphaned);
                 }
             }
+        }
+
+        /// Set the nakamoto tenure to mine on
+        pub fn mine_nakamoto_on(&mut self, parent_tenure: Vec<NakamotoBlock>) {
+            self.nakamoto_parent_tenure_opt = Some(parent_tenure);
+        }
+
+        /// Clear the tenure to mine on. This causes the miner to build on the canonical tip
+        pub fn mine_nakamoto_on_canonical_tip(&mut self) {
+            self.nakamoto_parent_tenure_opt = None;
+        }
+
+        /// Get an account off of a tip
+        pub fn get_account(
+            &mut self,
+            tip: &StacksBlockId,
+            account: &PrincipalData,
+        ) -> StacksAccount {
+            let sortdb = self.sortdb.take().expect("FATAL: sortdb not restored");
+            let mut node = self
+                .stacks_node
+                .take()
+                .expect("FATAL: chainstate not restored");
+
+            let acct = node
+                .chainstate
+                .maybe_read_only_clarity_tx(
+                    &sortdb.index_handle_at_block(&node.chainstate, tip).unwrap(),
+                    tip,
+                    |clarity_tx| StacksChainState::get_account(clarity_tx, account),
+                )
+                .unwrap()
+                .unwrap();
+
+            self.sortdb = Some(sortdb);
+            self.stacks_node = Some(node);
+            acct
         }
     }
 

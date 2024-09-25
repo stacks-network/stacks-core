@@ -55,7 +55,7 @@ use crate::chainstate::burn::{ConsensusHash, ConsensusHashExtensions};
 use crate::chainstate::nakamoto::{
     HeaderTypeNames, NakamotoBlock, NakamotoBlockHeader, NakamotoChainState,
     NakamotoStagingBlocksConn, NAKAMOTO_CHAINSTATE_SCHEMA_1, NAKAMOTO_CHAINSTATE_SCHEMA_2,
-    NAKAMOTO_CHAINSTATE_SCHEMA_3,
+    NAKAMOTO_CHAINSTATE_SCHEMA_3, NAKAMOTO_CHAINSTATE_SCHEMA_4,
 };
 use crate::chainstate::stacks::address::StacksAddressExtensions;
 use crate::chainstate::stacks::boot::*;
@@ -298,14 +298,14 @@ impl DBConfig {
         });
         match epoch_id {
             StacksEpochId::Epoch10 => true,
-            StacksEpochId::Epoch20 => version_u32 >= 1 && version_u32 <= 6,
-            StacksEpochId::Epoch2_05 => version_u32 >= 2 && version_u32 <= 6,
-            StacksEpochId::Epoch21 => version_u32 >= 3 && version_u32 <= 6,
-            StacksEpochId::Epoch22 => version_u32 >= 3 && version_u32 <= 6,
-            StacksEpochId::Epoch23 => version_u32 >= 3 && version_u32 <= 6,
-            StacksEpochId::Epoch24 => version_u32 >= 3 && version_u32 <= 6,
-            StacksEpochId::Epoch25 => version_u32 >= 3 && version_u32 <= 6,
-            StacksEpochId::Epoch30 => version_u32 >= 3 && version_u32 <= 6,
+            StacksEpochId::Epoch20 => version_u32 >= 1 && version_u32 <= 7,
+            StacksEpochId::Epoch2_05 => version_u32 >= 2 && version_u32 <= 7,
+            StacksEpochId::Epoch21 => version_u32 >= 3 && version_u32 <= 7,
+            StacksEpochId::Epoch22 => version_u32 >= 3 && version_u32 <= 7,
+            StacksEpochId::Epoch23 => version_u32 >= 3 && version_u32 <= 7,
+            StacksEpochId::Epoch24 => version_u32 >= 3 && version_u32 <= 7,
+            StacksEpochId::Epoch25 => version_u32 >= 3 && version_u32 <= 7,
+            StacksEpochId::Epoch30 => version_u32 >= 3 && version_u32 <= 7,
         }
     }
 }
@@ -679,7 +679,7 @@ impl<'a> DerefMut for ChainstateTx<'a> {
     }
 }
 
-pub const CHAINSTATE_VERSION: &'static str = "6";
+pub const CHAINSTATE_VERSION: &'static str = "7";
 
 const CHAINSTATE_INITIAL_SCHEMA: &'static [&'static str] = &[
     "PRAGMA foreign_keys = ON;",
@@ -867,6 +867,8 @@ const CHAINSTATE_SCHEMA_3: &'static [&'static str] = &[
     // proessed
     r#"
     CREATE TABLE burnchain_txids(
+        -- in epoch 2.x, this is the index block hash of the Stacks block.
+        -- in epoch 3.x, this is the index block hash of the tenure-start block.
         index_block_hash TEXT PRIMARY KEY,
         -- this is a JSON-encoded list of txids
         txids TEXT NOT NULL
@@ -1117,6 +1119,15 @@ impl StacksChainState {
                     // migrate to nakamoto 3
                     info!("Migrating chainstate schema from version 5 to 6: adds height_in_tenure field");
                     for cmd in NAKAMOTO_CHAINSTATE_SCHEMA_3.iter() {
+                        tx.execute_batch(cmd)?;
+                    }
+                }
+                "6" => {
+                    // migrate to nakamoto 3
+                    info!(
+                        "Migrating chainstate schema from version 6 to 7: adds signer_stats table"
+                    );
+                    for cmd in NAKAMOTO_CHAINSTATE_SCHEMA_4.iter() {
                         tx.execute_batch(cmd)?;
                     }
                 }
@@ -2485,7 +2496,7 @@ impl StacksChainState {
     }
 
     /// Get the burnchain txids for a given index block hash
-    fn get_burnchain_txids_for_block(
+    pub(crate) fn get_burnchain_txids_for_block(
         conn: &Connection,
         index_block_hash: &StacksBlockId,
     ) -> Result<Vec<Txid>, Error> {
@@ -2507,6 +2518,7 @@ impl StacksChainState {
     }
 
     /// Get the txids of the burnchain operations applied in the past N Stacks blocks.
+    /// Only works for epoch 2.x
     pub fn get_burnchain_txids_in_ancestors(
         conn: &Connection,
         index_block_hash: &StacksBlockId,
@@ -2523,7 +2535,10 @@ impl StacksChainState {
         Ok(ret)
     }
 
-    /// Store all on-burnchain STX operations' txids by index block hash
+    /// Store all on-burnchain STX operations' txids by index block hash.
+    /// `index_block_hash` is the tenure-start block.
+    /// * For epoch 2.x, this is simply the block ID
+    /// * for epoch 3.x and later, this is the first block in the tenure.
     pub fn store_burnchain_txids(
         tx: &DBTx,
         index_block_hash: &StacksBlockId,

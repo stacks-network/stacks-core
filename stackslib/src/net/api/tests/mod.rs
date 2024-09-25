@@ -73,6 +73,7 @@ mod getmicroblocks_indexed;
 mod getmicroblocks_unconfirmed;
 mod getneighbors;
 mod getpoxinfo;
+mod getsigner;
 mod getsortition;
 mod getstackerdbchunk;
 mod getstackerdbmetadata;

@@ -132,7 +132,7 @@ pub static NAKAMOTO_TENURES_SCHEMA_1: &'static str = r#"
         burn_view_consensus_hash TEXT NOT NULL,
         -- whether or not this tenure was triggered by a sortition (as opposed to a tenure-extension).
         -- this is equal to the `cause` field in a TenureChange
-        cause INETGER NOT NULL,
+        cause INTEGER NOT NULL,
         -- block hash of start-tenure block
         block_hash TEXT NOT NULL,
         -- block ID of this start block (this is the StacksBlockId of the above tenure_id_consensus_hash and block_hash)
