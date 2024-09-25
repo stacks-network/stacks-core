@@ -54,11 +54,8 @@ pub static TEST_IGNORE_SIGNERS: std::sync::Mutex<Option<bool>> = std::sync::Mute
 /// waking up to check timeouts?
 static EVENT_RECEIVER_POLL: Duration = Duration::from_millis(500);
 
-/// The `SignCoordinator` struct represents a WSTS FIRE coordinator whose
-///  sole function is to serve as the coordinator for Nakamoto block signing.
-///  This coordinator does not operate as a DKG coordinator. Rather, this struct
-///  is used by Nakamoto miners to act as the coordinator for the blocks they
-///  produce.
+/// The `SignCoordinator` struct sole function is to serve as the coordinator for Nakamoto block signing.
+/// This struct is used by Nakamoto miners to act as the coordinator for the blocks they produce.
 pub struct SignCoordinator {
     receiver: Option<Receiver<StackerDBChunksEvent>>,
     message_key: StacksPrivateKey,
