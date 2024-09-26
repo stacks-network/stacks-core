@@ -727,7 +727,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
     ) -> Result<(), String> {
         wait_for(timeout_secs, || {
             let stackerdb_events = test_observer::get_stackerdb_chunks();
-            let block_rejections = stackerdb_events
+            let block_rejections: HashSet<_> = stackerdb_events
                 .into_iter()
                 .flat_map(|chunk| chunk.modified_slots)
                 .filter_map(|chunk| {
@@ -739,7 +739,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
                                 .recover_public_key()
                                 .expect("Failed to recover public key from rejection");
                             if expected_signers.contains(&rejected_pubkey) {
-                                Some(rejection)
+                                Some(rejected_pubkey)
                             } else {
                                 None
                             }
@@ -747,8 +747,9 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
                         _ => None,
                     }
                 })
-                .collect::<Vec<_>>();
-            Ok(block_rejections.len() == expected_signers.len())
+                .collect();
+            info!("Checking block rejections"; "rejected_len" => block_rejections.len(), "expected_len" => expected_signers.len());
+            Ok(block_rejections.len() >= expected_signers.len())
         })
     }
 }
