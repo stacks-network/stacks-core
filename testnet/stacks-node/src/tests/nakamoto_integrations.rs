@@ -1188,6 +1188,10 @@ fn signer_vote_if_needed(
             btc_regtest_controller.get_burnchain().first_block_height,
             reward_cycle,
         );
+    let epochs = btc_regtest_controller.get_stacks_epochs();
+    let is_naka_epoch = epochs[StacksEpoch::find_epoch(&epochs, block_height).unwrap()]
+        .epoch_id
+        .uses_nakamoto_blocks();
 
     if block_height >= prepare_phase_start {
         // If the key is already set, do nothing.
@@ -1210,6 +1214,7 @@ fn signer_vote_if_needed(
             clarity::vm::Value::buff_from(aggregate_key.compress().data.to_vec())
                 .expect("Failed to serialize aggregate public key");
 
+        let mut expected_nonces = vec![];
         for (i, signer_sk) in signer_sks.iter().enumerate() {
             let signer_nonce = get_account(&http_origin, &to_addr(signer_sk)).nonce;
 
@@ -1228,7 +1233,18 @@ fn signer_vote_if_needed(
                     clarity::vm::Value::UInt(reward_cycle as u128 + 1),
                 ],
             );
+            expected_nonces.push((to_addr(signer_sk), signer_nonce + 1));
             submit_tx(&http_origin, &voting_tx);
+        }
+
+        if is_naka_epoch {
+            wait_for(30, || {
+                let all_bumped = expected_nonces.iter().all(|(addr, expected_nonce)| {
+                    get_account(&http_origin, addr).nonce >= *expected_nonce
+                });
+                Ok(all_bumped)
+            })
+            .expect("Timed out waiting for an interim nakamoto block to process our transactions");
         }
     }
 }
@@ -1465,7 +1481,7 @@ fn simple_neon_integration() {
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
     let prom_bind = format!("{}:{}", "127.0.0.1", 6000);
     naka_conf.node.prometheus_bind = Some(prom_bind.clone());
-    naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1000);
+    naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(5);
     let sender_sk = Secp256k1PrivateKey::new();
     // setup sender + recipient for a test stx transfer
     let sender_addr = tests::to_addr(&sender_sk);
@@ -1600,6 +1616,19 @@ fn simple_neon_integration() {
             &StacksEpochId::Epoch30,
         )
         .unwrap();
+
+    wait_for(30, || {
+        let transfer_tx_included = test_observer::get_blocks().into_iter().any(|block_json| {
+            block_json["transactions"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|tx_json| tx_json["raw_tx"].as_str() == Some(&transfer_tx_hex))
+                .is_some()
+        });
+        Ok(transfer_tx_included)
+    })
+    .expect("Timed out waiting for submitted transaction to be included in a block");
 
     // Mine 15 more nakamoto tenures
     for _i in 0..15 {
@@ -2416,7 +2445,7 @@ fn correct_burn_outs() {
         epochs[epoch_30_ix].start_height = 225;
     }
 
-    naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1000);
+    naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
     naka_conf.initial_balances.clear();
     let accounts: Vec<_> = (0..8)
         .map(|ix| {
@@ -5183,6 +5212,15 @@ fn check_block_heights() {
         next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
             .unwrap();
 
+        // in the first tenure, make sure that the contracts are published
+        if tenure_ix == 0 {
+            wait_for(30, || {
+                let cur_sender_nonce = get_account(&http_origin, &to_addr(&sender_sk)).nonce;
+                Ok(cur_sender_nonce >= sender_nonce)
+            })
+            .expect("Timed out waiting for contracts to publish");
+        }
+
         let heights1_value = call_read_only(
             &naka_conf,
             &sender_addr,
@@ -5247,9 +5285,15 @@ fn check_block_heights() {
             .clone()
             .expect_u128()
             .unwrap();
+        let expected_height = if tenure_ix == 0 {
+            // tenure 0 will include an interim block at this point because of the contract publish
+            //  txs
+            last_stacks_block_height + 2
+        } else {
+            last_stacks_block_height + 1
+        };
         assert_eq!(
-            sbh,
-            last_stacks_block_height + 1,
+            sbh, expected_height,
             "Stacks block heights should have incremented"
         );
         last_stacks_block_height = sbh;
@@ -5373,8 +5417,8 @@ fn check_block_heights() {
     assert!(tip.anchored_header.as_stacks_nakamoto().is_some());
     assert_eq!(
         tip.stacks_block_height,
-        block_height_pre_3_0 + ((inter_blocks_per_tenure + 1) * tenure_count),
-        "Should have mined (1 + interim_blocks_per_tenure) * tenure_count nakamoto blocks"
+        block_height_pre_3_0 + 1 + ((inter_blocks_per_tenure + 1) * tenure_count),
+        "Should have mined 1 + (1 + interim_blocks_per_tenure) * tenure_count nakamoto blocks"
     );
 
     coord_channel

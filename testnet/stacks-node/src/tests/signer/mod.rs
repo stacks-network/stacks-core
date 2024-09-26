@@ -266,7 +266,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
             }
             info!("Finished signers: {:?}", finished_signers.iter().collect::<Vec<_>>());
             Ok(finished_signers.len() == self.spawned_signers.len())
-        }).unwrap();
+        }).expect("Timed out while waiting for the signers to be registered");
     }
 
     pub fn wait_for_cycle(&mut self, timeout_secs: u64, reward_cycle: u64) {
