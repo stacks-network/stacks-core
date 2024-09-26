@@ -929,6 +929,8 @@ pub fn call_read_only(
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
     let client = reqwest::blocking::Client::new();
 
+    info!("Call read only: {contract}.{function}({args:?})");
+
     let path = format!(
         "{http_origin}/v2/contracts/call-read/{}/{}/{}",
         principal, contract, function

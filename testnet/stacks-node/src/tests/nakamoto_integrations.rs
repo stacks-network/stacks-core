@@ -5909,6 +5909,15 @@ fn clarity_burn_state() {
         })
         .unwrap();
 
+        // in the first tenure, make sure that the contracts are published
+        if tenure_ix == 0 {
+            wait_for(30, || {
+                let cur_sender_nonce = get_account(&http_origin, &to_addr(&sender_sk)).nonce;
+                Ok(cur_sender_nonce >= sender_nonce)
+            })
+            .expect("Timed out waiting for contracts to publish");
+        }
+
         let info = get_chain_info(&naka_conf);
         burn_block_height = info.burn_block_height as u128;
         info!("Expecting burn block height to be {}", burn_block_height);
@@ -7100,14 +7109,24 @@ fn check_block_times() {
         contract3_name,
         contract_clarity3,
     );
-    sender_nonce += 1;
     submit_tx(&http_origin, &contract_tx3);
+    sender_nonce += 1;
+
+    // sleep to ensure seconds have changed
+    thread::sleep(Duration::from_secs(3));
 
     next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
         .unwrap();
 
+    // make sure that the contracts are published
+    wait_for(30, || {
+        let cur_sender_nonce = get_account(&http_origin, &to_addr(&sender_sk)).nonce;
+        Ok(cur_sender_nonce >= sender_nonce)
+    })
+    .expect("Timed out waiting for contracts to publish");
+
     let info = get_chain_info_result(&naka_conf).unwrap();
-    info!("Chain info: {:?}", info);
+    info!("Chain info: {:?}", info.stacks_tip_height);
     let last_stacks_block_height = info.stacks_tip_height as u128;
     let last_tenure_height = last_stacks_block_height as u128;
 
@@ -7116,7 +7135,7 @@ fn check_block_times() {
         &sender_addr,
         contract0_name,
         "get-time",
-        vec![&clarity::vm::Value::UInt(last_stacks_block_height - 1)],
+        vec![&clarity::vm::Value::UInt(last_stacks_block_height - 2)],
     );
     let time0 = time0_value
         .expect_optional()
@@ -7130,7 +7149,7 @@ fn check_block_times() {
         &sender_addr,
         contract1_name,
         "get-time",
-        vec![&clarity::vm::Value::UInt(last_stacks_block_height - 1)],
+        vec![&clarity::vm::Value::UInt(last_stacks_block_height - 2)],
     );
     let time1 = time1_value
         .expect_optional()
@@ -7148,7 +7167,7 @@ fn check_block_times() {
         &sender_addr,
         contract3_name,
         "get-tenure-time",
-        vec![&clarity::vm::Value::UInt(last_tenure_height - 1)],
+        vec![&clarity::vm::Value::UInt(last_tenure_height - 2)],
     );
     let time3_tenure = time3_tenure_value
         .expect_optional()
@@ -7166,7 +7185,7 @@ fn check_block_times() {
         &sender_addr,
         contract3_name,
         "get-block-time",
-        vec![&clarity::vm::Value::UInt(last_stacks_block_height - 1)],
+        vec![&clarity::vm::Value::UInt(last_stacks_block_height - 2)],
     );
     let time3_block = time3_block_value
         .expect_optional()
@@ -7176,14 +7195,10 @@ fn check_block_times() {
         .unwrap();
 
     // Sleep to ensure the seconds have changed
-    thread::sleep(Duration::from_secs(1));
+    thread::sleep(Duration::from_secs(2));
 
     // Mine a Nakamoto block
     info!("Mining Nakamoto block");
-    let blocks_processed_before = coord_channel
-        .lock()
-        .expect("Mutex poisoned")
-        .get_stacks_blocks_processed();
 
     // submit a tx so that the miner will mine an extra block
     let transfer_tx =
@@ -7191,19 +7206,15 @@ fn check_block_times() {
     sender_nonce += 1;
     submit_tx(&http_origin, &transfer_tx);
 
-    loop {
-        let blocks_processed = coord_channel
-            .lock()
-            .expect("Mutex poisoned")
-            .get_stacks_blocks_processed();
-        if blocks_processed > blocks_processed_before {
-            break;
-        }
-        thread::sleep(Duration::from_millis(100));
-    }
+    // make sure that the contracts are published
+    wait_for(30, || {
+        let cur_sender_nonce = get_account(&http_origin, &to_addr(&sender_sk)).nonce;
+        Ok(cur_sender_nonce >= sender_nonce)
+    })
+    .expect("Timed out waiting for transfer to complete");
 
     let info = get_chain_info_result(&naka_conf).unwrap();
-    info!("Chain info: {:?}", info);
+    info!("Chain info: {:?}", info.stacks_tip_height);
     let last_stacks_block_height = info.stacks_tip_height as u128;
 
     let time0a_value = call_read_only(
@@ -7221,7 +7232,7 @@ fn check_block_times() {
         .unwrap();
     assert!(
         time0a - time0 >= 1,
-        "get-block-info? time should have changed"
+        "get-block-info? time should have changed. time_0 = {time0}. time_0_a = {time0a}"
     );
 
     let time1a_value = call_read_only(
@@ -7598,8 +7609,18 @@ fn check_block_info() {
     sender_nonce += 1;
     submit_tx(&http_origin, &contract_tx3);
 
+    // sleep to ensure seconds have changed
+    thread::sleep(Duration::from_secs(3));
+
     next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
         .unwrap();
+
+    // make sure that the contracts are published
+    wait_for(30, || {
+        let cur_sender_nonce = get_account(&http_origin, &to_addr(&sender_sk)).nonce;
+        Ok(cur_sender_nonce >= sender_nonce)
+    })
+    .expect("Timed out waiting for contracts to publish");
 
     let info = get_chain_info_result(&naka_conf).unwrap();
     info!("Chain info: {:?}", info);
@@ -7610,7 +7631,7 @@ fn check_block_info() {
         &sender_addr,
         contract0_name,
         "get-info",
-        vec![&clarity::vm::Value::UInt(last_stacks_block_height - 1)],
+        vec![&clarity::vm::Value::UInt(last_stacks_block_height - 2)],
     );
     let tuple0 = result0.expect_tuple().unwrap().data_map;
     assert_block_info(&tuple0, &miner, &miner_spend);
@@ -7620,7 +7641,7 @@ fn check_block_info() {
         &sender_addr,
         contract1_name,
         "get-info",
-        vec![&clarity::vm::Value::UInt(last_stacks_block_height - 1)],
+        vec![&clarity::vm::Value::UInt(last_stacks_block_height - 2)],
     );
     let tuple1 = result1.expect_tuple().unwrap().data_map;
     assert_eq!(tuple0, tuple1);
@@ -7630,7 +7651,7 @@ fn check_block_info() {
         &sender_addr,
         contract3_name,
         "get-tenure-info",
-        vec![&clarity::vm::Value::UInt(last_stacks_block_height - 1)],
+        vec![&clarity::vm::Value::UInt(last_stacks_block_height - 2)],
     );
     let tuple3_tenure0 = result3_tenure.expect_tuple().unwrap().data_map;
     assert_eq!(
@@ -7661,7 +7682,7 @@ fn check_block_info() {
         &sender_addr,
         contract3_name,
         "get-block-info",
-        vec![&clarity::vm::Value::UInt(last_stacks_block_height - 1)],
+        vec![&clarity::vm::Value::UInt(last_stacks_block_height - 2)],
     );
     let tuple3_block1 = result3_block.expect_tuple().unwrap().data_map;
     assert_eq!(
