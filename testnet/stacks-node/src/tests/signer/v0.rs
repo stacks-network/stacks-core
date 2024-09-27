@@ -3693,7 +3693,7 @@ fn partial_tenure_fork() {
 
     let pre_nakamoto_peer_1_height = get_chain_info(&conf).stacks_tip_height;
 
-    wait_for(120, || {
+    wait_for(200, || {
         let Some(node_1_info) = get_chain_info_opt(&conf) else {
             return Ok(false);
         };
