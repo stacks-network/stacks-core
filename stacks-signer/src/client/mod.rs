@@ -129,15 +129,12 @@ pub(crate) mod tests {
 
     use blockstack_lib::chainstate::stacks::boot::POX_4_NAME;
     use blockstack_lib::chainstate::stacks::db::StacksBlockHeaderTypes;
-    use blockstack_lib::net::api::getaccount::AccountEntryResponse;
     use blockstack_lib::net::api::getinfo::RPCPeerInfoData;
     use blockstack_lib::net::api::getpoxinfo::{
         RPCPoxCurrentCycleInfo, RPCPoxEpoch, RPCPoxInfoData, RPCPoxNextCycleInfo,
     };
-    use blockstack_lib::net::api::postfeerate::{RPCFeeEstimate, RPCFeeEstimateResponse};
     use blockstack_lib::util_lib::boot::boot_code_id;
     use clarity::vm::costs::ExecutionCost;
-    use clarity::vm::types::TupleData;
     use clarity::vm::Value as ClarityValue;
     use libsigner::SignerEntries;
     use rand::distributions::Standard;
@@ -219,28 +216,6 @@ pub(crate) mod tests {
         let mut hash = [0u8; 20];
         hash.copy_from_slice(&bytes);
         ConsensusHash(hash)
-    }
-
-    /// Build a response for the get_last_round request
-    pub fn build_get_last_round_response(round: u64) -> String {
-        let value = ClarityValue::some(ClarityValue::UInt(round as u128))
-            .expect("Failed to create response");
-        build_read_only_response(&value)
-    }
-
-    /// Build a response for the get_account_nonce request
-    pub fn build_account_nonce_response(nonce: u64) -> String {
-        let account_nonce_entry = AccountEntryResponse {
-            nonce,
-            balance: "0x00000000000000000000000000000000".to_string(),
-            locked: "0x00000000000000000000000000000000".to_string(),
-            unlock_height: thread_rng().next_u64(),
-            balance_proof: None,
-            nonce_proof: None,
-        };
-        let account_nonce_entry_json = serde_json::to_string(&account_nonce_entry)
-            .expect("Failed to serialize account nonce entry");
-        format!("HTTP/1.1 200 OK\n\n{account_nonce_entry_json}")
     }
 
     /// Build a response to get_pox_data_with_retry where it returns a specific reward cycle id and block height
@@ -377,44 +352,6 @@ pub(crate) mod tests {
         format!("HTTP/1.1 200 OK\n\n{{\"okay\":true,\"result\":\"{hex}\"}}")
     }
 
-    /// Build a response for the get_medium_estimated_fee_ustx_response request with a specific medium estimate
-    pub fn build_get_medium_estimated_fee_ustx_response(
-        medium_estimate: u64,
-    ) -> (String, RPCFeeEstimateResponse) {
-        // Generate some random info
-        let fee_response = RPCFeeEstimateResponse {
-            estimated_cost: ExecutionCost {
-                write_length: thread_rng().next_u64(),
-                write_count: thread_rng().next_u64(),
-                read_length: thread_rng().next_u64(),
-                read_count: thread_rng().next_u64(),
-                runtime: thread_rng().next_u64(),
-            },
-            estimated_cost_scalar: thread_rng().next_u64(),
-            cost_scalar_change_by_byte: thread_rng().next_u32() as f64,
-            estimations: vec![
-                RPCFeeEstimate {
-                    fee_rate: thread_rng().next_u32() as f64,
-                    fee: thread_rng().next_u64(),
-                },
-                RPCFeeEstimate {
-                    fee_rate: thread_rng().next_u32() as f64,
-                    fee: medium_estimate,
-                },
-                RPCFeeEstimate {
-                    fee_rate: thread_rng().next_u32() as f64,
-                    fee: thread_rng().next_u64(),
-                },
-            ],
-        };
-        let fee_response_json = serde_json::to_string(&fee_response)
-            .expect("Failed to serialize fee estimate response");
-        (
-            format!("HTTP/1.1 200 OK\n\n{fee_response_json}"),
-            fee_response,
-        )
-    }
-
     /// Generate a signer config with the given number of signers and keys where the first signer is
     /// obtained from the provided global config
     pub fn generate_signer_config(config: &GlobalConfig, num_signers: u32) -> SignerConfig {
@@ -473,41 +410,10 @@ pub(crate) mod tests {
             stacks_private_key: config.stacks_private_key,
             node_host: config.node_host.to_string(),
             mainnet: config.network.is_mainnet(),
-            dkg_end_timeout: config.dkg_end_timeout,
-            dkg_private_timeout: config.dkg_private_timeout,
-            dkg_public_timeout: config.dkg_public_timeout,
-            nonce_timeout: config.nonce_timeout,
-            sign_timeout: config.sign_timeout,
-            tx_fee_ustx: config.tx_fee_ustx,
-            max_tx_fee_ustx: config.max_tx_fee_ustx,
             db_path: config.db_path.clone(),
             first_proposal_burn_block_timing: config.first_proposal_burn_block_timing,
             block_proposal_timeout: config.block_proposal_timeout,
         }
-    }
-
-    pub fn build_get_round_info_response(info: Option<(u64, u64)>) -> String {
-        let clarity_value = if let Some((vote_count, vote_weight)) = info {
-            ClarityValue::some(ClarityValue::Tuple(
-                TupleData::from_data(vec![
-                    ("votes-count".into(), ClarityValue::UInt(vote_count as u128)),
-                    (
-                        "votes-weight".into(),
-                        ClarityValue::UInt(vote_weight as u128),
-                    ),
-                ])
-                .expect("BUG: Failed to create clarity value from tuple data"),
-            ))
-            .expect("BUG: Failed to create clarity value from tuple data")
-        } else {
-            ClarityValue::none()
-        };
-        build_read_only_response(&clarity_value)
-    }
-
-    pub fn build_get_weight_threshold_response(threshold: u64) -> String {
-        let clarity_value = ClarityValue::UInt(threshold as u128);
-        build_read_only_response(&clarity_value)
     }
 
     pub fn build_get_tenure_tip_response(header_types: &StacksBlockHeaderTypes) -> String {

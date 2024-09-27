@@ -15,11 +15,8 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::collections::{HashMap, VecDeque};
 
-use blockstack_lib::burnchains::Txid;
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
-use blockstack_lib::chainstate::stacks::boot::{
-    NakamotoSignerEntry, SIGNERS_NAME, SIGNERS_VOTING_NAME,
-};
+use blockstack_lib::chainstate::stacks::boot::{NakamotoSignerEntry, SIGNERS_NAME};
 use blockstack_lib::chainstate::stacks::db::StacksBlockHeaderTypes;
 use blockstack_lib::chainstate::stacks::{
     StacksTransaction, StacksTransactionSigner, TransactionAnchorMode, TransactionAuth,
@@ -37,9 +34,7 @@ use blockstack_lib::net::api::getstackers::{GetStackersErrors, GetStackersRespon
 use blockstack_lib::net::api::postblock::StacksBlockAcceptedData;
 use blockstack_lib::net::api::postblock_proposal::NakamotoBlockProposal;
 use blockstack_lib::net::api::postblock_v3;
-use blockstack_lib::net::api::postfeerate::{FeeRateEstimateRequestBody, RPCFeeEstimateResponse};
-use blockstack_lib::util_lib::boot::{boot_code_addr, boot_code_id};
-use clarity::util::hash::to_hex;
+use blockstack_lib::util_lib::boot::boot_code_id;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::{ClarityName, ContractName, Value as ClarityValue};
 use libsigner::v0::messages::PeerInfo;
@@ -272,44 +267,6 @@ impl StacksClient {
             .collect())
     }
 
-    /// Retrieve the medium estimated transaction fee in uSTX from the stacks node for the given transaction
-    pub fn get_medium_estimated_fee_ustx(
-        &self,
-        tx: &StacksTransaction,
-    ) -> Result<u64, ClientError> {
-        debug!("stacks_node_client: Getting estimated fee...");
-        let request = FeeRateEstimateRequestBody {
-            estimated_len: Some(tx.tx_len()),
-            transaction_payload: to_hex(&tx.payload.serialize_to_vec()),
-        };
-        let timer =
-            crate::monitoring::new_rpc_call_timer(&self.fees_transaction_path(), &self.http_origin);
-        let send_request = || {
-            self.stacks_node_client
-                .post(self.fees_transaction_path())
-                .header("Content-Type", "application/json")
-                .json(&request)
-                .send()
-                .map_err(backoff::Error::transient)
-        };
-        let response = retry_with_exponential_backoff(send_request)?;
-        if !response.status().is_success() {
-            return Err(ClientError::RequestFailure(response.status()));
-        }
-        timer.stop_and_record();
-        let fee_estimate_response = response.json::<RPCFeeEstimateResponse>()?;
-        let fee = fee_estimate_response
-            .estimations
-            .get(1)
-            .map(|estimate| estimate.fee)
-            .ok_or_else(|| {
-                ClientError::UnexpectedResponseFormat(
-                    "RPCFeeEstimateResponse missing medium fee estimate".into(),
-                )
-            })?;
-        Ok(fee)
-    }
-
     /// Determine the stacks node current epoch
     pub fn get_node_epoch(&self) -> Result<StacksEpochId, ClientError> {
         let pox_info = self.get_pox_data()?;
@@ -369,52 +326,6 @@ impl StacksClient {
             return Err(ClientError::RequestFailure(response.status()));
         }
         Ok(())
-    }
-
-    /// Retrieve the current consumed weight for the given reward cycle and DKG round
-    pub fn get_round_vote_weight(
-        &self,
-        reward_cycle: u64,
-        round_id: u64,
-    ) -> Result<Option<u128>, ClientError> {
-        let function_name = ClarityName::from("get-round-info");
-        let pox_contract_id = boot_code_id(SIGNERS_VOTING_NAME, self.mainnet);
-        let function_args = &[
-            ClarityValue::UInt(reward_cycle as u128),
-            ClarityValue::UInt(round_id as u128),
-        ];
-        let value = self.read_only_contract_call(
-            &pox_contract_id.issuer.into(),
-            &pox_contract_id.name,
-            &function_name,
-            function_args,
-        )?;
-        let inner_data = value.expect_optional()?;
-        let Some(inner_data) = inner_data else {
-            return Ok(None);
-        };
-        let round_info = inner_data.expect_tuple()?;
-        let votes_weight = round_info.get("votes-weight")?.to_owned().expect_u128()?;
-        Ok(Some(votes_weight))
-    }
-
-    /// Retrieve the weight threshold required to approve a DKG vote
-    pub fn get_vote_threshold_weight(&self, reward_cycle: u64) -> Result<u128, ClientError> {
-        let function_name = ClarityName::from("get-threshold-weight");
-        let pox_contract_id = boot_code_id(SIGNERS_VOTING_NAME, self.mainnet);
-        let function_args = &[ClarityValue::UInt(reward_cycle as u128)];
-        let value = self.read_only_contract_call(
-            &pox_contract_id.issuer.into(),
-            &pox_contract_id.name,
-            &function_name,
-            function_args,
-        )?;
-        Ok(value.expect_u128()?)
-    }
-
-    /// Retrieve the current account nonce for the provided address
-    pub fn get_account_nonce(&self, address: &StacksAddress) -> Result<u64, ClientError> {
-        self.get_account_entry(address).map(|entry| entry.nonce)
     }
 
     /// Get information about the tenures between `chosen_parent` and `last_sortition`
@@ -543,33 +454,6 @@ impl StacksClient {
         }
         let peer_info_data = response.json::<PeerInfo>()?;
         Ok(peer_info_data)
-    }
-
-    /// Retrieve the last DKG vote round number for the current reward cycle
-    pub fn get_last_round(&self, reward_cycle: u64) -> Result<Option<u64>, ClientError> {
-        debug!("Getting the last DKG vote round of reward cycle {reward_cycle}...");
-        let contract_addr = boot_code_addr(self.mainnet);
-        let contract_name = ContractName::from(SIGNERS_VOTING_NAME);
-        let function_name = ClarityName::from("get-last-round");
-        let function_args = &[ClarityValue::UInt(reward_cycle as u128)];
-        let opt_value = self
-            .read_only_contract_call(
-                &contract_addr,
-                &contract_name,
-                &function_name,
-                function_args,
-            )?
-            .expect_optional()?;
-        let round = if let Some(value) = opt_value {
-            Some(u64::try_from(value.expect_u128()?).map_err(|e| {
-                ClientError::MalformedContractData(format!(
-                    "Failed to convert vote round to u64: {e}"
-                ))
-            })?)
-        } else {
-            None
-        };
-        Ok(round)
     }
 
     /// Get the reward set signers from the stacks node for the given reward cycle
@@ -711,34 +595,6 @@ impl StacksClient {
         Ok(post_block_resp.accepted)
     }
 
-    /// Helper function to submit a transaction to the Stacks mempool
-    pub fn submit_transaction(&self, tx: &StacksTransaction) -> Result<Txid, ClientError> {
-        let txid = tx.txid();
-        let tx = tx.serialize_to_vec();
-        debug!("stacks_node_client: Submitting transaction to the stacks node...";
-            "txid" => %txid,
-        );
-        let timer =
-            crate::monitoring::new_rpc_call_timer(&self.transaction_path(), &self.http_origin);
-        let send_request = || {
-            self.stacks_node_client
-                .post(self.transaction_path())
-                .header("Content-Type", "application/octet-stream")
-                .body(tx.clone())
-                .send()
-                .map_err(|e| {
-                    debug!("Failed to submit transaction to the Stacks node: {e:?}");
-                    backoff::Error::transient(e)
-                })
-        };
-        let response = retry_with_exponential_backoff(send_request)?;
-        timer.stop_and_record();
-        if !response.status().is_success() {
-            return Err(ClientError::RequestFailure(response.status()));
-        }
-        Ok(txid)
-    }
-
     /// Makes a read only contract call to a stacks contract
     pub fn read_only_contract_call(
         &self,
@@ -794,10 +650,6 @@ impl StacksClient {
         format!("{}/v2/pox", self.http_origin)
     }
 
-    fn transaction_path(&self) -> String {
-        format!("{}/v2/transactions", self.http_origin)
-    }
-
     fn read_only_path(
         &self,
         contract_addr: &StacksAddress,
@@ -837,10 +689,6 @@ impl StacksClient {
 
     fn reward_set_path(&self, reward_cycle: u64) -> String {
         format!("{}/v3/stacker_set/{reward_cycle}", self.http_origin)
-    }
-
-    fn fees_transaction_path(&self) -> String {
-        format!("{}/v2/fees/transaction", self.http_origin)
     }
 
     fn tenure_tip_path(&self, consensus_hash: &ConsensusHash) -> String {
@@ -905,7 +753,6 @@ impl StacksClient {
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
-    use std::io::{BufWriter, Write};
     use std::thread::spawn;
 
     use blockstack_lib::burnchains::Address;
@@ -924,15 +771,13 @@ mod tests {
     use rand::thread_rng;
     use rand_core::RngCore;
     use stacks_common::bitvec::BitVec;
-    use stacks_common::consts::{CHAIN_ID_TESTNET, SIGNER_SLOTS_PER_USER};
+    use stacks_common::consts::SIGNER_SLOTS_PER_USER;
 
     use super::*;
     use crate::client::tests::{
-        build_account_nonce_response, build_get_last_round_response,
-        build_get_last_set_cycle_response, build_get_medium_estimated_fee_ustx_response,
-        build_get_peer_info_response, build_get_pox_data_response, build_get_round_info_response,
-        build_get_tenure_tip_response, build_get_weight_threshold_response,
-        build_read_only_response, write_response, MockServerClient,
+        build_get_last_set_cycle_response, build_get_peer_info_response,
+        build_get_pox_data_response, build_get_tenure_tip_response, build_read_only_response,
+        write_response, MockServerClient,
     };
 
     #[test]
@@ -1062,58 +907,6 @@ mod tests {
     }
 
     #[test]
-    fn transaction_contract_call_should_send_bytes_to_node() {
-        let mock = MockServerClient::new();
-        let private_key = StacksPrivateKey::new();
-        let unsigned_tx = StacksClient::build_unsigned_contract_call_transaction(
-            &mock.client.stacks_address,
-            ContractName::from("contract-name"),
-            ClarityName::from("function-name"),
-            &[],
-            &private_key,
-            TransactionVersion::Testnet,
-            CHAIN_ID_TESTNET,
-            0,
-        )
-        .unwrap();
-
-        let tx = mock.client.sign_transaction(unsigned_tx).unwrap();
-
-        let mut tx_bytes = [0u8; 1024];
-        {
-            let mut tx_bytes_writer = BufWriter::new(&mut tx_bytes[..]);
-            tx.consensus_serialize(&mut tx_bytes_writer).unwrap();
-            tx_bytes_writer.flush().unwrap();
-        }
-
-        let bytes_len = tx_bytes
-            .iter()
-            .enumerate()
-            .rev()
-            .find(|(_, &x)| x != 0)
-            .unwrap()
-            .0
-            + 1;
-
-        let tx_clone = tx.clone();
-        let h = spawn(move || mock.client.submit_transaction(&tx_clone));
-
-        let request_bytes = write_response(
-            mock.server,
-            format!("HTTP/1.1 200 OK\n\n{}", tx.txid()).as_bytes(),
-        );
-        let returned_txid = h.join().unwrap().unwrap();
-
-        assert_eq!(returned_txid, tx.txid());
-        assert!(
-            request_bytes
-                .windows(bytes_len)
-                .any(|window| window == &tx_bytes[..bytes_len]),
-            "Request bytes did not contain the transaction bytes"
-        );
-    }
-
-    #[test]
     fn core_info_call_for_burn_block_height_should_succeed() {
         let mock = MockServerClient::new();
         let h = spawn(move || mock.client.get_burn_block_height());
@@ -1130,29 +923,6 @@ mod tests {
         write_response(
             mock.server,
             b"HTTP/1.1 200 OK\n\n4e99f99bc4a05437abb8c7d0c306618f45b203196498e2ebe287f10497124958",
-        );
-        assert!(h.join().unwrap().is_err());
-    }
-
-    #[test]
-    fn get_account_nonce_should_succeed() {
-        let mock = MockServerClient::new();
-        let address = mock.client.stacks_address;
-        let h = spawn(move || mock.client.get_account_nonce(&address));
-        let nonce = thread_rng().next_u64();
-        write_response(mock.server, build_account_nonce_response(nonce).as_bytes());
-        let returned_nonce = h.join().unwrap().expect("Failed to deserialize response");
-        assert_eq!(returned_nonce, nonce);
-    }
-
-    #[test]
-    fn get_account_nonce_should_fail() {
-        let mock = MockServerClient::new();
-        let address = mock.client.stacks_address;
-        let h = spawn(move || mock.client.get_account_nonce(&address));
-        write_response(
-            mock.server,
-            b"HTTP/1.1 200 OK\n\n{\"nonce\":\"invalid nonce\",\"balance\":\"0x00000000000000000000000000000000\",\"locked\":\"0x00000000000000000000000000000000\",\"unlock_height\":0}"
         );
         assert!(h.join().unwrap().is_err());
     }
@@ -1362,17 +1132,6 @@ mod tests {
     }
 
     #[test]
-    fn get_last_round_should_succeed() {
-        let mock = MockServerClient::new();
-        let round = rand::thread_rng().next_u64();
-        let response = build_get_last_round_response(round);
-        let h = spawn(move || mock.client.get_last_round(0));
-
-        write_response(mock.server, response.as_bytes());
-        assert_eq!(h.join().unwrap().unwrap().unwrap(), round);
-    }
-
-    #[test]
     fn get_reward_set_should_succeed() {
         let mock = MockServerClient::new();
         let private_key = StacksPrivateKey::new();
@@ -1401,56 +1160,6 @@ mod tests {
         let h = spawn(move || mock.client.get_reward_set_signers(0));
         write_response(mock.server, response.as_bytes());
         assert_eq!(h.join().unwrap().unwrap(), stacker_set.signers);
-    }
-
-    #[test]
-    fn get_round_vote_weight_should_succeed() {
-        let mock = MockServerClient::new();
-        let vote_count = rand::thread_rng().next_u64();
-        let weight = rand::thread_rng().next_u64();
-        let round_response = build_get_round_info_response(Some((vote_count, weight)));
-        let h = spawn(move || mock.client.get_round_vote_weight(0, 0));
-        write_response(mock.server, round_response.as_bytes());
-        assert_eq!(h.join().unwrap().unwrap(), Some(weight as u128));
-
-        let mock = MockServerClient::new();
-        let round_response = build_get_round_info_response(None);
-        let h = spawn(move || mock.client.get_round_vote_weight(0, 0));
-        write_response(mock.server, round_response.as_bytes());
-        assert_eq!(h.join().unwrap().unwrap(), None);
-    }
-
-    #[test]
-    fn get_vote_threshold_weight_should_succeed() {
-        let mock = MockServerClient::new();
-        let weight = rand::thread_rng().next_u64();
-        let round_response = build_get_weight_threshold_response(weight);
-        let h = spawn(move || mock.client.get_vote_threshold_weight(0));
-        write_response(mock.server, round_response.as_bytes());
-        assert_eq!(h.join().unwrap().unwrap(), weight as u128);
-    }
-
-    #[test]
-    fn get_medium_estimated_fee_ustx_should_succeed() {
-        let mock = MockServerClient::new();
-        let private_key = StacksPrivateKey::new();
-        let unsigned_tx = StacksClient::build_unsigned_contract_call_transaction(
-            &mock.client.stacks_address,
-            ContractName::from("contract-name"),
-            ClarityName::from("function-name"),
-            &[],
-            &private_key,
-            TransactionVersion::Testnet,
-            CHAIN_ID_TESTNET,
-            0,
-        )
-        .unwrap();
-
-        let estimate = thread_rng().next_u64();
-        let response = build_get_medium_estimated_fee_ustx_response(estimate).0;
-        let h = spawn(move || mock.client.get_medium_estimated_fee_ustx(&unsigned_tx));
-        write_response(mock.server, response.as_bytes());
-        assert_eq!(h.join().unwrap().unwrap(), estimate);
     }
 
     #[test]

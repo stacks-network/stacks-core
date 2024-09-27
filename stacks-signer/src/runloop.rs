@@ -281,13 +281,6 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
             stacks_private_key: self.config.stacks_private_key,
             node_host: self.config.node_host.to_string(),
             mainnet: self.config.network.is_mainnet(),
-            dkg_end_timeout: self.config.dkg_end_timeout,
-            dkg_private_timeout: self.config.dkg_private_timeout,
-            dkg_public_timeout: self.config.dkg_public_timeout,
-            nonce_timeout: self.config.nonce_timeout,
-            sign_timeout: self.config.sign_timeout,
-            tx_fee_ustx: self.config.tx_fee_ustx,
-            max_tx_fee_ustx: self.config.max_tx_fee_ustx,
             db_path: self.config.db_path.clone(),
             block_proposal_timeout: self.config.block_proposal_timeout,
         }))
