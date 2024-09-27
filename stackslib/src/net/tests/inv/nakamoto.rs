@@ -172,7 +172,8 @@ fn test_nakamoto_inv_10_tenures_10_sortitions() {
 
     let chainstate = &mut peer.stacks_node.as_mut().unwrap().chainstate;
     let sort_db = peer.sortdb.as_mut().unwrap();
-    let stacks_tip = peer.network.stacks_tip.block_id();
+    let stacks_tip_ch = peer.network.stacks_tip.consensus_hash.clone();
+    let stacks_tip_bh = peer.network.stacks_tip.block_hash.clone();
 
     let mut inv_generator = InvGenerator::new();
 
@@ -183,7 +184,14 @@ fn test_nakamoto_inv_10_tenures_10_sortitions() {
     // check the reward cycles
     for (rc, inv) in reward_cycle_invs.into_iter().enumerate() {
         let bitvec = inv_generator
-            .make_tenure_bitvector(&tip, sort_db, chainstate, &stacks_tip, rc as u64)
+            .make_tenure_bitvector(
+                &tip,
+                sort_db,
+                chainstate,
+                &stacks_tip_ch,
+                &stacks_tip_bh,
+                rc as u64,
+            )
             .unwrap();
         debug!(
             "At reward cycle {}: {:?}, mesasge = {:?}",
@@ -234,7 +242,8 @@ fn test_nakamoto_inv_2_tenures_3_sortitions() {
 
     let chainstate = &mut peer.stacks_node.as_mut().unwrap().chainstate;
     let sort_db = peer.sortdb.as_mut().unwrap();
-    let stacks_tip = peer.network.stacks_tip.block_id();
+    let stacks_tip_ch = peer.network.stacks_tip.consensus_hash.clone();
+    let stacks_tip_bh = peer.network.stacks_tip.block_hash.clone();
 
     let mut inv_generator = InvGenerator::new();
 
@@ -244,7 +253,14 @@ fn test_nakamoto_inv_2_tenures_3_sortitions() {
 
     for (rc, inv) in reward_cycle_invs.into_iter().enumerate() {
         let bitvec = inv_generator
-            .make_tenure_bitvector(&tip, sort_db, chainstate, &stacks_tip, rc as u64)
+            .make_tenure_bitvector(
+                &tip,
+                sort_db,
+                chainstate,
+                &stacks_tip_ch,
+                &stacks_tip_bh,
+                rc as u64,
+            )
             .unwrap();
         debug!(
             "At reward cycle {}: {:?}, mesasge = {:?}",
@@ -287,7 +303,8 @@ fn test_nakamoto_inv_10_extended_tenures_10_sortitions() {
 
     let chainstate = &mut peer.stacks_node.as_mut().unwrap().chainstate;
     let sort_db = peer.sortdb.as_mut().unwrap();
-    let stacks_tip = peer.network.stacks_tip.block_id();
+    let stacks_tip_ch = peer.network.stacks_tip.consensus_hash.clone();
+    let stacks_tip_bh = peer.network.stacks_tip.block_hash.clone();
 
     let mut inv_generator = InvGenerator::new();
 
@@ -297,7 +314,14 @@ fn test_nakamoto_inv_10_extended_tenures_10_sortitions() {
 
     for (rc, inv) in reward_cycle_invs.into_iter().enumerate() {
         let bitvec = inv_generator
-            .make_tenure_bitvector(&tip, sort_db, chainstate, &stacks_tip, rc as u64)
+            .make_tenure_bitvector(
+                &tip,
+                sort_db,
+                chainstate,
+                &stacks_tip_ch,
+                &stacks_tip_bh,
+                rc as u64,
+            )
             .unwrap();
         debug!("At reward cycle {}: {:?}", rc, &bitvec);
 
@@ -1119,9 +1143,13 @@ fn test_nakamoto_make_tenure_inv_in_forks() {
         .block_height_to_reward_cycle(first_burn_block_height, sort_tip.block_height)
         .unwrap();
 
+    let naka_tip_ch = peer.network.stacks_tip.consensus_hash.clone();
+    let naka_tip_bh = peer.network.stacks_tip.block_hash.clone();
     let naka_tip = peer.network.stacks_tip.block_id();
     let first_naka_tip = naka_tip.clone();
     let first_sort_tip = sort_tip.clone();
+    let first_naka_tip_ch = naka_tip_ch.clone();
+    let first_naka_tip_bh = naka_tip_bh.clone();
 
     // find the first block in this tenure
     let naka_tip_header = NakamotoChainState::get_block_header_nakamoto(chainstate.db(), &naka_tip)
@@ -1143,7 +1171,14 @@ fn test_nakamoto_make_tenure_inv_in_forks() {
     assert_eq!(invgen.cache_misses(), 0);
 
     let bits = invgen
-        .make_tenure_bitvector(&sort_tip, &sortdb, &chainstate, &naka_tip, tip_rc)
+        .make_tenure_bitvector(
+            &sort_tip,
+            &sortdb,
+            &chainstate,
+            &naka_tip_ch,
+            &naka_tip_bh,
+            tip_rc,
+        )
         .unwrap();
     debug!("test: Bits at rc {}: {:?}", tip_rc, &bits);
     debug!("test: invgen.cache_misses() = {}", invgen.cache_misses());
@@ -1152,7 +1187,14 @@ fn test_nakamoto_make_tenure_inv_in_forks() {
     assert_eq!(invgen.cache_misses(), 3);
 
     let bits = invgen
-        .make_tenure_bitvector(&sort_tip, &sortdb, &chainstate, &naka_tip, tip_rc)
+        .make_tenure_bitvector(
+            &sort_tip,
+            &sortdb,
+            &chainstate,
+            &naka_tip_ch,
+            &naka_tip_bh,
+            tip_rc,
+        )
         .unwrap();
     debug!("test: Bits at rc {}: {:?}", tip_rc, &bits);
     debug!("test: invgen.cache_misses() = {}", invgen.cache_misses());
@@ -1161,7 +1203,14 @@ fn test_nakamoto_make_tenure_inv_in_forks() {
     assert_eq!(invgen.cache_misses(), 3);
 
     let bits = invgen
-        .make_tenure_bitvector(&sort_tip, &sortdb, &chainstate, &naka_tip, tip_rc - 1)
+        .make_tenure_bitvector(
+            &sort_tip,
+            &sortdb,
+            &chainstate,
+            &naka_tip_ch,
+            &naka_tip_bh,
+            tip_rc - 1,
+        )
         .unwrap();
     debug!("test: Bits at rc {}: {:?}", tip_rc, &bits);
     debug!("test: invgen.cache_misses() = {}", invgen.cache_misses());
@@ -1173,7 +1222,14 @@ fn test_nakamoto_make_tenure_inv_in_forks() {
     assert_eq!(invgen.cache_misses(), 13);
 
     let bits = invgen
-        .make_tenure_bitvector(&sort_tip, &sortdb, &chainstate, &naka_tip, tip_rc - 1)
+        .make_tenure_bitvector(
+            &sort_tip,
+            &sortdb,
+            &chainstate,
+            &naka_tip_ch,
+            &naka_tip_bh,
+            tip_rc - 1,
+        )
         .unwrap();
     debug!("test: Bits at rc {}: {:?}", tip_rc, &bits);
     debug!("test: invgen.cache_misses() = {}", invgen.cache_misses());
@@ -1202,6 +1258,8 @@ fn test_nakamoto_make_tenure_inv_in_forks() {
 
         peer.refresh_burnchain_view();
         let naka_tip = peer.network.stacks_tip.block_id();
+        let naka_tip_ch = peer.network.stacks_tip.consensus_hash.clone();
+        let naka_tip_bh = peer.network.stacks_tip.block_hash.clone();
         let sort_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
         let tip_rc = sortdb
             .pox_constants
@@ -1209,7 +1267,14 @@ fn test_nakamoto_make_tenure_inv_in_forks() {
             .unwrap();
 
         let bits = invgen
-            .make_tenure_bitvector(&sort_tip, &sortdb, &chainstate, &naka_tip, tip_rc)
+            .make_tenure_bitvector(
+                &sort_tip,
+                &sortdb,
+                &chainstate,
+                &naka_tip_ch,
+                &naka_tip_bh,
+                tip_rc,
+            )
             .unwrap();
         debug!("test: Bits at rc {}: {:?}", tip_rc, &bits);
         debug!("test: invgen.cache_misses() = {}", invgen.cache_misses());
@@ -1228,6 +1293,8 @@ fn test_nakamoto_make_tenure_inv_in_forks() {
 
     peer.refresh_burnchain_view();
     let naka_tip = peer.network.stacks_tip.block_id();
+    let naka_tip_ch = peer.network.stacks_tip.consensus_hash.clone();
+    let naka_tip_bh = peer.network.stacks_tip.block_hash.clone();
 
     //
     // ---------------------- the inv generator can track multiple forks at once ----------------------
@@ -1255,7 +1322,14 @@ fn test_nakamoto_make_tenure_inv_in_forks() {
     // load inv off of the canonical tip.
     // It should show a missed sortition.
     let bits = invgen
-        .make_tenure_bitvector(&sort_tip, &sortdb, &chainstate, &naka_tip, tip_rc)
+        .make_tenure_bitvector(
+            &sort_tip,
+            &sortdb,
+            &chainstate,
+            &naka_tip_ch,
+            &naka_tip_bh,
+            tip_rc,
+        )
         .unwrap();
     debug!(
         "test: Bits in fork on {} at rc {}: {:?}",
@@ -1276,7 +1350,8 @@ fn test_nakamoto_make_tenure_inv_in_forks() {
             &sort_tip,
             &sortdb,
             &chainstate,
-            &fork_naka_block.block_id(),
+            &fork_naka_block.header.consensus_hash,
+            &fork_naka_block.header.block_hash(),
             tip_rc,
         )
         .unwrap();
@@ -1306,6 +1381,8 @@ fn test_nakamoto_make_tenure_inv_in_forks() {
 
     peer.refresh_burnchain_view();
     let new_naka_tip = peer.network.stacks_tip.block_id();
+    let new_naka_tip_ch = peer.network.stacks_tip.consensus_hash.clone();
+    let new_naka_tip_bh = peer.network.stacks_tip.block_hash.clone();
     let sort_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
     let tip_rc = sortdb
         .pox_constants
@@ -1319,7 +1396,14 @@ fn test_nakamoto_make_tenure_inv_in_forks() {
     // It should show two missed sortitions, for each fork.
     // only one additional cache miss
     let bits = invgen
-        .make_tenure_bitvector(&sort_tip, &sortdb, &chainstate, &naka_tip, tip_rc)
+        .make_tenure_bitvector(
+            &sort_tip,
+            &sortdb,
+            &chainstate,
+            &naka_tip_ch,
+            &naka_tip_bh,
+            tip_rc,
+        )
         .unwrap();
     debug!(
         "test: Bits in fork on {} at rc {}: {:?}",
@@ -1341,7 +1425,8 @@ fn test_nakamoto_make_tenure_inv_in_forks() {
             &sort_tip,
             &sortdb,
             &chainstate,
-            &fork_naka_block.block_id(),
+            &fork_naka_block.header.consensus_hash,
+            &fork_naka_block.header.block_hash(),
             tip_rc,
         )
         .unwrap();
@@ -1363,7 +1448,14 @@ fn test_nakamoto_make_tenure_inv_in_forks() {
     // load inv off of the canonical tip again.
     // It should show two missed sortitions.
     let bits = invgen
-        .make_tenure_bitvector(&sort_tip, &sortdb, &chainstate, &naka_tip, tip_rc)
+        .make_tenure_bitvector(
+            &sort_tip,
+            &sortdb,
+            &chainstate,
+            &naka_tip_ch,
+            &naka_tip_bh,
+            tip_rc,
+        )
         .unwrap();
     debug!(
         "test: Bits in fork on {} at rc {}: {:?}",
@@ -1397,6 +1489,8 @@ fn test_nakamoto_make_tenure_inv_in_forks() {
         peer.mine_nakamoto_on(vec![naka_block.clone()]);
     }
     let naka_tip = peer.network.stacks_tip.block_id();
+    let naka_tip_ch = peer.network.stacks_tip.consensus_hash.clone();
+    let naka_tip_bh = peer.network.stacks_tip.block_hash.clone();
     let sort_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
 
     // new inv generator with a search depth of 3
@@ -1408,7 +1502,8 @@ fn test_nakamoto_make_tenure_inv_in_forks() {
             &first_sort_tip,
             &sortdb,
             &chainstate,
-            &first_naka_tip,
+            &first_naka_tip_ch,
+            &first_naka_tip_bh,
             tip_rc,
         )
         .unwrap();
@@ -1417,7 +1512,14 @@ fn test_nakamoto_make_tenure_inv_in_forks() {
 
     // load a descendant that is 6 blocks higher
     let bits = invgen
-        .make_tenure_bitvector(&sort_tip, &sortdb, &chainstate, &naka_tip, tip_rc)
+        .make_tenure_bitvector(
+            &sort_tip,
+            &sortdb,
+            &chainstate,
+            &naka_tip_ch,
+            &naka_tip_bh,
+            tip_rc,
+        )
         .unwrap();
     assert_eq!(
         bits,
@@ -1436,7 +1538,8 @@ fn test_nakamoto_make_tenure_inv_in_forks() {
             &first_sort_tip,
             &sortdb,
             &chainstate,
-            &first_naka_tip,
+            &first_naka_tip_ch,
+            &first_naka_tip_bh,
             tip_rc,
         )
         .unwrap();
@@ -1445,7 +1548,14 @@ fn test_nakamoto_make_tenure_inv_in_forks() {
 
     // load a descendant that is 6 blocks higher
     let bits = invgen
-        .make_tenure_bitvector(&sort_tip, &sortdb, &chainstate, &naka_tip, tip_rc)
+        .make_tenure_bitvector(
+            &sort_tip,
+            &sortdb,
+            &chainstate,
+            &naka_tip_ch,
+            &naka_tip_bh,
+            tip_rc,
+        )
         .unwrap();
     assert_eq!(
         bits,
@@ -1508,6 +1618,8 @@ fn test_nakamoto_make_tenure_inv_in_many_reward_cycles() {
         .unwrap();
 
     let naka_tip = peer.network.stacks_tip.block_id();
+    let naka_tip_ch = peer.network.stacks_tip.consensus_hash.clone();
+    let naka_tip_bh = peer.network.stacks_tip.block_hash.clone();
     let first_naka_tip = naka_tip.clone();
     let first_sort_tip = sort_tip.clone();
 
@@ -1531,7 +1643,14 @@ fn test_nakamoto_make_tenure_inv_in_many_reward_cycles() {
     assert_eq!(invgen.cache_misses(), 0);
 
     let bits = invgen
-        .make_tenure_bitvector(&sort_tip, &sortdb, &chainstate, &naka_tip, tip_rc)
+        .make_tenure_bitvector(
+            &sort_tip,
+            &sortdb,
+            &chainstate,
+            &naka_tip_ch,
+            &naka_tip_bh,
+            tip_rc,
+        )
         .unwrap();
     debug!("test: Bits at rc {}: {:?}", tip_rc, &bits);
     debug!("test: invgen.cache_misses() = {}", invgen.cache_misses());
@@ -1540,7 +1659,14 @@ fn test_nakamoto_make_tenure_inv_in_many_reward_cycles() {
     assert_eq!(invgen.cache_misses(), 3);
 
     let bits = invgen
-        .make_tenure_bitvector(&sort_tip, &sortdb, &chainstate, &naka_tip, tip_rc - 1)
+        .make_tenure_bitvector(
+            &sort_tip,
+            &sortdb,
+            &chainstate,
+            &naka_tip_ch,
+            &naka_tip_bh,
+            tip_rc - 1,
+        )
         .unwrap();
     debug!("test: Bits at rc {}: {:?}", tip_rc - 1, &bits);
     debug!("test: invgen.cache_misses() = {}", invgen.cache_misses());
@@ -1552,7 +1678,14 @@ fn test_nakamoto_make_tenure_inv_in_many_reward_cycles() {
     assert_eq!(invgen.cache_misses(), 13);
 
     let bits = invgen
-        .make_tenure_bitvector(&sort_tip, &sortdb, &chainstate, &naka_tip, tip_rc - 2)
+        .make_tenure_bitvector(
+            &sort_tip,
+            &sortdb,
+            &chainstate,
+            &naka_tip_ch,
+            &naka_tip_bh,
+            tip_rc - 2,
+        )
         .unwrap();
     debug!("test: Bits at rc {}: {:?}", tip_rc - 2, &bits);
     debug!("test: invgen.cache_misses() = {}", invgen.cache_misses());
@@ -1564,7 +1697,14 @@ fn test_nakamoto_make_tenure_inv_in_many_reward_cycles() {
     assert_eq!(invgen.cache_misses(), 17);
 
     let bits = invgen
-        .make_tenure_bitvector(&sort_tip, &sortdb, &chainstate, &naka_tip, tip_rc - 3)
+        .make_tenure_bitvector(
+            &sort_tip,
+            &sortdb,
+            &chainstate,
+            &naka_tip_ch,
+            &naka_tip_bh,
+            tip_rc - 3,
+        )
         .unwrap();
     debug!("test: Bits at rc {}: {:?}", tip_rc - 3, &bits);
     debug!("test: invgen.cache_misses() = {}", invgen.cache_misses());
@@ -1576,7 +1716,14 @@ fn test_nakamoto_make_tenure_inv_in_many_reward_cycles() {
     assert_eq!(invgen.cache_misses(), 23);
 
     let bits = invgen
-        .make_tenure_bitvector(&sort_tip, &sortdb, &chainstate, &naka_tip, tip_rc - 4)
+        .make_tenure_bitvector(
+            &sort_tip,
+            &sortdb,
+            &chainstate,
+            &naka_tip_ch,
+            &naka_tip_bh,
+            tip_rc - 4,
+        )
         .unwrap();
     debug!("test: Bits at rc {}: {:?}", tip_rc - 4, &bits);
     debug!("test: invgen.cache_misses() = {}", invgen.cache_misses());
@@ -1588,7 +1735,14 @@ fn test_nakamoto_make_tenure_inv_in_many_reward_cycles() {
     assert_eq!(invgen.cache_misses(), 27);
 
     let bits = invgen
-        .make_tenure_bitvector(&sort_tip, &sortdb, &chainstate, &naka_tip, tip_rc - 5)
+        .make_tenure_bitvector(
+            &sort_tip,
+            &sortdb,
+            &chainstate,
+            &naka_tip_ch,
+            &naka_tip_bh,
+            tip_rc - 5,
+        )
         .unwrap();
     debug!("test: Bits at rc {}: {:?}", tip_rc - 5, &bits);
     debug!("test: invgen.cache_misses() = {}", invgen.cache_misses());
@@ -1601,7 +1755,14 @@ fn test_nakamoto_make_tenure_inv_in_many_reward_cycles() {
 
     // load them all again.  cache misses should remain the same.
     let bits = invgen
-        .make_tenure_bitvector(&sort_tip, &sortdb, &chainstate, &naka_tip, tip_rc)
+        .make_tenure_bitvector(
+            &sort_tip,
+            &sortdb,
+            &chainstate,
+            &naka_tip_ch,
+            &naka_tip_bh,
+            tip_rc,
+        )
         .unwrap();
     debug!("test: Bits at rc {}: {:?}", tip_rc, &bits);
     debug!("test: invgen.cache_misses() = {}", invgen.cache_misses());
@@ -1610,7 +1771,14 @@ fn test_nakamoto_make_tenure_inv_in_many_reward_cycles() {
     assert_eq!(invgen.cache_misses(), 37);
 
     let bits = invgen
-        .make_tenure_bitvector(&sort_tip, &sortdb, &chainstate, &naka_tip, tip_rc - 1)
+        .make_tenure_bitvector(
+            &sort_tip,
+            &sortdb,
+            &chainstate,
+            &naka_tip_ch,
+            &naka_tip_bh,
+            tip_rc - 1,
+        )
         .unwrap();
     debug!("test: Bits at rc {}: {:?}", tip_rc - 1, &bits);
     debug!("test: invgen.cache_misses() = {}", invgen.cache_misses());
@@ -1622,7 +1790,14 @@ fn test_nakamoto_make_tenure_inv_in_many_reward_cycles() {
     assert_eq!(invgen.cache_misses(), 37);
 
     let bits = invgen
-        .make_tenure_bitvector(&sort_tip, &sortdb, &chainstate, &naka_tip, tip_rc - 2)
+        .make_tenure_bitvector(
+            &sort_tip,
+            &sortdb,
+            &chainstate,
+            &naka_tip_ch,
+            &naka_tip_bh,
+            tip_rc - 2,
+        )
         .unwrap();
     debug!("test: Bits at rc {}: {:?}", tip_rc - 2, &bits);
     debug!("test: invgen.cache_misses() = {}", invgen.cache_misses());
@@ -1634,7 +1809,14 @@ fn test_nakamoto_make_tenure_inv_in_many_reward_cycles() {
     assert_eq!(invgen.cache_misses(), 37);
 
     let bits = invgen
-        .make_tenure_bitvector(&sort_tip, &sortdb, &chainstate, &naka_tip, tip_rc - 3)
+        .make_tenure_bitvector(
+            &sort_tip,
+            &sortdb,
+            &chainstate,
+            &naka_tip_ch,
+            &naka_tip_bh,
+            tip_rc - 3,
+        )
         .unwrap();
     debug!("test: Bits at rc {}: {:?}", tip_rc - 3, &bits);
     debug!("test: invgen.cache_misses() = {}", invgen.cache_misses());
@@ -1646,7 +1828,14 @@ fn test_nakamoto_make_tenure_inv_in_many_reward_cycles() {
     assert_eq!(invgen.cache_misses(), 37);
 
     let bits = invgen
-        .make_tenure_bitvector(&sort_tip, &sortdb, &chainstate, &naka_tip, tip_rc - 4)
+        .make_tenure_bitvector(
+            &sort_tip,
+            &sortdb,
+            &chainstate,
+            &naka_tip_ch,
+            &naka_tip_bh,
+            tip_rc - 4,
+        )
         .unwrap();
     debug!("test: Bits at rc {}: {:?}", tip_rc - 4, &bits);
     debug!("test: invgen.cache_misses() = {}", invgen.cache_misses());
@@ -1658,7 +1847,14 @@ fn test_nakamoto_make_tenure_inv_in_many_reward_cycles() {
     assert_eq!(invgen.cache_misses(), 37);
 
     let bits = invgen
-        .make_tenure_bitvector(&sort_tip, &sortdb, &chainstate, &naka_tip, tip_rc - 5)
+        .make_tenure_bitvector(
+            &sort_tip,
+            &sortdb,
+            &chainstate,
+            &naka_tip_ch,
+            &naka_tip_bh,
+            tip_rc - 5,
+        )
         .unwrap();
     debug!("test: Bits at rc {}: {:?}", tip_rc - 5, &bits);
     debug!("test: invgen.cache_misses() = {}", invgen.cache_misses());
