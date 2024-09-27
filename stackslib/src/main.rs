@@ -63,9 +63,10 @@ use blockstack_lib::core::{MemPoolDB, *};
 use blockstack_lib::cost_estimates::metrics::UnitMetric;
 use blockstack_lib::cost_estimates::UnitEstimator;
 use blockstack_lib::net::db::LocalPeer;
+use blockstack_lib::net::inv::nakamoto::InvGenerator;
 use blockstack_lib::net::p2p::PeerNetwork;
 use blockstack_lib::net::relay::Relayer;
-use blockstack_lib::net::StacksMessage;
+use blockstack_lib::net::{NakamotoInvData, StacksMessage};
 use blockstack_lib::util_lib::db::sqlite_open;
 use blockstack_lib::util_lib::strings::UrlString;
 use blockstack_lib::{clarity_cli, cli};
@@ -972,6 +973,61 @@ simulating a miner.
         analyze_sortition_mev(argv);
         // should be unreachable
         process::exit(1);
+    }
+
+    if argv[1] == "get-tenure-inv" {
+        let chainstate_root_path = &argv[2];
+        let tip_block_ids = &argv[3..];
+        let chainstate_path = format!("{}/chainstate", &chainstate_root_path);
+        let sortition_path = format!("{}/burnchain/sortition", &chainstate_root_path);
+
+        let (chainstate, _) =
+            StacksChainState::open(false, 0x80000000, &chainstate_path, None).unwrap();
+        let pox_consts =
+            PoxConstants::new(900, 100, 80, 0, 0, u64::MAX, u64::MAX, 240, 241, 242, 242);
+        let sortition_db = SortitionDB::open(&sortition_path, true, pox_consts).unwrap();
+
+        let mut invgen = InvGenerator::new();
+        let tip = SortitionDB::get_canonical_burn_chain_tip(sortition_db.conn()).unwrap();
+
+        for tip_block_id in tip_block_ids.iter() {
+            let tip_block_id = StacksBlockId::from_hex(tip_block_id).unwrap();
+            let header =
+                NakamotoChainState::get_block_header_nakamoto(chainstate.db(), &tip_block_id)
+                    .unwrap()
+                    .unwrap();
+            let sn = SortitionDB::get_block_snapshot_consensus(
+                sortition_db.conn(),
+                &header.consensus_hash,
+            )
+            .unwrap()
+            .unwrap();
+
+            let reward_cycle = sortition_db
+                .pox_constants
+                .block_height_to_reward_cycle(230, sn.block_height)
+                .unwrap();
+
+            let bitvec_bools = invgen
+                .make_tenure_bitvector(
+                    &tip,
+                    &sortition_db,
+                    &chainstate,
+                    &header.consensus_hash,
+                    &header.anchored_header.block_hash(),
+                    reward_cycle,
+                )
+                .unwrap();
+            let nakamoto_inv = NakamotoInvData::try_from(&bitvec_bools)
+                .map_err(|e| {
+                    warn!("Failed to create a NakamotoInv response: {:?}", &e);
+                    e
+                })
+                .unwrap();
+
+            println!("{}: {:?}", tip_block_id, &nakamoto_inv);
+        }
+        process::exit(0);
     }
 
     if argv[1] == "replay-chainstate" {
