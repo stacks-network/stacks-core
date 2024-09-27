@@ -182,7 +182,11 @@ impl GetSortitionHandler {
                 // try to figure out what the last snapshot in this fork was with a successful
                 //  sortition.
                 // optimization heuristic: short-circuit the load if its just `stacks_parent_sn`
-                let last_sortition_ch = if stacks_parent_sn.sortition {
+                //   if the sortition count incremented by exactly 1 between us and our **stacks** parent,
+                //   then the stacks parent's sortition *must* be the last one with a winner.
+                let sortitions_incremented_by_1 =
+                    sortition_sn.num_sortitions == stacks_parent_sn.num_sortitions + 1;
+                let last_sortition_ch = if sortitions_incremented_by_1 {
                     stacks_parent_sn.consensus_hash.clone()
                 } else {
                     // we actually need to perform the marf lookup
