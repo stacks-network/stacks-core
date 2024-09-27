@@ -17,7 +17,7 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use stacks_common::bitvec::BitVec;
-use stacks_common::types::chainstate::StacksBlockId;
+use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId};
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs};
 
@@ -155,16 +155,34 @@ impl InvGenerator {
         &self,
         chainstate: &StacksChainState,
         tip_block_id: &StacksBlockId,
-    ) -> Result<Option<StacksBlockId>, NetError> {
+    ) -> Result<Option<(StacksBlockId, Vec<ConsensusHash>)>, NetError> {
         let mut cursor = tip_block_id.clone();
+        let mut chs = vec![];
+        let Some(ch) =
+            NakamotoChainState::get_block_header_nakamoto_tenure_id(chainstate.db(), &cursor)?
+        else {
+            return Ok(None);
+        };
+        chs.push(ch);
         for _ in 0..self.tip_ancestor_search_depth {
             let parent_id_opt =
                 NakamotoChainState::get_nakamoto_parent_block_id(chainstate.db(), &cursor)?;
+
             let Some(parent_id) = parent_id_opt else {
                 return Ok(None);
             };
+
+            let Some(parent_ch) = NakamotoChainState::get_block_header_nakamoto_tenure_id(
+                chainstate.db(),
+                &parent_id,
+            )?
+            else {
+                return Ok(None);
+            };
+            chs.push(parent_ch);
+
             if self.processed_tenures.contains_key(&parent_id) {
-                return Ok(Some(parent_id));
+                return Ok(Some((parent_id, chs)));
             }
             cursor = parent_id;
         }
@@ -188,22 +206,29 @@ impl InvGenerator {
     pub(crate) fn get_processed_tenure(
         &mut self,
         chainstate: &StacksChainState,
-        tip_block_id: &StacksBlockId,
+        tip_block_ch: &ConsensusHash,
+        tip_block_bh: &BlockHeaderHash,
         tenure_id_consensus_hash: &ConsensusHash,
     ) -> Result<Option<InvTenureInfo>, NetError> {
-        if self.processed_tenures.get(tip_block_id).is_none() {
+        let tip_block_id = StacksBlockId::new(tip_block_ch, tip_block_bh);
+        if self.processed_tenures.get(&tip_block_id).is_none() {
             // this tip has no known table.
             // does it have an ancestor with a table? If so, then move its ancestor's table to this
             // tip. Otherwise, make a new table.
-            if let Some(ancestor_tip_id) =
-                self.find_ancestor_processed_tenures(chainstate, tip_block_id)?
+            if let Some((ancestor_tip_id, intermediate_tenures)) =
+                self.find_ancestor_processed_tenures(chainstate, &tip_block_id)?
             {
-                let ancestor_tenures = self
+                let mut ancestor_tenures = self
                     .processed_tenures
                     .remove(&ancestor_tip_id)
                     .unwrap_or_else(|| {
                         panic!("FATAL: did not have ancestor tip reported by search");
                     });
+
+                for ch in intermediate_tenures.into_iter() {
+                    ancestor_tenures.remove(&ch);
+                }
+                ancestor_tenures.remove(tip_block_ch);
 
                 self.processed_tenures
                     .insert(tip_block_id.clone(), ancestor_tenures);
@@ -211,9 +236,10 @@ impl InvGenerator {
                 self.processed_tenures
                     .insert(tip_block_id.clone(), HashMap::new());
             }
+        } else {
         }
 
-        let Some(tenure_infos) = self.processed_tenures.get_mut(tip_block_id) else {
+        let Some(tenure_infos) = self.processed_tenures.get_mut(&tip_block_id) else {
             unreachable!("FATAL: inserted table for chain tip, but didn't get it back");
         };
 
@@ -224,9 +250,9 @@ impl InvGenerator {
         } else {
             // we have not loaded the tenure info for this tip, so go get it
             let loaded_info_opt =
-                InvTenureInfo::load(chainstate, tip_block_id, &tenure_id_consensus_hash)?;
-            tenure_infos.insert(tenure_id_consensus_hash.clone(), loaded_info_opt.clone());
+                InvTenureInfo::load(chainstate, &tip_block_id, &tenure_id_consensus_hash)?;
 
+            tenure_infos.insert(tenure_id_consensus_hash.clone(), loaded_info_opt.clone());
             self.cache_misses = self.cache_misses.saturating_add(1);
             return Ok(loaded_info_opt);
         }
@@ -269,9 +295,11 @@ impl InvGenerator {
         tip: &BlockSnapshot,
         sortdb: &SortitionDB,
         chainstate: &StacksChainState,
-        nakamoto_tip: &StacksBlockId,
+        nakamoto_tip_ch: &ConsensusHash,
+        nakamoto_tip_bh: &BlockHeaderHash,
         reward_cycle: u64,
     ) -> Result<Vec<bool>, NetError> {
+        let nakamoto_tip = StacksBlockId::new(nakamoto_tip_ch, nakamoto_tip_bh);
         let ih = sortdb.index_handle(&tip.sortition_id);
 
         // N.B. reward_cycle_to_block_height starts at reward index 1
@@ -290,8 +318,12 @@ impl InvGenerator {
         let mut cur_height = reward_cycle_end_tip.block_height;
         let mut cur_consensus_hash = reward_cycle_end_tip.consensus_hash;
 
-        let mut cur_tenure_opt =
-            self.get_processed_tenure(chainstate, &nakamoto_tip, &cur_consensus_hash)?;
+        let mut cur_tenure_opt = self.get_processed_tenure(
+            chainstate,
+            nakamoto_tip_ch,
+            nakamoto_tip_bh,
+            &cur_consensus_hash,
+        )?;
 
         // loop variables and invariants:
         //
@@ -342,7 +374,8 @@ impl InvGenerator {
                     tenure_status.push(true);
                     cur_tenure_opt = self.get_processed_tenure(
                         chainstate,
-                        &nakamoto_tip,
+                        nakamoto_tip_ch,
+                        nakamoto_tip_bh,
                         &cur_tenure_info.parent_tenure_id_consensus_hash,
                     )?;
                 } else {
@@ -363,7 +396,8 @@ impl InvGenerator {
                 tenure_status.push(false);
                 cur_tenure_opt = self.get_processed_tenure(
                     chainstate,
-                    &nakamoto_tip,
+                    nakamoto_tip_ch,
+                    nakamoto_tip_bh,
                     &parent_sortition_consensus_hash,
                 )?;
             }
