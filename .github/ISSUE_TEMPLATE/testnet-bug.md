@@ -3,7 +3,7 @@ name: Testnet Bug
 about: Use this template to submit Stacks 2.0 testnet bugs
 title: "[TESTNET BUG]"
 labels: bug, testnet
-assignees: 'timstackblock'
+assignees: ''
 
 ---
 

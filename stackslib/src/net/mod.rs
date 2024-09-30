@@ -1041,23 +1041,24 @@ pub struct NackData {
     pub error_code: u32,
 }
 pub mod NackErrorCodes {
-    /// A handshake is required before the protocol can proceed
+    /// A handshake has not yet been completed with the requester
+    /// and it is required before the protocol can proceed
     pub const HandshakeRequired: u32 = 1;
-    /// The protocol could not find a required burnchain block
+    /// The request depends on a burnchain block that this peer does not recognize
     pub const NoSuchBurnchainBlock: u32 = 2;
-    /// The requester is sending too many requests
+    /// The remote peer has exceeded local per-peer bandwidth limits
     pub const Throttled: u32 = 3;
-    /// The state the requester referenced referrs to a PoX fork we do not recognize
+    /// The request depends on a PoX fork that this peer does not recognize as canonical
     pub const InvalidPoxFork: u32 = 4;
-    /// The message is inappropriate for this step of the protocol
+    /// The message received is not appropriate for the ongoing step in the protocol being executed
     pub const InvalidMessage: u32 = 5;
-    /// The referenced StackerDB does not exist on this node
+    /// The StackerDB requested is not known or configured on this node
     pub const NoSuchDB: u32 = 6;
-    /// The referenced StackerDB chunk is out-of-date with respect to our replica
+    /// The StackerDB chunk request referred to an older copy of the chunk than this node has
     pub const StaleVersion: u32 = 7;
-    /// The referenced StackerDB state view is out-of-date with respect to our replica
+    /// The remote peer's view of the burnchain is too out-of-date for the protocol to continue
     pub const StaleView: u32 = 8;
-    /// The referenced StackerDB chunk is stale locally relative to the requested version
+    /// The StackerDB chunk request referred to a newer copy of the chunk that this node has
     pub const FutureVersion: u32 = 9;
     /// The referenced StackerDB state view is stale locally relative to the requested version
     pub const FutureView: u32 = 10;
