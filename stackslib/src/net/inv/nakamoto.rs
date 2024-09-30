@@ -163,7 +163,10 @@ impl InvGenerator {
     /// the maximum expected number of blocks to be processed in-between handling `GetNakamotoInv`
     /// messages.
     ///
-    /// If found, then return the ancestor block ID represented in `self.processed_tenures`.
+    /// If found, then return the ancestor block ID represented in `self.processed_tenures`, as
+    /// well as the list of any intermediate tenures between (and including) that of `tip_block_id`
+    /// and that of (and including) the highest-found ancestor.
+    ///
     /// If not, then return None.
     pub(crate) fn find_ancestor_processed_tenures(
         &self,
@@ -232,6 +235,18 @@ impl InvGenerator {
             if let Some((ancestor_tip_id, intermediate_tenures)) =
                 self.find_ancestor_processed_tenures(chainstate, &tip_block_id)?
             {
+                // The table removals here are for cache maintenance.
+                //
+                // Between successive calls to this function, the Stacks tip (identified by
+                // `tip_block_ch` and `tip_block_bh) can advance as more blocks are discovered.
+                // This means that tenures that had previously been treated as absent could now be
+                // present.  By evicting cached data for all tenures between (and including) the
+                // highest ancestor of the current Stacks tip, and the current Stacks tip, we force
+                // this code to re-evaluate the presence or absence of each potentially-affected
+                // tenure.
+                //
+                // First, remove the highest ancestor's table, so we can re-assign it to the new
+                // tip.
                 let mut ancestor_tenures = self
                     .processed_tenures
                     .remove(&ancestor_tip_id)
@@ -239,11 +254,14 @@ impl InvGenerator {
                         panic!("FATAL: did not have ancestor tip reported by search");
                     });
 
+                // Clear out any intermediate cached results for tenure presence/absence, including
+                // both that of the highest ancestor and the current tip.
                 for ch in intermediate_tenures.into_iter() {
                     ancestor_tenures.remove(&ch);
                 }
                 ancestor_tenures.remove(tip_block_ch);
 
+                // Update the table so it is pointed to by the new tip.
                 self.processed_tenures
                     .insert(tip_block_id.clone(), ancestor_tenures);
             } else {
@@ -256,12 +274,12 @@ impl InvGenerator {
             unreachable!("FATAL: inserted table for chain tip, but didn't get it back");
         };
 
-        // this tip has a known table
         let ret = if let Some(loaded_tenure_info) = tenure_infos.get(tenure_id_consensus_hash) {
             // we've loaded this tenure info before for this tip
             Ok(loaded_tenure_info.clone())
         } else {
-            // we have not loaded the tenure info for this tip, so go get it
+            // we have not loaded the tenure info for this tip, or it was cleared via cache
+            // maintenance.  Either way, got get it from disk.
             let loaded_info_opt =
                 InvTenureInfo::load(chainstate, &tip_block_id, &tenure_id_consensus_hash)?;
 
