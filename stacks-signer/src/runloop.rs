@@ -1,5 +1,3 @@
-use std::collections::VecDeque;
-use std::fmt::Debug;
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
 // Copyright (C) 2020-2024 Stacks Open Internet Foundation
 //
@@ -15,24 +13,31 @@ use std::fmt::Debug;
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
+use std::fmt::Debug;
 use std::sync::mpsc::Sender;
 use std::time::Duration;
 
-use blockstack_lib::chainstate::stacks::boot::SIGNERS_NAME;
-use blockstack_lib::util_lib::boot::boot_code_id;
 use clarity::codec::StacksMessageCodec;
 use hashbrown::HashMap;
-use libsigner::{BlockProposal, SignerEntries, SignerEvent, SignerRunLoop};
+use libsigner::{SignerEntries, SignerEvent, SignerRunLoop};
 use slog::{slog_debug, slog_error, slog_info, slog_warn};
-use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::{debug, error, info, warn};
-use wsts::common::MerkleRoot;
-use wsts::state_machine::OperationResult;
 
 use crate::chainstate::SortitionsView;
-use crate::client::{retry_with_exponential_backoff, ClientError, SignerSlotID, StacksClient};
+use crate::client::{retry_with_exponential_backoff, ClientError, StacksClient};
 use crate::config::{GlobalConfig, SignerConfig};
 use crate::Signer as SignerTrait;
+
+#[derive(thiserror::Error, Debug)]
+/// Configuration error type
+pub enum ConfigurationError {
+    /// Error occurred while fetching data from the stacks node
+    #[error("{0}")]
+    ClientError(#[from] ClientError),
+    /// The stackerdb signer config is not yet updated
+    #[error("The stackerdb config is not yet updated")]
+    StackerDBNotUpdated,
+}
 
 /// The internal signer state info
 #[derive(PartialEq, Clone, Debug)]
@@ -47,45 +52,12 @@ pub struct StateInfo {
 pub enum SignerResult {
     /// The signer has received a status check
     StatusCheck(StateInfo),
-    /// The signer has completed an operation
-    OperationResult(OperationResult),
-}
-
-impl From<OperationResult> for SignerResult {
-    fn from(result: OperationResult) -> Self {
-        SignerResult::OperationResult(result)
-    }
 }
 
 impl From<StateInfo> for SignerResult {
     fn from(state_info: StateInfo) -> Self {
         SignerResult::StatusCheck(state_info)
     }
-}
-
-/// Which signer operation to perform
-#[derive(PartialEq, Clone, Debug)]
-pub enum SignerCommand {
-    /// Generate a DKG aggregate public key
-    Dkg,
-    /// Sign a message
-    Sign {
-        /// The block to sign over
-        block_proposal: BlockProposal,
-        /// Whether to make a taproot signature
-        is_taproot: bool,
-        /// Taproot merkle root
-        merkle_root: Option<MerkleRoot>,
-    },
-}
-
-/// Which operation to perform
-#[derive(PartialEq, Clone, Debug)]
-pub struct RunLoopCommand {
-    /// Which signer operation to perform
-    pub command: SignerCommand,
-    /// The reward cycle we are performing the operation for
-    pub reward_cycle: u64,
 }
 
 /// The runloop state
@@ -205,8 +177,6 @@ where
     pub stacks_signers: HashMap<u64, ConfiguredSigner<Signer, T>>,
     /// The state of the runloop
     pub state: State,
-    /// The commands received thus far
-    pub commands: VecDeque<RunLoopCommand>,
     /// The current reward cycle info. Only None if the runloop is uninitialized
     pub current_reward_cycle_info: Option<RewardCycleInfo>,
     /// Cache sortitin data from `stacks-node`
@@ -222,7 +192,6 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
             stacks_client,
             stacks_signers: HashMap::with_capacity(2),
             state: State::Uninitialized,
-            commands: VecDeque::new(),
             current_reward_cycle_info: None,
             sortition_state: None,
         }
@@ -246,52 +215,45 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
         Ok(Some(entries))
     }
 
-    /// Get the stackerdb signer slots for a specific reward cycle
-    pub fn get_parsed_signer_slots(
-        &self,
-        stacks_client: &StacksClient,
-        reward_cycle: u64,
-    ) -> Result<HashMap<StacksAddress, SignerSlotID>, ClientError> {
-        let signer_set =
-            u32::try_from(reward_cycle % 2).expect("FATAL: reward_cycle % 2 exceeds u32::MAX");
-        let signer_stackerdb_contract_id =
-            boot_code_id(SIGNERS_NAME, self.config.network.is_mainnet());
-        // Get the signer writers from the stacker-db to find the signer slot id
-        let stackerdb_signer_slots =
-            stacks_client.get_stackerdb_signer_slots(&signer_stackerdb_contract_id, signer_set)?;
-        let mut signer_slot_ids = HashMap::with_capacity(stackerdb_signer_slots.len());
-        for (index, (address, _)) in stackerdb_signer_slots.into_iter().enumerate() {
-            signer_slot_ids.insert(
-                address,
-                SignerSlotID(
-                    u32::try_from(index).expect("FATAL: number of signers exceeds u32::MAX"),
-                ),
-            );
-        }
-        Ok(signer_slot_ids)
-    }
     /// Get a signer configuration for a specific reward cycle from the stacks node
     fn get_signer_config(
         &mut self,
         reward_cycle: u64,
-    ) -> Result<Option<SignerConfig>, ClientError> {
+    ) -> Result<Option<SignerConfig>, ConfigurationError> {
         // We can only register for a reward cycle if a reward set exists.
         let signer_entries = match self.get_parsed_reward_set(reward_cycle) {
             Ok(Some(x)) => x,
             Ok(None) => return Ok(None),
             Err(e) => {
                 warn!("Error while fetching reward set {reward_cycle}: {e:?}");
-                return Err(e);
+                return Err(e.into());
             }
         };
-        let signer_slot_ids = match self.get_parsed_signer_slots(&self.stacks_client, reward_cycle)
-        {
-            Ok(x) => x,
-            Err(e) => {
+
+        // Ensure that the stackerdb has been updated for the reward cycle before proceeding
+        let last_calculated_reward_cycle =
+            self.stacks_client.get_last_set_cycle().map_err(|e| {
+                warn!(
+                    "Failed to fetch last calculated stackerdb cycle from stacks-node";
+                    "reward_cycle" => reward_cycle,
+                    "err" => ?e
+                );
+                ConfigurationError::StackerDBNotUpdated
+            })?;
+        if last_calculated_reward_cycle < reward_cycle as u128 {
+            warn!(
+                "Stackerdb has not been updated for reward cycle {reward_cycle}. Last calculated reward cycle is {last_calculated_reward_cycle}."
+            );
+            return Err(ConfigurationError::StackerDBNotUpdated);
+        }
+
+        let signer_slot_ids = self
+            .stacks_client
+            .get_parsed_signer_slots(reward_cycle)
+            .map_err(|e| {
                 warn!("Error while fetching stackerdb slots {reward_cycle}: {e:?}");
-                return Err(e);
-            }
-        };
+                e
+            })?;
         let current_addr = self.stacks_client.get_signer_address();
 
         let Some(signer_slot_id) = signer_slot_ids.get(current_addr) else {
@@ -300,7 +262,7 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
                 );
             return Ok(None);
         };
-        let Some(signer_id) = signer_entries.signer_ids.get(current_addr) else {
+        let Some(signer_id) = signer_entries.signer_addr_to_id.get(current_addr) else {
             warn!(
                 "Signer {current_addr} was found in stacker db but not the reward set for reward cycle {reward_cycle}."
             );
@@ -309,33 +271,18 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
         info!(
             "Signer #{signer_id} ({current_addr}) is registered for reward cycle {reward_cycle}."
         );
-        let key_ids = signer_entries
-            .signer_key_ids
-            .get(signer_id)
-            .cloned()
-            .unwrap_or_default();
         Ok(Some(SignerConfig {
             reward_cycle,
             signer_id: *signer_id,
             signer_slot_id: *signer_slot_id,
-            key_ids,
             signer_entries,
             signer_slot_ids: signer_slot_ids.into_values().collect(),
             first_proposal_burn_block_timing: self.config.first_proposal_burn_block_timing,
-            ecdsa_private_key: self.config.ecdsa_private_key,
             stacks_private_key: self.config.stacks_private_key,
             node_host: self.config.node_host.to_string(),
             mainnet: self.config.network.is_mainnet(),
-            dkg_end_timeout: self.config.dkg_end_timeout,
-            dkg_private_timeout: self.config.dkg_private_timeout,
-            dkg_public_timeout: self.config.dkg_public_timeout,
-            nonce_timeout: self.config.nonce_timeout,
-            sign_timeout: self.config.sign_timeout,
-            tx_fee_ustx: self.config.tx_fee_ustx,
-            max_tx_fee_ustx: self.config.max_tx_fee_ustx,
             db_path: self.config.db_path.clone(),
             block_proposal_timeout: self.config.block_proposal_timeout,
-            broadcast_signed_blocks: self.config.broadcast_signed_blocks,
         }))
     }
 
@@ -421,7 +368,9 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
             "reward_cycle_before_refresh" => reward_cycle_before_refresh,
             "current_reward_cycle" => current_reward_cycle,
             "configured_for_current" => Self::is_configured_for_cycle(&self.stacks_signers, current_reward_cycle),
+            "registered_for_current" => Self::is_registered_for_cycle(&self.stacks_signers, current_reward_cycle),
             "configured_for_next" => Self::is_configured_for_cycle(&self.stacks_signers, next_reward_cycle),
+            "registered_for_next" => Self::is_registered_for_cycle(&self.stacks_signers, next_reward_cycle),
             "is_in_next_prepare_phase" => is_in_next_prepare_phase,
         );
 
@@ -431,10 +380,10 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
         if !Self::is_configured_for_cycle(&self.stacks_signers, current_reward_cycle) {
             self.refresh_signer_config(current_reward_cycle);
         }
-        if is_in_next_prepare_phase {
-            if !Self::is_configured_for_cycle(&self.stacks_signers, next_reward_cycle) {
-                self.refresh_signer_config(next_reward_cycle);
-            }
+        if is_in_next_prepare_phase
+            && !Self::is_configured_for_cycle(&self.stacks_signers, next_reward_cycle)
+        {
+            self.refresh_signer_config(next_reward_cycle);
         }
 
         self.cleanup_stale_signers(current_reward_cycle);
@@ -456,6 +405,17 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
         signer.reward_cycle() == reward_cycle
     }
 
+    fn is_registered_for_cycle(
+        stacks_signers: &HashMap<u64, ConfiguredSigner<Signer, T>>,
+        reward_cycle: u64,
+    ) -> bool {
+        let Some(signer) = stacks_signers.get(&(reward_cycle % 2)) else {
+            return false;
+        };
+        signer.reward_cycle() == reward_cycle
+            && matches!(signer, ConfiguredSigner::RegisteredSigner(_))
+    }
+
     fn cleanup_stale_signers(&mut self, current_reward_cycle: u64) {
         let mut to_delete = Vec::new();
         for (idx, signer) in &mut self.stacks_signers {
@@ -466,7 +426,9 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
                 std::cmp::Ordering::Equal => {
                     // We are the next reward cycle, so check if we were registered and have any pending blocks to process
                     match signer {
-                        ConfiguredSigner::RegisteredSigner(signer) => !signer.has_pending_blocks(),
+                        ConfiguredSigner::RegisteredSigner(signer) => {
+                            !signer.has_unprocessed_blocks()
+                        }
                         _ => true,
                     }
                 }
@@ -484,7 +446,7 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
 }
 
 impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug>
-    SignerRunLoop<Vec<SignerResult>, RunLoopCommand, T> for RunLoop<Signer, T>
+    SignerRunLoop<Vec<SignerResult>, T> for RunLoop<Signer, T>
 {
     fn set_event_timeout(&mut self, timeout: Duration) {
         self.config.event_timeout = timeout;
@@ -497,11 +459,10 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug>
     fn run_one_pass(
         &mut self,
         event: Option<SignerEvent<T>>,
-        cmd: Option<RunLoopCommand>,
         res: &Sender<Vec<SignerResult>>,
     ) -> Option<Vec<SignerResult>> {
         debug!(
-            "Running one pass for the signer. state={:?}, cmd={cmd:?}, event={event:?}",
+            "Running one pass for the signer. state={:?}, event={event:?}",
             self.state
         );
         // This is the only event that we respond to from the outer signer runloop
@@ -517,9 +478,6 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug>
             }
         }
 
-        if let Some(cmd) = cmd {
-            self.commands.push_back(cmd);
-        }
         if self.state == State::Uninitialized {
             if let Err(e) = self.initialize_runloop() {
                 error!("Failed to initialize signer runloop: {e}.");
@@ -551,12 +509,6 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug>
                 event.as_ref(),
                 res,
                 current_reward_cycle,
-            );
-            // After processing event, run the next command for each signer
-            signer.process_command(
-                &self.stacks_client,
-                current_reward_cycle,
-                self.commands.pop_front(),
             );
         }
         if self.state == State::NoRegisteredSigners && event.is_some() {
@@ -593,8 +545,11 @@ mod tests {
         }
 
         let parsed_entries = SignerEntries::parse(false, &signer_entries).unwrap();
-        assert_eq!(parsed_entries.signer_ids.len(), nmb_signers);
-        let mut signer_ids = parsed_entries.signer_ids.into_values().collect::<Vec<_>>();
+        assert_eq!(parsed_entries.signer_id_to_pk.len(), nmb_signers);
+        let mut signer_ids = parsed_entries
+            .signer_id_to_pk
+            .into_keys()
+            .collect::<Vec<_>>();
         signer_ids.sort();
         assert_eq!(
             signer_ids,

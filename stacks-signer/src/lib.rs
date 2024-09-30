@@ -29,16 +29,18 @@ pub mod cli;
 pub mod client;
 /// The configuration module for the signer
 pub mod config;
+/// The signer monitor for observing signer behaviours in the network
+pub mod monitor_signers;
 /// The monitoring server for the signer
 pub mod monitoring;
 /// The primary runloop for the signer
 pub mod runloop;
 /// The signer state module
 pub mod signerdb;
-/// The v0 implementation of the signer. This does not include WSTS support
+/// The util module for the signer
+pub mod utils;
+/// The v0 implementation of the signer.
 pub mod v0;
-/// The v1 implementation of the singer. This includes WSTS support
-pub mod v1;
 
 #[cfg(test)]
 mod tests;
@@ -55,7 +57,7 @@ use stacks_common::{info, warn};
 
 use crate::client::StacksClient;
 use crate::config::SignerConfig;
-use crate::runloop::{RunLoop, RunLoopCommand};
+use crate::runloop::RunLoop;
 
 /// A trait which provides a common `Signer` interface for `v0` and `v1`
 pub trait Signer<T: SignerEventTrait>: Debug + Display {
@@ -72,15 +74,8 @@ pub trait Signer<T: SignerEventTrait>: Debug + Display {
         res: &Sender<Vec<SignerResult>>,
         current_reward_cycle: u64,
     );
-    /// Process a command
-    fn process_command(
-        &mut self,
-        stacks_client: &StacksClient,
-        current_reward_cycle: u64,
-        command: Option<RunLoopCommand>,
-    );
     /// Check if the signer is in the middle of processing blocks
-    fn has_pending_blocks(&self) -> bool;
+    fn has_unprocessed_blocks(&self) -> bool;
 }
 
 /// A wrapper around the running signer type for the signer
@@ -88,14 +83,12 @@ pub type RunningSigner<T> = libsigner::RunningSigner<SignerEventReceiver<T>, Vec
 
 /// The wrapper for the runloop signer type
 type RunLoopSigner<S, T> =
-    libsigner::Signer<RunLoopCommand, Vec<SignerResult>, RunLoop<S, T>, SignerEventReceiver<T>, T>;
+    libsigner::Signer<Vec<SignerResult>, RunLoop<S, T>, SignerEventReceiver<T>, T>;
 
 /// The spawned signer
 pub struct SpawnedSigner<S: Signer<T> + Send, T: SignerEventTrait> {
     /// The underlying running signer thread handle
     running_signer: RunningSigner<T>,
-    /// The command sender for interacting with the running signer
-    pub cmd_send: Sender<RunLoopCommand>,
     /// The result receiver for interacting with the running signer
     pub res_recv: Receiver<Vec<SignerResult>>,
     /// The spawned signer's config
@@ -129,7 +122,6 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SpawnedSigner
             For more information, check the documentation at \
             https://docs.stacks.co/nakamoto-upgrade/signing-and-stacking/faq#what-should-the-networking-setup-for-my-signer-look-like."
         );
-        let (cmd_send, cmd_recv) = channel();
         let (res_send, res_recv) = channel();
         let ev = SignerEventReceiver::new(config.network.is_mainnet());
         #[cfg(feature = "monitoring_prom")]
@@ -137,12 +129,10 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SpawnedSigner
             crate::monitoring::start_serving_monitoring_metrics(config.clone()).ok();
         }
         let runloop = RunLoop::new(config.clone());
-        let mut signer: RunLoopSigner<S, T> =
-            libsigner::Signer::new(runloop, ev, cmd_recv, res_send);
+        let mut signer: RunLoopSigner<S, T> = libsigner::Signer::new(runloop, ev, res_send);
         let running_signer = signer.spawn(endpoint).expect("Failed to spawn signer");
         SpawnedSigner {
             running_signer,
-            cmd_send,
             res_recv,
             _phantom: std::marker::PhantomData,
             config,

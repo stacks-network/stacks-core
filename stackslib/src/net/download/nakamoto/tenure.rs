@@ -31,7 +31,6 @@ use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs, log};
-use wsts::curve::point::Point;
 
 use crate::burnchains::{Burnchain, BurnchainView, PoxConstants};
 use crate::chainstate::burn::db::sortdb::{
@@ -51,6 +50,7 @@ use crate::core::{
 use crate::net::api::gettenureinfo::RPCGetTenureInfo;
 use crate::net::chat::ConversationP2P;
 use crate::net::db::{LocalPeer, PeerDB};
+use crate::net::download::nakamoto::downloader_block_height_to_reward_cycle;
 use crate::net::http::HttpRequestContents;
 use crate::net::httpcore::{StacksHttpRequest, StacksHttpResponse};
 use crate::net::inv::epoch2x::InvState;
@@ -325,9 +325,15 @@ impl TenureStartEnd {
                 wt_start.winning_block_id.clone(),
                 wt_end.winning_block_id.clone(),
                 rc,
-                pox_constants
-                    .block_height_to_reward_cycle(first_burn_height, wt_start.burn_height)
-                    .expect("FATAL: tenure from before system start"),
+                downloader_block_height_to_reward_cycle(
+                    pox_constants,
+                    first_burn_height,
+                    wt_start.burn_height,
+                )
+                .expect(&format!(
+                    "FATAL: tenure from before system start ({} <= {})",
+                    wt_start.burn_height, first_burn_height
+                )),
                 wt.processed,
             );
             tenure_start_end.fetch_end_block = true;

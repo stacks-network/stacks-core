@@ -55,7 +55,7 @@ use crate::chainstate::burn::{ConsensusHash, ConsensusHashExtensions};
 use crate::chainstate::nakamoto::{
     HeaderTypeNames, NakamotoBlock, NakamotoBlockHeader, NakamotoChainState,
     NakamotoStagingBlocksConn, NAKAMOTO_CHAINSTATE_SCHEMA_1, NAKAMOTO_CHAINSTATE_SCHEMA_2,
-    NAKAMOTO_CHAINSTATE_SCHEMA_3,
+    NAKAMOTO_CHAINSTATE_SCHEMA_3, NAKAMOTO_CHAINSTATE_SCHEMA_4,
 };
 use crate::chainstate::stacks::address::StacksAddressExtensions;
 use crate::chainstate::stacks::boot::*;
@@ -160,7 +160,7 @@ pub struct MinerPaymentSchedule {
     pub vtxindex: u32,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum StacksBlockHeaderTypes {
     Epoch2(StacksBlockHeader),
     Nakamoto(NakamotoBlockHeader),
@@ -298,14 +298,14 @@ impl DBConfig {
         });
         match epoch_id {
             StacksEpochId::Epoch10 => true,
-            StacksEpochId::Epoch20 => version_u32 >= 1 && version_u32 <= 6,
-            StacksEpochId::Epoch2_05 => version_u32 >= 2 && version_u32 <= 6,
-            StacksEpochId::Epoch21 => version_u32 >= 3 && version_u32 <= 6,
-            StacksEpochId::Epoch22 => version_u32 >= 3 && version_u32 <= 6,
-            StacksEpochId::Epoch23 => version_u32 >= 3 && version_u32 <= 6,
-            StacksEpochId::Epoch24 => version_u32 >= 3 && version_u32 <= 6,
-            StacksEpochId::Epoch25 => version_u32 >= 3 && version_u32 <= 6,
-            StacksEpochId::Epoch30 => version_u32 >= 3 && version_u32 <= 6,
+            StacksEpochId::Epoch20 => version_u32 >= 1 && version_u32 <= 7,
+            StacksEpochId::Epoch2_05 => version_u32 >= 2 && version_u32 <= 7,
+            StacksEpochId::Epoch21 => version_u32 >= 3 && version_u32 <= 7,
+            StacksEpochId::Epoch22 => version_u32 >= 3 && version_u32 <= 7,
+            StacksEpochId::Epoch23 => version_u32 >= 3 && version_u32 <= 7,
+            StacksEpochId::Epoch24 => version_u32 >= 3 && version_u32 <= 7,
+            StacksEpochId::Epoch25 => version_u32 >= 3 && version_u32 <= 7,
+            StacksEpochId::Epoch30 => version_u32 >= 3 && version_u32 <= 7,
         }
     }
 }
@@ -679,7 +679,7 @@ impl<'a> DerefMut for ChainstateTx<'a> {
     }
 }
 
-pub const CHAINSTATE_VERSION: &'static str = "6";
+pub const CHAINSTATE_VERSION: &'static str = "7";
 
 const CHAINSTATE_INITIAL_SCHEMA: &'static [&'static str] = &[
     "PRAGMA foreign_keys = ON;",
@@ -867,6 +867,8 @@ const CHAINSTATE_SCHEMA_3: &'static [&'static str] = &[
     // proessed
     r#"
     CREATE TABLE burnchain_txids(
+        -- in epoch 2.x, this is the index block hash of the Stacks block.
+        -- in epoch 3.x, this is the index block hash of the tenure-start block.
         index_block_hash TEXT PRIMARY KEY,
         -- this is a JSON-encoded list of txids
         txids TEXT NOT NULL
@@ -1038,13 +1040,17 @@ impl StacksChainState {
         Ok(config.expect("BUG: no db_config installed"))
     }
 
-    fn apply_schema_migrations<'a>(
-        tx: &DBTx<'a>,
+    /// Do we need a schema migration?
+    /// Return Ok(true) if so
+    /// Return Ok(false) if not
+    /// Return Err(..) on DB errors, or if this DB is not consistent with `mainnet` or `chain_id`
+    fn need_schema_migrations(
+        conn: &Connection,
         mainnet: bool,
         chain_id: u32,
-    ) -> Result<(), Error> {
-        let mut db_config =
-            StacksChainState::load_db_config(tx).expect("CORRUPTION: no db_config found");
+    ) -> Result<bool, Error> {
+        let db_config =
+            StacksChainState::load_db_config(conn).expect("CORRUPTION: no db_config found");
 
         if db_config.mainnet != mainnet {
             error!(
@@ -1062,55 +1068,79 @@ impl StacksChainState {
             return Err(Error::InvalidChainstateDB);
         }
 
-        if db_config.version != CHAINSTATE_VERSION {
-            while db_config.version != CHAINSTATE_VERSION {
-                match db_config.version.as_str() {
-                    "1" => {
-                        // migrate to 2
-                        info!("Migrating chainstate schema from version 1 to 2");
-                        for cmd in CHAINSTATE_SCHEMA_2.iter() {
-                            tx.execute_batch(cmd)?;
-                        }
-                    }
-                    "2" => {
-                        // migrate to 3
-                        info!("Migrating chainstate schema from version 2 to 3");
-                        for cmd in CHAINSTATE_SCHEMA_3.iter() {
-                            tx.execute_batch(cmd)?;
-                        }
-                    }
-                    "3" => {
-                        // migrate to nakamoto 1
-                        info!("Migrating chainstate schema from version 3 to 4: nakamoto support");
-                        for cmd in NAKAMOTO_CHAINSTATE_SCHEMA_1.iter() {
-                            tx.execute_batch(cmd)?;
-                        }
-                    }
-                    "4" => {
-                        // migrate to nakamoto 2
-                        info!("Migrating chainstate schema from version 4 to 5: fix nakamoto tenure typo");
-                        for cmd in NAKAMOTO_CHAINSTATE_SCHEMA_2.iter() {
-                            tx.execute_batch(cmd)?;
-                        }
-                    }
-                    "5" => {
-                        // migrate to nakamoto 3
-                        info!("Migrating chainstate schema from version 5 to 6: adds height_in_tenure field");
-                        for cmd in NAKAMOTO_CHAINSTATE_SCHEMA_3.iter() {
-                            tx.execute_batch(cmd)?;
-                        }
-                    }
-                    _ => {
-                        error!(
-                            "Invalid chain state database: expected version = {}, got {}",
-                            CHAINSTATE_VERSION, db_config.version
-                        );
-                        return Err(Error::InvalidChainstateDB);
+        Ok(db_config.version != CHAINSTATE_VERSION)
+    }
+
+    fn apply_schema_migrations<'a>(
+        tx: &DBTx<'a>,
+        mainnet: bool,
+        chain_id: u32,
+    ) -> Result<(), Error> {
+        if !Self::need_schema_migrations(tx, mainnet, chain_id)? {
+            return Ok(());
+        }
+
+        let mut db_config =
+            StacksChainState::load_db_config(tx).expect("CORRUPTION: no db_config found");
+
+        while db_config.version != CHAINSTATE_VERSION {
+            match db_config.version.as_str() {
+                "1" => {
+                    // migrate to 2
+                    info!("Migrating chainstate schema from version 1 to 2");
+                    for cmd in CHAINSTATE_SCHEMA_2.iter() {
+                        tx.execute_batch(cmd)?;
                     }
                 }
-                db_config =
-                    StacksChainState::load_db_config(tx).expect("CORRUPTION: no db_config found");
+                "2" => {
+                    // migrate to 3
+                    info!("Migrating chainstate schema from version 2 to 3");
+                    for cmd in CHAINSTATE_SCHEMA_3.iter() {
+                        tx.execute_batch(cmd)?;
+                    }
+                }
+                "3" => {
+                    // migrate to nakamoto 1
+                    info!("Migrating chainstate schema from version 3 to 4: nakamoto support");
+                    for cmd in NAKAMOTO_CHAINSTATE_SCHEMA_1.iter() {
+                        tx.execute_batch(cmd)?;
+                    }
+                }
+                "4" => {
+                    // migrate to nakamoto 2
+                    info!(
+                        "Migrating chainstate schema from version 4 to 5: fix nakamoto tenure typo"
+                    );
+                    for cmd in NAKAMOTO_CHAINSTATE_SCHEMA_2.iter() {
+                        tx.execute_batch(cmd)?;
+                    }
+                }
+                "5" => {
+                    // migrate to nakamoto 3
+                    info!("Migrating chainstate schema from version 5 to 6: adds height_in_tenure field");
+                    for cmd in NAKAMOTO_CHAINSTATE_SCHEMA_3.iter() {
+                        tx.execute_batch(cmd)?;
+                    }
+                }
+                "6" => {
+                    // migrate to nakamoto 3
+                    info!(
+                        "Migrating chainstate schema from version 6 to 7: adds signer_stats table"
+                    );
+                    for cmd in NAKAMOTO_CHAINSTATE_SCHEMA_4.iter() {
+                        tx.execute_batch(cmd)?;
+                    }
+                }
+                _ => {
+                    error!(
+                        "Invalid chain state database: expected version = {}, got {}",
+                        CHAINSTATE_VERSION, db_config.version
+                    );
+                    return Err(Error::InvalidChainstateDB);
+                }
             }
+            db_config =
+                StacksChainState::load_db_config(tx).expect("CORRUPTION: no db_config found");
         }
         Ok(())
     }
@@ -1134,6 +1164,11 @@ impl StacksChainState {
             StacksChainState::instantiate_db(mainnet, chain_id, index_path, true)
         } else {
             let mut marf = StacksChainState::open_index(index_path)?;
+            if !Self::need_schema_migrations(marf.sqlite_conn(), mainnet, chain_id)? {
+                return Ok(marf);
+            }
+
+            // need a migration
             let tx = marf.storage_tx()?;
             StacksChainState::apply_schema_migrations(&tx, mainnet, chain_id)?;
             StacksChainState::add_indexes(&tx)?;
@@ -1155,6 +1190,11 @@ impl StacksChainState {
             StacksChainState::instantiate_db(mainnet, chain_id, index_path, false)
         } else {
             let mut marf = StacksChainState::open_index(index_path)?;
+
+            // do we need to apply a schema change?
+            let db_config = StacksChainState::load_db_config(marf.sqlite_conn())
+                .expect("CORRUPTION: no db_config found");
+
             let tx = marf.storage_tx()?;
             StacksChainState::add_indexes(&tx)?;
             tx.commit()?;
@@ -2456,7 +2496,7 @@ impl StacksChainState {
     }
 
     /// Get the burnchain txids for a given index block hash
-    fn get_burnchain_txids_for_block(
+    pub(crate) fn get_burnchain_txids_for_block(
         conn: &Connection,
         index_block_hash: &StacksBlockId,
     ) -> Result<Vec<Txid>, Error> {
@@ -2478,6 +2518,7 @@ impl StacksChainState {
     }
 
     /// Get the txids of the burnchain operations applied in the past N Stacks blocks.
+    /// Only works for epoch 2.x
     pub fn get_burnchain_txids_in_ancestors(
         conn: &Connection,
         index_block_hash: &StacksBlockId,
@@ -2494,7 +2535,10 @@ impl StacksChainState {
         Ok(ret)
     }
 
-    /// Store all on-burnchain STX operations' txids by index block hash
+    /// Store all on-burnchain STX operations' txids by index block hash.
+    /// `index_block_hash` is the tenure-start block.
+    /// * For epoch 2.x, this is simply the block ID
+    /// * for epoch 3.x and later, this is the first block in the tenure.
     pub fn store_burnchain_txids(
         tx: &DBTx,
         index_block_hash: &StacksBlockId,
@@ -2675,7 +2719,7 @@ impl StacksChainState {
             headers_tx.deref_mut().execute(sql, args)?;
         }
 
-        debug!(
+        info!(
             "Advanced to new tip! {}/{}",
             new_consensus_hash,
             new_tip.block_hash()

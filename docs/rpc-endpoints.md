@@ -533,3 +533,8 @@ highest sortition), `reward_cycle` identifies the reward cycle number of this
 tenure, `tip_block_id` identifies the highest-known block in this tenure, and
 `tip_height` identifies that block's height.
 
+### GET /v3/signer/[Signer Pubkey]/[Reward Cycle]
+
+Get number of blocks signed by signer during a given reward cycle
+
+Returns a non-negative integer

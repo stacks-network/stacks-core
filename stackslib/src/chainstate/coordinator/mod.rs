@@ -179,6 +179,7 @@ pub trait BlockEventDispatcher {
         pox_constants: &PoxConstants,
         reward_set_data: &Option<RewardSetData>,
         signer_bitvec: &Option<BitVec<4000>>,
+        block_timestamp: Option<u64>,
     );
 
     /// called whenever a burn block is about to be
@@ -543,20 +544,24 @@ impl<
             in_nakamoto_epoch: false,
         };
 
-        let mut nakamoto_available = false;
         loop {
-            if nakamoto_available
-                || inst
-                    .can_process_nakamoto()
-                    .expect("FATAL: could not determine if Nakamoto is available")
-            {
-                // short-circuit to avoid gratuitous I/O
-                nakamoto_available = true;
-                if !inst.handle_comms_nakamoto(&comms, miner_status.clone()) {
+            let bits = comms.wait_on();
+            if inst.in_subsequent_nakamoto_reward_cycle() {
+                debug!("Coordinator: in subsequent Nakamoto reward cycle");
+                if !inst.handle_comms_nakamoto(bits, miner_status.clone()) {
+                    return;
+                }
+            } else if inst.in_first_nakamoto_reward_cycle() {
+                debug!("Coordinator: in first Nakamoto reward cycle");
+                if !inst.handle_comms_nakamoto(bits, miner_status.clone()) {
+                    return;
+                }
+                if !inst.handle_comms_epoch2(bits, miner_status.clone()) {
                     return;
                 }
             } else {
-                if !inst.handle_comms_epoch2(&comms, miner_status.clone()) {
+                debug!("Coordinator: in epoch2 reward cycle");
+                if !inst.handle_comms_epoch2(bits, miner_status.clone()) {
                     return;
                 }
             }
@@ -566,13 +571,8 @@ impl<
     /// This is the Stacks 2.x coordinator loop body, which handles communications
     /// from the given `comms`.  It returns `true` if the coordinator is still running, and `false`
     /// if not.
-    pub fn handle_comms_epoch2(
-        &mut self,
-        comms: &CoordinatorReceivers,
-        miner_status: Arc<Mutex<MinerStatus>>,
-    ) -> bool {
+    pub fn handle_comms_epoch2(&mut self, bits: u8, miner_status: Arc<Mutex<MinerStatus>>) -> bool {
         // timeout so that we handle Ctrl-C a little gracefully
-        let bits = comms.wait_on();
         if (bits & (CoordinatorEvents::NEW_STACKS_BLOCK as u8)) != 0 {
             signal_mining_blocked(miner_status.clone());
             debug!("Received new stacks block notice");

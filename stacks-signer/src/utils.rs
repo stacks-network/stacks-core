@@ -13,5 +13,12 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-/// Messages for the v1 signer
-pub mod messages;
+use clarity::vm::types::QualifiedContractIdentifier;
+use libsigner::{SignerSession, StackerDBSession};
+
+/// Create a new stacker db session
+pub fn stackerdb_session(host: &str, contract: QualifiedContractIdentifier) -> StackerDBSession {
+    let mut session = StackerDBSession::new(host, contract.clone());
+    session.connect(host.to_string(), contract).unwrap();
+    session
+}

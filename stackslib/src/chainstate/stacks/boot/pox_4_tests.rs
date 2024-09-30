@@ -44,7 +44,6 @@ use stacks_common::types::{Address, PrivateKey};
 use stacks_common::util::hash::{hex_bytes, to_hex, Sha256Sum, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 use stdext::num::integer::Integer;
-use wsts::curve::point::{Compressed, Point};
 
 use super::test::*;
 use super::RawRewardSetEntry;
@@ -2462,7 +2461,7 @@ fn pox_4_check_cycle_id_range_in_print_events_before_prepare_phase() {
     while get_tip(peer.sortdb.as_ref()).block_height < u64::from(target_height) {
         latest_block = Some(peer.tenure_with_txs(&[], &mut coinbase_nonce));
     }
-    // produce blocks until the we're 1 before the prepare phase (first block of prepare-phase not yet mined)
+    // produce blocks until the we're 1 before the prepare phase (first block of prepare-phase not yet mined, whatever txs we create now won't be included in the reward set)
     while !burnchain.is_in_prepare_phase(get_tip(peer.sortdb.as_ref()).block_height + 1) {
         latest_block = Some(peer.tenure_with_txs(&[], &mut coinbase_nonce));
     }
@@ -2519,7 +2518,7 @@ fn pox_4_check_cycle_id_range_in_print_events_before_prepare_phase() {
     let steph_stacking_receipt = txs.get(&steph_stacking.txid()).unwrap().clone();
     assert_eq!(steph_stacking_receipt.events.len(), 2);
     let steph_stacking_op_data = HashMap::from([
-        ("start-cycle-id", Value::UInt(next_cycle)),
+        ("start-cycle-id", Value::UInt(next_cycle + 1)), // +1 because steph stacked in the block before the prepare phase (too late)
         (
             "end-cycle-id",
             Value::some(Value::UInt(next_cycle + steph_lock_period)).unwrap(),
@@ -7154,7 +7153,7 @@ fn test_scenario_one(use_nakamoto: bool) {
         &alice.private_key,
         alice.nonce,
         alice_index,
-        &peer_config.aggregate_public_key.unwrap(),
+        peer_config.aggregate_public_key.clone().unwrap(),
         1,
         next_reward_cycle,
     );
@@ -7164,7 +7163,7 @@ fn test_scenario_one(use_nakamoto: bool) {
         &bob.private_key,
         bob.nonce,
         bob_index,
-        &peer_config.aggregate_public_key.unwrap(),
+        peer_config.aggregate_public_key.clone().unwrap(),
         1,
         next_reward_cycle,
     );
@@ -7185,7 +7184,7 @@ fn test_scenario_one(use_nakamoto: bool) {
             &tester_key,
             1, // only tx is a stack-stx
             tester_index,
-            &peer_config.aggregate_public_key.unwrap(),
+            peer_config.aggregate_public_key.unwrap(),
             1,
             next_reward_cycle,
         );
@@ -7542,7 +7541,7 @@ fn test_scenario_two(use_nakamoto: bool) {
         &alice.private_key,
         alice.nonce,
         alice_index,
-        &peer_config.aggregate_public_key.unwrap(),
+        peer_config.aggregate_public_key.clone().unwrap(),
         1,
         next_reward_cycle,
     );
@@ -7552,7 +7551,7 @@ fn test_scenario_two(use_nakamoto: bool) {
         &alice.private_key,
         alice.nonce,
         alice_index,
-        &peer_config.aggregate_public_key.unwrap(),
+        peer_config.aggregate_public_key.clone().unwrap(),
         1,
         next_reward_cycle,
     );
@@ -7562,7 +7561,7 @@ fn test_scenario_two(use_nakamoto: bool) {
         &bob.private_key,
         bob.nonce,
         bob_index,
-        &peer_config.aggregate_public_key.unwrap(),
+        peer_config.aggregate_public_key.clone().unwrap(),
         3,
         next_reward_cycle,
     );
@@ -7572,7 +7571,7 @@ fn test_scenario_two(use_nakamoto: bool) {
         &bob.private_key,
         bob.nonce,
         bob_index,
-        &peer_config.aggregate_public_key.unwrap(),
+        peer_config.aggregate_public_key.unwrap(),
         1,
         next_reward_cycle,
     );
@@ -8289,7 +8288,7 @@ fn test_scenario_four(use_nakamoto: bool) {
         &alice.private_key,
         alice.nonce,
         bob_index,
-        &peer_config.aggregate_public_key.unwrap(),
+        peer_config.aggregate_public_key.clone().unwrap(),
         1,
         next_reward_cycle,
     );
@@ -8299,7 +8298,7 @@ fn test_scenario_four(use_nakamoto: bool) {
         &alice.private_key,
         alice.nonce,
         alice_index,
-        &peer_config.aggregate_public_key.unwrap(),
+        peer_config.aggregate_public_key.clone().unwrap(),
         1,
         next_reward_cycle,
     );
@@ -8309,7 +8308,7 @@ fn test_scenario_four(use_nakamoto: bool) {
         &bob.private_key,
         bob.nonce,
         bob_index,
-        &peer_config.aggregate_public_key.unwrap(),
+        peer_config.aggregate_public_key.clone().unwrap(),
         1,
         next_reward_cycle,
     );
@@ -8334,7 +8333,7 @@ fn test_scenario_four(use_nakamoto: bool) {
             &tester_key,
             1, // only tx is a stack-stx
             tester_index,
-            &peer_config.aggregate_public_key.unwrap(),
+            peer_config.aggregate_public_key.clone().unwrap(),
             1,
             next_reward_cycle,
         );
@@ -8388,7 +8387,10 @@ fn test_scenario_four(use_nakamoto: bool) {
 
     let approved_key = get_approved_aggregate_key(&mut peer, latest_block, next_reward_cycle)
         .expect("No approved key found");
-    assert_eq!(approved_key, peer_config.aggregate_public_key.unwrap());
+    assert_eq!(
+        approved_key,
+        peer_config.aggregate_public_key.clone().unwrap()
+    );
 
     // Alice stack-extend err tx
     let alice_extend_err = make_pox_4_extend(
@@ -8422,7 +8424,7 @@ fn test_scenario_four(use_nakamoto: bool) {
         &alice.private_key,
         alice.nonce,
         alice_index,
-        &peer_config.aggregate_public_key.unwrap(),
+        peer_config.aggregate_public_key.clone().unwrap(),
         1,
         7,
     );
@@ -9714,7 +9716,7 @@ fn test_scenario_five(use_nakamoto: bool) {
         &alice.private_key,
         alice.nonce,
         alice_index,
-        &peer_config.aggregate_public_key.unwrap(),
+        peer_config.aggregate_public_key.clone().unwrap(),
         1,
         next_reward_cycle,
     );
@@ -9722,7 +9724,7 @@ fn test_scenario_five(use_nakamoto: bool) {
         &bob.private_key,
         bob.nonce,
         bob_index,
-        &peer_config.aggregate_public_key.unwrap(),
+        peer_config.aggregate_public_key.clone().unwrap(),
         1,
         next_reward_cycle,
     );
@@ -9730,7 +9732,7 @@ fn test_scenario_five(use_nakamoto: bool) {
         &carl.private_key,
         carl.nonce,
         carl_index,
-        &peer_config.aggregate_public_key.unwrap(),
+        peer_config.aggregate_public_key.clone().unwrap(),
         1,
         next_reward_cycle,
     );
@@ -9922,7 +9924,7 @@ fn test_scenario_five(use_nakamoto: bool) {
         &alice.private_key,
         alice.nonce,
         alice_index,
-        &peer_config.aggregate_public_key.unwrap(),
+        peer_config.aggregate_public_key.clone().unwrap(),
         1,
         next_reward_cycle,
     );
@@ -9930,7 +9932,7 @@ fn test_scenario_five(use_nakamoto: bool) {
         &bob.private_key,
         bob.nonce,
         bob_index,
-        &peer_config.aggregate_public_key.unwrap(),
+        peer_config.aggregate_public_key.clone().unwrap(),
         1,
         next_reward_cycle,
     );
@@ -9938,7 +9940,7 @@ fn test_scenario_five(use_nakamoto: bool) {
         &carl.private_key,
         carl.nonce,
         carl_index,
-        &peer_config.aggregate_public_key.unwrap(),
+        peer_config.aggregate_public_key.clone().unwrap(),
         1,
         next_reward_cycle,
     );
