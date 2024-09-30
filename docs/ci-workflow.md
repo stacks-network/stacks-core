@@ -4,12 +4,13 @@ All releases are built via a Github Actions workflow named [`CI`](../.github/wor
 
 - Verifying code is formatted correctly
 - Integration tests
+- Unit tests
 - [Mutation tests](https://en.wikipedia.org/wiki/Mutation_testing)
 - Creating releases
   - Building binary archives and calculating checksums
   - Publishing Docker images
 
-1. Releases are only created when the [CI workflow](../.github/workflows/ci.yml) is triggered against a release branch (ex: `release/X.Y.Z.A.n`).
+1. Releases are only created when the [CI workflow](../.github/workflows/ci.yml) is triggered against a release branch (ex: `release/X.Y.Z.A.n`, or `release/signer-X.Y.Z.A.n.x`).
 2. [Caching](https://docs.github.com/en/actions/using-workflows/caching-dependencies-to-speed-up-workflows) is used to speed up testing - a cache is created based on the type of data (i.e. cargo) and the commit sha.
    Tests can be retried quickly since the cache will persist until the cleanup job is run or the cache is evicted.
 3. [Nextest](https://nexte.st/) is used to run the tests from a cached build archive file (using commit sha as the cache key).
@@ -20,7 +21,7 @@ All releases are built via a Github Actions workflow named [`CI`](../.github/wor
 ## TL;DR
 
 - Pushing a new branch will not trigger a workflow
-- An open/re-opened/synchronized PR will produce a docker image built from source on Debian with glibc with the following tags:
+- A PR that is opened/re-opened/synchronized will produce an amd64 docker image built from source on Debian with glibc with the following tags:
   - `stacks-core:<branch-name>`
   - `stacks-core:<pr-number>`
 - An untagged build of any branch will produce a single image built from source on Debian with glibc:
@@ -29,7 +30,7 @@ All releases are built via a Github Actions workflow named [`CI`](../.github/wor
   - Github Release of the branch with:
     - Binary archives for several architectures
     - Checksum file containing hashes for each archive
-  - Tag of the `release/X.Y.Z.A.n` version, in the format of: `X.Y.Z.A.n`
+  - Git tag of the `release/X.Y.Z.A.n` version, in the format of: `X.Y.Z.A.n`
   - Docker Debian images for several architectures tagged with:
     - `stacks-core:latest`
     - `stacks-core:X.Y.Z.A.n`
@@ -93,6 +94,7 @@ ex:
 - `Atlas Tests`: Tests related to Atlas
 - `Bitcoin Tests`: Tests relating to burnchain operations
 - `Epoch Tests`: Tests related to epoch changes
+- `P2P Tests`: Tests P2P operations
 - `Slow Tests`: These tests have been identified as taking longer than others. The threshold used is if a test takes longer than `10 minutes` to complete successfully (or even times out intermittently), it should be added here.
 - `Stacks Core Tests`:
   - `full-genesis`: Tests related to full genesis
@@ -100,7 +102,7 @@ ex:
 
 ### Checking the result of multiple tests at once
 
-You can use the [check-jobs-status](https://github.com/stacks-network/actions/tree/main/check-jobs-status) composite action in order to check that multiple tests are successful in a workflow job.
+The [check-jobs-status](https://github.com/stacks-network/actions/tree/main/check-jobs-status) composite action may be used in order to check that multiple tests are successful in a workflow job.
 If any of the tests given to the action (JSON string of `needs` field) fails, the step that calls the action will also fail.
 
 If you have to mark more than 1 job from the same workflow required in a ruleset, you can use this action in a separate job and only add that job as required.
@@ -126,62 +128,6 @@ check-tests:
         jobs: ${{ toJson(needs) }}
         summary_print: "true"
 ```
-
-## Triggering a workflow
-
-### Opening/Updating a PR
-
-- [Rust format](../.github/workflows/ci.yml)
-- [Create Test Cache](../.github/workflows/create-cache.yml)
-- [Stacks Core Tests](../.github/workflows/stacks-core-tests.yml)
-- [Bitcoin Tests](../.github/workflows/bitcoin-tests.yml)
-- [Docker Image (Source)](../.github/workflows/image-build-source.yml) is built from source on a debian distribution and pushed with the branch name and PR number as tags
-  - Creates the following images (where branch is named `feat/fix-something` and the PR is numbered `5446`):
-    - `stacks-core:feat-fix-something`
-    - `stacks-core:pr-5446`
-
----
-
-### Merging a branch to develop
-
-Once a PR is added to the merge queue, the target branch is merged into the source branch.
-Then, the same workflows are triggered as in the [previous step](#openingupdating-a-pr).
-
----
-
-### Manually triggering CI workflow (any branch not named `release/X.Y.Z.A.n`)
-
-- [Rust format](../.github/workflows/ci.yml)
-- [Create Test Cache](../.github/workflows/create-cache.yml)
-- [Stacks Core Tests](../.github/workflows/stacks-core-tests.yml)
-- [Bitcoin Tests](../.github/workflows/bitcoin-tests.yml)
-- [Docker Image (Source)](../.github/workflows/image-build-source.yml) is built from source on a debian distribution and pushed with the branch name as a tag
-  - Creates the following images:
-    - `stacks-core:<branch name>`
-
----
-
-### Manually triggering CI workflow with tag on a release branch
-
-ex: running the [`CI`](../.github/workflows/ci.yml) on a branch named `release/X.Y.Z.A.n`
-
-- [Rust format](../.github/workflows/ci.yml)
-- [Create Test Cache](../.github/workflows/create-cache.yml)
-- [Stacks Core Tests](../.github/workflows/stacks-core-tests.yml)
-- [Bitcoin Tests](../.github/workflows/bitcoin-tests.yml)
-- [Atlas Tests](../.github/workflows/atlas-tests.yml)
-- [Epoch Tests](../.github/workflows/epoch-tests.yml)
-- [Slow Tests](../.github/workflows/slow-tests.yml)
-- [Github release](../.github/workflows/github-release.yml) (with artifacts/checksum) is created using the manually input tag
-- [Binaries built for specified architectures](../.github/workflows/create-source-binary.yml)
-  - Archive and checksum files will be uploaded to the versioned github release.
-- [Docker Image (Binary)](../.github/workflows/image-build-binary.yml)
-  - Built from binaries on debian/alpine distributions and pushed with a verrsion and `latest` tags.
-  - Creates the following images:
-    - `stacks-core:X.Y.Z.A.n`
-    - `stacks-core:X.Y.Z.A.n-alpine`
-    - `stacks-core:latest`
-    - `stacks-core:latest-alpine`
 
 ## Mutation Testing
 

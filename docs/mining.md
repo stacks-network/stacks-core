@@ -9,8 +9,6 @@ you should make sure to add the following config fields to your [config file](..
 miner = True
 # Bitcoin private key to spend
 seed = "YOUR PRIVATE KEY"
-# Disable microblocks (ref: https://github.com/stacks-network/stacks-core/pull/4561 )
-mine_microblocks = false
 # Run as a mock-miner, to test mining without spending BTC. Needs miner=True.
 #mock_mining = True
 

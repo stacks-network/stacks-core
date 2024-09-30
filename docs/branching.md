@@ -1,12 +1,12 @@
 # Git Branching
 
-The following is a modified version of the gitflow branching strategy described in <https://nvie.com/posts/a-successful-git-branching-model/>
+The following is a slightly modified version of the gitflow branching strategy described in <https://nvie.com/posts/a-successful-git-branching-model/>
 
 ## Main Branches
 
 - **master** - `master` is the main branch where the source code of HEAD always reflects a production-ready state.
 - **develop** - `develop` is the branch where the source code of HEAD always reflects a state with the latest delivered development changes for the next release.
-- **next** - `next` may contain consensus-breaking changes.
+- **next** - `next` may contain consensus-breaking changes for a future release.
 - **release/X.Y.Z.A.n** is the release branch.
 
 When the source code in the develop branch reaches a stable point and is ready to be released, a release branch is created as `release/X.Y.Z.A.n` (see [release-process.md](./release-process.md)).

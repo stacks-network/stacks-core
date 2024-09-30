@@ -50,8 +50,8 @@ For an example of this process, see PRs
 
 - Any major changes should be added to the [CHANGELOG](CHANGELOG.md).
 - Mention any required documentation changes in the description of your pull request.
-- If adding an RPC endpoint, add an entry for the new endpoint to the
-  OpenAPI spec `./docs/rpc/openapi.yaml`.
+- If adding or updating an RPC endpoint, ensure the change is documented in the
+  OpenAPI spec: [`./docs/rpc/openapi.yaml`](./docs/rpc/openapi.yaml).
 - If your code adds or modifies any major features (struct, trait,
   test, module, function, etc.), each should be documented according
   to our [coding guidelines](#Coding-Guidelines).
