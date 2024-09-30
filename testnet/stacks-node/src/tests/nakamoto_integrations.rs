@@ -72,7 +72,7 @@ use stacks::net::api::getstackers::GetStackersResponse;
 use stacks::net::api::postblock_proposal::{
     BlockValidateReject, BlockValidateResponse, NakamotoBlockProposal, ValidateRejectCode,
 };
-use stacks::util::hash::hex_bytes;
+use stacks::util::hash::{hex_bytes, MerkleTree};
 use stacks::util_lib::boot::boot_code_id;
 use stacks::util_lib::signed_structured_data::pox4::{
     make_pox_4_signer_key_signature, Pox4SignatureTopic,
@@ -2995,16 +2995,47 @@ fn block_proposal_api_endpoint() {
             "Invalid `parent_block_id`",
             (|| {
                 let mut sp = sign(&proposal);
+                // get stacks tip and use stacks tip parent consensus hash  
+                // let parent_id = NakamotoChainState::get_parent_id
                 sp.block.header.parent_block_id = StacksBlockId([0xff; 32]);
                 sp
             })(),
             HTTP_ACCEPTED,
             Some(Err(ValidateRejectCode::UnknownParent)),
         ),
+        (
+            // TODO: add the rest components that fail
+            "Transaction small/no fees",
+            (|| {
+                let no_fees_transfer = make_stacks_transfer(
+                    &account_keys[0],
+                    1,
+                    100, // Invalid amount
+                    &to_addr(&account_keys[1]).into(),
+                    10000,
+                );
+                let mut proposal_local = proposal.clone();
+                let no_fees_tx = StacksTransaction::consensus_deserialize(&mut &no_fees_transfer[..])
+                    .expect("Failed to deserialize transaction");
+                proposal_local.block.txs.push(no_fees_tx);
+                let tx_merkle_root = {
+                    let txid_vecs = proposal_local.block
+                        .txs
+                        .iter()
+                        .map(|tx| tx.txid().as_bytes().to_vec())
+                        .collect();
+                    MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs).root()
+                };
+                proposal_local.block.header.tx_merkle_root = tx_merkle_root;
+                let sp = sign(&proposal_local);
+                sp
+            })(),
+            HTTP_ACCEPTED,
+            Some(Ok(())),
+        ),
         // (
         //     "Bad transaction",
         //     (|| {
-        //         let mut sp = sign(&proposal);
         //         let bad_tx = make_stacks_transfer(
         //             &account_keys[0],
         //             0,
@@ -3012,9 +3043,21 @@ fn block_proposal_api_endpoint() {
         //             &to_addr(&account_keys[1]).into(),
         //             10000,
         //         );
+        //         let mut proposal_local = proposal.clone();
+        //         let mut block_local = proposal_local.block.clone();
         //         let bad_tx = StacksTransaction::consensus_deserialize(&mut &bad_tx[..])
         //             .expect("Failed to deserialize transaction");
-        //         sp.block.txs.push(bad_tx);
+        //         proposal_local.block.txs.push(bad_tx);
+        //         let tx_merkle_root = {
+        //             let txid_vecs = block_local
+        //                 .txs
+        //                 .iter()
+        //                 .map(|tx| tx.txid().as_bytes().to_vec())
+        //                 .collect();
+        //             MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs).root()
+        //         };
+        //         block_local.header.tx_merkle_root = tx_merkle_root;
+        //         let sp = sign(&proposal_local);
         //         sp
         //     })(),
         //     HTTP_ACCEPTED,
