@@ -29,16 +29,12 @@ use stacks_common::address::{
 };
 use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
 use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey};
-use stacks_common::types::PrivateKey;
 use stacks_common::util::hash::Hash160;
-use wsts::curve::scalar::Scalar;
 
 use crate::client::SignerSlotID;
 
 const EVENT_TIMEOUT_MS: u64 = 5000;
 const BLOCK_PROPOSAL_TIMEOUT_MS: u64 = 45_000;
-// Default transaction fee to use in microstacks (if unspecificed in the config file)
-const TX_FEE_USTX: u64 = 10_000;
 
 #[derive(thiserror::Error, Debug)]
 /// An error occurred parsing the provided configuration
@@ -118,38 +114,20 @@ impl Network {
 pub struct SignerConfig {
     /// The reward cycle of the configuration
     pub reward_cycle: u64,
-    /// The signer ID assigned to this signer to be used in DKG and Sign rounds
+    /// The signer ID assigned to this signer (may be different from signer_slot_id)
     pub signer_id: u32,
     /// The signer stackerdb slot id (may be different from signer_id)
     pub signer_slot_id: SignerSlotID,
-    /// This signer's key ids
-    pub key_ids: Vec<u32>,
     /// The registered signers for this reward cycle
     pub signer_entries: SignerEntries,
     /// The signer slot ids of all signers registered for this reward cycle
     pub signer_slot_ids: Vec<SignerSlotID>,
-    /// The Scalar representation of the private key for signer communication
-    pub ecdsa_private_key: Scalar,
     /// The private key for this signer
     pub stacks_private_key: StacksPrivateKey,
     /// The node host for this signer
     pub node_host: String,
     /// Whether this signer is running on mainnet or not
     pub mainnet: bool,
-    /// timeout to gather DkgPublicShares messages
-    pub dkg_public_timeout: Option<Duration>,
-    /// timeout to gather DkgPrivateShares messages
-    pub dkg_private_timeout: Option<Duration>,
-    /// timeout to gather DkgEnd messages
-    pub dkg_end_timeout: Option<Duration>,
-    /// timeout to gather nonces
-    pub nonce_timeout: Option<Duration>,
-    /// timeout to gather signature shares
-    pub sign_timeout: Option<Duration>,
-    /// the STX tx fee to use in uSTX.
-    pub tx_fee_ustx: u64,
-    /// If set, will use the estimated fee up to this amount.
-    pub max_tx_fee_ustx: Option<u64>,
     /// The path to the signer's database file
     pub db_path: PathBuf,
     /// How much time must pass between the first block proposal in a tenure and the next bitcoin block
@@ -166,8 +144,6 @@ pub struct GlobalConfig {
     pub node_host: String,
     /// endpoint to the event receiver
     pub endpoint: SocketAddr,
-    /// The Scalar representation of the private key for signer communication
-    pub ecdsa_private_key: Scalar,
     /// The signer's Stacks private key
     pub stacks_private_key: StacksPrivateKey,
     /// The signer's Stacks address
@@ -176,20 +152,6 @@ pub struct GlobalConfig {
     pub network: Network,
     /// The time to wait for a response from the stacker-db instance
     pub event_timeout: Duration,
-    /// timeout to gather DkgPublicShares messages
-    pub dkg_public_timeout: Option<Duration>,
-    /// timeout to gather DkgPrivateShares messages
-    pub dkg_private_timeout: Option<Duration>,
-    /// timeout to gather DkgEnd messages
-    pub dkg_end_timeout: Option<Duration>,
-    /// timeout to gather nonces
-    pub nonce_timeout: Option<Duration>,
-    /// timeout to gather signature shares
-    pub sign_timeout: Option<Duration>,
-    /// the STX tx fee to use in uSTX.
-    pub tx_fee_ustx: u64,
-    /// the max STX tx fee to use in uSTX when estimating fees
-    pub max_tx_fee_ustx: Option<u64>,
     /// the authorization password for the block proposal endpoint
     pub auth_password: String,
     /// The path to the signer's database file
@@ -217,21 +179,6 @@ struct RawConfigFile {
     pub network: Network,
     /// The time to wait (in millisecs) for a response from the stacker-db instance
     pub event_timeout_ms: Option<u64>,
-    /// timeout in (millisecs) to gather DkgPublicShares messages
-    pub dkg_public_timeout_ms: Option<u64>,
-    /// timeout in (millisecs) to gather DkgPrivateShares messages
-    pub dkg_private_timeout_ms: Option<u64>,
-    /// timeout in (millisecs) to gather DkgEnd messages
-    pub dkg_end_timeout_ms: Option<u64>,
-    /// timeout in (millisecs) to gather nonces
-    pub nonce_timeout_ms: Option<u64>,
-    /// timeout in (millisecs) to gather signature shares
-    pub sign_timeout_ms: Option<u64>,
-    /// the STX tx fee to use in uSTX. If not set, will default to TX_FEE_USTX
-    pub tx_fee_ustx: Option<u64>,
-    /// the max STX tx fee to use in uSTX when estimating fees.
-    /// If not set, will use tx_fee_ustx.
-    pub max_tx_fee_ustx: Option<u64>,
     /// The authorization password for the block proposal endpoint
     pub auth_password: String,
     /// The path to the signer's database file or :memory: for an in-memory database
@@ -288,32 +235,14 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
                 ConfigError::BadField("endpoint".to_string(), raw_data.endpoint.clone())
             })?;
 
-        let stacks_private_key =
-            StacksPrivateKey::from_hex(&raw_data.stacks_private_key).map_err(|_| {
-                ConfigError::BadField(
-                    "stacks_private_key".to_string(),
-                    raw_data.stacks_private_key.clone(),
-                )
-            })?;
-
-        let ecdsa_private_key =
-            Scalar::try_from(&stacks_private_key.to_bytes()[..32]).map_err(|_| {
-                ConfigError::BadField(
-                    "stacks_private_key".to_string(),
-                    raw_data.stacks_private_key.clone(),
-                )
-            })?;
+        let stacks_private_key = StacksPrivateKey::from_hex(&raw_data.stacks_private_key)
+            .map_err(|e| ConfigError::BadField("stacks_private_key".to_string(), e.into()))?;
         let stacks_public_key = StacksPublicKey::from_private(&stacks_private_key);
         let signer_hash = Hash160::from_data(stacks_public_key.to_bytes_compressed().as_slice());
         let stacks_address =
             StacksAddress::p2pkh_from_hash(raw_data.network.is_mainnet(), signer_hash);
         let event_timeout =
             Duration::from_millis(raw_data.event_timeout_ms.unwrap_or(EVENT_TIMEOUT_MS));
-        let dkg_end_timeout = raw_data.dkg_end_timeout_ms.map(Duration::from_millis);
-        let dkg_public_timeout = raw_data.dkg_public_timeout_ms.map(Duration::from_millis);
-        let dkg_private_timeout = raw_data.dkg_private_timeout_ms.map(Duration::from_millis);
-        let nonce_timeout = raw_data.nonce_timeout_ms.map(Duration::from_millis);
-        let sign_timeout = raw_data.sign_timeout_ms.map(Duration::from_millis);
         let first_proposal_burn_block_timing =
             Duration::from_secs(raw_data.first_proposal_burn_block_timing_secs.unwrap_or(30));
         let db_path = raw_data.db_path.into();
@@ -341,17 +270,9 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
             node_host: raw_data.node_host,
             endpoint,
             stacks_private_key,
-            ecdsa_private_key,
             stacks_address,
             network: raw_data.network,
             event_timeout,
-            dkg_end_timeout,
-            dkg_public_timeout,
-            dkg_private_timeout,
-            nonce_timeout,
-            sign_timeout,
-            tx_fee_ustx: raw_data.tx_fee_ustx.unwrap_or(TX_FEE_USTX),
-            max_tx_fee_ustx: raw_data.max_tx_fee_ustx,
             auth_password: raw_data.auth_password,
             db_path,
             metrics_endpoint,
@@ -383,10 +304,6 @@ impl GlobalConfig {
     /// Return a string with non-sensitive configuration
     /// information for logging purposes
     pub fn config_to_log_string(&self) -> String {
-        let tx_fee = match self.tx_fee_ustx {
-            0 => "default".to_string(),
-            _ => (self.tx_fee_ustx as f64 / 1_000_000.0).to_string(),
-        };
         let metrics_endpoint = match &self.metrics_endpoint {
             Some(endpoint) => endpoint.to_string(),
             None => "None".to_string(),
@@ -399,7 +316,6 @@ Stacks address: {stacks_address}
 Public key: {public_key}
 Network: {network}
 Database path: {db_path}
-DKG transaction fee: {tx_fee} uSTX
 Metrics endpoint: {metrics_endpoint}
 "#,
             node_host = self.node_host,
@@ -410,7 +326,6 @@ Metrics endpoint: {metrics_endpoint}
             ),
             network = self.network,
             db_path = self.db_path.to_str().unwrap_or_default(),
-            tx_fee = tx_fee,
             metrics_endpoint = metrics_endpoint,
         )
     }
@@ -544,117 +459,7 @@ mod tests {
             RawConfigFile::load_from_str(&config_tomls[0]).expect("Failed to parse config file");
 
         assert_eq!(config.auth_password, "melon");
-        assert!(config.max_tx_fee_ustx.is_none());
-        assert!(config.tx_fee_ustx.is_none());
         assert_eq!(config.metrics_endpoint, Some("localhost:4000".to_string()));
-    }
-
-    #[test]
-    fn fee_options_should_deserialize_correctly() {
-        let pk = StacksPrivateKey::from_hex(
-            "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
-        )
-        .unwrap();
-
-        let node_host = "localhost";
-        let network = Network::Testnet;
-        let password = "melon";
-
-        // Test both max_tx_fee_ustx and tx_fee_ustx are unspecified
-        let config_tomls = build_signer_config_tomls(
-            &[pk],
-            node_host,
-            None,
-            &network,
-            password,
-            rand::random(),
-            3000,
-            None,
-            None,
-            None,
-        );
-
-        let config =
-            RawConfigFile::load_from_str(&config_tomls[0]).expect("Failed to parse config file");
-
-        assert!(config.max_tx_fee_ustx.is_none());
-        assert!(config.tx_fee_ustx.is_none());
-
-        let config = GlobalConfig::try_from(config).expect("Failed to parse config");
-        assert!(config.max_tx_fee_ustx.is_none());
-        assert_eq!(config.tx_fee_ustx, TX_FEE_USTX);
-
-        // Test both max_tx_fee_ustx and tx_fee_ustx are specified
-        let max_tx_fee_ustx = Some(1000);
-        let tx_fee_ustx = Some(2000);
-        let config_tomls = build_signer_config_tomls(
-            &[pk],
-            node_host,
-            None,
-            &network,
-            password,
-            rand::random(),
-            3000,
-            max_tx_fee_ustx,
-            tx_fee_ustx,
-            None,
-        );
-
-        let config =
-            RawConfigFile::load_from_str(&config_tomls[0]).expect("Failed to parse config file");
-
-        assert_eq!(config.max_tx_fee_ustx, max_tx_fee_ustx);
-        assert_eq!(config.tx_fee_ustx, tx_fee_ustx);
-
-        // Test only max_tx_fee_ustx is specified
-        let max_tx_fee_ustx = Some(1000);
-        let config_tomls = build_signer_config_tomls(
-            &[pk],
-            node_host,
-            None,
-            &network,
-            password,
-            rand::random(),
-            3000,
-            max_tx_fee_ustx,
-            None,
-            None,
-        );
-
-        let config =
-            RawConfigFile::load_from_str(&config_tomls[0]).expect("Failed to parse config file");
-
-        assert_eq!(config.max_tx_fee_ustx, max_tx_fee_ustx);
-        assert!(config.tx_fee_ustx.is_none());
-
-        let config = GlobalConfig::try_from(config).expect("Failed to parse config");
-        assert_eq!(config.max_tx_fee_ustx, max_tx_fee_ustx);
-        assert_eq!(config.tx_fee_ustx, TX_FEE_USTX);
-
-        // Test only tx_fee_ustx is specified
-        let tx_fee_ustx = Some(1000);
-        let config_tomls = build_signer_config_tomls(
-            &[pk],
-            node_host,
-            None,
-            &network,
-            password,
-            rand::random(),
-            3000,
-            None,
-            tx_fee_ustx,
-            None,
-        );
-
-        let config =
-            RawConfigFile::load_from_str(&config_tomls[0]).expect("Failed to parse config file");
-
-        assert!(config.max_tx_fee_ustx.is_none());
-        assert_eq!(config.tx_fee_ustx, tx_fee_ustx);
-
-        let config = GlobalConfig::try_from(config).expect("Failed to parse config");
-        assert!(config.max_tx_fee_ustx.is_none());
-        assert_eq!(Some(config.tx_fee_ustx), tx_fee_ustx);
     }
 
     #[test]
@@ -669,7 +474,6 @@ Stacks address: ST3FPN8KBZ3YPBP0ZJGAAHTVFMQDTJCR5QPS7VTNJ
 Public key: 03bc489f27da3701d9f9e577c88de5567cf4023111b7577042d55cde4d823a3505
 Network: testnet
 Database path: :memory:
-DKG transaction fee: 0.01 uSTX
 Metrics endpoint: 0.0.0.0:9090
 "#;
 
@@ -680,7 +484,6 @@ Stacks address: ST3FPN8KBZ3YPBP0ZJGAAHTVFMQDTJCR5QPS7VTNJ
 Public key: 03bc489f27da3701d9f9e577c88de5567cf4023111b7577042d55cde4d823a3505
 Network: testnet
 Database path: :memory:
-DKG transaction fee: 0.01 uSTX
 Metrics endpoint: 0.0.0.0:9090
 "#;
 

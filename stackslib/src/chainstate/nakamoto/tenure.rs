@@ -87,7 +87,6 @@ use stacks_common::util::hash::{to_hex, Hash160, MerkleHashFunc, MerkleTree, Sha
 use stacks_common::util::retry::BoundReader;
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::util::vrf::{VRFProof, VRFPublicKey, VRF};
-use wsts::curve::point::Point;
 
 use crate::burnchains::{PoxConstants, Txid};
 use crate::chainstate::burn::db::sortdb::{
@@ -108,8 +107,8 @@ use crate::chainstate::stacks::db::{
 use crate::chainstate::stacks::events::StacksTransactionReceipt;
 use crate::chainstate::stacks::{
     Error as ChainstateError, StacksBlock, StacksBlockHeader, StacksMicroblock, StacksTransaction,
-    TenureChangeCause, TenureChangeError, TenureChangePayload, ThresholdSignature,
-    TransactionPayload, MINER_BLOCK_CONSENSUS_HASH, MINER_BLOCK_HEADER_HASH,
+    TenureChangeCause, TenureChangeError, TenureChangePayload, TransactionPayload,
+    MINER_BLOCK_CONSENSUS_HASH, MINER_BLOCK_HEADER_HASH,
 };
 use crate::clarity_vm::clarity::{ClarityInstance, PreCommitClarityBlock};
 use crate::clarity_vm::database::SortitionDBRef;
