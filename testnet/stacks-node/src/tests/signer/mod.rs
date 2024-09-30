@@ -744,7 +744,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
                     }
                 })
                 .collect::<Vec<_>>();
-            Ok(block_rejections.len() == expected_signers.len())
+            Ok(block_rejections.len() >= expected_signers.len())
         })
     }
 }

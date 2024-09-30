@@ -4080,6 +4080,7 @@ fn locally_accepted_blocks_overriden_by_global_rejection() {
         .lock()
         .unwrap()
         .replace(Vec::new());
+
     wait_for(short_timeout_secs, || {
         Ok(mined_blocks.load(Ordering::SeqCst) > blocks_before
             && signer_test
