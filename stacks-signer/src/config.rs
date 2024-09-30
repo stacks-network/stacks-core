@@ -288,21 +288,11 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
                 ConfigError::BadField("endpoint".to_string(), raw_data.endpoint.clone())
             })?;
 
-        let stacks_private_key =
-            StacksPrivateKey::from_hex(&raw_data.stacks_private_key).map_err(|_| {
-                ConfigError::BadField(
-                    "stacks_private_key".to_string(),
-                    raw_data.stacks_private_key.clone(),
-                )
-            })?;
+        let stacks_private_key = StacksPrivateKey::from_hex(&raw_data.stacks_private_key)
+            .map_err(|e| ConfigError::BadField("stacks_private_key".to_string(), e.into()))?;
 
-        let ecdsa_private_key =
-            Scalar::try_from(&stacks_private_key.to_bytes()[..32]).map_err(|_| {
-                ConfigError::BadField(
-                    "stacks_private_key".to_string(),
-                    raw_data.stacks_private_key.clone(),
-                )
-            })?;
+        let ecdsa_private_key = Scalar::try_from(&stacks_private_key.to_bytes()[..32])
+            .map_err(|e| ConfigError::BadField("stacks_private_key".to_string(), e.to_string()))?;
         let stacks_public_key = StacksPublicKey::from_private(&stacks_private_key);
         let signer_hash = Hash160::from_data(stacks_public_key.to_bytes_compressed().as_slice());
         let stacks_address =
