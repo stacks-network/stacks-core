@@ -1228,7 +1228,7 @@ fn bitcoind_forking_test() {
     let pre_fork_tenures = 10;
 
     for i in 0..pre_fork_tenures {
-        debug!("Mining pre-fork tenure {} of {pre_fork_tenures}", i + 1);
+        info!("Mining pre-fork tenure {} of {pre_fork_tenures}", i + 1);
         signer_test.mine_nakamoto_block(Duration::from_secs(30));
     }
 
@@ -1257,7 +1257,7 @@ fn bitcoind_forking_test() {
 
     // we need to mine some blocks to get back to being considered a frequent miner
     for i in 0..3 {
-        debug!(
+        info!(
             "Mining block {} of 3 to be considered a frequent miner",
             i + 1
         );
@@ -1284,7 +1284,7 @@ fn bitcoind_forking_test() {
     assert_eq!(post_fork_1_nonce, pre_fork_1_nonce - 1 * 2);
 
     for i in 0..5 {
-        debug!("Mining post-fork tenure {} of 5", i + 1);
+        info!("Mining post-fork tenure {} of 5", i + 1);
         signer_test.mine_nakamoto_block(Duration::from_secs(30));
     }
 
@@ -1317,7 +1317,7 @@ fn bitcoind_forking_test() {
 
     // we need to mine some blocks to get back to being considered a frequent miner
     for i in 0..3 {
-        debug!(
+        info!(
             "Mining block {} of 3 to be considered a frequent miner",
             i + 1
         );
@@ -1344,7 +1344,7 @@ fn bitcoind_forking_test() {
     assert_eq!(post_fork_2_nonce, pre_fork_2_nonce - 4 * 2);
 
     for i in 0..5 {
-        debug!("Mining post-fork tenure {} of 5", i + 1);
+        info!("Mining post-fork tenure {} of 5", i + 1);
         signer_test.mine_nakamoto_block(Duration::from_secs(30));
     }
 
