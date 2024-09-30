@@ -1725,9 +1725,6 @@ impl Relayer {
                         "Failed to validate Nakamoto blocks pushed from {:?}: {:?}",
                         neighbor_key, &e
                     );
-
-                    // punish this peer
-                    bad_neighbors.push((*neighbor_key).clone());
                     break;
                 }
 
