@@ -113,6 +113,8 @@ pub struct InvGenerator {
     tip_ancestor_search_depth: u64,
     /// count cache misses for `processed_tenures`
     cache_misses: u128,
+    /// Disable caching (test only)
+    no_cache: bool,
 }
 
 impl InvGenerator {
@@ -122,6 +124,18 @@ impl InvGenerator {
             sortitions: HashMap::new(),
             tip_ancestor_search_depth: TIP_ANCESTOR_SEARCH_DEPTH,
             cache_misses: 0,
+            no_cache: false,
+        }
+    }
+
+    #[cfg(test)]
+    pub fn new_no_cache() -> Self {
+        Self {
+            processed_tenures: HashMap::new(),
+            sortitions: HashMap::new(),
+            tip_ancestor_search_depth: TIP_ANCESTOR_SEARCH_DEPTH,
+            cache_misses: 0,
+            no_cache: true,
         }
     }
 
@@ -236,7 +250,6 @@ impl InvGenerator {
                 self.processed_tenures
                     .insert(tip_block_id.clone(), HashMap::new());
             }
-        } else {
         }
 
         let Some(tenure_infos) = self.processed_tenures.get_mut(&tip_block_id) else {
@@ -244,9 +257,9 @@ impl InvGenerator {
         };
 
         // this tip has a known table
-        if let Some(loaded_tenure_info) = tenure_infos.get(tenure_id_consensus_hash) {
+        let ret = if let Some(loaded_tenure_info) = tenure_infos.get(tenure_id_consensus_hash) {
             // we've loaded this tenure info before for this tip
-            return Ok(loaded_tenure_info.clone());
+            Ok(loaded_tenure_info.clone())
         } else {
             // we have not loaded the tenure info for this tip, so go get it
             let loaded_info_opt =
@@ -254,8 +267,12 @@ impl InvGenerator {
 
             tenure_infos.insert(tenure_id_consensus_hash.clone(), loaded_info_opt.clone());
             self.cache_misses = self.cache_misses.saturating_add(1);
-            return Ok(loaded_info_opt);
+            Ok(loaded_info_opt)
+        };
+        if self.no_cache {
+            self.processed_tenures.clear();
         }
+        ret
     }
 
     /// Get sortition info, loading it from our cache if needed
