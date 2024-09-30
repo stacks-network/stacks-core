@@ -1718,7 +1718,7 @@ fn simple_neon_integration() {
 ///  * 30 blocks are mined after 3.0 starts. This is enough to mine across 2 reward cycles
 ///  * A transaction submitted to the mempool in 3.0 will be mined in 3.0
 ///  * The final chain tip is a nakamoto block
-fn simple_neon_integration_with_flash_blocks_on_epoch_3() {
+fn flash_blocks_on_epoch_3() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
     }
@@ -1726,7 +1726,7 @@ fn simple_neon_integration_with_flash_blocks_on_epoch_3() {
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
     let prom_bind = format!("{}:{}", "127.0.0.1", 6000);
     naka_conf.node.prometheus_bind = Some(prom_bind.clone());
-    naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1000);
+    naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
     let sender_sk = Secp256k1PrivateKey::new();
     // setup sender + recipient for a test stx transfer
     let sender_addr = tests::to_addr(&sender_sk);
