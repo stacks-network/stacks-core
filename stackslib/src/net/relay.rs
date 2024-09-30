@@ -931,7 +931,7 @@ impl Relayer {
             &block.header.consensus_hash,
             &block.header.block_hash(),
             &obtained_method;
-            "block_id" => &block.header.block_id(),
+            "block_id" => %block.header.block_id(),
         );
 
         if fault_injection::ignore_block(block.header.chain_length, &burnchain.working_dir) {

@@ -568,7 +568,6 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                         old_slot_id,
                         old_version,
                         new_inv.slot_versions[old_slot_id],
-                        &self.smart_contract_id,
                     );
                     resync = true;
                     break;
@@ -913,7 +912,6 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                         network.get_local_peer(),
                         &self.smart_contract_id,
                         &naddr,
-                        &self.smart_contract_id,
                         data.error_code
                     );
                     if data.error_code == NackErrorCodes::StaleView
@@ -1075,7 +1073,6 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                         network.get_local_peer(),
                         &self.smart_contract_id,
                         &naddr,
-                        &self.smart_contract_id,
                         data.error_code
                     );
                     if data.error_code == NackErrorCodes::StaleView
