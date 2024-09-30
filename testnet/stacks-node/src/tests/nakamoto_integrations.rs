@@ -2610,23 +2610,32 @@ fn new_tenure_stop_fast_blocks() {
         )
         .unwrap();
 
-        let node_2_sk = Secp256k1PrivateKey::from_seed(&conf_node_2.node.local_peer_seed);
-        let node_2_pk = StacksPublicKey::from_private(&node_2_sk);
-    
-        let miner_a_pubkey = BitcoinPublicKey::from_private(&naka_conf.miner.mining_key.unwrap());
-        let miner_b_pubkey = BitcoinPublicKey::from_private(&conf_node_2.miner.mining_key.unwrap());
-    
+        let miner_a_pubkey = naka_conf
+            .burnchain
+            .local_mining_public_key
+            .as_ref()
+            .map(|pubkey_hex| Secp256k1PublicKey::from_hex(pubkey_hex))
+            .expect("Failed to parse miner A's public key")
+            .expect("Invalid A's public key format");
+        let miner_b_pubkey = conf_node_2
+            .burnchain
+            .local_mining_public_key
+            .as_ref()
+            .map(|pubkey_hex| Secp256k1PublicKey::from_hex(pubkey_hex))
+            .expect("Failed to parse miner B's public key")
+            .expect("Invalid B's public key format");
+
         // Create Bitcoin addresses from public keys
         let miner_a_address = BitcoinAddress::from_bytes_legacy(
             BitcoinNetworkType::Regtest,
             LegacyBitcoinAddressType::PublicKeyHash,
-            &Hash160::from_data(&node_1_pk.to_bytes()).0,
+            &Hash160::from_data(&miner_a_pubkey.to_bytes()).0,
         )
         .expect("Failed to create Bitcoin address for miner A");
         let miner_b_address = BitcoinAddress::from_bytes_legacy(
             BitcoinNetworkType::Regtest,
             LegacyBitcoinAddressType::PublicKeyHash,
-            &Hash160::from_data(&node_2_pk.to_bytes()).0,
+            &Hash160::from_data(&miner_b_pubkey.to_bytes()).0,
         )
         .expect("Failed to create Bitcoin address for miner B");
 
