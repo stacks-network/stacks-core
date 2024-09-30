@@ -36,9 +36,8 @@ use crate::chainstate::nakamoto::test_signers::TestSigners;
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader, NakamotoChainState};
 use crate::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
 use crate::chainstate::stacks::{
-    CoinbasePayload, StacksTransaction, TenureChangeCause, TenureChangePayload, ThresholdSignature,
-    TokenTransferMemo, TransactionAnchorMode, TransactionAuth, TransactionPayload,
-    TransactionVersion,
+    CoinbasePayload, StacksTransaction, TenureChangeCause, TenureChangePayload, TokenTransferMemo,
+    TransactionAnchorMode, TransactionAuth, TransactionPayload, TransactionVersion,
 };
 use crate::clarity::vm::types::StacksAddressExtensions;
 use crate::net::api::gettenureinfo::RPCGetTenureInfo;

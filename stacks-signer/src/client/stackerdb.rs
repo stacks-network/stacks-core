@@ -257,7 +257,7 @@ mod tests {
             Some(9000),
         );
         let config = GlobalConfig::load_from_str(&signer_config[0]).unwrap();
-        let signer_config = generate_signer_config(&config, 5, 20);
+        let signer_config = generate_signer_config(&config, 5);
         let mut stackerdb = StackerDB::from(&signer_config);
 
         let header = NakamotoBlockHeader::empty();

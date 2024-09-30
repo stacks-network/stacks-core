@@ -1749,7 +1749,6 @@ pub mod test {
     use stacks_common::util::secp256k1::*;
     use stacks_common::util::uint::*;
     use stacks_common::util::vrf::*;
-    use wsts::curve::point::Point;
     use {mio, rand};
 
     use self::nakamoto::test_signers::TestSigners;
@@ -2099,7 +2098,7 @@ pub mod test {
         pub services: u16,
         /// aggregate public key to use
         /// (NOTE: will be used post-Nakamoto)
-        pub aggregate_public_key: Option<Point>,
+        pub aggregate_public_key: Option<Vec<u8>>,
         pub test_stackers: Option<Vec<TestStacker>>,
         pub test_signers: Option<TestSigners>,
     }
@@ -2457,11 +2456,8 @@ pub mod test {
                 let mut receipts = vec![];
 
                 if let Some(agg_pub_key) = agg_pub_key_opt {
-                    debug!(
-                        "Setting aggregate public key to {}",
-                        &to_hex(&agg_pub_key.compress().data)
-                    );
-                    NakamotoChainState::aggregate_public_key_bootcode(clarity_tx, &agg_pub_key);
+                    debug!("Setting aggregate public key to {}", &to_hex(&agg_pub_key));
+                    NakamotoChainState::aggregate_public_key_bootcode(clarity_tx, agg_pub_key);
                 } else {
                     debug!("Not setting aggregate public key");
                 }
