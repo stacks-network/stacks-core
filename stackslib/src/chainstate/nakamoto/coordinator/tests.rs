@@ -34,7 +34,6 @@ use stacks_common::types::{Address, StacksEpoch, StacksEpochId, StacksPublicKeyB
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::secp256k1::Secp256k1PrivateKey;
 use stacks_common::util::vrf::VRFProof;
-use wsts::curve::point::Point;
 
 use crate::burnchains::{PoxConstants, Txid};
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandle};

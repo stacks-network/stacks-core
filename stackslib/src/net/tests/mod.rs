@@ -35,7 +35,6 @@ use stacks_common::types::chainstate::{
 };
 use stacks_common::types::{Address, StacksEpochId};
 use stacks_common::util::vrf::VRFProof;
-use wsts::curve::point::Point;
 
 use crate::burnchains::PoxConstants;
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandle};

@@ -25,8 +25,9 @@ use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::types::*;
 use hashbrown::HashMap;
+use rand::distributions::Standard;
 use rand::seq::SliceRandom;
-use rand::{CryptoRng, RngCore, SeedableRng};
+use rand::{CryptoRng, Rng, RngCore, SeedableRng};
 use rand_chacha::ChaCha20Rng;
 use stacks_common::address::*;
 use stacks_common::consts::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
@@ -36,8 +37,6 @@ use stacks_common::types::chainstate::{
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::sleep_ms;
 use stacks_common::util::vrf::{VRFProof, VRFPublicKey};
-use wsts::curve::point::Point;
-use wsts::traits::Aggregator;
 
 use self::boot::RewardSet;
 use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
@@ -68,75 +67,32 @@ use crate::util_lib::db::Error as db_error;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TestSigners {
-    /// The parties that will sign the blocks
-    pub signer_parties: Vec<wsts::v2::Party>,
-    /// The commitments to the polynomials for the aggregate public key
-    pub poly_commitments: HashMap<u32, wsts::common::PolyCommitment>,
-    /// The aggregate public key
-    pub aggregate_public_key: Point,
-    /// The total number of key ids distributed among signer_parties
-    pub num_keys: u32,
-    /// The number of vote shares required to sign a block
+    /// The number of signatures required to validate a block
     pub threshold: u32,
-    /// The key ids distributed among signer_parties
-    pub party_key_ids: Vec<Vec<u32>>,
-    /// The cycle for which the signers are valid
-    pub cycle: u64,
     /// The signer's private keys
     pub signer_keys: Vec<Secp256k1PrivateKey>,
+    /// The aggregate public key
+    pub aggregate_public_key: Vec<u8>,
+    /// The cycle for which the aggregate public key was generated
+    pub cycle: u64,
 }
 
 impl Default for TestSigners {
     fn default() -> Self {
-        let mut rng = rand_core::OsRng::default();
-        let num_keys = 10;
-        let threshold = 7;
-        let party_key_ids: Vec<Vec<u32>> =
-            vec![vec![1, 2, 3], vec![4, 5], vec![6, 7, 8], vec![9, 10]];
-        let num_parties = party_key_ids.len().try_into().unwrap();
-
-        // Create the parties
-        let mut signer_parties: Vec<wsts::v2::Party> = party_key_ids
-            .iter()
-            .enumerate()
-            .map(|(pid, pkids)| {
-                wsts::v2::Party::new(
-                    pid.try_into().unwrap(),
-                    pkids,
-                    num_parties,
-                    num_keys,
-                    threshold,
-                    &mut rng,
-                )
-            })
-            .collect();
+        let aggregate_public_key: Vec<u8> =
+            rand::thread_rng().sample_iter(Standard).take(33).collect();
+        let num_signers = 5;
+        let threshold = 5 * 7 / 10;
 
         let mut signer_keys = Vec::<Secp256k1PrivateKey>::new();
-        for _ in 0..num_keys {
+        for _ in 0..num_signers {
             signer_keys.push(Secp256k1PrivateKey::default());
         }
-
-        // Generate an aggregate public key
-        let poly_commitments = match wsts::v2::test_helpers::dkg(&mut signer_parties, &mut rng) {
-            Ok(poly_commitments) => poly_commitments,
-            Err(secret_errors) => {
-                panic!("Got secret errors from DKG: {:?}", secret_errors);
-            }
-        };
-        let mut sig_aggregator = wsts::v2::Aggregator::new(num_keys, threshold);
-        sig_aggregator
-            .init(&poly_commitments)
-            .expect("aggregator init failed");
-        let aggregate_public_key = sig_aggregator.poly[0];
         Self {
-            signer_parties,
-            aggregate_public_key,
-            poly_commitments,
-            num_keys,
             threshold,
-            party_key_ids,
-            cycle: 0,
             signer_keys,
+            aggregate_public_key,
+            cycle: 0,
         }
     }
 }
@@ -149,50 +105,15 @@ impl TestSigners {
 
     /// Internal function to generate aggregate key information
     fn default_with_signers(signer_keys: Vec<Secp256k1PrivateKey>) -> Self {
-        let mut rng = rand_core::OsRng::default();
-        let num_keys = 10;
-        let threshold = 7;
-        let party_key_ids: Vec<Vec<u32>> =
-            vec![vec![1, 2, 3], vec![4, 5], vec![6, 7, 8], vec![9, 10]];
-        let num_parties = party_key_ids.len().try_into().unwrap();
-
-        // Create the parties
-        let mut signer_parties: Vec<wsts::v2::Party> = party_key_ids
-            .iter()
-            .enumerate()
-            .map(|(pid, pkids)| {
-                wsts::v2::Party::new(
-                    pid.try_into().unwrap(),
-                    pkids,
-                    num_parties,
-                    num_keys,
-                    threshold,
-                    &mut rng,
-                )
-            })
-            .collect();
-
-        // Generate an aggregate public key
-        let poly_commitments = match wsts::v2::test_helpers::dkg(&mut signer_parties, &mut rng) {
-            Ok(poly_commitments) => poly_commitments,
-            Err(secret_errors) => {
-                panic!("Got secret errors from DKG: {:?}", secret_errors);
-            }
-        };
-        let mut sig_aggregator = wsts::v2::Aggregator::new(num_keys, threshold);
-        sig_aggregator
-            .init(&poly_commitments)
-            .expect("aggregator init failed");
-        let aggregate_public_key = sig_aggregator.poly[0];
+        let aggregate_public_key: Vec<u8> =
+            rand::thread_rng().sample_iter(Standard).take(33).collect();
+        let num_signers = signer_keys.len();
+        let threshold = u32::try_from(num_signers * 7 / 10).unwrap();
         Self {
-            signer_parties,
-            aggregate_public_key,
-            poly_commitments,
-            num_keys,
             threshold,
-            party_key_ids,
-            cycle: 0,
             signer_keys,
+            aggregate_public_key,
+            cycle: 0,
         }
     }
 
@@ -278,25 +199,6 @@ impl TestSigners {
         keys.iter().map(|key| key.sign(&msg).unwrap()).collect()
     }
 
-    /// Sign a Nakamoto block using the aggregate key.
-    /// NB: this function is current unused.
-    #[allow(dead_code)]
-    fn sign_block_with_aggregate_key(&mut self, block: &NakamotoBlock) -> ThresholdSignature {
-        let mut rng = rand_core::OsRng::default();
-        let msg = block.header.signer_signature_hash().0;
-        let (nonces, sig_shares, key_ids) =
-            wsts::v2::test_helpers::sign(msg.as_slice(), &mut self.signer_parties, &mut rng);
-
-        let mut sig_aggregator = wsts::v2::Aggregator::new(self.num_keys, self.threshold);
-        sig_aggregator
-            .init(&self.poly_commitments)
-            .expect("aggregator init failed");
-        let signature = sig_aggregator
-            .sign(msg.as_slice(), &nonces, &sig_shares, &key_ids)
-            .expect("aggregator sig failed");
-        ThresholdSignature(signature)
-    }
-
     /// Generate an list of signatures for a block. Only
     /// signers in the reward set will be included.
     pub fn generate_ordered_signatures(
@@ -353,45 +255,16 @@ impl TestSigners {
     }
 
     // Generate and assign a new aggregate public key
-    pub fn generate_aggregate_key(&mut self, cycle: u64) -> Point {
+    pub fn generate_aggregate_key(&mut self, cycle: u64) -> Vec<u8> {
         // If the key is already generated for this cycle, return it
         if cycle == self.cycle {
             debug!("Returning cached aggregate key for cycle {}", cycle);
             return self.aggregate_public_key.clone();
         }
 
-        debug!("Generating aggregate key for cycle {}", cycle);
-        let mut rng = ChaCha20Rng::seed_from_u64(cycle);
-        let num_parties = self.party_key_ids.len().try_into().unwrap();
-        // Create the parties
-        self.signer_parties = self
-            .party_key_ids
-            .iter()
-            .enumerate()
-            .map(|(pid, pkids)| {
-                wsts::v2::Party::new(
-                    pid.try_into().unwrap(),
-                    pkids,
-                    num_parties,
-                    self.num_keys,
-                    self.threshold,
-                    &mut rng,
-                )
-            })
-            .collect();
-        self.poly_commitments =
-            match wsts::v2::test_helpers::dkg(&mut self.signer_parties, &mut rng) {
-                Ok(poly_commitments) => poly_commitments,
-                Err(secret_errors) => {
-                    panic!("Got secret errors from DKG: {:?}", secret_errors);
-                }
-            };
-        let mut sig_aggregator = wsts::v2::Aggregator::new(self.num_keys, self.threshold);
-        sig_aggregator
-            .init(&self.poly_commitments)
-            .expect("aggregator init failed");
-        self.aggregate_public_key = sig_aggregator.poly[0];
-        self.cycle = cycle;
-        self.aggregate_public_key.clone()
+        let aggregate_public_key: Vec<u8> =
+            rand::thread_rng().sample_iter(Standard).take(33).collect();
+        self.aggregate_public_key = aggregate_public_key.clone();
+        aggregate_public_key
     }
 }

@@ -12,7 +12,7 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::mpsc::Sender;
 
@@ -39,7 +39,7 @@ use stacks_common::{debug, error, info, warn};
 use crate::chainstate::{ProposalEvalConfig, SortitionsView};
 use crate::client::{SignerSlotID, StackerDB, StacksClient};
 use crate::config::SignerConfig;
-use crate::runloop::{RunLoopCommand, SignerResult};
+use crate::runloop::SignerResult;
 use crate::signerdb::{BlockInfo, BlockState, SignerDb};
 use crate::Signer as SignerTrait;
 
@@ -81,7 +81,7 @@ pub struct Signer {
     /// The reward cycle this signer belongs to
     pub reward_cycle: u64,
     /// Reward set signer addresses and their weights
-    pub signer_weights: HashMap<StacksAddress, usize>,
+    pub signer_weights: HashMap<StacksAddress, u32>,
     /// SignerDB for state management
     pub signer_db: SignerDb,
     /// Configuration for proposal evaluation
@@ -259,17 +259,6 @@ impl SignerTrait<SignerMessage> for Signer {
         }
     }
 
-    fn process_command(
-        &mut self,
-        _stacks_client: &StacksClient,
-        _current_reward_cycle: u64,
-        command: Option<RunLoopCommand>,
-    ) {
-        if let Some(command) = command {
-            warn!("{self}: Received a command: {command:?}. V0 Signers do not support commands. Ignoring...")
-        }
-    }
-
     fn has_unprocessed_blocks(&self) -> bool {
         self.signer_db
             .has_unprocessed_blocks(self.reward_cycle)
@@ -292,40 +281,13 @@ impl From<SignerConfig> for Signer {
             SignerDb::new(&signer_config.db_path).expect("Failed to connect to signer Db");
         let proposal_config = ProposalEvalConfig::from(&signer_config);
 
-        // compute signer addresses *in reward cycle order*
-        let signer_ids_and_addrs: BTreeMap<_, _> = signer_config
-            .signer_entries
-            .signer_ids
-            .iter()
-            .map(|(addr, id)| (*id, *addr))
-            .collect();
-
-        let signer_addresses: Vec<_> = signer_ids_and_addrs.into_values().collect();
-
-        let signer_weights = signer_addresses
-            .iter()
-            .map(|addr| {
-                let Some(signer_id) = signer_config.signer_entries.signer_ids.get(addr) else {
-                    panic!("Malformed config: no signer ID for {}", addr);
-                };
-                let Some(key_ids) = signer_config.signer_entries.signer_key_ids.get(signer_id)
-                else {
-                    panic!(
-                        "Malformed config: no key IDs for signer ID {} ({})",
-                        signer_id, addr
-                    );
-                };
-                (*addr, key_ids.len())
-            })
-            .collect();
-
         Self {
             private_key: signer_config.stacks_private_key,
             stackerdb,
             mainnet: signer_config.mainnet,
             signer_id: signer_config.signer_id,
-            signer_addresses,
-            signer_weights,
+            signer_addresses: signer_config.signer_entries.signer_addresses.clone(),
+            signer_weights: signer_config.signer_entries.signer_addr_to_weight.clone(),
             signer_slot_ids: signer_config.signer_slot_ids.clone(),
             reward_cycle: signer_config.reward_cycle,
             signer_db,
@@ -679,22 +641,17 @@ impl Signer {
         &self,
         addrs: impl Iterator<Item = &'a StacksAddress>,
     ) -> u32 {
-        let signing_weight = addrs.fold(0usize, |signing_weight, stacker_address| {
+        addrs.fold(0u32, |signing_weight, stacker_address| {
             let stacker_weight = self.signer_weights.get(stacker_address).unwrap_or(&0);
             signing_weight.saturating_add(*stacker_weight)
-        });
-        u32::try_from(signing_weight)
-            .unwrap_or_else(|_| panic!("FATAL: signing weight exceeds u32::MAX"))
+        })
     }
 
     /// Compute the total signing weight
     fn compute_signature_total_weight(&self) -> u32 {
-        let total_weight = self
-            .signer_weights
+        self.signer_weights
             .values()
-            .fold(0usize, |acc, val| acc.saturating_add(*val));
-        u32::try_from(total_weight)
-            .unwrap_or_else(|_| panic!("FATAL: total weight exceeds u32::MAX"))
+            .fold(0u32, |acc, val| acc.saturating_add(*val))
     }
 
     /// Handle an observed rejection from another signer
