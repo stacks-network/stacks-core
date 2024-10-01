@@ -593,10 +593,21 @@ pub fn next_block_and<F>(
 where
     F: FnMut() -> Result<bool, String>,
 {
+    next_block_and_controller(btc_controller, timeout_secs, |_| check())
+}
+
+pub fn next_block_and_controller<F>(
+    btc_controller: &mut BitcoinRegtestController,
+    timeout_secs: u64,
+    mut check: F,
+) -> Result<(), String>
+where
+    F: FnMut(&mut BitcoinRegtestController) -> Result<bool, String>,
+{
     eprintln!("Issuing bitcoin block");
     btc_controller.build_next_block(1);
     let start = Instant::now();
-    while !check()? {
+    while !check(btc_controller)? {
         if start.elapsed() > Duration::from_secs(timeout_secs) {
             error!("Timed out waiting for block to process, trying to continue test");
             return Err("Timed out".into());
