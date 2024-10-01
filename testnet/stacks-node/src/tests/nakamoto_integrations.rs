@@ -8460,8 +8460,10 @@ fn mock_mining() {
     let mock_mining_blocks_end = follower_naka_mined_blocks.load(Ordering::SeqCst);
     let blocks_mock_mined = mock_mining_blocks_end - mock_mining_blocks_start;
     assert!(
-        blocks_mock_mined > tenure_count,
-        "Should have mock mined at least `tenure_count` nakamoto blocks"
+        blocks_mock_mined >= tenure_count,
+        "Should have mock mined at least `tenure_count` nakamoto blocks. Mined = {}. Expected = {}",
+        blocks_mock_mined,
+        tenure_count,
     );
 
     // wait for follower to reach the chain tip
