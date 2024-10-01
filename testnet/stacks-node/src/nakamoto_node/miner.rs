@@ -1123,6 +1123,12 @@ impl BlockMinerThread {
                 tenure_change_tx: None,
             });
         };
+        if self.last_block_mined.is_some() {
+            return Ok(NakamotoTenureInfo {
+                coinbase_tx: None,
+                tenure_change_tx: None,
+            });
+        }
 
         let parent_block_id = parent_block_info.stacks_parent_header.index_block_hash();
         let mut payload = TenureChangePayload {
@@ -1152,10 +1158,10 @@ impl BlockMinerThread {
                     &parent_block_id,
                 )
                 .map_err(NakamotoNodeError::MiningFailure)?;
-                debug!("Miner: Extending tenure";
-                    "burn_view_consensus_hash" => %burn_view_consensus_hash,
-                    "parent_block_id" => %parent_block_id,
-                    "num_blocks_so_far" => num_blocks_so_far,
+                info!("Miner: Extending tenure";
+                      "burn_view_consensus_hash" => %burn_view_consensus_hash,
+                      "parent_block_id" => %parent_block_id,
+                      "num_blocks_so_far" => num_blocks_so_far,
                 );
                 payload = payload.extend(
                     *burn_view_consensus_hash,
