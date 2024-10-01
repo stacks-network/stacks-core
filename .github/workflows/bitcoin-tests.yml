@@ -154,7 +154,7 @@ jobs:
       - name: Run Tests
         id: run_tests
         timeout-minutes: ${{ fromJSON(env.TEST_TIMEOUT) }}
-        uses: stacks-network/actions/stacks-core/run-tests@feat/no-capture-2
+        uses: stacks-network/actions/stacks-core/run-tests@main
         with:
           test-name: ${{ matrix.test-name }}
           threads: 1
