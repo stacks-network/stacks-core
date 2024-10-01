@@ -4001,7 +4001,7 @@ fn locally_accepted_blocks_overriden_by_global_rejection() {
     let sender_addr = tests::to_addr(&sender_sk);
     let send_amt = 100;
     let send_fee = 180;
-    let nmb_txs = 2;
+    let nmb_txs = 3;
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let short_timeout_secs = 20;
     let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new(
@@ -4057,7 +4057,11 @@ fn locally_accepted_blocks_overriden_by_global_rejection() {
 
     info!("------------------------- Attempt to Mine Nakamoto Block N+1 -------------------------");
     // Make half of the signers reject the block proposal by the miner to ensure its marked globally rejected
-    let rejecting_signers: Vec<_> = all_signers.iter().cloned().take(num_signers / 2).collect();
+    let rejecting_signers: Vec<_> = all_signers
+        .iter()
+        .cloned()
+        .take(num_signers / 2 + num_signers % 2)
+        .collect();
     TEST_REJECT_ALL_BLOCK_PROPOSAL
         .lock()
         .unwrap()
@@ -4066,6 +4070,7 @@ fn locally_accepted_blocks_overriden_by_global_rejection() {
     let transfer_tx =
         make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
     let tx = submit_tx(&http_origin, &transfer_tx);
+    sender_nonce += 1;
     info!("Submitted tx {tx} to mine block N+1");
 
     let blocks_before = mined_blocks.load(Ordering::SeqCst);
@@ -4089,6 +4094,11 @@ fn locally_accepted_blocks_overriden_by_global_rejection() {
         .lock()
         .unwrap()
         .replace(Vec::new());
+
+    let transfer_tx =
+        make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
+    let tx = submit_tx(&http_origin, &transfer_tx);
+    info!("Submitted tx {tx} to mine block N+1'");
 
     wait_for(short_timeout_secs, || {
         Ok(mined_blocks.load(Ordering::SeqCst) > blocks_before
