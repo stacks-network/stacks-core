@@ -27,7 +27,9 @@ use libsigner::v0::messages::{
 };
 use libsigner::{BlockProposal, SignerSession, StackerDBSession};
 use stacks::address::AddressHashMode;
+use stacks::burnchains::Txid;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
+use stacks::chainstate::burn::operations::LeaderBlockCommitOp;
 use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader, NakamotoChainState};
 use stacks::chainstate::stacks::address::PoxAddress;
 use stacks::chainstate::stacks::boot::MINERS_NAME;
@@ -68,15 +70,16 @@ use crate::nakamoto_node::sign_coordinator::TEST_IGNORE_SIGNERS;
 use crate::neon::Counters;
 use crate::run_loop::boot_nakamoto;
 use crate::tests::nakamoto_integrations::{
-    boot_to_epoch_25, boot_to_epoch_3_reward_set, next_block_and, setup_epoch_3_reward_set,
-    wait_for, POX_4_DEFAULT_STACKER_BALANCE, POX_4_DEFAULT_STACKER_STX_AMT,
+    boot_to_epoch_25, boot_to_epoch_3_reward_set, next_block_and, next_block_and_controller,
+    setup_epoch_3_reward_set, wait_for, POX_4_DEFAULT_STACKER_BALANCE,
+    POX_4_DEFAULT_STACKER_STX_AMT,
 };
 use crate::tests::neon_integrations::{
     get_account, get_chain_info, get_chain_info_opt, next_block_and_wait,
     run_until_burnchain_height, submit_tx, submit_tx_fallible, test_observer,
 };
 use crate::tests::{self, make_stacks_transfer};
-use crate::{nakamoto_node, BurnchainController, Config, Keychain};
+use crate::{nakamoto_node, BitcoinRegtestController, BurnchainController, Config, Keychain};
 
 impl SignerTest<SpawnedSigner> {
     /// Run the test until the first epoch 2.5 reward cycle.
@@ -1221,6 +1224,33 @@ fn bitcoind_forking_test() {
     let miner_address = Keychain::default(conf.node.seed.clone())
         .origin_address(conf.is_mainnet())
         .unwrap();
+    let miner_pk = signer_test
+        .running_nodes
+        .btc_regtest_controller
+        .get_mining_pubkey()
+        .as_deref()
+        .map(Secp256k1PublicKey::from_hex)
+        .unwrap()
+        .unwrap();
+
+    let get_unconfirmed_commit_data = |btc_controller: &mut BitcoinRegtestController| {
+        let unconfirmed_utxo = btc_controller
+            .get_all_utxos(&miner_pk)
+            .into_iter()
+            .find(|utxo| utxo.confirmations == 0)?;
+        let unconfirmed_txid = Txid::from_bitcoin_tx_hash(&unconfirmed_utxo.txid);
+        let unconfirmed_tx = btc_controller.get_raw_transaction(&unconfirmed_txid);
+        let unconfirmed_tx_opreturn_bytes = unconfirmed_tx.output[0].script_pubkey.as_bytes();
+        info!(
+            "Unconfirmed tx bytes: {}",
+            stacks::util::hash::to_hex(unconfirmed_tx_opreturn_bytes)
+        );
+        let data = LeaderBlockCommitOp::parse_data(
+            &unconfirmed_tx_opreturn_bytes[unconfirmed_tx_opreturn_bytes.len() - 77..],
+        )
+        .unwrap();
+        Some(data)
+    };
 
     signer_test.boot_to_epoch_3();
     info!("------------------------- Reached Epoch 3.0 -------------------------");
@@ -1253,27 +1283,43 @@ fn bitcoind_forking_test() {
         .build_next_block(1);
 
     info!("Wait for block off of shallow fork");
-    thread::sleep(Duration::from_secs(15));
 
     // we need to mine some blocks to get back to being considered a frequent miner
     for i in 0..3 {
+        let current_burn_height = get_chain_info(&signer_test.running_nodes.conf).burn_block_height;
         info!(
-            "Mining block {} of 3 to be considered a frequent miner",
-            i + 1
+            "Mining block #{i} to be considered a frequent miner";
+            "current_burn_height" => current_burn_height,
         );
         let commits_count = signer_test
             .running_nodes
             .commits_submitted
             .load(Ordering::SeqCst);
-        next_block_and(
+        next_block_and_controller(
             &mut signer_test.running_nodes.btc_regtest_controller,
             60,
-            || {
-                Ok(signer_test
+            |btc_controller| {
+                let commits_submitted = signer_test
                     .running_nodes
                     .commits_submitted
-                    .load(Ordering::SeqCst)
-                    > commits_count)
+                    .load(Ordering::SeqCst);
+                if commits_submitted <= commits_count {
+                    // wait until a commit was submitted
+                    return Ok(false)
+                }
+                let Some(payload) = get_unconfirmed_commit_data(btc_controller) else {
+                    warn!("Commit submitted, but bitcoin doesn't see it in the unconfirmed UTXO set, will try to wait.");
+                    return Ok(false)
+                };
+                let burn_parent_modulus = payload.burn_parent_modulus;
+                let current_modulus = u8::try_from((current_burn_height + 1) % 5).unwrap();
+                info!(
+                    "Ongoing Commit Operation check";
+                    "burn_parent_modulus" => burn_parent_modulus,
+                    "current_modulus" => current_modulus,
+                    "payload" => ?payload,
+                );
+                Ok(burn_parent_modulus == current_modulus)
             },
         )
         .unwrap();
@@ -1312,28 +1358,44 @@ fn bitcoind_forking_test() {
         .btc_regtest_controller
         .build_next_block(4);
 
-    info!("Wait for block off of deeper fork");
-    thread::sleep(Duration::from_secs(15));
+    info!("Wait for block off of deep fork");
 
     // we need to mine some blocks to get back to being considered a frequent miner
     for i in 0..3 {
+        let current_burn_height = get_chain_info(&signer_test.running_nodes.conf).burn_block_height;
         info!(
-            "Mining block {} of 3 to be considered a frequent miner",
-            i + 1
+            "Mining block #{i} to be considered a frequent miner";
+            "current_burn_height" => current_burn_height,
         );
         let commits_count = signer_test
             .running_nodes
             .commits_submitted
             .load(Ordering::SeqCst);
-        next_block_and(
+        next_block_and_controller(
             &mut signer_test.running_nodes.btc_regtest_controller,
             60,
-            || {
-                Ok(signer_test
+            |btc_controller| {
+                let commits_submitted = signer_test
                     .running_nodes
                     .commits_submitted
-                    .load(Ordering::SeqCst)
-                    > commits_count)
+                    .load(Ordering::SeqCst);
+                if commits_submitted <= commits_count {
+                    // wait until a commit was submitted
+                    return Ok(false)
+                }
+                let Some(payload) = get_unconfirmed_commit_data(btc_controller) else {
+                    warn!("Commit submitted, but bitcoin doesn't see it in the unconfirmed UTXO set, will try to wait.");
+                    return Ok(false)
+                };
+                let burn_parent_modulus = payload.burn_parent_modulus;
+                let current_modulus = u8::try_from((current_burn_height + 1) % 5).unwrap();
+                info!(
+                    "Ongoing Commit Operation check";
+                    "burn_parent_modulus" => burn_parent_modulus,
+                    "current_modulus" => current_modulus,
+                    "payload" => ?payload,
+                );
+                Ok(burn_parent_modulus == current_modulus)
             },
         )
         .unwrap();
