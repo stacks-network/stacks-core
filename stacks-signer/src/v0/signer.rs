@@ -15,6 +15,7 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::mpsc::Sender;
+use std::time::{Duration, Instant};
 
 use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
 use blockstack_lib::net::api::postblock_proposal::{
@@ -185,20 +186,13 @@ impl SignerTrait<SignerMessage> for Signer {
                             );
                         }
                         SignerMessage::BlockPushed(b) => {
-                            let block_push_result = stacks_client.post_block(b);
-                            if let Err(ref e) = &block_push_result {
-                                warn!(
-                                    "{self}: Failed to post block {} (id {}): {e:?}",
-                                    &b.header.signer_signature_hash(),
-                                    &b.block_id()
-                                );
-                            };
                             // This will infinitely loop until the block is acknowledged by the node
                             info!(
                                 "{self}: Got block pushed message";
                                 "block_id" => %b.block_id(),
                                 "signer_sighash" => %b.header.signer_signature_hash(),
                             );
+                            let start_time = Instant::now();
                             loop {
                                 match stacks_client.post_block(b) {
                                     Ok(block_push_result) => {
@@ -206,6 +200,11 @@ impl SignerTrait<SignerMessage> for Signer {
                                         break;
                                     }
                                     Err(e) => {
+                                        if cfg!(test)
+                                            && start_time.elapsed() > Duration::from_secs(30)
+                                        {
+                                            panic!("{self}: Timed out in test while pushing block to stacks node: {e}");
+                                        }
                                         warn!("{self}: Failed to push block to stacks node: {e}. Retrying...");
                                     }
                                 };
