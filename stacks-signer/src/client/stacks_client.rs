@@ -78,8 +78,6 @@ pub struct StacksClient {
 
 #[derive(Deserialize)]
 struct GetStackersErrorResp {
-    #[allow(dead_code)]
-    err_type: String,
     err_msg: String,
 }
 

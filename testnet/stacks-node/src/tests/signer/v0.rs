@@ -1312,7 +1312,7 @@ fn bitcoind_forking_test() {
         .btc_regtest_controller
         .build_next_block(4);
 
-    info!("Wait for block off of shallow fork");
+    info!("Wait for block off of deeper fork");
     thread::sleep(Duration::from_secs(15));
 
     // we need to mine some blocks to get back to being considered a frequent miner
