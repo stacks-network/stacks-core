@@ -617,7 +617,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
                                 .recover_public_key()
                                 .expect("Failed to recover public key from rejection");
                             if expected_signers.contains(&rejected_pubkey) {
-                                Some(rejection)
+                                Some(rejected_pubkey)
                             } else {
                                 None
                             }
@@ -625,8 +625,8 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
                         _ => None,
                     }
                 })
-                .collect::<Vec<_>>();
-            Ok(block_rejections.len() >= expected_signers.len())
+                .collect::<HashSet<_>>();
+            Ok(block_rejections.len() == expected_signers.len())
         })
     }
 }
