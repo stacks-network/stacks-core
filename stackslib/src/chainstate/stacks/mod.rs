@@ -36,6 +36,7 @@ use stacks_common::address::AddressHashMode;
 use stacks_common::codec::{
     read_next, write_next, Error as codec_error, StacksMessageCodec, MAX_MESSAGE_LEN,
 };
+use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId, StacksWorkScore, TrieHash,
     TRIEHASH_ENCODED_SIZE,
@@ -384,6 +385,14 @@ impl Txid {
     /// A sighash is calculated the same way as a txid
     pub fn from_sighash_bytes(txdata: &[u8]) -> Txid {
         Txid::from_stacks_tx(txdata)
+    }
+
+    /// Create a Txid from the tx hash bytes used in bitcoin.
+    /// This just reverses the inner bytes of the input.
+    pub fn from_bitcoin_tx_hash(tx_hash: &Sha256dHash) -> Txid {
+        let mut txid_bytes = tx_hash.0.clone();
+        txid_bytes.reverse();
+        Self(txid_bytes)
     }
 }
 

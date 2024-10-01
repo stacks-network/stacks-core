@@ -48,14 +48,14 @@ use crate::net::Error as net_error;
 
 // return type from parse_data below
 #[derive(Debug)]
-struct ParsedData {
+pub struct ParsedData {
     block_header_hash: BlockHeaderHash,
     new_seed: VRFSeed,
     parent_block_ptr: u32,
     parent_vtxindex: u16,
     key_block_ptr: u32,
     key_vtxindex: u16,
-    burn_parent_modulus: u8,
+    pub burn_parent_modulus: u8,
     memo: u8,
 }
 
@@ -201,7 +201,7 @@ impl LeaderBlockCommitOp {
         StacksBlockId(self.block_header_hash.0.clone())
     }
 
-    fn parse_data(data: &Vec<u8>) -> Option<ParsedData> {
+    pub fn parse_data(data: &[u8]) -> Option<ParsedData> {
         /*
             Wire format:
             0      2  3            35               67     71     73    77   79     80
