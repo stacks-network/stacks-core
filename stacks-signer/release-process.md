@@ -33,7 +33,7 @@ When there are changes in-between `stacks-core` releases, the `stacks-signer` bi
 ```
 X.Y.Z.A.n.x
 
-X major version - does not change in practice unless there’s another Stacks 2.0 type event
+X major version - in practice, this does not change unless there’s another significant network update (e.g. a Stacks 3.0 type of event)
 Y increments on consensus-breaking changes
 Z increments on non-consensus-breaking changes that require a fresh chainstate (akin to semantic MAJOR)
 A increments on non-consensus-breaking changes that do not require a fresh chainstate, but introduce new features (akin to semantic MINOR)
