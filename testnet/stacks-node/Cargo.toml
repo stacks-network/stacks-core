@@ -24,7 +24,6 @@ stacks-common = { path = "../../stacks-common" }
 chrono = "0.4.19"
 regex = "1"
 libsigner = { path = "../../libsigner" }
-wsts = { workspace = true }
 url = "2.1.0"
 rand = { workspace = true }
 rand_core = { workspace = true }
@@ -48,7 +47,6 @@ stacks = { package = "stackslib", path = "../../stackslib", features = ["default
 stacks-signer = { path = "../../stacks-signer", features = ["testing"] }
 tracing = "0.1.37"
 tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
-wsts = {workspace = true}
 mutants = "0.0.3"
 tiny_http = "0.12.0"
 http-types = "2.12"

@@ -1,6 +1,6 @@
 # stacks-signer: Stacks Signer CLI
 
-stacks-signer is a command-line interface (CLI) for executing DKG (Distributed Key Generation) rounds, signing transactions and blocks, and more within the Stacks blockchain ecosystem. This tool provides various subcommands to interact with the StackerDB contract, perform cryptographic operations, and run a Stacks compliant signer.
+stacks-signer is a command-line interface (CLI) for operating a Stacks compliant signer. This tool provides various subcommands to interact with the StackerDB contract, generate SIP voting and stacking signatures, and monitoring the Signer network for expected behaviour.
 
 ## Installation
 
@@ -25,9 +25,83 @@ To use stacks-signer, you need to build and install the Rust program. You can do
    ./target/release/stacks-signer --help
    ```
 
+4. **Build with Prometheus Metrics Enabled**: You can optionally build and run the stacks-signer with monitoring metrics enabled.
+
+   ```bash
+   cd stacks-signer
+   cargo build --release --features "monitoring_prom"
+   cargo run --features "monitoring_prom" -p stacks-signer run --config <config_file>
+   ```
+
+You must specify the "metrics_endpoint" option in the config file to serve these metrics.
+See [metrics documentation](TODO) for a complete breakdown of the available metrics.
+
 ## Usage
 
 The stacks-signer CLI provides the following subcommands:
+
+### `run`
+
+Start the signer and handle requests to sign Stacks block proposals.
+
+```bash
+./stacks-signer run --config <config_file>
+
+```
+
+### `monitor-signers`
+
+Periodically query the current reward cycle's signers' StackerDB slots to verify their operation.
+
+```bash
+./stacks-signer monitor-signers --host <host> --interval <interval> --max-age <max_age>
+
+```
+- `--host`: The Stacks node to connect to.
+- `--interval`: The polling interval in seconds for querying stackerDB.
+- `--max-age`: The max age in seconds before a signer message is considered stale. 
+
+### `generate-stacking-signature`
+
+Generate a signature for stacking.
+
+```bash
+./stacks-signer generate-stacking-signature --config <config_file> --pox-address <address> --reward-cycle <cycle> --period <period> --max-amount <max_amount> --auth-id <auth_id>
+
+```
+- `--config`: The path to the signer configuration file.
+- `--pox-address`: The BTC address used to receive rewards
+- `--reward-cycle`: The reward cycle during which this signature is used
+- `--method`: Stacking metod that can be used
+- `--period`: Number of cycles used as a lock period. Use `1` for stack-aggregation-commit method
+- `--max-amount`: The max amount of uSTX that can be used in this unique transaction
+- `--auth-id`: A unique identifier to prevent re-using this authorization
+- `--json`: Output information in JSON format
+
+### `generate-vote`
+
+Generate a vote signature for a specific SIP
+
+```bash
+./stacks-signer generate-vote --config <config_file> --vote <yes|no> --sip <sip_number>
+
+```
+- `--config`: The path to the signer configuration file.
+- `--vote`: The vote (YES or NO)
+- `--sip`: the number of the SIP being voted on
+
+### `verify-vote`
+
+Verify the validity of a vote signature for a specific SIP.
+
+```bash
+./stacks-signer verify-vote --public-key <public_key> --signature <signature> --vote <yes|no> --sip <sip_number>
+
+```
+- `--public-key`: The stacks public key to verify against in hexadecimal format
+- `--signature`: The message signature in hexadecimal format
+- `--vote`: The vote (YES or NO)
+- `--sip`: the number of the SIP being voted on
 
 ### `get-chunk`
 
@@ -35,8 +109,8 @@ Retrieve a chunk from the StackerDB instance.
 
 ```bash
 ./stacks-signer get-chunk --host <host> --contract <contract> --slot_id <slot_id> --slot_version <slot_version>
-```
 
+```
 - `--host`: The stacks node host to connect to.
 - `--contract`: The contract ID of the StackerDB instance.
 - `--slot-id`: The slot ID to get.
@@ -49,7 +123,6 @@ Retrieve the latest chunk from the StackerDB instance.
 ```bash
 ./stacks-signer get-latest-chunk --host <host> --contract <contract> --slot-id <slot_id>
 ```
-
 - `--host`: The stacks node host to connect to.
 - `--contract`: The contract ID of the StackerDB instance.
 - `--slot-id`: The slot ID to get.
@@ -71,7 +144,6 @@ Upload a chunk to the StackerDB instance.
 ```bash
 ./stacks-signer put-chunk --host <host> --contract <contract> --private_key <private_key> --slot-id <slot_id> --slot-version <slot_version> [--data <data>]
 ```
-
 - `--host`: The stacks node host to connect to.
 - `--contract`: The contract ID of the StackerDB instance.
 - `--private_key`: The Stacks private key to use in hexademical format.
@@ -79,64 +151,10 @@ Upload a chunk to the StackerDB instance.
 - `--slot-version`: The slot version to get.
 - `--data`: The data to upload. If you wish to pipe data using STDIN, use with '-'.
 
-### `dkg`
-
-Run a distributed key generation round through stacker-db.
-
-```bash
-./stacks-signer dkg --config <config_file> 
-```
-
-- `--config`: The path to the signer configuration file.
-
-### `dkg-sign`
-
-Run a distributed key generation round and sign a given message through stacker-db.
-
-```bash
-./stacks-signer dkg-sign --config <config_file> [--data <data>]
-```
-- `--config`: The path to the signer configuration file.
-- `--data`: The data to sign. If you wish to pipe data using STDIN, use with '-'.
-
-
-### `dkg-sign`
-
-Sign a given message through stacker-db.
-
-```bash
-./stacks-signer sign --config <config_file> [--data <data>]
-```
-- `--config`: The path to the signer configuration file.
-- `--data`: The data to sign. If you wish to pipe data using STDIN, use with '-'.
-
-### `run`
-
-Start the signer and handle requests to sign messages and participate in DKG rounds via stacker-db.
-```bash
-./stacks-signer run --config <config_file>
-```
-- `--config`: The path to the signer configuration file.
-
-### `generate-files`
-
-Generate the necessary files to run a collection of signers to communicate via stacker-db.
-
-```bash
-./stacks-signer generate-files --host <host> --contract <contract>  --num-signers <num_signers> --num-keys <num_keys> --network <network> --dir <dir>
-```
-- `--host`: The stacks node host to connect to.
-- `--contract`: The contract ID of the StackerDB signer contract.
-- `--num-signers`: The number of signers to generate configuration files for.
-- `--num-keys`: The total number of key ids to distribute among the signers.
-- `--private-keys:` A path to a file containing a list of hexadecimal representations of Stacks private keys. Required if `--num-keys` is not set.
-- `--network`: The network to use. One of "mainnet" or "testnet".
-- `--dir`: The directory to write files to. Defaults to the current directory.
-- `--timeout`: Optional timeout in milliseconds to use when polling for updates in the StackerDB runloop.
-
 ## Contributing
 
 To contribute to the stacks-signer project, please read the [Contributing Guidelines](../CONTRIBUTING.md).
+
 ## License
 
 This program is open-source software released under the terms of the GNU General Public License (GPL). You should have received a copy of the GNU General Public License along with this program.

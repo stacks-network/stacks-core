@@ -2501,8 +2501,7 @@ fn mock_sign_epoch_25() {
         .iter()
         .map(|id| id.0)
         .collect();
-    let signer_keys = signer_test.get_signer_public_keys(reward_cycle);
-    let signer_public_keys: Vec<_> = signer_keys.signers.into_values().collect();
+    let signer_public_keys = signer_test.get_signer_public_keys(reward_cycle);
     assert_eq!(signer_slot_ids.len(), num_signers);
 
     let miners_stackerdb_contract = boot_code_id(MINERS_NAME, false);
@@ -2714,8 +2713,7 @@ fn multiple_miners_mock_sign_epoch_25() {
         .iter()
         .map(|id| id.0)
         .collect();
-    let signer_keys = signer_test.get_signer_public_keys(reward_cycle);
-    let signer_public_keys: Vec<_> = signer_keys.signers.into_values().collect();
+    let signer_public_keys = signer_test.get_signer_public_keys(reward_cycle);
     assert_eq!(signer_slot_ids.len(), num_signers);
 
     let miners_stackerdb_contract = boot_code_id(MINERS_NAME, false);

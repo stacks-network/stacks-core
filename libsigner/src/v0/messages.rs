@@ -887,8 +887,8 @@ impl From<BlockResponse> for SignerMessage {
 mod test {
     use blockstack_lib::chainstate::nakamoto::NakamotoBlockHeader;
     use blockstack_lib::chainstate::stacks::{
-        ThresholdSignature, TransactionAnchorMode, TransactionAuth, TransactionPayload,
-        TransactionPostConditionMode, TransactionSmartContract, TransactionVersion,
+        TransactionAnchorMode, TransactionAuth, TransactionPayload, TransactionPostConditionMode,
+        TransactionSmartContract, TransactionVersion,
     };
     use blockstack_lib::util_lib::strings::StacksString;
     use clarity::consts::CHAIN_ID_MAINNET;

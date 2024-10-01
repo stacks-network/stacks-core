@@ -25,7 +25,7 @@ use crate::http::{decode_http_body, decode_http_request, decode_http_response, r
 
 #[test]
 fn test_decode_http_request_ok() {
-    let tests = vec![
+    let tests = [
         ("GET /foo HTTP/1.1\r\nHost: localhost:6270\r\n\r\n",
         ("GET", "/foo", vec![("host", "localhost:6270")])),
         ("POST asdf HTTP/1.1\r\nHost: core.blockstack.org\r\nFoo: Bar\r\n\r\n",
@@ -61,7 +61,7 @@ fn test_decode_http_request_ok() {
 
 #[test]
 fn test_decode_http_request_err() {
-    let tests = vec![
+    let tests = [
         (
             "GET /foo HTTP/1.1\r\n",
             EventError::Deserialize("".to_string()),
@@ -99,7 +99,7 @@ fn test_decode_http_request_err() {
 
 #[test]
 fn test_decode_http_response_ok() {
-    let tests = vec![
+    let tests = [
         ("HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: 123\r\nX-Request-ID: 0\r\n\r\n",
         vec![("content-type", "application/octet-stream"), ("content-length", "123"), ("x-request-id", "0")]),
         ("HTTP/1.1 200 Ok\r\nContent-Type: application/octet-stream\r\nTransfer-encoding: chunked\r\nX-Request-ID: 0\r\n\r\n",
@@ -123,7 +123,7 @@ fn test_decode_http_response_ok() {
 
 #[test]
 fn test_decode_http_response_err() {
-    let tests = vec![
+    let tests = [
         ("HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nContent-Length: 456\r\nFoo: Bar\r\nX-Request-ID: 0\r\n\r\n",
          RPCError::HttpError(400)),
         ("HTTP/1.1 200",
@@ -223,7 +223,7 @@ impl Write for MockHTTPSocket {
 
 #[test]
 fn test_run_http_request_with_body() {
-    let tests = vec![
+    let tests = [
         ("GET", "/test-no-content-type-and-no-body", None, vec![]),
         (
             "GET",
@@ -288,7 +288,7 @@ fn test_run_http_request_with_body() {
 
 #[test]
 fn test_run_http_request_no_body() {
-    let tests = vec![
+    let tests = [
         ("GET", "/test-no-content-type-and-no-body", None, vec![]),
         (
             "GET",

@@ -1,5 +1,3 @@
-use std::collections::VecDeque;
-use std::fmt::Debug;
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
 // Copyright (C) 2020-2024 Stacks Open Internet Foundation
 //
@@ -15,16 +13,15 @@ use std::fmt::Debug;
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
+use std::fmt::Debug;
 use std::sync::mpsc::Sender;
 use std::time::Duration;
 
 use clarity::codec::StacksMessageCodec;
 use hashbrown::HashMap;
-use libsigner::{BlockProposal, SignerEntries, SignerEvent, SignerRunLoop};
+use libsigner::{SignerEntries, SignerEvent, SignerRunLoop};
 use slog::{slog_debug, slog_error, slog_info, slog_warn};
 use stacks_common::{debug, error, info, warn};
-use wsts::common::MerkleRoot;
-use wsts::state_machine::OperationResult;
 
 use crate::chainstate::SortitionsView;
 use crate::client::{retry_with_exponential_backoff, ClientError, StacksClient};
@@ -55,45 +52,12 @@ pub struct StateInfo {
 pub enum SignerResult {
     /// The signer has received a status check
     StatusCheck(StateInfo),
-    /// The signer has completed an operation
-    OperationResult(OperationResult),
-}
-
-impl From<OperationResult> for SignerResult {
-    fn from(result: OperationResult) -> Self {
-        SignerResult::OperationResult(result)
-    }
 }
 
 impl From<StateInfo> for SignerResult {
     fn from(state_info: StateInfo) -> Self {
         SignerResult::StatusCheck(state_info)
     }
-}
-
-/// Which signer operation to perform
-#[derive(PartialEq, Clone, Debug)]
-pub enum SignerCommand {
-    /// Generate a DKG aggregate public key
-    Dkg,
-    /// Sign a message
-    Sign {
-        /// The block to sign over
-        block_proposal: BlockProposal,
-        /// Whether to make a taproot signature
-        is_taproot: bool,
-        /// Taproot merkle root
-        merkle_root: Option<MerkleRoot>,
-    },
-}
-
-/// Which operation to perform
-#[derive(PartialEq, Clone, Debug)]
-pub struct RunLoopCommand {
-    /// Which signer operation to perform
-    pub command: SignerCommand,
-    /// The reward cycle we are performing the operation for
-    pub reward_cycle: u64,
 }
 
 /// The runloop state
@@ -213,8 +177,6 @@ where
     pub stacks_signers: HashMap<u64, ConfiguredSigner<Signer, T>>,
     /// The state of the runloop
     pub state: State,
-    /// The commands received thus far
-    pub commands: VecDeque<RunLoopCommand>,
     /// The current reward cycle info. Only None if the runloop is uninitialized
     pub current_reward_cycle_info: Option<RewardCycleInfo>,
     /// Cache sortitin data from `stacks-node`
@@ -230,7 +192,6 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
             stacks_client,
             stacks_signers: HashMap::with_capacity(2),
             state: State::Uninitialized,
-            commands: VecDeque::new(),
             current_reward_cycle_info: None,
             sortition_state: None,
         }
@@ -301,7 +262,7 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
                 );
             return Ok(None);
         };
-        let Some(signer_id) = signer_entries.signer_ids.get(current_addr) else {
+        let Some(signer_id) = signer_entries.signer_addr_to_id.get(current_addr) else {
             warn!(
                 "Signer {current_addr} was found in stacker db but not the reward set for reward cycle {reward_cycle}."
             );
@@ -310,30 +271,16 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
         info!(
             "Signer #{signer_id} ({current_addr}) is registered for reward cycle {reward_cycle}."
         );
-        let key_ids = signer_entries
-            .signer_key_ids
-            .get(signer_id)
-            .cloned()
-            .unwrap_or_default();
         Ok(Some(SignerConfig {
             reward_cycle,
             signer_id: *signer_id,
             signer_slot_id: *signer_slot_id,
-            key_ids,
             signer_entries,
             signer_slot_ids: signer_slot_ids.into_values().collect(),
             first_proposal_burn_block_timing: self.config.first_proposal_burn_block_timing,
-            ecdsa_private_key: self.config.ecdsa_private_key,
             stacks_private_key: self.config.stacks_private_key,
             node_host: self.config.node_host.to_string(),
             mainnet: self.config.network.is_mainnet(),
-            dkg_end_timeout: self.config.dkg_end_timeout,
-            dkg_private_timeout: self.config.dkg_private_timeout,
-            dkg_public_timeout: self.config.dkg_public_timeout,
-            nonce_timeout: self.config.nonce_timeout,
-            sign_timeout: self.config.sign_timeout,
-            tx_fee_ustx: self.config.tx_fee_ustx,
-            max_tx_fee_ustx: self.config.max_tx_fee_ustx,
             db_path: self.config.db_path.clone(),
             block_proposal_timeout: self.config.block_proposal_timeout,
         }))
@@ -499,7 +446,7 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
 }
 
 impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug>
-    SignerRunLoop<Vec<SignerResult>, RunLoopCommand, T> for RunLoop<Signer, T>
+    SignerRunLoop<Vec<SignerResult>, T> for RunLoop<Signer, T>
 {
     fn set_event_timeout(&mut self, timeout: Duration) {
         self.config.event_timeout = timeout;
@@ -512,11 +459,10 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug>
     fn run_one_pass(
         &mut self,
         event: Option<SignerEvent<T>>,
-        cmd: Option<RunLoopCommand>,
         res: &Sender<Vec<SignerResult>>,
     ) -> Option<Vec<SignerResult>> {
         debug!(
-            "Running one pass for the signer. state={:?}, cmd={cmd:?}, event={event:?}",
+            "Running one pass for the signer. state={:?}, event={event:?}",
             self.state
         );
         // This is the only event that we respond to from the outer signer runloop
@@ -532,9 +478,6 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug>
             }
         }
 
-        if let Some(cmd) = cmd {
-            self.commands.push_back(cmd);
-        }
         if self.state == State::Uninitialized {
             if let Err(e) = self.initialize_runloop() {
                 error!("Failed to initialize signer runloop: {e}.");
@@ -566,12 +509,6 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug>
                 event.as_ref(),
                 res,
                 current_reward_cycle,
-            );
-            // After processing event, run the next command for each signer
-            signer.process_command(
-                &self.stacks_client,
-                current_reward_cycle,
-                self.commands.pop_front(),
             );
         }
         if self.state == State::NoRegisteredSigners && event.is_some() {
@@ -608,8 +545,11 @@ mod tests {
         }
 
         let parsed_entries = SignerEntries::parse(false, &signer_entries).unwrap();
-        assert_eq!(parsed_entries.signer_ids.len(), nmb_signers);
-        let mut signer_ids = parsed_entries.signer_ids.into_values().collect::<Vec<_>>();
+        assert_eq!(parsed_entries.signer_id_to_pk.len(), nmb_signers);
+        let mut signer_ids = parsed_entries
+            .signer_id_to_pk
+            .into_keys()
+            .collect::<Vec<_>>();
         signer_ids.sort();
         assert_eq!(
             signer_ids,

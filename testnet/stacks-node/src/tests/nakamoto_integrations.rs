@@ -28,8 +28,7 @@ use clarity::vm::{ClarityName, ClarityVersion, Value};
 use http_types::headers::AUTHORIZATION;
 use lazy_static::lazy_static;
 use libsigner::v0::messages::SignerMessage as SignerMessageV0;
-use libsigner::v1::messages::SignerMessage as SignerMessageV1;
-use libsigner::{BlockProposal, SignerSession, StackerDBSession};
+use libsigner::{SignerSession, StackerDBSession};
 use rand::RngCore;
 use stacks::burnchains::{MagicBytes, Txid};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
@@ -91,7 +90,6 @@ use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PrivateKey, Secp
 use stacks_common::util::{get_epoch_time_secs, sleep_ms};
 use stacks_signer::chainstate::{ProposalEvalConfig, SortitionsView};
 use stacks_signer::signerdb::{BlockInfo, BlockState, ExtraBlockInfo, SignerDb};
-use wsts::net::Message;
 
 use super::bitcoin_regtest::BitcoinCoreController;
 use crate::config::{EventKeyType, EventObserverConfig, InitialBalance};
@@ -439,27 +437,6 @@ pub fn get_latest_block_proposal(
     }
 
     Ok((proposed_block, pubkey))
-}
-
-#[allow(dead_code)]
-fn get_block_proposal_msg_v1(
-    miners_stackerdb: &mut StackerDBSession,
-    slot_id: u32,
-) -> NakamotoBlock {
-    let message: SignerMessageV1 = miners_stackerdb
-        .get_latest(slot_id)
-        .expect("Failed to get latest chunk from the miner slot ID")
-        .expect("No chunk found");
-    let SignerMessageV1::Packet(packet) = message else {
-        panic!("Expected a signer message packet. Got {message:?}");
-    };
-    let Message::NonceRequest(nonce_request) = packet.msg else {
-        panic!("Expected a nonce request. Got {:?}", packet.msg);
-    };
-    let block_proposal =
-        BlockProposal::consensus_deserialize(&mut nonce_request.message.as_slice())
-            .expect("Failed to deserialize block proposal");
-    block_proposal.block
 }
 
 pub fn read_and_sign_block_proposal(
@@ -894,9 +871,8 @@ pub fn boot_to_epoch_3(
     if let Some(signers) = self_signing {
         // Get the aggregate key
         let aggregate_key = signers.clone().generate_aggregate_key(reward_cycle + 1);
-        let aggregate_public_key =
-            clarity::vm::Value::buff_from(aggregate_key.compress().data.to_vec())
-                .expect("Failed to serialize aggregate public key");
+        let aggregate_public_key = clarity::vm::Value::buff_from(aggregate_key)
+            .expect("Failed to serialize aggregate public key");
         let signer_sks_unique: HashMap<_, _> = signer_sks.iter().map(|x| (x.to_hex(), x)).collect();
         let signer_set = get_stacker_set(&http_origin, reward_cycle + 1);
         // Vote on the aggregate public key
@@ -1049,9 +1025,8 @@ pub fn boot_to_pre_epoch_3_boundary(
     if let Some(signers) = self_signing {
         // Get the aggregate key
         let aggregate_key = signers.clone().generate_aggregate_key(reward_cycle + 1);
-        let aggregate_public_key =
-            clarity::vm::Value::buff_from(aggregate_key.compress().data.to_vec())
-                .expect("Failed to serialize aggregate public key");
+        let aggregate_public_key = clarity::vm::Value::buff_from(aggregate_key)
+            .expect("Failed to serialize aggregate public key");
         let signer_sks_unique: HashMap<_, _> = signer_sks.iter().map(|x| (x.to_hex(), x)).collect();
         let signer_set = get_stacker_set(&http_origin, reward_cycle + 1);
         // Vote on the aggregate public key
@@ -1206,9 +1181,8 @@ fn signer_vote_if_needed(
 
         // Get the aggregate key
         let aggregate_key = signers.clone().generate_aggregate_key(reward_cycle + 1);
-        let aggregate_public_key =
-            clarity::vm::Value::buff_from(aggregate_key.compress().data.to_vec())
-                .expect("Failed to serialize aggregate public key");
+        let aggregate_public_key = clarity::vm::Value::buff_from(aggregate_key)
+            .expect("Failed to serialize aggregate public key");
 
         for (i, signer_sk) in signer_sks.iter().enumerate() {
             let signer_nonce = get_account(&http_origin, &to_addr(signer_sk)).nonce;
