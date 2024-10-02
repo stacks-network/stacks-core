@@ -57,18 +57,18 @@ jobs:
   ##   either or of the following:
   ##     - workflow is 'Release Tests'
   ##     - workflow is 'CI Tests'
-  ##     - workflow is 'Bitcoin Tests'
-  bitcoin-tests:
+  ##     - workflow is 'Failing Tests'
+  failing-tests:
     if: |
       (
         inputs.workflow == 'Release Tests' ||
         inputs.workflow == 'CI Tests' ||
-        inputs.workflow == 'Bitcoin Tests'
+        inputs.workflow == 'Failing Tests'
       )
-    name: Bitcoin Tests
+    name: Failing Tests
     needs:
       - create-cache
-    uses: ./.github/workflows/bitcoin-tests.yml
+    uses: ./.github/workflows/failing-tests.yml
 
   ## Runs when:
   ##   either or of the following:
