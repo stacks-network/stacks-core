@@ -15,7 +15,6 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::mpsc::Sender;
-use std::time::{Duration, Instant};
 
 use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
 use blockstack_lib::net::api::postblock_proposal::{
@@ -192,23 +191,7 @@ impl SignerTrait<SignerMessage> for Signer {
                                 "block_id" => %b.block_id(),
                                 "signer_sighash" => %b.header.signer_signature_hash(),
                             );
-                            let start_time = Instant::now();
-                            loop {
-                                match stacks_client.post_block(b) {
-                                    Ok(block_push_result) => {
-                                        debug!("{self}: Block pushed to stacks node: {block_push_result:?}");
-                                        break;
-                                    }
-                                    Err(e) => {
-                                        if cfg!(test)
-                                            && start_time.elapsed() > Duration::from_secs(30)
-                                        {
-                                            panic!("{self}: Timed out in test while pushing block to stacks node: {e}");
-                                        }
-                                        warn!("{self}: Failed to push block to stacks node: {e}. Retrying...");
-                                    }
-                                };
-                            }
+                            stacks_client.post_block_until_ok(self, &b);
                         }
                         SignerMessage::MockProposal(mock_proposal) => {
                             let epoch = match stacks_client.get_node_epoch() {
@@ -907,15 +890,7 @@ impl Signer {
             "{self}: Broadcasting Stacks block {} to node",
             &block.block_id()
         );
-        if let Err(e) = stacks_client.post_block(&block) {
-            warn!(
-                "{self}: Failed to post block {block_hash}: {e:?}";
-                "stacks_block_id" => %block.block_id(),
-                "parent_block_id" => %block.header.parent_block_id,
-                "burnchain_consensus_hash" => %block.header.consensus_hash
-            );
-            return;
-        }
+        stacks_client.post_block_until_ok(self, &block);
 
         if let Err(e) = self.signer_db.set_block_broadcasted(
             self.reward_cycle,
