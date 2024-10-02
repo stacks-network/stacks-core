@@ -32,7 +32,7 @@ use blockstack_lib::net::api::get_tenures_fork_info::{
 use blockstack_lib::net::api::getaccount::AccountEntryResponse;
 use blockstack_lib::net::api::getpoxinfo::RPCPoxInfoData;
 use blockstack_lib::net::api::getsortition::{SortitionInfo, RPC_SORTITION_INFO_PATH};
-use blockstack_lib::net::api::getstackers::{GetStackersErrors, GetStackersResponse};
+use blockstack_lib::net::api::getstackers::GetStackersResponse;
 use blockstack_lib::net::api::postblock::StacksBlockAcceptedData;
 use blockstack_lib::net::api::postblock_proposal::NakamotoBlockProposal;
 use blockstack_lib::net::api::postblock_v3;
@@ -80,7 +80,6 @@ pub struct StacksClient {
 
 #[derive(Deserialize)]
 struct GetStackersErrorResp {
-    err_type: String,
     err_msg: String,
 }
 
@@ -485,14 +484,11 @@ impl StacksClient {
                 warn!("Failed to parse the GetStackers error response: {e}");
                 backoff::Error::permanent(e.into())
             })?;
-            if error_data.err_type == GetStackersErrors::NOT_AVAILABLE_ERR_TYPE {
-                Err(backoff::Error::permanent(ClientError::NoSortitionOnChain))
-            } else {
-                warn!("Got error response ({status}): {}", error_data.err_msg);
-                Err(backoff::Error::permanent(ClientError::RequestFailure(
-                    status,
-                )))
-            }
+
+            warn!("Got error response ({status}): {}", error_data.err_msg);
+            Err(backoff::Error::permanent(ClientError::RequestFailure(
+                status,
+            )))
         };
         let stackers_response =
             retry_with_exponential_backoff::<_, ClientError, GetStackersResponse>(send_request)?;

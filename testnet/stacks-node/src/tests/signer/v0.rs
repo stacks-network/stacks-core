@@ -1257,8 +1257,9 @@ fn bitcoind_forking_test() {
     let pre_epoch_3_nonce = get_account(&http_origin, &miner_address).nonce;
     let pre_fork_tenures = 10;
 
-    for _i in 0..pre_fork_tenures {
-        let _mined_block = signer_test.mine_nakamoto_block(Duration::from_secs(30));
+    for i in 0..pre_fork_tenures {
+        info!("Mining pre-fork tenure {} of {pre_fork_tenures}", i + 1);
+        signer_test.mine_nakamoto_block(Duration::from_secs(30));
     }
 
     let pre_fork_1_nonce = get_account(&http_origin, &miner_address).nonce;
@@ -1328,7 +1329,8 @@ fn bitcoind_forking_test() {
 
     assert_eq!(post_fork_1_nonce, pre_fork_1_nonce - 1 * 2);
 
-    for _i in 0..5 {
+    for i in 0..5 {
+        info!("Mining post-fork tenure {} of 5", i + 1);
         signer_test.mine_nakamoto_block(Duration::from_secs(30));
     }
 
@@ -1441,8 +1443,9 @@ fn multiple_miners() {
     let node_2_rpc = 51026;
     let node_2_p2p = 51025;
 
-    let node_1_rpc_bind = format!("127.0.0.1:{}", node_1_rpc);
-    let node_2_rpc_bind = format!("127.0.0.1:{}", node_2_rpc);
+    let localhost = "127.0.0.1";
+    let node_1_rpc_bind = format!("{localhost}:{node_1_rpc}");
+    let node_2_rpc_bind = format!("{localhost}:{node_2_rpc}");
     let mut node_2_listeners = Vec::new();
 
     // partition the signer set so that ~half are listening and using node 1 for RPC and events,
@@ -1460,11 +1463,12 @@ fn multiple_miners() {
             signer_config.node_host = node_host.to_string();
         },
         |config| {
-            let localhost = "127.0.0.1";
-            config.node.rpc_bind = format!("{}:{}", localhost, node_1_rpc);
-            config.node.p2p_bind = format!("{}:{}", localhost, node_1_p2p);
-            config.node.data_url = format!("http://{}:{}", localhost, node_1_rpc);
-            config.node.p2p_address = format!("{}:{}", localhost, node_1_p2p);
+            config.node.rpc_bind = format!("{localhost}:{node_1_rpc}");
+            config.node.p2p_bind = format!("{localhost}:{node_1_p2p}");
+            config.node.data_url = format!("http://{localhost}:{node_1_rpc}");
+            config.node.p2p_address = format!("{localhost}:{node_1_p2p}");
+            config.miner.wait_on_interim_blocks = Duration::from_secs(5);
+            config.node.pox_sync_sample_secs = 5;
 
             config.node.seed = btc_miner_1_seed.clone();
             config.node.local_peer_seed = btc_miner_1_seed.clone();
@@ -1491,11 +1495,10 @@ fn multiple_miners() {
     );
     let conf = signer_test.running_nodes.conf.clone();
     let mut conf_node_2 = conf.clone();
-    let localhost = "127.0.0.1";
-    conf_node_2.node.rpc_bind = format!("{}:{}", localhost, node_2_rpc);
-    conf_node_2.node.p2p_bind = format!("{}:{}", localhost, node_2_p2p);
-    conf_node_2.node.data_url = format!("http://{}:{}", localhost, node_2_rpc);
-    conf_node_2.node.p2p_address = format!("{}:{}", localhost, node_2_p2p);
+    conf_node_2.node.rpc_bind = format!("{localhost}:{node_2_rpc}");
+    conf_node_2.node.p2p_bind = format!("{localhost}:{node_2_p2p}");
+    conf_node_2.node.data_url = format!("http://{localhost}:{node_2_rpc}");
+    conf_node_2.node.p2p_address = format!("{localhost}:{node_2_p2p}");
     conf_node_2.node.seed = btc_miner_2_seed.clone();
     conf_node_2.burnchain.local_mining_public_key = Some(btc_miner_2_pk.to_hex());
     conf_node_2.node.local_peer_seed = btc_miner_2_seed.clone();
@@ -1517,17 +1520,30 @@ fn multiple_miners() {
     );
 
     let mut run_loop_2 = boot_nakamoto::BootRunLoop::new(conf_node_2.clone()).unwrap();
+    let run_loop_stopper_2 = run_loop_2.get_termination_switch();
     let rl2_coord_channels = run_loop_2.coordinator_channels();
     let Counters {
         naka_submitted_commits: rl2_commits,
         ..
     } = run_loop_2.counters();
-    let _run_loop_2_thread = thread::Builder::new()
+    let run_loop_2_thread = thread::Builder::new()
         .name("run_loop_2".into())
         .spawn(move || run_loop_2.start(None, 0))
         .unwrap();
 
     signer_test.boot_to_epoch_3();
+
+    wait_for(120, || {
+        let Some(node_1_info) = get_chain_info_opt(&conf) else {
+            return Ok(false);
+        };
+        let Some(node_2_info) = get_chain_info_opt(&conf_node_2) else {
+            return Ok(false);
+        };
+        Ok(node_1_info.stacks_tip_height == node_2_info.stacks_tip_height)
+    })
+    .expect("Timed out waiting for boostrapped node to catch up to the miner");
+
     let pre_nakamoto_peer_1_height = get_chain_info(&conf).stacks_tip_height;
 
     info!("------------------------- Reached Epoch 3.0 -------------------------");
@@ -1624,6 +1640,12 @@ fn multiple_miners() {
         u64::try_from(miner_1_tenures + miner_2_tenures).unwrap()
     );
 
+    rl2_coord_channels
+        .lock()
+        .expect("Mutex poisoned")
+        .stop_chains_coordinator();
+    run_loop_stopper_2.store(false, Ordering::SeqCst);
+    run_loop_2_thread.join().unwrap();
     signer_test.shutdown();
 }
 
@@ -1799,6 +1821,18 @@ fn miner_forking() {
         .unwrap();
 
     signer_test.boot_to_epoch_3();
+
+    wait_for(120, || {
+        let Some(node_1_info) = get_chain_info_opt(&conf) else {
+            return Ok(false);
+        };
+        let Some(node_2_info) = get_chain_info_opt(&conf_node_2) else {
+            return Ok(false);
+        };
+        Ok(node_1_info.stacks_tip_height == node_2_info.stacks_tip_height)
+    })
+    .expect("Timed out waiting for boostrapped node to catch up to the miner");
+
     let pre_nakamoto_peer_1_height = get_chain_info(&conf).stacks_tip_height;
 
     naka_skip_commit_op.0.lock().unwrap().replace(false);
@@ -3003,7 +3037,8 @@ fn signer_set_rollover() {
     let transfer_tx =
         make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
     submit_tx(&http_origin, &transfer_tx);
-    let mined_block = signer_test.mine_nakamoto_block(short_timeout);
+    signer_test.mine_nakamoto_block(short_timeout);
+    let mined_block = test_observer::get_mined_nakamoto_blocks().pop().unwrap();
     let block_sighash = mined_block.signer_signature_hash;
     let signer_signatures = mined_block.signer_signature;
 
@@ -3117,7 +3152,8 @@ fn signer_set_rollover() {
     let transfer_tx =
         make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
     submit_tx(&http_origin, &transfer_tx);
-    let mined_block = signer_test.mine_nakamoto_block(short_timeout);
+    signer_test.mine_nakamoto_block(short_timeout);
+    let mined_block = test_observer::get_mined_nakamoto_blocks().pop().unwrap();
 
     info!("---- Verifying that the new signers signed the block -----");
     let signer_signatures = mined_block.signer_signature;
@@ -3367,8 +3403,9 @@ fn multiple_miners_with_nakamoto_blocks() {
     let node_2_rpc = 51026;
     let node_2_p2p = 51025;
 
-    let node_1_rpc_bind = format!("127.0.0.1:{}", node_1_rpc);
-    let node_2_rpc_bind = format!("127.0.0.1:{}", node_2_rpc);
+    let localhost = "127.0.0.1";
+    let node_1_rpc_bind = format!("{localhost}:{node_1_rpc}");
+    let node_2_rpc_bind = format!("{localhost}:{node_2_rpc}");
     let mut node_2_listeners = Vec::new();
 
     // partition the signer set so that ~half are listening and using node 1 for RPC and events,
@@ -3388,11 +3425,12 @@ fn multiple_miners_with_nakamoto_blocks() {
             signer_config.node_host = node_host.to_string();
         },
         |config| {
-            let localhost = "127.0.0.1";
-            config.node.rpc_bind = format!("{}:{}", localhost, node_1_rpc);
-            config.node.p2p_bind = format!("{}:{}", localhost, node_1_p2p);
-            config.node.data_url = format!("http://{}:{}", localhost, node_1_rpc);
-            config.node.p2p_address = format!("{}:{}", localhost, node_1_p2p);
+            config.node.rpc_bind = format!("{localhost}:{node_1_rpc}");
+            config.node.p2p_bind = format!("{localhost}:{node_1_p2p}");
+            config.node.data_url = format!("http://{localhost}:{node_1_rpc}");
+            config.node.p2p_address = format!("{localhost}:{node_1_p2p}");
+            config.miner.wait_on_interim_blocks = Duration::from_secs(5);
+            config.node.pox_sync_sample_secs = 5;
 
             config.node.seed = btc_miner_1_seed.clone();
             config.node.local_peer_seed = btc_miner_1_seed.clone();
@@ -3421,11 +3459,10 @@ fn multiple_miners_with_nakamoto_blocks() {
 
     let conf = signer_test.running_nodes.conf.clone();
     let mut conf_node_2 = conf.clone();
-    let localhost = "127.0.0.1";
-    conf_node_2.node.rpc_bind = format!("{}:{}", localhost, node_2_rpc);
-    conf_node_2.node.p2p_bind = format!("{}:{}", localhost, node_2_p2p);
-    conf_node_2.node.data_url = format!("http://{}:{}", localhost, node_2_rpc);
-    conf_node_2.node.p2p_address = format!("{}:{}", localhost, node_2_p2p);
+    conf_node_2.node.rpc_bind = format!("{localhost}:{node_2_rpc}");
+    conf_node_2.node.p2p_bind = format!("{localhost}:{node_2_p2p}");
+    conf_node_2.node.data_url = format!("http://{localhost}:{node_2_rpc}");
+    conf_node_2.node.p2p_address = format!("{localhost}:{node_2_p2p}");
     conf_node_2.node.seed = btc_miner_2_seed.clone();
     conf_node_2.burnchain.local_mining_public_key = Some(btc_miner_2_pk.to_hex());
     conf_node_2.node.local_peer_seed = btc_miner_2_seed.clone();
@@ -3449,18 +3486,31 @@ fn multiple_miners_with_nakamoto_blocks() {
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
     let mut run_loop_2 = boot_nakamoto::BootRunLoop::new(conf_node_2.clone()).unwrap();
+    let run_loop_stopper_2 = run_loop_2.get_termination_switch();
     let rl2_coord_channels = run_loop_2.coordinator_channels();
     let Counters {
         naka_submitted_commits: rl2_commits,
         naka_mined_blocks: blocks_mined2,
         ..
     } = run_loop_2.counters();
-    let _run_loop_2_thread = thread::Builder::new()
+    let run_loop_2_thread = thread::Builder::new()
         .name("run_loop_2".into())
         .spawn(move || run_loop_2.start(None, 0))
         .unwrap();
 
     signer_test.boot_to_epoch_3();
+
+    wait_for(120, || {
+        let Some(node_1_info) = get_chain_info_opt(&conf) else {
+            return Ok(false);
+        };
+        let Some(node_2_info) = get_chain_info_opt(&conf_node_2) else {
+            return Ok(false);
+        };
+        Ok(node_1_info.stacks_tip_height == node_2_info.stacks_tip_height)
+    })
+    .expect("Timed out waiting for follower to catch up to the miner");
+
     let pre_nakamoto_peer_1_height = get_chain_info(&conf).stacks_tip_height;
 
     info!("------------------------- Reached Epoch 3.0 -------------------------");
@@ -3582,7 +3632,12 @@ fn multiple_miners_with_nakamoto_blocks() {
         btc_blocks_mined,
         u64::try_from(miner_1_tenures + miner_2_tenures).unwrap()
     );
-
+    rl2_coord_channels
+        .lock()
+        .expect("Mutex poisoned")
+        .stop_chains_coordinator();
+    run_loop_stopper_2.store(false, Ordering::SeqCst);
+    run_loop_2_thread.join().unwrap();
     signer_test.shutdown();
 }
 
@@ -3621,6 +3676,7 @@ fn partial_tenure_fork() {
 
     let node_1_rpc_bind = format!("127.0.0.1:{}", node_1_rpc);
 
+    let localhost = "127.0.0.1";
     // All signers are listening to node 1
     let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
@@ -3632,11 +3688,12 @@ fn partial_tenure_fork() {
             signer_config.node_host = node_1_rpc_bind.clone();
         },
         |config| {
-            let localhost = "127.0.0.1";
-            config.node.rpc_bind = format!("{}:{}", localhost, node_1_rpc);
-            config.node.p2p_bind = format!("{}:{}", localhost, node_1_p2p);
-            config.node.data_url = format!("http://{}:{}", localhost, node_1_rpc);
-            config.node.p2p_address = format!("{}:{}", localhost, node_1_p2p);
+            config.node.rpc_bind = format!("{localhost}:{node_1_rpc}");
+            config.node.p2p_bind = format!("{localhost}:{node_1_p2p}");
+            config.node.data_url = format!("http://{localhost}:{node_1_rpc}");
+            config.node.p2p_address = format!("{localhost}:{node_1_p2p}");
+            config.miner.wait_on_interim_blocks = Duration::from_secs(5);
+            config.node.pox_sync_sample_secs = 5;
 
             config.node.seed = btc_miner_1_seed.clone();
             config.node.local_peer_seed = btc_miner_1_seed.clone();
@@ -3666,11 +3723,10 @@ fn partial_tenure_fork() {
 
     let conf = signer_test.running_nodes.conf.clone();
     let mut conf_node_2 = conf.clone();
-    let localhost = "127.0.0.1";
-    conf_node_2.node.rpc_bind = format!("{}:{}", localhost, node_2_rpc);
-    conf_node_2.node.p2p_bind = format!("{}:{}", localhost, node_2_p2p);
-    conf_node_2.node.data_url = format!("http://{}:{}", localhost, node_2_rpc);
-    conf_node_2.node.p2p_address = format!("{}:{}", localhost, node_2_p2p);
+    conf_node_2.node.rpc_bind = format!("{localhost}:{node_2_rpc}");
+    conf_node_2.node.p2p_bind = format!("{localhost}:{node_2_p2p}");
+    conf_node_2.node.data_url = format!("http://{localhost}:{node_2_rpc}");
+    conf_node_2.node.p2p_address = format!("{localhost}:{node_2_p2p}");
     conf_node_2.node.seed = btc_miner_2_seed.clone();
     conf_node_2.burnchain.local_mining_public_key = Some(btc_miner_2_pk.to_hex());
     conf_node_2.node.local_peer_seed = btc_miner_2_seed.clone();
@@ -3692,6 +3748,8 @@ fn partial_tenure_fork() {
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
     let mut run_loop_2 = boot_nakamoto::BootRunLoop::new(conf_node_2.clone()).unwrap();
+    let rl2_coord_channels = run_loop_2.coordinator_channels();
+    let run_loop_stopper_2 = run_loop_2.get_termination_switch();
     let Counters {
         naka_mined_blocks: blocks_mined2,
         naka_proposed_blocks: blocks_proposed2,
@@ -3699,14 +3757,14 @@ fn partial_tenure_fork() {
     } = run_loop_2.counters();
 
     signer_test.boot_to_epoch_3();
-    let _run_loop_2_thread = thread::Builder::new()
+    let run_loop_2_thread = thread::Builder::new()
         .name("run_loop_2".into())
         .spawn(move || run_loop_2.start(None, 0))
         .unwrap();
 
     let pre_nakamoto_peer_1_height = get_chain_info(&conf).stacks_tip_height;
 
-    wait_for(120, || {
+    wait_for(200, || {
         let Some(node_1_info) = get_chain_info_opt(&conf) else {
             return Ok(false);
         };
@@ -3964,7 +4022,12 @@ fn partial_tenure_fork() {
         .unwrap()
         .unwrap();
     assert_eq!(tip.stacks_block_height, ignore_block - 1);
-
+    rl2_coord_channels
+        .lock()
+        .expect("Mutex poisoned")
+        .stop_chains_coordinator();
+    run_loop_stopper_2.store(false, Ordering::SeqCst);
+    run_loop_2_thread.join().unwrap();
     signer_test.shutdown();
 }
 
@@ -4000,7 +4063,7 @@ fn locally_accepted_blocks_overriden_by_global_rejection() {
     let sender_addr = tests::to_addr(&sender_sk);
     let send_amt = 100;
     let send_fee = 180;
-    let nmb_txs = 2;
+    let nmb_txs = 3;
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let short_timeout_secs = 20;
     let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new(
@@ -4056,7 +4119,11 @@ fn locally_accepted_blocks_overriden_by_global_rejection() {
 
     info!("------------------------- Attempt to Mine Nakamoto Block N+1 -------------------------");
     // Make half of the signers reject the block proposal by the miner to ensure its marked globally rejected
-    let rejecting_signers: Vec<_> = all_signers.iter().cloned().take(num_signers / 2).collect();
+    let rejecting_signers: Vec<_> = all_signers
+        .iter()
+        .cloned()
+        .take(num_signers / 2 + num_signers % 2)
+        .collect();
     TEST_REJECT_ALL_BLOCK_PROPOSAL
         .lock()
         .unwrap()
@@ -4065,6 +4132,7 @@ fn locally_accepted_blocks_overriden_by_global_rejection() {
     let transfer_tx =
         make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
     let tx = submit_tx(&http_origin, &transfer_tx);
+    sender_nonce += 1;
     info!("Submitted tx {tx} to mine block N+1");
 
     let blocks_before = mined_blocks.load(Ordering::SeqCst);
@@ -4088,6 +4156,12 @@ fn locally_accepted_blocks_overriden_by_global_rejection() {
         .lock()
         .unwrap()
         .replace(Vec::new());
+
+    let transfer_tx =
+        make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
+    let tx = submit_tx(&http_origin, &transfer_tx);
+    info!("Submitted tx {tx} to mine block N+1'");
+
     wait_for(short_timeout_secs, || {
         Ok(mined_blocks.load(Ordering::SeqCst) > blocks_before
             && signer_test
