@@ -197,7 +197,10 @@ pub mod test_observer {
 
     use stacks::chainstate::stacks::boot::RewardSet;
     use stacks::chainstate::stacks::events::StackerDBChunksEvent;
+    use stacks::chainstate::stacks::StacksTransaction;
+    use stacks::codec::StacksMessageCodec;
     use stacks::net::api::postblock_proposal::BlockValidateResponse;
+    use stacks::util::hash::hex_bytes;
     use stacks_common::types::chainstate::StacksBlockId;
     use warp::Filter;
     use {tokio, warp};
@@ -570,6 +573,30 @@ pub mod test_observer {
         MEMTXS_DROPPED.lock().unwrap().clear();
         ATTACHMENTS.lock().unwrap().clear();
         PROPOSAL_RESPONSES.lock().unwrap().clear();
+    }
+
+    /// Parse the StacksTransactions from a block (does not include burn ops)
+    ///  panics on any failures to parse
+    pub fn parse_transactions(block: &serde_json::Value) -> Vec<StacksTransaction> {
+        block
+            .get("transactions")
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|tx_json| {
+                if let Some(burnchain_op_val) = tx_json.get("burnchain_op") {
+                    if !burnchain_op_val.is_null() {
+                        return None;
+                    }
+                }
+                let tx_hex = tx_json.get("raw_tx").unwrap().as_str().unwrap();
+                let tx_bytes = hex_bytes(tx_hex).unwrap();
+                let tx =
+                    StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
+                Some(tx)
+            })
+            .collect()
     }
 
     pub fn contains_burn_block_range(range: impl RangeBounds<u64>) -> Result<(), String> {

@@ -230,6 +230,32 @@ impl TestSigningChannel {
     }
 }
 
+/// Assert that the block events captured by the test observer
+///  all match the miner heuristic of *exclusively* including the
+///  tenure change transaction in tenure changing blocks.
+pub fn check_nakamoto_empty_block_heuristics() {
+    let blocks = test_observer::get_blocks();
+    for block in blocks.iter() {
+        // if its not a nakamoto block, don't check anything
+        if block.get("miner_signature").is_none() {
+            continue;
+        }
+        let txs = test_observer::parse_transactions(block);
+        let has_tenure_change = txs
+            .iter()
+            .any(|tx| matches!(tx.payload, TransactionPayload::TenureChange(_)));
+        if has_tenure_change {
+            let only_coinbase_and_tenure_change = txs.iter().all(|tx| {
+                matches!(
+                    tx.payload,
+                    TransactionPayload::TenureChange(_) | TransactionPayload::Coinbase(..)
+                )
+            });
+            assert!(only_coinbase_and_tenure_change, "Nakamoto blocks with a tenure change in them should only have coinbase or tenure changes");
+        }
+    }
+}
+
 pub fn get_stacker_set(http_origin: &str, cycle: u64) -> GetStackersResponse {
     let client = reqwest::blocking::Client::new();
     let path = format!("{http_origin}/v3/stacker_set/{cycle}");
@@ -1683,6 +1709,8 @@ fn simple_neon_integration() {
         assert!(res.contains(&expected_result));
     }
 
+    check_nakamoto_empty_block_heuristics();
+
     coord_channel
         .lock()
         .expect("Mutex poisoned")
@@ -1960,6 +1988,7 @@ fn flash_blocks_on_epoch_3() {
     // Verify blocks before and after the gap
     test_observer::contains_burn_block_range(220..=(gap_start - 1)).unwrap();
     test_observer::contains_burn_block_range((gap_end + 1)..=bhh).unwrap();
+    check_nakamoto_empty_block_heuristics();
 
     info!("Verified burn block ranges, including expected gap for flash blocks");
     info!("Confirmed that the gap includes the Epoch 3.0 activation height (Bitcoin block height): {}", epoch_3_start_height);
@@ -2140,6 +2169,8 @@ fn mine_multiple_per_tenure_integration() {
         block_height_pre_3_0 + ((inter_blocks_per_tenure + 1) * tenure_count),
         "Should have mined (1 + interim_blocks_per_tenure) * tenure_count nakamoto blocks"
     );
+
+    check_nakamoto_empty_block_heuristics();
 
     coord_channel
         .lock()
@@ -2393,6 +2424,8 @@ fn multiple_miners() {
         block_height_pre_3_0 + ((inter_blocks_per_tenure + 1) * tenure_count),
         "Should have mined (1 + interim_blocks_per_tenure) * tenure_count nakamoto blocks"
     );
+
+    check_nakamoto_empty_block_heuristics();
 
     coord_channel
         .lock()
@@ -2760,6 +2793,8 @@ fn correct_burn_outs() {
         let signer_weight = signers[0]["weight"].as_u64().unwrap();
         assert_eq!(signer_weight, 1, "The signer should have a weight of 1, indicating they stacked the minimum stacking amount");
     }
+
+    check_nakamoto_empty_block_heuristics();
 
     run_loop_thread.join().unwrap();
 }
