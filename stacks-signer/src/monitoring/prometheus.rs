@@ -39,38 +39,6 @@ lazy_static! {
         &["response_type"]
     )
     .unwrap();
-    pub static ref SIGNER_INBOUND_MESSAGES: IntCounter = register_int_counter!(opts!(
-        "stacks_signer_inbound_messages",
-        "The number of inbound messages received by the signer"
-    ))
-    .unwrap();
-    pub static ref COORDINATOR_INBOUND_MESSAGES: IntCounter = register_int_counter!(opts!(
-        "stacks_signer_coordinator_inbound_messages",
-        "The number of inbound messages received as a coordinator"
-    ))
-    .unwrap();
-    pub static ref INBOUND_PACKETS_RECEIVED: IntCounter = register_int_counter!(opts!(
-        "stacks_signer_inbound_packets_received",
-        "The number of inbound packets received by the signer"
-    ))
-    .unwrap();
-    pub static ref COMMANDS_PROCESSED: IntCounterVec = register_int_counter_vec!(
-        "stacks_signer_commands_processed",
-        "The number of commands processed by the signer",
-        &["command_type"]
-    )
-    .unwrap();
-    pub static ref DGK_VOTES_SUBMITTED: IntCounter = register_int_counter!(opts!(
-        "stacks_signer_dgk_votes_submitted",
-        "The number of DGK votes submitted by the signer"
-    ))
-    .unwrap();
-    pub static ref OPERATION_RESULTS: IntCounterVec = register_int_counter_vec!(
-        "stacks_signer_operation_results_dkg",
-        "The number of DKG operation results",
-        &["operation_type"]
-    )
-    .unwrap();
     pub static ref BLOCK_PROPOSALS_RECEIVED: IntCounter = register_int_counter!(opts!(
         "stacks_signer_block_proposals_received",
         "The number of block proposals received by the signer"

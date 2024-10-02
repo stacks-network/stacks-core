@@ -32,7 +32,6 @@ stacks-common = { path = "../stacks-common" }
 stackslib = { path = "../stackslib"}
 thiserror = "1.0"
 tiny_http = "0.12"
-wsts = { workspace = true }
 
 [dev-dependencies]
 mutants = "0.0.3"

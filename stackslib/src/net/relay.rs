@@ -930,7 +930,8 @@ impl Relayer {
             "Handle incoming Nakamoto block {}/{} obtained via {}",
             &block.header.consensus_hash,
             &block.header.block_hash(),
-            &obtained_method,
+            &obtained_method;
+            "block_id" => %block.header.block_id(),
         );
 
         if fault_injection::ignore_block(block.header.chain_length, &burnchain.working_dir) {

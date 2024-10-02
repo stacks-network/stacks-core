@@ -28,9 +28,6 @@ use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::hash::{to_hex, MerkleHashFunc, MerkleTree, Sha512Trunc256Sum};
 use stacks_common::util::retry::BoundReader;
 use stacks_common::util::secp256k1::MessageSignature;
-use wsts::common::Signature as Secp256k1Signature;
-use wsts::curve::point::{Compressed as Secp256k1Compressed, Point as Secp256k1Point};
-use wsts::curve::scalar::Scalar as Secp256k1Scalar;
 
 use crate::burnchains::Txid;
 use crate::chainstate::stacks::{TransactionPayloadID, *};
@@ -150,46 +147,6 @@ impl StacksMessageCodec for TenureChangeCause {
         let byte: u8 = read_next(fd)?;
         TenureChangeCause::try_from(byte).map_err(|_| {
             codec_error::DeserializeError(format!("Unrecognized TenureChangeCause byte {byte}"))
-        })
-    }
-}
-
-impl StacksMessageCodec for ThresholdSignature {
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
-        let compressed = self.0.R.compress();
-        let bytes = compressed.as_bytes();
-        fd.write_all(bytes).map_err(CodecError::WriteError)?;
-        write_next(fd, &self.0.z.to_bytes())?;
-        Ok(())
-    }
-
-    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, codec_error> {
-        // Read curve point
-        let mut buf = [0u8; 33];
-        fd.read_exact(&mut buf).map_err(CodecError::ReadError)?;
-        let R = Secp256k1Point::try_from(&Secp256k1Compressed::from(buf))
-            .map_err(|_| CodecError::DeserializeError("Failed to read curve point".into()))?;
-
-        // Read scalar
-        let mut buf = [0u8; 32];
-        fd.read_exact(&mut buf).map_err(CodecError::ReadError)?;
-        let z = Secp256k1Scalar::from(buf);
-
-        Ok(Self(Secp256k1Signature { R, z }))
-    }
-}
-
-impl ThresholdSignature {
-    pub fn verify(&self, public_key: &Secp256k1Point, msg: &[u8]) -> bool {
-        self.0.verify(public_key, msg)
-    }
-
-    /// Create an empty/null signature. This is not valid data, but it is used
-    ///  as a placeholder in the header during mining.
-    pub fn empty() -> Self {
-        Self(Secp256k1Signature {
-            R: Secp256k1Point::G(),
-            z: Secp256k1Scalar::new(),
         })
     }
 }
