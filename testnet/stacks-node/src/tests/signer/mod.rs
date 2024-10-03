@@ -61,7 +61,6 @@ use stacks_signer::{Signer, SpawnedSigner};
 
 use super::nakamoto_integrations::{check_nakamoto_empty_block_heuristics, wait_for};
 use crate::config::{Config as NeonConfig, EventKeyType, EventObserverConfig, InitialBalance};
-use crate::event_dispatcher::MinedNakamotoBlockEvent;
 use crate::neon::{Counters, TestFlag};
 use crate::run_loop::boot_nakamoto;
 use crate::tests::bitcoin_regtest::BitcoinCoreController;
@@ -312,9 +311,10 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         output
     }
 
-    fn mine_nakamoto_block(&mut self, timeout: Duration) -> MinedNakamotoBlockEvent {
+    fn mine_nakamoto_block(&mut self, timeout: Duration) {
         let commits_submitted = self.running_nodes.commits_submitted.clone();
         let mined_block_time = Instant::now();
+        let info_before = self.stacks_client.get_peer_info().unwrap();
         next_block_and_mine_commit(
             &mut self.running_nodes.btc_regtest_controller,
             timeout.as_secs(),
@@ -323,20 +323,16 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         )
         .unwrap();
 
-        let t_start = Instant::now();
-        while test_observer::get_mined_nakamoto_blocks().is_empty() {
-            assert!(
-                t_start.elapsed() < timeout,
-                "Timed out while waiting for mined nakamoto block event"
-            );
-            thread::sleep(Duration::from_secs(1));
-        }
+        wait_for(timeout.as_secs(), || {
+            let info_after = self.stacks_client.get_peer_info().unwrap();
+            Ok(info_after.stacks_tip_height > info_before.stacks_tip_height)
+        })
+        .unwrap();
         let mined_block_elapsed_time = mined_block_time.elapsed();
         info!(
             "Nakamoto block mine time elapsed: {:?}",
             mined_block_elapsed_time
         );
-        test_observer::get_mined_nakamoto_blocks().pop().unwrap()
     }
 
     fn mine_block_wait_on_processing(
@@ -631,9 +627,8 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
                         _ => None,
                     }
                 })
-                .collect();
-            info!("Checking block rejections"; "rejected_len" => block_rejections.len(), "expected_len" => expected_signers.len());
-            Ok(block_rejections.len() >= expected_signers.len())
+                .collect::<HashSet<_>>();
+            Ok(block_rejections.len() == expected_signers.len())
         })
     }
 }

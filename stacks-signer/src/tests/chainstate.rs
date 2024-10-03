@@ -26,6 +26,7 @@ use blockstack_lib::chainstate::stacks::{
     TransactionSpendingCondition, TransactionVersion,
 };
 use blockstack_lib::net::api::get_tenures_fork_info::TenureForkingInfo;
+use blockstack_lib::net::api::getsortition::SortitionInfo;
 use clarity::types::chainstate::{BurnchainHeaderHash, SortitionId};
 use clarity::util::vrf::VRFProof;
 use libsigner::BlockProposal;
@@ -128,13 +129,13 @@ fn check_proposal_units() {
         setup_test_environment("check_proposal_units");
 
     assert!(!view
-        .check_proposal(&stacks_client, &mut signer_db, &block, &block_pk, 1)
+        .check_proposal(&stacks_client, &mut signer_db, &block, &block_pk, 1, false)
         .unwrap());
 
     view.last_sortition = None;
 
     assert!(!view
-        .check_proposal(&stacks_client, &mut signer_db, &block, &block_pk, 1)
+        .check_proposal(&stacks_client, &mut signer_db, &block, &block_pk, 1, false)
         .unwrap());
 }
 
@@ -150,7 +151,8 @@ fn check_proposal_miner_pkh_mismatch() {
             &mut signer_db,
             &block,
             &different_block_pk,
-            1
+            1,
+            false,
         )
         .unwrap());
 
@@ -161,7 +163,8 @@ fn check_proposal_miner_pkh_mismatch() {
             &mut signer_db,
             &block,
             &different_block_pk,
-            1
+            1,
+            false,
         )
         .unwrap());
 }
@@ -257,7 +260,7 @@ fn reorg_timing_testing(
         config,
     } = MockServerClient::new();
     let h = std::thread::spawn(move || {
-        view.check_proposal(&client, &mut signer_db, &block, &block_pk, 1)
+        view.check_proposal(&client, &mut signer_db, &block, &block_pk, 1, false)
     });
     header_clone.chain_length -= 1;
     let response = crate::client::tests::build_get_tenure_tip_response(
@@ -294,16 +297,16 @@ fn check_proposal_invalid_status() {
         setup_test_environment("invalid_status");
     block.header.consensus_hash = view.cur_sortition.consensus_hash;
     assert!(view
-        .check_proposal(&stacks_client, &mut signer_db, &block, &block_pk, 1)
+        .check_proposal(&stacks_client, &mut signer_db, &block, &block_pk, 1, false)
         .unwrap());
     view.cur_sortition.miner_status = SortitionMinerStatus::InvalidatedAfterFirstBlock;
     assert!(!view
-        .check_proposal(&stacks_client, &mut signer_db, &block, &block_pk, 1)
+        .check_proposal(&stacks_client, &mut signer_db, &block, &block_pk, 1, false)
         .unwrap());
 
     block.header.consensus_hash = view.last_sortition.as_ref().unwrap().consensus_hash;
     assert!(!view
-        .check_proposal(&stacks_client, &mut signer_db, &block, &block_pk, 1)
+        .check_proposal(&stacks_client, &mut signer_db, &block, &block_pk, 1, false)
         .unwrap());
 
     view.cur_sortition.miner_status = SortitionMinerStatus::InvalidatedBeforeFirstBlock;
@@ -314,7 +317,7 @@ fn check_proposal_invalid_status() {
     // parent blocks have been seen before, while the signer state checks are only reasoning about
     // stacks blocks seen by the signer, which may be a subset)
     assert!(view
-        .check_proposal(&stacks_client, &mut signer_db, &block, &block_pk, 1)
+        .check_proposal(&stacks_client, &mut signer_db, &block, &block_pk, 1, false)
         .unwrap());
 }
 
@@ -363,7 +366,7 @@ fn check_proposal_tenure_extend_invalid_conditions() {
     let tx = make_tenure_change_tx(extend_payload);
     block.txs = vec![tx];
     assert!(!view
-        .check_proposal(&stacks_client, &mut signer_db, &block, &block_pk, 1)
+        .check_proposal(&stacks_client, &mut signer_db, &block, &block_pk, 1, false)
         .unwrap());
 
     let mut extend_payload = make_tenure_change_payload();
@@ -373,7 +376,7 @@ fn check_proposal_tenure_extend_invalid_conditions() {
     let tx = make_tenure_change_tx(extend_payload);
     block.txs = vec![tx];
     assert!(view
-        .check_proposal(&stacks_client, &mut signer_db, &block, &block_pk, 1)
+        .check_proposal(&stacks_client, &mut signer_db, &block, &block_pk, 1, false)
         .unwrap());
 }
 
@@ -400,7 +403,8 @@ fn check_block_proposal_timeout() {
             &mut signer_db,
             &curr_sortition_block,
             &block_pk,
-            1
+            1,
+            false,
         )
         .unwrap());
 
@@ -410,7 +414,8 @@ fn check_block_proposal_timeout() {
             &mut signer_db,
             &last_sortition_block,
             &block_pk,
-            1
+            1,
+            false,
         )
         .unwrap());
 
@@ -422,7 +427,8 @@ fn check_block_proposal_timeout() {
             &mut signer_db,
             &curr_sortition_block,
             &block_pk,
-            1
+            1,
+            false,
         )
         .unwrap());
 
@@ -432,7 +438,8 @@ fn check_block_proposal_timeout() {
             &mut signer_db,
             &last_sortition_block,
             &block_pk,
-            1
+            1,
+            false,
         )
         .unwrap());
 }
@@ -512,4 +519,65 @@ fn check_sortition_timeout() {
     assert!(!sortition
         .is_timed_out(Duration::from_secs(1), &signer_db)
         .unwrap());
+}
+
+/// Test that the sortition info is refreshed once
+/// when `check_proposal` is called with a sortition view
+/// that doesn't match the block proposal
+#[test]
+fn check_proposal_refresh() {
+    let (stacks_client, mut signer_db, block_pk, mut view, mut block) =
+        setup_test_environment("check_proposal_refresh");
+    block.header.consensus_hash = view.cur_sortition.consensus_hash;
+    assert!(view
+        .check_proposal(&stacks_client, &mut signer_db, &block, &block_pk, 1, false)
+        .unwrap());
+
+    let MockServerClient {
+        server,
+        client,
+        config: _,
+    } = MockServerClient::new();
+
+    let last_sortition = view.last_sortition.as_ref().unwrap();
+
+    let expected_result = vec![
+        SortitionInfo {
+            burn_block_hash: last_sortition.burn_block_hash,
+            burn_block_height: 2,
+            sortition_id: SortitionId([2; 32]),
+            parent_sortition_id: SortitionId([1; 32]),
+            consensus_hash: block.header.consensus_hash,
+            was_sortition: true,
+            burn_header_timestamp: 2,
+            miner_pk_hash160: Some(view.cur_sortition.miner_pkh),
+            stacks_parent_ch: Some(view.cur_sortition.parent_tenure_id),
+            last_sortition_ch: Some(view.cur_sortition.parent_tenure_id),
+            committed_block_hash: None,
+        },
+        SortitionInfo {
+            burn_block_hash: BurnchainHeaderHash([128; 32]),
+            burn_block_height: 1,
+            sortition_id: SortitionId([1; 32]),
+            parent_sortition_id: SortitionId([0; 32]),
+            consensus_hash: view.cur_sortition.parent_tenure_id,
+            was_sortition: true,
+            burn_header_timestamp: 1,
+            miner_pk_hash160: Some(view.cur_sortition.miner_pkh),
+            stacks_parent_ch: Some(view.cur_sortition.parent_tenure_id),
+            last_sortition_ch: Some(view.cur_sortition.parent_tenure_id),
+            committed_block_hash: None,
+        },
+    ];
+
+    view.cur_sortition.consensus_hash = ConsensusHash([128; 20]);
+    let h = std::thread::spawn(move || {
+        view.check_proposal(&client, &mut signer_db, &block, &block_pk, 1, true)
+    });
+    crate::client::tests::write_response(
+        server,
+        format!("HTTP/1.1 200 Ok\n\n{}", serde_json::json!(expected_result)).as_bytes(),
+    );
+    let result = h.join().unwrap();
+    assert!(result.unwrap());
 }

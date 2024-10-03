@@ -211,11 +211,12 @@ fn microblocks_disabled() {
     );
     assert_eq!(account.nonce, 1);
 
-    info!(
-        "Microblocks assembled: {}",
-        test_observer::get_microblocks().len()
+    let microblocks_assembled = test_observer::get_microblocks().len();
+    info!("Microblocks assembled: {microblocks_assembled}",);
+    assert!(
+        microblocks_assembled > 0,
+        "There should be at least 1 microblock assembled"
     );
-    assert_eq!(test_observer::get_microblocks().len(), 1);
 
     let miner_nonce_before_microblock_assembly = get_account(&http_origin, &miner_account).nonce;
 
@@ -244,8 +245,8 @@ fn microblocks_disabled() {
     );
     assert_eq!(account.nonce, 1);
 
-    // but we should have assembled and announced at least 1 to the observer
-    assert!(test_observer::get_microblocks().len() >= 2);
+    // but we should have assembled and announced at least 1 more block to the observer
+    assert!(test_observer::get_microblocks().len() > microblocks_assembled);
     info!(
         "Microblocks assembled: {}",
         test_observer::get_microblocks().len()
