@@ -94,7 +94,7 @@ use stacks_signer::signerdb::{BlockInfo, BlockState, ExtraBlockInfo, SignerDb};
 use super::bitcoin_regtest::BitcoinCoreController;
 use crate::config::{EventKeyType, EventObserverConfig, InitialBalance};
 use crate::nakamoto_node::miner::{
-    TEST_BLOCK_ANNOUNCE_STALL, TEST_BROADCAST_STALL, TEST_MINE_STALL,
+    TEST_BLOCK_ANNOUNCE_STALL, TEST_BROADCAST_STALL, TEST_MINE_STALL, TEST_SKIP_P2P_BROADCAST,
 };
 use crate::neon::{Counters, RunLoopCounter};
 use crate::operations::BurnchainOpSigner;
@@ -8917,6 +8917,204 @@ fn v3_signer_api_endpoint() {
     );
 
     info!("------------------------- Test finished, clean up -------------------------");
+
+    coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .stop_chains_coordinator();
+    run_loop_stopper.store(false, Ordering::SeqCst);
+
+    run_loop_thread.join().unwrap();
+}
+
+#[test]
+#[ignore]
+/// This test spins up a nakamoto-neon node.
+/// It starts in Epoch 2.0, mines with `neon_node` to Epoch 3.0, and then switches
+///  to Nakamoto operation (activating pox-4 by submitting a stack-stx tx). The BootLoop
+///  struct handles the epoch-2/3 tear-down and spin-up.
+/// This test asserts that a long running transaction doesn't get mined,
+///  but that the stacks-node continues to make progress
+fn skip_mining_long_tx() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
+    let prom_bind = format!("{}:{}", "127.0.0.1", 6000);
+    naka_conf.node.prometheus_bind = Some(prom_bind.clone());
+    naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
+    naka_conf.miner.nakamoto_attempt_time_ms = 5_000;
+    let sender_1_sk = Secp256k1PrivateKey::from_seed(&[30]);
+    let sender_2_sk = Secp256k1PrivateKey::from_seed(&[31]);
+    // setup sender + recipient for a test stx transfer
+    let sender_1_addr = tests::to_addr(&sender_1_sk);
+    let sender_2_addr = tests::to_addr(&sender_2_sk);
+    let send_amt = 1000;
+    let send_fee = 180;
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_1_addr.clone()).to_string(),
+        send_amt * 15 + send_fee * 15,
+    );
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_2_addr.clone()).to_string(),
+        10000,
+    );
+    let sender_signer_sk = Secp256k1PrivateKey::new();
+    let sender_signer_addr = tests::to_addr(&sender_signer_sk);
+    let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
+    );
+    let recipient = PrincipalData::from(StacksAddress::burn_address(false));
+    let stacker_sk = setup_stacker(&mut naka_conf);
+    let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
+
+    test_observer::spawn();
+    let observer_port = test_observer::EVENT_OBSERVER_PORT;
+    naka_conf.events_observers.insert(EventObserverConfig {
+        endpoint: format!("localhost:{observer_port}"),
+        events_keys: vec![EventKeyType::AnyEvent],
+    });
+
+    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .expect("Failed starting bitcoind");
+    let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
+    btc_regtest_controller.bootstrap_chain(201);
+
+    let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
+    let run_loop_stopper = run_loop.get_termination_switch();
+    let Counters {
+        blocks_processed,
+        naka_submitted_commits: commits_submitted,
+        naka_proposed_blocks: proposals_submitted,
+        naka_mined_blocks: mined_naka_blocks,
+        ..
+    } = run_loop.counters();
+
+    let coord_channel = run_loop.coordinator_channels();
+
+    let run_loop_thread = thread::spawn(move || run_loop.start(None, 0));
+    wait_for_runloop(&blocks_processed);
+    boot_to_epoch_3(
+        &naka_conf,
+        &blocks_processed,
+        &[stacker_sk],
+        &[sender_signer_sk],
+        &mut Some(&mut signers),
+        &mut btc_regtest_controller,
+    );
+
+    info!("Bootstrapped to Epoch-3.0 boundary, starting nakamoto miner");
+
+    let burnchain = naka_conf.get_burnchain();
+    let sortdb = burnchain.open_sortition_db(true).unwrap();
+    let (chainstate, _) = StacksChainState::open(
+        naka_conf.is_mainnet(),
+        naka_conf.burnchain.chain_id,
+        &naka_conf.get_chainstate_path_str(),
+        None,
+    )
+    .unwrap();
+
+    info!("Nakamoto miner started...");
+    blind_signer(&naka_conf, &signers, proposals_submitted);
+
+    wait_for_first_naka_block_commit(60, &commits_submitted);
+
+    // submit a long running TX and the transfer TX
+    let input_list: Vec<_> = (1..100u64).into_iter().map(|x| x.to_string()).collect();
+    let input_list = input_list.join(" ");
+
+    // Mine a few nakamoto tenures with some interim blocks in them
+    for i in 0..5 {
+        let mined_before = mined_naka_blocks.load(Ordering::SeqCst);
+        next_block_and_mine_commit(
+            &mut btc_regtest_controller,
+            60,
+            &coord_channel,
+            &commits_submitted,
+        )
+        .unwrap();
+
+        if i == 0 {
+            // we trigger the nakamoto miner to evaluate the long running transaction,
+            //  but we disable the block broadcast, so the tx doesn't end up included in a
+            //  confirmed block, even though its been evaluated.
+            // once we've seen the miner increment the mined counter, we allow it to start
+            //  broadcasting (because at this point, any future blocks produced will skip the long
+            //  running tx because they have an estimate).
+            wait_for(30, || {
+                Ok(mined_naka_blocks.load(Ordering::SeqCst) > mined_before)
+            })
+            .unwrap();
+
+            TEST_SKIP_P2P_BROADCAST.lock().unwrap().replace(true);
+            let tx = make_contract_publish(
+                &sender_2_sk,
+                0,
+                9_000,
+                "large_contract",
+                &format!(
+                    "(define-constant INP_LIST (list {input_list}))
+                        (define-private (mapping-fn (input int))
+                                (begin (sha256 (sha256 (sha256 (sha256 (sha256 (sha256 (sha256 (sha256 (sha256 input)))))))))
+                                       0))
+
+                        (define-private (mapping-fn-2 (input int))
+                                (begin (map mapping-fn INP_LIST) (map mapping-fn INP_LIST) (map mapping-fn INP_LIST) (map mapping-fn INP_LIST) 0))
+
+                        (begin
+                            (map mapping-fn-2 INP_LIST))"
+                ),
+            );
+            submit_tx(&http_origin, &tx);
+
+            wait_for(90, || {
+                Ok(mined_naka_blocks.load(Ordering::SeqCst) > mined_before + 1)
+            })
+            .unwrap();
+
+            TEST_SKIP_P2P_BROADCAST.lock().unwrap().replace(false);
+        } else {
+            let transfer_tx =
+                make_stacks_transfer(&sender_1_sk, i - 1, send_fee, &recipient, send_amt);
+            submit_tx(&http_origin, &transfer_tx);
+
+            wait_for(30, || {
+                let cur_sender_nonce = get_account(&http_origin, &sender_1_addr).nonce;
+                Ok(cur_sender_nonce >= i)
+            })
+            .unwrap();
+        }
+    }
+
+    let sender_1_nonce = get_account(&http_origin, &sender_1_addr).nonce;
+    let sender_2_nonce = get_account(&http_origin, &sender_2_addr).nonce;
+
+    // load the chain tip, and assert that it is a nakamoto block and at least 30 blocks have advanced in epoch 3
+    let tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
+        .unwrap()
+        .unwrap();
+    info!(
+        "Latest tip";
+        "height" => tip.stacks_block_height,
+        "is_nakamoto" => tip.anchored_header.as_stacks_nakamoto().is_some(),
+        "sender_1_nonce" => sender_1_nonce,
+        "sender_2_nonce" => sender_2_nonce,
+    );
+
+    assert_eq!(sender_2_nonce, 0);
+    assert_eq!(sender_1_nonce, 4);
+
+    // Check that we aren't missing burn blocks
+    let bhh = u64::from(tip.burn_header_height);
+    test_observer::contains_burn_block_range(220..=bhh).unwrap();
+
+    check_nakamoto_empty_block_heuristics();
 
     coord_channel
         .lock()

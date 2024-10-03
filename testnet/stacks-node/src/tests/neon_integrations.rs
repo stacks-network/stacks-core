@@ -591,7 +591,7 @@ pub mod test_observer {
                     }
                 }
                 let tx_hex = tx_json.get("raw_tx").unwrap().as_str().unwrap();
-                let tx_bytes = hex_bytes(tx_hex).unwrap();
+                let tx_bytes = hex_bytes(&tx_hex[2..]).unwrap();
                 let tx =
                     StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
                 Some(tx)
