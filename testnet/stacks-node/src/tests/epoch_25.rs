@@ -172,7 +172,7 @@ fn microblocks_disabled() {
     // wait until just before epoch 2.5
     wait_for(30, || {
         let tip_info = get_chain_info(&conf);
-        if tip_info.burn_block_height >= epoch_2_1 - 2 {
+        if tip_info.burn_block_height >= epoch_2_5 - 2 {
             return Ok(true);
         }
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
