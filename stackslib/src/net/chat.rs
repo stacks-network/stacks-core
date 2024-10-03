@@ -1744,7 +1744,8 @@ impl ConversationP2P {
             &tip,
             sortdb,
             chainstate,
-            &network.stacks_tip.block_id(),
+            &network.stacks_tip.consensus_hash,
+            &network.stacks_tip.block_hash,
             reward_cycle,
         )?;
         let nakamoto_inv = NakamotoInvData::try_from(&bitvec_bools).map_err(|e| {
