@@ -2427,7 +2427,7 @@ fn new_tenure_stop_fast_blocks() {
     let sender_sk = Secp256k1PrivateKey::new();
     let sender_signer_sk = Secp256k1PrivateKey::new();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
-    let tenure_count = 2;
+    let tenure_count = 5;
     let inter_blocks_per_tenure = 6;
     // setup sender + recipient for some test stx transfers
     // these are necessary for the interim blocks to get mined at all
@@ -2472,6 +2472,7 @@ fn new_tenure_stop_fast_blocks() {
         naka_conf.burnchain.chain_id,
         naka_conf.burnchain.peer_version,
     );
+    let http_tx_origin = format!("http://{}", &conf_node_2.node.rpc_bind);
 
     test_observer::spawn();
     let observer_port = test_observer::EVENT_OBSERVER_PORT;
@@ -2588,6 +2589,8 @@ fn new_tenure_stop_fast_blocks() {
     // in 3rd tenure, miner_
 
     // Mine `tenure_count` nakamoto tenures
+    let mut stopped_miner_a = false;
+
     for tenure_ix in 0..tenure_count {
         info!("Mining tenure {}", tenure_ix);
         let commits_before = commits_submitted.load(Ordering::SeqCst);
@@ -2595,7 +2598,7 @@ fn new_tenure_stop_fast_blocks() {
             .unwrap();
 
         // Get the latest block from chainstate
-        let burnchain = naka_conf.get_burnchain();
+        let burnchain = conf_node_2.get_burnchain();
         let burnchain_header_hash = burnchain
             .get_highest_burnchain_block()
             .unwrap()
@@ -2603,9 +2606,9 @@ fn new_tenure_stop_fast_blocks() {
             .block_hash;
         let sortdb = burnchain.open_sortition_db(true).unwrap();
         let (chainstate, _) = StacksChainState::open(
-            naka_conf.is_mainnet(),
-            naka_conf.burnchain.chain_id,
-            &naka_conf.get_chainstate_path_str(),
+            conf_node_2.is_mainnet(),
+            conf_node_2.burnchain.chain_id,
+            &conf_node_2.get_chainstate_path_str(),
             None,
         )
         .unwrap();
@@ -2684,33 +2687,49 @@ fn new_tenure_stop_fast_blocks() {
         //     );
         // }
 
+        if !stopped_miner_a && winner_bitcoin_address.to_string() == miner_b_address.to_string() {
+            info!("Miner B is the winner for tenure {}. Stopping miner A", tenure_ix);
+            coord_channel
+                .lock()
+                .expect("Mutex poisoned")
+                .stop_chains_coordinator();
+            run_loop_stopper.store(false, Ordering::SeqCst);
+            stopped_miner_a = true;
+        };
+
         let mut last_tip = BlockHeaderHash([0x00; 32]);
         let mut last_tip_height = 0;
 
         // mine the interim blocks
         for interim_block_ix in 0..inter_blocks_per_tenure {
-            let blocks_processed_before = coord_channel
+            info!("a");
+            let blocks_processed_before = coord_channel_2
                 .lock()
                 .expect("Mutex poisoned")
                 .get_stacks_blocks_processed();
+            info!("b");
             // submit a tx so that the miner will mine an extra block
             let sender_nonce = tenure_ix * inter_blocks_per_tenure + interim_block_ix;
             let transfer_tx =
                 make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
-            submit_tx(&http_origin, &transfer_tx);
+            info!("c");
+            submit_tx(&http_tx_origin, &transfer_tx);
+            info!("d");
 
             wait_for(20, || {
-                let blocks_processed = coord_channel
+                let blocks_processed = coord_channel_2
                     .lock()
                     .expect("Mutex poisoned")
                     .get_stacks_blocks_processed();
                 Ok(blocks_processed > blocks_processed_before)
             })
             .unwrap();
+            info!("e");
 
-            let info = get_chain_info_result(&naka_conf).unwrap();
+            let info = get_chain_info_result(&conf_node_2).unwrap();
             assert_ne!(info.stacks_tip, last_tip);
             assert_ne!(info.stacks_tip_height, last_tip_height);
+            info!("f");
 
             last_tip = info.stacks_tip;
             last_tip_height = info.stacks_tip_height;
@@ -2732,10 +2751,14 @@ fn new_tenure_stop_fast_blocks() {
         "is_nakamoto" => tip.anchored_header.as_stacks_nakamoto().is_some(),
     );
 
-    let peer_1_height = get_chain_info(&naka_conf).stacks_tip_height;
-    let peer_2_height = get_chain_info(&conf_node_2).stacks_tip_height;
-    info!("Peer height information"; "peer_1" => peer_1_height, "peer_2" => peer_2_height);
-    assert_eq!(peer_1_height, peer_2_height);
+    if stopped_miner_a {
+        info!("Miner A stopped, skipping peer height comparison");
+    } else {
+        let peer_1_height = get_chain_info(&naka_conf).stacks_tip_height;
+        let peer_2_height = get_chain_info(&conf_node_2).stacks_tip_height;
+        info!("Peer height information"; "peer_1" => peer_1_height, "peer_2" => peer_2_height);
+        assert_eq!(peer_1_height, peer_2_height);
+    }
 
     assert!(tip.anchored_header.as_stacks_nakamoto().is_some());
     assert_eq!(
@@ -2744,15 +2767,10 @@ fn new_tenure_stop_fast_blocks() {
         "Should have mined (1 + interim_blocks_per_tenure) * tenure_count nakamoto blocks"
     );
 
-    coord_channel
-        .lock()
-        .expect("Mutex poisoned")
-        .stop_chains_coordinator();
     coord_channel_2
         .lock()
         .expect("Mutex poisoned")
         .stop_chains_coordinator();
-    run_loop_stopper.store(false, Ordering::SeqCst);
     run_loop_2_stopper.store(false, Ordering::SeqCst);
 
     run_loop_thread.join().unwrap();
