@@ -384,7 +384,7 @@ impl NakamotoDownloadStateMachine {
             &new_wanted_tenures
         );
         self.wanted_tenures.append(&mut new_wanted_tenures);
-        debug!("extended wanted_tenures is now {:?}", &self.wanted_tenures);
+        test_debug!("extended wanted_tenures is now {:?}", &self.wanted_tenures);
 
         Ok(())
     }
@@ -983,9 +983,9 @@ impl NakamotoDownloadStateMachine {
             prev_schedule
         };
 
-        debug!("new schedule: {:?}", schedule);
-        debug!("new available: {:?}", &available);
-        debug!("new tenure_block_ids: {:?}", &tenure_block_ids);
+        test_debug!("new schedule: {:?}", schedule);
+        test_debug!("new available: {:?}", &available);
+        test_debug!("new tenure_block_ids: {:?}", &tenure_block_ids);
 
         self.tenure_download_schedule = schedule;
         self.tenure_block_ids = tenure_block_ids;
@@ -1023,7 +1023,7 @@ impl NakamotoDownloadStateMachine {
             .map(|wt| (wt.burn_height, &wt.tenure_id_consensus_hash))
             .collect();
 
-        debug!("Check availability {:?}", available);
+        test_debug!("Check availability {:?}", available);
         let mut highest_available = Vec::with_capacity(2);
         for (_, ch) in tenure_block_heights.iter().rev() {
             let available_count = available
