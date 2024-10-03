@@ -379,6 +379,7 @@ impl Signer {
                 &block_proposal.block,
                 miner_pubkey,
                 self.reward_cycle,
+                true,
             ) {
                 // Error validating block
                 Err(e) => {
