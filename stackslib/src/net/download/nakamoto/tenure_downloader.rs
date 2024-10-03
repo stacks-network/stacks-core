@@ -581,11 +581,11 @@ impl NakamotoTenureDownloader {
         response: StacksHttpResponse,
     ) -> Result<Option<Vec<NakamotoBlock>>, NetError> {
         let handle_result = match self.state {
-            NakamotoTenureDownloadState::GetTenureStartBlock(_block_id, _start_request_time) => {
+            NakamotoTenureDownloadState::GetTenureStartBlock(block_id, start_request_time) => {
                 debug!(
                     "Got download response for tenure-start block {} in {}ms",
-                    &_block_id,
-                    get_epoch_time_ms().saturating_sub(_start_request_time)
+                    &block_id,
+                    get_epoch_time_ms().saturating_sub(start_request_time)
                 );
                 let block = response.decode_nakamoto_block().map_err(|e| {
                     warn!("Failed to decode response for a Nakamoto block: {:?}", &e);
@@ -594,11 +594,11 @@ impl NakamotoTenureDownloader {
                 self.try_accept_tenure_start_block(block)?;
                 Ok(None)
             }
-            NakamotoTenureDownloadState::GetTenureEndBlock(_block_id, _start_request_time) => {
+            NakamotoTenureDownloadState::GetTenureEndBlock(block_id, start_request_time) => {
                 debug!(
                     "Got download response to tenure-end block {} in {}ms",
-                    &_block_id,
-                    get_epoch_time_ms().saturating_sub(_start_request_time)
+                    &block_id,
+                    get_epoch_time_ms().saturating_sub(start_request_time)
                 );
                 let block = response.decode_nakamoto_block().map_err(|e| {
                     warn!("Failed to decode response for a Nakamoto block: {:?}", &e);
@@ -607,11 +607,11 @@ impl NakamotoTenureDownloader {
                 self.try_accept_tenure_end_block(&block)?;
                 Ok(None)
             }
-            NakamotoTenureDownloadState::GetTenureBlocks(_end_block_id, _start_request_time) => {
+            NakamotoTenureDownloadState::GetTenureBlocks(end_block_id, start_request_time) => {
                 debug!(
                     "Got download response for tenure blocks ending at {} in {}ms",
-                    &_end_block_id,
-                    get_epoch_time_ms().saturating_sub(_start_request_time)
+                    &end_block_id,
+                    get_epoch_time_ms().saturating_sub(start_request_time)
                 );
                 let blocks = response.decode_nakamoto_tenure().map_err(|e| {
                     warn!("Failed to decode response for a Nakamoto tenure: {:?}", &e);
