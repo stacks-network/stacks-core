@@ -168,7 +168,10 @@ impl NakamotoTenureDownloader {
             start_signer_keys,
             end_signer_keys,
             idle: false,
-            state: NakamotoTenureDownloadState::GetTenureStartBlock(tenure_start_block_id.clone(), get_epoch_time_ms()),
+            state: NakamotoTenureDownloadState::GetTenureStartBlock(
+                tenure_start_block_id.clone(),
+                get_epoch_time_ms(),
+            ),
             tenure_start_block: None,
             tenure_end_block: None,
             tenure_blocks: None,
@@ -236,8 +239,10 @@ impl NakamotoTenureDownloader {
             self.try_accept_tenure_end_block(&tenure_end_block)?;
         } else {
             // need to get tenure_end_block.
-            self.state =
-                NakamotoTenureDownloadState::GetTenureEndBlock(self.tenure_end_block_id.clone(), get_epoch_time_ms());
+            self.state = NakamotoTenureDownloadState::GetTenureEndBlock(
+                self.tenure_end_block_id.clone(),
+                get_epoch_time_ms(),
+            );
         }
         Ok(())
     }
@@ -328,7 +333,7 @@ impl NakamotoTenureDownloader {
         self.tenure_end_block = Some(tenure_end_block.clone());
         self.state = NakamotoTenureDownloadState::GetTenureBlocks(
             tenure_end_block.header.parent_block_id.clone(),
-            get_epoch_time_ms()
+            get_epoch_time_ms(),
         );
         Ok(())
     }
@@ -364,7 +369,9 @@ impl NakamotoTenureDownloader {
         &mut self,
         mut tenure_blocks: Vec<NakamotoBlock>,
     ) -> Result<Option<Vec<NakamotoBlock>>, NetError> {
-        let NakamotoTenureDownloadState::GetTenureBlocks(block_cursor, start_request_time) = &self.state else {
+        let NakamotoTenureDownloadState::GetTenureBlocks(block_cursor, start_request_time) =
+            &self.state
+        else {
             warn!("Invalid state for this method";
                   "state" => %self.state);
             return Err(NetError::InvalidState);
@@ -464,7 +471,8 @@ impl NakamotoTenureDownloader {
                 &earliest_block.block_id(),
                 &next_block_id
             );
-            self.state = NakamotoTenureDownloadState::GetTenureBlocks(next_block_id, *start_request_time);
+            self.state =
+                NakamotoTenureDownloadState::GetTenureBlocks(next_block_id, *start_request_time);
             return Ok(None);
         }
 
@@ -489,16 +497,28 @@ impl NakamotoTenureDownloader {
         peerhost: PeerHost,
     ) -> Result<Option<StacksHttpRequest>, ()> {
         let request = match self.state {
-            NakamotoTenureDownloadState::GetTenureStartBlock(start_block_id, start_request_time) => {
-                debug!("Request tenure-start block {} at {}", &start_block_id, start_request_time);
+            NakamotoTenureDownloadState::GetTenureStartBlock(
+                start_block_id,
+                start_request_time,
+            ) => {
+                debug!(
+                    "Request tenure-start block {} at {}",
+                    &start_block_id, start_request_time
+                );
                 StacksHttpRequest::new_get_nakamoto_block(peerhost, start_block_id.clone())
             }
             NakamotoTenureDownloadState::GetTenureEndBlock(end_block_id, start_request_time) => {
-                debug!("Request tenure-end block {} at {}", &end_block_id, start_request_time);
+                debug!(
+                    "Request tenure-end block {} at {}",
+                    &end_block_id, start_request_time
+                );
                 StacksHttpRequest::new_get_nakamoto_block(peerhost, end_block_id.clone())
             }
             NakamotoTenureDownloadState::GetTenureBlocks(end_block_id, start_request_time) => {
-                debug!("Downloading tenure ending at {} at {}", &end_block_id, start_request_time);
+                debug!(
+                    "Downloading tenure ending at {} at {}",
+                    &end_block_id, start_request_time
+                );
                 StacksHttpRequest::new_get_nakamoto_tenure(peerhost, end_block_id.clone(), None)
             }
             NakamotoTenureDownloadState::Done => {
@@ -564,7 +584,8 @@ impl NakamotoTenureDownloader {
             NakamotoTenureDownloadState::GetTenureStartBlock(_block_id, _start_request_time) => {
                 debug!(
                     "Got download response for tenure-start block {} in {}ms",
-                    &_block_id, get_epoch_time_ms().saturating_sub(_start_request_time)
+                    &_block_id,
+                    get_epoch_time_ms().saturating_sub(_start_request_time)
                 );
                 let block = response.decode_nakamoto_block().map_err(|e| {
                     warn!("Failed to decode response for a Nakamoto block: {:?}", &e);
@@ -574,7 +595,11 @@ impl NakamotoTenureDownloader {
                 Ok(None)
             }
             NakamotoTenureDownloadState::GetTenureEndBlock(_block_id, _start_request_time) => {
-                debug!("Got download response to tenure-end block {} in {}ms", &_block_id, get_epoch_time_ms().saturating_sub(_start_request_time));
+                debug!(
+                    "Got download response to tenure-end block {} in {}ms",
+                    &_block_id,
+                    get_epoch_time_ms().saturating_sub(_start_request_time)
+                );
                 let block = response.decode_nakamoto_block().map_err(|e| {
                     warn!("Failed to decode response for a Nakamoto block: {:?}", &e);
                     e
@@ -585,7 +610,8 @@ impl NakamotoTenureDownloader {
             NakamotoTenureDownloadState::GetTenureBlocks(_end_block_id, _start_request_time) => {
                 debug!(
                     "Got download response for tenure blocks ending at {} in {}ms",
-                    &_end_block_id, get_epoch_time_ms().saturating_sub(_start_request_time)
+                    &_end_block_id,
+                    get_epoch_time_ms().saturating_sub(_start_request_time)
                 );
                 let blocks = response.decode_nakamoto_tenure().map_err(|e| {
                     warn!("Failed to decode response for a Nakamoto tenure: {:?}", &e);
