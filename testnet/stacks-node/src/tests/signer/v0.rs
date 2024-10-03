@@ -1763,6 +1763,7 @@ fn miner_forking() {
             config.node.local_peer_seed = btc_miner_1_seed.clone();
             config.burnchain.local_mining_public_key = Some(btc_miner_1_pk.to_hex());
             config.miner.mining_key = Some(Secp256k1PrivateKey::from_seed(&[1]));
+            config.node.pox_sync_sample_secs = 5;
 
             config.events_observers.retain(|listener| {
                 let Ok(addr) = std::net::SocketAddr::from_str(&listener.endpoint) else {

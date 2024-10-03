@@ -6006,6 +6006,7 @@ fn signer_chainstate() {
                     prior_tenure_first,
                     miner_pk,
                     reward_cycle,
+                    true,
                 )
                 .unwrap();
             assert!(
@@ -6020,6 +6021,7 @@ fn signer_chainstate() {
                         block,
                         miner_pk,
                         reward_cycle,
+                        true,
                     )
                     .unwrap();
                 assert!(
@@ -6056,6 +6058,7 @@ fn signer_chainstate() {
                 &proposal.0,
                 &proposal.1,
                 reward_cycle,
+                true,
             )
             .unwrap();
 
@@ -6105,6 +6108,7 @@ fn signer_chainstate() {
                 &proposal_interim.0,
                 &proposal_interim.1,
                 reward_cycle,
+                true,
             )
             .unwrap();
 
@@ -6134,6 +6138,7 @@ fn signer_chainstate() {
                 &proposal_interim.0,
                 &proposal_interim.1,
                 reward_cycle,
+                true,
             )
             .unwrap();
 
@@ -6209,7 +6214,8 @@ fn signer_chainstate() {
                 &mut signer_db,
                 &sibling_block,
                 &miner_pk,
-                reward_cycle
+                reward_cycle,
+                false,
             )
             .unwrap(),
         "A sibling of a previously approved block must be rejected."
@@ -6266,7 +6272,8 @@ fn signer_chainstate() {
                 &mut signer_db,
                 &sibling_block,
                 &miner_pk,
-                reward_cycle
+                reward_cycle,
+                false,
             )
             .unwrap(),
         "A sibling of a previously approved block must be rejected."
@@ -6329,7 +6336,8 @@ fn signer_chainstate() {
                 &mut signer_db,
                 &sibling_block,
                 &miner_pk,
-                reward_cycle
+                reward_cycle,
+                false,
             )
             .unwrap(),
         "A sibling of a previously approved block must be rejected."
@@ -6394,7 +6402,8 @@ fn signer_chainstate() {
                 &mut signer_db,
                 &sibling_block,
                 &miner_pk,
-                reward_cycle
+                reward_cycle,
+                false,
             )
             .unwrap(),
         "A sibling of a previously approved block must be rejected."
