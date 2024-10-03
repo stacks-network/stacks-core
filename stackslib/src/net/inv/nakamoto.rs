@@ -114,6 +114,7 @@ pub struct InvGenerator {
     /// count cache misses for `processed_tenures`
     cache_misses: u128,
     /// Disable caching (test only)
+    #[cfg(test)]
     no_cache: bool,
 }
 
@@ -124,6 +125,7 @@ impl InvGenerator {
             sortitions: HashMap::new(),
             tip_ancestor_search_depth: TIP_ANCESTOR_SEARCH_DEPTH,
             cache_misses: 0,
+            #[cfg(test)]
             no_cache: false,
         }
     }
@@ -204,6 +206,17 @@ impl InvGenerator {
             cursor = parent_id;
         }
         Ok(None)
+    }
+
+    #[cfg(not(test))]
+    fn test_clear_cache(&mut self) {}
+
+    /// Clear the cache (test only)
+    #[cfg(test)]
+    fn test_clear_cache(&mut self) {
+        if self.no_cache {
+            self.processed_tenures.clear();
+        }
     }
 
     /// Get a processed tenure. If it's not cached, then load it from disk.
@@ -287,9 +300,7 @@ impl InvGenerator {
             self.cache_misses = self.cache_misses.saturating_add(1);
             Ok(loaded_info_opt)
         };
-        if self.no_cache {
-            self.processed_tenures.clear();
-        }
+        self.test_clear_cache();
         ret
     }
 
