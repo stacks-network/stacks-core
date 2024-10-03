@@ -383,7 +383,7 @@ impl HttpResponse for GetSortitionHandler {
 }
 
 impl StacksHttpRequest {
-    /// Make a new getinfo request to this endpoint
+    /// Make a new getsortition request to this endpoint
     pub fn new_get_sortition(
         host: PeerHost,
         sort_key: &str,
