@@ -461,7 +461,10 @@ impl NakamotoTenureDownloaderSet {
                 continue;
             };
             if downloader.is_done() {
-                debug!("Downloader for {} on tenure {} is finished", &naddr, &downloader.tenure_id_consensus_hash);
+                debug!(
+                    "Downloader for {} on tenure {} is finished",
+                    &naddr, &downloader.tenure_id_consensus_hash
+                );
                 finished.push(naddr.clone());
                 finished_tenures.push(downloader.tenure_id_consensus_hash.clone());
                 continue;
@@ -532,7 +535,10 @@ impl NakamotoTenureDownloaderSet {
             );
             new_blocks.insert(downloader.tenure_id_consensus_hash.clone(), blocks);
             if downloader.is_done() {
-                debug!("Downloader for {} on tenure {} is finished", &naddr, &downloader.tenure_id_consensus_hash);
+                debug!(
+                    "Downloader for {} on tenure {} is finished",
+                    &naddr, &downloader.tenure_id_consensus_hash
+                );
                 finished.push(naddr.clone());
                 finished_tenures.push(downloader.tenure_id_consensus_hash.clone());
                 continue;
