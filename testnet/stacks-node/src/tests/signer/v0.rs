@@ -1842,18 +1842,28 @@ fn new_tenure_stop_fast_blocks() {
         );
 
         let info_1 = get_chain_info(&conf);
-        let info_2 = get_chain_info(&conf_node_2);
+        if !stopped_miner_b {
+            let info_2 = get_chain_info(&conf_node_2);
+            info!(
+                "Issue next block-build request\ninfo 1: {:?}\ninfo 2: {:?}\n",
+                &info_1, &info_2
+            );
+        };
 
         info!(
-            "Issue next block-build request\ninfo 1: {:?}\ninfo 2: {:?}\n",
-            &info_1, &info_2
+            "Issue next block-build request\ninfo 1: {:?}\n",
+            &info_1
         );
 
-        signer_test.mine_block_wait_on_processing(
-            &[&rl1_coord_channels, &rl2_coord_channels],
-            &[&rl1_commits, &rl2_commits],
-            Duration::from_secs(30),
-        );
+        if !stopped_miner_b {
+            signer_test.mine_block_wait_on_processing(
+                &[&rl1_coord_channels, &rl2_coord_channels],
+                &[&rl1_commits, &rl2_commits],
+                Duration::from_secs(30),
+            );
+        } else {
+            signer_test.mine_nakamoto_block(Duration::from_secs(30));
+        }
 
         btc_blocks_mined += 1;
         if stopped_miner_b {
@@ -1861,7 +1871,7 @@ fn new_tenure_stop_fast_blocks() {
         }
 
         // Get the latest block from chainstate
-        let burnchain = conf_node_2.get_burnchain();
+        let burnchain = conf.get_burnchain();
         let burnchain_header_hash = burnchain
             .get_highest_burnchain_block()
             .unwrap()
@@ -1869,9 +1879,9 @@ fn new_tenure_stop_fast_blocks() {
             .block_hash;
         let sortdb = burnchain.open_sortition_db(true).unwrap();
         let (chainstate, _) = StacksChainState::open(
-            conf_node_2.is_mainnet(),
-            conf_node_2.burnchain.chain_id,
-            &conf_node_2.get_chainstate_path_str(),
+            conf.is_mainnet(),
+            conf.burnchain.chain_id,
+            &conf.get_chainstate_path_str(),
             None,
         )
         .unwrap();
@@ -1928,18 +1938,20 @@ fn new_tenure_stop_fast_blocks() {
                     .unwrap()
             })
             .count();
-        miner_2_tenures = blocks
-            .iter()
-            .filter(|header| {
-                let header = header.anchored_header.as_stacks_nakamoto().unwrap();
-                miner_2_pk
-                    .verify(
-                        header.miner_signature_hash().as_bytes(),
-                        &header.miner_signature,
-                    )
-                    .unwrap()
-            })
-            .count();
+        if !stopped_miner_b {
+            miner_2_tenures = blocks
+                .iter()
+                .filter(|header| {
+                    let header = header.anchored_header.as_stacks_nakamoto().unwrap();
+                    miner_2_pk
+                        .verify(
+                            header.miner_signature_hash().as_bytes(),
+                            &header.miner_signature,
+                        )
+                        .unwrap()
+                })
+                .count();
+        }
     }
 
     info!(
