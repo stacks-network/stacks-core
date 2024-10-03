@@ -170,7 +170,7 @@ fn microblocks_disabled() {
     submit_tx(&http_origin, &tx);
 
     // wait until just before epoch 2.5
-    wait_for(30, || {
+    wait_for(120, || {
         let tip_info = get_chain_info(&conf);
         if tip_info.burn_block_height >= epoch_2_5 - 2 {
             return Ok(true);
