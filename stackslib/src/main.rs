@@ -36,7 +36,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs::File;
 use std::io::prelude::*;
 use std::io::BufReader;
-use std::net::{SocketAddr, SocketAddrV4, SocketAddrV6, TcpStream, ToSocketAddrs};
+use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::time::Duration;
 use std::{env, fs, io, process, thread};
 
@@ -140,14 +140,8 @@ impl P2PSession {
     /// Returns the session handle on success.
     /// Returns error text on failure.
     pub fn begin(peer_addr: SocketAddr, data_port: u16) -> Result<Self, String> {
-        let data_addr = match peer_addr {
-            SocketAddr::V4(v4addr) => {
-                SocketAddr::V4(SocketAddrV4::new(v4addr.ip().clone(), data_port))
-            }
-            SocketAddr::V6(v6addr) => {
-                SocketAddr::V6(SocketAddrV6::new(v6addr.ip().clone(), data_port, 0, 0))
-            }
-        };
+        let mut data_addr = peer_addr.clone();
+        data_addr.set_port(data_port);
 
         // get /v2/info
         let peer_info = send_http_request(
@@ -1143,6 +1137,14 @@ simulating a miner.
     }
 
     if argv[1] == "getnakamotoinv" {
+        if argv.len() < 5 {
+            eprintln!(
+                "Usage: {} getnakamotoinv HOST:PORT DATA_PORT CONSENSUS_HASH",
+                &argv[0]
+            );
+            process::exit(1);
+        }
+
         let peer_addr: SocketAddr = argv[2].to_socket_addrs().unwrap().next().unwrap();
         let data_port: u16 = argv[3].parse().unwrap();
         let ch = ConsensusHash::from_hex(&argv[4]).unwrap();

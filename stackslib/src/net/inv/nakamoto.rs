@@ -251,7 +251,7 @@ impl InvGenerator {
                 // The table removals here are for cache maintenance.
                 //
                 // Between successive calls to this function, the Stacks tip (identified by
-                // `tip_block_ch` and `tip_block_bh) can advance as more blocks are discovered.
+                // `tip_block_ch` and `tip_block_bh`) can advance as more blocks are discovered.
                 // This means that tenures that had previously been treated as absent could now be
                 // present.  By evicting cached data for all tenures between (and including) the
                 // highest ancestor of the current Stacks tip, and the current Stacks tip, we force

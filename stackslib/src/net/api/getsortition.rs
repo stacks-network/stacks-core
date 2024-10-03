@@ -392,14 +392,14 @@ impl StacksHttpRequest {
         StacksHttpRequest::new_for_peer(
             host,
             "GET".into(),
-            format!("/v3/sortitions/{}/{}", sort_key, sort_value),
+            format!("{}/{}/{}", RPC_SORTITION_INFO_PATH, sort_key, sort_value),
             HttpRequestContents::new(),
         )
         .expect("FATAL: failed to construct request from infallible data")
     }
 
     pub fn new_get_sortition_consensus(host: PeerHost, ch: &ConsensusHash) -> StacksHttpRequest {
-        Self::new_get_sortition(host, "consensus", &format!("{}", ch))
+        Self::new_get_sortition(host, "consensus", &ch.to_string())
     }
 }
 
