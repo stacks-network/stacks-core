@@ -14,6 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::collections::{HashMap, VecDeque};
+use std::fmt::Display;
+use std::time::{Duration, Instant};
 
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
 use blockstack_lib::chainstate::stacks::boot::{NakamotoSignerEntry, SIGNERS_NAME};
@@ -30,7 +32,7 @@ use blockstack_lib::net::api::get_tenures_fork_info::{
 use blockstack_lib::net::api::getaccount::AccountEntryResponse;
 use blockstack_lib::net::api::getpoxinfo::RPCPoxInfoData;
 use blockstack_lib::net::api::getsortition::{SortitionInfo, RPC_SORTITION_INFO_PATH};
-use blockstack_lib::net::api::getstackers::{GetStackersErrors, GetStackersResponse};
+use blockstack_lib::net::api::getstackers::GetStackersResponse;
 use blockstack_lib::net::api::postblock::StacksBlockAcceptedData;
 use blockstack_lib::net::api::postblock_proposal::NakamotoBlockProposal;
 use blockstack_lib::net::api::postblock_v3;
@@ -78,7 +80,6 @@ pub struct StacksClient {
 
 #[derive(Deserialize)]
 struct GetStackersErrorResp {
-    err_type: String,
     err_msg: String,
 }
 
@@ -483,14 +484,11 @@ impl StacksClient {
                 warn!("Failed to parse the GetStackers error response: {e}");
                 backoff::Error::permanent(e.into())
             })?;
-            if error_data.err_type == GetStackersErrors::NOT_AVAILABLE_ERR_TYPE {
-                Err(backoff::Error::permanent(ClientError::NoSortitionOnChain))
-            } else {
-                warn!("Got error response ({status}): {}", error_data.err_msg);
-                Err(backoff::Error::permanent(ClientError::RequestFailure(
-                    status,
-                )))
-            }
+
+            warn!("Got error response ({status}): {}", error_data.err_msg);
+            Err(backoff::Error::permanent(ClientError::RequestFailure(
+                status,
+            )))
         };
         let stackers_response =
             retry_with_exponential_backoff::<_, ClientError, GetStackersResponse>(send_request)?;
@@ -562,6 +560,31 @@ impl StacksClient {
         }
         let account_entry = response.json::<AccountEntryResponse>()?;
         Ok(account_entry)
+    }
+
+    /// Post a block to the stacks-node, retry forever on errors.
+    ///
+    /// In tests, this panics if the retry takes longer than 30 seconds.
+    pub fn post_block_until_ok<F: Display>(&self, log_fmt: &F, block: &NakamotoBlock) -> bool {
+        let start_time = Instant::now();
+        loop {
+            match self.post_block(block) {
+                Ok(block_push_result) => {
+                    debug!("{log_fmt}: Block pushed to stacks node: {block_push_result:?}");
+                    return block_push_result;
+                }
+                Err(e) => {
+                    if cfg!(any(test, feature = "testing"))
+                        && start_time.elapsed() > Duration::from_secs(30)
+                    {
+                        panic!(
+                            "{log_fmt}: Timed out in test while pushing block to stacks node: {e}"
+                        );
+                    }
+                    warn!("{log_fmt}: Failed to push block to stacks node: {e}. Retrying...");
+                }
+            };
+        }
     }
 
     /// Try to post a completed nakamoto block to our connected stacks-node

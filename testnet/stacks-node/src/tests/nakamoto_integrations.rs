@@ -593,10 +593,21 @@ pub fn next_block_and<F>(
 where
     F: FnMut() -> Result<bool, String>,
 {
+    next_block_and_controller(btc_controller, timeout_secs, |_| check())
+}
+
+pub fn next_block_and_controller<F>(
+    btc_controller: &mut BitcoinRegtestController,
+    timeout_secs: u64,
+    mut check: F,
+) -> Result<(), String>
+where
+    F: FnMut(&mut BitcoinRegtestController) -> Result<bool, String>,
+{
     eprintln!("Issuing bitcoin block");
     btc_controller.build_next_block(1);
     let start = Instant::now();
-    while !check()? {
+    while !check(btc_controller)? {
         if start.elapsed() > Duration::from_secs(timeout_secs) {
             error!("Timed out waiting for block to process, trying to continue test");
             return Err("Timed out".into());
@@ -1144,69 +1155,6 @@ pub fn is_key_set_for_cycle(
     Ok(key.is_some())
 }
 
-fn signer_vote_if_needed(
-    btc_regtest_controller: &BitcoinRegtestController,
-    naka_conf: &Config,
-    signer_sks: &[StacksPrivateKey], // TODO: Is there some way to get this from the TestSigners?
-    signers: &TestSigners,
-) {
-    // When we reach the next prepare phase, submit new voting transactions
-    let block_height = btc_regtest_controller.get_headers_height();
-    let reward_cycle = btc_regtest_controller
-        .get_burnchain()
-        .block_height_to_reward_cycle(block_height)
-        .unwrap();
-    let prepare_phase_start = btc_regtest_controller
-        .get_burnchain()
-        .pox_constants
-        .prepare_phase_start(
-            btc_regtest_controller.get_burnchain().first_block_height,
-            reward_cycle,
-        );
-
-    if block_height >= prepare_phase_start {
-        // If the key is already set, do nothing.
-        if is_key_set_for_cycle(
-            reward_cycle + 1,
-            naka_conf.is_mainnet(),
-            &naka_conf.node.rpc_bind,
-        )
-        .unwrap_or(false)
-        {
-            return;
-        }
-
-        // If we are self-signing, then we need to vote on the aggregate public key
-        let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
-
-        // Get the aggregate key
-        let aggregate_key = signers.clone().generate_aggregate_key(reward_cycle + 1);
-        let aggregate_public_key = clarity::vm::Value::buff_from(aggregate_key)
-            .expect("Failed to serialize aggregate public key");
-
-        for (i, signer_sk) in signer_sks.iter().enumerate() {
-            let signer_nonce = get_account(&http_origin, &to_addr(signer_sk)).nonce;
-
-            // Vote on the aggregate public key
-            let voting_tx = tests::make_contract_call(
-                &signer_sk,
-                signer_nonce,
-                300,
-                &StacksAddress::burn_address(false),
-                SIGNERS_VOTING_NAME,
-                "vote-for-aggregate-public-key",
-                &[
-                    clarity::vm::Value::UInt(i as u128),
-                    aggregate_public_key.clone(),
-                    clarity::vm::Value::UInt(0),
-                    clarity::vm::Value::UInt(reward_cycle as u128 + 1),
-                ],
-            );
-            submit_tx(&http_origin, &voting_tx);
-        }
-    }
-}
-
 pub fn setup_epoch_3_reward_set(
     naka_conf: &Config,
     blocks_processed: &Arc<AtomicU64>,
@@ -1542,13 +1490,6 @@ fn simple_neon_integration() {
             &commits_submitted,
         )
         .unwrap();
-
-        signer_vote_if_needed(
-            &btc_regtest_controller,
-            &naka_conf,
-            &[sender_signer_sk],
-            &signers,
-        );
     }
 
     // Submit a TX
@@ -1584,13 +1525,6 @@ fn simple_neon_integration() {
             &commits_submitted,
         )
         .unwrap();
-
-        signer_vote_if_needed(
-            &btc_regtest_controller,
-            &naka_conf,
-            &[sender_signer_sk],
-            &signers,
-        );
     }
 
     // load the chain tip, and assert that it is a nakamoto block and at least 30 blocks have advanced in epoch 3
@@ -1794,13 +1728,6 @@ fn simple_neon_integration_with_flash_blocks_on_epoch_3() {
             &commits_submitted,
         )
         .unwrap();
-
-        signer_vote_if_needed(
-            &btc_regtest_controller,
-            &naka_conf,
-            &[sender_signer_sk],
-            &signers,
-        );
     }
 
     // Submit a TX
@@ -1836,13 +1763,6 @@ fn simple_neon_integration_with_flash_blocks_on_epoch_3() {
             &commits_submitted,
         )
         .unwrap();
-
-        signer_vote_if_needed(
-            &btc_regtest_controller,
-            &naka_conf,
-            &[sender_signer_sk],
-            &signers,
-        );
     }
 
     // load the chain tip, and assert that it is a nakamoto block and at least 30 blocks have advanced in epoch 3
@@ -2133,6 +2053,7 @@ fn multiple_miners() {
     let node_2_p2p = 51025;
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
     naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
+    naka_conf.node.pox_sync_sample_secs = 5;
     let sender_sk = Secp256k1PrivateKey::new();
     let sender_signer_sk = Secp256k1PrivateKey::new();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
@@ -2568,13 +2489,6 @@ fn correct_burn_outs() {
         &naka_conf,
     );
 
-    signer_vote_if_needed(
-        &btc_regtest_controller,
-        &naka_conf,
-        &[sender_signer_sk],
-        &signers,
-    );
-
     run_until_burnchain_height(
         &mut btc_regtest_controller,
         &blocks_processed,
@@ -2633,13 +2547,6 @@ fn correct_burn_outs() {
         assert!(
             tip_sn.block_height > prior_tip,
             "The new burnchain tip must have been processed"
-        );
-
-        signer_vote_if_needed(
-            &btc_regtest_controller,
-            &naka_conf,
-            &[sender_signer_sk],
-            &signers,
         );
     }
 
@@ -4740,13 +4647,6 @@ fn forked_tenure_is_ignored() {
     })
     .unwrap();
 
-    signer_vote_if_needed(
-        &btc_regtest_controller,
-        &naka_conf,
-        &[sender_signer_sk],
-        &signers,
-    );
-
     info!("Commit op is submitted; unpause Tenure B's block");
 
     // Unpause the broadcast of Tenure B's block, do not submit commits, and do not allow blocks to
@@ -6106,6 +6006,7 @@ fn signer_chainstate() {
                     prior_tenure_first,
                     miner_pk,
                     reward_cycle,
+                    true,
                 )
                 .unwrap();
             assert!(
@@ -6120,6 +6021,7 @@ fn signer_chainstate() {
                         block,
                         miner_pk,
                         reward_cycle,
+                        true,
                     )
                     .unwrap();
                 assert!(
@@ -6156,6 +6058,7 @@ fn signer_chainstate() {
                 &proposal.0,
                 &proposal.1,
                 reward_cycle,
+                true,
             )
             .unwrap();
 
@@ -6187,13 +6090,6 @@ fn signer_chainstate() {
             make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
         submit_tx(&http_origin, &transfer_tx);
 
-        signer_vote_if_needed(
-            &btc_regtest_controller,
-            &naka_conf,
-            &[sender_signer_sk],
-            &signers,
-        );
-
         let timer = Instant::now();
         while proposals_submitted.load(Ordering::SeqCst) <= before {
             thread::sleep(Duration::from_millis(5));
@@ -6212,6 +6108,7 @@ fn signer_chainstate() {
                 &proposal_interim.0,
                 &proposal_interim.1,
                 reward_cycle,
+                true,
             )
             .unwrap();
 
@@ -6241,6 +6138,7 @@ fn signer_chainstate() {
                 &proposal_interim.0,
                 &proposal_interim.1,
                 reward_cycle,
+                true,
             )
             .unwrap();
 
@@ -6316,7 +6214,8 @@ fn signer_chainstate() {
                 &mut signer_db,
                 &sibling_block,
                 &miner_pk,
-                reward_cycle
+                reward_cycle,
+                false,
             )
             .unwrap(),
         "A sibling of a previously approved block must be rejected."
@@ -6373,7 +6272,8 @@ fn signer_chainstate() {
                 &mut signer_db,
                 &sibling_block,
                 &miner_pk,
-                reward_cycle
+                reward_cycle,
+                false,
             )
             .unwrap(),
         "A sibling of a previously approved block must be rejected."
@@ -6436,7 +6336,8 @@ fn signer_chainstate() {
                 &mut signer_db,
                 &sibling_block,
                 &miner_pk,
-                reward_cycle
+                reward_cycle,
+                false,
             )
             .unwrap(),
         "A sibling of a previously approved block must be rejected."
@@ -6501,7 +6402,8 @@ fn signer_chainstate() {
                 &mut signer_db,
                 &sibling_block,
                 &miner_pk,
-                reward_cycle
+                reward_cycle,
+                false,
             )
             .unwrap(),
         "A sibling of a previously approved block must be rejected."
@@ -6670,13 +6572,6 @@ fn continue_tenure_extend() {
     )
     .unwrap();
 
-    signer_vote_if_needed(
-        &btc_regtest_controller,
-        &naka_conf,
-        &[sender_signer_sk],
-        &signers,
-    );
-
     wait_for(5, || {
         let blocks_processed = coord_channel
             .lock()
@@ -6695,13 +6590,6 @@ fn continue_tenure_extend() {
     test_skip_commit_op.0.lock().unwrap().replace(true);
 
     next_block_and(&mut btc_regtest_controller, 60, || Ok(true)).unwrap();
-
-    signer_vote_if_needed(
-        &btc_regtest_controller,
-        &naka_conf,
-        &[sender_signer_sk],
-        &signers,
-    );
 
     wait_for(5, || {
         let blocks_processed = coord_channel
@@ -6744,13 +6632,6 @@ fn continue_tenure_extend() {
     next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
         .unwrap();
 
-    signer_vote_if_needed(
-        &btc_regtest_controller,
-        &naka_conf,
-        &[sender_signer_sk],
-        &signers,
-    );
-
     wait_for(5, || {
         let blocks_processed = coord_channel
             .lock()
@@ -6766,13 +6647,6 @@ fn continue_tenure_extend() {
         .get_stacks_blocks_processed();
 
     next_block_and(&mut btc_regtest_controller, 60, || Ok(true)).unwrap();
-
-    signer_vote_if_needed(
-        &btc_regtest_controller,
-        &naka_conf,
-        &[sender_signer_sk],
-        &signers,
-    );
 
     wait_for(5, || {
         let blocks_processed = coord_channel
@@ -6798,13 +6672,6 @@ fn continue_tenure_extend() {
             Ok(commits_count > commits_before)
         })
         .unwrap();
-
-        signer_vote_if_needed(
-            &btc_regtest_controller,
-            &naka_conf,
-            &[sender_signer_sk],
-            &signers,
-        );
 
         wait_for(5, || {
             let blocks_processed = coord_channel
@@ -8460,8 +8327,10 @@ fn mock_mining() {
     let mock_mining_blocks_end = follower_naka_mined_blocks.load(Ordering::SeqCst);
     let blocks_mock_mined = mock_mining_blocks_end - mock_mining_blocks_start;
     assert!(
-        blocks_mock_mined > tenure_count,
-        "Should have mock mined at least `tenure_count` nakamoto blocks"
+        blocks_mock_mined >= tenure_count,
+        "Should have mock mined at least `tenure_count` nakamoto blocks. Mined = {}. Expected = {}",
+        blocks_mock_mined,
+        tenure_count,
     );
 
     // wait for follower to reach the chain tip

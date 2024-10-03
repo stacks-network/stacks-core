@@ -185,14 +185,6 @@ impl SignerTrait<SignerMessage> for Signer {
                             );
                         }
                         SignerMessage::BlockPushed(b) => {
-                            let block_push_result = stacks_client.post_block(b);
-                            if let Err(ref e) = &block_push_result {
-                                warn!(
-                                    "{self}: Failed to post block {} (id {}): {e:?}",
-                                    &b.header.signer_signature_hash(),
-                                    &b.block_id()
-                                );
-                            };
                             // This will infinitely loop until the block is acknowledged by the node
                             info!(
                                 "{self}: Got block pushed message";
@@ -200,17 +192,7 @@ impl SignerTrait<SignerMessage> for Signer {
                                 "block_height" => b.header.chain_length,
                                 "signer_sighash" => %b.header.signer_signature_hash(),
                             );
-                            loop {
-                                match stacks_client.post_block(b) {
-                                    Ok(block_push_result) => {
-                                        debug!("{self}: Block pushed to stacks node: {block_push_result:?}");
-                                        break;
-                                    }
-                                    Err(e) => {
-                                        warn!("{self}: Failed to push block to stacks node: {e}. Retrying...");
-                                    }
-                                };
-                            }
+                            stacks_client.post_block_until_ok(self, &b);
                         }
                         SignerMessage::MockProposal(mock_proposal) => {
                             let epoch = match stacks_client.get_node_epoch() {
@@ -399,6 +381,7 @@ impl Signer {
                 &block_proposal.block,
                 miner_pubkey,
                 self.reward_cycle,
+                true,
             ) {
                 // Error validating block
                 Err(e) => {
@@ -532,7 +515,16 @@ impl Signer {
             .signer_db
             .block_lookup(self.reward_cycle, &signer_signature_hash)
         {
-            Ok(Some(block_info)) => block_info,
+            Ok(Some(block_info)) => {
+                if block_info.state == BlockState::GloballyRejected
+                    || block_info.state == BlockState::GloballyAccepted
+                {
+                    debug!("{self}: Received block validation for a block that is already marked as {}. Ignoring...", block_info.state);
+                    return None;
+                } else {
+                    block_info
+                }
+            }
             Ok(None) => {
                 // We have not seen this block before. Why are we getting a response for it?
                 debug!("{self}: Received a block validate response for a block we have not seen before. Ignoring...");
@@ -910,15 +902,7 @@ impl Signer {
             "{self}: Broadcasting Stacks block {} to node",
             &block.block_id()
         );
-        if let Err(e) = stacks_client.post_block(&block) {
-            warn!(
-                "{self}: Failed to post block {block_hash}: {e:?}";
-                "stacks_block_id" => %block.block_id(),
-                "parent_block_id" => %block.header.parent_block_id,
-                "burnchain_consensus_hash" => %block.header.consensus_hash
-            );
-            return;
-        }
+        stacks_client.post_block_until_ok(self, &block);
 
         if let Err(e) = self.signer_db.set_block_broadcasted(
             self.reward_cycle,
