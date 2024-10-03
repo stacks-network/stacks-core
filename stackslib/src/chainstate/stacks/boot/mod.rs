@@ -44,8 +44,6 @@ use stacks_common::types::chainstate::{
     BlockHeaderHash, StacksAddress, StacksBlockId, StacksPublicKey,
 };
 use stacks_common::util::hash::{hex_bytes, to_hex, Hash160};
-use wsts::curve::point::{Compressed, Point};
-use wsts::curve::scalar::Scalar;
 
 use crate::burnchains::bitcoin::address::BitcoinAddress;
 use crate::burnchains::{Address, Burnchain, PoxConstants};
@@ -1350,7 +1348,7 @@ impl StacksChainState {
         sortdb: &SortitionDB,
         block_id: &StacksBlockId,
         reward_cycle: u64,
-    ) -> Result<Option<Point>, Error> {
+    ) -> Result<Option<Vec<u8>>, Error> {
         let aggregate_public_key_opt = self
             .eval_boot_code_read_only(
                 sortdb,
@@ -1367,11 +1365,7 @@ impl StacksChainState {
         let aggregate_public_key = match aggregate_public_key_opt {
             Some(value) => {
                 // A point should have 33 bytes exactly.
-                let data = value.expect_buff(33)?;
-                let msg =
-                    "Pox-4 signers-voting get-approved-aggregate-key returned a corrupted value.";
-                let compressed_data = Compressed::try_from(data.as_slice()).expect(msg);
-                Some(Point::try_from(&compressed_data).expect(msg))
+                Some(value.expect_buff(33)?)
             }
             None => None,
         };
@@ -2038,13 +2032,12 @@ pub mod test {
         key: &StacksPrivateKey,
         nonce: u64,
         signer_index: u128,
-        aggregate_public_key: &Point,
+        aggregate_public_key: Vec<u8>,
         round: u128,
         cycle: u128,
     ) -> StacksTransaction {
-        let aggregate_public_key_val =
-            Value::buff_from(aggregate_public_key.compress().data.to_vec())
-                .expect("Failed to serialize aggregate public key");
+        let aggregate_public_key_val = Value::buff_from(aggregate_public_key)
+            .expect("Failed to serialize aggregate public key");
         make_signers_vote_for_aggregate_public_key_value(
             key,
             nonce,
@@ -2085,7 +2078,7 @@ pub mod test {
         peer: &mut TestPeer<'_>,
         latest_block_id: StacksBlockId,
         reward_cycle: u128,
-    ) -> Option<Point> {
+    ) -> Option<Vec<u8>> {
         let key_opt = readonly_call(
             peer,
             &latest_block_id,
@@ -2095,11 +2088,7 @@ pub mod test {
         )
         .expect_optional()
         .unwrap();
-        key_opt.map(|key_value| {
-            let data = key_value.expect_buff(33).unwrap();
-            let compressed_data = Compressed::try_from(data.as_slice()).unwrap();
-            Point::try_from(&compressed_data).unwrap()
-        })
+        key_opt.map(|key_value| key_value.expect_buff(33).unwrap())
     }
 
     pub fn make_pox_2_increase(

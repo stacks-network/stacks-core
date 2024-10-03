@@ -1,4 +1,4 @@
-//! # stacks-signer: Stacks signer binary for executing DKG rounds, signing transactions and blocks, and more.
+//! # stacks-signer: Stacks signer binary for signing block proposals, interacting with stackerdb, and more.
 //!
 //! Usage documentation can be found in the [README]("https://github.com/blockstack/stacks-blockchain/stacks-signer/README.md).
 //!

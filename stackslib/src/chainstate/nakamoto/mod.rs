@@ -53,7 +53,6 @@ use stacks_common::util::retry::BoundReader;
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::util::vrf::{VRFProof, VRFPublicKey, VRF};
 use stacks_common::util::{get_epoch_time_secs, sleep_ms};
-use wsts::curve::point::Point;
 
 use self::signer_set::SignerCalculation;
 use super::burn::db::sortdb::{
@@ -74,7 +73,7 @@ use super::stacks::db::{
 use super::stacks::events::{StacksTransactionReceipt, TransactionOrigin};
 use super::stacks::{
     Error as ChainstateError, StacksBlock, StacksBlockHeader, StacksMicroblock, StacksTransaction,
-    TenureChangeError, TenureChangePayload, ThresholdSignature, TransactionPayload,
+    TenureChangeError, TenureChangePayload, TransactionPayload,
 };
 use crate::burnchains::{Burnchain, PoxConstants, Txid};
 use crate::chainstate::burn::db::sortdb::SortitionDB;
@@ -4511,8 +4510,8 @@ impl NakamotoChainState {
     /// Boot code instantiation for the aggregate public key.
     /// TODO: This should be removed once it's possible for stackers to vote on the aggregate
     /// public key
-    pub fn aggregate_public_key_bootcode(clarity_tx: &mut ClarityTx, apk: &Point) {
-        let agg_pub_key = to_hex(&apk.compress().data);
+    pub fn aggregate_public_key_bootcode(clarity_tx: &mut ClarityTx, apk: Vec<u8>) {
+        let agg_pub_key = to_hex(&apk);
         let contract_content = format!(
             "(define-read-only ({}) 0x{})",
             BOOT_TEST_POX_4_AGG_KEY_FNAME, agg_pub_key

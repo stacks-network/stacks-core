@@ -12,7 +12,7 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::mpsc::Sender;
 
@@ -39,7 +39,7 @@ use stacks_common::{debug, error, info, warn};
 use crate::chainstate::{ProposalEvalConfig, SortitionsView};
 use crate::client::{SignerSlotID, StackerDB, StacksClient};
 use crate::config::SignerConfig;
-use crate::runloop::{RunLoopCommand, SignerResult};
+use crate::runloop::SignerResult;
 use crate::signerdb::{BlockInfo, BlockState, SignerDb};
 use crate::Signer as SignerTrait;
 
@@ -81,7 +81,7 @@ pub struct Signer {
     /// The reward cycle this signer belongs to
     pub reward_cycle: u64,
     /// Reward set signer addresses and their weights
-    pub signer_weights: HashMap<StacksAddress, usize>,
+    pub signer_weights: HashMap<StacksAddress, u32>,
     /// SignerDB for state management
     pub signer_db: SignerDb,
     /// Configuration for proposal evaluation
@@ -185,31 +185,13 @@ impl SignerTrait<SignerMessage> for Signer {
                             );
                         }
                         SignerMessage::BlockPushed(b) => {
-                            let block_push_result = stacks_client.post_block(b);
-                            if let Err(ref e) = &block_push_result {
-                                warn!(
-                                    "{self}: Failed to post block {} (id {}): {e:?}",
-                                    &b.header.signer_signature_hash(),
-                                    &b.block_id()
-                                );
-                            };
                             // This will infinitely loop until the block is acknowledged by the node
                             info!(
                                 "{self}: Got block pushed message";
                                 "block_id" => %b.block_id(),
                                 "signer_sighash" => %b.header.signer_signature_hash(),
                             );
-                            loop {
-                                match stacks_client.post_block(b) {
-                                    Ok(block_push_result) => {
-                                        debug!("{self}: Block pushed to stacks node: {block_push_result:?}");
-                                        break;
-                                    }
-                                    Err(e) => {
-                                        warn!("{self}: Failed to push block to stacks node: {e}. Retrying...");
-                                    }
-                                };
-                            }
+                            stacks_client.post_block_until_ok(self, &b);
                         }
                         SignerMessage::MockProposal(mock_proposal) => {
                             let epoch = match stacks_client.get_node_epoch() {
@@ -259,17 +241,6 @@ impl SignerTrait<SignerMessage> for Signer {
         }
     }
 
-    fn process_command(
-        &mut self,
-        _stacks_client: &StacksClient,
-        _current_reward_cycle: u64,
-        command: Option<RunLoopCommand>,
-    ) {
-        if let Some(command) = command {
-            warn!("{self}: Received a command: {command:?}. V0 Signers do not support commands. Ignoring...")
-        }
-    }
-
     fn has_unprocessed_blocks(&self) -> bool {
         self.signer_db
             .has_unprocessed_blocks(self.reward_cycle)
@@ -292,40 +263,13 @@ impl From<SignerConfig> for Signer {
             SignerDb::new(&signer_config.db_path).expect("Failed to connect to signer Db");
         let proposal_config = ProposalEvalConfig::from(&signer_config);
 
-        // compute signer addresses *in reward cycle order*
-        let signer_ids_and_addrs: BTreeMap<_, _> = signer_config
-            .signer_entries
-            .signer_ids
-            .iter()
-            .map(|(addr, id)| (*id, *addr))
-            .collect();
-
-        let signer_addresses: Vec<_> = signer_ids_and_addrs.into_values().collect();
-
-        let signer_weights = signer_addresses
-            .iter()
-            .map(|addr| {
-                let Some(signer_id) = signer_config.signer_entries.signer_ids.get(addr) else {
-                    panic!("Malformed config: no signer ID for {}", addr);
-                };
-                let Some(key_ids) = signer_config.signer_entries.signer_key_ids.get(signer_id)
-                else {
-                    panic!(
-                        "Malformed config: no key IDs for signer ID {} ({})",
-                        signer_id, addr
-                    );
-                };
-                (*addr, key_ids.len())
-            })
-            .collect();
-
         Self {
             private_key: signer_config.stacks_private_key,
             stackerdb,
             mainnet: signer_config.mainnet,
             signer_id: signer_config.signer_id,
-            signer_addresses,
-            signer_weights,
+            signer_addresses: signer_config.signer_entries.signer_addresses.clone(),
+            signer_weights: signer_config.signer_entries.signer_addr_to_weight.clone(),
             signer_slot_ids: signer_config.signer_slot_ids.clone(),
             reward_cycle: signer_config.reward_cycle,
             signer_db,
@@ -568,7 +512,16 @@ impl Signer {
             .signer_db
             .block_lookup(self.reward_cycle, &signer_signature_hash)
         {
-            Ok(Some(block_info)) => block_info,
+            Ok(Some(block_info)) => {
+                if block_info.state == BlockState::GloballyRejected
+                    || block_info.state == BlockState::GloballyAccepted
+                {
+                    debug!("{self}: Received block validation for a block that is already marked as {}. Ignoring...", block_info.state);
+                    return None;
+                } else {
+                    block_info
+                }
+            }
             Ok(None) => {
                 // We have not seen this block before. Why are we getting a response for it?
                 debug!("{self}: Received a block validate response for a block we have not seen before. Ignoring...");
@@ -679,22 +632,17 @@ impl Signer {
         &self,
         addrs: impl Iterator<Item = &'a StacksAddress>,
     ) -> u32 {
-        let signing_weight = addrs.fold(0usize, |signing_weight, stacker_address| {
+        addrs.fold(0u32, |signing_weight, stacker_address| {
             let stacker_weight = self.signer_weights.get(stacker_address).unwrap_or(&0);
             signing_weight.saturating_add(*stacker_weight)
-        });
-        u32::try_from(signing_weight)
-            .unwrap_or_else(|_| panic!("FATAL: signing weight exceeds u32::MAX"))
+        })
     }
 
     /// Compute the total signing weight
     fn compute_signature_total_weight(&self) -> u32 {
-        let total_weight = self
-            .signer_weights
+        self.signer_weights
             .values()
-            .fold(0usize, |acc, val| acc.saturating_add(*val));
-        u32::try_from(total_weight)
-            .unwrap_or_else(|_| panic!("FATAL: total weight exceeds u32::MAX"))
+            .fold(0u32, |acc, val| acc.saturating_add(*val))
     }
 
     /// Handle an observed rejection from another signer
@@ -951,15 +899,7 @@ impl Signer {
             "{self}: Broadcasting Stacks block {} to node",
             &block.block_id()
         );
-        if let Err(e) = stacks_client.post_block(&block) {
-            warn!(
-                "{self}: Failed to post block {block_hash}: {e:?}";
-                "stacks_block_id" => %block.block_id(),
-                "parent_block_id" => %block.header.parent_block_id,
-                "burnchain_consensus_hash" => %block.header.consensus_hash
-            );
-            return;
-        }
+        stacks_client.post_block_until_ok(self, &block);
 
         if let Err(e) = self.signer_db.set_block_broadcasted(
             self.reward_cycle,

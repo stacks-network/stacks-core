@@ -31,7 +31,6 @@ slog-term = "2.6.0"
 slog-json = { version = "2.3.0", optional = true }
 chrono = "0.4.19"
 libc = "0.2.82"
-wsts = { workspace = true }
 hashbrown = { workspace = true }
 rusqlite = { workspace = true, optional = true }
 

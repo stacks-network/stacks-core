@@ -13,17 +13,13 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-use std::collections::HashMap;
 use std::thread;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use clarity::boot_util::boot_code_id;
-use clarity::vm::clarity::ClarityConnection;
-use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
-use hashbrown::HashSet;
-use libsigner::v0::messages::{MinerSlotID, SignerMessage as SignerMessageV0};
-use libsigner::v1::messages::{MessageSlotID, SignerMessage as SignerMessageV1};
+use clarity::vm::types::PrincipalData;
+use libsigner::v0::messages::{MinerSlotID, SignerMessage};
 use libsigner::StackerDBSession;
 use rand::{thread_rng, Rng};
 use stacks::burnchains::Burnchain;
@@ -32,7 +28,6 @@ use stacks::chainstate::burn::{BlockSnapshot, ConsensusHash};
 use stacks::chainstate::coordinator::OnChainRewardSetProvider;
 use stacks::chainstate::nakamoto::coordinator::load_nakamoto_reward_set;
 use stacks::chainstate::nakamoto::miner::{NakamotoBlockBuilder, NakamotoTenureInfo};
-use stacks::chainstate::nakamoto::signer_set::NakamotoSigners;
 use stacks::chainstate::nakamoto::staging_blocks::NakamotoBlockObtainMethod;
 use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use stacks::chainstate::stacks::boot::{RewardSet, MINERS_NAME};
@@ -46,11 +41,9 @@ use stacks::net::p2p::NetworkHandle;
 use stacks::net::stackerdb::StackerDBs;
 use stacks::net::{NakamotoBlocksData, StacksMessageType};
 use stacks::util::secp256k1::MessageSignature;
-use stacks_common::codec::read_next;
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
 use stacks_common::types::{PrivateKey, StacksEpochId};
 use stacks_common::util::vrf::VRFProof;
-use wsts::curve::scalar::Scalar;
 
 use super::relayer::RelayerThread;
 use super::sign_coordinator::SignCoordinator;
@@ -290,7 +283,6 @@ impl BlockMinerThread {
         let mut stackerdbs = StackerDBs::connect(&self.config.get_stacker_db_file_path(), true)
             .map_err(|e| NakamotoNodeError::MiningFailure(ChainstateError::NetError(e)))?;
 
-        let mut attempts = 0;
         // now, actually run this tenure
         loop {
             #[cfg(test)]
@@ -333,7 +325,7 @@ impl BlockMinerThread {
                     }
                 }
 
-                match self.mine_block(&stackerdbs) {
+                match self.mine_block() {
                     Ok(x) => {
                         if !self.validate_timestamp(&x)? {
                             info!("Block mined too quickly. Will try again.";
@@ -371,11 +363,9 @@ impl BlockMinerThread {
 
             if let Some(mut new_block) = new_block {
                 Self::fault_injection_block_broadcast_stall(&new_block);
-                let (reward_set, signer_signature) = match self.gather_signatures(
-                    &mut new_block,
-                    &mut stackerdbs,
-                    &mut attempts,
-                ) {
+                let (reward_set, signer_signature) = match self
+                    .gather_signatures(&mut new_block, &mut stackerdbs)
+                {
                     Ok(x) => x,
                     Err(e) => match e {
                         NakamotoNodeError::StacksTipChanged => {
@@ -523,7 +513,6 @@ impl BlockMinerThread {
         &mut self,
         new_block: &mut NakamotoBlock,
         stackerdbs: &mut StackerDBs,
-        attempts: &mut u64,
     ) -> Result<(RewardSet, Vec<MessageSignature>), NakamotoNodeError> {
         let Some(miner_privkey) = self.config.miner.mining_key else {
             return Err(NakamotoNodeError::MinerConfigurationFailed(
@@ -557,7 +546,6 @@ impl BlockMinerThread {
             })
         })?;
 
-        let miner_privkey_as_scalar = Scalar::from(miner_privkey.as_slice().clone());
         let reward_set = self.load_signer_set()?;
 
         if self.config.get_node_config(false).mock_mining {
@@ -566,7 +554,7 @@ impl BlockMinerThread {
 
         let mut coordinator = SignCoordinator::new(
             &reward_set,
-            miner_privkey_as_scalar,
+            miner_privkey,
             &self.config,
             self.globals.should_keep_running.clone(),
         )
@@ -583,10 +571,8 @@ impl BlockMinerThread {
                 ))
             })?;
 
-        *attempts += 1;
         let signature = coordinator.run_sign_v0(
             new_block,
-            *attempts,
             &tip,
             &self.burnchain,
             &sort_db,
@@ -597,125 +583,6 @@ impl BlockMinerThread {
         )?;
 
         return Ok((reward_set, signature));
-    }
-
-    fn get_stackerdb_contract_and_slots(
-        &self,
-        stackerdbs: &StackerDBs,
-        msg_id: &MessageSlotID,
-        reward_cycle: u64,
-    ) -> Result<(QualifiedContractIdentifier, HashMap<u32, StacksAddress>), NakamotoNodeError> {
-        let stackerdb_contracts = stackerdbs
-            .get_stackerdb_contract_ids()
-            .expect("FATAL: could not get the stacker DB contract ids");
-
-        let signers_contract_id =
-            msg_id.stacker_db_contract(self.config.is_mainnet(), reward_cycle);
-        if !stackerdb_contracts.contains(&signers_contract_id) {
-            return Err(NakamotoNodeError::SignerSignatureError(
-                "No signers contract found, cannot wait for signers".into(),
-            ));
-        };
-        // Get the slots for every signer
-        let signers = stackerdbs
-            .get_signers(&signers_contract_id)
-            .expect("FATAL: could not get signers from stacker DB");
-        let mut slot_ids_addresses = HashMap::with_capacity(signers.len());
-        for (slot_id, address) in stackerdbs
-            .get_signers(&signers_contract_id)
-            .expect("FATAL: could not get signers from stacker DB")
-            .into_iter()
-            .enumerate()
-        {
-            slot_ids_addresses.insert(
-                u32::try_from(slot_id).expect("FATAL: too many signers to fit into u32 range"),
-                address,
-            );
-        }
-        Ok((signers_contract_id, slot_ids_addresses))
-    }
-
-    fn get_signer_transactions(
-        &self,
-        chainstate: &mut StacksChainState,
-        sortdb: &SortitionDB,
-        stackerdbs: &StackerDBs,
-    ) -> Result<Vec<StacksTransaction>, NakamotoNodeError> {
-        let next_reward_cycle = self
-            .burnchain
-            .block_height_to_reward_cycle(self.burn_block.block_height)
-            .expect("FATAL: no reward cycle for burn block")
-            .wrapping_add(1);
-        let (signers_contract_id, slot_ids_addresses) = self.get_stackerdb_contract_and_slots(
-            stackerdbs,
-            &MessageSlotID::Transactions,
-            next_reward_cycle,
-        )?;
-        let slot_ids = slot_ids_addresses.keys().cloned().collect::<Vec<_>>();
-        let addresses = slot_ids_addresses.values().cloned().collect::<HashSet<_>>();
-        // Get the transactions from the signers for the next block
-        let signer_chunks = stackerdbs
-            .get_latest_chunks(&signers_contract_id, &slot_ids)
-            .expect("FATAL: could not get latest chunks from stacker DB");
-        let signer_messages: Vec<(u32, SignerMessageV1)> = slot_ids
-            .iter()
-            .zip(signer_chunks.into_iter())
-            .filter_map(|(slot_id, chunk)| {
-                chunk.and_then(|chunk| {
-                    read_next::<SignerMessageV1, _>(&mut &chunk[..])
-                        .ok()
-                        .map(|msg| (*slot_id, msg))
-                })
-            })
-            .collect();
-
-        if signer_messages.is_empty() {
-            return Ok(vec![]);
-        }
-
-        let (consensus_hash, block_bhh) =
-            SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn()).unwrap();
-        let stacks_block_id = StacksBlockId::new(&consensus_hash, &block_bhh);
-
-        // Get all nonces for the signers from clarity DB to use to validate transactions
-        let account_nonces = chainstate
-            .with_read_only_clarity_tx(
-                &sortdb
-                    .index_handle_at_block(chainstate, &stacks_block_id)
-                    .map_err(|_| NakamotoNodeError::UnexpectedChainState)?,
-                &stacks_block_id,
-                |clarity_tx| {
-                    clarity_tx.with_clarity_db_readonly(|clarity_db| {
-                        addresses
-                            .iter()
-                            .map(|address| {
-                                (
-                                    address.clone(),
-                                    clarity_db
-                                        .get_account_nonce(&address.clone().into())
-                                        .unwrap_or(0),
-                                )
-                            })
-                            .collect::<HashMap<StacksAddress, u64>>()
-                    })
-                },
-            )
-            .unwrap_or_default();
-        let mut filtered_transactions: HashMap<StacksAddress, StacksTransaction> = HashMap::new();
-        for (_slot, signer_message) in signer_messages {
-            match signer_message {
-                SignerMessageV1::Transactions(transactions) => {
-                    NakamotoSigners::update_filtered_transactions(
-                        &mut filtered_transactions,
-                        &account_nonces,
-                        self.config.is_mainnet(),
-                        transactions,
-                    )
-                }
-                _ => {} // Any other message is ignored
-            }
-        }
-        Ok(filtered_transactions.into_values().collect())
     }
 
     /// Fault injection -- possibly fail to broadcast
@@ -842,7 +709,7 @@ impl BlockMinerThread {
             &sort_db,
             &self.burn_block,
             &stackerdbs,
-            SignerMessageV0::BlockPushed(block),
+            SignerMessage::BlockPushed(block),
             MinerSlotID::BlockPushed,
             chain_state.mainnet,
             &mut miners_session,
@@ -1125,7 +992,7 @@ impl BlockMinerThread {
     #[cfg_attr(test, mutants::skip)]
     /// Try to mine a Stacks block by assembling one from mempool transactions and sending a
     /// burnchain block-commit transaction.  If we succeed, then return the assembled block.
-    fn mine_block(&mut self, stackerdbs: &StackerDBs) -> Result<NakamotoBlock, NakamotoNodeError> {
+    fn mine_block(&mut self) -> Result<NakamotoBlock, NakamotoNodeError> {
         debug!("block miner thread ID is {:?}", thread::current().id());
 
         let burn_db_path = self.config.get_burn_db_file_path();
@@ -1173,9 +1040,6 @@ impl BlockMinerThread {
 
         parent_block_info.stacks_parent_header.microblock_tail = None;
 
-        let signer_transactions =
-            self.get_signer_transactions(&mut chain_state, &burn_db, &stackerdbs)?;
-
         let signer_bitvec_len = reward_set.rewarded_addresses.len().try_into().ok();
 
         // build the block itself
@@ -1194,7 +1058,6 @@ impl BlockMinerThread {
             // we'll invoke the event dispatcher ourselves so that it calculates the
             //  correct signer_sighash for `process_mined_nakamoto_block_event`
             Some(&self.event_dispatcher),
-            signer_transactions,
             signer_bitvec_len.unwrap_or(0),
         )
         .map_err(|e| {
@@ -1260,6 +1123,12 @@ impl BlockMinerThread {
                 tenure_change_tx: None,
             });
         };
+        if self.last_block_mined.is_some() {
+            return Ok(NakamotoTenureInfo {
+                coinbase_tx: None,
+                tenure_change_tx: None,
+            });
+        }
 
         let parent_block_id = parent_block_info.stacks_parent_header.index_block_hash();
         let mut payload = TenureChangePayload {
@@ -1289,10 +1158,10 @@ impl BlockMinerThread {
                     &parent_block_id,
                 )
                 .map_err(NakamotoNodeError::MiningFailure)?;
-                debug!("Miner: Extending tenure";
-                    "burn_view_consensus_hash" => %burn_view_consensus_hash,
-                    "parent_block_id" => %parent_block_id,
-                    "num_blocks_so_far" => num_blocks_so_far,
+                info!("Miner: Extending tenure";
+                      "burn_view_consensus_hash" => %burn_view_consensus_hash,
+                      "parent_block_id" => %parent_block_id,
+                      "num_blocks_so_far" => num_blocks_so_far,
                 );
                 payload = payload.extend(
                     *burn_view_consensus_hash,
