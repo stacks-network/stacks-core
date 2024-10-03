@@ -29,7 +29,7 @@ use http_types::headers::AUTHORIZATION;
 use lazy_static::lazy_static;
 use libsigner::v0::messages::SignerMessage as SignerMessageV0;
 use libsigner::{SignerSession, StackerDBSession};
-use rand::RngCore;
+use rand::Rng;
 use stacks::burnchains::{MagicBytes, Txid};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::{
@@ -3459,18 +3459,20 @@ fn follower_bootup() {
     follower_conf.node.seed = vec![0x01; 32];
     follower_conf.node.local_peer_seed = vec![0x02; 32];
 
-    let mut rng = rand::thread_rng();
-    let mut buf = [0u8; 8];
-    rng.fill_bytes(&mut buf);
-
-    let rpc_port = u16::from_be_bytes(buf[0..2].try_into().unwrap()).saturating_add(1025) - 1; // use a non-privileged port between 1024 and 65534
-    let p2p_port = u16::from_be_bytes(buf[2..4].try_into().unwrap()).saturating_add(1025) - 1; // use a non-privileged port between 1024 and 65534
-
     let localhost = "127.0.0.1";
-    follower_conf.node.rpc_bind = format!("{}:{}", &localhost, rpc_port);
-    follower_conf.node.p2p_bind = format!("{}:{}", &localhost, p2p_port);
-    follower_conf.node.data_url = format!("http://{}:{}", &localhost, rpc_port);
-    follower_conf.node.p2p_address = format!("{}:{}", &localhost, p2p_port);
+    let mut rng = rand::thread_rng();
+    // Use a non-privileged port between 1024 and 65534
+    let mut rpc_port: u16 = rng.gen_range(1024..65533);
+    while format!("{localhost}:{rpc_port}") == naka_conf.node.rpc_bind {
+        // We should NOT match the miner's rpc bind and subsequently p2p port
+        rpc_port = rng.gen_range(1024..65533);
+    }
+    let p2p_port = rpc_port + 1;
+
+    follower_conf.node.rpc_bind = format!("{localhost}:{rpc_port}");
+    follower_conf.node.p2p_bind = format!("{localhost}:{p2p_port}");
+    follower_conf.node.data_url = format!("http://{localhost}:{rpc_port}");
+    follower_conf.node.p2p_address = format!("{localhost}:{p2p_port}");
     follower_conf.node.pox_sync_sample_secs = 30;
 
     let node_info = get_chain_info(&naka_conf);
@@ -3813,18 +3815,20 @@ fn follower_bootup_across_multiple_cycles() {
     follower_conf.node.local_peer_seed = vec![0x02; 32];
     follower_conf.node.miner = false;
 
-    let mut rng = rand::thread_rng();
-    let mut buf = [0u8; 8];
-    rng.fill_bytes(&mut buf);
-
-    let rpc_port = u16::from_be_bytes(buf[0..2].try_into().unwrap()).saturating_add(1025) - 1; // use a non-privileged port between 1024 and 65534
-    let p2p_port = u16::from_be_bytes(buf[2..4].try_into().unwrap()).saturating_add(1025) - 1; // use a non-privileged port between 1024 and 65534
-
     let localhost = "127.0.0.1";
-    follower_conf.node.rpc_bind = format!("{}:{}", &localhost, rpc_port);
-    follower_conf.node.p2p_bind = format!("{}:{}", &localhost, p2p_port);
-    follower_conf.node.data_url = format!("http://{}:{}", &localhost, rpc_port);
-    follower_conf.node.p2p_address = format!("{}:{}", &localhost, p2p_port);
+    let mut rng = rand::thread_rng();
+    // Use a non-privileged port between 1024 and 65534
+    let mut rpc_port: u16 = rng.gen_range(1024..65533);
+    while format!("{localhost}:{rpc_port}") == naka_conf.node.rpc_bind {
+        // We should NOT match the miner's rpc bind and subsequently p2p port
+        rpc_port = rng.gen_range(1024..65533);
+    }
+    let p2p_port = rpc_port + 1;
+
+    follower_conf.node.rpc_bind = format!("{localhost}:{rpc_port}");
+    follower_conf.node.p2p_bind = format!("{localhost}:{p2p_port}");
+    follower_conf.node.data_url = format!("http://{localhost}:{rpc_port}");
+    follower_conf.node.p2p_address = format!("{localhost}:{p2p_port}");
     follower_conf.node.pox_sync_sample_secs = 30;
 
     let node_info = get_chain_info(&naka_conf);

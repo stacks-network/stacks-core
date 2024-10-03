@@ -12,7 +12,7 @@ use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::serialization::SerializationError;
 use clarity::vm::types::PrincipalData;
 use clarity::vm::{ClarityName, ClarityVersion, ContractName, Value, MAX_CALL_STACK_DEPTH};
-use rand::{Rng, RngCore};
+use rand::Rng;
 use rusqlite::params;
 use serde::Deserialize;
 use serde_json::json;
@@ -986,7 +986,16 @@ fn bitcoind_integration_test() {
     }
 
     let (mut conf, miner_account) = neon_integration_test_conf();
-    let prom_bind = format!("{}:{}", "127.0.0.1", 6000);
+    let localhost = "127.0.0.1";
+    let mut rng = rand::thread_rng();
+    // Use a non-privileged port between 1024 and 65534
+    let mut prom_port = 6000;
+    let mut prom_bind = format!("{localhost}:{prom_port}");
+    while prom_bind == conf.node.rpc_bind || prom_bind == conf.node.p2p_bind {
+        // We should NOT match the miner's rpc or p2p binds
+        prom_port = rng.gen_range(1024..65533);
+        prom_bind = format!("{localhost}:{prom_port}");
+    }
     conf.node.prometheus_bind = Some(prom_bind.clone());
 
     conf.burnchain.max_rbf = 1000000;
@@ -12466,18 +12475,21 @@ fn bitcoin_reorg_flap_with_follower() {
     follower_conf.node.seed = vec![0x01; 32];
     follower_conf.node.local_peer_seed = vec![0x02; 32];
 
-    let mut rng = rand::thread_rng();
-    let mut buf = [0u8; 8];
-    rng.fill_bytes(&mut buf);
-
-    let rpc_port = u16::from_be_bytes(buf[0..2].try_into().unwrap()).saturating_add(1025) - 1; // use a non-privileged port between 1024 and 65534
-    let p2p_port = u16::from_be_bytes(buf[2..4].try_into().unwrap()).saturating_add(1025) - 1; // use a non-privileged port between 1024 and 65534
-
     let localhost = "127.0.0.1";
-    follower_conf.node.rpc_bind = format!("{}:{}", &localhost, rpc_port);
-    follower_conf.node.p2p_bind = format!("{}:{}", &localhost, p2p_port);
-    follower_conf.node.data_url = format!("http://{}:{}", &localhost, rpc_port);
-    follower_conf.node.p2p_address = format!("{}:{}", &localhost, p2p_port);
+    let mut rng = rand::thread_rng();
+    // Use a non-privileged port between 1024 and 65534
+    let mut rpc_port: u16 = rng.gen_range(1024..65533);
+    while format!("{localhost}:{rpc_port}") == conf.node.rpc_bind {
+        // We should NOT match the miner's rpc bind and subsequently p2p port
+        rpc_port = rng.gen_range(1024..65533);
+    }
+    let p2p_port = rpc_port + 1;
+
+    follower_conf.node.rpc_bind = format!("{localhost}:{rpc_port}");
+    follower_conf.node.p2p_bind = format!("{localhost}:{p2p_port}");
+    follower_conf.node.data_url = format!("http://{localhost}:{rpc_port}");
+    follower_conf.node.p2p_address = format!("{localhost}:{p2p_port}");
+    follower_conf.node.pox_sync_sample_secs = 30;
 
     let run_loop_thread = thread::spawn(move || miner_run_loop.start(None, 0));
     wait_for_runloop(&miner_blocks_processed);
@@ -12800,7 +12812,16 @@ fn listunspent_max_utxos() {
     }
 
     let (mut conf, _miner_account) = neon_integration_test_conf();
-    let prom_bind = format!("{}:{}", "127.0.0.1", 6000);
+    let localhost = "127.0.0.1";
+    let mut rng = rand::thread_rng();
+    // Use a non-privileged port between 1024 and 65534
+    let mut prom_port = 6000;
+    let mut prom_bind = format!("{localhost}:{prom_port}");
+    while prom_bind == conf.node.rpc_bind || prom_bind == conf.node.p2p_bind {
+        // We should NOT match the miner's rpc or p2p binds
+        prom_port = rng.gen_range(1024..65533);
+        prom_bind = format!("{localhost}:{prom_port}");
+    }
     conf.node.prometheus_bind = Some(prom_bind.clone());
 
     conf.burnchain.max_rbf = 1000000;
@@ -12846,7 +12867,16 @@ fn start_stop_bitcoind() {
     }
 
     let (mut conf, _miner_account) = neon_integration_test_conf();
-    let prom_bind = format!("{}:{}", "127.0.0.1", 6000);
+    let localhost = "127.0.0.1";
+    let mut rng = rand::thread_rng();
+    // Use a non-privileged port between 1024 and 65534
+    let mut prom_port = 6000;
+    let mut prom_bind = format!("{localhost}:{prom_port}");
+    while prom_bind == conf.node.rpc_bind || prom_bind == conf.node.p2p_bind {
+        // We should NOT match the miner's rpc or p2p binds
+        prom_port = rng.gen_range(1024..65533);
+        prom_bind = format!("{localhost}:{prom_port}");
+    }
     conf.node.prometheus_bind = Some(prom_bind.clone());
 
     conf.burnchain.max_rbf = 1000000;

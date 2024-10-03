@@ -23,7 +23,7 @@ use clarity::vm::events::STXEventType;
 use clarity::vm::types::PrincipalData;
 use clarity::vm::{ClarityName, ClarityVersion, ContractName, Value};
 use lazy_static::lazy_static;
-use rand::RngCore;
+use rand::Rng;
 use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::chainstate::stacks::events::StacksTransactionEvent;
@@ -295,13 +295,14 @@ pub fn new_test_conf() -> Config {
     // publicKey: "03e2ed46873d0db820e8c6001aabc082d72b5b900b53b7a1b9714fe7bde3037b81",
     // stacksAddress: "ST2VHM28V9E5QCRD6C73215KAPSBKQGPWTEE5CMQT"
     let mut rng = rand::thread_rng();
-    let mut buf = [0u8; 8];
-    rng.fill_bytes(&mut buf);
+    // Use a non-privileged port between 1024 and 65534
+    let rpc_port: u16 = rng.gen_range(1024..65533);
+    let p2p_port = rpc_port + 1;
 
     let mut conf = Config::default();
     conf.node.working_dir = format!(
         "/tmp/stacks-node-tests/integrations-neon/{}-{}",
-        to_hex(&buf),
+        to_hex(format!("{rpc_port}{p2p_port}").as_bytes()),
         get_epoch_time_secs()
     );
     conf.node.seed =
@@ -313,14 +314,11 @@ pub fn new_test_conf() -> Config {
 
     conf.burnchain.epochs = Some(StacksEpoch::all(0, 0, 0));
 
-    let rpc_port = u16::from_be_bytes(buf[0..2].try_into().unwrap()).saturating_add(1025) - 1; // use a non-privileged port between 1024 and 65534
-    let p2p_port = u16::from_be_bytes(buf[2..4].try_into().unwrap()).saturating_add(1025) - 1; // use a non-privileged port between 1024 and 65534
-
     let localhost = "127.0.0.1";
-    conf.node.rpc_bind = format!("{}:{}", localhost, rpc_port);
-    conf.node.p2p_bind = format!("{}:{}", localhost, p2p_port);
-    conf.node.data_url = format!("http://{}:{}", localhost, rpc_port);
-    conf.node.p2p_address = format!("{}:{}", localhost, p2p_port);
+    conf.node.rpc_bind = format!("{localhost}:{rpc_port}");
+    conf.node.p2p_bind = format!("{localhost}:{p2p_port}");
+    conf.node.data_url = format!("http://{localhost}:{rpc_port}");
+    conf.node.p2p_address = format!("{localhost}:{p2p_port}");
     conf
 }
 
@@ -344,10 +342,9 @@ pub fn set_random_binds(config: &mut Config) {
         .unwrap();
     let (rpc_port, p2p_port) = loop {
         let mut rng = rand::thread_rng();
-        let mut buf = [0u8; 8];
-        rng.fill_bytes(&mut buf);
-        let rpc_port = u16::from_be_bytes(buf[0..2].try_into().unwrap()).saturating_add(1025) - 1; // use a non-privileged port between 1024 and 65534
-        let p2p_port = u16::from_be_bytes(buf[2..4].try_into().unwrap()).saturating_add(1025) - 1; // use a non-privileged port between 1024 and 65534
+        // Use a non-privileged port between 1024 and 65534
+        let rpc_port: u16 = rng.gen_range(1024..65533);
+        let p2p_port = rpc_port + 1;
         if rpc_port != prior_rpc_port && p2p_port != prior_p2p_port {
             break (rpc_port, p2p_port);
         }
