@@ -25,7 +25,7 @@ use std::time::SystemTime;
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
 use blockstack_lib::chainstate::stacks::boot::{MINERS_NAME, SIGNERS_NAME};
 use blockstack_lib::chainstate::stacks::events::StackerDBChunksEvent;
-use blockstack_lib::chainstate::stacks::{StacksTransaction, ThresholdSignature};
+use blockstack_lib::chainstate::stacks::StacksTransaction;
 use blockstack_lib::net::api::postblock_proposal::{
     BlockValidateReject, BlockValidateResponse, ValidateRejectCode,
 };
@@ -48,12 +48,6 @@ use stacks_common::util::HexError;
 use tiny_http::{
     Method as HttpMethod, Request as HttpRequest, Response as HttpResponse, Server as HttpServer,
 };
-use wsts::common::Signature;
-use wsts::net::{
-    DkgBegin, DkgEnd, DkgEndBegin, DkgPrivateBegin, DkgPrivateShares, DkgPublicShares, DkgStatus,
-    Message, NonceRequest, NonceResponse, Packet, SignatureShareRequest, SignatureShareResponse,
-};
-use wsts::state_machine::signer;
 
 use crate::http::{decode_http_body, decode_http_request};
 use crate::EventError;

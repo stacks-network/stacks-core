@@ -233,10 +233,9 @@ impl<P: ProtocolFamily> NetworkReplyHandle<P> {
                     None
                 } else {
                     // still have data to send, or we will send more.
-                    test_debug!(
+                    debug!(
                         "Still have data to send, drop_on_success = {}, ret = {}",
-                        drop_on_success,
-                        ret
+                        drop_on_success, ret
                     );
                     Some(fd)
                 }
@@ -1047,7 +1046,7 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
             total_read += num_read;
 
             if num_read > 0 || total_read > 0 {
-                test_debug!("read {} bytes; {} total", num_read, total_read);
+                debug!("read {} bytes; {} total", num_read, total_read);
             }
 
             if num_read > 0 {

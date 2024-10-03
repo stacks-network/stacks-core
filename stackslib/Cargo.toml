@@ -56,7 +56,6 @@ stacks-common = { path = "../stacks-common" }
 pox-locking = { path = "../pox-locking" }
 libstackerdb = { path = "../libstackerdb" }
 siphasher = "0.3.7"
-wsts = { workspace = true }
 hashbrown = { workspace = true }
 rusqlite = { workspace = true }
 

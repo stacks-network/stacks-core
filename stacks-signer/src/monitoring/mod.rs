@@ -71,52 +71,6 @@ pub fn increment_block_responses_sent(accepted: bool) {
     }
 }
 
-/// Increment the signer inbound messages counter
-#[allow(unused_variables)]
-pub fn increment_signer_inbound_messages(amount: i64) {
-    #[cfg(feature = "monitoring_prom")]
-    prometheus::SIGNER_INBOUND_MESSAGES.inc_by(amount);
-}
-
-/// Increment the coordinator inbound messages counter
-#[allow(unused_variables)]
-pub fn increment_coordinator_inbound_messages(amount: i64) {
-    #[cfg(feature = "monitoring_prom")]
-    prometheus::COORDINATOR_INBOUND_MESSAGES.inc_by(amount);
-}
-
-/// Increment the number of inbound packets received
-#[allow(unused_variables)]
-pub fn increment_inbound_packets(amount: i64) {
-    #[cfg(feature = "monitoring_prom")]
-    prometheus::INBOUND_PACKETS_RECEIVED.inc_by(amount);
-}
-
-/// Increment the number of commands processed
-#[allow(unused_variables)]
-pub fn increment_commands_processed(command_type: &str) {
-    #[cfg(feature = "monitoring_prom")]
-    prometheus::COMMANDS_PROCESSED
-        .with_label_values(&[command_type])
-        .inc();
-}
-
-/// Increment the number of DKG votes submitted
-#[allow(unused_variables)]
-pub fn increment_dkg_votes_submitted() {
-    #[cfg(feature = "monitoring_prom")]
-    prometheus::DGK_VOTES_SUBMITTED.inc();
-}
-
-/// Increment the number of commands processed
-#[allow(unused_variables)]
-pub fn increment_operation_results(operation_type: &str) {
-    #[cfg(feature = "monitoring_prom")]
-    prometheus::OPERATION_RESULTS
-        .with_label_values(&[operation_type])
-        .inc();
-}
-
 /// Increment the number of block proposals received
 #[allow(unused_variables)]
 pub fn increment_block_proposals_received() {

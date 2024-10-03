@@ -44,8 +44,6 @@ mod session;
 mod signer_set;
 /// v0 signer related code
 pub mod v0;
-/// v1 signer related code
-pub mod v1;
 
 use std::cmp::Eq;
 use std::fmt::Debug;
