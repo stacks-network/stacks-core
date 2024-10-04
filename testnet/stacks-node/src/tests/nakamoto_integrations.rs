@@ -29,7 +29,6 @@ use http_types::headers::AUTHORIZATION;
 use lazy_static::lazy_static;
 use libsigner::v0::messages::SignerMessage as SignerMessageV0;
 use libsigner::{SignerSession, StackerDBSession};
-use rand::Rng;
 use stacks::burnchains::{MagicBytes, Txid};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::{
