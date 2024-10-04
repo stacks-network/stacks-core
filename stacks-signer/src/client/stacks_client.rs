@@ -376,10 +376,12 @@ impl StacksClient {
             "last_sortition" => %last_sortition,
         );
         let path = self.tenure_forking_info_path(chosen_parent, last_sortition);
-        let timer = crate::monitoring::new_rpc_call_timer(
-            "/v3/tenures/fork_info/:start/:stop",
-            &self.http_origin,
+        // Use a seperate metrics path to allow the same metric for different start and stop hashes
+        let metrics_path = format!(
+            "{}{RPC_TENURE_FORKING_INFO_PATH}/:start/:stop",
+            self.http_origin
         );
+        let timer = crate::monitoring::new_rpc_call_timer(&metrics_path, &self.http_origin);
         let send_request = || {
             self.stacks_node_client
                 .get(&path)
