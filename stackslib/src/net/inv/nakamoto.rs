@@ -17,7 +17,7 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use stacks_common::bitvec::BitVec;
-use stacks_common::types::chainstate::StacksBlockId;
+use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId};
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs};
 
@@ -113,6 +113,9 @@ pub struct InvGenerator {
     tip_ancestor_search_depth: u64,
     /// count cache misses for `processed_tenures`
     cache_misses: u128,
+    /// Disable caching (test only)
+    #[cfg(test)]
+    no_cache: bool,
 }
 
 impl InvGenerator {
@@ -122,6 +125,19 @@ impl InvGenerator {
             sortitions: HashMap::new(),
             tip_ancestor_search_depth: TIP_ANCESTOR_SEARCH_DEPTH,
             cache_misses: 0,
+            #[cfg(test)]
+            no_cache: false,
+        }
+    }
+
+    #[cfg(test)]
+    pub fn new_no_cache() -> Self {
+        Self {
+            processed_tenures: HashMap::new(),
+            sortitions: HashMap::new(),
+            tip_ancestor_search_depth: TIP_ANCESTOR_SEARCH_DEPTH,
+            cache_misses: 0,
+            no_cache: true,
         }
     }
 
@@ -149,26 +165,58 @@ impl InvGenerator {
     /// the maximum expected number of blocks to be processed in-between handling `GetNakamotoInv`
     /// messages.
     ///
-    /// If found, then return the ancestor block ID represented in `self.processed_tenures`.
+    /// If found, then return the ancestor block ID represented in `self.processed_tenures`, as
+    /// well as the list of any intermediate tenures between (and including) that of `tip_block_id`
+    /// and that of (and including) the highest-found ancestor.
+    ///
     /// If not, then return None.
     pub(crate) fn find_ancestor_processed_tenures(
         &self,
         chainstate: &StacksChainState,
         tip_block_id: &StacksBlockId,
-    ) -> Result<Option<StacksBlockId>, NetError> {
+    ) -> Result<Option<(StacksBlockId, Vec<ConsensusHash>)>, NetError> {
         let mut cursor = tip_block_id.clone();
+        let mut chs = vec![];
+        let Some(ch) =
+            NakamotoChainState::get_block_header_nakamoto_tenure_id(chainstate.db(), &cursor)?
+        else {
+            return Ok(None);
+        };
+        chs.push(ch);
         for _ in 0..self.tip_ancestor_search_depth {
             let parent_id_opt =
                 NakamotoChainState::get_nakamoto_parent_block_id(chainstate.db(), &cursor)?;
+
             let Some(parent_id) = parent_id_opt else {
                 return Ok(None);
             };
+
+            let Some(parent_ch) = NakamotoChainState::get_block_header_nakamoto_tenure_id(
+                chainstate.db(),
+                &parent_id,
+            )?
+            else {
+                return Ok(None);
+            };
+            chs.push(parent_ch);
+
             if self.processed_tenures.contains_key(&parent_id) {
-                return Ok(Some(parent_id));
+                return Ok(Some((parent_id, chs)));
             }
             cursor = parent_id;
         }
         Ok(None)
+    }
+
+    #[cfg(not(test))]
+    fn test_clear_cache(&mut self) {}
+
+    /// Clear the cache (test only)
+    #[cfg(test)]
+    fn test_clear_cache(&mut self) {
+        if self.no_cache {
+            self.processed_tenures.clear();
+        }
     }
 
     /// Get a processed tenure. If it's not cached, then load it from disk.
@@ -188,23 +236,45 @@ impl InvGenerator {
     pub(crate) fn get_processed_tenure(
         &mut self,
         chainstate: &StacksChainState,
-        tip_block_id: &StacksBlockId,
+        tip_block_ch: &ConsensusHash,
+        tip_block_bh: &BlockHeaderHash,
         tenure_id_consensus_hash: &ConsensusHash,
     ) -> Result<Option<InvTenureInfo>, NetError> {
-        if self.processed_tenures.get(tip_block_id).is_none() {
+        let tip_block_id = StacksBlockId::new(tip_block_ch, tip_block_bh);
+        if self.processed_tenures.get(&tip_block_id).is_none() {
             // this tip has no known table.
             // does it have an ancestor with a table? If so, then move its ancestor's table to this
             // tip. Otherwise, make a new table.
-            if let Some(ancestor_tip_id) =
-                self.find_ancestor_processed_tenures(chainstate, tip_block_id)?
+            if let Some((ancestor_tip_id, intermediate_tenures)) =
+                self.find_ancestor_processed_tenures(chainstate, &tip_block_id)?
             {
-                let ancestor_tenures = self
+                // The table removals here are for cache maintenance.
+                //
+                // Between successive calls to this function, the Stacks tip (identified by
+                // `tip_block_ch` and `tip_block_bh`) can advance as more blocks are discovered.
+                // This means that tenures that had previously been treated as absent could now be
+                // present.  By evicting cached data for all tenures between (and including) the
+                // highest ancestor of the current Stacks tip, and the current Stacks tip, we force
+                // this code to re-evaluate the presence or absence of each potentially-affected
+                // tenure.
+                //
+                // First, remove the highest ancestor's table, so we can re-assign it to the new
+                // tip.
+                let mut ancestor_tenures = self
                     .processed_tenures
                     .remove(&ancestor_tip_id)
                     .unwrap_or_else(|| {
                         panic!("FATAL: did not have ancestor tip reported by search");
                     });
 
+                // Clear out any intermediate cached results for tenure presence/absence, including
+                // both that of the highest ancestor and the current tip.
+                for ch in intermediate_tenures.into_iter() {
+                    ancestor_tenures.remove(&ch);
+                }
+                ancestor_tenures.remove(tip_block_ch);
+
+                // Update the table so it is pointed to by the new tip.
                 self.processed_tenures
                     .insert(tip_block_id.clone(), ancestor_tenures);
             } else {
@@ -213,23 +283,25 @@ impl InvGenerator {
             }
         }
 
-        let Some(tenure_infos) = self.processed_tenures.get_mut(tip_block_id) else {
+        let Some(tenure_infos) = self.processed_tenures.get_mut(&tip_block_id) else {
             unreachable!("FATAL: inserted table for chain tip, but didn't get it back");
         };
 
-        // this tip has a known table
-        if let Some(loaded_tenure_info) = tenure_infos.get(tenure_id_consensus_hash) {
+        let ret = if let Some(loaded_tenure_info) = tenure_infos.get(tenure_id_consensus_hash) {
             // we've loaded this tenure info before for this tip
-            return Ok(loaded_tenure_info.clone());
+            Ok(loaded_tenure_info.clone())
         } else {
-            // we have not loaded the tenure info for this tip, so go get it
+            // we have not loaded the tenure info for this tip, or it was cleared via cache
+            // maintenance.  Either way, got get it from disk.
             let loaded_info_opt =
-                InvTenureInfo::load(chainstate, tip_block_id, &tenure_id_consensus_hash)?;
-            tenure_infos.insert(tenure_id_consensus_hash.clone(), loaded_info_opt.clone());
+                InvTenureInfo::load(chainstate, &tip_block_id, &tenure_id_consensus_hash)?;
 
+            tenure_infos.insert(tenure_id_consensus_hash.clone(), loaded_info_opt.clone());
             self.cache_misses = self.cache_misses.saturating_add(1);
-            return Ok(loaded_info_opt);
-        }
+            Ok(loaded_info_opt)
+        };
+        self.test_clear_cache();
+        ret
     }
 
     /// Get sortition info, loading it from our cache if needed
@@ -269,9 +341,11 @@ impl InvGenerator {
         tip: &BlockSnapshot,
         sortdb: &SortitionDB,
         chainstate: &StacksChainState,
-        nakamoto_tip: &StacksBlockId,
+        nakamoto_tip_ch: &ConsensusHash,
+        nakamoto_tip_bh: &BlockHeaderHash,
         reward_cycle: u64,
     ) -> Result<Vec<bool>, NetError> {
+        let nakamoto_tip = StacksBlockId::new(nakamoto_tip_ch, nakamoto_tip_bh);
         let ih = sortdb.index_handle(&tip.sortition_id);
 
         // N.B. reward_cycle_to_block_height starts at reward index 1
@@ -290,8 +364,12 @@ impl InvGenerator {
         let mut cur_height = reward_cycle_end_tip.block_height;
         let mut cur_consensus_hash = reward_cycle_end_tip.consensus_hash;
 
-        let mut cur_tenure_opt =
-            self.get_processed_tenure(chainstate, &nakamoto_tip, &cur_consensus_hash)?;
+        let mut cur_tenure_opt = self.get_processed_tenure(
+            chainstate,
+            nakamoto_tip_ch,
+            nakamoto_tip_bh,
+            &cur_consensus_hash,
+        )?;
 
         // loop variables and invariants:
         //
@@ -342,7 +420,8 @@ impl InvGenerator {
                     tenure_status.push(true);
                     cur_tenure_opt = self.get_processed_tenure(
                         chainstate,
-                        &nakamoto_tip,
+                        nakamoto_tip_ch,
+                        nakamoto_tip_bh,
                         &cur_tenure_info.parent_tenure_id_consensus_hash,
                     )?;
                 } else {
@@ -363,7 +442,8 @@ impl InvGenerator {
                 tenure_status.push(false);
                 cur_tenure_opt = self.get_processed_tenure(
                     chainstate,
-                    &nakamoto_tip,
+                    nakamoto_tip_ch,
+                    nakamoto_tip_bh,
                     &parent_sortition_consensus_hash,
                 )?;
             }
