@@ -40,6 +40,7 @@ use stacks::chainstate::stacks::{
 use stacks::net::p2p::NetworkHandle;
 use stacks::net::stackerdb::StackerDBs;
 use stacks::net::{NakamotoBlocksData, StacksMessageType};
+use stacks::util::get_epoch_time_secs;
 use stacks::util::secp256k1::MessageSignature;
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
 use stacks_common::types::{PrivateKey, StacksEpochId};
@@ -949,6 +950,29 @@ impl BlockMinerThread {
         Some(vrf_proof)
     }
 
+    fn validate_timestamp_info(
+        &self,
+        current_timestamp_secs: u64,
+        stacks_parent_header: &StacksHeaderInfo,
+    ) -> bool {
+        let parent_timestamp = match stacks_parent_header.anchored_header.as_stacks_nakamoto() {
+            Some(naka_header) => naka_header.timestamp,
+            None => stacks_parent_header.burn_header_timestamp,
+        };
+        let time_since_parent_ms = current_timestamp_secs.saturating_sub(parent_timestamp) * 1000;
+        if time_since_parent_ms < self.config.miner.min_time_between_blocks_ms {
+            debug!("Parent block mined {time_since_parent_ms} ms ago. Required minimum gap between blocks is {} ms", self.config.miner.min_time_between_blocks_ms;
+                "current_timestamp" => current_timestamp_secs,
+                "parent_block_id" => %stacks_parent_header.index_block_hash(),
+                "parent_block_height" => stacks_parent_header.stacks_block_height,
+                "parent_block_timestamp" => stacks_parent_header.burn_header_timestamp,
+            );
+            false
+        } else {
+            true
+        }
+    }
+
     /// Check that the provided block is not mined too quickly after the parent block.
     /// This is to ensure that the signers do not reject the block due to the block being mined within the same second as the parent block.
     fn validate_timestamp(&self, x: &NakamotoBlock) -> Result<bool, NakamotoNodeError> {
@@ -970,22 +994,7 @@ impl BlockMinerThread {
                     );
                     NakamotoNodeError::ParentNotFound
                 })?;
-        let current_timestamp = x.header.timestamp;
-        let parent_timestamp = match stacks_parent_header.anchored_header.as_stacks_nakamoto() {
-            Some(naka_header) => naka_header.timestamp,
-            None => stacks_parent_header.burn_header_timestamp,
-        };
-        let time_since_parent_ms = current_timestamp.saturating_sub(parent_timestamp) * 1000;
-        if time_since_parent_ms < self.config.miner.min_time_between_blocks_ms {
-            debug!("Parent block mined {time_since_parent_ms} ms ago. Required minimum gap between blocks is {} ms", self.config.miner.min_time_between_blocks_ms;
-                "current_timestamp" => current_timestamp,
-                "parent_block_id" => %stacks_parent_header.index_block_hash(),
-                "parent_block_height" => stacks_parent_header.stacks_block_height,
-                "parent_block_timestamp" => stacks_parent_header.burn_header_timestamp,
-            );
-            return Ok(false);
-        }
-        Ok(true)
+        Ok(self.validate_timestamp_info(x.header.timestamp, &stacks_parent_header))
     }
 
     // TODO: add tests from mutation testing results #4869
@@ -1041,6 +1050,17 @@ impl BlockMinerThread {
         parent_block_info.stacks_parent_header.microblock_tail = None;
 
         let signer_bitvec_len = reward_set.rewarded_addresses.len().try_into().ok();
+
+        if !self.validate_timestamp_info(
+            get_epoch_time_secs(),
+            &parent_block_info.stacks_parent_header,
+        ) {
+            // treat a too-soon-to-mine block as an interrupt: this will let the caller sleep and then re-evaluate
+            //  all the pre-mining checks (burnchain tip changes, signal interrupts, etc.)
+            return Err(NakamotoNodeError::MiningFailure(
+                ChainstateError::MinerAborted,
+            ));
+        }
 
         // build the block itself
         let (mut block, consumed, size, tx_events) = NakamotoBlockBuilder::build_nakamoto_block(

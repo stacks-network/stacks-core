@@ -728,7 +728,6 @@ pub fn next_block_and_wait_for_commits(
         (0..commits_before.len()).map(|_| None).collect();
     let mut commit_sent_time: Vec<Option<Instant>> =
         (0..commits_before.len()).map(|_| None).collect();
-    sleep_ms(2000); // Make sure that the proposed stacks block has a different timestamp than its parent
     next_block_and(btc_controller, timeout_secs, || {
         for i in 0..commits_submitted.len() {
             let commits_sent = commits_submitted[i].load(Ordering::SeqCst);
