@@ -295,9 +295,13 @@ pub fn new_test_conf() -> Config {
     // publicKey: "03e2ed46873d0db820e8c6001aabc082d72b5b900b53b7a1b9714fe7bde3037b81",
     // stacksAddress: "ST2VHM28V9E5QCRD6C73215KAPSBKQGPWTEE5CMQT"
     let mut rng = rand::thread_rng();
-    // Use a non-privileged port between 1024 and 65534
-    let rpc_port: u16 = rng.gen_range(1024..65533);
-    let p2p_port = rpc_port + 1;
+    let (rpc_port, p2p_port) = loop {
+        let a = rng.gen_range(1024..u16::MAX); // use a non-privileged port between 1024 and 65534
+        let b = rng.gen_range(1024..u16::MAX); // use a non-privileged port between 1024 and 65534
+        if a != b {
+            break (a, b);
+        }
+    };
 
     let mut conf = Config::default();
     conf.node.working_dir = format!(
@@ -324,6 +328,7 @@ pub fn new_test_conf() -> Config {
 
 /// Randomly change the config's network ports to new ports.
 pub fn set_random_binds(config: &mut Config) {
+    let mut rng = rand::thread_rng();
     let prior_rpc_port: u16 = config
         .node
         .rpc_bind
@@ -341,12 +346,15 @@ pub fn set_random_binds(config: &mut Config) {
         .parse()
         .unwrap();
     let (rpc_port, p2p_port) = loop {
-        let mut rng = rand::thread_rng();
-        // Use a non-privileged port between 1024 and 65534
-        let rpc_port: u16 = rng.gen_range(1024..65533);
-        let p2p_port = rpc_port + 1;
-        if rpc_port != prior_rpc_port && p2p_port != prior_p2p_port {
-            break (rpc_port, p2p_port);
+        let a = rng.gen_range(1024..u16::MAX); // use a non-privileged port between 1024 and 65534
+        let b = rng.gen_range(1024..u16::MAX); // use a non-privileged port between 1024 and 65534
+        if a != b
+            && a != prior_rpc_port
+            && a != prior_p2p_port
+            && b != prior_rpc_port
+            && b != prior_p2p_port
+        {
+            break (a, b);
         }
     };
     let localhost = "127.0.0.1";

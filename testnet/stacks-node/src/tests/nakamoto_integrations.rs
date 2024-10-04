@@ -3459,16 +3459,37 @@ fn follower_bootup() {
     follower_conf.node.seed = vec![0x01; 32];
     follower_conf.node.local_peer_seed = vec![0x02; 32];
 
-    let localhost = "127.0.0.1";
     let mut rng = rand::thread_rng();
-    // Use a non-privileged port between 1024 and 65534
-    let mut rpc_port: u16 = rng.gen_range(1024..65533);
-    while format!("{localhost}:{rpc_port}") == naka_conf.node.rpc_bind {
-        // We should NOT match the miner's rpc bind and subsequently p2p port
-        rpc_port = rng.gen_range(1024..65533);
-    }
-    let p2p_port = rpc_port + 1;
+    let prior_rpc_port: u16 = naka_conf
+        .node
+        .rpc_bind
+        .split(":")
+        .last()
+        .unwrap()
+        .parse()
+        .unwrap();
+    let prior_p2p_port: u16 = naka_conf
+        .node
+        .p2p_bind
+        .split(":")
+        .last()
+        .unwrap()
+        .parse()
+        .unwrap();
+    let (rpc_port, p2p_port) = loop {
+        let a = rng.gen_range(1024..u16::MAX); // use a non-privileged port between 1024 and 65534
+        let b = rng.gen_range(1024..u16::MAX); // use a non-privileged port between 1024 and 65534
+        if a != b
+            && a != prior_rpc_port
+            && a != prior_p2p_port
+            && b != prior_rpc_port
+            && b != prior_p2p_port
+        {
+            break (a, b);
+        }
+    };
 
+    let localhost = "127.0.0.1";
     follower_conf.node.rpc_bind = format!("{localhost}:{rpc_port}");
     follower_conf.node.p2p_bind = format!("{localhost}:{p2p_port}");
     follower_conf.node.data_url = format!("http://{localhost}:{rpc_port}");
@@ -3815,16 +3836,37 @@ fn follower_bootup_across_multiple_cycles() {
     follower_conf.node.local_peer_seed = vec![0x02; 32];
     follower_conf.node.miner = false;
 
-    let localhost = "127.0.0.1";
     let mut rng = rand::thread_rng();
-    // Use a non-privileged port between 1024 and 65534
-    let mut rpc_port: u16 = rng.gen_range(1024..65533);
-    while format!("{localhost}:{rpc_port}") == naka_conf.node.rpc_bind {
-        // We should NOT match the miner's rpc bind and subsequently p2p port
-        rpc_port = rng.gen_range(1024..65533);
-    }
-    let p2p_port = rpc_port + 1;
+    let prior_rpc_port: u16 = naka_conf
+        .node
+        .rpc_bind
+        .split(":")
+        .last()
+        .unwrap()
+        .parse()
+        .unwrap();
+    let prior_p2p_port: u16 = naka_conf
+        .node
+        .p2p_bind
+        .split(":")
+        .last()
+        .unwrap()
+        .parse()
+        .unwrap();
+    let (rpc_port, p2p_port) = loop {
+        let a = rng.gen_range(1024..u16::MAX); // use a non-privileged port between 1024 and 65534
+        let b = rng.gen_range(1024..u16::MAX); // use a non-privileged port between 1024 and 65534
+        if a != b
+            && a != prior_rpc_port
+            && a != prior_p2p_port
+            && b != prior_rpc_port
+            && b != prior_p2p_port
+        {
+            break (a, b);
+        }
+    };
 
+    let localhost = "127.0.0.1";
     follower_conf.node.rpc_bind = format!("{localhost}:{rpc_port}");
     follower_conf.node.p2p_bind = format!("{localhost}:{p2p_port}");
     follower_conf.node.data_url = format!("http://{localhost}:{rpc_port}");
