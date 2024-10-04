@@ -30,8 +30,13 @@ use lazy_static::lazy_static;
 use libsigner::v0::messages::SignerMessage as SignerMessageV0;
 use libsigner::{SignerSession, StackerDBSession};
 use rand::RngCore;
+use stacks::burnchains::bitcoin::address::{
+    BitcoinAddress, LegacyBitcoinAddress, LegacyBitcoinAddressType,
+};
+use stacks::burnchains::bitcoin::keys::BitcoinPublicKey;
+use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::{MagicBytes, Txid};
-use stacks::chainstate::burn::db::sortdb::SortitionDB;
+use stacks::chainstate::burn::db::sortdb::{get_block_commit_by_txid, SortitionDB};
 use stacks::chainstate::burn::operations::{
     BlockstackOperationType, DelegateStxOp, PreStxOp, StackStxOp, TransferStxOp,
     VoteForAggregateKeyOp,
@@ -71,6 +76,7 @@ use stacks::net::api::getstackers::GetStackersResponse;
 use stacks::net::api::postblock_proposal::{
     BlockValidateReject, BlockValidateResponse, NakamotoBlockProposal, ValidateRejectCode,
 };
+use stacks::types::{Address, PublicKey};
 use stacks::util::hash::hex_bytes;
 use stacks::util_lib::boot::boot_code_id;
 use stacks::util_lib::signed_structured_data::pox4::{
@@ -2031,7 +2037,6 @@ fn mine_multiple_per_tenure_integration() {
 }
 
 #[test]
-#[ignore]
 /// This test spins up two nakamoto nodes, both configured to mine.
 /// It starts in Epoch 2.0, mines with `neon_node` to Epoch 3.0, and then switches
 ///  to Nakamoto operation (activating pox-4 by submitting a stack-stx tx). The BootLoop
@@ -2212,14 +2217,13 @@ fn multiple_miners() {
     for tenure_ix in 0..tenure_count {
         info!("Mining tenure {}", tenure_ix);
         let commits_before = commits_submitted.load(Ordering::SeqCst);
+        let info_old_tenure = get_chain_info_result(&naka_conf).unwrap();
         next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
             .unwrap();
 
-        let mut last_tip = BlockHeaderHash([0x00; 32]);
-        let mut last_tip_height = 0;
-
         // mine the interim blocks
         for interim_block_ix in 0..inter_blocks_per_tenure {
+            let info_old_stacks = get_chain_info_result(&naka_conf).unwrap();
             let blocks_processed_before = coord_channel
                 .lock()
                 .expect("Mutex poisoned")
@@ -2239,12 +2243,26 @@ fn multiple_miners() {
             })
             .unwrap();
 
-            let info = get_chain_info_result(&naka_conf).unwrap();
-            assert_ne!(info.stacks_tip, last_tip);
-            assert_ne!(info.stacks_tip_height, last_tip_height);
-
-            last_tip = info.stacks_tip;
-            last_tip_height = info.stacks_tip_height;
+            let info_new_stacks = get_chain_info_result(&naka_conf).unwrap();
+            assert_ne!(info_new_stacks.stacks_tip, info_old_stacks.stacks_tip);
+            assert_eq!(
+                info_new_stacks.stacks_tip_consensus_hash,
+                info_old_stacks.stacks_tip_consensus_hash
+            );
+            assert_eq!(
+                info_new_stacks.stacks_tip_height,
+                info_old_stacks.stacks_tip_height + 1,
+                "Stacks block height should increment by 1"
+            );
+            assert_ne!(
+                info_old_tenure.stacks_tip_consensus_hash,
+                info_old_stacks.stacks_tip_consensus_hash
+            );
+            assert_eq!(
+                info_new_stacks.burn_block_height,
+                info_old_tenure.burn_block_height + 1,
+                "Tenure block height should increment by 1"
+            );
         }
 
         wait_for(20, || {
