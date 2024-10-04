@@ -89,6 +89,7 @@ use crate::neon_node::RelayerThread;
 use crate::operations::BurnchainOpSigner;
 use crate::stacks_common::types::PrivateKey;
 use crate::syncctl::PoxSyncWatchdogComms;
+use crate::tests::gen_random_port;
 use crate::tests::nakamoto_integrations::{get_key_for_cycle, wait_for};
 use crate::util::hash::{MerkleTree, Sha512Trunc256Sum};
 use crate::util::secp256k1::MessageSignature;
@@ -986,29 +987,7 @@ fn bitcoind_integration_test() {
     }
 
     let (mut conf, miner_account) = neon_integration_test_conf();
-    let mut rng = rand::thread_rng();
-    let mut prom_port = 6000;
-    let prior_rpc_port: u16 = conf
-        .node
-        .rpc_bind
-        .split(":")
-        .last()
-        .unwrap()
-        .parse()
-        .unwrap();
-    let prior_p2p_port: u16 = conf
-        .node
-        .p2p_bind
-        .split(":")
-        .last()
-        .unwrap()
-        .parse()
-        .unwrap();
-    // Use a non-privileged port between 1024 and 65534
-    while prom_port == prior_rpc_port || prom_port == prior_p2p_port {
-        // We should NOT match the miner's rpc or p2p binds
-        prom_port = rng.gen_range(1024..u16::MAX);
-    }
+    let prom_port = gen_random_port();
     let localhost = "127.0.0.1";
     let prom_bind = format!("{localhost}:{prom_port}");
     conf.node.prometheus_bind = Some(prom_bind.clone());
@@ -12490,35 +12469,8 @@ fn bitcoin_reorg_flap_with_follower() {
     follower_conf.node.seed = vec![0x01; 32];
     follower_conf.node.local_peer_seed = vec![0x02; 32];
 
-    let mut rng = rand::thread_rng();
-    let prior_rpc_port: u16 = conf
-        .node
-        .rpc_bind
-        .split(":")
-        .last()
-        .unwrap()
-        .parse()
-        .unwrap();
-    let prior_p2p_port: u16 = conf
-        .node
-        .p2p_bind
-        .split(":")
-        .last()
-        .unwrap()
-        .parse()
-        .unwrap();
-    let (rpc_port, p2p_port) = loop {
-        let a = rng.gen_range(1024..u16::MAX); // use a non-privileged port between 1024 and 65534
-        let b = rng.gen_range(1024..u16::MAX); // use a non-privileged port between 1024 and 65534
-        if a != b
-            && a != prior_rpc_port
-            && a != prior_p2p_port
-            && b != prior_rpc_port
-            && b != prior_p2p_port
-        {
-            break (a, b);
-        }
-    };
+    let rpc_port = gen_random_port();
+    let p2p_port = gen_random_port();
 
     let localhost = "127.0.0.1";
     follower_conf.node.rpc_bind = format!("{localhost}:{rpc_port}");
@@ -12705,35 +12657,8 @@ fn mock_miner_replay() {
     follower_conf.node.seed = vec![0x01; 32];
     follower_conf.node.local_peer_seed = vec![0x02; 32];
 
-    let mut rng = rand::thread_rng();
-    let prior_rpc_port: u16 = conf
-        .node
-        .rpc_bind
-        .split(":")
-        .last()
-        .unwrap()
-        .parse()
-        .unwrap();
-    let prior_p2p_port: u16 = conf
-        .node
-        .p2p_bind
-        .split(":")
-        .last()
-        .unwrap()
-        .parse()
-        .unwrap();
-    let (rpc_port, p2p_port) = loop {
-        let a = rng.gen_range(1024..u16::MAX); // use a non-privileged port between 1024 and 65534
-        let b = rng.gen_range(1024..u16::MAX); // use a non-privileged port between 1024 and 65534
-        if a != b
-            && a != prior_rpc_port
-            && a != prior_p2p_port
-            && b != prior_rpc_port
-            && b != prior_p2p_port
-        {
-            break (a, b);
-        }
-    };
+    let rpc_port = gen_random_port();
+    let p2p_port = gen_random_port();
 
     let localhost = "127.0.0.1";
     follower_conf.node.rpc_bind = format!("{localhost}:{rpc_port}");
@@ -12868,29 +12793,7 @@ fn listunspent_max_utxos() {
     }
 
     let (mut conf, _miner_account) = neon_integration_test_conf();
-    let mut rng = rand::thread_rng();
-    let mut prom_port = 6000;
-    let prior_rpc_port: u16 = conf
-        .node
-        .rpc_bind
-        .split(":")
-        .last()
-        .unwrap()
-        .parse()
-        .unwrap();
-    let prior_p2p_port: u16 = conf
-        .node
-        .p2p_bind
-        .split(":")
-        .last()
-        .unwrap()
-        .parse()
-        .unwrap();
-    // Use a non-privileged port between 1024 and 65534
-    while prom_port == prior_rpc_port || prom_port == prior_p2p_port {
-        // We should NOT match the miner's rpc or p2p binds
-        prom_port = rng.gen_range(1024..u16::MAX);
-    }
+    let prom_port = gen_random_port();
     let localhost = "127.0.0.1";
     let prom_bind = format!("{localhost}:{prom_port}");
     conf.node.prometheus_bind = Some(prom_bind.clone());
@@ -12938,29 +12841,7 @@ fn start_stop_bitcoind() {
     }
 
     let (mut conf, _miner_account) = neon_integration_test_conf();
-    let mut rng = rand::thread_rng();
-    let mut prom_port = 6000;
-    let prior_rpc_port: u16 = conf
-        .node
-        .rpc_bind
-        .split(":")
-        .last()
-        .unwrap()
-        .parse()
-        .unwrap();
-    let prior_p2p_port: u16 = conf
-        .node
-        .p2p_bind
-        .split(":")
-        .last()
-        .unwrap()
-        .parse()
-        .unwrap();
-    // Use a non-privileged port between 1024 and 65534
-    while prom_port == prior_rpc_port || prom_port == prior_p2p_port {
-        // We should NOT match the miner's rpc or p2p binds
-        prom_port = rng.gen_range(1024..u16::MAX);
-    }
+    let prom_port = gen_random_port();
     let localhost = "127.0.0.1";
     let prom_bind = format!("{localhost}:{prom_port}");
     conf.node.prometheus_bind = Some(prom_bind.clone());

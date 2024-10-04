@@ -105,8 +105,8 @@ use crate::tests::neon_integrations::{
     test_observer, wait_for_runloop,
 };
 use crate::tests::{
-    get_chain_info, make_contract_publish, make_contract_publish_versioned, make_stacks_transfer,
-    to_addr,
+    gen_random_port, get_chain_info, make_contract_publish, make_contract_publish_versioned,
+    make_stacks_transfer, to_addr,
 };
 use crate::{tests, BitcoinRegtestController, BurnchainController, Config, ConfigFile, Keychain};
 
@@ -3459,35 +3459,8 @@ fn follower_bootup() {
     follower_conf.node.seed = vec![0x01; 32];
     follower_conf.node.local_peer_seed = vec![0x02; 32];
 
-    let mut rng = rand::thread_rng();
-    let prior_rpc_port: u16 = naka_conf
-        .node
-        .rpc_bind
-        .split(":")
-        .last()
-        .unwrap()
-        .parse()
-        .unwrap();
-    let prior_p2p_port: u16 = naka_conf
-        .node
-        .p2p_bind
-        .split(":")
-        .last()
-        .unwrap()
-        .parse()
-        .unwrap();
-    let (rpc_port, p2p_port) = loop {
-        let a = rng.gen_range(1024..u16::MAX); // use a non-privileged port between 1024 and 65534
-        let b = rng.gen_range(1024..u16::MAX); // use a non-privileged port between 1024 and 65534
-        if a != b
-            && a != prior_rpc_port
-            && a != prior_p2p_port
-            && b != prior_rpc_port
-            && b != prior_p2p_port
-        {
-            break (a, b);
-        }
-    };
+    let rpc_port = gen_random_port();
+    let p2p_port = gen_random_port();
 
     let localhost = "127.0.0.1";
     follower_conf.node.rpc_bind = format!("{localhost}:{rpc_port}");
@@ -3836,35 +3809,8 @@ fn follower_bootup_across_multiple_cycles() {
     follower_conf.node.local_peer_seed = vec![0x02; 32];
     follower_conf.node.miner = false;
 
-    let mut rng = rand::thread_rng();
-    let prior_rpc_port: u16 = naka_conf
-        .node
-        .rpc_bind
-        .split(":")
-        .last()
-        .unwrap()
-        .parse()
-        .unwrap();
-    let prior_p2p_port: u16 = naka_conf
-        .node
-        .p2p_bind
-        .split(":")
-        .last()
-        .unwrap()
-        .parse()
-        .unwrap();
-    let (rpc_port, p2p_port) = loop {
-        let a = rng.gen_range(1024..u16::MAX); // use a non-privileged port between 1024 and 65534
-        let b = rng.gen_range(1024..u16::MAX); // use a non-privileged port between 1024 and 65534
-        if a != b
-            && a != prior_rpc_port
-            && a != prior_p2p_port
-            && b != prior_rpc_port
-            && b != prior_p2p_port
-        {
-            break (a, b);
-        }
-    };
+    let rpc_port = gen_random_port();
+    let p2p_port = gen_random_port();
 
     let localhost = "127.0.0.1";
     follower_conf.node.rpc_bind = format!("{localhost}:{rpc_port}");

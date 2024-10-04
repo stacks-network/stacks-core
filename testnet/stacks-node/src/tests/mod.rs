@@ -13,9 +13,9 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::AtomicU64;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::database::BurnStateDB;
@@ -97,6 +97,34 @@ lazy_static! {
         "store",
         STORE_CONTRACT
     );
+}
+
+lazy_static! {
+    static ref USED_PORTS: Mutex<HashSet<u16>> = Mutex::new(HashSet::new());
+}
+
+/// Generate a random port number between 1024 and 65534 (inclusive) and insert it into the USED_PORTS set.
+/// Returns the generated port number.
+pub fn gen_random_port() -> u16 {
+    let mut rng = rand::thread_rng();
+    let range_len = (1024..u16::MAX).len();
+    loop {
+        let port = rng.gen_range(1024..u16::MAX); // use a non-privileged port between 1024 and 65534
+        if insert_new_port(port) {
+            return port;
+        }
+        assert!(
+            USED_PORTS.lock().unwrap().len() < range_len,
+            "No more available ports"
+        );
+    }
+}
+
+// Add a port to the USED_PORTS set. This is used to ensure that we don't try to bind to the same port in tests
+// Returns true if the port was inserted, false if it was already in the set.
+pub fn insert_new_port(port: u16) -> bool {
+    let mut ports = USED_PORTS.lock().unwrap();
+    ports.insert(port)
 }
 
 pub fn serialize_sign_sponsored_sig_tx_anchor_mode_version(
@@ -294,14 +322,8 @@ pub fn new_test_conf() -> Config {
     // secretKey: "b1cf9cee5083f421c84d7cb53be5edf2801c3c78d63d53917aee0bdc8bd160ee01",
     // publicKey: "03e2ed46873d0db820e8c6001aabc082d72b5b900b53b7a1b9714fe7bde3037b81",
     // stacksAddress: "ST2VHM28V9E5QCRD6C73215KAPSBKQGPWTEE5CMQT"
-    let mut rng = rand::thread_rng();
-    let (rpc_port, p2p_port) = loop {
-        let a = rng.gen_range(1024..u16::MAX); // use a non-privileged port between 1024 and 65534
-        let b = rng.gen_range(1024..u16::MAX); // use a non-privileged port between 1024 and 65534
-        if a != b {
-            break (a, b);
-        }
-    };
+    let rpc_port = gen_random_port();
+    let p2p_port = gen_random_port();
 
     let mut conf = Config::default();
     conf.node.working_dir = format!(
@@ -328,7 +350,7 @@ pub fn new_test_conf() -> Config {
 
 /// Randomly change the config's network ports to new ports.
 pub fn set_random_binds(config: &mut Config) {
-    let mut rng = rand::thread_rng();
+    // Just in case prior config was not created with `new_test_conf`, we need to add the prior generated ports
     let prior_rpc_port: u16 = config
         .node
         .rpc_bind
@@ -345,18 +367,10 @@ pub fn set_random_binds(config: &mut Config) {
         .unwrap()
         .parse()
         .unwrap();
-    let (rpc_port, p2p_port) = loop {
-        let a = rng.gen_range(1024..u16::MAX); // use a non-privileged port between 1024 and 65534
-        let b = rng.gen_range(1024..u16::MAX); // use a non-privileged port between 1024 and 65534
-        if a != b
-            && a != prior_rpc_port
-            && a != prior_p2p_port
-            && b != prior_rpc_port
-            && b != prior_p2p_port
-        {
-            break (a, b);
-        }
-    };
+    insert_new_port(prior_rpc_port);
+    insert_new_port(prior_p2p_port);
+    let rpc_port = gen_random_port();
+    let p2p_port = gen_random_port();
     let localhost = "127.0.0.1";
     config.node.rpc_bind = format!("{}:{}", localhost, rpc_port);
     config.node.p2p_bind = format!("{}:{}", localhost, p2p_port);
