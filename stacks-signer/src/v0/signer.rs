@@ -189,6 +189,7 @@ impl SignerTrait<SignerMessage> for Signer {
                             info!(
                                 "{self}: Got block pushed message";
                                 "block_id" => %b.block_id(),
+                                "block_height" => b.header.chain_length,
                                 "signer_sighash" => %b.header.signer_signature_hash(),
                             );
                             stacks_client.post_block_until_ok(self, &b);
@@ -352,6 +353,7 @@ impl Signer {
             "{self}: received a block proposal for a new block. Submit block for validation. ";
             "signer_sighash" => %signer_signature_hash,
             "block_id" => %block_proposal.block.block_id(),
+            "block_height" => block_proposal.block.header.chain_length,
             "burn_height" => block_proposal.burn_height,
         );
         crate::monitoring::increment_block_proposals_received();
