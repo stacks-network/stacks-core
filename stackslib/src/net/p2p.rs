@@ -1050,6 +1050,9 @@ impl PeerNetwork {
             if let Some(event_id) = self.events.get(&nk) {
                 let event_id = *event_id;
                 if let Some(convo) = self.peers.get_mut(&event_id) {
+                    if !convo.is_authenticated() {
+                        continue;
+                    }
                     // safety check -- don't send to someone who has already been a relayer
                     let mut do_relay = true;
                     if let Some(pubkey) = convo.ref_public_key() {

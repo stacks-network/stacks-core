@@ -386,8 +386,20 @@ impl NakamotoTenureDownloader {
         let mut expected_block_id = block_cursor;
         let mut count = 0;
         for block in tenure_blocks.iter() {
-            if &block.header.block_id() != expected_block_id {
+            // must be from this tenure
+            // This may not always be the case, since a remote peer could have processed a
+            // different Stacks micro-fork.  The consequence of erroring here (or below) is that we
+            // disconnect from the peer that served this to us.
+            if block.header.consensus_hash != self.tenure_id_consensus_hash {
                 warn!("Unexpected Nakamoto block -- not part of tenure";
+                      "block.header.consensus_hash" => %block.header.consensus_hash,
+                      "self.tenure_id_consensus_hash" => %self.tenure_id_consensus_hash,
+                      "state" => %self.state);
+                return Err(NetError::InvalidMessage);
+            }
+
+            if &block.header.block_id() != expected_block_id {
+                warn!("Unexpected Nakamoto block -- does not match cursor";
                       "expected_block_id" => %expected_block_id,
                       "block_id" => %block.header.block_id(),
                       "state" => %self.state);

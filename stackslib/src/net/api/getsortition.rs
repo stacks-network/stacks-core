@@ -381,3 +381,34 @@ impl HttpResponse for GetSortitionHandler {
         Ok(HttpResponsePayload::try_from_json(sortition_info)?)
     }
 }
+
+impl StacksHttpRequest {
+    /// Make a new getsortition request to this endpoint
+    pub fn new_get_sortition(
+        host: PeerHost,
+        sort_key: &str,
+        sort_value: &str,
+    ) -> StacksHttpRequest {
+        StacksHttpRequest::new_for_peer(
+            host,
+            "GET".into(),
+            format!("{}/{}/{}", RPC_SORTITION_INFO_PATH, sort_key, sort_value),
+            HttpRequestContents::new(),
+        )
+        .expect("FATAL: failed to construct request from infallible data")
+    }
+
+    pub fn new_get_sortition_consensus(host: PeerHost, ch: &ConsensusHash) -> StacksHttpRequest {
+        Self::new_get_sortition(host, "consensus", &ch.to_string())
+    }
+}
+
+impl StacksHttpResponse {
+    pub fn decode_sortition_info(self) -> Result<Vec<SortitionInfo>, NetError> {
+        let contents = self.get_http_payload_ok()?;
+        let response_json: serde_json::Value = contents.try_into()?;
+        let response: Vec<SortitionInfo> = serde_json::from_value(response_json)
+            .map_err(|_e| Error::DecodeError(format!("Failed to decode JSON: {:?}", &_e)))?;
+        Ok(response)
+    }
+}

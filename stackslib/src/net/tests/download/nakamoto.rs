@@ -240,7 +240,7 @@ fn test_nakamoto_tenure_downloader() {
     };
 
     let mut td = NakamotoTenureDownloader::new(
-        ch,
+        tenure_start_block.header.consensus_hash.clone(),
         tenure_start_block.header.block_id(),
         next_tenure_start_block.header.block_id(),
         naddr.clone(),
@@ -307,6 +307,7 @@ fn test_nakamoto_tenure_downloader() {
             .try_accept_tenure_blocks(vec![next_tenure_start_block.clone()])
             .is_err());
 
+        debug!("Try accept {:?}", &block);
         let res = td.try_accept_tenure_blocks(vec![block.clone()]);
         assert!(res.is_ok());
         assert!(res.unwrap().is_none());
