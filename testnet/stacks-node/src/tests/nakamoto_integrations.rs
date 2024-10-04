@@ -2929,11 +2929,62 @@ fn block_proposal_api_endpoint() {
         builder.mine_nakamoto_block(&mut tenure_tx)
     };
 
+    let block_2 = {
+        let mut builder = NakamotoBlockBuilder::new(
+            &tip,
+            &tip.consensus_hash,
+            total_burn,
+            tenure_change,
+            coinbase,
+            1,
+        )
+        .expect("Failed to build Nakamoto block");
+
+        let burn_dbconn = btc_regtest_controller.sortdb_ref().index_handle_at_tip();
+        let mut miner_tenure_info = builder
+            .load_tenure_info(&mut chainstate, &burn_dbconn, tenure_cause)
+            .unwrap();
+        let mut tenure_tx = builder
+            .tenure_begin(&burn_dbconn, &mut miner_tenure_info)
+            .unwrap();
+
+        let tx = make_stacks_transfer(
+            &account_keys[0],
+            0,
+            100,
+            &to_addr(&account_keys[1]).into(),
+            10000,
+        );
+        let tx = StacksTransaction::consensus_deserialize(&mut &tx[..])
+            .expect("Failed to deserialize transaction");
+        let tx_len = tx.tx_len();
+
+        let res = builder.try_mine_tx_with_len(
+            &mut tenure_tx,
+            &tx,
+            tx_len,
+            &BlockLimitFunction::NO_LIMIT_HIT,
+            ASTRules::PrecheckSize,
+        );
+        assert!(
+            matches!(res, TransactionResult::Success(..)),
+            "Transaction failed"
+        );
+        builder.mine_nakamoto_block(&mut tenure_tx)
+    };
+
     // Construct a valid proposal. Make alterations to this to test failure cases
     let proposal = NakamotoBlockProposal {
         block,
         chain_id: chainstate.chain_id,
     };
+
+    // Construct a valid proposal. Make alterations to this to test failure cases
+    let proposal_2= NakamotoBlockProposal {
+        block: block_2,
+        chain_id: chainstate.chain_id,
+    };
+
 
     const HTTP_ACCEPTED: u16 = 202;
     const HTTP_TOO_MANY: u16 = 429;
@@ -2949,6 +3000,12 @@ fn block_proposal_api_endpoint() {
             Some(Ok(())),
         ),
         ("Must wait", sign(&proposal), HTTP_TOO_MANY, None),
+        (
+            "Valid Nakamoto block proposal 2",
+            sign(&proposal_2),
+            HTTP_ACCEPTED,
+            Some(Ok(())),
+        ),
         (
             "Non-canonical or absent tenure",
             (|| {
