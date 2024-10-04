@@ -50,6 +50,17 @@ use crate::net::{Error as NetError, Hash160, NeighborAddress, SortitionDB};
 use crate::stacks_common::types::Address;
 use crate::util_lib::db::Error as DBError;
 
+impl NakamotoTenureDownloadState {
+    pub fn request_time(&self) -> Option<u128> {
+        match self {
+            Self::GetTenureStartBlock(_, ts) => Some(*ts),
+            Self::GetTenureEndBlock(_, ts) => Some(*ts),
+            Self::GetTenureBlocks(_, ts) => Some(*ts),
+            Self::Done => None,
+        }
+    }
+}
+
 impl NakamotoDownloadStateMachine {
     /// Find the list of wanted tenures for the given reward cycle.  The reward cycle must
     /// be complete already.  Used for testing.
@@ -240,7 +251,10 @@ fn test_nakamoto_tenure_downloader() {
     // must be first block
     assert_eq!(
         td.state,
-        NakamotoTenureDownloadState::GetTenureStartBlock(tenure_start_block.header.block_id())
+        NakamotoTenureDownloadState::GetTenureStartBlock(
+            tenure_start_block.header.block_id(),
+            td.state.request_time().unwrap()
+        )
     );
     assert!(td
         .try_accept_tenure_start_block(blocks.last().unwrap().clone())
@@ -254,7 +268,7 @@ fn test_nakamoto_tenure_downloader() {
         .try_accept_tenure_start_block(blocks.first().unwrap().clone())
         .is_ok());
 
-    let NakamotoTenureDownloadState::GetTenureEndBlock(block_id) = td.state else {
+    let NakamotoTenureDownloadState::GetTenureEndBlock(block_id, ..) = td.state else {
         panic!("wrong state");
     };
     assert_eq!(block_id, next_tenure_start_block.header.block_id());
@@ -274,7 +288,8 @@ fn test_nakamoto_tenure_downloader() {
     assert_eq!(
         td.state,
         NakamotoTenureDownloadState::GetTenureBlocks(
-            next_tenure_start_block.header.parent_block_id.clone()
+            next_tenure_start_block.header.parent_block_id.clone(),
+            td.state.request_time().unwrap(),
         )
     );
     assert_eq!(td.tenure_end_block, Some(next_tenure_start_block.clone()));
@@ -300,7 +315,10 @@ fn test_nakamoto_tenure_downloader() {
         // tail pointer moved
         assert_eq!(
             td.state,
-            NakamotoTenureDownloadState::GetTenureBlocks(block.header.parent_block_id.clone())
+            NakamotoTenureDownloadState::GetTenureBlocks(
+                block.header.parent_block_id.clone(),
+                td.state.request_time().unwrap()
+            )
         );
     }
 
@@ -572,7 +590,8 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
         assert_eq!(
             ntd.state,
             NakamotoTenureDownloadState::GetTenureStartBlock(
-                unconfirmed_wanted_tenure.winning_block_id.clone()
+                unconfirmed_wanted_tenure.winning_block_id.clone(),
+                ntd.state.request_time().unwrap()
             )
         );
     }
@@ -670,7 +689,8 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
         assert_eq!(
             ntd.state,
             NakamotoTenureDownloadState::GetTenureStartBlock(
-                unconfirmed_wanted_tenure.winning_block_id.clone()
+                unconfirmed_wanted_tenure.winning_block_id.clone(),
+                ntd.state.request_time().unwrap()
             )
         );
     }
@@ -770,7 +790,8 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
         assert_eq!(
             ntd.state,
             NakamotoTenureDownloadState::GetTenureStartBlock(
-                unconfirmed_wanted_tenure.winning_block_id.clone()
+                unconfirmed_wanted_tenure.winning_block_id.clone(),
+                ntd.state.request_time().unwrap()
             )
         );
     }
@@ -847,7 +868,8 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
         assert_eq!(
             ntd.state,
             NakamotoTenureDownloadState::GetTenureStartBlock(
-                unconfirmed_wanted_tenure.winning_block_id.clone()
+                unconfirmed_wanted_tenure.winning_block_id.clone(),
+                ntd.state.request_time().unwrap()
             )
         );
     }
@@ -987,7 +1009,8 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
         assert_eq!(
             ntd.state,
             NakamotoTenureDownloadState::GetTenureStartBlock(
-                unconfirmed_wanted_tenure.winning_block_id.clone()
+                unconfirmed_wanted_tenure.winning_block_id.clone(),
+                ntd.state.request_time().unwrap()
             )
         );
     }

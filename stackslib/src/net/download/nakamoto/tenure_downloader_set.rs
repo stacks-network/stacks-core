@@ -230,13 +230,11 @@ impl NakamotoTenureDownloaderSet {
             if !downloader.idle {
                 continue;
             }
-            if downloader.naddr != naddr {
-                continue;
-            }
             debug!(
                 "Assign peer {} to work on downloader for {} in state {}",
                 &naddr, &downloader.tenure_id_consensus_hash, &downloader.state
             );
+            downloader.naddr = naddr.clone();
             self.peers.insert(naddr, i);
             return true;
         }
@@ -308,8 +306,8 @@ impl NakamotoTenureDownloaderSet {
             };
             if &downloader.tenure_id_consensus_hash == tenure_id {
                 debug!(
-                    "Have downloader for tenure {} already (idle={}, state={})",
-                    tenure_id, downloader.idle, &downloader.state
+                    "Have downloader for tenure {} already (idle={}, state={}, naddr={})",
+                    tenure_id, downloader.idle, &downloader.state, &downloader.naddr
                 );
                 return true;
             }
@@ -328,7 +326,7 @@ impl NakamotoTenureDownloaderSet {
         count: usize,
         current_reward_cycles: &BTreeMap<u64, CurrentRewardSet>,
     ) {
-        debug!("make_tenure_downloaders";
+        test_debug!("make_tenure_downloaders";
                "schedule" => ?schedule,
                "available" => ?available,
                "tenure_block_ids" => ?tenure_block_ids,
@@ -463,7 +461,10 @@ impl NakamotoTenureDownloaderSet {
                 continue;
             };
             if downloader.is_done() {
-                debug!("Downloader for {} is done", &naddr);
+                debug!(
+                    "Downloader for {} on tenure {} is finished",
+                    &naddr, &downloader.tenure_id_consensus_hash
+                );
                 finished.push(naddr.clone());
                 finished_tenures.push(downloader.tenure_id_consensus_hash.clone());
                 continue;
@@ -534,6 +535,10 @@ impl NakamotoTenureDownloaderSet {
             );
             new_blocks.insert(downloader.tenure_id_consensus_hash.clone(), blocks);
             if downloader.is_done() {
+                debug!(
+                    "Downloader for {} on tenure {} is finished",
+                    &naddr, &downloader.tenure_id_consensus_hash
+                );
                 finished.push(naddr.clone());
                 finished_tenures.push(downloader.tenure_id_consensus_hash.clone());
                 continue;
