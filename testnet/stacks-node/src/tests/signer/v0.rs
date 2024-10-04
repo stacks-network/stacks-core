@@ -27,7 +27,9 @@ use libsigner::v0::messages::{
 };
 use libsigner::{BlockProposal, SignerSession, StackerDBSession};
 use stacks::address::AddressHashMode;
-use stacks::burnchains::bitcoin::address::{BitcoinAddress, LegacyBitcoinAddress, LegacyBitcoinAddressType};
+use stacks::burnchains::bitcoin::address::{
+    BitcoinAddress, LegacyBitcoinAddress, LegacyBitcoinAddressType,
+};
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::Txid;
 use stacks::chainstate::burn::db::sortdb::{self, get_block_commit_by_txid, SortitionDB};
@@ -1790,7 +1792,6 @@ fn new_tenure_stop_fast_blocks() {
     // then stop the miner_a
     // then try to mine with miner_b and not produce any blocks
 
-
     let rl1_coord_channels = signer_test.running_nodes.coord_channel.clone();
     let rl1_commits = signer_test.running_nodes.commits_submitted.clone();
 
@@ -1850,10 +1851,7 @@ fn new_tenure_stop_fast_blocks() {
             );
         };
 
-        info!(
-            "Issue next block-build request\ninfo 1: {:?}\n",
-            &info_1
-        );
+        info!("Issue next block-build request\ninfo 1: {:?}\n", &info_1);
 
         if !stopped_miner_b {
             signer_test.mine_block_wait_on_processing(
@@ -1886,9 +1884,10 @@ fn new_tenure_stop_fast_blocks() {
         )
         .unwrap();
 
-        let block_snapshot: stacks::chainstate::burn::BlockSnapshot = SortitionDB::get_all_snapshots_for_burn_block(sortdb.conn(), &burnchain_header_hash)
-            .unwrap()[0]
-            .clone();
+        let block_snapshot: stacks::chainstate::burn::BlockSnapshot =
+            SortitionDB::get_all_snapshots_for_burn_block(sortdb.conn(), &burnchain_header_hash)
+                .unwrap()[0]
+                .clone();
         let winning_block_txid: Txid = block_snapshot.winning_block_txid;
         let blocks_commits = get_block_commit_by_txid(
             sortdb.conn(),
@@ -1906,7 +1905,10 @@ fn new_tenure_stop_fast_blocks() {
         info!("Winner Miner Address: {}", winner_bitcoin_address);
 
         if !stopped_miner_b && winner_bitcoin_address.to_string() == miner_a_address.to_string() {
-            info!("Miner A is the winner for tenure {}. Stopping miner B", btc_blocks_mined);
+            info!(
+                "Miner A is the winner for tenure {}. Stopping miner B",
+                btc_blocks_mined
+            );
             rl2_coord_channels
                 .lock()
                 .expect("Mutex poisoned")
