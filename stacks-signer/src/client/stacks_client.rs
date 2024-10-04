@@ -376,7 +376,7 @@ impl StacksClient {
             "last_sortition" => %last_sortition,
         );
         let path = self.tenure_forking_info_path(chosen_parent, last_sortition);
-        // Use a seperate metrics path to allow the same metric for different start and stop hashes
+        // Use a separate metrics path to allow the same metric for different start and stop hashes
         let metrics_path = format!(
             "{}{RPC_TENURE_FORKING_INFO_PATH}/:start/:stop",
             self.http_origin
