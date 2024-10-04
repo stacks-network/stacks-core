@@ -109,14 +109,14 @@ pub fn gen_random_port() -> u16 {
     let mut rng = rand::thread_rng();
     let range_len = (1024..u16::MAX).len();
     loop {
-        let port = rng.gen_range(1024..u16::MAX); // use a non-privileged port between 1024 and 65534
-        if insert_new_port(port) {
-            return port;
-        }
         assert!(
             USED_PORTS.lock().unwrap().len() < range_len,
             "No more available ports"
         );
+        let port = rng.gen_range(1024..u16::MAX); // use a non-privileged port between 1024 and 65534
+        if insert_new_port(port) {
+            return port;
+        }
     }
 }
 
