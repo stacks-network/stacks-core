@@ -12,7 +12,7 @@ use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::serialization::SerializationError;
 use clarity::vm::types::PrincipalData;
 use clarity::vm::{ClarityName, ClarityVersion, ContractName, Value, MAX_CALL_STACK_DEPTH};
-use rand::{Rng, RngCore};
+use rand::Rng;
 use rusqlite::params;
 use serde::Deserialize;
 use serde_json::json;
@@ -89,7 +89,8 @@ use crate::neon_node::RelayerThread;
 use crate::operations::BurnchainOpSigner;
 use crate::stacks_common::types::PrivateKey;
 use crate::syncctl::PoxSyncWatchdogComms;
-use crate::tests::nakamoto_integrations::get_key_for_cycle;
+use crate::tests::gen_random_port;
+use crate::tests::nakamoto_integrations::{get_key_for_cycle, wait_for};
 use crate::util::hash::{MerkleTree, Sha512Trunc256Sum};
 use crate::util::secp256k1::MessageSignature;
 use crate::{neon, BitcoinRegtestController, BurnchainController, Config, ConfigFile, Keychain};
@@ -986,7 +987,9 @@ fn bitcoind_integration_test() {
     }
 
     let (mut conf, miner_account) = neon_integration_test_conf();
-    let prom_bind = format!("{}:{}", "127.0.0.1", 6000);
+    let prom_port = gen_random_port();
+    let localhost = "127.0.0.1";
+    let prom_bind = format!("{localhost}:{prom_port}");
     conf.node.prometheus_bind = Some(prom_bind.clone());
 
     conf.burnchain.max_rbf = 1000000;
@@ -9909,15 +9912,15 @@ fn test_problematic_blocks_are_not_mined() {
         cur_files = cur_files_new;
     }
 
-    let tip_info = get_chain_info(&conf);
+    // all blocks were processed
+    wait_for(30, || {
+        let tip_info = get_chain_info(&conf);
+        Ok(tip_info.stacks_tip_height == old_tip_info.stacks_tip_height + 5)
+    })
+    .expect("Failed waiting for blocks to be processed");
 
-    // blocks were all processed
-    assert_eq!(
-        tip_info.stacks_tip_height,
-        old_tip_info.stacks_tip_height + 5
-    );
     // no blocks considered problematic
-    assert_eq!(all_new_files.len(), 0);
+    assert!(all_new_files.is_empty());
 
     // one block contained tx_exceeds
     let blocks = test_observer::get_blocks();
@@ -9968,14 +9971,12 @@ fn test_problematic_blocks_are_not_mined() {
     btc_regtest_controller.build_next_block(1);
 
     // wait for runloop to advance
-    loop {
-        sleep_ms(1_000);
+    wait_for(30, || {
         let sortdb = btc_regtest_controller.sortdb_mut();
         let new_tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn()).unwrap();
-        if new_tip.block_height > tip.block_height {
-            break;
-        }
-    }
+        Ok(new_tip.block_height > tip.block_height)
+    })
+    .expect("Failed waiting for blocks to be processed");
 
     let cur_ast_rules = {
         let sortdb = btc_regtest_controller.sortdb_mut();
@@ -10003,12 +10004,15 @@ fn test_problematic_blocks_are_not_mined() {
         cur_files = cur_files_new;
     }
 
-    let tip_info = get_chain_info(&conf);
-
     // all blocks were processed
-    assert!(tip_info.stacks_tip_height >= old_tip_info.stacks_tip_height + 5);
+    wait_for(30, || {
+        let tip_info = get_chain_info(&conf);
+        Ok(tip_info.stacks_tip_height >= old_tip_info.stacks_tip_height + 5)
+    })
+    .expect("Failed waiting for blocks to be processed");
+
     // none were problematic
-    assert_eq!(all_new_files.len(), 0);
+    assert!(all_new_files.is_empty());
 
     // recently-submitted problematic transactions are not in the mempool
     // (but old ones that were already mined, and thus never considered, could still be present)
@@ -10047,18 +10051,15 @@ fn test_problematic_blocks_are_not_mined() {
         follower_conf.node.p2p_bind, follower_conf.node.rpc_bind
     );
 
-    let deadline = get_epoch_time_secs() + 300;
-    while get_epoch_time_secs() < deadline {
+    // Do not unwrap in case we were just slow
+    let _ = wait_for(300, || {
         let follower_tip_info = get_chain_info(&follower_conf);
-        if follower_tip_info.stacks_tip_height == new_tip_info.stacks_tip_height {
-            break;
-        }
         eprintln!(
             "\nFollower is at burn block {} stacks block {}\n",
-            follower_tip_info.burn_block_height, follower_tip_info.stacks_tip_height,
+            follower_tip_info.burn_block_height, follower_tip_info.stacks_tip_height
         );
-        sleep_ms(1000);
-    }
+        Ok(follower_tip_info.stacks_tip_height == new_tip_info.stacks_tip_height)
+    });
 
     // make sure we aren't just slow -- wait for the follower to do a few download passes
     let num_download_passes = pox_sync_comms.get_download_passes();
@@ -10068,14 +10069,15 @@ fn test_problematic_blocks_are_not_mined() {
         num_download_passes + 5
     );
 
-    while num_download_passes + 5 > pox_sync_comms.get_download_passes() {
-        sleep_ms(1000);
+    wait_for(30, || {
+        let download_passes = pox_sync_comms.get_download_passes();
         eprintln!(
-            "\nFollower has performed {} download passes; wait for {}\n",
-            pox_sync_comms.get_download_passes(),
+            "\nFollower has performed {download_passes} download passes; wait for {}\n",
             num_download_passes + 5
         );
-    }
+        Ok(download_passes >= num_download_passes + 5)
+    })
+    .expect("Failed waiting for follower to perform enough download passes");
 
     eprintln!(
         "\nFollower has performed {} download passes\n",
@@ -10674,15 +10676,15 @@ fn test_problematic_microblocks_are_not_mined() {
         sleep_ms(5_000);
     }
 
-    let tip_info = get_chain_info(&conf);
-
     // microblocks and blocks were all processed
-    assert_eq!(
-        tip_info.stacks_tip_height,
-        old_tip_info.stacks_tip_height + 5
-    );
+    wait_for(30, || {
+        let tip_info = get_chain_info(&conf);
+        Ok(tip_info.stacks_tip_height == old_tip_info.stacks_tip_height + 5)
+    })
+    .expect("Failed waiting for microblocks to be processed");
+
     // no microblocks considered problematic
-    assert_eq!(all_new_files.len(), 0);
+    assert!(all_new_files.is_empty());
 
     // one microblock contained tx_exceeds
     let microblocks = test_observer::get_microblocks();
@@ -10741,14 +10743,13 @@ fn test_problematic_microblocks_are_not_mined() {
     );
 
     // wait for runloop to advance
-    loop {
-        sleep_ms(1_000);
+    wait_for(30, || {
         let sortdb = btc_regtest_controller.sortdb_mut();
         let new_tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn()).unwrap();
-        if new_tip.block_height > tip.block_height {
-            break;
-        }
-    }
+        Ok(new_tip.block_height > tip.block_height)
+    })
+    .expect("Failed waiting for runloop to advance");
+
     let cur_ast_rules = {
         let sortdb = btc_regtest_controller.sortdb_mut();
         let tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn()).unwrap();
@@ -10779,13 +10780,14 @@ fn test_problematic_microblocks_are_not_mined() {
     }
 
     // sleep a little longer before checking tip info; this should help with test flakiness
-    sleep_ms(10_000);
-    let tip_info = get_chain_info(&conf);
+    wait_for(30, || {
+        let tip_info = get_chain_info(&conf);
+        Ok(tip_info.stacks_tip_height >= old_tip_info.stacks_tip_height + 5)
+    })
+    .expect("Failed waiting for microblocks to be processed");
 
-    // all microblocks were processed
-    assert!(tip_info.stacks_tip_height >= old_tip_info.stacks_tip_height + 5);
     // none were problematic
-    assert_eq!(all_new_files.len(), 0);
+    assert!(all_new_files.is_empty());
 
     // recently-submitted problematic transactions are not in the mempool
     // (but old ones that were already mined, and thus never considered, could still be present)
@@ -10824,18 +10826,15 @@ fn test_problematic_microblocks_are_not_mined() {
         follower_conf.node.p2p_bind, follower_conf.node.rpc_bind
     );
 
-    let deadline = get_epoch_time_secs() + 300;
-    while get_epoch_time_secs() < deadline {
+    // Do not unwrap as we may just be slow
+    let _ = wait_for(300, || {
         let follower_tip_info = get_chain_info(&follower_conf);
-        if follower_tip_info.stacks_tip_height == new_tip_info.stacks_tip_height {
-            break;
-        }
         eprintln!(
             "\nFollower is at burn block {} stacks block {}\n",
             follower_tip_info.burn_block_height, follower_tip_info.stacks_tip_height,
         );
-        sleep_ms(1000);
-    }
+        Ok(follower_tip_info.stacks_tip_height == new_tip_info.stacks_tip_height)
+    });
 
     // make sure we aren't just slow -- wait for the follower to do a few download passes
     let num_download_passes = pox_sync_comms.get_download_passes();
@@ -10845,14 +10844,15 @@ fn test_problematic_microblocks_are_not_mined() {
         num_download_passes + 5
     );
 
-    while num_download_passes + 5 > pox_sync_comms.get_download_passes() {
-        sleep_ms(1000);
+    wait_for(30, || {
+        let download_passes = pox_sync_comms.get_download_passes();
         eprintln!(
-            "\nFollower has performed {} download passes; wait for {}\n",
-            pox_sync_comms.get_download_passes(),
+            "\nFollower has performed {download_passes} download passes; wait for {}\n",
             num_download_passes + 5
         );
-    }
+        Ok(download_passes >= num_download_passes + 5)
+    })
+    .expect("Failed waiting for follower to perform enough download passes");
 
     eprintln!(
         "\nFollower has performed {} download passes\n",
@@ -11056,15 +11056,15 @@ fn test_problematic_microblocks_are_not_relayed_or_stored() {
         sleep_ms(5_000);
     }
 
-    let tip_info = get_chain_info(&conf);
+    // microblocks and blocks were all processed
+    wait_for(30, || {
+        let tip_info = get_chain_info(&conf);
+        Ok(tip_info.stacks_tip_height == old_tip_info.stacks_tip_height + 5)
+    })
+    .expect("Failed waiting for microblocks to be processed");
 
-    // microblocks were all processed
-    assert_eq!(
-        tip_info.stacks_tip_height,
-        old_tip_info.stacks_tip_height + 5
-    );
     // no microblocks considered problematic
-    assert_eq!(all_new_files.len(), 0);
+    assert!(all_new_files.is_empty());
 
     // one microblock contained tx_exceeds
     let microblocks = test_observer::get_microblocks();
@@ -11102,14 +11102,13 @@ fn test_problematic_microblocks_are_not_relayed_or_stored() {
     btc_regtest_controller.build_next_block(1);
 
     // wait for runloop to advance
-    loop {
-        sleep_ms(1_000);
+    wait_for(30, || {
         let sortdb = btc_regtest_controller.sortdb_mut();
         let new_tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn()).unwrap();
-        if new_tip.block_height > tip.block_height {
-            break;
-        }
-    }
+        Ok(new_tip.block_height > tip.block_height)
+    })
+    .expect("Failed waiting for runloop to advance");
+
     let cur_ast_rules = {
         let sortdb = btc_regtest_controller.sortdb_mut();
         let tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn()).unwrap();
@@ -11185,11 +11184,12 @@ fn test_problematic_microblocks_are_not_relayed_or_stored() {
     }
 
     // sleep a little longer before checking tip info; this should help with test flakiness
-    sleep_ms(10_000);
-    let tip_info = get_chain_info(&conf);
+    wait_for(30, || {
+        let tip_info = get_chain_info(&conf);
+        Ok(tip_info.stacks_tip_height >= old_tip_info.stacks_tip_height + 5)
+    })
+    .expect("Failed waiting for microblocks to be processed");
 
-    // all microblocks were processed
-    assert!(tip_info.stacks_tip_height >= old_tip_info.stacks_tip_height + 5);
     // at least one was problematic.
     // the miner might make multiple microblocks (only some of which are confirmed), so also check
     // the event observer to see that we actually picked up tx_high
@@ -11244,22 +11244,15 @@ fn test_problematic_microblocks_are_not_relayed_or_stored() {
         follower_conf.node.p2p_bind, follower_conf.node.rpc_bind
     );
 
-    let deadline = get_epoch_time_secs() + 300;
-    while get_epoch_time_secs() < deadline {
+    // Do not unwrap as we may just be slow
+    let _ = wait_for(300, || {
         let follower_tip_info = get_chain_info(&follower_conf);
-        if follower_tip_info.stacks_tip_height == new_tip_info.stacks_tip_height
-            || follower_tip_info.stacks_tip_height == bad_block_height
-        {
-            break;
-        }
         eprintln!(
-            "\nFollower is at burn block {} stacks block {} (bad_block is {})\n",
-            follower_tip_info.burn_block_height,
-            follower_tip_info.stacks_tip_height,
-            bad_block_height
+            "\nFollower is at burn block {} stacks block {}\n",
+            follower_tip_info.burn_block_height, follower_tip_info.stacks_tip_height,
         );
-        sleep_ms(1000);
-    }
+        Ok(follower_tip_info.stacks_tip_height == new_tip_info.stacks_tip_height)
+    });
 
     // make sure we aren't just slow -- wait for the follower to do a few download passes
     let num_download_passes = pox_sync_comms.get_download_passes();
@@ -11269,15 +11262,15 @@ fn test_problematic_microblocks_are_not_relayed_or_stored() {
         num_download_passes + 5
     );
 
-    while num_download_passes + 5 > pox_sync_comms.get_download_passes() {
-        sleep_ms(1000);
+    wait_for(30, || {
+        let download_passes = pox_sync_comms.get_download_passes();
         eprintln!(
-            "\nFollower has performed {} download passes; wait for {}\n",
-            pox_sync_comms.get_download_passes(),
+            "\nFollower has performed {download_passes} download passes; wait for {}\n",
             num_download_passes + 5
         );
-    }
-
+        Ok(download_passes >= num_download_passes + 5)
+    })
+    .expect("Failed waiting for follower to perform enough download passes");
     eprintln!(
         "\nFollower has performed {} download passes\n",
         pox_sync_comms.get_download_passes()
@@ -12476,18 +12469,15 @@ fn bitcoin_reorg_flap_with_follower() {
     follower_conf.node.seed = vec![0x01; 32];
     follower_conf.node.local_peer_seed = vec![0x02; 32];
 
-    let mut rng = rand::thread_rng();
-    let mut buf = [0u8; 8];
-    rng.fill_bytes(&mut buf);
-
-    let rpc_port = u16::from_be_bytes(buf[0..2].try_into().unwrap()).saturating_add(1025) - 1; // use a non-privileged port between 1024 and 65534
-    let p2p_port = u16::from_be_bytes(buf[2..4].try_into().unwrap()).saturating_add(1025) - 1; // use a non-privileged port between 1024 and 65534
+    let rpc_port = gen_random_port();
+    let p2p_port = gen_random_port();
 
     let localhost = "127.0.0.1";
-    follower_conf.node.rpc_bind = format!("{}:{}", &localhost, rpc_port);
-    follower_conf.node.p2p_bind = format!("{}:{}", &localhost, p2p_port);
-    follower_conf.node.data_url = format!("http://{}:{}", &localhost, rpc_port);
-    follower_conf.node.p2p_address = format!("{}:{}", &localhost, p2p_port);
+    follower_conf.node.rpc_bind = format!("{localhost}:{rpc_port}");
+    follower_conf.node.p2p_bind = format!("{localhost}:{p2p_port}");
+    follower_conf.node.data_url = format!("http://{localhost}:{rpc_port}");
+    follower_conf.node.p2p_address = format!("{localhost}:{p2p_port}");
+    follower_conf.node.pox_sync_sample_secs = 30;
 
     let run_loop_thread = thread::spawn(move || miner_run_loop.start(None, 0));
     wait_for_runloop(&miner_blocks_processed);
@@ -12667,15 +12657,8 @@ fn mock_miner_replay() {
     follower_conf.node.seed = vec![0x01; 32];
     follower_conf.node.local_peer_seed = vec![0x02; 32];
 
-    let mut rng = rand::thread_rng();
-
-    let (rpc_port, p2p_port) = loop {
-        let a = rng.gen_range(1024..u16::MAX); // use a non-privileged port between 1024 and 65534
-        let b = rng.gen_range(1024..u16::MAX); // use a non-privileged port between 1024 and 65534
-        if a != b {
-            break (a, b);
-        }
-    };
+    let rpc_port = gen_random_port();
+    let p2p_port = gen_random_port();
 
     let localhost = "127.0.0.1";
     follower_conf.node.rpc_bind = format!("{localhost}:{rpc_port}");
@@ -12810,7 +12793,9 @@ fn listunspent_max_utxos() {
     }
 
     let (mut conf, _miner_account) = neon_integration_test_conf();
-    let prom_bind = format!("{}:{}", "127.0.0.1", 6000);
+    let prom_port = gen_random_port();
+    let localhost = "127.0.0.1";
+    let prom_bind = format!("{localhost}:{prom_port}");
     conf.node.prometheus_bind = Some(prom_bind.clone());
 
     conf.burnchain.max_rbf = 1000000;
@@ -12856,7 +12841,9 @@ fn start_stop_bitcoind() {
     }
 
     let (mut conf, _miner_account) = neon_integration_test_conf();
-    let prom_bind = format!("{}:{}", "127.0.0.1", 6000);
+    let prom_port = gen_random_port();
+    let localhost = "127.0.0.1";
+    let prom_bind = format!("{localhost}:{prom_port}");
     conf.node.prometheus_bind = Some(prom_bind.clone());
 
     conf.burnchain.max_rbf = 1000000;

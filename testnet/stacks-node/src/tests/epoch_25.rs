@@ -23,6 +23,7 @@ use stacks_common::types::chainstate::StacksPrivateKey;
 
 use crate::config::{EventKeyType, EventObserverConfig, InitialBalance};
 use crate::tests::bitcoin_regtest::BitcoinCoreController;
+use crate::tests::nakamoto_integrations::wait_for;
 use crate::tests::neon_integrations::{
     get_account, get_chain_info, neon_integration_test_conf, next_block_and_wait, submit_tx,
     test_observer, wait_for_runloop,
@@ -169,17 +170,25 @@ fn microblocks_disabled() {
     submit_tx(&http_origin, &tx);
 
     // wait until just before epoch 2.5
-    loop {
+    wait_for(120, || {
         let tip_info = get_chain_info(&conf);
         if tip_info.burn_block_height >= epoch_2_5 - 2 {
-            break;
+            return Ok(true);
         }
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    }
+        Ok(false)
+    })
+    .expect("Failed to wait until just before epoch 2.5");
 
+    let old_tip_info = get_chain_info(&conf);
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    wait_for(30, || {
+        let tip_info = get_chain_info(&conf);
+        Ok(tip_info.burn_block_height >= old_tip_info.burn_block_height + 3)
+    })
+    .expect("Failed to process block");
 
     info!("Test passed processing 2.5");
     let account = get_account(&http_origin, &spender_1_addr);
@@ -195,12 +204,15 @@ fn microblocks_disabled() {
     let mut last_block_height = get_chain_info(&conf).burn_block_height;
     for _i in 0..5 {
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-        let tip_info = get_chain_info(&conf);
-        if tip_info.burn_block_height > last_block_height {
-            last_block_height = tip_info.burn_block_height;
-        } else {
-            panic!("FATAL: failed to mine");
-        }
+        wait_for(30, || {
+            let tip_info = get_chain_info(&conf);
+            if tip_info.burn_block_height > last_block_height {
+                last_block_height = tip_info.burn_block_height;
+                return Ok(true);
+            }
+            Ok(false)
+        })
+        .expect("Failed to mine");
     }
 
     // second transaction should not have been processed!
@@ -226,12 +238,15 @@ fn microblocks_disabled() {
     let mut last_block_height = get_chain_info(&conf).burn_block_height;
     for _i in 0..2 {
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-        let tip_info = get_chain_info(&conf);
-        if tip_info.burn_block_height > last_block_height {
-            last_block_height = tip_info.burn_block_height;
-        } else {
-            panic!("FATAL: failed to mine");
-        }
+        wait_for(30, || {
+            let tip_info = get_chain_info(&conf);
+            if tip_info.burn_block_height > last_block_height {
+                last_block_height = tip_info.burn_block_height;
+                return Ok(true);
+            }
+            Ok(false)
+        })
+        .expect("Failed to mine");
     }
 
     let miner_nonce_after_microblock_assembly = get_account(&http_origin, &miner_account).nonce;
@@ -265,12 +280,15 @@ fn microblocks_disabled() {
     let mut last_block_height = get_chain_info(&conf).burn_block_height;
     for _i in 0..2 {
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-        let tip_info = get_chain_info(&conf);
-        if tip_info.burn_block_height > last_block_height {
-            last_block_height = tip_info.burn_block_height;
-        } else {
-            panic!("FATAL: failed to mine");
-        }
+        wait_for(30, || {
+            let tip_info = get_chain_info(&conf);
+            if tip_info.burn_block_height > last_block_height {
+                last_block_height = tip_info.burn_block_height;
+                return Ok(true);
+            }
+            Ok(false)
+        })
+        .expect("Failed to mine");
     }
 
     let miner_nonce_after_microblock_confirmation = get_account(&http_origin, &miner_account).nonce;

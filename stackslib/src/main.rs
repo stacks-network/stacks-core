@@ -36,6 +36,8 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs::File;
 use std::io::prelude::*;
 use std::io::BufReader;
+use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
+use std::time::Duration;
 use std::{env, fs, io, process, thread};
 
 use blockstack_lib::burnchains::bitcoin::{spv, BitcoinNetworkType};
@@ -62,10 +64,12 @@ use blockstack_lib::clarity::vm::ClarityVersion;
 use blockstack_lib::core::{MemPoolDB, *};
 use blockstack_lib::cost_estimates::metrics::UnitMetric;
 use blockstack_lib::cost_estimates::UnitEstimator;
+use blockstack_lib::net::api::getinfo::RPCPeerInfoData;
 use blockstack_lib::net::db::LocalPeer;
+use blockstack_lib::net::httpcore::{send_http_request, StacksHttpRequest};
 use blockstack_lib::net::p2p::PeerNetwork;
 use blockstack_lib::net::relay::Relayer;
-use blockstack_lib::net::StacksMessage;
+use blockstack_lib::net::{GetNakamotoInvData, HandshakeData, StacksMessage, StacksMessageType};
 use blockstack_lib::util_lib::db::sqlite_open;
 use blockstack_lib::util_lib::strings::UrlString;
 use blockstack_lib::{clarity_cli, cli};
@@ -76,7 +80,7 @@ use stacks_common::codec::{read_next, StacksMessageCodec};
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId,
 };
-use stacks_common::types::net::PeerAddress;
+use stacks_common::types::net::{PeerAddress, PeerHost};
 use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::types::MempoolCollectionBehavior;
 use stacks_common::util::hash::{hex_bytes, to_hex, Hash160};
@@ -84,6 +88,164 @@ use stacks_common::util::retry::LogReader;
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 use stacks_common::util::vrf::VRFProof;
 use stacks_common::util::{get_epoch_time_ms, sleep_ms};
+
+struct P2PSession {
+    pub local_peer: LocalPeer,
+    peer_info: RPCPeerInfoData,
+    burn_block_hash: BurnchainHeaderHash,
+    stable_burn_block_hash: BurnchainHeaderHash,
+    tcp_socket: TcpStream,
+    seq: u32,
+}
+
+impl P2PSession {
+    /// Make a StacksMessage.  Sign it and set a sequence number.
+    fn make_peer_message(&mut self, payload: StacksMessageType) -> Result<StacksMessage, String> {
+        let mut msg = StacksMessage::new(
+            self.peer_info.peer_version,
+            self.peer_info.network_id,
+            self.peer_info.burn_block_height,
+            &self.burn_block_hash,
+            self.peer_info.stable_burn_block_height,
+            &self.stable_burn_block_hash,
+            payload,
+        );
+
+        msg.sign(self.seq, &self.local_peer.private_key)
+            .map_err(|e| format!("Failed to sign message {:?}: {:?}", &msg, &e))?;
+        self.seq = self.seq.wrapping_add(1);
+
+        Ok(msg)
+    }
+
+    /// Send a p2p message.
+    /// Returns error text on failure.
+    fn send_peer_message(&mut self, msg: StacksMessage) -> Result<(), String> {
+        msg.consensus_serialize(&mut self.tcp_socket)
+            .map_err(|e| format!("Failed to send message {:?}: {:?}", &msg, &e))
+    }
+
+    /// Receive a p2p message.
+    /// Returns error text on failure.
+    fn recv_peer_message(&mut self) -> Result<StacksMessage, String> {
+        let msg: StacksMessage = read_next(&mut self.tcp_socket)
+            .map_err(|e| format!("Failed to receive message: {:?}", &e))?;
+        Ok(msg)
+    }
+
+    /// Begin a p2p session.
+    /// Synthesizes a LocalPeer from the remote peer's responses to /v2/info and /v2/pox.
+    /// Performs the initial handshake for you.
+    ///
+    /// Returns the session handle on success.
+    /// Returns error text on failure.
+    pub fn begin(peer_addr: SocketAddr, data_port: u16) -> Result<Self, String> {
+        let mut data_addr = peer_addr.clone();
+        data_addr.set_port(data_port);
+
+        // get /v2/info
+        let peer_info = send_http_request(
+            &format!("{}", data_addr.ip()),
+            data_addr.port(),
+            StacksHttpRequest::new_getinfo(PeerHost::from(data_addr.clone()), None)
+                .with_header("Connection".to_string(), "close".to_string()),
+            Duration::from_secs(60),
+        )
+        .map_err(|e| format!("Failed to query /v2/info: {:?}", &e))?
+        .decode_peer_info()
+        .map_err(|e| format!("Failed to decode response from /v2/info: {:?}", &e))?;
+
+        // convert `pox_consensus` and `stable_pox_consensus` into their respective burn block
+        // hashes
+        let sort_info = send_http_request(
+            &format!("{}", data_addr.ip()),
+            data_addr.port(),
+            StacksHttpRequest::new_get_sortition_consensus(
+                PeerHost::from(data_addr.clone()),
+                &peer_info.pox_consensus,
+            )
+            .with_header("Connection".to_string(), "close".to_string()),
+            Duration::from_secs(60),
+        )
+        .map_err(|e| format!("Failed to query /v3/sortitions: {:?}", &e))?
+        .decode_sortition_info()
+        .map_err(|e| format!("Failed to decode response from /v3/sortitions: {:?}", &e))?
+        .pop()
+        .ok_or_else(|| format!("No sortition returned for {}", &peer_info.pox_consensus))?;
+
+        let stable_sort_info = send_http_request(
+            &format!("{}", data_addr.ip()),
+            data_addr.port(),
+            StacksHttpRequest::new_get_sortition_consensus(
+                PeerHost::from(data_addr.clone()),
+                &peer_info.stable_pox_consensus,
+            )
+            .with_header("Connection".to_string(), "close".to_string()),
+            Duration::from_secs(60),
+        )
+        .map_err(|e| format!("Failed to query stable /v3/sortitions: {:?}", &e))?
+        .decode_sortition_info()
+        .map_err(|e| {
+            format!(
+                "Failed to decode response from stable /v3/sortitions: {:?}",
+                &e
+            )
+        })?
+        .pop()
+        .ok_or_else(|| {
+            format!(
+                "No sortition returned for {}",
+                &peer_info.stable_pox_consensus
+            )
+        })?;
+
+        let burn_block_hash = sort_info.burn_block_hash;
+        let stable_burn_block_hash = stable_sort_info.burn_block_hash;
+
+        let local_peer = LocalPeer::new(
+            peer_info.network_id,
+            peer_info.parent_network_id,
+            PeerAddress::from_socketaddr(&peer_addr),
+            peer_addr.port(),
+            Some(StacksPrivateKey::new()),
+            u64::MAX,
+            UrlString::try_from(format!("http://127.0.0.1:{}", data_port).as_str()).unwrap(),
+            vec![],
+        );
+
+        let tcp_socket = TcpStream::connect(&peer_addr)
+            .map_err(|e| format!("Failed to open {:?}: {:?}", &peer_addr, &e))?;
+
+        let mut session = Self {
+            local_peer,
+            peer_info,
+            burn_block_hash,
+            stable_burn_block_hash,
+            tcp_socket,
+            seq: 0,
+        };
+
+        // perform the handshake
+        let handshake_data =
+            StacksMessageType::Handshake(HandshakeData::from_local_peer(&session.local_peer));
+        let handshake = session.make_peer_message(handshake_data)?;
+        session.send_peer_message(handshake)?;
+
+        let resp = session.recv_peer_message()?;
+        match resp.payload {
+            StacksMessageType::HandshakeAccept(..)
+            | StacksMessageType::StackerDBHandshakeAccept(..) => {}
+            x => {
+                return Err(format!(
+                    "Peer returned unexpected message (expected HandshakeAccept variant): {:?}",
+                    &x
+                ));
+            }
+        }
+
+        Ok(session)
+    }
+}
 
 #[cfg_attr(test, mutants::skip)]
 fn main() {
@@ -972,6 +1134,36 @@ simulating a miner.
         analyze_sortition_mev(argv);
         // should be unreachable
         process::exit(1);
+    }
+
+    if argv[1] == "getnakamotoinv" {
+        if argv.len() < 5 {
+            eprintln!(
+                "Usage: {} getnakamotoinv HOST:PORT DATA_PORT CONSENSUS_HASH",
+                &argv[0]
+            );
+            process::exit(1);
+        }
+
+        let peer_addr: SocketAddr = argv[2].to_socket_addrs().unwrap().next().unwrap();
+        let data_port: u16 = argv[3].parse().unwrap();
+        let ch = ConsensusHash::from_hex(&argv[4]).unwrap();
+
+        let mut session = P2PSession::begin(peer_addr, data_port).unwrap();
+
+        // send getnakamotoinv
+        let get_nakamoto_inv =
+            StacksMessageType::GetNakamotoInv(GetNakamotoInvData { consensus_hash: ch });
+
+        let msg = session.make_peer_message(get_nakamoto_inv).unwrap();
+        session.send_peer_message(msg).unwrap();
+        let resp = session.recv_peer_message().unwrap();
+
+        let StacksMessageType::NakamotoInv(inv) = &resp.payload else {
+            panic!("Got spurious message: {:?}", &resp);
+        };
+
+        println!("{:?}", inv);
     }
 
     if argv[1] == "replay-chainstate" {
