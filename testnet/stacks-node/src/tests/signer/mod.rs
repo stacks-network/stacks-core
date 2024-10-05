@@ -59,7 +59,7 @@ use stacks_signer::config::{build_signer_config_tomls, GlobalConfig as SignerCon
 use stacks_signer::runloop::{SignerResult, State, StateInfo};
 use stacks_signer::{Signer, SpawnedSigner};
 
-use super::nakamoto_integrations::wait_for;
+use super::nakamoto_integrations::{check_nakamoto_empty_block_heuristics, wait_for};
 use crate::config::{Config as NeonConfig, EventKeyType, EventObserverConfig, InitialBalance};
 use crate::neon::{Counters, TestFlag};
 use crate::run_loop::boot_nakamoto;
@@ -260,7 +260,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
             }
             info!("Finished signers: {:?}", finished_signers.iter().collect::<Vec<_>>());
             Ok(finished_signers.len() == self.spawned_signers.len())
-        }).unwrap();
+        }).expect("Timed out while waiting for the signers to be registered");
     }
 
     pub fn wait_for_cycle(&mut self, timeout_secs: u64, reward_cycle: u64) {
@@ -545,6 +545,8 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
     }
 
     pub fn shutdown(self) {
+        check_nakamoto_empty_block_heuristics();
+
         self.running_nodes
             .coord_channel
             .lock()
@@ -605,7 +607,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
     ) -> Result<(), String> {
         wait_for(timeout_secs, || {
             let stackerdb_events = test_observer::get_stackerdb_chunks();
-            let block_rejections = stackerdb_events
+            let block_rejections: HashSet<_> = stackerdb_events
                 .into_iter()
                 .flat_map(|chunk| chunk.modified_slots)
                 .filter_map(|chunk| {

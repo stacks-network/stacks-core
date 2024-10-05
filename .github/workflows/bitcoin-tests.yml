@@ -32,7 +32,6 @@ jobs:
           - tests::bitcoin_regtest::bitcoind_integration_test
           - tests::integrations::integration_test_get_info
           - tests::neon_integrations::antientropy_integration_test
-          - tests::neon_integrations::bad_microblock_pubkey
           - tests::neon_integrations::bitcoind_forking_test
           - tests::neon_integrations::bitcoind_integration_test
           - tests::neon_integrations::block_large_tx_integration_test
@@ -43,21 +42,26 @@ jobs:
           - tests::neon_integrations::fuzzed_median_fee_rate_estimation_test_window10
           - tests::neon_integrations::fuzzed_median_fee_rate_estimation_test_window5
           - tests::neon_integrations::liquid_ustx_integration
-          - tests::neon_integrations::microblock_fork_poison_integration_test
-          - tests::neon_integrations::microblock_integration_test
+          # Microblock tests that are no longer needed on every CI run
+          #  (microblocks are unsupported starting in Epoch 2.5)
+          # - tests::neon_integrations::bad_microblock_pubkey
+          # - tests::neon_integrations::microblock_fork_poison_integration_test
+          # - tests::neon_integrations::microblock_integration_test
+          # - tests::neon_integrations::microblock_limit_hit_integration_test
+          # - tests::neon_integrations::test_problematic_microblocks_are_not_mined
+          # - tests::neon_integrations::test_problematic_microblocks_are_not_relayed_or_stored
+          # - tests::neon_integrations::size_overflow_unconfirmed_invalid_stream_microblocks_integration_test
+          # - tests::neon_integrations::size_overflow_unconfirmed_microblocks_integration_test
+          # - tests::neon_integrations::size_overflow_unconfirmed_stream_microblocks_integration_test
+          # - tests::neon_integrations::runtime_overflow_unconfirmed_microblocks_integration_test
           # Disable this flaky test. Microblocks are no longer supported anyways.
           # - tests::neon_integrations::microblock_large_tx_integration_test_FLAKY
-          - tests::neon_integrations::microblock_limit_hit_integration_test
           - tests::neon_integrations::miner_submit_twice
           - tests::neon_integrations::mining_events_integration_test
           - tests::neon_integrations::pox_integration_test
           - tests::neon_integrations::push_boot_receipts
-          - tests::neon_integrations::runtime_overflow_unconfirmed_microblocks_integration_test
           - tests::neon_integrations::should_fix_2771
           - tests::neon_integrations::size_check_integration_test
-          - tests::neon_integrations::size_overflow_unconfirmed_invalid_stream_microblocks_integration_test
-          - tests::neon_integrations::size_overflow_unconfirmed_microblocks_integration_test
-          - tests::neon_integrations::size_overflow_unconfirmed_stream_microblocks_integration_test
           - tests::neon_integrations::stx_delegate_btc_integration_test
           - tests::neon_integrations::stx_transfer_btc_integration_test
           - tests::neon_integrations::stack_stx_burn_op_test
@@ -66,8 +70,6 @@ jobs:
           - tests::neon_integrations::test_flash_block_skip_tenure
           - tests::neon_integrations::test_problematic_blocks_are_not_mined
           - tests::neon_integrations::test_problematic_blocks_are_not_relayed_or_stored
-          - tests::neon_integrations::test_problematic_microblocks_are_not_mined
-          - tests::neon_integrations::test_problematic_microblocks_are_not_relayed_or_stored
           - tests::neon_integrations::test_problematic_txs_are_not_stored
           - tests::neon_integrations::use_latest_tip_integration_test
           - tests::neon_integrations::confirm_unparsed_ongoing_ops
@@ -81,7 +83,7 @@ jobs:
           - tests::epoch_25::microblocks_disabled
           - tests::should_succeed_handling_malformed_and_valid_txs
           - tests::nakamoto_integrations::simple_neon_integration
-          - tests::nakamoto_integrations::simple_neon_integration_with_flash_blocks_on_epoch_3
+          - tests::nakamoto_integrations::flash_blocks_on_epoch_3
           - tests::nakamoto_integrations::mine_multiple_per_tenure_integration
           - tests::nakamoto_integrations::block_proposal_api_endpoint
           - tests::nakamoto_integrations::miner_writes_proposed_block_to_stackerdb
@@ -90,6 +92,7 @@ jobs:
           - tests::nakamoto_integrations::follower_bootup
           - tests::nakamoto_integrations::forked_tenure_is_ignored
           - tests::nakamoto_integrations::nakamoto_attempt_time
+          - tests::nakamoto_integrations::skip_mining_long_tx
           - tests::signer::v0::block_proposal_rejection
           - tests::signer::v0::miner_gather_signatures
           - tests::signer::v0::end_of_tenure
