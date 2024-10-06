@@ -558,16 +558,23 @@ fn miner_gather_signatures() {
     // Test prometheus metrics response
     #[cfg(feature = "monitoring_prom")]
     {
+        let naka_blocks_confirmed = signer_test
+            .running_nodes
+            .nakamoto_blocks_mined
+            .load(Ordering::SeqCst);
+        info!("Nakamoto blocks confirmed: {}", naka_blocks_confirmed);
         let metrics_response = signer_test.get_signer_metrics();
+
+        let expected_blocks = (naka_blocks_confirmed as usize) * num_signers;
 
         // Because 5 signers are running in the same process, the prometheus metrics
         // are incremented once for every signer. This is why we expect the metric to be
-        // `5`, even though there is only one block proposed.
-        let expected_result = format!("stacks_signer_block_proposals_received {}", num_signers);
+        // `5` * `naka_blocks_confirmed`.
+        let expected_result = format!("stacks_signer_block_proposals_received {}", expected_blocks);
         assert!(metrics_response.contains(&expected_result));
         let expected_result = format!(
             "stacks_signer_block_responses_sent{{response_type=\"accepted\"}} {}",
-            num_signers
+            expected_blocks
         );
         assert!(metrics_response.contains(&expected_result));
     }
