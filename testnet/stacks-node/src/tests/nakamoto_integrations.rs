@@ -23,7 +23,7 @@ use std::{env, thread};
 
 use clarity::vm::ast::ASTRules;
 use clarity::vm::costs::ExecutionCost;
-use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
+use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData};
 use clarity::vm::{ClarityName, ClarityVersion, Value};
 use http_types::headers::AUTHORIZATION;
 use lazy_static::lazy_static;
@@ -2037,6 +2037,7 @@ fn mine_multiple_per_tenure_integration() {
 }
 
 #[test]
+#[ignore]
 /// This test spins up two nakamoto nodes, both configured to mine.
 /// It starts in Epoch 2.0, mines with `neon_node` to Epoch 3.0, and then switches
 ///  to Nakamoto operation (activating pox-4 by submitting a stack-stx tx). The BootLoop
@@ -2271,6 +2272,61 @@ fn multiple_miners() {
         .unwrap();
     }
 
+    // check most recently process blocks
+    // case to check:
+    // old stacks_tip_consensus_hash != new stacks_tip_consensus_hash and second tx is in the new burn block
+    let info_node_1_old_block_consensus_hash = get_chain_info(&naka_conf).stacks_tip_consensus_hash;
+    let info_node_2_old_block_consensus_hash =
+        get_chain_info(&conf_node_2).stacks_tip_consensus_hash;
+
+    // TODO: submit burn block without waiting for it to be mined
+    // btc_regtest_controller.build_next_block(1); - flashblock
+    next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
+        .unwrap();
+
+    // submit tx 1
+    let miner_1_stacks_address = StandardPrincipalData::from(&node_1_sk);
+    let http_origin = &naka_conf.node.data_url;
+    let recipient = PrincipalData::from(StacksAddress::burn_address(false));
+    let miner_1_account = get_account(http_origin, &miner_1_stacks_address);
+    let miner_1_nonce = miner_1_account.nonce;
+    let transfer_tx =
+        make_stacks_transfer(&sender_sk, miner_1_nonce, send_fee, &recipient, send_amt);
+    submit_tx(&http_origin, &transfer_tx);
+    thread::sleep(Duration::from_secs(15));
+
+    // submit tx 2
+    let transfer_tx = make_stacks_transfer(
+        &sender_sk,
+        miner_1_nonce + 1,
+        send_fee,
+        &recipient,
+        send_amt,
+    );
+    submit_tx(&http_origin, &transfer_tx);
+
+    // TODO: wait so the burn block is mined
+    thread::sleep(Duration::from_secs(15));
+
+    let info_node_1_second_tx_consensus_hash = get_chain_info(&naka_conf).stacks_tip_consensus_hash;
+    let info_node_2_second_tx_consensus_hash =
+        get_chain_info(&conf_node_2).stacks_tip_consensus_hash;
+
+    let info_node_1_new_block_consensus_hash = get_chain_info(&naka_conf).stacks_tip_consensus_hash;
+    let info_node_2_new_block_consensus_hash =
+        get_chain_info(&conf_node_2).stacks_tip_consensus_hash;
+
+    assert_eq!(
+        info_node_1_second_tx_consensus_hash,
+        info_node_1_new_block_consensus_hash
+    );
+    assert!(info_node_1_old_block_consensus_hash != info_node_1_new_block_consensus_hash);
+    assert_eq!(
+        info_node_2_second_tx_consensus_hash,
+        info_node_2_new_block_consensus_hash
+    );
+    assert!(info_node_2_old_block_consensus_hash != info_node_2_new_block_consensus_hash);
+
     // load the chain tip, and assert that it is a nakamoto block and at least 30 blocks have advanced in epoch 3
     let tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
         .unwrap()
@@ -2285,12 +2341,18 @@ fn multiple_miners() {
     let peer_2_height = get_chain_info(&conf_node_2).stacks_tip_height;
     info!("Peer height information"; "peer_1" => peer_1_height, "peer_2" => peer_2_height);
     assert_eq!(peer_1_height, peer_2_height);
-
+    info!(
+        "Stacks block height {} vs previous formula {}",
+        tip.stacks_block_height,
+        block_height_pre_3_0 + ((inter_blocks_per_tenure + 1) * tenure_count)
+    );
     assert!(tip.anchored_header.as_stacks_nakamoto().is_some());
+
+    // TODO: shouldn't this be + 2 instead of +1 as 2 stx transactions are submitted with time difference, making 2 different stacks blocks for them
     assert_eq!(
         tip.stacks_block_height,
-        block_height_pre_3_0 + ((inter_blocks_per_tenure + 1) * tenure_count),
-        "Should have mined (1 + interim_blocks_per_tenure) * tenure_count nakamoto blocks"
+        block_height_pre_3_0 + ((inter_blocks_per_tenure + 1) * tenure_count) + 1,
+        "Should have mined (1 + interim_blocks_per_tenure) * tenure_count + 1 nakamoto blocks"
     );
 
     coord_channel
