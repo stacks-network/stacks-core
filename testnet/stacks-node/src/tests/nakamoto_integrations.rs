@@ -1606,14 +1606,19 @@ fn simple_neon_integration() {
     {
         let prom_http_origin = format!("http://{}", prom_bind);
         let client = reqwest::blocking::Client::new();
-        let res = client
-            .get(&prom_http_origin)
-            .send()
-            .unwrap()
-            .text()
-            .unwrap();
-        let expected_result = format!("stacks_node_stacks_tip_height {}", tip.stacks_block_height);
-        assert!(res.contains(&expected_result));
+        let info = get_chain_info_result(&naka_conf).unwrap();
+        let stacks_tip_height = info.stacks_tip_height;
+        wait_for(10, || {
+            let res = client
+                .get(&prom_http_origin)
+                .send()
+                .unwrap()
+                .text()
+                .unwrap();
+            let expected_result = format!("stacks_node_stacks_tip_height {}", stacks_tip_height);
+            Ok(res.contains(&expected_result))
+        })
+        .expect("Timed out waiting for updated stacks tip height in prometheus metrics");
     }
 
     check_nakamoto_empty_block_heuristics();
