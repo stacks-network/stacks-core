@@ -1490,13 +1490,15 @@ fn simple_neon_integration() {
     {
         let prom_http_origin = format!("http://{}", prom_bind);
         let client = reqwest::blocking::Client::new();
+        let info = get_chain_info_result(&naka_conf).unwrap();
+        let stacks_tip_height = info.stacks_tip_height;
         let res = client
             .get(&prom_http_origin)
             .send()
             .unwrap()
             .text()
             .unwrap();
-        let expected_result = format!("stacks_node_stacks_tip_height {block_height_pre_3_0}");
+        let expected_result = format!("stacks_node_stacks_tip_height {stacks_tip_height}");
         assert!(res.contains(&expected_result));
     }
 
@@ -5979,33 +5981,6 @@ fn signer_chainstate() {
     let burnchain = naka_conf.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
 
-    // query for prometheus metrics
-    #[cfg(feature = "monitoring_prom")]
-    {
-        let (chainstate, _) = StacksChainState::open(
-            naka_conf.is_mainnet(),
-            naka_conf.burnchain.chain_id,
-            &naka_conf.get_chainstate_path_str(),
-            None,
-        )
-        .unwrap();
-        let block_height_pre_3_0 =
-            NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
-                .unwrap()
-                .unwrap()
-                .stacks_block_height;
-        let prom_http_origin = format!("http://{}", prom_bind);
-        let client = reqwest::blocking::Client::new();
-        let res = client
-            .get(&prom_http_origin)
-            .send()
-            .unwrap()
-            .text()
-            .unwrap();
-        let expected_result = format!("stacks_node_stacks_tip_height {block_height_pre_3_0}");
-        assert!(res.contains(&expected_result));
-    }
-
     info!("Nakamoto miner started...");
     blind_signer(&naka_conf, &signers, proposals_submitted.clone());
 
@@ -6600,21 +6575,6 @@ fn continue_tenure_extend() {
             .unwrap()
             .unwrap()
             .stacks_block_height;
-
-    // query for prometheus metrics
-    #[cfg(feature = "monitoring_prom")]
-    {
-        let prom_http_origin = format!("http://{}", prom_bind);
-        let client = reqwest::blocking::Client::new();
-        let res = client
-            .get(&prom_http_origin)
-            .send()
-            .unwrap()
-            .text()
-            .unwrap();
-        let expected_result = format!("stacks_node_stacks_tip_height {block_height_pre_3_0}");
-        assert!(res.contains(&expected_result));
-    }
 
     info!("Nakamoto miner started...");
     blind_signer(&naka_conf, &signers, proposals_submitted);
