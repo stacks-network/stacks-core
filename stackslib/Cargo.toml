@@ -104,6 +104,7 @@ stacks-common = { path = "../stacks-common", features = ["default", "testing"] }
 rstest = "0.17.0"
 rstest_reuse = "0.5.0"
 mutants = "0.0.3"
+rlimit = "0.10.2"
 
 [features]
 default = []

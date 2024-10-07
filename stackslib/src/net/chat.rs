@@ -609,6 +609,10 @@ impl ConversationP2P {
         }
     }
 
+    pub fn age(&self) -> u64 {
+        get_epoch_time_secs().saturating_sub(self.instantiated)
+    }
+
     pub fn set_public_key(&mut self, pubkey_opt: Option<Secp256k1PublicKey>) -> () {
         self.connection.set_public_key(pubkey_opt);
     }
@@ -1433,6 +1437,8 @@ impl ConversationP2P {
 
         // get neighbors at random as long as they're fresh, and as long as they're compatible with
         // the current system epoch.
+        // Alternate at random between serving public-only and public/private-mixed IPs, since for
+        // the time being, the remote peer has no way of asking for a particular subset.
         let mut neighbors = PeerDB::get_fresh_random_neighbors(
             peer_dbconn,
             self.network_id,
@@ -1441,6 +1447,7 @@ impl ConversationP2P {
             MAX_NEIGHBORS_DATA_LEN,
             chain_view.burn_block_height,
             false,
+            thread_rng().gen(),
         )
         .map_err(net_error::DBError)?;
 
@@ -1917,25 +1924,16 @@ impl ConversationP2P {
     /// Generates a Nack if we don't have this DB, or if the request's consensus hash is invalid.
     fn make_stacker_db_getchunkinv_response(
         network: &PeerNetwork,
+        naddr: NeighborAddress,
+        chainstate: &mut StacksChainState,
         getchunkinv: &StackerDBGetChunkInvData,
     ) -> Result<StacksMessageType, net_error> {
-        let local_peer = network.get_local_peer();
-        let burnchain_view = network.get_chain_view();
-
-        // remote peer's Stacks chain tip is different from ours, meaning it might have a different
-        // stackerdb configuration view (and we won't be able to authenticate their chunks, and
-        // vice versa)
-        if burnchain_view.rc_consensus_hash != getchunkinv.rc_consensus_hash {
-            debug!(
-                "{:?}: NACK StackerDBGetChunkInv; {} != {}",
-                local_peer, &burnchain_view.rc_consensus_hash, &getchunkinv.rc_consensus_hash
-            );
-            return Ok(StacksMessageType::Nack(NackData::new(
-                NackErrorCodes::StaleView,
-            )));
-        }
-
-        Ok(network.make_StackerDBChunksInv_or_Nack(&getchunkinv.contract_id))
+        Ok(network.make_StackerDBChunksInv_or_Nack(
+            naddr,
+            chainstate,
+            &getchunkinv.contract_id,
+            &getchunkinv.rc_consensus_hash,
+        ))
     }
 
     /// Handle an inbound StackerDBGetChunkInv request.
@@ -1943,10 +1941,16 @@ impl ConversationP2P {
     fn handle_stacker_db_getchunkinv(
         &mut self,
         network: &PeerNetwork,
+        chainstate: &mut StacksChainState,
         preamble: &Preamble,
         getchunkinv: &StackerDBGetChunkInvData,
     ) -> Result<ReplyHandleP2P, net_error> {
-        let response = ConversationP2P::make_stacker_db_getchunkinv_response(network, getchunkinv)?;
+        let response = ConversationP2P::make_stacker_db_getchunkinv_response(
+            network,
+            self.to_neighbor_address(),
+            chainstate,
+            getchunkinv,
+        )?;
         self.sign_and_reply(
             network.get_local_peer(),
             network.get_chain_view(),
@@ -2126,7 +2130,8 @@ impl ConversationP2P {
                 > (self.connection.options.max_block_push_bandwidth as f64)
         {
             debug!(
-                "Neighbor {:?} exceeded max block-push bandwidth of {} bytes/sec (currently at {})",
+                "{:?}: Neighbor {:?} exceeded max block-push bandwidth of {} bytes/sec (currently at {})",
+                &self,
                 &self.to_neighbor_key(),
                 self.connection.options.max_block_push_bandwidth,
                 self.stats.get_block_push_bandwidth()
@@ -2168,7 +2173,7 @@ impl ConversationP2P {
             && self.stats.get_microblocks_push_bandwidth()
                 > (self.connection.options.max_microblocks_push_bandwidth as f64)
         {
-            debug!("Neighbor {:?} exceeded max microblocks-push bandwidth of {} bytes/sec (currently at {})", &self.to_neighbor_key(), self.connection.options.max_microblocks_push_bandwidth, self.stats.get_microblocks_push_bandwidth());
+            debug!("{:?}: Neighbor {:?} exceeded max microblocks-push bandwidth of {} bytes/sec (currently at {})", self, &self.to_neighbor_key(), self.connection.options.max_microblocks_push_bandwidth, self.stats.get_microblocks_push_bandwidth());
             return self
                 .reply_nack(local_peer, chain_view, preamble, NackErrorCodes::Throttled)
                 .and_then(|handle| Ok(Some(handle)));
@@ -2205,7 +2210,7 @@ impl ConversationP2P {
             && self.stats.get_transaction_push_bandwidth()
                 > (self.connection.options.max_transaction_push_bandwidth as f64)
         {
-            debug!("Neighbor {:?} exceeded max transaction-push bandwidth of {} bytes/sec (currently at {})", &self.to_neighbor_key(), self.connection.options.max_transaction_push_bandwidth, self.stats.get_transaction_push_bandwidth());
+            debug!("{:?}: Neighbor {:?} exceeded max transaction-push bandwidth of {} bytes/sec (currently at {})", self, &self.to_neighbor_key(), self.connection.options.max_transaction_push_bandwidth, self.stats.get_transaction_push_bandwidth());
             return self
                 .reply_nack(local_peer, chain_view, preamble, NackErrorCodes::Throttled)
                 .and_then(|handle| Ok(Some(handle)));
@@ -2243,7 +2248,7 @@ impl ConversationP2P {
             && self.stats.get_stackerdb_push_bandwidth()
                 > (self.connection.options.max_stackerdb_push_bandwidth as f64)
         {
-            debug!("Neighbor {:?} exceeded max stackerdb-push bandwidth of {} bytes/sec (currently at {})", &self.to_neighbor_key(), self.connection.options.max_stackerdb_push_bandwidth, self.stats.get_stackerdb_push_bandwidth());
+            debug!("{:?}: Neighbor {:?} exceeded max stackerdb-push bandwidth of {} bytes/sec (currently at {})", self, &self.to_neighbor_key(), self.connection.options.max_stackerdb_push_bandwidth, self.stats.get_stackerdb_push_bandwidth());
             return self
                 .reply_nack(local_peer, chain_view, preamble, NackErrorCodes::Throttled)
                 .and_then(|handle| Ok(Some(handle)));
@@ -2282,7 +2287,7 @@ impl ConversationP2P {
             && self.stats.get_nakamoto_block_push_bandwidth()
                 > (self.connection.options.max_nakamoto_block_push_bandwidth as f64)
         {
-            debug!("Neighbor {:?} exceeded max Nakamoto block push bandwidth of {} bytes/sec (currently at {})", &self.to_neighbor_key(), self.connection.options.max_nakamoto_block_push_bandwidth, self.stats.get_nakamoto_block_push_bandwidth());
+            debug!("{:?}: Neighbor {:?} exceeded max Nakamoto block push bandwidth of {} bytes/sec (currently at {})", self, &self.to_neighbor_key(), self.connection.options.max_nakamoto_block_push_bandwidth, self.stats.get_nakamoto_block_push_bandwidth());
             return self
                 .reply_nack(local_peer, chain_view, preamble, NackErrorCodes::Throttled)
                 .and_then(|handle| Ok(Some(handle)));
@@ -2363,7 +2368,7 @@ impl ConversationP2P {
                 }
             }
             StacksMessageType::StackerDBGetChunkInv(ref getchunkinv) => {
-                self.handle_stacker_db_getchunkinv(network, &msg.preamble, getchunkinv)
+                self.handle_stacker_db_getchunkinv(network, chainstate, &msg.preamble, getchunkinv)
             }
             StacksMessageType::StackerDBGetChunk(ref getchunk) => {
                 self.handle_stacker_db_getchunk(network, &msg.preamble, getchunk)
@@ -2421,11 +2426,11 @@ impl ConversationP2P {
                 Ok(num_recved) => {
                     total_recved += num_recved;
                     if num_recved > 0 {
-                        debug!("{:?}: received {} bytes", self, num_recved);
+                        test_debug!("{:?}: received {} bytes", self, num_recved);
                         self.stats.last_recv_time = get_epoch_time_secs();
                         self.stats.bytes_rx += num_recved as u64;
                     } else {
-                        debug!("{:?}: received {} bytes, stopping", self, num_recved);
+                        test_debug!("{:?}: received {} bytes, stopping", self, num_recved);
                         break;
                     }
                 }
@@ -2442,7 +2447,7 @@ impl ConversationP2P {
                 }
             }
         }
-        debug!("{:?}: received {} bytes", self, total_recved);
+        test_debug!("{:?}: received {} bytes", self, total_recved);
         Ok(total_recved)
     }
 
@@ -2470,7 +2475,7 @@ impl ConversationP2P {
                 }
             }
         }
-        debug!("{:?}: sent {} bytes", self, total_sent);
+        test_debug!("{:?}: sent {} bytes", self, total_sent);
         Ok(total_sent)
     }
 

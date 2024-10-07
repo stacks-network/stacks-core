@@ -38,7 +38,7 @@ use crate::util::hash::{hex_bytes, to_hex, Sha256Sum};
 // per-thread Secp256k1 context
 thread_local!(static _secp256k1: Secp256k1<secp256k1::All> = Secp256k1::new());
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize, Hash)]
 pub struct Secp256k1PublicKey {
     // serde is broken for secp256k1, so do it ourselves
     #[serde(

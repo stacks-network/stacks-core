@@ -213,7 +213,7 @@ use super::{BurnchainController, Config, EventDispatcher, Keychain};
 use crate::burnchains::bitcoin_regtest_controller::{
     addr2str, burnchain_params_from_config, BitcoinRegtestController, OngoingBlockCommit,
 };
-use crate::burnchains::make_bitcoin_indexer;
+use crate::burnchains::{make_bitcoin_indexer, Error as BurnchainControllerError};
 use crate::chain_data::MinerStats;
 use crate::config::NodeConfig;
 use crate::globals::{NeonGlobals as Globals, RelayerDirective};
@@ -1715,6 +1715,10 @@ impl BlockMinerThread {
                         info!("Relayer: Stacks tip has changed to {}/{} since we last tried to mine a block in {} at burn height {}; attempt was {} (for Stacks tip {}/{})",
                                parent_consensus_hash, stacks_parent_header.anchored_header.block_hash(), prev_block.burn_hash, parent_block_burn_height, prev_block.attempt, &prev_block.parent_consensus_hash, &prev_block.anchored_block.header.parent_block);
                         best_attempt = cmp::max(best_attempt, prev_block.attempt);
+                        // Since the chain tip has changed, we should try to mine a new block, even
+                        // if it has less transactions than the previous block we mined, since that
+                        // previous block would now be a reorg.
+                        max_txs = 0;
                     } else {
                         info!("Relayer: Burn tip has changed to {} ({}) since we last tried to mine a block in {}",
                                &self.burn_block.burn_header_hash, self.burn_block.block_height, &prev_block.burn_hash);
@@ -2264,6 +2268,7 @@ impl BlockMinerThread {
             stacks_tip_height,
             pox_consensus,
             server_version,
+            network_id: self.config.get_burnchain_config().chain_id,
         }
     }
 
@@ -2340,23 +2345,24 @@ impl BlockMinerThread {
     }
 
     /// Read any mock signatures from stackerdb and respond to them
-    pub fn send_mock_miner_messages(&mut self) -> Result<(), ChainstateError> {
-        let miner_config = self.config.get_miner_config();
-        if !miner_config.pre_nakamoto_mock_signing {
-            debug!("Pre-Nakamoto mock signing is disabled");
-            return Ok(());
-        }
-
+    pub fn send_mock_miner_messages(&mut self) -> Result<(), String> {
         let burn_db_path = self.config.get_burn_db_file_path();
         let burn_db = SortitionDB::open(&burn_db_path, false, self.burnchain.pox_constants.clone())
             .expect("FATAL: could not open sortition DB");
-        let epoch_id = SortitionDB::get_stacks_epoch(burn_db.conn(), self.burn_block.block_height)?
+        let epoch_id = SortitionDB::get_stacks_epoch(burn_db.conn(), self.burn_block.block_height)
+            .map_err(|e| e.to_string())?
             .expect("FATAL: no epoch defined")
             .epoch_id;
         if epoch_id != StacksEpochId::Epoch25 {
             debug!("Mock miner messaging is disabled for non-epoch 2.5 blocks.";
                 "epoch_id" => epoch_id.to_string()
             );
+            return Ok(());
+        }
+
+        let miner_config = self.config.get_miner_config();
+        if !miner_config.pre_nakamoto_mock_signing {
+            debug!("Pre-Nakamoto mock signing is disabled");
             return Ok(());
         }
 
@@ -2374,25 +2380,30 @@ impl BlockMinerThread {
         }
 
         // find out which slot we're in. If we are not the latest sortition winner, we should not be sending anymore messages anyway
-        let stackerdbs = StackerDBs::connect(&self.config.get_stacker_db_file_path(), false)?;
-        let (_, miners_info) =
-            NakamotoChainState::make_miners_stackerdb_config(&burn_db, &self.burn_block)?;
-        let idx = miners_info.get_latest_winner_index();
-        let sortitions = miners_info.get_sortitions();
-        let election_sortition = *sortitions
-            .get(idx as usize)
-            .expect("FATAL: latest winner index out of bounds");
+        let ih = burn_db.index_handle(&self.burn_block.sortition_id);
+        let last_winner_snapshot = ih
+            .get_last_snapshot_with_sortition(self.burn_block.block_height)
+            .map_err(|e| e.to_string())?;
 
+        if last_winner_snapshot.miner_pk_hash
+            != Some(Hash160::from_node_public_key(
+                &StacksPublicKey::from_private(&mining_key),
+            ))
+        {
+            return Ok(());
+        }
+        let election_sortition = last_winner_snapshot.consensus_hash;
+        let mock_proposal = MockProposal::new(peer_info, &mining_key);
+
+        info!("Sending mock proposal to stackerdb: {mock_proposal:?}");
+
+        let stackerdbs = StackerDBs::connect(&self.config.get_stacker_db_file_path(), false)
+            .map_err(|e| e.to_string())?;
         let miner_contract_id = boot_code_id(MINERS_NAME, self.config.is_mainnet());
         let mut miners_stackerdb =
             StackerDBSession::new(&self.config.node.rpc_bind, miner_contract_id);
 
-        let mock_proposal =
-            MockProposal::new(peer_info, self.config.burnchain.chain_id, &mining_key);
-
-        info!("Sending mock proposal to stackerdb: {mock_proposal:?}");
-
-        if let Err(e) = SignCoordinator::send_miners_message(
+        SignCoordinator::send_miners_message(
             &mining_key,
             &burn_db,
             &self.burn_block,
@@ -2402,15 +2413,17 @@ impl BlockMinerThread {
             self.config.is_mainnet(),
             &mut miners_stackerdb,
             &election_sortition,
-        ) {
-            warn!("Failed to send mock proposal to stackerdb: {:?}", &e);
-            return Ok(());
-        }
+        )
+        .map_err(|e| {
+            warn!("Failed to write mock proposal to stackerdb.");
+            e
+        })?;
 
         // Retrieve any MockSignatures from stackerdb
         info!("Waiting for mock signatures...");
-        let mock_signatures =
-            self.wait_for_mock_signatures(&mock_proposal, &stackerdbs, Duration::from_secs(10))?;
+        let mock_signatures = self
+            .wait_for_mock_signatures(&mock_proposal, &stackerdbs, Duration::from_secs(10))
+            .map_err(|e| e.to_string())?;
 
         let mock_block = MockBlock {
             mock_proposal,
@@ -2418,8 +2431,8 @@ impl BlockMinerThread {
         };
 
         info!("Sending mock block to stackerdb: {mock_block:?}");
-        if let Err(e) = SignCoordinator::send_miners_message(
-            &miner_config.mining_key.expect("BUG: no mining key"),
+        SignCoordinator::send_miners_message(
+            &mining_key,
             &burn_db,
             &self.burn_block,
             &stackerdbs,
@@ -2428,9 +2441,11 @@ impl BlockMinerThread {
             self.config.is_mainnet(),
             &mut miners_stackerdb,
             &election_sortition,
-        ) {
-            warn!("Failed to send mock block to stackerdb: {:?}", &e);
-        }
+        )
+        .map_err(|e| {
+            warn!("Failed to write mock block to stackerdb.");
+            e
+        })?;
         Ok(())
     }
 
@@ -2753,16 +2768,23 @@ impl BlockMinerThread {
         } = self.config.get_node_config(false);
 
         let res = bitcoin_controller.submit_operation(target_epoch_id, op, &mut op_signer, attempt);
-        if res.is_none() {
-            self.failed_to_submit_last_attempt = true;
-            if !mock_mining {
-                warn!("Relayer: Failed to submit Bitcoin transaction");
+        match res {
+            Ok(_) => self.failed_to_submit_last_attempt = false,
+            Err(_) if mock_mining => {
+                debug!("Relayer: Mock-mining enabled; not sending Bitcoin transaction");
+                self.failed_to_submit_last_attempt = true;
+            }
+            Err(BurnchainControllerError::IdenticalOperation) => {
+                info!("Relayer: Block-commit already submitted");
+                self.failed_to_submit_last_attempt = true;
                 return None;
             }
-            debug!("Relayer: Mock-mining enabled; not sending Bitcoin transaction");
-        } else {
-            self.failed_to_submit_last_attempt = false;
-        }
+            Err(e) => {
+                warn!("Relayer: Failed to submit Bitcoin transaction: {:?}", e);
+                self.failed_to_submit_last_attempt = true;
+                return None;
+            }
+        };
 
         let assembled_block = AssembledAnchorBlock {
             parent_consensus_hash: parent_block_info.parent_consensus_hash,
@@ -3620,7 +3642,7 @@ impl RelayerThread {
         );
 
         let mut one_off_signer = self.keychain.generate_op_signer();
-        if let Some(txid) =
+        if let Ok(txid) =
             self.bitcoin_controller
                 .submit_operation(cur_epoch, op, &mut one_off_signer, 1)
         {
@@ -3795,7 +3817,7 @@ impl RelayerThread {
         }
 
         let Some(mut miner_thread_state) =
-            self.create_block_miner(registered_key, last_burn_block, issue_timestamp_ms)
+            self.create_block_miner(registered_key, last_burn_block.clone(), issue_timestamp_ms)
         else {
             return false;
         };

@@ -255,7 +255,7 @@ fn test_nakamoto_tenure_downloader() {
         .try_accept_tenure_start_block(blocks.first().unwrap().clone())
         .is_ok());
 
-    let NakamotoTenureDownloadState::WaitForTenureEndBlock(block_id, _) = td.state else {
+    let NakamotoTenureDownloadState::GetTenureEndBlock(block_id) = td.state else {
         panic!("wrong state");
     };
     assert_eq!(block_id, next_tenure_start_block.header.block_id());
@@ -278,13 +278,7 @@ fn test_nakamoto_tenure_downloader() {
             next_tenure_start_block.header.parent_block_id.clone()
         )
     );
-    assert_eq!(
-        td.tenure_end_header,
-        Some((
-            next_tenure_start_block.header.clone(),
-            next_tenure_change_payload.clone()
-        ))
-    );
+    assert_eq!(td.tenure_end_block, Some(next_tenure_start_block.clone()));
     assert_eq!(td.tenure_length(), Some(11));
 
     let mut td_one_shot = td.clone();
@@ -314,14 +308,17 @@ fn test_nakamoto_tenure_downloader() {
     let res = td.try_accept_tenure_blocks(vec![tenure_start_block.clone()]);
     assert!(res.is_ok());
     let res_blocks = res.unwrap().unwrap();
-    assert_eq!(res_blocks.len(), blocks.len());
-    assert_eq!(res_blocks, blocks);
+    assert_eq!(res_blocks.len(), blocks.len() + 1); // includes tenure-end block
+
+    let mut all_blocks = blocks.clone();
+    all_blocks.push(next_tenure_start_block.clone());
+    assert_eq!(res_blocks, all_blocks);
     assert_eq!(td.state, NakamotoTenureDownloadState::Done);
 
     // also works if we give blocks in one shot
     let res = td_one_shot.try_accept_tenure_blocks(blocks.clone().into_iter().rev().collect());
     assert!(res.is_ok());
-    assert_eq!(res.unwrap().unwrap(), blocks);
+    assert_eq!(res.unwrap().unwrap(), all_blocks);
     assert_eq!(td_one_shot.state, NakamotoTenureDownloadState::Done);
 
     // TODO:
@@ -1089,12 +1086,12 @@ fn test_tenure_start_end_from_inventory() {
         wanted_tenures.push(WantedTenure::new(
             ConsensusHash([i as u8; 20]),
             StacksBlockId([i as u8; 32]),
-            u64::from(i) + first_burn_height,
+            u64::from(i) + first_burn_height + 1,
         ));
         next_wanted_tenures.push(WantedTenure::new(
             ConsensusHash([(i + 128) as u8; 20]),
             StacksBlockId([(i + 128) as u8; 32]),
-            u64::from(i) + first_burn_height,
+            u64::from(i) + first_burn_height + 1,
         ));
     }
     let mut all_tenures = wanted_tenures.clone();
@@ -1456,46 +1453,6 @@ fn test_make_tenure_downloaders() {
                 warn!("not processed: {:?}", &wt);
             }
             assert!(wt.processed);
-        }
-    }
-
-    // test load_tenure_start_blocks
-    {
-        let sortdb = peer.sortdb();
-        let ih = peer.sortdb().index_handle(&tip.sortition_id);
-        let wanted_tenures = NakamotoDownloadStateMachine::load_wanted_tenures(
-            &ih,
-            nakamoto_start,
-            tip.block_height + 1,
-        )
-        .unwrap();
-
-        // the first block loaded won't have data, since the blocks are loaded by consensus hash
-        // but the resulting map is keyed by block ID (and we don't have the first block ID)
-        let wanted_tenures_with_blocks = wanted_tenures[1..].to_vec();
-
-        let nakamoto_tip = peer.network.stacks_tip.block_id();
-        let chainstate = peer.chainstate();
-        let mut tenure_start_blocks = HashMap::new();
-        NakamotoDownloadStateMachine::load_tenure_start_blocks(
-            &wanted_tenures,
-            chainstate,
-            &mut tenure_start_blocks,
-        )
-        .unwrap();
-
-        // remove malleablized blocks
-        tenure_start_blocks.retain(|_, block| block.header.version == 0);
-
-        assert_eq!(tenure_start_blocks.len(), wanted_tenures.len());
-
-        for wt in wanted_tenures_with_blocks {
-            if tenure_start_blocks.get(&wt.winning_block_id).is_none() {
-                warn!("No tenure start block for wanted tenure {:?}", &wt);
-            }
-
-            let block = tenure_start_blocks.get(&wt.winning_block_id).unwrap();
-            assert!(block.is_wellformed_tenure_start_block().unwrap());
         }
     }
 
@@ -2069,6 +2026,19 @@ fn test_make_tenure_downloaders() {
 fn test_nakamoto_download_run_2_peers() {
     let observer = TestEventObserver::new();
     let bitvecs = vec![
+        // a reward cycle with one prepare phase sortition at the start
+        vec![
+            true, true, true, true, true, true, true, false, false, false,
+        ],
+        // a reward cycle with one prepare phase sortition at the end,
+        // and no tenures in the first three reward phase sortitions
+        vec![
+            false, false, false, true, true, false, false, true, true, false,
+        ],
+        // full reward cycle, minus the first three tenures
+        vec![
+            false, false, false, true, true, true, true, true, true, true,
+        ],
         // full reward cycle
         vec![true, true, true, true, true, true, true, true, true, true],
         // alternating reward cycle, but with a full prepare phase
@@ -2114,38 +2084,6 @@ fn test_nakamoto_download_run_2_peers() {
     let privk = StacksPrivateKey::from_seed(&[0, 1, 2, 3, 4]);
     let mut boot_peer = peer.neighbor_with_observer(privk, Some(&boot_observer));
 
-    let all_burn_block_ops: Vec<(u64, Vec<_>)> = (26..=tip.block_height)
-        .map(|height| {
-            (
-                height,
-                peer.get_burnchain_block_ops_at_height(height)
-                    .unwrap_or(vec![]),
-            )
-        })
-        .collect();
-
-    let all_sortitions: Vec<BlockSnapshot> = all_burn_block_ops
-        .iter()
-        .map(|(height, ops)| {
-            let ih = peer.sortdb().index_handle(&tip.sortition_id);
-            let sn = ih.get_block_snapshot_by_height(*height).unwrap().unwrap();
-            sn
-        })
-        .collect();
-
-    let mut all_block_headers: HashMap<ConsensusHash, StacksHeaderInfo> = HashMap::new();
-    for sn in all_sortitions.iter() {
-        if let Some(header) = NakamotoChainState::get_tenure_start_block_header(
-            &mut peer.chainstate().index_conn(),
-            &nakamoto_tip,
-            &sn.consensus_hash,
-        )
-        .unwrap()
-        {
-            all_block_headers.insert(sn.consensus_hash.clone(), header);
-        }
-    }
-
     let (canonical_stacks_tip_ch, canonical_stacks_tip_bhh) =
         SortitionDB::get_canonical_stacks_chain_tip_hash(peer.sortdb().conn()).unwrap();
 
@@ -2181,19 +2119,9 @@ fn test_nakamoto_download_run_2_peers() {
     let (term_sx, term_rx) = sync_channel(1);
     thread::scope(|s| {
         s.spawn(move || {
-            let mut burnchain_ptr = 0;
-
-            // kick things off
-            let (_burn_height, burn_ops) = all_burn_block_ops.get(burnchain_ptr).unwrap();
-            boot_peer.next_burnchain_block_raw_sortition_only(burn_ops.clone());
-            burnchain_ptr += 1;
-
             let (mut last_stacks_tip_ch, mut last_stacks_tip_bhh) =
                 SortitionDB::get_canonical_stacks_chain_tip_hash(boot_peer.sortdb().conn())
                     .unwrap();
-            let mut last_burnchain_sync = get_epoch_time_secs();
-            let deadline = 5;
-
             loop {
                 boot_peer
                     .run_with_ibd(true, Some(&mut boot_dns_client))
@@ -2202,47 +2130,6 @@ fn test_nakamoto_download_run_2_peers() {
                 let (stacks_tip_ch, stacks_tip_bhh) =
                     SortitionDB::get_canonical_stacks_chain_tip_hash(boot_peer.sortdb().conn())
                         .unwrap();
-
-                if burnchain_ptr < all_burn_block_ops.len() {
-                    let (burn_height, burn_ops) = all_burn_block_ops.get(burnchain_ptr).unwrap();
-                    let expected_sortition = all_sortitions.get(burnchain_ptr).unwrap();
-                    if !expected_sortition.sortition {
-                        if last_burnchain_sync + deadline < get_epoch_time_secs() {
-                            boot_peer.next_burnchain_block_raw_sortition_only(burn_ops.clone());
-                            burnchain_ptr += 1;
-                            last_burnchain_sync = get_epoch_time_secs();
-                        }
-                        continue;
-                    }
-                    if !all_block_headers.contains_key(&expected_sortition.consensus_hash) {
-                        if last_burnchain_sync + deadline < get_epoch_time_secs() {
-                            boot_peer.next_burnchain_block_raw_sortition_only(burn_ops.clone());
-                            burnchain_ptr += 1;
-                            last_burnchain_sync = get_epoch_time_secs();
-                        }
-                        continue;
-                    }
-
-                    let header = all_block_headers
-                        .get(&expected_sortition.consensus_hash)
-                        .unwrap();
-                    debug!(
-                        "Waiting for Stacks block {} (sortition {} height {} burn height {})",
-                        &header.index_block_hash(),
-                        &expected_sortition.consensus_hash,
-                        &header.anchored_header.height(),
-                        expected_sortition.block_height
-                    );
-
-                    if stacks_tip_ch != last_stacks_tip_ch
-                        || stacks_tip_ch == header.consensus_hash
-                        || last_burnchain_sync + deadline < get_epoch_time_secs()
-                    {
-                        boot_peer.next_burnchain_block_raw_sortition_only(burn_ops.clone());
-                        burnchain_ptr += 1;
-                        last_burnchain_sync = get_epoch_time_secs();
-                    }
-                }
 
                 last_stacks_tip_ch = stacks_tip_ch;
                 last_stacks_tip_bhh = stacks_tip_bhh;
@@ -2308,38 +2195,6 @@ fn test_nakamoto_unconfirmed_download_run_2_peers() {
     let privk = StacksPrivateKey::from_seed(&[0, 1, 2, 3, 4]);
     let mut boot_peer = peer.neighbor_with_observer(privk, Some(&boot_observer));
 
-    let all_burn_block_ops: Vec<(u64, Vec<_>)> = (26..=tip.block_height)
-        .map(|height| {
-            (
-                height,
-                peer.get_burnchain_block_ops_at_height(height)
-                    .unwrap_or(vec![]),
-            )
-        })
-        .collect();
-
-    let all_sortitions: Vec<BlockSnapshot> = all_burn_block_ops
-        .iter()
-        .map(|(height, ops)| {
-            let ih = peer.sortdb().index_handle(&tip.sortition_id);
-            let sn = ih.get_block_snapshot_by_height(*height).unwrap().unwrap();
-            sn
-        })
-        .collect();
-
-    let mut all_block_headers: HashMap<ConsensusHash, StacksHeaderInfo> = HashMap::new();
-    for sn in all_sortitions.iter() {
-        if let Some(header) = NakamotoChainState::get_tenure_start_block_header(
-            &mut peer.chainstate().index_conn(),
-            &nakamoto_tip,
-            &sn.consensus_hash,
-        )
-        .unwrap()
-        {
-            all_block_headers.insert(sn.consensus_hash.clone(), header);
-        }
-    }
-
     let (canonical_stacks_tip_ch, canonical_stacks_tip_bhh) =
         SortitionDB::get_canonical_stacks_chain_tip_hash(peer.sortdb().conn()).unwrap();
 
@@ -2375,19 +2230,9 @@ fn test_nakamoto_unconfirmed_download_run_2_peers() {
     let (term_sx, term_rx) = sync_channel(1);
     thread::scope(|s| {
         s.spawn(move || {
-            let mut burnchain_ptr = 0;
-
-            // kick things off
-            let (_burn_height, burn_ops) = all_burn_block_ops.get(burnchain_ptr).unwrap();
-            boot_peer.next_burnchain_block_raw_sortition_only(burn_ops.clone());
-            burnchain_ptr += 1;
-
             let (mut last_stacks_tip_ch, mut last_stacks_tip_bhh) =
                 SortitionDB::get_canonical_stacks_chain_tip_hash(boot_peer.sortdb().conn())
                     .unwrap();
-            let mut last_burnchain_sync = get_epoch_time_secs();
-            let deadline = 5;
-
             loop {
                 boot_peer
                     .run_with_ibd(true, Some(&mut boot_dns_client))
@@ -2396,47 +2241,6 @@ fn test_nakamoto_unconfirmed_download_run_2_peers() {
                 let (stacks_tip_ch, stacks_tip_bhh) =
                     SortitionDB::get_canonical_stacks_chain_tip_hash(boot_peer.sortdb().conn())
                         .unwrap();
-
-                if burnchain_ptr < all_burn_block_ops.len() {
-                    let (burn_height, burn_ops) = all_burn_block_ops.get(burnchain_ptr).unwrap();
-                    let expected_sortition = all_sortitions.get(burnchain_ptr).unwrap();
-                    if !expected_sortition.sortition {
-                        if last_burnchain_sync + deadline < get_epoch_time_secs() {
-                            boot_peer.next_burnchain_block_raw_sortition_only(burn_ops.clone());
-                            burnchain_ptr += 1;
-                            last_burnchain_sync = get_epoch_time_secs();
-                        }
-                        continue;
-                    }
-                    if !all_block_headers.contains_key(&expected_sortition.consensus_hash) {
-                        if last_burnchain_sync + deadline < get_epoch_time_secs() {
-                            boot_peer.next_burnchain_block_raw_sortition_only(burn_ops.clone());
-                            burnchain_ptr += 1;
-                            last_burnchain_sync = get_epoch_time_secs();
-                        }
-                        continue;
-                    }
-
-                    let header = all_block_headers
-                        .get(&expected_sortition.consensus_hash)
-                        .unwrap();
-                    debug!(
-                        "Waiting for Stacks block {} (sortition {} height {} burn height {})",
-                        &header.index_block_hash(),
-                        &expected_sortition.consensus_hash,
-                        &header.anchored_header.height(),
-                        expected_sortition.block_height
-                    );
-
-                    if stacks_tip_ch != last_stacks_tip_ch
-                        || stacks_tip_ch == header.consensus_hash
-                        || last_burnchain_sync + deadline < get_epoch_time_secs()
-                    {
-                        boot_peer.next_burnchain_block_raw_sortition_only(burn_ops.clone());
-                        burnchain_ptr += 1;
-                        last_burnchain_sync = get_epoch_time_secs();
-                    }
-                }
 
                 last_stacks_tip_ch = stacks_tip_ch;
                 last_stacks_tip_bhh = stacks_tip_bhh;

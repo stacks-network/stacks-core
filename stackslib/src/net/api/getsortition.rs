@@ -28,6 +28,7 @@ use stacks_common::util::HexError;
 use {serde, serde_json};
 
 use crate::chainstate::burn::db::sortdb::SortitionDB;
+use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState, NakamotoStagingBlocksConn};
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::Error as ChainError;
@@ -51,10 +52,13 @@ pub enum QuerySpecifier {
     BurnchainHeaderHash(BurnchainHeaderHash),
     BlockHeight(u64),
     Latest,
+    /// Fetch the latest sortition *which was a winning sortition* and that sortition's
+    ///  last sortition, returning two SortitionInfo structs.
+    LatestAndLast,
 }
 
 pub static RPC_SORTITION_INFO_PATH: &str = "/v3/sortitions";
-static PATH_REGEX: &str = "^/v3/sortitions(/(?P<key>[a-z_]{1,15})/(?P<value>[0-9a-f]{1,64}))?$";
+static PATH_REGEX: &str = "^/v3/sortitions(/(?P<key>[a-z_]{1,15})(/(?P<value>[0-9a-f]{1,64}))?)?$";
 
 /// Struct for sortition information returned via the GetSortition API call
 #[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
@@ -112,6 +116,7 @@ impl TryFrom<(&str, &str)> for QuerySpecifier {
             value.1
         };
         match value.0 {
+            "latest_and_last" => Ok(Self::LatestAndLast),
             "consensus" => Ok(Self::ConsensusHash(
                 ConsensusHash::from_hex(hex_str).map_err(|e| Error::DecodeError(e.to_string()))?,
             )),
@@ -141,6 +146,74 @@ impl GetSortitionHandler {
             query: QuerySpecifier::Latest,
         }
     }
+
+    fn get_sortition_info(
+        sortition_sn: BlockSnapshot,
+        sortdb: &SortitionDB,
+    ) -> Result<SortitionInfo, ChainError> {
+        let (miner_pk_hash160, stacks_parent_ch, committed_block_hash, last_sortition_ch) =
+            if !sortition_sn.sortition {
+                let handle = sortdb.index_handle(&sortition_sn.sortition_id);
+                let last_sortition =
+                    handle.get_last_snapshot_with_sortition(sortition_sn.block_height)?;
+                (None, None, None, Some(last_sortition.consensus_hash))
+            } else {
+                let block_commit = SortitionDB::get_block_commit(sortdb.conn(), &sortition_sn.winning_block_txid, &sortition_sn.sortition_id)?
+                        .ok_or_else(|| {
+                            error!(
+                                "Failed to load block commit from Sortition DB for snapshot with a winning block txid";
+                                "sortition_id" => %sortition_sn.sortition_id,
+                                "txid" => %sortition_sn.winning_block_txid,
+                            );
+                            ChainError::NoSuchBlockError
+                        })?;
+                let handle = sortdb.index_handle(&sortition_sn.sortition_id);
+                let stacks_parent_sn = handle
+                    .get_block_snapshot_by_height(block_commit.parent_block_ptr.into())?
+                    .ok_or_else(|| {
+                        warn!(
+                            "Failed to load the snapshot of the winning block commits parent";
+                            "sortition_id" => %sortition_sn.sortition_id,
+                            "txid" => %sortition_sn.winning_block_txid,
+                        );
+                        ChainError::NoSuchBlockError
+                    })?;
+
+                // try to figure out what the last snapshot in this fork was with a successful
+                //  sortition.
+                // optimization heuristic: short-circuit the load if its just `stacks_parent_sn`
+                let last_sortition_ch = if stacks_parent_sn.sortition {
+                    stacks_parent_sn.consensus_hash.clone()
+                } else {
+                    // we actually need to perform the marf lookup
+                    let last_sortition = handle.get_last_snapshot_with_sortition(
+                        sortition_sn.block_height.saturating_sub(1),
+                    )?;
+                    last_sortition.consensus_hash
+                };
+
+                (
+                    sortition_sn.miner_pk_hash.clone(),
+                    Some(stacks_parent_sn.consensus_hash),
+                    Some(block_commit.block_header_hash),
+                    Some(last_sortition_ch),
+                )
+            };
+
+        Ok(SortitionInfo {
+            burn_block_hash: sortition_sn.burn_header_hash,
+            burn_block_height: sortition_sn.block_height,
+            burn_header_timestamp: sortition_sn.burn_header_timestamp,
+            sortition_id: sortition_sn.sortition_id,
+            parent_sortition_id: sortition_sn.parent_sortition_id,
+            consensus_hash: sortition_sn.consensus_hash,
+            was_sortition: sortition_sn.sortition,
+            miner_pk_hash160,
+            stacks_parent_ch,
+            last_sortition_ch,
+            committed_block_hash,
+        })
+    }
 }
 /// Decode the HTTP request
 impl HttpRequest for GetSortitionHandler {
@@ -169,9 +242,15 @@ impl HttpRequest for GetSortitionHandler {
 
         let req_contents = HttpRequestContents::new().query_string(query);
         self.query = QuerySpecifier::Latest;
-        if let (Some(key), Some(value)) = (captures.name("key"), captures.name("value")) {
-            self.query = QuerySpecifier::try_from((key.as_str(), value.as_str()))?;
-        }
+        match (captures.name("key"), captures.name("value")) {
+            (Some(key), None) => {
+                self.query = QuerySpecifier::try_from((key.as_str(), ""))?;
+            }
+            (Some(key), Some(value)) => {
+                self.query = QuerySpecifier::try_from((key.as_str(), value.as_str()))?;
+            }
+            _ => {}
+        };
 
         Ok(req_contents)
     }
@@ -194,81 +273,37 @@ impl RPCRequestHandler for GetSortitionHandler {
         _contents: HttpRequestContents,
         node: &mut StacksNodeState,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
-        let result =
-            node.with_node_state(|network, sortdb, _chainstate, _mempool, _rpc_args| {
-                let query_result = match self.query {
-                    QuerySpecifier::Latest => {
+        let result = node.with_node_state(|network, sortdb, _chainstate, _mempool, _rpc_args| {
+            let query_result = match self.query {
+                QuerySpecifier::Latest => Ok(Some(network.burnchain_tip.clone())),
+                QuerySpecifier::ConsensusHash(ref consensus_hash) => {
+                    SortitionDB::get_block_snapshot_consensus(sortdb.conn(), consensus_hash)
+                }
+                QuerySpecifier::BurnchainHeaderHash(ref burn_hash) => {
+                    let handle = sortdb.index_handle_at_tip();
+                    handle.get_block_snapshot(burn_hash)
+                }
+                QuerySpecifier::BlockHeight(burn_height) => {
+                    let handle = sortdb.index_handle_at_tip();
+                    handle.get_block_snapshot_by_height(burn_height)
+                }
+                QuerySpecifier::LatestAndLast => {
+                    if network.burnchain_tip.sortition {
+                        // optimization: if the burn chain tip had a sortition, just return that
                         Ok(Some(network.burnchain_tip.clone()))
-                    },
-                    QuerySpecifier::ConsensusHash(ref consensus_hash) => {
-                        SortitionDB::get_block_snapshot_consensus(sortdb.conn(), consensus_hash)
-                    },
-                    QuerySpecifier::BurnchainHeaderHash(ref burn_hash) => {
-                        let handle = sortdb.index_handle_at_tip();
-                        handle.get_block_snapshot(burn_hash)
-                    },
-                    QuerySpecifier::BlockHeight(burn_height) => {
-                        let handle = sortdb.index_handle_at_tip();
-                        handle.get_block_snapshot_by_height(burn_height)
-                    },
-                };
-                let sortition_sn = query_result?
-                    .ok_or_else(|| ChainError::NoSuchBlockError)?;
-
-                let (miner_pk_hash160, stacks_parent_ch, committed_block_hash, last_sortition_ch) = if !sortition_sn.sortition {
-                    let handle = sortdb.index_handle(&sortition_sn.sortition_id);
-                    let last_sortition = handle.get_last_snapshot_with_sortition(sortition_sn.block_height)?;
-                    (None, None, None, Some(last_sortition.consensus_hash))
-                } else {
-                    let block_commit = SortitionDB::get_block_commit(sortdb.conn(), &sortition_sn.winning_block_txid, &sortition_sn.sortition_id)?
-                        .ok_or_else(|| {
-                            error!(
-                                "Failed to load block commit from Sortition DB for snapshot with a winning block txid";
-                                "sortition_id" => %sortition_sn.sortition_id,
-                                "txid" => %sortition_sn.winning_block_txid,
-                            );
-                            ChainError::NoSuchBlockError
-                        })?;
-                    let handle = sortdb.index_handle(&sortition_sn.sortition_id);
-                    let stacks_parent_sn = handle.get_block_snapshot_by_height(block_commit.parent_block_ptr.into())?
-                        .ok_or_else(|| {
-                            warn!(
-                                "Failed to load the snapshot of the winning block commits parent";
-                                "sortition_id" => %sortition_sn.sortition_id,
-                                "txid" => %sortition_sn.winning_block_txid,
-                            );
-                            ChainError::NoSuchBlockError
-                        })?;
-
-                    // try to figure out what the last snapshot in this fork was with a successful
-                    //  sortition.
-                    // optimization heuristic: short-circuit the load if its just `stacks_parent_sn`
-                    let last_sortition_ch = if sortition_sn.num_sortitions == stacks_parent_sn.num_sortitions + 1 {
-                        stacks_parent_sn.consensus_hash.clone()
                     } else {
-                        // we actually need to perform the marf lookup
-                        let last_sortition = handle.get_last_snapshot_with_sortition(sortition_sn.block_height.saturating_sub(1))?;
-                        last_sortition.consensus_hash
-                    };
-
-                    (sortition_sn.miner_pk_hash.clone(), Some(stacks_parent_sn.consensus_hash), Some(block_commit.block_header_hash),
-                     Some(last_sortition_ch))
-                };
-
-                Ok(SortitionInfo {
-                    burn_block_hash: sortition_sn.burn_header_hash,
-                    burn_block_height: sortition_sn.block_height,
-                    burn_header_timestamp: sortition_sn.burn_header_timestamp,
-                    sortition_id: sortition_sn.sortition_id,
-                    parent_sortition_id: sortition_sn.parent_sortition_id,
-                    consensus_hash: sortition_sn.consensus_hash,
-                    was_sortition: sortition_sn.sortition,
-                    miner_pk_hash160,
-                    stacks_parent_ch,
-                    last_sortition_ch,
-                    committed_block_hash,
-                })
-            });
+                        // we actually need to perform a marf lookup to find that last snapshot
+                        //  with a sortition
+                        let handle = sortdb.index_handle_at_tip();
+                        let last_sortition = handle
+                            .get_last_snapshot_with_sortition(network.burnchain_tip.block_height)?;
+                        Ok(Some(last_sortition))
+                    }
+                }
+            };
+            let sortition_sn = query_result?.ok_or_else(|| ChainError::NoSuchBlockError)?;
+            Self::get_sortition_info(sortition_sn, sortdb)
+        });
 
         let block = match result {
             Ok(block) => block,
@@ -290,8 +325,44 @@ impl RPCRequestHandler for GetSortitionHandler {
             }
         };
 
+        let last_sortition_ch = block.last_sortition_ch.clone();
+        let mut info_list = vec![block];
+        if self.query == QuerySpecifier::LatestAndLast {
+            // if latest **and** last are requested, lookup the sortition info for last_sortition_ch
+            if let Some(last_sortition_ch) = last_sortition_ch {
+                let result = node.with_node_state(|_, sortdb, _, _, _| {
+                    let last_sortition_sn = SortitionDB::get_block_snapshot_consensus(
+                        sortdb.conn(),
+                        &last_sortition_ch,
+                    )?
+                    .ok_or_else(|| ChainError::NoSuchBlockError)?;
+                    Self::get_sortition_info(last_sortition_sn, sortdb)
+                });
+                let last_block = match result {
+                    Ok(block) => block,
+                    Err(ChainError::NoSuchBlockError) => {
+                        return StacksHttpResponse::new_error(
+                            &preamble,
+                            &HttpNotFound::new(format!("Could not find snapshot for the `last_sortition_ch`({last_sortition_ch})\n")),
+                        )
+                            .try_into_contents()
+                            .map_err(NetError::from)
+                    }
+                    Err(e) => {
+                        // nope -- error trying to check
+                        let msg = format!("Failed to load snapshot for `last_sortition_ch`({last_sortition_ch}): {:?}\n", &e);
+                        warn!("{msg}");
+                        return StacksHttpResponse::new_error(&preamble, &HttpServerError::new(msg))
+                            .try_into_contents()
+                            .map_err(NetError::from);
+                    }
+                };
+                info_list.push(last_block);
+            }
+        }
+
         let preamble = HttpResponsePreamble::ok_json(&preamble);
-        let result = HttpResponseContents::try_from_json(&block)?;
+        let result = HttpResponseContents::try_from_json(&info_list)?;
         Ok((preamble, result))
     }
 }
@@ -302,7 +373,7 @@ impl HttpResponse for GetSortitionHandler {
         preamble: &HttpResponsePreamble,
         body: &[u8],
     ) -> Result<HttpResponsePayload, Error> {
-        let sortition_info: SortitionInfo = parse_json(preamble, body)?;
+        let sortition_info: Vec<SortitionInfo> = parse_json(preamble, body)?;
         Ok(HttpResponsePayload::try_from_json(sortition_info)?)
     }
 }

@@ -20,6 +20,7 @@ use std::path::Path;
 use clarity::vm::types::QualifiedContractIdentifier;
 use clarity::vm::ContractName;
 use libstackerdb::SlotMetadata;
+use rusqlite::params;
 use stacks_common::address::{
     AddressHashMode, C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
 };
@@ -649,6 +650,16 @@ fn test_reconfigure_stackerdb() {
         initial_metadata.push((slot_metadata, chunk_data));
     }
 
+    tx.commit().unwrap();
+
+    let db_slot_metadata = db.get_db_slot_metadata(&sc).unwrap();
+    assert_eq!(db_slot_metadata.len(), pks.len());
+    for (i, slot_md) in db_slot_metadata.iter().enumerate() {
+        let slot_metadata = db.get_slot_metadata(&sc, i as u32).unwrap().unwrap();
+        assert_eq!(slot_metadata, *slot_md);
+    }
+
+    let tx = db.tx_begin(StackerDBConfig::noop()).unwrap();
     let new_pks: Vec<_> = (0..10).map(|_| StacksPrivateKey::new()).collect();
     let reconfigured_pks = vec![
         // first five slots are unchanged
@@ -721,6 +732,91 @@ fn test_reconfigure_stackerdb() {
             let chunk = db.get_latest_chunk(&sc, i as u32).unwrap().unwrap();
             assert_eq!(chunk.len(), 0);
         }
+    }
+
+    let db_slot_metadata = db.get_db_slot_metadata(&sc).unwrap();
+    assert_eq!(db_slot_metadata.len(), reconfigured_pks.len());
+    for (i, slot_md) in db_slot_metadata.iter().enumerate() {
+        let slot_metadata = db.get_slot_metadata(&sc, i as u32).unwrap().unwrap();
+        assert_eq!(slot_metadata, *slot_md);
+    }
+
+    // reconfigure with fewer slots
+    let new_pks: Vec<_> = (0..10).map(|_| StacksPrivateKey::new()).collect();
+    let reconfigured_pks = vec![
+        // first five slots are unchanged
+        pks[0], pks[1], pks[2], pks[3], pks[4],
+        // next five slots are different, so their contents will be dropped and versions and write
+        // timestamps reset
+        new_pks[0], new_pks[1], new_pks[2], new_pks[3],
+        new_pks[4],
+        // slots 10-15 will disappear
+    ];
+    let reconfigured_addrs: Vec<_> = reconfigured_pks
+        .iter()
+        .map(|pk| {
+            StacksAddress::from_public_keys(
+                C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
+                &AddressHashMode::SerializeP2PKH,
+                1,
+                &vec![StacksPublicKey::from_private(&pk)],
+            )
+            .unwrap()
+        })
+        .collect();
+
+    let tx = db.tx_begin(StackerDBConfig::noop()).unwrap();
+
+    // reconfigure
+    tx.reconfigure_stackerdb(
+        &sc,
+        &reconfigured_addrs
+            .clone()
+            .into_iter()
+            .map(|addr| (addr, 1))
+            .collect::<Vec<_>>(),
+    )
+    .unwrap();
+
+    tx.commit().unwrap();
+
+    for (i, pk) in new_pks.iter().enumerate() {
+        if i < 5 {
+            // first five are unchanged
+            let chunk_data = StackerDBChunkData {
+                slot_id: i as u32,
+                slot_version: 1,
+                sig: MessageSignature::empty(),
+                data: vec![i as u8; 128],
+            };
+
+            let slot_metadata = db.get_slot_metadata(&sc, i as u32).unwrap().unwrap();
+            let chunk = db.get_latest_chunk(&sc, i as u32).unwrap().unwrap();
+
+            assert_eq!(initial_metadata[i].0, slot_metadata);
+            assert_eq!(initial_metadata[i].1.data, chunk);
+        } else if i < 10 {
+            // next five are wiped
+            let slot_metadata = db.get_slot_metadata(&sc, i as u32).unwrap().unwrap();
+            assert_eq!(slot_metadata.slot_id, i as u32);
+            assert_eq!(slot_metadata.slot_version, 0);
+            assert_eq!(slot_metadata.data_hash, Sha512Trunc256Sum([0x00; 32]));
+            assert_eq!(slot_metadata.signature, MessageSignature::empty());
+
+            let chunk = db.get_latest_chunk(&sc, i as u32).unwrap().unwrap();
+            assert_eq!(chunk.len(), 0);
+        } else {
+            // final five are gone
+            let slot_metadata_opt = db.get_slot_metadata(&sc, i as u32).unwrap();
+            assert!(slot_metadata_opt.is_none());
+        }
+    }
+
+    let db_slot_metadata = db.get_db_slot_metadata(&sc).unwrap();
+    assert_eq!(db_slot_metadata.len(), reconfigured_pks.len());
+    for (i, slot_md) in db_slot_metadata.iter().enumerate() {
+        let slot_metadata = db.get_slot_metadata(&sc, i as u32).unwrap().unwrap();
+        assert_eq!(slot_metadata, *slot_md);
     }
 }
 

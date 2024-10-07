@@ -16,6 +16,29 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
     - `get-stacks-block-info?` added
     - `get-tenure-info?` added
     - `get-block-info?` removed
+- Added `/v3/signer/{signer_pubkey}/{reward_cycle}` endpoint
+
+## [2.5.0.0.7]
+
+### Added
+
+- Add warn logs for block validate rejections (#5079)
+- Neon mock miner replay (#5060)
+
+### Changed
+
+- Revert BurnchainHeaderHash serialization change (#5094)
+- boot_to_epoch_3 in SignerTest should wait for a new commit (#5087)
+- Fix block proposal rejection test (#5084)
+- Mock signing revamp (#5070)
+- Multi miner fixes jude (#5040)
+- Remove spurious deadlock condition whenever the sortition DB is opened
+
+## [2.5.0.0.6]
+
+### Changed
+
+- If there is a getchunk/putchunk that fails due to a stale (or future) version NACK, the StackerDB sync state machine should immediately retry sync (#5066)
 
 ## [2.5.0.0.5]
 

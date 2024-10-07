@@ -23,6 +23,7 @@ use std::time::Duration;
 
 use clarity::vm::errors::Error as ClarityError;
 use clarity::vm::types::serialization::SerializationError;
+use libsigner::RPCError;
 use libstackerdb::Error as StackerDBError;
 use slog::slog_debug;
 pub use stackerdb::*;
@@ -94,6 +95,9 @@ pub enum ClientError {
     /// A successful sortition's info response should be parseable into a SortitionState
     #[error("A successful sortition's info response should be parseable into a SortitionState")]
     UnexpectedSortitionInfo,
+    /// An RPC libsigner error occurred
+    #[error("A libsigner RPC error occurred: {0}")]
+    RPCError(#[from] RPCError),
 }
 
 /// Retry a function F with an exponential backoff and notification on transient failure
@@ -123,6 +127,7 @@ pub(crate) mod tests {
     use std::net::{SocketAddr, TcpListener};
 
     use blockstack_lib::chainstate::stacks::boot::POX_4_NAME;
+    use blockstack_lib::chainstate::stacks::db::StacksBlockHeaderTypes;
     use blockstack_lib::net::api::getaccount::AccountEntryResponse;
     use blockstack_lib::net::api::getinfo::RPCPeerInfoData;
     use blockstack_lib::net::api::getpoxinfo::{
@@ -570,7 +575,6 @@ pub(crate) mod tests {
             db_path: config.db_path.clone(),
             first_proposal_burn_block_timing: config.first_proposal_burn_block_timing,
             block_proposal_timeout: config.block_proposal_timeout,
-            broadcast_signed_blocks: true,
         }
     }
 
@@ -595,6 +599,17 @@ pub(crate) mod tests {
 
     pub fn build_get_weight_threshold_response(threshold: u64) -> String {
         let clarity_value = ClarityValue::UInt(threshold as u128);
+        build_read_only_response(&clarity_value)
+    }
+
+    pub fn build_get_tenure_tip_response(header_types: &StacksBlockHeaderTypes) -> String {
+        let response_json =
+            serde_json::to_string(header_types).expect("Failed to serialize tenure tip info");
+        format!("HTTP/1.1 200 OK\n\n{response_json}")
+    }
+
+    pub fn build_get_last_set_cycle_response(cycle: u64) -> String {
+        let clarity_value = ClarityValue::okay(ClarityValue::UInt(cycle as u128)).unwrap();
         build_read_only_response(&clarity_value)
     }
 }

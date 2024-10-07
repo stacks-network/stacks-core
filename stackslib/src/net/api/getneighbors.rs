@@ -19,6 +19,7 @@ use std::io::{Read, Write};
 use clarity::vm::types::QualifiedContractIdentifier;
 use regex::{Captures, Regex};
 use stacks_common::types::net::{PeerAddress, PeerHost};
+use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::Hash160;
 
 use crate::net::db::PeerDB;
@@ -53,6 +54,8 @@ pub struct RPCNeighbor {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(with = "serde_opt_vec_qci")]
     pub stackerdbs: Option<Vec<QualifiedContractIdentifier>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub age: Option<u64>,
 }
 
 /// Serialize and deserialize `Option<Vec<QualifiedContractIdentifier>>`
@@ -94,6 +97,7 @@ impl RPCNeighbor {
         pkh: Hash160,
         auth: bool,
         stackerdbs: Vec<QualifiedContractIdentifier>,
+        age: Option<u64>,
     ) -> RPCNeighbor {
         RPCNeighbor {
             network_id: nk.network_id,
@@ -103,6 +107,7 @@ impl RPCNeighbor {
             public_key_hash: pkh,
             authenticated: auth,
             stackerdbs: Some(stackerdbs),
+            age,
         }
     }
 }
@@ -137,6 +142,7 @@ impl RPCNeighborsInfo {
                     Hash160::from_node_public_key(&n.public_key),
                     true,
                     stackerdb_contract_ids,
+                    None,
                 )
             })
             .collect();
@@ -145,10 +151,11 @@ impl RPCNeighborsInfo {
             peerdb_conn,
             network_id,
             network_epoch,
-            max_neighbor_age,
+            get_epoch_time_secs().saturating_sub(max_neighbor_age),
             MAX_NEIGHBORS_DATA_LEN,
             burnchain_view.burn_block_height,
             false,
+            true,
         )
         .map_err(NetError::DBError)?;
 
@@ -162,6 +169,7 @@ impl RPCNeighborsInfo {
                     Hash160::from_node_public_key(&n.public_key),
                     true,
                     stackerdb_contract_ids,
+                    None,
                 )
             })
             .collect();
@@ -183,6 +191,7 @@ impl RPCNeighborsInfo {
                     naddr.public_key_hash,
                     convo.is_authenticated(),
                     convo.get_stackerdb_contract_ids().to_vec(),
+                    Some(convo.age()),
                 ));
             } else {
                 inbound.push(RPCNeighbor::from_neighbor_key_and_pubkh(
@@ -190,6 +199,7 @@ impl RPCNeighborsInfo {
                     naddr.public_key_hash,
                     convo.is_authenticated(),
                     convo.get_stackerdb_contract_ids().to_vec(),
+                    Some(convo.age()),
                 ));
             }
         }

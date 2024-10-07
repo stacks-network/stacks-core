@@ -176,6 +176,14 @@ pub use crate::net::download::nakamoto::tenure_downloader_unconfirmed::{
     NakamotoUnconfirmedDownloadState, NakamotoUnconfirmedTenureDownloader,
 };
 
+pub fn downloader_block_height_to_reward_cycle(
+    pox_constants: &PoxConstants,
+    first_block_height: u64,
+    block_height: u64,
+) -> Option<u64> {
+    pox_constants.block_height_to_reward_cycle(first_block_height, block_height.saturating_sub(1))
+}
+
 impl PeerNetwork {
     /// Set up the Nakamoto block downloader
     pub fn init_nakamoto_block_downloader(&mut self) {

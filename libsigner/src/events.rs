@@ -314,6 +314,9 @@ impl<T: SignerEventTrait> EventReceiver<T> for SignerEventReceiver<T> {
                 process_proposal_response(request)
             } else if request.url() == "/new_burn_block" {
                 process_new_burn_block_event(request)
+            } else if request.url() == "/shutdown" {
+                event_receiver.stop_signal.store(true, Ordering::SeqCst);
+                return Err(EventError::Terminated);
             } else {
                 let url = request.url().to_string();
                 // `/new_block` is expected, but not specifically handled. do not log.

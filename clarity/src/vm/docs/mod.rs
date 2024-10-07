@@ -1830,7 +1830,7 @@ and block times are accurate only to within two hours. See [BIP113](https://gith
 For a block mined after epoch 3.0, this timestamp comes from the Stacks block header. **Note**: this is the time, according to the miner, when
 the mining of this block started, but is not guaranteed to be accurate. This time will be validated by the signers to be:
   - Greater than the timestamp of the previous block
-  - Less than 15 seconds into the future (according to their own local clocks)
+  - At most 15 seconds into the future (according to their own local clocks)
 ",
     example: "(get-stacks-block-info? time u0) ;; Returns (some u1557860301)
 (get-stacks-block-info? header-hash u0) ;; Returns (some 0x374708fff7719dd5979ec875d56cd2286f6d3cf7ec317a3b25632aab28ec37bb)

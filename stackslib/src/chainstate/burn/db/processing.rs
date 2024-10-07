@@ -211,7 +211,7 @@ impl<'a> SortitionHandleTx<'a> {
             "SORTITION-HASH({}): {}",
             this_block_height, &snapshot.sortition_hash
         );
-        debug!(
+        info!(
             "CONSENSUS({}): {}",
             this_block_height, &snapshot.consensus_hash
         );

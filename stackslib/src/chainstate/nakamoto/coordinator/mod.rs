@@ -506,7 +506,7 @@ pub fn load_nakamoto_reward_set<U: RewardSetProvider>(
                 Err(e) => return Some(Err(e)),
                 Ok(None) => {
                     // no header for this snapshot (possibly invalid)
-                    info!("Failed to find block by consensus hash"; "consensus_hash" => %sn.consensus_hash);
+                    debug!("Failed to find Stacks block by consensus hash"; "consensus_hash" => %sn.consensus_hash);
                     return None
                 }
             }
@@ -614,40 +614,20 @@ impl<
         B: BurnchainHeaderReader,
     > ChainsCoordinator<'a, T, N, U, CE, FE, B>
 {
-    /// Check to see if we're in the last of the 2.x epochs, and we have the first PoX anchor block
-    /// for epoch 3.
-    /// NOTE: the first block in epoch3 must be after the first block in the reward phase, so as
-    /// to ensure that the PoX stackers have been selected for this cycle.  This means that we
-    /// don't proceed to process Nakamoto blocks until the reward cycle has begun.  Also, the last
-    /// reward cycle of epoch2 _must_ be PoX so we have stackers who can sign.
-    pub fn can_process_nakamoto(&mut self) -> Result<bool, Error> {
-        let canonical_sortition_tip = self
-            .canonical_sortition_tip
-            .clone()
-            .expect("FAIL: checking epoch status, but we don't have a canonical sortition tip");
+    /// Get the first nakamoto reward cycle
+    fn get_first_nakamoto_reward_cycle(&self) -> u64 {
+        let all_epochs = SortitionDB::get_stacks_epochs(self.sortition_db.conn())
+            .unwrap_or_else(|e| panic!("FATAL: failed to query sortition DB for epochs: {:?}", &e));
 
-        let canonical_sn =
-            SortitionDB::get_block_snapshot(self.sortition_db.conn(), &canonical_sortition_tip)?
-                .expect("FATAL: canonical sortition tip has no sortition");
-
-        // what epoch are we in?
-        let cur_epoch =
-            SortitionDB::get_stacks_epoch(self.sortition_db.conn(), canonical_sn.block_height)?
-                .unwrap_or_else(|| {
-                    panic!(
-                        "BUG: no epoch defined at height {}",
-                        canonical_sn.block_height
-                    )
-                });
-
-        if cur_epoch.epoch_id < StacksEpochId::Epoch30 {
-            return Ok(false);
-        }
-
-        // in epoch3
-        let all_epochs = SortitionDB::get_stacks_epochs(self.sortition_db.conn())?;
-        let epoch_3_idx = StacksEpoch::find_epoch_by_id(&all_epochs, StacksEpochId::Epoch30)
-            .expect("FATAL: epoch3 not defined");
+        let Some(epoch_3_idx) = StacksEpoch::find_epoch_by_id(&all_epochs, StacksEpochId::Epoch30)
+        else {
+            // this is only reachable in tests
+            if cfg!(any(test, feature = "testing")) {
+                return u64::MAX;
+            } else {
+                panic!("FATAL: epoch3 not defined");
+            }
+        };
 
         let epoch3 = &all_epochs[epoch_3_idx];
         let first_epoch3_reward_cycle = self
@@ -655,32 +635,36 @@ impl<
             .block_height_to_reward_cycle(epoch3.start_height)
             .expect("FATAL: epoch3 block height has no reward cycle");
 
-        // NOTE(safety): this is not guaranteed to be the canonical best Stacks tip.
-        // However, it's safe to use here because we're only interested in loading up the first
-        // Nakamoto reward set, which uses the epoch2 anchor block selection algorithm.  There will
-        // only be one such reward set in epoch2 rules, since it's tied to a specific block-commit
-        // (note that this is not true for reward sets generated in Nakamoto prepare phases).
-        let (local_best_stacks_ch, local_best_stacks_bhh) =
-            SortitionDB::get_canonical_stacks_chain_tip_hash(self.sortition_db.conn())?;
-        let local_best_stacks_tip =
-            StacksBlockId::new(&local_best_stacks_ch, &local_best_stacks_bhh);
+        first_epoch3_reward_cycle
+    }
 
-        // only proceed if we have processed the _anchor block_ for this reward cycle.
-        let Some((rc_info, _)) = load_nakamoto_reward_set(
-            self.burnchain
-                .block_height_to_reward_cycle(canonical_sn.block_height)
-                .expect("FATAL: snapshot has no reward cycle"),
-            &canonical_sn.sortition_id,
-            &self.burnchain,
-            &mut self.chain_state_db,
-            &local_best_stacks_tip,
-            &self.sortition_db,
-            &OnChainRewardSetProvider::new(),
-        )?
-        else {
-            return Ok(false);
-        };
-        Ok(rc_info.reward_cycle >= first_epoch3_reward_cycle)
+    /// Get the current reward cycle
+    fn get_current_reward_cycle(&self) -> u64 {
+        let canonical_sortition_tip = self.canonical_sortition_tip.clone().unwrap_or_else(|| {
+            panic!("FAIL: checking epoch status, but we don't have a canonical sortition tip")
+        });
+
+        let canonical_sn =
+            SortitionDB::get_block_snapshot(self.sortition_db.conn(), &canonical_sortition_tip)
+                .unwrap_or_else(|e| panic!("FATAL: failed to query sortition DB: {:?}", &e))
+                .unwrap_or_else(|| panic!("FATAL: canonical sortition tip has no sortition"));
+
+        let cur_reward_cycle = self
+            .burnchain
+            .block_height_to_reward_cycle(canonical_sn.block_height)
+            .expect("FATAL: snapshot has no reward cycle");
+
+        cur_reward_cycle
+    }
+
+    /// Are we in the first-ever Nakamoto reward cycle?
+    pub fn in_first_nakamoto_reward_cycle(&self) -> bool {
+        self.get_current_reward_cycle() == self.get_first_nakamoto_reward_cycle()
+    }
+
+    /// Are we in the second or later Nakamoto reward cycle?
+    pub fn in_subsequent_nakamoto_reward_cycle(&self) -> bool {
+        self.get_current_reward_cycle() > self.get_first_nakamoto_reward_cycle()
     }
 
     /// This is the main loop body for the coordinator in epoch 3.
@@ -688,11 +672,10 @@ impl<
     /// Returns false otherwise.
     pub fn handle_comms_nakamoto(
         &mut self,
-        comms: &CoordinatorReceivers,
+        bits: u8,
         miner_status: Arc<Mutex<MinerStatus>>,
     ) -> bool {
         // timeout so that we handle Ctrl-C a little gracefully
-        let bits = comms.wait_on();
         if (bits & (CoordinatorEvents::NEW_STACKS_BLOCK as u8)) != 0 {
             signal_mining_blocked(miner_status.clone());
             debug!("Received new Nakamoto stacks block notice");

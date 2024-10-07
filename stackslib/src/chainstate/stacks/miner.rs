@@ -321,7 +321,7 @@ pub struct TransactionSuccessEvent {
 }
 
 /// Represents an event for a failed transaction. Something went wrong when processing this transaction.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TransactionErrorEvent {
     #[serde(deserialize_with = "hex_deserialize", serialize_with = "hex_serialize")]
     pub txid: Txid,
@@ -378,7 +378,7 @@ pub enum TransactionResult {
 
 /// This struct is used to transmit data about transaction results through either the `mined_block`
 /// or `mined_microblock` event.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum TransactionEvent {
     /// Transaction has already succeeded.
     Success(TransactionSuccessEvent),
@@ -2228,10 +2228,10 @@ impl StacksBlockBuilder {
 
         debug!("Block transaction selection begins (parent height = {tip_height})");
         let result = {
-            let mut intermediate_result: Result<_, Error> = Ok(0);
+            let mut loop_result = Ok(());
             while block_limit_hit != BlockLimitFunction::LIMIT_REACHED {
                 let mut num_considered = 0;
-                intermediate_result = mempool.iterate_candidates(
+                let intermediate_result = mempool.iterate_candidates(
                     epoch_tx,
                     &mut tx_events,
                     mempool_settings.clone(),
@@ -2390,8 +2390,19 @@ impl StacksBlockBuilder {
                     let _ = mempool.drop_and_blacklist_txs(&to_drop_and_blacklist);
                 }
 
-                if intermediate_result.is_err() {
-                    break;
+                match intermediate_result {
+                    Err(e) => {
+                        loop_result = Err(e);
+                        break;
+                    }
+                    Ok((_txs_considered, stop_reason)) => {
+                        match stop_reason {
+                            MempoolIterationStopReason::NoMoreCandidates => break,
+                            MempoolIterationStopReason::DeadlineReached => break,
+                            // if the iterator function exited, let the loop tick: it checks the block limits
+                            MempoolIterationStopReason::IteratorExited => {}
+                        }
+                    }
                 }
 
                 if num_considered == 0 {
@@ -2399,7 +2410,7 @@ impl StacksBlockBuilder {
                 }
             }
             debug!("Block transaction selection finished (parent height {}): {} transactions selected ({} considered)", &tip_height, num_txs, considered.len());
-            intermediate_result
+            loop_result
         };
 
         mempool.drop_txs(&invalidated_txs)?;

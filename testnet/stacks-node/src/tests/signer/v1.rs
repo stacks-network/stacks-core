@@ -13,7 +13,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::collections::HashSet;
-use std::net::ToSocketAddrs;
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 use std::{env, thread};
@@ -248,15 +247,7 @@ impl SignerTest<SpawnedSigner> {
     }
 
     fn generate_invalid_transactions(&self) -> Vec<StacksTransaction> {
-        let host = self
-            .running_nodes
-            .conf
-            .node
-            .rpc_bind
-            .to_socket_addrs()
-            .unwrap()
-            .next()
-            .unwrap();
+        let host = self.running_nodes.conf.node.rpc_bind.clone();
         // Get the signer indices
         let reward_cycle = self.get_current_reward_cycle();
 
@@ -486,7 +477,7 @@ fn dkg() {
 
     info!("------------------------- Test Setup -------------------------");
     let timeout = Duration::from_secs(200);
-    let mut signer_test = SignerTest::new(10, vec![], None);
+    let mut signer_test = SignerTest::new(10, vec![]);
     info!("Boot to epoch 3.0 reward calculation...");
     boot_to_epoch_3_reward_set(
         &signer_test.running_nodes.conf,
@@ -596,7 +587,7 @@ fn sign_request_rejected() {
     block2.header.tx_merkle_root = tx_merkle_root2;
 
     let timeout = Duration::from_secs(200);
-    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new(10, vec![], None);
+    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new(10, vec![]);
     let _key = signer_test.boot_to_epoch_3(timeout);
 
     info!("------------------------- Test Sign -------------------------");
@@ -691,7 +682,7 @@ fn delayed_dkg() {
     info!("------------------------- Test Setup -------------------------");
     let timeout = Duration::from_secs(200);
     let num_signers = 3;
-    let mut signer_test = SignerTest::new(num_signers, vec![], None);
+    let mut signer_test = SignerTest::new(num_signers, vec![]);
     boot_to_epoch_3_reward_set_calculation_boundary(
         &signer_test.running_nodes.conf,
         &signer_test.running_nodes.blocks_processed,
@@ -884,7 +875,7 @@ fn block_proposal() {
 
     info!("------------------------- Test Setup -------------------------");
     let num_signers = 5;
-    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new(num_signers, vec![], None);
+    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new(num_signers, vec![]);
     let timeout = Duration::from_secs(30);
     let short_timeout = Duration::from_secs(30);
 
@@ -945,7 +936,7 @@ fn mine_2_nakamoto_reward_cycles() {
 
     info!("------------------------- Test Setup -------------------------");
     let nmb_reward_cycles = 2;
-    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new(5, vec![], None);
+    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new(5, vec![]);
     let timeout = Duration::from_secs(200);
     let first_dkg = signer_test.boot_to_epoch_3(timeout);
     let curr_reward_cycle = signer_test.get_current_reward_cycle();
@@ -1020,7 +1011,7 @@ fn filter_bad_transactions() {
 
     info!("------------------------- Test Setup -------------------------");
     // Advance to the prepare phase of a post epoch 3.0 reward cycle to force signers to look at the next signer transactions to compare against a proposed block
-    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new(5, vec![], None);
+    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new(5, vec![]);
     let timeout = Duration::from_secs(200);
     let current_signers_dkg = signer_test.boot_to_epoch_3(timeout);
     let next_signers_dkg = signer_test
@@ -1108,7 +1099,7 @@ fn sign_after_signer_reboot() {
 
     info!("------------------------- Test Setup -------------------------");
     let num_signers = 3;
-    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new(num_signers, vec![], None);
+    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new(num_signers, vec![]);
     let timeout = Duration::from_secs(200);
     let short_timeout = Duration::from_secs(30);
 

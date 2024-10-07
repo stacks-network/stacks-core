@@ -144,6 +144,14 @@ pub enum MemPoolSyncData {
     TxTags([u8; 32], Vec<TxTag>),
 }
 
+pub enum MempoolIterationStopReason {
+    NoMoreCandidates,
+    DeadlineReached,
+    /// If the iteration function supplied to mempool iteration exited
+    ///  (i.e., the transaction evaluator returned an early exit command)
+    IteratorExited,
+}
+
 impl StacksMessageCodec for MemPoolSyncData {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         match *self {
@@ -1592,7 +1600,7 @@ impl MemPoolDB {
         output_events: &mut Vec<TransactionEvent>,
         settings: MemPoolWalkSettings,
         mut todo: F,
-    ) -> Result<u64, E>
+    ) -> Result<(u64, MempoolIterationStopReason), E>
     where
         C: ClarityConnection,
         F: FnMut(
@@ -1643,11 +1651,11 @@ impl MemPoolDB {
             .query(NO_PARAMS)
             .map_err(|err| Error::SqliteError(err))?;
 
-        loop {
+        let stop_reason = loop {
             if start_time.elapsed().as_millis() > settings.max_walk_time_ms as u128 {
                 debug!("Mempool iteration deadline exceeded";
                        "deadline_ms" => settings.max_walk_time_ms);
-                break;
+                break MempoolIterationStopReason::DeadlineReached;
             }
 
             let start_with_no_estimate =
@@ -1687,7 +1695,7 @@ impl MemPoolDB {
                                 ),
                                 None => {
                                     debug!("No more transactions to consider in mempool");
-                                    break;
+                                    break MempoolIterationStopReason::NoMoreCandidates;
                                 }
                             }
                         }
@@ -1875,7 +1883,7 @@ impl MemPoolDB {
                 }
                 None => {
                     debug!("Mempool iteration early exit from iterator");
-                    break;
+                    break MempoolIterationStopReason::IteratorExited;
                 }
             }
 
@@ -1885,7 +1893,7 @@ impl MemPoolDB {
                 candidate_cache.len()
             );
             candidate_cache.reset();
-        }
+        };
 
         // drop these rusqlite statements and queries, since their existence as immutable borrows on the
         // connection prevents us from beginning a transaction below (which requires a mutable
@@ -1908,7 +1916,7 @@ impl MemPoolDB {
             "considered_txs" => u128::from(total_considered),
             "elapsed_ms" => start_time.elapsed().as_millis()
         );
-        Ok(total_considered)
+        Ok((total_considered, stop_reason))
     }
 
     pub fn conn(&self) -> &DBConn {

@@ -25,8 +25,6 @@ use std::{io, net};
 
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::BOUND_VALUE_SERIALIZATION_HEX;
-use mio;
-use mio::net as mio_net;
 use stacks_common::codec::{StacksMessageCodec, MAX_MESSAGE_LEN};
 use stacks_common::types::net::PeerAddress;
 use stacks_common::util::hash::to_hex;
@@ -43,7 +41,7 @@ use crate::net::inv::{INV_REWARD_CYCLES, INV_SYNC_INTERVAL};
 use crate::net::neighbors::{
     MAX_NEIGHBOR_AGE, NEIGHBOR_REQUEST_TIMEOUT, NEIGHBOR_WALK_INTERVAL, NUM_INITIAL_WALKS,
     WALK_MAX_DURATION, WALK_MIN_DURATION, WALK_RESET_INTERVAL, WALK_RESET_PROB, WALK_RETRY_COUNT,
-    WALK_STATE_TIMEOUT,
+    WALK_SEED_PROBABILITY, WALK_STATE_TIMEOUT,
 };
 use crate::net::{
     Error as net_error, MessageSequence, Preamble, ProtocolFamily, RelayData, StacksHttp, StacksP2P,
@@ -235,9 +233,10 @@ impl<P: ProtocolFamily> NetworkReplyHandle<P> {
                     None
                 } else {
                     // still have data to send, or we will send more.
-                    debug!(
+                    test_debug!(
                         "Still have data to send, drop_on_success = {}, ret = {}",
-                        drop_on_success, ret
+                        drop_on_success,
+                        ret
                     );
                     Some(fd)
                 }
@@ -345,15 +344,37 @@ pub struct ConnectionOptions {
     pub max_http_clients: u64,
     pub neighbor_request_timeout: u64,
     pub max_neighbor_age: u64,
+    /// How many walk steps to take when the node has booted up.  This influences how quickly the
+    /// node will find new peers on start-up.  This describes the maximum length of such walks.
     pub num_initial_walks: u64,
+    /// How many walk state-machine restarts to take when the node has boote dup.  This influences
+    /// how quickly the node will find new peers on start-up.  This describes the maximum number of
+    /// such walk state-machine run-throughs.
     pub walk_retry_count: u64,
+    /// How often, in seconds, to run the walk state machine.
     pub walk_interval: u64,
+    /// The regularity of doing an inbound neighbor walk (as opposed to an outbound neighbor walk).
+    /// Every `walk_inbound_ratio + 1`-th walk will be an inbound neighbor walk.
     pub walk_inbound_ratio: u64,
+    /// Minimum number of steps a walk will run until it can be reset.
     pub walk_min_duration: u64,
+    /// Maximum number of steps a walk will run until forcibly reset.
     pub walk_max_duration: u64,
+    /// Probabiility that the walk will be reset once `walk_min_duration` steps are taken.
     pub walk_reset_prob: f64,
+    /// Maximum number of seconds a walk can last before being reset.
     pub walk_reset_interval: u64,
+    /// Maximum number of seconds a walk can remain in the same state before being reset.
     pub walk_state_timeout: u64,
+    /// If the node is booting up, or if the node is not connected to an always-allowed peer and
+    /// there are one or more such peers in the peers DB, then this controls the probability that
+    /// the node will attempt to start a walk to an always-allowed peer.  It's good to have this
+    /// close to, but not equal to 1.0, so that if the node can't reach any always-allowed peer for
+    /// some reason but can reach other neighbors, then neighbor walks can continue.
+    pub walk_seed_probability: f64,
+    /// How often, if ever, to log our neighbors via DEBG.
+    /// Units are milliseconds.  A value of 0 means "never".
+    pub log_neighbors_freq: u64,
     pub inv_sync_interval: u64,
     pub inv_reward_cycles: u64,
     pub download_interval: u64,
@@ -378,11 +399,18 @@ pub struct ConnectionOptions {
     pub max_microblock_push: u64,
     pub antientropy_retry: u64,
     pub antientropy_public: bool,
+    /// maximum number of Stacks 2.x BlocksAvailable messages that can be buffered before processing
     pub max_buffered_blocks_available: u64,
+    /// maximum number of Stacks 2.x MicroblocksAvailable that can be buffered before processing
     pub max_buffered_microblocks_available: u64,
+    /// maximum number of Stacks 2.x pushed Block messages we can buffer before processing
     pub max_buffered_blocks: u64,
+    /// maximum number of Stacks 2.x pushed Microblock messages we can buffer before processing
     pub max_buffered_microblocks: u64,
+    /// maximum number of pushed Nakamoto Block messages we can buffer before processing
     pub max_buffered_nakamoto_blocks: u64,
+    /// maximum number of pushed StackerDB chunk messages we can buffer before processing
+    pub max_buffered_stackerdb_chunks: u64,
     /// how often to query a remote peer for its mempool, in seconds
     pub mempool_sync_interval: u64,
     /// how many transactions to ask for in a mempool query
@@ -398,6 +426,12 @@ pub struct ConnectionOptions {
     /// maximum number of confirmations for a nakamoto block's sortition for which it will be
     /// pushed
     pub max_nakamoto_block_relay_age: u64,
+    /// minimum amount of time between requests to push nakamoto blocks (millis)
+    pub nakamoto_push_interval_ms: u128,
+    /// minimum amount of time between requests to push nakamoto blocks (millis)
+    pub nakamoto_inv_sync_burst_interval_ms: u128,
+    /// time between unconfirmed downloader runs
+    pub nakamoto_unconfirmed_downloader_interval_ms: u128,
     /// The authorization token to enable privileged RPC endpoints
     pub auth_token: Option<String>,
 
@@ -433,6 +467,8 @@ pub struct ConnectionOptions {
     pub disable_inbound_handshakes: bool,
     /// Disable getting chunks from StackerDB (e.g. to test push-only)
     pub disable_stackerdb_get_chunks: bool,
+    /// Disable running stackerdb sync altogether (e.g. to test push-only)
+    pub disable_stackerdb_sync: bool,
     /// Unconditionally disconnect a peer after this amount of time
     pub force_disconnect_interval: Option<u64>,
     /// If set to true, this forces the p2p state machine to believe that it is running in
@@ -479,6 +515,8 @@ impl std::default::Default for ConnectionOptions {
             walk_reset_prob: WALK_RESET_PROB,
             walk_reset_interval: WALK_RESET_INTERVAL,
             walk_state_timeout: WALK_STATE_TIMEOUT,
+            walk_seed_probability: WALK_SEED_PROBABILITY,
+            log_neighbors_freq: 60_000,
             inv_sync_interval: INV_SYNC_INTERVAL, // how often to synchronize block inventories
             inv_reward_cycles: INV_REWARD_CYCLES, // how many reward cycles of blocks to sync in a non-full inventory sync
             download_interval: BLOCK_DOWNLOAD_INTERVAL, // how often to scan for blocks to download
@@ -514,6 +552,7 @@ impl std::default::Default for ConnectionOptions {
             max_buffered_blocks: 5,
             max_buffered_microblocks: 1024,
             max_buffered_nakamoto_blocks: 1024,
+            max_buffered_stackerdb_chunks: 4096,
             mempool_sync_interval: 30, // number of seconds in-between mempool sync
             mempool_max_tx_query: 128, // maximum number of transactions to visit per mempool query
             mempool_sync_timeout: 180, // how long a mempool sync can go for (3 minutes)
@@ -521,6 +560,9 @@ impl std::default::Default for ConnectionOptions {
             socket_send_buffer_size: 16384, // Linux default
             private_neighbors: true,
             max_nakamoto_block_relay_age: 6,
+            nakamoto_push_interval_ms: 30_000, // re-send a block no more than once every 30 seconds
+            nakamoto_inv_sync_burst_interval_ms: 1_000, // wait 1 second after a sortition before running inventory sync
+            nakamoto_unconfirmed_downloader_interval_ms: 5_000, // run unconfirmed downloader once every 5 seconds
             auth_token: None,
 
             // no faults on by default
@@ -539,6 +581,7 @@ impl std::default::Default for ConnectionOptions {
             disable_natpunch: false,
             disable_inbound_handshakes: false,
             disable_stackerdb_get_chunks: false,
+            disable_stackerdb_sync: false,
             force_disconnect_interval: None,
             force_nakamoto_epoch_transition: false,
 
@@ -1004,7 +1047,7 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
             total_read += num_read;
 
             if num_read > 0 || total_read > 0 {
-                debug!("read {} bytes; {} total", num_read, total_read);
+                test_debug!("read {} bytes; {} total", num_read, total_read);
             }
 
             if num_read > 0 {

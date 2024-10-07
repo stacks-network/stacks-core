@@ -1,13 +1,14 @@
-openapi: 3.0.2
+openapi: 3.1.0
 servers:
   - url: http://localhost:20443
     description: Local
 info:
-  title: Stacks 2.0+ RPC API
+  title: Stacks 3.0+ RPC API
   version: '1.0.0'
   description: |
     This is the documentation for the `stacks-node` RPC interface.
-  license: CC-0
+  license:
+    name: CC-0
 
 paths:
   /v2/transactions:
@@ -25,14 +26,14 @@ paths:
               format: binary
             example: binary format of 00000000010400bed38c2aadffa348931bcb542880ff79d607afec000000000000000000000000000000c800012b0b1fff6cccd0974966dcd665835838f0985be508e1322e09fb3d751eca132c492bda720f9ef1768d14fdabed6127560ba52d5e3ac470dcb60b784e97dc88c9030200000000000516df0ba3e79792be7be5e50a370289accfc8c9e032000000000000303974657374206d656d6f00000000000000000000000000000000000000000000000000
       responses:
-        200:
-          description: Transaction id of successful post of a raw tx to the node's mempool
+        "200":
+          description: Transaction ID of successful post of a raw tx to the node's mempool
           content:
             text/plain:
               schema:
                 type: string
                 example: '"e161978626f216b2141b156ade10501207ae535fa365a13ef5d7a7c9310a09f2"'
-        400:
+        "400":
           description: Rejections result in a 400 error
           content:
             application/json:
@@ -40,42 +41,6 @@ paths:
                 $ref: ./api/transaction/post-core-node-transactions-error.schema.json
               example:
                 $ref: ./api/transaction/post-core-node-transactions-error.example.json
-
-  /v2/burn_ops/{burn_height}/{op_type}:
-    get:
-      summary: Get burn operations
-      description: Get all burn operations of type `op_type` successfully read at `burn_height`. Valid `op_type`s are `peg_in`, `peg_out_request` and `peg_out_fulfill`.
-      tags:
-        - Info
-      operationId: get_burn_ops
-      parameters:
-        - name: burn_height
-          in: path
-          required: true
-          description: height of the burnchain (Bitcoin)
-          schema:
-            type: integer
-        - name: op_type
-          in: path
-          required: true
-          description: name of the burnchain operation type
-          schema:
-            type: string
-      responses:
-        200:
-          description: Burn operations list
-          content:
-            application/json:
-              examples:
-                peg_in:
-                  value:
-                    $ref: ./api/core-node/get-burn-ops-peg-in.example.json
-                peg_out_request:
-                  value:
-                    $ref: ./api/core-node/get-burn-ops-peg-out-request.example.json
-                peg_out_fulfill:
-                  value:
-                    $ref: ./api/core-node/get-burn-ops-peg-out-fulfill.example.json
 
   /v2/contracts/interface/{contract_address}/{contract_name}:
     get:
@@ -85,7 +50,7 @@ paths:
         - Smart Contracts
       operationId: get_contract_interface
       responses:
-        200:
+        "200":
           description: Contract interface
           content:
             application/json:
@@ -125,7 +90,7 @@ paths:
 
         In the response, `data` is the hex serialization of the map response. Note that map responses are Clarity option types, for non-existent values, this is a serialized none, and for all other responses, it is a serialized (some ...) object.
       responses:
-        200:
+        "200":
           description: Success
           content:
             application/json:
@@ -133,7 +98,7 @@ paths:
                 $ref: ./api/core-node/get-contract-data-map-entry.schema.json
               example:
                 $ref: ./api/core-node/get-contract-data-map-entry.example.json
-        400:
+        "400":
           description: Failed loading data map
       parameters:
         - name: contract_address
@@ -182,7 +147,7 @@ paths:
       operationId: get_contract_source
       description: Returns the Clarity source code of a given contract, along with the block height it was published in, and the MARF proof for the data
       responses:
-        200:
+        "200":
           description: Success
           content:
             application/json:
@@ -227,7 +192,7 @@ paths:
 
         The smart contract and function are specified using the URL path. The arguments and the simulated tx-sender are supplied via the POST body in the following JSON format:
       responses:
-        200:
+        "200":
           description: Success
           content:
             application/json:
@@ -308,7 +273,7 @@ paths:
           description: The Stacks chain tip to query from. If tip == latest, the query will be run from the latest
             known tip (includes unconfirmed state).
       responses:
-        200:
+        "200":
           description: Success
           content:
             application/json:
@@ -398,7 +363,7 @@ paths:
             example:
               $ref: ./api/core-node/post-fee-transaction.example.json
       responses:
-        200:
+        "200":
           description: Estimated fees for the transaction
           content:
             application/json:
@@ -415,7 +380,7 @@ paths:
       operationId: get_fee_transfer
       description: Get an estimated fee rate for STX transfer transactions. This a a fee rate / byte, and is returned as a JSON integer
       responses:
-        200:
+        "200":
           description: Success
           content:
             application/json:
@@ -432,7 +397,7 @@ paths:
         - Info
       operationId: get_core_api_info
       responses:
-        200:
+        "200":
           description: Success
           content:
             application/json:
@@ -449,7 +414,7 @@ paths:
         - Info
       operationId: get_pox_info
       responses:
-        200:
+        "200":
           description: Success
           content:
             application/json:
@@ -473,7 +438,7 @@ paths:
         - Smart Contracts
       operationId: get_is_trait_implemented
       responses:
-        200:
+        "200":
           description: Success
           content:
             application/json:
@@ -519,7 +484,7 @@ paths:
         description: |
           The Stacks chain tip to query from.
           If tip == "latest", the query will be run from the latest known tip (includes unconfirmed state).
-          If the tip is left unspecified, the stacks chain tip will be selected (only includes confirmed state). 
+          If the tip is left unspecified, the stacks chain tip will be selected (only includes confirmed state).
 
   /v2/constant_val/{contract_address}/{contract_name}/{constant_name}:
     post:
@@ -532,7 +497,7 @@ paths:
 
         In the response, `data` is the hex serialization of the constant value.
       responses:
-        200:
+        "200":
           description: Success
           content:
             application/json:
@@ -540,7 +505,7 @@ paths:
                 $ref: ./api/core-node/get-constant-val.schema.json
               example:
                 $ref: ./api/core-node/get-constant-val.example.json
-        400:
+        "400":
           description: Failed to retrieve constant value from contract
       parameters:
         - name: contract_address
@@ -568,7 +533,7 @@ paths:
           description: The Stacks chain tip to query from. If tip == latest, the query will be run from the latest
             known tip (includes unconfirmed state).
 
-  /v2/block_proposal:
+  /v3/block_proposal:
     post:
       summary: Validate a proposed Stacks block
       tags:
@@ -579,17 +544,20 @@ paths:
 
         **This API endpoint requires a basic Authorization header.**
       responses:
-        202:
-          description: Block proposal has been accepted for processing. The result will be returned via the event observer.
+        "202":
+          description: Block proposal has been accepted for processing.
+            The result will be returned via the event observer.
           content:
             application/json:
               example:
                 $ref: ./api/core-node/post-block-proposal-response.example.json
-        403:
-          description: Request not over loopback interface
-        429:
-          description: There is an ongoing proposal validation being processed, the new request cannot be accepted
-            until the prior request has been processed.
+        "400":
+          description: Endpoint not enabled.
+        "401":
+          description: Unauthorized.
+        "429":
+          description: There is an ongoing proposal validation being processed,
+            the new request cannot be accepted until the prior request has been processed.
           content:
             application/json:
               example:
@@ -600,7 +568,7 @@ paths:
             example:
               $ref: ./api/core-node/post-block-proposal-req.example.json
 
-  /v2/stacker_set/{cycle_number}:
+  /v3/stacker_set/{cycle_number}:
     get:
       summary: Fetch the stacker and signer set information for a given cycle.
       tags:
@@ -618,13 +586,13 @@ paths:
           schema:
             type: integer
       responses:
-        200:
+        "200":
           description: Information for the given reward cycle
           content:
             application/json:
               example:
                 $ref: ./api/core-node/get_stacker_set.example.json
-        400:
+        "400":
           description: Could not fetch the given reward set
           content:
             application/json:
@@ -633,7 +601,7 @@ paths:
 
   /v3/blocks/{block_id}:
     get:
-      summary: Fetch a Nakamoto block 
+      summary: Fetch a Nakamoto block
       tags:
         - Blocks
       operationId: get_block_v3
@@ -647,14 +615,14 @@ paths:
           schema:
             type: string
       responses:
-        200:
+        "200":
           description: The raw SIP-003-encoded block will be returned.
           content:
             application/octet-stream:
               schema:
                 type: string
                 format: binary
-        404:
+        "404":
           description: The block could not be found
           content:
             application/text-plain: {}
@@ -668,13 +636,13 @@ paths:
       description:
         Fetch metadata about the ongoing Nakamoto tenure. This information is sufficient to obtain and authenticate the highest complete tenure, as well as obtain new tenure blocks.
       responses:
-        200:
+        "200":
           description: Metadata about the ongoing tenure
           content:
             application/json:
               example:
                 $ref: ./api/core-node/get_tenure_info.json
-  
+
   /v3/tenures/{block_id}:
     get:
       summary: Fetch a sequence of Nakamoto blocks in a tenure
@@ -684,7 +652,7 @@ paths:
       description:
         Fetch a sequence of Nakamoto blocks in a tenure.  The blocks will be served in order from highest to lowest.  The blocks will be encoded in their SIP-003 wire format, and concatenated together.
       responses:
-        200:
+        "200":
           description: SIP-003-encoded Nakamoto blocks, concatenated together
           content:
             application/octet-stream:
@@ -707,3 +675,73 @@ paths:
         schema:
           type: string
 
+  /v3/sortitions/{lookup_kind}/{lookup}:
+    get:
+      summary: Fetch information about evaluated burnchain blocks (i.e., sortitions).
+      tags:
+        - Blocks
+      operationId: get_sortitions
+      description:
+        Fetch sortition information about a burnchain block. If the `lookup_kind` and `lookup` parameters are empty, it will return information about the latest burn block.
+      responses:
+        "200":
+          description: Information for the burn block or in the case of `latest_and_last`, multiple burn blocks
+          content:
+            application/json:
+              examples:
+                Latest:
+                  description: A single element list is returned when just one sortition is requested
+                  value:
+                    $ref: ./api/core-node/get_sortitions.example.json
+                LatestAndLast:
+                  description: Sortition information about the latest burn block with a winning miner, and the previous such burn block.
+                  value:
+                    $ref: ./api/core-node/get_sortitions_latest_and_prior.example.json
+    parameters:
+      - name: lookup_kind
+        in: path
+        description: |-
+          The style of lookup that should be performed. If not given, the most recent burn block processed will be returned.
+          Otherwise, the `lookup_kind` should be one of the following strings:
+            * `consensus` - find the burn block using the consensus hash supplied in the `lookup` field.
+            * `burn_height` - find the burn block using the burn block height supplied in the `lookup` field.
+            * `burn` - find the burn block using the burn block hash supplied in the `lookup` field.
+            * `latest_and_last` - return information about the latest burn block with a winning miner *and* the previous such burn block
+        required: false
+        schema:
+          type: string
+      - name: lookup
+        in: path
+        description: The value to use for the lookup if `lookup_kind` is `consensus`, `burn_height`, or `burn`
+        required: false
+        schema:
+          type: string
+  /v3/signer/{signer}/{cycle_number}:
+    get:
+      summary: Get number of blocks signed by signer during a given reward cycle
+      tags:
+        - Blocks
+        - Signers
+      operationId: get_signer
+      description: Get number of blocks signed by signer during a given reward cycle
+      parameters:
+        - name: signer
+          in: path
+          required: true
+          description: Hex-encoded compressed Secp256k1 public key of signer
+          schema:
+            type: string
+        - name: cycle_number
+          in: path
+          required: true
+          description: Reward cycle number
+          schema:
+            type: integer
+      responses:
+        200:
+          description: Number of blocks signed
+          content:
+            text/plain:
+              schema:
+                type: integer
+                example: 7

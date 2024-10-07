@@ -100,8 +100,8 @@ impl<const MAX_SIZE: u16> Serialize for BitVec<MAX_SIZE> {
 
 impl<'de, const MAX_SIZE: u16> Deserialize<'de> for BitVec<MAX_SIZE> {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let hex: &str = Deserialize::deserialize(deserializer)?;
-        let bytes = hex_bytes(hex).map_err(serde::de::Error::custom)?;
+        let hex: String = Deserialize::deserialize(deserializer)?;
+        let bytes = hex_bytes(hex.as_str()).map_err(serde::de::Error::custom)?;
         Self::consensus_deserialize(&mut bytes.as_slice()).map_err(serde::de::Error::custom)
     }
 }
@@ -411,5 +411,22 @@ mod test {
         for i in inputs.into_iter() {
             check_ok_vector(i.as_slice());
         }
+    }
+
+    #[test]
+    fn test_serde() {
+        let mut bitvec_zero_10 = BitVec::<10>::zeros(10).unwrap();
+        bitvec_zero_10.set(0, true).unwrap();
+        bitvec_zero_10.set(5, true).unwrap();
+        bitvec_zero_10.set(3, true).unwrap();
+        assert_eq!(
+            bitvec_zero_10.binary_str(),
+            "1001010000",
+            "Binary string should be 1001010000"
+        );
+
+        let serde_bitvec_json = serde_json::to_string(&bitvec_zero_10).unwrap();
+        let serde_bitvec: BitVec<10> = serde_json::from_str(&serde_bitvec_json).unwrap();
+        assert_eq!(serde_bitvec, bitvec_zero_10);
     }
 }

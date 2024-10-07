@@ -418,6 +418,7 @@ fn test_http_response_type_codec() {
                 .unwrap(),
                 authenticated: true,
                 stackerdbs: Some(vec![]),
+                age: None,
             },
             RPCNeighbor {
                 network_id: 3,
@@ -433,6 +434,7 @@ fn test_http_response_type_codec() {
                 .unwrap(),
                 authenticated: false,
                 stackerdbs: Some(vec![]),
+                age: None,
             },
         ],
         inbound: vec![],

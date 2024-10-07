@@ -108,7 +108,7 @@ impl NakamotoTenureInfo {
 }
 
 pub struct NakamotoBlockBuilder {
-    /// If there's a parent (i.e., not a genesis), this is Some(parent_header)    
+    /// If there's a parent (i.e., not a genesis), this is Some(parent_header)
     parent_header: Option<StacksHeaderInfo>,
     /// Signed coinbase tx, if starting a new tenure
     coinbase_tx: Option<StacksTransaction>,
@@ -280,8 +280,11 @@ impl NakamotoBlockBuilder {
             &self.header.parent_block_id,
         ).map_err(|e| {
             warn!(
-                "Cannot process Nakamoto block: could not load reward set that elected the block";
+                "Cannot process Nakamoto block: could not find height at which the PoX reward set was calculated";
                 "err" => ?e,
+                "stacks_tip" => %self.header.parent_block_id,
+                "elected_height" => elected_height,
+                "elected_cycle" => elected_in_cycle
             );
             Error::NoSuchBlockError
         })?;

@@ -37,6 +37,7 @@ use std::time::{Duration, Instant};
 
 use clarity::boot_util::boot_code_id;
 use clarity::vm::types::PrincipalData;
+use libsigner::v0::messages::{BlockResponse, SignerMessage};
 use libsigner::{SignerEntries, SignerEventTrait};
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::nakamoto::signer_set::NakamotoSigners;
@@ -46,7 +47,9 @@ use stacks::core::StacksEpoch;
 use stacks::net::api::postblock_proposal::{
     BlockValidateOk, BlockValidateReject, BlockValidateResponse,
 };
-use stacks::types::chainstate::StacksAddress;
+use stacks::types::chainstate::{StacksAddress, StacksPublicKey};
+use stacks::types::PublicKey;
+use stacks::util::hash::MerkleHashFunc;
 use stacks::util::secp256k1::{MessageSignature, Secp256k1PublicKey};
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::consts::SIGNER_SLOTS_PER_USER;
@@ -114,18 +117,14 @@ pub struct SignerTest<S> {
 }
 
 impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<SpawnedSigner<S, T>> {
-    fn new(
-        num_signers: usize,
-        initial_balances: Vec<(StacksAddress, u64)>,
-        wait_on_signers: Option<Duration>,
-    ) -> Self {
+    fn new(num_signers: usize, initial_balances: Vec<(StacksAddress, u64)>) -> Self {
         Self::new_with_config_modifications(
             num_signers,
             initial_balances,
-            wait_on_signers,
             |_| {},
             |_| {},
-            &[],
+            None,
+            None,
         )
     }
 
@@ -135,15 +134,21 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
     >(
         num_signers: usize,
         initial_balances: Vec<(StacksAddress, u64)>,
-        wait_on_signers: Option<Duration>,
         mut signer_config_modifier: F,
         mut node_config_modifier: G,
-        btc_miner_pubkeys: &[Secp256k1PublicKey],
+        btc_miner_pubkeys: Option<Vec<Secp256k1PublicKey>>,
+        signer_stacks_private_keys: Option<Vec<StacksPrivateKey>>,
     ) -> Self {
         // Generate Signer Data
-        let signer_stacks_private_keys = (0..num_signers)
-            .map(|_| StacksPrivateKey::new())
-            .collect::<Vec<StacksPrivateKey>>();
+        let signer_stacks_private_keys = signer_stacks_private_keys
+            .inspect(|keys| {
+                assert_eq!(
+                    keys.len(),
+                    num_signers,
+                    "Number of private keys does not match number of signers"
+                )
+            })
+            .unwrap_or_else(|| (0..num_signers).map(|_| StacksPrivateKey::new()).collect());
 
         let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
 
@@ -159,11 +164,6 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         // That's the kind of thing an idiot would have on his luggage!
         let password = "12345";
         naka_conf.connection_options.auth_token = Some(password.to_string());
-        if let Some(wait_on_signers) = wait_on_signers {
-            naka_conf.miner.wait_on_signers = wait_on_signers;
-        } else {
-            naka_conf.miner.wait_on_signers = Duration::from_secs(10);
-        }
         let run_stamp = rand::random();
 
         // Setup the signer and coordinator configurations
@@ -195,19 +195,20 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
             .collect();
 
         // Setup the nodes and deploy the contract to it
-        let btc_miner_pubkeys = if btc_miner_pubkeys.is_empty() {
-            let pk = Secp256k1PublicKey::from_hex(
-                naka_conf
-                    .burnchain
-                    .local_mining_public_key
-                    .as_ref()
-                    .unwrap(),
-            )
-            .unwrap();
-            vec![pk]
-        } else {
-            btc_miner_pubkeys.to_vec()
-        };
+        let btc_miner_pubkeys = btc_miner_pubkeys
+            .filter(|keys| !keys.is_empty())
+            .unwrap_or_else(|| {
+                let pk = Secp256k1PublicKey::from_hex(
+                    naka_conf
+                        .burnchain
+                        .local_mining_public_key
+                        .as_ref()
+                        .unwrap(),
+                )
+                .unwrap();
+                vec![pk]
+            });
+
         let node = setup_stx_btc_node(
             naka_conf,
             &signer_stacks_private_keys,
@@ -236,10 +237,10 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
                 continue;
             }
             let port = 3000 + signer_ix;
-            let endpoint = format!("http://localhost:{}", port);
+            let endpoint = format!("http://localhost:{port}");
             let path = format!("{endpoint}/status");
 
-            debug!("Issue status request to {}", &path);
+            debug!("Issue status request to {path}");
             let client = reqwest::blocking::Client::new();
             let response = client
                 .get(path)
@@ -680,6 +681,76 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
             assert!(signer.stop().is_none());
         }
     }
+
+    pub fn wait_for_block_acceptance(
+        &self,
+        timeout_secs: u64,
+        signer_signature_hash: &Sha512Trunc256Sum,
+        expected_signers: &[StacksPublicKey],
+    ) -> Result<(), String> {
+        // Make sure that ALL signers accepted the block proposal
+        wait_for(timeout_secs, || {
+            let signatures = test_observer::get_stackerdb_chunks()
+                .into_iter()
+                .flat_map(|chunk| chunk.modified_slots)
+                .filter_map(|chunk| {
+                    let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
+                        .expect("Failed to deserialize SignerMessage");
+                    match message {
+                        SignerMessage::BlockResponse(BlockResponse::Accepted((
+                            hash,
+                            signature,
+                        ))) => {
+                            if hash == *signer_signature_hash
+                                && expected_signers.iter().any(|pk| {
+                                    pk.verify(hash.bits(), &signature)
+                                        .expect("Failed to verify signature")
+                                })
+                            {
+                                Some(signature)
+                            } else {
+                                None
+                            }
+                        }
+                        _ => None,
+                    }
+                })
+                .collect::<HashSet<_>>();
+            Ok(signatures.len() == expected_signers.len())
+        })
+    }
+
+    pub fn wait_for_block_rejections(
+        &self,
+        timeout_secs: u64,
+        expected_signers: &[StacksPublicKey],
+    ) -> Result<(), String> {
+        wait_for(timeout_secs, || {
+            let stackerdb_events = test_observer::get_stackerdb_chunks();
+            let block_rejections = stackerdb_events
+                .into_iter()
+                .flat_map(|chunk| chunk.modified_slots)
+                .filter_map(|chunk| {
+                    let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
+                        .expect("Failed to deserialize SignerMessage");
+                    match message {
+                        SignerMessage::BlockResponse(BlockResponse::Rejected(rejection)) => {
+                            let rejected_pubkey = rejection
+                                .recover_public_key()
+                                .expect("Failed to recover public key from rejection");
+                            if expected_signers.contains(&rejected_pubkey) {
+                                Some(rejection)
+                            } else {
+                                None
+                            }
+                        }
+                        _ => None,
+                    }
+                })
+                .collect::<Vec<_>>();
+            Ok(block_rejections.len() == expected_signers.len())
+        })
+    }
 }
 
 fn setup_stx_btc_node<G: FnMut(&mut NeonConfig) -> ()>(
@@ -750,9 +821,22 @@ fn setup_stx_btc_node<G: FnMut(&mut NeonConfig) -> ()>(
     info!("Make new BitcoinRegtestController");
     let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
 
-    info!("Bootstraping...");
-    // Should be 201 for other tests?
-    btc_regtest_controller.bootstrap_chain_to_pks(195, btc_miner_pubkeys);
+    let epoch_2_5_start = usize::try_from(
+        naka_conf
+            .burnchain
+            .epochs
+            .as_ref()
+            .unwrap()
+            .iter()
+            .find(|epoch| epoch.epoch_id == StacksEpochId::Epoch25)
+            .unwrap()
+            .start_height,
+    )
+    .expect("Failed to get epoch 2.5 start height");
+    let bootstrap_block = epoch_2_5_start - 6;
+
+    info!("Bootstraping to block {bootstrap_block}...");
+    btc_regtest_controller.bootstrap_chain_to_pks(bootstrap_block, btc_miner_pubkeys);
 
     info!("Chain bootstrapped...");
 

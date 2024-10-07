@@ -42,6 +42,7 @@ use blockstack_lib::util_lib::boot::boot_code_id;
 use blockstack_lib::util_lib::signed_structured_data::{
     make_structured_data_domain, structured_data_message_hash,
 };
+use clarity::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
 use clarity::types::chainstate::{
     BlockHeaderHash, ConsensusHash, StacksPrivateKey, StacksPublicKey,
 };
@@ -274,6 +275,8 @@ pub struct PeerInfo {
     pub pox_consensus: ConsensusHash,
     /// The server version
     pub server_version: String,
+    /// The network id
+    pub network_id: u32,
 }
 
 impl StacksMessageCodec for PeerInfo {
@@ -286,6 +289,7 @@ impl StacksMessageCodec for PeerInfo {
         fd.write_all(self.server_version.as_bytes())
             .map_err(CodecError::WriteError)?;
         write_next(fd, &self.pox_consensus)?;
+        write_next(fd, &self.network_id)?;
         Ok(())
     }
 
@@ -304,6 +308,7 @@ impl StacksMessageCodec for PeerInfo {
             )
         })?;
         let pox_consensus = read_next::<ConsensusHash, _>(fd)?;
+        let network_id = read_next(fd)?;
         Ok(Self {
             burn_block_height,
             stacks_tip_consensus_hash,
@@ -311,6 +316,7 @@ impl StacksMessageCodec for PeerInfo {
             stacks_tip_height,
             server_version,
             pox_consensus,
+            network_id,
         })
     }
 }
@@ -320,18 +326,15 @@ impl StacksMessageCodec for PeerInfo {
 pub struct MockProposal {
     /// The view of the stacks node peer information at the time of the mock proposal
     pub peer_info: PeerInfo,
-    /// The chain id for the mock proposal
-    pub chain_id: u32,
     /// The miner's signature across the peer info
     signature: MessageSignature,
 }
 
 impl MockProposal {
     /// Create a new mock proposal data struct from the provided peer info, chain id, and private key.
-    pub fn new(peer_info: PeerInfo, chain_id: u32, stacks_private_key: &StacksPrivateKey) -> Self {
+    pub fn new(peer_info: PeerInfo, stacks_private_key: &StacksPrivateKey) -> Self {
         let mut sig = Self {
             signature: MessageSignature::empty(),
-            chain_id,
             peer_info,
         };
         sig.sign(stacks_private_key)
@@ -341,7 +344,8 @@ impl MockProposal {
 
     /// The signature hash for the mock proposal
     pub fn miner_signature_hash(&self) -> Sha256Sum {
-        let domain_tuple = make_structured_data_domain("mock-miner", "1.0.0", self.chain_id);
+        let domain_tuple =
+            make_structured_data_domain("mock-miner", "1.0.0", self.peer_info.network_id);
         let data_tuple = Value::Tuple(
             TupleData::from_data(vec![
                 (
@@ -374,7 +378,8 @@ impl MockProposal {
 
     /// The signature hash including the miner's signature. Used by signers.
     fn signer_signature_hash(&self) -> Sha256Sum {
-        let domain_tuple = make_structured_data_domain("mock-signer", "1.0.0", self.chain_id);
+        let domain_tuple =
+            make_structured_data_domain("mock-signer", "1.0.0", self.peer_info.network_id);
         let data_tuple = Value::Tuple(
             TupleData::from_data(vec![
                 (
@@ -412,18 +417,15 @@ impl MockProposal {
 impl StacksMessageCodec for MockProposal {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
         self.peer_info.consensus_serialize(fd)?;
-        write_next(fd, &self.chain_id)?;
         write_next(fd, &self.signature)?;
         Ok(())
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
         let peer_info = PeerInfo::consensus_deserialize(fd)?;
-        let chain_id = read_next::<u32, _>(fd)?;
         let signature = read_next::<MessageSignature, _>(fd)?;
         Ok(Self {
             peer_info,
-            chain_id,
             signature,
         })
     }
@@ -525,7 +527,9 @@ RejectCodeTypePrefix {
     /// The block was rejected due to no sortition view
     NoSortitionView = 3,
     /// The block was rejected due to a mismatch with expected sortition view
-    SortitionViewMismatch = 4
+    SortitionViewMismatch = 4,
+    /// The block was rejected due to a testing directive
+    TestingDirective = 5
 });
 
 impl TryFrom<u8> for RejectCodeTypePrefix {
@@ -545,6 +549,7 @@ impl From<&RejectCode> for RejectCodeTypePrefix {
             RejectCode::RejectedInPriorRound => RejectCodeTypePrefix::RejectedInPriorRound,
             RejectCode::NoSortitionView => RejectCodeTypePrefix::NoSortitionView,
             RejectCode::SortitionViewMismatch => RejectCodeTypePrefix::SortitionViewMismatch,
+            RejectCode::TestingDirective => RejectCodeTypePrefix::TestingDirective,
         }
     }
 }
@@ -562,6 +567,8 @@ pub enum RejectCode {
     RejectedInPriorRound,
     /// The block was rejected due to a mismatch with expected sortition view
     SortitionViewMismatch,
+    /// The block was rejected due to a testing directive
+    TestingDirective,
 }
 
 define_u8_enum!(
@@ -615,8 +622,8 @@ impl std::fmt::Display for BlockResponse {
             BlockResponse::Rejected(r) => {
                 write!(
                     f,
-                    "BlockRejected: signer_sighash = {}, code = {}, reason = {}",
-                    r.reason_code, r.reason, r.signer_signature_hash
+                    "BlockRejected: signer_sighash = {}, code = {}, reason = {}, signature = {}",
+                    r.reason_code, r.reason, r.signer_signature_hash, r.signature
                 )
             }
         }
@@ -629,9 +636,14 @@ impl BlockResponse {
         Self::Accepted((hash, sig))
     }
 
-    /// Create a new rejected BlockResponse for the provided block signer signature hash and rejection code
-    pub fn rejected(hash: Sha512Trunc256Sum, reject_code: RejectCode) -> Self {
-        Self::Rejected(BlockRejection::new(hash, reject_code))
+    /// Create a new rejected BlockResponse for the provided block signer signature hash and rejection code and sign it with the provided private key
+    pub fn rejected(
+        hash: Sha512Trunc256Sum,
+        reject_code: RejectCode,
+        private_key: &StacksPrivateKey,
+        mainnet: bool,
+    ) -> Self {
+        Self::Rejected(BlockRejection::new(hash, reject_code, private_key, mainnet))
     }
 }
 
@@ -677,16 +689,94 @@ pub struct BlockRejection {
     pub reason_code: RejectCode,
     /// The signer signature hash of the block that was rejected
     pub signer_signature_hash: Sha512Trunc256Sum,
+    /// The signer's signature across the rejection
+    pub signature: MessageSignature,
+    /// The chain id
+    pub chain_id: u32,
 }
 
 impl BlockRejection {
     /// Create a new BlockRejection for the provided block and reason code
-    pub fn new(signer_signature_hash: Sha512Trunc256Sum, reason_code: RejectCode) -> Self {
-        Self {
+    pub fn new(
+        signer_signature_hash: Sha512Trunc256Sum,
+        reason_code: RejectCode,
+        private_key: &StacksPrivateKey,
+        mainnet: bool,
+    ) -> Self {
+        let chain_id = if mainnet {
+            CHAIN_ID_MAINNET
+        } else {
+            CHAIN_ID_TESTNET
+        };
+        let mut rejection = Self {
             reason: reason_code.to_string(),
             reason_code,
             signer_signature_hash,
+            signature: MessageSignature::empty(),
+            chain_id,
+        };
+        rejection
+            .sign(private_key)
+            .expect("Failed to sign BlockRejection");
+        rejection
+    }
+
+    /// Create a new BlockRejection from a BlockValidateRejection
+    pub fn from_validate_rejection(
+        reject: BlockValidateReject,
+        private_key: &StacksPrivateKey,
+        mainnet: bool,
+    ) -> Self {
+        let chain_id = if mainnet {
+            CHAIN_ID_MAINNET
+        } else {
+            CHAIN_ID_TESTNET
+        };
+        let mut rejection = Self {
+            reason: reject.reason,
+            reason_code: RejectCode::ValidationFailed(reject.reason_code),
+            signer_signature_hash: reject.signer_signature_hash,
+            chain_id,
+            signature: MessageSignature::empty(),
+        };
+        rejection
+            .sign(private_key)
+            .expect("Failed to sign BlockRejection");
+        rejection
+    }
+
+    /// The signature hash for the block rejection
+    pub fn hash(&self) -> Sha256Sum {
+        let domain_tuple = make_structured_data_domain("block-rejection", "1.0.0", self.chain_id);
+        let data = Value::buff_from(self.signer_signature_hash.as_bytes().into()).unwrap();
+        structured_data_message_hash(data, domain_tuple)
+    }
+
+    /// Sign the block rejection and set the internal signature field
+    fn sign(&mut self, private_key: &StacksPrivateKey) -> Result<(), String> {
+        let signature_hash = self.hash();
+        self.signature = private_key.sign(signature_hash.as_bytes())?;
+        Ok(())
+    }
+
+    /// Verify the rejection's signature against the provided signer public key
+    pub fn verify(&self, public_key: &StacksPublicKey) -> Result<bool, String> {
+        if self.signature == MessageSignature::empty() {
+            return Ok(false);
         }
+        let signature_hash = self.hash();
+        public_key
+            .verify(&signature_hash.0, &self.signature)
+            .map_err(|e| e.to_string())
+    }
+
+    /// Recover the public key from the rejection signature
+    pub fn recover_public_key(&self) -> Result<StacksPublicKey, &'static str> {
+        if self.signature == MessageSignature::empty() {
+            return Err("No signature to recover public key from");
+        }
+        let signature_hash = self.hash();
+        StacksPublicKey::recover_to_pubkey(signature_hash.as_bytes(), &self.signature)
     }
 }
 
@@ -695,6 +785,8 @@ impl StacksMessageCodec for BlockRejection {
         write_next(fd, &self.reason.as_bytes().to_vec())?;
         write_next(fd, &self.reason_code)?;
         write_next(fd, &self.signer_signature_hash)?;
+        write_next(fd, &self.chain_id)?;
+        write_next(fd, &self.signature)?;
         Ok(())
     }
 
@@ -705,21 +797,15 @@ impl StacksMessageCodec for BlockRejection {
         })?;
         let reason_code = read_next::<RejectCode, _>(fd)?;
         let signer_signature_hash = read_next::<Sha512Trunc256Sum, _>(fd)?;
+        let chain_id = read_next::<u32, _>(fd)?;
+        let signature = read_next::<MessageSignature, _>(fd)?;
         Ok(Self {
             reason,
             reason_code,
             signer_signature_hash,
+            chain_id,
+            signature,
         })
-    }
-}
-
-impl From<BlockValidateReject> for BlockRejection {
-    fn from(reject: BlockValidateReject) -> Self {
-        Self {
-            reason: reject.reason,
-            reason_code: RejectCode::ValidationFailed(reject.reason_code),
-            signer_signature_hash: reject.signer_signature_hash,
-        }
     }
 }
 
@@ -732,7 +818,8 @@ impl StacksMessageCodec for RejectCode {
             RejectCode::ConnectivityIssues
             | RejectCode::RejectedInPriorRound
             | RejectCode::NoSortitionView
-            | RejectCode::SortitionViewMismatch => {
+            | RejectCode::SortitionViewMismatch
+            | RejectCode::TestingDirective => {
                 // No additional data to serialize / deserialize
             }
         };
@@ -755,6 +842,7 @@ impl StacksMessageCodec for RejectCode {
             RejectCodeTypePrefix::RejectedInPriorRound => RejectCode::RejectedInPriorRound,
             RejectCodeTypePrefix::NoSortitionView => RejectCode::NoSortitionView,
             RejectCodeTypePrefix::SortitionViewMismatch => RejectCode::SortitionViewMismatch,
+            RejectCodeTypePrefix::TestingDirective => RejectCode::TestingDirective,
         };
         Ok(code)
     }
@@ -782,6 +870,9 @@ impl std::fmt::Display for RejectCode {
                     "The block was rejected due to a mismatch with expected sortition view."
                 )
             }
+            RejectCode::TestingDirective => {
+                write!(f, "The block was rejected due to a testing directive.")
+            }
         }
     }
 }
@@ -789,12 +880,6 @@ impl std::fmt::Display for RejectCode {
 impl From<BlockResponse> for SignerMessage {
     fn from(block_response: BlockResponse) -> Self {
         Self::BlockResponse(block_response)
-    }
-}
-
-impl From<BlockValidateReject> for BlockResponse {
-    fn from(rejection: BlockValidateReject) -> Self {
-        Self::Rejected(rejection.into())
     }
 }
 
@@ -851,14 +936,20 @@ mod test {
         let rejection = BlockRejection::new(
             Sha512Trunc256Sum([0u8; 32]),
             RejectCode::ValidationFailed(ValidateRejectCode::InvalidBlock),
+            &StacksPrivateKey::new(),
+            thread_rng().gen_bool(0.5),
         );
         let serialized_rejection = rejection.serialize_to_vec();
         let deserialized_rejection = read_next::<BlockRejection, _>(&mut &serialized_rejection[..])
             .expect("Failed to deserialize BlockRejection");
         assert_eq!(rejection, deserialized_rejection);
 
-        let rejection =
-            BlockRejection::new(Sha512Trunc256Sum([1u8; 32]), RejectCode::ConnectivityIssues);
+        let rejection = BlockRejection::new(
+            Sha512Trunc256Sum([1u8; 32]),
+            RejectCode::ConnectivityIssues,
+            &StacksPrivateKey::new(),
+            thread_rng().gen_bool(0.5),
+        );
         let serialized_rejection = rejection.serialize_to_vec();
         let deserialized_rejection = read_next::<BlockRejection, _>(&mut &serialized_rejection[..])
             .expect("Failed to deserialize BlockRejection");
@@ -877,6 +968,8 @@ mod test {
         let response = BlockResponse::Rejected(BlockRejection::new(
             Sha512Trunc256Sum([1u8; 32]),
             RejectCode::ValidationFailed(ValidateRejectCode::InvalidBlock),
+            &StacksPrivateKey::new(),
+            thread_rng().gen_bool(0.5),
         ));
         let serialized_response = response.serialize_to_vec();
         let deserialized_response = read_next::<BlockResponse, _>(&mut &serialized_response[..])
@@ -932,6 +1025,12 @@ mod test {
         let stacks_tip_height = thread_rng().next_u64();
         let server_version = "0.0.0".to_string();
         let pox_consensus_byte: u8 = thread_rng().gen();
+        let network_byte: u8 = thread_rng().gen_range(0..=1);
+        let network_id = if network_byte == 1 {
+            CHAIN_ID_TESTNET
+        } else {
+            CHAIN_ID_MAINNET
+        };
         PeerInfo {
             burn_block_height,
             stacks_tip_consensus_hash: ConsensusHash([stacks_tip_consensus_byte; 20]),
@@ -939,19 +1038,13 @@ mod test {
             stacks_tip_height,
             server_version,
             pox_consensus: ConsensusHash([pox_consensus_byte; 20]),
+            network_id,
         }
     }
     fn random_mock_proposal() -> MockProposal {
-        let chain_byte: u8 = thread_rng().gen_range(0..=1);
-        let chain_id = if chain_byte == 1 {
-            CHAIN_ID_TESTNET
-        } else {
-            CHAIN_ID_MAINNET
-        };
         let peer_info = random_peer_data();
         MockProposal {
             peer_info,
-            chain_id,
             signature: MessageSignature::empty(),
         }
     }

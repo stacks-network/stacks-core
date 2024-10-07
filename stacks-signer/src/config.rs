@@ -157,8 +157,6 @@ pub struct SignerConfig {
     pub first_proposal_burn_block_timing: Duration,
     /// How much time to wait for a miner to propose a block following a sortition
     pub block_proposal_timeout: Duration,
-    /// Broadcast a block to the node if we gather enough signatures from other signers
-    pub broadcast_signed_blocks: bool,
 }
 
 /// The parsed configuration for the signer
@@ -203,8 +201,6 @@ pub struct GlobalConfig {
     pub first_proposal_burn_block_timing: Duration,
     /// How much time to wait for a miner to propose a block following a sortition
     pub block_proposal_timeout: Duration,
-    /// Broadcast a block to the node if we gather enough signatures from other signers
-    pub broadcast_signed_blocks: bool,
 }
 
 /// Internal struct for loading up the config file
@@ -361,7 +357,6 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
             metrics_endpoint,
             first_proposal_burn_block_timing,
             block_proposal_timeout,
-            broadcast_signed_blocks: true,
         })
     }
 }

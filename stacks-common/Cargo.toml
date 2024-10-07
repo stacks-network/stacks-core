@@ -100,6 +100,7 @@ testing = ["canonical"]
 serde = []
 bech32_std = []
 bech32_strict = []
+strason = []
 
 [target.'cfg(all(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64"), not(any(target_os="windows"))))'.dependencies]
 sha2 = { version = "0.10", features = ["asm"] }

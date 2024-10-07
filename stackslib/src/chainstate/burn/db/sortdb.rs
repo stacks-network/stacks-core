@@ -686,11 +686,11 @@ const SORTITION_DB_SCHEMA_4: &'static [&'static str] = &[
         delegated_ustx TEXT NOT NULL,
         until_burn_height INTEGER,
 
-        PRIMARY KEY(txid,burn_header_Hash)
+        PRIMARY KEY(txid,burn_header_hash)
     );"#,
     r#"
     CREATE TABLE ast_rule_heights (
-        ast_rule_id INTEGER PRIMAR KEY NOT NULL,
+        ast_rule_id INTEGER PRIMARY KEY NOT NULL,
         block_height INTEGER NOT NULL
     );"#,
 ];
@@ -2619,6 +2619,27 @@ impl<'a> SortitionHandleConn<'a> {
             serde_json::from_str(&pox_addrs_json).expect("FATAL: failed to decode pox payout JSON");
         Ok(pox_addrs)
     }
+
+    /// Is a consensus hash's sortition valid on the fork represented by this handle?
+    /// Return Ok(true) if so
+    /// Return Ok(false) if not (including if there is no sortition with this consensus hash)
+    /// Return Err(..) on DB error
+    pub fn has_consensus_hash(&self, consensus_hash: &ConsensusHash) -> Result<bool, db_error> {
+        let Some(sn) = SortitionDB::get_block_snapshot_consensus(self, consensus_hash)? else {
+            // no sortition with this consensus hash
+            return Ok(false);
+        };
+
+        let Some(expected_sortition_id) =
+            get_ancestor_sort_id(self, sn.block_height, &self.context.chain_tip)?
+        else {
+            // no ancestor at this sortition height relative to this chain tip
+            // (e.g. perhaps this consensus hash is in the "future" relative to this chain tip)
+            return Ok(false);
+        };
+
+        Ok(sn.sortition_id == expected_sortition_id)
+    }
 }
 
 // Connection methods
@@ -2887,7 +2908,6 @@ impl SortitionDB {
         SortitionDB::apply_schema_6(&db_tx, epochs_ref)?;
         SortitionDB::apply_schema_7(&db_tx, epochs_ref)?;
         SortitionDB::apply_schema_8_tables(&db_tx, epochs_ref)?;
-        SortitionDB::apply_schema_9(&db_tx, epochs_ref)?;
 
         db_tx.instantiate_index()?;
 
@@ -2907,6 +2927,11 @@ impl SortitionDB {
 
         // NOTE: we don't need to provide a migrator here because we're not migrating
         self.apply_schema_8_migration(None)?;
+
+        let db_tx = SortitionHandleTx::begin(self, &SortitionId::sentinel())?;
+        SortitionDB::apply_schema_9(&db_tx, epochs_ref)?;
+
+        db_tx.commit()?;
 
         self.add_indexes()?;
 
@@ -3455,6 +3480,14 @@ impl SortitionDB {
                         SortitionDB::apply_schema_9(&tx.deref(), epochs)?;
                         tx.commit()?;
                     } else if version == expected_version {
+                        // this transaction is almost never needed
+                        let validated_epochs = StacksEpoch::validate_epochs(epochs);
+                        let existing_epochs = Self::get_stacks_epochs(self.conn())?;
+                        if existing_epochs == validated_epochs {
+                            return Ok(());
+                        }
+
+                        // epochs are out of date
                         let tx = self.tx_begin()?;
                         SortitionDB::validate_and_replace_epochs(&tx, epochs)?;
                         tx.commit()?;
@@ -10938,5 +10971,46 @@ pub mod tests {
             StacksEpochId::latest(),
             SORTITION_DB_VERSION
         ));
+    }
+
+    #[test]
+    fn test_has_consensus_hash() {
+        let first_burn_hash = BurnchainHeaderHash::from_hex(
+            "10000000000000000000000000000000000000000000000000000000000000ff",
+        )
+        .unwrap();
+        let mut db = SortitionDB::connect_test(0, &first_burn_hash).unwrap();
+
+        let last_snapshot = SortitionDB::get_first_block_snapshot(db.conn()).unwrap();
+
+        // fork 1: 0 <-- 1 <-- 2 <-- 3 <-- 4
+        //                              \
+        // fork 2:                       *---- 5 <-- 6
+
+        let all_snapshots = make_fork_run(&mut db, &last_snapshot, 5, 0);
+        let fork_snapshots = make_fork_run(&mut db, &all_snapshots[3], 2, 0x80);
+
+        let tip = &all_snapshots[4];
+        let tip_2 = &fork_snapshots[1];
+        assert_ne!(tip, tip_2);
+
+        let ih = db.index_handle(&tip.sortition_id);
+        for sn in all_snapshots.iter() {
+            assert!(ih.has_consensus_hash(&sn.consensus_hash).unwrap());
+        }
+        for sn in fork_snapshots.iter() {
+            assert!(!ih.has_consensus_hash(&sn.consensus_hash).unwrap());
+        }
+
+        let ih = db.index_handle(&tip_2.sortition_id);
+        for sn in fork_snapshots.iter() {
+            assert!(ih.has_consensus_hash(&sn.consensus_hash).unwrap());
+        }
+        for sn in all_snapshots[0..4].iter() {
+            assert!(ih.has_consensus_hash(&sn.consensus_hash).unwrap());
+        }
+        assert!(!ih
+            .has_consensus_hash(&all_snapshots[4].consensus_hash)
+            .unwrap());
     }
 }

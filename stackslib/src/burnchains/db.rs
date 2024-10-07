@@ -1411,6 +1411,8 @@ impl BurnchainDB {
         Ok(())
     }
 
+    /// Stores a newly-parsed burnchain block's relevant data into the DB.
+    /// The given block's operations will be validated.
     pub fn store_new_burnchain_block<B: BurnchainHeaderReader>(
         &mut self,
         burnchain: &Burnchain,

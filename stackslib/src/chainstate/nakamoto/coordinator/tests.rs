@@ -41,10 +41,10 @@ use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandle};
 use crate::chainstate::burn::operations::{BlockstackOperationType, LeaderBlockCommitOp};
 use crate::chainstate::coordinator::tests::{p2pkh_from, pox_addr_from};
 use crate::chainstate::nakamoto::coordinator::load_nakamoto_reward_set;
+use crate::chainstate::nakamoto::fault_injection::*;
 use crate::chainstate::nakamoto::miner::NakamotoBlockBuilder;
 use crate::chainstate::nakamoto::signer_set::NakamotoSigners;
 use crate::chainstate::nakamoto::test_signers::TestSigners;
-use crate::chainstate::nakamoto::test_stall::*;
 use crate::chainstate::nakamoto::tests::get_account;
 use crate::chainstate::nakamoto::tests::node::TestStacker;
 use crate::chainstate::nakamoto::{
@@ -65,7 +65,7 @@ use crate::chainstate::stacks::{
 };
 use crate::clarity::vm::types::StacksAddressExtensions;
 use crate::core::StacksEpochExtension;
-use crate::net::relay::Relayer;
+use crate::net::relay::{BlockAcceptResponse, Relayer};
 use crate::net::stackerdb::StackerDBConfig;
 use crate::net::test::{TestEventObserver, TestPeer, TestPeerConfig};
 use crate::net::tests::NakamotoBootPlan;
@@ -338,8 +338,10 @@ fn replay_reward_cycle(
             None,
             NakamotoBlockObtainMethod::Pushed,
         )
-        .unwrap_or(false);
-        if accepted {
+        .unwrap_or(BlockAcceptResponse::Rejected(
+            "encountered error on acceptance".into(),
+        ));
+        if accepted.is_accepted() {
             test_debug!("Accepted Nakamoto block {block_id}");
             peer.coord.handle_new_nakamoto_stacks_block().unwrap();
         } else {
@@ -540,10 +542,42 @@ impl<'a> TestPeer<'a> {
         F: FnMut(&mut NakamotoBlockBuilder),
         G: FnMut(&mut NakamotoBlock) -> bool,
     {
+        let nakamoto_tip = {
+            let chainstate = &mut self.stacks_node.as_mut().unwrap().chainstate;
+            let sort_db = self.sortdb.as_mut().unwrap();
+            NakamotoChainState::get_canonical_block_header(chainstate.db(), sort_db)
+                .unwrap()
+                .unwrap()
+        };
+        self.mine_single_block_tenure_at_tip(
+            &nakamoto_tip.index_block_hash(),
+            sender_key,
+            tenure_change_tx,
+            coinbase_tx,
+            miner_setup,
+            after_block,
+        )
+    }
+
+    pub fn mine_single_block_tenure_at_tip<F, G>(
+        &mut self,
+        nakamoto_tip: &StacksBlockId,
+        sender_key: &StacksPrivateKey,
+        tenure_change_tx: &StacksTransaction,
+        coinbase_tx: &StacksTransaction,
+        miner_setup: F,
+        after_block: G,
+    ) -> NakamotoBlock
+    where
+        F: FnMut(&mut NakamotoBlockBuilder),
+        G: FnMut(&mut NakamotoBlock) -> bool,
+    {
         let sender_addr = StacksAddress::p2pkh(false, &StacksPublicKey::from_private(&sender_key));
         let mut test_signers = self.config.test_signers.clone().unwrap();
         let recipient_addr =
             StacksAddress::from_string("ST2YM3J4KQK09V670TD6ZZ1XYNYCNGCWCVTASN5VM").unwrap();
+
+        let sender_acct = self.get_account(nakamoto_tip, &sender_addr.to_account_principal());
 
         // do a stx transfer in each block to a given recipient
         let mut blocks_and_sizes = self.make_nakamoto_tenure_and(
@@ -553,12 +587,11 @@ impl<'a> TestPeer<'a> {
             miner_setup,
             |_miner, chainstate, sortdb, blocks_so_far| {
                 if blocks_so_far.len() < 1 {
-                    let account = get_account(chainstate, sortdb, &sender_addr);
                     let stx_transfer = make_token_transfer(
                         chainstate,
                         sortdb,
                         &sender_key,
-                        account.nonce,
+                        sender_acct.nonce,
                         100,
                         1,
                         &recipient_addr,
@@ -605,12 +638,33 @@ impl<'a> TestPeer<'a> {
         tenure_change.tenure_consensus_hash = consensus_hash.clone();
         tenure_change.burn_view_consensus_hash = consensus_hash.clone();
 
+        let nakamoto_tip =
+            if let Some(nakamoto_parent_tenure) = self.nakamoto_parent_tenure_opt.as_ref() {
+                nakamoto_parent_tenure.last().as_ref().unwrap().block_id()
+            } else {
+                let tip = {
+                    let chainstate = &mut self.stacks_node.as_mut().unwrap().chainstate;
+                    let sort_db = self.sortdb.as_mut().unwrap();
+                    NakamotoChainState::get_canonical_block_header(chainstate.db(), sort_db)
+                        .unwrap()
+                        .unwrap()
+                };
+                tip.index_block_hash()
+            };
+
+        let miner_addr = self.miner.origin_address().unwrap();
+        let miner_acct = self.get_account(&nakamoto_tip, &miner_addr.to_account_principal());
+
         let tenure_change_tx = self
             .miner
-            .make_nakamoto_tenure_change(tenure_change.clone());
-        let coinbase_tx = self.miner.make_nakamoto_coinbase(None, vrf_proof);
+            .make_nakamoto_tenure_change_with_nonce(tenure_change.clone(), miner_acct.nonce);
 
-        let block = self.mine_single_block_tenure(
+        let coinbase_tx =
+            self.miner
+                .make_nakamoto_coinbase_with_nonce(None, vrf_proof, miner_acct.nonce + 1);
+
+        let block = self.mine_single_block_tenure_at_tip(
+            &nakamoto_tip,
             sender_key,
             &tenure_change_tx,
             &coinbase_tx,
