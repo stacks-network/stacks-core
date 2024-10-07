@@ -455,6 +455,7 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
         winning_block_id: parent_parent_start_header.index_block_hash(),
         processed: false,
         burn_height: peer.network.burnchain_tip.block_height - 1,
+        considered_tip: None,
     };
 
     let unconfirmed_wanted_tenure = WantedTenure {
@@ -467,6 +468,7 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
             .block_id(),
         processed: false,
         burn_height: peer.network.burnchain_tip.block_height,
+        considered_tip: None,
     };
 
     // we can make unconfirmed tenure downloaders

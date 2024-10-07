@@ -75,6 +75,8 @@ pub struct WantedTenure {
     /// Whether or not this tenure has been acted upon (i.e. set to true if there's no need to
     /// download it)
     pub processed: bool,
+    /// What was the Stacks tip at the time this wanted tenure was considered
+    pub considered_tip: Option<StacksBlockId>,
 }
 
 impl WantedTenure {
@@ -88,6 +90,7 @@ impl WantedTenure {
             winning_block_id,
             burn_height,
             processed: false,
+            considered_tip: None,
         }
     }
 }

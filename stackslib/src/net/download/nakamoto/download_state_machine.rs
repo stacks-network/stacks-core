@@ -323,6 +323,16 @@ impl NakamotoDownloadStateMachine {
                 wt.processed = true;
                 continue;
             }
+            if wt
+                .considered_tip
+                .as_ref()
+                .map(|ctip| ctip == stacks_tip)
+                .unwrap_or(false)
+            {
+                // we're reconsidering this tip, but there has been no change
+                continue;
+            }
+
             if NakamotoChainState::has_processed_nakamoto_tenure(
                 &mut chainstate.index_conn(),
                 stacks_tip,
@@ -330,8 +340,8 @@ impl NakamotoDownloadStateMachine {
             )? {
                 debug!("Tenure {} is now processed", &wt.tenure_id_consensus_hash);
                 wt.processed = true;
-                continue;
             }
+            wt.considered_tip = Some(stacks_tip.clone());
         }
         Ok(())
     }
