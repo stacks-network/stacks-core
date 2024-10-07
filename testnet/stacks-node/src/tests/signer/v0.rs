@@ -3060,6 +3060,7 @@ fn signer_set_rollover() {
         .running_nodes
         .btc_regtest_controller
         .get_headers_height();
+    let accounts_to_check: Vec<_> = new_signer_private_keys.iter().map(tests::to_addr).collect();
     for stacker_sk in new_signer_private_keys.iter() {
         let pox_addr = PoxAddress::from_legacy(
             AddressHashMode::SerializeP2PKH,
@@ -3102,6 +3103,13 @@ fn signer_set_rollover() {
         );
         submit_tx(&http_origin, &stacking_tx);
     }
+
+    wait_for(60, || {
+        Ok(accounts_to_check
+            .iter()
+            .all(|acct| get_account(&http_origin, acct).nonce >= 1))
+    })
+    .expect("Timed out waiting for stacking txs to be mined");
 
     signer_test.mine_nakamoto_block(short_timeout);
 

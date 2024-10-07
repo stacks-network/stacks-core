@@ -460,6 +460,7 @@ pub struct MemPoolTxMetadata {
     pub last_known_origin_nonce: Option<u64>,
     pub last_known_sponsor_nonce: Option<u64>,
     pub accept_time: u64,
+    pub time_estimate_ms: Option<u64>,
 }
 
 impl MemPoolTxMetadata {
@@ -594,6 +595,7 @@ impl FromRow<MemPoolTxMetadata> for MemPoolTxMetadata {
         let sponsor_nonce = u64::from_column(row, "sponsor_nonce")?;
         let last_known_sponsor_nonce = u64::from_column(row, "last_known_sponsor_nonce")?;
         let last_known_origin_nonce = u64::from_column(row, "last_known_origin_nonce")?;
+        let time_estimate_ms: Option<u64> = row.get("time_estimate_ms")?;
 
         Ok(MemPoolTxMetadata {
             txid,
@@ -609,6 +611,7 @@ impl FromRow<MemPoolTxMetadata> for MemPoolTxMetadata {
             last_known_origin_nonce,
             last_known_sponsor_nonce,
             accept_time,
+            time_estimate_ms,
         })
     }
 }
@@ -624,10 +627,7 @@ impl FromRow<MemPoolTxInfo> for MemPoolTxInfo {
             return Err(db_error::ParseError);
         }
 
-        Ok(MemPoolTxInfo {
-            tx: tx,
-            metadata: md,
-        })
+        Ok(MemPoolTxInfo { tx, metadata: md })
     }
 }
 
@@ -800,6 +800,16 @@ const MEMPOOL_SCHEMA_6_NONCES: &'static [&'static str] = &[
     "#,
     r#"
     INSERT INTO schema_version (version) VALUES (6)
+    "#,
+];
+
+const MEMPOOL_SCHEMA_7_TIME_ESTIMATES: &'static [&'static str] = &[
+    r#"
+    -- ALLOW NULL
+    ALTER TABLE mempool ADD COLUMN time_estimate_ms INTEGER;
+    "#,
+    r#"
+    INSERT INTO schema_version (version) VALUES (7)
     "#,
 ];
 
@@ -1287,6 +1297,9 @@ impl MemPoolDB {
                     MemPoolDB::instantiate_nonces(tx)?;
                 }
                 6 => {
+                    MemPoolDB::instantiate_schema_7(tx)?;
+                }
+                7 => {
                     break;
                 }
                 _ => {
@@ -1357,6 +1370,16 @@ impl MemPoolDB {
     #[cfg_attr(test, mutants::skip)]
     fn instantiate_nonces(tx: &DBTx) -> Result<(), db_error> {
         for sql_exec in MEMPOOL_SCHEMA_6_NONCES {
+            tx.execute_batch(sql_exec)?;
+        }
+
+        Ok(())
+    }
+
+    /// Add the nonce table
+    #[cfg_attr(test, mutants::skip)]
+    fn instantiate_schema_7(tx: &DBTx) -> Result<(), db_error> {
+        for sql_exec in MEMPOOL_SCHEMA_7_TIME_ESTIMATES {
             tx.execute_batch(sql_exec)?;
         }
 
@@ -1992,21 +2015,7 @@ impl MemPoolDB {
         nonce: u64,
     ) -> Result<Option<MemPoolTxMetadata>, db_error> {
         let sql = format!(
-            "SELECT
-                          txid,
-                          origin_address,
-                          origin_nonce,
-                          sponsor_address,
-                          sponsor_nonce,
-                          tx_fee,
-                          length,
-                          consensus_hash,
-                          block_header_hash,
-                          height,
-                          accept_time,
-                          last_known_sponsor_nonce,
-                          last_known_origin_nonce
-                          FROM mempool WHERE {0}_address = ?1 AND {0}_nonce = ?2",
+            "SELECT * FROM mempool WHERE {0}_address = ?1 AND {0}_nonce = ?2",
             if is_origin { "origin" } else { "sponsor" }
         );
         let args = params![addr.to_string(), u64_to_sql(nonce)?];
@@ -2647,6 +2656,20 @@ impl MemPoolDB {
         let mempool_tx = self.tx_begin()?;
         MemPoolDB::inner_drop_txs(&mempool_tx, txids)?;
         mempool_tx.commit()?;
+        Ok(())
+    }
+
+    /// Update the time estimates for the supplied txs in the mempool db
+    pub fn update_tx_time_estimates(&mut self, txs: &[(Txid, u64)]) -> Result<(), db_error> {
+        let sql = "UPDATE mempool SET time_estimate_ms = ? WHERE txid = ?";
+        let mempool_tx = self.tx_begin()?;
+        for (txid, time_estimate_ms) in txs.iter() {
+            mempool_tx
+                .tx
+                .execute(sql, params![time_estimate_ms, txid])?;
+        }
+        mempool_tx.commit()?;
+
         Ok(())
     }
 
