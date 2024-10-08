@@ -28,17 +28,19 @@ use stacks_common::consts::{
     FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH, SIGNER_SLOTS_PER_USER,
 };
 use stacks_common::types::chainstate::{
-    StacksAddress, StacksBlockId, StacksPrivateKey, StacksPublicKey,
+    BurnchainHeaderHash, StacksAddress, StacksBlockId, StacksPrivateKey, StacksPublicKey,
 };
-use stacks_common::types::{Address, StacksEpoch, StacksEpochId};
+use stacks_common::types::{Address, StacksEpoch, StacksEpochId, StacksPublicKeyBuffer};
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::secp256k1::Secp256k1PrivateKey;
 use stacks_common::util::vrf::VRFProof;
-use wsts::curve::point::Point;
 
-use crate::burnchains::PoxConstants;
+use crate::burnchains::{PoxConstants, Txid};
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandle};
-use crate::chainstate::burn::operations::{BlockstackOperationType, LeaderBlockCommitOp};
+use crate::chainstate::burn::operations::{
+    BlockstackOperationType, DelegateStxOp, LeaderBlockCommitOp, StackStxOp, TransferStxOp,
+    VoteForAggregateKeyOp,
+};
 use crate::chainstate::coordinator::tests::{p2pkh_from, pox_addr_from};
 use crate::chainstate::nakamoto::coordinator::load_nakamoto_reward_set;
 use crate::chainstate::nakamoto::fault_injection::*;
@@ -58,6 +60,7 @@ use crate::chainstate::stacks::boot::test::{
 };
 use crate::chainstate::stacks::boot::{MINERS_NAME, SIGNERS_NAME};
 use crate::chainstate::stacks::db::{MinerPaymentTxFees, StacksAccount, StacksChainState};
+use crate::chainstate::stacks::events::TransactionOrigin;
 use crate::chainstate::stacks::{
     CoinbasePayload, Error as ChainstateError, StacksTransaction, StacksTransactionSigner,
     TenureChangeCause, TokenTransferMemo, TransactionAnchorMode, TransactionAuth,
@@ -2594,4 +2597,369 @@ fn process_next_nakamoto_block_deadlock() {
 
     // Wait for the blocker and miner threads to finish
     miner_thread.join().unwrap();
+}
+
+/// Test stacks-on-burnchain op discovery and usage
+#[test]
+fn test_stacks_on_burnchain_ops() {
+    let private_key = StacksPrivateKey::from_seed(&[2]);
+    let addr = StacksAddress::from_public_keys(
+        C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+        &AddressHashMode::SerializeP2PKH,
+        1,
+        &vec![StacksPublicKey::from_private(&private_key)],
+    )
+    .unwrap();
+
+    let recipient_private_key = StacksPrivateKey::from_seed(&[3]);
+    let recipient_addr = StacksAddress::from_public_keys(
+        C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+        &AddressHashMode::SerializeP2PKH,
+        1,
+        &vec![StacksPublicKey::from_private(&recipient_private_key)],
+    )
+    .unwrap();
+
+    let agg_private_key = StacksPrivateKey::from_seed(&[4]);
+    let agg_addr = StacksAddress::from_public_keys(
+        C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+        &AddressHashMode::SerializeP2PKH,
+        1,
+        &vec![StacksPublicKey::from_private(&agg_private_key)],
+    )
+    .unwrap();
+
+    // make enough signers and signing keys so we can create a block and a malleablized block that
+    // are both valid
+    let (mut test_signers, test_stackers) = TestStacker::multi_signing_set(&[
+        0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3,
+    ]);
+    let observer = TestEventObserver::new();
+    let mut peer = boot_nakamoto(
+        function_name!(),
+        vec![(addr.into(), 100_000_000)],
+        &mut test_signers,
+        &test_stackers,
+        Some(&observer),
+    );
+
+    let mut all_blocks: Vec<NakamotoBlock> = vec![];
+    let mut all_burn_ops = vec![];
+    let mut consensus_hashes = vec![];
+    let mut fee_counts = vec![];
+    let stx_miner_key = peer.miner.nakamoto_miner_key();
+
+    let mut extra_burn_ops = vec![];
+    let mut bitpatterns = HashMap::new(); // map consensus hash to txid bit pattern
+
+    let cur_reward_cycle = peer
+        .config
+        .burnchain
+        .block_height_to_reward_cycle(peer.get_burn_block_height())
+        .unwrap();
+
+    peer.refresh_burnchain_view();
+    let first_stacks_height = peer.network.stacks_tip.height;
+
+    for i in 0..10 {
+        peer.refresh_burnchain_view();
+        let block_height = peer.get_burn_block_height();
+
+        // parent tip
+        let stacks_tip_ch = peer.network.stacks_tip.consensus_hash.clone();
+        let stacks_tip_bh = peer.network.stacks_tip.block_hash.clone();
+
+        let (mut burn_ops, mut tenure_change, miner_key) =
+            peer.begin_nakamoto_tenure(TenureChangeCause::BlockFound);
+
+        let mut new_burn_ops = vec![];
+        new_burn_ops.push(BlockstackOperationType::DelegateStx(DelegateStxOp {
+            sender: addr.clone(),
+            delegate_to: recipient_addr.clone(),
+            reward_addr: None,
+            delegated_ustx: 1,
+            until_burn_height: None,
+
+            // mocked
+            txid: Txid([i as u8; 32]),
+            vtxindex: 1,
+            block_height: block_height + 1,
+            burn_header_hash: BurnchainHeaderHash([0x00; 32]),
+        }));
+        new_burn_ops.push(BlockstackOperationType::StackStx(StackStxOp {
+            sender: addr.clone(),
+            reward_addr: PoxAddress::Standard(
+                recipient_addr.clone(),
+                Some(AddressHashMode::SerializeP2PKH),
+            ),
+            stacked_ustx: 1,
+            num_cycles: 1,
+            signer_key: Some(StacksPublicKeyBuffer::from_public_key(
+                &StacksPublicKey::from_private(&recipient_private_key),
+            )),
+            max_amount: Some(1),
+            auth_id: Some(i as u32),
+
+            // mocked
+            txid: Txid([(i as u8) | 0x80; 32]),
+            vtxindex: 2,
+            block_height: block_height + 1,
+            burn_header_hash: BurnchainHeaderHash([0x00; 32]),
+        }));
+        new_burn_ops.push(BlockstackOperationType::TransferStx(TransferStxOp {
+            sender: addr.clone(),
+            recipient: recipient_addr.clone(),
+            transfered_ustx: 1,
+            memo: vec![0x2],
+
+            // mocked
+            txid: Txid([(i as u8) | 0x40; 32]),
+            vtxindex: 3,
+            block_height: block_height + 1,
+            burn_header_hash: BurnchainHeaderHash([0x00; 32]),
+        }));
+        new_burn_ops.push(BlockstackOperationType::VoteForAggregateKey(
+            VoteForAggregateKeyOp {
+                sender: addr.clone(),
+                aggregate_key: StacksPublicKeyBuffer::from_public_key(
+                    &StacksPublicKey::from_private(&agg_private_key),
+                ),
+                round: i as u32,
+                reward_cycle: cur_reward_cycle + 1,
+                signer_index: 1,
+                signer_key: StacksPublicKeyBuffer::from_public_key(&StacksPublicKey::from_private(
+                    &recipient_private_key,
+                )),
+
+                // mocked
+                txid: Txid([(i as u8) | 0xc0; 32]),
+                vtxindex: 4,
+                block_height: block_height + 1,
+                burn_header_hash: BurnchainHeaderHash([0x00; 32]),
+            },
+        ));
+
+        extra_burn_ops.push(new_burn_ops.clone());
+        burn_ops.append(&mut new_burn_ops);
+
+        let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
+        let vrf_proof = peer.make_nakamoto_vrf_proof(miner_key);
+
+        bitpatterns.insert(consensus_hash.clone(), i as u8);
+
+        tenure_change.tenure_consensus_hash = consensus_hash.clone();
+        tenure_change.burn_view_consensus_hash = consensus_hash.clone();
+
+        let tenure_change_tx = peer
+            .miner
+            .make_nakamoto_tenure_change(tenure_change.clone());
+        let coinbase_tx = peer.miner.make_nakamoto_coinbase(None, vrf_proof);
+
+        debug!("Next burnchain block: {}", &consensus_hash);
+
+        // make sure all our burnchain ops are processed and stored.
+        let burn_tip = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb().conn()).unwrap();
+        let ancestor_burnchain_header_hashes = SortitionDB::get_ancestor_burnchain_header_hashes(
+            peer.sortdb().conn(),
+            &burn_tip.burn_header_hash,
+            6,
+        )
+        .unwrap();
+        let processed_burnchain_txids =
+            NakamotoChainState::get_burnchain_txids_in_ancestor_tenures(
+                &mut peer.chainstate().index_conn(),
+                &stacks_tip_ch,
+                &stacks_tip_bh,
+                6,
+            )
+            .unwrap();
+
+        let mut expected_burnchain_txids = HashSet::new();
+        for j in (i as u64).saturating_sub(6)..i {
+            expected_burnchain_txids.insert(Txid([j as u8; 32]));
+            expected_burnchain_txids.insert(Txid([(j as u8) | 0x80; 32]));
+            expected_burnchain_txids.insert(Txid([(j as u8) | 0x40; 32]));
+            expected_burnchain_txids.insert(Txid([(j as u8) | 0xc0; 32]));
+        }
+        assert_eq!(processed_burnchain_txids, expected_burnchain_txids);
+
+        // do a stx transfer in each block to a given recipient
+        let recipient_addr =
+            StacksAddress::from_string("ST2YM3J4KQK09V670TD6ZZ1XYNYCNGCWCVTASN5VM").unwrap();
+        let blocks_and_sizes = peer.make_nakamoto_tenure(
+            tenure_change_tx,
+            coinbase_tx,
+            &mut test_signers,
+            |miner, chainstate, sortdb, blocks_so_far| {
+                if blocks_so_far.len() < 10 {
+                    let mut txs = vec![];
+
+                    debug!("\n\nProduce block {}\n\n", blocks_so_far.len());
+
+                    let account = get_account(chainstate, sortdb, &addr);
+
+                    let stx_transfer = make_token_transfer(
+                        chainstate,
+                        sortdb,
+                        &private_key,
+                        account.nonce,
+                        100,
+                        1,
+                        &recipient_addr,
+                    );
+                    txs.push(stx_transfer);
+
+                    let last_block_opt = blocks_so_far
+                        .last()
+                        .as_ref()
+                        .map(|(block, _size, _cost)| block.header.block_id());
+
+                    let mut final_txs = vec![];
+                    if let Some(last_block) = last_block_opt.as_ref() {
+                        let tenure_extension = tenure_change.extend(
+                            consensus_hash.clone(),
+                            last_block.clone(),
+                            blocks_so_far.len() as u32,
+                        );
+                        let tenure_extension_tx =
+                            miner.make_nakamoto_tenure_change(tenure_extension.clone());
+                        final_txs.push(tenure_extension_tx);
+                    }
+                    final_txs.append(&mut txs);
+                    final_txs
+                } else {
+                    vec![]
+                }
+            },
+        );
+
+        let fees = blocks_and_sizes
+            .iter()
+            .map(|(block, _, _)| {
+                block
+                    .txs
+                    .iter()
+                    .map(|tx| tx.get_tx_fee() as u128)
+                    .sum::<u128>()
+            })
+            .sum::<u128>();
+
+        consensus_hashes.push(consensus_hash);
+        fee_counts.push(fees);
+        let mut blocks: Vec<NakamotoBlock> = blocks_and_sizes
+            .into_iter()
+            .map(|(block, _, _)| block)
+            .collect();
+
+        // check that our tenure-extends have been getting applied
+        let (highest_tenure, sort_tip) = {
+            let chainstate = &mut peer.stacks_node.as_mut().unwrap().chainstate;
+            let sort_db = peer.sortdb.as_mut().unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
+            let tenure = NakamotoChainState::get_ongoing_tenure(
+                &mut chainstate.index_conn(),
+                &sort_db
+                    .index_handle_at_tip()
+                    .get_nakamoto_tip_block_id()
+                    .unwrap()
+                    .unwrap(),
+            )
+            .unwrap()
+            .unwrap();
+            (tenure, tip)
+        };
+
+        let last_block = blocks.last().as_ref().cloned().unwrap();
+        assert_eq!(
+            highest_tenure.tenure_id_consensus_hash,
+            last_block.header.consensus_hash
+        );
+        assert_eq!(
+            highest_tenure.burn_view_consensus_hash,
+            sort_tip.consensus_hash
+        );
+        assert!(last_block.header.consensus_hash == sort_tip.consensus_hash);
+        assert_eq!(highest_tenure.coinbase_height, 12 + i);
+        assert_eq!(highest_tenure.cause, TenureChangeCause::Extended);
+        assert_eq!(
+            highest_tenure.num_blocks_confirmed,
+            (blocks.len() as u32) - 1
+        );
+
+        all_blocks.append(&mut blocks);
+        all_burn_ops.push(burn_ops);
+    }
+
+    // check receipts for burn ops
+    let mut observed_burn_txids = HashSet::new();
+    let observed_blocks = observer.get_blocks();
+    for block in observed_blocks.into_iter() {
+        let block_height = block.metadata.anchored_header.height();
+        if block_height < first_stacks_height {
+            continue;
+        }
+
+        let mut is_tenure_start = false;
+        let mut block_burn_txids = HashSet::new();
+        for receipt in block.receipts.into_iter() {
+            match receipt.transaction {
+                TransactionOrigin::Burn(op) => {
+                    block_burn_txids.insert(op.txid().clone());
+                }
+                TransactionOrigin::Stacks(tx) => {
+                    if let TransactionPayload::TenureChange(txp) = &tx.payload {
+                        if txp.cause == TenureChangeCause::BlockFound {
+                            is_tenure_start = true;
+                        }
+                    }
+                }
+            }
+        }
+
+        // no burnchain blocks processed for non-tenure-start blocks
+        if !is_tenure_start {
+            assert_eq!(block_burn_txids.len(), 0);
+            continue;
+        }
+
+        // this tenure-start block only processed "new" burnchain ops
+        let mut expected_burnchain_txids = HashSet::new();
+        let bitpattern = *bitpatterns.get(&block.metadata.consensus_hash).unwrap();
+        expected_burnchain_txids.insert(Txid([bitpattern; 32]));
+        expected_burnchain_txids.insert(Txid([bitpattern | 0x80; 32]));
+        expected_burnchain_txids.insert(Txid([bitpattern | 0x40; 32]));
+        expected_burnchain_txids.insert(Txid([bitpattern | 0xc0; 32]));
+
+        debug!("At block {}: {:?}", block_height, &block_burn_txids);
+        debug!("Expected: {:?}", &expected_burnchain_txids);
+        assert_eq!(block_burn_txids, expected_burnchain_txids);
+
+        observed_burn_txids.extend(block_burn_txids.into_iter());
+    }
+
+    // all extra burn ops are represented
+    for extra_burn_ops_per_block in extra_burn_ops.into_iter() {
+        for extra_burn_op in extra_burn_ops_per_block.into_iter() {
+            assert!(observed_burn_txids.contains(&extra_burn_op.txid()));
+        }
+    }
+
+    let tip = {
+        let chainstate = &mut peer.stacks_node.as_mut().unwrap().chainstate;
+        let sort_db = peer.sortdb.as_mut().unwrap();
+        NakamotoChainState::get_canonical_block_header(chainstate.db(), sort_db)
+            .unwrap()
+            .unwrap()
+    };
+
+    assert_eq!(
+        tip.anchored_header
+            .as_stacks_nakamoto()
+            .unwrap()
+            .chain_length,
+        111
+    );
+
+    peer.check_nakamoto_migration();
+    peer.check_malleablized_blocks(all_blocks, 2);
 }

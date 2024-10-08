@@ -271,7 +271,7 @@ impl<'a> NakamotoStagingBlocksConnRef<'a> {
             .optional()?)
     }
 
-    /// Get the rowid of a Nakamoto block
+    /// Get the rowid of a staging Nakamoto block
     pub fn get_nakamoto_block_rowid(
         &self,
         index_block_hash: &StacksBlockId,
@@ -280,6 +280,26 @@ impl<'a> NakamotoStagingBlocksConnRef<'a> {
         let args = params![index_block_hash];
         let res: Option<i64> = query_row(self, sql, args)?;
         Ok(res)
+    }
+
+    /// Get the tenure and parent block ID of a staging block.
+    /// Used for downloads
+    pub fn get_tenure_and_parent_block_id(
+        &self,
+        index_block_hash: &StacksBlockId,
+    ) -> Result<Option<(ConsensusHash, StacksBlockId)>, ChainstateError> {
+        let sql = "SELECT consensus_hash,parent_block_id FROM nakamoto_staging_blocks WHERE index_block_hash = ?1";
+        let args = params![index_block_hash];
+
+        let mut stmt = self.deref().prepare(sql)?;
+        Ok(stmt
+            .query_row(args, |row| {
+                let ch: ConsensusHash = row.get(0)?;
+                let parent_id: StacksBlockId = row.get(1)?;
+
+                Ok((ch, parent_id))
+            })
+            .optional()?)
     }
 
     /// Get a Nakamoto block by index block hash, as well as its size.

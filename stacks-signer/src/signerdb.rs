@@ -36,7 +36,6 @@ use stacks_common::types::chainstate::ConsensusHash;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::{debug, define_u8_enum, error};
-use wsts::net::NonceRequest;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 /// A vote across the signer set for a block
@@ -68,21 +67,6 @@ impl StacksMessageCodec for NakamotoBlockVote {
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Default)]
-/// Information specific to Signer V1
-pub struct BlockInfoV1 {
-    /// The associated packet nonce request if we have one
-    pub nonce_request: Option<NonceRequest>,
-}
-
-impl From<NonceRequest> for BlockInfoV1 {
-    fn from(value: NonceRequest) -> Self {
-        Self {
-            nonce_request: Some(value),
-        }
-    }
-}
-
-#[derive(Serialize, Deserialize, Debug, PartialEq, Default)]
 /// Store extra version-specific info in `BlockInfo`
 pub enum ExtraBlockInfo {
     #[default]
@@ -90,28 +74,6 @@ pub enum ExtraBlockInfo {
     None,
     /// Extra data for Signer V0
     V0,
-    /// Extra data for Signer V1
-    V1(BlockInfoV1),
-}
-
-impl ExtraBlockInfo {
-    /// Take `nonce_request` if it exists
-    pub fn take_nonce_request(&mut self) -> Option<NonceRequest> {
-        match self {
-            ExtraBlockInfo::None | ExtraBlockInfo::V0 => None,
-            ExtraBlockInfo::V1(v1) => v1.nonce_request.take(),
-        }
-    }
-    /// Set `nonce_request` if it exists
-    pub fn set_nonce_request(&mut self, value: NonceRequest) -> Result<(), &str> {
-        match self {
-            ExtraBlockInfo::None | ExtraBlockInfo::V0 => Err("Field doesn't exist"),
-            ExtraBlockInfo::V1(v1) => {
-                v1.nonce_request = Some(value);
-                Ok(())
-            }
-        }
-    }
 }
 
 define_u8_enum!(
@@ -217,14 +179,6 @@ impl From<BlockProposal> for BlockInfo {
     }
 }
 impl BlockInfo {
-    /// Create a new BlockInfo with an associated nonce request packet
-    pub fn new_v1_with_request(block_proposal: BlockProposal, nonce_request: NonceRequest) -> Self {
-        let mut block_info = BlockInfo::from(block_proposal);
-        block_info.ext = ExtraBlockInfo::V1(BlockInfoV1::from(nonce_request));
-        block_info.signed_over = true;
-        block_info
-    }
-
     /// Mark this block as locally accepted, valid, signed over, and records either the self or group signed timestamp in the block info if it wasn't
     ///  already set.
     pub fn mark_locally_accepted(&mut self, group_signed: bool) -> Result<(), String> {
@@ -283,7 +237,10 @@ impl BlockInfo {
                 )
             }
             BlockState::LocallyRejected => {
-                matches!(prev_state, BlockState::Unprocessed)
+                matches!(
+                    prev_state,
+                    BlockState::Unprocessed | BlockState::LocallyRejected
+                )
             }
             BlockState::GloballyAccepted => !matches!(prev_state, BlockState::GloballyRejected),
             BlockState::GloballyRejected => !matches!(prev_state, BlockState::GloballyAccepted),

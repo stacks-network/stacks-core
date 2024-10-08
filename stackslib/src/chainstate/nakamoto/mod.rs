@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::ops::{Deref, DerefMut, Range};
 use std::path::PathBuf;
@@ -53,7 +53,6 @@ use stacks_common::util::retry::BoundReader;
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::util::vrf::{VRFProof, VRFPublicKey, VRF};
 use stacks_common::util::{get_epoch_time_secs, sleep_ms};
-use wsts::curve::point::Point;
 
 use self::signer_set::SignerCalculation;
 use super::burn::db::sortdb::{
@@ -74,7 +73,7 @@ use super::stacks::db::{
 use super::stacks::events::{StacksTransactionReceipt, TransactionOrigin};
 use super::stacks::{
     Error as ChainstateError, StacksBlock, StacksBlockHeader, StacksMicroblock, StacksTransaction,
-    TenureChangeError, TenureChangePayload, ThresholdSignature, TransactionPayload,
+    TenureChangeError, TenureChangePayload, TransactionPayload,
 };
 use crate::burnchains::{Burnchain, PoxConstants, Txid};
 use crate::chainstate::burn::db::sortdb::SortitionDB;
@@ -104,7 +103,9 @@ use crate::clarity_vm::clarity::{
     ClarityInstance, ClarityTransactionConnection, Error as ClarityError, PreCommitClarityBlock,
 };
 use crate::clarity_vm::database::SortitionDBRef;
-use crate::core::{BOOT_BLOCK_HASH, NAKAMOTO_SIGNER_BLOCK_APPROVAL_THRESHOLD};
+use crate::core::{
+    BOOT_BLOCK_HASH, BURNCHAIN_TX_SEARCH_WINDOW, NAKAMOTO_SIGNER_BLOCK_APPROVAL_THRESHOLD,
+};
 use crate::net::stackerdb::{StackerDBConfig, MINER_SLOT_COUNT};
 use crate::net::Error as net_error;
 use crate::util_lib::boot;
@@ -2532,6 +2533,18 @@ impl NakamotoChainState {
         Ok(result)
     }
 
+    /// Load a consensus hash for a Nakamoto header
+    pub fn get_block_header_nakamoto_tenure_id(
+        chainstate_conn: &Connection,
+        index_block_hash: &StacksBlockId,
+    ) -> Result<Option<ConsensusHash>, ChainstateError> {
+        let sql = "SELECT consensus_hash FROM nakamoto_block_headers WHERE index_block_hash = ?1";
+        let result = query_row_panic(chainstate_conn, sql, &[&index_block_hash], || {
+            "FATAL: multiple rows for the same block hash".to_string()
+        })?;
+        Ok(result)
+    }
+
     /// Load an epoch2 header
     pub fn get_block_header_epoch2(
         chainstate_conn: &Connection,
@@ -3251,14 +3264,18 @@ impl NakamotoChainState {
         if let Some(block_reward) = block_reward {
             StacksChainState::insert_miner_payment_schedule(headers_tx.deref_mut(), block_reward)?;
         }
-        StacksChainState::store_burnchain_txids(
-            headers_tx.deref(),
-            &index_block_hash,
-            burn_stack_stx_ops,
-            burn_transfer_stx_ops,
-            burn_delegate_stx_ops,
-            burn_vote_for_aggregate_key_ops,
-        )?;
+
+        // NOTE: this is a no-op if the block isn't a tenure-start block
+        if new_tenure {
+            StacksChainState::store_burnchain_txids(
+                headers_tx.deref(),
+                &index_block_hash,
+                burn_stack_stx_ops,
+                burn_transfer_stx_ops,
+                burn_delegate_stx_ops,
+                burn_vote_for_aggregate_key_ops,
+            )?;
+        }
 
         if let Some(matured_miner_payouts) = mature_miner_payouts_opt {
             let rewarded_miner_block_id = StacksBlockId::new(
@@ -3360,6 +3377,145 @@ impl NakamotoChainState {
             .map_err(ChainstateError::from)
     }
 
+    /// Find all of the TXIDs of Stacks-on-burnchain operations processed in the given Stacks fork.
+    /// In Nakamoto, we index these TXIDs by the tenure-start block ID
+    pub(crate) fn get_burnchain_txids_in_ancestor_tenures<SDBI: StacksDBIndexed>(
+        conn: &mut SDBI,
+        tip_consensus_hash: &ConsensusHash,
+        tip_block_hash: &BlockHeaderHash,
+        search_window: u64,
+    ) -> Result<HashSet<Txid>, ChainstateError> {
+        let tip = StacksBlockId::new(tip_consensus_hash, tip_block_hash);
+        let mut cursor = tip_consensus_hash.clone();
+        let mut ret = HashSet::new();
+        for _ in 0..search_window {
+            let Some(tenure_start_block_id) = conn.get_tenure_start_block_id(&tip, &cursor)? else {
+                break;
+            };
+            let txids = StacksChainState::get_burnchain_txids_for_block(
+                conn.sqlite(),
+                &tenure_start_block_id,
+            )?;
+            ret.extend(txids.into_iter());
+
+            let Some(parent_tenure_id) = conn.get_parent_tenure_consensus_hash(&tip, &cursor)?
+            else {
+                break;
+            };
+
+            cursor = parent_tenure_id;
+        }
+        Ok(ret)
+    }
+
+    /// Get all Stacks-on-burnchain operations that we haven't processed yet
+    pub(crate) fn get_stacks_on_burnchain_operations<SDBI: StacksDBIndexed>(
+        conn: &mut SDBI,
+        parent_consensus_hash: &ConsensusHash,
+        parent_block_hash: &BlockHeaderHash,
+        sortdb_conn: &Connection,
+        burn_tip: &BurnchainHeaderHash,
+        burn_tip_height: u64,
+    ) -> Result<
+        (
+            Vec<StackStxOp>,
+            Vec<TransferStxOp>,
+            Vec<DelegateStxOp>,
+            Vec<VoteForAggregateKeyOp>,
+        ),
+        ChainstateError,
+    > {
+        let cur_epoch = SortitionDB::get_stacks_epoch(sortdb_conn, burn_tip_height)?
+            .expect("FATAL: no epoch defined for current burnchain tip height");
+
+        // only consider transactions in Stacks 3.0
+        if cur_epoch.epoch_id < StacksEpochId::Epoch30 {
+            return Ok((vec![], vec![], vec![], vec![]));
+        }
+
+        let epoch_start_height = cur_epoch.start_height;
+
+        let search_window: u8 =
+            if epoch_start_height + u64::from(BURNCHAIN_TX_SEARCH_WINDOW) > burn_tip_height {
+                burn_tip_height
+                    .saturating_sub(epoch_start_height)
+                    .try_into()
+                    .expect("FATAL: search window exceeds u8")
+            } else {
+                BURNCHAIN_TX_SEARCH_WINDOW
+            };
+
+        debug!(
+            "Search the last {} sortitions for burnchain-hosted stacks operations before {} ({})",
+            search_window, burn_tip, burn_tip_height
+        );
+        let ancestor_burnchain_header_hashes = SortitionDB::get_ancestor_burnchain_header_hashes(
+            sortdb_conn,
+            burn_tip,
+            search_window.into(),
+        )?;
+        let processed_burnchain_txids =
+            NakamotoChainState::get_burnchain_txids_in_ancestor_tenures(
+                conn,
+                parent_consensus_hash,
+                parent_block_hash,
+                search_window.into(),
+            )?;
+
+        // Find the *new* transactions -- the ones that we *haven't* seen in this Stacks
+        // fork yet.  Note that we search for the ones that we have seen by searching back
+        // `BURNCHAIN_TX_SEARCH_WINDOW` tenures, whose sortitions may span more
+        // than `BURNCHAIN_TX_SEARCH_WINDOW` burnchain blocks.  The inclusion of txids for
+        // burnchain transactions in the latter query is not a problem, because these txids
+        // are used to *exclude* transactions from the last `BURNCHAIN_TX_SEARCH_WINDOW`
+        // burnchain blocks.  These excluded txids, if they were mined outside of this
+        // window, are *already* excluded.
+
+        let mut all_stacking_burn_ops = vec![];
+        let mut all_transfer_burn_ops = vec![];
+        let mut all_delegate_burn_ops = vec![];
+        let mut all_vote_for_aggregate_key_ops = vec![];
+
+        // go from oldest burn header hash to newest
+        for ancestor_bhh in ancestor_burnchain_header_hashes.iter().rev() {
+            let stacking_ops = SortitionDB::get_stack_stx_ops(sortdb_conn, ancestor_bhh)?;
+            let transfer_ops = SortitionDB::get_transfer_stx_ops(sortdb_conn, ancestor_bhh)?;
+            let delegate_ops = SortitionDB::get_delegate_stx_ops(sortdb_conn, ancestor_bhh)?;
+            let vote_for_aggregate_key_ops =
+                SortitionDB::get_vote_for_aggregate_key_ops(sortdb_conn, ancestor_bhh)?;
+
+            for stacking_op in stacking_ops.into_iter() {
+                if !processed_burnchain_txids.contains(&stacking_op.txid) {
+                    all_stacking_burn_ops.push(stacking_op);
+                }
+            }
+
+            for transfer_op in transfer_ops.into_iter() {
+                if !processed_burnchain_txids.contains(&transfer_op.txid) {
+                    all_transfer_burn_ops.push(transfer_op);
+                }
+            }
+
+            for delegate_op in delegate_ops.into_iter() {
+                if !processed_burnchain_txids.contains(&delegate_op.txid) {
+                    all_delegate_burn_ops.push(delegate_op);
+                }
+            }
+
+            for vote_op in vote_for_aggregate_key_ops.into_iter() {
+                if !processed_burnchain_txids.contains(&vote_op.txid) {
+                    all_vote_for_aggregate_key_ops.push(vote_op);
+                }
+            }
+        }
+        Ok((
+            all_stacking_burn_ops,
+            all_transfer_burn_ops,
+            all_delegate_burn_ops,
+            all_vote_for_aggregate_key_ops,
+        ))
+    }
+
     /// Begin block-processing and return all of the pre-processed state within a
     /// `SetupBlockResult`.
     ///
@@ -3432,10 +3588,11 @@ impl NakamotoChainState {
         };
 
         let (stacking_burn_ops, transfer_burn_ops, delegate_burn_ops, vote_for_agg_key_ops) =
-            if new_tenure || tenure_extend {
-                StacksChainState::get_stacking_and_transfer_and_delegate_burn_ops(
-                    chainstate_tx,
-                    &parent_index_hash,
+            if new_tenure {
+                NakamotoChainState::get_stacks_on_burnchain_operations(
+                    chainstate_tx.as_tx(),
+                    &parent_consensus_hash,
+                    &parent_header_hash,
                     sortition_dbconn.sqlite_conn(),
                     &burn_header_hash,
                     burn_header_height.into(),
@@ -4353,8 +4510,8 @@ impl NakamotoChainState {
     /// Boot code instantiation for the aggregate public key.
     /// TODO: This should be removed once it's possible for stackers to vote on the aggregate
     /// public key
-    pub fn aggregate_public_key_bootcode(clarity_tx: &mut ClarityTx, apk: &Point) {
-        let agg_pub_key = to_hex(&apk.compress().data);
+    pub fn aggregate_public_key_bootcode(clarity_tx: &mut ClarityTx, apk: Vec<u8>) {
+        let agg_pub_key = to_hex(&apk);
         let contract_content = format!(
             "(define-read-only ({}) 0x{})",
             BOOT_TEST_POX_4_AGG_KEY_FNAME, agg_pub_key

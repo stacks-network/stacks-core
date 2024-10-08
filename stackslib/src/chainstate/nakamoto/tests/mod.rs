@@ -25,7 +25,8 @@ use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::StacksAddressExtensions;
 use clarity::vm::Value;
 use libstackerdb::StackerDBChunkData;
-use rand::{thread_rng, RngCore};
+use rand::distributions::Standard;
+use rand::{thread_rng, Rng, RngCore};
 use rusqlite::types::ToSql;
 use rusqlite::{params, Connection};
 use stacks_common::address::AddressHashMode;
@@ -45,8 +46,6 @@ use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PublicKey};
 use stacks_common::util::vrf::{VRFPrivateKey, VRFProof, VRFPublicKey, VRF};
 use stdext::prelude::Integer;
 use stx_genesis::GenesisData;
-use wsts::curve::point::Point;
-use wsts::curve::scalar::Scalar;
 
 use crate::burnchains::{BurnchainSigner, PoxConstants, Txid};
 use crate::chainstate::burn::db::sortdb::tests::make_fork_run;
@@ -83,9 +82,9 @@ use crate::chainstate::stacks::db::{
 };
 use crate::chainstate::stacks::{
     CoinbasePayload, Error as ChainstateError, StacksBlock, StacksBlockHeader, StacksTransaction,
-    StacksTransactionSigner, TenureChangeCause, TenureChangePayload, ThresholdSignature,
-    TokenTransferMemo, TransactionAnchorMode, TransactionAuth, TransactionContractCall,
-    TransactionPayload, TransactionPostConditionMode, TransactionSmartContract, TransactionVersion,
+    StacksTransactionSigner, TenureChangeCause, TenureChangePayload, TokenTransferMemo,
+    TransactionAnchorMode, TransactionAuth, TransactionContractCall, TransactionPayload,
+    TransactionPostConditionMode, TransactionSmartContract, TransactionVersion,
 };
 use crate::core;
 use crate::core::{StacksEpochExtension, STACKS_EPOCH_3_0_MARKER};
@@ -2170,9 +2169,8 @@ fn parse_vote_for_aggregate_public_key_valid() {
     let signer_index = thread_rng().next_u64();
     let signer_index_arg = Value::UInt(signer_index as u128);
 
-    let point = Point::from(Scalar::random(&mut thread_rng()));
-    let point_arg =
-        Value::buff_from(point.compress().data.to_vec()).expect("Failed to create buff");
+    let aggregate_key: Vec<u8> = rand::thread_rng().sample_iter(Standard).take(33).collect();
+    let aggregate_key_arg = Value::buff_from(aggregate_key.clone()).expect("Failed to create buff");
     let round = thread_rng().next_u64();
     let round_arg = Value::UInt(round as u128);
 
@@ -2181,7 +2179,7 @@ fn parse_vote_for_aggregate_public_key_valid() {
 
     let valid_function_args = vec![
         signer_index_arg.clone(),
-        point_arg.clone(),
+        aggregate_key_arg.clone(),
         round_arg.clone(),
         reward_cycle_arg.clone(),
     ];
@@ -2201,7 +2199,7 @@ fn parse_vote_for_aggregate_public_key_valid() {
     };
     let params = NakamotoSigners::parse_vote_for_aggregate_public_key(&valid_tx).unwrap();
     assert_eq!(params.signer_index, signer_index);
-    assert_eq!(params.aggregate_key, point);
+    assert_eq!(params.aggregate_key, aggregate_key);
     assert_eq!(params.voting_round, round);
     assert_eq!(params.reward_cycle, reward_cycle);
 }
@@ -2217,10 +2215,8 @@ fn parse_vote_for_aggregate_public_key_invalid() {
 
     let signer_index = thread_rng().next_u32();
     let signer_index_arg = Value::UInt(signer_index as u128);
-
-    let point = Point::from(Scalar::random(&mut thread_rng()));
-    let point_arg =
-        Value::buff_from(point.compress().data.to_vec()).expect("Failed to create buff");
+    let aggregate_key: Vec<u8> = rand::thread_rng().sample_iter(Standard).take(33).collect();
+    let aggregate_key_arg = Value::buff_from(aggregate_key).expect("Failed to create buff");
     let round = thread_rng().next_u64();
     let round_arg = Value::UInt(round as u128);
 
@@ -2229,7 +2225,7 @@ fn parse_vote_for_aggregate_public_key_invalid() {
 
     let valid_function_args = vec![
         signer_index_arg.clone(),
-        point_arg.clone(),
+        aggregate_key_arg.clone(),
         round_arg.clone(),
         reward_cycle_arg.clone(),
     ];
@@ -2297,8 +2293,8 @@ fn parse_vote_for_aggregate_public_key_invalid() {
             contract_name: contract_name.clone(),
             function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
             function_args: vec![
-                point_arg.clone(),
-                point_arg.clone(),
+                aggregate_key_arg.clone(),
+                aggregate_key_arg.clone(),
                 round_arg.clone(),
                 reward_cycle_arg.clone(),
             ],
@@ -2340,8 +2336,8 @@ fn parse_vote_for_aggregate_public_key_invalid() {
             function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
             function_args: vec![
                 signer_index_arg.clone(),
-                point_arg.clone(),
-                point_arg.clone(),
+                aggregate_key_arg.clone(),
+                aggregate_key_arg.clone(),
                 reward_cycle_arg.clone(),
             ],
         }),
@@ -2361,9 +2357,9 @@ fn parse_vote_for_aggregate_public_key_invalid() {
             function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
             function_args: vec![
                 signer_index_arg.clone(),
-                point_arg.clone(),
+                aggregate_key_arg.clone(),
                 round_arg.clone(),
-                point_arg.clone(),
+                aggregate_key_arg.clone(),
             ],
         }),
     };
@@ -2403,9 +2399,8 @@ fn valid_vote_transaction() {
     let signer_index = thread_rng().next_u32();
     let signer_index_arg = Value::UInt(signer_index as u128);
 
-    let point = Point::from(Scalar::random(&mut thread_rng()));
-    let point_arg =
-        Value::buff_from(point.compress().data.to_vec()).expect("Failed to create buff");
+    let aggregate_key: Vec<u8> = rand::thread_rng().sample_iter(Standard).take(33).collect();
+    let aggregate_key_arg = Value::buff_from(aggregate_key).expect("Failed to create buff");
     let round = thread_rng().next_u64();
     let round_arg = Value::UInt(round as u128);
 
@@ -2414,7 +2409,7 @@ fn valid_vote_transaction() {
 
     let valid_function_args = vec![
         signer_index_arg.clone(),
-        point_arg.clone(),
+        aggregate_key_arg.clone(),
         round_arg.clone(),
         reward_cycle_arg.clone(),
     ];
@@ -2454,9 +2449,8 @@ fn valid_vote_transaction_malformed_transactions() {
     let signer_index = thread_rng().next_u32();
     let signer_index_arg = Value::UInt(signer_index as u128);
 
-    let point = Point::from(Scalar::random(&mut thread_rng()));
-    let point_arg =
-        Value::buff_from(point.compress().data.to_vec()).expect("Failed to create buff");
+    let aggregate_key: Vec<u8> = rand::thread_rng().sample_iter(Standard).take(33).collect();
+    let aggregate_key_arg = Value::buff_from(aggregate_key).expect("Failed to create buff");
     let round = thread_rng().next_u64();
     let round_arg = Value::UInt(round as u128);
 
@@ -2465,7 +2459,7 @@ fn valid_vote_transaction_malformed_transactions() {
 
     let valid_function_args = vec![
         signer_index_arg.clone(),
-        point_arg.clone(),
+        aggregate_key_arg.clone(),
         round_arg.clone(),
         reward_cycle_arg.clone(),
     ];
@@ -2566,8 +2560,8 @@ fn valid_vote_transaction_malformed_transactions() {
             contract_name: contract_name.clone(),
             function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
             function_args: vec![
-                point_arg.clone(),
-                point_arg.clone(),
+                aggregate_key_arg.clone(),
+                aggregate_key_arg.clone(),
                 round_arg.clone(),
                 reward_cycle_arg.clone(),
             ],
@@ -2609,8 +2603,8 @@ fn valid_vote_transaction_malformed_transactions() {
             function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
             function_args: vec![
                 signer_index_arg.clone(),
-                point_arg.clone(),
-                point_arg.clone(),
+                aggregate_key_arg.clone(),
+                aggregate_key_arg.clone(),
                 reward_cycle_arg.clone(),
             ],
         }),
@@ -2630,9 +2624,9 @@ fn valid_vote_transaction_malformed_transactions() {
             function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
             function_args: vec![
                 signer_index_arg.clone(),
-                point_arg.clone(),
+                aggregate_key_arg.clone(),
                 round_arg.clone(),
-                point_arg.clone(),
+                aggregate_key_arg.clone(),
             ],
         }),
     };
@@ -2689,9 +2683,8 @@ fn filter_one_transaction_per_signer_multiple_addresses() {
     let signer_index = thread_rng().next_u32();
     let signer_index_arg = Value::UInt(signer_index as u128);
 
-    let point = Point::from(Scalar::random(&mut thread_rng()));
-    let point_arg =
-        Value::buff_from(point.compress().data.to_vec()).expect("Failed to create buff");
+    let aggregate_key: Vec<u8> = rand::thread_rng().sample_iter(Standard).take(33).collect();
+    let aggregate_key_arg = Value::buff_from(aggregate_key).expect("Failed to create buff");
     let round = thread_rng().next_u64();
     let round_arg = Value::UInt(round as u128);
 
@@ -2700,7 +2693,7 @@ fn filter_one_transaction_per_signer_multiple_addresses() {
 
     let function_args = vec![
         signer_index_arg.clone(),
-        point_arg.clone(),
+        aggregate_key_arg.clone(),
         round_arg.clone(),
         reward_cycle_arg.clone(),
     ];
@@ -2818,9 +2811,8 @@ fn filter_one_transaction_per_signer_duplicate_nonces() {
     let signer_index = thread_rng().next_u32();
     let signer_index_arg = Value::UInt(signer_index as u128);
 
-    let point = Point::from(Scalar::random(&mut thread_rng()));
-    let point_arg =
-        Value::buff_from(point.compress().data.to_vec()).expect("Failed to create buff");
+    let aggregate_key: Vec<u8> = rand::thread_rng().sample_iter(Standard).take(33).collect();
+    let aggregate_key_arg = Value::buff_from(aggregate_key).expect("Failed to create buff");
     let round = thread_rng().next_u64();
     let round_arg = Value::UInt(round as u128);
 
@@ -2829,7 +2821,7 @@ fn filter_one_transaction_per_signer_duplicate_nonces() {
 
     let function_args = vec![
         signer_index_arg.clone(),
-        point_arg.clone(),
+        aggregate_key_arg.clone(),
         round_arg.clone(),
         reward_cycle_arg.clone(),
     ];

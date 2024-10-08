@@ -1744,7 +1744,8 @@ impl ConversationP2P {
             &tip,
             sortdb,
             chainstate,
-            &network.stacks_tip.block_id(),
+            &network.stacks_tip.consensus_hash,
+            &network.stacks_tip.block_hash,
             reward_cycle,
         )?;
         let nakamoto_inv = NakamotoInvData::try_from(&bitvec_bools).map_err(|e| {
@@ -2426,11 +2427,11 @@ impl ConversationP2P {
                 Ok(num_recved) => {
                     total_recved += num_recved;
                     if num_recved > 0 {
-                        test_debug!("{:?}: received {} bytes", self, num_recved);
+                        debug!("{:?}: received {} bytes", self, num_recved);
                         self.stats.last_recv_time = get_epoch_time_secs();
                         self.stats.bytes_rx += num_recved as u64;
                     } else {
-                        test_debug!("{:?}: received {} bytes, stopping", self, num_recved);
+                        debug!("{:?}: received {} bytes, stopping", self, num_recved);
                         break;
                     }
                 }
@@ -2447,7 +2448,7 @@ impl ConversationP2P {
                 }
             }
         }
-        test_debug!("{:?}: received {} bytes", self, total_recved);
+        debug!("{:?}: received {} bytes", self, total_recved);
         Ok(total_recved)
     }
 
@@ -2475,7 +2476,7 @@ impl ConversationP2P {
                 }
             }
         }
-        test_debug!("{:?}: sent {} bytes", self, total_sent);
+        debug!("{:?}: sent {} bytes", self, total_sent);
         Ok(total_sent)
     }
 

@@ -1314,6 +1314,26 @@ impl RunLoop {
                         //
                         // _this will block if the relayer's buffer is full_
                         if !node.relayer_sortition_notify() {
+                            // First check if we were supposed to cleanly exit
+                            if !globals.keep_running() {
+                                // The p2p thread relies on the same atomic_bool, it will
+                                // discontinue its execution after completing its ongoing runloop epoch.
+                                info!("Terminating p2p process");
+                                info!("Terminating relayer");
+                                info!("Terminating chains-coordinator");
+
+                                globals.coord().stop_chains_coordinator();
+                                coordinator_thread_handle.join().unwrap();
+                                let peer_network = node.join();
+                                liveness_thread.join().unwrap();
+
+                                // Data that will be passed to Nakamoto run loop
+                                // Only gets transfered on clean shutdown of neon run loop
+                                let data_to_naka = Neon2NakaData::new(globals, peer_network);
+
+                                info!("Exiting stacks-node");
+                                return Some(data_to_naka);
+                            }
                             // relayer hung up, exit.
                             error!("Runloop: Block relayer and miner hung up, exiting.");
                             return None;
@@ -1388,6 +1408,26 @@ impl RunLoop {
                     }
 
                     if !node.relayer_issue_tenure(ibd) {
+                        // First check if we were supposed to cleanly exit
+                        if !globals.keep_running() {
+                            // The p2p thread relies on the same atomic_bool, it will
+                            // discontinue its execution after completing its ongoing runloop epoch.
+                            info!("Terminating p2p process");
+                            info!("Terminating relayer");
+                            info!("Terminating chains-coordinator");
+
+                            globals.coord().stop_chains_coordinator();
+                            coordinator_thread_handle.join().unwrap();
+                            let peer_network = node.join();
+                            liveness_thread.join().unwrap();
+
+                            // Data that will be passed to Nakamoto run loop
+                            // Only gets transfered on clean shutdown of neon run loop
+                            let data_to_naka = Neon2NakaData::new(globals, peer_network);
+
+                            info!("Exiting stacks-node");
+                            return Some(data_to_naka);
+                        }
                         // relayer hung up, exit.
                         error!("Runloop: Block relayer and miner hung up, exiting.");
                         break None;

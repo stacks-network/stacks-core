@@ -106,7 +106,7 @@ pub struct BitcoinRegtestController {
 
 #[derive(Clone)]
 pub struct OngoingBlockCommit {
-    payload: LeaderBlockCommitOp,
+    pub payload: LeaderBlockCommitOp,
     utxos: UTXOSet,
     fees: LeaderBlockCommitFees,
     txids: Vec<Txid>,

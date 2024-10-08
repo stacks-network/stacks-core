@@ -182,7 +182,11 @@ impl GetSortitionHandler {
                 // try to figure out what the last snapshot in this fork was with a successful
                 //  sortition.
                 // optimization heuristic: short-circuit the load if its just `stacks_parent_sn`
-                let last_sortition_ch = if stacks_parent_sn.sortition {
+                //   if the sortition count incremented by exactly 1 between us and our **stacks** parent,
+                //   then the stacks parent's sortition *must* be the last one with a winner.
+                let sortitions_incremented_by_1 =
+                    sortition_sn.num_sortitions == stacks_parent_sn.num_sortitions + 1;
+                let last_sortition_ch = if sortitions_incremented_by_1 {
                     stacks_parent_sn.consensus_hash.clone()
                 } else {
                     // we actually need to perform the marf lookup
@@ -375,5 +379,36 @@ impl HttpResponse for GetSortitionHandler {
     ) -> Result<HttpResponsePayload, Error> {
         let sortition_info: Vec<SortitionInfo> = parse_json(preamble, body)?;
         Ok(HttpResponsePayload::try_from_json(sortition_info)?)
+    }
+}
+
+impl StacksHttpRequest {
+    /// Make a new getsortition request to this endpoint
+    pub fn new_get_sortition(
+        host: PeerHost,
+        sort_key: &str,
+        sort_value: &str,
+    ) -> StacksHttpRequest {
+        StacksHttpRequest::new_for_peer(
+            host,
+            "GET".into(),
+            format!("{}/{}/{}", RPC_SORTITION_INFO_PATH, sort_key, sort_value),
+            HttpRequestContents::new(),
+        )
+        .expect("FATAL: failed to construct request from infallible data")
+    }
+
+    pub fn new_get_sortition_consensus(host: PeerHost, ch: &ConsensusHash) -> StacksHttpRequest {
+        Self::new_get_sortition(host, "consensus", &ch.to_string())
+    }
+}
+
+impl StacksHttpResponse {
+    pub fn decode_sortition_info(self) -> Result<Vec<SortitionInfo>, NetError> {
+        let contents = self.get_http_payload_ok()?;
+        let response_json: serde_json::Value = contents.try_into()?;
+        let response: Vec<SortitionInfo> = serde_json::from_value(response_json)
+            .map_err(|_e| Error::DecodeError(format!("Failed to decode JSON: {:?}", &_e)))?;
+        Ok(response)
     }
 }

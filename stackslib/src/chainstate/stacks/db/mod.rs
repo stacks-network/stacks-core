@@ -867,6 +867,8 @@ const CHAINSTATE_SCHEMA_3: &'static [&'static str] = &[
     // proessed
     r#"
     CREATE TABLE burnchain_txids(
+        -- in epoch 2.x, this is the index block hash of the Stacks block.
+        -- in epoch 3.x, this is the index block hash of the tenure-start block.
         index_block_hash TEXT PRIMARY KEY,
         -- this is a JSON-encoded list of txids
         txids TEXT NOT NULL
@@ -2498,7 +2500,7 @@ impl StacksChainState {
     }
 
     /// Get the burnchain txids for a given index block hash
-    fn get_burnchain_txids_for_block(
+    pub(crate) fn get_burnchain_txids_for_block(
         conn: &Connection,
         index_block_hash: &StacksBlockId,
     ) -> Result<Vec<Txid>, Error> {
@@ -2520,6 +2522,7 @@ impl StacksChainState {
     }
 
     /// Get the txids of the burnchain operations applied in the past N Stacks blocks.
+    /// Only works for epoch 2.x
     pub fn get_burnchain_txids_in_ancestors(
         conn: &Connection,
         index_block_hash: &StacksBlockId,
@@ -2536,7 +2539,10 @@ impl StacksChainState {
         Ok(ret)
     }
 
-    /// Store all on-burnchain STX operations' txids by index block hash
+    /// Store all on-burnchain STX operations' txids by index block hash.
+    /// `index_block_hash` is the tenure-start block.
+    /// * For epoch 2.x, this is simply the block ID
+    /// * for epoch 3.x and later, this is the first block in the tenure.
     pub fn store_burnchain_txids(
         tx: &DBTx,
         index_block_hash: &StacksBlockId,

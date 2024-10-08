@@ -187,6 +187,7 @@ impl SortitionsView {
         block: &NakamotoBlock,
         block_pk: &StacksPublicKey,
         reward_cycle: u64,
+        reset_view_if_wrong_consensus_hash: bool,
     ) -> Result<bool, SignerChainstateError> {
         if self
             .cur_sortition
@@ -194,6 +195,7 @@ impl SortitionsView {
         {
             info!(
                 "Current miner timed out, marking as invalid.";
+                "block_height" => block.header.chain_length,
                 "current_sortition_consensus_hash" => ?self.cur_sortition.consensus_hash,
             );
             self.cur_sortition.miner_status = SortitionMinerStatus::InvalidatedBeforeFirstBlock;
@@ -202,6 +204,7 @@ impl SortitionsView {
             if last_sortition.is_timed_out(self.config.block_proposal_timeout, signer_db)? {
                 info!(
                     "Last miner timed out, marking as invalid.";
+                    "block_height" => block.header.chain_length,
                     "last_sortition_consensus_hash" => ?last_sortition.consensus_hash,
                 );
                 last_sortition.miner_status = SortitionMinerStatus::InvalidatedBeforeFirstBlock;
@@ -236,6 +239,23 @@ impl SortitionsView {
                 })
             })
         else {
+            if reset_view_if_wrong_consensus_hash {
+                info!(
+                    "Miner block proposal has consensus hash that is neither the current or last sortition. Resetting view.";
+                    "proposed_block_consensus_hash" => %block.header.consensus_hash,
+                    "current_sortition_consensus_hash" => ?self.cur_sortition.consensus_hash,
+                    "last_sortition_consensus_hash" => ?self.last_sortition.as_ref().map(|x| x.consensus_hash),
+                );
+                self.reset_view(client)?;
+                return self.check_proposal(
+                    client,
+                    signer_db,
+                    block,
+                    block_pk,
+                    reward_cycle,
+                    false,
+                );
+            }
             warn!(
                 "Miner block proposal has consensus hash that is neither the current or last sortition. Considering invalid.";
                 "proposed_block_consensus_hash" => %block.header.consensus_hash,
@@ -347,6 +367,7 @@ impl SortitionsView {
             "sortition_state.consensus_hash" => %sortition_state.consensus_hash,
             "sortition_state.prior_sortition" => %sortition_state.prior_sortition,
             "sortition_state.parent_tenure_id" => %sortition_state.parent_tenure_id,
+            "block_height" => block.header.chain_length,
         );
 
         let tenures_reorged = client.get_tenure_forking_info(
@@ -406,6 +427,7 @@ impl SortitionsView {
                             "Miner is not building off of most recent tenure. A tenure they reorg has already mined blocks, but the block was poorly timed, allowing the reorg.";
                             "proposed_block_consensus_hash" => %block.header.consensus_hash,
                             "proposed_block_signer_sighash" => %block.header.signer_signature_hash(),
+                            "proposed_block_height" => block.header.chain_length,
                             "parent_tenure" => %sortition_state.parent_tenure_id,
                             "last_sortition" => %sortition_state.prior_sortition,
                             "violating_tenure_id" => %tenure.consensus_hash,
@@ -578,6 +600,7 @@ impl SortitionsView {
                 "Have no accepted blocks in the tenure, assuming block confirmation is correct";
                 "proposed_block_consensus_hash" => %block.header.consensus_hash,
                 "proposed_block_signer_sighash" => %block.header.signer_signature_hash(),
+                "proposed_block_height" => block.header.chain_length,
             );
             return Ok(true);
         };
@@ -623,5 +646,24 @@ impl SortitionsView {
             last_sortition,
             config,
         })
+    }
+
+    /// Reset the view to the current sortition and last sortition
+    pub fn reset_view(&mut self, client: &StacksClient) -> Result<(), ClientError> {
+        let CurrentAndLastSortition {
+            current_sortition,
+            last_sortition,
+        } = client.get_current_and_last_sortition()?;
+
+        let cur_sortition = SortitionState::try_from(current_sortition)?;
+        let last_sortition = last_sortition
+            .map(SortitionState::try_from)
+            .transpose()
+            .ok()
+            .flatten();
+
+        self.cur_sortition = cur_sortition;
+        self.last_sortition = last_sortition;
+        Ok(())
     }
 }

@@ -33,7 +33,6 @@ slog-term = { version = "2.6.0", optional = true }
 slog-json = { version = "2.3.0", optional = true }
 chrono = "0.4.19"
 libc = "0.2.82"
-wsts = { workspace = true, optional = true }
 hashbrown = { workspace = true }
 
 # wasm
@@ -90,7 +89,7 @@ rand_core = { workspace = true }
 
 [features]
 default = ["canonical", "log", "developer-mode"]
-canonical = ["rusqlite", "vrf", "secp256k1", "wsts"]
+canonical = ["rusqlite", "vrf", "secp256k1"]
 log = ["slog", "slog-term", "slog-json"]
 vrf = ["ed25519-dalek", "curve25519-dalek"]
 wasm = ["libsecp256k1", "developer-mode", "getrandom"]

@@ -21,7 +21,6 @@ use std::time::Duration;
 
 use hashbrown::{HashMap, HashSet};
 use libsigner::v0::messages::{BlockResponse, MinerSlotID, SignerMessage as SignerMessageV0};
-use libsigner::v1::messages::{MessageSlotID, SignerMessage as SignerMessageV1};
 use libsigner::{BlockProposal, SignerEntries, SignerEvent, SignerSession, StackerDBSession};
 use stacks::burnchains::Burnchain;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
@@ -31,8 +30,6 @@ use stacks::chainstate::stacks::boot::{NakamotoSignerEntry, RewardSet, MINERS_NA
 use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::chainstate::stacks::events::StackerDBChunksEvent;
 use stacks::chainstate::stacks::Error as ChainstateError;
-#[cfg(any(test, feature = "testing"))]
-use stacks::chainstate::stacks::ThresholdSignature;
 use stacks::libstackerdb::StackerDBChunkData;
 use stacks::net::stackerdb::StackerDBs;
 use stacks::types::PublicKey;
@@ -42,15 +39,6 @@ use stacks::util_lib::boot::boot_code_id;
 use stacks_common::bitvec::BitVec;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{StacksPrivateKey, StacksPublicKey};
-use wsts::common::PolyCommitment;
-#[cfg(any(test, feature = "testing"))]
-use wsts::curve::ecdsa;
-use wsts::curve::point::Point;
-use wsts::curve::scalar::Scalar;
-use wsts::state_machine::coordinator::fire::Coordinator as FireCoordinator;
-use wsts::state_machine::coordinator::{Config as CoordinatorConfig, Coordinator};
-use wsts::state_machine::PublicKeys;
-use wsts::v2::Aggregator;
 
 use super::Error as NakamotoNodeError;
 use crate::event_dispatcher::STACKER_DB_CHANNEL;
@@ -66,17 +54,11 @@ pub static TEST_IGNORE_SIGNERS: std::sync::Mutex<Option<bool>> = std::sync::Mute
 /// waking up to check timeouts?
 static EVENT_RECEIVER_POLL: Duration = Duration::from_millis(500);
 
-/// The `SignCoordinator` struct represents a WSTS FIRE coordinator whose
-///  sole function is to serve as the coordinator for Nakamoto block signing.
-///  This coordinator does not operate as a DKG coordinator. Rather, this struct
-///  is used by Nakamoto miners to act as the coordinator for the blocks they
-///  produce.
+/// The `SignCoordinator` struct sole function is to serve as the coordinator for Nakamoto block signing.
+/// This struct is used by Nakamoto miners to act as the coordinator for the blocks they produce.
 pub struct SignCoordinator {
-    coordinator: FireCoordinator<Aggregator>,
     receiver: Option<Receiver<StackerDBChunksEvent>>,
-    message_key: Scalar,
-    #[cfg(any(test, feature = "testing"))]
-    wsts_public_keys: PublicKeys,
+    message_key: StacksPrivateKey,
     is_mainnet: bool,
     miners_session: StackerDBSession,
     signer_entries: HashMap<u32, NakamotoSignerEntry>,
@@ -84,20 +66,6 @@ pub struct SignCoordinator {
     total_weight: u32,
     keep_running: Arc<AtomicBool>,
     pub next_signer_bitvec: BitVec<4000>,
-}
-
-pub struct NakamotoSigningParams {
-    /// total number of signers
-    pub num_signers: u32,
-    /// total number of keys
-    pub num_keys: u32,
-    /// threshold of keys needed to form a valid signature
-    pub threshold: u32,
-    /// map of signer_id to controlled key_ids
-    pub signer_key_ids: HashMap<u32, HashSet<u32>>,
-    /// ECDSA public keys as Point objects indexed by signer_id
-    pub signer_public_keys: HashMap<u32, Point>,
-    pub wsts_public_keys: PublicKeys,
 }
 
 impl Drop for SignCoordinator {
@@ -108,112 +76,13 @@ impl Drop for SignCoordinator {
     }
 }
 
-impl NakamotoSigningParams {
-    pub fn parse(
-        is_mainnet: bool,
-        reward_set: &[NakamotoSignerEntry],
-    ) -> Result<Self, ChainstateError> {
-        let parsed = SignerEntries::parse(is_mainnet, reward_set).map_err(|e| {
-            ChainstateError::InvalidStacksBlock(format!(
-                "Invalid Reward Set: Could not parse into WSTS structs: {e:?}"
-            ))
-        })?;
-
-        let num_keys = parsed
-            .count_keys()
-            .expect("FATAL: more than u32::max() signers in the reward set");
-        let num_signers = parsed
-            .count_signers()
-            .expect("FATAL: more than u32::max() signers in the reward set");
-        let threshold = parsed
-            .get_signing_threshold()
-            .expect("FATAL: more than u32::max() signers in the reward set");
-
-        Ok(NakamotoSigningParams {
-            num_signers,
-            threshold,
-            num_keys,
-            signer_key_ids: parsed.coordinator_key_ids,
-            signer_public_keys: parsed.signer_public_keys,
-            wsts_public_keys: parsed.public_keys,
-        })
-    }
-}
-
-#[allow(dead_code)]
-fn get_signer_commitments(
-    is_mainnet: bool,
-    reward_set: &[NakamotoSignerEntry],
-    stackerdbs: &StackerDBs,
-    reward_cycle: u64,
-    expected_aggregate_key: &Point,
-) -> Result<Vec<(u32, PolyCommitment)>, ChainstateError> {
-    let commitment_contract =
-        MessageSlotID::DkgResults.stacker_db_contract(is_mainnet, reward_cycle);
-    let signer_set_len = u32::try_from(reward_set.len())
-        .map_err(|_| ChainstateError::InvalidStacksBlock("Reward set length exceeds u32".into()))?;
-    for signer_id in 0..signer_set_len {
-        let Some(signer_data) = stackerdbs.get_latest_chunk(&commitment_contract, signer_id)?
-        else {
-            warn!(
-                "Failed to fetch DKG result, will look for results from other signers.";
-                "signer_id" => signer_id
-            );
-            continue;
-        };
-        let Ok(SignerMessageV1::DkgResults {
-            aggregate_key,
-            party_polynomials,
-        }) = SignerMessageV1::consensus_deserialize(&mut signer_data.as_slice())
-        else {
-            warn!(
-                "Failed to parse DKG result, will look for results from other signers.";
-                "signer_id" => signer_id,
-            );
-            continue;
-        };
-
-        if &aggregate_key != expected_aggregate_key {
-            warn!(
-                "Aggregate key in DKG results does not match expected, will look for results from other signers.";
-                "expected" => %expected_aggregate_key,
-                "reported" => %aggregate_key,
-            );
-            continue;
-        }
-        let computed_key = party_polynomials
-            .iter()
-            .fold(Point::default(), |s, (_, comm)| s + comm.poly[0]);
-
-        if expected_aggregate_key != &computed_key {
-            warn!(
-                "Aggregate key computed from DKG results does not match expected, will look for results from other signers.";
-                "expected" => %expected_aggregate_key,
-                "computed" => %computed_key,
-            );
-            continue;
-        }
-
-        return Ok(party_polynomials);
-    }
-    error!(
-        "No valid DKG results found for the active signing set, cannot coordinate a group signature";
-        "reward_cycle" => reward_cycle,
-    );
-    Err(ChainstateError::InvalidStacksBlock(
-        "Failed to fetch DKG results for the active signer set".into(),
-    ))
-}
-
 impl SignCoordinator {
     /// * `reward_set` - the active reward set data, used to construct the signer
     ///    set parameters.
-    /// * `message_key` - the signing key that the coordinator will use to sign messages
-    ///    broadcasted to the signer set. this should be the miner's registered key.
     /// * `aggregate_public_key` - the active aggregate key for this cycle
     pub fn new(
         reward_set: &RewardSet,
-        message_key: Scalar,
+        message_key: StacksPrivateKey,
         config: &Config,
         keep_running: Arc<AtomicBool>,
     ) -> Result<Self, ChainstateError> {
@@ -224,6 +93,11 @@ impl SignCoordinator {
             return Err(ChainstateError::NoRegisteredSigners(0));
         };
 
+        let signer_entries = SignerEntries::parse(is_mainnet, reward_set_signers).map_err(|e| {
+            ChainstateError::InvalidStacksBlock(format!(
+                "Failed to parse NakamotoSignerEntries: {e:?}"
+            ))
+        })?;
         let rpc_socket = config
             .node
             .get_rpc_loopback()
@@ -240,33 +114,11 @@ impl SignCoordinator {
         )
         .expect("FATAL: unable to construct initial bitvec for signer set");
 
-        let NakamotoSigningParams {
-            num_signers,
-            num_keys,
-            threshold,
-            signer_key_ids,
-            signer_public_keys,
-            wsts_public_keys,
-        } = NakamotoSigningParams::parse(is_mainnet, reward_set_signers.as_slice())?;
         debug!(
             "Initializing miner/coordinator";
-            "num_signers" => num_signers,
-            "num_keys" => num_keys,
-            "threshold" => threshold,
-            "signer_key_ids" => ?signer_key_ids,
-            "signer_public_keys" => ?signer_public_keys,
-            "wsts_public_keys" => ?wsts_public_keys,
+            "num_signers" => signer_entries.signer_pks.len(),
+            "signer_public_keys" => ?signer_entries.signer_pks,
         );
-        let coord_config = CoordinatorConfig {
-            num_signers,
-            num_keys,
-            threshold,
-            signer_key_ids,
-            signer_public_keys,
-            dkg_threshold: threshold,
-            message_private_key: message_key.clone(),
-            ..Default::default()
-        };
 
         let total_weight = reward_set.total_signing_weight().map_err(|e| {
             warn!("Failed to calculate total weight for the reward set: {e:?}");
@@ -288,8 +140,6 @@ impl SignCoordinator {
                 Ok((slot_id, signer))
             })
             .collect::<Result<HashMap<_, _>, ChainstateError>>()?;
-
-        let coordinator: FireCoordinator<Aggregator> = FireCoordinator::new(coord_config);
         #[cfg(test)]
         {
             // In test mode, short-circuit spinning up the SignCoordinator if the TEST_SIGNING
@@ -303,10 +153,8 @@ impl SignCoordinator {
                     warn!("Replaced the miner/coordinator receiver of a prior thread. Prior thread may have crashed.");
                 }
                 let sign_coordinator = Self {
-                    coordinator,
                     message_key,
                     receiver: Some(receiver),
-                    wsts_public_keys,
                     is_mainnet,
                     miners_session,
                     next_signer_bitvec,
@@ -325,11 +173,8 @@ impl SignCoordinator {
         }
 
         Ok(Self {
-            coordinator,
-            message_key,
             receiver: Some(receiver),
-            #[cfg(any(test, feature = "testing"))]
-            wsts_public_keys,
+            message_key,
             is_mainnet,
             miners_session,
             next_signer_bitvec,
@@ -338,40 +183,6 @@ impl SignCoordinator {
             total_weight,
             keep_running,
         })
-    }
-
-    fn get_sign_id(burn_block_height: u64, burnchain: &Burnchain) -> u64 {
-        burnchain
-            .pox_constants
-            .reward_cycle_index(burnchain.first_block_height, burn_block_height)
-            .expect("FATAL: tried to initialize WSTS coordinator before first burn block height")
-    }
-
-    /// Send a message over the miners contract using a `Scalar` private key
-    fn send_miners_message_scalar<M: StacksMessageCodec>(
-        message_key: &Scalar,
-        sortdb: &SortitionDB,
-        tip: &BlockSnapshot,
-        stackerdbs: &StackerDBs,
-        message: M,
-        miner_slot_id: MinerSlotID,
-        is_mainnet: bool,
-        miners_session: &mut StackerDBSession,
-        election_sortition: &ConsensusHash,
-    ) -> Result<(), String> {
-        let mut miner_sk = StacksPrivateKey::from_slice(&message_key.to_bytes()).unwrap();
-        miner_sk.set_compress_public(true);
-        Self::send_miners_message(
-            &miner_sk,
-            sortdb,
-            tip,
-            stackerdbs,
-            message,
-            miner_slot_id,
-            is_mainnet,
-            miners_session,
-            election_sortition,
-        )
     }
 
     /// Send a message over the miners contract using a `StacksPrivateKey`
@@ -425,221 +236,6 @@ impl SignCoordinator {
         }
     }
 
-    #[cfg_attr(test, mutants::skip)]
-    #[cfg(any(test, feature = "testing"))]
-    pub fn begin_sign_v1(
-        &mut self,
-        block: &NakamotoBlock,
-        burn_block_height: u64,
-        block_attempt: u64,
-        burn_tip: &BlockSnapshot,
-        burnchain: &Burnchain,
-        sortdb: &SortitionDB,
-        stackerdbs: &StackerDBs,
-        counters: &Counters,
-        election_sortiton: &ConsensusHash,
-    ) -> Result<ThresholdSignature, NakamotoNodeError> {
-        let sign_id = Self::get_sign_id(burn_tip.block_height, burnchain);
-        let sign_iter_id = block_attempt;
-        let reward_cycle_id = burnchain
-            .block_height_to_reward_cycle(burn_tip.block_height)
-            .expect("FATAL: tried to initialize coordinator before first burn block height");
-        self.coordinator.current_sign_id = sign_id;
-        self.coordinator.current_sign_iter_id = sign_iter_id;
-
-        let proposal_msg = BlockProposal {
-            block: block.clone(),
-            burn_height: burn_block_height,
-            reward_cycle: reward_cycle_id,
-        };
-
-        let block_bytes = proposal_msg.serialize_to_vec();
-        let nonce_req_msg = self
-            .coordinator
-            .start_signing_round(&block_bytes, false, None)
-            .map_err(|e| {
-                NakamotoNodeError::SigningCoordinatorFailure(format!(
-                    "Failed to start signing round in FIRE coordinator: {e:?}"
-                ))
-            })?;
-        Self::send_miners_message_scalar::<SignerMessageV1>(
-            &self.message_key,
-            sortdb,
-            burn_tip,
-            &stackerdbs,
-            nonce_req_msg.into(),
-            MinerSlotID::BlockProposal,
-            self.is_mainnet,
-            &mut self.miners_session,
-            election_sortiton,
-        )
-        .map_err(NakamotoNodeError::SigningCoordinatorFailure)?;
-        counters.bump_naka_proposed_blocks();
-        #[cfg(test)]
-        {
-            // In test mode, short-circuit waiting for the signers if the TEST_SIGNING
-            //  channel has been created. This allows integration tests for the stacks-node
-            //  independent of the stacks-signer.
-            if let Some(_signatures) =
-                crate::tests::nakamoto_integrations::TestSigningChannel::get_signature()
-            {
-                debug!("Short-circuiting waiting for signers, using test signature");
-                return Ok(ThresholdSignature::empty());
-            }
-        }
-
-        let Some(ref mut receiver) = self.receiver else {
-            return Err(NakamotoNodeError::SigningCoordinatorFailure(
-                "Failed to obtain the StackerDB event receiver".into(),
-            ));
-        };
-
-        loop {
-            let event = match receiver.recv_timeout(EVENT_RECEIVER_POLL) {
-                Ok(event) => event,
-                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                    continue;
-                }
-                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                    return Err(NakamotoNodeError::SigningCoordinatorFailure(
-                        "StackerDB event receiver disconnected".into(),
-                    ))
-                }
-            };
-
-            let is_signer_event =
-                event.contract_id.name.starts_with(SIGNERS_NAME) && event.contract_id.is_boot();
-            if !is_signer_event {
-                debug!("Ignoring StackerDB event for non-signer contract"; "contract" => %event.contract_id);
-                continue;
-            }
-            let modified_slots = &event.modified_slots;
-
-            // Update `next_signers_bitvec` with the slots that were modified in the event
-            modified_slots.iter().for_each(|chunk| {
-                if let Ok(slot_id) = chunk.slot_id.try_into() {
-                    match &self.next_signer_bitvec.set(slot_id, true) {
-                        Err(e) => {
-                            warn!("Failed to set bitvec for next signer: {e:?}");
-                        }
-                        _ => (),
-                    };
-                } else {
-                    error!("FATAL: slot_id greater than u16, which should never happen.");
-                }
-            });
-
-            let Ok(signer_event) = SignerEvent::try_from(event).map_err(|e| {
-                warn!("Failure parsing StackerDB event into signer event. Ignoring message."; "err" => ?e);
-            }) else {
-                continue;
-            };
-            let SignerEvent::SignerMessages(signer_set, messages) = signer_event else {
-                debug!("Received signer event other than a signer message. Ignoring.");
-                continue;
-            };
-            if signer_set != u32::try_from(reward_cycle_id % 2).unwrap() {
-                debug!("Received signer event for other reward cycle. Ignoring.");
-                continue;
-            };
-            debug!("Miner/Coordinator: Received messages from signers"; "count" => messages.len());
-            let coordinator_pk = ecdsa::PublicKey::new(&self.message_key).map_err(|_e| {
-                NakamotoNodeError::MinerSignatureError("Bad signing key for the FIRE coordinator")
-            })?;
-            let packets: Vec<_> = messages
-                .into_iter()
-                .filter_map(|msg| match msg {
-                    SignerMessageV1::DkgResults { .. }
-                    | SignerMessageV1::BlockResponse(_)
-                    | SignerMessageV1::EncryptedSignerState(_)
-                    | SignerMessageV1::Transactions(_) => None,
-                    SignerMessageV1::Packet(packet) => {
-                        debug!("Received signers packet: {packet:?}");
-                        if !packet.verify(&self.wsts_public_keys, &coordinator_pk) {
-                            warn!("Failed to verify StackerDB packet: {packet:?}");
-                            None
-                        } else {
-                            Some(packet)
-                        }
-                    }
-                })
-                .collect();
-            let (outbound_msgs, op_results) = self
-                .coordinator
-                .process_inbound_messages(&packets)
-                .unwrap_or_else(|e| {
-                    error!(
-                        "Miner/Coordinator: Failed to process inbound message packets";
-                        "err" => ?e
-                    );
-                    (vec![], vec![])
-                });
-            for operation_result in op_results.into_iter() {
-                match operation_result {
-                    wsts::state_machine::OperationResult::Dkg { .. }
-                    | wsts::state_machine::OperationResult::SignTaproot(_)
-                    | wsts::state_machine::OperationResult::DkgError(_) => {
-                        debug!("Ignoring unrelated operation result");
-                    }
-                    wsts::state_machine::OperationResult::Sign(signature) => {
-                        // check if the signature actually corresponds to our block?
-                        let block_sighash = block.header.signer_signature_hash();
-                        let verified = signature.verify(
-                            self.coordinator.aggregate_public_key.as_ref().unwrap(),
-                            &block_sighash.0,
-                        );
-                        let signature = ThresholdSignature(signature);
-                        if !verified {
-                            warn!(
-                                "Processed signature but didn't validate over the expected block. Returning error.";
-                                "signature" => %signature,
-                                "block_signer_signature_hash" => %block_sighash
-                            );
-                            return Err(NakamotoNodeError::SignerSignatureError(
-                                "Signature failed to validate over the expected block".into(),
-                            ));
-                        } else {
-                            info!(
-                                "SignCoordinator: Generated a valid signature for the block";
-                                "next_signer_bitvec" => self.next_signer_bitvec.binary_str(),
-                            );
-                            return Ok(signature);
-                        }
-                    }
-                    wsts::state_machine::OperationResult::SignError(e) => {
-                        return Err(NakamotoNodeError::SignerSignatureError(format!(
-                            "Signing failed: {e:?}"
-                        )))
-                    }
-                }
-            }
-            for msg in outbound_msgs {
-                match Self::send_miners_message_scalar::<SignerMessageV1>(
-                    &self.message_key,
-                    sortdb,
-                    burn_tip,
-                    stackerdbs,
-                    msg.into(),
-                    // TODO: note, in v1, we'll want to add a new slot, but for now, it just shares
-                    //   with the block proposal
-                    MinerSlotID::BlockProposal,
-                    self.is_mainnet,
-                    &mut self.miners_session,
-                    election_sortiton,
-                ) {
-                    Ok(()) => {
-                        debug!("Miner/Coordinator: sent outbound message.");
-                    }
-                    Err(e) => {
-                        warn!(
-                            "Miner/Coordinator: Failed to send message to StackerDB instance: {e:?}."
-                        );
-                    }
-                };
-            }
-        }
-    }
-
     /// Do we ignore signer signatures?
     #[cfg(test)]
     fn fault_injection_ignore_signatures() -> bool {
@@ -682,7 +278,6 @@ impl SignCoordinator {
     pub fn run_sign_v0(
         &mut self,
         block: &NakamotoBlock,
-        block_attempt: u64,
         burn_tip: &BlockSnapshot,
         burnchain: &Burnchain,
         sortdb: &SortitionDB,
@@ -691,13 +286,9 @@ impl SignCoordinator {
         counters: &Counters,
         election_sortition: &ConsensusHash,
     ) -> Result<Vec<MessageSignature>, NakamotoNodeError> {
-        let sign_id = Self::get_sign_id(burn_tip.block_height, burnchain);
-        let sign_iter_id = block_attempt;
         let reward_cycle_id = burnchain
             .block_height_to_reward_cycle(burn_tip.block_height)
             .expect("FATAL: tried to initialize coordinator before first burn block height");
-        self.coordinator.current_sign_id = sign_id;
-        self.coordinator.current_sign_iter_id = sign_iter_id;
 
         let block_proposal = BlockProposal {
             block: block.clone(),
@@ -709,7 +300,7 @@ impl SignCoordinator {
         debug!("Sending block proposal message to signers";
             "signer_signature_hash" => %block.header.signer_signature_hash(),
         );
-        Self::send_miners_message_scalar::<SignerMessageV0>(
+        Self::send_miners_message::<SignerMessageV0>(
             &self.message_key,
             sortdb,
             burn_tip,
