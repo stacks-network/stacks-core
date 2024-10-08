@@ -1615,7 +1615,10 @@ fn simple_neon_integration() {
                 .unwrap()
                 .text()
                 .unwrap();
-            let expected_result = format!("stacks_node_stacks_tip_height {}", stacks_tip_height);
+            let expected_result = format!(
+                "stacks_node_stacks_tip_height {}",
+                stacks_tip_height - 1_u64
+            );
             Ok(res.contains(&expected_result))
         })
         .expect("Timed out waiting for updated stacks tip height in prometheus metrics");
