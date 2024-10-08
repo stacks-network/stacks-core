@@ -87,6 +87,7 @@ fn microblocks_disabled() {
     conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
+        timeout_ms: 1000,
     });
     conf.initial_balances.append(&mut initial_balances);
 

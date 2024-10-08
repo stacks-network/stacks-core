@@ -116,6 +116,7 @@ fn test_stackerdb_load_store() {
     conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
+        timeout_ms: 1000,
     });
 
     let privks = vec![
@@ -249,6 +250,7 @@ fn test_stackerdb_event_observer() {
     conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::StackerDBChunks],
+        timeout_ms: 1000,
     });
 
     let privks = vec![
