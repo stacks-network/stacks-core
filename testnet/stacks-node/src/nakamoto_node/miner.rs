@@ -19,7 +19,7 @@ use std::time::{Duration, Instant};
 
 use clarity::boot_util::boot_code_id;
 use clarity::vm::types::PrincipalData;
-use libsigner::v0::messages::{MinerSlotID, SignerMessage};
+use libsigner::v0::messages::{MinerSlotID, SignerMessage, SignerMessageTypePrefix};
 use libsigner::StackerDBSession;
 use rand::{thread_rng, Rng};
 use stacks::burnchains::Burnchain;
@@ -37,6 +37,7 @@ use stacks::chainstate::stacks::{
     TenureChangeCause, TenureChangePayload, TransactionAnchorMode, TransactionPayload,
     TransactionVersion,
 };
+use stacks::codec::StacksMessageCodec;
 use stacks::net::p2p::NetworkHandle;
 use stacks::net::stackerdb::StackerDBs;
 use stacks::net::{NakamotoBlocksData, StacksMessageType};
@@ -150,6 +151,8 @@ pub struct BlockMinerThread {
     /// Handle to the p2p thread for block broadcast
     p2p_handle: NetworkHandle,
     signer_set_cache: Option<RewardSet>,
+    /// UNIX epoch in seconds that the miner thread started
+    start_time: u64,
 }
 
 impl BlockMinerThread {
@@ -176,6 +179,7 @@ impl BlockMinerThread {
             reason,
             p2p_handle: rt.get_p2p_handle(),
             signer_set_cache: None,
+            start_time: get_epoch_time_secs(),
         }
     }
 
@@ -262,6 +266,114 @@ impl BlockMinerThread {
         }
         globals.unblock_miner();
         Ok(())
+    }
+
+    /// See if there's an outstanding block proposal in the .miners stackerdb
+    ///  from our parent tenure
+    fn check_outstanding_block_proposal(
+        parent_tenure_election_ch: &ConsensusHash,
+        stacks_parent_header: &StacksHeaderInfo,
+        sortdb: &SortitionDB,
+        stackerdbs: &StackerDBs,
+        is_mainnet: bool,
+        wait_for_parent_proposals_secs: u64,
+        my_start_time: u64,
+    ) -> Result<(), NakamotoNodeError> {
+        let cur_burn_chain_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
+            .expect("FATAL: failed to query sortition DB for canonical burn chain tip");
+
+        let parent_proposal_slot = match NakamotoChainState::get_miner_slot(
+            sortdb,
+            &cur_burn_chain_tip,
+            parent_tenure_election_ch,
+        ) {
+            Ok(Some(parent_slots)) => MinerSlotID::BlockProposal.get_slot_for_miner(&parent_slots),
+            Ok(None) => {
+                debug!("Parent tenure no longer has a miner slot, will not check for outstanding proposals");
+                return Ok(());
+            }
+            Err(e) => {
+                info!(
+                    "Failed to lookup miner slots for parent tenure, will not check for outstanding proposals";
+                    "err" => ?e
+                );
+                return Ok(());
+            }
+        };
+        let miners_contract = boot_code_id(MINERS_NAME, is_mainnet);
+        let latest_chunk = match stackerdbs.get_latest_chunk(&miners_contract, parent_proposal_slot)
+        {
+            Ok(Some(chunk)) => chunk,
+            Ok(None) => {
+                debug!("Parent tenure slots have no proposal data");
+                return Ok(());
+            }
+            Err(e) => {
+                info!(
+                    "Failed to read miner slot for parent tenure, will not check for outstanding proposals";
+                    "err" => ?e
+                );
+                return Ok(());
+            }
+        };
+
+        let latest_proposal = match SignerMessage::consensus_deserialize(
+            &mut latest_chunk.as_slice(),
+        ) {
+            Ok(SignerMessage::BlockProposal(proposal)) => proposal,
+            Ok(d) => {
+                info!(
+                    "Parent tenure's miner slot contained data other than a proposal, will not check for outstanding proposals";
+                    "message.type_prefix" => ?SignerMessageTypePrefix::from(&d),
+                );
+                return Ok(());
+            }
+            Err(e) => {
+                info!(
+                    "Failed to parse message in parent tenure's miner slot, will not check for outstanding proposals";
+                    "err" => ?e
+                );
+                return Ok(());
+            }
+        };
+
+        if latest_proposal.block.header.chain_length <= stacks_parent_header.stacks_block_height {
+            debug!("Parent block proposal found, and its the block we are building on top of");
+            return Ok(());
+        }
+
+        let proposal_timestamp = latest_proposal.block.header.timestamp;
+        let current_time = get_epoch_time_secs();
+
+        if proposal_timestamp > current_time {
+            // don't wait for insanity
+            debug!(
+                "Found outstanding parent block proposal, but its timestamp is in the future, ignoring.";
+            );
+            return Ok(());
+        }
+
+        // if enough time has passed, this proposal should have been accepted already, so just ignore it
+        if current_time.saturating_sub(proposal_timestamp) > wait_for_parent_proposals_secs {
+            debug!(
+                "Found outstanding parent block proposal, but enough time has passed that this proposal should be ignored.";
+            );
+            return Ok(());
+        }
+
+        // if enough time has passed since the miner thread itself started, just ignore the proposal
+        if current_time.saturating_sub(my_start_time) > wait_for_parent_proposals_secs {
+            debug!(
+                "Found outstanding parent block proposal, but enough time has passed since miner thread started that this proposal should be ignored.";
+            );
+            return Ok(());
+        }
+
+        // otherwise, there *is* an outstanding proposal, which the signer set could still be considering
+        //  signal the miner thread to abort and retry
+        return Err(NakamotoNodeError::MiningFailure(
+            ChainstateError::MinerAborted,
+        ));
     }
 
     pub fn run_miner(
@@ -1038,6 +1150,30 @@ impl BlockMinerThread {
             warn!("Miner should be starting a new tenure, but failed to load parent tenure info");
             return Err(NakamotoNodeError::ParentNotFound);
         };
+
+        if self.last_block_mined.is_none() {
+            let Some(ParentTenureInfo {
+                ref parent_tenure_consensus_hash,
+                ..
+            }) = parent_block_info.parent_tenure
+            else {
+                warn!(
+                    "Miner should be starting a new tenure, but failed to load parent tenure info"
+                );
+                return Err(NakamotoNodeError::ParentNotFound);
+            };
+            let stackerdbs = StackerDBs::connect(&self.config.get_stacker_db_file_path(), false)
+                .map_err(|e| NakamotoNodeError::MiningFailure(ChainstateError::NetError(e)))?;
+            Self::check_outstanding_block_proposal(
+                parent_tenure_consensus_hash,
+                &parent_block_info.stacks_parent_header,
+                &burn_db,
+                &stackerdbs,
+                self.config.is_mainnet(),
+                self.config.miner.wait_for_proposals_secs,
+                self.start_time,
+            )?;
+        }
 
         // create our coinbase if this is the first block we've mined this tenure
         let tenure_start_info = self.make_tenure_start_info(

@@ -87,6 +87,7 @@ const DEFAULT_MAX_RBF_RATE: u64 = 150; // 1.5x
 const DEFAULT_RBF_FEE_RATE_INCREMENT: u64 = 5;
 const INV_REWARD_CYCLES_TESTNET: u64 = 6;
 const DEFAULT_MIN_TIME_BETWEEN_BLOCKS_MS: u64 = 1000;
+const DEFAULT_WAIT_FOR_PROPOSALS_SECS: u64 = 10;
 
 #[derive(Clone, Deserialize, Default, Debug)]
 pub struct ConfigFile {
@@ -2385,6 +2386,10 @@ pub struct MinerConfig {
     /// The minimum time to wait between mining blocks in milliseconds. The value must be greater than or equal to 1000 ms because if a block is mined
     /// within the same second as its parent, it will be rejected by the signers.
     pub min_time_between_blocks_ms: u64,
+    /// How much time (in seconds) to wait for an outstanding block
+    ///  proposal from a parent tenure to get confirmed before
+    ///  building a child block of that tenure.
+    pub wait_for_proposals_secs: u64,
 }
 
 impl Default for MinerConfig {
@@ -2415,6 +2420,7 @@ impl Default for MinerConfig {
             max_reorg_depth: 3,
             pre_nakamoto_mock_signing: false, // Should only default true if mining key is set
             min_time_between_blocks_ms: DEFAULT_MIN_TIME_BETWEEN_BLOCKS_MS,
+            wait_for_proposals_secs: DEFAULT_WAIT_FOR_PROPOSALS_SECS,
         }
     }
 }
@@ -2773,6 +2779,10 @@ pub struct MinerConfigFile {
     pub max_reorg_depth: Option<u64>,
     pub pre_nakamoto_mock_signing: Option<bool>,
     pub min_time_between_blocks_ms: Option<u64>,
+    /// How much time (in seconds) to wait for an outstanding block
+    ///  proposal from a parent tenure to get confirmed before
+    ///  building a child block of that tenure.
+    pub wait_for_proposals_secs: Option<u64>,
 }
 
 impl MinerConfigFile {
@@ -2880,12 +2890,18 @@ impl MinerConfigFile {
             pre_nakamoto_mock_signing: self
                 .pre_nakamoto_mock_signing
                 .unwrap_or(pre_nakamoto_mock_signing), // Should only default true if mining key is set
-                min_time_between_blocks_ms: self.min_time_between_blocks_ms.map(|ms| if ms < DEFAULT_MIN_TIME_BETWEEN_BLOCKS_MS {
-                warn!("miner.min_time_between_blocks_ms is less than the minimum allowed value of {DEFAULT_MIN_TIME_BETWEEN_BLOCKS_MS} ms. Using the default value instead.");
-                DEFAULT_MIN_TIME_BETWEEN_BLOCKS_MS
-            } else {
-                ms
-            }).unwrap_or(miner_default_config.min_time_between_blocks_ms),
+            min_time_between_blocks_ms: self
+                .min_time_between_blocks_ms
+                .map(|ms| if ms < DEFAULT_MIN_TIME_BETWEEN_BLOCKS_MS {
+                    warn!("miner.min_time_between_blocks_ms is less than the minimum allowed value of {DEFAULT_MIN_TIME_BETWEEN_BLOCKS_MS} ms. Using the default value instead.");
+                    DEFAULT_MIN_TIME_BETWEEN_BLOCKS_MS
+                } else {
+                    ms
+                })
+                .unwrap_or(miner_default_config.min_time_between_blocks_ms),
+            wait_for_proposals_secs: self
+                .wait_for_proposals_secs
+                .unwrap_or(miner_default_config.wait_for_proposals_secs),
         })
     }
 }
