@@ -4183,6 +4183,9 @@ pub mod test {
             all_blocks: Vec<NakamotoBlock>,
             expected_siblings: usize,
         ) {
+            if !self.mine_malleablized_blocks {
+                return;
+            }
             for block in all_blocks.iter() {
                 let sighash = block.header.signer_signature_hash();
                 let siblings = self

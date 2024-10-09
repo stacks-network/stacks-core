@@ -43,8 +43,10 @@ use crate::clarity::vm::types::StacksAddressExtensions;
 use crate::net::api::gettenureinfo::RPCGetTenureInfo;
 use crate::net::download::nakamoto::{TenureStartEnd, WantedTenure, *};
 use crate::net::inv::nakamoto::NakamotoTenureInv;
-use crate::net::test::{dns_thread_start, TestEventObserver};
-use crate::net::tests::inv::nakamoto::{make_nakamoto_peer_from_invs, peer_get_nakamoto_invs};
+use crate::net::test::{dns_thread_start, to_addr, TestEventObserver};
+use crate::net::tests::inv::nakamoto::{
+    make_nakamoto_peer_from_invs, make_nakamoto_peers_from_invs_ext, peer_get_nakamoto_invs,
+};
 use crate::net::tests::{NakamotoBootPlan, TestPeer};
 use crate::net::{Error as NetError, Hash160, NeighborAddress, SortitionDB};
 use crate::stacks_common::types::Address;
@@ -2161,7 +2163,9 @@ fn test_nakamoto_download_run_2_peers() {
                     "Booting peer's stacks tip is now {:?}",
                     &boot_peer.network.stacks_tip
                 );
-                if stacks_tip_ch == canonical_stacks_tip_ch {
+                if stacks_tip_ch == canonical_stacks_tip_ch
+                    && stacks_tip_bhh == canonical_stacks_tip_bhh
+                {
                     break;
                 }
             }
@@ -2272,7 +2276,193 @@ fn test_nakamoto_unconfirmed_download_run_2_peers() {
                     "Booting peer's stacks tip is now {:?}",
                     &boot_peer.network.stacks_tip
                 );
-                if stacks_tip_ch == canonical_stacks_tip_ch {
+                if stacks_tip_ch == canonical_stacks_tip_ch
+                    && stacks_tip_bhh == canonical_stacks_tip_bhh
+                {
+                    break;
+                }
+            }
+
+            term_sx.send(()).unwrap();
+        });
+
+        loop {
+            if term_rx.try_recv().is_ok() {
+                break;
+            }
+            peer.step_with_ibd(false).unwrap();
+        }
+    });
+
+    boot_dns_thread_handle.join().unwrap();
+}
+
+/// Test the case where one or more blocks from tenure _T_ get orphend by a tenure-start block in
+/// tenure _T + 1_.  The unconfirmed downloader should be able to handle this case.
+#[test]
+fn test_nakamoto_microfork_download_run_2_peers() {
+    let sender_key = StacksPrivateKey::new();
+    let sender_addr = to_addr(&sender_key);
+    let initial_balances = vec![(sender_addr.to_account_principal(), 1000000000)];
+
+    let observer = TestEventObserver::new();
+    let bitvecs = vec![
+        // full rc
+        vec![true, true, true, true, true, true, true, true, true, true],
+    ];
+
+    let rc_len = 10u64;
+
+    let (mut peer, _) = make_nakamoto_peers_from_invs_ext(
+        function_name!(),
+        &observer,
+        bitvecs.clone(),
+        |boot_plan| {
+            boot_plan
+                .with_pox_constants(rc_len as u32, 5)
+                .with_extra_peers(0)
+                .with_initial_balances(initial_balances)
+                .with_malleablized_blocks(false)
+        },
+    );
+    peer.refresh_burnchain_view();
+
+    let nakamoto_start =
+        NakamotoBootPlan::nakamoto_first_tenure_height(&peer.config.burnchain.pox_constants);
+
+    // create a microfork
+    let naka_tip_ch = peer.network.stacks_tip.consensus_hash.clone();
+    let naka_tip_bh = peer.network.stacks_tip.block_hash.clone();
+    let naka_tip = peer.network.stacks_tip.block_id();
+
+    let sortdb = peer.sortdb_ref().reopen().unwrap();
+    let (chainstate, _) = peer.chainstate_ref().reopen().unwrap();
+
+    let naka_tip_header = NakamotoChainState::get_block_header_nakamoto(chainstate.db(), &naka_tip)
+        .unwrap()
+        .unwrap();
+
+    // load the full tenure for this tip
+    let mut naka_tip_tenure = chainstate
+        .nakamoto_blocks_db()
+        .load_nakamoto_tenure(&naka_tip)
+        .unwrap()
+        .unwrap();
+
+    assert!(naka_tip_tenure.len() > 1);
+
+    // make a microfork -- orphan naka_tip_tenure.last()
+    naka_tip_tenure.pop();
+
+    debug!("test: mine off of tenure");
+    debug!(
+        "test: first {}: {:?}",
+        &naka_tip_tenure.first().as_ref().unwrap().block_id(),
+        &naka_tip_tenure.first().as_ref().unwrap()
+    );
+    debug!(
+        "test: last {}: {:?}",
+        &naka_tip_tenure.last().as_ref().unwrap().block_id(),
+        &naka_tip_tenure.last().as_ref().unwrap()
+    );
+
+    peer.mine_nakamoto_on(naka_tip_tenure);
+    let (fork_naka_block, ..) = peer.single_block_tenure(&sender_key, |_| {}, |_| {}, |_| true);
+    debug!(
+        "test: produced fork {}: {:?}",
+        &fork_naka_block.block_id(),
+        &fork_naka_block
+    );
+
+    peer.refresh_burnchain_view();
+
+    peer.mine_nakamoto_on(vec![fork_naka_block.clone()]);
+    let (fork_naka_block_2, ..) = peer.single_block_tenure(&sender_key, |_| {}, |_| {}, |_| true);
+    debug!(
+        "test: confirmed fork with {}: {:?}",
+        &fork_naka_block_2.block_id(),
+        &fork_naka_block_2
+    );
+
+    peer.refresh_burnchain_view();
+
+    // get reward cyclce data
+    let (mut peer, reward_cycle_invs) =
+        peer_get_nakamoto_invs(peer, &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+
+    // make a neighbor from this peer
+    let boot_observer = TestEventObserver::new();
+    let privk = StacksPrivateKey::from_seed(&[0, 1, 2, 3, 4]);
+    let mut boot_peer = peer.neighbor_with_observer(privk, Some(&boot_observer));
+
+    let (canonical_stacks_tip_ch, canonical_stacks_tip_bhh) =
+        SortitionDB::get_canonical_stacks_chain_tip_hash(peer.sortdb().conn()).unwrap();
+
+    let all_sortitions = peer.sortdb().get_all_snapshots().unwrap();
+    let tip = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb().conn()).unwrap();
+    let nakamoto_tip = peer
+        .sortdb()
+        .index_handle(&tip.sortition_id)
+        .get_nakamoto_tip_block_id()
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(tip.block_height, 53);
+
+    // boot up the boot peer's burnchain
+    for height in 25..tip.block_height {
+        let ops = peer
+            .get_burnchain_block_ops_at_height(height + 1)
+            .unwrap_or(vec![]);
+        let sn = {
+            let ih = peer.sortdb().index_handle(&tip.sortition_id);
+            let sn = ih.get_block_snapshot_by_height(height).unwrap().unwrap();
+            sn
+        };
+        test_debug!(
+            "boot_peer tip height={} hash={}",
+            sn.block_height,
+            &sn.burn_header_hash
+        );
+        test_debug!("ops = {:?}", &ops);
+        let block_header = TestPeer::make_next_burnchain_block(
+            &boot_peer.config.burnchain,
+            sn.block_height,
+            &sn.burn_header_hash,
+            ops.len() as u64,
+            false,
+        );
+        TestPeer::add_burnchain_block(&boot_peer.config.burnchain, &block_header, ops.clone());
+    }
+
+    let (mut boot_dns_client, boot_dns_thread_handle) = dns_thread_start(100);
+
+    // start running that peer so we can boot off of it
+    let (term_sx, term_rx) = sync_channel(1);
+    thread::scope(|s| {
+        s.spawn(move || {
+            let (mut last_stacks_tip_ch, mut last_stacks_tip_bhh) =
+                SortitionDB::get_canonical_stacks_chain_tip_hash(boot_peer.sortdb().conn())
+                    .unwrap();
+            loop {
+                boot_peer
+                    .run_with_ibd(true, Some(&mut boot_dns_client))
+                    .unwrap();
+
+                let (stacks_tip_ch, stacks_tip_bhh) =
+                    SortitionDB::get_canonical_stacks_chain_tip_hash(boot_peer.sortdb().conn())
+                        .unwrap();
+
+                last_stacks_tip_ch = stacks_tip_ch;
+                last_stacks_tip_bhh = stacks_tip_bhh;
+
+                debug!(
+                    "Booting peer's stacks tip is now {:?}",
+                    &boot_peer.network.stacks_tip
+                );
+                if stacks_tip_ch == canonical_stacks_tip_ch
+                    && stacks_tip_bhh == canonical_stacks_tip_bhh
+                {
                     break;
                 }
             }

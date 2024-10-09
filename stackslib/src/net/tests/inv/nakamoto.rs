@@ -404,15 +404,12 @@ pub fn make_nakamoto_peers_from_invs<'a>(
     bitvecs: Vec<Vec<bool>>,
     num_peers: usize,
 ) -> (TestPeer<'a>, Vec<TestPeer<'a>>) {
-    inner_make_nakamoto_peers_from_invs(
-        test_name,
-        observer,
-        rc_len,
-        prepare_len,
-        bitvecs,
-        num_peers,
-        vec![],
-    )
+    make_nakamoto_peers_from_invs_ext(test_name, observer, bitvecs, |boot_plan| {
+        boot_plan
+            .with_pox_constants(rc_len, prepare_len)
+            .with_extra_peers(num_peers)
+            .with_initial_balances(vec![])
+    })
 }
 
 /// NOTE: The second return value does _not_ need `<'a>`, since `observer` is never installed into
@@ -426,31 +423,26 @@ pub fn make_nakamoto_peers_from_invs_and_balances<'a>(
     num_peers: usize,
     initial_balances: Vec<(PrincipalData, u64)>,
 ) -> (TestPeer<'a>, Vec<TestPeer<'a>>) {
-    inner_make_nakamoto_peers_from_invs(
-        test_name,
-        observer,
-        rc_len,
-        prepare_len,
-        bitvecs,
-        num_peers,
-        initial_balances,
-    )
+    make_nakamoto_peers_from_invs_ext(test_name, observer, bitvecs, |boot_plan| {
+        boot_plan
+            .with_pox_constants(rc_len, prepare_len)
+            .with_extra_peers(num_peers)
+            .with_initial_balances(vec![])
+    })
 }
 
 /// Make peers from inventories and balances
-fn inner_make_nakamoto_peers_from_invs<'a>(
+/// NOTE: The second return value does _not_ need `<'a>`, since `observer` is never installed into
+/// the peers here.  However, it appears unavoidable to the borrow-checker.
+pub fn make_nakamoto_peers_from_invs_ext<'a, F>(
     test_name: &str,
     observer: &'a TestEventObserver,
-    rc_len: u32,
-    prepare_len: u32,
     bitvecs: Vec<Vec<bool>>,
-    num_peers: usize,
-    mut initial_balances: Vec<(PrincipalData, u64)>,
-) -> (TestPeer<'a>, Vec<TestPeer<'a>>) {
-    for bitvec in bitvecs.iter() {
-        assert_eq!(bitvec.len() as u32, rc_len);
-    }
-
+    boot_config: F,
+) -> (TestPeer<'a>, Vec<TestPeer<'a>>)
+where
+    F: FnOnce(NakamotoBootPlan) -> NakamotoBootPlan,
+{
     let private_key = StacksPrivateKey::from_seed(&[2]);
     let addr = StacksAddress::from_public_keys(
         C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
@@ -461,6 +453,7 @@ fn inner_make_nakamoto_peers_from_invs<'a>(
     .unwrap();
     let recipient_addr =
         StacksAddress::from_string("ST2YM3J4KQK09V670TD6ZZ1XYNYCNGCWCVTASN5VM").unwrap();
+    let mut initial_balances = vec![(addr.to_account_principal(), 1_000_000)];
 
     let mut sender_nonce = 0;
 
@@ -525,14 +518,13 @@ fn inner_make_nakamoto_peers_from_invs<'a>(
         0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3,
     ]);
 
-    initial_balances.push((addr.into(), 1_000_000));
-    let plan = NakamotoBootPlan::new(test_name)
-        .with_private_key(private_key)
-        .with_pox_constants(rc_len, prepare_len)
-        .with_initial_balances(initial_balances)
-        .with_extra_peers(num_peers)
-        .with_test_signers(test_signers)
-        .with_test_stackers(test_stackers);
+    let mut plan = boot_config(
+        NakamotoBootPlan::new(test_name)
+            .with_private_key(private_key)
+            .with_test_signers(test_signers)
+            .with_test_stackers(test_stackers),
+    );
+    plan.initial_balances.append(&mut initial_balances);
 
     let (peer, other_peers) = plan.boot_into_nakamoto_peers(boot_tenures, Some(observer));
     (peer, other_peers)
