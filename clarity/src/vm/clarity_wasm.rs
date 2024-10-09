@@ -5582,12 +5582,12 @@ fn link_print_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
                     .and_then(|export| export.into_memory())
                     .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
 
-                let serialized_ty = String::from_utf8(read_bytes_from_wasm(
+                let serialized_ty = read_identifier_from_wasm(
                     memory,
                     &mut caller,
                     serialized_ty_offset,
                     serialized_ty_length,
-                )?)?;
+                )?;
 
                 let epoch = caller.data().global_context.epoch_id;
                 let version = caller.data().contract_context().get_clarity_version();
