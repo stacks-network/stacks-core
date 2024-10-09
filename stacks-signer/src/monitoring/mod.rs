@@ -92,13 +92,22 @@ pub fn update_signer_nonce(nonce: u64) {
     prometheus::SIGNER_NONCE.set(nonce as i64);
 }
 
+// Allow dead code because this is only used in the `monitoring_prom` feature
+// but we want to run it in a test
+#[allow(dead_code)]
+/// Remove the origin from the full path to avoid duplicate metrics for different origins
+fn remove_origin_from_path(full_path: &str, origin: &str) -> String {
+    let path = full_path.replace(origin, "");
+    path
+}
+
 /// Start a new RPC call timer.
 /// The `origin` parameter is the base path of the RPC call, e.g. `http://node.com`.
 /// The `origin` parameter is removed from `full_path` when storing in prometheus.
 #[cfg(feature = "monitoring_prom")]
 pub fn new_rpc_call_timer(full_path: &str, origin: &str) -> HistogramTimer {
-    let path = &full_path[origin.len()..];
-    let histogram = prometheus::SIGNER_RPC_CALL_LATENCIES_HISTOGRAM.with_label_values(&[path]);
+    let path = remove_origin_from_path(full_path, origin);
+    let histogram = prometheus::SIGNER_RPC_CALL_LATENCIES_HISTOGRAM.with_label_values(&[&path]);
     histogram.start_timer()
 }
 
@@ -139,4 +148,17 @@ pub fn start_serving_monitoring_metrics(config: GlobalConfig) -> Result<(), Stri
         }
     }
     Ok(())
+}
+
+#[test]
+fn test_remove_origin_from_path() {
+    let full_path = "http://localhost:20443/v2/info";
+    let origin = "http://localhost:20443";
+    let path = remove_origin_from_path(full_path, origin);
+    assert_eq!(path, "/v2/info");
+
+    let full_path = "/v2/info";
+    let origin = "http://localhost:20443";
+    let path = remove_origin_from_path(full_path, origin);
+    assert_eq!(path, "/v2/info");
 }

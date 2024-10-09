@@ -532,6 +532,12 @@ impl StacksHttpRequest {
         self.preamble.add_header(hdr, value);
     }
 
+    /// Constructor to add headers
+    pub fn with_header(mut self, hdr: String, value: String) -> Self {
+        self.add_header(hdr, value);
+        self
+    }
+
     /// Get a ref to all request headers
     pub fn get_headers(&self) -> &BTreeMap<String, String> {
         &self.preamble.headers

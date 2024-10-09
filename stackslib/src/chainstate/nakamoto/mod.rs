@@ -2533,6 +2533,18 @@ impl NakamotoChainState {
         Ok(result)
     }
 
+    /// Load a consensus hash for a Nakamoto header
+    pub fn get_block_header_nakamoto_tenure_id(
+        chainstate_conn: &Connection,
+        index_block_hash: &StacksBlockId,
+    ) -> Result<Option<ConsensusHash>, ChainstateError> {
+        let sql = "SELECT consensus_hash FROM nakamoto_block_headers WHERE index_block_hash = ?1";
+        let result = query_row_panic(chainstate_conn, sql, &[&index_block_hash], || {
+            "FATAL: multiple rows for the same block hash".to_string()
+        })?;
+        Ok(result)
+    }
+
     /// Load an epoch2 header
     pub fn get_block_header_epoch2(
         chainstate_conn: &Connection,

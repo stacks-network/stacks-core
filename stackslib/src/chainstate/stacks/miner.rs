@@ -18,6 +18,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::ThreadId;
+use std::time::Instant;
 use std::{cmp, fs, mem};
 
 use clarity::vm::analysis::{CheckError, CheckErrors};
@@ -2211,6 +2212,15 @@ impl StacksBlockBuilder {
             );
         }
 
+        // nakamoto miner tenure start heuristic:
+        //  mine an empty block so you can start your tenure quickly!
+        if let Some(tx) = initial_txs.first() {
+            if matches!(&tx.payload, TransactionPayload::TenureChange(_)) {
+                info!("Nakamoto miner heuristic: during tenure change blocks, produce a fast short block to begin tenure");
+                return Ok((false, tx_events));
+            }
+        }
+
         mempool.reset_nonce_cache()?;
         mempool.estimate_tx_rates(100, &block_limit, &stacks_epoch_id)?;
 
@@ -2221,6 +2231,7 @@ impl StacksBlockBuilder {
 
         let mut invalidated_txs = vec![];
         let mut to_drop_and_blacklist = vec![];
+        let mut update_timings = vec![];
 
         let deadline = ts_start + u128::from(max_miner_time_ms);
         let mut num_txs = 0;
@@ -2250,9 +2261,26 @@ impl StacksBlockBuilder {
                         if block_limit_hit == BlockLimitFunction::LIMIT_REACHED {
                             return Ok(None);
                         }
-                        if get_epoch_time_ms() >= deadline {
+                        let time_now = get_epoch_time_ms();
+                        if time_now >= deadline {
                             debug!("Miner mining time exceeded ({} ms)", max_miner_time_ms);
                             return Ok(None);
+                        }
+                        if let Some(time_estimate) = txinfo.metadata.time_estimate_ms {
+                            if time_now.saturating_add(time_estimate.into()) > deadline {
+                                debug!("Mining tx would cause us to exceed our deadline, skipping";
+                                       "txid" => %txinfo.tx.txid(),
+                                       "deadline" => deadline,
+                                       "now" => time_now,
+                                       "estimate" => time_estimate);
+                                return Ok(Some(
+                                    TransactionResult::skipped(
+                                        &txinfo.tx,
+                                        "Transaction would exceed deadline.".into(),
+                                    )
+                                    .convert_to_event(),
+                                ));
+                            }
                         }
 
                         // skip transactions early if we can
@@ -2303,6 +2331,7 @@ impl StacksBlockBuilder {
                         considered.insert(txinfo.tx.txid());
                         num_considered += 1;
 
+                        let tx_start = Instant::now();
                         let tx_result = builder.try_mine_tx_with_len(
                             epoch_tx,
                             &txinfo.tx,
@@ -2314,6 +2343,21 @@ impl StacksBlockBuilder {
                         let result_event = tx_result.convert_to_event();
                         match tx_result {
                             TransactionResult::Success(TransactionSuccess { receipt, .. }) => {
+                                if txinfo.metadata.time_estimate_ms.is_none() {
+                                    // use i64 to avoid running into issues when storing in
+                                    //  rusqlite.
+                                    let time_estimate_ms: i64 = tx_start
+                                        .elapsed()
+                                        .as_millis()
+                                        .try_into()
+                                        .unwrap_or_else(|_| i64::MAX);
+                                    let time_estimate_ms: u64 = time_estimate_ms
+                                        .try_into()
+                                        // should be unreachable
+                                        .unwrap_or_else(|_| 0);
+                                    update_timings.push((txinfo.tx.txid(), time_estimate_ms));
+                                }
+
                                 num_txs += 1;
                                 if update_estimator {
                                     if let Err(e) = estimator.notify_event(
@@ -2385,6 +2429,12 @@ impl StacksBlockBuilder {
                         Ok(Some(result_event))
                     },
                 );
+
+                if !update_timings.is_empty() {
+                    if let Err(e) = mempool.update_tx_time_estimates(&update_timings) {
+                        warn!("Error while updating time estimates for mempool"; "err" => ?e);
+                    }
+                }
 
                 if to_drop_and_blacklist.len() > 0 {
                     let _ = mempool.drop_and_blacklist_txs(&to_drop_and_blacklist);
