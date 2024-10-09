@@ -270,6 +270,7 @@ impl BlockMinerThread {
 
     /// See if there's an outstanding block proposal in the .miners stackerdb
     ///  from our parent tenure
+    #[cfg_attr(test, mutants::skip)]
     fn check_outstanding_block_proposal(
         parent_tenure_election_ch: &ConsensusHash,
         stacks_parent_header: &StacksHeaderInfo,

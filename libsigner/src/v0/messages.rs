@@ -1131,4 +1131,19 @@ mod test {
             .expect("Failed to deserialize MockSignData");
         assert_eq!(mock_block, deserialized_data);
     }
+
+    #[test]
+    fn get_slot_for_miner() {
+        let miner_range = std::ops::Range { start: 7, end: 10 };
+        assert_eq!(
+            MinerSlotID::BlockProposal.get_slot_for_miner(&miner_range),
+            7,
+            "Block proposals should be in the first slot assigned to a miner"
+        );
+        assert_eq!(
+            MinerSlotID::BlockPushed.get_slot_for_miner(&miner_range),
+            8,
+            "Block pushes should be in the second slot assigned to a miner"
+        );
+    }
 }

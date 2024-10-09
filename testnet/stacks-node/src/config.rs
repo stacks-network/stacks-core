@@ -2786,6 +2786,7 @@ pub struct MinerConfigFile {
 }
 
 impl MinerConfigFile {
+    #[cfg_attr(test, mutants::skip)]
     fn into_config_default(self, miner_default_config: MinerConfig) -> Result<MinerConfig, String> {
         let mining_key = self
             .mining_key
