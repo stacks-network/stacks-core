@@ -558,18 +558,22 @@ fn miner_gather_signatures() {
     // Test prometheus metrics response
     #[cfg(feature = "monitoring_prom")]
     {
-        let metrics_response = signer_test.get_signer_metrics();
+        wait_for(30, || {
+            let metrics_response = signer_test.get_signer_metrics();
 
-        // Because 5 signers are running in the same process, the prometheus metrics
-        // are incremented once for every signer. This is why we expect the metric to be
-        // `5`, even though there is only one block proposed.
-        let expected_result = format!("stacks_signer_block_proposals_received {}", num_signers);
-        assert!(metrics_response.contains(&expected_result));
-        let expected_result = format!(
-            "stacks_signer_block_responses_sent{{response_type=\"accepted\"}} {}",
-            num_signers
-        );
-        assert!(metrics_response.contains(&expected_result));
+            // Because 5 signers are running in the same process, the prometheus metrics
+            // are incremented once for every signer. This is why we expect the metric to be
+            // `10`, even though there are only two blocks proposed.
+            let expected_result_1 =
+                format!("stacks_signer_block_proposals_received {}", num_signers * 2);
+            let expected_result_2 = format!(
+                "stacks_signer_block_responses_sent{{response_type=\"accepted\"}} {}",
+                num_signers * 2
+            );
+            Ok(metrics_response.contains(&expected_result_1)
+                && metrics_response.contains(&expected_result_2))
+        })
+        .expect("Failed to advance prometheus metrics");
     }
 }
 
