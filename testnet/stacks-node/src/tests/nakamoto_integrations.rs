@@ -1489,16 +1489,19 @@ fn simple_neon_integration() {
     // query for prometheus metrics
     #[cfg(feature = "monitoring_prom")]
     {
-        let prom_http_origin = format!("http://{}", prom_bind);
-        let client = reqwest::blocking::Client::new();
-        let res = client
-            .get(&prom_http_origin)
-            .send()
-            .unwrap()
-            .text()
-            .unwrap();
-        let expected_result = format!("stacks_node_stacks_tip_height {block_height_pre_3_0}");
-        assert!(res.contains(&expected_result));
+        wait_for(10, || {
+            let prom_http_origin = format!("http://{}", prom_bind);
+            let client = reqwest::blocking::Client::new();
+            let res = client
+                .get(&prom_http_origin)
+                .send()
+                .unwrap()
+                .text()
+                .unwrap();
+            let expected_result = format!("stacks_node_stacks_tip_height {block_height_pre_3_0}");
+            Ok(res.contains(&expected_result))
+        })
+        .expect("Prometheus metrics did not update");
     }
 
     info!("Nakamoto miner started...");
@@ -1600,19 +1603,30 @@ fn simple_neon_integration() {
     let bhh = u64::from(tip.burn_header_height);
     test_observer::contains_burn_block_range(220..=bhh).unwrap();
 
-    // make sure prometheus returns an updated height
+    // make sure prometheus returns an updated number of processed blocks
     #[cfg(feature = "monitoring_prom")]
     {
-        let prom_http_origin = format!("http://{}", prom_bind);
-        let client = reqwest::blocking::Client::new();
-        let res = client
-            .get(&prom_http_origin)
-            .send()
-            .unwrap()
-            .text()
-            .unwrap();
-        let expected_result = format!("stacks_node_stacks_tip_height {}", tip.stacks_block_height);
-        assert!(res.contains(&expected_result));
+        wait_for(10, || {
+            let prom_http_origin = format!("http://{}", prom_bind);
+            let client = reqwest::blocking::Client::new();
+            let res = client
+                .get(&prom_http_origin)
+                .send()
+                .unwrap()
+                .text()
+                .unwrap();
+            let expected_result_1 = format!(
+                "stacks_node_stx_blocks_processed_total {}",
+                tip.stacks_block_height
+            );
+
+            let expected_result_2 = format!(
+                "stacks_node_stacks_tip_height {}",
+                tip.stacks_block_height - 1
+            );
+            Ok(res.contains(&expected_result_1) && res.contains(&expected_result_2))
+        })
+        .expect("Prometheus metrics did not update");
     }
 
     check_nakamoto_empty_block_heuristics();
