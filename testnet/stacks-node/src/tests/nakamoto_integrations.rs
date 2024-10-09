@@ -5045,7 +5045,7 @@ fn check_block_heights() {
 
     let info = get_chain_info_result(&naka_conf).unwrap();
     info!("Chain info: {:?}", info);
-    let mut last_burn_block_height;
+    let mut last_burn_block_height = info.burn_block_height as u128;
     let mut last_stacks_block_height = info.stacks_tip_height as u128;
     let mut last_tenure_height = last_stacks_block_height as u128;
 
@@ -5118,107 +5118,7 @@ fn check_block_heights() {
             .expect("Timed out waiting for contracts to publish");
         }
 
-        let heights1_value = call_read_only(
-            &naka_conf,
-            &sender_addr,
-            contract1_name,
-            "get-heights",
-            vec![],
-        );
-        let heights1 = heights1_value.expect_tuple().unwrap();
-        info!("Heights from Clarity 1: {}", heights1);
-
-        let heights3_value = call_read_only(
-            &naka_conf,
-            &sender_addr,
-            contract3_name,
-            "get-heights",
-            vec![],
-        );
-        let heights3 = heights3_value.expect_tuple().unwrap();
-        info!("Heights from Clarity 3: {}", heights3);
-
-        let bbh1 = heights1
-            .get("burn-block-height")
-            .unwrap()
-            .clone()
-            .expect_u128()
-            .unwrap();
-        let bbh3 = heights3
-            .get("burn-block-height")
-            .unwrap()
-            .clone()
-            .expect_u128()
-            .unwrap();
-        assert_eq!(bbh1, bbh3, "Burn block heights should match");
-        last_burn_block_height = bbh1;
-
-        let bh1 = heights1
-            .get("block-height")
-            .unwrap()
-            .clone()
-            .expect_u128()
-            .unwrap();
-        let bh3 = heights3
-            .get("tenure-height")
-            .unwrap()
-            .clone()
-            .expect_u128()
-            .unwrap();
-        assert_eq!(
-            bh1, bh3,
-            "Clarity 2 block-height should match Clarity 3 tenure-height"
-        );
-        assert_eq!(
-            bh1,
-            last_tenure_height + 1,
-            "Tenure height should have incremented"
-        );
-        last_tenure_height = bh1;
-
-        let sbh = heights3
-            .get("stacks-block-height")
-            .unwrap()
-            .clone()
-            .expect_u128()
-            .unwrap();
-        let expected_height = if tenure_ix == 0 {
-            // tenure 0 will include an interim block at this point because of the contract publish
-            //  txs
-            last_stacks_block_height + 2
-        } else {
-            last_stacks_block_height + 1
-        };
-        assert_eq!(
-            sbh, expected_height,
-            "Stacks block heights should have incremented"
-        );
-        last_stacks_block_height = sbh;
-
-        // mine the interim blocks
-        for interim_block_ix in 0..inter_blocks_per_tenure {
-            info!("Mining interim block {interim_block_ix}");
-            let blocks_processed_before = coord_channel
-                .lock()
-                .expect("Mutex poisoned")
-                .get_stacks_blocks_processed();
-            // submit a tx so that the miner will mine an extra block
-            let transfer_tx =
-                make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
-            sender_nonce += 1;
-            submit_tx(&http_origin, &transfer_tx);
-
-            loop {
-                let blocks_processed = coord_channel
-                    .lock()
-                    .expect("Mutex poisoned")
-                    .get_stacks_blocks_processed();
-                if blocks_processed > blocks_processed_before {
-                    break;
-                }
-                thread::sleep(Duration::from_millis(100));
-            }
-
+        wait_for(30, || {
             let heights1_value = call_read_only(
                 &naka_conf,
                 &sender_addr,
@@ -5251,11 +5151,11 @@ fn check_block_heights() {
                 .clone()
                 .expect_u128()
                 .unwrap();
-            assert_eq!(bbh1, bbh3, "Burn block heights should match");
-            assert_eq!(
-                bbh1, last_burn_block_height,
-                "Burn block heights should not have incremented"
-            );
+            if bbh1 != bbh3 {
+                info!("Burn block heights should match");
+                return Ok(false);
+            }
+            last_burn_block_height = bbh1;
 
             let bh1 = heights1
                 .get("block-height")
@@ -5269,14 +5169,15 @@ fn check_block_heights() {
                 .clone()
                 .expect_u128()
                 .unwrap();
-            assert_eq!(
-                bh1, bh3,
-                "Clarity 2 block-height should match Clarity 3 tenure-height"
-            );
-            assert_eq!(
-                bh1, last_tenure_height,
-                "Tenure height should not have changed"
-            );
+            if bh1 != bh3 {
+                info!("Clarity 2 block-height should match Clarity 3 tenure-height");
+                return Ok(false);
+            }
+            if bh1 != last_tenure_height + 1 {
+                info!("Tenure height should have incremented");
+                return Ok(false);
+            }
+            last_tenure_height = bh1;
 
             let sbh = heights3
                 .get("stacks-block-height")
@@ -5284,21 +5185,123 @@ fn check_block_heights() {
                 .clone()
                 .expect_u128()
                 .unwrap();
-            assert_eq!(
-                sbh,
-                last_stacks_block_height + 1,
-                "Stacks block heights should have incremented"
-            );
+            let expected_height = if tenure_ix == 0 {
+                // tenure 0 will include an interim block at this point because of the contract publish
+                //  txs
+                last_stacks_block_height + 2
+            } else {
+                last_stacks_block_height + 1
+            };
+            if sbh != expected_height {
+                info!("Stacks block heights should have incremented");
+                return Ok(false);
+            }
             last_stacks_block_height = sbh;
+            Ok(true)
+        })
+        .expect("Timed out waiting for the contract to update");
+
+        // mine the interim blocks
+        for interim_block_ix in 0..inter_blocks_per_tenure {
+            info!("Mining interim block {interim_block_ix}");
+            let blocks_processed_before = coord_channel
+                .lock()
+                .expect("Mutex poisoned")
+                .get_stacks_blocks_processed();
+            // submit a tx so that the miner will mine an extra block
+            let transfer_tx =
+                make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
+            sender_nonce += 1;
+            submit_tx(&http_origin, &transfer_tx);
+
+            wait_for(30, || {
+                let blocks_processed = coord_channel
+                    .lock()
+                    .expect("Mutex poisoned")
+                    .get_stacks_blocks_processed();
+                Ok(blocks_processed > blocks_processed_before)
+            })
+            .expect("Timed out waiting for interim block to be mined");
+
+            wait_for(30, || {
+                let heights1_value = call_read_only(
+                    &naka_conf,
+                    &sender_addr,
+                    contract1_name,
+                    "get-heights",
+                    vec![],
+                );
+                let heights1 = heights1_value.expect_tuple().unwrap();
+                info!("Heights from Clarity 1: {}", heights1);
+
+                let heights3_value = call_read_only(
+                    &naka_conf,
+                    &sender_addr,
+                    contract3_name,
+                    "get-heights",
+                    vec![],
+                );
+                let heights3 = heights3_value.expect_tuple().unwrap();
+                info!("Heights from Clarity 3: {}", heights3);
+
+                let bbh1 = heights1
+                    .get("burn-block-height")
+                    .unwrap()
+                    .clone()
+                    .expect_u128()
+                    .unwrap();
+                let bbh3 = heights3
+                    .get("burn-block-height")
+                    .unwrap()
+                    .clone()
+                    .expect_u128()
+                    .unwrap();
+                if bbh1 != bbh3 {
+                    info!("Burn block heights should match");
+                    return Ok(false);
+                }
+                let bh1 = heights1
+                    .get("block-height")
+                    .unwrap()
+                    .clone()
+                    .expect_u128()
+                    .unwrap();
+                if bh1 != last_tenure_height {
+                    info!("Tenure height should not have changed");
+                    return Ok(false);
+                }
+                let bh3 = heights3
+                    .get("tenure-height")
+                    .unwrap()
+                    .clone()
+                    .expect_u128()
+                    .unwrap();
+                if bh1 != bh3 {
+                    info!("Clarity 2 block-height should match Clarity 3 tenure-height");
+                    return Ok(false);
+                }
+                let sbh = heights3
+                    .get("stacks-block-height")
+                    .unwrap()
+                    .clone()
+                    .expect_u128()
+                    .unwrap();
+
+                if sbh != last_stacks_block_height + 1 {
+                    info!("Stacks block heights should have incremented");
+                    return Ok(false);
+                }
+                last_stacks_block_height = sbh;
+                Ok(true)
+            })
+            .expect("Timed out waiting for clarity contract heights to update");
         }
 
-        let start_time = Instant::now();
-        while commits_submitted.load(Ordering::SeqCst) <= commits_before {
-            if start_time.elapsed() >= Duration::from_secs(20) {
-                panic!("Timed out waiting for block-commit");
-            }
-            thread::sleep(Duration::from_millis(100));
-        }
+        wait_for(30, || {
+            let commits_submitted = commits_submitted.load(Ordering::SeqCst);
+            Ok(commits_submitted > commits_before)
+        })
+        .expect("Timed out waiting for block commit to be submitted");
     }
 
     // load the chain tip, and assert that it is a nakamoto block and at least 30 blocks have advanced in epoch 3
