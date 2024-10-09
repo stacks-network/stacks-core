@@ -104,8 +104,8 @@ use crate::tests::neon_integrations::{
     test_observer, wait_for_runloop,
 };
 use crate::tests::{
-    gen_random_port, get_chain_info, make_contract_publish, make_contract_publish_versioned,
-    make_stacks_transfer, to_addr,
+    gen_random_port, get_chain_info, insert_new_port, make_contract_publish,
+    make_contract_publish_versioned, make_stacks_transfer, to_addr,
 };
 use crate::{tests, BitcoinRegtestController, BurnchainController, Config, ConfigFile, Keychain};
 
@@ -2232,6 +2232,17 @@ fn multiple_miners() {
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
     );
+
+    wait_for(300, || {
+        let Some(miner_node_info) = get_chain_info_opt(&naka_conf) else {
+            return Ok(false);
+        };
+        let Some(follower_node_info) = get_chain_info_opt(&conf_node_2) else {
+            return Ok(false);
+        };
+        Ok(miner_node_info.stacks_tip_height == follower_node_info.stacks_tip_height)
+    })
+    .expect("Timed out waiting for follower to catch up to the miner");
 
     info!("Bootstrapped to Epoch-3.0 boundary, starting nakamoto miner");
 
@@ -8168,6 +8179,7 @@ fn mock_mining() {
 
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
     naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
+    naka_conf.node.pox_sync_sample_secs = 5;
     let sender_sk = Secp256k1PrivateKey::new();
     let sender_signer_sk = Secp256k1PrivateKey::new();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
@@ -8180,16 +8192,17 @@ fn mock_mining() {
     let send_amt = 100;
     let send_fee = 180;
 
-    let node_1_rpc = 51024;
-    let node_1_p2p = 51023;
-    let node_2_rpc = 51026;
-    let node_2_p2p = 51025;
+    insert_new_port(test_observer::EVENT_OBSERVER_PORT);
+    let node_1_rpc = gen_random_port();
+    let node_1_p2p = gen_random_port();
+    let node_2_rpc = gen_random_port();
+    let node_2_p2p = gen_random_port();
 
     let localhost = "127.0.0.1";
-    naka_conf.node.rpc_bind = format!("{}:{}", localhost, node_1_rpc);
-    naka_conf.node.p2p_bind = format!("{}:{}", localhost, node_1_p2p);
-    naka_conf.node.data_url = format!("http://{}:{}", localhost, node_1_rpc);
-    naka_conf.node.p2p_address = format!("{}:{}", localhost, node_1_p2p);
+    naka_conf.node.rpc_bind = format!("{localhost}:{node_1_rpc}");
+    naka_conf.node.p2p_bind = format!("{localhost}:{node_1_p2p}");
+    naka_conf.node.data_url = format!("http://{localhost}:{node_1_rpc}");
+    naka_conf.node.p2p_address = format!("{localhost}:{node_1_p2p}");
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
 
     naka_conf.add_initial_balance(
@@ -8273,10 +8286,10 @@ fn mock_mining() {
     follower_conf.node.seed = vec![0x01; 32];
     follower_conf.node.local_peer_seed = vec![0x02; 32];
 
-    follower_conf.node.rpc_bind = format!("{}:{}", localhost, node_2_rpc);
-    follower_conf.node.p2p_bind = format!("{}:{}", localhost, node_2_p2p);
-    follower_conf.node.data_url = format!("http://{}:{}", localhost, node_2_rpc);
-    follower_conf.node.p2p_address = format!("{}:{}", localhost, node_2_p2p);
+    follower_conf.node.rpc_bind = format!("{localhost}:{node_2_rpc}");
+    follower_conf.node.p2p_bind = format!("{localhost}:{node_2_p2p}");
+    follower_conf.node.data_url = format!("http://{localhost}:{node_2_rpc}");
+    follower_conf.node.p2p_address = format!("{localhost}:{node_2_p2p}");
 
     let node_info = get_chain_info(&naka_conf);
     follower_conf.node.add_bootstrap_node(
@@ -8424,20 +8437,18 @@ fn mock_mining() {
     );
 
     // wait for follower to reach the chain tip
-    loop {
-        sleep_ms(1000);
+    wait_for(120, || {
         let follower_node_info = get_chain_info(&follower_conf);
-
         info!(
             "Follower tip is now {}/{}",
             &follower_node_info.stacks_tip_consensus_hash, &follower_node_info.stacks_tip
         );
-        if follower_node_info.stacks_tip_consensus_hash == tip.consensus_hash
-            && follower_node_info.stacks_tip == tip.anchored_header.block_hash()
-        {
-            break;
-        }
-    }
+        Ok(
+            follower_node_info.stacks_tip_consensus_hash == tip.consensus_hash
+                && follower_node_info.stacks_tip == tip.anchored_header.block_hash(),
+        )
+    })
+    .expect("Timed out waiting for follower to catch up to the miner");
 
     coord_channel
         .lock()
