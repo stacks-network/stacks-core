@@ -1472,7 +1472,7 @@ fn multiple_miners() {
             config.node.data_url = format!("http://{localhost}:{node_1_rpc}");
             config.node.p2p_address = format!("{localhost}:{node_1_p2p}");
             config.miner.wait_on_interim_blocks = Duration::from_secs(5);
-            config.node.pox_sync_sample_secs = 5;
+            config.node.pox_sync_sample_secs = 30;
 
             config.node.seed = btc_miner_1_seed.clone();
             config.node.local_peer_seed = btc_miner_1_seed.clone();
@@ -1767,7 +1767,7 @@ fn miner_forking() {
             config.node.local_peer_seed = btc_miner_1_seed.clone();
             config.burnchain.local_mining_public_key = Some(btc_miner_1_pk.to_hex());
             config.miner.mining_key = Some(Secp256k1PrivateKey::from_seed(&[1]));
-            config.node.pox_sync_sample_secs = 5;
+            config.node.pox_sync_sample_secs = 30;
 
             config.events_observers.retain(|listener| {
                 let Ok(addr) = std::net::SocketAddr::from_str(&listener.endpoint) else {
@@ -3443,7 +3443,7 @@ fn multiple_miners_with_nakamoto_blocks() {
             config.node.data_url = format!("http://{localhost}:{node_1_rpc}");
             config.node.p2p_address = format!("{localhost}:{node_1_p2p}");
             config.miner.wait_on_interim_blocks = Duration::from_secs(5);
-            config.node.pox_sync_sample_secs = 5;
+            config.node.pox_sync_sample_secs = 30;
 
             config.node.seed = btc_miner_1_seed.clone();
             config.node.local_peer_seed = btc_miner_1_seed.clone();
@@ -3706,7 +3706,7 @@ fn partial_tenure_fork() {
             config.node.data_url = format!("http://{localhost}:{node_1_rpc}");
             config.node.p2p_address = format!("{localhost}:{node_1_p2p}");
             config.miner.wait_on_interim_blocks = Duration::from_secs(5);
-            config.node.pox_sync_sample_secs = 5;
+            config.node.pox_sync_sample_secs = 30;
 
             config.node.seed = btc_miner_1_seed.clone();
             config.node.local_peer_seed = btc_miner_1_seed.clone();

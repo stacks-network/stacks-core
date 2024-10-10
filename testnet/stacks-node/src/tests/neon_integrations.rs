@@ -53,7 +53,6 @@ use stacks::net::api::getaccount::AccountEntryResponse;
 use stacks::net::api::getcontractsrc::ContractSrcResponse;
 use stacks::net::api::getinfo::RPCPeerInfoData;
 use stacks::net::api::getpoxinfo::RPCPoxInfoData;
-use stacks::net::api::getstackers::GetStackersResponse;
 use stacks::net::api::gettransaction_unconfirmed::UnconfirmedTransactionResponse;
 use stacks::net::api::postblock::StacksBlockAcceptedData;
 use stacks::net::api::postfeerate::RPCFeeEstimateResponse;
@@ -1435,16 +1434,6 @@ pub fn get_contract_src(
         let err_str = res.text().unwrap();
         Err(err_str)
     }
-}
-
-pub fn get_stacker_set(http_origin: &str, reward_cycle: u64) -> GetStackersResponse {
-    let client = reqwest::blocking::Client::new();
-    let path = format!("{}/v3/stacker_set/{}", http_origin, reward_cycle);
-    let res = client.get(&path).send().unwrap();
-
-    info!("Got stacker_set response {:?}", &res);
-    let res = res.json::<GetStackersResponse>().unwrap();
-    res
 }
 
 #[test]
