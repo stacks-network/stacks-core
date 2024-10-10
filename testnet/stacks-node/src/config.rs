@@ -1128,11 +1128,10 @@ impl Config {
                         .map(|e| EventKeyType::from_string(e).unwrap())
                         .collect();
 
-                    let endpoint = format!("{}", observer.endpoint);
-
                     observers.insert(EventObserverConfig {
-                        endpoint,
+                        endpoint: observer.endpoint,
                         events_keys,
+                        timeout_ms: observer.timeout_ms.unwrap_or(1_000),
                     });
                 }
                 observers
@@ -1146,6 +1145,7 @@ impl Config {
                 events_observers.insert(EventObserverConfig {
                     endpoint: val,
                     events_keys: vec![EventKeyType::AnyEvent],
+                    timeout_ms: 1_000,
                 });
                 ()
             }
@@ -1186,6 +1186,18 @@ impl Config {
             miner,
             atlas,
         })
+    }
+
+    /// Returns the path working directory path, and ensures it exists.
+    pub fn get_working_dir(&self) -> PathBuf {
+        let path = PathBuf::from(&self.node.working_dir);
+        fs::create_dir_all(&path).unwrap_or_else(|_| {
+            panic!(
+                "Failed to create working directory at {}",
+                path.to_string_lossy()
+            )
+        });
+        path
     }
 
     fn get_burnchain_path(&self) -> PathBuf {
@@ -2921,12 +2933,14 @@ impl AtlasConfigFile {
 pub struct EventObserverConfigFile {
     pub endpoint: String,
     pub events_keys: Vec<String>,
+    pub timeout_ms: Option<u64>,
 }
 
 #[derive(Clone, Default, Debug, Hash, PartialEq, Eq, PartialOrd)]
 pub struct EventObserverConfig {
     pub endpoint: String,
     pub events_keys: Vec<EventKeyType>,
+    pub timeout_ms: u64,
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd)]

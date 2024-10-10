@@ -340,7 +340,7 @@ impl Node {
         let mut event_dispatcher = EventDispatcher::new();
 
         for observer in &config.events_observers {
-            event_dispatcher.register_observer(observer);
+            event_dispatcher.register_observer(observer, config.get_working_dir());
         }
 
         let burnchain_config = config.get_burnchain();

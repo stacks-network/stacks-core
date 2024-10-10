@@ -649,6 +649,7 @@ fn setup_stx_btc_node<G: FnMut(&mut NeonConfig) -> ()>(
                 EventKeyType::BlockProposal,
                 EventKeyType::BurnchainBlocks,
             ],
+            timeout_ms: 1000,
         });
     }
 
@@ -663,6 +664,7 @@ fn setup_stx_btc_node<G: FnMut(&mut NeonConfig) -> ()>(
             EventKeyType::MinedBlocks,
             EventKeyType::BurnchainBlocks,
         ],
+        timeout_ms: 1000,
     });
 
     // The signers need some initial balances in order to pay for epoch 2.5 transaction votes

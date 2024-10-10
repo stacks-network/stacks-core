@@ -2985,6 +2985,7 @@ fn signer_set_rollover() {
                         EventKeyType::BlockProposal,
                         EventKeyType::BurnchainBlocks,
                     ],
+                    timeout_ms: 1000,
                 });
             }
             naka_conf.node.rpc_bind = rpc_bind.clone();
