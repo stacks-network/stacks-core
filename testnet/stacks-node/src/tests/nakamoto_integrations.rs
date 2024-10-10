@@ -255,7 +255,7 @@ pub fn check_nakamoto_empty_block_heuristics() {
     }
 }
 
-pub fn get_stacker_set(http_origin: &str, cycle: u64) -> GetStackersResponse {
+pub fn get_stacker_set(http_origin: &str, cycle: u64) -> Result<GetStackersResponse, String> {
     let client = reqwest::blocking::Client::new();
     let path = format!("{http_origin}/v3/stacker_set/{cycle}");
     let res = client
@@ -263,10 +263,9 @@ pub fn get_stacker_set(http_origin: &str, cycle: u64) -> GetStackersResponse {
         .send()
         .unwrap()
         .json::<serde_json::Value>()
-        .unwrap();
+        .map_err(|e| format!("{e}"))?;
     info!("Stacker set response: {res}");
-    let res = serde_json::from_value(res).unwrap();
-    res
+    serde_json::from_value(res).map_err(|e| format!("{e}"))
 }
 
 pub fn get_stackerdb_slot_version(
@@ -886,19 +885,21 @@ pub fn boot_to_epoch_3(
         signers.signer_keys = signer_sks.to_vec();
     }
 
-    let prepare_phase_start = btc_regtest_controller
+    // the reward set is generally calculated in the first block of the prepare phase hence the + 1
+    let reward_set_calculation = btc_regtest_controller
         .get_burnchain()
         .pox_constants
         .prepare_phase_start(
             btc_regtest_controller.get_burnchain().first_block_height,
             reward_cycle,
-        );
+        )
+        + 1;
 
     // Run until the prepare phase
     run_until_burnchain_height(
         btc_regtest_controller,
         &blocks_processed,
-        prepare_phase_start,
+        reward_set_calculation,
         &naka_conf,
     );
 
@@ -909,7 +910,11 @@ pub fn boot_to_epoch_3(
         let aggregate_public_key = clarity::vm::Value::buff_from(aggregate_key)
             .expect("Failed to serialize aggregate public key");
         let signer_sks_unique: HashMap<_, _> = signer_sks.iter().map(|x| (x.to_hex(), x)).collect();
-        let signer_set = get_stacker_set(&http_origin, reward_cycle + 1);
+        wait_for(30, || {
+            Ok(get_stacker_set(&http_origin, reward_cycle + 1).is_ok())
+        })
+        .expect("Timed out waiting for stacker set");
+        let signer_set = get_stacker_set(&http_origin, reward_cycle + 1).unwrap();
         // Vote on the aggregate public key
         for signer_sk in signer_sks_unique.values() {
             let signer_index =
@@ -1040,19 +1045,21 @@ pub fn boot_to_pre_epoch_3_boundary(
         signers.signer_keys = signer_sks.to_vec();
     }
 
-    let prepare_phase_start = btc_regtest_controller
+    // the reward set is generally calculated in the first block of the prepare phase hence the + 1
+    let reward_set_calculation = btc_regtest_controller
         .get_burnchain()
         .pox_constants
         .prepare_phase_start(
             btc_regtest_controller.get_burnchain().first_block_height,
             reward_cycle,
-        );
+        )
+        + 1;
 
     // Run until the prepare phase
     run_until_burnchain_height(
         btc_regtest_controller,
         &blocks_processed,
-        prepare_phase_start,
+        reward_set_calculation,
         &naka_conf,
     );
 
@@ -1063,7 +1070,11 @@ pub fn boot_to_pre_epoch_3_boundary(
         let aggregate_public_key = clarity::vm::Value::buff_from(aggregate_key)
             .expect("Failed to serialize aggregate public key");
         let signer_sks_unique: HashMap<_, _> = signer_sks.iter().map(|x| (x.to_hex(), x)).collect();
-        let signer_set = get_stacker_set(&http_origin, reward_cycle + 1);
+        wait_for(30, || {
+            Ok(get_stacker_set(&http_origin, reward_cycle + 1).is_ok())
+        })
+        .expect("Timed out waiting for stacker set");
+        let signer_set = get_stacker_set(&http_origin, reward_cycle + 1).unwrap();
         // Vote on the aggregate public key
         for signer_sk in signer_sks_unique.values() {
             let signer_index =
@@ -2566,7 +2577,7 @@ fn correct_burn_outs() {
     info!("first_epoch_3_cycle: {:?}", first_epoch_3_cycle);
 
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
-    let stacker_response = get_stacker_set(&http_origin, first_epoch_3_cycle);
+    let stacker_response = get_stacker_set(&http_origin, first_epoch_3_cycle).unwrap();
     assert!(stacker_response.stacker_set.signers.is_some());
     assert_eq!(
         stacker_response.stacker_set.signers.as_ref().unwrap().len(),
@@ -8168,6 +8179,7 @@ fn mock_mining() {
 
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
     naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
+    naka_conf.node.pox_sync_sample_secs = 5;
     let sender_sk = Secp256k1PrivateKey::new();
     let sender_signer_sk = Secp256k1PrivateKey::new();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
