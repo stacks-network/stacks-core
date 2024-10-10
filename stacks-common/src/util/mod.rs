@@ -19,6 +19,7 @@ pub mod log;
 #[macro_use]
 pub mod macros;
 pub mod chunked_encoding;
+#[cfg(feature = "canonical")]
 pub mod db;
 pub mod hash;
 pub mod pair;
