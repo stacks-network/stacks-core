@@ -17,7 +17,6 @@ peer_port = 18333
 # Used for sending events to a local stacks-blockchain-api service
 # [[events_observer]]
 # endpoint = "localhost:3700"
-# retry_count = 255
 # events_keys = ["*"]
 
 [[ustx_balance]]
