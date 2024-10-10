@@ -89,6 +89,7 @@ const INV_REWARD_CYCLES_TESTNET: u64 = 6;
 const DEFAULT_MIN_TIME_BETWEEN_BLOCKS_MS: u64 = 1000;
 
 #[derive(Clone, Deserialize, Default, Debug)]
+#[serde(deny_unknown_fields)]
 pub struct ConfigFile {
     pub __path: Option<String>, // Only used for config file reloads
     pub burnchain: Option<BurnchainConfigFile>,
@@ -1318,6 +1319,7 @@ pub struct AffirmationOverride {
 }
 
 #[derive(Clone, Deserialize, Default, Debug)]
+#[serde(deny_unknown_fields)]
 pub struct BurnchainConfigFile {
     pub chain: Option<String>,
     pub mode: Option<String>,
@@ -2200,6 +2202,7 @@ impl Default for MinerConfig {
 }
 
 #[derive(Clone, Default, Deserialize, Debug)]
+#[serde(deny_unknown_fields)]
 pub struct ConnectionOptionsFile {
     pub inbox_maxlen: Option<usize>,
     pub outbox_maxlen: Option<usize>,
@@ -2383,6 +2386,7 @@ impl ConnectionOptionsFile {
 }
 
 #[derive(Clone, Deserialize, Default, Debug)]
+#[serde(deny_unknown_fields)]
 pub struct NodeConfigFile {
     pub name: Option<String>,
     pub seed: Option<String>,
@@ -2517,6 +2521,7 @@ impl NodeConfigFile {
 }
 
 #[derive(Clone, Deserialize, Default, Debug)]
+#[serde(deny_unknown_fields)]
 pub struct FeeEstimationConfigFile {
     pub cost_estimator: Option<String>,
     pub fee_estimator: Option<String>,
@@ -2528,6 +2533,7 @@ pub struct FeeEstimationConfigFile {
 }
 
 #[derive(Clone, Deserialize, Default, Debug)]
+#[serde(deny_unknown_fields)]
 pub struct MinerConfigFile {
     pub first_attempt_time_ms: Option<u64>,
     pub subsequent_attempt_time_ms: Option<u64>,
@@ -2670,6 +2676,7 @@ impl MinerConfigFile {
     }
 }
 #[derive(Clone, Deserialize, Default, Debug)]
+#[serde(deny_unknown_fields)]
 pub struct AtlasConfigFile {
     pub attachments_max_size: Option<u32>,
     pub max_uninstantiated_attachments: Option<u32>,
@@ -2698,6 +2705,7 @@ impl AtlasConfigFile {
 }
 
 #[derive(Clone, Deserialize, Default, Debug, Hash, PartialEq, Eq, PartialOrd)]
+#[serde(deny_unknown_fields)]
 pub struct EventObserverConfigFile {
     pub endpoint: String,
     pub events_keys: Vec<String>,
@@ -2798,6 +2806,7 @@ pub struct InitialBalance {
 }
 
 #[derive(Clone, Deserialize, Default, Debug)]
+#[serde(deny_unknown_fields)]
 pub struct InitialBalanceFile {
     pub address: String,
     pub amount: u64,
@@ -2871,6 +2880,124 @@ mod tests {
         );
 
         assert!(Config::from_config_file(ConfigFile::from_str("").unwrap(), false).is_ok());
+    }
+
+    #[test]
+    fn test_deny_unknown_fields() {
+        {
+            let err = ConfigFile::from_str(
+                r#"
+            [node]
+            name = "test"
+            unknown_field = "test"
+            "#,
+            )
+            .unwrap_err();
+            assert!(err.starts_with("Invalid toml: unknown field `unknown_field`"));
+        }
+
+        {
+            let err = ConfigFile::from_str(
+                r#"
+            [burnchain]
+            chain_id = 0x00000500
+            unknown_field = "test"
+            chain = "bitcoin"
+            "#,
+            )
+            .unwrap_err();
+            assert!(err.starts_with("Invalid toml: unknown field `unknown_field`"));
+        }
+
+        {
+            let err = ConfigFile::from_str(
+                r#"
+            [node]
+            rpc_bind = "0.0.0.0:20443"
+            unknown_field = "test"
+            p2p_bind = "0.0.0.0:20444"
+            "#,
+            )
+            .unwrap_err();
+            assert!(err.starts_with("Invalid toml: unknown field `unknown_field`"));
+        }
+
+        {
+            let err = ConfigFile::from_str(
+                r#"
+            [[ustx_balance]]
+            address = "ST3AM1A56AK2C1XAFJ4115ZSV26EB49BVQ10MGCS0"
+            amount = 10000000000000000
+            unknown_field = "test"
+            "#,
+            )
+            .unwrap_err();
+            assert!(err.starts_with("Invalid toml: unknown field `unknown_field`"));
+        }
+
+        {
+            let err = ConfigFile::from_str(
+                r#"
+            [[events_observer]]
+            endpoint = "localhost:30000"
+            unknown_field = "test"
+            events_keys = ["stackerdb", "block_proposal", "burn_blocks"]
+            "#,
+            )
+            .unwrap_err();
+            assert!(err.starts_with("Invalid toml: unknown field `unknown_field`"));
+        }
+
+        {
+            let err = ConfigFile::from_str(
+                r#"
+            [connection_options]
+            inbox_maxlen = 100
+            outbox_maxlen = 200
+            unknown_field = "test"
+            "#,
+            )
+            .unwrap_err();
+            assert!(err.starts_with("Invalid toml: unknown field `unknown_field`"));
+        }
+
+        {
+            let err = ConfigFile::from_str(
+                r#"
+            [fee_estimation]
+            cost_estimator = "foo"
+            unknown_field = "test"
+            "#,
+            )
+            .unwrap_err();
+            assert!(err.starts_with("Invalid toml: unknown field `unknown_field`"));
+        }
+
+        {
+            let err = ConfigFile::from_str(
+                r#"
+            [miner]
+            first_attempt_time_ms = 180_000
+            unknown_field = "test"
+            subsequent_attempt_time_ms = 360_000
+            "#,
+            )
+            .unwrap_err();
+            println!("{}", err);
+            assert!(err.starts_with("Invalid toml: unknown field `unknown_field`"));
+        }
+
+        {
+            let err = ConfigFile::from_str(
+                r#"
+                [atlas]
+                attachments_max_size = 100
+                unknown_field = "test"
+                "#,
+            )
+            .unwrap_err();
+            assert!(err.starts_with("Invalid toml: unknown field `unknown_field`"));
+        }
     }
 
     #[test]
