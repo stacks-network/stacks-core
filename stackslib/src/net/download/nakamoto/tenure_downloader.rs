@@ -541,6 +541,59 @@ impl NakamotoTenureDownloader {
         Ok(Some(request))
     }
 
+    /// Advance the state of the downloader from chainstate, if possible.
+    /// For example, a tenure-start or tenure-end block may have been pushed to us already (or they
+    /// may be shadow blocks)
+    pub fn try_advance_from_chainstate(
+        &mut self,
+        chainstate: &StacksChainState,
+    ) -> Result<(), NetError> {
+        loop {
+            match self.state {
+                NakamotoTenureDownloadState::GetTenureStartBlock(
+                    start_block_id,
+                    _start_request_time,
+                ) => {
+                    // if we have this, then load it up
+                    let Some((tenure_start_block, _sz)) = chainstate
+                        .nakamoto_blocks_db()
+                        .get_nakamoto_block(&start_block_id)?
+                    else {
+                        break;
+                    };
+                    self.try_accept_tenure_start_block(tenure_start_block)?;
+                    if let NakamotoTenureDownloadState::GetTenureStartBlock(..) = &self.state {
+                        break;
+                    }
+                }
+                NakamotoTenureDownloadState::GetTenureEndBlock(
+                    end_block_id,
+                    _start_request_time,
+                ) => {
+                    // if we have this, then load it up
+                    let Some((tenure_end_block, _sz)) = chainstate
+                        .nakamoto_blocks_db()
+                        .get_nakamoto_block(&end_block_id)?
+                    else {
+                        break;
+                    };
+                    self.try_accept_tenure_end_block(&tenure_end_block)?;
+                    if let NakamotoTenureDownloadState::GetTenureEndBlock(..) = &self.state {
+                        break;
+                    }
+                }
+                NakamotoTenureDownloadState::GetTenureBlocks(..) => {
+                    // TODO: look at the chainstate and find out what we don't have to download
+                    break;
+                }
+                NakamotoTenureDownloadState::Done => {
+                    break;
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Begin the next download request for this state machine.  The request will be sent to the
     /// data URL corresponding to self.naddr.
     /// Returns Ok(true) if we sent the request, or there's already an in-flight request.  The

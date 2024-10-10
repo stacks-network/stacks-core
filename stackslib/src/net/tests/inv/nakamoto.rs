@@ -2382,3 +2382,58 @@ fn test_nakamoto_make_tenure_inv_from_old_tips() {
         assert_eq!(bits, expected_bits[0..bit_len]);
     }
 }
+
+#[test]
+fn test_nakamoto_invs_shadow_blocks() {
+    let observer = TestEventObserver::new();
+    let sender_key = StacksPrivateKey::new();
+    let sender_addr = to_addr(&sender_key);
+    let initial_balances = vec![(sender_addr.to_account_principal(), 1000000000)];
+    let mut bitvecs = vec![vec![
+        true, true, true, true, true, true, true, true, true, true,
+    ]];
+
+    let (mut peer, _) = make_nakamoto_peers_from_invs_and_balances(
+        function_name!(),
+        &observer,
+        10,
+        3,
+        bitvecs.clone(),
+        0,
+        initial_balances,
+    );
+    let nakamoto_start =
+        NakamotoBootPlan::nakamoto_first_tenure_height(&peer.config.burnchain.pox_constants);
+
+    // construct and add shadow blocks to this peer's chainstate
+    peer.refresh_burnchain_view();
+    let shadow_block = peer.make_shadow_tenure(None);
+    peer.mine_nakamoto_on(vec![shadow_block]);
+
+    peer.refresh_burnchain_view();
+    let (naka_block, ..) = peer.single_block_tenure(&sender_key, |_| {}, |_| {}, |_| true);
+    peer.mine_nakamoto_on(vec![naka_block]);
+
+    peer.refresh_burnchain_view();
+    let shadow_block = peer.make_shadow_tenure(None);
+    peer.mine_nakamoto_on(vec![shadow_block]);
+
+    peer.refresh_burnchain_view();
+    let (naka_block, ..) = peer.single_block_tenure(&sender_key, |_| {}, |_| {}, |_| true);
+    peer.mine_nakamoto_on(vec![naka_block]);
+
+    peer.refresh_burnchain_view();
+    let shadow_block = peer.make_shadow_tenure(None);
+    peer.mine_nakamoto_on(vec![shadow_block]);
+
+    peer.refresh_burnchain_view();
+    let (naka_block, ..) = peer.single_block_tenure(&sender_key, |_| {}, |_| {}, |_| true);
+    peer.mine_nakamoto_on(vec![naka_block]);
+
+    let (peer, reward_cycle_invs) =
+        peer_get_nakamoto_invs(peer, &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+
+    // the inv should show `true` for each shadow tenure
+    bitvecs.push(vec![true, true, true, true, true, true]);
+    check_inv_messages(bitvecs, 10, nakamoto_start, reward_cycle_invs);
+}

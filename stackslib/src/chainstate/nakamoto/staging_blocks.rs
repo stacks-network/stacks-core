@@ -41,10 +41,16 @@ use crate::util_lib::db::{
 /// The means by which a block is obtained.
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum NakamotoBlockObtainMethod {
+    /// The block was fetched by te block downloader
     Downloaded,
+    /// The block was uploaded to us via p2p
     Pushed,
+    /// This node mined the block
     Mined,
+    /// The block was uploaded to us via HTTP
     Uploaded,
+    /// This is a shadow block -- it was created by a SIP to fix a consensus bug
+    Shadow,
 }
 
 impl fmt::Display for NakamotoBlockObtainMethod {
@@ -149,7 +155,12 @@ pub const NAKAMOTO_STAGING_DB_SCHEMA_2: &'static [&'static str] = &[
     r#"INSERT INTO db_version (version) VALUES (2)"#,
 ];
 
-pub const NAKAMOTO_STAGING_DB_SCHEMA_LATEST: u32 = 2;
+pub const NAKAMOTO_STAGING_DB_SCHEMA_3: &'static [&'static str] = &[
+    r#"CREATE INDEX nakamoto_staging_blocks_by_obtain_method ON nakamoto_staging_blocks(consensus_hash,obtain_method);"#,
+    r#"UPDATE db_version SET version = 3"#,
+];
+
+pub const NAKAMOTO_STAGING_DB_SCHEMA_LATEST: u32 = 3;
 
 pub struct NakamotoStagingBlocksConn(rusqlite::Connection);
 
@@ -443,14 +454,6 @@ impl<'a> NakamotoStagingBlocksConnRef<'a> {
             })
     }
 
-    /// Given a block ID, determine if it has children that have been processed and accepted
-    pub fn has_children(&self, index_block_hash: &StacksBlockId) -> Result<bool, ChainstateError> {
-        let qry = "SELECT 1 FROM nakamoto_staging_blocks WHERE parent_block_id = ?1 AND processed = 1 AND orphaned = 0 LIMIT 1";
-        let args = rusqlite::params![index_block_hash];
-        let children_flags: Option<u32> = query_row(self, qry, args)?;
-        Ok(children_flags.is_some())
-    }
-
     /// Given a consensus hash, determine if the burn block has been processed.
     /// Because this is stored in a denormalized way, we'll want to do this whenever we store a
     /// block (so we can set `burn_attachable` accordingly)
@@ -462,6 +465,23 @@ impl<'a> NakamotoStagingBlocksConnRef<'a> {
         let args = rusqlite::params![consensus_hash];
         let res: Option<u64> = query_row(self, sql, args)?;
         Ok(res.is_some())
+    }
+
+    /// Is this a shadow tenure?
+    /// If any block is a shadow block in the tenure, they must all be.
+    ///
+    /// Returns true if the tenure has at least one shadow block.
+    pub fn is_shadow_tenure(
+        &self,
+        consensus_hash: &ConsensusHash,
+    ) -> Result<bool, ChainstateError> {
+        let qry = "SELECT 1 FROM nakamoto_staging_blocks WHERE consensus_hash = ?1 AND obtain_method = ?2";
+        let args = rusqlite::params![
+            consensus_hash,
+            NakamotoBlockObtainMethod::Shadow.to_string()
+        ];
+        let present: Option<u32> = query_row(self, qry, args)?;
+        Ok(present.is_some())
     }
 }
 
@@ -532,6 +552,13 @@ impl<'a> NakamotoStagingBlocksTx<'a> {
             // if it's burn_attachable before, it's burn_attachable always
             self.conn()
                 .is_burn_block_processed(&block.header.consensus_hash)?
+        };
+
+        let obtain_method = if block.is_shadow_block() {
+            // override
+            NakamotoBlockObtainMethod::Shadow
+        } else {
+            obtain_method
         };
 
         self.execute(
@@ -625,6 +652,50 @@ impl<'a> NakamotoStagingBlocksTx<'a> {
                     ])?;
         Ok(())
     }
+
+    /// Add a shadow block.
+    /// Fails if there are any non-shadow blocks present in the tenure.
+    pub fn add_shadow_block(&self, shadow_block: &NakamotoBlock) -> Result<(), ChainstateError> {
+        if !shadow_block.is_shadow_block() {
+            return Err(ChainstateError::InvalidStacksBlock(
+                "Not a shadow block".into(),
+            ));
+        }
+        let block_id = shadow_block.block_id();
+
+        // is this block stored already?
+        let qry = "SELECT 1 FROM nakamoto_staging_blocks WHERE index_block_hash = ?1";
+        let args = params![block_id];
+        let present: Option<i64> = query_row(self, qry, args)?;
+        if present.is_some() {
+            return Ok(());
+        }
+
+        // this tenure must be empty
+        let qry = "SELECT 1 FROM nakamoto_staging_blocks WHERE consensus_hash = ?1";
+        let args = rusqlite::params![&shadow_block.header.consensus_hash];
+        let present: Option<u32> = query_row(self, qry, args)?;
+        if present.is_some() {
+            return Err(ChainstateError::InvalidStacksBlock(
+                "Shadow block cannot be inserted into non-empty non-shadow tenure".into(),
+            ));
+        }
+
+        // the shadow block is crafted post-hoc, so we know the consensus hash exists.
+        // thus, it's always burn-attachable
+        let burn_attachable = true;
+
+        // shadow blocks cannot be replaced
+        let signing_weight = u32::MAX;
+
+        self.store_block(
+            shadow_block,
+            burn_attachable,
+            signing_weight,
+            NakamotoBlockObtainMethod::Shadow,
+        )?;
+        Ok(())
+    }
 }
 
 impl StacksChainState {
@@ -715,15 +786,37 @@ impl StacksChainState {
 
     /// Perform migrations
     pub fn migrate_nakamoto_staging_blocks(conn: &Connection) -> Result<(), ChainstateError> {
-        let mut version = Self::get_nakamoto_staging_blocks_db_version(conn)?;
-        if version < 2 {
-            debug!("Migrate Nakamoto staging blocks DB to schema 2");
-            for cmd in NAKAMOTO_STAGING_DB_SCHEMA_2.iter() {
-                conn.execute(cmd, NO_PARAMS)?;
+        loop {
+            let version = Self::get_nakamoto_staging_blocks_db_version(conn)?;
+            if version == NAKAMOTO_STAGING_DB_SCHEMA_LATEST {
+                return Ok(());
             }
-            version = Self::get_nakamoto_staging_blocks_db_version(conn)?;
-            assert_eq!(version, 2, "Nakamoto staging DB migration failure");
-            debug!("Migrated Nakamoto staging blocks DB to schema 2");
+            match version {
+                1 => {
+                    debug!("Migrate Nakamoto staging blocks DB to schema 2");
+                    for cmd in NAKAMOTO_STAGING_DB_SCHEMA_2.iter() {
+                        conn.execute(cmd, NO_PARAMS)?;
+                    }
+                    let version = Self::get_nakamoto_staging_blocks_db_version(conn)?;
+                    assert_eq!(version, 2, "Nakamoto staging DB migration failure");
+                    debug!("Migrated Nakamoto staging blocks DB to schema 2");
+                }
+                2 => {
+                    debug!("Migrate Nakamoto staging blocks DB to schema 3");
+                    for cmd in NAKAMOTO_STAGING_DB_SCHEMA_3.iter() {
+                        conn.execute(cmd, NO_PARAMS)?;
+                    }
+                    let version = Self::get_nakamoto_staging_blocks_db_version(conn)?;
+                    assert_eq!(version, 3, "Nakamoto staging DB migration failure");
+                    debug!("Migrated Nakamoto staging blocks DB to schema 3");
+                }
+                NAKAMOTO_STAGING_DB_SCHEMA_LATEST => {
+                    break;
+                }
+                _ => {
+                    panic!("Unusable staging DB: Unknown schema version {}", version);
+                }
+            }
         }
         Ok(())
     }

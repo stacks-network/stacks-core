@@ -1312,6 +1312,16 @@ impl NakamotoDownloadStateMachine {
                 continue;
             }
 
+            let _ = downloader
+                .try_advance_from_chainstate(chainstate)
+                .map_err(|e| {
+                    warn!(
+                        "Failed to advance downloader in state {} for {}: {:?}",
+                        &downloader.state, &downloader.naddr, &e
+                    );
+                    e
+                });
+
             debug!(
                 "Send request to {} for tenure {:?} (state {})",
                 &naddr,
@@ -1428,13 +1438,16 @@ impl NakamotoDownloadStateMachine {
     fn download_confirmed_tenures(
         &mut self,
         network: &mut PeerNetwork,
+        chainstate: &StacksChainState,
         max_count: usize,
     ) -> HashMap<ConsensusHash, Vec<NakamotoBlock>> {
         // queue up more downloaders
         self.update_tenure_downloaders(max_count, &network.current_reward_sets);
 
         // run all downloaders
-        let new_blocks = self.tenure_downloads.run(network, &mut self.neighbor_rpc);
+        let new_blocks = self
+            .tenure_downloads
+            .run(network, &mut self.neighbor_rpc, chainstate);
 
         new_blocks
     }
@@ -1467,7 +1480,7 @@ impl NakamotoDownloadStateMachine {
         // already downloaded all confirmed tenures), so there's no risk of clobberring any other
         // in-flight requests.
         let new_confirmed_blocks = if self.tenure_downloads.inflight() > 0 {
-            self.download_confirmed_tenures(network, 0)
+            self.download_confirmed_tenures(network, chainstate, 0)
         } else {
             HashMap::new()
         };
@@ -1576,6 +1589,7 @@ impl NakamotoDownloadStateMachine {
             NakamotoDownloadState::Confirmed => {
                 let new_blocks = self.download_confirmed_tenures(
                     network,
+                    chainstate,
                     usize::try_from(network.get_connection_opts().max_inflight_blocks)
                         .expect("FATAL: max_inflight_blocks exceeds usize::MAX"),
                 );
