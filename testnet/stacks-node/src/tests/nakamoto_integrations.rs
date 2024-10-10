@@ -1443,11 +1443,7 @@ fn simple_neon_integration() {
     let stacker_sk = setup_stacker(&mut naka_conf);
 
     test_observer::spawn();
-    let observer_port = test_observer::EVENT_OBSERVER_PORT;
-    naka_conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{observer_port}"),
-        events_keys: vec![EventKeyType::AnyEvent],
-    });
+    test_observer::register_any(&mut naka_conf);
 
     let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
     btcd_controller
@@ -1690,11 +1686,7 @@ fn flash_blocks_on_epoch_3() {
     let stacker_sk = setup_stacker(&mut naka_conf);
 
     test_observer::spawn();
-    let observer_port = test_observer::EVENT_OBSERVER_PORT;
-    naka_conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{observer_port}"),
-        events_keys: vec![EventKeyType::AnyEvent],
-    });
+    test_observer::register_any(&mut naka_conf);
 
     let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
     btcd_controller
@@ -1957,11 +1949,7 @@ fn mine_multiple_per_tenure_integration() {
     let stacker_sk = setup_stacker(&mut naka_conf);
 
     test_observer::spawn();
-    let observer_port = test_observer::EVENT_OBSERVER_PORT;
-    naka_conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{observer_port}"),
-        events_keys: vec![EventKeyType::AnyEvent],
-    });
+    test_observer::register_any(&mut naka_conf);
 
     let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
     btcd_controller
@@ -2171,11 +2159,7 @@ fn multiple_miners() {
     );
 
     test_observer::spawn();
-    let observer_port = test_observer::EVENT_OBSERVER_PORT;
-    naka_conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{observer_port}"),
-        events_keys: vec![EventKeyType::AnyEvent],
-    });
+    test_observer::register_any(&mut naka_conf);
 
     let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
     btcd_controller
@@ -2404,11 +2388,7 @@ fn correct_burn_outs() {
     let signers = TestSigners::new(vec![sender_signer_sk]);
 
     test_observer::spawn();
-    let observer_port = test_observer::EVENT_OBSERVER_PORT;
-    naka_conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{observer_port}"),
-        events_keys: vec![EventKeyType::AnyEvent],
-    });
+    test_observer::register_any(&mut naka_conf);
 
     let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
     btcd_controller
@@ -2727,11 +2707,7 @@ fn block_proposal_api_endpoint() {
 
     // only subscribe to the block proposal events
     test_observer::spawn();
-    let observer_port = test_observer::EVENT_OBSERVER_PORT;
-    conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{observer_port}"),
-        events_keys: vec![EventKeyType::BlockProposal],
-    });
+    test_observer::register(&mut conf, &[EventKeyType::BlockProposal]);
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
@@ -3099,11 +3075,10 @@ fn miner_writes_proposed_block_to_stackerdb() {
     let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
 
     test_observer::spawn();
-    let observer_port = test_observer::EVENT_OBSERVER_PORT;
-    naka_conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{observer_port}"),
-        events_keys: vec![EventKeyType::AnyEvent, EventKeyType::MinedBlocks],
-    });
+    test_observer::register(
+        &mut naka_conf,
+        &[EventKeyType::AnyEvent, EventKeyType::MinedBlocks],
+    );
 
     let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
     btcd_controller
@@ -3214,11 +3189,7 @@ fn vote_for_aggregate_key_burn_op() {
     let stacker_sk = setup_stacker(&mut naka_conf);
 
     test_observer::spawn();
-    let observer_port = test_observer::EVENT_OBSERVER_PORT;
-    naka_conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{observer_port}"),
-        events_keys: vec![EventKeyType::AnyEvent],
-    });
+    test_observer::register_any(&mut naka_conf);
 
     let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
     btcd_controller
@@ -3462,11 +3433,7 @@ fn follower_bootup() {
     let stacker_sk = setup_stacker(&mut naka_conf);
 
     test_observer::spawn();
-    let observer_port = test_observer::EVENT_OBSERVER_PORT;
-    naka_conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{observer_port}"),
-        events_keys: vec![EventKeyType::AnyEvent],
-    });
+    test_observer::register_any(&mut naka_conf);
 
     let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
     btcd_controller
@@ -3786,11 +3753,7 @@ fn follower_bootup_across_multiple_cycles() {
     let stacker_sk = setup_stacker(&mut naka_conf);
 
     test_observer::spawn();
-    let observer_port = test_observer::EVENT_OBSERVER_PORT;
-    naka_conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{observer_port}"),
-        events_keys: vec![EventKeyType::AnyEvent],
-    });
+    test_observer::register_any(&mut naka_conf);
 
     let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
     btcd_controller
@@ -4012,11 +3975,7 @@ fn burn_ops_integration_test() {
     );
 
     test_observer::spawn();
-    let observer_port = test_observer::EVENT_OBSERVER_PORT;
-    naka_conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{observer_port}"),
-        events_keys: vec![EventKeyType::AnyEvent],
-    });
+    test_observer::register_any(&mut naka_conf);
 
     let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
     btcd_controller
@@ -4615,11 +4574,10 @@ fn forked_tenure_is_ignored() {
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
 
     test_observer::spawn();
-    let observer_port = test_observer::EVENT_OBSERVER_PORT;
-    naka_conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{observer_port}"),
-        events_keys: vec![EventKeyType::AnyEvent, EventKeyType::MinedBlocks],
-    });
+    test_observer::register(
+        &mut naka_conf,
+        &[EventKeyType::AnyEvent, EventKeyType::MinedBlocks],
+    );
 
     let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
     btcd_controller
@@ -5396,11 +5354,7 @@ fn nakamoto_attempt_time() {
 
     // only subscribe to the block proposal events
     test_observer::spawn();
-    let observer_port = test_observer::EVENT_OBSERVER_PORT;
-    naka_conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{observer_port}"),
-        events_keys: vec![EventKeyType::BlockProposal],
-    });
+    test_observer::register(&mut naka_conf, &[EventKeyType::BlockProposal]);
 
     let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
     btcd_controller
@@ -5693,11 +5647,7 @@ fn clarity_burn_state() {
     let stacker_sk = setup_stacker(&mut naka_conf);
 
     test_observer::spawn();
-    let observer_port = test_observer::EVENT_OBSERVER_PORT;
-    naka_conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{observer_port}"),
-        events_keys: vec![EventKeyType::MinedBlocks],
-    });
+    test_observer::register(&mut naka_conf, &[EventKeyType::MinedBlocks]);
 
     let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
     btcd_controller
@@ -5965,11 +5915,7 @@ fn signer_chainstate() {
     let stacker_sk = setup_stacker(&mut naka_conf);
 
     test_observer::spawn();
-    let observer_port = test_observer::EVENT_OBSERVER_PORT;
-    naka_conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{observer_port}"),
-        events_keys: vec![EventKeyType::AnyEvent],
-    });
+    test_observer::register_any(&mut naka_conf);
 
     let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
     btcd_controller
@@ -6576,11 +6522,7 @@ fn continue_tenure_extend() {
     let stacker_sk = setup_stacker(&mut naka_conf);
 
     test_observer::spawn();
-    let observer_port = test_observer::EVENT_OBSERVER_PORT;
-    naka_conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{observer_port}"),
-        events_keys: vec![EventKeyType::AnyEvent],
-    });
+    test_observer::register_any(&mut naka_conf);
 
     let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
     btcd_controller
@@ -6891,11 +6833,7 @@ fn check_block_times() {
     let stacker_sk = setup_stacker(&mut naka_conf);
 
     test_observer::spawn();
-    let observer_port = test_observer::EVENT_OBSERVER_PORT;
-    naka_conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{observer_port}"),
-        events_keys: vec![EventKeyType::AnyEvent],
-    });
+    test_observer::register_any(&mut naka_conf);
 
     let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
     btcd_controller
@@ -7360,11 +7298,7 @@ fn check_block_info() {
     let stacker_sk = setup_stacker(&mut naka_conf);
 
     test_observer::spawn();
-    let observer_port = test_observer::EVENT_OBSERVER_PORT;
-    naka_conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{observer_port}"),
-        events_keys: vec![EventKeyType::AnyEvent],
-    });
+    test_observer::register_any(&mut naka_conf);
 
     let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
     btcd_controller
@@ -7880,11 +7814,7 @@ fn check_block_info_rewards() {
     let stacker_sk = setup_stacker(&mut naka_conf);
 
     test_observer::spawn();
-    let observer_port = test_observer::EVENT_OBSERVER_PORT;
-    naka_conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{observer_port}"),
-        events_keys: vec![EventKeyType::AnyEvent],
-    });
+    test_observer::register_any(&mut naka_conf);
 
     let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
     btcd_controller
@@ -8227,11 +8157,7 @@ fn mock_mining() {
     let stacker_sk = setup_stacker(&mut naka_conf);
 
     test_observer::spawn();
-    let observer_port = test_observer::EVENT_OBSERVER_PORT;
-    naka_conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{observer_port}"),
-        events_keys: vec![EventKeyType::AnyEvent],
-    });
+    test_observer::register_any(&mut naka_conf);
 
     let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
     btcd_controller
@@ -8494,11 +8420,7 @@ fn utxo_check_on_startup_panic() {
     naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1000);
 
     test_observer::spawn();
-    let observer_port = test_observer::EVENT_OBSERVER_PORT;
-    naka_conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{observer_port}"),
-        events_keys: vec![EventKeyType::AnyEvent],
-    });
+    test_observer::register_any(&mut naka_conf);
 
     let mut epochs = NAKAMOTO_INTEGRATION_EPOCHS.to_vec();
     let (last, rest) = epochs.split_last_mut().unwrap();
@@ -8574,11 +8496,7 @@ fn utxo_check_on_startup_recover() {
     naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1000);
 
     test_observer::spawn();
-    let observer_port = test_observer::EVENT_OBSERVER_PORT;
-    naka_conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{observer_port}"),
-        events_keys: vec![EventKeyType::AnyEvent],
-    });
+    test_observer::register_any(&mut naka_conf);
 
     let mut epochs = NAKAMOTO_INTEGRATION_EPOCHS.to_vec();
     let (last, rest) = epochs.split_last_mut().unwrap();
@@ -8655,11 +8573,7 @@ fn v3_signer_api_endpoint() {
 
     // only subscribe to the block proposal events
     test_observer::spawn();
-    let observer_port = test_observer::EVENT_OBSERVER_PORT;
-    conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{observer_port}"),
-        events_keys: vec![EventKeyType::BlockProposal],
-    });
+    test_observer::register(&mut conf, &[EventKeyType::BlockProposal]);
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
@@ -8839,11 +8753,7 @@ fn skip_mining_long_tx() {
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
 
     test_observer::spawn();
-    let observer_port = test_observer::EVENT_OBSERVER_PORT;
-    naka_conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{observer_port}"),
-        events_keys: vec![EventKeyType::AnyEvent],
-    });
+    test_observer::register_any(&mut naka_conf);
 
     let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
     btcd_controller
