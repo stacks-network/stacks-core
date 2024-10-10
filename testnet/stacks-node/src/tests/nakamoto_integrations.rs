@@ -3761,6 +3761,7 @@ fn follower_bootup_across_multiple_cycles() {
 
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
     naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
+    naka_conf.node.pox_sync_sample_secs = 5;
     naka_conf.burnchain.max_rbf = 10_000_000;
 
     let sender_sk = Secp256k1PrivateKey::new();
@@ -6020,15 +6021,18 @@ fn signer_chainstate() {
                 .unwrap()
                 .stacks_block_height;
         let prom_http_origin = format!("http://{}", prom_bind);
-        let client = reqwest::blocking::Client::new();
-        let res = client
-            .get(&prom_http_origin)
-            .send()
-            .unwrap()
-            .text()
-            .unwrap();
-        let expected_result = format!("stacks_node_stacks_tip_height {block_height_pre_3_0}");
-        assert!(res.contains(&expected_result));
+        wait_for(10, || {
+            let client = reqwest::blocking::Client::new();
+            let res = client
+                .get(&prom_http_origin)
+                .send()
+                .unwrap()
+                .text()
+                .unwrap();
+            let expected_result = format!("stacks_node_stacks_tip_height {block_height_pre_3_0}");
+            Ok(res.contains(&expected_result))
+        })
+        .expect("Failed waiting for prometheus metrics to update")
     }
 
     info!("Nakamoto miner started...");
@@ -6630,15 +6634,18 @@ fn continue_tenure_extend() {
     #[cfg(feature = "monitoring_prom")]
     {
         let prom_http_origin = format!("http://{}", prom_bind);
-        let client = reqwest::blocking::Client::new();
-        let res = client
-            .get(&prom_http_origin)
-            .send()
-            .unwrap()
-            .text()
-            .unwrap();
-        let expected_result = format!("stacks_node_stacks_tip_height {block_height_pre_3_0}");
-        assert!(res.contains(&expected_result));
+        wait_for(10, || {
+            let client = reqwest::blocking::Client::new();
+            let res = client
+                .get(&prom_http_origin)
+                .send()
+                .unwrap()
+                .text()
+                .unwrap();
+            let expected_result = format!("stacks_node_stacks_tip_height {block_height_pre_3_0}");
+            Ok(res.contains(&expected_result))
+        })
+        .expect("Prometheus metrics did not update");
     }
 
     info!("Nakamoto miner started...");
@@ -6826,15 +6833,19 @@ fn continue_tenure_extend() {
     #[cfg(feature = "monitoring_prom")]
     {
         let prom_http_origin = format!("http://{}", prom_bind);
-        let client = reqwest::blocking::Client::new();
-        let res = client
-            .get(&prom_http_origin)
-            .send()
-            .unwrap()
-            .text()
-            .unwrap();
-        let expected_result = format!("stacks_node_stacks_tip_height {}", tip.stacks_block_height);
-        assert!(res.contains(&expected_result));
+        wait_for(10, || {
+            let client = reqwest::blocking::Client::new();
+            let res = client
+                .get(&prom_http_origin)
+                .send()
+                .unwrap()
+                .text()
+                .unwrap();
+            let expected_result =
+                format!("stacks_node_stacks_tip_height {}", tip.stacks_block_height);
+            Ok(res.contains(&expected_result))
+        })
+        .expect("Prometheus metrics did not update");
     }
 
     coord_channel
