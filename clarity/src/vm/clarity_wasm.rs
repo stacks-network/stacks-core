@@ -2049,7 +2049,7 @@ fn link_host_functions(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Er
     link_skip_list(linker)?;
 
     link_log(linker)?;
-	link_debug_msg(linker)
+    link_debug_msg(linker)
 }
 
 /// Link host interface function, `define_variable`, into the Wasm module.
