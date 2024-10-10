@@ -2048,7 +2048,8 @@ fn link_host_functions(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Er
     link_load_constant_fn(linker)?;
     link_skip_list(linker)?;
 
-    link_log(linker)
+    link_log(linker)?;
+    link_debug_msg(linker)
 }
 
 /// Link host interface function, `define_variable`, into the Wasm module.
@@ -6167,6 +6168,23 @@ fn link_log<T>(linker: &mut Linker<T>) -> Result<(), Error> {
         })
         .map(|_| ())
         .map_err(|e| Error::Wasm(WasmError::UnableToLinkHostFunction("log".to_string(), e)))
+}
+
+/// Link host-interface function, `debug_msg`, into the Wasm module.
+/// This function is used for debugging the Wasm, and should not be called in
+/// production.
+fn link_debug_msg<T>(linker: &mut Linker<T>) -> Result<(), Error> {
+    linker
+        .func_wrap("", "debug_msg", |_caller: Caller<'_, T>, param: i32| {
+            println!("debug messages are currently not supported in cross-contract calls ({param})")
+        })
+        .map(|_| ())
+        .map_err(|e| {
+            Error::Wasm(WasmError::UnableToLinkHostFunction(
+                "debug_msg".to_string(),
+                e,
+            ))
+        })
 }
 
 #[cfg(test)]
