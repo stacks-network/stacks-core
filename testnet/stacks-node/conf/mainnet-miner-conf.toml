@@ -1,19 +1,23 @@
 [node]
-# working_dir = "/dir/to/save/chainstate"
-rpc_bind = "0.0.0.0:20443"
-p2p_bind = "0.0.0.0:20444"
+# working_dir = "/dir/to/save/chainstate" # defaults to: /tmp/stacks-node-[0-9]*
+rpc_bind = "127.0.0.1:20443"
+p2p_bind = "127.0.0.1:20444"
+prometheus_bind = "127.0.0.1:9153"
 seed = "<YOUR_SEED>"
 local_peer_seed = "<YOUR_SEED>"
 miner = true
-bootstrap_node = "02196f005965cebe6ddc3901b7b1cc1aa7a88f305bb8c5893456b8f9a605923893@seed.mainnet.hiro.so:20444,02539449ad94e6e6392d8c1deb2b4e61f80ae2a18964349bc14336d8b903c46a8c@cet.stacksnodes.org:20444,02ececc8ce79b8adf813f13a0255f8ae58d4357309ba0cedd523d9f1a306fcfb79@sgt.stacksnodes.org:20444,0303144ba518fe7a0fb56a8a7d488f950307a4330f146e1e1458fc63fb33defe96@est.stacksnodes.org:20444"
+mine_microblocks = false # Disable microblocks (ref: https://github.com/stacks-network/stacks-core/pull/4561 )
 
 [burnchain]
-chain = "bitcoin"
 mode = "mainnet"
 peer_host = "127.0.0.1"
-username = "<USERNAME>"
-password = "<PASSWORD>"
-rpc_port = 8332
-peer_port = 8333
-satoshis_per_byte = 100
+username = "<Bitcoin RPC username>"
+password = "<Bitcoin RPC password>"
+# Maximum amount (in sats) of "burn commitment" to broadcast for the next block's leader election
 burn_fee_cap = 20000
+# Amount (in sats) per byte - Used to calculate the transaction fees
+satoshis_per_byte = 25
+# Amount of sats to add when RBF'ing bitcoin tx  (default: 5)
+rbf_fee_increment = 5
+# Maximum percentage to RBF bitcoin tx (default: 150% of satsv/B)
+max_rbf = 150

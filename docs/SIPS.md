@@ -4,4 +4,4 @@ Stacks improvement proposals (SIPs) are aimed at describing the implementation o
 
 See [SIP 000](https://github.com/stacksgov/sips/blob/main/sips/sip-000/sip-000-stacks-improvement-proposal-process.md) for more details.
 
-The SIPs now located in the [stacksgov/sips](https://github.com/stacksgov/sips) repository as part of the [Stacks Community Governance organization](https://github.com/stacksgov).
+The SIPs are located in the [stacksgov/sips](https://github.com/stacksgov/sips) repository as part of the [Stacks Community Governance organization](https://github.com/stacksgov).
