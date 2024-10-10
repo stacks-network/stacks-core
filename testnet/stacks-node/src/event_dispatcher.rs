@@ -79,6 +79,7 @@ struct ReceiptPayloadInfo<'a> {
     raw_tx: String,
     contract_interface_json: serde_json::Value,
     burnchain_op_json: serde_json::Value,
+    post_condition_status_json: serde_json::Value,
 }
 
 const STATUS_RESP_TRUE: &str = "success";
@@ -460,6 +461,7 @@ impl EventObserver {
                 .expect("FATAL: failed to serialize transaction receipt");
             bytes_to_hex(&bytes)
         };
+
         let contract_interface_json = {
             match &receipt.contract_analysis {
                 Some(analysis) => json!(build_contract_interface(analysis)
@@ -467,6 +469,14 @@ impl EventObserver {
                 None => json!(null),
             }
         };
+
+        let post_condition_status_json = {
+            match &receipt.post_condition_status {
+                Some(status) => json!(status),
+                None => json!(null),
+            }
+        };
+
         ReceiptPayloadInfo {
             txid,
             success,
@@ -474,6 +484,7 @@ impl EventObserver {
             raw_tx,
             contract_interface_json,
             burnchain_op_json,
+            post_condition_status_json,
         }
     }
 
@@ -492,6 +503,7 @@ impl EventObserver {
             "raw_tx": format!("0x{}", &receipt_payload_info.raw_tx),
             "contract_abi": receipt_payload_info.contract_interface_json,
             "burnchain_op": receipt_payload_info.burnchain_op_json,
+            "post_condition_status": receipt_payload_info.post_condition_status_json,
             "execution_cost": receipt.execution_cost,
             "microblock_sequence": receipt.microblock_header.as_ref().map(|x| x.sequence),
             "microblock_hash": receipt.microblock_header.as_ref().map(|x| format!("0x{}", x.block_hash())),
