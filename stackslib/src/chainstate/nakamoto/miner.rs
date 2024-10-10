@@ -141,7 +141,7 @@ pub struct MinerTenureInfo<'a> {
     pub coinbase_height: u64,
     pub cause: Option<TenureChangeCause>,
     pub active_reward_set: boot::RewardSet,
-    pub tenure_block_commit: LeaderBlockCommitOp,
+    pub tenure_block_commit_opt: Option<LeaderBlockCommitOp>,
 }
 
 impl NakamotoBlockBuilder {
@@ -235,6 +235,20 @@ impl NakamotoBlockBuilder {
         burn_dbconn: &'a SortitionHandleConn,
         cause: Option<TenureChangeCause>,
     ) -> Result<MinerTenureInfo<'a>, Error> {
+        self.inner_load_tenure_info(chainstate, burn_dbconn, cause, false)
+    }
+
+    /// This function should be called before `tenure_begin`.
+    /// It creates a MinerTenureInfo struct which owns connections to the chainstate and sortition
+    /// DBs, so that block-processing is guaranteed to terminate before the lives of these handles
+    /// expire.
+    pub(crate) fn inner_load_tenure_info<'a>(
+        &self,
+        chainstate: &'a mut StacksChainState,
+        burn_dbconn: &'a SortitionHandleConn,
+        cause: Option<TenureChangeCause>,
+        shadow_block: bool,
+    ) -> Result<MinerTenureInfo<'a>, Error> {
         debug!("Nakamoto miner tenure begin");
 
         let Some(tenure_election_sn) =
@@ -247,19 +261,25 @@ impl NakamotoBlockBuilder {
             );
             return Err(Error::NoSuchBlockError);
         };
-        let Some(tenure_block_commit) = SortitionDB::get_block_commit(
-            &burn_dbconn,
-            &tenure_election_sn.winning_block_txid,
-            &tenure_election_sn.sortition_id,
-        )?
-        else {
-            warn!("Could not find winning block commit for burn block that elected the miner";
-                "consensus_hash" => %self.header.consensus_hash,
-                "stacks_block_hash" => %self.header.block_hash(),
-                "stacks_block_id" => %self.header.block_id(),
-                "winning_txid" => %tenure_election_sn.winning_block_txid
-            );
-            return Err(Error::NoSuchBlockError);
+
+        let tenure_block_commit_opt = if shadow_block {
+            None
+        } else {
+            let Some(tenure_block_commit) = SortitionDB::get_block_commit(
+                &burn_dbconn,
+                &tenure_election_sn.winning_block_txid,
+                &tenure_election_sn.sortition_id,
+            )?
+            else {
+                warn!("Could not find winning block commit for burn block that elected the miner";
+                    "consensus_hash" => %self.header.consensus_hash,
+                    "stacks_block_hash" => %self.header.block_hash(),
+                    "stacks_block_id" => %self.header.block_id(),
+                    "winning_txid" => %tenure_election_sn.winning_block_txid
+                );
+                return Err(Error::NoSuchBlockError);
+            };
+            Some(tenure_block_commit)
         };
 
         let elected_height = tenure_election_sn.block_height;
@@ -363,7 +383,7 @@ impl NakamotoBlockBuilder {
             cause,
             coinbase_height,
             active_reward_set,
-            tenure_block_commit,
+            tenure_block_commit_opt,
         })
     }
 
@@ -397,7 +417,7 @@ impl NakamotoBlockBuilder {
             info.coinbase_height,
             info.cause == Some(TenureChangeCause::Extended),
             &self.header.pox_treatment,
-            &info.tenure_block_commit,
+            info.tenure_block_commit_opt.as_ref(),
             &info.active_reward_set,
         )?;
         self.matured_miner_rewards_opt = matured_miner_rewards_opt;
