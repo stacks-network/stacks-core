@@ -777,6 +777,44 @@ impl NakamotoUnconfirmedTenureDownloader {
         }
     }
 
+    /// Advance the state of the downloader from chainstate, if possible.
+    /// For example, a tenure-start block may have been pushed to us already (or it
+    /// may be a shadow block)
+    pub fn try_advance_from_chainstate(
+        &mut self,
+        chainstate: &StacksChainState,
+    ) -> Result<(), NetError> {
+        loop {
+            match self.state {
+                NakamotoUnconfirmedDownloadState::GetTenureInfo => {
+                    // gotta send that request
+                    break;
+                }
+                NakamotoUnconfirmedDownloadState::GetTenureStartBlock(start_block_id) => {
+                    // if we have this, then load it up
+                    let Some((tenure_start_block, _sz)) = chainstate
+                        .nakamoto_blocks_db()
+                        .get_nakamoto_block(&start_block_id)?
+                    else {
+                        break;
+                    };
+                    self.try_accept_unconfirmed_tenure_start_block(tenure_start_block)?;
+                    if let NakamotoUnconfirmedDownloadState::GetTenureStartBlock(..) = &self.state {
+                        break;
+                    }
+                }
+                NakamotoUnconfirmedDownloadState::GetUnconfirmedTenureBlocks(..) => {
+                    // TODO: look at the chainstate and find out what we don't have to download
+                    break;
+                }
+                NakamotoUnconfirmedDownloadState::Done => {
+                    break;
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Begin the next download request for this state machine.
     /// Returns Ok(()) if we sent the request, or there's already an in-flight request.  The
     /// caller should try this again until it gets one of the other possible return values.  It's
