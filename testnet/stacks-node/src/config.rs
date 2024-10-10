@@ -2814,6 +2814,8 @@ pub struct InitialBalanceFile {
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use super::*;
 
     #[test]
@@ -2997,6 +2999,26 @@ mod tests {
             )
             .unwrap_err();
             assert!(err.starts_with("Invalid toml: unknown field `unknown_field`"));
+        }
+    }
+
+    #[test]
+    fn test_example_confs() {
+        // For each config file in the ../conf/ directory, we should be able to parse it
+        let conf_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("conf");
+        println!("Reading config files from: {:?}", conf_dir);
+        let conf_files = fs::read_dir(conf_dir).unwrap();
+
+        for entry in conf_files {
+            let entry = entry.unwrap();
+            let path = entry.path();
+            if path.is_file() {
+                let file_name = path.file_name().unwrap().to_str().unwrap();
+                if file_name.ends_with(".toml") {
+                    let _config = ConfigFile::from_path(path.to_str().unwrap()).unwrap();
+                    debug!("Parsed config file: {}", file_name);
+                }
+            }
         }
     }
 
