@@ -95,16 +95,13 @@ pub struct ConfigFile {
     pub burnchain: Option<BurnchainConfigFile>,
     pub node: Option<NodeConfigFile>,
     pub ustx_balance: Option<Vec<InitialBalanceFile>>,
+    /// Deprecated: use `ustx_balance` instead
+    pub mstx_balance: Option<Vec<InitialBalanceFile>>,
     pub events_observer: Option<HashSet<EventObserverConfigFile>>,
     pub connection_options: Option<ConnectionOptionsFile>,
     pub fee_estimation: Option<FeeEstimationConfigFile>,
     pub miner: Option<MinerConfigFile>,
     pub atlas: Option<AtlasConfigFile>,
-}
-
-#[derive(Clone, Deserialize, Default)]
-pub struct LegacyMstxConfigFile {
-    pub mstx_balance: Option<Vec<InitialBalanceFile>>,
 }
 
 impl ConfigFile {
@@ -118,13 +115,16 @@ impl ConfigFile {
     pub fn from_str(content: &str) -> Result<ConfigFile, String> {
         let mut config: ConfigFile =
             toml::from_str(content).map_err(|e| format!("Invalid toml: {}", e))?;
-        let legacy_config: LegacyMstxConfigFile = toml::from_str(content).unwrap();
-        if let Some(mstx_balance) = legacy_config.mstx_balance {
-            warn!("'mstx_balance' inside toml config is deprecated, replace with 'ustx_balance'");
-            config.ustx_balance = match config.ustx_balance {
-                Some(balance) => Some([balance, mstx_balance].concat()),
-                None => Some(mstx_balance),
-            };
+        if let Some(mstx_balance) = config.mstx_balance.take() {
+            warn!("'mstx_balance' in the config is deprecated; please use 'ustx_balance' instead.");
+            match config.ustx_balance {
+                Some(ref mut ustx_balance) => {
+                    ustx_balance.extend(mstx_balance);
+                }
+                None => {
+                    config.ustx_balance = Some(mstx_balance);
+                }
+            }
         }
         Ok(config)
     }
