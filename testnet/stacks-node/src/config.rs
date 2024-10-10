@@ -106,240 +106,6 @@ pub struct LegacyMstxConfigFile {
     pub mstx_balance: Option<Vec<InitialBalanceFile>>,
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_config_file() {
-        assert_eq!(
-            format!("Invalid path: No such file or directory (os error 2)"),
-            ConfigFile::from_path("some_path").unwrap_err()
-        );
-        assert_eq!(
-            format!("Invalid toml: unexpected character found: `/` at line 1 column 1"),
-            ConfigFile::from_str("//[node]").unwrap_err()
-        );
-        assert!(ConfigFile::from_str("").is_ok());
-    }
-
-    #[test]
-    fn test_config() {
-        assert_eq!(
-            format!("node.seed should be a hex encoded string"),
-            Config::from_config_file(
-                ConfigFile::from_str(
-                    r#"
-                    [node]
-                    seed = "invalid-hex-value"
-                    "#,
-                )
-                .unwrap(),
-                false
-            )
-            .unwrap_err()
-        );
-
-        assert_eq!(
-            format!("node.local_peer_seed should be a hex encoded string"),
-            Config::from_config_file(
-                ConfigFile::from_str(
-                    r#"
-                    [node]
-                    local_peer_seed = "invalid-hex-value"
-                    "#,
-                )
-                .unwrap(),
-                false
-            )
-            .unwrap_err()
-        );
-
-        let expected_err_prefix =
-            "Invalid burnchain.peer_host: failed to lookup address information:";
-        let actual_err_msg = Config::from_config_file(
-            ConfigFile::from_str(
-                r#"
-                [burnchain]
-                peer_host = "bitcoin2.blockstack.com"
-                "#,
-            )
-            .unwrap(),
-            false,
-        )
-        .unwrap_err();
-        assert_eq!(
-            expected_err_prefix,
-            &actual_err_msg[..expected_err_prefix.len()]
-        );
-
-        assert!(Config::from_config_file(ConfigFile::from_str("").unwrap(), false).is_ok());
-    }
-
-    #[test]
-    fn should_load_legacy_mstx_balances_toml() {
-        let config = ConfigFile::from_str(
-            r#"
-            [[ustx_balance]]
-            address = "ST2QKZ4FKHAH1NQKYKYAYZPY440FEPK7GZ1R5HBP2"
-            amount = 10000000000000000
-
-            [[ustx_balance]]
-            address = "ST319CF5WV77KYR1H3GT0GZ7B8Q4AQPY42ETP1VPF"
-            amount = 10000000000000000
-
-            [[mstx_balance]] # legacy property name
-            address = "ST221Z6TDTC5E0BYR2V624Q2ST6R0Q71T78WTAX6H"
-            amount = 10000000000000000
-
-            [[mstx_balance]] # legacy property name
-            address = "ST2TFVBMRPS5SSNP98DQKQ5JNB2B6NZM91C4K3P7B"
-            amount = 10000000000000000
-            "#,
-        );
-        let config = config.unwrap();
-        assert!(config.ustx_balance.is_some());
-        let balances = config
-            .ustx_balance
-            .expect("Failed to parse stx balances from toml");
-        assert_eq!(balances.len(), 4);
-        assert_eq!(
-            balances[0].address,
-            "ST2QKZ4FKHAH1NQKYKYAYZPY440FEPK7GZ1R5HBP2"
-        );
-        assert_eq!(
-            balances[1].address,
-            "ST319CF5WV77KYR1H3GT0GZ7B8Q4AQPY42ETP1VPF"
-        );
-        assert_eq!(
-            balances[2].address,
-            "ST221Z6TDTC5E0BYR2V624Q2ST6R0Q71T78WTAX6H"
-        );
-        assert_eq!(
-            balances[3].address,
-            "ST2TFVBMRPS5SSNP98DQKQ5JNB2B6NZM91C4K3P7B"
-        );
-    }
-
-    #[test]
-    fn should_load_auth_token() {
-        let config = Config::from_config_file(
-            ConfigFile::from_str(
-                r#"
-                [connection_options]
-                auth_token = "password"
-                "#,
-            )
-            .unwrap(),
-            false,
-        )
-        .expect("Expected to be able to parse block proposal token from file");
-
-        assert_eq!(
-            config.connection_options.auth_token,
-            Some("password".to_string())
-        );
-    }
-
-    #[test]
-    fn should_load_affirmation_map() {
-        let affirmation_string = "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnppnnnnnnnnnnnnnnnnnnnnnnnnpppppnnnnnnnnnnnnnnnnnnnnnnnpppppppppppppppnnnnnnnnnnnnnnnnnnnnnnnppppppppppnnnnnnnnnnnnnnnnnnnppppnnnnnnnnnnnnnnnnnnnnnnnppppppppnnnnnnnnnnnnnnnnnnnnnnnppnppnnnnnnnnnnnnnnnnnnnnnnnppppnnnnnnnnnnnnnnnnnnnnnnnnnppppppnnnnnnnnnnnnnnnnnnnnnnnnnppnnnnnnnnnnnnnnnnnnnnnnnnnpppppppnnnnnnnnnnnnnnnnnnnnnnnnnnpnnnnnnnnnnnnnnnnnnnnnnnnnpppnppppppppppppppnnppppnpa";
-        let affirmation =
-            AffirmationMap::decode(affirmation_string).expect("Failed to decode affirmation map");
-        let config = Config::from_config_file(
-            ConfigFile::from_str(&format!(
-                r#"
-                    [[burnchain.affirmation_overrides]]
-                    reward_cycle = 413
-                    affirmation = "{affirmation_string}"
-                "#
-            ))
-            .expect("Expected to be able to parse config file from string"),
-            false,
-        )
-        .expect("Expected to be able to parse affirmation map from file");
-
-        assert_eq!(config.burnchain.affirmation_overrides.len(), 1);
-        assert_eq!(config.burnchain.affirmation_overrides.get(&0), None);
-        assert_eq!(
-            config.burnchain.affirmation_overrides.get(&413),
-            Some(&affirmation)
-        );
-    }
-
-    #[test]
-    fn should_fail_to_load_invalid_affirmation_map() {
-        let bad_affirmation_string = "bad_map";
-        let file = ConfigFile::from_str(&format!(
-            r#"
-                    [[burnchain.affirmation_overrides]]
-                    reward_cycle = 1
-                    affirmation = "{bad_affirmation_string}"
-                "#
-        ))
-        .expect("Expected to be able to parse config file from string");
-
-        assert!(Config::from_config_file(file, false).is_err());
-    }
-
-    #[test]
-    fn should_load_empty_affirmation_map() {
-        let config = Config::from_config_file(
-            ConfigFile::from_str(r#""#)
-                .expect("Expected to be able to parse config file from string"),
-            false,
-        )
-        .expect("Expected to be able to parse affirmation map from file");
-
-        assert!(config.burnchain.affirmation_overrides.is_empty());
-    }
-
-    #[test]
-    fn should_include_xenon_default_affirmation_overrides() {
-        let config = Config::from_config_file(
-            ConfigFile::from_str(
-                r#"
-                [burnchain]
-                chain = "bitcoin"
-                mode = "xenon"
-                "#,
-            )
-            .expect("Expected to be able to parse config file from string"),
-            false,
-        )
-        .expect("Expected to be able to parse affirmation map from file");
-        // Should default add xenon affirmation overrides
-        assert_eq!(config.burnchain.affirmation_overrides.len(), 5);
-    }
-
-    #[test]
-    fn should_override_xenon_default_affirmation_overrides() {
-        let affirmation_string = "aaapnnnnnnnnnnnnnnnnnnnnnnnnnnnnppnnnnnnnnnnnnnnnnnnnnnnnnpppppnnnnnnnnnnnnnnnnnnnnnnnpppppppppppppppnnnnnnnnnnnnnnnnnnnnnnnppppppppppnnnnnnnnnnnnnnnnnnnppppnnnnnnnnnnnnnnnnnnnnnnnppppppppnnnnnnnnnnnnnnnnnnnnnnnppnppnnnnnnnnnnnnnnnnnnnnnnnppppnnnnnnnnnnnnnnnnnnnnnnnnnppppppnnnnnnnnnnnnnnnnnnnnnnnnnppnnnnnnnnnnnnnnnnnnnnnnnnnpppppppnnnnnnnnnnnnnnnnnnnnnnnnnnpnnnnnnnnnnnnnnnnnnnnnnnnnpppnppppppppppppppnnppppnpa";
-        let affirmation =
-            AffirmationMap::decode(affirmation_string).expect("Failed to decode affirmation map");
-
-        let config = Config::from_config_file(
-            ConfigFile::from_str(&format!(
-                r#"
-                [burnchain]
-                chain = "bitcoin"
-                mode = "xenon"
-
-                [[burnchain.affirmation_overrides]]
-                reward_cycle = 413
-                affirmation = "{affirmation_string}"
-                "#,
-            ))
-            .expect("Expected to be able to parse config file from string"),
-            false,
-        )
-        .expect("Expected to be able to parse affirmation map from file");
-        // Should default add xenon affirmation overrides, but overwrite with the configured one above
-        assert_eq!(config.burnchain.affirmation_overrides.len(), 5);
-        assert_eq!(config.burnchain.affirmation_overrides[&413], affirmation);
-    }
-}
-
 impl ConfigFile {
     pub fn from_path(path: &str) -> Result<ConfigFile, String> {
         let content = fs::read_to_string(path).map_err(|e| format!("Invalid path: {}", &e))?;
@@ -1554,8 +1320,9 @@ pub struct AffirmationOverride {
 #[derive(Clone, Deserialize, Default, Debug)]
 pub struct BurnchainConfigFile {
     pub chain: Option<String>,
-    pub burn_fee_cap: Option<u64>,
     pub mode: Option<String>,
+    pub chain_id: Option<u32>,
+    pub burn_fee_cap: Option<u64>,
     pub commit_anchor_block_within: Option<u64>,
     pub peer_host: Option<String>,
     pub peer_port: Option<u16>,
@@ -1702,10 +1469,22 @@ impl BurnchainConfigFile {
 
         let mut config = BurnchainConfig {
             chain: self.chain.unwrap_or(default_burnchain_config.chain),
-            chain_id: if is_mainnet {
-                CHAIN_ID_MAINNET
-            } else {
-                CHAIN_ID_TESTNET
+            chain_id: match self.chain_id {
+                Some(chain_id) => {
+                    if is_mainnet && chain_id != CHAIN_ID_MAINNET {
+                        return Err(format!(
+                            "Attempted to run mainnet node with chain_id {chain_id}",
+                        ));
+                    }
+                    chain_id
+                }
+                None => {
+                    if is_mainnet {
+                        CHAIN_ID_MAINNET
+                    } else {
+                        CHAIN_ID_TESTNET
+                    }
+                }
             },
             peer_version: if is_mainnet {
                 PEER_VERSION_MAINNET
@@ -1841,6 +1620,7 @@ impl BurnchainConfigFile {
         Ok(config)
     }
 }
+
 #[derive(Clone, Debug)]
 pub struct NodeConfig {
     pub name: String,
@@ -3021,4 +2801,305 @@ pub struct InitialBalance {
 pub struct InitialBalanceFile {
     pub address: String,
     pub amount: u64,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_config_file() {
+        assert_eq!(
+            format!("Invalid path: No such file or directory (os error 2)"),
+            ConfigFile::from_path("some_path").unwrap_err()
+        );
+        assert_eq!(
+            format!("Invalid toml: unexpected character found: `/` at line 1 column 1"),
+            ConfigFile::from_str("//[node]").unwrap_err()
+        );
+        assert!(ConfigFile::from_str("").is_ok());
+    }
+
+    #[test]
+    fn test_config() {
+        assert_eq!(
+            format!("node.seed should be a hex encoded string"),
+            Config::from_config_file(
+                ConfigFile::from_str(
+                    r#"
+                    [node]
+                    seed = "invalid-hex-value"
+                    "#,
+                )
+                .unwrap(),
+                false
+            )
+            .unwrap_err()
+        );
+
+        assert_eq!(
+            format!("node.local_peer_seed should be a hex encoded string"),
+            Config::from_config_file(
+                ConfigFile::from_str(
+                    r#"
+                    [node]
+                    local_peer_seed = "invalid-hex-value"
+                    "#,
+                )
+                .unwrap(),
+                false
+            )
+            .unwrap_err()
+        );
+
+        let expected_err_prefix =
+            "Invalid burnchain.peer_host: failed to lookup address information:";
+        let actual_err_msg = Config::from_config_file(
+            ConfigFile::from_str(
+                r#"
+                [burnchain]
+                peer_host = "bitcoin2.blockstack.com"
+                "#,
+            )
+            .unwrap(),
+            false,
+        )
+        .unwrap_err();
+        assert_eq!(
+            expected_err_prefix,
+            &actual_err_msg[..expected_err_prefix.len()]
+        );
+
+        assert!(Config::from_config_file(ConfigFile::from_str("").unwrap(), false).is_ok());
+    }
+
+    #[test]
+    fn should_load_legacy_mstx_balances_toml() {
+        let config = ConfigFile::from_str(
+            r#"
+            [[ustx_balance]]
+            address = "ST2QKZ4FKHAH1NQKYKYAYZPY440FEPK7GZ1R5HBP2"
+            amount = 10000000000000000
+
+            [[ustx_balance]]
+            address = "ST319CF5WV77KYR1H3GT0GZ7B8Q4AQPY42ETP1VPF"
+            amount = 10000000000000000
+
+            [[mstx_balance]] # legacy property name
+            address = "ST221Z6TDTC5E0BYR2V624Q2ST6R0Q71T78WTAX6H"
+            amount = 10000000000000000
+
+            [[mstx_balance]] # legacy property name
+            address = "ST2TFVBMRPS5SSNP98DQKQ5JNB2B6NZM91C4K3P7B"
+            amount = 10000000000000000
+            "#,
+        );
+        let config = config.unwrap();
+        assert!(config.ustx_balance.is_some());
+        let balances = config
+            .ustx_balance
+            .expect("Failed to parse stx balances from toml");
+        assert_eq!(balances.len(), 4);
+        assert_eq!(
+            balances[0].address,
+            "ST2QKZ4FKHAH1NQKYKYAYZPY440FEPK7GZ1R5HBP2"
+        );
+        assert_eq!(
+            balances[1].address,
+            "ST319CF5WV77KYR1H3GT0GZ7B8Q4AQPY42ETP1VPF"
+        );
+        assert_eq!(
+            balances[2].address,
+            "ST221Z6TDTC5E0BYR2V624Q2ST6R0Q71T78WTAX6H"
+        );
+        assert_eq!(
+            balances[3].address,
+            "ST2TFVBMRPS5SSNP98DQKQ5JNB2B6NZM91C4K3P7B"
+        );
+    }
+
+    #[test]
+    fn should_load_auth_token() {
+        let config = Config::from_config_file(
+            ConfigFile::from_str(
+                r#"
+                [connection_options]
+                auth_token = "password"
+                "#,
+            )
+            .unwrap(),
+            false,
+        )
+        .expect("Expected to be able to parse block proposal token from file");
+
+        assert_eq!(
+            config.connection_options.auth_token,
+            Some("password".to_string())
+        );
+    }
+
+    #[test]
+    fn should_load_affirmation_map() {
+        let affirmation_string = "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnppnnnnnnnnnnnnnnnnnnnnnnnnpppppnnnnnnnnnnnnnnnnnnnnnnnpppppppppppppppnnnnnnnnnnnnnnnnnnnnnnnppppppppppnnnnnnnnnnnnnnnnnnnppppnnnnnnnnnnnnnnnnnnnnnnnppppppppnnnnnnnnnnnnnnnnnnnnnnnppnppnnnnnnnnnnnnnnnnnnnnnnnppppnnnnnnnnnnnnnnnnnnnnnnnnnppppppnnnnnnnnnnnnnnnnnnnnnnnnnppnnnnnnnnnnnnnnnnnnnnnnnnnpppppppnnnnnnnnnnnnnnnnnnnnnnnnnnpnnnnnnnnnnnnnnnnnnnnnnnnnpppnppppppppppppppnnppppnpa";
+        let affirmation =
+            AffirmationMap::decode(affirmation_string).expect("Failed to decode affirmation map");
+        let config = Config::from_config_file(
+            ConfigFile::from_str(&format!(
+                r#"
+                    [[burnchain.affirmation_overrides]]
+                    reward_cycle = 413
+                    affirmation = "{affirmation_string}"
+                "#
+            ))
+            .expect("Expected to be able to parse config file from string"),
+            false,
+        )
+        .expect("Expected to be able to parse affirmation map from file");
+
+        assert_eq!(config.burnchain.affirmation_overrides.len(), 1);
+        assert_eq!(config.burnchain.affirmation_overrides.get(&0), None);
+        assert_eq!(
+            config.burnchain.affirmation_overrides.get(&413),
+            Some(&affirmation)
+        );
+    }
+
+    #[test]
+    fn should_fail_to_load_invalid_affirmation_map() {
+        let bad_affirmation_string = "bad_map";
+        let file = ConfigFile::from_str(&format!(
+            r#"
+                    [[burnchain.affirmation_overrides]]
+                    reward_cycle = 1
+                    affirmation = "{bad_affirmation_string}"
+                "#
+        ))
+        .expect("Expected to be able to parse config file from string");
+
+        assert!(Config::from_config_file(file, false).is_err());
+    }
+
+    #[test]
+    fn should_load_empty_affirmation_map() {
+        let config = Config::from_config_file(
+            ConfigFile::from_str(r#""#)
+                .expect("Expected to be able to parse config file from string"),
+            false,
+        )
+        .expect("Expected to be able to parse affirmation map from file");
+
+        assert!(config.burnchain.affirmation_overrides.is_empty());
+    }
+
+    #[test]
+    fn should_include_xenon_default_affirmation_overrides() {
+        let config = Config::from_config_file(
+            ConfigFile::from_str(
+                r#"
+                [burnchain]
+                chain = "bitcoin"
+                mode = "xenon"
+                "#,
+            )
+            .expect("Expected to be able to parse config file from string"),
+            false,
+        )
+        .expect("Expected to be able to parse affirmation map from file");
+        // Should default add xenon affirmation overrides
+        assert_eq!(config.burnchain.affirmation_overrides.len(), 5);
+    }
+
+    #[test]
+    fn should_override_xenon_default_affirmation_overrides() {
+        let affirmation_string = "aaapnnnnnnnnnnnnnnnnnnnnnnnnnnnnppnnnnnnnnnnnnnnnnnnnnnnnnpppppnnnnnnnnnnnnnnnnnnnnnnnpppppppppppppppnnnnnnnnnnnnnnnnnnnnnnnppppppppppnnnnnnnnnnnnnnnnnnnppppnnnnnnnnnnnnnnnnnnnnnnnppppppppnnnnnnnnnnnnnnnnnnnnnnnppnppnnnnnnnnnnnnnnnnnnnnnnnppppnnnnnnnnnnnnnnnnnnnnnnnnnppppppnnnnnnnnnnnnnnnnnnnnnnnnnppnnnnnnnnnnnnnnnnnnnnnnnnnpppppppnnnnnnnnnnnnnnnnnnnnnnnnnnpnnnnnnnnnnnnnnnnnnnnnnnnnpppnppppppppppppppnnppppnpa";
+        let affirmation =
+            AffirmationMap::decode(affirmation_string).expect("Failed to decode affirmation map");
+
+        let config = Config::from_config_file(
+            ConfigFile::from_str(&format!(
+                r#"
+                [burnchain]
+                chain = "bitcoin"
+                mode = "xenon"
+
+                [[burnchain.affirmation_overrides]]
+                reward_cycle = 413
+                affirmation = "{affirmation_string}"
+                "#,
+            ))
+            .expect("Expected to be able to parse config file from string"),
+            false,
+        )
+        .expect("Expected to be able to parse affirmation map from file");
+        // Should default add xenon affirmation overrides, but overwrite with the configured one above
+        assert_eq!(config.burnchain.affirmation_overrides.len(), 5);
+        assert_eq!(config.burnchain.affirmation_overrides[&413], affirmation);
+    }
+
+    #[test]
+    fn test_into_config_default_chain_id() {
+        // Helper function to create BurnchainConfigFile with mode and optional chain_id
+        fn make_burnchain_config_file(mainnet: bool, chain_id: Option<u32>) -> BurnchainConfigFile {
+            let mut config = BurnchainConfigFile::default();
+            if mainnet {
+                config.mode = Some("mainnet".to_string());
+            }
+            config.chain_id = chain_id;
+            config
+        }
+        let default_burnchain_config = BurnchainConfig::default();
+
+        // **Case 1a:** Should panic when `is_mainnet` is true and `chain_id` != `CHAIN_ID_MAINNET`
+        {
+            let config_file = make_burnchain_config_file(true, Some(CHAIN_ID_TESTNET));
+
+            let result = config_file.into_config_default(default_burnchain_config.clone());
+
+            assert!(
+                result.is_err(),
+                "Expected error when chain_id != CHAIN_ID_MAINNET on mainnet"
+            );
+        }
+
+        // **Case 1b:** Should not panic when `is_mainnet` is true and `chain_id` == `CHAIN_ID_MAINNET`
+        {
+            let config_file = make_burnchain_config_file(true, Some(CHAIN_ID_MAINNET));
+
+            let config = config_file
+                .into_config_default(default_burnchain_config.clone())
+                .expect("Should not panic");
+            assert_eq!(config.chain_id, CHAIN_ID_MAINNET);
+        }
+
+        // **Case 1c:** Should not panic when `is_mainnet` is false; chain_id should be as provided
+        {
+            let chain_id = 123456;
+            let config_file = make_burnchain_config_file(false, Some(chain_id));
+
+            let config = config_file
+                .into_config_default(default_burnchain_config.clone())
+                .expect("Should not panic");
+            assert_eq!(config.chain_id, chain_id);
+        }
+
+        // **Case 2a:** Should not panic when `chain_id` is None and `is_mainnet` is true
+        {
+            let config_file = make_burnchain_config_file(true, None);
+
+            let config = config_file
+                .into_config_default(default_burnchain_config.clone())
+                .expect("Should not panic");
+            assert_eq!(config.chain_id, CHAIN_ID_MAINNET);
+        }
+
+        // **Case 2b:** Should not panic when `chain_id` is None and `is_mainnet` is false
+        {
+            let config_file = make_burnchain_config_file(false, None);
+
+            let config = config_file
+                .into_config_default(default_burnchain_config.clone())
+                .expect("Should not panic");
+            assert_eq!(config.chain_id, CHAIN_ID_TESTNET);
+        }
+    }
 }
