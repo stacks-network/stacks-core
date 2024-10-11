@@ -7810,7 +7810,9 @@ mod error_mapping {
                 Error::Runtime(RuntimeErrorType::UnwrapFailure, Some(Vec::new()))
             }
             ErrorMap::Panic => {
-                panic!("An error has been detected in the code")
+                // TODO: see issue: #531
+                // This RuntimeErrorType::UnwrapFailure need to have a proper context.
+                Error::Runtime(RuntimeErrorType::UnwrapFailure, Some(Vec::new()))
             }
             // TODO: UInt(42) value below is just a placeholder.
             // It should be replaced by the current "thrown-value" when clarity-wasm issue #385 is resolved.
