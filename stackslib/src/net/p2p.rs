@@ -4998,7 +4998,7 @@ impl PeerNetwork {
     /// Log our neighbors.
     /// Used for testing and debuggin
     fn log_neighbors(&mut self) {
-        if self.get_connection_opts().log_neighbors_freq == 0 {
+        if !cfg!(test) && self.get_connection_opts().log_neighbors_freq == 0 {
             return;
         }
 
