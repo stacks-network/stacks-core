@@ -325,15 +325,12 @@ impl TenureStartEnd {
                 wt_start.winning_block_id.clone(),
                 wt_end.winning_block_id.clone(),
                 rc,
-                downloader_block_height_to_reward_cycle(
-                    pox_constants,
-                    first_burn_height,
-                    wt_start.burn_height,
-                )
-                .expect(&format!(
-                    "FATAL: tenure from before system start ({} <= {})",
-                    wt_start.burn_height, first_burn_height
-                )),
+                pox_constants
+                    .block_height_to_reward_cycle(first_burn_height, wt_start.burn_height)
+                    .expect(&format!(
+                        "FATAL: tenure from before system start ({} <= {})",
+                        wt_start.burn_height, first_burn_height
+                    )),
                 wt.processed,
             );
             tenure_start_end.fetch_end_block = true;
