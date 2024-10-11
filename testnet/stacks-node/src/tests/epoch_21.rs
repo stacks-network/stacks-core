@@ -71,11 +71,7 @@ fn advance_to_2_1(
     conf.burnchain.peer_host = "localhost".to_string();
     conf.initial_balances.append(&mut initial_balances);
     conf.miner.block_reward_recipient = block_reward_recipient;
-
-    conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
-        events_keys: vec![EventKeyType::AnyEvent],
-    });
+    test_observer::register_any(&mut conf);
 
     let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
     epochs[1].end_height = epoch_2_05;
@@ -576,10 +572,7 @@ fn transition_fixes_bitcoin_rigidity() {
     ];
 
     conf.initial_balances.append(&mut initial_balances);
-    conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
-        events_keys: vec![EventKeyType::AnyEvent],
-    });
+    test_observer::register_any(&mut conf);
 
     let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
     epochs[1].end_height = epoch_2_05;
@@ -1472,11 +1465,7 @@ fn transition_removes_pox_sunset() {
     let (mut conf, miner_account) = neon_integration_test_conf();
 
     test_observer::spawn();
-
-    conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
-        events_keys: vec![EventKeyType::AnyEvent],
-    });
+    test_observer::register_any(&mut conf);
 
     conf.initial_balances.push(InitialBalance {
         address: spender_addr.clone(),
@@ -1787,11 +1776,7 @@ fn transition_empty_blocks() {
     conf.burnchain.epochs = Some(epochs);
 
     test_observer::spawn();
-
-    conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
-        events_keys: vec![EventKeyType::AnyEvent],
-    });
+    test_observer::register_any(&mut conf);
 
     let keychain = Keychain::default(conf.node.seed.clone());
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
@@ -4737,10 +4722,7 @@ fn trait_invocation_cross_epoch() {
         amount: 200_000_000,
     }];
     conf.initial_balances.append(&mut initial_balances);
-    conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
-        events_keys: vec![EventKeyType::AnyEvent],
-    });
+    test_observer::register_any(&mut conf);
     let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
     epochs[1].end_height = epoch_2_05;
     epochs[2].start_height = epoch_2_05;
@@ -4982,11 +4964,7 @@ fn test_v1_unlock_height_with_current_stackers() {
     conf.miner.subsequent_attempt_time_ms = i64::MAX as u64;
 
     test_observer::spawn();
-
-    conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
-        events_keys: vec![EventKeyType::AnyEvent],
-    });
+    test_observer::register_any(&mut conf);
     conf.initial_balances.append(&mut initial_balances);
 
     let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
@@ -5247,11 +5225,7 @@ fn test_v1_unlock_height_with_delay_and_current_stackers() {
     conf.miner.subsequent_attempt_time_ms = i64::MAX as u64;
 
     test_observer::spawn();
-
-    conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
-        events_keys: vec![EventKeyType::AnyEvent],
-    });
+    test_observer::register_any(&mut conf);
     conf.initial_balances.append(&mut initial_balances);
 
     let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
