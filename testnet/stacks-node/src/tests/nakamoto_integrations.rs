@@ -78,7 +78,7 @@ use stacks::util_lib::signed_structured_data::pox4::{
 use stacks_common::address::AddressHashMode;
 use stacks_common::bitvec::BitVec;
 use stacks_common::codec::StacksMessageCodec;
-use stacks_common::consts::{CHAIN_ID_TESTNET, STACKS_EPOCH_MAX};
+use stacks_common::consts::STACKS_EPOCH_MAX;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksPrivateKey, StacksPublicKey,
     TrieHash,
@@ -848,7 +848,7 @@ pub fn boot_to_epoch_3(
             &signer_sk,
             reward_cycle.into(),
             &Pox4SignatureTopic::StackStx,
-            CHAIN_ID_TESTNET,
+            naka_conf.burnchain.chain_id,
             12_u128,
             u128::MAX,
             1,
@@ -862,6 +862,7 @@ pub fn boot_to_epoch_3(
             &stacker_sk,
             0,
             1000,
+            naka_conf.burnchain.chain_id,
             &StacksAddress::burn_address(false),
             "pox-4",
             "stack-stx",
@@ -924,6 +925,7 @@ pub fn boot_to_epoch_3(
                 signer_sk,
                 0,
                 300,
+                naka_conf.burnchain.chain_id,
                 &StacksAddress::burn_address(false),
                 SIGNERS_VOTING_NAME,
                 SIGNERS_VOTING_FUNCTION_NAME,
@@ -1008,7 +1010,7 @@ pub fn boot_to_pre_epoch_3_boundary(
             &signer_sk,
             reward_cycle.into(),
             &Pox4SignatureTopic::StackStx,
-            CHAIN_ID_TESTNET,
+            naka_conf.burnchain.chain_id,
             12_u128,
             u128::MAX,
             1,
@@ -1022,6 +1024,7 @@ pub fn boot_to_pre_epoch_3_boundary(
             &stacker_sk,
             0,
             1000,
+            naka_conf.burnchain.chain_id,
             &StacksAddress::burn_address(false),
             "pox-4",
             "stack-stx",
@@ -1084,6 +1087,7 @@ pub fn boot_to_pre_epoch_3_boundary(
                 signer_sk,
                 0,
                 300,
+                naka_conf.burnchain.chain_id,
                 &StacksAddress::burn_address(false),
                 SIGNERS_VOTING_NAME,
                 SIGNERS_VOTING_FUNCTION_NAME,
@@ -1245,7 +1249,7 @@ pub fn setup_epoch_3_reward_set(
             &signer_sk,
             reward_cycle.into(),
             &Pox4SignatureTopic::StackStx,
-            CHAIN_ID_TESTNET,
+            naka_conf.burnchain.chain_id,
             lock_period,
             u128::MAX,
             1,
@@ -1258,6 +1262,7 @@ pub fn setup_epoch_3_reward_set(
             &stacker_sk,
             0,
             1000,
+            naka_conf.burnchain.chain_id,
             &StacksAddress::burn_address(false),
             "pox-4",
             "stack-stx",
@@ -1527,7 +1532,14 @@ fn simple_neon_integration() {
     }
 
     // Submit a TX
-    let transfer_tx = make_stacks_transfer(&sender_sk, 0, send_fee, &recipient, send_amt);
+    let transfer_tx = make_stacks_transfer(
+        &sender_sk,
+        0,
+        send_fee,
+        naka_conf.burnchain.chain_id,
+        &recipient,
+        send_amt,
+    );
     let transfer_tx_hex = format!("0x{}", to_hex(&transfer_tx));
 
     let tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
@@ -1787,7 +1799,14 @@ fn flash_blocks_on_epoch_3() {
     }
 
     // Submit a TX
-    let transfer_tx = make_stacks_transfer(&sender_sk, 0, send_fee, &recipient, send_amt);
+    let transfer_tx = make_stacks_transfer(
+        &sender_sk,
+        0,
+        send_fee,
+        naka_conf.burnchain.chain_id,
+        &recipient,
+        send_amt,
+    );
     let transfer_tx_hex = format!("0x{}", to_hex(&transfer_tx));
 
     let tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
@@ -2025,8 +2044,14 @@ fn mine_multiple_per_tenure_integration() {
                 .get_stacks_blocks_processed();
             // submit a tx so that the miner will mine an extra block
             let sender_nonce = tenure_ix * inter_blocks_per_tenure + interim_block_ix;
-            let transfer_tx =
-                make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
+            let transfer_tx = make_stacks_transfer(
+                &sender_sk,
+                sender_nonce,
+                send_fee,
+                naka_conf.burnchain.chain_id,
+                &recipient,
+                send_amt,
+            );
             submit_tx(&http_origin, &transfer_tx);
 
             loop {
@@ -2277,8 +2302,14 @@ fn multiple_miners() {
                 .get_stacks_blocks_processed();
             // submit a tx so that the miner will mine an extra block
             let sender_nonce = tenure_ix * inter_blocks_per_tenure + interim_block_ix;
-            let transfer_tx =
-                make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
+            let transfer_tx = make_stacks_transfer(
+                &sender_sk,
+                sender_nonce,
+                send_fee,
+                naka_conf.burnchain.chain_id,
+                &recipient,
+                send_amt,
+            );
             submit_tx(&http_origin, &transfer_tx);
 
             wait_for(20, || {
@@ -2484,7 +2515,7 @@ fn correct_burn_outs() {
                 &sender_signer_sk,
                 reward_cycle.into(),
                 &Pox4SignatureTopic::StackStx,
-                CHAIN_ID_TESTNET,
+                naka_conf.burnchain.chain_id,
                 1_u128,
                 u128::MAX,
                 1,
@@ -2496,6 +2527,7 @@ fn correct_burn_outs() {
                 &account.0,
                 account.2.nonce,
                 1000,
+                naka_conf.burnchain.chain_id,
                 &StacksAddress::burn_address(false),
                 "pox-4",
                 "stack-stx",
@@ -2837,6 +2869,7 @@ fn block_proposal_api_endpoint() {
             &account_keys[0],
             0,
             100,
+            conf.burnchain.chain_id,
             &to_addr(&account_keys[1]).into(),
             10000,
         );
@@ -3514,7 +3547,7 @@ fn follower_bootup() {
             &node_info.node_public_key.unwrap(),
             naka_conf.node.p2p_bind
         ),
-        CHAIN_ID_TESTNET,
+        naka_conf.burnchain.chain_id,
         PEER_VERSION_TESTNET,
     );
 
@@ -3574,8 +3607,14 @@ fn follower_bootup() {
             let sender_nonce = account
                 .nonce
                 .max(last_nonce.as_ref().map(|ln| *ln + 1).unwrap_or(0));
-            let transfer_tx =
-                make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
+            let transfer_tx = make_stacks_transfer(
+                &sender_sk,
+                sender_nonce,
+                send_fee,
+                naka_conf.burnchain.chain_id,
+                &recipient,
+                send_amt,
+            );
             submit_tx(&http_origin, &transfer_tx);
 
             last_nonce = Some(sender_nonce);
@@ -3861,7 +3900,7 @@ fn follower_bootup_across_multiple_cycles() {
             &node_info.node_public_key.unwrap(),
             naka_conf.node.p2p_bind
         ),
-        CHAIN_ID_TESTNET,
+        naka_conf.burnchain.chain_id,
         PEER_VERSION_TESTNET,
     );
 
@@ -4153,6 +4192,7 @@ fn burn_ops_integration_test() {
         &signer_sk_1,
         1,
         500,
+        naka_conf.burnchain.chain_id,
         &StacksAddress::burn_address(false),
         "pox-4",
         "set-signer-key-authorization",
@@ -4355,8 +4395,14 @@ fn burn_ops_integration_test() {
                 .expect("Mutex poisoned")
                 .get_stacks_blocks_processed();
             // submit a tx so that the miner will mine an extra block
-            let transfer_tx =
-                make_stacks_transfer(&sender_sk, sender_nonce, 200, &stacker_addr_1.into(), 10000);
+            let transfer_tx = make_stacks_transfer(
+                &sender_sk,
+                sender_nonce,
+                200,
+                naka_conf.burnchain.chain_id,
+                &stacker_addr_1.into(),
+                10000,
+            );
             sender_nonce += 1;
             submit_tx(&http_origin, &transfer_tx);
 
@@ -4766,8 +4812,14 @@ fn forked_tenure_is_ignored() {
 
     // submit a tx so that the miner will mine an extra block
     let sender_nonce = 0;
-    let transfer_tx =
-        make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
+    let transfer_tx = make_stacks_transfer(
+        &sender_sk,
+        sender_nonce,
+        send_fee,
+        naka_conf.burnchain.chain_id,
+        &recipient,
+        send_amt,
+    );
     let tx = submit_tx(&http_origin, &transfer_tx);
 
     info!("Submitted tx {tx} in Tenure C to mine a second block");
@@ -4965,6 +5017,7 @@ fn check_block_heights() {
         &sender_sk,
         sender_nonce,
         deploy_fee,
+        naka_conf.burnchain.chain_id,
         contract0_name,
         contract_clarity1,
     );
@@ -5050,6 +5103,7 @@ fn check_block_heights() {
         &sender_sk,
         sender_nonce,
         deploy_fee,
+        naka_conf.burnchain.chain_id,
         contract1_name,
         contract_clarity1,
         Some(ClarityVersion::Clarity2),
@@ -5066,6 +5120,7 @@ fn check_block_heights() {
         &sender_sk,
         sender_nonce,
         deploy_fee,
+        naka_conf.burnchain.chain_id,
         contract3_name,
         contract_clarity3,
     );
@@ -5173,8 +5228,14 @@ fn check_block_heights() {
                 .expect("Mutex poisoned")
                 .get_stacks_blocks_processed();
             // submit a tx so that the miner will mine an extra block
-            let transfer_tx =
-                make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
+            let transfer_tx = make_stacks_transfer(
+                &sender_sk,
+                sender_nonce,
+                send_fee,
+                naka_conf.burnchain.chain_id,
+                &recipient,
+                send_amt,
+            );
             sender_nonce += 1;
             submit_tx(&http_origin, &transfer_tx);
 
@@ -5465,8 +5526,14 @@ fn nakamoto_attempt_time() {
 
             let mut sender_nonce = account.nonce;
             for _ in 0..txs_per_block {
-                let transfer_tx =
-                    make_stacks_transfer(&sender_sk, sender_nonce, tx_fee, &recipient, amount);
+                let transfer_tx = make_stacks_transfer(
+                    &sender_sk,
+                    sender_nonce,
+                    tx_fee,
+                    naka_conf.burnchain.chain_id,
+                    &recipient,
+                    amount,
+                );
                 sender_nonce += 1;
                 submit_tx(&http_origin, &transfer_tx);
             }
@@ -5558,8 +5625,14 @@ fn nakamoto_attempt_time() {
     'submit_txs: loop {
         let acct = &mut account[acct_idx];
         for _ in 0..MAXIMUM_MEMPOOL_TX_CHAINING {
-            let transfer_tx =
-                make_stacks_transfer(&acct.privk, acct.nonce, tx_fee, &recipient, amount);
+            let transfer_tx = make_stacks_transfer(
+                &acct.privk,
+                acct.nonce,
+                tx_fee,
+                naka_conf.burnchain.chain_id,
+                &recipient,
+                amount,
+            );
             submit_tx(&http_origin, &transfer_tx);
             tx_total_size += transfer_tx.len();
             tx_count += 1;
@@ -5709,6 +5782,7 @@ fn clarity_burn_state() {
         &sender_sk,
         sender_nonce,
         deploy_fee,
+        naka_conf.burnchain.chain_id,
         contract_name,
         contract,
     );
@@ -5740,6 +5814,7 @@ fn clarity_burn_state() {
                 &sender_sk,
                 sender_nonce,
                 tx_fee,
+                naka_conf.burnchain.chain_id,
                 &sender_addr,
                 contract_name,
                 "bar",
@@ -5828,6 +5903,7 @@ fn clarity_burn_state() {
                 &sender_sk,
                 sender_nonce,
                 tx_fee,
+                naka_conf.burnchain.chain_id,
                 &sender_addr,
                 contract_name,
                 "bar",
@@ -6123,8 +6199,14 @@ fn signer_chainstate() {
 
         // submit a tx to trigger an intermediate block
         let sender_nonce = i;
-        let transfer_tx =
-            make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
+        let transfer_tx = make_stacks_transfer(
+            &sender_sk,
+            sender_nonce,
+            send_fee,
+            naka_conf.burnchain.chain_id,
+            &recipient,
+            send_amt,
+        );
         submit_tx(&http_origin, &transfer_tx);
 
         let timer = Instant::now();
@@ -6638,7 +6720,14 @@ fn continue_tenure_extend() {
     .unwrap();
 
     // Submit a TX
-    let transfer_tx = make_stacks_transfer(&sender_sk, 0, send_fee, &recipient, send_amt);
+    let transfer_tx = make_stacks_transfer(
+        &sender_sk,
+        0,
+        send_fee,
+        naka_conf.burnchain.chain_id,
+        &recipient,
+        send_amt,
+    );
     let transfer_tx_hex = format!("0x{}", to_hex(&transfer_tx));
 
     let tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
@@ -6870,6 +6959,7 @@ fn check_block_times() {
         &sender_sk,
         sender_nonce,
         deploy_fee,
+        naka_conf.burnchain.chain_id,
         contract0_name,
         contract_clarity1,
     );
@@ -6913,6 +7003,7 @@ fn check_block_times() {
         &sender_sk,
         sender_nonce,
         deploy_fee,
+        naka_conf.burnchain.chain_id,
         contract1_name,
         contract_clarity1,
         Some(ClarityVersion::Clarity2),
@@ -6930,6 +7021,7 @@ fn check_block_times() {
         &sender_sk,
         sender_nonce,
         deploy_fee,
+        naka_conf.burnchain.chain_id,
         contract3_name,
         contract_clarity3,
     );
@@ -7025,8 +7117,14 @@ fn check_block_times() {
     info!("Mining Nakamoto block");
 
     // submit a tx so that the miner will mine an extra block
-    let transfer_tx =
-        make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
+    let transfer_tx = make_stacks_transfer(
+        &sender_sk,
+        sender_nonce,
+        send_fee,
+        naka_conf.burnchain.chain_id,
+        &recipient,
+        send_amt,
+    );
     sender_nonce += 1;
     submit_tx(&http_origin, &transfer_tx);
 
@@ -7106,8 +7204,14 @@ fn check_block_times() {
         .get_stacks_blocks_processed();
 
     // submit a tx so that the miner will mine an extra block
-    let transfer_tx =
-        make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
+    let transfer_tx = make_stacks_transfer(
+        &sender_sk,
+        sender_nonce,
+        send_fee,
+        naka_conf.burnchain.chain_id,
+        &recipient,
+        send_amt,
+    );
     submit_tx(&http_origin, &transfer_tx);
 
     loop {
@@ -7353,6 +7457,7 @@ fn check_block_info() {
         &sender_sk,
         sender_nonce,
         deploy_fee,
+        naka_conf.burnchain.chain_id,
         contract0_name,
         contract_clarity1,
     );
@@ -7391,6 +7496,7 @@ fn check_block_info() {
         &sender_sk,
         sender_nonce,
         deploy_fee,
+        naka_conf.burnchain.chain_id,
         contract1_name,
         contract_clarity1,
         Some(ClarityVersion::Clarity2),
@@ -7423,6 +7529,7 @@ fn check_block_info() {
         &sender_sk,
         sender_nonce,
         deploy_fee,
+        naka_conf.burnchain.chain_id,
         contract3_name,
         contract_clarity3,
     );
@@ -7529,8 +7636,14 @@ fn check_block_info() {
         .get_stacks_blocks_processed();
 
     // submit a tx so that the miner will mine an extra block
-    let transfer_tx =
-        make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
+    let transfer_tx = make_stacks_transfer(
+        &sender_sk,
+        sender_nonce,
+        send_fee,
+        naka_conf.burnchain.chain_id,
+        &recipient,
+        send_amt,
+    );
     sender_nonce += 1;
     submit_tx(&http_origin, &transfer_tx);
 
@@ -7636,8 +7749,14 @@ fn check_block_info() {
         .get_stacks_blocks_processed();
 
     // submit a tx so that the miner will mine an extra block
-    let transfer_tx =
-        make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
+    let transfer_tx = make_stacks_transfer(
+        &sender_sk,
+        sender_nonce,
+        send_fee,
+        naka_conf.burnchain.chain_id,
+        &recipient,
+        send_amt,
+    );
     submit_tx(&http_origin, &transfer_tx);
 
     loop {
@@ -7862,6 +7981,7 @@ fn check_block_info_rewards() {
         &sender_sk,
         sender_nonce,
         deploy_fee,
+        naka_conf.burnchain.chain_id,
         contract0_name,
         contract_clarity1,
     );
@@ -7900,6 +8020,7 @@ fn check_block_info_rewards() {
         &sender_sk,
         sender_nonce,
         deploy_fee,
+        naka_conf.burnchain.chain_id,
         contract1_name,
         contract_clarity1,
         Some(ClarityVersion::Clarity2),
@@ -7925,6 +8046,7 @@ fn check_block_info_rewards() {
         &sender_sk,
         sender_nonce,
         deploy_fee,
+        naka_conf.burnchain.chain_id,
         contract3_name,
         contract_clarity3,
     );
@@ -7945,8 +8067,14 @@ fn check_block_info_rewards() {
         .get_stacks_blocks_processed();
 
     // submit a tx so that the miner will mine an extra block
-    let transfer_tx =
-        make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
+    let transfer_tx = make_stacks_transfer(
+        &sender_sk,
+        sender_nonce,
+        send_fee,
+        naka_conf.burnchain.chain_id,
+        &recipient,
+        send_amt,
+    );
     sender_nonce += 1;
     submit_tx(&http_origin, &transfer_tx);
 
@@ -7972,8 +8100,14 @@ fn check_block_info_rewards() {
         .get_stacks_blocks_processed();
 
     // submit a tx so that the miner will mine an extra block
-    let transfer_tx =
-        make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
+    let transfer_tx = make_stacks_transfer(
+        &sender_sk,
+        sender_nonce,
+        send_fee,
+        naka_conf.burnchain.chain_id,
+        &recipient,
+        send_amt,
+    );
     submit_tx(&http_origin, &transfer_tx);
 
     loop {
@@ -8234,7 +8368,7 @@ fn mock_mining() {
             &node_info.node_public_key.unwrap(),
             naka_conf.node.p2p_bind
         ),
-        CHAIN_ID_TESTNET,
+        naka_conf.burnchain.chain_id,
         PEER_VERSION_TESTNET,
     );
 
@@ -8299,8 +8433,14 @@ fn mock_mining() {
                 .get_stacks_blocks_processed();
             // submit a tx so that the miner will mine an extra block
             let sender_nonce = tenure_ix * inter_blocks_per_tenure + interim_block_ix;
-            let transfer_tx =
-                make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
+            let transfer_tx = make_stacks_transfer(
+                &sender_sk,
+                sender_nonce,
+                send_fee,
+                naka_conf.burnchain.chain_id,
+                &recipient,
+                send_amt,
+            );
             submit_tx(&http_origin, &transfer_tx);
 
             loop {
@@ -8679,8 +8819,14 @@ fn v3_signer_api_endpoint() {
         .get_stacks_blocks_processed();
     // submit a tx so that the miner will mine an extra stacks block
     let sender_nonce = 0;
-    let transfer_tx =
-        make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
+    let transfer_tx = make_stacks_transfer(
+        &sender_sk,
+        sender_nonce,
+        send_fee,
+        conf.burnchain.chain_id,
+        &recipient,
+        send_amt,
+    );
     submit_tx(&http_origin, &transfer_tx);
 
     wait_for(30, || {
@@ -8834,6 +8980,7 @@ fn skip_mining_long_tx() {
                 &sender_2_sk,
                 0,
                 9_000,
+                naka_conf.burnchain.chain_id,
                 "large_contract",
                 &format!(
                     "(define-constant INP_LIST (list {input_list}))
@@ -8857,8 +9004,14 @@ fn skip_mining_long_tx() {
 
             TEST_SKIP_P2P_BROADCAST.lock().unwrap().replace(false);
         } else {
-            let transfer_tx =
-                make_stacks_transfer(&sender_1_sk, i - 1, send_fee, &recipient, send_amt);
+            let transfer_tx = make_stacks_transfer(
+                &sender_1_sk,
+                i - 1,
+                send_fee,
+                naka_conf.burnchain.chain_id,
+                &recipient,
+                send_amt,
+            );
             submit_tx(&http_origin, &transfer_tx);
 
             wait_for(30, || {

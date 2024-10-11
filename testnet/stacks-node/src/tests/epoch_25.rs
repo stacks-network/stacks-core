@@ -162,7 +162,14 @@ fn microblocks_disabled() {
     // push us to block 205
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
-    let tx = make_stacks_transfer_mblock_only(&spender_1_sk, 0, 500, &spender_2_addr, 500);
+    let tx = make_stacks_transfer_mblock_only(
+        &spender_1_sk,
+        0,
+        500,
+        conf.burnchain.chain_id,
+        &spender_2_addr,
+        500,
+    );
     submit_tx(&http_origin, &tx);
 
     // wait until just before epoch 2.5
@@ -194,7 +201,14 @@ fn microblocks_disabled() {
     );
     assert_eq!(account.nonce, 1);
 
-    let tx = make_stacks_transfer_mblock_only(&spender_1_sk, 1, 500, &spender_2_addr, 500);
+    let tx = make_stacks_transfer_mblock_only(
+        &spender_1_sk,
+        1,
+        500,
+        conf.burnchain.chain_id,
+        &spender_2_addr,
+        500,
+    );
     submit_tx(&http_origin, &tx);
 
     let mut last_block_height = get_chain_info(&conf).burn_block_height;

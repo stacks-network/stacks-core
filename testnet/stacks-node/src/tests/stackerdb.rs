@@ -206,7 +206,14 @@ fn test_stackerdb_load_store() {
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
     eprintln!("Send contract-publish...");
-    let tx = make_contract_publish(&privks[0], 0, 10_000, "hello-world", stackerdb_contract);
+    let tx = make_contract_publish(
+        &privks[0],
+        0,
+        10_000,
+        conf.burnchain.chain_id,
+        "hello-world",
+        stackerdb_contract,
+    );
     submit_tx(&http_origin, &tx);
 
     // mine it
@@ -336,7 +343,14 @@ fn test_stackerdb_event_observer() {
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
     eprintln!("Send contract-publish...");
-    let tx = make_contract_publish(&privks[0], 0, 10_000, "hello-world", stackerdb_contract);
+    let tx = make_contract_publish(
+        &privks[0],
+        0,
+        10_000,
+        conf.burnchain.chain_id,
+        "hello-world",
+        stackerdb_contract,
+    );
     submit_tx(&http_origin, &tx);
 
     // mine it

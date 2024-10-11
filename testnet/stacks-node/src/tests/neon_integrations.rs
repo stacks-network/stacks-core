@@ -1517,6 +1517,7 @@ fn deep_contract() {
         &spender_sk,
         0,
         1000,
+        conf.burnchain.chain_id,
         "test-publish",
         &exceeds_stack_depth_list,
     );
@@ -1694,11 +1695,25 @@ fn liquid_ustx_integration() {
 
     let _sort_height = channel.get_sortitions_processed();
 
-    let publish = make_contract_publish(&spender_sk, 0, 1000, "caller", caller_src);
+    let publish = make_contract_publish(
+        &spender_sk,
+        0,
+        1000,
+        conf.burnchain.chain_id,
+        "caller",
+        caller_src,
+    );
 
     let replaced_txid = submit_tx(&http_origin, &publish);
 
-    let publish = make_contract_publish(&spender_sk, 0, 1100, "caller", caller_src);
+    let publish = make_contract_publish(
+        &spender_sk,
+        0,
+        1100,
+        conf.burnchain.chain_id,
+        "caller",
+        caller_src,
+    );
     submit_tx(&http_origin, &publish);
 
     let dropped_txs = test_observer::get_memtx_drops();
@@ -1715,6 +1730,7 @@ fn liquid_ustx_integration() {
         &spender_sk,
         1,
         1000,
+        conf.burnchain.chain_id,
         &spender_addr,
         "caller",
         "execute",
@@ -2274,6 +2290,7 @@ fn stx_delegate_btc_integration_test() {
         &recipient_sk,
         0,
         293,
+        conf.burnchain.chain_id,
         &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
         "pox-2",
         "delegate-stack-stx",
@@ -2562,6 +2579,7 @@ fn stack_stx_burn_op_test() {
         &signer_sk_1,
         0,
         500,
+        conf.burnchain.chain_id,
         &boot_code_addr(false),
         POX_4_NAME,
         "set-signer-key-authorization",
@@ -2923,6 +2941,7 @@ fn vote_for_aggregate_key_burn_op_test() {
         &spender_sk,
         0,
         500,
+        conf.burnchain.chain_id,
         &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
         "pox-4",
         "stack-stx",
@@ -3145,6 +3164,7 @@ fn bitcoind_resubmission_test() {
             &spender_sk,
             0,
             100,
+            conf.burnchain.chain_id,
             &PrincipalData::from(StacksAddress::burn_address(false)),
             1000,
         );
@@ -3488,12 +3508,24 @@ fn microblock_fork_poison_integration_test() {
     info!("Test microblock");
 
     let recipient = StacksAddress::from_string(ADDR_4).unwrap();
-    let unconfirmed_tx_bytes =
-        make_stacks_transfer_mblock_only(&spender_sk, 0, 1000, &recipient.into(), 1000);
+    let unconfirmed_tx_bytes = make_stacks_transfer_mblock_only(
+        &spender_sk,
+        0,
+        1000,
+        conf.burnchain.chain_id,
+        &recipient.into(),
+        1000,
+    );
     let unconfirmed_tx =
         StacksTransaction::consensus_deserialize(&mut &unconfirmed_tx_bytes[..]).unwrap();
-    let second_unconfirmed_tx_bytes =
-        make_stacks_transfer_mblock_only(&second_spender_sk, 0, 1000, &recipient.into(), 1500);
+    let second_unconfirmed_tx_bytes = make_stacks_transfer_mblock_only(
+        &second_spender_sk,
+        0,
+        1000,
+        conf.burnchain.chain_id,
+        &recipient.into(),
+        1500,
+    );
     let second_unconfirmed_tx =
         StacksTransaction::consensus_deserialize(&mut &second_unconfirmed_tx_bytes[..]).unwrap();
 
@@ -3722,7 +3754,14 @@ fn microblock_integration_test() {
 
     // okay, let's push a transaction that is marked microblock only!
     let recipient = StacksAddress::from_string(ADDR_4).unwrap();
-    let tx = make_stacks_transfer_mblock_only(&spender_sk, 0, 1000, &recipient.into(), 1000);
+    let tx = make_stacks_transfer_mblock_only(
+        &spender_sk,
+        0,
+        1000,
+        conf.burnchain.chain_id,
+        &recipient.into(),
+        1000,
+    );
     submit_tx(&http_origin, &tx);
 
     info!("Try to mine a microblock-only tx");
@@ -3752,12 +3791,24 @@ fn microblock_integration_test() {
 
     // push another two transactions that are marked microblock only
     let recipient = StacksAddress::from_string(ADDR_4).unwrap();
-    let unconfirmed_tx_bytes =
-        make_stacks_transfer_mblock_only(&spender_sk, 1, 1000, &recipient.into(), 1000);
+    let unconfirmed_tx_bytes = make_stacks_transfer_mblock_only(
+        &spender_sk,
+        1,
+        1000,
+        conf.burnchain.chain_id,
+        &recipient.into(),
+        1000,
+    );
     let unconfirmed_tx =
         StacksTransaction::consensus_deserialize(&mut &unconfirmed_tx_bytes[..]).unwrap();
-    let second_unconfirmed_tx_bytes =
-        make_stacks_transfer_mblock_only(&second_spender_sk, 0, 1000, &recipient.into(), 1500);
+    let second_unconfirmed_tx_bytes = make_stacks_transfer_mblock_only(
+        &second_spender_sk,
+        0,
+        1000,
+        conf.burnchain.chain_id,
+        &recipient.into(),
+        1500,
+    );
     let second_unconfirmed_tx =
         StacksTransaction::consensus_deserialize(&mut &second_unconfirmed_tx_bytes[..]).unwrap();
 
@@ -4080,6 +4131,7 @@ fn microblock_integration_test() {
             &spender_sk,
             next_nonce,
             1000,
+            conf.burnchain.chain_id,
             &recipient.into(),
             1000,
         );
@@ -4163,6 +4215,14 @@ fn filter_low_fee_tx_integration_test() {
         .collect();
     let spender_addrs: Vec<PrincipalData> = spender_sks.iter().map(|x| to_addr(x).into()).collect();
 
+    let (mut conf, _) = neon_integration_test_conf();
+    for spender_addr in spender_addrs.iter() {
+        conf.initial_balances.push(InitialBalance {
+            address: spender_addr.clone(),
+            amount: 1049230,
+        });
+    }
+
     let txs: Vec<_> = spender_sks
         .iter()
         .enumerate()
@@ -4171,21 +4231,27 @@ fn filter_low_fee_tx_integration_test() {
 
             if ix < 5 {
                 // low-fee
-                make_stacks_transfer(&spender_sk, 0, 1000 + (ix as u64), &recipient.into(), 1000)
+                make_stacks_transfer(
+                    &spender_sk,
+                    0,
+                    1000 + (ix as u64),
+                    conf.burnchain.chain_id,
+                    &recipient.into(),
+                    1000,
+                )
             } else {
                 // high-fee
-                make_stacks_transfer(&spender_sk, 0, 2000 + (ix as u64), &recipient.into(), 1000)
+                make_stacks_transfer(
+                    &spender_sk,
+                    0,
+                    2000 + (ix as u64),
+                    conf.burnchain.chain_id,
+                    &recipient.into(),
+                    1000,
+                )
             }
         })
         .collect();
-
-    let (mut conf, _) = neon_integration_test_conf();
-    for spender_addr in spender_addrs.iter() {
-        conf.initial_balances.push(InitialBalance {
-            address: spender_addr.clone(),
-            amount: 1049230,
-        });
-    }
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
@@ -4257,15 +4323,6 @@ fn filter_long_runtime_tx_integration_test() {
         .collect();
     let spender_addrs: Vec<PrincipalData> = spender_sks.iter().map(|x| to_addr(x).into()).collect();
 
-    let txs: Vec<_> = spender_sks
-        .iter()
-        .enumerate()
-        .map(|(ix, spender_sk)| {
-            let recipient = StacksAddress::from_string(ADDR_4).unwrap();
-            make_stacks_transfer(&spender_sk, 0, 1000 + (ix as u64), &recipient.into(), 1000)
-        })
-        .collect();
-
     let (mut conf, _) = neon_integration_test_conf();
     for spender_addr in spender_addrs.iter() {
         conf.initial_balances.push(InitialBalance {
@@ -4277,6 +4334,22 @@ fn filter_long_runtime_tx_integration_test() {
     // ...but none of them will be mined since we allot zero ms to do so
     conf.miner.first_attempt_time_ms = 0;
     conf.miner.subsequent_attempt_time_ms = 0;
+
+    let txs: Vec<_> = spender_sks
+        .iter()
+        .enumerate()
+        .map(|(ix, spender_sk)| {
+            let recipient = StacksAddress::from_string(ADDR_4).unwrap();
+            make_stacks_transfer(
+                &spender_sk,
+                0,
+                1000 + (ix as u64),
+                conf.burnchain.chain_id,
+                &recipient.into(),
+                1000,
+            )
+        })
+        .collect();
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
@@ -4343,8 +4416,6 @@ fn miner_submit_twice() {
        (define-private (bar)
          (foo 56))
     ";
-    let tx_1 = make_contract_publish(&spender_sk, 0, 50_000, "first-contract", contract_content);
-    let tx_2 = make_contract_publish(&spender_sk, 1, 50_000, "second-contract", contract_content);
 
     let (mut conf, _) = neon_integration_test_conf();
     conf.initial_balances.push(InitialBalance {
@@ -4356,6 +4427,23 @@ fn miner_submit_twice() {
     // one should be mined in first attempt, and two should be in second attempt
     conf.miner.first_attempt_time_ms = 20;
     conf.miner.subsequent_attempt_time_ms = 30_000;
+
+    let tx_1 = make_contract_publish(
+        &spender_sk,
+        0,
+        50_000,
+        conf.burnchain.chain_id,
+        "first-contract",
+        contract_content,
+    );
+    let tx_2 = make_contract_publish(
+        &spender_sk,
+        1,
+        50_000,
+        conf.burnchain.chain_id,
+        "second-contract",
+        contract_content,
+    );
 
     // note: this test depends on timing of how long it takes to assemble a block,
     //  but it won't flake if the miner behaves correctly: a correct miner should
@@ -4435,18 +4523,28 @@ fn size_check_integration_test() {
         .collect();
     let spender_addrs: Vec<PrincipalData> = spender_sks.iter().map(|x| to_addr(x).into()).collect();
 
+    let (mut conf, miner_account) = neon_integration_test_conf();
+
     // make a bunch of txs that will only fit one per block.
     let txs: Vec<_> = spender_sks
         .iter()
         .enumerate()
         .map(|(ix, spender_sk)| {
             if ix % 2 == 0 {
-                make_contract_publish(spender_sk, 0, 1049230, "large-0", &giant_contract)
+                make_contract_publish(
+                    spender_sk,
+                    0,
+                    1049230,
+                    conf.burnchain.chain_id,
+                    "large-0",
+                    &giant_contract,
+                )
             } else {
                 let tx = make_contract_publish_microblock_only(
                     spender_sk,
                     0,
                     1049230,
+                    conf.burnchain.chain_id,
                     "large-0",
                     &giant_contract,
                 );
@@ -4456,8 +4554,6 @@ fn size_check_integration_test() {
             }
         })
         .collect();
-
-    let (mut conf, miner_account) = neon_integration_test_conf();
 
     for spender_addr in spender_addrs.iter() {
         conf.initial_balances.push(InitialBalance {
@@ -4603,6 +4699,8 @@ fn size_overflow_unconfirmed_microblocks_integration_test() {
         .collect();
     let spender_addrs: Vec<PrincipalData> = spender_sks.iter().map(|x| to_addr(x).into()).collect();
 
+    let (mut conf, miner_account) = neon_integration_test_conf();
+
     let txs: Vec<Vec<_>> = spender_sks
         .iter()
         .enumerate()
@@ -4613,6 +4711,7 @@ fn size_overflow_unconfirmed_microblocks_integration_test() {
                     spender_sk,
                     0,
                     1100000,
+                    conf.burnchain.chain_id,
                     "large-0",
                     &giant_contract,
                 )]
@@ -4623,6 +4722,7 @@ fn size_overflow_unconfirmed_microblocks_integration_test() {
                         spender_sk,
                         i as u64,
                         1100000,
+                        conf.burnchain.chain_id,
                         &format!("small-{}", i),
                         &small_contract,
                     );
@@ -4632,8 +4732,6 @@ fn size_overflow_unconfirmed_microblocks_integration_test() {
             }
         })
         .collect();
-
-    let (mut conf, miner_account) = neon_integration_test_conf();
 
     for spender_addr in spender_addrs.iter() {
         conf.initial_balances.push(InitialBalance {
@@ -4810,20 +4908,6 @@ fn size_overflow_unconfirmed_stream_microblocks_integration_test() {
         .collect();
     let spender_addrs: Vec<PrincipalData> = spender_sks.iter().map(|x| to_addr(x).into()).collect();
 
-    let txs: Vec<_> = spender_sks
-        .iter()
-        .map(|spender_sk| {
-            let tx = make_contract_publish_microblock_only(
-                spender_sk,
-                0,
-                600000,
-                "small",
-                &small_contract,
-            );
-            tx
-        })
-        .collect();
-
     let (mut conf, miner_account) = neon_integration_test_conf();
 
     for spender_addr in spender_addrs.iter() {
@@ -4842,6 +4926,21 @@ fn size_overflow_unconfirmed_stream_microblocks_integration_test() {
 
     conf.miner.first_attempt_time_ms = i64::MAX as u64;
     conf.miner.subsequent_attempt_time_ms = i64::MAX as u64;
+
+    let txs: Vec<_> = spender_sks
+        .iter()
+        .map(|spender_sk| {
+            let tx = make_contract_publish_microblock_only(
+                spender_sk,
+                0,
+                600000,
+                conf.burnchain.chain_id,
+                "small",
+                &small_contract,
+            );
+            tx
+        })
+        .collect();
 
     test_observer::spawn();
     test_observer::register_any(&mut conf);
@@ -4997,20 +5096,6 @@ fn size_overflow_unconfirmed_invalid_stream_microblocks_integration_test() {
         .collect();
     let spender_addrs: Vec<PrincipalData> = spender_sks.iter().map(|x| to_addr(x).into()).collect();
 
-    let txs: Vec<Vec<_>> = spender_sks
-        .iter()
-        .map(|spender_sk| {
-            let tx = make_contract_publish_microblock_only(
-                spender_sk,
-                0,
-                1149230,
-                "small",
-                &small_contract,
-            );
-            tx
-        })
-        .collect();
-
     let (mut conf, miner_account) = neon_integration_test_conf();
 
     for spender_addr in spender_addrs.iter() {
@@ -5026,6 +5111,21 @@ fn size_overflow_unconfirmed_invalid_stream_microblocks_integration_test() {
     conf.miner.microblock_attempt_time_ms = 120_000;
     conf.node.max_microblocks = 65536;
     conf.burnchain.max_rbf = 1000000;
+
+    let txs: Vec<Vec<_>> = spender_sks
+        .iter()
+        .map(|spender_sk| {
+            let tx = make_contract_publish_microblock_only(
+                spender_sk,
+                0,
+                1149230,
+                conf.burnchain.chain_id,
+                "small",
+                &small_contract,
+            );
+            tx
+        })
+        .collect();
 
     let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
     epochs[1].block_limit = core::BLOCK_LIMIT_MAINNET_20;
@@ -5160,6 +5260,27 @@ fn runtime_overflow_unconfirmed_microblocks_integration_test() {
     let spender_addrs_c32: Vec<StacksAddress> =
         spender_sks.iter().map(|x| to_addr(x).into()).collect();
 
+    let (mut conf, miner_account) = neon_integration_test_conf();
+
+    for spender_addr in spender_addrs.iter() {
+        conf.initial_balances.push(InitialBalance {
+            address: spender_addr.clone(),
+            amount: 1049230,
+        });
+    }
+
+    conf.node.mine_microblocks = true;
+    conf.node.wait_time_for_microblocks = 0;
+    conf.node.microblock_frequency = 15000;
+    conf.miner.microblock_attempt_time_ms = 120_000;
+
+    conf.miner.first_attempt_time_ms = i64::MAX as u64;
+    conf.miner.subsequent_attempt_time_ms = i64::MAX as u64;
+
+    let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
+    epochs[1].block_limit = core::BLOCK_LIMIT_MAINNET_20;
+    conf.burnchain.epochs = Some(epochs);
+
     let txs: Vec<Vec<_>> = spender_sks
         .iter()
         .enumerate()
@@ -5170,6 +5291,7 @@ fn runtime_overflow_unconfirmed_microblocks_integration_test() {
                     spender_sk,
                     0,
                     1049230,
+                    conf.burnchain.chain_id,
                     &format!("large-{}", ix),
                     &format!("
                         ;; a single one of these transactions consumes over half the runtime budget
@@ -5224,6 +5346,7 @@ fn runtime_overflow_unconfirmed_microblocks_integration_test() {
                         spender_sk,
                         i as u64,
                         210000,
+                        conf.burnchain.chain_id,
                         &format!("small-{}-{}", ix, i),
                         &format!("
                             ;; a single one of these transactions consumes over half the runtime budget
@@ -5275,27 +5398,6 @@ fn runtime_overflow_unconfirmed_microblocks_integration_test() {
             }
         })
         .collect();
-
-    let (mut conf, miner_account) = neon_integration_test_conf();
-
-    for spender_addr in spender_addrs.iter() {
-        conf.initial_balances.push(InitialBalance {
-            address: spender_addr.clone(),
-            amount: 1049230,
-        });
-    }
-
-    conf.node.mine_microblocks = true;
-    conf.node.wait_time_for_microblocks = 0;
-    conf.node.microblock_frequency = 15000;
-    conf.miner.microblock_attempt_time_ms = 120_000;
-
-    conf.miner.first_attempt_time_ms = i64::MAX as u64;
-    conf.miner.subsequent_attempt_time_ms = i64::MAX as u64;
-
-    let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
-    epochs[1].block_limit = core::BLOCK_LIMIT_MAINNET_20;
-    conf.burnchain.epochs = Some(epochs);
 
     test_observer::spawn();
     test_observer::register_any(&mut conf);
@@ -5514,7 +5616,14 @@ fn block_replay_integration_test() {
     assert_eq!(account.nonce, 0);
 
     let recipient = StacksAddress::from_string(ADDR_4).unwrap();
-    let tx = make_stacks_transfer(&spender_sk, 0, 1000, &recipient.into(), 1000);
+    let tx = make_stacks_transfer(
+        &spender_sk,
+        0,
+        1000,
+        conf.burnchain.chain_id,
+        &recipient.into(),
+        1000,
+    );
     submit_tx(&http_origin, &tx);
 
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
@@ -5652,9 +5761,30 @@ fn cost_voting_integration() {
     assert_eq!(res.nonce, 0);
 
     let transactions = vec![
-        make_contract_publish(&spender_sk, 0, 1000, "cost-definer", cost_definer_src),
-        make_contract_publish(&spender_sk, 1, 1000, "caller", caller_src),
-        make_contract_publish(&spender_sk, 2, 1000, "voter", power_vote_src),
+        make_contract_publish(
+            &spender_sk,
+            0,
+            1000,
+            conf.burnchain.chain_id,
+            "cost-definer",
+            cost_definer_src,
+        ),
+        make_contract_publish(
+            &spender_sk,
+            1,
+            1000,
+            conf.burnchain.chain_id,
+            "caller",
+            caller_src,
+        ),
+        make_contract_publish(
+            &spender_sk,
+            2,
+            1000,
+            conf.burnchain.chain_id,
+            "voter",
+            power_vote_src,
+        ),
     ];
 
     for tx in transactions.into_iter() {
@@ -5668,6 +5798,7 @@ fn cost_voting_integration() {
         &spender_sk,
         3,
         1000,
+        conf.burnchain.chain_id,
         &spender_addr,
         "voter",
         "propose-vote-confirm",
@@ -5678,6 +5809,7 @@ fn cost_voting_integration() {
         &spender_sk,
         4,
         1000,
+        conf.burnchain.chain_id,
         &spender_addr,
         "caller",
         "execute-2",
@@ -5729,6 +5861,7 @@ fn cost_voting_integration() {
         &spender_sk,
         5,
         1000,
+        conf.burnchain.chain_id,
         &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
         "cost-voting",
         "confirm-miners",
@@ -5779,6 +5912,7 @@ fn cost_voting_integration() {
         &spender_sk,
         6,
         1000,
+        conf.burnchain.chain_id,
         &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
         "cost-voting",
         "confirm-miners",
@@ -5823,6 +5957,7 @@ fn cost_voting_integration() {
         &spender_sk,
         7,
         1000,
+        conf.burnchain.chain_id,
         &spender_addr,
         "caller",
         "execute-2",
@@ -5884,11 +6019,6 @@ fn mining_events_integration_test() {
     let spender_sk_2 = StacksPrivateKey::from_hex(SK_2).unwrap();
     let addr_2 = to_addr(&spender_sk_2);
 
-    let tx = make_contract_publish(&spender_sk, 0, 600000, "small", &small_contract);
-    let tx_2 = make_contract_publish(&spender_sk, 1, 610000, "small", &small_contract);
-    let mb_tx =
-        make_contract_publish_microblock_only(&spender_sk_2, 0, 620000, "small", &small_contract);
-
     let (mut conf, _) = neon_integration_test_conf();
 
     conf.initial_balances.push(InitialBalance {
@@ -5906,6 +6036,31 @@ fn mining_events_integration_test() {
 
     conf.miner.first_attempt_time_ms = i64::MAX as u64;
     conf.miner.subsequent_attempt_time_ms = i64::MAX as u64;
+
+    let tx = make_contract_publish(
+        &spender_sk,
+        0,
+        600000,
+        conf.burnchain.chain_id,
+        "small",
+        &small_contract,
+    );
+    let tx_2 = make_contract_publish(
+        &spender_sk,
+        1,
+        610000,
+        conf.burnchain.chain_id,
+        "small",
+        &small_contract,
+    );
+    let mb_tx = make_contract_publish_microblock_only(
+        &spender_sk_2,
+        0,
+        620000,
+        conf.burnchain.chain_id,
+        "small",
+        &small_contract,
+    );
 
     test_observer::spawn();
     test_observer::register(
@@ -6146,15 +6301,6 @@ fn block_limit_hit_integration_test() {
     let third_spender_sk = StacksPrivateKey::new();
     let third_spender_addr: PrincipalData = to_addr(&third_spender_sk).into();
 
-    // included in first block
-    let tx = make_contract_publish(&spender_sk, 0, 555_000, "over", &oversize_contract_src);
-    // contract limit hit; included in second block
-    let tx_2 = make_contract_publish(&spender_sk, 1, 555_000, "over-2", &oversize_contract_src);
-    // skipped over since contract limit was hit; included in second block
-    let tx_3 = make_contract_publish(&second_spender_sk, 0, 150_000, "max", &max_contract_src);
-    // included in first block
-    let tx_4 = make_stacks_transfer(&third_spender_sk, 0, 180, &PrincipalData::from(addr), 100);
-
     let (mut conf, _miner_account) = neon_integration_test_conf();
 
     conf.initial_balances.push(InitialBalance {
@@ -6176,6 +6322,43 @@ fn block_limit_hit_integration_test() {
 
     conf.miner.first_attempt_time_ms = i64::MAX as u64;
     conf.miner.subsequent_attempt_time_ms = i64::MAX as u64;
+
+    // included in first block
+    let tx = make_contract_publish(
+        &spender_sk,
+        0,
+        555_000,
+        conf.burnchain.chain_id,
+        "over",
+        &oversize_contract_src,
+    );
+    // contract limit hit; included in second block
+    let tx_2 = make_contract_publish(
+        &spender_sk,
+        1,
+        555_000,
+        conf.burnchain.chain_id,
+        "over-2",
+        &oversize_contract_src,
+    );
+    // skipped over since contract limit was hit; included in second block
+    let tx_3 = make_contract_publish(
+        &second_spender_sk,
+        0,
+        150_000,
+        conf.burnchain.chain_id,
+        "max",
+        &max_contract_src,
+    );
+    // included in first block
+    let tx_4 = make_stacks_transfer(
+        &third_spender_sk,
+        0,
+        180,
+        conf.burnchain.chain_id,
+        &PrincipalData::from(addr),
+        100,
+    );
 
     test_observer::spawn();
     test_observer::register_any(&mut conf);
@@ -6330,39 +6513,6 @@ fn microblock_limit_hit_integration_test() {
     let third_spender_sk = StacksPrivateKey::new();
     let third_spender_addr: PrincipalData = to_addr(&third_spender_sk).into();
 
-    // included in the first block
-    let tx = make_contract_publish_microblock_only(
-        &spender_sk,
-        0,
-        555_000,
-        "over",
-        &oversize_contract_src,
-    );
-    // contract limit hit; included in second block
-    let tx_2 = make_contract_publish_microblock_only(
-        &spender_sk,
-        1,
-        555_000,
-        "over-2",
-        &oversize_contract_src,
-    );
-    // skipped over since contract limit was hit; included in second block
-    let tx_3 = make_contract_publish_microblock_only(
-        &second_spender_sk,
-        0,
-        150_000,
-        "max",
-        &max_contract_src,
-    );
-    // included in first block
-    let tx_4 = make_stacks_transfer_mblock_only(
-        &third_spender_sk,
-        0,
-        180,
-        &PrincipalData::from(addr),
-        100,
-    );
-
     let (mut conf, _) = neon_integration_test_conf();
 
     conf.initial_balances.push(InitialBalance {
@@ -6427,6 +6577,43 @@ fn microblock_limit_hit_integration_test() {
         },
     ]);
     conf.burnchain.pox_2_activation = Some(10_003);
+
+    // included in the first block
+    let tx = make_contract_publish_microblock_only(
+        &spender_sk,
+        0,
+        555_000,
+        conf.burnchain.chain_id,
+        "over",
+        &oversize_contract_src,
+    );
+    // contract limit hit; included in second block
+    let tx_2 = make_contract_publish_microblock_only(
+        &spender_sk,
+        1,
+        555_000,
+        conf.burnchain.chain_id,
+        "over-2",
+        &oversize_contract_src,
+    );
+    // skipped over since contract limit was hit; included in second block
+    let tx_3 = make_contract_publish_microblock_only(
+        &second_spender_sk,
+        0,
+        150_000,
+        conf.burnchain.chain_id,
+        "max",
+        &max_contract_src,
+    );
+    // included in first block
+    let tx_4 = make_stacks_transfer_mblock_only(
+        &third_spender_sk,
+        0,
+        180,
+        conf.burnchain.chain_id,
+        &PrincipalData::from(addr),
+        100,
+    );
 
     test_observer::spawn();
     test_observer::register_any(&mut conf);
@@ -6569,10 +6756,6 @@ fn block_large_tx_integration_test() {
     let spender_sk = StacksPrivateKey::new();
     let spender_addr = to_addr(&spender_sk);
 
-    // higher fee for tx means it will get mined first
-    let tx = make_contract_publish(&spender_sk, 0, 671_000, "small", &small_contract_src);
-    let tx_2 = make_contract_publish(&spender_sk, 1, 670_000, "over", &oversize_contract_src);
-
     let (mut conf, miner_account) = neon_integration_test_conf();
     test_observer::spawn();
     test_observer::register_any(&mut conf);
@@ -6592,6 +6775,24 @@ fn block_large_tx_integration_test() {
 
     conf.miner.first_attempt_time_ms = i64::MAX as u64;
     conf.miner.subsequent_attempt_time_ms = i64::MAX as u64;
+
+    // higher fee for tx means it will get mined first
+    let tx = make_contract_publish(
+        &spender_sk,
+        0,
+        671_000,
+        conf.burnchain.chain_id,
+        "small",
+        &small_contract_src,
+    );
+    let tx_2 = make_contract_publish(
+        &spender_sk,
+        1,
+        670_000,
+        conf.burnchain.chain_id,
+        "over",
+        &oversize_contract_src,
+    );
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
@@ -6691,21 +6892,6 @@ fn microblock_large_tx_integration_test_FLAKY() {
     let spender_sk = StacksPrivateKey::new();
     let addr = to_addr(&spender_sk);
 
-    let tx = make_contract_publish_microblock_only(
-        &spender_sk,
-        0,
-        150_000,
-        "small",
-        &small_contract_src,
-    );
-    let tx_2 = make_contract_publish_microblock_only(
-        &spender_sk,
-        1,
-        670_000,
-        "over",
-        &oversize_contract_src,
-    );
-
     let (mut conf, miner_account) = neon_integration_test_conf();
 
     test_observer::spawn();
@@ -6727,6 +6913,23 @@ fn microblock_large_tx_integration_test_FLAKY() {
     conf.node.wait_time_for_microblocks = 0;
     conf.burnchain.max_rbf = 10_000_000;
     conf.node.wait_time_for_blocks = 1_000;
+
+    let tx = make_contract_publish_microblock_only(
+        &spender_sk,
+        0,
+        150_000,
+        conf.burnchain.chain_id,
+        "small",
+        &small_contract_src,
+    );
+    let tx_2 = make_contract_publish_microblock_only(
+        &spender_sk,
+        1,
+        670_000,
+        conf.burnchain.chain_id,
+        "over",
+        &oversize_contract_src,
+    );
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
@@ -6981,6 +7184,7 @@ fn pox_integration_test() {
         &spender_sk,
         0,
         260,
+        conf.burnchain.chain_id,
         &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
         "pox",
         "stack-stx",
@@ -7096,6 +7300,7 @@ fn pox_integration_test() {
         &spender_2_sk,
         0,
         260,
+        conf.burnchain.chain_id,
         &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
         "pox",
         "stack-stx",
@@ -7119,6 +7324,7 @@ fn pox_integration_test() {
         &spender_3_sk,
         0,
         260,
+        conf.burnchain.chain_id,
         &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
         "pox",
         "stack-stx",
@@ -7461,6 +7667,7 @@ fn atlas_integration_test() {
             &user_1,
             0,
             260,
+            conf_bootstrap_node.burnchain.chain_id,
             &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
             "bns",
             "namespace-preorder",
@@ -7520,6 +7727,7 @@ fn atlas_integration_test() {
             &user_1,
             1,
             1000,
+            conf_bootstrap_node.burnchain.chain_id,
             &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
             "bns",
             "namespace-reveal",
@@ -7582,6 +7790,7 @@ fn atlas_integration_test() {
             &user_1,
             2,
             500,
+            conf_bootstrap_node.burnchain.chain_id,
             &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
             "bns",
             "name-import",
@@ -7699,6 +7908,7 @@ fn atlas_integration_test() {
     };
 
     let burnchain_config = Burnchain::regtest(&conf_follower_node.get_burn_db_path());
+    let chain_id = conf_follower_node.burnchain.chain_id;
     let http_origin = format!("http://{}", &conf_follower_node.node.rpc_bind);
 
     eprintln!("Chain bootstrapped...");
@@ -7777,6 +7987,7 @@ fn atlas_integration_test() {
             &user_1,
             2 + i,
             500,
+            chain_id,
             &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
             "bns",
             "name-import",
@@ -8245,6 +8456,7 @@ fn atlas_stress_integration_test() {
         &user_1,
         0,
         1000,
+        conf_bootstrap_node.burnchain.chain_id,
         &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
         "bns",
         "namespace-preorder",
@@ -8304,6 +8516,7 @@ fn atlas_stress_integration_test() {
         &user_1,
         1,
         1000,
+        conf_bootstrap_node.burnchain.chain_id,
         &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
         "bns",
         "namespace-reveal",
@@ -8392,6 +8605,7 @@ fn atlas_stress_integration_test() {
                 &user_1,
                 2 + (batch_size * i + j) as u64,
                 1000,
+                conf_bootstrap_node.burnchain.chain_id,
                 &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
                 "bns",
                 "name-import",
@@ -8461,6 +8675,7 @@ fn atlas_stress_integration_test() {
         &user_1,
         2 + (batch_size as u64) * (batches as u64),
         1000,
+        conf_bootstrap_node.burnchain.chain_id,
         &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
         "bns",
         "namespace-ready",
@@ -8521,6 +8736,7 @@ fn atlas_stress_integration_test() {
                 &users[batches * batch_size + j],
                 0,
                 1000,
+                conf_bootstrap_node.burnchain.chain_id,
                 &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
                 "bns",
                 "name-preorder",
@@ -8580,6 +8796,7 @@ fn atlas_stress_integration_test() {
                 &users[batches * batch_size + j],
                 1,
                 1000,
+                conf_bootstrap_node.burnchain.chain_id,
                 &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
                 "bns",
                 "name-register",
@@ -8643,6 +8860,7 @@ fn atlas_stress_integration_test() {
                 &users[batches * batch_size + j],
                 2,
                 1000,
+                conf_bootstrap_node.burnchain.chain_id,
                 &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
                 "bns",
                 "name-update",
@@ -8705,6 +8923,7 @@ fn atlas_stress_integration_test() {
                 &users[batches * batch_size + j],
                 3,
                 1000,
+                conf_bootstrap_node.burnchain.chain_id,
                 &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
                 "bns",
                 "name-renewal",
@@ -8960,6 +9179,7 @@ fn fuzzed_median_fee_rate_estimation_test(window_size: u64, expected_final_value
             &spender_sk,
             0,
             110000,
+            conf.burnchain.chain_id,
             "increment-contract",
             &max_contract_src,
         ),
@@ -8977,6 +9197,7 @@ fn fuzzed_median_fee_rate_estimation_test(window_size: u64, expected_final_value
                 &spender_sk,
                 i,          // nonce
                 i * 100000, // payment
+                conf.burnchain.chain_id,
                 &spender_addr.into(),
                 "increment-contract",
                 "increment-many",
@@ -9172,15 +9393,27 @@ fn use_latest_tip_integration_test() {
 
     // Make microblock with two transactions.
     let recipient = StacksAddress::from_string(ADDR_4).unwrap();
-    let transfer_tx =
-        make_stacks_transfer_mblock_only(&spender_sk, 0, 1000, &recipient.into(), 1000);
+    let transfer_tx = make_stacks_transfer_mblock_only(
+        &spender_sk,
+        0,
+        1000,
+        conf.burnchain.chain_id,
+        &recipient.into(),
+        1000,
+    );
 
     let caller_src = "
      (define-public (execute)
         (ok stx-liquid-supply))
      ";
-    let publish_tx =
-        make_contract_publish_microblock_only(&spender_sk, 1, 1000, "caller", caller_src);
+    let publish_tx = make_contract_publish_microblock_only(
+        &spender_sk,
+        1,
+        1000,
+        conf.burnchain.chain_id,
+        "caller",
+        caller_src,
+    );
 
     let tx_1 = StacksTransaction::consensus_deserialize(&mut &transfer_tx[..]).unwrap();
     let tx_2 = StacksTransaction::consensus_deserialize(&mut &publish_tx[..]).unwrap();
@@ -9527,6 +9760,7 @@ fn test_problematic_txs_are_not_stored() {
         &spender_sk_1,
         0,
         (tx_edge_body.len() * 100) as u64,
+        conf.burnchain.chain_id,
         "test-edge",
         &tx_edge_body,
     );
@@ -9544,6 +9778,7 @@ fn test_problematic_txs_are_not_stored() {
         &spender_sk_2,
         0,
         (tx_exceeds_body.len() * 100) as u64,
+        conf.burnchain.chain_id,
         "test-exceeds",
         &tx_exceeds_body,
     );
@@ -9561,6 +9796,7 @@ fn test_problematic_txs_are_not_stored() {
         &spender_sk_3,
         0,
         (tx_high_body.len() * 100) as u64,
+        conf.burnchain.chain_id,
         "test-high",
         &tx_high_body,
     );
@@ -9770,6 +10006,7 @@ fn test_problematic_blocks_are_not_mined() {
         &spender_sk_2,
         0,
         (tx_exceeds_body.len() * 100) as u64,
+        conf.burnchain.chain_id,
         "test-exceeds",
         &tx_exceeds_body,
     );
@@ -9787,6 +10024,7 @@ fn test_problematic_blocks_are_not_mined() {
         &spender_sk_3,
         0,
         (tx_high_body.len() * 100) as u64,
+        conf.burnchain.chain_id,
         "test-high",
         &tx_high_body,
     );
@@ -10123,6 +10361,7 @@ fn test_problematic_blocks_are_not_relayed_or_stored() {
         &spender_sk_2,
         0,
         (tx_exceeds_body.len() * 100) as u64,
+        conf.burnchain.chain_id,
         "test-exceeds",
         &tx_exceeds_body,
     );
@@ -10139,6 +10378,7 @@ fn test_problematic_blocks_are_not_relayed_or_stored() {
         &spender_sk_3,
         0,
         (tx_high_body.len() * 100) as u64,
+        conf.burnchain.chain_id,
         "test-high",
         &tx_high_body,
     );
@@ -10518,6 +10758,7 @@ fn test_problematic_microblocks_are_not_mined() {
         &spender_sk_2,
         0,
         (tx_exceeds_body.len() * 100) as u64,
+        conf.burnchain.chain_id,
         "test-exceeds",
         &tx_exceeds_body,
     );
@@ -10536,6 +10777,7 @@ fn test_problematic_microblocks_are_not_mined() {
         &spender_sk_3,
         0,
         (tx_high_body.len() * 100) as u64,
+        conf.burnchain.chain_id,
         "test-high",
         &tx_high_body,
     );
@@ -10898,6 +11140,7 @@ fn test_problematic_microblocks_are_not_relayed_or_stored() {
         &spender_sk_2,
         0,
         (tx_exceeds_body.len() * 100) as u64,
+        conf.burnchain.chain_id,
         "test-exceeds",
         &tx_exceeds_body,
     );
@@ -10916,6 +11159,7 @@ fn test_problematic_microblocks_are_not_relayed_or_stored() {
         &spender_sk_3,
         0,
         (tx_high_body.len() * 100) as u64,
+        conf.burnchain.chain_id,
         "test-high",
         &tx_high_body,
     );
@@ -11389,6 +11633,7 @@ enum TxChainStrategy {
 pub fn make_expensive_tx_chain(
     privk: &StacksPrivateKey,
     fee_plus: u64,
+    chain_id: u32,
     mblock_only: bool,
 ) -> Vec<Vec<u8>> {
     let addr = to_addr(&privk);
@@ -11403,6 +11648,7 @@ pub fn make_expensive_tx_chain(
                 privk,
                 nonce,
                 1049230 + nonce + fee_plus,
+                chain_id,
                 &contract_name,
                 &make_runtime_sized_contract(256, nonce, &addr_prefix),
             )
@@ -11411,6 +11657,7 @@ pub fn make_expensive_tx_chain(
                 privk,
                 nonce,
                 1049230 + nonce + fee_plus,
+                chain_id,
                 &contract_name,
                 &make_runtime_sized_contract(256, nonce, &addr_prefix),
             )
@@ -11423,6 +11670,7 @@ pub fn make_expensive_tx_chain(
 pub fn make_random_tx_chain(
     privk: &StacksPrivateKey,
     fee_plus: u64,
+    chain_id: u32,
     mblock_only: bool,
 ) -> Vec<Vec<u8>> {
     let addr = to_addr(&privk);
@@ -11448,6 +11696,7 @@ pub fn make_random_tx_chain(
                 privk,
                 nonce,
                 1049230 + nonce + fee_plus + random_extra_fee,
+                chain_id,
                 &contract_name,
                 &make_runtime_sized_contract(random_iters, nonce, &addr_prefix),
             )
@@ -11456,6 +11705,7 @@ pub fn make_random_tx_chain(
                 privk,
                 nonce,
                 1049230 + nonce + fee_plus + random_extra_fee,
+                chain_id,
                 &contract_name,
                 &make_runtime_sized_contract(random_iters, nonce, &addr_prefix),
             )
@@ -11465,7 +11715,7 @@ pub fn make_random_tx_chain(
     chain
 }
 
-fn make_mblock_tx_chain(privk: &StacksPrivateKey, fee_plus: u64) -> Vec<Vec<u8>> {
+fn make_mblock_tx_chain(privk: &StacksPrivateKey, fee_plus: u64, chain_id: u32) -> Vec<Vec<u8>> {
     let addr = to_addr(&privk);
     let mut chain = vec![];
 
@@ -11488,6 +11738,7 @@ fn make_mblock_tx_chain(privk: &StacksPrivateKey, fee_plus: u64) -> Vec<Vec<u8>>
             privk,
             nonce,
             1049230 + nonce + fee_plus + random_extra_fee,
+            chain_id,
             &contract_name,
             &make_runtime_sized_contract(1, nonce, &addr_prefix),
         );
@@ -11546,6 +11797,8 @@ fn test_competing_miners_build_on_same_chain(
 
         confs.push(conf);
     }
+
+    let chain_id = confs[0].burnchain.chain_id;
 
     let node_privkey_1 = Secp256k1PrivateKey::from_seed(&confs[0].node.local_peer_seed);
     for i in 1..num_miners {
@@ -11674,8 +11927,12 @@ fn test_competing_miners_build_on_same_chain(
         .iter()
         .enumerate()
         .map(|(i, pk)| match chain_strategy {
-            TxChainStrategy::Expensive => make_expensive_tx_chain(pk, (25 * i) as u64, mblock_only),
-            TxChainStrategy::Random => make_random_tx_chain(pk, (25 * i) as u64, mblock_only),
+            TxChainStrategy::Expensive => {
+                make_expensive_tx_chain(pk, (25 * i) as u64, chain_id, mblock_only)
+            }
+            TxChainStrategy::Random => {
+                make_random_tx_chain(pk, (25 * i) as u64, chain_id, mblock_only)
+            }
         })
         .collect();
     let mut cnt = 0;
@@ -11755,6 +12012,7 @@ fn test_competing_miners_build_anchor_blocks_and_microblocks_on_same_chain() {
 #[ignore]
 fn microblock_miner_multiple_attempts() {
     let (mut conf, miner_account) = neon_integration_test_conf();
+    let chain_id = conf.burnchain.chain_id;
 
     conf.node.mine_microblocks = true;
     conf.miner.microblock_attempt_time_ms = 2_000;
@@ -11823,7 +12081,7 @@ fn microblock_miner_multiple_attempts() {
     let all_txs: Vec<_> = privks
         .iter()
         .enumerate()
-        .map(|(i, pk)| make_mblock_tx_chain(pk, (25 * i) as u64))
+        .map(|(i, pk)| make_mblock_tx_chain(pk, (25 * i) as u64, chain_id))
         .collect();
 
     let _handle = thread::spawn(move || {
@@ -11923,6 +12181,7 @@ fn min_txs() {
             &spender_sk,
             i as u64,
             1000,
+            conf.burnchain.chain_id,
             &format!("test-publish-{}", &i),
             &code,
         );
@@ -12026,6 +12285,7 @@ fn filter_txs_by_type() {
             &spender_sk,
             i as u64,
             1000,
+            conf.burnchain.chain_id,
             &format!("test-publish-{}", &i),
             &code,
         );
@@ -12136,6 +12396,7 @@ fn filter_txs_by_origin() {
             &spender_sk,
             i as u64,
             1000,
+            conf.burnchain.chain_id,
             &format!("test-publish-{}", &i),
             &code,
         );
