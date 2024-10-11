@@ -3958,6 +3958,338 @@ fn follower_bootup_across_multiple_cycles() {
     follower_thread.join().unwrap();
 }
 
+/// Boot up a node and a follower with a non-default chain id
+#[test]
+#[ignore]
+fn follower_bootup_custom_chain_id() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
+    naka_conf.burnchain.chain_id = 0x87654321;
+    let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
+    naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
+    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_signer_sk = Secp256k1PrivateKey::new();
+    let sender_signer_addr = tests::to_addr(&sender_signer_sk);
+    let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
+    let tenure_count = 5;
+    let inter_blocks_per_tenure = 9;
+    // setup sender + recipient for some test stx transfers
+    // these are necessary for the interim blocks to get mined at all
+    let sender_addr = tests::to_addr(&sender_sk);
+    let send_amt = 100;
+    let send_fee = 180;
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_addr.clone()).to_string(),
+        (send_amt + send_fee) * tenure_count * inter_blocks_per_tenure,
+    );
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
+    );
+    let recipient = PrincipalData::from(StacksAddress::burn_address(false));
+    let stacker_sk = setup_stacker(&mut naka_conf);
+
+    test_observer::spawn();
+    test_observer::register_any(&mut naka_conf);
+
+    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .expect("Failed starting bitcoind");
+    let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
+    btc_regtest_controller.bootstrap_chain(201);
+
+    let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
+    let run_loop_stopper = run_loop.get_termination_switch();
+    let Counters {
+        blocks_processed,
+        naka_submitted_commits: commits_submitted,
+        naka_proposed_blocks: proposals_submitted,
+        ..
+    } = run_loop.counters();
+
+    let coord_channel = run_loop.coordinator_channels();
+
+    let run_loop_thread = thread::Builder::new()
+        .name("run_loop".into())
+        .spawn(move || run_loop.start(None, 0))
+        .unwrap();
+    wait_for_runloop(&blocks_processed);
+    boot_to_epoch_3(
+        &naka_conf,
+        &blocks_processed,
+        &[stacker_sk],
+        &[sender_signer_sk],
+        &mut Some(&mut signers),
+        &mut btc_regtest_controller,
+    );
+
+    info!("Bootstrapped to Epoch-3.0 boundary, starting nakamoto miner");
+
+    let burnchain = naka_conf.get_burnchain();
+    let sortdb = burnchain.open_sortition_db(true).unwrap();
+    let (chainstate, _) = StacksChainState::open(
+        naka_conf.is_mainnet(),
+        naka_conf.burnchain.chain_id,
+        &naka_conf.get_chainstate_path_str(),
+        None,
+    )
+    .unwrap();
+
+    let block_height_pre_3_0 =
+        NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
+            .unwrap()
+            .unwrap()
+            .stacks_block_height;
+
+    info!("Nakamoto miner started...");
+    blind_signer(&naka_conf, &signers, proposals_submitted);
+
+    wait_for_first_naka_block_commit(60, &commits_submitted);
+
+    let mut follower_conf = naka_conf.clone();
+    follower_conf.node.miner = false;
+    follower_conf.events_observers.clear();
+    follower_conf.node.working_dir = format!("{}-follower", &naka_conf.node.working_dir);
+    follower_conf.node.seed = vec![0x01; 32];
+    follower_conf.node.local_peer_seed = vec![0x02; 32];
+
+    let rpc_port = gen_random_port();
+    let p2p_port = gen_random_port();
+
+    let localhost = "127.0.0.1";
+    follower_conf.node.rpc_bind = format!("{localhost}:{rpc_port}");
+    follower_conf.node.p2p_bind = format!("{localhost}:{p2p_port}");
+    follower_conf.node.data_url = format!("http://{localhost}:{rpc_port}");
+    follower_conf.node.p2p_address = format!("{localhost}:{p2p_port}");
+    follower_conf.node.pox_sync_sample_secs = 30;
+
+    let node_info = get_chain_info(&naka_conf);
+    follower_conf.node.add_bootstrap_node(
+        &format!(
+            "{}@{}",
+            &node_info.node_public_key.unwrap(),
+            naka_conf.node.p2p_bind
+        ),
+        naka_conf.burnchain.chain_id,
+        PEER_VERSION_TESTNET,
+    );
+
+    let mut follower_run_loop = boot_nakamoto::BootRunLoop::new(follower_conf.clone()).unwrap();
+    let follower_run_loop_stopper = follower_run_loop.get_termination_switch();
+    let follower_coord_channel = follower_run_loop.coordinator_channels();
+
+    debug!(
+        "Booting follower-thread ({},{})",
+        &follower_conf.node.p2p_bind, &follower_conf.node.rpc_bind
+    );
+    debug!(
+        "Booting follower-thread: neighbors = {:?}",
+        &follower_conf.node.bootstrap_node
+    );
+
+    // spawn a follower thread
+    let follower_thread = thread::Builder::new()
+        .name("follower-thread".into())
+        .spawn(move || follower_run_loop.start(None, 0))
+        .unwrap();
+
+    debug!("Booted follower-thread");
+
+    // Mine `tenure_count` nakamoto tenures
+    for tenure_ix in 0..tenure_count {
+        debug!("follower_bootup: Miner runs tenure {}", tenure_ix);
+        let commits_before = commits_submitted.load(Ordering::SeqCst);
+        next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
+            .unwrap();
+
+        let mut last_tip = BlockHeaderHash([0x00; 32]);
+        let mut last_nonce = None;
+
+        debug!(
+            "follower_bootup: Miner mines interum blocks for tenure {}",
+            tenure_ix
+        );
+
+        // mine the interim blocks
+        for _ in 0..inter_blocks_per_tenure {
+            let blocks_processed_before = coord_channel
+                .lock()
+                .expect("Mutex poisoned")
+                .get_stacks_blocks_processed();
+
+            let account = loop {
+                // submit a tx so that the miner will mine an extra block
+                let Ok(account) = get_account_result(&http_origin, &sender_addr) else {
+                    debug!("follower_bootup: Failed to load miner account");
+                    thread::sleep(Duration::from_millis(100));
+                    continue;
+                };
+                break account;
+            };
+
+            let sender_nonce = account
+                .nonce
+                .max(last_nonce.as_ref().map(|ln| *ln + 1).unwrap_or(0));
+            let transfer_tx = make_stacks_transfer(
+                &sender_sk,
+                sender_nonce,
+                send_fee,
+                naka_conf.burnchain.chain_id,
+                &recipient,
+                send_amt,
+            );
+            submit_tx(&http_origin, &transfer_tx);
+
+            last_nonce = Some(sender_nonce);
+
+            let tx = StacksTransaction::consensus_deserialize(&mut &transfer_tx[..]).unwrap();
+
+            debug!("follower_bootup: Miner account: {:?}", &account);
+            debug!("follower_bootup: Miner sent {}: {:?}", &tx.txid(), &tx);
+
+            let now = get_epoch_time_secs();
+            while get_epoch_time_secs() < now + 10 {
+                let Ok(info) = get_chain_info_result(&naka_conf) else {
+                    debug!("follower_bootup: Could not get miner chain info");
+                    thread::sleep(Duration::from_millis(100));
+                    continue;
+                };
+
+                let Ok(follower_info) = get_chain_info_result(&follower_conf) else {
+                    debug!("follower_bootup: Could not get follower chain info");
+                    thread::sleep(Duration::from_millis(100));
+                    continue;
+                };
+
+                if follower_info.burn_block_height < info.burn_block_height {
+                    debug!("follower_bootup: Follower is behind miner's burnchain view");
+                    thread::sleep(Duration::from_millis(100));
+                    continue;
+                }
+
+                if info.stacks_tip == last_tip {
+                    debug!(
+                        "follower_bootup: Miner stacks tip hasn't changed ({})",
+                        &info.stacks_tip
+                    );
+                    thread::sleep(Duration::from_millis(100));
+                    continue;
+                }
+
+                let blocks_processed = coord_channel
+                    .lock()
+                    .expect("Mutex poisoned")
+                    .get_stacks_blocks_processed();
+
+                if blocks_processed > blocks_processed_before {
+                    break;
+                }
+
+                debug!("follower_bootup: No blocks processed yet");
+                thread::sleep(Duration::from_millis(100));
+            }
+
+            // compare chain tips
+            loop {
+                let Ok(info) = get_chain_info_result(&naka_conf) else {
+                    debug!("follower_bootup: failed to load tip info");
+                    thread::sleep(Duration::from_millis(100));
+                    continue;
+                };
+
+                let Ok(follower_info) = get_chain_info_result(&follower_conf) else {
+                    debug!("follower_bootup: Could not get follower chain info");
+                    thread::sleep(Duration::from_millis(100));
+                    continue;
+                };
+                if info.stacks_tip == follower_info.stacks_tip {
+                    debug!(
+                        "follower_bootup: Follower has advanced to miner's tip {}",
+                        &info.stacks_tip
+                    );
+                } else {
+                    debug!(
+                        "follower_bootup: Follower has NOT advanced to miner's tip: {} != {}",
+                        &info.stacks_tip, follower_info.stacks_tip
+                    );
+                }
+
+                last_tip = info.stacks_tip;
+                break;
+            }
+        }
+
+        debug!("follower_bootup: Wait for next block-commit");
+        let start_time = Instant::now();
+        while commits_submitted.load(Ordering::SeqCst) <= commits_before {
+            if start_time.elapsed() >= Duration::from_secs(20) {
+                panic!("Timed out waiting for block-commit");
+            }
+            thread::sleep(Duration::from_millis(100));
+        }
+        debug!("follower_bootup: Block commit submitted");
+    }
+
+    // load the chain tip, and assert that it is a nakamoto block and at least 30 blocks have advanced in epoch 3
+    let tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
+        .unwrap()
+        .unwrap();
+    info!(
+        "Latest tip";
+        "height" => tip.stacks_block_height,
+        "is_nakamoto" => tip.anchored_header.as_stacks_nakamoto().is_some(),
+    );
+
+    assert!(tip.anchored_header.as_stacks_nakamoto().is_some());
+    assert_eq!(
+        tip.stacks_block_height,
+        block_height_pre_3_0 + ((inter_blocks_per_tenure + 1) * tenure_count),
+        "Should have mined (1 + interim_blocks_per_tenure) * tenure_count nakamoto blocks"
+    );
+
+    // wait for follower to reach the chain tip
+    loop {
+        sleep_ms(1000);
+        let follower_node_info = get_chain_info(&follower_conf);
+
+        info!(
+            "Follower tip is now {}/{}",
+            &follower_node_info.stacks_tip_consensus_hash, &follower_node_info.stacks_tip
+        );
+        if follower_node_info.stacks_tip_consensus_hash == tip.consensus_hash
+            && follower_node_info.stacks_tip == tip.anchored_header.block_hash()
+        {
+            break;
+        }
+    }
+
+    // Verify both nodes have the correct chain id
+    let miner_info = get_chain_info(&naka_conf);
+    assert_eq!(miner_info.network_id, 0x87654321);
+
+    let follower_info = get_chain_info(&follower_conf);
+    assert_eq!(follower_info.network_id, 0x87654321);
+
+    coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .stop_chains_coordinator();
+    run_loop_stopper.store(false, Ordering::SeqCst);
+
+    follower_coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .stop_chains_coordinator();
+    follower_run_loop_stopper.store(false, Ordering::SeqCst);
+
+    run_loop_thread.join().unwrap();
+    follower_thread.join().unwrap();
+}
+
 #[test]
 #[ignore]
 /// Test out various burn operations being processed in Nakamoto.
