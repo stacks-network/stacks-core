@@ -25,7 +25,7 @@ use {reqwest, serde_json};
 
 use super::bitcoin_regtest::BitcoinCoreController;
 use crate::burnchains::BurnchainController;
-use crate::config::{EventKeyType, EventObserverConfig, InitialBalance};
+use crate::config::{EventKeyType, InitialBalance};
 use crate::tests::neon_integrations::{
     neon_integration_test_conf, next_block_and_wait, submit_tx, test_observer, wait_for_runloop,
 };

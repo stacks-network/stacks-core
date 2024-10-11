@@ -21,7 +21,7 @@ use stacks::core;
 use stacks_common::consts::STACKS_EPOCH_MAX;
 use stacks_common::types::chainstate::StacksPrivateKey;
 
-use crate::config::{EventKeyType, EventObserverConfig, InitialBalance};
+use crate::config::InitialBalance;
 use crate::tests::bitcoin_regtest::BitcoinCoreController;
 use crate::tests::nakamoto_integrations::wait_for;
 use crate::tests::neon_integrations::{

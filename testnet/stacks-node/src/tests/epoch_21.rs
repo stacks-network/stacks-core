@@ -35,7 +35,7 @@ use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 use stacks_common::util::sleep_ms;
 
 use crate::burnchains::bitcoin_regtest_controller::UTXO;
-use crate::config::{Config, EventKeyType, EventObserverConfig, InitialBalance};
+use crate::config::{Config, InitialBalance};
 use crate::neon::RunLoopCounter;
 use crate::operations::BurnchainOpSigner;
 use crate::stacks_common::address::AddressHashMode;

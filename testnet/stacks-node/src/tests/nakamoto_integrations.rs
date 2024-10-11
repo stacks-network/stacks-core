@@ -91,7 +91,7 @@ use stacks_signer::chainstate::{ProposalEvalConfig, SortitionsView};
 use stacks_signer::signerdb::{BlockInfo, BlockState, ExtraBlockInfo, SignerDb};
 
 use super::bitcoin_regtest::BitcoinCoreController;
-use crate::config::{EventKeyType, EventObserverConfig, InitialBalance};
+use crate::config::{EventKeyType, InitialBalance};
 use crate::nakamoto_node::miner::{
     TEST_BLOCK_ANNOUNCE_STALL, TEST_BROADCAST_STALL, TEST_MINE_STALL, TEST_SKIP_P2P_BROADCAST,
 };
