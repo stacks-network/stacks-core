@@ -679,6 +679,7 @@ impl NakamotoTenureInv {
             }
             StacksMessageType::Nack(nack_data) => {
                 info!("{:?}: remote peer NACKed our GetNakamotoInv", network.get_local_peer();
+                      "remote_peer" => %self.neighbor_address,
                       "error_code" => nack_data.error_code);
 
                 if nack_data.error_code != NackErrorCodes::NoSuchBurnchainBlock {
