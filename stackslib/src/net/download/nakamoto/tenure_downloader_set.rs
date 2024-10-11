@@ -407,6 +407,12 @@ impl NakamotoTenureDownloaderSet {
                 continue;
             };
 
+            info!("Download tenure {}", &ch;
+                "tenure_start_block" => %tenure_info.start_block_id,
+                "tenrue_end_block" => %tenure_info.end_block_id,
+                "tenure_start_reward_cycle" => tenure_info.start_reward_cycle,
+                "tenure_end_reward_cycle" => tenure_info.end_reward_cycle);
+
             debug!(
                 "Download tenure {} (start={}, end={}) (rc {},{})",
                 &ch,
