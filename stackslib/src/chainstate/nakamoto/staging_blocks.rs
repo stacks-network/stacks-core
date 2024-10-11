@@ -343,6 +343,47 @@ impl<'a> NakamotoStagingBlocksConnRef<'a> {
         )))
     }
 
+    /// Get a Nakamoto tenure, starting a the given index block hash.
+    /// Item 0 in the block list is the tenure-start block.
+    /// The last item is the block given by the index block hash
+    #[cfg(any(test, feature = "testing"))]
+    pub fn load_nakamoto_tenure(
+        &self,
+        tip: &StacksBlockId,
+    ) -> Result<Option<Vec<NakamotoBlock>>, ChainstateError> {
+        let Some((block, ..)) = self.get_nakamoto_block(tip)? else {
+            return Ok(None);
+        };
+        if block.is_wellformed_tenure_start_block().map_err(|_| {
+            ChainstateError::InvalidStacksBlock("Malformed tenure-start block".into())
+        })? {
+            // we're done
+            return Ok(Some(vec![block]));
+        }
+
+        // this is an intermediate block
+        let mut tenure = vec![];
+        let mut cursor = block.header.parent_block_id.clone();
+        tenure.push(block);
+        loop {
+            let Some((block, _)) = self.get_nakamoto_block(&cursor)? else {
+                return Ok(None);
+            };
+
+            let is_tenure_start = block.is_wellformed_tenure_start_block().map_err(|e| {
+                ChainstateError::InvalidStacksBlock("Malformed tenure-start block".into())
+            })?;
+            cursor = block.header.parent_block_id.clone();
+            tenure.push(block);
+
+            if is_tenure_start {
+                break;
+            }
+        }
+        tenure.reverse();
+        Ok(Some(tenure))
+    }
+
     /// Get the size of a Nakamoto block, given its index block hash
     /// Returns Ok(Some(size)) if the block was present
     /// Returns Ok(None) if there was no such block

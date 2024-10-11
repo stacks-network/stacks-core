@@ -91,6 +91,8 @@ pub struct NakamotoBootPlan {
     pub num_peers: usize,
     /// Whether to add an initial balance for `private_key`'s account
     pub add_default_balance: bool,
+    /// Whether or not to produce malleablized blocks
+    pub malleablized_blocks: bool,
 }
 
 impl NakamotoBootPlan {
@@ -106,6 +108,7 @@ impl NakamotoBootPlan {
             observer: Some(TestEventObserver::new()),
             num_peers: 0,
             add_default_balance: true,
+            malleablized_blocks: true,
         }
     }
 
@@ -153,6 +156,11 @@ impl NakamotoBootPlan {
 
     pub fn with_extra_peers(mut self, num_peers: usize) -> Self {
         self.num_peers = num_peers;
+        self
+    }
+
+    pub fn with_malleablized_blocks(mut self, malleablized_blocks: bool) -> Self {
+        self.malleablized_blocks = malleablized_blocks;
         self
     }
 
@@ -384,6 +392,8 @@ impl NakamotoBootPlan {
         peer_config.burnchain.pox_constants = self.pox_constants.clone();
         let mut peer = TestPeer::new_with_observer(peer_config.clone(), observer);
 
+        peer.mine_malleablized_blocks = self.malleablized_blocks;
+
         let mut other_peers = vec![];
         for i in 0..self.num_peers {
             let mut other_config = peer_config.clone();
@@ -394,7 +404,11 @@ impl NakamotoBootPlan {
             other_config.private_key = StacksPrivateKey::from_seed(&(i as u128).to_be_bytes());
 
             other_config.add_neighbor(&peer.to_neighbor());
-            other_peers.push(TestPeer::new_with_observer(other_config, None));
+
+            let mut other_peer = TestPeer::new_with_observer(other_config, None);
+            other_peer.mine_malleablized_blocks = self.malleablized_blocks;
+
+            other_peers.push(other_peer);
         }
 
         self.advance_to_nakamoto(&mut peer, &mut other_peers);

@@ -1879,13 +1879,6 @@ impl NakamotoChainState {
             )
         });
 
-        debug!("Process staging Nakamoto block";
-               "consensus_hash" => %next_ready_block.header.consensus_hash,
-               "stacks_block_hash" => %next_ready_block.header.block_hash(),
-               "stacks_block_id" => %next_ready_block.header.block_id(),
-               "burn_block_hash" => %next_ready_block_snapshot.burn_header_hash
-        );
-
         let elected_height = sort_db
             .get_consensus_hash_height(&next_ready_block.header.consensus_hash)?
             .ok_or_else(|| ChainstateError::NoSuchBlockError)?;
@@ -1951,6 +1944,14 @@ impl NakamotoChainState {
             staging_block_tx.commit()?;
             return Err(ChainstateError::InvalidStacksBlock(msg.into()));
         }
+
+        debug!("Process staging Nakamoto block";
+               "consensus_hash" => %next_ready_block.header.consensus_hash,
+               "stacks_block_hash" => %next_ready_block.header.block_hash(),
+               "stacks_block_id" => %next_ready_block.header.block_id(),
+               "burn_block_hash" => %next_ready_block_snapshot.burn_header_hash,
+               "parent_block_id" => %next_ready_block.header.parent_block_id,
+        );
 
         // set the sortition handle's pointer to the block's burnchain view.
         //   this is either:
@@ -4248,7 +4249,8 @@ impl NakamotoChainState {
                     warn!("Invalid Nakamoto block: its tenure's block-commit's block ID hash does not match its parent tenure's start block";
                         "parent_consensus_hash" => %parent_ch,
                         "parent_tenure_start_block_id" => %parent_tenure_start_header.index_block_hash(),
-                        "block_commit.last_tenure_id" => %tenure_block_commit.last_tenure_id()
+                        "block_commit.last_tenure_id" => %tenure_block_commit.last_tenure_id(),
+                        "parent_tip" => %parent_block_id,
                     );
 
                     return Err(ChainstateError::NoSuchBlockError);
