@@ -113,10 +113,7 @@ fn test_stackerdb_load_store() {
     }
 
     let (mut conf, _) = neon_integration_test_conf();
-    conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
-        events_keys: vec![EventKeyType::AnyEvent],
-    });
+    test_observer::register_any(&mut conf);
 
     let privks = vec![
         // ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R
@@ -246,10 +243,7 @@ fn test_stackerdb_event_observer() {
     }
 
     let (mut conf, _) = neon_integration_test_conf();
-    conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
-        events_keys: vec![EventKeyType::StackerDBChunks],
-    });
+    test_observer::register(&mut conf, &[EventKeyType::StackerDBChunks]);
 
     let privks = vec![
         // ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R
