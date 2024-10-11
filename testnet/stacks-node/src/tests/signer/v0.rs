@@ -558,18 +558,22 @@ fn miner_gather_signatures() {
     // Test prometheus metrics response
     #[cfg(feature = "monitoring_prom")]
     {
-        let metrics_response = signer_test.get_signer_metrics();
+        wait_for(30, || {
+            let metrics_response = signer_test.get_signer_metrics();
 
-        // Because 5 signers are running in the same process, the prometheus metrics
-        // are incremented once for every signer. This is why we expect the metric to be
-        // `5`, even though there is only one block proposed.
-        let expected_result = format!("stacks_signer_block_proposals_received {}", num_signers);
-        assert!(metrics_response.contains(&expected_result));
-        let expected_result = format!(
-            "stacks_signer_block_responses_sent{{response_type=\"accepted\"}} {}",
-            num_signers
-        );
-        assert!(metrics_response.contains(&expected_result));
+            // Because 5 signers are running in the same process, the prometheus metrics
+            // are incremented once for every signer. This is why we expect the metric to be
+            // `10`, even though there are only two blocks proposed.
+            let expected_result_1 =
+                format!("stacks_signer_block_proposals_received {}", num_signers * 2);
+            let expected_result_2 = format!(
+                "stacks_signer_block_responses_sent{{response_type=\"accepted\"}} {}",
+                num_signers * 2
+            );
+            Ok(metrics_response.contains(&expected_result_1)
+                && metrics_response.contains(&expected_result_2))
+        })
+        .expect("Failed to advance prometheus metrics");
     }
 }
 
@@ -1468,7 +1472,7 @@ fn multiple_miners() {
             config.node.data_url = format!("http://{localhost}:{node_1_rpc}");
             config.node.p2p_address = format!("{localhost}:{node_1_p2p}");
             config.miner.wait_on_interim_blocks = Duration::from_secs(5);
-            config.node.pox_sync_sample_secs = 5;
+            config.node.pox_sync_sample_secs = 30;
 
             config.node.seed = btc_miner_1_seed.clone();
             config.node.local_peer_seed = btc_miner_1_seed.clone();
@@ -1763,7 +1767,7 @@ fn miner_forking() {
             config.node.local_peer_seed = btc_miner_1_seed.clone();
             config.burnchain.local_mining_public_key = Some(btc_miner_1_pk.to_hex());
             config.miner.mining_key = Some(Secp256k1PrivateKey::from_seed(&[1]));
-            config.node.pox_sync_sample_secs = 5;
+            config.node.pox_sync_sample_secs = 30;
 
             config.events_observers.retain(|listener| {
                 let Ok(addr) = std::net::SocketAddr::from_str(&listener.endpoint) else {
@@ -2981,6 +2985,7 @@ fn signer_set_rollover() {
                         EventKeyType::BlockProposal,
                         EventKeyType::BurnchainBlocks,
                     ],
+                    timeout_ms: 1000,
                 });
             }
             naka_conf.node.rpc_bind = rpc_bind.clone();
@@ -3439,7 +3444,7 @@ fn multiple_miners_with_nakamoto_blocks() {
             config.node.data_url = format!("http://{localhost}:{node_1_rpc}");
             config.node.p2p_address = format!("{localhost}:{node_1_p2p}");
             config.miner.wait_on_interim_blocks = Duration::from_secs(5);
-            config.node.pox_sync_sample_secs = 5;
+            config.node.pox_sync_sample_secs = 30;
 
             config.node.seed = btc_miner_1_seed.clone();
             config.node.local_peer_seed = btc_miner_1_seed.clone();
@@ -3702,7 +3707,7 @@ fn partial_tenure_fork() {
             config.node.data_url = format!("http://{localhost}:{node_1_rpc}");
             config.node.p2p_address = format!("{localhost}:{node_1_p2p}");
             config.miner.wait_on_interim_blocks = Duration::from_secs(5);
-            config.node.pox_sync_sample_secs = 5;
+            config.node.pox_sync_sample_secs = 30;
 
             config.node.seed = btc_miner_1_seed.clone();
             config.node.local_peer_seed = btc_miner_1_seed.clone();
