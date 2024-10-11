@@ -183,7 +183,12 @@ fn load_stackerdb(peer: &TestPeer, idx: usize) -> Vec<(SlotMetadata, Vec<u8>)> {
 
 fn check_sync_results(network_sync: &NetworkResult) {
     for res in network_sync.stacker_db_sync_results.iter() {
-        assert!(res.num_connections >= res.num_attempted_connections);
+        assert!(
+            res.num_connections <= res.num_attempted_connections,
+            "{} < {}",
+            res.num_connections,
+            res.num_attempted_connections
+        );
     }
 }
 
