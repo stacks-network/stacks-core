@@ -226,24 +226,29 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
             if self.last_eviction_time + 60 < get_epoch_time_secs() {
                 self.last_eviction_time = get_epoch_time_secs();
                 if self.replicas.len() > 0 {
-                    eviction_index = Some(thread_rng().gen::<usize>() % self.replicas.len());
+                    eviction_index = Some(thread_rng().gen_range(0..self.replicas.len()));
                 }
             }
 
-            let mut remove_naddr = None;
-            for (i, naddr) in self.replicas.iter().enumerate() {
-                if let Some(eviction_index) = eviction_index.as_ref() {
-                    if *eviction_index == i {
-                        debug!(
-                            "{:?}: {}: don't reuse connection for replica {:?}",
-                            network.get_local_peer(),
-                            &self.smart_contract_id,
-                            &naddr,
-                        );
-                        remove_naddr = Some(naddr.clone());
-                        continue;
-                    }
+            let remove_naddr = eviction_index.and_then(|idx| {
+                let removed = self.replicas.iter().nth(idx).cloned();
+                if let Some(naddr) = removed.as_ref() {
+                    debug!(
+                        "{:?}: {}: don't reuse connection for replica {:?}",
+                        network.get_local_peer(),
+                        &self.smart_contract_id,
+                        &naddr,
+                    );
                 }
+                removed
+            });
+
+            if let Some(naddr) = remove_naddr {
+                self.replicas.remove(&naddr);
+            }
+
+            // retain the remaining replica connections
+            for naddr in self.replicas.iter() {
                 if let Some(event_id) = network.get_event_id(&naddr.to_neighbor_key(network)) {
                     self.comms.pin_connection(event_id);
                     debug!(
@@ -254,9 +259,6 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                         event_id
                     );
                 }
-            }
-            if let Some(naddr) = remove_naddr.take() {
-                self.replicas.remove(&naddr);
             }
         }
 

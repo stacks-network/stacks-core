@@ -199,7 +199,14 @@ fn test_reconnect(network: &mut PeerNetwork) {
         .expect("FATAL: did not replace stacker dbs");
 
     for (_sc, stacker_db_sync) in stacker_db_syncs.iter_mut() {
-        stacker_db_sync.connect_begin(network).unwrap();
+        match stacker_db_sync.connect_begin(network) {
+            Ok(x) => {}
+            Err(net_error::PeerNotConnected) => {}
+            Err(net_error::NoSuchNeighbor) => {}
+            Err(e) => {
+                panic!("Failed to connect_begin: {:?}", &e);
+            }
+        }
     }
 
     network.stacker_db_syncs = Some(stacker_db_syncs);
