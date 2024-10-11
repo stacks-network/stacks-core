@@ -9,7 +9,7 @@ This document describes several techniques to profile (i.e. find performance bot
 - generating flame graphs, and
 - profiling sqlite queries.
 
-Note that all bash commands in this document are run from the stacks-blockchain repository root directory.
+Note that all bash commands in this document are run from the [stacks-core repository](https://github.com/stacks-network/stacks-core) root directory.
 
 ## Logging tips
 
@@ -17,7 +17,7 @@ Validating the config file using `stacks-node check-config`:
 
 ```
 $ cargo run -r -p stacks-node --bin stacks-node check-config --config testnet/stacks-node/conf/mainnet-mockminer-conf.toml
-INFO [1661276562.220137] [testnet/stacks-node/src/main.rs:82] [main] stacks-node 0.1.0 (tip-mine:c90476aa8a+, release build, macos [aarch64])
+INFO [1661276562.220137] [testnet/stacks-node/src/main.rs:82] [main] stacks-node 0.1.0 (:, release build, linux [x86_64])
 INFO [1661276562.220363] [testnet/stacks-node/src/main.rs:115] [main] Loading config at path testnet/stacks-node/conf/mainnet-mockminer-conf.toml
 INFO [1661276562.233071] [testnet/stacks-node/src/main.rs:128] [main] Valid config!
 ```
@@ -28,7 +28,7 @@ Enabling debug logging using environment variable `STACKS_LOG_DEBUG=1`:
 $ STACKS_LOG_DEBUG=1 cargo run -r -p stacks-node --bin stacks-node check-config --config testnet/stacks-node/conf/mainnet-mockminer-conf.toml
 INFO [1661276562.220137] [testnet/stacks-node/src/main.rs:82] [main] stacks-node 0.1.0 (tip-mine:c90476aa8a+, release build, macos [aarch64])
 INFO [1661276562.220363] [testnet/stacks-node/src/main.rs:115] [main] Loading config at path testnet/stacks-node/conf/mainnet-mockminer-conf.toml
-DEBG [1661276562.222450] [testnet/stacks-node/src/main.rs:118] [main] Loaded config file: ConfigFile { burnchain: Some(BurnchainConfigFile { chain: Some("bitcoin"), burn_fee_cap: Some(1), mode: Some("mainnet"), commit_anchor_block_within: None, peer_host: Some("bitcoind.stacks.co"), peer_port: Some(8333), rpc_port: Some(8332), rpc_ssl: None, username: Some("blockstack"), password: Some("blockstacksystem"), timeout: None, magic_bytes: None, local_mining_public_key: None, process_exit_at_block_height: None, poll_time_secs: None, satoshis_per_byte: None, leader_key_tx_estimated_size: None, block_commit_tx_estimated_size: None, rbf_fee_increment: None, max_rbf: None, epochs: None }), node: Some(NodeConfigFile { name: None, seed: None, deny_nodes: None, working_dir: Some("/Users/igor/w/stacks-work/working_dir"), rpc_bind: Some("0.0.0.0:20443"), p2p_bind: Some("0.0.0.0:20444"), p2p_address: None, data_url: None, bootstrap_node: Some("02196f005965cebe6ddc3901b7b1cc1aa7a88f305bb8c5893456b8f9a605923893@seed.mainnet.hiro.so:20444"), local_peer_seed: None, miner: Some(true), mock_mining: Some(true), mine_microblocks: None, microblock_frequency: None, max_microblocks: None, wait_time_for_microblocks: None, prometheus_bind: None, marf_cache_strategy: None, marf_defer_hashing: None, pox_sync_sample_secs: None, use_test_genesis_chainstate: None }), ustx_balance: None, events_observer: Some([EventObserverConfigFile { endpoint: "localhost:3700", events_keys: ["*"] }]), connection_options: None, fee_estimation: None, miner: None }
+DEBG [1661276562.222450] [testnet/stacks-node/src/main.rs:118] [main] Loaded config file: ConfigFile { burnchain: Some(BurnchainConfigFile { chain: Some("bitcoin"), burn_fee_cap: Some(1), mode: Some("mainnet"), commit_anchor_block_within: None, peer_host: Some("localhost"), peer_port: Some(8333), rpc_port: Some(8332), rpc_ssl: None, username: Some("btcuser"), password: Some("btcpass"), timeout: None, magic_bytes: None, local_mining_public_key: None, process_exit_at_block_height: None, poll_time_secs: None, satoshis_per_byte: None, leader_key_tx_estimated_size: None, block_commit_tx_estimated_size: None, rbf_fee_increment: None, max_rbf: None, epochs: None }), node: Some(NodeConfigFile { name: None, seed: None, deny_nodes: None, working_dir: Some("/Users/igor/w/stacks-work/working_dir"), rpc_bind: Some("0.0.0.0:20443"), p2p_bind: Some("0.0.0.0:20444"), p2p_address: None, data_url: None, bootstrap_node: Some("02196f005965cebe6ddc3901b7b1cc1aa7a88f305bb8c5893456b8f9a605923893@seed.mainnet.hiro.so:20444"), local_peer_seed: None, miner: Some(true), mock_mining: Some(true), mine_microblocks: None, microblock_frequency: None, max_microblocks: None, wait_time_for_microblocks: None, prometheus_bind: None, marf_cache_strategy: None, marf_defer_hashing: None, pox_sync_sample_secs: None, use_test_genesis_chainstate: None }), ustx_balance: None, events_observer: Some([EventObserverConfigFile { endpoint: "localhost:3700", events_keys: ["*"] }]), connection_options: None, fee_estimation: None, miner: None }
 INFO [1661276562.233071] [testnet/stacks-node/src/main.rs:128] [main] Valid config!
 ```
 

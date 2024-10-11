@@ -12,7 +12,6 @@ Stacks is a layer-2 blockchain that uses Bitcoin as a base layer for security an
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg?style=flat)](https://www.gnu.org/licenses/gpl-3.0)
 [![Release](https://img.shields.io/github/v/release/stacks-network/stacks-core?style=flat)](https://github.com/stacks-network/stacks-core/releases/latest)
-[![Build Status](https://github.com/stacks-network/stacks-core/actions/workflows/ci.yml/badge.svg?branch=master&event=workflow_dispatch&style=flat)](https://github.com/stacks-network/stacks-core/actions/workflows/ci.yml?query=event%3Aworkflow_dispatch+branch%3Amaster)
 [![Discord Chat](https://img.shields.io/discord/621759717756370964.svg)](https://stacks.chat)
 
 ## Building

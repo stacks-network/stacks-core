@@ -14,9 +14,8 @@ The MacOS configuration assumes stacks-blockchain will be set up for the current
 
 ## Configuration
 
-For an example configuration file that describes the configuration settings,
-see [mainnet-follower-conf.toml](../testnet/stacks-node/conf/mainnet-follower-conf.toml).
-Available configuration options are documented here: https://docs.stacks.co/references/stacks-node-configuration
+For an example configuration file that describes the configuration settings, see [mainnet-follower-conf.toml](../testnet/stacks-node/conf/mainnet-follower-conf.toml).
+Available configuration options are [documented here](https://docs.stacks.co/stacks-in-depth/nodes-and-miners/stacks-node-configuration).
 
 ## Paths
 
