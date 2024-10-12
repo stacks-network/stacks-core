@@ -4988,18 +4988,13 @@ fn continue_after_tenure_extend() {
     // It's possible that we have a pending block commit already.
     // Mine two BTC blocks to "flush" this commit.
 
-    let mut blocks_processed_before = coord_channel
-        .lock()
-        .expect("Mutex poisoned")
-        .get_stacks_blocks_processed();
-
     for i in 0..2 {
         info!(
             "------------- After pausing commits, triggering 2 BTC blocks: ({} of 2) -----------",
             i + 1
         );
 
-        blocks_processed_before = coord_channel
+        let mut blocks_processed_before = coord_channel
             .lock()
             .expect("Mutex poisoned")
             .get_stacks_blocks_processed();
@@ -5035,7 +5030,7 @@ fn continue_after_tenure_extend() {
     // Verify that the miner can continue mining in the tenure with the tenure extend
     info!("------------------------- Mine After Tenure Extend -------------------------");
     let mut sender_nonce = 0;
-    blocks_processed_before = coord_channel
+    let mut blocks_processed_before = coord_channel
         .lock()
         .expect("Mutex poisoned")
         .get_stacks_blocks_processed();
