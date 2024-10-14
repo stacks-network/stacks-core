@@ -2487,7 +2487,7 @@ pub mod test {
                                 name: ContractName::try_from(
                                     conf.test_name
                                         .replace("::", "-")
-                                        .to_string()
+                                        .trim_start_matches(|c: char| !c.is_alphabetic())
                                         .chars()
                                         // ensure auto-generated contract names are not too long
                                         .skip(
@@ -2495,9 +2495,7 @@ pub mod test {
                                                 .len()
                                                 .saturating_sub(CONTRACT_MAX_NAME_LENGTH),
                                         )
-                                        .collect::<String>()
-                                        .trim_start_matches(|c: char| !c.is_alphabetic())
-                                        .to_string(),
+                                        .collect::<String>(),
                                 )
                                 .expect("FATAL: invalid boot-code contract name"),
                                 code_body: StacksString::from_str(&conf.setup_code)
