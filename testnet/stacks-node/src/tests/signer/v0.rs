@@ -4226,7 +4226,6 @@ fn locally_accepted_blocks_overriden_by_global_rejection() {
         send_amt,
     );
     let tx = submit_tx(&http_origin, &transfer_tx);
-    sender_nonce += 1;
     info!("Submitted tx {tx} to mine block N+1");
 
     let blocks_before = mined_blocks.load(Ordering::SeqCst);
@@ -4251,16 +4250,7 @@ fn locally_accepted_blocks_overriden_by_global_rejection() {
         .unwrap()
         .replace(Vec::new());
 
-    let transfer_tx = make_stacks_transfer(
-        &sender_sk,
-        sender_nonce,
-        send_fee,
-        signer_test.running_nodes.conf.burnchain.chain_id,
-        &recipient,
-        send_amt,
-    );
-    let tx = submit_tx(&http_origin, &transfer_tx);
-    info!("Submitted tx {tx} to mine block N+1'");
+    info!("Waiting for block N+1'");
 
     wait_for(short_timeout_secs, || {
         Ok(mined_blocks.load(Ordering::SeqCst) > blocks_before
