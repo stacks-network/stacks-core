@@ -114,7 +114,6 @@ pub fn gen_random_port() -> u16 {
     let mut rng = rand::thread_rng();
     let range_len = (1024..u16::MAX).len();
     loop {
-        // Note it needs to be +1 because we reserve one port for the event observer
         assert!(
             USED_PORTS.lock().unwrap().len() < range_len,
             "No more available ports"
