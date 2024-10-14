@@ -251,11 +251,13 @@ impl SignCoordinator {
     }
 
     /// Check if the tenure needs to change
-    fn check_burn_tip_changed(sortdb: &SortitionDB, consensus_hash: &ConsensusHash) -> bool {
+    fn check_burn_tip_changed(sortdb: &SortitionDB, burn_block: &BlockSnapshot) -> bool {
         let cur_burn_chain_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
             .expect("FATAL: failed to query sortition DB for canonical burn chain tip");
 
-        if cur_burn_chain_tip.consensus_hash != *consensus_hash {
+        if cur_burn_chain_tip.consensus_hash != burn_block.consensus_hash
+            && cur_burn_chain_tip.sortition_id != burn_block.sortition_id
+        {
             info!("SignCoordinator: Cancel signature aggregation; burnchain tip has changed");
             true
         } else {
@@ -365,7 +367,7 @@ impl SignCoordinator {
                 return Ok(stored_block.header.signer_signature);
             }
 
-            if Self::check_burn_tip_changed(&sortdb, &burn_tip.consensus_hash) {
+            if Self::check_burn_tip_changed(&sortdb, &burn_tip) {
                 debug!("SignCoordinator: Exiting due to new burnchain tip");
                 return Err(NakamotoNodeError::BurnchainTipChanged);
             }
