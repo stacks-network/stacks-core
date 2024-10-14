@@ -101,7 +101,11 @@ lazy_static! {
 }
 
 lazy_static! {
-    static ref USED_PORTS: Mutex<HashSet<u16>> = Mutex::new(HashSet::new());
+    static ref USED_PORTS: Mutex<HashSet<u16>> = Mutex::new({
+        let mut set = HashSet::new();
+        set.insert(EVENT_OBSERVER_PORT);
+        set
+    });
 }
 
 /// Generate a random port number between 1024 and 65534 (inclusive) and insert it into the USED_PORTS set.
@@ -116,9 +120,6 @@ pub fn gen_random_port() -> u16 {
             "No more available ports"
         );
         let port = rng.gen_range(1024..u16::MAX); // use a non-privileged port between 1024 and 65534
-        if port == EVENT_OBSERVER_PORT {
-            continue;
-        }
         if insert_new_port(port) {
             return port;
         }
