@@ -91,7 +91,7 @@ use stacks_signer::chainstate::{ProposalEvalConfig, SortitionsView};
 use stacks_signer::signerdb::{BlockInfo, BlockState, ExtraBlockInfo, SignerDb};
 
 use super::bitcoin_regtest::BitcoinCoreController;
-use crate::config::{EventKeyType, EventObserverConfig, InitialBalance};
+use crate::config::{EventKeyType, InitialBalance};
 use crate::nakamoto_node::miner::{
     TEST_BLOCK_ANNOUNCE_STALL, TEST_BROADCAST_STALL, TEST_MINE_STALL, TEST_SKIP_P2P_BROADCAST,
 };
@@ -5014,6 +5014,11 @@ fn check_block_heights() {
 
     let info = get_chain_info_result(&naka_conf).unwrap();
     info!("Chain info: {:?}", info);
+
+    // With the first Nakamoto block, the chain tip and the number of tenures
+    // must be the same (before Nakamoto every block counts as a tenure)
+    assert_eq!(info.tenure_height.unwrap(), info.stacks_tip_height);
+
     let mut last_burn_block_height;
     let mut last_stacks_block_height = info.stacks_tip_height as u128;
     let mut last_tenure_height = last_stacks_block_height as u128;
@@ -5145,6 +5150,9 @@ fn check_block_heights() {
         );
         last_tenure_height = bh1;
 
+        let info = get_chain_info_result(&naka_conf).unwrap();
+        assert_eq!(info.tenure_height.unwrap(), bh3 as u64);
+
         let sbh = heights3
             .get("stacks-block-height")
             .unwrap()
@@ -5247,6 +5255,9 @@ fn check_block_heights() {
                 "Tenure height should not have changed"
             );
 
+            let info = get_chain_info_result(&naka_conf).unwrap();
+            assert_eq!(info.tenure_height.unwrap(), bh3 as u64);
+
             let sbh = heights3
                 .get("stacks-block-height")
                 .unwrap()
@@ -5285,6 +5296,12 @@ fn check_block_heights() {
         tip.stacks_block_height,
         block_height_pre_3_0 + 1 + ((inter_blocks_per_tenure + 1) * tenure_count),
         "Should have mined 1 + (1 + interim_blocks_per_tenure) * tenure_count nakamoto blocks"
+    );
+
+    let info = get_chain_info_result(&naka_conf).unwrap();
+    assert_eq!(
+        info.tenure_height.unwrap(),
+        block_height_pre_3_0 + tenure_count
     );
 
     coord_channel
