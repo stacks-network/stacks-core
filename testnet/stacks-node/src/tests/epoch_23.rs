@@ -22,7 +22,7 @@ use stacks::core;
 use stacks::core::STACKS_EPOCH_MAX;
 use stacks_common::util::sleep_ms;
 
-use crate::config::{EventKeyType, EventObserverConfig, InitialBalance};
+use crate::config::InitialBalance;
 use crate::tests::bitcoin_regtest::BitcoinCoreController;
 use crate::tests::neon_integrations::*;
 use crate::tests::*;
@@ -100,11 +100,7 @@ fn trait_invocation_behavior() {
     conf.miner.subsequent_attempt_time_ms = i64::MAX as u64;
 
     test_observer::spawn();
-
-    conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
-        events_keys: vec![EventKeyType::AnyEvent],
-    });
+    test_observer::register_any(&mut conf);
     conf.initial_balances.append(&mut initial_balances);
 
     let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
@@ -184,6 +180,7 @@ fn trait_invocation_behavior() {
         &spender_sk,
         spender_nonce,
         fee_amount,
+        conf.burnchain.chain_id,
         "simple-trait",
         trait_contract,
     );
@@ -194,6 +191,7 @@ fn trait_invocation_behavior() {
         &spender_sk,
         spender_nonce,
         fee_amount,
+        conf.burnchain.chain_id,
         "impl-simple",
         impl_contract,
     );
@@ -204,6 +202,7 @@ fn trait_invocation_behavior() {
         &spender_sk,
         spender_nonce,
         fee_amount,
+        conf.burnchain.chain_id,
         "use-simple",
         use_contract,
     );
@@ -214,6 +213,7 @@ fn trait_invocation_behavior() {
         &spender_sk,
         spender_nonce,
         fee_amount,
+        conf.burnchain.chain_id,
         "invoke-simple",
         invoke_contract,
     );
@@ -245,6 +245,7 @@ fn trait_invocation_behavior() {
         &spender_sk,
         spender_nonce,
         fee_amount,
+        conf.burnchain.chain_id,
         &contract_addr,
         "invoke-simple",
         "invocation-1",
@@ -257,6 +258,7 @@ fn trait_invocation_behavior() {
         &spender_sk,
         spender_nonce,
         fee_amount,
+        conf.burnchain.chain_id,
         &contract_addr,
         "invoke-simple",
         "invocation-2",
@@ -278,6 +280,7 @@ fn trait_invocation_behavior() {
         &spender_sk,
         spender_nonce,
         fee_amount,
+        conf.burnchain.chain_id,
         &contract_addr,
         "invoke-simple",
         "invocation-1",
@@ -290,6 +293,7 @@ fn trait_invocation_behavior() {
         &spender_sk,
         spender_nonce,
         fee_amount,
+        conf.burnchain.chain_id,
         &contract_addr,
         "invoke-simple",
         "invocation-2",
@@ -316,6 +320,7 @@ fn trait_invocation_behavior() {
         &spender_sk,
         spender_nonce,
         fee_amount,
+        conf.burnchain.chain_id,
         &contract_addr,
         "invoke-simple",
         "invocation-1",
@@ -328,6 +333,7 @@ fn trait_invocation_behavior() {
         &spender_sk,
         spender_nonce,
         fee_amount,
+        conf.burnchain.chain_id,
         &contract_addr,
         "invoke-simple",
         "invocation-2",
@@ -348,6 +354,7 @@ fn trait_invocation_behavior() {
         &spender_sk,
         spender_nonce,
         fee_amount,
+        conf.burnchain.chain_id,
         "wrap-simple",
         wrapper_contract,
     );
@@ -363,6 +370,7 @@ fn trait_invocation_behavior() {
         &spender_sk,
         spender_nonce,
         fee_amount,
+        conf.burnchain.chain_id,
         &contract_addr,
         "wrap-simple",
         "invocation-1",
@@ -375,6 +383,7 @@ fn trait_invocation_behavior() {
         &spender_sk,
         spender_nonce,
         fee_amount,
+        conf.burnchain.chain_id,
         &contract_addr,
         "wrap-simple",
         "invocation-2",
@@ -401,6 +410,7 @@ fn trait_invocation_behavior() {
         &spender_sk,
         spender_nonce,
         fee_amount,
+        conf.burnchain.chain_id,
         &contract_addr,
         "wrap-simple",
         "invocation-1",
@@ -413,6 +423,7 @@ fn trait_invocation_behavior() {
         &spender_sk,
         spender_nonce,
         fee_amount,
+        conf.burnchain.chain_id,
         &contract_addr,
         "wrap-simple",
         "invocation-2",
@@ -435,6 +446,7 @@ fn trait_invocation_behavior() {
         &spender_sk,
         spender_nonce,
         fee_amount,
+        conf.burnchain.chain_id,
         &contract_addr,
         "wrap-simple",
         "invocation-1",
@@ -447,6 +459,7 @@ fn trait_invocation_behavior() {
         &spender_sk,
         spender_nonce,
         fee_amount,
+        conf.burnchain.chain_id,
         &contract_addr,
         "wrap-simple",
         "invocation-2",
@@ -468,6 +481,7 @@ fn trait_invocation_behavior() {
         &spender_sk,
         spender_nonce,
         fee_amount,
+        conf.burnchain.chain_id,
         &contract_addr,
         "invoke-simple",
         "invocation-1",
@@ -480,6 +494,7 @@ fn trait_invocation_behavior() {
         &spender_sk,
         spender_nonce,
         fee_amount,
+        conf.burnchain.chain_id,
         &contract_addr,
         "invoke-simple",
         "invocation-2",

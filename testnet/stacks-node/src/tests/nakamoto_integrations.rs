@@ -78,7 +78,7 @@ use stacks::util_lib::signed_structured_data::pox4::{
 use stacks_common::address::AddressHashMode;
 use stacks_common::bitvec::BitVec;
 use stacks_common::codec::StacksMessageCodec;
-use stacks_common::consts::{CHAIN_ID_TESTNET, STACKS_EPOCH_MAX};
+use stacks_common::consts::STACKS_EPOCH_MAX;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksPrivateKey, StacksPublicKey,
     TrieHash,
@@ -91,7 +91,7 @@ use stacks_signer::chainstate::{ProposalEvalConfig, SortitionsView};
 use stacks_signer::signerdb::{BlockInfo, BlockState, ExtraBlockInfo, SignerDb};
 
 use super::bitcoin_regtest::BitcoinCoreController;
-use crate::config::{EventKeyType, EventObserverConfig, InitialBalance};
+use crate::config::{EventKeyType, InitialBalance};
 use crate::nakamoto_node::miner::{
     TEST_BLOCK_ANNOUNCE_STALL, TEST_BROADCAST_STALL, TEST_MINE_STALL, TEST_SKIP_P2P_BROADCAST,
 };
@@ -848,7 +848,7 @@ pub fn boot_to_epoch_3(
             &signer_sk,
             reward_cycle.into(),
             &Pox4SignatureTopic::StackStx,
-            CHAIN_ID_TESTNET,
+            naka_conf.burnchain.chain_id,
             12_u128,
             u128::MAX,
             1,
@@ -862,6 +862,7 @@ pub fn boot_to_epoch_3(
             &stacker_sk,
             0,
             1000,
+            naka_conf.burnchain.chain_id,
             &StacksAddress::burn_address(false),
             "pox-4",
             "stack-stx",
@@ -924,6 +925,7 @@ pub fn boot_to_epoch_3(
                 signer_sk,
                 0,
                 300,
+                naka_conf.burnchain.chain_id,
                 &StacksAddress::burn_address(false),
                 SIGNERS_VOTING_NAME,
                 SIGNERS_VOTING_FUNCTION_NAME,
@@ -1008,7 +1010,7 @@ pub fn boot_to_pre_epoch_3_boundary(
             &signer_sk,
             reward_cycle.into(),
             &Pox4SignatureTopic::StackStx,
-            CHAIN_ID_TESTNET,
+            naka_conf.burnchain.chain_id,
             12_u128,
             u128::MAX,
             1,
@@ -1022,6 +1024,7 @@ pub fn boot_to_pre_epoch_3_boundary(
             &stacker_sk,
             0,
             1000,
+            naka_conf.burnchain.chain_id,
             &StacksAddress::burn_address(false),
             "pox-4",
             "stack-stx",
@@ -1084,6 +1087,7 @@ pub fn boot_to_pre_epoch_3_boundary(
                 signer_sk,
                 0,
                 300,
+                naka_conf.burnchain.chain_id,
                 &StacksAddress::burn_address(false),
                 SIGNERS_VOTING_NAME,
                 SIGNERS_VOTING_FUNCTION_NAME,
@@ -1245,7 +1249,7 @@ pub fn setup_epoch_3_reward_set(
             &signer_sk,
             reward_cycle.into(),
             &Pox4SignatureTopic::StackStx,
-            CHAIN_ID_TESTNET,
+            naka_conf.burnchain.chain_id,
             lock_period,
             u128::MAX,
             1,
@@ -1258,6 +1262,7 @@ pub fn setup_epoch_3_reward_set(
             &stacker_sk,
             0,
             1000,
+            naka_conf.burnchain.chain_id,
             &StacksAddress::burn_address(false),
             "pox-4",
             "stack-stx",
@@ -1443,11 +1448,7 @@ fn simple_neon_integration() {
     let stacker_sk = setup_stacker(&mut naka_conf);
 
     test_observer::spawn();
-    let observer_port = test_observer::EVENT_OBSERVER_PORT;
-    naka_conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{observer_port}"),
-        events_keys: vec![EventKeyType::AnyEvent],
-    });
+    test_observer::register_any(&mut naka_conf);
 
     let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
     btcd_controller
@@ -1531,7 +1532,14 @@ fn simple_neon_integration() {
     }
 
     // Submit a TX
-    let transfer_tx = make_stacks_transfer(&sender_sk, 0, send_fee, &recipient, send_amt);
+    let transfer_tx = make_stacks_transfer(
+        &sender_sk,
+        0,
+        send_fee,
+        naka_conf.burnchain.chain_id,
+        &recipient,
+        send_amt,
+    );
     let transfer_tx_hex = format!("0x{}", to_hex(&transfer_tx));
 
     let tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
@@ -1690,11 +1698,7 @@ fn flash_blocks_on_epoch_3() {
     let stacker_sk = setup_stacker(&mut naka_conf);
 
     test_observer::spawn();
-    let observer_port = test_observer::EVENT_OBSERVER_PORT;
-    naka_conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{observer_port}"),
-        events_keys: vec![EventKeyType::AnyEvent],
-    });
+    test_observer::register_any(&mut naka_conf);
 
     let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
     btcd_controller
@@ -1795,7 +1799,14 @@ fn flash_blocks_on_epoch_3() {
     }
 
     // Submit a TX
-    let transfer_tx = make_stacks_transfer(&sender_sk, 0, send_fee, &recipient, send_amt);
+    let transfer_tx = make_stacks_transfer(
+        &sender_sk,
+        0,
+        send_fee,
+        naka_conf.burnchain.chain_id,
+        &recipient,
+        send_amt,
+    );
     let transfer_tx_hex = format!("0x{}", to_hex(&transfer_tx));
 
     let tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
@@ -1957,11 +1968,7 @@ fn mine_multiple_per_tenure_integration() {
     let stacker_sk = setup_stacker(&mut naka_conf);
 
     test_observer::spawn();
-    let observer_port = test_observer::EVENT_OBSERVER_PORT;
-    naka_conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{observer_port}"),
-        events_keys: vec![EventKeyType::AnyEvent],
-    });
+    test_observer::register_any(&mut naka_conf);
 
     let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
     btcd_controller
@@ -2037,8 +2044,14 @@ fn mine_multiple_per_tenure_integration() {
                 .get_stacks_blocks_processed();
             // submit a tx so that the miner will mine an extra block
             let sender_nonce = tenure_ix * inter_blocks_per_tenure + interim_block_ix;
-            let transfer_tx =
-                make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
+            let transfer_tx = make_stacks_transfer(
+                &sender_sk,
+                sender_nonce,
+                send_fee,
+                naka_conf.burnchain.chain_id,
+                &recipient,
+                send_amt,
+            );
             submit_tx(&http_origin, &transfer_tx);
 
             loop {
@@ -2171,11 +2184,7 @@ fn multiple_miners() {
     );
 
     test_observer::spawn();
-    let observer_port = test_observer::EVENT_OBSERVER_PORT;
-    naka_conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{observer_port}"),
-        events_keys: vec![EventKeyType::AnyEvent],
-    });
+    test_observer::register_any(&mut naka_conf);
 
     let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
     btcd_controller
@@ -2293,8 +2302,14 @@ fn multiple_miners() {
                 .get_stacks_blocks_processed();
             // submit a tx so that the miner will mine an extra block
             let sender_nonce = tenure_ix * inter_blocks_per_tenure + interim_block_ix;
-            let transfer_tx =
-                make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
+            let transfer_tx = make_stacks_transfer(
+                &sender_sk,
+                sender_nonce,
+                send_fee,
+                naka_conf.burnchain.chain_id,
+                &recipient,
+                send_amt,
+            );
             submit_tx(&http_origin, &transfer_tx);
 
             wait_for(20, || {
@@ -2404,11 +2419,7 @@ fn correct_burn_outs() {
     let signers = TestSigners::new(vec![sender_signer_sk]);
 
     test_observer::spawn();
-    let observer_port = test_observer::EVENT_OBSERVER_PORT;
-    naka_conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{observer_port}"),
-        events_keys: vec![EventKeyType::AnyEvent],
-    });
+    test_observer::register_any(&mut naka_conf);
 
     let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
     btcd_controller
@@ -2504,7 +2515,7 @@ fn correct_burn_outs() {
                 &sender_signer_sk,
                 reward_cycle.into(),
                 &Pox4SignatureTopic::StackStx,
-                CHAIN_ID_TESTNET,
+                naka_conf.burnchain.chain_id,
                 1_u128,
                 u128::MAX,
                 1,
@@ -2516,6 +2527,7 @@ fn correct_burn_outs() {
                 &account.0,
                 account.2.nonce,
                 1000,
+                naka_conf.burnchain.chain_id,
                 &StacksAddress::burn_address(false),
                 "pox-4",
                 "stack-stx",
@@ -2727,11 +2739,7 @@ fn block_proposal_api_endpoint() {
 
     // only subscribe to the block proposal events
     test_observer::spawn();
-    let observer_port = test_observer::EVENT_OBSERVER_PORT;
-    conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{observer_port}"),
-        events_keys: vec![EventKeyType::BlockProposal],
-    });
+    test_observer::register(&mut conf, &[EventKeyType::BlockProposal]);
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
@@ -2861,6 +2869,7 @@ fn block_proposal_api_endpoint() {
             &account_keys[0],
             0,
             100,
+            conf.burnchain.chain_id,
             &to_addr(&account_keys[1]).into(),
             10000,
         );
@@ -3099,11 +3108,10 @@ fn miner_writes_proposed_block_to_stackerdb() {
     let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
 
     test_observer::spawn();
-    let observer_port = test_observer::EVENT_OBSERVER_PORT;
-    naka_conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{observer_port}"),
-        events_keys: vec![EventKeyType::AnyEvent, EventKeyType::MinedBlocks],
-    });
+    test_observer::register(
+        &mut naka_conf,
+        &[EventKeyType::AnyEvent, EventKeyType::MinedBlocks],
+    );
 
     let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
     btcd_controller
@@ -3214,11 +3222,7 @@ fn vote_for_aggregate_key_burn_op() {
     let stacker_sk = setup_stacker(&mut naka_conf);
 
     test_observer::spawn();
-    let observer_port = test_observer::EVENT_OBSERVER_PORT;
-    naka_conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{observer_port}"),
-        events_keys: vec![EventKeyType::AnyEvent],
-    });
+    test_observer::register_any(&mut naka_conf);
 
     let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
     btcd_controller
@@ -3462,11 +3466,7 @@ fn follower_bootup() {
     let stacker_sk = setup_stacker(&mut naka_conf);
 
     test_observer::spawn();
-    let observer_port = test_observer::EVENT_OBSERVER_PORT;
-    naka_conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{observer_port}"),
-        events_keys: vec![EventKeyType::AnyEvent],
-    });
+    test_observer::register_any(&mut naka_conf);
 
     let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
     btcd_controller
@@ -3547,7 +3547,7 @@ fn follower_bootup() {
             &node_info.node_public_key.unwrap(),
             naka_conf.node.p2p_bind
         ),
-        CHAIN_ID_TESTNET,
+        naka_conf.burnchain.chain_id,
         PEER_VERSION_TESTNET,
     );
 
@@ -3607,8 +3607,14 @@ fn follower_bootup() {
             let sender_nonce = account
                 .nonce
                 .max(last_nonce.as_ref().map(|ln| *ln + 1).unwrap_or(0));
-            let transfer_tx =
-                make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
+            let transfer_tx = make_stacks_transfer(
+                &sender_sk,
+                sender_nonce,
+                send_fee,
+                naka_conf.burnchain.chain_id,
+                &recipient,
+                send_amt,
+            );
             submit_tx(&http_origin, &transfer_tx);
 
             last_nonce = Some(sender_nonce);
@@ -3786,11 +3792,7 @@ fn follower_bootup_across_multiple_cycles() {
     let stacker_sk = setup_stacker(&mut naka_conf);
 
     test_observer::spawn();
-    let observer_port = test_observer::EVENT_OBSERVER_PORT;
-    naka_conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{observer_port}"),
-        events_keys: vec![EventKeyType::AnyEvent],
-    });
+    test_observer::register_any(&mut naka_conf);
 
     let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
     btcd_controller
@@ -3897,7 +3899,7 @@ fn follower_bootup_across_multiple_cycles() {
             &node_info.node_public_key.unwrap(),
             naka_conf.node.p2p_bind
         ),
-        CHAIN_ID_TESTNET,
+        naka_conf.burnchain.chain_id,
         PEER_VERSION_TESTNET,
     );
 
@@ -3938,6 +3940,338 @@ fn follower_bootup_across_multiple_cycles() {
         )
     })
     .unwrap();
+
+    coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .stop_chains_coordinator();
+    run_loop_stopper.store(false, Ordering::SeqCst);
+
+    follower_coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .stop_chains_coordinator();
+    follower_run_loop_stopper.store(false, Ordering::SeqCst);
+
+    run_loop_thread.join().unwrap();
+    follower_thread.join().unwrap();
+}
+
+/// Boot up a node and a follower with a non-default chain id
+#[test]
+#[ignore]
+fn follower_bootup_custom_chain_id() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
+    naka_conf.burnchain.chain_id = 0x87654321;
+    let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
+    naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
+    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_signer_sk = Secp256k1PrivateKey::new();
+    let sender_signer_addr = tests::to_addr(&sender_signer_sk);
+    let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
+    let tenure_count = 5;
+    let inter_blocks_per_tenure = 9;
+    // setup sender + recipient for some test stx transfers
+    // these are necessary for the interim blocks to get mined at all
+    let sender_addr = tests::to_addr(&sender_sk);
+    let send_amt = 100;
+    let send_fee = 180;
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_addr.clone()).to_string(),
+        (send_amt + send_fee) * tenure_count * inter_blocks_per_tenure,
+    );
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
+    );
+    let recipient = PrincipalData::from(StacksAddress::burn_address(false));
+    let stacker_sk = setup_stacker(&mut naka_conf);
+
+    test_observer::spawn();
+    test_observer::register_any(&mut naka_conf);
+
+    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .expect("Failed starting bitcoind");
+    let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
+    btc_regtest_controller.bootstrap_chain(201);
+
+    let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
+    let run_loop_stopper = run_loop.get_termination_switch();
+    let Counters {
+        blocks_processed,
+        naka_submitted_commits: commits_submitted,
+        naka_proposed_blocks: proposals_submitted,
+        ..
+    } = run_loop.counters();
+
+    let coord_channel = run_loop.coordinator_channels();
+
+    let run_loop_thread = thread::Builder::new()
+        .name("run_loop".into())
+        .spawn(move || run_loop.start(None, 0))
+        .unwrap();
+    wait_for_runloop(&blocks_processed);
+    boot_to_epoch_3(
+        &naka_conf,
+        &blocks_processed,
+        &[stacker_sk],
+        &[sender_signer_sk],
+        &mut Some(&mut signers),
+        &mut btc_regtest_controller,
+    );
+
+    info!("Bootstrapped to Epoch-3.0 boundary, starting nakamoto miner");
+
+    let burnchain = naka_conf.get_burnchain();
+    let sortdb = burnchain.open_sortition_db(true).unwrap();
+    let (chainstate, _) = StacksChainState::open(
+        naka_conf.is_mainnet(),
+        naka_conf.burnchain.chain_id,
+        &naka_conf.get_chainstate_path_str(),
+        None,
+    )
+    .unwrap();
+
+    let block_height_pre_3_0 =
+        NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
+            .unwrap()
+            .unwrap()
+            .stacks_block_height;
+
+    info!("Nakamoto miner started...");
+    blind_signer(&naka_conf, &signers, proposals_submitted);
+
+    wait_for_first_naka_block_commit(60, &commits_submitted);
+
+    let mut follower_conf = naka_conf.clone();
+    follower_conf.node.miner = false;
+    follower_conf.events_observers.clear();
+    follower_conf.node.working_dir = format!("{}-follower", &naka_conf.node.working_dir);
+    follower_conf.node.seed = vec![0x01; 32];
+    follower_conf.node.local_peer_seed = vec![0x02; 32];
+
+    let rpc_port = gen_random_port();
+    let p2p_port = gen_random_port();
+
+    let localhost = "127.0.0.1";
+    follower_conf.node.rpc_bind = format!("{localhost}:{rpc_port}");
+    follower_conf.node.p2p_bind = format!("{localhost}:{p2p_port}");
+    follower_conf.node.data_url = format!("http://{localhost}:{rpc_port}");
+    follower_conf.node.p2p_address = format!("{localhost}:{p2p_port}");
+    follower_conf.node.pox_sync_sample_secs = 30;
+
+    let node_info = get_chain_info(&naka_conf);
+    follower_conf.node.add_bootstrap_node(
+        &format!(
+            "{}@{}",
+            &node_info.node_public_key.unwrap(),
+            naka_conf.node.p2p_bind
+        ),
+        naka_conf.burnchain.chain_id,
+        PEER_VERSION_TESTNET,
+    );
+
+    let mut follower_run_loop = boot_nakamoto::BootRunLoop::new(follower_conf.clone()).unwrap();
+    let follower_run_loop_stopper = follower_run_loop.get_termination_switch();
+    let follower_coord_channel = follower_run_loop.coordinator_channels();
+
+    debug!(
+        "Booting follower-thread ({},{})",
+        &follower_conf.node.p2p_bind, &follower_conf.node.rpc_bind
+    );
+    debug!(
+        "Booting follower-thread: neighbors = {:?}",
+        &follower_conf.node.bootstrap_node
+    );
+
+    // spawn a follower thread
+    let follower_thread = thread::Builder::new()
+        .name("follower-thread".into())
+        .spawn(move || follower_run_loop.start(None, 0))
+        .unwrap();
+
+    debug!("Booted follower-thread");
+
+    // Mine `tenure_count` nakamoto tenures
+    for tenure_ix in 0..tenure_count {
+        debug!("follower_bootup: Miner runs tenure {}", tenure_ix);
+        let commits_before = commits_submitted.load(Ordering::SeqCst);
+        next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
+            .unwrap();
+
+        let mut last_tip = BlockHeaderHash([0x00; 32]);
+        let mut last_nonce = None;
+
+        debug!(
+            "follower_bootup: Miner mines interum blocks for tenure {}",
+            tenure_ix
+        );
+
+        // mine the interim blocks
+        for _ in 0..inter_blocks_per_tenure {
+            let blocks_processed_before = coord_channel
+                .lock()
+                .expect("Mutex poisoned")
+                .get_stacks_blocks_processed();
+
+            let account = loop {
+                // submit a tx so that the miner will mine an extra block
+                let Ok(account) = get_account_result(&http_origin, &sender_addr) else {
+                    debug!("follower_bootup: Failed to load miner account");
+                    thread::sleep(Duration::from_millis(100));
+                    continue;
+                };
+                break account;
+            };
+
+            let sender_nonce = account
+                .nonce
+                .max(last_nonce.as_ref().map(|ln| *ln + 1).unwrap_or(0));
+            let transfer_tx = make_stacks_transfer(
+                &sender_sk,
+                sender_nonce,
+                send_fee,
+                naka_conf.burnchain.chain_id,
+                &recipient,
+                send_amt,
+            );
+            submit_tx(&http_origin, &transfer_tx);
+
+            last_nonce = Some(sender_nonce);
+
+            let tx = StacksTransaction::consensus_deserialize(&mut &transfer_tx[..]).unwrap();
+
+            debug!("follower_bootup: Miner account: {:?}", &account);
+            debug!("follower_bootup: Miner sent {}: {:?}", &tx.txid(), &tx);
+
+            let now = get_epoch_time_secs();
+            while get_epoch_time_secs() < now + 10 {
+                let Ok(info) = get_chain_info_result(&naka_conf) else {
+                    debug!("follower_bootup: Could not get miner chain info");
+                    thread::sleep(Duration::from_millis(100));
+                    continue;
+                };
+
+                let Ok(follower_info) = get_chain_info_result(&follower_conf) else {
+                    debug!("follower_bootup: Could not get follower chain info");
+                    thread::sleep(Duration::from_millis(100));
+                    continue;
+                };
+
+                if follower_info.burn_block_height < info.burn_block_height {
+                    debug!("follower_bootup: Follower is behind miner's burnchain view");
+                    thread::sleep(Duration::from_millis(100));
+                    continue;
+                }
+
+                if info.stacks_tip == last_tip {
+                    debug!(
+                        "follower_bootup: Miner stacks tip hasn't changed ({})",
+                        &info.stacks_tip
+                    );
+                    thread::sleep(Duration::from_millis(100));
+                    continue;
+                }
+
+                let blocks_processed = coord_channel
+                    .lock()
+                    .expect("Mutex poisoned")
+                    .get_stacks_blocks_processed();
+
+                if blocks_processed > blocks_processed_before {
+                    break;
+                }
+
+                debug!("follower_bootup: No blocks processed yet");
+                thread::sleep(Duration::from_millis(100));
+            }
+
+            // compare chain tips
+            loop {
+                let Ok(info) = get_chain_info_result(&naka_conf) else {
+                    debug!("follower_bootup: failed to load tip info");
+                    thread::sleep(Duration::from_millis(100));
+                    continue;
+                };
+
+                let Ok(follower_info) = get_chain_info_result(&follower_conf) else {
+                    debug!("follower_bootup: Could not get follower chain info");
+                    thread::sleep(Duration::from_millis(100));
+                    continue;
+                };
+                if info.stacks_tip == follower_info.stacks_tip {
+                    debug!(
+                        "follower_bootup: Follower has advanced to miner's tip {}",
+                        &info.stacks_tip
+                    );
+                } else {
+                    debug!(
+                        "follower_bootup: Follower has NOT advanced to miner's tip: {} != {}",
+                        &info.stacks_tip, follower_info.stacks_tip
+                    );
+                }
+
+                last_tip = info.stacks_tip;
+                break;
+            }
+        }
+
+        debug!("follower_bootup: Wait for next block-commit");
+        let start_time = Instant::now();
+        while commits_submitted.load(Ordering::SeqCst) <= commits_before {
+            if start_time.elapsed() >= Duration::from_secs(20) {
+                panic!("Timed out waiting for block-commit");
+            }
+            thread::sleep(Duration::from_millis(100));
+        }
+        debug!("follower_bootup: Block commit submitted");
+    }
+
+    // load the chain tip, and assert that it is a nakamoto block and at least 30 blocks have advanced in epoch 3
+    let tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
+        .unwrap()
+        .unwrap();
+    info!(
+        "Latest tip";
+        "height" => tip.stacks_block_height,
+        "is_nakamoto" => tip.anchored_header.as_stacks_nakamoto().is_some(),
+    );
+
+    assert!(tip.anchored_header.as_stacks_nakamoto().is_some());
+    assert_eq!(
+        tip.stacks_block_height,
+        block_height_pre_3_0 + ((inter_blocks_per_tenure + 1) * tenure_count),
+        "Should have mined (1 + interim_blocks_per_tenure) * tenure_count nakamoto blocks"
+    );
+
+    // wait for follower to reach the chain tip
+    loop {
+        sleep_ms(1000);
+        let follower_node_info = get_chain_info(&follower_conf);
+
+        info!(
+            "Follower tip is now {}/{}",
+            &follower_node_info.stacks_tip_consensus_hash, &follower_node_info.stacks_tip
+        );
+        if follower_node_info.stacks_tip_consensus_hash == tip.consensus_hash
+            && follower_node_info.stacks_tip == tip.anchored_header.block_hash()
+        {
+            break;
+        }
+    }
+
+    // Verify both nodes have the correct chain id
+    let miner_info = get_chain_info(&naka_conf);
+    assert_eq!(miner_info.network_id, 0x87654321);
+
+    let follower_info = get_chain_info(&follower_conf);
+    assert_eq!(follower_info.network_id, 0x87654321);
 
     coord_channel
         .lock()
@@ -4011,11 +4345,7 @@ fn burn_ops_integration_test() {
     );
 
     test_observer::spawn();
-    let observer_port = test_observer::EVENT_OBSERVER_PORT;
-    naka_conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{observer_port}"),
-        events_keys: vec![EventKeyType::AnyEvent],
-    });
+    test_observer::register_any(&mut naka_conf);
 
     let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
     btcd_controller
@@ -4193,6 +4523,7 @@ fn burn_ops_integration_test() {
         &signer_sk_1,
         1,
         500,
+        naka_conf.burnchain.chain_id,
         &StacksAddress::burn_address(false),
         "pox-4",
         "set-signer-key-authorization",
@@ -4395,8 +4726,14 @@ fn burn_ops_integration_test() {
                 .expect("Mutex poisoned")
                 .get_stacks_blocks_processed();
             // submit a tx so that the miner will mine an extra block
-            let transfer_tx =
-                make_stacks_transfer(&sender_sk, sender_nonce, 200, &stacker_addr_1.into(), 10000);
+            let transfer_tx = make_stacks_transfer(
+                &sender_sk,
+                sender_nonce,
+                200,
+                naka_conf.burnchain.chain_id,
+                &stacker_addr_1.into(),
+                10000,
+            );
             sender_nonce += 1;
             submit_tx(&http_origin, &transfer_tx);
 
@@ -4614,11 +4951,10 @@ fn forked_tenure_is_ignored() {
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
 
     test_observer::spawn();
-    let observer_port = test_observer::EVENT_OBSERVER_PORT;
-    naka_conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{observer_port}"),
-        events_keys: vec![EventKeyType::AnyEvent, EventKeyType::MinedBlocks],
-    });
+    test_observer::register(
+        &mut naka_conf,
+        &[EventKeyType::AnyEvent, EventKeyType::MinedBlocks],
+    );
 
     let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
     btcd_controller
@@ -4807,8 +5143,14 @@ fn forked_tenure_is_ignored() {
 
     // submit a tx so that the miner will mine an extra block
     let sender_nonce = 0;
-    let transfer_tx =
-        make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
+    let transfer_tx = make_stacks_transfer(
+        &sender_sk,
+        sender_nonce,
+        send_fee,
+        naka_conf.burnchain.chain_id,
+        &recipient,
+        send_amt,
+    );
     let tx = submit_tx(&http_origin, &transfer_tx);
 
     info!("Submitted tx {tx} in Tenure C to mine a second block");
@@ -5006,6 +5348,7 @@ fn check_block_heights() {
         &sender_sk,
         sender_nonce,
         deploy_fee,
+        naka_conf.burnchain.chain_id,
         contract0_name,
         contract_clarity1,
     );
@@ -5091,6 +5434,7 @@ fn check_block_heights() {
         &sender_sk,
         sender_nonce,
         deploy_fee,
+        naka_conf.burnchain.chain_id,
         contract1_name,
         contract_clarity1,
         Some(ClarityVersion::Clarity2),
@@ -5107,6 +5451,7 @@ fn check_block_heights() {
         &sender_sk,
         sender_nonce,
         deploy_fee,
+        naka_conf.burnchain.chain_id,
         contract3_name,
         contract_clarity3,
     );
@@ -5214,8 +5559,14 @@ fn check_block_heights() {
                 .expect("Mutex poisoned")
                 .get_stacks_blocks_processed();
             // submit a tx so that the miner will mine an extra block
-            let transfer_tx =
-                make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
+            let transfer_tx = make_stacks_transfer(
+                &sender_sk,
+                sender_nonce,
+                send_fee,
+                naka_conf.burnchain.chain_id,
+                &recipient,
+                send_amt,
+            );
             sender_nonce += 1;
             submit_tx(&http_origin, &transfer_tx);
 
@@ -5395,11 +5746,7 @@ fn nakamoto_attempt_time() {
 
     // only subscribe to the block proposal events
     test_observer::spawn();
-    let observer_port = test_observer::EVENT_OBSERVER_PORT;
-    naka_conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{observer_port}"),
-        events_keys: vec![EventKeyType::BlockProposal],
-    });
+    test_observer::register(&mut naka_conf, &[EventKeyType::BlockProposal]);
 
     let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
     btcd_controller
@@ -5510,8 +5857,14 @@ fn nakamoto_attempt_time() {
 
             let mut sender_nonce = account.nonce;
             for _ in 0..txs_per_block {
-                let transfer_tx =
-                    make_stacks_transfer(&sender_sk, sender_nonce, tx_fee, &recipient, amount);
+                let transfer_tx = make_stacks_transfer(
+                    &sender_sk,
+                    sender_nonce,
+                    tx_fee,
+                    naka_conf.burnchain.chain_id,
+                    &recipient,
+                    amount,
+                );
                 sender_nonce += 1;
                 submit_tx(&http_origin, &transfer_tx);
             }
@@ -5603,8 +5956,14 @@ fn nakamoto_attempt_time() {
     'submit_txs: loop {
         let acct = &mut account[acct_idx];
         for _ in 0..MAXIMUM_MEMPOOL_TX_CHAINING {
-            let transfer_tx =
-                make_stacks_transfer(&acct.privk, acct.nonce, tx_fee, &recipient, amount);
+            let transfer_tx = make_stacks_transfer(
+                &acct.privk,
+                acct.nonce,
+                tx_fee,
+                naka_conf.burnchain.chain_id,
+                &recipient,
+                amount,
+            );
             submit_tx(&http_origin, &transfer_tx);
             tx_total_size += transfer_tx.len();
             tx_count += 1;
@@ -5692,11 +6051,7 @@ fn clarity_burn_state() {
     let stacker_sk = setup_stacker(&mut naka_conf);
 
     test_observer::spawn();
-    let observer_port = test_observer::EVENT_OBSERVER_PORT;
-    naka_conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{observer_port}"),
-        events_keys: vec![EventKeyType::MinedBlocks],
-    });
+    test_observer::register(&mut naka_conf, &[EventKeyType::MinedBlocks]);
 
     let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
     btcd_controller
@@ -5758,6 +6113,7 @@ fn clarity_burn_state() {
         &sender_sk,
         sender_nonce,
         deploy_fee,
+        naka_conf.burnchain.chain_id,
         contract_name,
         contract,
     );
@@ -5789,6 +6145,7 @@ fn clarity_burn_state() {
                 &sender_sk,
                 sender_nonce,
                 tx_fee,
+                naka_conf.burnchain.chain_id,
                 &sender_addr,
                 contract_name,
                 "bar",
@@ -5877,6 +6234,7 @@ fn clarity_burn_state() {
                 &sender_sk,
                 sender_nonce,
                 tx_fee,
+                naka_conf.burnchain.chain_id,
                 &sender_addr,
                 contract_name,
                 "bar",
@@ -5964,11 +6322,7 @@ fn signer_chainstate() {
     let stacker_sk = setup_stacker(&mut naka_conf);
 
     test_observer::spawn();
-    let observer_port = test_observer::EVENT_OBSERVER_PORT;
-    naka_conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{observer_port}"),
-        events_keys: vec![EventKeyType::AnyEvent],
-    });
+    test_observer::register_any(&mut naka_conf);
 
     let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
     btcd_controller
@@ -6176,8 +6530,14 @@ fn signer_chainstate() {
 
         // submit a tx to trigger an intermediate block
         let sender_nonce = i;
-        let transfer_tx =
-            make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
+        let transfer_tx = make_stacks_transfer(
+            &sender_sk,
+            sender_nonce,
+            send_fee,
+            naka_conf.burnchain.chain_id,
+            &recipient,
+            send_amt,
+        );
         submit_tx(&http_origin, &transfer_tx);
 
         let timer = Instant::now();
@@ -6575,11 +6935,7 @@ fn continue_tenure_extend() {
     let stacker_sk = setup_stacker(&mut naka_conf);
 
     test_observer::spawn();
-    let observer_port = test_observer::EVENT_OBSERVER_PORT;
-    naka_conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{observer_port}"),
-        events_keys: vec![EventKeyType::AnyEvent],
-    });
+    test_observer::register_any(&mut naka_conf);
 
     let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
     btcd_controller
@@ -6695,7 +7051,14 @@ fn continue_tenure_extend() {
     .unwrap();
 
     // Submit a TX
-    let transfer_tx = make_stacks_transfer(&sender_sk, 0, send_fee, &recipient, send_amt);
+    let transfer_tx = make_stacks_transfer(
+        &sender_sk,
+        0,
+        send_fee,
+        naka_conf.burnchain.chain_id,
+        &recipient,
+        send_amt,
+    );
     let transfer_tx_hex = format!("0x{}", to_hex(&transfer_tx));
 
     let tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
@@ -6890,11 +7253,7 @@ fn check_block_times() {
     let stacker_sk = setup_stacker(&mut naka_conf);
 
     test_observer::spawn();
-    let observer_port = test_observer::EVENT_OBSERVER_PORT;
-    naka_conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{observer_port}"),
-        events_keys: vec![EventKeyType::AnyEvent],
-    });
+    test_observer::register_any(&mut naka_conf);
 
     let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
     btcd_controller
@@ -6931,6 +7290,7 @@ fn check_block_times() {
         &sender_sk,
         sender_nonce,
         deploy_fee,
+        naka_conf.burnchain.chain_id,
         contract0_name,
         contract_clarity1,
     );
@@ -6974,6 +7334,7 @@ fn check_block_times() {
         &sender_sk,
         sender_nonce,
         deploy_fee,
+        naka_conf.burnchain.chain_id,
         contract1_name,
         contract_clarity1,
         Some(ClarityVersion::Clarity2),
@@ -6991,6 +7352,7 @@ fn check_block_times() {
         &sender_sk,
         sender_nonce,
         deploy_fee,
+        naka_conf.burnchain.chain_id,
         contract3_name,
         contract_clarity3,
     );
@@ -7086,8 +7448,14 @@ fn check_block_times() {
     info!("Mining Nakamoto block");
 
     // submit a tx so that the miner will mine an extra block
-    let transfer_tx =
-        make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
+    let transfer_tx = make_stacks_transfer(
+        &sender_sk,
+        sender_nonce,
+        send_fee,
+        naka_conf.burnchain.chain_id,
+        &recipient,
+        send_amt,
+    );
     sender_nonce += 1;
     submit_tx(&http_origin, &transfer_tx);
 
@@ -7167,8 +7535,14 @@ fn check_block_times() {
         .get_stacks_blocks_processed();
 
     // submit a tx so that the miner will mine an extra block
-    let transfer_tx =
-        make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
+    let transfer_tx = make_stacks_transfer(
+        &sender_sk,
+        sender_nonce,
+        send_fee,
+        naka_conf.burnchain.chain_id,
+        &recipient,
+        send_amt,
+    );
     submit_tx(&http_origin, &transfer_tx);
 
     loop {
@@ -7359,11 +7733,7 @@ fn check_block_info() {
     let stacker_sk = setup_stacker(&mut naka_conf);
 
     test_observer::spawn();
-    let observer_port = test_observer::EVENT_OBSERVER_PORT;
-    naka_conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{observer_port}"),
-        events_keys: vec![EventKeyType::AnyEvent],
-    });
+    test_observer::register_any(&mut naka_conf);
 
     let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
     btcd_controller
@@ -7418,6 +7788,7 @@ fn check_block_info() {
         &sender_sk,
         sender_nonce,
         deploy_fee,
+        naka_conf.burnchain.chain_id,
         contract0_name,
         contract_clarity1,
     );
@@ -7456,6 +7827,7 @@ fn check_block_info() {
         &sender_sk,
         sender_nonce,
         deploy_fee,
+        naka_conf.burnchain.chain_id,
         contract1_name,
         contract_clarity1,
         Some(ClarityVersion::Clarity2),
@@ -7488,6 +7860,7 @@ fn check_block_info() {
         &sender_sk,
         sender_nonce,
         deploy_fee,
+        naka_conf.burnchain.chain_id,
         contract3_name,
         contract_clarity3,
     );
@@ -7594,8 +7967,14 @@ fn check_block_info() {
         .get_stacks_blocks_processed();
 
     // submit a tx so that the miner will mine an extra block
-    let transfer_tx =
-        make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
+    let transfer_tx = make_stacks_transfer(
+        &sender_sk,
+        sender_nonce,
+        send_fee,
+        naka_conf.burnchain.chain_id,
+        &recipient,
+        send_amt,
+    );
     sender_nonce += 1;
     submit_tx(&http_origin, &transfer_tx);
 
@@ -7701,8 +8080,14 @@ fn check_block_info() {
         .get_stacks_blocks_processed();
 
     // submit a tx so that the miner will mine an extra block
-    let transfer_tx =
-        make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
+    let transfer_tx = make_stacks_transfer(
+        &sender_sk,
+        sender_nonce,
+        send_fee,
+        naka_conf.burnchain.chain_id,
+        &recipient,
+        send_amt,
+    );
     submit_tx(&http_origin, &transfer_tx);
 
     loop {
@@ -7879,11 +8264,7 @@ fn check_block_info_rewards() {
     let stacker_sk = setup_stacker(&mut naka_conf);
 
     test_observer::spawn();
-    let observer_port = test_observer::EVENT_OBSERVER_PORT;
-    naka_conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{observer_port}"),
-        events_keys: vec![EventKeyType::AnyEvent],
-    });
+    test_observer::register_any(&mut naka_conf);
 
     let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
     btcd_controller
@@ -7931,6 +8312,7 @@ fn check_block_info_rewards() {
         &sender_sk,
         sender_nonce,
         deploy_fee,
+        naka_conf.burnchain.chain_id,
         contract0_name,
         contract_clarity1,
     );
@@ -7969,6 +8351,7 @@ fn check_block_info_rewards() {
         &sender_sk,
         sender_nonce,
         deploy_fee,
+        naka_conf.burnchain.chain_id,
         contract1_name,
         contract_clarity1,
         Some(ClarityVersion::Clarity2),
@@ -7994,6 +8377,7 @@ fn check_block_info_rewards() {
         &sender_sk,
         sender_nonce,
         deploy_fee,
+        naka_conf.burnchain.chain_id,
         contract3_name,
         contract_clarity3,
     );
@@ -8014,8 +8398,14 @@ fn check_block_info_rewards() {
         .get_stacks_blocks_processed();
 
     // submit a tx so that the miner will mine an extra block
-    let transfer_tx =
-        make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
+    let transfer_tx = make_stacks_transfer(
+        &sender_sk,
+        sender_nonce,
+        send_fee,
+        naka_conf.burnchain.chain_id,
+        &recipient,
+        send_amt,
+    );
     sender_nonce += 1;
     submit_tx(&http_origin, &transfer_tx);
 
@@ -8041,8 +8431,14 @@ fn check_block_info_rewards() {
         .get_stacks_blocks_processed();
 
     // submit a tx so that the miner will mine an extra block
-    let transfer_tx =
-        make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
+    let transfer_tx = make_stacks_transfer(
+        &sender_sk,
+        sender_nonce,
+        send_fee,
+        naka_conf.burnchain.chain_id,
+        &recipient,
+        send_amt,
+    );
     submit_tx(&http_origin, &transfer_tx);
 
     loop {
@@ -8202,16 +8598,16 @@ fn mock_mining() {
     let send_amt = 100;
     let send_fee = 180;
 
-    let node_1_rpc = 51024;
-    let node_1_p2p = 51023;
-    let node_2_rpc = 51026;
-    let node_2_p2p = 51025;
+    let node_1_rpc = gen_random_port();
+    let node_1_p2p = gen_random_port();
+    let node_2_rpc = gen_random_port();
+    let node_2_p2p = gen_random_port();
 
     let localhost = "127.0.0.1";
-    naka_conf.node.rpc_bind = format!("{}:{}", localhost, node_1_rpc);
-    naka_conf.node.p2p_bind = format!("{}:{}", localhost, node_1_p2p);
-    naka_conf.node.data_url = format!("http://{}:{}", localhost, node_1_rpc);
-    naka_conf.node.p2p_address = format!("{}:{}", localhost, node_1_p2p);
+    naka_conf.node.rpc_bind = format!("{localhost}:{node_1_rpc}");
+    naka_conf.node.p2p_bind = format!("{localhost}:{node_1_p2p}");
+    naka_conf.node.data_url = format!("http://{localhost}:{node_1_rpc}");
+    naka_conf.node.p2p_address = format!("{localhost}:{node_1_p2p}");
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
 
     naka_conf.add_initial_balance(
@@ -8226,11 +8622,7 @@ fn mock_mining() {
     let stacker_sk = setup_stacker(&mut naka_conf);
 
     test_observer::spawn();
-    let observer_port = test_observer::EVENT_OBSERVER_PORT;
-    naka_conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{observer_port}"),
-        events_keys: vec![EventKeyType::AnyEvent],
-    });
+    test_observer::register_any(&mut naka_conf);
 
     let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
     btcd_controller
@@ -8295,10 +8687,10 @@ fn mock_mining() {
     follower_conf.node.seed = vec![0x01; 32];
     follower_conf.node.local_peer_seed = vec![0x02; 32];
 
-    follower_conf.node.rpc_bind = format!("{}:{}", localhost, node_2_rpc);
-    follower_conf.node.p2p_bind = format!("{}:{}", localhost, node_2_p2p);
-    follower_conf.node.data_url = format!("http://{}:{}", localhost, node_2_rpc);
-    follower_conf.node.p2p_address = format!("{}:{}", localhost, node_2_p2p);
+    follower_conf.node.rpc_bind = format!("{localhost}:{node_2_rpc}");
+    follower_conf.node.p2p_bind = format!("{localhost}:{node_2_p2p}");
+    follower_conf.node.data_url = format!("http://{localhost}:{node_2_rpc}");
+    follower_conf.node.p2p_address = format!("{localhost}:{node_2_p2p}");
 
     let node_info = get_chain_info(&naka_conf);
     follower_conf.node.add_bootstrap_node(
@@ -8307,7 +8699,7 @@ fn mock_mining() {
             &node_info.node_public_key.unwrap(),
             naka_conf.node.p2p_bind
         ),
-        CHAIN_ID_TESTNET,
+        naka_conf.burnchain.chain_id,
         PEER_VERSION_TESTNET,
     );
 
@@ -8372,8 +8764,14 @@ fn mock_mining() {
                 .get_stacks_blocks_processed();
             // submit a tx so that the miner will mine an extra block
             let sender_nonce = tenure_ix * inter_blocks_per_tenure + interim_block_ix;
-            let transfer_tx =
-                make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
+            let transfer_tx = make_stacks_transfer(
+                &sender_sk,
+                sender_nonce,
+                send_fee,
+                naka_conf.burnchain.chain_id,
+                &recipient,
+                send_amt,
+            );
             submit_tx(&http_origin, &transfer_tx);
 
             loop {
@@ -8493,11 +8891,7 @@ fn utxo_check_on_startup_panic() {
     naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1000);
 
     test_observer::spawn();
-    let observer_port = test_observer::EVENT_OBSERVER_PORT;
-    naka_conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{observer_port}"),
-        events_keys: vec![EventKeyType::AnyEvent],
-    });
+    test_observer::register_any(&mut naka_conf);
 
     let mut epochs = NAKAMOTO_INTEGRATION_EPOCHS.to_vec();
     let (last, rest) = epochs.split_last_mut().unwrap();
@@ -8573,11 +8967,7 @@ fn utxo_check_on_startup_recover() {
     naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1000);
 
     test_observer::spawn();
-    let observer_port = test_observer::EVENT_OBSERVER_PORT;
-    naka_conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{observer_port}"),
-        events_keys: vec![EventKeyType::AnyEvent],
-    });
+    test_observer::register_any(&mut naka_conf);
 
     let mut epochs = NAKAMOTO_INTEGRATION_EPOCHS.to_vec();
     let (last, rest) = epochs.split_last_mut().unwrap();
@@ -8654,11 +9044,7 @@ fn v3_signer_api_endpoint() {
 
     // only subscribe to the block proposal events
     test_observer::spawn();
-    let observer_port = test_observer::EVENT_OBSERVER_PORT;
-    conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{observer_port}"),
-        events_keys: vec![EventKeyType::BlockProposal],
-    });
+    test_observer::register(&mut conf, &[EventKeyType::BlockProposal]);
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
@@ -8764,8 +9150,14 @@ fn v3_signer_api_endpoint() {
         .get_stacks_blocks_processed();
     // submit a tx so that the miner will mine an extra stacks block
     let sender_nonce = 0;
-    let transfer_tx =
-        make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
+    let transfer_tx = make_stacks_transfer(
+        &sender_sk,
+        sender_nonce,
+        send_fee,
+        conf.burnchain.chain_id,
+        &recipient,
+        send_amt,
+    );
     submit_tx(&http_origin, &transfer_tx);
 
     wait_for(30, || {
@@ -8838,11 +9230,7 @@ fn skip_mining_long_tx() {
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
 
     test_observer::spawn();
-    let observer_port = test_observer::EVENT_OBSERVER_PORT;
-    naka_conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{observer_port}"),
-        events_keys: vec![EventKeyType::AnyEvent],
-    });
+    test_observer::register_any(&mut naka_conf);
 
     let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
     btcd_controller
@@ -8923,6 +9311,7 @@ fn skip_mining_long_tx() {
                 &sender_2_sk,
                 0,
                 9_000,
+                naka_conf.burnchain.chain_id,
                 "large_contract",
                 &format!(
                     "(define-constant INP_LIST (list {input_list}))
@@ -8946,8 +9335,14 @@ fn skip_mining_long_tx() {
 
             TEST_SKIP_P2P_BROADCAST.lock().unwrap().replace(false);
         } else {
-            let transfer_tx =
-                make_stacks_transfer(&sender_1_sk, i - 1, send_fee, &recipient, send_amt);
+            let transfer_tx = make_stacks_transfer(
+                &sender_1_sk,
+                i - 1,
+                send_fee,
+                naka_conf.burnchain.chain_id,
+                &recipient,
+                send_amt,
+            );
             submit_tx(&http_origin, &transfer_tx);
 
             wait_for(30, || {

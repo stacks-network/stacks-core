@@ -35,7 +35,7 @@ use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 use stacks_common::util::sleep_ms;
 
 use crate::burnchains::bitcoin_regtest_controller::UTXO;
-use crate::config::{Config, EventKeyType, EventObserverConfig, InitialBalance};
+use crate::config::{Config, InitialBalance};
 use crate::neon::RunLoopCounter;
 use crate::operations::BurnchainOpSigner;
 use crate::stacks_common::address::AddressHashMode;
@@ -71,11 +71,7 @@ fn advance_to_2_1(
     conf.burnchain.peer_host = "localhost".to_string();
     conf.initial_balances.append(&mut initial_balances);
     conf.miner.block_reward_recipient = block_reward_recipient;
-
-    conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
-        events_keys: vec![EventKeyType::AnyEvent],
-    });
+    test_observer::register_any(&mut conf);
 
     let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
     epochs[1].end_height = epoch_2_05;
@@ -364,6 +360,7 @@ fn transition_adds_burn_block_height() {
         &spender_sk,
         0,
         (2 * contract.len()) as u64,
+        conf.burnchain.chain_id,
         "test-burn-headers",
         contract,
     );
@@ -377,6 +374,7 @@ fn transition_adds_burn_block_height() {
         &spender_sk,
         1,
         (2 * contract.len()) as u64,
+        conf.burnchain.chain_id,
         &spender_addr_c32,
         "test-burn-headers",
         "test-burn-headers",
@@ -576,10 +574,7 @@ fn transition_fixes_bitcoin_rigidity() {
     ];
 
     conf.initial_balances.append(&mut initial_balances);
-    conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
-        events_keys: vec![EventKeyType::AnyEvent],
-    });
+    test_observer::register_any(&mut conf);
 
     let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
     epochs[1].end_height = epoch_2_05;
@@ -1114,6 +1109,7 @@ fn transition_adds_get_pox_addr_recipients() {
             &spender_sk,
             0,
             300,
+            conf.burnchain.chain_id,
             &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
             "pox-2",
             "stack-stx",
@@ -1154,6 +1150,7 @@ fn transition_adds_get_pox_addr_recipients() {
             &spender_sk,
             0,
             300,
+            conf.burnchain.chain_id,
             &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
             "pox-2",
             "stack-stx",
@@ -1191,6 +1188,7 @@ fn transition_adds_get_pox_addr_recipients() {
         &spender_sks[0],
         1,
         (2 * contract.len()) as u64,
+        conf.burnchain.chain_id,
         "test-get-pox-addrs",
         contract,
     );
@@ -1216,6 +1214,7 @@ fn transition_adds_get_pox_addr_recipients() {
         &spender_sks[0],
         2,
         (2 * contract.len()) as u64,
+        conf.burnchain.chain_id,
         &spender_addr_c32,
         "test-get-pox-addrs",
         "test-get-pox-addrs",
@@ -1472,11 +1471,7 @@ fn transition_removes_pox_sunset() {
     let (mut conf, miner_account) = neon_integration_test_conf();
 
     test_observer::spawn();
-
-    conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
-        events_keys: vec![EventKeyType::AnyEvent],
-    });
+    test_observer::register_any(&mut conf);
 
     conf.initial_balances.push(InitialBalance {
         address: spender_addr.clone(),
@@ -1589,6 +1584,7 @@ fn transition_removes_pox_sunset() {
         &spender_sk,
         0,
         260,
+        conf.burnchain.chain_id,
         &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
         "pox",
         "stack-stx",
@@ -1651,6 +1647,7 @@ fn transition_removes_pox_sunset() {
         &spender_sk,
         1,
         260 * 2,
+        conf.burnchain.chain_id,
         &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
         "pox-2",
         "stack-stx",
@@ -1787,11 +1784,7 @@ fn transition_empty_blocks() {
     conf.burnchain.epochs = Some(epochs);
 
     test_observer::spawn();
-
-    conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
-        events_keys: vec![EventKeyType::AnyEvent],
-    });
+    test_observer::register_any(&mut conf);
 
     let keychain = Keychain::default(conf.node.seed.clone());
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
@@ -2288,6 +2281,7 @@ fn test_pox_reorgs_three_flaps() {
                 pk,
                 0,
                 1360,
+                conf_template.burnchain.chain_id,
                 &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
                 "pox-2",
                 "stack-stx",
@@ -2311,7 +2305,9 @@ fn test_pox_reorgs_three_flaps() {
     let all_txs: Vec<_> = privks
         .iter()
         .enumerate()
-        .map(|(i, pk)| make_random_tx_chain(pk, (25 * i) as u64, false))
+        .map(|(i, pk)| {
+            make_random_tx_chain(pk, (25 * i) as u64, conf_template.burnchain.chain_id, false)
+        })
         .collect();
 
     // everyone locks up
@@ -2825,6 +2821,7 @@ fn test_pox_reorg_one_flap() {
                 pk,
                 0,
                 1360,
+                conf_template.burnchain.chain_id,
                 &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
                 "pox-2",
                 "stack-stx",
@@ -2848,7 +2845,9 @@ fn test_pox_reorg_one_flap() {
     let all_txs: Vec<_> = privks
         .iter()
         .enumerate()
-        .map(|(i, pk)| make_random_tx_chain(pk, (25 * i) as u64, false))
+        .map(|(i, pk)| {
+            make_random_tx_chain(pk, (25 * i) as u64, conf_template.burnchain.chain_id, false)
+        })
         .collect();
 
     // everyone locks up
@@ -3250,6 +3249,7 @@ fn test_pox_reorg_flap_duel() {
                 pk,
                 0,
                 1360,
+                conf_template.burnchain.chain_id,
                 &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
                 "pox-2",
                 "stack-stx",
@@ -3273,7 +3273,9 @@ fn test_pox_reorg_flap_duel() {
     let all_txs: Vec<_> = privks
         .iter()
         .enumerate()
-        .map(|(i, pk)| make_random_tx_chain(pk, (25 * i) as u64, false))
+        .map(|(i, pk)| {
+            make_random_tx_chain(pk, (25 * i) as u64, conf_template.burnchain.chain_id, false)
+        })
         .collect();
 
     // everyone locks up
@@ -3685,6 +3687,7 @@ fn test_pox_reorg_flap_reward_cycles() {
                 pk,
                 0,
                 1360,
+                conf_template.burnchain.chain_id,
                 &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
                 "pox-2",
                 "stack-stx",
@@ -3708,7 +3711,9 @@ fn test_pox_reorg_flap_reward_cycles() {
     let all_txs: Vec<_> = privks
         .iter()
         .enumerate()
-        .map(|(i, pk)| make_random_tx_chain(pk, (25 * i) as u64, false))
+        .map(|(i, pk)| {
+            make_random_tx_chain(pk, (25 * i) as u64, conf_template.burnchain.chain_id, false)
+        })
         .collect();
 
     // everyone locks up
@@ -4114,6 +4119,7 @@ fn test_pox_missing_five_anchor_blocks() {
                 pk,
                 0,
                 1360,
+                conf_template.burnchain.chain_id,
                 &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
                 "pox-2",
                 "stack-stx",
@@ -4137,7 +4143,9 @@ fn test_pox_missing_five_anchor_blocks() {
     let all_txs: Vec<_> = privks
         .iter()
         .enumerate()
-        .map(|(i, pk)| make_random_tx_chain(pk, (25 * i) as u64, false))
+        .map(|(i, pk)| {
+            make_random_tx_chain(pk, (25 * i) as u64, conf_template.burnchain.chain_id, false)
+        })
         .collect();
 
     // everyone locks up
@@ -4515,6 +4523,7 @@ fn test_sortition_divergence_pre_21() {
                 pk,
                 0,
                 1360,
+                conf_template.burnchain.chain_id,
                 &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
                 "pox",
                 "stack-stx",
@@ -4538,7 +4547,9 @@ fn test_sortition_divergence_pre_21() {
     let all_txs: Vec<_> = privks
         .iter()
         .enumerate()
-        .map(|(i, pk)| make_random_tx_chain(pk, (25 * i) as u64, false))
+        .map(|(i, pk)| {
+            make_random_tx_chain(pk, (25 * i) as u64, conf_template.burnchain.chain_id, false)
+        })
         .collect();
 
     // everyone locks up
@@ -4737,10 +4748,7 @@ fn trait_invocation_cross_epoch() {
         amount: 200_000_000,
     }];
     conf.initial_balances.append(&mut initial_balances);
-    conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
-        events_keys: vec![EventKeyType::AnyEvent],
-    });
+    test_observer::register_any(&mut conf);
     let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
     epochs[1].end_height = epoch_2_05;
     epochs[2].start_height = epoch_2_05;
@@ -4816,13 +4824,34 @@ fn trait_invocation_cross_epoch() {
     let tip_info = get_chain_info(&conf);
     assert_eq!(tip_info.burn_block_height, epoch_2_05 + 1);
 
-    let tx = make_contract_publish(&spender_sk, 0, 10_000, "simple-trait", trait_contract);
+    let tx = make_contract_publish(
+        &spender_sk,
+        0,
+        10_000,
+        conf.burnchain.chain_id,
+        "simple-trait",
+        trait_contract,
+    );
     let trait_txid = submit_tx(&http_origin, &tx);
 
-    let tx = make_contract_publish(&spender_sk, 1, 10_000, "impl-simple", impl_contract);
+    let tx = make_contract_publish(
+        &spender_sk,
+        1,
+        10_000,
+        conf.burnchain.chain_id,
+        "impl-simple",
+        impl_contract,
+    );
     let impl_txid = submit_tx(&http_origin, &tx);
 
-    let tx = make_contract_publish(&spender_sk, 2, 10_000, "use-simple", use_contract);
+    let tx = make_contract_publish(
+        &spender_sk,
+        2,
+        10_000,
+        conf.burnchain.chain_id,
+        "use-simple",
+        use_contract,
+    );
     let use_txid = submit_tx(&http_origin, &tx);
 
     // mine the transactions and advance to epoch 2.1
@@ -4833,7 +4862,14 @@ fn trait_invocation_cross_epoch() {
     let tip_info = get_chain_info(&conf);
     assert_eq!(tip_info.burn_block_height, epoch_2_1 + 1);
 
-    let tx = make_contract_publish(&spender_sk, 3, 10_000, "invoke-simple", invoke_contract);
+    let tx = make_contract_publish(
+        &spender_sk,
+        3,
+        10_000,
+        conf.burnchain.chain_id,
+        "invoke-simple",
+        invoke_contract,
+    );
     let invoke_txid = submit_tx(&http_origin, &tx);
 
     for _ in 0..2 {
@@ -4844,6 +4880,7 @@ fn trait_invocation_cross_epoch() {
         &spender_sk,
         4,
         10_000,
+        conf.burnchain.chain_id,
         &spender_addr_c32,
         "invoke-simple",
         "invocation-1",
@@ -4855,6 +4892,7 @@ fn trait_invocation_cross_epoch() {
         &spender_sk,
         5,
         10_000,
+        conf.burnchain.chain_id,
         &spender_addr_c32,
         "invoke-simple",
         "invocation-2",
@@ -4982,11 +5020,7 @@ fn test_v1_unlock_height_with_current_stackers() {
     conf.miner.subsequent_attempt_time_ms = i64::MAX as u64;
 
     test_observer::spawn();
-
-    conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
-        events_keys: vec![EventKeyType::AnyEvent],
-    });
+    test_observer::register_any(&mut conf);
     conf.initial_balances.append(&mut initial_balances);
 
     let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
@@ -5064,6 +5098,7 @@ fn test_v1_unlock_height_with_current_stackers() {
         &spender_sk,
         0,
         3000,
+        conf.burnchain.chain_id,
         &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
         "pox",
         "stack-stx",
@@ -5100,6 +5135,7 @@ fn test_v1_unlock_height_with_current_stackers() {
         &spender_sk,
         1,
         3000,
+        conf.burnchain.chain_id,
         &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
         "pox-2",
         "stack-stx",
@@ -5247,11 +5283,7 @@ fn test_v1_unlock_height_with_delay_and_current_stackers() {
     conf.miner.subsequent_attempt_time_ms = i64::MAX as u64;
 
     test_observer::spawn();
-
-    conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
-        events_keys: vec![EventKeyType::AnyEvent],
-    });
+    test_observer::register_any(&mut conf);
     conf.initial_balances.append(&mut initial_balances);
 
     let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
@@ -5332,6 +5364,7 @@ fn test_v1_unlock_height_with_delay_and_current_stackers() {
         &spender_sk,
         0,
         3000,
+        conf.burnchain.chain_id,
         &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
         "pox",
         "stack-stx",
@@ -5380,6 +5413,7 @@ fn test_v1_unlock_height_with_delay_and_current_stackers() {
         &spender_sk,
         1,
         3000,
+        conf.burnchain.chain_id,
         &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
         "pox-2",
         "stack-stx",

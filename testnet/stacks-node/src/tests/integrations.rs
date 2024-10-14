@@ -25,7 +25,7 @@ use stacks::clarity_vm::clarity::ClarityConnection;
 use stacks::codec::StacksMessageCodec;
 use stacks::core::mempool::MAXIMUM_MEMPOOL_TX_CHAINING;
 use stacks::core::{
-    StacksEpoch, StacksEpochId, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05,
+    StacksEpoch, StacksEpochId, CHAIN_ID_TESTNET, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05,
     PEER_VERSION_EPOCH_2_1,
 };
 use stacks::net::api::callreadonly::CallReadOnlyRequestBody;
@@ -211,8 +211,14 @@ fn integration_test_get_info() {
             if round == 1 {
                 // block-height = 2
                 eprintln!("Tenure in 1 started!");
-                let publish_tx =
-                    make_contract_publish(&contract_sk, 0, 10, "get-info", GET_INFO_CONTRACT);
+                let publish_tx = make_contract_publish(
+                    &contract_sk,
+                    0,
+                    10,
+                    CHAIN_ID_TESTNET,
+                    "get-info",
+                    GET_INFO_CONTRACT,
+                );
                 tenure
                     .mem_pool
                     .submit_raw(
@@ -225,8 +231,14 @@ fn integration_test_get_info() {
                         &StacksEpochId::Epoch21,
                     )
                     .unwrap();
-                let publish_tx =
-                    make_contract_publish(&contract_sk, 1, 10, "other", OTHER_CONTRACT);
+                let publish_tx = make_contract_publish(
+                    &contract_sk,
+                    1,
+                    10,
+                    CHAIN_ID_TESTNET,
+                    "other",
+                    OTHER_CONTRACT,
+                );
                 tenure
                     .mem_pool
                     .submit_raw(
@@ -239,8 +251,14 @@ fn integration_test_get_info() {
                         &StacksEpochId::Epoch21,
                     )
                     .unwrap();
-                let publish_tx =
-                    make_contract_publish(&contract_sk, 2, 10, "main", CALL_READ_CONTRACT);
+                let publish_tx = make_contract_publish(
+                    &contract_sk,
+                    2,
+                    10,
+                    CHAIN_ID_TESTNET,
+                    "main",
+                    CALL_READ_CONTRACT,
+                );
                 tenure
                     .mem_pool
                     .submit_raw(
@@ -272,6 +290,7 @@ fn integration_test_get_info() {
                     &contract_sk,
                     3,
                     10,
+                    CHAIN_ID_TESTNET,
                     "impl-trait-contract",
                     IMPL_TRAIT_CONTRACT,
                 );
@@ -294,6 +313,7 @@ fn integration_test_get_info() {
                     &principal_sk,
                     (round - 3).into(),
                     10,
+                    CHAIN_ID_TESTNET,
                     &to_addr(&contract_sk),
                     "get-info",
                     "update-info",
@@ -319,6 +339,7 @@ fn integration_test_get_info() {
                     &spender_sk,
                     (round - 1).into(),
                     10,
+                    CHAIN_ID_TESTNET,
                     &StacksAddress::from_string(ADDR_4).unwrap().into(),
                     100,
                 );
@@ -797,8 +818,13 @@ fn integration_test_get_info() {
                 eprintln!("Test: POST {} (valid)", path);
 
                 // tx_xfer is 180 bytes long
-                let tx_xfer = make_stacks_transfer(&spender_sk, round.into(), 200,
-                                                   &StacksAddress::from_string(ADDR_4).unwrap().into(), 123);
+                let tx_xfer = make_stacks_transfer(
+                    &spender_sk,
+                    round.into(),
+                    200,
+                    CHAIN_ID_TESTNET,
+                    &StacksAddress::from_string(ADDR_4).unwrap().into(),
+                    123);
 
                 let res: String = client.post(&path)
                     .header("Content-Type", "application/octet-stream")
@@ -829,7 +855,8 @@ fn integration_test_get_info() {
                 eprintln!("Test: POST {} (invalid)", path);
 
                 // tx_xfer_invalid is 180 bytes long
-                let tx_xfer_invalid = make_stacks_transfer(&spender_sk, (round + 30).into(), 200,     // bad nonce
+                // bad nonce
+                let tx_xfer_invalid = make_stacks_transfer(&spender_sk, (round + 30).into(), 200, CHAIN_ID_TESTNET,
                                                            &StacksAddress::from_string(ADDR_4).unwrap().into(), 456);
 
                 let tx_xfer_invalid_tx = StacksTransaction::consensus_deserialize(&mut &tx_xfer_invalid[..]).unwrap();
@@ -1114,8 +1141,14 @@ fn contract_stx_transfer() {
 
             if round == 1 {
                 // block-height = 2
-                let xfer_to_contract =
-                    make_stacks_transfer(&sk_3, 0, 10, &contract_identifier.into(), 1000);
+                let xfer_to_contract = make_stacks_transfer(
+                    &sk_3,
+                    0,
+                    10,
+                    CHAIN_ID_TESTNET,
+                    &contract_identifier.into(),
+                    1000,
+                );
                 tenure
                     .mem_pool
                     .submit_raw(
@@ -1130,8 +1163,14 @@ fn contract_stx_transfer() {
                     .unwrap();
             } else if round == 2 {
                 // block-height > 2
-                let publish_tx =
-                    make_contract_publish(&contract_sk, 0, 10, "faucet", FAUCET_CONTRACT);
+                let publish_tx = make_contract_publish(
+                    &contract_sk,
+                    0,
+                    10,
+                    CHAIN_ID_TESTNET,
+                    "faucet",
+                    FAUCET_CONTRACT,
+                );
                 tenure
                     .mem_pool
                     .submit_raw(
@@ -1146,8 +1185,14 @@ fn contract_stx_transfer() {
                     .unwrap();
             } else if round == 3 {
                 // try to publish again
-                let publish_tx =
-                    make_contract_publish(&contract_sk, 1, 10, "faucet", FAUCET_CONTRACT);
+                let publish_tx = make_contract_publish(
+                    &contract_sk,
+                    1,
+                    10,
+                    CHAIN_ID_TESTNET,
+                    "faucet",
+                    FAUCET_CONTRACT,
+                );
 
                 let (consensus_hash, block_hash) = (
                     &tenure.parent_block.metadata.consensus_hash,
@@ -1170,6 +1215,7 @@ fn contract_stx_transfer() {
                     &sk_2,
                     0,
                     10,
+                    CHAIN_ID_TESTNET,
                     &to_addr(&contract_sk),
                     "faucet",
                     "spout",
@@ -1194,6 +1240,7 @@ fn contract_stx_transfer() {
                         &sk_3,
                         1 + i,
                         200,
+                        CHAIN_ID_TESTNET,
                         &contract_identifier.clone().into(),
                         1000,
                     );
@@ -1215,8 +1262,14 @@ fn contract_stx_transfer() {
                         .unwrap();
                 }
                 // this one should fail because the nonce is already in the mempool
-                let xfer_to_contract =
-                    make_stacks_transfer(&sk_3, 3, 190, &contract_identifier.clone().into(), 1000);
+                let xfer_to_contract = make_stacks_transfer(
+                    &sk_3,
+                    3,
+                    190,
+                    CHAIN_ID_TESTNET,
+                    &contract_identifier.clone().into(),
+                    1000,
+                );
                 let xfer_to_contract =
                     StacksTransaction::consensus_deserialize(&mut &xfer_to_contract[..]).unwrap();
                 match tenure
@@ -1446,8 +1499,14 @@ fn mine_transactions_out_of_order() {
 
             if round == 1 {
                 // block-height = 2
-                let xfer_to_contract =
-                    make_stacks_transfer(&sk, 1, 10, &contract_identifier.into(), 1000);
+                let xfer_to_contract = make_stacks_transfer(
+                    &sk,
+                    1,
+                    10,
+                    CHAIN_ID_TESTNET,
+                    &contract_identifier.into(),
+                    1000,
+                );
                 tenure
                     .mem_pool
                     .submit_raw(
@@ -1462,7 +1521,8 @@ fn mine_transactions_out_of_order() {
                     .unwrap();
             } else if round == 2 {
                 // block-height > 2
-                let publish_tx = make_contract_publish(&sk, 2, 10, "faucet", FAUCET_CONTRACT);
+                let publish_tx =
+                    make_contract_publish(&sk, 2, 10, CHAIN_ID_TESTNET, "faucet", FAUCET_CONTRACT);
                 tenure
                     .mem_pool
                     .submit_raw(
@@ -1476,8 +1536,14 @@ fn mine_transactions_out_of_order() {
                     )
                     .unwrap();
             } else if round == 3 {
-                let xfer_to_contract =
-                    make_stacks_transfer(&sk, 3, 10, &contract_identifier.into(), 1000);
+                let xfer_to_contract = make_stacks_transfer(
+                    &sk,
+                    3,
+                    10,
+                    CHAIN_ID_TESTNET,
+                    &contract_identifier.into(),
+                    1000,
+                );
                 tenure
                     .mem_pool
                     .submit_raw(
@@ -1491,8 +1557,14 @@ fn mine_transactions_out_of_order() {
                     )
                     .unwrap();
             } else if round == 4 {
-                let xfer_to_contract =
-                    make_stacks_transfer(&sk, 0, 10, &contract_identifier.into(), 1000);
+                let xfer_to_contract = make_stacks_transfer(
+                    &sk,
+                    0,
+                    10,
+                    CHAIN_ID_TESTNET,
+                    &contract_identifier.into(),
+                    1000,
+                );
                 tenure
                     .mem_pool
                     .submit_raw(
@@ -1593,8 +1665,14 @@ fn mine_contract_twice() {
 
             if round == 1 {
                 // block-height = 2
-                let publish_tx =
-                    make_contract_publish(&contract_sk, 0, 10, "faucet", FAUCET_CONTRACT);
+                let publish_tx = make_contract_publish(
+                    &contract_sk,
+                    0,
+                    10,
+                    CHAIN_ID_TESTNET,
+                    "faucet",
+                    FAUCET_CONTRACT,
+                );
                 let (consensus_hash, block_hash) = (
                     &tenure.parent_block.metadata.consensus_hash,
                     &tenure.parent_block.metadata.anchored_header.block_hash(),
@@ -1691,8 +1769,14 @@ fn bad_contract_tx_rollback() {
 
             if round == 1 {
                 // block-height = 2
-                let xfer_to_contract =
-                    make_stacks_transfer(&sk_3, 0, 10, &contract_identifier.into(), 1000);
+                let xfer_to_contract = make_stacks_transfer(
+                    &sk_3,
+                    0,
+                    10,
+                    CHAIN_ID_TESTNET,
+                    &contract_identifier.into(),
+                    1000,
+                );
                 let (consensus_hash, block_hash) = (
                     &tenure.parent_block.metadata.consensus_hash,
                     &tenure.parent_block.metadata.anchored_header.block_hash(),
@@ -1711,7 +1795,8 @@ fn bad_contract_tx_rollback() {
                     .unwrap();
             } else if round == 2 {
                 // block-height = 3
-                let xfer_to_contract = make_stacks_transfer(&sk_3, 1, 10, &addr_2.into(), 1000);
+                let xfer_to_contract =
+                    make_stacks_transfer(&sk_3, 1, 10, CHAIN_ID_TESTNET, &addr_2.into(), 1000);
                 let (consensus_hash, block_hash) = (
                     &tenure.parent_block.metadata.consensus_hash,
                     &tenure.parent_block.metadata.anchored_header.block_hash(),
@@ -1730,7 +1815,8 @@ fn bad_contract_tx_rollback() {
                     .unwrap();
 
                 // doesn't consistently get mined by the StacksBlockBuilder, because order matters!
-                let xfer_to_contract = make_stacks_transfer(&sk_3, 2, 10, &addr_2.into(), 3000);
+                let xfer_to_contract =
+                    make_stacks_transfer(&sk_3, 2, 10, CHAIN_ID_TESTNET, &addr_2.into(), 3000);
                 tenure
                     .mem_pool
                     .submit_raw(
@@ -1744,8 +1830,14 @@ fn bad_contract_tx_rollback() {
                     )
                     .unwrap();
 
-                let publish_tx =
-                    make_contract_publish(&contract_sk, 0, 10, "faucet", FAUCET_CONTRACT);
+                let publish_tx = make_contract_publish(
+                    &contract_sk,
+                    0,
+                    10,
+                    CHAIN_ID_TESTNET,
+                    "faucet",
+                    FAUCET_CONTRACT,
+                );
                 tenure
                     .mem_pool
                     .submit_raw(
@@ -1759,8 +1851,14 @@ fn bad_contract_tx_rollback() {
                     )
                     .unwrap();
 
-                let publish_tx =
-                    make_contract_publish(&contract_sk, 1, 10, "faucet", FAUCET_CONTRACT);
+                let publish_tx = make_contract_publish(
+                    &contract_sk,
+                    1,
+                    10,
+                    CHAIN_ID_TESTNET,
+                    "faucet",
+                    FAUCET_CONTRACT,
+                );
                 tenure
                     .mem_pool
                     .submit_raw(
@@ -2014,6 +2112,7 @@ fn block_limit_runtime_test() {
                     &contract_sk,
                     0,
                     10,
+                    CHAIN_ID_TESTNET,
                     "hello-contract",
                     EXPENSIVE_CONTRACT.as_str(),
                 );
@@ -2042,6 +2141,7 @@ fn block_limit_runtime_test() {
                         sk,
                         0,
                         10,
+                        CHAIN_ID_TESTNET,
                         &to_addr(&contract_sk),
                         "hello-contract",
                         "do-it",
@@ -2132,8 +2232,14 @@ fn mempool_errors() {
 
             if round == 1 {
                 // block-height = 2
-                let publish_tx =
-                    make_contract_publish(&contract_sk, 0, 10, "get-info", GET_INFO_CONTRACT);
+                let publish_tx = make_contract_publish(
+                    &contract_sk,
+                    0,
+                    10,
+                    CHAIN_ID_TESTNET,
+                    "get-info",
+                    GET_INFO_CONTRACT,
+                );
                 eprintln!("Tenure in 1 started!");
                 tenure
                     .mem_pool
@@ -2176,6 +2282,7 @@ fn mempool_errors() {
                     &spender_sk,
                     30, // bad nonce -- too much chaining
                     200,
+                    CHAIN_ID_TESTNET,
                     &send_to,
                     456,
                 );
@@ -2217,6 +2324,7 @@ fn mempool_errors() {
                     &spender_sk,
                     0,
                     1, // bad fee
+                    CHAIN_ID_TESTNET,
                     &send_to,
                     456,
                 );
@@ -2250,6 +2358,7 @@ fn mempool_errors() {
                     &contract_sk,
                     1,
                     2000, // not enough funds!
+                    CHAIN_ID_TESTNET,
                     &send_to,
                     456,
                 );
@@ -2294,6 +2403,7 @@ fn mempool_errors() {
                     1 + MAXIMUM_MEMPOOL_TX_CHAINING,
                     1,
                     2000,
+                    CHAIN_ID_TESTNET,
                     &send_to,
                     1000,
                 );

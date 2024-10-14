@@ -69,6 +69,7 @@ use super::config::{EventKeyType, EventObserverConfig};
 #[derive(Debug, Clone)]
 struct EventObserver {
     endpoint: String,
+    timeout: Duration,
 }
 
 struct ReceiptPayloadInfo<'a> {
@@ -335,8 +336,7 @@ impl EventObserver {
             .parse()
             .unwrap_or(PeerHost::DNS(host.to_string(), port));
 
-        let backoff = Duration::from_millis(1000); // 1 second
-
+        let mut backoff = Duration::from_millis(100);
         loop {
             let mut request = StacksHttpRequest::new_for_peer(
                 peerhost.clone(),
@@ -347,7 +347,7 @@ impl EventObserver {
             .unwrap_or_else(|_| panic!("FATAL: failed to encode infallible data as HTTP request"));
             request.add_header("Connection".into(), "close".into());
 
-            match send_http_request(host, port, request, backoff) {
+            match send_http_request(host, port, request, self.timeout) {
                 Ok(response) => {
                     if response.preamble().status_code == 200 {
                         debug!(
@@ -368,6 +368,7 @@ impl EventObserver {
                 }
             }
             sleep(backoff);
+            backoff *= 2;
         }
     }
 
@@ -1406,6 +1407,7 @@ impl EventDispatcher {
         info!("Registering event observer at: {}", conf.endpoint);
         let event_observer = EventObserver {
             endpoint: conf.endpoint.clone(),
+            timeout: Duration::from_millis(conf.timeout_ms),
         };
 
         let observer_index = self.registered_observers.len() as u16;
@@ -1498,6 +1500,7 @@ mod test {
     fn build_block_processed_event() {
         let observer = EventObserver {
             endpoint: "nowhere".to_string(),
+            timeout: Duration::from_secs(3),
         };
 
         let filtered_events = vec![];
@@ -1558,6 +1561,7 @@ mod test {
     fn test_block_processed_event_nakamoto() {
         let observer = EventObserver {
             endpoint: "nowhere".to_string(),
+            timeout: Duration::from_secs(3),
         };
 
         let filtered_events = vec![];
@@ -1699,6 +1703,7 @@ mod test {
 
         let observer = EventObserver {
             endpoint: format!("127.0.0.1:{}", port),
+            timeout: Duration::from_secs(3),
         };
 
         let payload = json!({"key": "value"});
@@ -1749,11 +1754,77 @@ mod test {
 
         let observer = EventObserver {
             endpoint: format!("127.0.0.1:{}", port),
+            timeout: Duration::from_secs(3),
         };
 
         let payload = json!({"key": "value"});
 
         observer.send_payload(&payload, "/test");
+
+        // Wait for the server to process the request
+        rx.recv_timeout(Duration::from_secs(5))
+            .expect("Server did not receive request in time");
+    }
+
+    #[test]
+    fn test_send_payload_timeout() {
+        let port = get_random_port();
+        let timeout = Duration::from_secs(3);
+
+        // Set up a channel to notify when the server has processed the request
+        let (tx, rx) = channel();
+
+        // Start a mock server in a separate thread
+        let server = Server::http(format!("127.0.0.1:{}", port)).unwrap();
+        thread::spawn(move || {
+            let mut attempt = 0;
+            let mut _request_holder = None;
+            while let Ok(request) = server.recv() {
+                attempt += 1;
+                if attempt == 1 {
+                    debug!("Mock server received request attempt 1");
+                    // Do not reply, forcing the sender to timeout and retry,
+                    // but don't drop the request or it will receive a 500 error,
+                    _request_holder = Some(request);
+                } else {
+                    debug!("Mock server received request attempt 2");
+                    // Simulate a successful response on the second attempt
+                    let response = Response::from_string("HTTP/1.1 200 OK");
+                    request.respond(response).unwrap();
+
+                    // Notify the test that the request was processed successfully
+                    tx.send(()).unwrap();
+                    break;
+                }
+            }
+        });
+
+        let observer = EventObserver {
+            endpoint: format!("127.0.0.1:{}", port),
+            timeout,
+        };
+
+        let payload = json!({"key": "value"});
+
+        // Record the time before sending the payload
+        let start_time = Instant::now();
+
+        // Call the function being tested
+        observer.send_payload(&payload, "/test");
+
+        // Record the time after the function returns
+        let elapsed_time = start_time.elapsed();
+
+        println!("Elapsed time: {:?}", elapsed_time);
+        assert!(
+            elapsed_time >= timeout,
+            "Expected a timeout, but the function returned too quickly"
+        );
+
+        assert!(
+            elapsed_time < timeout + Duration::from_secs(1),
+            "Expected a timeout, but the function took too long"
+        );
 
         // Wait for the server to process the request
         rx.recv_timeout(Duration::from_secs(5))
