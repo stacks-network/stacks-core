@@ -354,7 +354,8 @@ impl EventObserver {
     fn get_pending_payloads(
         conn: &Connection,
     ) -> Result<Vec<(i64, String, serde_json::Value, u64)>, db_error> {
-        let mut stmt = conn.prepare("SELECT id, url, payload, timeout FROM pending_payloads")?;
+        let mut stmt =
+            conn.prepare("SELECT id, url, payload, timeout FROM pending_payloads ORDER BY id")?;
         let payload_iter = stmt.query_and_then(
             [],
             |row| -> Result<(i64, String, serde_json::Value, u64), db_error> {
