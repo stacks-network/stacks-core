@@ -23,6 +23,7 @@ use clarity::vm::events::STXEventType;
 use clarity::vm::types::PrincipalData;
 use clarity::vm::{ClarityName, ClarityVersion, ContractName, Value};
 use lazy_static::lazy_static;
+use neon_integrations::test_observer::EVENT_OBSERVER_PORT;
 use rand::Rng;
 use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::stacks::db::StacksChainState;
@@ -101,7 +102,11 @@ lazy_static! {
 }
 
 lazy_static! {
-    static ref USED_PORTS: Mutex<HashSet<u16>> = Mutex::new(HashSet::new());
+    static ref USED_PORTS: Mutex<HashSet<u16>> = Mutex::new({
+        let mut set = HashSet::new();
+        set.insert(EVENT_OBSERVER_PORT);
+        set
+    });
 }
 
 /// Generate a random port number between 1024 and 65534 (inclusive) and insert it into the USED_PORTS set.
