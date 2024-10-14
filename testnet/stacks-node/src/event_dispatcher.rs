@@ -321,6 +321,10 @@ impl RewardSetEventPayload {
     }
 }
 
+#[cfg(test)]
+static TEST_EVENT_OBSERVER_SKIP_SEND_PAYLOAD: std::sync::Mutex<Option<bool>> =
+    std::sync::Mutex::new(None);
+
 impl EventObserver {
     fn init_db(db_path: &str) -> Result<Connection, db_error> {
         let conn = Connection::open(db_path)?;
@@ -377,6 +381,16 @@ impl EventObserver {
     }
 
     fn process_pending_payloads(conn: &Connection) {
+        #[cfg(test)]
+        if TEST_EVENT_OBSERVER_SKIP_SEND_PAYLOAD
+            .lock()
+            .unwrap()
+            .unwrap_or(false)
+        {
+            warn!("Fault injection: skipping retry of payload");
+            return;
+        }
+
         let pending_payloads = match Self::get_pending_payloads(conn) {
             Ok(payloads) => payloads,
             Err(e) => {
@@ -2168,6 +2182,104 @@ mod test {
         );
 
         // Wait for the server to process the request
+        rx.recv_timeout(Duration::from_secs(5))
+            .expect("Server did not receive request in time");
+    }
+
+    #[test]
+    fn test_send_payload_with_db_force_restart() {
+        let port = get_random_port();
+        let timeout = Duration::from_secs(3);
+        let dir = tempdir().unwrap();
+        let working_dir = dir.path().to_path_buf();
+
+        // Set up a channel to notify when the server has processed the request
+        let (tx, rx) = channel();
+
+        info!("Starting mock server on port {}", port);
+        // Start a mock server in a separate thread
+        let server = Server::http(format!("127.0.0.1:{}", port)).unwrap();
+        thread::spawn(move || {
+            let mut attempt = 0;
+            let mut _request_holder = None;
+            while let Ok(mut request) = server.recv() {
+                attempt += 1;
+                match attempt {
+                    1 => {
+                        debug!("Mock server received request attempt 1");
+                        // Do not reply, forcing the sender to timeout and retry,
+                        // but don't drop the request or it will receive a 500 error,
+                        _request_holder = Some(request);
+                    }
+                    2 => {
+                        debug!("Mock server received request attempt 2");
+
+                        // Verify the payload
+                        let mut payload = String::new();
+                        request.as_reader().read_to_string(&mut payload).unwrap();
+                        let expected_payload = r#"{"key":"value"}"#;
+                        assert_eq!(payload, expected_payload);
+
+                        // Simulate a successful response on the second attempt
+                        let response = Response::from_string("HTTP/1.1 200 OK");
+                        request.respond(response).unwrap();
+                    }
+                    3 => {
+                        debug!("Mock server received request attempt 3");
+
+                        // Verify the payload
+                        let mut payload = String::new();
+                        request.as_reader().read_to_string(&mut payload).unwrap();
+                        let expected_payload = r#"{"key":"value2"}"#;
+                        assert_eq!(payload, expected_payload);
+
+                        // Simulate a successful response on the second attempt
+                        let response = Response::from_string("HTTP/1.1 200 OK");
+                        request.respond(response).unwrap();
+
+                        // When we receive attempt 3 (message 1, re-sent message 1, message 2),
+                        // notify the test that the request was processed successfully
+                        tx.send(()).unwrap();
+                        break;
+                    }
+                    _ => panic!("Unexpected request attempt"),
+                }
+            }
+        });
+
+        let observer = EventObserver::new(
+            Some(working_dir.clone()),
+            format!("127.0.0.1:{}", port),
+            timeout,
+        );
+
+        let payload = json!({"key": "value"});
+        let payload2 = json!({"key": "value2"});
+
+        // Disable retrying so that it sends the payload only once
+        // and that payload will be ignored by the test server.
+        TEST_EVENT_OBSERVER_SKIP_SEND_PAYLOAD
+            .lock()
+            .unwrap()
+            .replace(true);
+
+        info!("Sending payload 1");
+
+        // Send the payload
+        observer.send_payload(&payload, "/test");
+
+        // Re-enable retrying
+        TEST_EVENT_OBSERVER_SKIP_SEND_PAYLOAD
+            .lock()
+            .unwrap()
+            .replace(false);
+
+        info!("Sending payload 2");
+
+        // Send another payload
+        observer.send_payload(&payload2, "/test");
+
+        // Wait for the server to process the requests
         rx.recv_timeout(Duration::from_secs(5))
             .expect("Server did not receive request in time");
     }
