@@ -14,8 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSqlOutput, ValueRef};
-use rusqlite::ToSql;
+#[cfg(feature = "canonical")]
+use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
 use serde::{Deserialize, Serialize};
 
 use crate::codec::{
@@ -100,12 +100,13 @@ impl<const MAX_SIZE: u16> Serialize for BitVec<MAX_SIZE> {
 
 impl<'de, const MAX_SIZE: u16> Deserialize<'de> for BitVec<MAX_SIZE> {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let hex: &str = Deserialize::deserialize(deserializer)?;
-        let bytes = hex_bytes(hex).map_err(serde::de::Error::custom)?;
+        let hex: String = Deserialize::deserialize(deserializer)?;
+        let bytes = hex_bytes(hex.as_str()).map_err(serde::de::Error::custom)?;
         Self::consensus_deserialize(&mut bytes.as_slice()).map_err(serde::de::Error::custom)
     }
 }
 
+#[cfg(feature = "canonical")]
 impl<const MAX_SIZE: u16> FromSql for BitVec<MAX_SIZE> {
     fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
         let bytes = hex_bytes(value.as_str()?).map_err(|e| FromSqlError::Other(Box::new(e)))?;
@@ -114,10 +115,38 @@ impl<const MAX_SIZE: u16> FromSql for BitVec<MAX_SIZE> {
     }
 }
 
+#[cfg(feature = "canonical")]
 impl<const MAX_SIZE: u16> ToSql for BitVec<MAX_SIZE> {
     fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
         let hex = bytes_to_hex(self.serialize_to_vec().as_slice());
         Ok(hex.into())
+    }
+}
+
+pub struct BitVecIter<'a, const MAX_SIZE: u16> {
+    index: u16,
+    byte: Option<&'a u8>,
+    bitvec: &'a BitVec<MAX_SIZE>,
+}
+
+impl<'a, const MAX_SIZE: u16> Iterator for BitVecIter<'a, MAX_SIZE> {
+    type Item = bool;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.index >= self.bitvec.len {
+            return None;
+        }
+        let byte = self.byte?;
+        let next = (*byte & BitVec::<MAX_SIZE>::bit_index(self.index)) != 0;
+        self.index = self.index.saturating_add(1);
+        if self.index < self.bitvec.len {
+            // check if byte needs to be incremented
+            if self.index % 8 == 0 {
+                let vec_index = usize::from(self.index / 8);
+                self.byte = self.bitvec.data.get(vec_index);
+            }
+        }
+        Some(next)
     }
 }
 
@@ -140,6 +169,15 @@ impl<const MAX_SIZE: u16> BitVec<MAX_SIZE> {
             bitvec.set(i, true)?;
         }
         Ok(bitvec)
+    }
+
+    pub fn iter(&self) -> BitVecIter<MAX_SIZE> {
+        let byte = self.data.get(0);
+        BitVecIter {
+            index: 0,
+            bitvec: self,
+            byte,
+        }
     }
 
     pub fn len(&self) -> u16 {
@@ -248,6 +286,15 @@ mod test {
         assert!(input.set(input.len(), false).is_err());
     }
 
+    fn check_iter(input: &BitVec<{ u16::MAX }>) {
+        let mut checked = 0;
+        for (ix, entry) in input.iter().enumerate() {
+            checked += 1;
+            assert_eq!(input.get(u16::try_from(ix).unwrap()).unwrap(), entry);
+        }
+        assert_eq!(checked, input.len());
+    }
+
     fn check_serialization(input: &BitVec<{ u16::MAX }>) {
         let byte_ser = input.serialize_to_vec();
         let deserialized = BitVec::consensus_deserialize(&mut byte_ser.as_slice()).unwrap();
@@ -284,6 +331,7 @@ mod test {
         }
 
         check_serialization(&bitvec);
+        check_iter(&bitvec);
         check_set_get(bitvec);
     }
 
@@ -363,5 +411,22 @@ mod test {
         for i in inputs.into_iter() {
             check_ok_vector(i.as_slice());
         }
+    }
+
+    #[test]
+    fn test_serde() {
+        let mut bitvec_zero_10 = BitVec::<10>::zeros(10).unwrap();
+        bitvec_zero_10.set(0, true).unwrap();
+        bitvec_zero_10.set(5, true).unwrap();
+        bitvec_zero_10.set(3, true).unwrap();
+        assert_eq!(
+            bitvec_zero_10.binary_str(),
+            "1001010000",
+            "Binary string should be 1001010000"
+        );
+
+        let serde_bitvec_json = serde_json::to_string(&bitvec_zero_10).unwrap();
+        let serde_bitvec: BitVec<10> = serde_json::from_str(&serde_bitvec_json).unwrap();
+        assert_eq!(serde_bitvec, bitvec_zero_10);
     }
 }

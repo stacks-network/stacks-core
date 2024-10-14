@@ -181,20 +181,13 @@ impl RPCRequestHandler for RPCNakamotoBlockRequestHandler {
 
         let stream_res =
             node.with_node_state(|_network, _sortdb, chainstate, _mempool, _rpc_args| {
-                let Some(header) =
-                    NakamotoChainState::get_block_header_nakamoto(chainstate.db(), &block_id)?
+                let Some((tenure_id, parent_block_id)) = chainstate
+                    .nakamoto_blocks_db()
+                    .get_tenure_and_parent_block_id(&block_id)?
                 else {
                     return Err(ChainError::NoSuchBlockError);
                 };
-                let Some(nakamoto_header) = header.anchored_header.as_stacks_nakamoto() else {
-                    return Err(ChainError::NoSuchBlockError);
-                };
-                NakamotoBlockStream::new(
-                    chainstate,
-                    block_id.clone(),
-                    nakamoto_header.consensus_hash.clone(),
-                    nakamoto_header.parent_block_id.clone(),
-                )
+                NakamotoBlockStream::new(chainstate, block_id.clone(), tenure_id, parent_block_id)
             });
 
         // start loading up the block

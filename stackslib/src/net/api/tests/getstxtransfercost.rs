@@ -25,6 +25,7 @@ use stacks_common::types::Address;
 use super::test_rpc;
 use crate::chainstate::stacks::db::blocks::MINIMUM_TX_FEE_RATE_PER_BYTE;
 use crate::core::BLOCK_LIMIT_MAINNET_21;
+use crate::net::api::getstxtransfercost::SINGLESIG_TX_TRANSFER_LEN;
 use crate::net::api::*;
 use crate::net::connection::ConnectionOptions;
 use crate::net::httpcore::{
@@ -67,6 +68,7 @@ fn test_try_make_response() {
 
     let mut responses = test_rpc(function_name!(), vec![request]);
     assert_eq!(responses.len(), 1);
+    responses.reverse();
 
     let response = responses.pop().unwrap();
     debug!(
@@ -80,5 +82,6 @@ fn test_try_make_response() {
     );
 
     let fee_rate = response.decode_stx_transfer_fee().unwrap();
+    debug!("fee_rate = {:?}", &fee_rate);
     assert_eq!(fee_rate, MINIMUM_TX_FEE_RATE_PER_BYTE);
 }

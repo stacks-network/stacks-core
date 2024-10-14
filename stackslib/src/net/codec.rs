@@ -41,6 +41,7 @@ use stacks_common::util::secp256k1::{
 
 use crate::burnchains::{BurnchainView, PrivateKey, PublicKey};
 use crate::chainstate::burn::ConsensusHash;
+use crate::chainstate::nakamoto::NakamotoBlock;
 use crate::chainstate::stacks::{
     StacksBlock, StacksMicroblock, StacksPublicKey, StacksTransaction, MAX_BLOCK_LEN,
 };
@@ -350,6 +351,37 @@ impl NakamotoInvData {
 
     pub fn has_ith_tenure(&self, tenure_index: u16) -> bool {
         self.tenures.get(tenure_index).unwrap_or(false)
+    }
+}
+
+impl StacksMessageCodec for NakamotoBlocksData {
+    #[cfg_attr(test, mutants::skip)]
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
+        write_next(fd, &self.blocks)?;
+        Ok(())
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, codec_error> {
+        let blocks: Vec<NakamotoBlock> = {
+            // loose upper-bound
+            let mut bound_read = BoundReader::from_reader(fd, MAX_MESSAGE_LEN as u64);
+            read_next_at_most::<_, NakamotoBlock>(&mut bound_read, NAKAMOTO_BLOCKS_PUSHED_MAX)
+        }?;
+
+        // only valid if there are no dups
+        let mut present = HashSet::new();
+        for block in blocks.iter() {
+            if present.contains(&block.block_id()) {
+                // no dups allowed
+                return Err(codec_error::DeserializeError(
+                    "Invalid NakamotoBlocksData: duplicate block".to_string(),
+                ));
+            }
+
+            present.insert(block.block_id());
+        }
+
+        Ok(NakamotoBlocksData { blocks })
     }
 }
 
@@ -930,6 +962,7 @@ impl StacksMessageType {
             StacksMessageType::StackerDBPushChunk(ref _m) => StacksMessageID::StackerDBPushChunk,
             StacksMessageType::GetNakamotoInv(ref _m) => StacksMessageID::GetNakamotoInv,
             StacksMessageType::NakamotoInv(ref _m) => StacksMessageID::NakamotoInv,
+            StacksMessageType::NakamotoBlocks(ref _m) => StacksMessageID::NakamotoBlocks,
         }
     }
 
@@ -964,6 +997,7 @@ impl StacksMessageType {
             StacksMessageType::StackerDBPushChunk(ref _m) => "StackerDBPushChunk",
             StacksMessageType::GetNakamotoInv(ref _m) => "GetNakamotoInv",
             StacksMessageType::NakamotoInv(ref _m) => "NakamotoInv",
+            StacksMessageType::NakamotoBlocks(ref _m) => "NakamotoBlocks",
         }
     }
 
@@ -1071,6 +1105,15 @@ impl StacksMessageType {
             StacksMessageType::NakamotoInv(ref m) => {
                 format!("NakamotoInv({:?})", &m.tenures)
             }
+            StacksMessageType::NakamotoBlocks(ref m) => {
+                format!(
+                    "NakamotoBlocks({:?})",
+                    m.blocks
+                        .iter()
+                        .map(|block| block.block_id())
+                        .collect::<Vec<_>>()
+                )
+            }
         }
     }
 }
@@ -1122,6 +1165,7 @@ impl StacksMessageCodec for StacksMessageID {
             }
             x if x == StacksMessageID::GetNakamotoInv as u8 => StacksMessageID::GetNakamotoInv,
             x if x == StacksMessageID::NakamotoInv as u8 => StacksMessageID::NakamotoInv,
+            x if x == StacksMessageID::NakamotoBlocks as u8 => StacksMessageID::NakamotoBlocks,
             _ => {
                 return Err(codec_error::DeserializeError(
                     "Unknown message ID".to_string(),
@@ -1166,6 +1210,7 @@ impl StacksMessageCodec for StacksMessageType {
             StacksMessageType::StackerDBPushChunk(ref m) => write_next(fd, m)?,
             StacksMessageType::GetNakamotoInv(ref m) => write_next(fd, m)?,
             StacksMessageType::NakamotoInv(ref m) => write_next(fd, m)?,
+            StacksMessageType::NakamotoBlocks(ref m) => write_next(fd, m)?,
         }
         Ok(())
     }
@@ -1275,6 +1320,10 @@ impl StacksMessageCodec for StacksMessageType {
             StacksMessageID::NakamotoInv => {
                 let m: NakamotoInvData = read_next(fd)?;
                 StacksMessageType::NakamotoInv(m)
+            }
+            StacksMessageID::NakamotoBlocks => {
+                let m: NakamotoBlocksData = read_next(fd)?;
+                StacksMessageType::NakamotoBlocks(m)
             }
             StacksMessageID::Reserved => {
                 return Err(codec_error::DeserializeError(

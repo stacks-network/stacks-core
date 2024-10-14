@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 use stacks::burnchains::PoxConstants;
 #[cfg(test)]
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
-use stacks::chainstate::burn::db::sortdb::SortitionDBConn;
+use stacks::chainstate::burn::db::sortdb::SortitionHandleConn;
 use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::chainstate::stacks::miner::BlockBuilderSettings;
 use stacks::chainstate::stacks::{
@@ -72,7 +72,7 @@ impl<'a> Tenure {
         }
     }
 
-    pub fn run(&mut self, burn_dbconn: &SortitionDBConn) -> Option<TenureArtifacts> {
+    pub fn run(&mut self, burn_dbconn: &SortitionHandleConn) -> Option<TenureArtifacts> {
         info!("Node starting new tenure with VRF {:?}", self.vrf_seed);
 
         let duration_left: u128 = self.config.burnchain.commit_anchor_block_within as u128;

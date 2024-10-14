@@ -2,12 +2,13 @@ use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLE
 use stacks_common::consts::{
     BITCOIN_REGTEST_FIRST_BLOCK_HASH, BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT,
     BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP, FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH,
+    PEER_VERSION_EPOCH_2_0,
 };
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, SortitionId, StacksAddress, StacksBlockId,
     StacksPrivateKey, StacksPublicKey, VRFSeed,
 };
-use stacks_common::types::{StacksEpochId, PEER_VERSION_EPOCH_2_0};
+use stacks_common::types::StacksEpochId;
 
 use crate::vm::ast::ASTRules;
 use crate::vm::costs::ExecutionCost;
@@ -136,12 +137,17 @@ impl HeadersDB for UnitTestHeaderDB {
             None
         }
     }
-    fn get_vrf_seed_for_block(&self, _bhh: &StacksBlockId) -> Option<VRFSeed> {
+    fn get_vrf_seed_for_block(
+        &self,
+        _bhh: &StacksBlockId,
+        _epoch: &StacksEpochId,
+    ) -> Option<VRFSeed> {
         None
     }
     fn get_stacks_block_header_hash_for_block(
         &self,
         id_bhh: &StacksBlockId,
+        _epoch: &StacksEpochId,
     ) -> Option<BlockHeaderHash> {
         if *id_bhh == StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH)
         {
@@ -150,7 +156,11 @@ impl HeadersDB for UnitTestHeaderDB {
             None
         }
     }
-    fn get_burn_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64> {
+    fn get_burn_block_time_for_block(
+        &self,
+        id_bhh: &StacksBlockId,
+        _epoch: Option<&StacksEpochId>,
+    ) -> Option<u64> {
         if *id_bhh == StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH)
         {
             Some(BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP as u64)
@@ -161,6 +171,9 @@ impl HeadersDB for UnitTestHeaderDB {
             Some(1 + 10 * (id_bhh.as_bytes()[0] as u64))
         }
     }
+    fn get_stacks_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64> {
+        Some(1713799973 + 10 * (id_bhh.as_bytes()[0] as u64))
+    }
     fn get_burn_block_height_for_block(&self, id_bhh: &StacksBlockId) -> Option<u32> {
         if *id_bhh == StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH)
         {
@@ -169,11 +182,19 @@ impl HeadersDB for UnitTestHeaderDB {
             Some(1 + id_bhh.as_bytes()[0] as u32)
         }
     }
-    fn get_miner_address(&self, _id_bhh: &StacksBlockId) -> Option<StacksAddress> {
+    fn get_miner_address(
+        &self,
+        _id_bhh: &StacksBlockId,
+        _epoch: &StacksEpochId,
+    ) -> Option<StacksAddress> {
         None
     }
 
-    fn get_consensus_hash_for_block(&self, id_bhh: &StacksBlockId) -> Option<ConsensusHash> {
+    fn get_consensus_hash_for_block(
+        &self,
+        id_bhh: &StacksBlockId,
+        _epoch: &StacksEpochId,
+    ) -> Option<ConsensusHash> {
         if *id_bhh == StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH)
         {
             Some(FIRST_BURNCHAIN_CONSENSUS_HASH)
@@ -182,23 +203,43 @@ impl HeadersDB for UnitTestHeaderDB {
         }
     }
 
-    fn get_burnchain_tokens_spent_for_block(&self, id_bhh: &StacksBlockId) -> Option<u128> {
+    fn get_burnchain_tokens_spent_for_block(
+        &self,
+        id_bhh: &StacksBlockId,
+        _epoch: &StacksEpochId,
+    ) -> Option<u128> {
         // if the block is defined at all, then return a constant
         self.get_burn_block_height_for_block(id_bhh).map(|_| 2000)
     }
 
-    fn get_burnchain_tokens_spent_for_winning_block(&self, id_bhh: &StacksBlockId) -> Option<u128> {
+    fn get_burnchain_tokens_spent_for_winning_block(
+        &self,
+        id_bhh: &StacksBlockId,
+        _epoch: &StacksEpochId,
+    ) -> Option<u128> {
         // if the block is defined at all, then return a constant
         self.get_burn_block_height_for_block(id_bhh).map(|_| 1000)
     }
 
-    fn get_tokens_earned_for_block(&self, id_bhh: &StacksBlockId) -> Option<u128> {
+    fn get_tokens_earned_for_block(
+        &self,
+        id_bhh: &StacksBlockId,
+        _epoch: &StacksEpochId,
+    ) -> Option<u128> {
         // if the block is defined at all, then return a constant
         self.get_burn_block_height_for_block(id_bhh).map(|_| 3000)
     }
 }
 
 impl BurnStateDB for UnitTestBurnStateDB {
+    fn get_tip_burn_block_height(&self) -> Option<u32> {
+        None
+    }
+
+    fn get_tip_sortition_id(&self) -> Option<SortitionId> {
+        None
+    }
+
     fn get_burn_block_height(&self, _sortition_id: &SortitionId) -> Option<u32> {
         None
     }

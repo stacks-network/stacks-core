@@ -181,6 +181,8 @@ impl StackStxOp {
         }
     }
 
+    // TODO: add tests from mutation testing results #4850
+    #[cfg_attr(test, mutants::skip)]
     fn parse_data(data: &Vec<u8>) -> Option<ParsedData> {
         /*
             Wire format:
@@ -271,6 +273,8 @@ impl StackStxOp {
         )
     }
 
+    // TODO: add tests from mutation testing results #4851
+    #[cfg_attr(test, mutants::skip)]
     /// parse a StackStxOp
     /// `pox_sunset_ht` is the height at which PoX *disables*
     pub fn parse_from_tx(

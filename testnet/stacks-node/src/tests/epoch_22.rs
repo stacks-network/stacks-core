@@ -134,11 +134,7 @@ fn disable_pox() {
     conf.miner.subsequent_attempt_time_ms = i64::MAX as u64;
 
     test_observer::spawn();
-
-    conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
-        events_keys: vec![EventKeyType::AnyEvent],
-    });
+    test_observer::register_any(&mut conf);
     conf.initial_balances.append(&mut initial_balances);
 
     let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
@@ -400,7 +396,7 @@ fn disable_pox() {
             reward_cycle_pox_addrs.insert(reward_cycle, HashMap::new());
         }
 
-        let iconn = sortdb.index_conn();
+        let iconn = sortdb.index_handle_at_block(&chainstate, &tip).unwrap();
         let pox_addrs = chainstate
             .clarity_eval_read_only(
                 &iconn,
@@ -671,6 +667,7 @@ fn pox_2_unlock_all() {
     conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
+        timeout_ms: 1000,
     });
     conf.initial_balances.append(&mut initial_balances);
 
@@ -1069,7 +1066,7 @@ fn pox_2_unlock_all() {
             reward_cycle_pox_addrs.insert(reward_cycle, HashMap::new());
         }
 
-        let iconn = sortdb.index_conn();
+        let iconn = sortdb.index_handle_at_block(&chainstate, &tip).unwrap();
         let pox_addrs = chainstate
             .clarity_eval_read_only(
                 &iconn,

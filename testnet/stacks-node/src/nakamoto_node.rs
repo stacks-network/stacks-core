@@ -14,9 +14,10 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::collections::HashSet;
+use std::io::Write;
 use std::sync::mpsc::Receiver;
-use std::thread;
 use std::thread::JoinHandle;
+use std::{fs, thread};
 
 use stacks::burnchains::{BurnchainSigner, Txid};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
@@ -32,7 +33,9 @@ use stacks_common::types::StacksEpochId;
 
 use super::{Config, EventDispatcher, Keychain};
 use crate::burnchains::bitcoin_regtest_controller::addr2str;
+use crate::burnchains::Error as BurnchainsError;
 use crate::neon_node::{LeaderKeyRegistrationState, StacksNode as NeonNode};
+use crate::run_loop::boot_nakamoto::Neon2NakaData;
 use crate::run_loop::nakamoto::{Globals, RunLoop};
 use crate::run_loop::RegisteredKey;
 
@@ -74,6 +77,10 @@ pub enum Error {
     SnapshotNotFoundForChainTip,
     /// The burnchain tip changed while this operation was in progress
     BurnchainTipChanged,
+    /// The Stacks tip changed while this operation was in progress
+    StacksTipChanged,
+    /// Signers rejected a block
+    SignersRejected,
     /// Error while spawning a subordinate thread
     SpawnError(std::io::Error),
     /// Injected testing errors
@@ -87,13 +94,15 @@ pub enum Error {
     /// Something unexpected happened (e.g., hash mismatches)
     UnexpectedChainState,
     /// A burnchain operation failed when submitting it to the burnchain
-    BurnchainSubmissionFailed,
+    BurnchainSubmissionFailed(BurnchainsError),
     /// A new parent has been discovered since mining started
     NewParentDiscovered,
     /// A failure occurred while constructing a VRF Proof
     BadVrfConstruction,
     CannotSelfSign,
     MiningFailure(ChainstateError),
+    /// The miner didn't accept their own block
+    AcceptFailure(ChainstateError),
     MinerSignatureError(&'static str),
     SignerSignatureError(String),
     /// A failure occurred while configuring the miner thread
@@ -132,6 +141,7 @@ impl StacksNode {
         globals: Globals,
         // relay receiver endpoint for the p2p thread, so the relayer can feed it data to push
         relay_recv: Receiver<RelayerDirective>,
+        data_from_neon: Option<Neon2NakaData>,
     ) -> StacksNode {
         let config = runloop.config().clone();
         let is_miner = runloop.is_miner();
@@ -157,7 +167,11 @@ impl StacksNode {
             .connect_mempool_db()
             .expect("FATAL: database failure opening mempool");
 
-        let mut p2p_net = NeonNode::setup_peer_network(&config, &atlas_config, burnchain);
+        let data_from_neon = data_from_neon.unwrap_or_default();
+
+        let mut p2p_net = data_from_neon
+            .peer_network
+            .unwrap_or_else(|| NeonNode::setup_peer_network(&config, &atlas_config, burnchain));
 
         let stackerdbs = StackerDBs::connect(&config.get_stacker_db_file_path(), true)
             .expect("FATAL: failed to connect to stacker DB");
@@ -167,7 +181,7 @@ impl StacksNode {
         let local_peer = p2p_net.local_peer.clone();
 
         // setup initial key registration
-        let leader_key_registration_state = if config.get_node_config().mock_mining {
+        let leader_key_registration_state = if config.get_node_config(false).mock_mining {
             // mock mining, pretend to have a registered key
             let (vrf_public_key, _) = keychain.make_vrf_keypair(VRF_MOCK_MINER_KEY);
             LeaderKeyRegistrationState::Active(RegisteredKey {
@@ -175,10 +189,22 @@ impl StacksNode {
                 block_height: 1,
                 op_vtxindex: 1,
                 vrf_public_key,
+                memo: keychain.get_nakamoto_pkh().as_bytes().to_vec(),
             })
         } else {
-            LeaderKeyRegistrationState::Inactive
+            match &data_from_neon.leader_key_registration_state {
+                LeaderKeyRegistrationState::Active(registered_key) => {
+                    let pubkey_hash = keychain.get_nakamoto_pkh();
+                    if pubkey_hash.as_ref() == &registered_key.memo {
+                        data_from_neon.leader_key_registration_state
+                    } else {
+                        LeaderKeyRegistrationState::Inactive
+                    }
+                }
+                _ => LeaderKeyRegistrationState::Inactive,
+            }
         };
+
         globals.set_initial_leader_key_registration_state(leader_key_registration_state);
 
         let relayer_thread =
@@ -248,7 +274,9 @@ impl StacksNode {
                 snapshot.parent_burn_header_hash,
                 snapshot.winning_stacks_block_hash,
             ))
-            .map_err(|_| Error::ChannelClosed)
+            .map_err(|_| Error::ChannelClosed)?;
+
+        Ok(())
     }
 
     /// Process a state coming from the burnchain, by extracting the validated KeyRegisterOp
@@ -257,6 +285,7 @@ impl StacksNode {
     /// Called from the main thread.
     pub fn process_burnchain_state(
         &mut self,
+        config: &Config,
         sortdb: &SortitionDB,
         sort_id: &SortitionId,
         ibd: bool,
@@ -296,8 +325,17 @@ impl StacksNode {
 
         let num_key_registers = key_registers.len();
 
-        self.globals
+        let activated_key_opt = self
+            .globals
             .try_activate_leader_key_registration(block_height, key_registers);
+
+        // save the registered VRF key
+        if let (Some(activated_key), Some(path)) = (
+            activated_key_opt,
+            config.miner.activated_vrf_key_path.as_ref(),
+        ) {
+            save_activated_vrf_key(path, &activated_key);
+        }
 
         debug!(
             "Processed burnchain state";
@@ -318,4 +356,28 @@ impl StacksNode {
         self.relayer_thread_handle.join().unwrap();
         self.p2p_thread_handle.join().unwrap();
     }
+}
+
+pub(crate) fn save_activated_vrf_key(path: &str, activated_key: &RegisteredKey) {
+    info!("Activated VRF key; saving to {}", path);
+
+    let Ok(key_json) = serde_json::to_string(&activated_key) else {
+        warn!("Failed to serialize VRF key");
+        return;
+    };
+
+    let mut f = match fs::File::create(&path) {
+        Ok(f) => f,
+        Err(e) => {
+            warn!("Failed to create {}: {:?}", &path, &e);
+            return;
+        }
+    };
+
+    if let Err(e) = f.write_all(key_json.as_str().as_bytes()) {
+        warn!("Failed to write activated VRF key to {}: {:?}", &path, &e);
+        return;
+    }
+
+    info!("Saved activated VRF key to {}", &path);
 }

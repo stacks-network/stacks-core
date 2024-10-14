@@ -50,6 +50,8 @@ pub trait NeighborComms {
     fn get_connecting<NK: ToNeighborKey>(&self, network: &PeerNetwork, nk: &NK) -> Option<usize>;
     /// Remove a neighbor from connecting state
     fn remove_connecting<NK: ToNeighborKey>(&mut self, network: &PeerNetwork, nk: &NK);
+    /// Remove a neighbor from connecting state due to an error
+    fn remove_connecting_error<NK: ToNeighborKey>(&mut self, network: &PeerNetwork, nk: &NK);
     /// Mark a neighbor as dead (inactive, unreachable, etc.)
     fn add_dead<NK: ToNeighborKey>(&mut self, network: &PeerNetwork, nk: &NK);
     /// Mark a neighbor as broken (in protocol violation)
@@ -150,7 +152,7 @@ pub trait NeighborComms {
             // is the peer network still working?
             if !network.is_connecting(event_id) {
                 debug!("{:?}: Failed to connect to {:?} (event {} no longer connecting; assumed timed out)", network.get_local_peer(), event_id, &nk);
-                self.remove_connecting(network, &nk);
+                self.remove_connecting_error(network, &nk);
                 return Err(net_error::PeerNotConnected);
             }
 
@@ -403,6 +405,17 @@ pub trait NeighborComms {
         convo.is_authenticated() && convo.peer_version > 0
     }
 
+    /// Are we in the process of connecting to a neighbor?
+    fn is_neighbor_connecting<NK: ToNeighborKey>(&self, network: &PeerNetwork, nk: &NK) -> bool {
+        if network.is_connecting_neighbor(&nk.to_neighbor_key(network)) {
+            return true;
+        }
+        let Some(event_id) = self.get_connecting(network, nk) else {
+            return false;
+        };
+        network.is_connecting(event_id)
+    }
+
     /// Reset all comms
     fn reset(&mut self) {
         let _ = self.take_broken_neighbors();
@@ -455,12 +468,19 @@ impl PeerNetworkComms {
                 Ok(None) => {
                     if let Some(rh) = req_opt {
                         // keep trying
+                        debug!("{:?}: keep polling {}", network.get_local_peer(), naddr);
                         inflight.insert(naddr, rh);
                     }
                     continue;
                 }
                 Err(_e) => {
                     // peer was already marked as dead in the given network set
+                    debug!(
+                        "{:?}: peer {} is dead: {:?}",
+                        network.get_local_peer(),
+                        naddr,
+                        &_e
+                    );
                     continue;
                 }
             };
@@ -500,7 +520,13 @@ impl NeighborComms for PeerNetworkComms {
             .map(|event_ref| *event_ref)
     }
 
+    /// Remove a connecting neighbor because it connected
     fn remove_connecting<NK: ToNeighborKey>(&mut self, network: &PeerNetwork, nk: &NK) {
+        self.connecting.remove(&nk.to_neighbor_key(network));
+    }
+
+    /// Remove a connecting neighbor due to an error.  The connection will be unpinned.
+    fn remove_connecting_error<NK: ToNeighborKey>(&mut self, network: &PeerNetwork, nk: &NK) {
         let event_id_opt = self.connecting.remove(&nk.to_neighbor_key(network));
         if let Some(event_id) = event_id_opt {
             self.unpin_connection(event_id);

@@ -9,6 +9,10 @@ on:
         description: "Release Tag"
         required: true
         type: string
+      docker_tag:
+        description: "Docker Release Tag"
+        required: true
+        type: string
     secrets:
       GH_TOKEN:
         required: true
@@ -48,25 +52,28 @@ jobs:
       ## Downloads the artifacts built in `create-source-binary.yml`
       - name: Download Artifacts
         id: download_artifacts
-        uses: actions/download-artifact@9bc31d5ccc31df68ecc42ccf4149144866c47d8a # v3.0.2
+        uses: actions/download-artifact@65a9edc5881444af0b9093a5e628f2fe47ea3b2e # v4.1.7
         with:
-          name: artifact
+          pattern: ${{ inputs.tag }}-binary-build-*
           path: release
+          merge-multiple: true
 
       ## Generate a checksums file to be added to the release page
       - name: Generate Checksums
         id: generate_checksum
         uses: stacks-network/actions/generate-checksum@main
+        with:
+          artifact_download_pattern: "${{ inputs.tag }}-binary-build-*"
 
       ## Upload the release archives with the checksums file
       - name: Upload Release
         id: upload_release
-        uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 #v0.1.15
+        uses: softprops/action-gh-release@69320dbe05506a9a39fc8ae11030b214ec2d1f87 #v2.0.5
         env:
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
         with:
-          name: Release ${{ github.event.inputs.tag || github.ref }}
-          tag_name: ${{ github.event.inputs.tag || github.ref }}
+          name: Release ${{ inputs.tag || github.ref }}
+          tag_name: ${{ inputs.tag || github.ref }}
           draft: false
           prerelease: true
           fail_on_unmatched_files: true
@@ -91,4 +98,5 @@ jobs:
       - create-release
     with:
       tag: ${{ inputs.tag }}
+      docker_tag: ${{ inputs.docker_tag }}
     secrets: inherit

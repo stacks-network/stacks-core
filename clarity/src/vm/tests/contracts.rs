@@ -129,8 +129,9 @@ fn test_get_block_info_eval(
         let contract_identifier =
             QualifiedContractIdentifier::local(&format!("test-contract-{}", i)).unwrap();
         owned_env
-            .initialize_contract(
+            .initialize_versioned_contract(
                 contract_identifier.clone(),
+                ClarityVersion::Clarity2,
                 contracts[i],
                 None,
                 ASTRules::PrecheckSize,

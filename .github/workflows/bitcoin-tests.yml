@@ -32,7 +32,6 @@ jobs:
           - tests::bitcoin_regtest::bitcoind_integration_test
           - tests::integrations::integration_test_get_info
           - tests::neon_integrations::antientropy_integration_test
-          - tests::neon_integrations::bad_microblock_pubkey
           - tests::neon_integrations::bitcoind_forking_test
           - tests::neon_integrations::bitcoind_integration_test
           - tests::neon_integrations::block_large_tx_integration_test
@@ -43,20 +42,26 @@ jobs:
           - tests::neon_integrations::fuzzed_median_fee_rate_estimation_test_window10
           - tests::neon_integrations::fuzzed_median_fee_rate_estimation_test_window5
           - tests::neon_integrations::liquid_ustx_integration
-          - tests::neon_integrations::microblock_fork_poison_integration_test
-          - tests::neon_integrations::microblock_integration_test
-          - tests::neon_integrations::microblock_large_tx_integration_test_FLAKY
-          - tests::neon_integrations::microblock_limit_hit_integration_test
+          # Microblock tests that are no longer needed on every CI run
+          #  (microblocks are unsupported starting in Epoch 2.5)
+          # - tests::neon_integrations::bad_microblock_pubkey
+          # - tests::neon_integrations::microblock_fork_poison_integration_test
+          # - tests::neon_integrations::microblock_integration_test
+          # - tests::neon_integrations::microblock_limit_hit_integration_test
+          # - tests::neon_integrations::test_problematic_microblocks_are_not_mined
+          # - tests::neon_integrations::test_problematic_microblocks_are_not_relayed_or_stored
+          # - tests::neon_integrations::size_overflow_unconfirmed_invalid_stream_microblocks_integration_test
+          # - tests::neon_integrations::size_overflow_unconfirmed_microblocks_integration_test
+          # - tests::neon_integrations::size_overflow_unconfirmed_stream_microblocks_integration_test
+          # - tests::neon_integrations::runtime_overflow_unconfirmed_microblocks_integration_test
+          # Disable this flaky test. Microblocks are no longer supported anyways.
+          # - tests::neon_integrations::microblock_large_tx_integration_test_FLAKY
           - tests::neon_integrations::miner_submit_twice
           - tests::neon_integrations::mining_events_integration_test
           - tests::neon_integrations::pox_integration_test
           - tests::neon_integrations::push_boot_receipts
-          - tests::neon_integrations::runtime_overflow_unconfirmed_microblocks_integration_test
           - tests::neon_integrations::should_fix_2771
           - tests::neon_integrations::size_check_integration_test
-          - tests::neon_integrations::size_overflow_unconfirmed_invalid_stream_microblocks_integration_test
-          - tests::neon_integrations::size_overflow_unconfirmed_microblocks_integration_test
-          - tests::neon_integrations::size_overflow_unconfirmed_stream_microblocks_integration_test
           - tests::neon_integrations::stx_delegate_btc_integration_test
           - tests::neon_integrations::stx_transfer_btc_integration_test
           - tests::neon_integrations::stack_stx_burn_op_test
@@ -65,16 +70,20 @@ jobs:
           - tests::neon_integrations::test_flash_block_skip_tenure
           - tests::neon_integrations::test_problematic_blocks_are_not_mined
           - tests::neon_integrations::test_problematic_blocks_are_not_relayed_or_stored
-          - tests::neon_integrations::test_problematic_microblocks_are_not_mined
-          - tests::neon_integrations::test_problematic_microblocks_are_not_relayed_or_stored
           - tests::neon_integrations::test_problematic_txs_are_not_stored
           - tests::neon_integrations::use_latest_tip_integration_test
           - tests::neon_integrations::confirm_unparsed_ongoing_ops
           - tests::neon_integrations::min_txs
           - tests::neon_integrations::vote_for_aggregate_key_burn_op_test
+          - tests::neon_integrations::mock_miner_replay
+          - tests::neon_integrations::listunspent_max_utxos
+          - tests::neon_integrations::bitcoin_reorg_flap
+          - tests::neon_integrations::bitcoin_reorg_flap_with_follower
+          - tests::neon_integrations::start_stop_bitcoind
           - tests::epoch_25::microblocks_disabled
           - tests::should_succeed_handling_malformed_and_valid_txs
           - tests::nakamoto_integrations::simple_neon_integration
+          - tests::nakamoto_integrations::flash_blocks_on_epoch_3
           - tests::nakamoto_integrations::mine_multiple_per_tenure_integration
           - tests::nakamoto_integrations::block_proposal_api_endpoint
           - tests::nakamoto_integrations::miner_writes_proposed_block_to_stackerdb
@@ -82,17 +91,54 @@ jobs:
           - tests::nakamoto_integrations::vote_for_aggregate_key_burn_op
           - tests::nakamoto_integrations::follower_bootup
           - tests::nakamoto_integrations::forked_tenure_is_ignored
-          - tests::signer::stackerdb_dkg
-          - tests::signer::stackerdb_sign_request_rejected
-          - tests::signer::stackerdb_block_proposal
-          - tests::signer::stackerdb_filter_bad_transactions
-          - tests::signer::stackerdb_mine_2_nakamoto_reward_cycles
-          - tests::signer::stackerdb_sign_after_signer_reboot
-          - tests::nakamoto_integrations::stack_stx_burn_op_integration_test
-          - tests::signer::stackerdb_delayed_dkg
-          # Do not run this one until we figure out why it fails in CI
-          # - tests::neon_integrations::bitcoin_reorg_flap
-          # - tests::neon_integrations::bitcoin_reorg_flap_with_follower
+          - tests::nakamoto_integrations::nakamoto_attempt_time
+          - tests::nakamoto_integrations::skip_mining_long_tx
+          - tests::signer::v0::block_proposal_rejection
+          - tests::signer::v0::miner_gather_signatures
+          - tests::signer::v0::end_of_tenure
+          - tests::signer::v0::forked_tenure_okay
+          - tests::signer::v0::forked_tenure_invalid
+          - tests::signer::v0::empty_sortition
+          - tests::signer::v0::bitcoind_forking_test
+          - tests::signer::v0::multiple_miners
+          - tests::signer::v0::mock_sign_epoch_25
+          - tests::signer::v0::multiple_miners_mock_sign_epoch_25
+          - tests::signer::v0::miner_forking
+          - tests::signer::v0::reloads_signer_set_in
+          - tests::signer::v0::signers_broadcast_signed_blocks
+          - tests::signer::v0::min_gap_between_blocks
+          - tests::signer::v0::duplicate_signers
+          - tests::signer::v0::retry_on_rejection
+          - tests::signer::v0::locally_accepted_blocks_overriden_by_global_rejection
+          - tests::signer::v0::locally_rejected_blocks_overriden_by_global_acceptance
+          - tests::signer::v0::reorg_locally_accepted_blocks_across_tenures_succeeds
+          - tests::signer::v0::miner_recovers_when_broadcast_block_delay_across_tenures_occurs
+          - tests::signer::v0::multiple_miners_with_nakamoto_blocks
+          - tests::signer::v0::partial_tenure_fork
+          - tests::signer::v0::mine_2_nakamoto_reward_cycles
+          - tests::signer::v0::signer_set_rollover
+          - tests::signer::v0::signing_in_0th_tenure_of_reward_cycle
+          - tests::nakamoto_integrations::burn_ops_integration_test
+          - tests::nakamoto_integrations::check_block_heights
+          - tests::nakamoto_integrations::clarity_burn_state
+          - tests::nakamoto_integrations::check_block_times
+          - tests::nakamoto_integrations::check_block_info
+          - tests::nakamoto_integrations::check_block_info_rewards
+          - tests::nakamoto_integrations::continue_tenure_extend
+          - tests::nakamoto_integrations::mock_mining
+          - tests::nakamoto_integrations::multiple_miners
+          - tests::nakamoto_integrations::follower_bootup_across_multiple_cycles
+          - tests::nakamoto_integrations::utxo_check_on_startup_panic
+          - tests::nakamoto_integrations::utxo_check_on_startup_recover
+          - tests::nakamoto_integrations::v3_signer_api_endpoint
+          # TODO: enable these once v1 signer is supported by a new nakamoto epoch
+          # - tests::signer::v1::dkg
+          # - tests::signer::v1::sign_request_rejected
+          # - tests::signer::v1::filter_bad_transactions
+          # - tests::signer::v1::delayed_dkg
+          # - tests::signer::v1::mine_2_nakamoto_reward_cycles
+          # - tests::signer::v1::sign_after_signer_reboot
+          # - tests::signer::v1::block_proposal
     steps:
       ## Setup test environment
       - name: Setup Test Environment
@@ -100,6 +146,11 @@ jobs:
         uses: stacks-network/actions/stacks-core/testenv@main
         with:
           btc-version: "25.0"
+
+      ## Increase open file descriptors limit
+      - name: Increase Open File Descriptors
+        run: |
+          sudo prlimit --nofile=4096:4096
 
       ## Run test matrix using restored cache of archive file
       ##   - Test will timeout after env.TEST_TIMEOUT minutes

@@ -28,7 +28,6 @@ use stacks::chainstate::stacks::{Error, StacksTransaction, TransactionPayload};
 use stacks::clarity_cli::vm_execute as execute;
 use stacks::core;
 use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
-use stacks_common::codec::StacksMessageCodec;
 use stacks_common::consts::STACKS_EPOCH_MAX;
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId, StacksPrivateKey};
 use stacks_common::types::Address;
@@ -37,6 +36,7 @@ use stacks_common::util::secp256k1::Secp256k1PublicKey;
 use stacks_common::util::sleep_ms;
 
 use crate::config::{EventKeyType, EventObserverConfig, InitialBalance};
+use crate::stacks_common::codec::StacksMessageCodec;
 use crate::tests::bitcoin_regtest::BitcoinCoreController;
 use crate::tests::neon_integrations::{
     get_account, get_chain_info, get_pox_info, neon_integration_test_conf, next_block_and_wait,
@@ -152,11 +152,7 @@ fn fix_to_pox_contract() {
     conf.miner.subsequent_attempt_time_ms = i64::MAX as u64;
 
     test_observer::spawn();
-
-    conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
-        events_keys: vec![EventKeyType::AnyEvent],
-    });
+    test_observer::register_any(&mut conf);
     conf.initial_balances.append(&mut initial_balances);
 
     let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
@@ -493,7 +489,7 @@ fn fix_to_pox_contract() {
             reward_cycle_pox_addrs.insert(reward_cycle, HashMap::new());
         }
 
-        let iconn = sortdb.index_conn();
+        let iconn = sortdb.index_handle_at_block(&chainstate, &tip).unwrap();
         let pox_addrs = chainstate
             .clarity_eval_read_only(
                 &iconn,
@@ -791,11 +787,7 @@ fn verify_auto_unlock_behavior() {
     conf.miner.subsequent_attempt_time_ms = i64::MAX as u64;
 
     test_observer::spawn();
-
-    conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
-        events_keys: vec![EventKeyType::AnyEvent],
-    });
+    test_observer::register_any(&mut conf);
     conf.initial_balances.append(&mut initial_balances);
 
     let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
@@ -1213,7 +1205,7 @@ fn verify_auto_unlock_behavior() {
             reward_cycle_pox_addrs.insert(reward_cycle, HashMap::new());
         }
 
-        let iconn = sortdb.index_conn();
+        let iconn = sortdb.index_handle_at_block(&chainstate, &tip).unwrap();
         let pox_addrs = chainstate
             .clarity_eval_read_only(
                 &iconn,

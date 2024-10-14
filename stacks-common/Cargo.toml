@@ -31,8 +31,8 @@ slog-term = "2.6.0"
 slog-json = { version = "2.3.0", optional = true }
 chrono = "0.4.19"
 libc = "0.2.82"
-wsts = { workspace = true }
 hashbrown = { workspace = true }
+rusqlite = { workspace = true, optional = true }
 
 [target.'cfg(unix)'.dependencies]
 nix = "0.23"
@@ -50,10 +50,6 @@ features = ["arbitrary_precision", "unbounded_depth"]
 [dependencies.secp256k1]
 version = "0.24.3"
 features = ["serde", "recovery"]
-
-[dependencies.rusqlite]
-version = "=0.24.2"
-features = ["blob", "serde_json", "i128_blob", "bundled", "trace"]
 
 [dependencies.ed25519-dalek]
 workspace = true
@@ -73,10 +69,15 @@ assert-json-diff = "1.0.0"
 rand_core = { workspace = true }
 
 [features]
-default = ["developer-mode"]
+default = ["canonical", "developer-mode"]
+canonical = ["rusqlite"]
 developer-mode = []
 slog_json = ["slog-json"]
-testing = []
+testing = ["canonical"]
+serde = []
+bech32_std = []
+bech32_strict = []
+strason = []
 
 [target.'cfg(all(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64"), not(any(target_os="windows"))))'.dependencies]
 sha2 = { version = "0.10", features = ["asm"] }

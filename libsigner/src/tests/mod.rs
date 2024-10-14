@@ -16,6 +16,7 @@
 
 mod http;
 
+use std::fmt::Debug;
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::sync::mpsc::{channel, Receiver, Sender};
@@ -23,33 +24,37 @@ use std::time::Duration;
 use std::{mem, thread};
 
 use blockstack_lib::chainstate::nakamoto::signer_set::NakamotoSigners;
+use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
 use blockstack_lib::chainstate::stacks::boot::SIGNERS_NAME;
 use blockstack_lib::chainstate::stacks::events::StackerDBChunksEvent;
 use blockstack_lib::util_lib::boot::boot_code_id;
+use clarity::types::chainstate::{ConsensusHash, StacksBlockId, TrieHash};
+use clarity::util::hash::Sha512Trunc256Sum;
+use clarity::util::secp256k1::MessageSignature;
 use clarity::vm::types::QualifiedContractIdentifier;
 use libstackerdb::StackerDBChunkData;
+use stacks_common::bitvec::BitVec;
 use stacks_common::codec::{
     read_next, read_next_at_most, read_next_exact, write_next, Error as CodecError,
     StacksMessageCodec,
 };
 use stacks_common::util::secp256k1::Secp256k1PrivateKey;
 use stacks_common::util::sleep_ms;
-use wsts::net::{DkgBegin, Packet};
 
-use crate::events::SignerEvent;
-use crate::messages::SignerMessage;
-use crate::{Signer, SignerEventReceiver, SignerRunLoop};
+use crate::events::{SignerEvent, SignerEventTrait};
+use crate::v0::messages::{BlockRejection, SignerMessage};
+use crate::{BlockProposal, Signer, SignerEventReceiver, SignerRunLoop};
 
 /// Simple runloop implementation.  It receives `max_events` events and returns `events` from the
 /// last call to `run_one_pass` as its final state.
-struct SimpleRunLoop {
+struct SimpleRunLoop<T: SignerEventTrait> {
     poll_timeout: Duration,
-    events: Vec<SignerEvent>,
+    events: Vec<SignerEvent<T>>,
     max_events: usize,
 }
 
-impl SimpleRunLoop {
-    pub fn new(max_events: usize) -> SimpleRunLoop {
+impl<T: SignerEventTrait> SimpleRunLoop<T> {
+    pub fn new(max_events: usize) -> SimpleRunLoop<T> {
         SimpleRunLoop {
             poll_timeout: Duration::from_millis(100),
             events: vec![],
@@ -62,7 +67,7 @@ enum Command {
     Empty,
 }
 
-impl SignerRunLoop<Vec<SignerEvent>, Command> for SimpleRunLoop {
+impl<T: SignerEventTrait> SignerRunLoop<Vec<SignerEvent<T>>, T> for SimpleRunLoop<T> {
     fn set_event_timeout(&mut self, timeout: Duration) {
         self.poll_timeout = timeout;
     }
@@ -73,10 +78,9 @@ impl SignerRunLoop<Vec<SignerEvent>, Command> for SimpleRunLoop {
 
     fn run_one_pass(
         &mut self,
-        event: Option<SignerEvent>,
-        _cmd: Option<Command>,
-        _res: Sender<Vec<SignerEvent>>,
-    ) -> Option<Vec<SignerEvent>> {
+        event: Option<SignerEvent<T>>,
+        _res: &Sender<Vec<SignerEvent<T>>>,
+    ) -> Option<Vec<SignerEvent<T>>> {
         debug!("Got event: {:?}", &event);
         if let Some(event) = event {
             self.events.push(event);
@@ -98,16 +102,34 @@ impl SignerRunLoop<Vec<SignerEvent>, Command> for SimpleRunLoop {
 fn test_simple_signer() {
     let contract_id = NakamotoSigners::make_signers_db_contract_id(0, 0, false);
     let ev = SignerEventReceiver::new(false);
-    let (_cmd_send, cmd_recv) = channel();
     let (res_send, _res_recv) = channel();
     let max_events = 5;
-    let mut signer = Signer::new(SimpleRunLoop::new(max_events), ev, cmd_recv, res_send);
+    let mut signer = Signer::new(SimpleRunLoop::new(max_events), ev, res_send);
     let endpoint: SocketAddr = "127.0.0.1:30000".parse().unwrap();
     let mut chunks = vec![];
+    let block_proposal = BlockProposal {
+        block: NakamotoBlock {
+            header: NakamotoBlockHeader {
+                version: 1,
+                chain_length: 10,
+                burn_spent: 10,
+                consensus_hash: ConsensusHash([0; 20]),
+                parent_block_id: StacksBlockId([0; 32]),
+                tx_merkle_root: Sha512Trunc256Sum([0; 32]),
+                state_index_root: TrieHash([0; 32]),
+                timestamp: 11,
+                miner_signature: MessageSignature::empty(),
+                signer_signature: vec![],
+                pox_treatment: BitVec::ones(1).unwrap(),
+            },
+            txs: vec![],
+        },
+        burn_height: 2,
+        reward_cycle: 1,
+    };
     for i in 0..max_events {
         let privk = Secp256k1PrivateKey::new();
-        let msg = wsts::net::Message::DkgBegin(DkgBegin { dkg_id: 0 });
-        let message = SignerMessage::Packet(Packet { msg, sig: vec![] });
+        let message = SignerMessage::BlockProposal(block_proposal.clone());
         let message_bytes = message.serialize_to_vec();
         let mut chunk = StackerDBChunkData::new(i as u32, 1, message_bytes);
         chunk.sign(&privk).unwrap();
@@ -161,7 +183,7 @@ fn test_simple_signer() {
             .unwrap()
     });
 
-    let sent_events: Vec<SignerEvent> = chunks
+    let sent_events: Vec<SignerEvent<SignerMessage>> = chunks
         .iter()
         .map(|chunk| {
             let msg = chunk.modified_slots[0].data.clone();
@@ -177,10 +199,9 @@ fn test_simple_signer() {
 #[test]
 fn test_status_endpoint() {
     let ev = SignerEventReceiver::new(false);
-    let (_cmd_send, cmd_recv) = channel();
     let (res_send, _res_recv) = channel();
     let max_events = 1;
-    let mut signer = Signer::new(SimpleRunLoop::new(max_events), ev, cmd_recv, res_send);
+    let mut signer = Signer::new(SimpleRunLoop::new(max_events), ev, res_send);
     let endpoint: SocketAddr = "127.0.0.1:31000".parse().unwrap();
 
     // simulate a node that's trying to push data
@@ -211,7 +232,7 @@ fn test_status_endpoint() {
     sleep_ms(3000);
     let accepted_events = running_signer.stop().unwrap();
 
-    let sent_events: Vec<SignerEvent> = vec![SignerEvent::StatusCheck];
+    let sent_events: Vec<SignerEvent<SignerMessage>> = vec![SignerEvent::StatusCheck];
 
     assert_eq!(sent_events, accepted_events);
     mock_stacks_node.join().unwrap();

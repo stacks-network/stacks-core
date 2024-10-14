@@ -31,7 +31,6 @@ use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs, log};
-use wsts::curve::point::Point;
 
 use crate::burnchains::{Burnchain, BurnchainView, PoxConstants};
 use crate::chainstate::burn::db::sortdb::{
@@ -51,6 +50,7 @@ use crate::core::{
 use crate::net::api::gettenureinfo::RPCGetTenureInfo;
 use crate::net::chat::ConversationP2P;
 use crate::net::db::{LocalPeer, PeerDB};
+use crate::net::download::nakamoto::downloader_block_height_to_reward_cycle;
 use crate::net::http::HttpRequestContents;
 use crate::net::httpcore::{StacksHttpRequest, StacksHttpResponse};
 use crate::net::inv::epoch2x::InvState;
@@ -172,14 +172,14 @@ impl TenureStartEnd {
         let mut tenure_block_ids = AvailableTenures::new();
         let mut last_tenure = 0;
         let mut last_tenure_ch = None;
+        debug!("Find available tenures in inventory {:?} rc {}", invs, rc);
         for (i, wt) in wanted_tenures.iter().enumerate() {
+            debug!("consider wanted tenure which starts with i={} {:?}", i, &wt);
+
             // advance to next tenure-start sortition
             let bit = u16::try_from(i).expect("FATAL: more sortitions than u16::MAX");
             if !invbits.get(bit).unwrap_or(false) {
-                test_debug!("i={} bit not set", i);
-                /*
-                i += 1;
-                */
+                debug!("i={} bit not set", i);
                 continue;
             }
 
@@ -190,12 +190,12 @@ impl TenureStartEnd {
                 let bit = u16::try_from(*j).expect("FATAL: more sortitions than u16::MAX");
                 invbits.get(bit).unwrap_or(false)
             }) else {
-                test_debug!("i={} out of wanted_tenures", i);
+                debug!("i={} out of wanted_tenures", i);
                 break;
             };
 
             let Some(wt_start) = wanted_tenures.get(wt_start_idx) else {
-                test_debug!("i={} no start wanted tenure", i);
+                debug!("i={} no start wanted tenure", i);
                 break;
             };
 
@@ -203,12 +203,12 @@ impl TenureStartEnd {
                 let bit = u16::try_from(*j).expect("FATAL: more sortitions than u16::MAX");
                 invbits.get(bit).unwrap_or(false)
             }) else {
-                test_debug!("i={} out of wanted_tenures", i);
+                debug!("i={} out of wanted_tenures", i);
                 break;
             };
 
             let Some(wt_end) = wanted_tenures.get(wt_end_index) else {
-                test_debug!("i={} no end wanted tenure", i);
+                debug!("i={} no end wanted tenure", i);
                 break;
             };
 
@@ -220,7 +220,7 @@ impl TenureStartEnd {
                 rc,
                 wt.processed,
             );
-            test_debug!(
+            debug!(
                 "i={}, len={}; {:?}",
                 i,
                 wanted_tenures.len(),
@@ -232,7 +232,7 @@ impl TenureStartEnd {
 
         let Some(next_wanted_tenures) = next_wanted_tenures else {
             // nothing more to do
-            test_debug!("No next_wanted_tenures");
+            debug!("No next_wanted_tenures");
             return Some(tenure_block_ids);
         };
 
@@ -240,10 +240,9 @@ impl TenureStartEnd {
         // the last tenure derived from it
         if let Some(last_tenure_ch) = last_tenure_ch.take() {
             if let Some(last_tenure) = tenure_block_ids.get_mut(&last_tenure_ch) {
-                test_debug!(
+                debug!(
                     "Will directly fetch end-block {} for tenure {}",
-                    &last_tenure.end_block_id,
-                    &last_tenure.tenure_id_consensus_hash
+                    &last_tenure.end_block_id, &last_tenure.tenure_id_consensus_hash
                 );
                 last_tenure.fetch_end_block = true;
             }
@@ -251,7 +250,7 @@ impl TenureStartEnd {
 
         let Some(next_invbits) = invs.tenures_inv.get(&rc.saturating_add(1)) else {
             // nothing more to do
-            test_debug!("no inventory for cycle {}", rc.saturating_add(1));
+            debug!("no inventory for cycle {}", rc.saturating_add(1));
             return Some(tenure_block_ids);
         };
 
@@ -259,7 +258,7 @@ impl TenureStartEnd {
         let iter_start = last_tenure;
         let iterator = wanted_tenures.get(iter_start..).unwrap_or(&[]);
         for (i, wt) in iterator.iter().enumerate() {
-            test_debug!(
+            debug!(
                 "consider next wanted tenure which starts with i={} {:?}",
                 iter_start + i,
                 &wt
@@ -268,7 +267,7 @@ impl TenureStartEnd {
             // advance to next tenure-start sortition
             let bit = u16::try_from(i + iter_start).expect("FATAL: more sortitions than u16::MAX");
             if !invbits.get(bit).unwrap_or(false) {
-                test_debug!("i={} bit not set", i);
+                debug!("i={} bit not set", i);
                 continue;
             }
 
@@ -298,7 +297,7 @@ impl TenureStartEnd {
                     })
                 })
             else {
-                test_debug!(
+                debug!(
                     "i={} out of wanted_tenures and next_wanted_tenures",
                     iter_start + i
                 );
@@ -317,7 +316,7 @@ impl TenureStartEnd {
                     None
                 }
             }) else {
-                test_debug!("i={} out of next_wanted_tenures", iter_start + i);
+                debug!("i={} out of next_wanted_tenures", iter_start + i);
                 break;
             };
 
@@ -328,12 +327,15 @@ impl TenureStartEnd {
                 rc,
                 pox_constants
                     .block_height_to_reward_cycle(first_burn_height, wt_start.burn_height)
-                    .expect("FATAL: tenure from before system start"),
+                    .expect(&format!(
+                        "FATAL: tenure from before system start ({} <= {})",
+                        wt_start.burn_height, first_burn_height
+                    )),
                 wt.processed,
             );
             tenure_start_end.fetch_end_block = true;
 
-            test_debug!(
+            debug!(
                 "i={},len={},next_len={}; {:?}",
                 iter_start + i,
                 wanted_tenures.len(),

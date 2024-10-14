@@ -258,7 +258,7 @@ fn epoch_21_test_all(use_mainnet: bool, version: ClarityVersion) {
     let baseline = test_tracked_costs("1", StacksEpochId::Epoch21, version, 0, &mut instance);
 
     for (ix, f) in NativeFunctions::ALL.iter().enumerate() {
-        if version < f.get_version() {
+        if version < f.get_min_version() || f.get_max_version().map_or(false, |max| version > max) {
             continue;
         }
 
@@ -295,7 +295,7 @@ fn epoch_205_test_all(use_mainnet: bool) {
     );
 
     for (ix, f) in NativeFunctions::ALL.iter().enumerate() {
-        if f.get_version() == ClarityVersion::Clarity1 {
+        if f.get_min_version() == ClarityVersion::Clarity1 {
             let test = get_simple_test(f);
             let cost = test_tracked_costs(
                 test,

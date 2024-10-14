@@ -247,8 +247,8 @@ impl CoordinatorCommunication {
         };
 
         let rcvrs = CoordinatorReceivers {
-            signal_bools: signal_bools,
-            signal_wakeup: signal_wakeup,
+            signal_bools,
+            signal_wakeup,
             stacks_blocks_processed,
             sortitions_processed,
             refresh_stacker_db,

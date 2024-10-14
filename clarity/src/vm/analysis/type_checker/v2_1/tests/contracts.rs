@@ -433,7 +433,7 @@ fn test_names_tokens_contracts_interface() {
         "fungible_tokens": [],
         "non_fungible_tokens": [],
         "epoch": "Epoch21",
-        "clarity_version": "Clarity2"
+        "clarity_version": "Clarity3"
     }"#).unwrap();
 
     eprintln!("{}", test_contract_json_str);
@@ -1894,7 +1894,7 @@ fn clarity_trait_experiments_double_trait(
     // Can we define a trait with two methods with the same name and different types?
     match db.execute(|db| load_versioned(db, "double-trait", version, epoch)) {
         Ok(_) if version == ClarityVersion::Clarity1 => (),
-        Err(err) if version == ClarityVersion::Clarity2 => {
+        Err(err) if version >= ClarityVersion::Clarity2 => {
             assert!(err.starts_with("DefineTraitDuplicateMethod(\"foo\")"))
         }
         res => panic!("got {:?}", res),
@@ -1915,7 +1915,7 @@ fn clarity_trait_experiments_impl_double_trait_both(
         load_versioned(db, "impl-double-trait-both", version, epoch)
     }) {
         Ok(_) if version == ClarityVersion::Clarity1 => (),
-        Err(err) if version == ClarityVersion::Clarity2 => {
+        Err(err) if version >= ClarityVersion::Clarity2 => {
             assert!(err.starts_with("DefineTraitDuplicateMethod(\"foo\")"))
         }
         res => panic!("got {:?}", res),
@@ -1938,7 +1938,7 @@ fn clarity_trait_experiments_impl_double_trait_1(
         Err(err) if version == ClarityVersion::Clarity1 => {
             assert!(err.starts_with("BadTraitImplementation(\"double-method\", \"foo\")"))
         }
-        Err(err) if version == ClarityVersion::Clarity2 => {
+        Err(err) if version >= ClarityVersion::Clarity2 => {
             assert!(err.starts_with("DefineTraitDuplicateMethod(\"foo\")"))
         }
         res => panic!("got {:?}", res),
@@ -1959,7 +1959,7 @@ fn clarity_trait_experiments_impl_double_trait_2(
         load_versioned(db, "impl-double-trait-2", version, epoch)
     }) {
         Ok(_) if version == ClarityVersion::Clarity1 => (),
-        Err(err) if version == ClarityVersion::Clarity2 => {
+        Err(err) if version >= ClarityVersion::Clarity2 => {
             assert!(err.starts_with("DefineTraitDuplicateMethod(\"foo\")"))
         }
         res => panic!("got {:?}", res),
@@ -1983,7 +1983,7 @@ fn clarity_trait_experiments_use_double_trait(
         Err(err) if version == ClarityVersion::Clarity1 => {
             assert!(err.starts_with("TypeError(BoolType, UIntType)"))
         }
-        Err(err) if version == ClarityVersion::Clarity2 => {
+        Err(err) if version >= ClarityVersion::Clarity2 => {
             assert!(err.starts_with("DefineTraitDuplicateMethod(\"foo\")"))
         }
         res => panic!("got {:?}", res),
@@ -2007,7 +2007,7 @@ fn clarity_trait_experiments_use_partial_double_trait_1(
         Err(err) if version == ClarityVersion::Clarity1 => {
             assert!(err.starts_with("TypeError(BoolType, UIntType)"))
         }
-        Err(err) if version == ClarityVersion::Clarity2 => {
+        Err(err) if version >= ClarityVersion::Clarity2 => {
             assert!(err.starts_with("DefineTraitDuplicateMethod(\"foo\")"))
         }
         res => panic!("got {:?}", res),
@@ -2029,7 +2029,7 @@ fn clarity_trait_experiments_use_partial_double_trait_2(
         load_versioned(db, "use-partial-double-trait-2", version, epoch)
     }) {
         Ok(_) if version == ClarityVersion::Clarity1 => (),
-        Err(err) if version == ClarityVersion::Clarity2 => {
+        Err(err) if version >= ClarityVersion::Clarity2 => {
             assert!(err.starts_with("DefineTraitDuplicateMethod(\"foo\")"))
         }
         res => panic!("got {:?}", res),
@@ -2047,7 +2047,7 @@ fn clarity_trait_experiments_identical_double_trait(
     // Can we define a trait with two methods with the same name and the same type?
     match db.execute(|db| load_versioned(db, "identical-double-trait", version, epoch)) {
         Ok(_) if version == ClarityVersion::Clarity1 => (),
-        Err(err) if version == ClarityVersion::Clarity2 => {
+        Err(err) if version >= ClarityVersion::Clarity2 => {
             assert!(err.starts_with("DefineTraitDuplicateMethod(\"foo\")"))
         }
         res => panic!("got {:?}", res),
@@ -2068,7 +2068,7 @@ fn clarity_trait_experiments_impl_identical_double_trait(
         load_versioned(db, "impl-identical-double-trait", version, epoch)
     }) {
         Ok(_) if version == ClarityVersion::Clarity1 => (),
-        Err(err) if version == ClarityVersion::Clarity2 => {
+        Err(err) if version >= ClarityVersion::Clarity2 => {
             assert!(err.starts_with("DefineTraitDuplicateMethod(\"foo\")"))
         }
         res => panic!("got {:?}", res),
@@ -2126,7 +2126,7 @@ fn clarity_trait_experiments_use_math_trait_transitive_name(
         load_versioned(db, "use-math-trait-transitive-name", version, epoch)
     }) {
         Ok(_) if version == ClarityVersion::Clarity1 => (),
-        Err(err) if version == ClarityVersion::Clarity2 => {
+        Err(err) if version >= ClarityVersion::Clarity2 => {
             assert!(err.starts_with("TraitReferenceUnknown(\"math-alias\")"))
         }
         res => panic!("got {:?}", res),
@@ -2147,7 +2147,7 @@ fn clarity_trait_experiments_use_original_and_define_a_trait(
         load_versioned(db, "use-original-and-define-a-trait", version, epoch)
     });
     match result {
-        Ok(_) if version == ClarityVersion::Clarity2 => (),
+        Ok(_) if version >= ClarityVersion::Clarity2 => (),
         Err(err) if version == ClarityVersion::Clarity1 => {
             assert!(err.starts_with("TraitMethodUnknown(\"a\", \"do-it\")"))
         }
@@ -2170,7 +2170,7 @@ fn clarity_trait_experiments_use_redefined_and_define_a_trait(
         load_versioned(db, "use-redefined-and-define-a-trait", version, epoch)
     }) {
         Ok(_) if version == ClarityVersion::Clarity1 => (),
-        Err(err) if version == ClarityVersion::Clarity2 => {
+        Err(err) if version >= ClarityVersion::Clarity2 => {
             assert!(err.starts_with("TraitMethodUnknown(\"a\", \"do-that\")"))
         }
         res => panic!("got {:?}", res),
@@ -2266,7 +2266,7 @@ fn clarity_trait_experiments_call_nested_trait_1(
         Err(err) if version == ClarityVersion::Clarity1 => {
             assert!(err.starts_with("TypeError"))
         }
-        Ok(_) if version == ClarityVersion::Clarity2 => (),
+        Ok(_) if version >= ClarityVersion::Clarity2 => (),
         res => panic!("got {:?}", res),
     };
 }
@@ -2292,7 +2292,7 @@ fn clarity_trait_experiments_call_nested_trait_2(
         Err(err) if version == ClarityVersion::Clarity1 => {
             assert!(err.starts_with("TypeError"))
         }
-        Ok(_) if version == ClarityVersion::Clarity2 => (),
+        Ok(_) if version >= ClarityVersion::Clarity2 => (),
         res => panic!("got {:?}", res),
     };
 }
@@ -2318,7 +2318,7 @@ fn clarity_trait_experiments_call_nested_trait_3_ok(
         Err(err) if version == ClarityVersion::Clarity1 => {
             assert!(err.starts_with("TypeError"))
         }
-        Ok(_) if version == ClarityVersion::Clarity2 => (),
+        Ok(_) if version >= ClarityVersion::Clarity2 => (),
         res => panic!("got {:?}", res),
     };
 }
@@ -2374,7 +2374,7 @@ fn clarity_trait_experiments_call_nested_trait_4(
         Err(err) if version == ClarityVersion::Clarity1 => {
             assert!(err.starts_with("TypeError"))
         }
-        Ok(_) if version == ClarityVersion::Clarity2 => (),
+        Ok(_) if version >= ClarityVersion::Clarity2 => (),
         res => panic!("got {:?}", res),
     };
 }
@@ -2469,7 +2469,7 @@ fn clarity_trait_experiments_call_let_rename_trait(
         load_versioned(db, "call-let-rename-trait", version, epoch)
     });
     match result {
-        Ok(_) if version == ClarityVersion::Clarity2 => (),
+        Ok(_) if version >= ClarityVersion::Clarity2 => (),
         Err(err) if version == ClarityVersion::Clarity1 => {
             assert!(err.starts_with("TraitReferenceUnknown(\"new-math-contract\")"))
         }
@@ -2637,7 +2637,7 @@ fn clarity_trait_experiments_constant_call(
         load_versioned(db, "constant-call", version, epoch)
     });
     match result {
-        Ok(_) if version == ClarityVersion::Clarity2 => (),
+        Ok(_) if version >= ClarityVersion::Clarity2 => (),
         Err(err) if version == ClarityVersion::Clarity1 => {
             assert!(err.starts_with("TraitReferenceUnknown(\"principal-value\")"))
         }
@@ -2660,7 +2660,7 @@ fn clarity_trait_experiments_constant_to_trait(
         load_versioned(db, "constant-to-trait", version, epoch)
     });
     match result {
-        Ok(_) if version == ClarityVersion::Clarity2 => (),
+        Ok(_) if version >= ClarityVersion::Clarity2 => (),
         Err(err) if epoch <= StacksEpochId::Epoch2_05 => {
             assert!(err.starts_with("TypeError(TraitReferenceType"))
         }
@@ -2687,7 +2687,7 @@ fn clarity_trait_experiments_constant_to_constant_call(
         load_versioned(db, "constant-to-constant-call", version, epoch)
     });
     match result {
-        Ok(_) if version == ClarityVersion::Clarity2 => (),
+        Ok(_) if version >= ClarityVersion::Clarity2 => (),
         Err(err) if epoch <= StacksEpochId::Epoch2_05 => {
             assert!(err.starts_with("TypeError(TraitReferenceType"))
         }
@@ -2740,7 +2740,9 @@ fn clarity_trait_experiments_downcast_literal_2(
         })
         .unwrap_err();
     match version {
-        ClarityVersion::Clarity2 => assert!(err.starts_with("ExpectedCallableType(PrincipalType)")),
+        ClarityVersion::Clarity2 | ClarityVersion::Clarity3 => {
+            assert!(err.starts_with("ExpectedCallableType(PrincipalType)"))
+        }
         ClarityVersion::Clarity1 => {
             assert!(err.starts_with("TraitReferenceUnknown(\"principal-value\")"))
         }
@@ -2874,7 +2876,7 @@ fn clarity_trait_experiments_identical_trait_cast(
         load_versioned(db, "identical-trait-cast", version, epoch)
     });
     match result {
-        Ok(_) if version == ClarityVersion::Clarity2 => (),
+        Ok(_) if version >= ClarityVersion::Clarity2 => (),
         Err(err) if epoch <= StacksEpochId::Epoch2_05 => {
             assert!(err.starts_with("TypeError(TraitReferenceType(TraitIdentifier"))
         }
@@ -2900,7 +2902,7 @@ fn clarity_trait_experiments_trait_cast(
         load_versioned(db, "trait-cast", version, epoch)
     });
     match result {
-        Ok(_) if version == ClarityVersion::Clarity2 => (),
+        Ok(_) if version >= ClarityVersion::Clarity2 => (),
         Err(err) if epoch <= StacksEpochId::Epoch2_05 => {
             assert!(err.starts_with("TypeError(TraitReferenceType(TraitIdentifier"))
         }
@@ -2935,7 +2937,9 @@ fn clarity_trait_experiments_trait_cast_incompatible(
                 assert!(err.starts_with("TypeError(CallableType(Trait(TraitIdentifier"))
             }
         }
-        ClarityVersion::Clarity2 => assert!(err.starts_with("IncompatibleTrait")),
+        ClarityVersion::Clarity2 | ClarityVersion::Clarity3 => {
+            assert!(err.starts_with("IncompatibleTrait"))
+        }
     }
 }
 
@@ -3208,7 +3212,7 @@ fn clarity_trait_experiments_call_full_double_trait(
     });
     match result {
         Ok(_) if version == ClarityVersion::Clarity1 => (),
-        Err(err) if version == ClarityVersion::Clarity2 => {
+        Err(err) if version >= ClarityVersion::Clarity2 => {
             assert!(err.starts_with("DefineTraitDuplicateMethod(\"foo\")"))
         }
         res => panic!("got {:?}", res),
@@ -3239,7 +3243,7 @@ fn clarity_trait_experiments_call_partial_double_trait(
     });
     match result {
         Ok(_) if version == ClarityVersion::Clarity1 => (),
-        Err(err) if version == ClarityVersion::Clarity2 => {
+        Err(err) if version >= ClarityVersion::Clarity2 => {
             assert!(err.starts_with("DefineTraitDuplicateMethod(\"foo\")"))
         }
         res => panic!("got {:?}", res),
@@ -3290,7 +3294,7 @@ fn clarity_trait_experiments_principals_list_to_traits_list(
         load_versioned(db, "list-of-principals", version, epoch)
     });
     match result {
-        Ok(_) if version == ClarityVersion::Clarity2 => (),
+        Ok(_) if version >= ClarityVersion::Clarity2 => (),
         Err(err) if version == ClarityVersion::Clarity1 => {
             assert!(err.starts_with("TypeError(SequenceType(ListType"))
         }
@@ -3333,7 +3337,7 @@ fn clarity_trait_experiments_mixed_list_to_traits_list(
         load_versioned(db, "mixed-list", version, epoch)
     });
     match result {
-        Ok(_) if version == ClarityVersion::Clarity2 => (),
+        Ok(_) if version >= ClarityVersion::Clarity2 => (),
         Err(err) if epoch <= StacksEpochId::Epoch2_05 => {
             assert!(err.starts_with("TypeError(TraitReferenceType"))
         }

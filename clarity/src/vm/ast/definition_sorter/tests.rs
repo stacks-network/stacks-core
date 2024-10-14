@@ -25,7 +25,6 @@ use crate::vm::ast::errors::{ParseErrors, ParseResult};
 use crate::vm::ast::expression_identifier::ExpressionIdentifier;
 use crate::vm::ast::parser;
 use crate::vm::ast::types::{BuildASTPass, ContractAST};
-use crate::vm::database::MemoryBackingStore;
 use crate::vm::types::QualifiedContractIdentifier;
 use crate::vm::ClarityVersion;
 

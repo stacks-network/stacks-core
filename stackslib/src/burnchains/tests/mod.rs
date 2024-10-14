@@ -161,10 +161,7 @@ impl TestMiner {
     }
 
     pub fn last_block_commit(&self) -> Option<LeaderBlockCommitOp> {
-        match self.block_commits.len() {
-            0 => None,
-            x => Some(self.block_commits[x - 1].clone()),
-        }
+        self.block_commits.last().cloned()
     }
 
     pub fn block_commit_at(&self, idx: usize) -> Option<LeaderBlockCommitOp> {
@@ -405,7 +402,6 @@ impl TestBurnchainBlock {
         new_seed: Option<VRFSeed>,
         epoch_marker: u8,
     ) -> LeaderBlockCommitOp {
-        let input = (Txid([0; 32]), 0);
         let pubks = miner
             .privks
             .iter()
@@ -442,8 +438,22 @@ impl TestBurnchainBlock {
             &last_snapshot_with_sortition.sortition_id,
         )
         .expect("FATAL: failed to read block commit");
+
+        let input = SortitionDB::get_last_block_commit_by_sender(ic.conn(), &apparent_sender)
+            .unwrap()
+            .map(|commit| (commit.txid.clone(), 1 + (commit.commit_outs.len() as u32)))
+            .unwrap_or((Txid([0x00; 32]), 0));
+
+        test_debug!("Last input from {} is {:?}", &apparent_sender, &input);
+
         let mut txop = match get_commit_res {
             Some(parent) => {
+                test_debug!(
+                    "Block-commit for {} (burn height {}) builds on leader block-commit {:?}",
+                    block_hash,
+                    self.block_height,
+                    &parent
+                );
                 let txop = LeaderBlockCommitOp::new(
                     block_hash,
                     self.block_height,

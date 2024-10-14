@@ -16,6 +16,7 @@
 
 use std::io::{Read, Write};
 
+use clarity::vm::costs::ExecutionCost;
 use regex::{Captures, Regex};
 use stacks_common::types::chainstate::{
     BlockHeaderHash, ConsensusHash, StacksBlockId, StacksPublicKey,
@@ -23,6 +24,7 @@ use stacks_common::types::chainstate::{
 use stacks_common::types::net::PeerHost;
 use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::hash::{Hash160, Sha256Sum};
+use url::form_urlencoded;
 
 use crate::burnchains::affirmation::AffirmationMap;
 use crate::burnchains::Txid;
@@ -30,19 +32,23 @@ use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::stacks::db::blocks::MINIMUM_TX_FEE_RATE_PER_BYTE;
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::core::mempool::MemPoolDB;
+use crate::net::api::postfeerate::RPCPostFeeRateRequestHandler;
 use crate::net::http::{
-    parse_json, Error, HttpRequest, HttpRequestContents, HttpRequestPreamble, HttpResponse,
-    HttpResponseContents, HttpResponsePayload, HttpResponsePreamble,
+    parse_json, Error, HttpBadRequest, HttpRequest, HttpRequestContents, HttpRequestPreamble,
+    HttpResponse, HttpResponseContents, HttpResponsePayload, HttpResponsePreamble,
 };
 use crate::net::httpcore::{
     HttpPreambleExtensions, RPCRequestHandler, StacksHttpRequest, StacksHttpResponse,
 };
 use crate::net::p2p::PeerNetwork;
-use crate::net::{Error as NetError, StacksNodeState};
+use crate::net::{Error as NetError, HttpServerError, StacksNodeState};
 use crate::version_string;
+
+pub(crate) const SINGLESIG_TX_TRANSFER_LEN: u64 = 180;
 
 #[derive(Clone)]
 pub struct RPCGetStxTransferCostRequestHandler {}
+
 impl RPCGetStxTransferCostRequestHandler {
     pub fn new() -> Self {
         Self {}
@@ -74,7 +80,7 @@ impl HttpRequest for RPCGetStxTransferCostRequestHandler {
     ) -> Result<HttpRequestContents, Error> {
         if preamble.get_content_length() != 0 {
             return Err(Error::DecodeError(
-                "Invalid Http request: expected 0-length body for GetInfo".to_string(),
+                "Invalid Http request: expected 0-length body".to_string(),
             ));
         }
         Ok(HttpRequestContents::new().query_string(query))
@@ -92,9 +98,57 @@ impl RPCRequestHandler for RPCGetStxTransferCostRequestHandler {
         _contents: HttpRequestContents,
         node: &mut StacksNodeState,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
-        // todo -- need to actually estimate the cost / length for token transfers
-        //   right now, it just uses the minimum.
-        let fee = MINIMUM_TX_FEE_RATE_PER_BYTE;
+        // NOTE: The estimated length isn't needed per se because we're returning a fee rate, but
+        // we do need an absolute length to use the estimator (so supply a common one).
+        let estimated_len = SINGLESIG_TX_TRANSFER_LEN;
+
+        let fee_resp = node.with_node_state(|_network, sortdb, _chainstate, _mempool, rpc_args| {
+            let tip = self.get_canonical_burn_chain_tip(&preamble, sortdb)?;
+            let stacks_epoch = self.get_stacks_epoch(&preamble, sortdb, tip.block_height)?;
+
+            if let Some((_, fee_estimator, metric)) = rpc_args.get_estimators_ref() {
+                // STX transfer transactions have zero runtime cost
+                let estimated_cost = ExecutionCost::zero();
+                let estimations =
+                    RPCPostFeeRateRequestHandler::estimate_tx_fee_from_cost_and_length(
+                        &preamble,
+                        fee_estimator,
+                        metric,
+                        estimated_cost,
+                        estimated_len,
+                        stacks_epoch,
+                    )?
+                    .estimations;
+                if estimations.len() != 3 {
+                    // logic bug, but treat as runtime error
+                    return Err(StacksHttpResponse::new_error(
+                        &preamble,
+                        &HttpServerError::new(
+                            "Logic error in fee estimation: did not get three estimates".into(),
+                        ),
+                    ));
+                }
+
+                // safety -- checked estimations.len() == 3 above
+                let median_estimation = &estimations[1];
+
+                // NOTE: this returns the fee _rate_
+                Ok(median_estimation.fee / estimated_len)
+            } else {
+                // unlike `POST /v2/fees/transaction`, this method can't fail due to the
+                // unavailability of cost estimation, so just assume the minimum fee.
+                debug!("Fee and cost estimation not configured on this stacks node");
+                Ok(MINIMUM_TX_FEE_RATE_PER_BYTE)
+            }
+        });
+
+        let fee = match fee_resp {
+            Ok(fee) => fee,
+            Err(response) => {
+                return response.try_into_contents().map_err(NetError::from);
+            }
+        };
+
         let mut preamble = HttpResponsePreamble::ok_json(&preamble);
         preamble.set_canonical_stacks_tip_height(Some(node.canonical_stacks_tip_height()));
         let body = HttpResponseContents::try_from_json(&fee)?;
@@ -116,13 +170,9 @@ impl HttpResponse for RPCGetStxTransferCostRequestHandler {
 
 impl StacksHttpRequest {
     pub fn new_get_stx_transfer_cost(host: PeerHost) -> StacksHttpRequest {
-        StacksHttpRequest::new_for_peer(
-            host,
-            "GET".into(),
-            "/v2/fees/transfer".into(),
-            HttpRequestContents::new(),
-        )
-        .expect("FATAL: failed to construct request from infallible data")
+        let contents = HttpRequestContents::new();
+        StacksHttpRequest::new_for_peer(host, "GET".into(), "/v2/fees/transfer".into(), contents)
+            .expect("FATAL: failed to construct request from infallible data")
     }
 }
 

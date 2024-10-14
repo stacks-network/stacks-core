@@ -1,10 +1,26 @@
+// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
+// Copyright (C) 2020-2024 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 use std::collections::{HashMap, HashSet};
 use std::net::{Ipv4Addr, SocketAddr, ToSocketAddrs};
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use std::{fs, thread};
+use std::{cmp, fs, thread};
 
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier};
@@ -49,11 +65,28 @@ use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 use crate::chain_data::MinerStats;
 
 pub const DEFAULT_SATS_PER_VB: u64 = 50;
+pub const OP_TX_BLOCK_COMMIT_ESTIM_SIZE: u64 = 380;
+pub const OP_TX_DELEGATE_STACKS_ESTIM_SIZE: u64 = 230;
+pub const OP_TX_LEADER_KEY_ESTIM_SIZE: u64 = 290;
+pub const OP_TX_PRE_STACKS_ESTIM_SIZE: u64 = 280;
+pub const OP_TX_STACK_STX_ESTIM_SIZE: u64 = 250;
+pub const OP_TX_TRANSFER_STACKS_ESTIM_SIZE: u64 = 230;
+pub const OP_TX_VOTE_AGG_ESTIM_SIZE: u64 = 230;
+
+pub const OP_TX_ANY_ESTIM_SIZE: u64 = fmax!(
+    OP_TX_BLOCK_COMMIT_ESTIM_SIZE,
+    OP_TX_DELEGATE_STACKS_ESTIM_SIZE,
+    OP_TX_LEADER_KEY_ESTIM_SIZE,
+    OP_TX_PRE_STACKS_ESTIM_SIZE,
+    OP_TX_STACK_STX_ESTIM_SIZE,
+    OP_TX_TRANSFER_STACKS_ESTIM_SIZE,
+    OP_TX_VOTE_AGG_ESTIM_SIZE
+);
+
 const DEFAULT_MAX_RBF_RATE: u64 = 150; // 1.5x
 const DEFAULT_RBF_FEE_RATE_INCREMENT: u64 = 5;
-const LEADER_KEY_TX_ESTIM_SIZE: u64 = 290;
-const BLOCK_COMMIT_TX_ESTIM_SIZE: u64 = 350;
 const INV_REWARD_CYCLES_TESTNET: u64 = 6;
+const DEFAULT_MIN_TIME_BETWEEN_BLOCKS_MS: u64 = 1000;
 
 #[derive(Clone, Deserialize, Default, Debug)]
 pub struct ConfigFile {
@@ -101,7 +134,8 @@ mod tests {
                     seed = "invalid-hex-value"
                     "#,
                 )
-                .unwrap()
+                .unwrap(),
+                false
             )
             .unwrap_err()
         );
@@ -115,7 +149,8 @@ mod tests {
                     local_peer_seed = "invalid-hex-value"
                     "#,
                 )
-                .unwrap()
+                .unwrap(),
+                false
             )
             .unwrap_err()
         );
@@ -130,6 +165,7 @@ mod tests {
                 "#,
             )
             .unwrap(),
+            false,
         )
         .unwrap_err();
         assert_eq!(
@@ -137,7 +173,7 @@ mod tests {
             &actual_err_msg[..expected_err_prefix.len()]
         );
 
-        assert!(Config::from_config_file(ConfigFile::from_str("").unwrap()).is_ok());
+        assert!(Config::from_config_file(ConfigFile::from_str("").unwrap(), false).is_ok());
     }
 
     #[test]
@@ -186,20 +222,21 @@ mod tests {
     }
 
     #[test]
-    fn should_load_block_proposal_token() {
+    fn should_load_auth_token() {
         let config = Config::from_config_file(
             ConfigFile::from_str(
                 r#"
                 [connection_options]
-                block_proposal_token = "password"
+                auth_token = "password"
                 "#,
             )
             .unwrap(),
+            false,
         )
         .expect("Expected to be able to parse block proposal token from file");
 
         assert_eq!(
-            config.connection_options.block_proposal_token,
+            config.connection_options.auth_token,
             Some("password".to_string())
         );
     }
@@ -218,6 +255,7 @@ mod tests {
                 "#
             ))
             .expect("Expected to be able to parse config file from string"),
+            false,
         )
         .expect("Expected to be able to parse affirmation map from file");
 
@@ -241,7 +279,7 @@ mod tests {
         ))
         .expect("Expected to be able to parse config file from string");
 
-        assert!(Config::from_config_file(file).is_err());
+        assert!(Config::from_config_file(file, false).is_err());
     }
 
     #[test]
@@ -249,6 +287,7 @@ mod tests {
         let config = Config::from_config_file(
             ConfigFile::from_str(r#""#)
                 .expect("Expected to be able to parse config file from string"),
+            false,
         )
         .expect("Expected to be able to parse affirmation map from file");
 
@@ -266,6 +305,7 @@ mod tests {
                 "#,
             )
             .expect("Expected to be able to parse config file from string"),
+            false,
         )
         .expect("Expected to be able to parse affirmation map from file");
         // Should default add xenon affirmation overrides
@@ -291,6 +331,7 @@ mod tests {
                 "#,
             ))
             .expect("Expected to be able to parse config file from string"),
+            false,
         )
         .expect("Expected to be able to parse affirmation map from file");
         // Should default add xenon affirmation overrides, but overwrite with the configured one above
@@ -505,7 +546,7 @@ lazy_static! {
         heartbeat: 3600,
         // can't use u64::max, because sqlite stores as i64.
         private_key_lifetime: 9223372036854775807,
-        num_neighbors: 16,              // number of neighbors whose inventories we track
+        num_neighbors: 32,              // number of neighbors whose inventories we track
         num_clients: 750,               // number of inbound p2p connections
         soft_num_neighbors: 16,         // soft-limit on the number of neighbors whose inventories we track
         soft_num_clients: 750,          // soft limit on the number of inbound p2p connections
@@ -517,6 +558,8 @@ lazy_static! {
         max_http_clients: 1000,         // maximum number of HTTP connections
         max_neighbors_of_neighbor: 10,  // maximum number of neighbors we'll handshake with when doing a neighbor walk (I/O for this can be expensive, so keep small-ish)
         walk_interval: 60,              // how often, in seconds, we do a neighbor walk
+        walk_seed_probability: 0.1,     // 10% of the time when not in IBD, walk to a non-seed node even if we aren't connected to a seed node
+        log_neighbors_freq: 60_000,     // every minute, log all peer connections
         inv_sync_interval: 45,          // how often, in seconds, we refresh block inventories
         inv_reward_cycles: 3,           // how many reward cycles to look back on, for mainnet
         download_interval: 10,          // how often, in seconds, we do a block download scan (should be less than inv_sync_interval)
@@ -537,7 +580,7 @@ impl Config {
         let Ok(config_file) = ConfigFile::from_path(path.as_str()) else {
             return self.burnchain.clone();
         };
-        let Ok(config) = Config::from_config_file(config_file) else {
+        let Ok(config) = Config::from_config_file(config_file, false) else {
             return self.burnchain.clone();
         };
         config.burnchain
@@ -552,20 +595,20 @@ impl Config {
         let Ok(config_file) = ConfigFile::from_path(path.as_str()) else {
             return self.miner.clone();
         };
-        let Ok(config) = Config::from_config_file(config_file) else {
+        let Ok(config) = Config::from_config_file(config_file, false) else {
             return self.miner.clone();
         };
         return config.miner;
     }
 
-    pub fn get_node_config(&self) -> NodeConfig {
+    pub fn get_node_config(&self, resolve_bootstrap_nodes: bool) -> NodeConfig {
         let Some(path) = &self.config_path else {
             return self.node.clone();
         };
         let Ok(config_file) = ConfigFile::from_path(path.as_str()) else {
             return self.node.clone();
         };
-        let Ok(config) = Config::from_config_file(config_file) else {
+        let Ok(config) = Config::from_config_file(config_file, resolve_bootstrap_nodes) else {
             return self.node.clone();
         };
         return config.node;
@@ -819,6 +862,8 @@ impl Config {
         }
     }
 
+    // TODO: add tests from mutation testing results #4866
+    #[cfg_attr(test, mutants::skip)]
     fn make_epochs(
         conf_epochs: &[StacksEpochConfigFile],
         burn_mode: &str,
@@ -941,11 +986,18 @@ impl Config {
         Ok(out_epochs)
     }
 
-    pub fn from_config_file(config_file: ConfigFile) -> Result<Config, String> {
-        Self::from_config_default(config_file, Config::default())
+    pub fn from_config_file(
+        config_file: ConfigFile,
+        resolve_bootstrap_nodes: bool,
+    ) -> Result<Config, String> {
+        Self::from_config_default(config_file, Config::default(), resolve_bootstrap_nodes)
     }
 
-    fn from_config_default(config_file: ConfigFile, default: Config) -> Result<Config, String> {
+    fn from_config_default(
+        config_file: ConfigFile,
+        default: Config,
+        resolve_bootstrap_nodes: bool,
+    ) -> Result<Config, String> {
         let Config {
             node: default_node_config,
             burnchain: default_burnchain_config,
@@ -996,9 +1048,15 @@ impl Config {
         };
 
         if let Some(bootstrap_node) = bootstrap_node {
-            node.set_bootstrap_nodes(bootstrap_node, burnchain.chain_id, burnchain.peer_version);
+            if resolve_bootstrap_nodes {
+                node.set_bootstrap_nodes(
+                    bootstrap_node,
+                    burnchain.chain_id,
+                    burnchain.peer_version,
+                );
+            }
         } else {
-            if is_mainnet {
+            if is_mainnet && resolve_bootstrap_nodes {
                 let bootstrap_node = ConfigFile::mainnet().node.unwrap().bootstrap_node.unwrap();
                 node.set_bootstrap_nodes(
                     bootstrap_node,
@@ -1070,11 +1128,10 @@ impl Config {
                         .map(|e| EventKeyType::from_string(e).unwrap())
                         .collect();
 
-                    let endpoint = format!("{}", observer.endpoint);
-
                     observers.insert(EventObserverConfig {
-                        endpoint,
+                        endpoint: observer.endpoint,
                         events_keys,
+                        timeout_ms: observer.timeout_ms.unwrap_or(1_000),
                     });
                 }
                 observers
@@ -1088,6 +1145,7 @@ impl Config {
                 events_observers.insert(EventObserverConfig {
                     endpoint: val,
                     events_keys: vec![EventKeyType::AnyEvent],
+                    timeout_ms: 1_000,
                 });
                 ()
             }
@@ -1112,6 +1170,10 @@ impl Config {
         atlas
             .validate()
             .map_err(|e| format!("Atlas config error: {e}"))?;
+
+        if miner.mining_key.is_none() && miner.pre_nakamoto_mock_signing {
+            return Err("Cannot use pre_nakamoto_mock_signing without a mining_key".to_string());
+        }
 
         Ok(Config {
             config_path: config_file.__path,
@@ -1253,6 +1315,8 @@ impl Config {
         }
     }
 
+    // TODO: add tests from mutation testing results #4867
+    #[cfg_attr(test, mutants::skip)]
     pub fn make_block_builder_settings(
         &self,
         attempt: u64,
@@ -1301,6 +1365,20 @@ impl Config {
         }
         None
     }
+
+    /// Determine how long the p2p state machine should poll for.
+    /// If the node is not mining, then use a default value.
+    /// If the node is mining, however, then at the time of this writing, the miner's latency is in
+    /// part dependent on the state machine getting block data back to the miner quickly, and thus
+    /// the poll time is dependent on the first attempt time.
+    pub fn get_poll_time(&self) -> u64 {
+        let poll_timeout = if self.node.miner {
+            cmp::min(1000, self.miner.first_attempt_time_ms / 2)
+        } else {
+            1000
+        };
+        poll_timeout
+    }
 }
 
 impl std::default::Default for Config {
@@ -1340,6 +1418,7 @@ pub struct BurnchainConfig {
     pub rpc_ssl: bool,
     pub username: Option<String>,
     pub password: Option<String>,
+    /// Timeout, in seconds, for communication with bitcoind
     pub timeout: u32,
     pub magic_bytes: MagicBytes,
     pub local_mining_public_key: Option<String>,
@@ -1364,6 +1443,13 @@ pub struct BurnchainConfig {
     pub wallet_name: String,
     pub ast_precheck_size_height: Option<u64>,
     pub affirmation_overrides: HashMap<u64, AffirmationMap>,
+    /// fault injection to simulate a slow burnchain peer.
+    /// Delay burnchain block downloads by the given number of millseconds
+    pub fault_injection_burnchain_block_delay: u64,
+    /// The maximum number of unspent UTXOs to request from the bitcoin node.
+    /// This value is passed as the `maximumCount` query option to the
+    /// `listunspent` RPC call.
+    pub max_unspent_utxos: Option<u64>,
 }
 
 impl BurnchainConfig {
@@ -1381,15 +1467,15 @@ impl BurnchainConfig {
             rpc_ssl: false,
             username: None,
             password: None,
-            timeout: 300,
+            timeout: 60,
             magic_bytes: BLOCKSTACK_MAGIC_MAINNET.clone(),
             local_mining_public_key: None,
             process_exit_at_block_height: None,
             poll_time_secs: 10, // TODO: this is a testnet specific value.
             satoshis_per_byte: DEFAULT_SATS_PER_VB,
             max_rbf: DEFAULT_MAX_RBF_RATE,
-            leader_key_tx_estimated_size: LEADER_KEY_TX_ESTIM_SIZE,
-            block_commit_tx_estimated_size: BLOCK_COMMIT_TX_ESTIM_SIZE,
+            leader_key_tx_estimated_size: OP_TX_LEADER_KEY_ESTIM_SIZE,
+            block_commit_tx_estimated_size: OP_TX_BLOCK_COMMIT_ESTIM_SIZE,
             rbf_fee_increment: DEFAULT_RBF_FEE_RATE_INCREMENT,
             first_burn_block_height: None,
             first_burn_block_timestamp: None,
@@ -1403,6 +1489,8 @@ impl BurnchainConfig {
             wallet_name: "".to_string(),
             ast_precheck_size_height: None,
             affirmation_overrides: HashMap::new(),
+            fault_injection_burnchain_block_delay: 0,
+            max_unspent_utxos: Some(1024),
         }
     }
     pub fn get_rpc_url(&self, wallet: Option<String>) -> String {
@@ -1475,6 +1563,7 @@ pub struct BurnchainConfigFile {
     pub rpc_ssl: Option<bool>,
     pub username: Option<String>,
     pub password: Option<String>,
+    /// Timeout, in seconds, for communication with bitcoind
     pub timeout: Option<u32>,
     pub magic_bytes: Option<String>,
     pub local_mining_public_key: Option<String>,
@@ -1497,6 +1586,8 @@ pub struct BurnchainConfigFile {
     pub wallet_name: Option<String>,
     pub ast_precheck_size_height: Option<u64>,
     pub affirmation_overrides: Option<Vec<AffirmationOverride>>,
+    pub fault_injection_burnchain_block_delay: Option<u64>,
+    pub max_unspent_utxos: Option<u64>,
 }
 
 impl BurnchainConfigFile {
@@ -1709,6 +1800,16 @@ impl BurnchainConfigFile {
                 .pox_prepare_length
                 .or(default_burnchain_config.pox_prepare_length),
             affirmation_overrides,
+            fault_injection_burnchain_block_delay: self
+                .fault_injection_burnchain_block_delay
+                .unwrap_or(default_burnchain_config.fault_injection_burnchain_block_delay),
+            max_unspent_utxos: self
+                .max_unspent_utxos
+                .map(|val| {
+                    assert!(val <= 1024, "Value for max_unspent_utxos should be <= 1024");
+                    val
+                })
+                .or(default_burnchain_config.max_unspent_utxos),
         };
 
         if let BitcoinNetworkType::Mainnet = config.get_bitcoin_network().1 {
@@ -1755,11 +1856,20 @@ pub struct NodeConfig {
     pub miner: bool,
     pub stacker: bool,
     pub mock_mining: bool,
+    /// Where to output blocks from mock mining
+    pub mock_mining_output_dir: Option<PathBuf>,
     pub mine_microblocks: bool,
     pub microblock_frequency: u64,
     pub max_microblocks: u64,
     pub wait_time_for_microblocks: u64,
     pub wait_time_for_blocks: u64,
+    /// Controls how frequently, in milliseconds, the nakamoto miner's relay thread acts on its own initiative
+    /// (as opposed to responding to an event from the networking thread, etc.). This is roughly
+    /// how frequently the miner checks if a new burnchain block has been processed.
+    ///
+    /// Default value of 10 seconds is reasonable in mainnet (where bitcoin blocks are ~10 minutes),
+    /// but environments where burn blocks are more frequent may want to decrease this value.
+    pub next_initiative_delay: u64,
     pub prometheus_bind: Option<String>,
     pub marf_cache_strategy: Option<String>,
     pub marf_defer_hashing: bool,
@@ -1767,6 +1877,8 @@ pub struct NodeConfig {
     pub use_test_genesis_chainstate: Option<bool>,
     pub always_use_affirmation_maps: bool,
     pub require_affirmed_anchor_blocks: bool,
+    /// Fault injection for failing to push blocks
+    pub fault_injection_block_push_fail_probability: Option<u8>,
     // fault injection for hiding blocks.
     // not part of the config file.
     pub fault_injection_hide_blocks: bool,
@@ -2040,11 +2152,13 @@ impl Default for NodeConfig {
             miner: false,
             stacker: false,
             mock_mining: false,
+            mock_mining_output_dir: None,
             mine_microblocks: true,
             microblock_frequency: 30_000,
             max_microblocks: u16::MAX as u64,
             wait_time_for_microblocks: 30_000,
             wait_time_for_blocks: 30_000,
+            next_initiative_delay: 10_000,
             prometheus_bind: None,
             marf_cache_strategy: None,
             marf_defer_hashing: true,
@@ -2052,6 +2166,7 @@ impl Default for NodeConfig {
             use_test_genesis_chainstate: None,
             always_use_affirmation_maps: false,
             require_affirmed_anchor_blocks: true,
+            fault_injection_block_push_fail_probability: None,
             fault_injection_hide_blocks: false,
             chain_liveness_poll_time_secs: 300,
             stacker_dbs: vec![],
@@ -2078,7 +2193,6 @@ impl NodeConfig {
                 let contract_name = NakamotoSigners::make_signers_db_name(signer_set, message_id);
                 let contract_id = boot_code_id(contract_name.as_str(), is_mainnet);
                 if !self.stacker_dbs.contains(&contract_id) {
-                    debug!("A miner/stacker must subscribe to the {contract_id} stacker db contract. Forcibly subscribing...");
                     self.stacker_dbs.push(contract_id);
                 }
             }
@@ -2088,7 +2202,6 @@ impl NodeConfig {
     pub fn add_miner_stackerdb(&mut self, is_mainnet: bool) {
         let miners_contract_id = boot_code_id(MINERS_NAME, is_mainnet);
         if !self.stacker_dbs.contains(&miners_contract_id) {
-            debug!("A miner/stacker must subscribe to the {miners_contract_id} stacker db contract. Forcibly subscribing...");
             self.stacker_dbs.push(miners_contract_id);
         }
     }
@@ -2101,7 +2214,7 @@ impl NodeConfig {
     ) -> Neighbor {
         Neighbor {
             addr: NeighborKey {
-                peer_version: peer_version,
+                peer_version,
                 network_id: chain_id,
                 addrbytes: PeerAddress::from_socketaddr(&addr),
                 port: addr.port(),
@@ -2267,8 +2380,11 @@ pub struct MinerConfig {
     /// When selecting the "nicest" tip, do not consider tips that are more than this many blocks
     /// behind the highest tip.
     pub max_reorg_depth: u64,
-    /// Amount of time while mining in nakamoto to wait for signers to respond to a proposed block
-    pub wait_on_signers: Duration,
+    /// Whether to mock sign in Epoch 2.5 through the .miners and .signers contracts. This is used for testing purposes in Epoch 2.5 only.
+    pub pre_nakamoto_mock_signing: bool,
+    /// The minimum time to wait between mining blocks in milliseconds. The value must be greater than or equal to 1000 ms because if a block is mined
+    /// within the same second as its parent, it will be rejected by the signers.
+    pub min_time_between_blocks_ms: u64,
 }
 
 impl Default for MinerConfig {
@@ -2277,7 +2393,7 @@ impl Default for MinerConfig {
             first_attempt_time_ms: 10,
             subsequent_attempt_time_ms: 120_000,
             microblock_attempt_time_ms: 30_000,
-            nakamoto_attempt_time_ms: 10_000,
+            nakamoto_attempt_time_ms: 5_000,
             probability_pick_no_estimate_tx: 25,
             block_reward_recipient: None,
             segwit: false,
@@ -2297,8 +2413,8 @@ impl Default for MinerConfig {
             txs_to_consider: MemPoolWalkTxTypes::all(),
             filter_origins: HashSet::new(),
             max_reorg_depth: 3,
-            // TODO: update to a sane value based on stackerdb benchmarking
-            wait_on_signers: Duration::from_secs(200),
+            pre_nakamoto_mock_signing: false, // Should only default true if mining key is set
+            min_time_between_blocks_ms: DEFAULT_MIN_TIME_BETWEEN_BLOCKS_MS,
         }
     }
 }
@@ -2325,6 +2441,8 @@ pub struct ConnectionOptionsFile {
     pub soft_max_clients_per_host: Option<u64>,
     pub max_sockets: Option<u64>,
     pub walk_interval: Option<u64>,
+    pub walk_seed_probability: Option<f64>,
+    pub log_neighbors_freq: Option<u64>,
     pub dns_timeout: Option<u64>,
     pub max_inflight_blocks: Option<u64>,
     pub max_inflight_attachments: Option<u64>,
@@ -2345,7 +2463,8 @@ pub struct ConnectionOptionsFile {
     pub force_disconnect_interval: Option<u64>,
     pub antientropy_public: Option<bool>,
     pub private_neighbors: Option<bool>,
-    pub block_proposal_token: Option<String>,
+    pub auth_token: Option<String>,
+    pub antientropy_retry: Option<u64>,
 }
 
 impl ConnectionOptionsFile {
@@ -2377,6 +2496,7 @@ impl ConnectionOptionsFile {
         self.read_only_call_limit_runtime.map(|x| {
             read_only_call_limit.runtime = x;
         });
+        let default = ConnectionOptions::default();
         Ok(ConnectionOptions {
             read_only_call_limit,
             inbox_maxlen: self
@@ -2427,6 +2547,12 @@ impl ConnectionOptionsFile {
             walk_interval: self
                 .walk_interval
                 .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.walk_interval.clone()),
+            walk_seed_probability: self
+                .walk_seed_probability
+                .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.walk_seed_probability),
+            log_neighbors_freq: self
+                .log_neighbors_freq
+                .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.log_neighbors_freq),
             dns_timeout: self
                 .dns_timeout
                 .map(|dns_timeout| dns_timeout as u128)
@@ -2469,8 +2595,9 @@ impl ConnectionOptionsFile {
             max_sockets: self.max_sockets.unwrap_or(800) as usize,
             antientropy_public: self.antientropy_public.unwrap_or(true),
             private_neighbors: self.private_neighbors.unwrap_or(true),
-            block_proposal_token: self.block_proposal_token,
-            ..ConnectionOptions::default()
+            auth_token: self.auth_token,
+            antientropy_retry: self.antientropy_retry.unwrap_or(default.antientropy_retry),
+            ..default
         })
     }
 }
@@ -2490,11 +2617,13 @@ pub struct NodeConfigFile {
     pub miner: Option<bool>,
     pub stacker: Option<bool>,
     pub mock_mining: Option<bool>,
+    pub mock_mining_output_dir: Option<String>,
     pub mine_microblocks: Option<bool>,
     pub microblock_frequency: Option<u64>,
     pub max_microblocks: Option<u64>,
     pub wait_time_for_microblocks: Option<u64>,
     pub wait_time_for_blocks: Option<u64>,
+    pub next_initiative_delay: Option<u64>,
     pub prometheus_bind: Option<String>,
     pub marf_cache_strategy: Option<String>,
     pub marf_defer_hashing: Option<bool>,
@@ -2507,6 +2636,8 @@ pub struct NodeConfigFile {
     pub chain_liveness_poll_time_secs: Option<u64>,
     /// Stacker DBs we replicate
     pub stacker_dbs: Option<Vec<String>>,
+    /// fault injection: fail to push blocks with this probability (0-100)
+    pub fault_injection_block_push_fail_probability: Option<u8>,
 }
 
 impl NodeConfigFile {
@@ -2528,10 +2659,9 @@ impl NodeConfigFile {
             p2p_address: self.p2p_address.unwrap_or(rpc_bind.clone()),
             bootstrap_node: vec![],
             deny_nodes: vec![],
-            data_url: match self.data_url {
-                Some(data_url) => data_url,
-                None => format!("http://{}", rpc_bind),
-            },
+            data_url: self
+                .data_url
+                .unwrap_or_else(|| format!("http://{rpc_bind}")),
             local_peer_seed: match self.local_peer_seed {
                 Some(seed) => hex_bytes(&seed)
                     .map_err(|_e| format!("node.local_peer_seed should be a hex encoded string"))?,
@@ -2540,6 +2670,14 @@ impl NodeConfigFile {
             miner,
             stacker,
             mock_mining: self.mock_mining.unwrap_or(default_node_config.mock_mining),
+            mock_mining_output_dir: self
+                .mock_mining_output_dir
+                .map(PathBuf::from)
+                .map(fs::canonicalize)
+                .transpose()
+                .unwrap_or_else(|e| {
+                    panic!("Failed to construct PathBuf from node.mock_mining_output_dir: {e}")
+                }),
             mine_microblocks: self
                 .mine_microblocks
                 .unwrap_or(default_node_config.mine_microblocks),
@@ -2555,6 +2693,9 @@ impl NodeConfigFile {
             wait_time_for_blocks: self
                 .wait_time_for_blocks
                 .unwrap_or(default_node_config.wait_time_for_blocks),
+            next_initiative_delay: self
+                .next_initiative_delay
+                .unwrap_or(default_node_config.next_initiative_delay),
             prometheus_bind: self.prometheus_bind,
             marf_cache_strategy: self.marf_cache_strategy,
             marf_defer_hashing: self
@@ -2582,6 +2723,14 @@ impl NodeConfigFile {
                 .iter()
                 .filter_map(|contract_id| QualifiedContractIdentifier::parse(contract_id).ok())
                 .collect(),
+            fault_injection_block_push_fail_probability: if self
+                .fault_injection_block_push_fail_probability
+                .is_some()
+            {
+                self.fault_injection_block_push_fail_probability
+            } else {
+                default_node_config.fault_injection_block_push_fail_probability
+            },
         };
         Ok(node_config)
     }
@@ -2622,11 +2771,18 @@ pub struct MinerConfigFile {
     pub txs_to_consider: Option<String>,
     pub filter_origins: Option<String>,
     pub max_reorg_depth: Option<u64>,
-    pub wait_on_signers_ms: Option<u64>,
+    pub pre_nakamoto_mock_signing: Option<bool>,
+    pub min_time_between_blocks_ms: Option<u64>,
 }
 
 impl MinerConfigFile {
     fn into_config_default(self, miner_default_config: MinerConfig) -> Result<MinerConfig, String> {
+        let mining_key = self
+            .mining_key
+            .as_ref()
+            .map(|x| Secp256k1PrivateKey::from_hex(x))
+            .transpose()?;
+        let pre_nakamoto_mock_signing = mining_key.is_some();
         Ok(MinerConfig {
             first_attempt_time_ms: self
                 .first_attempt_time_ms
@@ -2721,10 +2877,15 @@ impl MinerConfigFile {
             max_reorg_depth: self
                 .max_reorg_depth
                 .unwrap_or(miner_default_config.max_reorg_depth),
-            wait_on_signers: self
-                .wait_on_signers_ms
-                .map(Duration::from_millis)
-                .unwrap_or(miner_default_config.wait_on_signers),
+            pre_nakamoto_mock_signing: self
+                .pre_nakamoto_mock_signing
+                .unwrap_or(pre_nakamoto_mock_signing), // Should only default true if mining key is set
+                min_time_between_blocks_ms: self.min_time_between_blocks_ms.map(|ms| if ms < DEFAULT_MIN_TIME_BETWEEN_BLOCKS_MS {
+                warn!("miner.min_time_between_blocks_ms is less than the minimum allowed value of {DEFAULT_MIN_TIME_BETWEEN_BLOCKS_MS} ms. Using the default value instead.");
+                DEFAULT_MIN_TIME_BETWEEN_BLOCKS_MS
+            } else {
+                ms
+            }).unwrap_or(miner_default_config.min_time_between_blocks_ms),
         })
     }
 }
@@ -2760,12 +2921,14 @@ impl AtlasConfigFile {
 pub struct EventObserverConfigFile {
     pub endpoint: String,
     pub events_keys: Vec<String>,
+    pub timeout_ms: Option<u64>,
 }
 
 #[derive(Clone, Default, Debug, Hash, PartialEq, Eq, PartialOrd)]
 pub struct EventObserverConfig {
     pub endpoint: String,
     pub events_keys: Vec<EventKeyType>,
+    pub timeout_ms: u64,
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd)]

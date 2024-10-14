@@ -4,7 +4,6 @@ use std::str::FromStr;
 
 use curve25519_dalek::digest::Digest;
 use rand::{Rng, SeedableRng};
-use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
 use serde::de::{Deserialize, Error as de_Error};
 use serde::ser::Error as ser_Error;
 use serde::Serialize;
@@ -64,7 +63,6 @@ pub struct SortitionId(pub [u8; 32]);
 impl_array_newtype!(SortitionId, u8, 32);
 impl_array_hexstring_fmt!(SortitionId);
 impl_byte_array_newtype!(SortitionId, u8, 32);
-impl_byte_array_rusqlite_only!(SortitionId);
 
 pub struct VRFSeed(pub [u8; 32]);
 impl_array_newtype!(VRFSeed, u8, 32);
@@ -247,8 +245,17 @@ pub struct StacksBlockId(pub [u8; 32]);
 impl_array_newtype!(StacksBlockId, u8, 32);
 impl_array_hexstring_fmt!(StacksBlockId);
 impl_byte_array_newtype!(StacksBlockId, u8, 32);
-impl_byte_array_rusqlite_only!(StacksBlockId);
 impl_byte_array_serde!(StacksBlockId);
+
+/// A newtype for `StacksBlockId` that indicates a block is a tenure-change
+/// block. This helps to explicitly differentiate tenure-change blocks in the
+/// code.
+pub struct TenureBlockId(pub StacksBlockId);
+impl From<StacksBlockId> for TenureBlockId {
+    fn from(id: StacksBlockId) -> TenureBlockId {
+        TenureBlockId(id)
+    }
+}
 
 pub struct ConsensusHash(pub [u8; 20]);
 impl_array_newtype!(ConsensusHash, u8, 20);
@@ -323,18 +330,6 @@ impl StacksMessageCodec for StacksWorkScore {
     }
 }
 
-// Implement rusqlite traits for a bunch of structs that used to be defined
-//  in the chainstate code
-impl_byte_array_rusqlite_only!(ConsensusHash);
-impl_byte_array_rusqlite_only!(Hash160);
-impl_byte_array_rusqlite_only!(BlockHeaderHash);
-impl_byte_array_rusqlite_only!(VRFSeed);
-impl_byte_array_rusqlite_only!(BurnchainHeaderHash);
-impl_byte_array_rusqlite_only!(VRFProof);
-impl_byte_array_rusqlite_only!(TrieHash);
-impl_byte_array_rusqlite_only!(Sha512Trunc256Sum);
-impl_byte_array_rusqlite_only!(MessageSignature);
-
 impl_byte_array_message_codec!(TrieHash, TRIEHASH_ENCODED_SIZE as u32);
 impl_byte_array_message_codec!(Sha512Trunc256Sum, 32);
 
@@ -397,21 +392,6 @@ impl BurnchainHeaderHash {
         bytes.extend_from_slice(&noise.to_be_bytes());
         let h = DoubleSha256::from_data(&bytes[..]);
         BurnchainHeaderHash(h.to_bytes())
-    }
-}
-
-impl FromSql for Sha256dHash {
-    fn column_result(value: ValueRef) -> FromSqlResult<Sha256dHash> {
-        let hex_str = value.as_str()?;
-        let hash = Sha256dHash::from_hex(hex_str).map_err(|_e| FromSqlError::InvalidType)?;
-        Ok(hash)
-    }
-}
-
-impl ToSql for Sha256dHash {
-    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput> {
-        let hex_str = self.be_hex_string();
-        Ok(hex_str.into())
     }
 }
 

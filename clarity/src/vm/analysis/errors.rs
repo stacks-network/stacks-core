@@ -132,10 +132,15 @@ pub enum CheckErrors {
     // get-block-info? errors
     NoSuchBlockInfoProperty(String),
     NoSuchBurnBlockInfoProperty(String),
+    NoSuchStacksBlockInfoProperty(String),
+    NoSuchTenureInfoProperty(String),
     GetBlockInfoExpectPropertyName,
     GetBurnBlockInfoExpectPropertyName,
+    GetStacksBlockInfoExpectPropertyName,
+    GetTenureInfoExpectPropertyName,
 
     NameAlreadyUsed(String),
+    ReservedWord(String),
 
     // expect a function, or applying a function to a list
     NonFunctionApplication,
@@ -405,9 +410,14 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::ExpectedCallableType(found_type) => format!("expected a callable contract, found {}", found_type),
             CheckErrors::NoSuchBlockInfoProperty(property_name) => format!("use of block unknown property '{}'", property_name),
             CheckErrors::NoSuchBurnBlockInfoProperty(property_name) => format!("use of burn block unknown property '{}'", property_name),
+            CheckErrors::NoSuchStacksBlockInfoProperty(property_name) => format!("use of unknown stacks block property '{}'", property_name),
+            CheckErrors::NoSuchTenureInfoProperty(property_name) => format!("use of unknown tenure property '{}'", property_name),
             CheckErrors::GetBlockInfoExpectPropertyName => "missing property name for block info introspection".into(),
             CheckErrors::GetBurnBlockInfoExpectPropertyName => "missing property name for burn block info introspection".into(),
+            CheckErrors::GetStacksBlockInfoExpectPropertyName => "missing property name for stacks block info introspection".into(),
+            CheckErrors::GetTenureInfoExpectPropertyName => "missing property name for tenure info introspection".into(),
             CheckErrors::NameAlreadyUsed(name) => format!("defining '{}' conflicts with previous value", name),
+            CheckErrors::ReservedWord(name) => format!("{name} is a reserved word"),
             CheckErrors::NonFunctionApplication => "expecting expression of type function".into(),
             CheckErrors::ExpectedListApplication => "expecting expression of type list".into(),
             CheckErrors::ExpectedSequence(found_type) => format!("expecting expression of type 'list', 'buff', 'string-ascii' or 'string-utf8' - found '{}'", found_type),

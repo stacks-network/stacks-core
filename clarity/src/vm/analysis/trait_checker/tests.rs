@@ -1463,7 +1463,7 @@ fn test_dynamic_dispatch_pass_bound_principal_as_trait_in_user_defined_functions
                 _ => panic!("{:?}", err),
             };
         }
-        Ok(_) if version == ClarityVersion::Clarity2 => (),
+        Ok(_) if version >= ClarityVersion::Clarity2 => (),
         _ => panic!("got {:?}", result),
     }
 }

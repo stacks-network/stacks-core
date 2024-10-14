@@ -521,8 +521,18 @@ impl StacksChainState {
     pub fn process_transaction_precheck(
         config: &DBConfig,
         tx: &StacksTransaction,
+        epoch_id: StacksEpochId,
     ) -> Result<(), Error> {
         // valid auth?
+        if !tx.auth.is_supported_in_epoch(epoch_id) {
+            let msg = format!(
+                "Invalid tx {}: authentication mode not supported in Epoch {epoch_id}",
+                tx.txid()
+            );
+            warn!("{msg}");
+
+            return Err(Error::InvalidStacksTransaction(msg, false));
+        }
         tx.verify().map_err(Error::NetError)?;
 
         // destined for us?
@@ -1476,7 +1486,7 @@ impl StacksChainState {
         debug!("Process transaction {} ({})", tx.txid(), tx.payload.name());
         let epoch = clarity_block.get_epoch();
 
-        StacksChainState::process_transaction_precheck(&clarity_block.config, tx)?;
+        StacksChainState::process_transaction_precheck(&clarity_block.config, tx, epoch)?;
 
         // what version of Clarity did the transaction caller want? And, is it valid now?
         let clarity_version = StacksChainState::get_tx_clarity_version(clarity_block, tx)?;
@@ -1725,7 +1735,7 @@ pub mod test {
 
         for (dbi, burn_db) in ALL_BURN_DBS.iter().enumerate() {
             let mut conn = chainstate.block_begin(
-                burn_db,
+                *burn_db,
                 &FIRST_BURNCHAIN_CONSENSUS_HASH,
                 &FIRST_STACKS_BLOCK_HASH,
                 &ConsensusHash([(dbi + 1) as u8; 20]),
@@ -1955,7 +1965,7 @@ pub mod test {
 
         for (dbi, burn_db) in ALL_BURN_DBS.iter().enumerate() {
             let mut conn = chainstate.block_begin(
-                burn_db,
+                *burn_db,
                 &FIRST_BURNCHAIN_CONSENSUS_HASH,
                 &FIRST_STACKS_BLOCK_HASH,
                 &ConsensusHash([(dbi + 1) as u8; 20]),
@@ -2069,7 +2079,7 @@ pub mod test {
 
         for (dbi, burn_db) in ALL_BURN_DBS.iter().enumerate() {
             let mut conn = chainstate.block_begin(
-                burn_db,
+                *burn_db,
                 &FIRST_BURNCHAIN_CONSENSUS_HASH,
                 &FIRST_STACKS_BLOCK_HASH,
                 &ConsensusHash([(dbi + 1) as u8; 20]),
@@ -2160,7 +2170,7 @@ pub mod test {
 
         for (dbi, burn_db) in ALL_BURN_DBS.iter().enumerate() {
             let mut conn = chainstate.block_begin(
-                burn_db,
+                *burn_db,
                 &FIRST_BURNCHAIN_CONSENSUS_HASH,
                 &FIRST_STACKS_BLOCK_HASH,
                 &ConsensusHash([(dbi + 1) as u8; 20]),
@@ -2223,7 +2233,7 @@ pub mod test {
 
         for (dbi, burn_db) in ALL_BURN_DBS.iter().enumerate() {
             let mut conn = chainstate.block_begin(
-                burn_db,
+                *burn_db,
                 &FIRST_BURNCHAIN_CONSENSUS_HASH,
                 &FIRST_STACKS_BLOCK_HASH,
                 &ConsensusHash([(dbi + 1) as u8; 20]),
@@ -2331,7 +2341,7 @@ pub mod test {
 
         for (dbi, burn_db) in ALL_BURN_DBS.iter().enumerate() {
             let mut conn = chainstate.block_begin(
-                burn_db,
+                *burn_db,
                 &FIRST_BURNCHAIN_CONSENSUS_HASH,
                 &FIRST_STACKS_BLOCK_HASH,
                 &ConsensusHash([(dbi + 1) as u8; 20]),
@@ -2422,7 +2432,7 @@ pub mod test {
 
         for (dbi, burn_db) in ALL_BURN_DBS.iter().enumerate() {
             let mut conn = chainstate.block_begin(
-                burn_db,
+                *burn_db,
                 &FIRST_BURNCHAIN_CONSENSUS_HASH,
                 &FIRST_STACKS_BLOCK_HASH,
                 &ConsensusHash([(dbi + 1) as u8; 20]),
@@ -2541,7 +2551,7 @@ pub mod test {
 
         for (dbi, burn_db) in ALL_BURN_DBS.iter().enumerate() {
             let mut conn = chainstate.block_begin(
-                burn_db,
+                *burn_db,
                 &FIRST_BURNCHAIN_CONSENSUS_HASH,
                 &FIRST_STACKS_BLOCK_HASH,
                 &ConsensusHash([(dbi + 1) as u8; 20]),
@@ -2655,7 +2665,7 @@ pub mod test {
         for (dbi, burn_db) in ALL_BURN_DBS.iter().enumerate() {
             // process both
             let mut conn = chainstate.block_begin(
-                burn_db,
+                *burn_db,
                 &FIRST_BURNCHAIN_CONSENSUS_HASH,
                 &FIRST_STACKS_BLOCK_HASH,
                 &ConsensusHash([(dbi + 1) as u8; 20]),
@@ -2794,7 +2804,7 @@ pub mod test {
         for (dbi, burn_db) in ALL_BURN_DBS.iter().enumerate() {
             // process both
             let mut conn = chainstate.block_begin(
-                burn_db,
+                *burn_db,
                 &FIRST_BURNCHAIN_CONSENSUS_HASH,
                 &FIRST_STACKS_BLOCK_HASH,
                 &ConsensusHash([(dbi + 1) as u8; 20]),
@@ -2904,7 +2914,7 @@ pub mod test {
 
         for (dbi, burn_db) in ALL_BURN_DBS.iter().enumerate() {
             let mut conn = chainstate.block_begin(
-                burn_db,
+                *burn_db,
                 &FIRST_BURNCHAIN_CONSENSUS_HASH,
                 &FIRST_STACKS_BLOCK_HASH,
                 &ConsensusHash([(dbi + 1) as u8; 20]),
@@ -3029,7 +3039,7 @@ pub mod test {
 
         for (dbi, burn_db) in ALL_BURN_DBS.iter().enumerate() {
             let mut conn = chainstate.block_begin(
-                burn_db,
+                *burn_db,
                 &FIRST_BURNCHAIN_CONSENSUS_HASH,
                 &FIRST_STACKS_BLOCK_HASH,
                 &ConsensusHash([(dbi + 1) as u8; 20]),
@@ -3139,7 +3149,7 @@ pub mod test {
 
         for (dbi, burn_db) in PRE_21_DBS.iter().enumerate() {
             let mut conn = chainstate.block_begin(
-                burn_db,
+                *burn_db,
                 &FIRST_BURNCHAIN_CONSENSUS_HASH,
                 &FIRST_STACKS_BLOCK_HASH,
                 &ConsensusHash([(dbi + 1) as u8; 20]),
@@ -3352,7 +3362,7 @@ pub mod test {
 
         for (dbi, burn_db) in ALL_BURN_DBS.iter().enumerate() {
             let mut conn = chainstate.block_begin(
-                burn_db,
+                *burn_db,
                 &FIRST_BURNCHAIN_CONSENSUS_HASH,
                 &FIRST_STACKS_BLOCK_HASH,
                 &ConsensusHash([(dbi + 1) as u8; 20]),
@@ -3895,7 +3905,7 @@ pub mod test {
         for (dbi, burn_db) in ALL_BURN_DBS.iter().enumerate() {
             // make sure costs-3 is instantiated, so as-contract works in 2.1
             let mut conn = chainstate.test_genesis_block_begin_2_1(
-                burn_db,
+                *burn_db,
                 &FIRST_BURNCHAIN_CONSENSUS_HASH,
                 &FIRST_STACKS_BLOCK_HASH,
                 &ConsensusHash([(dbi + 1) as u8; 20]),
@@ -4618,7 +4628,7 @@ pub mod test {
         for (dbi, burn_db) in ALL_BURN_DBS.iter().enumerate() {
             // make sure costs-3 is installed so as-contract will work in epoch 2.1
             let mut conn = chainstate.test_genesis_block_begin_2_1(
-                burn_db,
+                *burn_db,
                 &FIRST_BURNCHAIN_CONSENSUS_HASH,
                 &FIRST_STACKS_BLOCK_HASH,
                 &ConsensusHash([(dbi + 1) as u8; 20]),
@@ -4993,7 +5003,7 @@ pub mod test {
         let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
         for (dbi, burn_db) in ALL_BURN_DBS.iter().enumerate() {
             let mut conn = chainstate.block_begin(
-                burn_db,
+                *burn_db,
                 &FIRST_BURNCHAIN_CONSENSUS_HASH,
                 &FIRST_STACKS_BLOCK_HASH,
                 &ConsensusHash([(dbi + 1) as u8; 20]),
@@ -8143,7 +8153,7 @@ pub mod test {
         // which leads to an InvalidFee error
         for (dbi, burn_db) in PRE_21_DBS.iter().enumerate() {
             let mut conn = chainstate.block_begin(
-                burn_db,
+                *burn_db,
                 &FIRST_BURNCHAIN_CONSENSUS_HASH,
                 &FIRST_STACKS_BLOCK_HASH,
                 &ConsensusHash([(dbi + 1) as u8; 20]),
@@ -8300,7 +8310,7 @@ pub mod test {
 
         for (dbi, burn_db) in ALL_BURN_DBS.iter().enumerate() {
             let mut conn = chainstate.block_begin(
-                burn_db,
+                *burn_db,
                 &FIRST_BURNCHAIN_CONSENSUS_HASH,
                 &FIRST_STACKS_BLOCK_HASH,
                 &ConsensusHash([(dbi + 1) as u8; 20]),
@@ -8421,7 +8431,7 @@ pub mod test {
 
         for (dbi, burn_db) in ALL_BURN_DBS.iter().enumerate() {
             let mut conn = chainstate.block_begin(
-                burn_db,
+                *burn_db,
                 &FIRST_BURNCHAIN_CONSENSUS_HASH,
                 &FIRST_STACKS_BLOCK_HASH,
                 &ConsensusHash([(dbi + 1) as u8; 20]),
@@ -8515,7 +8525,7 @@ pub mod test {
 
         for (dbi, burn_db) in ALL_BURN_DBS.iter().enumerate() {
             let mut conn = chainstate.block_begin(
-                burn_db,
+                *burn_db,
                 &FIRST_BURNCHAIN_CONSENSUS_HASH,
                 &FIRST_STACKS_BLOCK_HASH,
                 &ConsensusHash([(dbi + 1) as u8; 20]),
@@ -8647,6 +8657,14 @@ pub mod test {
         struct MockedBurnDB {}
 
         impl BurnStateDB for MockedBurnDB {
+            fn get_tip_burn_block_height(&self) -> Option<u32> {
+                Some(0)
+            }
+
+            fn get_tip_sortition_id(&self) -> Option<SortitionId> {
+                Some(SortitionId([0u8; 32]))
+            }
+
             fn get_v1_unlock_height(&self) -> u32 {
                 2
             }
@@ -8869,6 +8887,14 @@ pub mod test {
         struct MockedBurnDB {}
 
         impl BurnStateDB for MockedBurnDB {
+            fn get_tip_burn_block_height(&self) -> Option<u32> {
+                Some(0)
+            }
+
+            fn get_tip_sortition_id(&self) -> Option<SortitionId> {
+                Some(SortitionId([0u8; 32]))
+            }
+
             fn get_v1_unlock_height(&self) -> u32 {
                 2
             }
@@ -9399,6 +9425,27 @@ pub mod test {
         };
     }
 
+    /// Call `process_transaction()` with  prechecks
+    pub fn validate_transactions_static_epoch_and_process_transaction(
+        clarity_block: &mut ClarityTx,
+        tx: &StacksTransaction,
+        quiet: bool,
+        ast_rules: ASTRules,
+    ) -> Result<(u64, StacksTransactionReceipt), Error> {
+        let epoch = clarity_block.get_epoch();
+
+        if !StacksBlock::validate_transactions_static_epoch(&vec![tx.clone()], epoch) {
+            let msg = format!(
+                "Invalid transaction {}: target epoch is not activated",
+                tx.txid()
+            );
+            warn!("{}", &msg);
+            return Err(Error::InvalidStacksTransaction(msg, false));
+        }
+
+        StacksChainState::process_transaction(clarity_block, tx, quiet, ast_rules)
+    }
+
     #[test]
     fn test_checkerrors_at_runtime() {
         let privk = StacksPrivateKey::from_hex(
@@ -9466,6 +9513,28 @@ pub mod test {
         let mut chainstate =
             instantiate_chainstate_with_balances(false, 0x80000000, function_name!(), balances);
 
+        let mut tx_runtime_checkerror_trait_no_version = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            auth.clone(),
+            TransactionPayload::new_smart_contract(
+                &"foo".to_string(),
+                &runtime_checkerror_trait.to_string(),
+                None,
+            )
+            .unwrap(),
+        );
+
+        tx_runtime_checkerror_trait_no_version.post_condition_mode =
+            TransactionPostConditionMode::Allow;
+        tx_runtime_checkerror_trait_no_version.chain_id = 0x80000000;
+        tx_runtime_checkerror_trait_no_version.set_tx_fee(1);
+        tx_runtime_checkerror_trait_no_version.set_origin_nonce(0);
+
+        let mut signer = StacksTransactionSigner::new(&tx_runtime_checkerror_trait_no_version);
+        signer.sign_origin(&privk).unwrap();
+
+        let signed_runtime_checkerror_trait_tx_no_version = signer.get_tx().unwrap();
+
         let mut tx_runtime_checkerror_trait = StacksTransaction::new(
             TransactionVersion::Testnet,
             auth.clone(),
@@ -9508,6 +9577,28 @@ pub mod test {
 
         let signed_runtime_checkerror_impl_tx = signer.get_tx().unwrap();
 
+        let mut tx_runtime_checkerror_impl_no_version = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            auth.clone(),
+            TransactionPayload::new_smart_contract(
+                &"foo-impl".to_string(),
+                &runtime_checkerror_impl.to_string(),
+                None,
+            )
+            .unwrap(),
+        );
+
+        tx_runtime_checkerror_impl_no_version.post_condition_mode =
+            TransactionPostConditionMode::Allow;
+        tx_runtime_checkerror_impl_no_version.chain_id = 0x80000000;
+        tx_runtime_checkerror_impl_no_version.set_tx_fee(1);
+        tx_runtime_checkerror_impl_no_version.set_origin_nonce(1);
+
+        let mut signer = StacksTransactionSigner::new(&tx_runtime_checkerror_impl_no_version);
+        signer.sign_origin(&privk).unwrap();
+
+        let signed_runtime_checkerror_impl_tx_no_version = signer.get_tx().unwrap();
+
         let mut tx_runtime_checkerror_clar1 = StacksTransaction::new(
             TransactionVersion::Testnet,
             auth.clone(),
@@ -9528,6 +9619,28 @@ pub mod test {
         signer.sign_origin(&privk).unwrap();
 
         let signed_runtime_checkerror_tx_clar1 = signer.get_tx().unwrap();
+
+        let mut tx_runtime_checkerror_clar1_no_version = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            auth.clone(),
+            TransactionPayload::new_smart_contract(
+                &"trait-checkerror".to_string(),
+                &runtime_checkerror.to_string(),
+                None,
+            )
+            .unwrap(),
+        );
+
+        tx_runtime_checkerror_clar1_no_version.post_condition_mode =
+            TransactionPostConditionMode::Allow;
+        tx_runtime_checkerror_clar1_no_version.chain_id = 0x80000000;
+        tx_runtime_checkerror_clar1_no_version.set_tx_fee(1);
+        tx_runtime_checkerror_clar1_no_version.set_origin_nonce(2);
+
+        let mut signer = StacksTransactionSigner::new(&tx_runtime_checkerror_clar1_no_version);
+        signer.sign_origin(&privk).unwrap();
+
+        let signed_runtime_checkerror_tx_clar1_no_version = signer.get_tx().unwrap();
 
         let mut tx_runtime_checkerror_clar2 = StacksTransaction::new(
             TransactionVersion::Testnet,
@@ -9596,6 +9709,29 @@ pub mod test {
 
         let signed_runtime_checkerror_cc_contract_tx_clar1 = signer.get_tx().unwrap();
 
+        let mut tx_runtime_checkerror_cc_contract_clar1_no_version = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            auth.clone(),
+            TransactionPayload::new_smart_contract(
+                &"trait-checkerror-cc".to_string(),
+                &runtime_checkerror_contract.to_string(),
+                None,
+            )
+            .unwrap(),
+        );
+
+        tx_runtime_checkerror_cc_contract_clar1_no_version.post_condition_mode =
+            TransactionPostConditionMode::Allow;
+        tx_runtime_checkerror_cc_contract_clar1_no_version.chain_id = 0x80000000;
+        tx_runtime_checkerror_cc_contract_clar1_no_version.set_tx_fee(1);
+        tx_runtime_checkerror_cc_contract_clar1_no_version.set_origin_nonce(3);
+
+        let mut signer =
+            StacksTransactionSigner::new(&tx_runtime_checkerror_cc_contract_clar1_no_version);
+        signer.sign_origin(&privk).unwrap();
+
+        let signed_runtime_checkerror_cc_contract_tx_clar1_no_version = signer.get_tx().unwrap();
+
         let mut tx_runtime_checkerror_cc_contract_clar2 = StacksTransaction::new(
             TransactionVersion::Testnet,
             auth.clone(),
@@ -9632,34 +9768,34 @@ pub mod test {
             &BlockHeaderHash([1u8; 32]),
         );
 
-        let (fee, _) = StacksChainState::process_transaction(
+        let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
-            &signed_runtime_checkerror_trait_tx,
+            &signed_runtime_checkerror_trait_tx_no_version,
             false,
             ASTRules::PrecheckSize,
         )
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, _) = StacksChainState::process_transaction(
+        let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
-            &signed_runtime_checkerror_impl_tx,
+            &signed_runtime_checkerror_impl_tx_no_version,
             false,
             ASTRules::PrecheckSize,
         )
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, _) = StacksChainState::process_transaction(
+        let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
-            &signed_runtime_checkerror_tx_clar1,
+            &signed_runtime_checkerror_tx_clar1_no_version,
             false,
             ASTRules::PrecheckSize,
         )
         .unwrap();
         assert_eq!(fee, 1);
 
-        let err = StacksChainState::process_transaction(
+        let err = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_test_trait_checkerror_tx,
             false,
@@ -9673,12 +9809,52 @@ pub mod test {
         } else {
             panic!("Did not get unchecked interpreter error");
         }
+
+        let err = validate_transactions_static_epoch_and_process_transaction(
+            &mut conn,
+            &signed_runtime_checkerror_impl_tx,
+            false,
+            ASTRules::PrecheckSize,
+        )
+        .unwrap_err();
+        if let Error::InvalidStacksTransaction(msg, _ignored) = err {
+            assert!(msg.find("target epoch is not activated").is_some());
+        } else {
+            panic!("Did not get epoch is not activated error");
+        }
+
+        let err = validate_transactions_static_epoch_and_process_transaction(
+            &mut conn,
+            &signed_runtime_checkerror_tx_clar1,
+            false,
+            ASTRules::PrecheckSize,
+        )
+        .unwrap_err();
+        if let Error::InvalidStacksTransaction(msg, _ignored) = err {
+            assert!(msg.find("target epoch is not activated").is_some());
+        } else {
+            panic!("Did not get epoch is not activated error");
+        }
+
+        let err = validate_transactions_static_epoch_and_process_transaction(
+            &mut conn,
+            &signed_runtime_checkerror_trait_tx,
+            false,
+            ASTRules::PrecheckSize,
+        )
+        .unwrap_err();
+        if let Error::InvalidStacksTransaction(msg, _ignored) = err {
+            assert!(msg.find("target epoch is not activated").is_some());
+        } else {
+            panic!("Did not get epoch is not activated error");
+        }
+
         let acct = StacksChainState::get_account(&mut conn, &addr.into());
         assert_eq!(acct.nonce, 3);
 
-        let err = StacksChainState::process_transaction(
+        let err = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
-            &signed_runtime_checkerror_cc_contract_tx_clar1,
+            &signed_runtime_checkerror_cc_contract_tx_clar1_no_version,
             false,
             ASTRules::PrecheckSize,
         )
@@ -9697,41 +9873,41 @@ pub mod test {
 
         // in 2.05, this invalidates the block
         let mut conn = chainstate.block_begin(
-            &TestBurnStateDB_20,
+            &TestBurnStateDB_2_05,
             &FIRST_BURNCHAIN_CONSENSUS_HASH,
             &FIRST_STACKS_BLOCK_HASH,
             &ConsensusHash([2u8; 20]),
             &BlockHeaderHash([2u8; 32]),
         );
 
-        let (fee, _) = StacksChainState::process_transaction(
+        let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
-            &signed_runtime_checkerror_trait_tx,
+            &signed_runtime_checkerror_trait_tx_no_version,
             false,
             ASTRules::PrecheckSize,
         )
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, _) = StacksChainState::process_transaction(
+        let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
-            &signed_runtime_checkerror_impl_tx,
+            &signed_runtime_checkerror_impl_tx_no_version,
             false,
             ASTRules::PrecheckSize,
         )
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, _) = StacksChainState::process_transaction(
+        let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
-            &signed_runtime_checkerror_tx_clar1,
+            &signed_runtime_checkerror_tx_clar1_no_version,
             false,
             ASTRules::PrecheckSize,
         )
         .unwrap();
         assert_eq!(fee, 1);
 
-        let err = StacksChainState::process_transaction(
+        let err = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_test_trait_checkerror_tx,
             false,
@@ -9745,12 +9921,51 @@ pub mod test {
         } else {
             panic!("Did not get unchecked interpreter error");
         }
+
+        let err = validate_transactions_static_epoch_and_process_transaction(
+            &mut conn,
+            &signed_runtime_checkerror_impl_tx,
+            false,
+            ASTRules::PrecheckSize,
+        )
+        .unwrap_err();
+        if let Error::InvalidStacksTransaction(msg, _ignored) = err {
+            assert!(msg.find("target epoch is not activated").is_some());
+        } else {
+            panic!("Did not get epoch is not activated error");
+        }
+
+        let err = validate_transactions_static_epoch_and_process_transaction(
+            &mut conn,
+            &signed_runtime_checkerror_tx_clar1,
+            false,
+            ASTRules::PrecheckSize,
+        )
+        .unwrap_err();
+        if let Error::InvalidStacksTransaction(msg, _ignored) = err {
+            assert!(msg.find("target epoch is not activated").is_some());
+        } else {
+            panic!("Did not get epoch is not activated error");
+        }
+
+        let err = validate_transactions_static_epoch_and_process_transaction(
+            &mut conn,
+            &signed_runtime_checkerror_trait_tx,
+            false,
+            ASTRules::PrecheckSize,
+        )
+        .unwrap_err();
+        if let Error::InvalidStacksTransaction(msg, _ignored) = err {
+            assert!(msg.find("target epoch is not activated").is_some());
+        } else {
+            panic!("Did not get epoch is not activated error");
+        }
         let acct = StacksChainState::get_account(&mut conn, &addr.into());
         assert_eq!(acct.nonce, 3);
 
-        let err = StacksChainState::process_transaction(
+        let err = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
-            &signed_runtime_checkerror_cc_contract_tx_clar1,
+            &signed_runtime_checkerror_cc_contract_tx_clar1_no_version,
             false,
             ASTRules::PrecheckSize,
         )
@@ -9783,7 +9998,7 @@ pub mod test {
 
         let signed_runtime_checkerror_cc_contract_tx_clar1 = signer.get_tx().unwrap();
 
-        let (fee, _) = StacksChainState::process_transaction(
+        let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_runtime_checkerror_trait_tx,
             false,
@@ -9792,7 +10007,7 @@ pub mod test {
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, _) = StacksChainState::process_transaction(
+        let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_runtime_checkerror_impl_tx,
             false,
@@ -9810,7 +10025,7 @@ pub mod test {
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, tx_receipt) = StacksChainState::process_transaction(
+        let (fee, tx_receipt) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_test_trait_checkerror_tx,
             false,
@@ -9834,7 +10049,7 @@ pub mod test {
             .find("TypeValueError(OptionalType(CallableType(Trait(TraitIdentifier ")
             .is_some());
 
-        let (fee, tx_receipt) = StacksChainState::process_transaction(
+        let (fee, tx_receipt) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_runtime_checkerror_cc_contract_tx_clar1,
             false,
@@ -9869,7 +10084,7 @@ pub mod test {
             &BlockHeaderHash([4u8; 32]),
         );
 
-        let (fee, _) = StacksChainState::process_transaction(
+        let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_runtime_checkerror_trait_tx,
             false,
@@ -9878,7 +10093,7 @@ pub mod test {
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, _) = StacksChainState::process_transaction(
+        let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_runtime_checkerror_impl_tx,
             false,
@@ -9887,7 +10102,7 @@ pub mod test {
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, _) = StacksChainState::process_transaction(
+        let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_runtime_checkerror_tx_clar2,
             false,
@@ -9896,7 +10111,7 @@ pub mod test {
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, tx_receipt) = StacksChainState::process_transaction(
+        let (fee, tx_receipt) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_test_trait_checkerror_tx,
             false,
@@ -9916,7 +10131,7 @@ pub mod test {
 
         assert!(tx_receipt.vm_error.is_none());
 
-        let (fee, tx_receipt) = StacksChainState::process_transaction(
+        let (fee, tx_receipt) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_runtime_checkerror_cc_contract_tx_clar2,
             false,
@@ -10003,6 +10218,27 @@ pub mod test {
 
         let signed_foo_trait_tx = signer.get_tx().unwrap();
 
+        let mut tx_foo_trait_no_version = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            auth.clone(),
+            TransactionPayload::new_smart_contract(
+                &"foo".to_string(),
+                &foo_trait.to_string(),
+                None,
+            )
+            .unwrap(),
+        );
+
+        tx_foo_trait_no_version.post_condition_mode = TransactionPostConditionMode::Allow;
+        tx_foo_trait_no_version.chain_id = 0x80000000;
+        tx_foo_trait_no_version.set_tx_fee(1);
+        tx_foo_trait_no_version.set_origin_nonce(0);
+
+        let mut signer = StacksTransactionSigner::new(&tx_foo_trait_no_version);
+        signer.sign_origin(&privk).unwrap();
+
+        let signed_foo_trait_tx_no_version = signer.get_tx().unwrap();
+
         let mut tx_foo_impl = StacksTransaction::new(
             TransactionVersion::Testnet,
             auth.clone(),
@@ -10024,6 +10260,27 @@ pub mod test {
 
         let signed_foo_impl_tx = signer.get_tx().unwrap();
 
+        let mut tx_foo_impl_no_version = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            auth.clone(),
+            TransactionPayload::new_smart_contract(
+                &"foo-impl".to_string(),
+                &foo_impl.to_string(),
+                None,
+            )
+            .unwrap(),
+        );
+
+        tx_foo_impl_no_version.post_condition_mode = TransactionPostConditionMode::Allow;
+        tx_foo_impl_no_version.chain_id = 0x80000000;
+        tx_foo_impl_no_version.set_tx_fee(1);
+        tx_foo_impl_no_version.set_origin_nonce(1);
+
+        let mut signer = StacksTransactionSigner::new(&tx_foo_impl_no_version);
+        signer.sign_origin(&privk).unwrap();
+
+        let signed_foo_impl_tx_no_version = signer.get_tx().unwrap();
+
         let mut tx_call_foo_clar1 = StacksTransaction::new(
             TransactionVersion::Testnet,
             auth.clone(),
@@ -10044,6 +10301,27 @@ pub mod test {
         signer.sign_origin(&privk).unwrap();
 
         let signed_call_foo_tx_clar1 = signer.get_tx().unwrap();
+
+        let mut tx_call_foo_clar1_no_version = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            auth.clone(),
+            TransactionPayload::new_smart_contract(
+                &"call-foo".to_string(),
+                &call_foo.to_string(),
+                None,
+            )
+            .unwrap(),
+        );
+
+        tx_call_foo_clar1_no_version.post_condition_mode = TransactionPostConditionMode::Allow;
+        tx_call_foo_clar1_no_version.chain_id = 0x80000000;
+        tx_call_foo_clar1_no_version.set_tx_fee(1);
+        tx_call_foo_clar1_no_version.set_origin_nonce(2);
+
+        let mut signer = StacksTransactionSigner::new(&tx_call_foo_clar1_no_version);
+        signer.sign_origin(&privk).unwrap();
+
+        let signed_call_foo_tx_clar1_no_version = signer.get_tx().unwrap();
 
         let mut tx_call_foo_clar2 = StacksTransaction::new(
             TransactionVersion::Testnet,
@@ -10105,27 +10383,27 @@ pub mod test {
             &BlockHeaderHash([1u8; 32]),
         );
 
-        let (fee, _) = StacksChainState::process_transaction(
+        let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
-            &signed_foo_trait_tx,
+            &signed_foo_trait_tx_no_version,
             false,
             ASTRules::PrecheckSize,
         )
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, _) = StacksChainState::process_transaction(
+        let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
-            &signed_foo_impl_tx,
+            &signed_foo_impl_tx_no_version,
             false,
             ASTRules::PrecheckSize,
         )
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, tx_receipt) = StacksChainState::process_transaction(
+        let (fee, tx_receipt) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
-            &signed_call_foo_tx_clar1,
+            &signed_call_foo_tx_clar1_no_version,
             false,
             ASTRules::PrecheckSize,
         )
@@ -10137,40 +10415,79 @@ pub mod test {
                 data: _,
             }) => (),
             _ => panic!("expected the contract publish to fail"),
+        }
+
+        let err = validate_transactions_static_epoch_and_process_transaction(
+            &mut conn,
+            &signed_foo_trait_tx,
+            false,
+            ASTRules::PrecheckSize,
+        )
+        .unwrap_err();
+        if let Error::InvalidStacksTransaction(msg, _ignored) = err {
+            assert!(msg.find("target epoch is not activated").is_some());
+        } else {
+            panic!("Did not get epoch is not activated error");
+        }
+
+        let err = validate_transactions_static_epoch_and_process_transaction(
+            &mut conn,
+            &signed_foo_impl_tx,
+            false,
+            ASTRules::PrecheckSize,
+        )
+        .unwrap_err();
+        if let Error::InvalidStacksTransaction(msg, _ignored) = err {
+            assert!(msg.find("target epoch is not activated").is_some());
+        } else {
+            panic!("Did not get epoch is not activated error");
+        }
+
+        let err = validate_transactions_static_epoch_and_process_transaction(
+            &mut conn,
+            &signed_call_foo_tx_clar1,
+            false,
+            ASTRules::PrecheckSize,
+        )
+        .unwrap_err();
+        if let Error::InvalidStacksTransaction(msg, _ignored) = err {
+            assert!(msg.find("target epoch is not activated").is_some());
+        } else {
+            panic!("Did not get epoch is not activated error");
         }
 
         conn.commit_block();
 
         // in 2.05: analysis error should cause contract publish to fail
         let mut conn = chainstate.block_begin(
-            &TestBurnStateDB_20,
+            &TestBurnStateDB_2_05,
             &FIRST_BURNCHAIN_CONSENSUS_HASH,
             &FIRST_STACKS_BLOCK_HASH,
             &ConsensusHash([2u8; 20]),
             &BlockHeaderHash([2u8; 32]),
         );
 
-        let (fee, _) = StacksChainState::process_transaction(
+        let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
-            &signed_foo_trait_tx,
+            &signed_foo_trait_tx_no_version,
             false,
             ASTRules::PrecheckSize,
         )
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, _) = StacksChainState::process_transaction(
+        let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
-            &signed_foo_impl_tx,
+            &signed_foo_impl_tx_no_version,
             false,
             ASTRules::PrecheckSize,
         )
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, tx_receipt) = StacksChainState::process_transaction(
+        let (fee, tx_receipt) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
-            &signed_call_foo_tx_clar1,
+            &signed_call_foo_tx_clar1_no_version,
             false,
             ASTRules::PrecheckSize,
         )
@@ -10184,7 +10501,7 @@ pub mod test {
             _ => panic!("expected the contract publish to fail"),
         }
 
-        let err = StacksChainState::process_transaction(
+        let err = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_test_call_foo_tx,
             false,
@@ -10199,6 +10516,45 @@ pub mod test {
             panic!("Did not get unchecked interpreter error");
         }
 
+        let err = validate_transactions_static_epoch_and_process_transaction(
+            &mut conn,
+            &signed_foo_trait_tx,
+            false,
+            ASTRules::PrecheckSize,
+        )
+        .unwrap_err();
+        if let Error::InvalidStacksTransaction(msg, _ignored) = err {
+            assert!(msg.find("target epoch is not activated").is_some());
+        } else {
+            panic!("Did not get epoch is not activated error");
+        }
+
+        let err = validate_transactions_static_epoch_and_process_transaction(
+            &mut conn,
+            &signed_foo_impl_tx,
+            false,
+            ASTRules::PrecheckSize,
+        )
+        .unwrap_err();
+        if let Error::InvalidStacksTransaction(msg, _ignored) = err {
+            assert!(msg.find("target epoch is not activated").is_some());
+        } else {
+            panic!("Did not get epoch is not activated error");
+        }
+
+        let err = validate_transactions_static_epoch_and_process_transaction(
+            &mut conn,
+            &signed_call_foo_tx_clar1,
+            false,
+            ASTRules::PrecheckSize,
+        )
+        .unwrap_err();
+        if let Error::InvalidStacksTransaction(msg, _ignored) = err {
+            assert!(msg.find("target epoch is not activated").is_some());
+        } else {
+            panic!("Did not get epoch is not activated error");
+        }
+
         conn.commit_block();
 
         // in 2.1, using clarity 1: analysis error should cause contract publish to fail
@@ -10210,7 +10566,7 @@ pub mod test {
             &BlockHeaderHash([3u8; 32]),
         );
 
-        let (fee, _) = StacksChainState::process_transaction(
+        let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_foo_trait_tx,
             false,
@@ -10219,7 +10575,7 @@ pub mod test {
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, _) = StacksChainState::process_transaction(
+        let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_foo_impl_tx,
             false,
@@ -10228,7 +10584,7 @@ pub mod test {
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, tx_receipt) = StacksChainState::process_transaction(
+        let (fee, tx_receipt) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_call_foo_tx_clar1,
             false,
@@ -10255,7 +10611,7 @@ pub mod test {
             &BlockHeaderHash([4u8; 32]),
         );
 
-        let (fee, _) = StacksChainState::process_transaction(
+        let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_foo_trait_tx,
             false,
@@ -10264,7 +10620,7 @@ pub mod test {
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, _) = StacksChainState::process_transaction(
+        let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_foo_impl_tx,
             false,
@@ -10273,7 +10629,7 @@ pub mod test {
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, _) = StacksChainState::process_transaction(
+        let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_call_foo_tx_clar2,
             false,
@@ -10282,7 +10638,7 @@ pub mod test {
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, tx_receipt) = StacksChainState::process_transaction(
+        let (fee, tx_receipt) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_test_call_foo_tx,
             false,
@@ -10375,6 +10731,27 @@ pub mod test {
 
         let signed_foo_trait_tx = signer.get_tx().unwrap();
 
+        let mut tx_foo_trait_no_version = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            auth.clone(),
+            TransactionPayload::new_smart_contract(
+                &"foo".to_string(),
+                &foo_trait.to_string(),
+                None,
+            )
+            .unwrap(),
+        );
+
+        tx_foo_trait_no_version.post_condition_mode = TransactionPostConditionMode::Allow;
+        tx_foo_trait_no_version.chain_id = 0x80000000;
+        tx_foo_trait_no_version.set_tx_fee(1);
+        tx_foo_trait_no_version.set_origin_nonce(0);
+
+        let mut signer = StacksTransactionSigner::new(&tx_foo_trait_no_version);
+        signer.sign_origin(&privk).unwrap();
+
+        let signed_foo_trait_tx_no_version = signer.get_tx().unwrap();
+
         let mut tx_transitive_trait_clar1 = StacksTransaction::new(
             TransactionVersion::Testnet,
             auth.clone(),
@@ -10395,6 +10772,28 @@ pub mod test {
         signer.sign_origin(&privk).unwrap();
 
         let signed_transitive_trait_clar1_tx = signer.get_tx().unwrap();
+
+        let mut tx_transitive_trait_clar1_no_version = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            auth.clone(),
+            TransactionPayload::new_smart_contract(
+                &"transitive".to_string(),
+                &transitive_trait.to_string(),
+                None,
+            )
+            .unwrap(),
+        );
+
+        tx_transitive_trait_clar1_no_version.post_condition_mode =
+            TransactionPostConditionMode::Allow;
+        tx_transitive_trait_clar1_no_version.chain_id = 0x80000000;
+        tx_transitive_trait_clar1_no_version.set_tx_fee(1);
+        tx_transitive_trait_clar1_no_version.set_origin_nonce(1);
+
+        let mut signer = StacksTransactionSigner::new(&tx_transitive_trait_clar1_no_version);
+        signer.sign_origin(&privk).unwrap();
+
+        let signed_transitive_trait_clar1_tx_no_version = signer.get_tx().unwrap();
 
         let mut tx_transitive_trait_clar2 = StacksTransaction::new(
             TransactionVersion::Testnet,
@@ -10438,6 +10837,27 @@ pub mod test {
 
         let signed_foo_impl_tx = signer.get_tx().unwrap();
 
+        let mut tx_foo_impl_no_version = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            auth.clone(),
+            TransactionPayload::new_smart_contract(
+                &"foo-impl".to_string(),
+                &foo_impl.to_string(),
+                None,
+            )
+            .unwrap(),
+        );
+
+        tx_foo_impl_no_version.post_condition_mode = TransactionPostConditionMode::Allow;
+        tx_foo_impl_no_version.chain_id = 0x80000000;
+        tx_foo_impl_no_version.set_tx_fee(1);
+        tx_foo_impl_no_version.set_origin_nonce(2);
+
+        let mut signer = StacksTransactionSigner::new(&tx_foo_impl_no_version);
+        signer.sign_origin(&privk).unwrap();
+
+        let signed_foo_impl_tx_no_version = signer.get_tx().unwrap();
+
         let mut tx_call_foo_clar1 = StacksTransaction::new(
             TransactionVersion::Testnet,
             auth.clone(),
@@ -10458,6 +10878,27 @@ pub mod test {
         signer.sign_origin(&privk).unwrap();
 
         let signed_call_foo_tx_clar1 = signer.get_tx().unwrap();
+
+        let mut tx_call_foo_clar1_no_version = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            auth.clone(),
+            TransactionPayload::new_smart_contract(
+                &"call-foo".to_string(),
+                &call_foo.to_string(),
+                None,
+            )
+            .unwrap(),
+        );
+
+        tx_call_foo_clar1_no_version.post_condition_mode = TransactionPostConditionMode::Allow;
+        tx_call_foo_clar1_no_version.chain_id = 0x80000000;
+        tx_call_foo_clar1_no_version.set_tx_fee(1);
+        tx_call_foo_clar1_no_version.set_origin_nonce(3);
+
+        let mut signer = StacksTransactionSigner::new(&tx_call_foo_clar1_no_version);
+        signer.sign_origin(&privk).unwrap();
+
+        let signed_call_foo_tx_clar1_no_version = signer.get_tx().unwrap();
 
         let mut tx_call_foo_clar2 = StacksTransaction::new(
             TransactionVersion::Testnet,
@@ -10518,43 +10959,43 @@ pub mod test {
             &BlockHeaderHash([1u8; 32]),
         );
 
-        let (fee, _) = StacksChainState::process_transaction(
+        let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
-            &signed_foo_trait_tx,
+            &signed_foo_trait_tx_no_version,
             false,
             ASTRules::PrecheckSize,
         )
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, _) = StacksChainState::process_transaction(
+        let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
-            &signed_transitive_trait_clar1_tx,
+            &signed_transitive_trait_clar1_tx_no_version,
             false,
             ASTRules::PrecheckSize,
         )
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, _) = StacksChainState::process_transaction(
+        let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
-            &signed_foo_impl_tx,
+            &signed_foo_impl_tx_no_version,
             false,
             ASTRules::PrecheckSize,
         )
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, tx_receipt) = StacksChainState::process_transaction(
+        let (fee, tx_receipt) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
-            &signed_call_foo_tx_clar1,
+            &signed_call_foo_tx_clar1_no_version,
             false,
             ASTRules::PrecheckSize,
         )
         .unwrap();
         assert_eq!(fee, 1);
 
-        let err = StacksChainState::process_transaction(
+        let err = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_test_call_foo_tx,
             false,
@@ -10570,54 +11011,106 @@ pub mod test {
         }
         assert_eq!(fee, 1);
 
+        let err = validate_transactions_static_epoch_and_process_transaction(
+            &mut conn,
+            &signed_foo_trait_tx,
+            false,
+            ASTRules::PrecheckSize,
+        )
+        .unwrap_err();
+        if let Error::InvalidStacksTransaction(msg, _ignored) = err {
+            assert!(msg.find("target epoch is not activated").is_some());
+        } else {
+            panic!("Did not get epoch is not activated error");
+        }
+
+        let err = validate_transactions_static_epoch_and_process_transaction(
+            &mut conn,
+            &signed_transitive_trait_clar1_tx,
+            false,
+            ASTRules::PrecheckSize,
+        )
+        .unwrap_err();
+        if let Error::InvalidStacksTransaction(msg, _ignored) = err {
+            assert!(msg.find("target epoch is not activated").is_some());
+        } else {
+            panic!("Did not get epoch is not activated error");
+        }
+
+        let err = validate_transactions_static_epoch_and_process_transaction(
+            &mut conn,
+            &signed_foo_impl_tx,
+            false,
+            ASTRules::PrecheckSize,
+        )
+        .unwrap_err();
+        if let Error::InvalidStacksTransaction(msg, _ignored) = err {
+            assert!(msg.find("target epoch is not activated").is_some());
+        } else {
+            panic!("Did not get epoch is not activated error");
+        }
+
+        let err = validate_transactions_static_epoch_and_process_transaction(
+            &mut conn,
+            &signed_call_foo_tx_clar1,
+            false,
+            ASTRules::PrecheckSize,
+        )
+        .unwrap_err();
+        if let Error::InvalidStacksTransaction(msg, _ignored) = err {
+            assert!(msg.find("target epoch is not activated").is_some());
+        } else {
+            panic!("Did not get epoch is not activated error");
+        }
+
         conn.commit_block();
 
         // in 2.05: calling call-foo invalidates the block
         let mut conn = chainstate.block_begin(
-            &TestBurnStateDB_20,
+            &TestBurnStateDB_2_05,
             &FIRST_BURNCHAIN_CONSENSUS_HASH,
             &FIRST_STACKS_BLOCK_HASH,
             &ConsensusHash([2u8; 20]),
             &BlockHeaderHash([2u8; 32]),
         );
 
-        let (fee, _) = StacksChainState::process_transaction(
+        let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
-            &signed_foo_trait_tx,
+            &signed_foo_trait_tx_no_version,
             false,
             ASTRules::PrecheckSize,
         )
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, _) = StacksChainState::process_transaction(
+        let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
-            &signed_transitive_trait_clar1_tx,
+            &signed_transitive_trait_clar1_tx_no_version,
             false,
             ASTRules::PrecheckSize,
         )
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, _) = StacksChainState::process_transaction(
+        let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
-            &signed_foo_impl_tx,
+            &signed_foo_impl_tx_no_version,
             false,
             ASTRules::PrecheckSize,
         )
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, tx_receipt) = StacksChainState::process_transaction(
+        let (fee, tx_receipt) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
-            &signed_call_foo_tx_clar1,
+            &signed_call_foo_tx_clar1_no_version,
             false,
             ASTRules::PrecheckSize,
         )
         .unwrap();
         assert_eq!(fee, 1);
 
-        let err = StacksChainState::process_transaction(
+        let err = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_test_call_foo_tx,
             false,
@@ -10630,6 +11123,58 @@ pub mod test {
         {
         } else {
             panic!("Did not get unchecked interpreter error");
+        }
+
+        let err = validate_transactions_static_epoch_and_process_transaction(
+            &mut conn,
+            &signed_foo_trait_tx,
+            false,
+            ASTRules::PrecheckSize,
+        )
+        .unwrap_err();
+        if let Error::InvalidStacksTransaction(msg, _ignored) = err {
+            assert!(msg.find("target epoch is not activated").is_some());
+        } else {
+            panic!("Did not get epoch is not activated error");
+        }
+
+        let err = validate_transactions_static_epoch_and_process_transaction(
+            &mut conn,
+            &signed_transitive_trait_clar1_tx,
+            false,
+            ASTRules::PrecheckSize,
+        )
+        .unwrap_err();
+        if let Error::InvalidStacksTransaction(msg, _ignored) = err {
+            assert!(msg.find("target epoch is not activated").is_some());
+        } else {
+            panic!("Did not get epoch is not activated error");
+        }
+
+        let err = validate_transactions_static_epoch_and_process_transaction(
+            &mut conn,
+            &signed_foo_impl_tx,
+            false,
+            ASTRules::PrecheckSize,
+        )
+        .unwrap_err();
+        if let Error::InvalidStacksTransaction(msg, _ignored) = err {
+            assert!(msg.find("target epoch is not activated").is_some());
+        } else {
+            panic!("Did not get epoch is not activated error");
+        }
+
+        let err = validate_transactions_static_epoch_and_process_transaction(
+            &mut conn,
+            &signed_call_foo_tx_clar1,
+            false,
+            ASTRules::PrecheckSize,
+        )
+        .unwrap_err();
+        if let Error::InvalidStacksTransaction(msg, _ignored) = err {
+            assert!(msg.find("target epoch is not activated").is_some());
+        } else {
+            panic!("Did not get epoch is not activated error");
         }
 
         conn.commit_block();
@@ -10643,7 +11188,7 @@ pub mod test {
             &BlockHeaderHash([3u8; 32]),
         );
 
-        let (fee, _) = StacksChainState::process_transaction(
+        let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_foo_trait_tx,
             false,
@@ -10652,7 +11197,7 @@ pub mod test {
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, _) = StacksChainState::process_transaction(
+        let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_transitive_trait_clar1_tx,
             false,
@@ -10661,7 +11206,7 @@ pub mod test {
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, _) = StacksChainState::process_transaction(
+        let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_foo_impl_tx,
             false,
@@ -10670,7 +11215,7 @@ pub mod test {
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, tx_receipt) = StacksChainState::process_transaction(
+        let (fee, tx_receipt) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_call_foo_tx_clar1,
             false,
@@ -10679,7 +11224,7 @@ pub mod test {
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, tx_receipt) = StacksChainState::process_transaction(
+        let (fee, tx_receipt) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_test_call_foo_tx,
             false,
@@ -10710,7 +11255,7 @@ pub mod test {
             &BlockHeaderHash([4u8; 32]),
         );
 
-        let (fee, _) = StacksChainState::process_transaction(
+        let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_foo_trait_tx,
             false,
@@ -10719,7 +11264,7 @@ pub mod test {
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, _) = StacksChainState::process_transaction(
+        let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_transitive_trait_clar1_tx,
             false,
@@ -10728,7 +11273,7 @@ pub mod test {
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, _) = StacksChainState::process_transaction(
+        let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_foo_impl_tx,
             false,
@@ -10737,7 +11282,7 @@ pub mod test {
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, tx_receipt) = StacksChainState::process_transaction(
+        let (fee, tx_receipt) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_call_foo_tx_clar2,
             false,
@@ -10746,7 +11291,7 @@ pub mod test {
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, tx_receipt) = StacksChainState::process_transaction(
+        let (fee, tx_receipt) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_test_call_foo_tx,
             false,
@@ -10777,7 +11322,7 @@ pub mod test {
             &BlockHeaderHash([5u8; 32]),
         );
 
-        let (fee, _) = StacksChainState::process_transaction(
+        let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_foo_trait_tx,
             false,
@@ -10786,7 +11331,7 @@ pub mod test {
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, _) = StacksChainState::process_transaction(
+        let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_transitive_trait_clar2_tx,
             false,
@@ -10795,7 +11340,7 @@ pub mod test {
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, _) = StacksChainState::process_transaction(
+        let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_foo_impl_tx,
             false,
@@ -10804,7 +11349,7 @@ pub mod test {
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, tx_receipt) = StacksChainState::process_transaction(
+        let (fee, tx_receipt) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_call_foo_tx_clar2,
             false,
@@ -10831,7 +11376,7 @@ pub mod test {
             &BlockHeaderHash([6u8; 32]),
         );
 
-        let (fee, _) = StacksChainState::process_transaction(
+        let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_foo_trait_tx,
             false,
@@ -10840,7 +11385,7 @@ pub mod test {
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, _) = StacksChainState::process_transaction(
+        let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_transitive_trait_clar2_tx,
             false,
@@ -10849,7 +11394,7 @@ pub mod test {
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, _) = StacksChainState::process_transaction(
+        let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_foo_impl_tx,
             false,
@@ -10858,7 +11403,7 @@ pub mod test {
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, tx_receipt) = StacksChainState::process_transaction(
+        let (fee, tx_receipt) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_call_foo_tx_clar1,
             false,

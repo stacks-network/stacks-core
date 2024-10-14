@@ -23,6 +23,7 @@ use std::{fmt, fs};
 use clarity::vm::costs::ExecutionCost;
 use lazy_static::lazy_static;
 use rusqlite::{OpenFlags, OptionalExtension};
+use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::uint::{Uint256, Uint512};
 
@@ -46,9 +47,10 @@ pub fn increment_rpc_calls_counter() {
     prometheus::RPC_CALL_COUNTER.inc();
 }
 
+#[allow(unused_mut)]
 pub fn instrument_http_request_handler<F, R>(
     conv_http: &mut ConversationHttp,
-    mut req: StacksHttpRequest,
+    #[allow(unused_mut)] mut req: StacksHttpRequest,
     handler: F,
 ) -> Result<R, net_error>
 where
@@ -209,7 +211,7 @@ fn txid_tracking_db(chainstate_root_path: &str) -> Result<DBConn, DatabaseError>
     if create_flag {
         conn.execute(
             "CREATE TABLE processed_txids (txid TEXT NOT NULL PRIMARY KEY)",
-            rusqlite::NO_PARAMS,
+            NO_PARAMS,
         )?;
     }
 

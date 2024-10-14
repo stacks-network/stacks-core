@@ -100,11 +100,7 @@ fn trait_invocation_behavior() {
     conf.miner.subsequent_attempt_time_ms = i64::MAX as u64;
 
     test_observer::spawn();
-
-    conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
-        events_keys: vec![EventKeyType::AnyEvent],
-    });
+    test_observer::register_any(&mut conf);
     conf.initial_balances.append(&mut initial_balances);
 
     let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
@@ -268,7 +264,7 @@ fn trait_invocation_behavior() {
     submit_tx(&http_origin, &tx_1);
     submit_tx(&http_origin, &tx_2);
 
-    // this mines bitcoin block epoch_2_1 - 2, and causes the the
+    // this mines bitcoin block epoch_2_1 - 2, and causes the
     // stacks node to mine the stacks block which will be included in
     // epoch_2_1 - 1, so these are the last transactions processed pre-2.1.
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
@@ -339,7 +335,7 @@ fn trait_invocation_behavior() {
     submit_tx(&http_origin, &tx_1);
     submit_tx(&http_origin, &tx_2);
 
-    // this mines bitcoin block epoch_2_2 - 2, and causes the the
+    // this mines bitcoin block epoch_2_2 - 2, and causes the
     // stacks node to mine the stacks block which will be included in
     // epoch_2_2 - 1, so these are the last transactions processed pre-2.2.
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
@@ -424,7 +420,7 @@ fn trait_invocation_behavior() {
     submit_tx(&http_origin, &tx_1);
     submit_tx(&http_origin, &tx_2);
 
-    // this mines bitcoin block epoch_2_3 - 2, and causes the the
+    // this mines bitcoin block epoch_2_3 - 2, and causes the
     // stacks node to mine the stacks block which will be included in
     // epoch_2_3 - 1, so these are the last transactions processed pre-2.3.
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);

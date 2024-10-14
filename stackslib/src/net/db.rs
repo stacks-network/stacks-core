@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::{fmt, fs};
 
 use clarity::vm::types::{
@@ -23,8 +23,9 @@ use clarity::vm::types::{
 use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng, RngCore};
 use rusqlite::types::ToSql;
-use rusqlite::{Connection, OpenFlags, OptionalExtension, Row, Transaction, NO_PARAMS};
+use rusqlite::{params, Connection, OpenFlags, OptionalExtension, Row, Transaction};
 use stacks_common::types::net::{PeerAddress, PeerHost};
+use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::util;
 use stacks_common::util::hash::{
     bin_bytes, hex_bytes, to_bin, to_hex, Hash160, Sha256Sum, Sha512Trunc256Sum,
@@ -44,7 +45,7 @@ use crate::util_lib::db::{
 };
 use crate::util_lib::strings::UrlString;
 
-pub const PEERDB_VERSION: &'static str = "2";
+pub const PEERDB_VERSION: &'static str = "3";
 
 const NUM_SLOTS: usize = 8;
 
@@ -393,11 +394,18 @@ const PEERDB_SCHEMA_2: &'static [&'static str] = &[
     CREATE INDEX IF NOT EXISTS index_stackedb_peers_by_slot ON stackerdb_peers(peer_slot);
     "#,
     r#"
-    ALTER TABLE local_peer ADD COLUMN stacker_dbs TEXT
+    ALTER TABLE local_peer ADD COLUMN stacker_dbs TEXT;
     "#,
     r#"
     UPDATE db_config SET version = 2;
     "#,
+];
+
+const PEERDB_SCHEMA_3: &'static [&'static str] = &[
+    r#"
+    ALTER TABLE frontier ADD COLUMN public BOOL NOT NULL DEFAULT 0;
+    "#,
+    "UPDATE db_config SET version = 3;",
 ];
 
 #[derive(Debug)]
@@ -445,17 +453,17 @@ impl PeerDB {
 
         PeerDB::apply_schema_migrations(&tx)?;
 
-        let local_peer_args: &[&dyn ToSql] = &[
-            &network_id,
-            &parent_network_id,
-            &to_hex(&localpeer.nonce),
-            &to_hex(&localpeer.private_key.to_bytes()),
-            &u64_to_sql(key_expires)?,
-            &to_bin(localpeer.addrbytes.as_bytes()),
-            &localpeer.port,
-            &localpeer.services,
-            &localpeer.data_url.as_str(),
-            &serde_json::to_string(stacker_dbs)
+        let local_peer_args = params![
+            network_id,
+            parent_network_id,
+            to_hex(&localpeer.nonce),
+            to_hex(&localpeer.private_key.to_bytes()),
+            u64_to_sql(key_expires)?,
+            to_bin(localpeer.addrbytes.as_bytes()),
+            localpeer.port,
+            localpeer.services,
+            localpeer.data_url.as_str(),
+            serde_json::to_string(stacker_dbs)
                 .expect("FATAL: failed to serialize stacker db contract addresses"),
         ];
 
@@ -507,14 +515,24 @@ impl PeerDB {
 
     fn get_schema_version(conn: &Connection) -> Result<String, db_error> {
         let version = conn
-            .query_row(
-                "SELECT MAX(version) from db_config",
-                rusqlite::NO_PARAMS,
-                |row| row.get(0),
-            )
+            .query_row("SELECT MAX(version) from db_config", NO_PARAMS, |row| {
+                row.get(0)
+            })
             .optional()?
             .unwrap_or("1".to_string());
         Ok(version)
+    }
+
+    /// Tag each address in the peer DB as public if its address is not private.
+    /// Happens as part of the schema 3 migration
+    fn update_peerdb_public_addrs(tx: &Transaction) -> Result<(), db_error> {
+        let all_peers = Self::get_all_peers(tx)?;
+        for peer in all_peers {
+            let public = !peer.addr.addrbytes.is_in_private_range();
+            debug!("Marking peer {:?} as public? {}", &peer, public);
+            Self::update_peer(tx, &peer)?;
+        }
+        Ok(())
     }
 
     #[cfg_attr(test, mutants::skip)]
@@ -523,6 +541,16 @@ impl PeerDB {
         for row_text in PEERDB_SCHEMA_2 {
             tx.execute_batch(row_text).map_err(db_error::SqliteError)?;
         }
+        Ok(())
+    }
+
+    #[cfg_attr(test, mutants::skip)]
+    fn apply_schema_3(tx: &Transaction) -> Result<(), db_error> {
+        test_debug!("Apply schema 3 to peer DB");
+        for row_text in PEERDB_SCHEMA_3 {
+            tx.execute_batch(row_text).map_err(db_error::SqliteError)?;
+        }
+        Self::update_peerdb_public_addrs(tx)?;
         Ok(())
     }
 
@@ -538,6 +566,8 @@ impl PeerDB {
                     }
                     if version == "1" {
                         PeerDB::apply_schema_2(tx)?;
+                    } else if version == "2" {
+                        PeerDB::apply_schema_3(tx)?;
                     } else if version == expected_version {
                         return Ok(ret.expect("unreachable"));
                     } else {
@@ -557,13 +587,13 @@ impl PeerDB {
         p2p_port: u16,
         stacker_dbs: &[QualifiedContractIdentifier],
     ) -> Result<(), db_error> {
-        let local_peer_args: &[&dyn ToSql] = &[
-            &p2p_port,
-            &data_url.as_str(),
-            &serde_json::to_string(stacker_dbs)
+        let local_peer_args = params![
+            p2p_port,
+            data_url.as_str(),
+            serde_json::to_string(stacker_dbs)
                 .expect("FATAL: unable to serialize Vec<QualifiedContractIdentifier>"),
-            &network_id,
-            &parent_network_id,
+            network_id,
+            parent_network_id,
         ];
 
         match self.conn.execute("UPDATE local_peer SET port = ?1, data_url = ?2, stacker_dbs = ?3 WHERE network_id = ?4 AND parent_network_id = ?5",
@@ -676,9 +706,12 @@ impl PeerDB {
                 }
             }
         } else {
-            let tx = db.tx_begin()?;
-            PeerDB::apply_schema_migrations(&tx)?;
-            tx.commit()?;
+            let peerdb_version = PeerDB::get_schema_version(&db.conn)?;
+            if peerdb_version != PEERDB_VERSION {
+                let tx = db.tx_begin()?;
+                PeerDB::apply_schema_migrations(&tx)?;
+                tx.commit()?;
+            }
 
             db.update_local_peer(
                 network_id,
@@ -749,7 +782,7 @@ impl PeerDB {
     }
 
     /// Open a peer database in memory (used for testing)
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn connect_memory(
         network_id: u32,
         parent_network_id: u32,
@@ -819,7 +852,7 @@ impl PeerDB {
     ) -> Result<(), db_error> {
         tx.execute(
             "UPDATE local_peer SET addrbytes = ?1, port = ?2",
-            &[&to_bin(addrbytes.as_bytes().as_ref()), &port as &dyn ToSql],
+            params![to_bin(addrbytes.as_bytes()), port], // TODO: double check if delete as_ref here
         )
         .map_err(db_error::SqliteError)?;
 
@@ -828,11 +861,8 @@ impl PeerDB {
 
     /// Set local service availability
     pub fn set_local_services(tx: &Transaction, services: u16) -> Result<(), db_error> {
-        tx.execute(
-            "UPDATE local_peer SET services = ?1",
-            &[&services as &dyn ToSql],
-        )
-        .map_err(db_error::SqliteError)?;
+        tx.execute("UPDATE local_peer SET services = ?1", params![services])
+            .map_err(db_error::SqliteError)?;
 
         Ok(())
     }
@@ -843,7 +873,7 @@ impl PeerDB {
         privkey: &Secp256k1PrivateKey,
         expire_block: u64,
     ) -> Result<(), db_error> {
-        let args: &[&dyn ToSql] = &[&to_hex(&privkey.to_bytes()), &u64_to_sql(expire_block)?];
+        let args = params![to_hex(&privkey.to_bytes()), u64_to_sql(expire_block)?];
         tx.execute(
             "UPDATE local_peer SET private_key = ?1, private_key_expire = ?2",
             args,
@@ -907,8 +937,38 @@ impl PeerDB {
         Ok(ret)
     }
 
+    /// Group a list of peers by public key, and return the one with the highest last-contact time
+    fn query_peers(
+        conn: &Connection,
+        qry: &str,
+        args: &[&dyn ToSql],
+    ) -> Result<Vec<Neighbor>, db_error> {
+        let peers: Vec<Neighbor> = query_rows(conn, qry, args)?;
+        let mut grouped_by_public_key: HashMap<Secp256k1PublicKey, Neighbor> = HashMap::new();
+        for peer in peers.into_iter() {
+            if let Some(cur_peer) = grouped_by_public_key.get_mut(&peer.public_key) {
+                if cur_peer.last_contact_time < peer.last_contact_time {
+                    *cur_peer = peer;
+                }
+            } else {
+                grouped_by_public_key.insert(peer.public_key.clone(), peer);
+            }
+        }
+        Ok(grouped_by_public_key.into_values().collect())
+    }
+
+    /// Query a single peer.
+    /// If multiple rows are returned, then only the first-found row is reported.
+    fn query_peer(
+        conn: &Connection,
+        qry: &str,
+        args: &[&dyn ToSql],
+    ) -> Result<Option<Neighbor>, db_error> {
+        let mut peers = Self::query_peers(conn, qry, args)?;
+        Ok(peers.pop())
+    }
+
     /// Get a peer from the DB.
-    /// Panics if the peer was inserted twice -- this shouldn't happen.
     pub fn get_peer(
         conn: &DBConn,
         network_id: u32,
@@ -916,12 +976,8 @@ impl PeerDB {
         peer_port: u16,
     ) -> Result<Option<Neighbor>, db_error> {
         let qry = "SELECT * FROM frontier WHERE network_id = ?1 AND addrbytes = ?2 AND port = ?3";
-        let args = [
-            &network_id as &dyn ToSql,
-            &peer_addr.to_bin() as &dyn ToSql,
-            &peer_port as &dyn ToSql,
-        ];
-        query_row::<Neighbor, _>(conn, qry, &args)
+        let args = params![network_id, peer_addr.to_bin(), peer_port,];
+        Self::query_peer(conn, qry, args)
     }
 
     pub fn has_peer(
@@ -931,22 +987,22 @@ impl PeerDB {
         peer_port: u16,
     ) -> Result<bool, db_error> {
         let qry = "SELECT 1 FROM frontier WHERE network_id = ?1 AND addrbytes = ?2 AND port = ?3";
-        let args: &[&dyn ToSql] = &[&network_id, &peer_addr.to_bin(), &peer_port];
+        let args = params![network_id, peer_addr.to_bin(), peer_port];
         Ok(query_row::<i64, _>(conn, &qry, args)?
             .map(|x| x == 1)
             .unwrap_or(false))
     }
 
     /// Get peer by port (used in tests where the IP address doesn't really matter)
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn get_peer_by_port(
         conn: &DBConn,
         network_id: u32,
         peer_port: u16,
     ) -> Result<Option<Neighbor>, db_error> {
         let qry = "SELECT * FROM frontier WHERE network_id = ?1 AND port = ?2";
-        let args = [&network_id as &dyn ToSql, &peer_port as &dyn ToSql];
-        query_row::<Neighbor, _>(conn, &qry, &args)
+        let args = params![network_id, peer_port];
+        Self::query_peer(conn, qry, args)
     }
 
     /// Get a peer record at a particular slot
@@ -956,15 +1012,17 @@ impl PeerDB {
         slot: u32,
     ) -> Result<Option<Neighbor>, db_error> {
         let qry = "SELECT * FROM frontier WHERE network_id = ?1 AND slot = ?2";
-        let args = [&network_id as &dyn ToSql, &slot as &dyn ToSql];
-        query_row::<Neighbor, _>(conn, &qry, &args)
+        let args = params![network_id, slot];
+
+        // N.B. we don't use Self::query_peer() here because `slot` is the primary key
+        query_row::<Neighbor, _>(conn, &qry, args)
     }
 
     /// Is there any peer at a particular slot?
     pub fn has_peer_at(conn: &DBConn, network_id: u32, slot: u32) -> Result<bool, db_error> {
         let qry = "SELECT 1 FROM frontier WHERE network_id = ?1 AND slot = ?2";
-        let args = [&network_id as &dyn ToSql, &slot as &dyn ToSql];
-        Ok(query_row::<i64, _>(conn, &qry, &args)?
+        let args = params![network_id, slot];
+        Ok(query_row::<i64, _>(conn, &qry, args)?
             .map(|x| x == 1)
             .unwrap_or(false))
     }
@@ -1020,15 +1078,24 @@ impl PeerDB {
         conn: &DBConn,
         network_id: u32,
     ) -> Result<Vec<Neighbor>, db_error> {
+        let local_peer = Self::get_local_peer(conn)?;
         let sql = "SELECT * FROM frontier WHERE allowed < 0 AND network_id = ?1 ORDER BY RANDOM()";
-        let allow_rows = query_rows::<Neighbor, _>(conn, sql, &[&network_id])?;
-        Ok(allow_rows)
+        let allow_rows: Vec<Neighbor> = Self::query_peers(conn, sql, params![&network_id])?;
+        Ok(allow_rows
+            .into_iter()
+            .filter(|neighbor| {
+                // omit local peer if it ever gets entered by mistake, since we can't talk to
+                // ourselves.
+                neighbor.public_key.to_bytes_compressed()
+                    != StacksPublicKey::from_private(&local_peer.private_key).to_bytes_compressed()
+            })
+            .collect())
     }
 
     /// Get the bootstrap peers
     pub fn get_bootstrap_peers(conn: &DBConn, network_id: u32) -> Result<Vec<Neighbor>, db_error> {
         let sql = "SELECT * FROM frontier WHERE initial = 1 AND network_id = ?1 ORDER BY RANDOM()";
-        let allow_rows = query_rows::<Neighbor, _>(conn, sql, &[&network_id])?;
+        let allow_rows = Self::query_peers(conn, sql, params![&network_id])?;
         Ok(allow_rows)
     }
 
@@ -1040,7 +1107,7 @@ impl PeerDB {
     ) -> Result<(), db_error> {
         for cid in smart_contracts {
             test_debug!("Add Stacker DB contract to slot {}: {}", slot, cid);
-            let args: &[&dyn ToSql] = &[&cid.to_string(), &slot];
+            let args = params![cid.to_string(), slot];
             tx.execute("INSERT OR REPLACE INTO stackerdb_peers (smart_contract_id,peer_slot) VALUES (?1,?2)", args)
                 .map_err(db_error::SqliteError)?;
         }
@@ -1062,26 +1129,27 @@ impl PeerDB {
     ) -> Result<(), db_error> {
         let old_peer_opt = PeerDB::get_peer_at(tx, neighbor.addr.network_id, slot)?;
 
-        let neighbor_args: &[&dyn ToSql] = &[
-            &neighbor.addr.peer_version,
-            &neighbor.addr.network_id,
-            &to_bin(neighbor.addr.addrbytes.as_bytes()),
-            &neighbor.addr.port,
-            &to_hex(&neighbor.public_key.to_bytes_compressed()),
-            &u64_to_sql(neighbor.expire_block)?,
-            &u64_to_sql(neighbor.last_contact_time)?,
-            &neighbor.asn,
-            &neighbor.org,
-            &neighbor.allowed,
-            &neighbor.denied,
-            &neighbor.in_degree,
-            &neighbor.out_degree,
-            &0i64,
-            &slot,
+        let neighbor_args = params![
+            neighbor.addr.peer_version,
+            neighbor.addr.network_id,
+            to_bin(neighbor.addr.addrbytes.as_bytes()),
+            neighbor.addr.port,
+            to_hex(&neighbor.public_key.to_bytes_compressed()),
+            u64_to_sql(neighbor.expire_block)?,
+            u64_to_sql(neighbor.last_contact_time)?,
+            neighbor.asn,
+            neighbor.org,
+            neighbor.allowed,
+            neighbor.denied,
+            neighbor.in_degree,
+            neighbor.out_degree,
+            0i64,
+            slot,
+            !neighbor.addr.addrbytes.is_in_private_range()
         ];
 
-        tx.execute("INSERT OR REPLACE INTO frontier (peer_version, network_id, addrbytes, port, public_key, expire_block_height, last_contact_time, asn, org, allowed, denied, in_degree, out_degree, initial, slot) \
-                   VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)", neighbor_args)
+        tx.execute("INSERT OR REPLACE INTO frontier (peer_version, network_id, addrbytes, port, public_key, expire_block_height, last_contact_time, asn, org, allowed, denied, in_degree, out_degree, initial, slot, public) \
+                   VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)", neighbor_args)
             .map_err(db_error::SqliteError)?;
 
         if let Some(old_peer) = old_peer_opt {
@@ -1108,11 +1176,7 @@ impl PeerDB {
         let slot_opt = Self::find_peer_slot(tx, network_id, peer_addr, peer_port)?;
         tx.execute(
             "DELETE FROM frontier WHERE network_id = ?1 AND addrbytes = ?2 AND port = ?3",
-            &[
-                &network_id as &dyn ToSql,
-                &peer_addr.to_bin() as &dyn ToSql,
-                &peer_port as &dyn ToSql,
-            ],
+            params![network_id, peer_addr.to_bin(), peer_port,],
         )
         .map_err(db_error::SqliteError)?;
 
@@ -1123,6 +1187,7 @@ impl PeerDB {
     }
 
     /// Is a peer one of this node's initial neighbors?
+    /// Only checks IP address.
     pub fn is_initial_peer(
         conn: &DBConn,
         network_id: u32,
@@ -1131,8 +1196,8 @@ impl PeerDB {
     ) -> Result<bool, db_error> {
         let res: Option<i64> = query_row(
             conn,
-            "SELECT initial FROM frontier WHERE network_id = ?1 AND addrbytes = ?2 AND port = ?3",
-            &[&network_id as &dyn ToSql, &peer_addr.to_bin(), &peer_port],
+            "SELECT initial FROM frontier WHERE network_id = ?1 AND addrbytes = ?2 AND port = ?3 ORDER BY last_contact_time DESC LIMIT 1",
+            params![network_id, peer_addr.to_bin(), peer_port],
         )?;
 
         match res {
@@ -1141,15 +1206,16 @@ impl PeerDB {
         }
     }
 
-    /// Set a peer as an initial peer
-    fn set_initial_peer(
+    /// Set a peer as an initial peer.
+    /// Does so for all rows with the given IP address.
+    pub fn set_initial_peer(
         tx: &Transaction,
         network_id: u32,
         peer_addr: &PeerAddress,
         peer_port: u16,
     ) -> Result<(), db_error> {
         tx.execute("UPDATE frontier SET initial = 1 WHERE network_id = ?1 AND addrbytes = ?2 AND port = ?3", 
-                    &[&network_id as &dyn ToSql, &peer_addr.to_bin(), &peer_port])
+                    params![network_id, peer_addr.to_bin(), peer_port])
             .map_err(db_error::SqliteError)?;
 
         Ok(())
@@ -1173,7 +1239,7 @@ impl PeerDB {
         allow_deadline: i64,
     ) -> Result<(), db_error> {
         let num_updated = tx.execute("UPDATE frontier SET allowed = ?1 WHERE network_id = ?2 AND addrbytes = ?3 AND port = ?4",
-                   &[&allow_deadline as &dyn ToSql, &network_id, &peer_addr.to_bin(), &peer_port])
+                   params![allow_deadline, network_id, peer_addr.to_bin(), peer_port])
             .map_err(db_error::SqliteError)?;
 
         if num_updated == 0 {
@@ -1213,11 +1279,11 @@ impl PeerDB {
         peer_port: u16,
         deny_deadline: u64,
     ) -> Result<(), db_error> {
-        let args: &[&dyn ToSql] = &[
-            &u64_to_sql(deny_deadline)?,
-            &network_id,
-            &peer_addr.to_bin(),
-            &peer_port,
+        let args = params![
+            u64_to_sql(deny_deadline)?,
+            network_id,
+            peer_addr.to_bin(),
+            peer_port,
         ];
         let num_updated = tx.execute("UPDATE frontier SET denied = ?1 WHERE network_id = ?2 AND addrbytes = ?3 AND port = ?4", args)
             .map_err(db_error::SqliteError)?;
@@ -1259,24 +1325,25 @@ impl PeerDB {
             neighbor.addr.port,
         )?;
 
-        let args: &[&dyn ToSql] = &[
-            &neighbor.addr.peer_version,
-            &to_hex(&neighbor.public_key.to_bytes_compressed()),
-            &u64_to_sql(neighbor.expire_block)?,
-            &u64_to_sql(neighbor.last_contact_time)?,
-            &neighbor.asn,
-            &neighbor.org,
-            &neighbor.allowed,
-            &neighbor.denied,
-            &neighbor.in_degree,
-            &neighbor.out_degree,
-            &neighbor.addr.network_id,
-            &to_bin(neighbor.addr.addrbytes.as_bytes()),
-            &neighbor.addr.port,
+        let args = params![
+            neighbor.addr.peer_version,
+            to_hex(&neighbor.public_key.to_bytes_compressed()),
+            u64_to_sql(neighbor.expire_block)?,
+            u64_to_sql(neighbor.last_contact_time)?,
+            neighbor.asn,
+            neighbor.org,
+            neighbor.allowed,
+            neighbor.denied,
+            neighbor.in_degree,
+            neighbor.out_degree,
+            !neighbor.addr.addrbytes.is_in_private_range(),
+            neighbor.addr.network_id,
+            to_bin(neighbor.addr.addrbytes.as_bytes()),
+            neighbor.addr.port,
         ];
 
-        tx.execute("UPDATE frontier SET peer_version = ?1, public_key = ?2, expire_block_height = ?3, last_contact_time = ?4, asn = ?5, org = ?6, allowed = ?7, denied = ?8, in_degree = ?9, out_degree = ?10 \
-                    WHERE network_id = ?11 AND addrbytes = ?12 AND port = ?13", args)
+        tx.execute("UPDATE frontier SET peer_version = ?1, public_key = ?2, expire_block_height = ?3, last_contact_time = ?4, asn = ?5, org = ?6, allowed = ?7, denied = ?8, in_degree = ?9, out_degree = ?10, public = ?11 \
+                    WHERE network_id = ?12 AND addrbytes = ?13 AND port = ?14", args)
             .map_err(db_error::SqliteError)?;
 
         if let Some(old_peer) = old_peer_opt {
@@ -1311,7 +1378,7 @@ impl PeerDB {
     ) -> Result<Option<u32>, db_error> {
         let qry =
             "SELECT slot FROM frontier WHERE network_id = ?1 AND addrbytes = ?2 AND port = ?3";
-        let args: &[&dyn ToSql] = &[&network_id, &addrbytes.to_bin(), &port];
+        let args = params![network_id, addrbytes.to_bin(), port];
         Ok(query_row::<u32, _>(conn, qry, args)?)
     }
 
@@ -1337,7 +1404,7 @@ impl PeerDB {
         smart_contract: &QualifiedContractIdentifier,
     ) -> Result<Vec<u32>, db_error> {
         let qry = "SELECT peer_slot FROM stackerdb_peers WHERE smart_contract_id = ?1";
-        let args: &[&dyn ToSql] = &[&smart_contract.to_string()];
+        let args = params![smart_contract.to_string()];
         query_rows(conn, qry, args)
     }
 
@@ -1397,7 +1464,7 @@ impl PeerDB {
         let sql = "DELETE FROM stackerdb_peers WHERE smart_contract_id = ?1 AND peer_slot = ?2";
         for cid in to_delete.into_iter() {
             test_debug!("Delete Stacker DB for {:?}: {}", &neighbor.addr, &cid);
-            let args: &[&dyn ToSql] = &[&cid.to_string(), &slot];
+            let args = params![cid.to_string(), slot];
             tx.execute(sql, args).map_err(db_error::SqliteError)?;
         }
 
@@ -1405,7 +1472,7 @@ impl PeerDB {
             "INSERT OR REPLACE INTO stackerdb_peers (smart_contract_id,peer_slot) VALUES (?1,?2)";
         for cid in to_insert.iter() {
             test_debug!("Add Stacker DB for {:?}: {}", &neighbor.addr, &cid);
-            let args: &[&dyn ToSql] = &[&cid.to_string(), &slot];
+            let args = params![cid.to_string(), slot];
             tx.execute(sql, args).map_err(db_error::SqliteError)?;
         }
 
@@ -1462,7 +1529,7 @@ impl PeerDB {
         prefix: &PeerAddress,
         mask: u32,
     ) -> Result<(), db_error> {
-        let args: &[&dyn ToSql] = &[&prefix.to_bin(), &mask];
+        let args = params![prefix.to_bin(), mask];
         tx.execute(
             &format!(
                 "INSERT OR REPLACE INTO {} (prefix, mask) VALUES (?1, ?2)",
@@ -1481,7 +1548,7 @@ impl PeerDB {
         prefix: &PeerAddress,
         mask: u32,
     ) -> Result<(), db_error> {
-        let args: &[&dyn ToSql] = &[&prefix.to_bin(), &mask];
+        let args = params![prefix.to_bin(), mask];
         tx.execute(
             &format!("DELETE FROM {} WHERE prefix = ?1 AND mask = ?2", table),
             args,
@@ -1558,7 +1625,7 @@ impl PeerDB {
     ) -> Result<(), db_error> {
         assert!(mask > 0 && mask <= 128);
         let prefix_txt = PeerDB::cidr_prefix_to_string(prefix, mask);
-        let args: &[&dyn ToSql] = &[&value, &mask, &prefix_txt];
+        let args = params![value, mask, prefix_txt];
         tx.execute(
             &format!(
                 "UPDATE frontier SET {} = ?1 WHERE SUBSTR(addrbytes,1,?2) = SUBSTR(?3,1,?2)",
@@ -1598,7 +1665,8 @@ impl PeerDB {
         Ok(())
     }
 
-    /// Get random neighbors, optionally always including allowed neighbors
+    /// Get random neighbors, optionally always including allowed neighbors.
+    /// Private IPs may be returned, if known.
     pub fn get_random_neighbors(
         conn: &DBConn,
         network_id: u32,
@@ -1615,6 +1683,7 @@ impl PeerDB {
             count,
             block_height,
             always_include_allowed,
+            false,
         )
     }
 
@@ -1627,6 +1696,7 @@ impl PeerDB {
         count: u32,
         block_height: u64,
         always_include_allowed: bool,
+        public_only: bool,
     ) -> Result<Vec<Neighbor>, db_error> {
         let mut ret = vec![];
 
@@ -1636,13 +1706,13 @@ impl PeerDB {
         if always_include_allowed {
             // always include allowed neighbors, freshness be damned
             let allow_qry = "SELECT * FROM frontier WHERE network_id = ?1 AND denied < ?2 AND (allowed < 0 OR ?3 < allowed) AND (peer_version & 0x000000ff) >= ?4";
-            let allow_args: &[&dyn ToSql] = &[
-                &network_id,
-                &u64_to_sql(now_secs)?,
-                &u64_to_sql(now_secs)?,
-                &network_epoch,
+            let allow_args = params![
+                network_id,
+                u64_to_sql(now_secs)?,
+                u64_to_sql(now_secs)?,
+                network_epoch,
             ];
-            let mut allow_rows = query_rows::<Neighbor, _>(conn, &allow_qry, allow_args)?;
+            let mut allow_rows = Self::query_peers(conn, &allow_qry, allow_args)?;
 
             if allow_rows.len() >= (count as usize) {
                 // return a random subset
@@ -1658,25 +1728,26 @@ impl PeerDB {
         }
 
         // fill in with non-allowed, randomly-chosen, fresh peers
+        let use_public = if public_only { "AND public = 1" } else { "" };
+
         let random_peers_qry = if always_include_allowed {
-            "SELECT * FROM frontier WHERE network_id = ?1 AND last_contact_time >= ?2 AND ?3 < expire_block_height AND denied < ?4 AND \
-                 (allowed >= 0 AND allowed <= ?5) AND (peer_version & 0x000000ff) >= ?6 ORDER BY RANDOM() LIMIT ?7"
+            format!("SELECT * FROM frontier WHERE network_id = ?1 AND last_contact_time >= ?2 AND ?3 < expire_block_height AND denied < ?4 AND \
+                 (allowed >= 0 AND allowed <= ?5) AND (peer_version & 0x000000ff) >= ?6 {use_public} ORDER BY RANDOM() LIMIT ?7")
         } else {
-            "SELECT * FROM frontier WHERE network_id = ?1 AND last_contact_time >= ?2 AND ?3 < expire_block_height AND denied < ?4 AND \
-                 (allowed < 0 OR (allowed >= 0 AND allowed <= ?5)) AND (peer_version & 0x000000ff) >= ?6 ORDER BY RANDOM() LIMIT ?7"
+            format!("SELECT * FROM frontier WHERE network_id = ?1 AND last_contact_time >= ?2 AND ?3 < expire_block_height AND denied < ?4 AND \
+                 (allowed < 0 OR (allowed >= 0 AND allowed <= ?5)) AND (peer_version & 0x000000ff) >= ?6 {use_public} ORDER BY RANDOM() LIMIT ?7")
         };
 
-        let random_peers_args: &[&dyn ToSql] = &[
-            &network_id,
-            &u64_to_sql(min_age)?,
-            &u64_to_sql(block_height)?,
-            &u64_to_sql(now_secs)?,
-            &u64_to_sql(now_secs)?,
-            &network_epoch,
-            &(count - (ret.len() as u32)),
+        let random_peers_args = params![
+            network_id,
+            u64_to_sql(min_age)?,
+            u64_to_sql(block_height)?,
+            u64_to_sql(now_secs)?,
+            u64_to_sql(now_secs)?,
+            network_epoch,
+            (count - (ret.len() as u32)),
         ];
-        let mut random_peers =
-            query_rows::<Neighbor, _>(conn, &random_peers_qry, random_peers_args)?;
+        let mut random_peers = Self::query_peers(conn, &random_peers_qry, random_peers_args)?;
 
         ret.append(&mut random_peers);
         Ok(ret)
@@ -1698,6 +1769,7 @@ impl PeerDB {
 
     /// Get a randomized set of peers for walking the peer graph.
     /// -- selects peers at random even if not allowed
+    /// -- may include private IPs
     #[cfg_attr(test, mutants::skip)]
     pub fn get_random_walk_neighbors(
         conn: &DBConn,
@@ -1715,6 +1787,7 @@ impl PeerDB {
             count,
             block_height,
             false,
+            false,
         )
     }
 
@@ -1723,12 +1796,7 @@ impl PeerDB {
     fn asn4_insert(tx: &Transaction, asn4: &ASEntry4) -> Result<(), db_error> {
         tx.execute(
             "INSERT OR REPLACE INTO asn4 (prefix, mask, asn, org) VALUES (?1, ?2, ?3, ?4)",
-            &[
-                &asn4.prefix as &dyn ToSql,
-                &asn4.mask as &dyn ToSql,
-                &asn4.asn as &dyn ToSql,
-                &asn4.org as &dyn ToSql,
-            ],
+            params![asn4.prefix, asn4.mask, asn4.asn, asn4.org,],
         )
         .map_err(db_error::SqliteError)?;
 
@@ -1747,8 +1815,8 @@ impl PeerDB {
         let addr_u32 = addrbits.ipv4_bits().unwrap();
 
         let qry = "SELECT * FROM asn4 WHERE prefix = (?1 & ~((1 << (32 - mask)) - 1)) ORDER BY prefix DESC LIMIT 1";
-        let args = [&addr_u32 as &dyn ToSql];
-        let rows = query_rows::<ASEntry4, _>(conn, &qry, &args)?;
+        let args = params![addr_u32];
+        let rows = query_rows::<ASEntry4, _>(conn, &qry, args)?;
         match rows.len() {
             0 => Ok(None),
             _ => Ok(Some(rows[0].asn)),
@@ -1770,8 +1838,8 @@ impl PeerDB {
     #[cfg_attr(test, mutants::skip)]
     pub fn asn_count(conn: &DBConn, asn: u32) -> Result<u64, db_error> {
         let qry = "SELECT COUNT(*) FROM frontier WHERE asn = ?1";
-        let args = [&asn as &dyn ToSql];
-        let count = query_count(conn, &qry, &args)?;
+        let args = params![asn];
+        let count = query_count(conn, &qry, args)?;
         Ok(count as u64)
     }
 
@@ -1784,7 +1852,7 @@ impl PeerDB {
 
     pub fn get_all_peers(conn: &DBConn) -> Result<Vec<Neighbor>, db_error> {
         let qry = "SELECT * FROM frontier ORDER BY addrbytes ASC, port ASC";
-        let rows = query_rows::<Neighbor, _>(conn, &qry, NO_PARAMS)?;
+        let rows = Self::query_peers(conn, &qry, NO_PARAMS)?;
         Ok(rows)
     }
 
@@ -1801,19 +1869,19 @@ impl PeerDB {
         if max_count == 0 {
             return Ok(vec![]);
         }
-        let qry = "SELECT DISTINCT frontier.* FROM frontier JOIN stackerdb_peers ON stackerdb_peers.peer_slot = frontier.slot WHERE stackerdb_peers.smart_contract_id = ?1 AND frontier.network_id = ?2 AND frontier.last_contact_time >= ?3 ORDER BY RANDOM() LIMIT ?4";
+        let qry = "SELECT frontier.* FROM frontier JOIN stackerdb_peers ON stackerdb_peers.peer_slot = frontier.slot WHERE stackerdb_peers.smart_contract_id = ?1 AND frontier.network_id = ?2 AND frontier.last_contact_time >= ?3 ORDER BY RANDOM() LIMIT ?4";
         let max_count_u32 = u32::try_from(max_count).unwrap_or(u32::MAX);
-        let args: &[&dyn ToSql] = &[
-            &smart_contract.to_string(),
-            &network_id,
-            &u64_to_sql(min_age)?,
-            &max_count_u32,
+        let args = params![
+            smart_contract.to_string(),
+            network_id,
+            u64_to_sql(min_age)?,
+            max_count_u32,
         ];
-        query_rows(conn, qry, args)
+        Self::query_peers(conn, qry, args)
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 mod test {
     use clarity::vm::types::{StacksAddressExtensions, StandardPrincipalData};
     use stacks_common::types::chainstate::StacksAddress;
@@ -1822,6 +1890,21 @@ mod test {
 
     use super::*;
     use crate::net::{Neighbor, NeighborKey};
+
+    impl PeerDB {
+        /// test the `public` flag
+        pub fn is_public(
+            conn: &DBConn,
+            network_id: u32,
+            peer_addr: &PeerAddress,
+            peer_port: u16,
+        ) -> Result<bool, db_error> {
+            let qry = "SELECT public FROM frontier WHERE network_id = ?1 AND addrbytes = ?2 AND port = ?3";
+            let args = params![network_id, peer_addr.to_bin(), peer_port,];
+            let public: bool = query_row(conn, qry, args)?.ok_or(db_error::NotFoundError)?;
+            Ok(public)
+        }
+    }
 
     /// Test storage, retrieval, and mutation of LocalPeer, including its stacker DB contract IDs
     #[test]
@@ -3559,5 +3642,224 @@ mod test {
             &[],
         )
         .unwrap();
+    }
+
+    /// Test `public` setting in DB migration
+    #[test]
+    fn test_db_schema_3_public_ip_migration() {
+        let key = Secp256k1PrivateKey::new();
+
+        let path = "/tmp/test-peerdb-schema-3-public-ip-migration.db".to_string();
+        if fs::metadata(&path).is_ok() {
+            fs::remove_file(&path).unwrap();
+        }
+        let mut db = PeerDB::connect(
+            &path,
+            true,
+            0x80000000,
+            0,
+            Some(key.clone()),
+            i64::MAX as u64,
+            PeerAddress::from_ipv4(127, 0, 0, 1),
+            12345,
+            UrlString::try_from("http://foo.com").unwrap(),
+            &vec![],
+            None,
+            &[],
+        )
+        .unwrap();
+
+        let private_addrbytes = vec![
+            PeerAddress::from_ipv4(127, 0, 0, 1),
+            PeerAddress::from_ipv4(192, 168, 0, 1),
+            PeerAddress::from_ipv4(172, 16, 0, 1),
+            PeerAddress::from_ipv4(10, 0, 0, 1),
+            PeerAddress([
+                0xfc, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c,
+                0x0d, 0x0e,
+            ]),
+            PeerAddress([
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x01,
+            ]),
+        ];
+
+        let public_addrbytes = vec![
+            PeerAddress::from_ipv4(1, 2, 3, 4),
+            PeerAddress([
+                0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee,
+                0xff, 0x00,
+            ]),
+        ];
+
+        let mut neighbor = Neighbor {
+            addr: NeighborKey {
+                peer_version: 0x12345678,
+                network_id: 0x9abcdef0,
+                addrbytes: PeerAddress::from_ipv4(127, 0, 0, 1),
+                port: 12345,
+            },
+            public_key: Secp256k1PublicKey::from_hex(
+                "02fa66b66f8971a8cd4d20ffded09674e030f0f33883f337f34b95ad4935bac0e3",
+            )
+            .unwrap(),
+            expire_block: 23456,
+            last_contact_time: 1552509642,
+            allowed: -1,
+            denied: -1,
+            asn: 34567,
+            org: 45678,
+            in_degree: 1,
+            out_degree: 1,
+        };
+
+        // force public and see if it gets reverted
+        let tx = db.tx_begin().unwrap();
+
+        for private in private_addrbytes.iter() {
+            neighbor.addr.addrbytes = private.clone();
+            neighbor.public_key = Secp256k1PublicKey::from_private(&Secp256k1PrivateKey::new());
+            assert!(PeerDB::try_insert_peer(&tx, &neighbor, &[]).unwrap());
+        }
+        for public in public_addrbytes.iter() {
+            neighbor.addr.addrbytes = public.clone();
+            neighbor.public_key = Secp256k1PublicKey::from_private(&Secp256k1PrivateKey::new());
+            assert!(PeerDB::try_insert_peer(&tx, &neighbor, &[]).unwrap());
+        }
+        tx.execute("UPDATE frontier SET public = 1", params![])
+            .unwrap();
+        tx.commit().unwrap();
+
+        // make sure they're all listed as public (even if erroneously)
+        for private in private_addrbytes.iter() {
+            assert!(PeerDB::is_public(
+                &db.conn,
+                neighbor.addr.network_id,
+                private,
+                neighbor.addr.port
+            )
+            .unwrap());
+        }
+        for public in public_addrbytes.iter() {
+            assert!(PeerDB::is_public(
+                &db.conn,
+                neighbor.addr.network_id,
+                public,
+                neighbor.addr.port
+            )
+            .unwrap());
+        }
+
+        let tx = db.tx_begin().unwrap();
+        PeerDB::update_peerdb_public_addrs(&tx).unwrap();
+
+        // fixed
+        for private in private_addrbytes.iter() {
+            assert!(
+                !PeerDB::is_public(&tx, neighbor.addr.network_id, private, neighbor.addr.port)
+                    .unwrap()
+            );
+        }
+        for public in public_addrbytes.iter() {
+            assert!(
+                PeerDB::is_public(&tx, neighbor.addr.network_id, public, neighbor.addr.port)
+                    .unwrap()
+            );
+        }
+
+        // now do the opposite
+        tx.execute("UPDATE frontier SET public = 0", params![])
+            .unwrap();
+        tx.commit().unwrap();
+
+        let tx = db.tx_begin().unwrap();
+        PeerDB::update_peerdb_public_addrs(&tx).unwrap();
+
+        // fixed
+        for private in private_addrbytes.iter() {
+            assert!(
+                !PeerDB::is_public(&tx, neighbor.addr.network_id, private, neighbor.addr.port)
+                    .unwrap()
+            );
+        }
+        for public in public_addrbytes.iter() {
+            assert!(
+                PeerDB::is_public(&tx, neighbor.addr.network_id, public, neighbor.addr.port)
+                    .unwrap()
+            );
+        }
+        tx.commit().unwrap();
+    }
+
+    /// Verify that multiple peers with the same public key are coalesced by last-contact-time
+    #[test]
+    fn test_query_peers() {
+        let key = Secp256k1PrivateKey::new();
+
+        let path = "/tmp/test-query-peers.db".to_string();
+        if fs::metadata(&path).is_ok() {
+            fs::remove_file(&path).unwrap();
+        }
+        let mut db = PeerDB::connect(
+            &path,
+            true,
+            0x80000000,
+            0,
+            Some(key.clone()),
+            i64::MAX as u64,
+            PeerAddress::from_ipv4(127, 0, 0, 1),
+            12345,
+            UrlString::try_from("http://foo.com").unwrap(),
+            &vec![],
+            None,
+            &[],
+        )
+        .unwrap();
+
+        let mut neighbor = Neighbor {
+            addr: NeighborKey {
+                peer_version: 0x12345678,
+                network_id: 0x9abcdef0,
+                addrbytes: PeerAddress::from_ipv4(127, 0, 0, 1),
+                port: 12345,
+            },
+            public_key: Secp256k1PublicKey::from_hex(
+                "02fa66b66f8971a8cd4d20ffded09674e030f0f33883f337f34b95ad4935bac0e3",
+            )
+            .unwrap(),
+            expire_block: 23456,
+            last_contact_time: 1552509642,
+            allowed: -1,
+            denied: -1,
+            asn: 34567,
+            org: 45678,
+            in_degree: 1,
+            out_degree: 1,
+        };
+
+        let tx = db.tx_begin().unwrap();
+        for i in 0..10 {
+            neighbor.addr.port = (i + 1024) as u16;
+            neighbor.last_contact_time = (i + 1552509642) as u64;
+            assert!(PeerDB::try_insert_peer(&tx, &neighbor, &[]).unwrap());
+        }
+        tx.commit().unwrap();
+
+        // only one peer returned, and it's the one with the highest last-contact time
+        let mut peers = PeerDB::query_peers(
+            &db.conn,
+            "SELECT * FROM frontier WHERE network_id = ?1 AND addrbytes = ?2 AND port = ?3",
+            params![
+                &neighbor.addr.network_id,
+                &to_bin(neighbor.addr.addrbytes.as_bytes()),
+                &neighbor.addr.port
+            ],
+        )
+        .unwrap();
+        assert_eq!(peers.len(), 1);
+
+        let peer = peers.pop().unwrap();
+        assert_eq!(peer.addr.port, 1033);
+        assert_eq!(peer.last_contact_time, 1552509651);
     }
 }

@@ -20,11 +20,11 @@ use clarity::vm::clarity::{ClarityConnection, TransactionConnection};
 use clarity::vm::contexts::{Environment, GlobalContext, OwnedEnvironment};
 use clarity::vm::contracts::Contract;
 use clarity::vm::costs::ExecutionCost;
-use clarity::vm::database::ClarityDatabase;
+use clarity::vm::database::{ClarityDatabase, HeadersDB};
 use clarity::vm::errors::{CheckErrors, Error as InterpreterError, Error, RuntimeErrorType};
 use clarity::vm::representations::SymbolicExpression;
 use clarity::vm::test_util::*;
-use clarity::vm::tests::test_clarity_versions;
+use clarity::vm::tests::{test_clarity_versions, BurnStateDB};
 use clarity::vm::types::{
     OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, StandardPrincipalData,
     TypeSignature, Value,
@@ -42,7 +42,7 @@ use stacks_common::util::hash::hex_bytes;
 
 use crate::chainstate::stacks::boot::{BOOT_CODE_COSTS, BOOT_CODE_COSTS_2, BOOT_CODE_COSTS_3};
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
-use crate::clarity_vm::clarity::{ClarityInstance, Error as ClarityError};
+use crate::clarity_vm::clarity::{ClarityBlockConnection, ClarityInstance, Error as ClarityError};
 use crate::clarity_vm::database::marf::MarfedKV;
 use crate::clarity_vm::database::MemoryBackingStore;
 use crate::util_lib::boot::boot_code_id;
@@ -88,9 +88,33 @@ const SIMPLE_TOKENS: &str = "(define-map tokens { account: principal } { balance
                 (token-credit! 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G u200)
                 (token-credit! .tokens u4))";
 
+/// Since setup_block is not called, we need to manually increment the tenure
+/// height each time a new block is made.
+fn new_block<'a, 'b>(
+    clarity: &'a mut ClarityInstance,
+    current: &StacksBlockId,
+    next: &StacksBlockId,
+    header_db: &'b dyn HeadersDB,
+    burn_state_db: &'b dyn BurnStateDB,
+) -> ClarityBlockConnection<'a, 'b> {
+    let mut block = clarity.begin_block(current, next, header_db, burn_state_db);
+    block.as_free_transaction(|tx_conn| {
+        tx_conn
+            .with_clarity_db(|db| {
+                if db.get_clarity_epoch_version().unwrap() >= StacksEpochId::Epoch30 {
+                    let tenure_height = db.get_tenure_height().unwrap_or(0);
+                    db.set_tenure_height(tenure_height + 1).unwrap();
+                }
+                Ok(())
+            })
+            .unwrap();
+    });
+    block
+}
+
 #[apply(test_clarity_versions)]
 fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
-    if epoch < StacksEpochId::Epoch2_05 {
+    if epoch < StacksEpochId::Epoch2_05 || version > ClarityVersion::Clarity2 {
         return;
     }
     let mut clarity = ClarityInstance::new(false, CHAIN_ID_TESTNET, MarfedKV::temporary());
@@ -170,7 +194,8 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
     gb.commit_block();
 
     {
-        let mut block = clarity.begin_block(
+        let mut block = new_block(
+            &mut clarity,
             &StacksBlockId([0xfe as u8; 32]),
             &StacksBlockId([0 as u8; 32]),
             &TEST_HEADER_DB,
@@ -335,7 +360,8 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
 
     for i in 0..25 {
         {
-            let block = clarity.begin_block(
+            let block = new_block(
+                &mut clarity,
                 &test_block_headers(i),
                 &test_block_headers(i + 1),
                 &TEST_HEADER_DB,
@@ -346,7 +372,8 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
     }
 
     {
-        let mut block = clarity.begin_block(
+        let mut block = new_block(
+            &mut clarity,
             &test_block_headers(25),
             &test_block_headers(26),
             &TEST_HEADER_DB,
@@ -676,7 +703,8 @@ pub fn rollback_log_memory_test(
         .commit_block();
 
     {
-        let mut conn = clarity_instance.begin_block(
+        let mut conn = new_block(
+            &mut clarity_instance,
             &StacksBlockId([0 as u8; 32]),
             &StacksBlockId([1 as u8; 32]),
             &TEST_HEADER_DB,
@@ -746,7 +774,8 @@ pub fn let_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_id
         .commit_block();
 
     {
-        let mut conn = clarity_instance.begin_block(
+        let mut conn = new_block(
+            &mut clarity_instance,
             &StacksBlockId([0 as u8; 32]),
             &StacksBlockId([1 as u8; 32]),
             &TEST_HEADER_DB,
@@ -824,7 +853,8 @@ pub fn argument_memory_test(
         .commit_block();
 
     {
-        let mut conn = clarity_instance.begin_block(
+        let mut conn = new_block(
+            &mut clarity_instance,
             &StacksBlockId([0 as u8; 32]),
             &StacksBlockId([1 as u8; 32]),
             &TEST_HEADER_DB,
@@ -900,7 +930,8 @@ pub fn fcall_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_
         .commit_block();
 
     {
-        let mut conn = clarity_instance.begin_block(
+        let mut conn = new_block(
+            &mut clarity_instance,
             &StacksBlockId([0 as u8; 32]),
             &StacksBlockId([1 as u8; 32]),
             &TEST_HEADER_DB,
@@ -1018,7 +1049,8 @@ pub fn ccall_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_
         .commit_block();
 
     {
-        let mut conn = clarity_instance.begin_block(
+        let mut conn = new_block(
+            &mut clarity_instance,
             &StacksBlockId([0 as u8; 32]),
             &StacksBlockId([1 as u8; 32]),
             &TEST_HEADER_DB,

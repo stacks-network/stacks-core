@@ -22,6 +22,7 @@ use stacks::chainstate::stacks::{
     TransactionContractCall, TransactionPayload,
 };
 use stacks::clarity_vm::clarity::ClarityConnection;
+use stacks::codec::StacksMessageCodec;
 use stacks::core::mempool::MAXIMUM_MEMPOOL_TX_CHAINING;
 use stacks::core::{
     StacksEpoch, StacksEpochId, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05,
@@ -31,7 +32,6 @@ use stacks::net::api::callreadonly::CallReadOnlyRequestBody;
 use stacks::net::api::getaccount::AccountEntryResponse;
 use stacks::net::api::getcontractsrc::ContractSrcResponse;
 use stacks::net::api::getistraitimplemented::GetIsTraitImplementedResponse;
-use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId, VRFSeed};
 use stacks_common::util::hash::{hex_bytes, to_hex, Sha256Sum};
 

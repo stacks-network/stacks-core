@@ -33,11 +33,14 @@ use super::RunLoopCallbacks;
 use crate::burnchains::{make_bitcoin_indexer, Error};
 use crate::globals::NeonGlobals as Globals;
 use crate::monitoring::{start_serving_monitoring_metrics, MonitoringError};
-use crate::neon_node::{StacksNode, BLOCK_PROCESSOR_STACK_SIZE, RELAYER_MAX_BUFFER};
+use crate::neon_node::{
+    LeaderKeyRegistrationState, StacksNode, BLOCK_PROCESSOR_STACK_SIZE, RELAYER_MAX_BUFFER,
+};
 use crate::node::{
     get_account_balances, get_account_lockups, get_names, get_namespaces,
     use_test_genesis_chainstate,
 };
+use crate::run_loop::boot_nakamoto::Neon2NakaData;
 use crate::syncctl::{PoxSyncWatchdog, PoxSyncWatchdogComms};
 use crate::{
     run_loop, BitcoinRegtestController, BurnchainController, Config, EventDispatcher, Keychain,
@@ -79,6 +82,17 @@ impl std::ops::Deref for RunLoopCounter {
     }
 }
 
+#[cfg(test)]
+#[derive(Clone)]
+pub struct TestFlag(pub Arc<std::sync::Mutex<Option<bool>>>);
+
+#[cfg(test)]
+impl Default for TestFlag {
+    fn default() -> Self {
+        Self(Arc::new(std::sync::Mutex::new(None)))
+    }
+}
+
 #[derive(Clone, Default)]
 pub struct Counters {
     pub blocks_processed: RunLoopCounter,
@@ -90,8 +104,13 @@ pub struct Counters {
     pub naka_submitted_vrfs: RunLoopCounter,
     pub naka_submitted_commits: RunLoopCounter,
     pub naka_mined_blocks: RunLoopCounter,
+    pub naka_rejected_blocks: RunLoopCounter,
     pub naka_proposed_blocks: RunLoopCounter,
     pub naka_mined_tenures: RunLoopCounter,
+    pub naka_signer_pushed_blocks: RunLoopCounter,
+
+    #[cfg(test)]
+    pub naka_skip_commit_op: TestFlag,
 }
 
 impl Counters {
@@ -149,6 +168,14 @@ impl Counters {
 
     pub fn bump_naka_proposed_blocks(&self) {
         Counters::inc(&self.naka_proposed_blocks);
+    }
+
+    pub fn bump_naka_rejected_blocks(&self) {
+        Counters::inc(&self.naka_rejected_blocks);
+    }
+
+    pub fn bump_naka_signer_pushed_blocks(&self) {
+        Counters::inc(&self.naka_signer_pushed_blocks);
     }
 
     pub fn bump_naka_mined_tenures(&self) {
@@ -331,6 +358,11 @@ impl RunLoop {
         }
     }
 
+    /// Seconds to wait before retrying UTXO check during startup
+    const UTXO_RETRY_INTERVAL: u64 = 10;
+    /// Number of times to retry UTXO check during startup
+    const UTXO_RETRY_COUNT: u64 = 6;
+
     /// Determine if we're the miner.
     /// If there's a network error, then assume that we're not a miner.
     fn check_is_miner(&mut self, burnchain: &mut BitcoinRegtestController) -> bool {
@@ -363,22 +395,26 @@ impl RunLoop {
                 ));
             }
 
-            for (epoch_id, btc_addr) in btc_addrs.into_iter() {
-                info!("Miner node: checking UTXOs at address: {}", &btc_addr);
-                let utxos = burnchain.get_utxos(epoch_id, &op_signer.get_public_key(), 1, None, 0);
-                if utxos.is_none() {
-                    warn!("UTXOs not found for {}. If this is unexpected, please ensure that your bitcoind instance is indexing transactions for the address {} (importaddress)", btc_addr, btc_addr);
-                } else {
-                    info!("UTXOs found - will run as a Miner node");
+            // retry UTXO check a few times, in case bitcoind is still starting up
+            for _ in 0..Self::UTXO_RETRY_COUNT {
+                for (epoch_id, btc_addr) in &btc_addrs {
+                    info!("Miner node: checking UTXOs at address: {btc_addr}");
+                    let utxos =
+                        burnchain.get_utxos(*epoch_id, &op_signer.get_public_key(), 1, None, 0);
+                    if utxos.is_none() {
+                        warn!("UTXOs not found for {btc_addr}. If this is unexpected, please ensure that your bitcoind instance is indexing transactions for the address {btc_addr} (importaddress)");
+                    } else {
+                        info!("UTXOs found - will run as a Miner node");
+                        return true;
+                    }
+                }
+                if self.config.get_node_config(false).mock_mining {
+                    info!("No UTXOs found, but configured to mock mine");
                     return true;
                 }
+                thread::sleep(std::time::Duration::from_secs(Self::UTXO_RETRY_INTERVAL));
             }
-            if self.config.get_node_config().mock_mining {
-                info!("No UTXOs found, but configured to mock mine");
-                return true;
-            } else {
-                return false;
-            }
+            panic!("No UTXOs found, exiting");
         } else {
             info!("Will run as a Follower node");
             false
@@ -461,7 +497,7 @@ impl RunLoop {
                             return burnchain_error::ShutdownInitiated;
                         }
                     }
-                    Error::IndexerError(_) => {}
+                    _ => {}
                 }
                 error!("Burnchain controller stopped: {}", e);
                 panic!();
@@ -999,7 +1035,13 @@ impl RunLoop {
     /// It will start the burnchain (separate thread), set-up a channel in
     /// charge of coordinating the new blocks coming from the burnchain and
     /// the nodes, taking turns on tenures.  
-    pub fn start(&mut self, burnchain_opt: Option<Burnchain>, mut mine_start: u64) {
+    ///
+    /// Returns `Option<NeonGlobals>` so that data can be passed to `NakamotoNode`
+    pub fn start(
+        &mut self,
+        burnchain_opt: Option<Burnchain>,
+        mut mine_start: u64,
+    ) -> Option<Neon2NakaData> {
         let (coordinator_receivers, coordinator_senders) = self
             .coordinator_channels
             .take()
@@ -1018,12 +1060,12 @@ impl RunLoop {
             Ok(burnchain_controller) => burnchain_controller,
             Err(burnchain_error::ShutdownInitiated) => {
                 info!("Exiting stacks-node");
-                return;
+                return None;
             }
             Err(e) => {
                 error!("Error initializing burnchain: {}", e);
                 info!("Exiting stacks-node");
-                return;
+                return None;
             }
         };
 
@@ -1046,6 +1088,7 @@ impl RunLoop {
             self.pox_watchdog_comms.clone(),
             self.should_keep_running.clone(),
             mine_start,
+            LeaderKeyRegistrationState::default(),
         );
         self.set_globals(globals.clone());
 
@@ -1142,11 +1185,15 @@ impl RunLoop {
 
                 globals.coord().stop_chains_coordinator();
                 coordinator_thread_handle.join().unwrap();
-                node.join();
+                let peer_network = node.join();
                 liveness_thread.join().unwrap();
 
+                // Data that will be passed to Nakamoto run loop
+                // Only gets transfered on clean shutdown of neon run loop
+                let data_to_naka = Neon2NakaData::new(globals, peer_network);
+
                 info!("Exiting stacks-node");
-                break;
+                break Some(data_to_naka);
             }
 
             let remote_chain_height = burnchain.get_headers_height() - 1;
@@ -1267,9 +1314,29 @@ impl RunLoop {
                         //
                         // _this will block if the relayer's buffer is full_
                         if !node.relayer_sortition_notify() {
+                            // First check if we were supposed to cleanly exit
+                            if !globals.keep_running() {
+                                // The p2p thread relies on the same atomic_bool, it will
+                                // discontinue its execution after completing its ongoing runloop epoch.
+                                info!("Terminating p2p process");
+                                info!("Terminating relayer");
+                                info!("Terminating chains-coordinator");
+
+                                globals.coord().stop_chains_coordinator();
+                                coordinator_thread_handle.join().unwrap();
+                                let peer_network = node.join();
+                                liveness_thread.join().unwrap();
+
+                                // Data that will be passed to Nakamoto run loop
+                                // Only gets transfered on clean shutdown of neon run loop
+                                let data_to_naka = Neon2NakaData::new(globals, peer_network);
+
+                                info!("Exiting stacks-node");
+                                return Some(data_to_naka);
+                            }
                             // relayer hung up, exit.
                             error!("Runloop: Block relayer and miner hung up, exiting.");
-                            return;
+                            return None;
                         }
                     }
 
@@ -1341,9 +1408,29 @@ impl RunLoop {
                     }
 
                     if !node.relayer_issue_tenure(ibd) {
+                        // First check if we were supposed to cleanly exit
+                        if !globals.keep_running() {
+                            // The p2p thread relies on the same atomic_bool, it will
+                            // discontinue its execution after completing its ongoing runloop epoch.
+                            info!("Terminating p2p process");
+                            info!("Terminating relayer");
+                            info!("Terminating chains-coordinator");
+
+                            globals.coord().stop_chains_coordinator();
+                            coordinator_thread_handle.join().unwrap();
+                            let peer_network = node.join();
+                            liveness_thread.join().unwrap();
+
+                            // Data that will be passed to Nakamoto run loop
+                            // Only gets transfered on clean shutdown of neon run loop
+                            let data_to_naka = Neon2NakaData::new(globals, peer_network);
+
+                            info!("Exiting stacks-node");
+                            return Some(data_to_naka);
+                        }
                         // relayer hung up, exit.
                         error!("Runloop: Block relayer and miner hung up, exiting.");
-                        break;
+                        break None;
                     }
                 }
             }

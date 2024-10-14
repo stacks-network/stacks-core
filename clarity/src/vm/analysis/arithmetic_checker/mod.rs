@@ -148,7 +148,7 @@ impl<'a> ArithmeticOnlyChecker<'a> {
         {
             match native_var {
                 ContractCaller | TxSender | TotalLiquidMicroSTX | BlockHeight | BurnBlockHeight
-                | Regtest | TxSponsor | Mainnet | ChainId => {
+                | Regtest | TxSponsor | Mainnet | ChainId | StacksBlockHeight | TenureHeight => {
                     Err(Error::VariableForbidden(native_var))
                 }
                 NativeNone | NativeTrue | NativeFalse => Ok(()),
@@ -174,13 +174,12 @@ impl<'a> ArithmeticOnlyChecker<'a> {
     ) -> Result<(), Error> {
         use crate::vm::functions::NativeFunctions::*;
         match function {
-            FetchVar | GetBlockInfo | GetBurnBlockInfo | GetTokenBalance | GetAssetOwner
-            | FetchEntry | SetEntry | DeleteEntry | InsertEntry | SetVar | MintAsset
-            | MintToken | TransferAsset | TransferToken | ContractCall | StxTransfer
-            | StxTransferMemo | StxBurn | AtBlock | GetStxBalance | GetTokenSupply | BurnToken
-            | FromConsensusBuff | ToConsensusBuff | BurnAsset | StxGetAccount => {
-                Err(Error::FunctionNotPermitted(function))
-            }
+            FetchVar | GetBlockInfo | GetBurnBlockInfo | GetStacksBlockInfo | GetTenureInfo
+            | GetTokenBalance | GetAssetOwner | FetchEntry | SetEntry | DeleteEntry
+            | InsertEntry | SetVar | MintAsset | MintToken | TransferAsset | TransferToken
+            | ContractCall | StxTransfer | StxTransferMemo | StxBurn | AtBlock | GetStxBalance
+            | GetTokenSupply | BurnToken | FromConsensusBuff | ToConsensusBuff | BurnAsset
+            | StxGetAccount => Err(Error::FunctionNotPermitted(function)),
             Append | Concat | AsMaxLen | ContractOf | PrincipalOf | ListCons | Print
             | AsContract | ElementAt | ElementAtAlias | IndexOf | IndexOfAlias | Map | Filter
             | Fold | Slice | ReplaceAt => Err(Error::FunctionNotPermitted(function)),

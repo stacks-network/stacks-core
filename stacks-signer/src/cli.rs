@@ -14,26 +14,61 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::io::{self, Read};
-use std::net::SocketAddr;
 use std::path::PathBuf;
 
 use blockstack_lib::chainstate::stacks::address::PoxAddress;
 use blockstack_lib::util_lib::signed_structured_data::pox4::Pox4SignatureTopic;
+use blockstack_lib::util_lib::signed_structured_data::{
+    make_structured_data_domain, structured_data_message_hash,
+};
 use clap::{ArgAction, Parser, ValueEnum};
-use clarity::vm::types::QualifiedContractIdentifier;
+use clarity::consts::CHAIN_ID_MAINNET;
+use clarity::types::chainstate::StacksPublicKey;
+use clarity::types::{PrivateKey, PublicKey};
+use clarity::util::hash::Sha256Sum;
+use clarity::util::secp256k1::MessageSignature;
+use clarity::vm::types::{QualifiedContractIdentifier, TupleData};
+use clarity::vm::Value;
+use lazy_static::lazy_static;
+use serde::{Deserialize, Serialize};
 use stacks_common::address::{
     b58, AddressHashMode, C32_ADDRESS_VERSION_MAINNET_MULTISIG,
     C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_MULTISIG,
     C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
+use stacks_common::define_u8_enum;
 use stacks_common::types::chainstate::StacksPrivateKey;
-
-use crate::config::Network;
 
 extern crate alloc;
 
+const GIT_BRANCH: Option<&'static str> = option_env!("GIT_BRANCH");
+const GIT_COMMIT: Option<&'static str> = option_env!("GIT_COMMIT");
+#[cfg(debug_assertions)]
+const BUILD_TYPE: &str = "debug";
+#[cfg(not(debug_assertions))]
+const BUILD_TYPE: &str = "release";
+
+lazy_static! {
+    static ref VERSION_STRING: String = {
+        let pkg_version = option_env!("STACKS_NODE_VERSION").unwrap_or(env!("CARGO_PKG_VERSION"));
+        let git_branch = GIT_BRANCH.unwrap_or("");
+        let git_commit = GIT_COMMIT.unwrap_or("");
+        format!(
+            "{} ({}:{}, {} build, {} [{}])",
+            pkg_version,
+            git_branch,
+            git_commit,
+            BUILD_TYPE,
+            std::env::consts::OS,
+            std::env::consts::ARCH
+        )
+    };
+}
+
 #[derive(Parser, Debug)]
 #[command(author, version, about)]
+#[command(long_version = VERSION_STRING.as_str())]
+
 /// The CLI arguments for the stacks signer
 pub struct Cli {
     /// Subcommand action to take
@@ -52,20 +87,18 @@ pub enum Command {
     ListChunks(StackerDBArgs),
     /// Upload a chunk to the stacker-db instance
     PutChunk(PutChunkArgs),
-    /// Run DKG and sign the message through the stacker-db instance
-    DkgSign(SignArgs),
-    /// Sign the message through the stacker-db instance
-    Sign(SignArgs),
-    /// Run a DKG round through the stacker-db instance
-    Dkg(RunDkgArgs),
     /// Run the signer, waiting for events from the stacker-db instance
     Run(RunSignerArgs),
-    /// Generate necessary files for running a collection of signers
-    GenerateFiles(GenerateFilesArgs),
     /// Generate a signature for Stacking transactions
     GenerateStackingSignature(GenerateStackingSignatureArgs),
     /// Check a configuration file and output config information
     CheckConfig(RunSignerArgs),
+    /// Vote for a specified SIP with a yes or no vote
+    GenerateVote(GenerateVoteArgs),
+    /// Verify the vote for a specified SIP against a public key and vote info
+    VerifyVote(VerifyVoteArgs),
+    /// Verify signer signatures by checking stackerdb slots contain the correct data
+    MonitorSigners(MonitorSignersArgs),
 }
 
 /// Basic arguments for all cyrptographic and stacker-db functionality
@@ -127,34 +160,6 @@ pub struct PutChunkArgs {
 }
 
 #[derive(Parser, Debug, Clone)]
-/// Arguments for the dkg-sign and sign command
-pub struct SignArgs {
-    /// Path to config file
-    #[arg(long, short, value_name = "FILE")]
-    pub config: PathBuf,
-    /// The reward cycle the signer is registered for and wants to sign for
-    /// Note: this must be the current reward cycle of the node
-    #[arg(long, short)]
-    pub reward_cycle: u64,
-    /// The data to sign
-    #[arg(required = false, value_parser = parse_data)]
-    // Note this weirdness is due to https://github.com/clap-rs/clap/discussions/4695
-    // Need to specify the long name here due to invalid parsing in Clap which looks at the NAME rather than the TYPE which causes issues in how it handles Vec's.
-    pub data: alloc::vec::Vec<u8>,
-}
-
-#[derive(Parser, Debug, Clone)]
-/// Arguments for the Dkg command
-pub struct RunDkgArgs {
-    /// Path to config file
-    #[arg(long, short, value_name = "FILE")]
-    pub config: PathBuf,
-    /// The reward cycle the signer is registered for and wants to peform DKG for
-    #[arg(long, short)]
-    pub reward_cycle: u64,
-}
-
-#[derive(Parser, Debug, Clone)]
 /// Arguments for the Run command
 pub struct RunSignerArgs {
     /// Path to config file
@@ -163,36 +168,113 @@ pub struct RunSignerArgs {
 }
 
 #[derive(Parser, Debug, Clone)]
-/// Arguments for the generate-files command
-pub struct GenerateFilesArgs {
-    /// The Stacks node to connect to
-    #[arg(long)]
-    pub host: SocketAddr,
-    #[arg(
-        long,
-        required_unless_present = "private_keys",
-        conflicts_with = "private_keys"
-    )]
-    /// The number of signers to generate
-    pub num_signers: Option<u32>,
-    #[clap(long, value_name = "FILE")]
-    /// A path to a file containing a list of hexadecimal Stacks private keys of the signers
-    pub private_keys: Option<PathBuf>,
-    #[arg(long, value_parser = parse_network)]
-    /// The network to use. One of "mainnet", "testnet", or "mocknet".
-    pub network: Network,
-    /// The directory to write the test data files to
-    #[arg(long, default_value = ".")]
-    pub dir: PathBuf,
-    /// The number of milliseconds to wait when polling for events from the stacker-db instance.
-    #[arg(long)]
-    pub timeout: Option<u64>,
-    #[arg(long)]
-    /// The authorization password to use to connect to the validate block proposal node endpoint
-    pub password: String,
+/// Arguments for the Vote command
+pub struct GenerateVoteArgs {
+    /// Path to signer config file
+    #[arg(long, short, value_name = "FILE")]
+    pub config: PathBuf,
+    /// The vote info being cast
+    #[clap(flatten)]
+    pub vote_info: VoteInfo,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Parser, Debug, Clone, Copy)]
+/// Arguments for the VerifyVote command
+pub struct VerifyVoteArgs {
+    /// The Stacks public key to verify against
+    #[arg(short, long, value_parser = parse_public_key)]
+    pub public_key: StacksPublicKey,
+    /// The message signature in hexadecimal format
+    #[arg(short, long, value_parser = parse_message_signature)]
+    pub signature: MessageSignature,
+    /// The vote info being verified
+    #[clap(flatten)]
+    pub vote_info: VoteInfo,
+}
+
+#[derive(Parser, Debug, Clone, Copy)]
+/// Information about a SIP vote
+pub struct VoteInfo {
+    /// The SIP number to vote on
+    #[arg(long)]
+    pub sip: u32,
+    /// The vote to cast
+    #[arg(long, value_parser = parse_vote)]
+    pub vote: Vote,
+}
+
+impl VoteInfo {
+    /// Get the digest to sign that authenticates this vote data
+    fn digest(&self) -> Sha256Sum {
+        let vote_message = TupleData::from_data(vec![
+            ("sip".into(), Value::UInt(self.sip.into())),
+            ("vote".into(), Value::UInt(self.vote.to_u8().into())),
+        ])
+        .unwrap();
+        let data_domain =
+            make_structured_data_domain("signer-sip-voting", "1.0.0", CHAIN_ID_MAINNET);
+        structured_data_message_hash(vote_message.into(), data_domain)
+    }
+
+    /// Sign the vote data and return the signature
+    pub fn sign(&self, private_key: &StacksPrivateKey) -> Result<MessageSignature, &'static str> {
+        let digest = self.digest();
+        private_key.sign(digest.as_bytes())
+    }
+
+    /// Verify the vote data against the provided public key and signature
+    pub fn verify(
+        &self,
+        public_key: &StacksPublicKey,
+        signature: &MessageSignature,
+    ) -> Result<bool, &'static str> {
+        let digest = self.digest();
+        public_key.verify(digest.as_bytes(), signature)
+    }
+}
+
+define_u8_enum!(
+/// A given vote for a SIP
+Vote {
+    /// Vote yes
+    Yes = 0,
+    /// Vote no
+    No = 1
+});
+
+impl TryFrom<&str> for Vote {
+    type Error = String;
+    fn try_from(input: &str) -> Result<Vote, Self::Error> {
+        match input.to_lowercase().as_str() {
+            "yes" => Ok(Vote::Yes),
+            "no" => Ok(Vote::No),
+            _ => Err(format!("Invalid vote: {}. Must be `yes` or `no`.", input)),
+        }
+    }
+}
+
+impl TryFrom<u8> for Vote {
+    type Error = String;
+    fn try_from(input: u8) -> Result<Vote, Self::Error> {
+        Vote::from_u8(input).ok_or_else(|| format!("Invalid vote: {}. Must be 0 or 1.", input))
+    }
+}
+
+#[derive(Parser, Debug, Clone)]
+/// Arguments for the MonitorSigners command
+pub struct MonitorSignersArgs {
+    /// The Stacks node to connect to
+    #[arg(long)]
+    pub host: String,
+    /// Set the polling interval in seconds.
+    #[arg(long, short, default_value = "60")]
+    pub interval: u64,
+    /// Max age in seconds before a signer message is considered stale.
+    #[arg(long, short, default_value = "1200")]
+    pub max_age: u64,
+}
+
+#[derive(Clone, Debug, PartialEq)]
 /// Wrapper around `Pox4SignatureTopic` to implement `ValueEnum`
 pub struct StackingSignatureMethod(Pox4SignatureTopic);
 
@@ -219,22 +301,27 @@ impl ValueEnum for StackingSignatureMethod {
             Self(Pox4SignatureTopic::StackStx),
             Self(Pox4SignatureTopic::StackExtend),
             Self(Pox4SignatureTopic::AggregationCommit),
+            Self(Pox4SignatureTopic::AggregationIncrease),
+            Self(Pox4SignatureTopic::StackIncrease),
         ]
     }
 
     fn from_str(input: &str, _ignore_case: bool) -> Result<Self, String> {
         let topic = match input {
-            "stack-stx" => Pox4SignatureTopic::StackStx,
-            "stack-extend" => Pox4SignatureTopic::StackExtend,
             "aggregation-commit" => Pox4SignatureTopic::AggregationCommit,
-            "agg-commit" => Pox4SignatureTopic::AggregationCommit,
-            _ => return Err(format!("Invalid topic: {}", input)),
+            "aggregation-increase" => Pox4SignatureTopic::AggregationIncrease,
+            method => match Pox4SignatureTopic::lookup_by_name(method) {
+                Some(topic) => topic,
+                None => {
+                    return Err(format!("Invalid topic: {}", input));
+                }
+            },
         };
         Ok(topic.into())
     }
 }
 
-#[derive(Parser, Debug, Clone)]
+#[derive(Parser, Debug, Clone, PartialEq)]
 /// Arguments for the generate-stacking-signature command
 pub struct GenerateStackingSignatureArgs {
     /// BTC address used to receive rewards
@@ -297,6 +384,21 @@ fn parse_private_key(private_key: &str) -> Result<StacksPrivateKey, String> {
     StacksPrivateKey::from_hex(private_key).map_err(|e| format!("Invalid private key: {}", e))
 }
 
+/// Parse the hexadecimal Stacks public key
+fn parse_public_key(public_key: &str) -> Result<StacksPublicKey, String> {
+    StacksPublicKey::from_hex(public_key).map_err(|e| format!("Invalid public key: {}", e))
+}
+
+/// Parse the vote
+fn parse_vote(vote: &str) -> Result<Vote, String> {
+    vote.try_into()
+}
+
+/// Parse the hexadecimal encoded message signature
+fn parse_message_signature(signature: &str) -> Result<MessageSignature, String> {
+    MessageSignature::from_hex(signature).map_err(|e| format!("Invalid message signature: {}", e))
+}
+
 /// Parse the input data
 fn parse_data(data: &str) -> Result<Vec<u8>, String> {
     let encoded_data = if data == "-" {
@@ -310,21 +412,6 @@ fn parse_data(data: &str) -> Result<Vec<u8>, String> {
     let data =
         b58::from(&encoded_data).map_err(|e| format!("Failed to decode provided data: {}", e))?;
     Ok(data)
-}
-
-/// Parse the network. Must be one of "mainnet", "testnet", or "mocknet".
-fn parse_network(network: &str) -> Result<Network, String> {
-    Ok(match network.to_lowercase().as_str() {
-        "mainnet" => Network::Mainnet,
-        "testnet" => Network::Testnet,
-        "mocknet" => Network::Mocknet,
-        _ => {
-            return Err(format!(
-                "Invalid network: {}. Must be one of \"mainnet\", \"testnet\", or \"mocknet\".",
-                network
-            ))
-        }
-    })
 }
 
 #[cfg(test)]
@@ -487,5 +574,41 @@ mod tests {
             }
             _ => panic!("Invalid parsed address"),
         }
+    }
+
+    #[test]
+    fn test_parse_stacking_method() {
+        assert_eq!(
+            StackingSignatureMethod::from_str("agg-increase", true).unwrap(),
+            Pox4SignatureTopic::AggregationIncrease.into()
+        );
+        assert_eq!(
+            StackingSignatureMethod::from_str("agg-commit", true).unwrap(),
+            Pox4SignatureTopic::AggregationCommit.into()
+        );
+        assert_eq!(
+            StackingSignatureMethod::from_str("stack-increase", true).unwrap(),
+            Pox4SignatureTopic::StackIncrease.into()
+        );
+        assert_eq!(
+            StackingSignatureMethod::from_str("stack-extend", true).unwrap(),
+            Pox4SignatureTopic::StackExtend.into()
+        );
+        assert_eq!(
+            StackingSignatureMethod::from_str("stack-stx", true).unwrap(),
+            Pox4SignatureTopic::StackStx.into()
+        );
+
+        // These don't exactly match the enum, but are accepted if passed as
+        // CLI args
+
+        assert_eq!(
+            StackingSignatureMethod::from_str("aggregation-increase", true).unwrap(),
+            Pox4SignatureTopic::AggregationIncrease.into()
+        );
+        assert_eq!(
+            StackingSignatureMethod::from_str("aggregation-commit", true).unwrap(),
+            Pox4SignatureTopic::AggregationCommit.into()
+        );
     }
 }

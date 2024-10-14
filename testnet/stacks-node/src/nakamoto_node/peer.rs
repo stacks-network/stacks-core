@@ -16,8 +16,8 @@
 use std::collections::VecDeque;
 use std::net::SocketAddr;
 use std::sync::mpsc::TrySendError;
+use std::thread;
 use std::time::Duration;
-use std::{cmp, thread};
 
 use stacks::burnchains::db::BurnchainHeaderReader;
 use stacks::burnchains::PoxConstants;
@@ -182,11 +182,15 @@ impl PeerThread {
             .parse()
             .unwrap_or_else(|_| panic!("Failed to parse socket: {}", &config.node.rpc_bind));
 
-        net.bind(&p2p_sock, &rpc_sock)
-            .expect("BUG: PeerNetwork could not bind or is already bound");
+        let did_bind = net
+            .try_bind(&p2p_sock, &rpc_sock)
+            .expect("BUG: PeerNetwork could not bind");
 
-        let poll_timeout = cmp::min(5000, config.miner.first_attempt_time_ms / 2);
+        if !did_bind {
+            info!("`PeerNetwork::bind()` skipped, already bound");
+        }
 
+        let poll_timeout = config.get_poll_time();
         PeerThread {
             config,
             net,
@@ -261,6 +265,7 @@ impl PeerThread {
                 cost_estimator: Some(cost_estimator.as_ref()),
                 cost_metric: Some(cost_metric.as_ref()),
                 fee_estimator: fee_estimator.map(|boxed_estimator| boxed_estimator.as_ref()),
+                coord_comms: Some(&self.globals.coord_comms),
                 ..RPCHandlerArgs::default()
             };
             self.net.run(
@@ -342,7 +347,13 @@ impl PeerThread {
                     }
                 }
             } else {
-                debug!("P2P: Dispatched result to Relayer!");
+                debug!(
+                    "P2P: Dispatched result to Relayer! {} results remaining",
+                    self.results_with_data.len()
+                );
+                self.globals.raise_initiative(
+                    "PeerThread::run_one_pass() with data-bearing network result".to_string(),
+                );
             }
         }
 

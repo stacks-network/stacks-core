@@ -36,7 +36,7 @@ jobs:
     steps:
       - name: Checkout the latest code
         id: git_checkout
-        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+        uses: actions/checkout@44c2b7a8a4ea60a981eaca3cf939b5f4305c123b # v4.1.5
 
       - name: Build docs
         id: build_docs
@@ -46,7 +46,7 @@ jobs:
 
       - name: Checkout latest docs
         id: git_checkout_docs
-        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+        uses: actions/checkout@44c2b7a8a4ea60a981eaca3cf939b5f4305c123b # v4.1.5
         with:
           token: ${{ secrets.DOCS_GITHUB_TOKEN }}
           repository: ${{ env.TARGET_REPOSITORY }}
@@ -77,7 +77,7 @@ jobs:
       - name: Open PR
         id: open_pr
         if: ${{ steps.push.outputs.open_pr == '1' }}
-        uses: actions/github-script@d7906e4ad0b1822421a7e6a35d5ca353c962f410 # v6.4.1
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
         with:
           github-token: ${{ secrets.DOCS_GITHUB_TOKEN }}
           script: |

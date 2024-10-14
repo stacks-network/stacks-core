@@ -23,7 +23,7 @@ use stacks_common::types::chainstate::{
     ConsensusHash, StacksAddress, StacksBlockId, StacksPrivateKey,
 };
 use stacks_common::types::net::PeerHost;
-use stacks_common::types::Address;
+use stacks_common::types::{Address, StacksEpochId};
 
 use super::TestRPC;
 use crate::chainstate::stacks::db::blocks::test::*;
@@ -91,13 +91,13 @@ fn test_try_make_response() {
     )
     .unwrap();
 
-    let parent_block = make_codec_test_block(25);
+    let parent_block = make_codec_test_block(25, StacksEpochId::latest());
     let parent_consensus_hash = ConsensusHash([0x02; 20]);
 
     let mut mblocks = make_sample_microblock_stream(&privk, &parent_block.block_hash());
     mblocks.truncate(15);
 
-    let mut child_block = make_codec_test_block(25);
+    let mut child_block = make_codec_test_block(25, StacksEpochId::latest());
     let child_consensus_hash = ConsensusHash([0x03; 20]);
 
     child_block.header.parent_block = parent_block.block_hash();

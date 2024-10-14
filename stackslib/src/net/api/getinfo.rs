@@ -82,6 +82,7 @@ pub struct RPCPeerInfoData {
     pub unanchored_tip: Option<StacksBlockId>,
     pub unanchored_seq: Option<u16>,
     pub exit_at_block_height: Option<u64>,
+    pub is_fully_synced: bool,
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub node_public_key: Option<StacksPublicKeyBuffer>,
@@ -105,6 +106,7 @@ impl RPCPeerInfoData {
         chainstate: &StacksChainState,
         exit_at_block_height: Option<u64>,
         genesis_chainstate_hash: &Sha256Sum,
+        ibd: bool,
     ) -> RPCPeerInfoData {
         let server_version = version_string(
             "stacks-node",
@@ -130,6 +132,7 @@ impl RPCPeerInfoData {
         let public_key_buf = StacksPublicKeyBuffer::from_public_key(&public_key);
         let public_key_hash = Hash160::from_node_public_key(&public_key);
         let stackerdb_contract_ids = network.get_local_peer().stacker_dbs.clone();
+        let is_fully_synced = !ibd;
 
         RPCPeerInfoData {
             peer_version: network.burnchain.peer_version,
@@ -140,12 +143,13 @@ impl RPCPeerInfoData {
             server_version,
             network_id: network.local_peer.network_id,
             parent_network_id: network.local_peer.parent_network_id,
-            stacks_tip_height: network.stacks_tip.2,
-            stacks_tip: network.stacks_tip.1.clone(),
-            stacks_tip_consensus_hash: network.stacks_tip.0.clone(),
+            stacks_tip_height: network.stacks_tip.height,
+            stacks_tip: network.stacks_tip.block_hash.clone(),
+            stacks_tip_consensus_hash: network.stacks_tip.consensus_hash.clone(),
             unanchored_tip: unconfirmed_tip,
             unanchored_seq: unconfirmed_seq,
             exit_at_block_height: exit_at_block_height,
+            is_fully_synced,
             genesis_chainstate_hash: genesis_chainstate_hash.clone(),
             node_public_key: Some(public_key_buf),
             node_public_key_hash: Some(public_key_hash),
@@ -212,6 +216,7 @@ impl RPCRequestHandler for RPCPeerInfoRequestHandler {
         _contents: HttpRequestContents,
         node: &mut StacksNodeState,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
+        let ibd = node.ibd;
         let rpc_peer_info =
             node.with_node_state(|network, _sortdb, chainstate, _mempool, rpc_args| {
                 RPCPeerInfoData::from_network(
@@ -219,6 +224,7 @@ impl RPCRequestHandler for RPCPeerInfoRequestHandler {
                     chainstate,
                     rpc_args.exit_at_block_height.clone(),
                     &rpc_args.genesis_chainstate_hash,
+                    ibd,
                 )
             });
         let mut preamble = HttpResponsePreamble::ok_json(&preamble);

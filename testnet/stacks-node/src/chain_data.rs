@@ -163,6 +163,11 @@ impl MinerStats {
         // calculate the burn distribution from these operations.
         // The resulting distribution will contain the user burns that match block commits
         let burn_dist = BurnSamplePoint::make_min_median_distribution(
+            if burnchain.is_in_prepare_phase(burn_block_height) {
+                1
+            } else {
+                MINING_COMMITMENT_WINDOW
+            },
             windowed_block_commits,
             windowed_missed_commits,
             burn_blocks,
@@ -272,6 +277,7 @@ impl MinerStats {
 
             // mocked commit
             let mocked_commit = LeaderBlockCommitOp {
+                treatment: vec![],
                 sunset_burn: 0,
                 block_header_hash: BlockHeaderHash(DEADBEEF.clone()),
                 new_seed: VRFSeed(DEADBEEF.clone()),
@@ -436,6 +442,7 @@ impl MinerStats {
         for (miner, last_commit) in active_miners_and_commits.iter() {
             if !commit_table.contains_key(miner) {
                 let mocked_commit = LeaderBlockCommitOp {
+                    treatment: vec![],
                     sunset_burn: 0,
                     block_header_hash: BlockHeaderHash(DEADBEEF.clone()),
                     new_seed: VRFSeed(DEADBEEF.clone()),
@@ -545,6 +552,7 @@ pub mod tests {
     #[test]
     fn test_burn_dist_to_prob_dist() {
         let block_commit_1 = LeaderBlockCommitOp {
+            treatment: vec![],
             sunset_burn: 0,
             block_header_hash: BlockHeaderHash([0x22; 32]),
             new_seed: VRFSeed([0x33; 32]),
@@ -577,6 +585,7 @@ pub mod tests {
         };
 
         let block_commit_2 = LeaderBlockCommitOp {
+            treatment: vec![],
             sunset_burn: 0,
             block_header_hash: BlockHeaderHash([0x22; 32]),
             new_seed: VRFSeed([0x33; 32]),
@@ -612,6 +621,7 @@ pub mod tests {
         };
 
         let block_commit_3 = LeaderBlockCommitOp {
+            treatment: vec![],
             sunset_burn: 0,
             block_header_hash: BlockHeaderHash([0x22; 32]),
             new_seed: VRFSeed([0x33; 32]),
@@ -647,6 +657,7 @@ pub mod tests {
         };
         let burn_dist = vec![
             BurnSamplePoint {
+                frequency: 10,
                 burns: block_commit_1.burn_fee.into(),
                 median_burn: block_commit_2.burn_fee.into(),
                 range_start: Uint256::zero(),
@@ -659,6 +670,7 @@ pub mod tests {
                 candidate: block_commit_1.clone(),
             },
             BurnSamplePoint {
+                frequency: 10,
                 burns: block_commit_2.burn_fee.into(),
                 median_burn: block_commit_2.burn_fee.into(),
                 range_start: Uint256([
@@ -676,6 +688,7 @@ pub mod tests {
                 candidate: block_commit_2.clone(),
             },
             BurnSamplePoint {
+                frequency: 10,
                 burns: (block_commit_3.burn_fee).into(),
                 median_burn: block_commit_3.burn_fee.into(),
                 range_start: Uint256([
@@ -809,6 +822,7 @@ EOF
             (
                 "miner-1".to_string(),
                 LeaderBlockCommitOp {
+                    treatment: vec![],
                     sunset_burn: 0,
                     block_header_hash: BlockHeaderHash([0x22; 32]),
                     new_seed: VRFSeed([0x33; 32]),
@@ -840,6 +854,7 @@ EOF
             (
                 "miner-2".to_string(),
                 LeaderBlockCommitOp {
+                    treatment: vec![],
                     sunset_burn: 0,
                     block_header_hash: BlockHeaderHash([0x22; 32]),
                     new_seed: VRFSeed([0x33; 32]),
@@ -874,6 +889,7 @@ EOF
             (
                 "miner-3".to_string(),
                 LeaderBlockCommitOp {
+                    treatment: vec![],
                     sunset_burn: 0,
                     block_header_hash: BlockHeaderHash([0x22; 32]),
                     new_seed: VRFSeed([0x33; 32]),
@@ -908,6 +924,7 @@ EOF
 
         let unconfirmed_block_commits = vec![
             LeaderBlockCommitOp {
+                treatment: vec![],
                 sunset_burn: 0,
                 block_header_hash: BlockHeaderHash([0x22; 32]),
                 new_seed: VRFSeed([0x33; 32]),
@@ -934,6 +951,7 @@ EOF
                 burn_header_hash: BurnchainHeaderHash([0x01; 32]),
             },
             LeaderBlockCommitOp {
+                treatment: vec![],
                 sunset_burn: 0,
                 block_header_hash: BlockHeaderHash([0x22; 32]),
                 new_seed: VRFSeed([0x33; 32]),
@@ -960,6 +978,7 @@ EOF
                 burn_header_hash: BurnchainHeaderHash([0x01; 32]),
             },
             LeaderBlockCommitOp {
+                treatment: vec![],
                 sunset_burn: 0,
                 block_header_hash: BlockHeaderHash([0x22; 32]),
                 new_seed: VRFSeed([0x33; 32]),
@@ -986,6 +1005,7 @@ EOF
                 burn_header_hash: BurnchainHeaderHash([0x01; 32]),
             },
             LeaderBlockCommitOp {
+                treatment: vec![],
                 sunset_burn: 0,
                 block_header_hash: BlockHeaderHash([0x22; 32]),
                 new_seed: VRFSeed([0x33; 32]),

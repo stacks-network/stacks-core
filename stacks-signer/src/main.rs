@@ -1,4 +1,4 @@
-//! # stacks-signer: Stacks signer binary for executing DKG rounds, signing transactions and blocks, and more.
+//! # stacks-signer: Stacks signer binary for signing block proposals, interacting with stackerdb, and more.
 //!
 //! Usage documentation can be found in the [README]("https://github.com/blockstack/stacks-blockchain/stacks-signer/README.md).
 //!
@@ -26,49 +26,29 @@ extern crate serde;
 extern crate serde_json;
 extern crate toml;
 
-use std::fs::File;
-use std::io::{self, BufRead, Write};
-use std::path::{Path, PathBuf};
-use std::sync::mpsc::{channel, Receiver, Sender};
-use std::time::Duration;
+use std::io::{self, Write};
 
 use blockstack_lib::util_lib::signed_structured_data::pox4::make_pox_4_signer_key_signature;
 use clap::Parser;
-use clarity::vm::types::QualifiedContractIdentifier;
-use libsigner::{
-    BlockProposalSigners, RunningSigner, Signer, SignerEventReceiver, SignerSession,
-    StackerDBSession,
-};
+use clarity::types::chainstate::StacksPublicKey;
+use clarity::util::sleep_ms;
+use libsigner::SignerSession;
 use libstackerdb::StackerDBChunkData;
-use slog::{slog_debug, slog_error, slog_info};
-use stacks_common::codec::read_next;
-use stacks_common::types::chainstate::StacksPrivateKey;
+use slog::{slog_debug, slog_error};
 use stacks_common::util::hash::to_hex;
-use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PublicKey};
-use stacks_common::{debug, error, info};
+use stacks_common::util::secp256k1::MessageSignature;
+use stacks_common::{debug, error};
 use stacks_signer::cli::{
-    Cli, Command, GenerateFilesArgs, GenerateStackingSignatureArgs, GetChunkArgs,
-    GetLatestChunkArgs, PutChunkArgs, RunDkgArgs, RunSignerArgs, SignArgs, StackerDBArgs,
+    Cli, Command, GenerateStackingSignatureArgs, GenerateVoteArgs, GetChunkArgs,
+    GetLatestChunkArgs, MonitorSignersArgs, PutChunkArgs, RunSignerArgs, StackerDBArgs,
+    VerifyVoteArgs,
 };
-use stacks_signer::config::{build_signer_config_tomls, GlobalConfig};
-use stacks_signer::runloop::{RunLoop, RunLoopCommand};
-use stacks_signer::signer::Command as SignerCommand;
+use stacks_signer::config::GlobalConfig;
+use stacks_signer::monitor_signers::SignerMonitor;
+use stacks_signer::utils::stackerdb_session;
+use stacks_signer::v0::SpawnedSigner;
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{fmt, EnvFilter};
-use wsts::state_machine::OperationResult;
-
-struct SpawnedSigner {
-    running_signer: RunningSigner<SignerEventReceiver, Vec<OperationResult>>,
-    cmd_send: Sender<RunLoopCommand>,
-    res_recv: Receiver<Vec<OperationResult>>,
-}
-
-/// Create a new stacker db session
-fn stackerdb_session(host: &str, contract: QualifiedContractIdentifier) -> StackerDBSession {
-    let mut session = StackerDBSession::new(host, contract.clone());
-    session.connect(host.to_string(), contract).unwrap();
-    session
-}
 
 /// Write the chunk to stdout
 fn write_chunk_to_stdout(chunk_opt: Option<Vec<u8>>) {
@@ -81,83 +61,6 @@ fn write_chunk_to_stdout(chunk_opt: Option<Vec<u8>>) {
                 "Failed to write complete chunk to stdout. Missing {} bytes",
                 hexed_chunk.len() - bytes
             );
-        }
-    }
-}
-
-// Spawn a running signer and return its handle, command sender, and result receiver
-fn spawn_running_signer(path: &PathBuf) -> SpawnedSigner {
-    let config = GlobalConfig::try_from(path).unwrap();
-    let endpoint = config.endpoint;
-    info!("Starting signer with config: {}", config);
-    let (cmd_send, cmd_recv) = channel();
-    let (res_send, res_recv) = channel();
-    let ev = SignerEventReceiver::new(config.network.is_mainnet());
-    let runloop = RunLoop::from(config);
-    let mut signer: Signer<RunLoopCommand, Vec<OperationResult>, RunLoop, SignerEventReceiver> =
-        Signer::new(runloop, ev, cmd_recv, res_send);
-    let running_signer = signer.spawn(endpoint).unwrap();
-    SpawnedSigner {
-        running_signer,
-        cmd_send,
-        res_recv,
-    }
-}
-
-// Process a DKG result
-fn process_dkg_result(dkg_res: &[OperationResult]) {
-    assert!(dkg_res.len() == 1, "Received unexpected number of results");
-    let dkg = dkg_res.first().unwrap();
-    match dkg {
-        OperationResult::Dkg(aggregate_key) => {
-            println!("Received aggregate group key: {aggregate_key}");
-        }
-        OperationResult::Sign(signature) => {
-            panic!(
-                "Received unexpected signature ({},{})",
-                &signature.R, &signature.z,
-            );
-        }
-        OperationResult::SignTaproot(schnorr_proof) => {
-            panic!(
-                "Received unexpected schnorr proof ({},{})",
-                &schnorr_proof.r, &schnorr_proof.s,
-            );
-        }
-        OperationResult::DkgError(dkg_error) => {
-            panic!("Received DkgError {}", dkg_error);
-        }
-        OperationResult::SignError(sign_error) => {
-            panic!("Received SignError {}", sign_error);
-        }
-    }
-}
-
-// Process a Sign result
-fn process_sign_result(sign_res: &[OperationResult]) {
-    assert!(sign_res.len() == 1, "Received unexpected number of results");
-    let sign = sign_res.first().unwrap();
-    match sign {
-        OperationResult::Dkg(aggregate_key) => {
-            panic!("Received unexpected aggregate group key: {aggregate_key}");
-        }
-        OperationResult::Sign(signature) => {
-            panic!(
-                "Received bood signature ({},{})",
-                &signature.R, &signature.z,
-            );
-        }
-        OperationResult::SignTaproot(schnorr_proof) => {
-            panic!(
-                "Received unexpected schnorr proof ({},{})",
-                &schnorr_proof.r, &schnorr_proof.s,
-            );
-        }
-        OperationResult::DkgError(dkg_error) => {
-            panic!("Received DkgError {}", dkg_error);
-        }
-        OperationResult::SignError(sign_error) => {
-            panic!("Received SignError {}", sign_error);
         }
     }
 }
@@ -194,122 +97,13 @@ fn handle_put_chunk(args: PutChunkArgs) {
     println!("{}", serde_json::to_string(&chunk_ack).unwrap());
 }
 
-fn handle_dkg(args: RunDkgArgs) {
-    debug!("Running DKG...");
-    let spawned_signer = spawn_running_signer(&args.config);
-    let dkg_command = RunLoopCommand {
-        reward_cycle: args.reward_cycle,
-        command: SignerCommand::Dkg,
-    };
-    spawned_signer.cmd_send.send(dkg_command).unwrap();
-    let dkg_res = spawned_signer.res_recv.recv().unwrap();
-    process_dkg_result(&dkg_res);
-    spawned_signer.running_signer.stop();
-}
-
-fn handle_sign(args: SignArgs) {
-    debug!("Signing message...");
-    let spawned_signer = spawn_running_signer(&args.config);
-    let Some(block_proposal) = read_next::<BlockProposalSigners, _>(&mut &args.data[..]).ok()
-    else {
-        error!("Unable to parse provided message as a BlockProposalSigners.");
-        spawned_signer.running_signer.stop();
-        return;
-    };
-    let sign_command = RunLoopCommand {
-        reward_cycle: args.reward_cycle,
-        command: SignerCommand::Sign {
-            block_proposal,
-            is_taproot: false,
-            merkle_root: None,
-        },
-    };
-    spawned_signer.cmd_send.send(sign_command).unwrap();
-    let sign_res = spawned_signer.res_recv.recv().unwrap();
-    process_sign_result(&sign_res);
-    spawned_signer.running_signer.stop();
-}
-
-fn handle_dkg_sign(args: SignArgs) {
-    debug!("Running DKG and signing message...");
-    let spawned_signer = spawn_running_signer(&args.config);
-    let Some(block_proposal) = read_next::<BlockProposalSigners, _>(&mut &args.data[..]).ok()
-    else {
-        error!("Unable to parse provided message as a BlockProposalSigners.");
-        spawned_signer.running_signer.stop();
-        return;
-    };
-    let dkg_command = RunLoopCommand {
-        reward_cycle: args.reward_cycle,
-        command: SignerCommand::Dkg,
-    };
-    let sign_command = RunLoopCommand {
-        reward_cycle: args.reward_cycle,
-        command: SignerCommand::Sign {
-            block_proposal,
-            is_taproot: false,
-            merkle_root: None,
-        },
-    };
-    // First execute DKG, then sign
-    spawned_signer.cmd_send.send(dkg_command).unwrap();
-    spawned_signer.cmd_send.send(sign_command).unwrap();
-    let dkg_res = spawned_signer.res_recv.recv().unwrap();
-    process_dkg_result(&dkg_res);
-    let sign_res = spawned_signer.res_recv.recv().unwrap();
-    process_sign_result(&sign_res);
-    spawned_signer.running_signer.stop();
-}
-
 fn handle_run(args: RunSignerArgs) {
     debug!("Running signer...");
-    let spawned_signer = spawn_running_signer(&args.config);
+    let config = GlobalConfig::try_from(&args.config).unwrap();
+    let spawned_signer = SpawnedSigner::new(config);
     println!("Signer spawned successfully. Waiting for messages to process...");
     // Wait for the spawned signer to stop (will only occur if an error occurs)
-    let _ = spawned_signer.running_signer.join();
-}
-
-fn handle_generate_files(args: GenerateFilesArgs) {
-    debug!("Generating files...");
-    let signer_stacks_private_keys = if let Some(path) = args.private_keys {
-        let file = File::open(path).unwrap();
-        let reader = io::BufReader::new(file);
-
-        let private_keys: Vec<String> = reader.lines().collect::<Result<_, _>>().unwrap();
-        println!("{}", StacksPrivateKey::new().to_hex());
-        let private_keys = private_keys
-            .iter()
-            .map(|key| StacksPrivateKey::from_hex(key).expect("Failed to parse private key."))
-            .collect::<Vec<StacksPrivateKey>>();
-        if private_keys.is_empty() {
-            panic!("Private keys file is empty.");
-        }
-        private_keys
-    } else {
-        let num_signers = args.num_signers.unwrap();
-        if num_signers == 0 {
-            panic!("--num-signers must be non-zero.");
-        }
-        (0..num_signers)
-            .map(|_| StacksPrivateKey::new())
-            .collect::<Vec<StacksPrivateKey>>()
-    };
-
-    let signer_config_tomls = build_signer_config_tomls(
-        &signer_stacks_private_keys,
-        &args.host.to_string(),
-        args.timeout.map(Duration::from_millis),
-        &args.network,
-        &args.password,
-        rand::random(),
-        3000,
-        None,
-        None,
-    );
-    debug!("Built {:?} signer config tomls.", signer_config_tomls.len());
-    for (i, file_contents) in signer_config_tomls.iter().enumerate() {
-        write_file(&args.dir, &format!("signer-{}.toml", i), file_contents);
-    }
+    let _ = spawned_signer.join();
 }
 
 fn handle_generate_stacking_signature(
@@ -319,7 +113,8 @@ fn handle_generate_stacking_signature(
     let config = GlobalConfig::try_from(&args.config).unwrap();
 
     let private_key = config.stacks_private_key;
-    let public_key = Secp256k1PublicKey::from_private(&private_key);
+    let public_key = StacksPublicKey::from_private(&private_key);
+    let pk_hex = to_hex(&public_key.to_bytes_compressed());
 
     let signature = make_pox_4_signer_key_signature(
         &args.pox_address,
@@ -335,7 +130,7 @@ fn handle_generate_stacking_signature(
 
     let output_str = if args.json {
         serde_json::to_string(&serde_json::json!({
-            "signerKey": to_hex(&public_key.to_bytes_compressed()),
+            "signerKey": pk_hex,
             "signerSignature": to_hex(signature.to_rsv().as_slice()),
             "authId": format!("{}", args.auth_id),
             "rewardCycle": args.reward_cycle,
@@ -348,7 +143,7 @@ fn handle_generate_stacking_signature(
     } else {
         format!(
             "Signer Public Key: 0x{}\nSigner Key Signature: 0x{}\n\n",
-            to_hex(&public_key.to_bytes_compressed()),
+            pk_hex,
             to_hex(signature.to_rsv().as_slice()) // RSV is needed for Clarity
         )
     };
@@ -365,13 +160,42 @@ fn handle_check_config(args: RunSignerArgs) {
     println!("Config: {}", config);
 }
 
-/// Helper function for writing the given contents to filename in the given directory
-fn write_file(dir: &Path, filename: &str, contents: &str) {
-    let file_path = dir.join(filename);
-    let filename = file_path.to_str().unwrap();
-    let mut file = File::create(filename).unwrap();
-    file.write_all(contents.as_bytes()).unwrap();
-    println!("Created file: {}", filename);
+fn handle_generate_vote(args: GenerateVoteArgs, do_print: bool) -> MessageSignature {
+    let config = GlobalConfig::try_from(&args.config).unwrap();
+    let message_signature = args.vote_info.sign(&config.stacks_private_key).unwrap();
+    if do_print {
+        println!("{}", to_hex(message_signature.as_bytes()));
+    }
+    message_signature
+}
+
+fn handle_verify_vote(args: VerifyVoteArgs, do_print: bool) -> bool {
+    let valid_vote = args
+        .vote_info
+        .verify(&args.public_key, &args.signature)
+        .unwrap();
+    if do_print {
+        if valid_vote {
+            println!("Valid vote");
+        } else {
+            println!("Invalid vote");
+        }
+    }
+    valid_vote
+}
+
+fn handle_monitor_signers(args: MonitorSignersArgs) {
+    // Verify that the host is a valid URL
+    let mut signer_monitor = SignerMonitor::new(args);
+    loop {
+        if let Err(e) = signer_monitor.start() {
+            error!(
+                "Error occurred monitoring signers: {:?}. Waiting and trying again.",
+                e
+            );
+            sleep_ms(1000);
+        }
+    }
 }
 
 fn main() {
@@ -395,26 +219,23 @@ fn main() {
         Command::PutChunk(args) => {
             handle_put_chunk(args);
         }
-        Command::Dkg(args) => {
-            handle_dkg(args);
-        }
-        Command::DkgSign(args) => {
-            handle_dkg_sign(args);
-        }
-        Command::Sign(args) => {
-            handle_sign(args);
-        }
         Command::Run(args) => {
             handle_run(args);
-        }
-        Command::GenerateFiles(args) => {
-            handle_generate_files(args);
         }
         Command::GenerateStackingSignature(args) => {
             handle_generate_stacking_signature(args, true);
         }
         Command::CheckConfig(args) => {
             handle_check_config(args);
+        }
+        Command::GenerateVote(args) => {
+            handle_generate_vote(args, true);
+        }
+        Command::VerifyVote(args) => {
+            handle_verify_vote(args, true);
+        }
+        Command::MonitorSigners(args) => {
+            handle_monitor_signers(args);
         }
     }
 }
@@ -426,11 +247,13 @@ pub mod tests {
     use blockstack_lib::util_lib::signed_structured_data::pox4::{
         make_pox_4_signer_key_message_hash, Pox4SignatureTopic,
     };
+    use clarity::util::secp256k1::Secp256k1PrivateKey;
     use clarity::vm::{execute_v2, Value};
+    use rand::{Rng, RngCore};
     use stacks_common::consts::CHAIN_ID_TESTNET;
     use stacks_common::types::PublicKey;
     use stacks_common::util::secp256k1::Secp256k1PublicKey;
-    use stacks_signer::cli::parse_pox_addr;
+    use stacks_signer::cli::{parse_pox_addr, VerifyVoteArgs, Vote, VoteInfo};
 
     use super::{handle_generate_stacking_signature, *};
     use crate::{GenerateStackingSignatureArgs, GlobalConfig};
@@ -559,5 +382,81 @@ pub mod tests {
         let verify_result = public_key.verify(&message_hash.0, &signature);
         assert!(verify_result.is_ok());
         assert!(verify_result.unwrap());
+    }
+
+    #[test]
+    fn test_vote() {
+        let mut rand = rand::thread_rng();
+        let vote_info = VoteInfo {
+            vote: rand.gen_range(0..2).try_into().unwrap(),
+            sip: rand.next_u32(),
+        };
+        let config_file = "./src/tests/conf/signer-0.toml";
+        let config = GlobalConfig::load_from_file(config_file).unwrap();
+        let private_key = config.stacks_private_key;
+        let public_key = StacksPublicKey::from_private(&private_key);
+        let args = GenerateVoteArgs {
+            config: config_file.into(),
+            vote_info,
+        };
+        let message_signature = handle_generate_vote(args, false);
+        assert!(
+            vote_info.verify(&public_key, &message_signature).unwrap(),
+            "Vote should be valid"
+        );
+    }
+
+    #[test]
+    fn test_verify_vote() {
+        let mut rand = rand::thread_rng();
+        let private_key = Secp256k1PrivateKey::new();
+        let public_key = StacksPublicKey::from_private(&private_key);
+
+        let invalid_private_key = Secp256k1PrivateKey::new();
+        let invalid_public_key = StacksPublicKey::from_private(&invalid_private_key);
+
+        let sip = rand.next_u32();
+        let vote_info = VoteInfo {
+            vote: Vote::No,
+            sip,
+        };
+
+        let args = VerifyVoteArgs {
+            public_key,
+            signature: vote_info.sign(&private_key).unwrap(),
+            vote_info,
+        };
+        let valid = handle_verify_vote(args, false);
+        assert!(valid, "Vote should be valid");
+
+        let args = VerifyVoteArgs {
+            public_key: invalid_public_key,
+            signature: vote_info.sign(&private_key).unwrap(), // Invalid corresponding public key
+            vote_info,
+        };
+        let valid = handle_verify_vote(args, false);
+        assert!(!valid, "Vote should be invalid");
+
+        let args = VerifyVoteArgs {
+            public_key,
+            signature: vote_info.sign(&private_key).unwrap(),
+            vote_info: VoteInfo {
+                vote: Vote::Yes, // Invalid vote
+                sip,
+            },
+        };
+        let valid = handle_verify_vote(args, false);
+        assert!(!valid, "Vote should be invalid");
+
+        let args = VerifyVoteArgs {
+            public_key,
+            signature: vote_info.sign(&private_key).unwrap(),
+            vote_info: VoteInfo {
+                vote: Vote::No,
+                sip: sip.wrapping_add(1), // Invalid sip number
+            },
+        };
+        let valid = handle_verify_vote(args, false);
+        assert!(!valid, "Vote should be invalid");
     }
 }

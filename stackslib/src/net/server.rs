@@ -20,6 +20,7 @@ use std::sync::mpsc::{sync_channel, Receiver, RecvError, SendError, SyncSender, 
 
 use mio::net as mio_net;
 use stacks_common::types::net::{PeerAddress, PeerHost};
+use stacks_common::types::StacksEpochId;
 use stacks_common::util::get_epoch_time_secs;
 
 use crate::burnchains::{Burnchain, BurnchainView};
@@ -559,14 +560,14 @@ impl HttpPeer {
         let mut msgs = vec![];
         for event_id in &poll_state.ready {
             if !self.sockets.contains_key(&event_id) {
-                test_debug!("Rogue socket event {}", event_id);
+                debug!("Rogue socket event {}", event_id);
                 to_remove.push(*event_id);
                 continue;
             }
 
             let client_sock_opt = self.sockets.get_mut(&event_id);
             if client_sock_opt.is_none() {
-                test_debug!("No such socket event {}", event_id);
+                debug!("No such socket event {}", event_id);
                 to_remove.push(*event_id);
                 continue;
             }
@@ -575,7 +576,7 @@ impl HttpPeer {
             match self.peers.get_mut(event_id) {
                 Some(ref mut convo) => {
                     // activity on a http socket
-                    test_debug!("Process HTTP data from {:?}", convo);
+                    debug!("Process HTTP data from {:?}", convo);
                     match HttpPeer::process_http_conversation(
                         node_state,
                         *event_id,
@@ -584,11 +585,13 @@ impl HttpPeer {
                     ) {
                         Ok((alive, mut new_msgs)) => {
                             if !alive {
+                                debug!("HTTP convo {:?} is no longer alive", &convo);
                                 to_remove.push(*event_id);
                             }
                             msgs.append(&mut new_msgs);
                         }
-                        Err(_e) => {
+                        Err(e) => {
+                            debug!("Failed to process HTTP convo {:?}: {:?}", &convo, &e);
                             to_remove.push(*event_id);
                             continue;
                         }
@@ -891,7 +894,7 @@ mod test {
             1,
             0,
             |client_id, ref mut chainstate| {
-                let peer_server_block = make_codec_test_block(25);
+                let peer_server_block = make_codec_test_block(25, StacksEpochId::Epoch25);
                 let peer_server_consensus_hash = ConsensusHash([(client_id + 1) as u8; 20]);
                 let index_block_hash = StacksBlockHeader::make_index_block_hash(
                     &peer_server_consensus_hash,
@@ -924,7 +927,7 @@ mod test {
                 // should be a Block
                 let http_response_bytes = http_response_bytes_res.unwrap();
 
-                let peer_server_block = make_codec_test_block(25);
+                let peer_server_block = make_codec_test_block(25, StacksEpochId::Epoch25);
                 let peer_server_consensus_hash = ConsensusHash([(client_id + 1) as u8; 20]);
                 let index_block_hash = StacksBlockHeader::make_index_block_hash(
                     &peer_server_consensus_hash,
@@ -959,7 +962,7 @@ mod test {
             10,
             0,
             |client_id, ref mut chainstate| {
-                let peer_server_block = make_codec_test_block(25);
+                let peer_server_block = make_codec_test_block(25, StacksEpochId::latest());
                 let peer_server_consensus_hash = ConsensusHash([(client_id + 1) as u8; 20]);
                 let index_block_hash = StacksBlockHeader::make_index_block_hash(
                     &peer_server_consensus_hash,
@@ -992,7 +995,7 @@ mod test {
                 // should be a Block
                 let http_response_bytes = http_response_bytes_res.unwrap();
 
-                let peer_server_block = make_codec_test_block(25);
+                let peer_server_block = make_codec_test_block(25, StacksEpochId::latest());
                 let peer_server_consensus_hash = ConsensusHash([(client_id + 1) as u8; 20]);
                 let index_block_hash = StacksBlockHeader::make_index_block_hash(
                     &peer_server_consensus_hash,
@@ -1308,7 +1311,7 @@ mod test {
             1,
             600,
             |client_id, ref mut chainstate| {
-                let peer_server_block = make_codec_test_block(25);
+                let peer_server_block = make_codec_test_block(25, StacksEpochId::latest());
                 let peer_server_consensus_hash = ConsensusHash([(client_id + 1) as u8; 20]);
                 let index_block_hash = StacksBlockHeader::make_index_block_hash(
                     &peer_server_consensus_hash,

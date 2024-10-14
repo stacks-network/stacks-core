@@ -11,13 +11,12 @@
 | Linux ARMv7                 | _builds are provided but not tested_ |
 | Linux ARM64                 | _builds are provided but not tested_ |
 
-For help cross-compiling on memory-constrained devices (such as a Raspberry Pi), please see the community supported documentation here: [Cross Compiling](https://github.com/dantrevino/cross-compiling-stacks-blockchain/blob/master/README.md).
 
 ## Release Schedule and Hotfixes
 
 Normal releases in this repository that add features such as improved RPC endpoints, improved boot-up time, new event
 observer fields or event types, etc., are released on a monthly schedule. The currently staged changes for such releases
-are in the [develop branch](https://github.com/stacks-network/stacks-blockchain/tree/develop). It is generally safe to run
+are in the [develop branch](https://github.com/stacks-network/stacks-core/tree/develop). It is generally safe to run
 a `stacks-node` from that branch, though it has received less rigorous testing than release tags. If bugs are found in
 the `develop` branch, please do report them as issues on this repository.
 
@@ -52,13 +51,14 @@ For non-consensus breaking releases, this project uses the following release pro
 
 1. The release must be timed so that it does not interfere with a _prepare
    phase_. The timing of the next Stacking cycle can be found
-   [here](https://stacking.club/cycles/next). A release to `mainnet` should happen
+   [here](https://stx.eco/dao/tools?tool=2). A release should happen
    at least 24 hours before the start of a new cycle, to avoid interfering
    with the prepare phase. So, start by being aware of when the release can
    happen.
 
 1. Before creating the release, the release manager must determine the _version
-   number_ for this release. The factors that determine the version number are
+   number_ for this release, and create a release branch in the format: `release/X.Y.Z.A.n`. 
+   The factors that determine the version number are
    discussed in [Versioning](#versioning). We assume, in this section,
    that the change is not consensus-breaking. So, the release manager must first
    determine whether there are any "non-consensus-breaking changes that require a
@@ -66,32 +66,24 @@ For non-consensus breaking releases, this project uses the following release pro
    changed, but an automatic migration was not implemented. Then, the release manager
    should determine whether this is a feature release, as opposed to a hotfix or a
    patch. Given the answers to these questions, the version number can be computed.
-
+   
 1. The release manager enumerates the PRs or issues that would _block_
    the release. A label should be applied to each such issue/PR as
-   `2.0.x.y.z-blocker`. The release manager should ping these
+   `X.Y.Z.A.n-blocker`. The release manager should ping these
    issue/PR owners for updates on whether or not those issues/PRs have
    any blockers or are waiting on feedback.
-
-1. The release manager should open a `develop -> master` PR. This can be done before
-   all the blocker PRs have merged, as it is helpful for the manager and others
-   to see the staged changes.
 
 1. The release manager must update the `CHANGELOG.md` file with summaries what
    was `Added`, `Changed`, and `Fixed`. The pull requests merged into `develop`
    can be found
-   [here](https://github.com/stacks-network/stacks-blockchain/pulls?q=is%3Apr+is%3Aclosed+base%3Adevelop+sort%3Aupdated-desc). Note, however, that GitHub apparently does not allow sorting by
+   [here](https://github.com/stacks-network/stacks-core/pulls?q=is%3Apr+is%3Aclosed+base%3Adevelop+sort%3Aupdated-desc). Note, however, that GitHub apparently does not allow sorting by
    _merge time_, so, when sorting by some proxy criterion, some care should
-   be used to understand which PR's were _merged_ after the last `develop ->
-master` release PR. This `CHANGELOG.md` should also be used as the description
-   of the `develop -> master` so that it acts as _release notes_ when the branch
-   is tagged.
+   be used to understand which PR's were _merged_ after the last release. 
 
 1. Once the blocker PRs have merged, the release manager will create a new tag
-   by manually triggering the [`stacks-blockchain` Github Actions workflow](https://github.com/stacks-network/stacks-blockchain/actions/workflows/stacks-blockchain.yml)
-   against the `develop` branch, inputting the release candidate tag, `2.0.x.y.z-rc0`,
-   in the Action's input textbox.
-
+   by manually triggering the [`CI` Github Actions workflow](https://github.com/stacks-network/stacks-core/actions/workflows/ci.yml)
+   against the `release/X.Y.Z.A.n` branch.
+   
 1. Once the release candidate has been built, and docker images, etc. are available,
    the release manager will notify various ecosystem participants to test the release
    candidate on various staging infrastructure:
@@ -104,7 +96,7 @@ master` release PR. This `CHANGELOG.md` should also be used as the description
    Stacks Discord. For coordinating rollouts on specific infrastructure, the release
    manager should contact the above participants directly either through e-mail or
    Discord DM. The release manager should also confirm that the built release on the
-   [Github releases](https://github.com/stacks-network/stacks-blockchain/releases/)
+   [Github releases](https://github.com/stacks-network/stacks-core/releases/)
    page is marked as `Pre-Release`.
 
 1. The release manager will test that the release candidate successfully syncs with
@@ -119,16 +111,9 @@ master` release PR. This `CHANGELOG.md` should also be used as the description
    even if other community members and developers may be addressing the discovered
    issues.
 
-1. Once the final release candidate has rolled out successfully without issue on the
-   above staging infrastructure, the release manager tags 2 additional `stacks-blockchain`
-   team members to review the `develop -> master` PR. If there is a merge conflict in this
-   PR, this is the protocol: open a branch off of develop, merge master into that branch,
-   and then open a PR from this side branch to develop. The merge conflicts will be
-   resolved.
+1. Once the final release candidate has rolled out successfully without issue on staging
+   infrastructure, the tagged release shall no longer marked as Pre-Release on the [Github releases](https://github.com/stacks-network/stacks-core/releases/) page. 
+   Announcements will then be shared in the `#stacks-core-devs` channel in the
+   Stacks Discord, as well as the [mailing list](https://groups.google.com/a/stacks.org/g/announce).
 
-1. Once reviewed and approved, the release manager merges the PR, and tags the release
-   via the [`stacks-blockchain` Github action](https://github.com/stacks-network/stacks-blockchain/actions/workflows/stacks-blockchain.yml)
-   by clicking "Run workflow" and providing the release version as the tag (e.g.,
-   `2.0.11.1.0`) This creates a release and release images. Once the release has been
-   created, the release manager should update the Github release text with the
-   `CHANGELOG.md` "top-matter" for the release.
+1. Finally, the release branch `release/X.Y.Z.A.n` will be PR'ed into the `master` branch, and once merged, a PR for `master->develop` will be opened. 

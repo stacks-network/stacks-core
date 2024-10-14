@@ -62,8 +62,8 @@ use crate::chainstate::stacks::address::{PoxAddress, StacksAddressExtensions};
 use crate::chainstate::stacks::boot::{POX_2_MAINNET_CODE, POX_2_TESTNET_CODE};
 use crate::chainstate::stacks::StacksPublicKey;
 use crate::core::{
-    StacksEpoch, StacksEpochId, MINING_COMMITMENT_WINDOW, NETWORK_ID_MAINNET, NETWORK_ID_TESTNET,
-    PEER_VERSION_MAINNET, PEER_VERSION_TESTNET, STACKS_2_0_LAST_BLOCK_TO_PROCESS,
+    StacksEpoch, StacksEpochId, NETWORK_ID_MAINNET, NETWORK_ID_TESTNET, PEER_VERSION_MAINNET,
+    PEER_VERSION_TESTNET, STACKS_2_0_LAST_BLOCK_TO_PROCESS,
 };
 use crate::deps;
 use crate::monitoring::update_burnchain_height;
@@ -90,6 +90,59 @@ impl BurnchainStateTransition {
             burn_dist: vec![],
             accepted_ops: vec![],
             consumed_leader_keys: vec![],
+            windowed_block_commits: vec![],
+            windowed_missed_commits: vec![],
+        }
+    }
+
+    /// Get the transaction IDs of all accepted burnchain operations in this block
+    pub fn txids(&self) -> Vec<Txid> {
+        self.accepted_ops.iter().map(|ref op| op.txid()).collect()
+    }
+
+    /// Get the sum of all burnchain tokens spent in this burnchain block's accepted operations
+    /// (i.e. applies to block commits).
+    /// Returns None on overflow.
+    pub fn total_burns(&self) -> Option<u64> {
+        self.accepted_ops.iter().try_fold(0u64, |acc, op| {
+            let bf = match op {
+                BlockstackOperationType::LeaderBlockCommit(ref op) => op.burn_fee,
+                _ => 0,
+            };
+            acc.checked_add(bf)
+        })
+    }
+
+    /// Get the median block burn from the window.  If the window length is even, then the average
+    /// of the two middle-most values will be returned.
+    pub fn windowed_median_burns(&self) -> Option<u64> {
+        let block_total_burn_opts = self.windowed_block_commits.iter().map(|block_commits| {
+            block_commits
+                .iter()
+                .try_fold(0u64, |acc, op| acc.checked_add(op.burn_fee))
+        });
+
+        let mut block_total_burns = vec![];
+        for burn_opt in block_total_burn_opts.into_iter() {
+            block_total_burns.push(burn_opt?);
+        }
+
+        block_total_burns.sort();
+
+        if block_total_burns.len() == 0 {
+            return Some(0);
+        } else if block_total_burns.len() == 1 {
+            return Some(block_total_burns[0]);
+        } else if block_total_burns.len() % 2 != 0 {
+            let idx = block_total_burns.len() / 2;
+            return block_total_burns.get(idx).map(|b| *b);
+        } else {
+            // NOTE: the `- 1` is safe because block_total_burns.len() >= 2
+            let idx_left = block_total_burns.len() / 2 - 1;
+            let idx_right = block_total_burns.len() / 2;
+            let burn_left = block_total_burns.get(idx_left)?;
+            let burn_right = block_total_burns.get(idx_right)?;
+            return Some((burn_left + burn_right) / 2);
         }
     }
 
@@ -158,10 +211,26 @@ impl BurnchainStateTransition {
             })
             .epoch_id;
 
+        // what was the epoch at the start of this window?
+        let window_start_epoch_id = SortitionDB::get_stacks_epoch(
+            sort_tx,
+            parent_snapshot
+                .block_height
+                .saturating_sub(epoch_id.mining_commitment_window().into()),
+        )?
+        .unwrap_or_else(|| {
+            panic!(
+                "FATAL: no epoch defined at burn height {}",
+                parent_snapshot.block_height - u64::from(epoch_id.mining_commitment_window())
+            )
+        })
+        .epoch_id;
+
         if !burnchain.is_in_prepare_phase(parent_snapshot.block_height + 1)
             && !burnchain
                 .pox_constants
                 .is_after_pox_sunset_end(parent_snapshot.block_height + 1, epoch_id)
+            && (epoch_id < StacksEpochId::Epoch30 || window_start_epoch_id == epoch_id)
         {
             // PoX reward-phase is active!
             // build a map of intended sortition -> missed commit for the missed commits
@@ -177,11 +246,14 @@ impl BurnchainStateTransition {
                 }
             }
 
-            for blocks_back in 0..(MINING_COMMITMENT_WINDOW - 1) {
+            for blocks_back in 0..(epoch_id.mining_commitment_window() - 1) {
                 if parent_snapshot.block_height < (blocks_back as u64) {
                     debug!("Mining commitment window shortened because block height is less than window size";
-                           "block_height" => %parent_snapshot.block_height,
-                           "window_size" => %MINING_COMMITMENT_WINDOW);
+                        "block_height" => %parent_snapshot.block_height,
+                        "window_size" => %epoch_id.mining_commitment_window(),
+                        "burn_block_hash" => %parent_snapshot.burn_header_hash,
+                        "consensus_hash" => %parent_snapshot.consensus_hash
+                    );
                     break;
                 }
                 let block_height = parent_snapshot.block_height - (blocks_back as u64);
@@ -202,11 +274,21 @@ impl BurnchainStateTransition {
 
                 windowed_missed_commits.push(missed_commits_at_height);
             }
+            test_debug!(
+                "Block {} is in a reward phase with PoX. Miner commit window is {}: {:?}",
+                parent_snapshot.block_height + 1,
+                windowed_block_commits.len(),
+                &windowed_block_commits;
+                "burn_block_hash" => %parent_snapshot.burn_header_hash,
+                "consensus_hash" => %parent_snapshot.consensus_hash
+            );
         } else {
-            // PoX reward-phase is not active
+            // PoX reward-phase is not active, or we're starting a new epoch
             debug!(
-                "Block {} is in a prepare phase or post-PoX sunset, so no windowing will take place",
-                parent_snapshot.block_height + 1
+                "Block {} is in a prepare phase, in the post-PoX sunset, or in an epoch transition, so no windowing will take place",
+                parent_snapshot.block_height + 1;
+                "burn_block_hash" => %parent_snapshot.burn_header_hash,
+                "consensus_hash" => %parent_snapshot.consensus_hash
             );
 
             assert_eq!(windowed_block_commits.len(), 1);
@@ -244,8 +326,9 @@ impl BurnchainStateTransition {
         // calculate the burn distribution from these operations.
         // The resulting distribution will contain the user burns that match block commits
         let burn_dist = BurnSamplePoint::make_min_median_distribution(
-            windowed_block_commits,
-            windowed_missed_commits,
+            epoch_id.mining_commitment_window(),
+            windowed_block_commits.clone(),
+            windowed_missed_commits.clone(),
             burn_blocks,
         );
         BurnSamplePoint::prometheus_update_miner_commitments(&burn_dist);
@@ -266,7 +349,8 @@ impl BurnchainStateTransition {
         for op in all_block_commits.values() {
             warn!(
                 "REJECTED({}) block commit {} at {},{}: Committed to an already-consumed VRF key",
-                op.block_height, &op.txid, op.block_height, op.vtxindex
+                op.block_height, &op.txid, op.block_height, op.vtxindex;
+                "stacks_block_hash" => %op.block_header_hash
             );
         }
 
@@ -276,6 +360,8 @@ impl BurnchainStateTransition {
             burn_dist,
             accepted_ops,
             consumed_leader_keys,
+            windowed_block_commits,
+            windowed_missed_commits,
         })
     }
 }
@@ -463,43 +549,41 @@ impl Burnchain {
             .expect("Overflowed u64 in calculating expected sunset_burn")
     }
 
+    /// Is this the first block to receive rewards in its cycle?
+    /// This is the mod 1 block. Note: in nakamoto, the signer set for cycle N signs
+    ///  the mod 0 block.
     pub fn is_reward_cycle_start(&self, burn_height: u64) -> bool {
         self.pox_constants
             .is_reward_cycle_start(self.first_block_height, burn_height)
     }
 
+    /// Is this the first block to be signed by the signer set in cycle N?
+    /// This is the mod 0 block.
+    pub fn is_naka_signing_cycle_start(&self, burn_height: u64) -> bool {
+        self.pox_constants
+            .is_naka_signing_cycle_start(self.first_block_height, burn_height)
+    }
+
+    /// return the first burn block which receives reward in `reward_cycle`.
+    /// this is the modulo 1 block
     pub fn reward_cycle_to_block_height(&self, reward_cycle: u64) -> u64 {
         self.pox_constants
             .reward_cycle_to_block_height(self.first_block_height, reward_cycle)
     }
 
-    pub fn next_reward_cycle(&self, block_height: u64) -> Option<u64> {
-        let cycle = self.block_height_to_reward_cycle(block_height)?;
-        let effective_height = block_height.checked_sub(self.first_block_height)?;
-        let next_bump = if effective_height % u64::from(self.pox_constants.reward_cycle_length) == 0
-        {
-            0
-        } else {
-            1
-        };
-        Some(cycle + next_bump)
+    /// the first burn block that must be *signed* by the signer set of `reward_cycle`.
+    /// this is the modulo 0 block
+    pub fn nakamoto_first_block_of_cycle(&self, reward_cycle: u64) -> u64 {
+        self.pox_constants
+            .nakamoto_first_block_of_cycle(self.first_block_height, reward_cycle)
     }
 
+    /// What is the reward cycle for this block height?
+    /// This considers the modulo 0 block to be in reward cycle `n`, even though
+    ///  rewards for cycle `n` do not begin until modulo 1.
     pub fn block_height_to_reward_cycle(&self, block_height: u64) -> Option<u64> {
         self.pox_constants
             .block_height_to_reward_cycle(self.first_block_height, block_height)
-    }
-
-    pub fn static_block_height_to_reward_cycle(
-        block_height: u64,
-        first_block_height: u64,
-        reward_cycle_length: u64,
-    ) -> Option<u64> {
-        PoxConstants::static_block_height_to_reward_cycle(
-            block_height,
-            first_block_height,
-            reward_cycle_length,
-        )
     }
 
     /// Is this block either the first block in a reward cycle or
@@ -519,27 +603,19 @@ impl Burnchain {
         (effective_height % reward_cycle_length) <= 1
     }
 
-    pub fn static_is_in_prepare_phase(
-        first_block_height: u64,
-        reward_cycle_length: u64,
-        prepare_length: u64,
-        block_height: u64,
-    ) -> bool {
-        PoxConstants::static_is_in_prepare_phase(
-            first_block_height,
-            reward_cycle_length,
-            prepare_length,
-            block_height,
-        )
+    /// Does this block include reward slots?
+    /// This is either in the last prepare_phase_length blocks of the cycle
+    ///  or the modulo 0 block
+    pub fn is_in_prepare_phase(&self, block_height: u64) -> bool {
+        self.pox_constants
+            .is_in_prepare_phase(self.first_block_height, block_height)
     }
 
-    pub fn is_in_prepare_phase(&self, block_height: u64) -> bool {
-        Self::static_is_in_prepare_phase(
-            self.first_block_height,
-            self.pox_constants.reward_cycle_length as u64,
-            self.pox_constants.prepare_length.into(),
-            block_height,
-        )
+    /// The prepare phase is the last prepare_phase_length blocks of the cycle
+    /// This cannot include the 0 block for nakamoto
+    pub fn is_in_naka_prepare_phase(&self, block_height: u64) -> bool {
+        self.pox_constants
+            .is_in_naka_prepare_phase(self.first_block_height, block_height)
     }
 
     pub fn regtest(working_dir: &str) -> Burnchain {
@@ -921,7 +997,8 @@ impl Burnchain {
                     // duplicate
                     warn!(
                         "REJECTED({}) leader key register {} at {},{}: Duplicate VRF key",
-                        data.block_height, &data.txid, data.block_height, data.vtxindex
+                        data.block_height, &data.txid, data.block_height, data.vtxindex;
+                        "consensus_hash" => %data.consensus_hash
                     );
                     false
                 } else {
@@ -991,7 +1068,7 @@ impl Burnchain {
                 "prev_reward_cycle" => %prev_reward_cycle,
                 "this_reward_cycle" => %this_reward_cycle,
                 "block_height" => %block_height,
-                "cycle-length" => %burnchain.pox_constants.reward_cycle_length
+                "cycle_length" => %burnchain.pox_constants.reward_cycle_length,
             );
             update_pox_affirmation_maps(burnchain_db, indexer, prev_reward_cycle, burnchain)?;
         }
@@ -1000,7 +1077,7 @@ impl Burnchain {
 
     /// Hand off the block to the ChainsCoordinator _and_ process the sortition
     ///   *only* to be used by legacy stacks node interfaces, like the Helium node
-    pub fn process_block_and_sortition_deprecated<B: BurnchainHeaderReader>(
+    fn process_block_and_sortition_deprecated<B: BurnchainHeaderReader>(
         db: &mut SortitionDB,
         burnchain_db: &mut BurnchainDB,
         burnchain: &Burnchain,
@@ -1232,7 +1309,8 @@ impl Burnchain {
                         "Parsed block {} (epoch {}) in {}ms",
                         burnchain_block.block_height(),
                         cur_epoch.epoch_id,
-                        parse_end.saturating_sub(parse_start)
+                        parse_end.saturating_sub(parse_start);
+                        "burn_block_hash" => %burnchain_block.block_hash()
                     );
 
                     db_send
@@ -1270,7 +1348,8 @@ impl Burnchain {
                 debug!(
                     "Inserted block {} in {}ms",
                     burnchain_block.block_height(),
-                    insert_end.saturating_sub(insert_start)
+                    insert_end.saturating_sub(insert_start);
+                    "burn_block_hash" => %burnchain_block.block_hash()
                 );
             }
             Ok(last_processed)
@@ -1567,7 +1646,8 @@ impl Burnchain {
                         "Parsed block {} (in epoch {}) in {}ms",
                         burnchain_block.block_height(),
                         cur_epoch.epoch_id,
-                        parse_end.saturating_sub(parse_start)
+                        parse_end.saturating_sub(parse_start);
+                        "burn_block_hash" => %burnchain_block.block_hash()
                     );
 
                     db_send
@@ -1619,7 +1699,8 @@ impl Burnchain {
                         debug!(
                             "Inserted block {} in {}ms",
                             burnchain_block.block_height(),
-                            insert_end.saturating_sub(insert_start)
+                            insert_end.saturating_sub(insert_start);
+                            "burn_block_hash" => %burnchain_block.block_hash()
                         );
                     }
                     Ok(last_processed)

@@ -32,9 +32,9 @@ use crate::vm::functions::tuples;
 use crate::vm::representations::{SymbolicExpression, SymbolicExpressionType};
 use crate::vm::types::{
     BlockInfoProperty, BuffData, BurnBlockInfoProperty, OptionalData, PrincipalData, SequenceData,
-    TupleData, TypeSignature, Value, BUFF_32,
+    StacksBlockInfoProperty, TenureInfoProperty, TupleData, TypeSignature, Value, BUFF_32,
 };
-use crate::vm::{eval, Environment, LocalContext};
+use crate::vm::{eval, ClarityVersion, Environment, LocalContext};
 
 switch_on_global_epoch!(special_fetch_variable(
     special_fetch_variable_v200,
@@ -717,12 +717,32 @@ pub fn special_delete_entry_v205(
     result.map(|data| data.value)
 }
 
+/// Handles the `get-block-info?` special function.
+/// Interprets `args` as variables `[property-name, block-height]`, and returns
+/// a property value determined by `property-name`:
+/// - `id-header-hash` returns the index block hash at `block-height`
+/// - `header-hash` returns the header hash at `block-height`
+/// - `time` returns the burn block time of the block at `block-height`
+/// - `vrf-seed` returns the VRF seed of the block at `block-height`
+/// - `burnchain-header-hash` returns header hash of the burnchain block corresponding to `block-height`
+/// - `miner-address` returns the address of the principal that mined the block at `block-height`
+/// - `miner-spend-winner` returns the number of satoshis spent by the winning miner for the block at `block-height`
+/// - `miner-spend-total` returns the total number of satoshis spent by all miners for the block at `block-height`
+/// - `block-reward` returns the block reward for the block at `block-height`
+
+///
+/// # Errors:
+/// - CheckErrors::IncorrectArgumentCount if there aren't 2 arguments.
+/// - CheckErrors::GetStacksBlockInfoExpectPropertyName if `args[0]` isn't a ClarityName.
+/// - CheckErrors::NoSuchStacksBlockInfoProperty if `args[0]` isn't a StacksBlockInfoProperty.
+/// - CheckErrors::TypeValueError if `args[1]` isn't a `uint`.
+
 pub fn special_get_block_info(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
 ) -> Result<Value> {
-    // (get-block-info? property-name block-height-int)
+    // (get-block-info? property-name block-height-uint)
     runtime_cost(ClarityCostFunction::BlockInfo, env, 0)?;
 
     check_argument_count(2, args)?;
@@ -732,11 +752,10 @@ pub fn special_get_block_info(
         .match_atom()
         .ok_or(CheckErrors::GetBlockInfoExpectPropertyName)?;
 
-    let block_info_prop = BlockInfoProperty::lookup_by_name_at_version(
-        property_name,
-        env.contract_context.get_clarity_version(),
-    )
-    .ok_or(CheckErrors::GetBlockInfoExpectPropertyName)?;
+    let version = env.contract_context.get_clarity_version();
+
+    let block_info_prop = BlockInfoProperty::lookup_by_name_at_version(property_name, version)
+        .ok_or(CheckErrors::GetBlockInfoExpectPropertyName)?;
 
     // Handle the block-height input arg clause.
     let height_eval = eval(&args[1], env, context)?;
@@ -757,7 +776,10 @@ pub fn special_get_block_info(
 
     let result = match block_info_prop {
         BlockInfoProperty::Time => {
-            let block_time = env.global_context.database.get_block_time(height_value)?;
+            let block_time = env
+                .global_context
+                .database
+                .get_burn_block_time(height_value, None)?;
             Value::UInt(u128::from(block_time))
         }
         BlockInfoProperty::VrfSeed => {
@@ -830,6 +852,7 @@ pub fn special_get_block_info(
     Value::some(result)
 }
 
+/// Handles the `get-burn-block-info?` special function.
 /// Interprets `args` as variables `[property_name, burn_block_height]`, and returns
 /// a property value determined by `property_name`:
 /// - `header_hash` returns the burn block header hash at `burn_block_height`
@@ -923,4 +946,189 @@ pub fn special_get_burn_block_info(
             }
         }
     }
+}
+
+/// Handles the `get-stacks-block-info?` special function.
+/// Interprets `args` as variables `[property-name, block-height]`, and returns
+/// a property value determined by `property-name`:
+/// - `id-header-hash` returns the index block hash at `block-height`
+/// - `header-hash` returns the header hash at `block-height`
+/// - `time` returns the block time at `block-height`
+///
+/// # Errors:
+/// - CheckErrors::IncorrectArgumentCount if there aren't 2 arguments.
+/// - CheckErrors::GetStacksBlockInfoExpectPropertyName if `args[0]` isn't a ClarityName.
+/// - CheckErrors::NoSuchStacksBlockInfoProperty if `args[0]` isn't a StacksBlockInfoProperty.
+/// - CheckErrors::TypeValueError if `args[1]` isn't a `uint`.
+pub fn special_get_stacks_block_info(
+    args: &[SymbolicExpression],
+    env: &mut Environment,
+    context: &LocalContext,
+) -> Result<Value> {
+    // (get-stacks-block-info? property-name block-height-uint)
+    runtime_cost(ClarityCostFunction::BlockInfo, env, 0)?;
+
+    check_argument_count(2, args)?;
+
+    // Handle the block property name input arg.
+    let property_name = args[0]
+        .match_atom()
+        .ok_or(CheckErrors::GetStacksBlockInfoExpectPropertyName)?;
+
+    let block_info_prop = StacksBlockInfoProperty::lookup_by_name(property_name).ok_or(
+        CheckErrors::NoSuchStacksBlockInfoProperty(property_name.to_string()),
+    )?;
+
+    // Handle the block-height input arg.
+    let height_eval = eval(&args[1], env, context)?;
+    let height_value = match height_eval {
+        Value::UInt(result) => Ok(result),
+        x => Err(CheckErrors::TypeValueError(TypeSignature::UIntType, x)),
+    }?;
+
+    let Ok(height_value) = u32::try_from(height_value) else {
+        return Ok(Value::none());
+    };
+
+    let current_block_height = env.global_context.database.get_current_block_height();
+    if height_value >= current_block_height {
+        return Ok(Value::none());
+    }
+
+    let result = match block_info_prop {
+        StacksBlockInfoProperty::Time => {
+            let block_time = env.global_context.database.get_block_time(height_value)?;
+            Value::UInt(u128::from(block_time))
+        }
+        StacksBlockInfoProperty::HeaderHash => {
+            let header_hash = env
+                .global_context
+                .database
+                .get_block_header_hash(height_value)?;
+            Value::Sequence(SequenceData::Buffer(BuffData {
+                data: header_hash.as_bytes().to_vec(),
+            }))
+        }
+        StacksBlockInfoProperty::IndexHeaderHash => {
+            let id_header_hash = env
+                .global_context
+                .database
+                .get_index_block_header_hash(height_value)?;
+            Value::Sequence(SequenceData::Buffer(BuffData {
+                data: id_header_hash.as_bytes().to_vec(),
+            }))
+        }
+    };
+
+    Value::some(result)
+}
+
+/// Handles the function `get-tenure-info?` special function.
+/// Interprets `args` as variables `[property-name, block-height]`, and returns
+/// a property value determined by `property-name`:
+/// - `time` returns the burn block time for the tenure of which `block-height` is a part
+/// - `vrf-seed` returns the VRF seed for the tenure of which `block-height` is a part
+/// - `burnchain-header-hash` returns header hash of the burnchain block corresponding to the tenure of which `block-height` is a part
+/// - `miner-address` returns the address of the principal that mined the tenure of which `block-height` is a part
+/// - `miner-spend-winner` returns the number of satoshis spent by the winning miner for the tenure of which `block-height` is a part
+/// - `miner-spend-total` returns the total number of satoshis spent by all miners for the tenure of which `block-height` is a part
+/// - `block-reward` returns the block reward for the tenure of which `block-height` is a part
+///
+/// # Errors:
+/// - CheckErrors::IncorrectArgumentCount if there aren't 2 arguments.
+/// - CheckErrors::GetTenureInfoExpectPropertyName if `args[0]` isn't a ClarityName.
+/// - CheckErrors::NoSuchTenureInfoProperty if `args[0]` isn't a TenureInfoProperty.
+/// - CheckErrors::TypeValueError if `args[1]` isn't a `uint`.
+pub fn special_get_tenure_info(
+    args: &[SymbolicExpression],
+    env: &mut Environment,
+    context: &LocalContext,
+) -> Result<Value> {
+    // (get-tenure-info? property-name block-height-uint)
+    runtime_cost(ClarityCostFunction::BlockInfo, env, 0)?;
+
+    check_argument_count(2, args)?;
+
+    // Handle the block property name input arg.
+    let property_name = args[0]
+        .match_atom()
+        .ok_or(CheckErrors::GetTenureInfoExpectPropertyName)?;
+
+    let block_info_prop = TenureInfoProperty::lookup_by_name(property_name)
+        .ok_or(CheckErrors::GetTenureInfoExpectPropertyName)?;
+
+    // Handle the block-height input arg.
+    let height_eval = eval(&args[1], env, context)?;
+    let height_value = match height_eval {
+        Value::UInt(result) => Ok(result),
+        x => Err(CheckErrors::TypeValueError(TypeSignature::UIntType, x)),
+    }?;
+
+    let Ok(height_value) = u32::try_from(height_value) else {
+        return Ok(Value::none());
+    };
+
+    let current_height = env.global_context.database.get_current_block_height();
+    if height_value >= current_height {
+        return Ok(Value::none());
+    }
+
+    let result = match block_info_prop {
+        TenureInfoProperty::Time => {
+            let block_time = env
+                .global_context
+                .database
+                .get_burn_block_time(height_value, None)?;
+            Value::UInt(u128::from(block_time))
+        }
+        TenureInfoProperty::VrfSeed => {
+            let vrf_seed = env
+                .global_context
+                .database
+                .get_block_vrf_seed(height_value)?;
+            Value::Sequence(SequenceData::Buffer(BuffData {
+                data: vrf_seed.as_bytes().to_vec(),
+            }))
+        }
+        TenureInfoProperty::BurnchainHeaderHash => {
+            let burnchain_header_hash = env
+                .global_context
+                .database
+                .get_burnchain_block_header_hash(height_value)?;
+            Value::Sequence(SequenceData::Buffer(BuffData {
+                data: burnchain_header_hash.as_bytes().to_vec(),
+            }))
+        }
+        TenureInfoProperty::MinerAddress => {
+            let miner_address = env
+                .global_context
+                .database
+                .get_miner_address(height_value)?;
+            Value::from(miner_address)
+        }
+        TenureInfoProperty::MinerSpendWinner => {
+            let winner_spend = env
+                .global_context
+                .database
+                .get_miner_spend_winner(height_value)?;
+            Value::UInt(winner_spend)
+        }
+        TenureInfoProperty::MinerSpendTotal => {
+            let total_spend = env
+                .global_context
+                .database
+                .get_miner_spend_total(height_value)?;
+            Value::UInt(total_spend)
+        }
+        TenureInfoProperty::BlockReward => {
+            // this is already an optional
+            let block_reward_opt = env.global_context.database.get_block_reward(height_value)?;
+            return Ok(match block_reward_opt {
+                Some(x) => Value::some(Value::UInt(x))?,
+                None => Value::none(),
+            });
+        }
+    };
+
+    Value::some(result)
 }

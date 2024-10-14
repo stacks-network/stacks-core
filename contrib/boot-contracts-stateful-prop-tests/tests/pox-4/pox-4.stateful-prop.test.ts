@@ -16,6 +16,7 @@ import { StackingClient } from "@stacks/stacking";
 
 import fc from "fast-check";
 import { PoxCommands } from "./pox_Commands.ts";
+import { ErrCommands } from "./err_Commands.ts";
 
 import fs from "fs";
 import path from "path";
@@ -108,7 +109,8 @@ it("statefully interacts with PoX-4", async () => {
   // commands are run at least once.
   const statistics = fs.readdirSync(path.join(__dirname)).filter((file) =>
     file.startsWith("pox_") && file.endsWith(".ts") &&
-    file !== "pox_CommandModel.ts" && file !== "pox_Commands.ts"
+    file !== "pox_CommandModel.ts" && file !== "pox_Commands.ts" &&
+    !file.includes("_Err")
   ).map((file) => file.slice(4, -3)); // Remove "pox_" prefix and ".ts" suffix.
 
   // This is the initial state of the model.
@@ -124,13 +126,17 @@ it("statefully interacts with PoX-4", async () => {
       poolMembers: [],
       delegatedTo: "",
       delegatedMaxAmount: 0,
+      // We initialize delegatedUntilBurnHt to 0. It will be updated
+      // after successful delegate-stx calls. It's value will be either
+      // the unwrapped until-burn-ht uint passed to the delegate-stx,
+      // or undefined for indefinite delegations.
       delegatedUntilBurnHt: 0,
       delegatedPoxAddress: "",
       amountLocked: 0,
       amountUnlocked: 100_000_000_000_000,
       unlockHeight: 0,
       firstLockedRewardCycle: 0,
-      allowedContractCaller: "",
+      allowedContractCallers: [],
       callerAllowedBy: [],
       committedRewCycleIndexes: [],
     }])),
@@ -139,9 +145,14 @@ it("statefully interacts with PoX-4", async () => {
 
   simnet.setEpoch("3.0");
 
+  const successPath = PoxCommands(model.wallets, model.stackers, sut.network);
+  const failurePath = ErrCommands(model.wallets, model.stackers, sut.network);
+
   fc.assert(
     fc.property(
-      PoxCommands(model.wallets, model.stackers, sut.network),
+      // More on size: https://github.com/dubzzz/fast-check/discussions/2978
+      // More on cmds: https://github.com/dubzzz/fast-check/discussions/3026
+      fc.commands(successPath.concat(failurePath), { size: "xsmall" }),
       (cmds) => {
         const initialState = () => ({ model: model, real: sut });
         fc.modelRun(initialState, cmds);
@@ -149,7 +160,7 @@ it("statefully interacts with PoX-4", async () => {
     ),
     {
       // Defines the number of test iterations to run; default is 100.
-      numRuns: 1000,
+      numRuns: 20000,
       // Adjusts the level of detail in test reports. Default is 0 (minimal).
       // At level 2, reports include extensive details, helpful for deep
       // debugging. This includes not just the failing case and its seed, but

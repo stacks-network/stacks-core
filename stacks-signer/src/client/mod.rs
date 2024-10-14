@@ -15,7 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 /// The stacker db module for communicating with the stackerdb contract
-mod stackerdb;
+pub(crate) mod stackerdb;
 /// The stacks node client module for communicating with the stacks node
 pub(crate) mod stacks_client;
 
@@ -23,6 +23,7 @@ use std::time::Duration;
 
 use clarity::vm::errors::Error as ClarityError;
 use clarity::vm::types::serialization::SerializationError;
+use libsigner::RPCError;
 use libstackerdb::Error as StackerDBError;
 use slog::slog_debug;
 pub use stackerdb::*;
@@ -34,6 +35,8 @@ use stacks_common::debug;
 const BACKOFF_INITIAL_INTERVAL: u64 = 128;
 /// Backoff timer max interval in milliseconds
 const BACKOFF_MAX_INTERVAL: u64 = 16384;
+/// Backoff timer max elapsed seconds
+const BACKOFF_MAX_ELAPSED: u64 = 5;
 
 #[derive(thiserror::Error, Debug)]
 /// Client error type
@@ -86,6 +89,12 @@ pub enum ClientError {
     /// Invalid response from the stacks node
     #[error("Invalid response from the stacks node: {0}")]
     InvalidResponse(String),
+    /// A successful sortition's info response should be parseable into a SortitionState
+    #[error("A successful sortition's info response should be parseable into a SortitionState")]
+    UnexpectedSortitionInfo,
+    /// An RPC libsigner error occurred
+    #[error("A libsigner RPC error occurred: {0}")]
+    RPCError(#[from] RPCError),
 }
 
 /// Retry a function F with an exponential backoff and notification on transient failure
@@ -103,6 +112,7 @@ where
     let backoff_timer = backoff::ExponentialBackoffBuilder::new()
         .with_initial_interval(Duration::from_millis(BACKOFF_INITIAL_INTERVAL))
         .with_max_interval(Duration::from_millis(BACKOFF_MAX_INTERVAL))
+        .with_max_elapsed_time(Some(Duration::from_secs(BACKOFF_MAX_ELAPSED)))
         .build();
 
     backoff::retry_notify(backoff_timer, request_fn, notify).map_err(|_| ClientError::RetryTimeout)
@@ -110,38 +120,31 @@ where
 
 #[cfg(test)]
 pub(crate) mod tests {
+    use std::collections::{BTreeMap, HashMap};
     use std::io::{Read, Write};
     use std::net::{SocketAddr, TcpListener};
 
     use blockstack_lib::chainstate::stacks::boot::POX_4_NAME;
-    use blockstack_lib::net::api::getaccount::AccountEntryResponse;
+    use blockstack_lib::chainstate::stacks::db::StacksBlockHeaderTypes;
     use blockstack_lib::net::api::getinfo::RPCPeerInfoData;
     use blockstack_lib::net::api::getpoxinfo::{
         RPCPoxCurrentCycleInfo, RPCPoxEpoch, RPCPoxInfoData, RPCPoxNextCycleInfo,
     };
-    use blockstack_lib::net::api::postfeerate::{RPCFeeEstimate, RPCFeeEstimateResponse};
     use blockstack_lib::util_lib::boot::boot_code_id;
     use clarity::vm::costs::ExecutionCost;
-    use clarity::vm::types::TupleData;
     use clarity::vm::Value as ClarityValue;
-    use hashbrown::{HashMap, HashSet};
     use libsigner::SignerEntries;
     use rand::distributions::Standard;
     use rand::{thread_rng, Rng};
-    use rand_core::{OsRng, RngCore};
+    use rand_core::RngCore;
     use stacks_common::types::chainstate::{
         BlockHeaderHash, ConsensusHash, StacksAddress, StacksPrivateKey, StacksPublicKey,
     };
     use stacks_common::types::{StacksEpochId, StacksPublicKeyBuffer};
     use stacks_common::util::hash::{Hash160, Sha256Sum};
-    use wsts::curve::ecdsa;
-    use wsts::curve::point::{Compressed, Point};
-    use wsts::curve::scalar::Scalar;
-    use wsts::state_machine::PublicKeys;
 
     use super::*;
     use crate::config::{GlobalConfig, SignerConfig};
-    use crate::signer::SignerSlotID;
 
     pub struct MockServerClient {
         pub server: TcpListener,
@@ -210,28 +213,6 @@ pub(crate) mod tests {
         let mut hash = [0u8; 20];
         hash.copy_from_slice(&bytes);
         ConsensusHash(hash)
-    }
-
-    /// Build a response for the get_last_round request
-    pub fn build_get_last_round_response(round: u64) -> String {
-        let value = ClarityValue::some(ClarityValue::UInt(round as u128))
-            .expect("Failed to create response");
-        build_read_only_response(&value)
-    }
-
-    /// Build a response for the get_account_nonce request
-    pub fn build_account_nonce_response(nonce: u64) -> String {
-        let account_nonce_entry = AccountEntryResponse {
-            nonce,
-            balance: "0x00000000000000000000000000000000".to_string(),
-            locked: "0x00000000000000000000000000000000".to_string(),
-            unlock_height: thread_rng().next_u64(),
-            balance_proof: None,
-            nonce_proof: None,
-        };
-        let account_nonce_entry_json = serde_json::to_string(&account_nonce_entry)
-            .expect("Failed to serialize account nonce entry");
-        format!("HTTP/1.1 200 OK\n\n{account_nonce_entry_json}")
     }
 
     /// Build a response to get_pox_data_with_retry where it returns a specific reward cycle id and block height
@@ -315,41 +296,6 @@ pub(crate) mod tests {
         (format!("HTTP/1.1 200 Ok\n\n{pox_info_json}"), pox_info)
     }
 
-    /// Build a response for the get_approved_aggregate_key request
-    pub fn build_get_approved_aggregate_key_response(point: Option<Point>) -> String {
-        let clarity_value = if let Some(point) = point {
-            ClarityValue::some(
-                ClarityValue::buff_from(point.compress().as_bytes().to_vec())
-                    .expect("BUG: Failed to create clarity value from point"),
-            )
-            .expect("BUG: Failed to create clarity value from point")
-        } else {
-            ClarityValue::none()
-        };
-        build_read_only_response(&clarity_value)
-    }
-
-    /// Build a response for the get_approved_aggregate_key request
-    pub fn build_get_vote_for_aggregate_key_response(point: Option<Point>) -> String {
-        let clarity_value = if let Some(point) = point {
-            ClarityValue::some(ClarityValue::Tuple(
-                TupleData::from_data(vec![
-                    (
-                        "aggregate-public-key".into(),
-                        ClarityValue::buff_from(point.compress().as_bytes().to_vec())
-                            .expect("BUG: Failed to create clarity value from point"),
-                    ),
-                    ("signer-weight".into(), ClarityValue::UInt(1)), // fixed for testing purposes
-                ])
-                .expect("BUG: Failed to create clarity value from tuple data"),
-            ))
-            .expect("BUG: Failed to create clarity value from tuple data")
-        } else {
-            ClarityValue::none()
-        };
-        build_read_only_response(&clarity_value)
-    }
-
     /// Build a response for the get_peer_info_with_retry request with a specific stacks tip height and consensus hash
     pub fn build_get_peer_info_response(
         burn_block_height: Option<u64>,
@@ -377,6 +323,7 @@ pub(crate) mod tests {
             unanchored_tip: None,
             unanchored_seq: Some(0),
             exit_at_block_height: None,
+            is_fully_synced: false,
             genesis_chainstate_hash: Sha256Sum::zero(),
             node_public_key: Some(public_key_buf),
             node_public_key_hash: Some(public_key_hash),
@@ -402,187 +349,78 @@ pub(crate) mod tests {
         format!("HTTP/1.1 200 OK\n\n{{\"okay\":true,\"result\":\"{hex}\"}}")
     }
 
-    /// Build a response for the get_medium_estimated_fee_ustx_response request with a specific medium estimate
-    pub fn build_get_medium_estimated_fee_ustx_response(
-        medium_estimate: u64,
-    ) -> (String, RPCFeeEstimateResponse) {
-        // Generate some random info
-        let fee_response = RPCFeeEstimateResponse {
-            estimated_cost: ExecutionCost {
-                write_length: thread_rng().next_u64(),
-                write_count: thread_rng().next_u64(),
-                read_length: thread_rng().next_u64(),
-                read_count: thread_rng().next_u64(),
-                runtime: thread_rng().next_u64(),
-            },
-            estimated_cost_scalar: thread_rng().next_u64(),
-            cost_scalar_change_by_byte: thread_rng().next_u32() as f64,
-            estimations: vec![
-                RPCFeeEstimate {
-                    fee_rate: thread_rng().next_u32() as f64,
-                    fee: thread_rng().next_u64(),
-                },
-                RPCFeeEstimate {
-                    fee_rate: thread_rng().next_u32() as f64,
-                    fee: medium_estimate,
-                },
-                RPCFeeEstimate {
-                    fee_rate: thread_rng().next_u32() as f64,
-                    fee: thread_rng().next_u64(),
-                },
-            ],
-        };
-        let fee_response_json = serde_json::to_string(&fee_response)
-            .expect("Failed to serialize fee estimate response");
-        (
-            format!("HTTP/1.1 200 OK\n\n{fee_response_json}"),
-            fee_response,
-        )
-    }
-
     /// Generate a signer config with the given number of signers and keys where the first signer is
     /// obtained from the provided global config
-    pub fn generate_signer_config(
-        config: &GlobalConfig,
-        num_signers: u32,
-        num_keys: u32,
-    ) -> SignerConfig {
+    pub fn generate_signer_config(config: &GlobalConfig, num_signers: u32) -> SignerConfig {
         assert!(
             num_signers > 0,
             "Cannot generate 0 signers...Specify at least 1 signer."
         );
-        assert!(
-            num_keys > 0,
-            "Cannot generate 0 keys for the provided signers...Specify at least 1 key."
-        );
-        let mut public_keys = PublicKeys {
-            signers: HashMap::new(),
-            key_ids: HashMap::new(),
-        };
-        let reward_cycle = thread_rng().next_u64();
-        let rng = &mut OsRng;
-        let num_keys = num_keys / num_signers;
-        let remaining_keys = num_keys % num_signers;
-        let mut coordinator_key_ids = HashMap::new();
-        let mut signer_key_ids = HashMap::new();
-        let mut signer_ids = HashMap::new();
-        let mut start_key_id = 1u32;
-        let mut end_key_id = start_key_id;
-        let mut signer_public_keys = HashMap::new();
-        let mut signer_slot_ids = vec![];
-        let ecdsa_private_key = config.ecdsa_private_key;
-        let ecdsa_public_key =
-            ecdsa::PublicKey::new(&ecdsa_private_key).expect("Failed to create ecdsa public key");
-        // Key ids start from 1 hence the wrapping adds everywhere
-        for signer_id in 0..num_signers {
-            end_key_id = if signer_id.wrapping_add(1) == num_signers {
-                end_key_id.wrapping_add(remaining_keys)
-            } else {
-                end_key_id.wrapping_add(num_keys)
-            };
-            if signer_id == 0 {
-                public_keys.signers.insert(signer_id, ecdsa_public_key);
-                let signer_public_key =
-                    Point::try_from(&Compressed::from(ecdsa_public_key.to_bytes())).unwrap();
-                signer_public_keys.insert(signer_id, signer_public_key);
-                public_keys.signers.insert(signer_id, ecdsa_public_key);
-                for k in start_key_id..end_key_id {
-                    public_keys.key_ids.insert(k, ecdsa_public_key);
-                    coordinator_key_ids
-                        .entry(signer_id)
-                        .or_insert(HashSet::new())
-                        .insert(k);
-                    signer_key_ids
-                        .entry(signer_id)
-                        .or_insert(Vec::new())
-                        .push(k);
-                }
-                start_key_id = end_key_id;
-                let address = StacksAddress::p2pkh(
-                    false,
-                    &StacksPublicKey::from_slice(ecdsa_public_key.to_bytes().as_slice())
-                        .expect("Failed to create stacks public key"),
-                );
-                signer_slot_ids.push(SignerSlotID(signer_id));
-                signer_ids.insert(address, signer_id);
 
-                continue;
-            }
-            let private_key = Scalar::random(rng);
-            let public_key = ecdsa::PublicKey::new(&private_key).unwrap();
-            let signer_public_key =
-                Point::try_from(&Compressed::from(public_key.to_bytes())).unwrap();
-            signer_public_keys.insert(signer_id, signer_public_key);
-            public_keys.signers.insert(signer_id, public_key);
-            for k in start_key_id..end_key_id {
-                public_keys.key_ids.insert(k, public_key);
-                coordinator_key_ids
-                    .entry(signer_id)
-                    .or_insert(HashSet::new())
-                    .insert(k);
-                signer_key_ids
-                    .entry(signer_id)
-                    .or_insert(Vec::new())
-                    .push(k);
-            }
-            let address = StacksAddress::p2pkh(
-                false,
-                &StacksPublicKey::from_slice(public_key.to_bytes().as_slice())
-                    .expect("Failed to create stacks public key"),
-            );
+        let weight_per_signer = 100 / num_signers;
+        let mut remaining_weight = 100 % num_signers;
+
+        let reward_cycle = thread_rng().next_u64();
+
+        let mut signer_pk_to_id = HashMap::new();
+        let mut signer_id_to_pk = HashMap::new();
+        let mut signer_addr_to_id = HashMap::new();
+        let mut signer_pks = Vec::new();
+        let mut signer_slot_ids = Vec::new();
+        let mut signer_id_to_addr = BTreeMap::new();
+        let mut signer_addr_to_weight = HashMap::new();
+        let mut signer_addresses = Vec::new();
+
+        for signer_id in 0..num_signers {
+            let private_key = if signer_id == 0 {
+                config.stacks_private_key
+            } else {
+                StacksPrivateKey::new()
+            };
+            let public_key = StacksPublicKey::from_private(&private_key);
+
+            signer_id_to_pk.insert(signer_id, public_key);
+            signer_pk_to_id.insert(public_key, signer_id);
+            let address = StacksAddress::p2pkh(false, &public_key);
+            signer_addr_to_id.insert(address, signer_id);
+            signer_pks.push(public_key);
             signer_slot_ids.push(SignerSlotID(signer_id));
-            signer_ids.insert(address, signer_id);
-            start_key_id = end_key_id;
+            signer_id_to_addr.insert(signer_id, address);
+            signer_addr_to_weight.insert(address, weight_per_signer + remaining_weight);
+            signer_addresses.push(address);
+            remaining_weight = 0; // The first signer gets the extra weight if there is any. All other signers only get the weight_per_signer
         }
         SignerConfig {
             reward_cycle,
             signer_id: 0,
             signer_slot_id: SignerSlotID(rand::thread_rng().gen_range(0..num_signers)), // Give a random signer slot id between 0 and num_signers
-            key_ids: signer_key_ids.get(&0).cloned().unwrap_or_default(),
             signer_entries: SignerEntries {
-                public_keys,
-                coordinator_key_ids,
-                signer_key_ids,
-                signer_ids,
-                signer_public_keys,
+                signer_addr_to_id,
+                signer_id_to_pk,
+                signer_pk_to_id,
+                signer_pks,
+                signer_id_to_addr,
+                signer_addr_to_weight,
+                signer_addresses,
             },
             signer_slot_ids,
-            ecdsa_private_key: config.ecdsa_private_key,
             stacks_private_key: config.stacks_private_key,
             node_host: config.node_host.to_string(),
             mainnet: config.network.is_mainnet(),
-            dkg_end_timeout: config.dkg_end_timeout,
-            dkg_private_timeout: config.dkg_private_timeout,
-            dkg_public_timeout: config.dkg_public_timeout,
-            nonce_timeout: config.nonce_timeout,
-            sign_timeout: config.sign_timeout,
-            tx_fee_ustx: config.tx_fee_ustx,
-            max_tx_fee_ustx: config.max_tx_fee_ustx,
             db_path: config.db_path.clone(),
+            first_proposal_burn_block_timing: config.first_proposal_burn_block_timing,
+            block_proposal_timeout: config.block_proposal_timeout,
         }
     }
 
-    pub fn build_get_round_info_response(info: Option<(u64, u64)>) -> String {
-        let clarity_value = if let Some((vote_count, vote_weight)) = info {
-            ClarityValue::some(ClarityValue::Tuple(
-                TupleData::from_data(vec![
-                    ("votes-count".into(), ClarityValue::UInt(vote_count as u128)),
-                    (
-                        "votes-weight".into(),
-                        ClarityValue::UInt(vote_weight as u128),
-                    ),
-                ])
-                .expect("BUG: Failed to create clarity value from tuple data"),
-            ))
-            .expect("BUG: Failed to create clarity value from tuple data")
-        } else {
-            ClarityValue::none()
-        };
-        build_read_only_response(&clarity_value)
+    pub fn build_get_tenure_tip_response(header_types: &StacksBlockHeaderTypes) -> String {
+        let response_json =
+            serde_json::to_string(header_types).expect("Failed to serialize tenure tip info");
+        format!("HTTP/1.1 200 OK\n\n{response_json}")
     }
 
-    pub fn build_get_weight_threshold_response(threshold: u64) -> String {
-        let clarity_value = ClarityValue::UInt(threshold as u128);
+    pub fn build_get_last_set_cycle_response(cycle: u64) -> String {
+        let clarity_value = ClarityValue::okay(ClarityValue::UInt(cycle as u128)).unwrap();
         build_read_only_response(&clarity_value)
     }
 }

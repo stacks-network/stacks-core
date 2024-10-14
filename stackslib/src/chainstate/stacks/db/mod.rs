@@ -36,11 +36,12 @@ use clarity::vm::types::TupleData;
 use clarity::vm::{SymbolicExpression, Value};
 use lazy_static::lazy_static;
 use rusqlite::types::ToSql;
-use rusqlite::{Connection, OpenFlags, OptionalExtension, Row, Transaction, NO_PARAMS};
+use rusqlite::{params, Connection, OpenFlags, OptionalExtension, Row, Transaction};
 use serde::de::Error as de_Error;
 use serde::Deserialize;
 use stacks_common::codec::{read_next, write_next, StacksMessageCodec};
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId, TrieHash};
+use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::util;
 use stacks_common::util::hash::{hex_bytes, to_hex};
 
@@ -53,7 +54,8 @@ use crate::chainstate::burn::operations::{
 use crate::chainstate::burn::{ConsensusHash, ConsensusHashExtensions};
 use crate::chainstate::nakamoto::{
     HeaderTypeNames, NakamotoBlock, NakamotoBlockHeader, NakamotoChainState,
-    NakamotoStagingBlocksConn, NAKAMOTO_CHAINSTATE_SCHEMA_1,
+    NakamotoStagingBlocksConn, NAKAMOTO_CHAINSTATE_SCHEMA_1, NAKAMOTO_CHAINSTATE_SCHEMA_2,
+    NAKAMOTO_CHAINSTATE_SCHEMA_3, NAKAMOTO_CHAINSTATE_SCHEMA_4,
 };
 use crate::chainstate::stacks::address::StacksAddressExtensions;
 use crate::chainstate::stacks::boot::*;
@@ -158,7 +160,7 @@ pub struct MinerPaymentSchedule {
     pub vtxindex: u32,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum StacksBlockHeaderTypes {
     Epoch2(StacksBlockHeader),
     Nakamoto(NakamotoBlockHeader),
@@ -196,6 +198,9 @@ pub struct StacksHeaderInfo {
     pub burn_header_timestamp: u64,
     /// Size of the block corresponding to `anchored_header` in bytes
     pub anchored_block_size: u64,
+    /// The burnchain tip that is passed to Clarity while processing this block.
+    /// This should always be `Some()` for Nakamoto blocks and `None` for 2.x blocks
+    pub burn_view: Option<ConsensusHash>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -287,23 +292,20 @@ pub struct DBConfig {
 
 impl DBConfig {
     pub fn supports_epoch(&self, epoch_id: StacksEpochId) -> bool {
+        let version_u32: u32 = self.version.parse().unwrap_or_else(|e| {
+            error!("Failed to parse Stacks chainstate version as u32: {e}");
+            0
+        });
         match epoch_id {
             StacksEpochId::Epoch10 => true,
-            StacksEpochId::Epoch20 => {
-                self.version == "1"
-                    || self.version == "2"
-                    || self.version == "3"
-                    || self.version == "4"
-            }
-            StacksEpochId::Epoch2_05 => {
-                self.version == "2" || self.version == "3" || self.version == "4"
-            }
-            StacksEpochId::Epoch21 => self.version == "3" || self.version == "4",
-            StacksEpochId::Epoch22 => self.version == "3" || self.version == "4",
-            StacksEpochId::Epoch23 => self.version == "3" || self.version == "4",
-            StacksEpochId::Epoch24 => self.version == "3" || self.version == "4",
-            StacksEpochId::Epoch25 => self.version == "3" || self.version == "4",
-            StacksEpochId::Epoch30 => self.version == "3" || self.version == "4",
+            StacksEpochId::Epoch20 => version_u32 >= 1 && version_u32 <= 7,
+            StacksEpochId::Epoch2_05 => version_u32 >= 2 && version_u32 <= 7,
+            StacksEpochId::Epoch21 => version_u32 >= 3 && version_u32 <= 7,
+            StacksEpochId::Epoch22 => version_u32 >= 3 && version_u32 <= 7,
+            StacksEpochId::Epoch23 => version_u32 >= 3 && version_u32 <= 7,
+            StacksEpochId::Epoch24 => version_u32 >= 3 && version_u32 <= 7,
+            StacksEpochId::Epoch25 => version_u32 >= 3 && version_u32 <= 7,
+            StacksEpochId::Epoch30 => version_u32 >= 3 && version_u32 <= 7,
         }
     }
 }
@@ -371,6 +373,7 @@ impl StacksHeaderInfo {
             consensus_hash: ConsensusHash::empty(),
             burn_header_timestamp: 0,
             anchored_block_size: 0,
+            burn_view: None,
         }
     }
 
@@ -390,6 +393,7 @@ impl StacksHeaderInfo {
             consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
             burn_header_timestamp: first_burnchain_block_timestamp,
             anchored_block_size: 0,
+            burn_view: None,
         }
     }
 
@@ -436,13 +440,19 @@ impl FromRow<StacksHeaderInfo> for StacksHeaderInfo {
             .parse::<u64>()
             .map_err(|_| db_error::ParseError)?;
 
+        let header_type: HeaderTypeNames = row
+            .get("header_type")
+            .unwrap_or_else(|_e| HeaderTypeNames::Epoch2);
         let stacks_header: StacksBlockHeaderTypes = {
-            let header_type: HeaderTypeNames = row
-                .get("header_type")
-                .unwrap_or_else(|_e| HeaderTypeNames::Epoch2);
             match header_type {
                 HeaderTypeNames::Epoch2 => StacksBlockHeader::from_row(row)?.into(),
                 HeaderTypeNames::Nakamoto => NakamotoBlockHeader::from_row(row)?.into(),
+            }
+        };
+        let burn_view = {
+            match header_type {
+                HeaderTypeNames::Epoch2 => None,
+                HeaderTypeNames::Nakamoto => Some(ConsensusHash::from_column(row, "burn_view")?),
             }
         };
 
@@ -460,6 +470,7 @@ impl FromRow<StacksHeaderInfo> for StacksHeaderInfo {
             burn_header_height: burn_header_height as u32,
             burn_header_timestamp,
             anchored_block_size,
+            burn_view,
         })
     }
 }
@@ -640,7 +651,7 @@ impl<'a> ChainstateTx<'a> {
                 let txid = tx_event.transaction.txid();
                 let tx_hex = tx_event.transaction.serialize_to_dbstring();
                 let result = tx_event.result.to_string();
-                let params: &[&dyn ToSql] = &[&txid, block_id, &tx_hex, &result];
+                let params = params![txid, block_id, tx_hex, result];
                 if let Err(e) = self.tx.tx().execute(insert, params) {
                     warn!("Failed to log TX: {}", e);
                 }
@@ -668,7 +679,7 @@ impl<'a> DerefMut for ChainstateTx<'a> {
     }
 }
 
-pub const CHAINSTATE_VERSION: &'static str = "4";
+pub const CHAINSTATE_VERSION: &'static str = "7";
 
 const CHAINSTATE_INITIAL_SCHEMA: &'static [&'static str] = &[
     "PRAGMA foreign_keys = ON;",
@@ -856,6 +867,8 @@ const CHAINSTATE_SCHEMA_3: &'static [&'static str] = &[
     // proessed
     r#"
     CREATE TABLE burnchain_txids(
+        -- in epoch 2.x, this is the index block hash of the Stacks block.
+        -- in epoch 3.x, this is the index block hash of the tenure-start block.
         index_block_hash TEXT PRIMARY KEY,
         -- this is a JSON-encoded list of txids
         txids TEXT NOT NULL
@@ -994,11 +1007,7 @@ impl StacksChainState {
             }
             tx.execute(
                 "INSERT INTO db_config (version,mainnet,chain_id) VALUES (?1,?2,?3)",
-                &[
-                    &"1".to_string(),
-                    &(if mainnet { 1 } else { 0 }) as &dyn ToSql,
-                    &chain_id as &dyn ToSql,
-                ],
+                params!["1".to_string(), (if mainnet { 1 } else { 0 }), chain_id,],
             )?;
 
             if migrate {
@@ -1031,13 +1040,17 @@ impl StacksChainState {
         Ok(config.expect("BUG: no db_config installed"))
     }
 
-    fn apply_schema_migrations<'a>(
-        tx: &DBTx<'a>,
+    /// Do we need a schema migration?
+    /// Return Ok(true) if so
+    /// Return Ok(false) if not
+    /// Return Err(..) on DB errors, or if this DB is not consistent with `mainnet` or `chain_id`
+    fn need_schema_migrations(
+        conn: &Connection,
         mainnet: bool,
         chain_id: u32,
-    ) -> Result<(), Error> {
-        let mut db_config =
-            StacksChainState::load_db_config(tx).expect("CORRUPTION: no db_config found");
+    ) -> Result<bool, Error> {
+        let db_config =
+            StacksChainState::load_db_config(conn).expect("CORRUPTION: no db_config found");
 
         if db_config.mainnet != mainnet {
             error!(
@@ -1055,41 +1068,79 @@ impl StacksChainState {
             return Err(Error::InvalidChainstateDB);
         }
 
-        if db_config.version != CHAINSTATE_VERSION {
-            while db_config.version != CHAINSTATE_VERSION {
-                match db_config.version.as_str() {
-                    "1" => {
-                        // migrate to 2
-                        info!("Migrating chainstate schema from version 1 to 2");
-                        for cmd in CHAINSTATE_SCHEMA_2.iter() {
-                            tx.execute_batch(cmd)?;
-                        }
-                    }
-                    "2" => {
-                        // migrate to 3
-                        info!("Migrating chainstate schema from version 2 to 3");
-                        for cmd in CHAINSTATE_SCHEMA_3.iter() {
-                            tx.execute_batch(cmd)?;
-                        }
-                    }
-                    "3" => {
-                        // migrate to nakamoto 1
-                        info!("Migrating chainstate schema from version 3 to 4: nakamoto support");
-                        for cmd in NAKAMOTO_CHAINSTATE_SCHEMA_1.iter() {
-                            tx.execute_batch(cmd)?;
-                        }
-                    }
-                    _ => {
-                        error!(
-                            "Invalid chain state database: expected version = {}, got {}",
-                            CHAINSTATE_VERSION, db_config.version
-                        );
-                        return Err(Error::InvalidChainstateDB);
+        Ok(db_config.version != CHAINSTATE_VERSION)
+    }
+
+    fn apply_schema_migrations<'a>(
+        tx: &DBTx<'a>,
+        mainnet: bool,
+        chain_id: u32,
+    ) -> Result<(), Error> {
+        if !Self::need_schema_migrations(tx, mainnet, chain_id)? {
+            return Ok(());
+        }
+
+        let mut db_config =
+            StacksChainState::load_db_config(tx).expect("CORRUPTION: no db_config found");
+
+        while db_config.version != CHAINSTATE_VERSION {
+            match db_config.version.as_str() {
+                "1" => {
+                    // migrate to 2
+                    info!("Migrating chainstate schema from version 1 to 2");
+                    for cmd in CHAINSTATE_SCHEMA_2.iter() {
+                        tx.execute_batch(cmd)?;
                     }
                 }
-                db_config =
-                    StacksChainState::load_db_config(tx).expect("CORRUPTION: no db_config found");
+                "2" => {
+                    // migrate to 3
+                    info!("Migrating chainstate schema from version 2 to 3");
+                    for cmd in CHAINSTATE_SCHEMA_3.iter() {
+                        tx.execute_batch(cmd)?;
+                    }
+                }
+                "3" => {
+                    // migrate to nakamoto 1
+                    info!("Migrating chainstate schema from version 3 to 4: nakamoto support");
+                    for cmd in NAKAMOTO_CHAINSTATE_SCHEMA_1.iter() {
+                        tx.execute_batch(cmd)?;
+                    }
+                }
+                "4" => {
+                    // migrate to nakamoto 2
+                    info!(
+                        "Migrating chainstate schema from version 4 to 5: fix nakamoto tenure typo"
+                    );
+                    for cmd in NAKAMOTO_CHAINSTATE_SCHEMA_2.iter() {
+                        tx.execute_batch(cmd)?;
+                    }
+                }
+                "5" => {
+                    // migrate to nakamoto 3
+                    info!("Migrating chainstate schema from version 5 to 6: adds height_in_tenure field");
+                    for cmd in NAKAMOTO_CHAINSTATE_SCHEMA_3.iter() {
+                        tx.execute_batch(cmd)?;
+                    }
+                }
+                "6" => {
+                    // migrate to nakamoto 3
+                    info!(
+                        "Migrating chainstate schema from version 6 to 7: adds signer_stats table"
+                    );
+                    for cmd in NAKAMOTO_CHAINSTATE_SCHEMA_4.iter() {
+                        tx.execute_batch(cmd)?;
+                    }
+                }
+                _ => {
+                    error!(
+                        "Invalid chain state database: expected version = {}, got {}",
+                        CHAINSTATE_VERSION, db_config.version
+                    );
+                    return Err(Error::InvalidChainstateDB);
+                }
             }
+            db_config =
+                StacksChainState::load_db_config(tx).expect("CORRUPTION: no db_config found");
         }
         Ok(())
     }
@@ -1113,6 +1164,11 @@ impl StacksChainState {
             StacksChainState::instantiate_db(mainnet, chain_id, index_path, true)
         } else {
             let mut marf = StacksChainState::open_index(index_path)?;
+            if !Self::need_schema_migrations(marf.sqlite_conn(), mainnet, chain_id)? {
+                return Ok(marf);
+            }
+
+            // need a migration
             let tx = marf.storage_tx()?;
             StacksChainState::apply_schema_migrations(&tx, mainnet, chain_id)?;
             StacksChainState::add_indexes(&tx)?;
@@ -1134,6 +1190,11 @@ impl StacksChainState {
             StacksChainState::instantiate_db(mainnet, chain_id, index_path, false)
         } else {
             let mut marf = StacksChainState::open_index(index_path)?;
+
+            // do we need to apply a schema change?
+            let db_config = StacksChainState::load_db_config(marf.sqlite_conn())
+                .expect("CORRUPTION: no db_config found");
+
             let tx = marf.storage_tx()?;
             StacksChainState::add_indexes(&tx)?;
             tx.commit()?;
@@ -1627,7 +1688,7 @@ impl StacksChainState {
 
         {
             // add a block header entry for the boot code
-            let mut tx = chainstate.index_tx_begin()?;
+            let mut tx = chainstate.index_tx_begin();
             let parent_hash = StacksBlockId::sentinel();
             let first_index_hash = StacksBlockHeader::make_index_block_hash(
                 &FIRST_BURNCHAIN_CONSENSUS_HASH,
@@ -1846,12 +1907,12 @@ impl StacksChainState {
 
     /// Begin a transaction against the (indexed) stacks chainstate DB.
     /// Does not create a Clarity instance.
-    pub fn index_tx_begin<'a>(&'a mut self) -> Result<StacksDBTx<'a>, Error> {
-        Ok(StacksDBTx::new(&mut self.state_index, ()))
+    pub fn index_tx_begin<'a>(&'a mut self) -> StacksDBTx<'a> {
+        StacksDBTx::new(&mut self.state_index, ())
     }
 
-    pub fn index_conn<'a>(&'a self) -> Result<StacksDBConn<'a>, Error> {
-        Ok(StacksDBConn::new(&self.state_index, ()))
+    pub fn index_conn<'a>(&'a self) -> StacksDBConn<'a> {
+        StacksDBConn::new(&self.state_index, ())
     }
 
     /// Begin a transaction against the underlying DB
@@ -1887,7 +1948,7 @@ impl StacksChainState {
     ) -> Value {
         let result = self.clarity_state.eval_read_only(
             parent_id_bhh,
-            &HeadersDBConn(self.state_index.sqlite_conn()),
+            &HeadersDBConn(StacksDBConn::new(&self.state_index, ())),
             burn_dbconn,
             contract,
             code,
@@ -1906,7 +1967,7 @@ impl StacksChainState {
     ) -> Result<Value, clarity_error> {
         self.clarity_state.eval_read_only(
             parent_id_bhh,
-            &HeadersDBConn(self.state_index.sqlite_conn()),
+            &HeadersDBConn(StacksDBConn::new(&self.state_index, ())),
             burn_dbconn,
             contract,
             code,
@@ -1925,7 +1986,7 @@ impl StacksChainState {
         function: &str,
         args: &[Value],
     ) -> Result<Value, clarity_error> {
-        let headers_db = HeadersDBConn(self.state_index.sqlite_conn());
+        let headers_db = HeadersDBConn(StacksDBConn::new(&self.state_index, ()));
         let mut conn = self.clarity_state.read_only_connection_checked(
             parent_id_bhh,
             &headers_db,
@@ -2435,12 +2496,12 @@ impl StacksChainState {
     }
 
     /// Get the burnchain txids for a given index block hash
-    fn get_burnchain_txids_for_block(
+    pub(crate) fn get_burnchain_txids_for_block(
         conn: &Connection,
         index_block_hash: &StacksBlockId,
     ) -> Result<Vec<Txid>, Error> {
         let sql = "SELECT txids FROM burnchain_txids WHERE index_block_hash = ?1";
-        let args: &[&dyn ToSql] = &[index_block_hash];
+        let args = params![index_block_hash];
 
         let txids = conn
             .query_row(sql, args, |r| {
@@ -2457,6 +2518,7 @@ impl StacksChainState {
     }
 
     /// Get the txids of the burnchain operations applied in the past N Stacks blocks.
+    /// Only works for epoch 2.x
     pub fn get_burnchain_txids_in_ancestors(
         conn: &Connection,
         index_block_hash: &StacksBlockId,
@@ -2473,7 +2535,10 @@ impl StacksChainState {
         Ok(ret)
     }
 
-    /// Store all on-burnchain STX operations' txids by index block hash
+    /// Store all on-burnchain STX operations' txids by index block hash.
+    /// `index_block_hash` is the tenure-start block.
+    /// * For epoch 2.x, this is simply the block ID
+    /// * for epoch 3.x and later, this is the first block in the tenure.
     pub fn store_burnchain_txids(
         tx: &DBTx,
         index_block_hash: &StacksBlockId,
@@ -2520,7 +2585,7 @@ impl StacksChainState {
         let txids_json =
             serde_json::to_string(&txids).expect("FATAL: could not serialize Vec<Txid>");
         let sql = "INSERT INTO burnchain_txids (index_block_hash, txids) VALUES (?1, ?2)";
-        let args: &[&dyn ToSql] = &[index_block_hash, &txids_json];
+        let args = params![index_block_hash, &txids_json];
         tx.execute(sql, args)?;
         Ok(())
     }
@@ -2594,6 +2659,7 @@ impl StacksChainState {
             burn_header_height: new_burnchain_height,
             burn_header_timestamp: new_burnchain_timestamp,
             anchored_block_size: anchor_block_size,
+            burn_view: None,
         };
 
         StacksChainState::insert_stacks_block_header(
@@ -2649,11 +2715,11 @@ impl StacksChainState {
         if applied_epoch_transition {
             debug!("Block {} applied an epoch transition", &index_block_hash);
             let sql = "INSERT INTO epoch_transitions (block_id) VALUES (?)";
-            let args: &[&dyn ToSql] = &[&index_block_hash];
+            let args = params![&index_block_hash];
             headers_tx.deref_mut().execute(sql, args)?;
         }
 
-        debug!(
+        info!(
             "Advanced to new tip! {}/{}",
             new_consensus_hash,
             new_tip.block_hash()
@@ -2727,7 +2793,7 @@ pub mod test {
     }
 
     pub fn chainstate_path(test_name: &str) -> String {
-        format!("/tmp/blockstack-test-chainstate-{}", test_name)
+        format!("/tmp/stacks-node-tests/cs-{}", test_name)
     }
 
     #[test]
@@ -2924,6 +2990,25 @@ pub mod test {
         assert_eq!(
             format!("{}", genesis_root_hash),
             MAINNET_2_0_GENESIS_ROOT_HASH
+        );
+    }
+
+    #[test]
+    fn latest_db_version_supports_latest_epoch() {
+        let db = DBConfig {
+            version: CHAINSTATE_VERSION.to_string(),
+            mainnet: true,
+            chain_id: CHAIN_ID_MAINNET,
+        };
+        assert!(db.supports_epoch(StacksEpochId::latest()));
+    }
+
+    #[test]
+    fn test_sqlite_version() {
+        let chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        assert_eq!(
+            query_row(chainstate.db(), "SELECT sqlite_version()", NO_PARAMS).unwrap(),
+            Some("3.45.0".to_string())
         );
     }
 }

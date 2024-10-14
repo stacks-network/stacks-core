@@ -65,7 +65,7 @@ static GLOBAL: Jemalloc = Jemalloc;
 fn cli_pick_best_tip(config_path: &str, at_stacks_height: Option<u64>) -> TipCandidate {
     info!("Loading config at path {}", config_path);
     let config = match ConfigFile::from_path(config_path) {
-        Ok(config_file) => Config::from_config_file(config_file).unwrap(),
+        Ok(config_file) => Config::from_config_file(config_file, true).unwrap(),
         Err(e) => {
             warn!("Invalid config file: {}", e);
             process::exit(1);
@@ -105,7 +105,7 @@ fn cli_get_miner_spend(
 ) -> u64 {
     info!("Loading config at path {}", config_path);
     let config = match ConfigFile::from_path(&config_path) {
-        Ok(config_file) => Config::from_config_file(config_file).unwrap(),
+        Ok(config_file) => Config::from_config_file(config_file, true).unwrap(),
         Err(e) => {
             warn!("Invalid config file: {}", e);
             process::exit(1);
@@ -166,10 +166,8 @@ fn cli_get_miner_spend(
                 return 0.0;
             };
             let Ok(active_miners_and_commits) =
-                MinerStats::get_active_miners(&sortdb, Some(burn_block_height)).map_err(|e| {
-                    warn!("Failed to get active miners: {:?}", &e);
-                    e
-                })
+                MinerStats::get_active_miners(&sortdb, Some(burn_block_height))
+                    .inspect_err(|e| warn!("Failed to get active miners: {e:?}"))
             else {
                 return 0.0;
             };
@@ -187,10 +185,7 @@ fn cli_get_miner_spend(
 
             let Ok(unconfirmed_block_commits) = miner_stats
                 .get_unconfirmed_commits(burn_block_height + 1, &active_miners)
-                .map_err(|e| {
-                    warn!("Failed to find unconfirmed block-commits: {}", &e);
-                    e
-                })
+                .inspect_err(|e| warn!("Failed to find unconfirmed block-commits: {e}"))
             else {
                 return 0.0;
             };
@@ -229,10 +224,7 @@ fn cli_get_miner_spend(
                         &commit_outs,
                         at_burnchain_height,
                     )
-                    .map_err(|e| {
-                        warn!("Failed to get unconfirmed burn distribution: {:?}", &e);
-                        e
-                    })
+                    .inspect_err(|e| warn!("Failed to get unconfirmed burn distribution: {e:?}"))
                 else {
                     return 0.0;
                 };
@@ -334,7 +326,7 @@ fn main() {
                     process::exit(1);
                 }
             };
-            match Config::from_config_file(config_file) {
+            match Config::from_config_file(config_file, true) {
                 Ok(_) => {
                     info!("Loaded config!");
                     process::exit(0);
@@ -365,9 +357,11 @@ fn main() {
             let seed = {
                 let config_path: Option<String> = args.opt_value_from_str("--config").unwrap();
                 if let Some(config_path) = config_path {
-                    let conf =
-                        Config::from_config_file(ConfigFile::from_path(&config_path).unwrap())
-                            .unwrap();
+                    let conf = Config::from_config_file(
+                        ConfigFile::from_path(&config_path).unwrap(),
+                        true,
+                    )
+                    .unwrap();
                     args.finish();
                     conf.node.seed
                 } else {
@@ -416,7 +410,7 @@ fn main() {
         }
     };
 
-    let conf = match Config::from_config_file(config_file) {
+    let conf = match Config::from_config_file(config_file, true) {
         Ok(conf) => conf,
         Err(e) => {
             warn!("Invalid config: {}", e);
@@ -499,6 +493,11 @@ version\t\tDisplay information about the current version and our release cycle.
 key-for-seed\tOutput the associated secret key for a burnchain signer created with a given seed.
 \t\tCan be passed a config file for the seed via the `--config <file>` option *or* by supplying the hex seed on
 \t\tthe command line directly.
+
+replay-mock-mining\tReplay mock mined blocks from <dir>
+\t\tArguments:
+\t\t  --path: path to directory of mock mined blocks
+\t\t  --config: path to the config file
 
 help\t\tDisplay this help.
 

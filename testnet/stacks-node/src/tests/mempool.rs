@@ -13,13 +13,13 @@ use stacks::chainstate::stacks::{
     TransactionAnchorMode, TransactionAuth, TransactionPayload, TransactionSpendingCondition,
     TransactionVersion, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
 };
+use stacks::codec::StacksMessageCodec;
 use stacks::core::mempool::MemPoolDB;
 use stacks::core::{StacksEpochId, CHAIN_ID_TESTNET};
 use stacks::cost_estimates::metrics::UnitMetric;
 use stacks::cost_estimates::UnitEstimator;
 use stacks::net::Error as NetError;
 use stacks_common::address::AddressHashMode;
-use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksAddress};
 use stacks_common::util::hash::*;
 use stacks_common::util::secp256k1::*;

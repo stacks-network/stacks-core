@@ -11,6 +11,7 @@ use stacks::core::StacksEpochId;
 use stacks_common::util::hash::hex_bytes;
 
 use super::PUBLISH_CONTRACT;
+use crate::burnchains::bitcoin_regtest_controller::BitcoinRPCRequest;
 use crate::config::InitialBalance;
 use crate::helium::RunLoop;
 use crate::tests::to_addr;
@@ -19,6 +20,16 @@ use crate::Config;
 #[derive(Debug)]
 pub enum BitcoinCoreError {
     SpawnFailed(String),
+    StopFailed(String),
+}
+
+impl std::fmt::Display for BitcoinCoreError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::SpawnFailed(msg) => write!(f, "bitcoind spawn failed: {msg}"),
+            Self::StopFailed(msg) => write!(f, "bitcoind stop failed: {msg}"),
+        }
+    }
 }
 
 type BitcoinResult<T> = Result<T, BitcoinCoreError>;
@@ -36,6 +47,22 @@ impl BitcoinCoreController {
         }
     }
 
+    fn add_rpc_cli_args(&self, command: &mut Command) {
+        command.arg(format!("-rpcport={}", self.config.burnchain.rpc_port));
+
+        match (
+            &self.config.burnchain.username,
+            &self.config.burnchain.password,
+        ) {
+            (Some(username), Some(password)) => {
+                command
+                    .arg(format!("-rpcuser={username}"))
+                    .arg(format!("-rpcpassword={password}"));
+            }
+            _ => {}
+        }
+    }
+
     pub fn start_bitcoind(&mut self) -> BitcoinResult<()> {
         std::fs::create_dir_all(&self.config.get_burnchain_path_str()).unwrap();
 
@@ -50,30 +77,16 @@ impl BitcoinCoreController {
             .arg("-server=1")
             .arg("-listenonion=0")
             .arg("-rpcbind=127.0.0.1")
-            .arg(&format!("-port={}", self.config.burnchain.peer_port))
-            .arg(&format!(
-                "-datadir={}",
-                self.config.get_burnchain_path_str()
-            ))
-            .arg(&format!("-rpcport={}", self.config.burnchain.rpc_port));
+            .arg(format!("-port={}", self.config.burnchain.peer_port))
+            .arg(format!("-datadir={}", self.config.get_burnchain_path_str()));
 
-        match (
-            &self.config.burnchain.username,
-            &self.config.burnchain.password,
-        ) {
-            (Some(username), Some(password)) => {
-                command
-                    .arg(&format!("-rpcuser={}", username))
-                    .arg(&format!("-rpcpassword={}", password));
-            }
-            _ => {}
-        }
+        self.add_rpc_cli_args(&mut command);
 
-        eprintln!("bitcoind spawn: {:?}", command);
+        eprintln!("bitcoind spawn: {command:?}");
 
         let mut process = match command.spawn() {
             Ok(child) => child,
-            Err(e) => return Err(BitcoinCoreError::SpawnFailed(format!("{:?}", e))),
+            Err(e) => return Err(BitcoinCoreError::SpawnFailed(format!("{e:?}"))),
         };
 
         let mut out_reader = BufReader::new(process.stdout.take().unwrap());
@@ -99,27 +112,25 @@ impl BitcoinCoreController {
 
     pub fn stop_bitcoind(&mut self) -> Result<(), BitcoinCoreError> {
         if let Some(_) = self.bitcoind_process.take() {
-            let mut command = Command::new("bitcoin-cli");
-            command
-                .stdout(Stdio::piped())
-                .arg("-rpcconnect=127.0.0.1")
-                .arg("-rpcport=8332")
-                .arg("-rpcuser=neon-tester")
-                .arg("-rpcpassword=neon-tester-pass")
-                .arg("stop");
-
-            let mut process = match command.spawn() {
-                Ok(child) => child,
-                Err(e) => return Err(BitcoinCoreError::SpawnFailed(format!("{:?}", e))),
+            let payload = BitcoinRPCRequest {
+                method: "stop".to_string(),
+                params: vec![],
+                id: "stacks".to_string(),
+                jsonrpc: "2.0".to_string(),
             };
 
-            let mut out_reader = BufReader::new(process.stdout.take().unwrap());
-            let mut line = String::new();
-            while let Ok(bytes_read) = out_reader.read_line(&mut line) {
-                if bytes_read == 0 {
-                    break;
+            let res = BitcoinRPCRequest::send(&self.config, payload)
+                .map_err(|e| BitcoinCoreError::StopFailed(format!("{e:?}")))?;
+
+            if let Some(err) = res.get("error") {
+                if !err.is_null() {
+                    return Err(BitcoinCoreError::StopFailed(format!("{err}")));
                 }
-                eprintln!("{}", &line);
+            } else {
+                return Err(BitcoinCoreError::StopFailed(format!(
+                    "Invalid response: {:?}",
+                    res
+                )));
             }
         }
         Ok(())

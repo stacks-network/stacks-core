@@ -168,6 +168,8 @@ pub fn get_simple_test(function: &NativeFunctions) -> &'static str {
         ToConsensusBuff => "(to-consensus-buff? u1)",
         FromConsensusBuff => "(from-consensus-buff? bool 0x03)",
         ReplaceAt => "(replace-at? list-bar u0 5)",
+        GetStacksBlockInfo => "(get-block-info? time u1)",
+        GetTenureInfo => "(get-block-info? time u1)",
     }
 }
 
@@ -951,7 +953,7 @@ fn epoch_20_205_test_all(use_mainnet: bool, epoch: StacksEpochId) {
 
         for (ix, f) in NativeFunctions::ALL.iter().enumerate() {
             // Note: The 2.0 and 2.05 test assumes Clarity1.
-            if f.get_version() == ClarityVersion::Clarity1 {
+            if f.get_min_version() == ClarityVersion::Clarity1 {
                 let test = get_simple_test(f);
                 let cost =
                     test_program_cost(test, ClarityVersion::Clarity1, &mut owned_env, ix + 1);

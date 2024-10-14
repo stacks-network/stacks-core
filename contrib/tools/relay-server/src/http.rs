@@ -8,7 +8,9 @@ use crate::to_io_result::ToIoResult;
 pub struct Request {
     pub method: String,
     pub url: String,
+    #[allow(dead_code)]
     pub protocol: String,
+    #[allow(dead_code)]
     pub headers: HashMap<String, String>,
     pub content: Vec<u8>,
 }

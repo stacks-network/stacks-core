@@ -32,6 +32,7 @@ use clarity::vm::test_util::TEST_BURN_STATE_DB;
 use clarity::vm::types::*;
 use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng};
+use rusqlite::params;
 use stacks_common::address::*;
 use stacks_common::types::chainstate::SortitionId;
 use stacks_common::util::hash::MerkleTree;
@@ -130,7 +131,7 @@ fn test_build_anchored_blocks_empty() {
 
                 let anchored_block = StacksBlockBuilder::build_anchored_block(
                     chainstate,
-                    &sortdb.index_conn(),
+                    &sortdb.index_handle_at_tip(),
                     &mut mempool,
                     &parent_tip,
                     tip.total_burn,
@@ -254,7 +255,7 @@ fn test_build_anchored_blocks_stx_transfers_single() {
 
                 let anchored_block = StacksBlockBuilder::build_anchored_block(
                     chainstate,
-                    &sortdb.index_conn(),
+                    &sortdb.index_handle_at_tip(),
                     &mut mempool,
                     &parent_tip,
                     tip.total_burn,
@@ -391,7 +392,7 @@ fn test_build_anchored_blocks_empty_with_builder_timeout() {
 
                 let anchored_block = StacksBlockBuilder::build_anchored_block(
                     chainstate,
-                    &sortdb.index_conn(),
+                    &sortdb.index_handle_at_tip(),
                     &mut mempool,
                     &parent_tip,
                     tip.total_burn,
@@ -557,7 +558,7 @@ fn test_build_anchored_blocks_stx_transfers_multi() {
 
                 let anchored_block = StacksBlockBuilder::build_anchored_block(
                     chainstate,
-                    &sortdb.index_conn(),
+                    &sortdb.index_handle_at_tip(),
                     &mut mempool,
                     &parent_tip,
                     tip.total_burn,
@@ -712,7 +713,7 @@ fn test_build_anchored_blocks_connected_by_microblocks_across_epoch() {
                     MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
 
                 let coinbase_tx = make_coinbase(miner, tenure_id);
-                let sort_ic = sortdb.index_conn();
+                let sort_ic = sortdb.index_handle_at_tip();
                 let (parent_mblock_stream, mblock_pubkey_hash) = {
                     if tenure_id > 0 {
                         chainstate
@@ -968,7 +969,7 @@ fn test_build_anchored_blocks_connected_by_microblocks_across_epoch_invalid() {
                     MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
 
                 let coinbase_tx = make_coinbase(miner, tenure_id);
-                let sort_ic = sortdb.index_conn();
+                let sort_ic = sortdb.index_handle_at_tip();
                 let (parent_mblock_stream, mblock_pubkey_hash) = {
                     if tenure_id > 0 {
                         chainstate
@@ -1250,7 +1251,7 @@ fn test_build_anchored_blocks_incrementing_nonces() {
 
             let anchored_block = StacksBlockBuilder::build_anchored_block(
                 chainstate,
-                &sortdb.index_conn(),
+                &sortdb.index_handle_at_tip(),
                 &mut mempool,
                 &parent_tip,
                 tip.total_burn,
@@ -1498,7 +1499,7 @@ fn test_build_anchored_blocks_skip_too_expensive() {
 
                 let anchored_block = StacksBlockBuilder::build_anchored_block(
                     chainstate,
-                    &sortdb.index_conn(),
+                    &sortdb.index_handle_at_tip(),
                     &mut mempool,
                     &parent_tip,
                     tip.total_burn,
@@ -1533,6 +1534,225 @@ fn test_build_anchored_blocks_skip_too_expensive() {
             }
         }
     }
+}
+
+#[test]
+fn test_build_anchored_blocks_mempool_fee_transaction_too_low() {
+    let privk = StacksPrivateKey::from_hex(
+        "42faca653724860da7a41bfcef7e6ba78db55146f6900de8cb2a9f760ffac70c01",
+    )
+    .unwrap();
+    let addr = StacksAddress::from_public_keys(
+        C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+        &AddressHashMode::SerializeP2PKH,
+        1,
+        &vec![StacksPublicKey::from_private(&privk)],
+    )
+    .unwrap();
+
+    let mut peer_config = TestPeerConfig::new(function_name!(), 2032, 2033);
+    peer_config.initial_balances = vec![(addr.to_account_principal(), 1000000000)];
+    let burnchain = peer_config.burnchain.clone();
+
+    let mut peer = TestPeer::new(peer_config);
+
+    let chainstate_path = peer.chainstate_path.clone();
+
+    let recipient_addr_str = "ST1RFD5Q2QPK3E0F08HG9XDX7SSC7CNRS0QR0SGEV";
+    let recipient = StacksAddress::from_string(recipient_addr_str).unwrap();
+
+    let tip =
+        SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
+
+    let (burn_ops, stacks_block, microblocks) = peer.make_tenure(
+        |ref mut miner,
+         ref mut sortdb,
+         ref mut chainstate,
+         vrf_proof,
+         ref parent_opt,
+         ref parent_microblock_header_opt| {
+            let parent_tip = match parent_opt {
+                None => StacksChainState::get_genesis_header_info(chainstate.db()).unwrap(),
+                Some(block) => {
+                    let ic = sortdb.index_conn();
+                    let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(
+                        &ic,
+                        &tip.sortition_id,
+                        &block.block_hash(),
+                    )
+                    .unwrap()
+                    .unwrap();
+                    StacksChainState::get_anchored_block_header_info(
+                        chainstate.db(),
+                        &snapshot.consensus_hash,
+                        &snapshot.winning_stacks_block_hash,
+                    )
+                    .unwrap()
+                    .unwrap()
+                }
+            };
+
+            let parent_header_hash = parent_tip.anchored_header.block_hash();
+            let parent_consensus_hash = parent_tip.consensus_hash.clone();
+
+            let mut mempool = MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
+
+            let coinbase_tx = make_coinbase(miner, 0);
+
+            // Create a zero-fee transaction
+            let zero_fee_tx = make_user_stacks_transfer(
+                &privk,
+                0,
+                0, // Set fee to 0
+                &recipient.to_account_principal(),
+                1000,
+            );
+
+            let result = mempool.submit(
+                chainstate,
+                sortdb,
+                &parent_consensus_hash,
+                &parent_header_hash,
+                &zero_fee_tx,
+                None,
+                &ExecutionCost::max_value(),
+                &StacksEpochId::Epoch20,
+            );
+
+            match result {
+                Ok(_) => panic!("Expected FeeTooLow error but transaction was accepted"),
+                Err(e) => match e {
+                    MemPoolRejection::FeeTooLow(actual, required) => {
+                        assert_eq!(actual, 0);
+                        assert_eq!(required, 180);
+                    }
+                    _ => panic!("Unexpected error: {:?}", e),
+                },
+            };
+
+            let anchored_block = StacksBlockBuilder::build_anchored_block(
+                chainstate,
+                &sortdb.index_handle_at_tip(),
+                &mut mempool,
+                &parent_tip,
+                tip.total_burn,
+                vrf_proof,
+                Hash160([0 as u8; 20]),
+                &coinbase_tx,
+                BlockBuilderSettings::max_value(),
+                None,
+                &burnchain,
+            )
+            .unwrap();
+
+            (anchored_block.0, vec![])
+        },
+    );
+
+    peer.next_burnchain_block(burn_ops.clone());
+    peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
+
+    // Check that the block contains only coinbase transactions (coinbase)
+    assert_eq!(stacks_block.txs.len(), 1);
+}
+
+#[test]
+fn test_build_anchored_blocks_zero_fee_transaction() {
+    let privk = StacksPrivateKey::from_hex(
+        "42faca653724860da7a41bfcef7e6ba78db55146f6900de8cb2a9f760ffac70c01",
+    )
+    .unwrap();
+    let addr = StacksAddress::from_public_keys(
+        C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+        &AddressHashMode::SerializeP2PKH,
+        1,
+        &vec![StacksPublicKey::from_private(&privk)],
+    )
+    .unwrap();
+
+    let mut peer_config = TestPeerConfig::new(function_name!(), 2032, 2033);
+    peer_config.initial_balances = vec![(addr.to_account_principal(), 1000000000)];
+    let burnchain = peer_config.burnchain.clone();
+
+    let mut peer = TestPeer::new(peer_config);
+
+    let chainstate_path = peer.chainstate_path.clone();
+
+    let recipient_addr_str = "ST1RFD5Q2QPK3E0F08HG9XDX7SSC7CNRS0QR0SGEV";
+    let recipient = StacksAddress::from_string(recipient_addr_str).unwrap();
+
+    let tip =
+        SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
+
+    let (burn_ops, stacks_block, microblocks) = peer.make_tenure(
+        |ref mut miner,
+         ref mut sortdb,
+         ref mut chainstate,
+         vrf_proof,
+         ref parent_opt,
+         ref parent_microblock_header_opt| {
+            let parent_tip = match parent_opt {
+                None => StacksChainState::get_genesis_header_info(chainstate.db()).unwrap(),
+                Some(block) => {
+                    let ic = sortdb.index_conn();
+                    let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(
+                        &ic,
+                        &tip.sortition_id,
+                        &block.block_hash(),
+                    )
+                    .unwrap()
+                    .unwrap();
+                    StacksChainState::get_anchored_block_header_info(
+                        chainstate.db(),
+                        &snapshot.consensus_hash,
+                        &snapshot.winning_stacks_block_hash,
+                    )
+                    .unwrap()
+                    .unwrap()
+                }
+            };
+
+            let coinbase_tx = make_coinbase(miner, 0);
+
+            // Create a zero-fee transaction
+            let zero_fee_tx = make_user_stacks_transfer(
+                &privk,
+                0,
+                0, // Set fee to 0
+                &recipient.to_account_principal(),
+                1000,
+            );
+
+            let block_builder = StacksBlockBuilder::make_regtest_block_builder(
+                &burnchain,
+                &parent_tip,
+                vrf_proof,
+                tip.total_burn,
+                Hash160([0 as u8; 20]),
+            )
+            .unwrap();
+
+            let anchored_block = StacksBlockBuilder::make_anchored_block_from_txs(
+                block_builder,
+                chainstate,
+                &sortdb.index_handle_at_tip(),
+                vec![coinbase_tx, zero_fee_tx],
+            )
+            .unwrap();
+
+            (anchored_block.0, vec![])
+        },
+    );
+
+    peer.next_burnchain_block(burn_ops.clone());
+    peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
+
+    // Check that the block contains 2 transactions (coinbase + zero-fee transaction)
+    assert_eq!(stacks_block.txs.len(), 2);
+
+    // Verify that the zero-fee transaction is in the block
+    let zero_fee_tx = &stacks_block.txs[1];
+    assert_eq!(zero_fee_tx.get_tx_fee(), 0);
 }
 
 #[test]
@@ -1652,7 +1872,7 @@ fn test_build_anchored_blocks_multiple_chaintips() {
 
                     StacksBlockBuilder::build_anchored_block(
                         chainstate,
-                        &sortdb.index_conn(),
+                        &sortdb.index_handle_at_tip(),
                         mempool_to_use,
                         &parent_tip,
                         tip.total_burn,
@@ -1759,7 +1979,7 @@ fn test_build_anchored_blocks_empty_chaintips() {
 
                 let anchored_block = StacksBlockBuilder::build_anchored_block(
                     chainstate,
-                    &sortdb.index_conn(),
+                    &sortdb.index_handle_at_tip(),
                     &mut mempool,
                     &parent_tip,
                     tip.total_burn,
@@ -1966,7 +2186,7 @@ fn test_build_anchored_blocks_too_expensive_transactions() {
 
                 let anchored_block = StacksBlockBuilder::build_anchored_block(
                     chainstate,
-                    &sortdb.index_conn(),
+                    &sortdb.index_handle_at_tip(),
                     &mut mempool,
                     &parent_tip,
                     tip.total_burn,
@@ -2133,7 +2353,7 @@ fn test_build_anchored_blocks_invalid() {
             let coinbase_tx = make_coinbase(miner, tenure_id as usize);
 
             let mut anchored_block = StacksBlockBuilder::build_anchored_block(
-                chainstate, &sortdb.index_conn(), &mut mempool, &parent_tip, tip.total_burn, vrf_proof, Hash160([tenure_id as u8; 20]), &coinbase_tx, BlockBuilderSettings::max_value(), None, &burnchain,
+                chainstate, &sortdb.index_handle_at_tip(), &mut mempool, &parent_tip, tip.total_burn, vrf_proof, Hash160([tenure_id as u8; 20]), &coinbase_tx, BlockBuilderSettings::max_value(), None, &burnchain,
             ).unwrap();
 
             if tenure_id == bad_block_tenure {
@@ -2403,7 +2623,7 @@ fn test_build_anchored_blocks_bad_nonces() {
 
                 let anchored_block = StacksBlockBuilder::build_anchored_block(
                     chainstate,
-                    &sortdb.index_conn(),
+                    &sortdb.index_handle_at_tip(),
                     &mut mempool,
                     &parent_tip,
                     tip.total_burn,
@@ -2531,7 +2751,7 @@ fn test_build_microblock_stream_forks() {
 
                             // produce the microblock stream for the parent, which this tenure's anchor
                             // block will confirm.
-                            let sort_ic = sortdb.index_conn();
+                            let sort_ic = sortdb.index_handle_at_tip();
 
                             chainstate
                                 .reload_unconfirmed_state(&sort_ic, parent_index_hash.clone())
@@ -2654,7 +2874,7 @@ fn test_build_microblock_stream_forks() {
 
                 let (anchored_block, block_size, block_execution_cost) = StacksBlockBuilder::build_anchored_block(
                     chainstate,
-                    &sortdb.index_conn(),
+                    &sortdb.index_handle_at_tip(),
                     &mut mempool,
                     &parent_tip,
                     tip.total_burn,
@@ -2858,7 +3078,7 @@ fn test_build_microblock_stream_forks_with_descendants() {
 
                             // produce the microblock stream for the parent, which this tenure's anchor
                             // block will confirm.
-                            let sort_ic = sortdb.index_conn();
+                            let sort_ic = sortdb.index_handle_at_tip();
 
                             chainstate
                                 .reload_unconfirmed_state(&sort_ic, parent_index_hash.clone())
@@ -3059,7 +3279,7 @@ fn test_build_microblock_stream_forks_with_descendants() {
 
                     // erase any pending transactions -- this is a "worse" poison-microblock,
                     // and we want to avoid mining the "better" one
-                    mempool.clear_before_height(10).unwrap();
+                    mempool.clear_before_coinbase_height(10).unwrap();
 
                     let mut tx_bytes = vec![];
                     poison_microblock_tx
@@ -3081,7 +3301,7 @@ fn test_build_microblock_stream_forks_with_descendants() {
 
                 let (anchored_block, block_size, block_execution_cost) = StacksBlockBuilder::build_anchored_block(
                     chainstate,
-                    &sortdb.index_conn(),
+                    &sortdb.index_handle_at_tip(),
                     &mut mempool,
                     &parent_tip,
                     parent_tip.anchored_header.as_stacks_epoch2().unwrap().total_work.burn + 1000,
@@ -3186,15 +3406,19 @@ fn test_build_microblock_stream_forks_with_descendants() {
         test_debug!("Check {} in {} for report", &reporter_addr, &chain_tip);
         peer.with_db_state(|ref mut sortdb, ref mut chainstate, _, _| {
             chainstate
-                .with_read_only_clarity_tx(&sortdb.index_conn(), &chain_tip, |clarity_tx| {
-                    // the key at height 1 should be reported as poisoned
-                    let report = StacksChainState::get_poison_microblock_report(clarity_tx, 1)
-                        .unwrap()
-                        .unwrap();
-                    assert_eq!(report.0, reporter_addr);
-                    assert_eq!(report.1, seq);
-                    Ok(())
-                })
+                .with_read_only_clarity_tx(
+                    &sortdb.index_handle_at_tip(),
+                    &chain_tip,
+                    |clarity_tx| {
+                        // the key at height 1 should be reported as poisoned
+                        let report = StacksChainState::get_poison_microblock_report(clarity_tx, 1)
+                            .unwrap()
+                            .unwrap();
+                        assert_eq!(report.0, reporter_addr);
+                        assert_eq!(report.1, seq);
+                        Ok(())
+                    },
+                )
                 .unwrap()
         })
         .unwrap();
@@ -3429,7 +3653,7 @@ fn test_contract_call_across_clarity_versions() {
                         let contract = format!("
                         (impl-trait .chain-id-trait-v1.trait-v1)
                         (impl-trait .chain-id-trait-v2.trait-v2)
-                        
+
                         (use-trait chain-info-v1 .chain-id-trait-v1.trait-v1)
                         (use-trait chain-info-v2 .chain-id-trait-v2.trait-v2)
 
@@ -3468,7 +3692,7 @@ fn test_contract_call_across_clarity_versions() {
                             )
                         )
                         (define-read-only (test-at-block-recursive)
-                            (at-block 0x{} 
+                            (at-block 0x{}
                                 (begin
                                     ;; this only works in clarity2
                                     (print {{ tenure: u{}, version: u2, chain: chain-id, func: \"test-at-block-func-recursive-v2\" }})
@@ -3547,7 +3771,7 @@ fn test_contract_call_across_clarity_versions() {
                         let contract = format!("
                         (impl-trait .chain-id-trait-v1.trait-v1)
                         (impl-trait .chain-id-trait-v2.trait-v2)
-                        
+
                         (use-trait chain-info-v1 .chain-id-trait-v1.trait-v1)
                         (use-trait chain-info-v2 .chain-id-trait-v2.trait-v2)
 
@@ -3583,14 +3807,14 @@ fn test_contract_call_across_clarity_versions() {
                             )
                         )
                         (define-read-only (test-at-block-recursive)
-                            (at-block 0x{} 
+                            (at-block 0x{}
                                 (begin
                                     (print {{ tenure: u{}, version: u1, func: \"test-at-block-func-recursive-v1\" }})
                                     (contract-call? .test-{} test-at-block-recursive)
                                 )
                             )
                         )
-                        
+
                         (define-read-only (get-call-count)
                             (var-get call-count)
                         )
@@ -3659,7 +3883,7 @@ fn test_contract_call_across_clarity_versions() {
                     }
                 }
 
-                let sort_ic = sortdb.index_conn();
+                let sort_ic = sortdb.index_handle_at_tip();
 
                 let builder = StacksBlockBuilder::make_block_builder(
                     &burnchain,
@@ -3700,7 +3924,7 @@ fn test_contract_call_across_clarity_versions() {
     let stacks_block_id = StacksBlockHeader::make_index_block_hash(&consensus_hash, &block_bhh);
 
     peer.chainstate().with_read_only_clarity_tx(
-        &sortdb.index_conn(),
+        &sortdb.index_handle_at_tip(),
         &stacks_block_id,
         |clarity_tx| {
             for tenure_id in 1..num_blocks {
@@ -3919,7 +4143,7 @@ fn test_is_tx_problematic() {
                     if let Err(ChainstateError::ProblematicTransaction(txid)) = StacksBlockBuilder::make_anchored_block_from_txs(
                         block_builder,
                         chainstate,
-                        &sortdb.index_conn(),
+                        &sortdb.index_handle_at_tip(),
                         vec![coinbase_tx.clone(), contract_spends_too_much_tx.clone()]
                     ) {
                         assert_eq!(txid, contract_spends_too_much_txid);
@@ -4096,7 +4320,7 @@ fn test_is_tx_problematic() {
                     if let Err(ChainstateError::ProblematicTransaction(txid)) = StacksBlockBuilder::make_anchored_block_from_txs(
                         block_builder,
                         chainstate,
-                        &sortdb.index_conn(),
+                        &sortdb.index_handle_at_tip(),
                         vec![coinbase_tx.clone(), spend_too_much.clone()]
                     ) {
                         assert_eq!(txid, spend_too_much.txid());
@@ -4146,7 +4370,7 @@ fn test_is_tx_problematic() {
                     let err = StacksBlockBuilder::make_anchored_block_from_txs(
                         block_builder,
                         chainstate,
-                        &sortdb.index_conn(),
+                        &sortdb.index_handle_at_tip(),
                         vec![coinbase_tx.clone(), runtime_checkerror_problematic.clone()]
                     );
 
@@ -4198,7 +4422,7 @@ fn test_is_tx_problematic() {
                     if let Err(ChainstateError::ProblematicTransaction(txid)) = StacksBlockBuilder::make_anchored_block_from_txs(
                         block_builder,
                         chainstate,
-                        &sortdb.index_conn(),
+                        &sortdb.index_handle_at_tip(),
                         vec![coinbase_tx.clone(), runtime_checkerror_problematic.clone()]
                     ) {
                         assert_eq!(txid, runtime_checkerror_problematic.txid());
@@ -4229,7 +4453,7 @@ fn test_is_tx_problematic() {
 
                 let anchored_block = StacksBlockBuilder::build_anchored_block(
                     chainstate,
-                    &sortdb.index_conn(),
+                    &sortdb.index_handle_at_tip(),
                     &mut mempool,
                     &parent_tip,
                     tip.total_burn,
@@ -4392,7 +4616,7 @@ fn mempool_incorporate_pox_unlocks() {
                  // this will be the height of the block that includes this new tenure
                  let my_height = first_stacks_block_height + 1 + tenure_id;
 
-                 let available_balance = chainstate.with_read_only_clarity_tx(&sortdb.index_conn(), &parent_tip.index_block_hash(), |clarity_tx| {
+                 let available_balance = chainstate.with_read_only_clarity_tx(&sortdb.index_handle_at_tip(), &parent_tip.index_block_hash(), |clarity_tx| {
                      clarity_tx.with_clarity_db_readonly(|db| {
                          let burn_block_height = db.get_current_burnchain_block_height().unwrap() as u64;
                          let v1_unlock_height = db.get_v1_unlock_height();
@@ -4472,7 +4696,7 @@ fn mempool_incorporate_pox_unlocks() {
 
                  let anchored_block = StacksBlockBuilder::build_anchored_block(
                      chainstate,
-                     &sortdb.index_conn(),
+                     &sortdb.index_handle_at_tip(),
                      &mut mempool,
                      &parent_tip,
                      tip.total_burn,
@@ -4612,7 +4836,7 @@ fn test_fee_order_mismatch_nonce_order() {
 
             let anchored_block = StacksBlockBuilder::build_anchored_block(
                 chainstate,
-                &sortdb.index_conn(),
+                &sortdb.index_handle_at_tip(),
                 &mut mempool,
                 &parent_tip,
                 tip.total_burn,
@@ -4746,6 +4970,7 @@ fn paramaterized_mempool_walk_test(
         0x80000000,
         &TransactionAnchorMode::Any,
         &TransactionPostConditionMode::Allow,
+        StacksEpochId::latest(),
     );
 
     let mut transaction_counter = 0;
@@ -4778,6 +5003,7 @@ fn paramaterized_mempool_walk_test(
                 &mut chainstate,
                 &b_1.0,
                 &b_1.1,
+                true,
                 txid,
                 tx_bytes,
                 tx_fee,
@@ -4794,7 +5020,7 @@ fn paramaterized_mempool_walk_test(
                 mempool_tx
                     .execute(
                         "UPDATE mempool SET fee_rate = ? WHERE txid = ?",
-                        rusqlite::params![Some(123.0), &txid],
+                        params![Some(123.0), &txid],
                     )
                     .unwrap();
             } else {
@@ -4802,7 +5028,7 @@ fn paramaterized_mempool_walk_test(
                 mempool_tx
                     .execute(
                         "UPDATE mempool SET fee_rate = ? WHERE txid = ?",
-                        rusqlite::params![none, &txid],
+                        params![none, &txid],
                     )
                     .unwrap();
             }
@@ -4826,7 +5052,6 @@ fn paramaterized_mempool_walk_test(
                     .iterate_candidates::<_, ChainstateError, _>(
                         clarity_conn,
                         &mut tx_events,
-                        2,
                         mempool_settings.clone(),
                         |_, available_tx, _| {
                             count_txs += 1;
@@ -4847,6 +5072,7 @@ fn paramaterized_mempool_walk_test(
                         },
                     )
                     .unwrap()
+                    .0
                     == 0
                 {
                     break;

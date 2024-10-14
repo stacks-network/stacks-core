@@ -31,15 +31,22 @@ use crate::chainstate::burn::operations::{
     BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
 };
 use crate::chainstate::stacks::StacksPublicKey;
-use crate::core::MINING_COMMITMENT_WINDOW;
 use crate::monitoring;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BurnSamplePoint {
+    /// min(median_burn, most_recent_burn)
     pub burns: u128,
+    /// median burn over the UTXO chain
     pub median_burn: u128,
+    /// how many times did this miner mine in the window (i.e. how long is the UTXO chain for this
+    /// candidate in this window).
+    pub frequency: u8,
+    /// distribution range start in a [0, 2**256) interval
     pub range_start: Uint256,
+    /// distribution range end in a [0, 2**256) interval
     pub range_end: Uint256,
+    /// block-commit from the miner candidate
     pub candidate: LeaderBlockCommitOp,
 }
 
@@ -94,11 +101,25 @@ impl LinkedCommitIdentifier {
 }
 
 impl BurnSamplePoint {
+    pub fn zero(candidate: LeaderBlockCommitOp) -> Self {
+        Self {
+            burns: 0,
+            median_burn: 0,
+            frequency: 0,
+            range_start: Uint256::zero(),
+            range_end: Uint256::zero(),
+            candidate,
+        }
+    }
+
     fn sanity_check_window(
+        miner_commitment_window: u8,
         block_commits: &Vec<Vec<LeaderBlockCommitOp>>,
         missed_commits: &Vec<Vec<MissedBlockCommit>>,
     ) {
-        assert!(block_commits.len() <= (MINING_COMMITMENT_WINDOW as usize));
+        assert!(
+            block_commits.len() <= usize::try_from(miner_commitment_window).expect("infallible")
+        );
         assert_eq!(missed_commits.len() + 1, block_commits.len());
         let mut block_height_at_index = None;
         for (index, commits) in block_commits.iter().enumerate() {
@@ -151,6 +172,7 @@ impl BurnSamplePoint {
     ///     `OP_RETURN` payload.  The length of this vector must be equal to the length of the
     ///     `block_commits` vector.  `burn_blocks[i]` is `true` if the `ith` block-commit must be PoB.
     pub fn make_min_median_distribution(
+        mining_commitment_window: u8,
         mut block_commits: Vec<Vec<LeaderBlockCommitOp>>,
         mut missed_commits: Vec<Vec<MissedBlockCommit>>,
         burn_blocks: Vec<bool>,
@@ -158,7 +180,11 @@ impl BurnSamplePoint {
         // sanity check
         let window_size = block_commits.len() as u8;
         assert!(window_size > 0);
-        BurnSamplePoint::sanity_check_window(&block_commits, &missed_commits);
+        BurnSamplePoint::sanity_check_window(
+            mining_commitment_window,
+            &block_commits,
+            &missed_commits,
+        );
         assert_eq!(burn_blocks.len(), block_commits.len());
 
         // first, let's link all of the current block commits to the priors
@@ -268,6 +294,17 @@ impl BurnSamplePoint {
                 };
 
                 let burns = cmp::min(median_burn, most_recent_burn);
+
+                let frequency = linked_commits.iter().fold(0u8, |count, commit_opt| {
+                    if commit_opt.is_some() {
+                        count
+                            .checked_add(1)
+                            .expect("infallable -- commit window exceeds u8::MAX")
+                    } else {
+                        count
+                    }
+                });
+
                 let candidate = if let LinkedCommitIdentifier::Valid(op) =
                     linked_commits.remove(0).unwrap().op
                 {
@@ -281,11 +318,13 @@ impl BurnSamplePoint {
                        "txid" => %candidate.txid.to_string(),
                        "most_recent_burn" => %most_recent_burn,
                        "median_burn" => %median_burn,
+                       "frequency" => frequency,
                        "all_burns" => %format!("{:?}", all_burns));
 
                 BurnSamplePoint {
                     burns,
                     median_burn,
+                    frequency,
                     range_start: Uint256::zero(), // To be filled in
                     range_end: Uint256::zero(),   // To be filled in
                     candidate,
@@ -322,14 +361,6 @@ impl BurnSamplePoint {
                 monitoring::update_computed_relative_miner_score(range_total);
             }
         }
-    }
-
-    #[cfg(test)]
-    pub fn make_distribution(
-        all_block_candidates: Vec<LeaderBlockCommitOp>,
-        _consumed_leader_keys: Vec<LeaderKeyRegisterOp>,
-    ) -> Vec<BurnSamplePoint> {
-        Self::make_min_median_distribution(vec![all_block_candidates], vec![], vec![true])
     }
 
     /// Calculate the ranges between 0 and 2**256 - 1 over which each point in the burn sample
@@ -423,6 +454,21 @@ mod tests {
     use crate::chainstate::stacks::StacksPublicKey;
     use crate::core::MINING_COMMITMENT_WINDOW;
 
+    impl BurnSamplePoint {
+        pub fn make_distribution(
+            mining_commitment_window: u8,
+            all_block_candidates: Vec<LeaderBlockCommitOp>,
+            _consumed_leader_keys: Vec<LeaderKeyRegisterOp>,
+        ) -> Vec<BurnSamplePoint> {
+            Self::make_min_median_distribution(
+                mining_commitment_window,
+                vec![all_block_candidates],
+                vec![],
+                vec![true],
+            )
+        }
+    }
+
     struct BurnDistFixture {
         consumed_leader_keys: Vec<LeaderKeyRegisterOp>,
         block_commits: Vec<LeaderBlockCommitOp>,
@@ -466,6 +512,7 @@ mod tests {
         let input_txid = Txid(input_txid);
 
         LeaderBlockCommitOp {
+            treatment: vec![],
             block_header_hash: BlockHeaderHash(block_header_hash),
             new_seed: VRFSeed([0; 32]),
             parent_block_ptr: (block_id - 1) as u32,
@@ -531,6 +578,7 @@ mod tests {
         ];
 
         let mut result = BurnSamplePoint::make_min_median_distribution(
+            MINING_COMMITMENT_WINDOW,
             commits.clone(),
             vec![vec![]; (MINING_COMMITMENT_WINDOW - 1) as usize],
             vec![false, false, false, true, true, true],
@@ -564,6 +612,7 @@ mod tests {
         // miner 2 => min = 1, median = 3, last_burn = 3
 
         let mut result = BurnSamplePoint::make_min_median_distribution(
+            MINING_COMMITMENT_WINDOW,
             commits.clone(),
             vec![vec![]; (MINING_COMMITMENT_WINDOW - 1) as usize],
             vec![false, false, false, true, true, true],
@@ -624,6 +673,7 @@ mod tests {
         ];
 
         let mut result = BurnSamplePoint::make_min_median_distribution(
+            MINING_COMMITMENT_WINDOW,
             commits.clone(),
             vec![vec![]; (MINING_COMMITMENT_WINDOW - 1) as usize],
             vec![false, false, false, false, false, false],
@@ -677,6 +727,7 @@ mod tests {
         ];
 
         let mut result = BurnSamplePoint::make_min_median_distribution(
+            MINING_COMMITMENT_WINDOW,
             commits.clone(),
             vec![vec![]; (MINING_COMMITMENT_WINDOW - 1) as usize],
             vec![false, false, false, false, false, false],
@@ -733,6 +784,7 @@ mod tests {
         ];
 
         let mut result = BurnSamplePoint::make_min_median_distribution(
+            MINING_COMMITMENT_WINDOW,
             commits.clone(),
             missed_commits.clone(),
             vec![false, false, false, false, false, false],
@@ -833,6 +885,7 @@ mod tests {
         };
 
         let block_commit_1 = LeaderBlockCommitOp {
+            treatment: vec![],
             sunset_burn: 0,
             block_header_hash: BlockHeaderHash::from_bytes(
                 &hex_bytes("2222222222222222222222222222222222222222222222222222222222222222")
@@ -878,6 +931,7 @@ mod tests {
         };
 
         let block_commit_2 = LeaderBlockCommitOp {
+            treatment: vec![],
             sunset_burn: 0,
             block_header_hash: BlockHeaderHash::from_bytes(
                 &hex_bytes("2222222222222222222222222222222222222222222222222222222222222223")
@@ -923,6 +977,7 @@ mod tests {
         };
 
         let block_commit_3 = LeaderBlockCommitOp {
+            treatment: vec![],
             sunset_burn: 0,
             block_header_hash: BlockHeaderHash::from_bytes(
                 &hex_bytes("2222222222222222222222222222222222222222222222222222222222222224")
@@ -998,6 +1053,7 @@ mod tests {
                     median_burn: block_commit_1.burn_fee.into(),
                     range_start: Uint256::zero(),
                     range_end: Uint256::max(),
+                    frequency: 1,
                     candidate: block_commit_1.clone(),
                 }],
             },
@@ -1016,12 +1072,14 @@ mod tests {
                             0xffffffffffffffff,
                             0x7fffffffffffffff,
                         ]),
+                        frequency: 1,
                         candidate: block_commit_1.clone(),
                     },
                     BurnSamplePoint {
                         burns: block_commit_2.burn_fee.into(),
                         median_burn: ((block_commit_1.burn_fee + block_commit_2.burn_fee) / 2)
                             .into(),
+                        frequency: 1,
                         range_start: Uint256([
                             0xffffffffffffffff,
                             0xffffffffffffffff,
@@ -1041,6 +1099,7 @@ mod tests {
                         burns: block_commit_1.burn_fee.into(),
                         median_burn: ((block_commit_1.burn_fee + block_commit_2.burn_fee) / 2)
                             .into(),
+                        frequency: 1,
                         range_start: Uint256::zero(),
                         range_end: Uint256([
                             0xffffffffffffffff,
@@ -1054,6 +1113,7 @@ mod tests {
                         burns: block_commit_2.burn_fee.into(),
                         median_burn: ((block_commit_1.burn_fee + block_commit_2.burn_fee) / 2)
                             .into(),
+                        frequency: 1,
                         range_start: Uint256([
                             0xffffffffffffffff,
                             0xffffffffffffffff,
@@ -1073,6 +1133,7 @@ mod tests {
                         burns: block_commit_1.burn_fee.into(),
                         median_burn: ((block_commit_1.burn_fee + block_commit_2.burn_fee) / 2)
                             .into(),
+                        frequency: 1,
                         range_start: Uint256::zero(),
                         range_end: Uint256([
                             0xffffffffffffffff,
@@ -1086,6 +1147,7 @@ mod tests {
                         burns: block_commit_2.burn_fee.into(),
                         median_burn: ((block_commit_1.burn_fee + block_commit_2.burn_fee) / 2)
                             .into(),
+                        frequency: 1,
                         range_start: Uint256([
                             0xffffffffffffffff,
                             0xffffffffffffffff,
@@ -1105,6 +1167,7 @@ mod tests {
                         burns: block_commit_1.burn_fee.into(),
                         median_burn: ((block_commit_1.burn_fee + block_commit_2.burn_fee) / 2)
                             .into(),
+                        frequency: 1,
                         range_start: Uint256::zero(),
                         range_end: Uint256([
                             0xffffffffffffffff,
@@ -1118,6 +1181,7 @@ mod tests {
                         burns: block_commit_2.burn_fee.into(),
                         median_burn: ((block_commit_1.burn_fee + block_commit_2.burn_fee) / 2)
                             .into(),
+                        frequency: 1,
                         range_start: Uint256([
                             0xffffffffffffffff,
                             0xffffffffffffffff,
@@ -1137,6 +1201,7 @@ mod tests {
                         burns: block_commit_1.burn_fee.into(),
                         median_burn: ((block_commit_1.burn_fee + block_commit_2.burn_fee) / 2)
                             .into(),
+                        frequency: 1,
                         range_start: Uint256::zero(),
                         range_end: Uint256([
                             0xffffffffffffffff,
@@ -1150,6 +1215,7 @@ mod tests {
                         burns: block_commit_2.burn_fee.into(),
                         median_burn: ((block_commit_1.burn_fee + block_commit_2.burn_fee) / 2)
                             .into(),
+                        frequency: 1,
                         range_start: Uint256([
                             0xffffffffffffffff,
                             0xffffffffffffffff,
@@ -1169,6 +1235,7 @@ mod tests {
                         burns: block_commit_1.burn_fee.into(),
                         median_burn: ((block_commit_1.burn_fee + block_commit_2.burn_fee) / 2)
                             .into(),
+                        frequency: 1,
                         range_start: Uint256::zero(),
                         range_end: Uint256([
                             0xffffffffffffffff,
@@ -1182,6 +1249,7 @@ mod tests {
                         burns: block_commit_2.burn_fee.into(),
                         median_burn: ((block_commit_1.burn_fee + block_commit_2.burn_fee) / 2)
                             .into(),
+                        frequency: 1,
                         range_start: Uint256([
                             0xffffffffffffffff,
                             0xffffffffffffffff,
@@ -1208,6 +1276,7 @@ mod tests {
                     BurnSamplePoint {
                         burns: block_commit_1.burn_fee.into(),
                         median_burn: block_commit_2.burn_fee.into(),
+                        frequency: 1,
                         range_start: Uint256::zero(),
                         range_end: Uint256([
                             0x3ed94d3cb0a84709,
@@ -1220,6 +1289,7 @@ mod tests {
                     BurnSamplePoint {
                         burns: block_commit_2.burn_fee.into(),
                         median_burn: block_commit_2.burn_fee.into(),
+                        frequency: 1,
                         range_start: Uint256([
                             0x3ed94d3cb0a84709,
                             0x0963dded799a7c1a,
@@ -1237,6 +1307,7 @@ mod tests {
                     BurnSamplePoint {
                         burns: (block_commit_3.burn_fee).into(),
                         median_burn: block_commit_3.burn_fee.into(),
+                        frequency: 1,
                         range_start: Uint256([
                             0x7db29a7961508e12,
                             0x12c7bbdaf334f834,
@@ -1254,6 +1325,7 @@ mod tests {
             let f = &fixtures[i];
             eprintln!("Fixture #{}", i);
             let dist = BurnSamplePoint::make_distribution(
+                MINING_COMMITMENT_WINDOW,
                 f.block_commits.iter().cloned().collect(),
                 f.consumed_leader_keys.iter().cloned().collect(),
             );

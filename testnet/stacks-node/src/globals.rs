@@ -59,7 +59,7 @@ pub struct Globals<T> {
     /// Global flag to see if we should keep running
     pub should_keep_running: Arc<AtomicBool>,
     /// Status of our VRF key registration state (shared between the main thread and the relayer)
-    leader_key_registration_state: Arc<Mutex<LeaderKeyRegistrationState>>,
+    pub leader_key_registration_state: Arc<Mutex<LeaderKeyRegistrationState>>,
     /// Last miner config loaded
     last_miner_config: Arc<Mutex<Option<MinerConfig>>>,
     /// burnchain height at which we start mining
@@ -69,6 +69,9 @@ pub struct Globals<T> {
     /// previously-selected best tips
     /// maps stacks height to tip candidate
     previous_best_tips: Arc<Mutex<BTreeMap<u64, TipCandidate>>>,
+    /// Initiative flag.
+    /// Raised when the main loop should wake up and do something.
+    initiative: Arc<Mutex<Option<String>>>,
 }
 
 // Need to manually implement Clone, because [derive(Clone)] requires
@@ -90,6 +93,7 @@ impl<T> Clone for Globals<T> {
             start_mining_height: self.start_mining_height.clone(),
             estimated_winning_probs: self.estimated_winning_probs.clone(),
             previous_best_tips: self.previous_best_tips.clone(),
+            initiative: self.initiative.clone(),
         }
     }
 }
@@ -103,6 +107,7 @@ impl<T> Globals<T> {
         sync_comms: PoxSyncWatchdogComms,
         should_keep_running: Arc<AtomicBool>,
         start_mining_height: u64,
+        leader_key_registration_state: LeaderKeyRegistrationState,
     ) -> Globals<T> {
         Globals {
             last_sortition: Arc::new(Mutex::new(None)),
@@ -113,13 +118,12 @@ impl<T> Globals<T> {
             counters,
             sync_comms,
             should_keep_running,
-            leader_key_registration_state: Arc::new(Mutex::new(
-                LeaderKeyRegistrationState::Inactive,
-            )),
+            leader_key_registration_state: Arc::new(Mutex::new(leader_key_registration_state)),
             last_miner_config: Arc::new(Mutex::new(None)),
             start_mining_height: Arc::new(Mutex::new(start_mining_height)),
             estimated_winning_probs: Arc::new(Mutex::new(HashMap::new())),
             previous_best_tips: Arc::new(Mutex::new(BTreeMap::new())),
+            initiative: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -287,6 +291,7 @@ impl<T> Globals<T> {
                                 vrf_public_key: op.public_key,
                                 block_height: op.block_height as u64,
                                 op_vtxindex: op.vtxindex as u32,
+                                memo: op.memo,
                             };
 
                             **leader_key_registration_state =
@@ -424,6 +429,33 @@ impl<T> Globals<T> {
             Ok(tips) => tips.get(&stacks_height).cloned(),
             Err(_e) => {
                 error!("FATAL: failed to lock previous_best_tips");
+                panic!();
+            }
+        }
+    }
+
+    /// Raise the initiative flag
+    pub fn raise_initiative(&self, raiser: String) {
+        match self.initiative.lock() {
+            Ok(mut initiative) => {
+                *initiative = Some(raiser);
+            }
+            Err(_e) => {
+                error!("FATAL: failed to lock initiative");
+                panic!();
+            }
+        }
+    }
+
+    /// Clear the initiative flag and return its value
+    pub fn take_initiative(&self) -> Option<String> {
+        match self.initiative.lock() {
+            Ok(mut initiative) => {
+                let ret = (*initiative).take();
+                ret
+            }
+            Err(_e) => {
+                error!("FATAL: failed to lock initiative");
                 panic!();
             }
         }

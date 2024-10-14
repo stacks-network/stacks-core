@@ -109,10 +109,10 @@ fn test_exact_block_costs() {
         .collect();
 
     test_observer::spawn();
-    conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
-        events_keys: vec![EventKeyType::AnyEvent, EventKeyType::MinedBlocks],
-    });
+    test_observer::register(
+        &mut conf,
+        &[EventKeyType::AnyEvent, EventKeyType::MinedBlocks],
+    );
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
@@ -335,10 +335,7 @@ fn test_dynamic_db_method_costs() {
     };
 
     test_observer::spawn();
-    conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
-        events_keys: vec![EventKeyType::AnyEvent],
-    });
+    test_observer::register_any(&mut conf);
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
@@ -602,6 +599,7 @@ fn transition_empty_blocks() {
             let burn_parent_modulus =
                 (tip_info.burn_block_height % BURN_BLOCK_MINED_AT_MODULUS) as u8;
             let op = BlockstackOperationType::LeaderBlockCommit(LeaderBlockCommitOp {
+                treatment: vec![],
                 sunset_burn,
                 block_header_hash: BlockHeaderHash([0xff; 32]),
                 burn_fee: rest_commit,
@@ -628,7 +626,7 @@ fn transition_empty_blocks() {
                 &mut op_signer,
                 1,
             );
-            assert!(res.is_some(), "Failed to submit block-commit");
+            assert!(res.is_ok(), "Failed to submit block-commit");
         }
 
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
@@ -771,10 +769,7 @@ fn test_cost_limit_switch_version205() {
     });
 
     test_observer::spawn();
-    conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
-        events_keys: vec![EventKeyType::AnyEvent],
-    });
+    test_observer::register_any(&mut conf);
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
@@ -1028,10 +1023,7 @@ fn bigger_microblock_streams_in_2_05() {
     conf.burnchain.pox_2_activation = Some(10_003);
 
     test_observer::spawn();
-    conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
-        events_keys: vec![EventKeyType::AnyEvent],
-    });
+    test_observer::register_any(&mut conf);
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller

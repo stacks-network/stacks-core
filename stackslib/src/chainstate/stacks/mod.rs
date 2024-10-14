@@ -27,8 +27,8 @@ use clarity::vm::types::{
     PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, Value,
 };
 use clarity::vm::ClarityVersion;
-use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSqlOutput, ValueRef};
-use rusqlite::{Error as RusqliteError, ToSql};
+use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
+use rusqlite::Error as RusqliteError;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sha2::{Digest, Sha512_256};
@@ -36,6 +36,7 @@ use stacks_common::address::AddressHashMode;
 use stacks_common::codec::{
     read_next, write_next, Error as codec_error, StacksMessageCodec, MAX_MESSAGE_LEN,
 };
+use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId, StacksWorkScore, TrieHash,
     TRIEHASH_ENCODED_SIZE,
@@ -99,6 +100,8 @@ pub enum Error {
     StacksTransactionSkipped(String),
     PostConditionFailed(String),
     NoSuchBlockError,
+    /// The supplied Sortition IDs, consensus hashes, or stacks blocks are not in the same fork.
+    NotInSameFork,
     InvalidChainstateDB,
     BlockTooBigError,
     TransactionTooBigError,
@@ -224,6 +227,9 @@ impl fmt::Display for Error {
             Error::NoRegisteredSigners(reward_cycle) => {
                 write!(f, "No registered signers for reward cycle {reward_cycle}")
             }
+            Error::NotInSameFork => {
+                write!(f, "The supplied block identifiers are not in the same fork")
+            }
         }
     }
 }
@@ -268,6 +274,7 @@ impl error::Error for Error {
             Error::InvalidChildOfNakomotoBlock => None,
             Error::ExpectedTenureChange => None,
             Error::NoRegisteredSigners(_) => None,
+            Error::NotInSameFork => None,
         }
     }
 }
@@ -312,6 +319,7 @@ impl Error {
             Error::InvalidChildOfNakomotoBlock => "InvalidChildOfNakomotoBlock",
             Error::ExpectedTenureChange => "ExpectedTenureChange",
             Error::NoRegisteredSigners(_) => "NoRegisteredSigners",
+            Error::NotInSameFork => "NotInSameFork",
         }
     }
 
@@ -377,6 +385,14 @@ impl Txid {
     /// A sighash is calculated the same way as a txid
     pub fn from_sighash_bytes(txdata: &[u8]) -> Txid {
         Txid::from_stacks_tx(txdata)
+    }
+
+    /// Create a Txid from the tx hash bytes used in bitcoin.
+    /// This just reverses the inner bytes of the input.
+    pub fn from_bitcoin_tx_hash(tx_hash: &Sha256dHash) -> Txid {
+        let mut txid_bytes = tx_hash.0.clone();
+        txid_bytes.reverse();
+        Self(txid_bytes)
     }
 }
 
@@ -506,6 +522,13 @@ pub enum MultisigHashMode {
     P2WSH = 0x03,
 }
 
+#[repr(u8)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum OrderIndependentMultisigHashMode {
+    P2SH = 0x05,
+    P2WSH = 0x07,
+}
+
 impl SinglesigHashMode {
     pub fn to_address_hash_mode(&self) -> AddressHashMode {
         match *self {
@@ -556,6 +579,35 @@ impl MultisigHashMode {
     }
 }
 
+impl OrderIndependentMultisigHashMode {
+    pub fn to_address_hash_mode(&self) -> AddressHashMode {
+        match *self {
+            OrderIndependentMultisigHashMode::P2SH => AddressHashMode::SerializeP2SH,
+            OrderIndependentMultisigHashMode::P2WSH => AddressHashMode::SerializeP2WSH,
+        }
+    }
+
+    pub fn from_address_hash_mode(hm: AddressHashMode) -> Option<OrderIndependentMultisigHashMode> {
+        match hm {
+            AddressHashMode::SerializeP2SH => Some(OrderIndependentMultisigHashMode::P2SH),
+            AddressHashMode::SerializeP2WSH => Some(OrderIndependentMultisigHashMode::P2WSH),
+            _ => None,
+        }
+    }
+
+    pub fn from_u8(n: u8) -> Option<OrderIndependentMultisigHashMode> {
+        match n {
+            x if x == OrderIndependentMultisigHashMode::P2SH as u8 => {
+                Some(OrderIndependentMultisigHashMode::P2SH)
+            }
+            x if x == OrderIndependentMultisigHashMode::P2WSH as u8 => {
+                Some(OrderIndependentMultisigHashMode::P2WSH)
+            }
+            _ => None,
+        }
+    }
+}
+
 /// A structure that encodes enough state to authenticate
 /// a transaction's execution against a Stacks address.
 /// public_keys + signatures_required determines the Principal.
@@ -581,9 +633,20 @@ pub struct SinglesigSpendingCondition {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct OrderIndependentMultisigSpendingCondition {
+    pub hash_mode: OrderIndependentMultisigHashMode,
+    pub signer: Hash160,
+    pub nonce: u64,  // nth authorization from this account
+    pub tx_fee: u64, // microSTX/compute rate offered by this account
+    pub fields: Vec<TransactionAuthField>,
+    pub signatures_required: u16,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum TransactionSpendingCondition {
     Singlesig(SinglesigSpendingCondition),
     Multisig(MultisigSpendingCondition),
+    OrderIndependentMultisig(OrderIndependentMultisigSpendingCondition),
 }
 
 /// Types of transaction authorizations
@@ -678,49 +741,6 @@ pub enum TenureChangeError {
     PreviousTenureInvalid,
     /// Block is not a Nakamoto block
     NotNakamoto,
-}
-
-/// Schnorr threshold signature using types from `wsts`
-#[derive(Debug, Clone, PartialEq)]
-pub struct ThresholdSignature(pub wsts::common::Signature);
-impl FromSql for ThresholdSignature {
-    fn column_result(value: ValueRef) -> FromSqlResult<ThresholdSignature> {
-        let hex_str = value.as_str()?;
-        let bytes = hex_bytes(&hex_str).map_err(|_| FromSqlError::InvalidType)?;
-        let ts = ThresholdSignature::consensus_deserialize(&mut &bytes[..])
-            .map_err(|_| FromSqlError::InvalidType)?;
-        Ok(ts)
-    }
-}
-
-impl fmt::Display for ThresholdSignature {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        to_hex(&self.serialize_to_vec()).fmt(f)
-    }
-}
-
-impl ToSql for ThresholdSignature {
-    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput> {
-        let bytes = self.serialize_to_vec();
-        let hex_str = to_hex(&bytes);
-        Ok(hex_str.into())
-    }
-}
-
-impl serde::Serialize for ThresholdSignature {
-    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-        let bytes = self.serialize_to_vec();
-        s.serialize_str(&to_hex(&bytes))
-    }
-}
-
-impl<'de> serde::Deserialize<'de> for ThresholdSignature {
-    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        let hex_str = String::deserialize(d)?;
-        let bytes = hex_bytes(&hex_str).map_err(serde::de::Error::custom)?;
-        ThresholdSignature::consensus_deserialize(&mut bytes.as_slice())
-            .map_err(serde::de::Error::custom)
-    }
 }
 
 /// A transaction from Stackers to signal new mining tenure
@@ -1079,12 +1099,18 @@ pub const MAX_MICROBLOCK_SIZE: u32 = 65536;
 
 #[cfg(test)]
 pub mod test {
+    use clarity::util::get_epoch_time_secs;
     use clarity::vm::representations::{ClarityName, ContractName};
     use clarity::vm::ClarityVersion;
+    use stacks_common::bitvec::BitVec;
     use stacks_common::util::hash::*;
     use stacks_common::util::log;
+    use stacks_common::util::secp256k1::Secp256k1PrivateKey;
 
     use super::*;
+    use crate::chainstate::burn::BlockSnapshot;
+    use crate::chainstate::nakamoto::miner::NakamotoBlockBuilder;
+    use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
     use crate::chainstate::stacks::{StacksPublicKey as PubKey, *};
     use crate::core::*;
     use crate::net::codec::test::check_codec_and_corruption;
@@ -1097,6 +1123,7 @@ pub mod test {
         chain_id: u32,
         anchor_mode: &TransactionAnchorMode,
         post_condition_mode: &TransactionPostConditionMode,
+        epoch_id: StacksEpochId,
     ) -> Vec<StacksTransaction> {
         let addr = StacksAddress {
             version: 1,
@@ -1130,7 +1157,7 @@ pub mod test {
             signature: MessageSignature([3u8; 65]),
         };
 
-        let spending_conditions = vec![
+        let mut spending_conditions = vec![
             TransactionSpendingCondition::Singlesig(SinglesigSpendingCondition {
                 signer: Hash160([0x11; 20]),
                 hash_mode: SinglesigHashMode::P2PKH,
@@ -1190,8 +1217,49 @@ pub mod test {
                     TransactionAuthField::PublicKey(PubKey::from_hex("03ef2340518b5867b23598a9cf74611f8b98064f7d55cdb8c107c67b5efcbc5c77").unwrap())
                 ],
                 signatures_required: 2
-            })
+            }),
         ];
+
+        if epoch_id >= StacksEpochId::Epoch30 {
+            spending_conditions.append(&mut vec![
+                TransactionSpendingCondition::OrderIndependentMultisig(OrderIndependentMultisigSpendingCondition {
+                    signer: Hash160([0x11; 20]),
+                    hash_mode: OrderIndependentMultisigHashMode::P2WSH,
+                    nonce: 678,
+                    tx_fee: 901,
+                    fields: vec![
+                        TransactionAuthField::Signature(TransactionPublicKeyEncoding::Compressed, MessageSignature::from_raw(&vec![0xff; 65])),
+                        TransactionAuthField::Signature(TransactionPublicKeyEncoding::Compressed, MessageSignature::from_raw(&vec![0xfe; 65])),
+                        TransactionAuthField::PublicKey(PubKey::from_hex("03ef2340518b5867b23598a9cf74611f8b98064f7d55cdb8c107c67b5efcbc5c77").unwrap())
+                    ],
+                    signatures_required: 2
+                }),
+                TransactionSpendingCondition::OrderIndependentMultisig(OrderIndependentMultisigSpendingCondition {
+                    signer: Hash160([0x11; 20]),
+                    hash_mode: OrderIndependentMultisigHashMode::P2SH,
+                    nonce: 345,
+                    tx_fee: 678,
+                    fields: vec![
+                        TransactionAuthField::Signature(TransactionPublicKeyEncoding::Uncompressed, MessageSignature::from_raw(&vec![0xff; 65])),
+                        TransactionAuthField::Signature(TransactionPublicKeyEncoding::Uncompressed, MessageSignature::from_raw(&vec![0xfe; 65])),
+                        TransactionAuthField::PublicKey(PubKey::from_hex("04ef2340518b5867b23598a9cf74611f8b98064f7d55cdb8c107c67b5efcbc5c771f112f919b00a6c6c5f51f7c63e1762fe9fac9b66ec75a053db7f51f4a52712b").unwrap()),
+                    ],
+                    signatures_required: 2
+                }),
+                TransactionSpendingCondition::OrderIndependentMultisig(OrderIndependentMultisigSpendingCondition {
+                    signer: Hash160([0x11; 20]),
+                    hash_mode: OrderIndependentMultisigHashMode::P2SH,
+                    nonce: 456,
+                    tx_fee: 789,
+                    fields: vec![
+                        TransactionAuthField::Signature(TransactionPublicKeyEncoding::Compressed, MessageSignature::from_raw(&vec![0xff; 65])),
+                        TransactionAuthField::Signature(TransactionPublicKeyEncoding::Compressed, MessageSignature::from_raw(&vec![0xfe; 65])),
+                        TransactionAuthField::PublicKey(PubKey::from_hex("03ef2340518b5867b23598a9cf74611f8b98064f7d55cdb8c107c67b5efcbc5c77").unwrap())
+                    ],
+                    signatures_required: 2
+                }),
+            ])
+        }
 
         let mut tx_auths = vec![];
         for i in 0..spending_conditions.len() {
@@ -1340,7 +1408,7 @@ pub mod test {
         };
         let proof_bytes = hex_bytes("9275df67a68c8745c0ff97b48201ee6db447f7c93b23ae24cdc2400f52fdb08a1a6ac7ec71bf9c9c76e96ee4675ebff60625af28718501047bfd87b810c2d2139b73c23bd69de66360953a642c2a330a").unwrap();
         let proof = VRFProof::from_bytes(&proof_bytes[..].to_vec()).unwrap();
-        let tx_payloads = vec![
+        let mut tx_payloads = vec![
             TransactionPayload::TokenTransfer(
                 stx_address.into(),
                 123,
@@ -1384,47 +1452,59 @@ pub mod test {
                 },
                 Some(ClarityVersion::Clarity2),
             ),
-            TransactionPayload::Coinbase(CoinbasePayload([0x12; 32]), None, None),
-            TransactionPayload::Coinbase(
-                CoinbasePayload([0x12; 32]),
-                Some(PrincipalData::Contract(
-                    QualifiedContractIdentifier::transient(),
-                )),
-                None,
-            ),
-            TransactionPayload::Coinbase(
-                CoinbasePayload([0x12; 32]),
-                Some(PrincipalData::Standard(StandardPrincipalData(
-                    0x01, [0x02; 20],
-                ))),
-                None,
-            ),
-            TransactionPayload::Coinbase(CoinbasePayload([0x12; 32]), None, Some(proof.clone())),
-            TransactionPayload::Coinbase(
-                CoinbasePayload([0x12; 32]),
-                Some(PrincipalData::Contract(
-                    QualifiedContractIdentifier::transient(),
-                )),
-                Some(proof.clone()),
-            ),
-            TransactionPayload::Coinbase(
-                CoinbasePayload([0x12; 32]),
-                Some(PrincipalData::Standard(StandardPrincipalData(
-                    0x01, [0x02; 20],
-                ))),
-                Some(proof.clone()),
-            ),
             TransactionPayload::PoisonMicroblock(mblock_header_1, mblock_header_2),
-            TransactionPayload::TenureChange(TenureChangePayload {
-                tenure_consensus_hash: ConsensusHash([0x01; 20]),
-                prev_tenure_consensus_hash: ConsensusHash([0x02; 20]),
-                burn_view_consensus_hash: ConsensusHash([0x03; 20]),
-                previous_tenure_end: StacksBlockId([0x00; 32]),
-                previous_tenure_blocks: 0,
-                cause: TenureChangeCause::BlockFound,
-                pubkey_hash: Hash160([0x00; 20]),
-            }),
         ];
+
+        if epoch_id >= StacksEpochId::Epoch30 {
+            tx_payloads.append(&mut vec![
+                TransactionPayload::TenureChange(TenureChangePayload {
+                    tenure_consensus_hash: ConsensusHash([0x01; 20]),
+                    prev_tenure_consensus_hash: ConsensusHash([0x02; 20]),
+                    burn_view_consensus_hash: ConsensusHash([0x03; 20]),
+                    previous_tenure_end: StacksBlockId([0x00; 32]),
+                    previous_tenure_blocks: 0,
+                    cause: TenureChangeCause::BlockFound,
+                    pubkey_hash: Hash160([0x00; 20]),
+                }),
+                TransactionPayload::Coinbase(
+                    CoinbasePayload([0x12; 32]),
+                    None,
+                    Some(proof.clone()),
+                ),
+                TransactionPayload::Coinbase(
+                    CoinbasePayload([0x12; 32]),
+                    Some(PrincipalData::Contract(
+                        QualifiedContractIdentifier::transient(),
+                    )),
+                    Some(proof.clone()),
+                ),
+                TransactionPayload::Coinbase(
+                    CoinbasePayload([0x12; 32]),
+                    Some(PrincipalData::Standard(StandardPrincipalData(
+                        0x01, [0x02; 20],
+                    ))),
+                    Some(proof.clone()),
+                ),
+            ])
+        } else {
+            tx_payloads.append(&mut vec![
+                TransactionPayload::Coinbase(CoinbasePayload([0x12; 32]), None, None),
+                TransactionPayload::Coinbase(
+                    CoinbasePayload([0x12; 32]),
+                    Some(PrincipalData::Contract(
+                        QualifiedContractIdentifier::transient(),
+                    )),
+                    None,
+                ),
+                TransactionPayload::Coinbase(
+                    CoinbasePayload([0x12; 32]),
+                    Some(PrincipalData::Standard(StandardPrincipalData(
+                        0x01, [0x02; 20],
+                    ))),
+                    None,
+                ),
+            ])
+        }
 
         // create all kinds of transactions
         let mut all_txs = vec![];
@@ -1464,7 +1544,7 @@ pub mod test {
         all_txs
     }
 
-    pub fn make_codec_test_block(num_txs: usize) -> StacksBlock {
+    pub fn make_codec_test_block(num_txs: usize, epoch_id: StacksEpochId) -> StacksBlock {
         let proof_bytes = hex_bytes("9275df67a68c8745c0ff97b48201ee6db447f7c93b23ae24cdc2400f52fdb08a1a6ac7ec71bf9c9c76e96ee4675ebff60625af28718501047bfd87b810c2d2139b73c23bd69de66360953a642c2a330a").unwrap();
         let proof = VRFProof::from_bytes(&proof_bytes[..].to_vec()).unwrap();
 
@@ -1483,6 +1563,11 @@ pub mod test {
             origin_auth.clone(),
             TransactionPayload::Coinbase(CoinbasePayload([0u8; 32]), None, None),
         );
+        let tx_coinbase_proof = StacksTransaction::new(
+            TransactionVersion::Mainnet,
+            origin_auth.clone(),
+            TransactionPayload::Coinbase(CoinbasePayload([0u8; 32]), None, Some(proof.clone())),
+        );
 
         tx_coinbase.anchor_mode = TransactionAnchorMode::OnChainOnly;
 
@@ -1491,11 +1576,17 @@ pub mod test {
             0x80000000,
             &TransactionAnchorMode::OnChainOnly,
             &TransactionPostConditionMode::Allow,
+            epoch_id,
         );
 
         // remove all coinbases, except for an initial coinbase
         let mut txs_anchored = vec![];
-        txs_anchored.push(tx_coinbase);
+
+        if epoch_id >= StacksEpochId::Epoch30 {
+            txs_anchored.push(tx_coinbase_proof);
+        } else {
+            txs_anchored.push(tx_coinbase);
+        }
 
         for tx in all_txs.drain(..) {
             match tx.payload {
@@ -1545,6 +1636,67 @@ pub mod test {
         }
     }
 
+    pub fn make_codec_test_nakamoto_block(
+        epoch_id: StacksEpochId,
+        miner_privk: &StacksPrivateKey,
+    ) -> NakamotoBlock {
+        let proof_bytes = hex_bytes("9275df67a68c8745c0ff97b48201ee6db447f7c93b23ae24cdc2400f52fdb08a1a6ac7ec71bf9c9c76e96ee4675ebff60625af28718501047bfd87b810c2d2139b73c23bd69de66360953a642c2a330a").unwrap();
+        let proof = VRFProof::from_bytes(&proof_bytes[..].to_vec()).unwrap();
+
+        let privk = StacksPrivateKey::from_hex(
+            "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
+        )
+        .unwrap();
+
+        let stx_address = StacksAddress {
+            version: 1,
+            bytes: Hash160([0xff; 20]),
+        };
+        let payload = TransactionPayload::TokenTransfer(
+            stx_address.into(),
+            123,
+            TokenTransferMemo([0u8; 34]),
+        );
+
+        let auth = TransactionAuth::from_p2pkh(miner_privk).unwrap();
+        let addr = auth.origin().address_testnet();
+        let mut tx = StacksTransaction::new(TransactionVersion::Testnet, auth, payload);
+        tx.chain_id = 0x80000000;
+        tx.auth.set_origin_nonce(34);
+        tx.set_post_condition_mode(TransactionPostConditionMode::Allow);
+        tx.set_tx_fee(300);
+        let mut tx_signer = StacksTransactionSigner::new(&tx);
+        tx_signer.sign_origin(miner_privk).unwrap();
+        let tx = tx_signer.get_tx().unwrap();
+
+        let txid_vecs = vec![tx.txid().as_bytes().to_vec()];
+        let txs_anchored = vec![tx];
+        let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs);
+        let tx_merkle_root = merkle_tree.root();
+
+        let header = NakamotoBlockHeader {
+            version: 0x00,
+            chain_length: 107,
+            burn_spent: 25000,
+            consensus_hash: MINER_BLOCK_CONSENSUS_HASH.clone(),
+            parent_block_id: StacksBlockId::from_bytes(&[0x11; 32]).unwrap(),
+            tx_merkle_root,
+            state_index_root: TrieHash::from_hex(
+                "fb419c3d8f40ae154018f2abf3935e2275a14c091e071bacaf6cbf5579743a0f",
+            )
+            .unwrap(),
+            timestamp: get_epoch_time_secs(),
+            miner_signature: MessageSignature::empty(),
+            signer_signature: Vec::new(),
+            pox_treatment: BitVec::ones(8).unwrap(),
+        };
+
+        NakamotoBlock {
+            header,
+            txs: txs_anchored,
+        }
+    }
+
     pub fn make_codec_test_microblock(num_txs: usize) -> StacksMicroblock {
         let privk = StacksPrivateKey::from_hex(
             "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
@@ -1561,6 +1713,7 @@ pub mod test {
             0x80000000,
             &TransactionAnchorMode::OffChainOnly,
             &TransactionPostConditionMode::Allow,
+            StacksEpochId::latest(),
         );
 
         let txs_mblock: Vec<_> = all_txs.into_iter().take(num_txs).collect();

@@ -19,6 +19,7 @@ use std::io::{Read, Write};
 use clarity::vm::types::QualifiedContractIdentifier;
 use regex::{Captures, Regex};
 use stacks_common::types::net::{PeerAddress, PeerHost};
+use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::Hash160;
 
 use crate::net::db::PeerDB;
@@ -51,7 +52,43 @@ pub struct RPCNeighbor {
     pub public_key_hash: Hash160,
     pub authenticated: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(with = "serde_opt_vec_qci")]
     pub stackerdbs: Option<Vec<QualifiedContractIdentifier>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub age: Option<u64>,
+}
+
+/// Serialize and deserialize `Option<Vec<QualifiedContractIdentifier>>`
+///  using the `to_string()` and `parse()` implementations of `QualifiedContractIdentifier`.
+mod serde_opt_vec_qci {
+    use clarity::vm::types::QualifiedContractIdentifier;
+    use serde::{Deserialize, Serialize};
+
+    pub fn serialize<S: serde::Serializer>(
+        opt: &Option<Vec<QualifiedContractIdentifier>>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        let serialize_as: Option<Vec<_>> = opt
+            .as_ref()
+            .map(|vec_qci| vec_qci.iter().map(ToString::to_string).collect());
+        serialize_as.serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D>(de: D) -> Result<Option<Vec<QualifiedContractIdentifier>>, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let from_str: Option<Vec<String>> = Deserialize::deserialize(de)?;
+        let Some(vec_str) = from_str else {
+            return Ok(None);
+        };
+        let parse_opt: Result<Vec<QualifiedContractIdentifier>, _> = vec_str
+            .into_iter()
+            .map(|x| QualifiedContractIdentifier::parse(&x).map_err(serde::de::Error::custom))
+            .collect();
+        let out_vec = parse_opt?;
+        Ok(Some(out_vec))
+    }
 }
 
 impl RPCNeighbor {
@@ -60,6 +97,7 @@ impl RPCNeighbor {
         pkh: Hash160,
         auth: bool,
         stackerdbs: Vec<QualifiedContractIdentifier>,
+        age: Option<u64>,
     ) -> RPCNeighbor {
         RPCNeighbor {
             network_id: nk.network_id,
@@ -69,6 +107,7 @@ impl RPCNeighbor {
             public_key_hash: pkh,
             authenticated: auth,
             stackerdbs: Some(stackerdbs),
+            age,
         }
     }
 }
@@ -103,6 +142,7 @@ impl RPCNeighborsInfo {
                     Hash160::from_node_public_key(&n.public_key),
                     true,
                     stackerdb_contract_ids,
+                    None,
                 )
             })
             .collect();
@@ -111,10 +151,11 @@ impl RPCNeighborsInfo {
             peerdb_conn,
             network_id,
             network_epoch,
-            max_neighbor_age,
+            get_epoch_time_secs().saturating_sub(max_neighbor_age),
             MAX_NEIGHBORS_DATA_LEN,
             burnchain_view.burn_block_height,
             false,
+            true,
         )
         .map_err(NetError::DBError)?;
 
@@ -128,6 +169,7 @@ impl RPCNeighborsInfo {
                     Hash160::from_node_public_key(&n.public_key),
                     true,
                     stackerdb_contract_ids,
+                    None,
                 )
             })
             .collect();
@@ -149,6 +191,7 @@ impl RPCNeighborsInfo {
                     naddr.public_key_hash,
                     convo.is_authenticated(),
                     convo.get_stackerdb_contract_ids().to_vec(),
+                    Some(convo.age()),
                 ));
             } else {
                 inbound.push(RPCNeighbor::from_neighbor_key_and_pubkh(
@@ -156,6 +199,7 @@ impl RPCNeighborsInfo {
                     naddr.public_key_hash,
                     convo.is_authenticated(),
                     convo.get_stackerdb_contract_ids().to_vec(),
+                    Some(convo.age()),
                 ));
             }
         }

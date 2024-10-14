@@ -21,7 +21,8 @@ use std::io::{Read, Write};
 
 use sha2::{Digest, Sha512_256};
 use stacks_common::codec::{
-    read_next, write_next, Error as codec_error, StacksMessageCodec, MAX_MESSAGE_LEN,
+    read_next, read_next_at_most, write_next, Error as codec_error, StacksMessageCodec,
+    MAX_MESSAGE_LEN,
 };
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksBlockId, StacksWorkScore, TrieHash, VRFSeed,
@@ -308,7 +309,7 @@ impl StacksMessageCodec for StacksBlock {
         let header: StacksBlockHeader = read_next(fd)?;
         let txs: Vec<StacksTransaction> = {
             let mut bound_read = BoundReader::from_reader(fd, MAX_MESSAGE_LEN as u64);
-            read_next(&mut bound_read)
+            read_next_at_most(&mut bound_read, u32::MAX)
         }?;
 
         // there must be at least one transaction (the coinbase)
@@ -569,36 +570,51 @@ impl StacksBlock {
         epoch_id: StacksEpochId,
     ) -> bool {
         for tx in txs.iter() {
-            if let TransactionPayload::Coinbase(_, ref recipient_opt, ref proof_opt) = &tx.payload {
-                if proof_opt.is_some() && epoch_id < StacksEpochId::Epoch30 {
-                    // not supported
-                    error!("Coinbase with VRF proof not supported before Stacks 3.0"; "txid" => %tx.txid());
-                    return false;
-                }
-                if proof_opt.is_none() && epoch_id >= StacksEpochId::Epoch30 {
-                    // not supported
-                    error!("Coinbase with VRF proof is required in Stacks 3.0 and later"; "txid" => %tx.txid());
-                    return false;
-                }
-                if recipient_opt.is_some() && epoch_id < StacksEpochId::Epoch21 {
-                    // not supported
-                    error!("Coinbase pay-to-alt-recipient not supported before Stacks 2.1"; "txid" => %tx.txid());
-                    return false;
-                }
+            if !StacksBlock::validate_transaction_static_epoch(tx, epoch_id) {
+                return false;
             }
-            if let TransactionPayload::SmartContract(_, ref version_opt) = &tx.payload {
-                if version_opt.is_some() && epoch_id < StacksEpochId::Epoch21 {
-                    // not supported
-                    error!("Versioned smart contracts not supported before Stacks 2.1");
-                    return false;
-                }
+        }
+        return true;
+    }
+
+    /// Verify that one transaction is supported in the given epoch, as indicated by `epoch_id`
+    pub fn validate_transaction_static_epoch(
+        tx: &StacksTransaction,
+        epoch_id: StacksEpochId,
+    ) -> bool {
+        if let TransactionPayload::Coinbase(_, ref recipient_opt, ref proof_opt) = &tx.payload {
+            if proof_opt.is_some() && epoch_id < StacksEpochId::Epoch30 {
+                // not supported
+                error!("Coinbase with VRF proof not supported before Stacks 3.0"; "txid" => %tx.txid());
+                return false;
             }
-            if let TransactionPayload::TenureChange(..) = &tx.payload {
-                if epoch_id < StacksEpochId::Epoch30 {
-                    error!("TenureChange transaction not supported before Stacks 3.0"; "txid" => %tx.txid());
-                    return false;
-                }
+            if proof_opt.is_none() && epoch_id >= StacksEpochId::Epoch30 {
+                // not supported
+                error!("Coinbase with VRF proof is required in Stacks 3.0 and later"; "txid" => %tx.txid());
+                return false;
             }
+            if recipient_opt.is_some() && epoch_id < StacksEpochId::Epoch21 {
+                // not supported
+                error!("Coinbase pay-to-alt-recipient not supported before Stacks 2.1"; "txid" => %tx.txid());
+                return false;
+            }
+        }
+        if let TransactionPayload::SmartContract(_, ref version_opt) = &tx.payload {
+            if version_opt.is_some() && epoch_id < StacksEpochId::Epoch21 {
+                // not supported
+                error!("Versioned smart contracts not supported before Stacks 2.1");
+                return false;
+            }
+        }
+        if let TransactionPayload::TenureChange(..) = &tx.payload {
+            if epoch_id < StacksEpochId::Epoch30 {
+                error!("TenureChange transaction not supported before Stacks 3.0"; "txid" => %tx.txid());
+                return false;
+            }
+        }
+        if !tx.auth.is_supported_in_epoch(epoch_id) {
+            error!("Authentication mode not supported in Epoch {epoch_id}");
+            return false;
         }
         return true;
     }
@@ -634,6 +650,14 @@ impl StacksBlock {
     /// Does this block have a microblock parent?
     pub fn has_microblock_parent(&self) -> bool {
         self.header.has_microblock_parent()
+    }
+
+    /// Returns size in bytes of `StacksMessageCodec` representation
+    /// Note that this will serialize the block, so don't call if there is a better way to get block size
+    pub fn block_size(&self) -> Result<usize, codec_error> {
+        let mut buf = vec![];
+        self.consensus_serialize(&mut buf)?;
+        Ok(buf.len())
     }
 }
 
@@ -1061,7 +1085,7 @@ mod test {
             signature: MessageSignature([0x0cu8; 65]),
         };
 
-        let mut block = make_codec_test_block(100000000);
+        let mut block = make_codec_test_block(100000000, StacksEpochId::latest());
         block.header.version = 0x24;
 
         let ph = block.header.parent_block.as_bytes().to_vec();
@@ -1125,6 +1149,7 @@ mod test {
             0x80000000,
             &TransactionAnchorMode::OffChainOnly,
             &TransactionPostConditionMode::Allow,
+            StacksEpochId::latest(),
         );
 
         // remove all coinbases
@@ -1294,6 +1319,7 @@ mod test {
 
         let mut block_commit = LeaderBlockCommitOp {
             sunset_burn: 0,
+            treatment: vec![],
             block_header_hash: header.block_hash(),
             new_seed: VRFSeed::from_proof(&header.proof),
             parent_block_ptr: 0,
@@ -1672,6 +1698,103 @@ mod test {
         }
     }
 
+    fn verify_block_epoch_validation(
+        txs: &[StacksTransaction],
+        tx_coinbase_old: Option<StacksTransaction>,
+        tx_coinbase_nakamoto: Option<StacksTransaction>,
+        activation_epoch_id: StacksEpochId,
+        header: StacksBlockHeader,
+        deactivation_epoch_id: Option<StacksEpochId>,
+    ) {
+        let epoch_list = [
+            StacksEpochId::Epoch10,
+            StacksEpochId::Epoch20,
+            StacksEpochId::Epoch2_05,
+            StacksEpochId::Epoch21,
+            StacksEpochId::Epoch22,
+            StacksEpochId::Epoch23,
+            StacksEpochId::Epoch24,
+            StacksEpochId::Epoch25,
+            StacksEpochId::Epoch30,
+        ];
+        let get_tx_root = |txs: &Vec<StacksTransaction>| {
+            let txid_vecs = txs.iter().map(|tx| tx.txid().as_bytes().to_vec()).collect();
+
+            let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs);
+            let tx_merkle_root = merkle_tree.root();
+            tx_merkle_root
+        };
+        let mut block_header_dup_tx = header.clone();
+        block_header_dup_tx.tx_merkle_root = get_tx_root(&txs.to_vec());
+
+        let block = StacksBlock {
+            header: block_header_dup_tx.clone(),
+            txs: txs.to_vec(),
+        };
+
+        let block_with_coinbase_tx = tx_coinbase_old.map(|coinbase| {
+            let mut txs_with_coinbase = txs.to_vec();
+            txs_with_coinbase.insert(0, coinbase);
+
+            let mut block_header_dup_tx_with_coinbase = header.clone();
+            block_header_dup_tx_with_coinbase.tx_merkle_root =
+                get_tx_root(&txs_with_coinbase.to_vec());
+
+            StacksBlock {
+                header: block_header_dup_tx_with_coinbase.clone(),
+                txs: txs_with_coinbase,
+            }
+        });
+
+        let block_with_coinbase_tx_nakamoto = tx_coinbase_nakamoto.map(|coinbase| {
+            let mut txs_with_coinbase_nakamoto = txs.to_vec();
+            txs_with_coinbase_nakamoto.insert(0, coinbase);
+
+            let mut block_header_dup_tx_with_coinbase_nakamoto = header.clone();
+            block_header_dup_tx_with_coinbase_nakamoto.tx_merkle_root =
+                get_tx_root(&txs_with_coinbase_nakamoto.to_vec());
+
+            StacksBlock {
+                header: block_header_dup_tx_with_coinbase_nakamoto.clone(),
+                txs: txs_with_coinbase_nakamoto,
+            }
+        });
+
+        for epoch_id in epoch_list.iter() {
+            let block_to_check = if *epoch_id >= StacksEpochId::Epoch30
+                && block_with_coinbase_tx_nakamoto.is_some()
+            {
+                block_with_coinbase_tx_nakamoto.clone().unwrap()
+            } else if *epoch_id >= StacksEpochId::Epoch21
+                && *epoch_id < StacksEpochId::Epoch30
+                && block_with_coinbase_tx.is_some()
+            {
+                block_with_coinbase_tx.clone().unwrap()
+            } else {
+                block.clone()
+            };
+
+            let mut bytes: Vec<u8> = vec![];
+            block_to_check.consensus_serialize(&mut bytes).unwrap();
+
+            if *epoch_id < activation_epoch_id {
+                assert!(!StacksBlock::validate_transactions_static_epoch(
+                    &txs,
+                    epoch_id.clone(),
+                ));
+            } else if deactivation_epoch_id.is_none() || deactivation_epoch_id.unwrap() > *epoch_id
+            {
+                assert!(StacksBlock::validate_transactions_static_epoch(
+                    &txs, *epoch_id,
+                ));
+            } else {
+                assert!(!StacksBlock::validate_transactions_static_epoch(
+                    &txs, *epoch_id,
+                ));
+            }
+        }
+    }
+
     #[test]
     fn test_block_validate_transactions_static() {
         let header = StacksBlockHeader {
@@ -1689,6 +1812,11 @@ mod test {
             microblock_pubkey_hash: Hash160([9u8; 20]),
         };
 
+        let stx_address = StacksAddress {
+            version: 0,
+            bytes: Hash160([0u8; 20]),
+        };
+
         let privk = StacksPrivateKey::from_hex(
             "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
         )
@@ -1699,6 +1827,135 @@ mod test {
             ))
             .unwrap(),
         );
+
+        let privk_1 = StacksPrivateKey::from_hex(
+            "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
+        )
+        .unwrap();
+        let privk_2 = StacksPrivateKey::from_hex(
+            "2a584d899fed1d24e26b524f202763c8ab30260167429f157f1c119f550fa6af01",
+        )
+        .unwrap();
+        let privk_3 = StacksPrivateKey::from_hex(
+            "d5200dee706ee53ae98a03fba6cf4fdcc5084c30cfa9e1b3462dcdeaa3e0f1d201",
+        )
+        .unwrap();
+
+        let pubk_1 = StacksPublicKey::from_private(&privk_1);
+        let pubk_2 = StacksPublicKey::from_private(&privk_2);
+        let pubk_3 = StacksPublicKey::from_private(&privk_3);
+
+        let order_independent_multisig_condition_p2wsh =
+            TransactionSpendingCondition::new_multisig_order_independent_p2wsh(
+                2,
+                vec![pubk_1.clone(), pubk_2.clone(), pubk_3.clone()],
+            )
+            .unwrap();
+
+        let order_independent_multisig_condition_p2sh =
+            TransactionSpendingCondition::new_multisig_order_independent_p2sh(
+                2,
+                vec![pubk_1.clone(), pubk_2.clone(), pubk_3.clone()],
+            )
+            .unwrap();
+
+        let order_independent_sponsored_auth_p2sh = TransactionAuth::Sponsored(
+            TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(
+                &privk,
+            ))
+            .unwrap(),
+            order_independent_multisig_condition_p2sh.clone(),
+        );
+
+        let order_independent_sponsored_auth_p2wsh = TransactionAuth::Sponsored(
+            TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(
+                &privk,
+            ))
+            .unwrap(),
+            order_independent_multisig_condition_p2wsh.clone(),
+        );
+        let order_independent_origin_auth_p2sh =
+            TransactionAuth::Standard(order_independent_multisig_condition_p2sh.clone());
+
+        let order_independent_origin_auth_p2wsh =
+            TransactionAuth::Standard(order_independent_multisig_condition_p2wsh.clone());
+
+        let order_independent_multisig_tx_transfer_mainnet_p2sh = StacksTransaction::new(
+            TransactionVersion::Mainnet,
+            order_independent_origin_auth_p2sh.clone(),
+            TransactionPayload::TokenTransfer(
+                stx_address.into(),
+                123,
+                TokenTransferMemo([1u8; 34]),
+            ),
+        );
+
+        let order_independent_multisig_tx_transfer_mainnet_p2wsh = StacksTransaction::new(
+            TransactionVersion::Mainnet,
+            order_independent_origin_auth_p2wsh.clone(),
+            TransactionPayload::TokenTransfer(
+                stx_address.into(),
+                123,
+                TokenTransferMemo([1u8; 34]),
+            ),
+        );
+
+        let order_independent_sponsored_multisig_tx_transfer_mainnet_p2sh = StacksTransaction::new(
+            TransactionVersion::Mainnet,
+            order_independent_sponsored_auth_p2sh.clone(),
+            TransactionPayload::TokenTransfer(
+                stx_address.into(),
+                123,
+                TokenTransferMemo([1u8; 34]),
+            ),
+        );
+
+        let order_independent_sponsored_multisig_tx_transfer_mainnet_p2wsh = StacksTransaction::new(
+            TransactionVersion::Mainnet,
+            order_independent_sponsored_auth_p2wsh.clone(),
+            TransactionPayload::TokenTransfer(
+                stx_address.into(),
+                123,
+                TokenTransferMemo([1u8; 34]),
+            ),
+        );
+
+        let mut tx_signer =
+            StacksTransactionSigner::new(&order_independent_multisig_tx_transfer_mainnet_p2sh);
+        tx_signer.sign_origin(&privk_1).unwrap();
+        tx_signer.sign_origin(&privk_2).unwrap();
+        tx_signer.append_origin(&pubk_3).unwrap();
+        let order_independent_multisig_tx_transfer_mainnet_p2sh_signed =
+            tx_signer.get_tx().unwrap();
+
+        let mut tx_signer =
+            StacksTransactionSigner::new(&order_independent_multisig_tx_transfer_mainnet_p2wsh);
+        tx_signer.sign_origin(&privk_1).unwrap();
+        tx_signer.sign_origin(&privk_2).unwrap();
+        tx_signer.append_origin(&pubk_3).unwrap();
+        let order_independent_multisig_tx_transfer_mainnet_p2wsh_signed =
+            tx_signer.get_tx().unwrap();
+
+        let mut tx_signer = StacksTransactionSigner::new(
+            &order_independent_sponsored_multisig_tx_transfer_mainnet_p2sh,
+        );
+        tx_signer.sign_origin(&privk).unwrap();
+        tx_signer.sign_sponsor(&privk_1).unwrap();
+        tx_signer.sign_sponsor(&privk_2).unwrap();
+        tx_signer.append_sponsor(&pubk_3).unwrap();
+        let order_independent_sponsored_multisig_tx_transfer_mainnet_p2sh_signed =
+            tx_signer.get_tx().unwrap();
+
+        let mut tx_signer = StacksTransactionSigner::new(
+            &order_independent_sponsored_multisig_tx_transfer_mainnet_p2wsh,
+        );
+        tx_signer.sign_origin(&privk).unwrap();
+        tx_signer.sign_sponsor(&privk_1).unwrap();
+        tx_signer.sign_sponsor(&privk_2).unwrap();
+        tx_signer.append_sponsor(&pubk_3).unwrap();
+        let order_independent_sponsored_multisig_tx_transfer_mainnet_p2wsh_signed =
+            tx_signer.get_tx().unwrap();
+
         let tx_coinbase = StacksTransaction::new(
             TransactionVersion::Testnet,
             origin_auth.clone(),
@@ -1810,6 +2067,12 @@ mod test {
         let nakamoto_coinbase = vec![tx_coinbase_proof.clone()];
         let tenure_change_tx = vec![tx_tenure_change.clone()];
         let nakamoto_txs = vec![tx_coinbase_proof.clone(), tx_tenure_change.clone()];
+        let order_independent_multisig_txs = vec![
+            order_independent_multisig_tx_transfer_mainnet_p2sh_signed.clone(),
+            order_independent_sponsored_multisig_tx_transfer_mainnet_p2sh_signed.clone(),
+            order_independent_multisig_tx_transfer_mainnet_p2wsh_signed.clone(),
+            order_independent_sponsored_multisig_tx_transfer_mainnet_p2wsh_signed.clone(),
+        ];
 
         assert!(!StacksBlock::validate_transactions_unique(&dup_txs));
         assert!(!StacksBlock::validate_transactions_network(
@@ -1822,47 +2085,55 @@ mod test {
         ));
         assert!(!StacksBlock::validate_anchor_mode(&offchain_txs, true));
         assert!(!StacksBlock::validate_coinbase(&no_coinbase, true));
-        assert!(!StacksBlock::validate_transactions_static_epoch(
-            &coinbase_contract,
-            StacksEpochId::Epoch2_05
-        ));
-        assert!(StacksBlock::validate_transactions_static_epoch(
-            &coinbase_contract,
-            StacksEpochId::Epoch21
-        ));
 
-        assert!(!StacksBlock::validate_transactions_static_epoch(
+        verify_block_epoch_validation(
             &versioned_contract,
-            StacksEpochId::Epoch2_05
-        ));
-        assert!(StacksBlock::validate_transactions_static_epoch(
-            &versioned_contract,
-            StacksEpochId::Epoch21
-        ));
-        assert!(!StacksBlock::validate_transactions_static_epoch(
-            &nakamoto_coinbase,
-            StacksEpochId::Epoch21
-        ));
-        assert!(StacksBlock::validate_transactions_static_epoch(
-            &nakamoto_coinbase,
-            StacksEpochId::Epoch30
-        ));
-        assert!(!StacksBlock::validate_transactions_static_epoch(
+            Some(tx_coinbase.clone()),
+            Some(tx_coinbase_proof.clone()),
+            StacksEpochId::Epoch21,
+            header.clone(),
+            None,
+        );
+        verify_block_epoch_validation(
             &coinbase_contract,
-            StacksEpochId::Epoch30
-        ));
-        assert!(!StacksBlock::validate_transactions_static_epoch(
+            None,
+            None,
+            StacksEpochId::Epoch21,
+            header.clone(),
+            Some(StacksEpochId::Epoch30),
+        );
+        verify_block_epoch_validation(
+            &order_independent_multisig_txs,
+            Some(tx_coinbase.clone()),
+            Some(tx_coinbase_proof.clone()),
+            StacksEpochId::Epoch30,
+            header.clone(),
+            None,
+        );
+        verify_block_epoch_validation(
+            &nakamoto_txs,
+            Some(tx_coinbase.clone()),
+            None,
+            StacksEpochId::Epoch30,
+            header.clone(),
+            None,
+        );
+        verify_block_epoch_validation(
+            &nakamoto_coinbase,
+            Some(tx_coinbase.clone()),
+            None,
+            StacksEpochId::Epoch30,
+            header.clone(),
+            None,
+        );
+        verify_block_epoch_validation(
             &tenure_change_tx,
-            StacksEpochId::Epoch21
-        ));
-        assert!(StacksBlock::validate_transactions_static_epoch(
-            &nakamoto_txs,
-            StacksEpochId::Epoch30
-        ));
-        assert!(!StacksBlock::validate_transactions_static_epoch(
-            &nakamoto_txs,
-            StacksEpochId::Epoch21
-        ));
+            Some(tx_coinbase.clone()),
+            Some(tx_coinbase_proof.clone()),
+            StacksEpochId::Epoch30,
+            header.clone(),
+            None,
+        );
     }
 
     // TODO:

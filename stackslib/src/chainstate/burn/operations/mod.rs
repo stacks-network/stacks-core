@@ -27,6 +27,7 @@ use stacks_common::util::hash::{hex_bytes, to_hex, Hash160, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::util::vrf::VRFPublicKey;
 
+use self::leader_block_commit::Treatment;
 use crate::burnchains::{
     Address, Burnchain, BurnchainBlockHeader, BurnchainRecipient, BurnchainSigner,
     BurnchainTransaction, Error as BurnchainError, PublicKey, Txid,
@@ -41,7 +42,6 @@ use crate::util_lib::db::{DBConn, DBTx, Error as db_error};
 
 pub mod delegate_stx;
 pub mod leader_block_commit;
-/// This module contains all burn-chain operations
 pub mod leader_key_register;
 pub mod stack_stx;
 pub mod transfer_stx;
@@ -49,6 +49,8 @@ pub mod vote_for_aggregate_key;
 
 #[cfg(test)]
 mod test;
+
+/// This module contains all burn-chain operations
 
 #[derive(Debug)]
 pub enum Error {
@@ -241,6 +243,15 @@ pub struct LeaderBlockCommitOp {
 
     /// PoX/Burn outputs
     pub commit_outs: Vec<PoxAddress>,
+
+    /// If the active epoch supports PoX reward/punishment
+    /// via burns, this vector will contain the treatment (rewarded or punished)
+    /// of the PoX addresses active during the block commit.
+    ///
+    /// This value is set by the check() call, not during parsing.
+    #[serde(default = "default_treatment")]
+    pub treatment: Vec<Treatment>,
+
     // PoX sunset burn
     pub sunset_burn: u64,
 
@@ -249,6 +260,10 @@ pub struct LeaderBlockCommitOp {
     pub vtxindex: u32,                         // index in the block where this tx occurs
     pub block_height: u64,                     // block height at which this tx occurs
     pub burn_header_hash: BurnchainHeaderHash, // hash of the burn chain block header
+}
+
+fn default_treatment() -> Vec<Treatment> {
+    Vec::new()
 }
 
 #[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
@@ -269,7 +284,7 @@ pub struct DelegateStxOp {
     pub sender: StacksAddress,
     pub delegate_to: StacksAddress,
     /// a tuple representing the output index of the reward address in the BTC transaction,
-    //  and the actual  PoX reward address.
+    ///  and the actual  PoX reward address.
     /// NOTE: the address in .pox-2 will be tagged as either p2pkh or p2sh; it's impossible to tell
     /// if it's a segwit-p2sh since that looks identical to a p2sh address.
     pub reward_addr: Option<(u32, PoxAddress)>,

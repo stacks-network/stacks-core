@@ -23,5 +23,18 @@ RUN case ${TARGETPLATFORM} in \
     && unzip ${BIN_ARCH}.zip -d /out
 
 FROM --platform=${TARGETPLATFORM} alpine
-COPY --from=builder /out/stacks-node /out/stacks-signer /bin/
-CMD ["stacks-node", "mainnet"]
+COPY --from=builder /out/* /bin/
+ARG TAG
+
+RUN case "${TAG}" in \
+        signer-*) \
+            echo "/bin/stacks-signer run --config /signer-config.toml" > /tmp/command.sh \
+            ;; \
+        *) \
+            echo "/bin/stacks-node mainnet" > /tmp/command.sh && \
+            rm /bin/blockstack-cli /bin/clarity-cli /bin/relay-server /bin/stacks-events /bin/stacks-inspect \
+            ;; \
+    esac && \
+    chmod +x /tmp/command.sh
+
+CMD ["sh", "-c", "/tmp/command.sh"]

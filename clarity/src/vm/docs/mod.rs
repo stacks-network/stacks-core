@@ -41,7 +41,9 @@ pub struct KeywordAPI {
     pub description: &'static str,
     pub example: &'static str,
     /// The version where this keyword was first introduced.
-    pub version: ClarityVersion,
+    pub min_version: ClarityVersion,
+    /// The version where this keyword was disabled.
+    pub max_version: Option<ClarityVersion>,
 }
 
 #[derive(Serialize, Clone)]
@@ -63,7 +65,9 @@ pub struct FunctionAPI {
     pub description: String,
     pub example: String,
     /// The version where this keyword was first introduced.
-    pub version: ClarityVersion,
+    pub min_version: ClarityVersion,
+    /// The version where this keyword was disabled.
+    pub max_version: Option<ClarityVersion>,
 }
 
 pub struct SimpleFunctionAPI {
@@ -96,17 +100,19 @@ const BLOCK_HEIGHT: SimpleKeywordAPI = SimpleKeywordAPI {
     name: "block-height",
     snippet: "block-height",
     output_type: "uint",
-    description: "Returns the current block height of the Stacks blockchain as an uint",
+    description: "Returns the current block height of the Stacks blockchain in Clarity 1 and 2.
+Upon activation of epoch 3.0, `block-height` will return the same value as `tenure-height`.
+In Clarity 3, `block-height` is removed and has been replaced with `stacks-block-height`.",
     example:
-        "(> block-height 1000) ;; returns true if the current block-height has passed 1000 blocks.",
+        "(> block-height u1000) ;; returns true if the current block-height has passed 1000 blocks.",
 };
 
 const BURN_BLOCK_HEIGHT: SimpleKeywordAPI = SimpleKeywordAPI {
     name: "burn-block-height",
     snippet: "burn-block-height",
     output_type: "uint",
-    description: "Returns the current block height of the underlying burn blockchain as a uint",
-    example: "(> burn-block-height 1000) ;; returns true if the current height of the underlying burn blockchain has passed 1000 blocks.",
+    description: "Returns the current block height of the underlying burn blockchain.",
+    example: "(> burn-block-height u832000) ;; returns true if the current height of the underlying burn blockchain has passed 832,000 blocks.",
 };
 
 const CONTRACT_CALLER_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
@@ -118,6 +124,25 @@ the caller will be equal to the signing principal. If `contract-call?` was used 
 changes to the _calling_ contract's principal. If `as-contract` is used to change the `tx-sender` context, `contract-caller` _also_ changes
 to the same contract principal.",
     example: "(print contract-caller) ;; Will print out a Stacks address of the transaction sender",
+};
+
+const STACKS_BLOCK_HEIGHT_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
+    name: "stacks-block-height",
+    snippet: "stacks-block-height",
+    output_type: "uint",
+    description: "Returns the current block height of the Stacks blockchain.",
+    example:
+        "(<= stacks-block-height u500000) ;; returns true if the current block-height has not passed 500,000 blocks.",
+};
+
+const TENURE_HEIGHT_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
+    name: "tenure-height",
+    snippet: "tenure-height",
+    output_type: "uint",
+    description: "Returns the number of tenures that have passed.
+At the start of epoch 3.0, `tenure-height` will return the same value as `block-height`, then it will continue to increase as each tenures passes.",
+    example:
+        "(< tenure-height u140000) ;; returns true if the current tenure-height has passed 140,000 blocks.",
 };
 
 const TX_SENDER_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
@@ -245,7 +270,7 @@ const BUFF_TO_UINT_LE_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     snippet: "buff-to-uint-le ${1:buff}",
     signature: "(buff-to-uint-le (buff 16))",
-    description: "Converts a byte buffer to an unsigned integer use a little-endian encoding..
+    description: "Converts a byte buffer to an unsigned integer use a little-endian encoding.
 The byte buffer can be up to 16 bytes in length. If there are fewer than 16 bytes, as
 this function uses a little-endian encoding, the input behaves as if it is
 zero-padded on the _right_.
@@ -857,7 +882,8 @@ fn make_for_simple_native(
         signature: api.signature.to_string(),
         description: api.description.to_string(),
         example: api.example.to_string(),
-        version: function.get_version(),
+        min_version: function.get_min_version(),
+        max_version: function.get_max_version(),
     }
 }
 
@@ -1701,40 +1727,44 @@ const GET_BLOCK_INFO_API: SpecialAPI = SpecialAPI {
     snippet: "get-block-info? ${1:prop} ${2:block-height}",
     output_type: "(optional buff) | (optional uint)",
     signature: "(get-block-info? prop-name block-height)",
-    description: "The `get-block-info?` function fetches data for a block of the given *Stacks* block height. The
+    description: "In Clarity 3, `get-block-info?` is removed. In its place, `get-stacks-block-info?` can be used to retrieve
+information about a Stacks block and `get-tenure-info?` can be used to get information pertaining to the tenure.
+
+The `get-block-info?` function fetches data for a block of the given *Stacks* block height. The
 value and type returned are determined by the specified `BlockInfoPropertyName`. If the provided `block-height` does
 not correspond to an existing block prior to the current block, the function returns `none`. The currently available property names
 are as follows:
 
-`burnchain-header-hash`: This property returns a `(buff 32)` value containing the header hash of the burnchain (Bitcoin) block that selected the 
+- `burnchain-header-hash`: This property returns a `(buff 32)` value containing the header hash of the burnchain (Bitcoin) block that selected the 
 Stacks block at the given Stacks chain height.
 
-`id-header-hash`: This property returns a `(buff 32)` value containing the _index block hash_ of a Stacks block.   This hash is globally unique, and is derived
+- `id-header-hash`: This property returns a `(buff 32)` value containing the _index block hash_ of a Stacks block.   This hash is globally unique, and is derived
 from the block hash and the history of accepted PoX operations.  This is also the block hash value you would pass into `(at-block)`.
 
-`header-hash`: This property returns a `(buff 32)` value containing the header hash of a Stacks block, given a Stacks chain height.  **WARNING* this hash is
+- `header-hash`: This property returns a `(buff 32)` value containing the header hash of a Stacks block, given a Stacks chain height.  **WARNING* this hash is
 not guaranteed to be globally unique, since the same Stacks block can be mined in different PoX forks.  If you need global uniqueness, you should use `id-header-hash`.
 
-`miner-address`: This property returns a `principal` value corresponding to the miner of the given block.  **WARNING** In Stacks 2.1, this is not guaranteed to 
+- `miner-address`: This property returns a `principal` value corresponding to the miner of the given block.  **WARNING** In Stacks 2.1, this is not guaranteed to 
 be the same `principal` that received the block reward, since Stacks 2.1 supports coinbase transactions that pay the reward to a contract address.  This is merely
 the address of the `principal` that produced the block.
 
-`time`: This property returns a `uint` value of the block header time field. This is a Unix epoch timestamp in seconds
-which roughly corresponds to when the block was mined. **Note**: this does not increase monotonically with each block
+- `time`: This property returns a `uint` value of the block header time field. This is a Unix epoch timestamp in seconds
+which roughly corresponds to when the block was mined. This timestamp comes from the burnchain block. **Note**: this does not increase monotonically with each block
 and block times are accurate only to within two hours. See [BIP113](https://github.com/bitcoin/bips/blob/master/bip-0113.mediawiki) for more information.
+For blocks mined after epoch 3.0, all Stacks blocks in one tenure will share the same timestamp. To get the Stacks block time for a block in epoch 3.0+, use `get-stacks-block-info?`.
 
-New in Stacks 2.1:
+- `vrf-seed`: This property returns a `(buff 32)` value of the VRF seed for the corresponding block.
 
-`block-reward`: This property returns a `uint` value for the total block reward of the indicated Stacks block.  This value is only available once the reward for 
+- `block-reward`: This property returns a `uint` value for the total block reward of the indicated Stacks block.  This value is only available once the reward for 
 the block matures.  That is, the latest `block-reward` value available is at least 101 Stacks blocks in the past (on mainnet).  The reward includes the coinbase,
 the anchored block's transaction fees, and the shares of the confirmed and produced microblock transaction fees earned by this block's miner.  Note that this value may 
 be smaller than the Stacks coinbase at this height, because the miner may have been punished with a valid `PoisonMicroblock` transaction in the event that the miner
-published two or more microblock stream forks.
+published two or more microblock stream forks. Added in Clarity 2.
 
-`miner-spend-total`: This property returns a `uint` value for the total number of burnchain tokens (i.e. satoshis) spent by all miners trying to win this block.
+- `miner-spend-total`: This property returns a `uint` value for the total number of burnchain tokens (i.e. satoshis) spent by all miners trying to win this block. Added in Clarity 2.
 
-`miner-spend-winner`: This property returns a `uint` value for the number of burnchain tokens (i.e. satoshis) spent by the winning miner for this Stacks block.  Note that
-this value is less than or equal to the value for `miner-spend-total` at the same block height.
+- `miner-spend-winner`: This property returns a `uint` value for the number of burnchain tokens (i.e. satoshis) spent by the winning miner for this Stacks block.  Note that
+this value is less than or equal to the value for `miner-spend-total` at the same block height. Added in Clarity 2.
 ",
     example: "(get-block-info? time u0) ;; Returns (some u1557860301)
 (get-block-info? header-hash u0) ;; Returns (some 0x374708fff7719dd5979ec875d56cd2286f6d3cf7ec317a3b25632aab28ec37bb)
@@ -1776,6 +1806,74 @@ The `addrs` list contains the same PoX address values passed into the PoX smart 
     example: "
 (get-burn-block-info? header-hash u677050) ;; Returns (some 0xe67141016c88a7f1203eca0b4312f2ed141531f59303a1c267d7d83ab6b977d8)
 (get-burn-block-info? pox-addrs u677050) ;; Returns (some (tuple (addrs ((tuple (hashbytes 0x395f3643cea07ec4eec73b4d9a973dcce56b9bf1) (version 0x00)) (tuple (hashbytes 0x7c6775e20e3e938d2d7e9d79ac310108ba501ddb) (version 0x01)))) (payout u123)))
+"
+};
+
+const GET_STACKS_BLOCK_INFO_API: SpecialAPI = SpecialAPI {
+    input_type: "StacksBlockInfoPropertyName, uint",
+    snippet: "get-stacks-block-info? ${1:prop} ${2:block-height}",
+    output_type: "(optional buff) | (optional uint)",
+    signature: "(get-stacks-block-info? prop-name block-height)",
+    description: "The `get-stacks-block-info?` function fetches data for a block of the given *Stacks* block height. The
+value and type returned are determined by the specified `StacksBlockInfoPropertyName`. If the provided `block-height` does
+not correspond to an existing block prior to the current block, the function returns `none`. The currently available property names
+are as follows:
+
+- `id-header-hash`: This property returns a `(buff 32)` value containing the _index block hash_ of a Stacks block.   This hash is globally unique, and is derived
+from the block hash and the history of accepted PoX operations.  This is also the block hash value you would pass into `(at-block)`.
+
+- `header-hash`: This property returns a `(buff 32)` value containing the header hash of a Stacks block, given a Stacks chain height.  **WARNING* this hash is
+not guaranteed to be globally unique, since the same Stacks block can be mined in different PoX forks.  If you need global uniqueness, you should use `id-header-hash`.
+
+- `time`: This property returns a `uint` value of the block header time field. This is a Unix epoch timestamp in seconds
+which roughly corresponds to when the block was mined. For a block mined before epoch 3.0, this timestamp comes from the burnchain block. **Note**: this does not increase monotonically with each block
+and block times are accurate only to within two hours. See [BIP113](https://github.com/bitcoin/bips/blob/master/bip-0113.mediawiki) for more information.
+For a block mined after epoch 3.0, this timestamp comes from the Stacks block header. **Note**: this is the time, according to the miner, when
+the mining of this block started, but is not guaranteed to be accurate. This time will be validated by the signers to be:
+  - Greater than the timestamp of the previous block
+  - At most 15 seconds into the future (according to their own local clocks)
+",
+    example: "(get-stacks-block-info? time u0) ;; Returns (some u1557860301)
+(get-stacks-block-info? header-hash u0) ;; Returns (some 0x374708fff7719dd5979ec875d56cd2286f6d3cf7ec317a3b25632aab28ec37bb)
+"
+};
+
+const GET_TENURE_INFO_API: SpecialAPI = SpecialAPI {
+    input_type: "TenureInfoPropertyName, uint",
+    snippet: "get-tenure-info? ${1:prop} ${2:block-height}",
+    output_type: "(optional buff) | (optional uint)",
+    signature: "(get-tenure-info? prop-name block-height)",
+    description: "The `get-tenure-info?` function fetches data for the tenure at the given block height. The
+value and type returned are determined by the specified `TenureInfoPropertyName`. If the provided `block-height` does
+not correspond to an existing block prior to the current block, the function returns `none`. The currently available property names
+are as follows:
+
+- `burnchain-header-hash`: This property returns a `(buff 32)` value containing the header hash of the burnchain (Bitcoin) block that selected the
+tenure at the given height.
+
+- `miner-address`: This property returns a `principal` value corresponding to the miner of the given tenure.  **WARNING** This is not guaranteed to
+be the same `principal` that received the block reward, since Stacks 2.1+ supports coinbase transactions that pay the reward to a contract address.  This is merely
+the address of the `principal` that produced the tenure.
+
+- `time`: This property returns a `uint` Unix epoch timestamp in seconds which roughly corresponds to when the tenure was started. This timestamp comes
+from the burnchain block. **Note**: this does not increase monotonically with each tenure and tenure times are accurate only to within two hours. See
+[BIP113](https://github.com/bitcoin/bips/blob/master/bip-0113.mediawiki) for more information.
+
+- `vrf-seed`: This property returns a `(buff 32)` value of the VRF seed for the corresponding tenure.
+
+- `block-reward`: This property returns a `uint` value for the total block reward of the indicated tenure.  This value is only available once the reward for
+the tenure matures.  That is, the latest `block-reward` value available is at least 101 Stacks blocks in the past (on mainnet).  The reward includes the coinbase,
+the anchored tenure's transaction fees, and the shares of the confirmed and produced microblock transaction fees earned by this block's miner.  Note that this value may
+be smaller than the Stacks coinbase at this height, because the miner may have been punished with a valid `PoisonMicroblock` transaction in the event that the miner
+published two or more microblock stream forks.
+
+- `miner-spend-total`: This property returns a `uint` value for the total number of burnchain tokens (i.e. satoshis) spent by all miners trying to win this tenure.
+
+- `miner-spend-winner`: This property returns a `uint` value for the number of burnchain tokens (i.e. satoshis) spent by the winning miner for this tennure.  Note that
+this value is less than or equal to the value for `miner-spend-total` at the same tenure height.
+",
+    example: "(get-tenure-info? time u0) ;; Returns (some u1557860301)
+(get-tenure-info? vrf-seed u0) ;; Returns (some 0xf490de2920c8a35fabeb13208852aa28c76f9be9b03a4dd2b3c075f7a26923b4)
 "
 };
 
@@ -2089,7 +2187,7 @@ const MINT_TOKEN: SpecialAPI = SpecialAPI {
 type defined using `define-fungible-token`. The increased token balance is _not_ transfered from another principal, but
 rather minted.  
 
-If a non-positive amount is provided to mint, this function returns `(err 1)`. Otherwise, on successfuly mint, it
+If a non-positive amount is provided to mint, this function returns `(err 1)`. Otherwise, on successfully mint, it
 returns `(ok true)`. If this call would result in more supplied tokens than defined by the total supply in 
 `define-fungible-token`, then a `SupplyOverflow` runtime error is thrown.
 ",
@@ -2495,6 +2593,8 @@ pub fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         AsContract => make_for_special(&AS_CONTRACT_API, function),
         GetBlockInfo => make_for_special(&GET_BLOCK_INFO_API, function),
         GetBurnBlockInfo => make_for_special(&GET_BURN_BLOCK_INFO_API, function),
+        GetStacksBlockInfo => make_for_special(&GET_STACKS_BLOCK_INFO_API, function),
+        GetTenureInfo => make_for_special(&GET_TENURE_INFO_API, function),
         ConsOkay => make_for_special(&CONS_OK_API, function),
         ConsError => make_for_special(&CONS_ERR_API, function),
         ConsSome => make_for_special(&CONS_SOME_API, function),
@@ -2538,13 +2638,15 @@ pub fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
 }
 
 fn make_keyword_reference(variable: &NativeVariables) -> Option<KeywordAPI> {
-    let simple_api = match variable {
+    let keyword = match variable {
         NativeVariables::TxSender => TX_SENDER_KEYWORD.clone(),
         NativeVariables::ContractCaller => CONTRACT_CALLER_KEYWORD.clone(),
         NativeVariables::NativeNone => NONE_KEYWORD.clone(),
         NativeVariables::NativeTrue => TRUE_KEYWORD.clone(),
         NativeVariables::NativeFalse => FALSE_KEYWORD.clone(),
         NativeVariables::BlockHeight => BLOCK_HEIGHT.clone(),
+        NativeVariables::StacksBlockHeight => STACKS_BLOCK_HEIGHT_KEYWORD.clone(),
+        NativeVariables::TenureHeight => TENURE_HEIGHT_KEYWORD.clone(),
         NativeVariables::BurnBlockHeight => BURN_BLOCK_HEIGHT.clone(),
         NativeVariables::TotalLiquidMicroSTX => TOTAL_LIQUID_USTX_KEYWORD.clone(),
         NativeVariables::Regtest => REGTEST_KEYWORD.clone(),
@@ -2553,12 +2655,13 @@ fn make_keyword_reference(variable: &NativeVariables) -> Option<KeywordAPI> {
         NativeVariables::TxSponsor => TX_SPONSOR_KEYWORD.clone(),
     };
     Some(KeywordAPI {
-        name: simple_api.name,
-        snippet: simple_api.snippet,
-        output_type: simple_api.output_type,
-        description: simple_api.description,
-        example: simple_api.example,
-        version: variable.get_version(),
+        name: keyword.name,
+        snippet: keyword.snippet,
+        output_type: keyword.output_type,
+        description: keyword.description,
+        example: keyword.example,
+        min_version: variable.get_min_version(),
+        max_version: variable.get_max_version(),
     })
 }
 
@@ -2571,7 +2674,8 @@ fn make_for_special(api: &SpecialAPI, function: &NativeFunctions) -> FunctionAPI
         signature: api.signature.to_string(),
         description: api.description.to_string(),
         example: api.example.to_string(),
-        version: function.get_version(),
+        min_version: function.get_min_version(),
+        max_version: function.get_max_version(),
     }
 }
 
@@ -2584,7 +2688,8 @@ fn make_for_define(api: &DefineAPI, name: String) -> FunctionAPI {
         signature: api.signature.to_string(),
         description: api.description.to_string(),
         example: api.example.to_string(),
-        version: ClarityVersion::Clarity1,
+        min_version: ClarityVersion::Clarity1,
+        max_version: None,
     }
 }
 
@@ -2641,12 +2746,12 @@ pub fn make_json_api_reference() -> String {
 #[cfg(test)]
 mod test {
     use stacks_common::address::AddressHashMode;
-    use stacks_common::consts::CHAIN_ID_TESTNET;
+    use stacks_common::consts::{CHAIN_ID_TESTNET, PEER_VERSION_EPOCH_2_1};
     use stacks_common::types::chainstate::{
         BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, SortitionId, StacksAddress,
         StacksBlockId, VRFSeed,
     };
-    use stacks_common::types::{Address, StacksEpochId, PEER_VERSION_EPOCH_2_1};
+    use stacks_common::types::{Address, StacksEpochId};
     use stacks_common::util::hash::hex_bytes;
 
     use super::{get_input_type_string, make_all_api_reference, make_json_api_reference};
@@ -2684,10 +2789,18 @@ mod test {
         ) -> Option<BurnchainHeaderHash> {
             None
         }
-        fn get_consensus_hash_for_block(&self, _bhh: &StacksBlockId) -> Option<ConsensusHash> {
+        fn get_consensus_hash_for_block(
+            &self,
+            _bhh: &StacksBlockId,
+            _epoch: &StacksEpochId,
+        ) -> Option<ConsensusHash> {
             Some(ConsensusHash([0; 20]))
         }
-        fn get_vrf_seed_for_block(&self, _bhh: &StacksBlockId) -> Option<VRFSeed> {
+        fn get_vrf_seed_for_block(
+            &self,
+            _bhh: &StacksBlockId,
+            epoch: &StacksEpochId,
+        ) -> Option<VRFSeed> {
             Some(
                 VRFSeed::from_hex(
                     "f490de2920c8a35fabeb13208852aa28c76f9be9b03a4dd2b3c075f7a26923b4",
@@ -2698,6 +2811,7 @@ mod test {
         fn get_stacks_block_header_hash_for_block(
             &self,
             _id_bhh: &StacksBlockId,
+            _epoch: &StacksEpochId,
         ) -> Option<BlockHeaderHash> {
             Some(
                 BlockHeaderHash::from_hex(
@@ -2706,27 +2820,47 @@ mod test {
                 .unwrap(),
             )
         }
-        fn get_burn_block_time_for_block(&self, _id_bhh: &StacksBlockId) -> Option<u64> {
+        fn get_burn_block_time_for_block(
+            &self,
+            _id_bhh: &StacksBlockId,
+            _epoch: Option<&StacksEpochId>,
+        ) -> Option<u64> {
             Some(1557860301)
+        }
+        fn get_stacks_block_time_for_block(&self, _id_bhh: &StacksBlockId) -> Option<u64> {
+            Some(1557860302)
         }
         fn get_burn_block_height_for_block(&self, _id_bhh: &StacksBlockId) -> Option<u32> {
             Some(567890)
         }
-        fn get_miner_address(&self, _id_bhh: &StacksBlockId) -> Option<StacksAddress> {
+        fn get_miner_address(
+            &self,
+            _id_bhh: &StacksBlockId,
+            _epoch: &StacksEpochId,
+        ) -> Option<StacksAddress> {
             None
         }
-        fn get_burnchain_tokens_spent_for_block(&self, id_bhh: &StacksBlockId) -> Option<u128> {
+        fn get_burnchain_tokens_spent_for_block(
+            &self,
+            id_bhh: &StacksBlockId,
+            _epoch: &StacksEpochId,
+        ) -> Option<u128> {
             Some(12345)
         }
 
         fn get_burnchain_tokens_spent_for_winning_block(
             &self,
             id_bhh: &StacksBlockId,
+            _epoch: &StacksEpochId,
         ) -> Option<u128> {
             Some(2345)
         }
 
-        fn get_tokens_earned_for_block(&self, id_bhh: &StacksBlockId) -> Option<u128> {
+        fn get_tokens_earned_for_block(
+            &self,
+            id_bhh: &StacksBlockId,
+            _epoch: &StacksEpochId,
+        ) -> Option<u128> {
             Some(12000)
         }
     }
@@ -2735,6 +2869,14 @@ mod test {
     const DOC_POX_STATE_DB: DocBurnStateDB = DocBurnStateDB {};
 
     impl BurnStateDB for DocBurnStateDB {
+        fn get_tip_burn_block_height(&self) -> Option<u32> {
+            Some(0x9abc)
+        }
+
+        fn get_tip_sortition_id(&self) -> Option<SortitionId> {
+            Some(SortitionId([0u8; 32]))
+        }
+
         fn get_burn_block_height(&self, _sortition_id: &SortitionId) -> Option<u32> {
             Some(5678)
         }

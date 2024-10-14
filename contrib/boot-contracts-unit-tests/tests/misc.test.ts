@@ -575,7 +575,7 @@ describe("test `get-total-ustx-stacked`", () => {
     expect(response.result).toBeUint(amount * 3n);
   });
 
-  it("expires stacking after the stacking duration has finsihed", () => {
+  it("expires stacking after the stacking duration has finished", () => {
     const amount = getStackingMinimum() * 2n;
 
     stackers.forEach((stacker, i) => {

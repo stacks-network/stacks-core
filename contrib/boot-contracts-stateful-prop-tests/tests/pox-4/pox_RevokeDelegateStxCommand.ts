@@ -1,4 +1,7 @@
 import {
+  isDelegating,
+  isStackingMinimumCalculated,
+  isUBHWithinDelegationLimit,
   logCommand,
   PoxCommand,
   Real,
@@ -15,12 +18,13 @@ import { Cl, someCV, tupleCV } from "@stacks/transactions";
  *
  * Constraints for running this command include:
  * - The `Stacker` has to currently be delegating.
+ * - The `Stacker`'s delegation must not be expired.
  */
 export class RevokeDelegateStxCommand implements PoxCommand {
   readonly wallet: Wallet;
 
   /**
-   * Constructs a RevokeDelegateStxCommand to revoke delegate uSTX for stacking.
+   * Constructs a `RevokeDelegateStxCommand` to revoke a stacking delegation.
    *
    * @param wallet - Represents the Stacker's wallet.
    */
@@ -31,10 +35,13 @@ export class RevokeDelegateStxCommand implements PoxCommand {
   check(model: Readonly<Stub>): boolean {
     // Constraints for running this command include:
     // - The Stacker has to currently be delegating.
+    // - The Stacker's delegation must not be expired.
+    const stacker = model.stackers.get(this.wallet.stxAddress)!;
 
     return (
-      model.stackingMinimum > 0 &&
-      model.stackers.get(this.wallet.stxAddress)!.hasDelegated === true
+      isStackingMinimumCalculated(model) &&
+      isDelegating(stacker) &&
+      isUBHWithinDelegationLimit(stacker, model.burnBlockHeight)
     );
   }
 
@@ -43,6 +50,9 @@ export class RevokeDelegateStxCommand implements PoxCommand {
 
     const wallet = model.stackers.get(this.wallet.stxAddress)!;
     const operatorWallet = model.stackers.get(wallet.delegatedTo)!;
+    const expectedUntilBurnHt = wallet.delegatedUntilBurnHt === undefined
+      ? Cl.none()
+      : Cl.some(Cl.uint(wallet.delegatedUntilBurnHt));
 
     // Act
     const revokeDelegateStx = real.network.callPublicFn(
@@ -63,7 +73,7 @@ export class RevokeDelegateStxCommand implements PoxCommand {
           "pox-addr": Cl.some(
             poxAddressToTuple(wallet.delegatedPoxAddress || ""),
           ),
-          "until-burn-ht": Cl.some(Cl.uint(wallet.delegatedUntilBurnHt)),
+          "until-burn-ht": expectedUntilBurnHt,
         }),
       ),
     );
@@ -73,6 +83,8 @@ export class RevokeDelegateStxCommand implements PoxCommand {
     // Update model so that we know this wallet is not delegating anymore.
     // This is important in order to prevent the test from revoking the
     // delegation multiple times with the same address.
+    // We update delegatedUntilBurnHt to 0, and not undefined. Undefined
+    // stands for indefinite delegation.
     wallet.hasDelegated = false;
     wallet.delegatedTo = "";
     wallet.delegatedUntilBurnHt = 0;

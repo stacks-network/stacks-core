@@ -41,6 +41,9 @@ pub mod coverage;
 
 pub mod events;
 
+#[cfg(feature = "canonical")]
+pub mod tooling;
+
 #[cfg(any(test, feature = "testing"))]
 pub mod tests;
 

@@ -130,7 +130,7 @@ fn test_names_tokens_contracts(#[case] version: ClarityVersion, #[case] epoch: S
 
 #[test]
 fn test_bad_asset_usage() {
-    use crate::vm::analysis::type_check;
+    use crate::vm::analysis::mem_type_check as mem_run_analysis;
 
     let bad_scripts = [
         "(ft-get-balance stackoos tx-sender)",
@@ -218,7 +218,12 @@ fn test_bad_asset_usage() {
 
     for (script, expected_err) in bad_scripts.iter().zip(expected.iter()) {
         let tokens_contract = format!("{}\n{}", FIRST_CLASS_TOKENS, script);
-        let actual_err = mem_type_check(&tokens_contract).unwrap_err();
+        let actual_err = mem_run_analysis(
+            &tokens_contract,
+            ClarityVersion::Clarity2,
+            StacksEpochId::latest(),
+        )
+        .unwrap_err();
         println!("{}", script);
         assert_eq!(&actual_err.err, expected_err);
     }

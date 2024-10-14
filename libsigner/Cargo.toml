@@ -18,8 +18,10 @@ path = "./src/libsigner.rs"
 [dependencies]
 clarity = { path = "../clarity" }
 hashbrown = { workspace = true }
+lazy_static = "1.4.0"
 libc = "0.2"
 libstackerdb = { path = "../libstackerdb" }
+prometheus = { version = "0.9", optional = true }
 serde = "1"
 serde_derive = "1"
 serde_stacker = "0.1"
@@ -30,7 +32,6 @@ stacks-common = { path = "../stacks-common" }
 stackslib = { path = "../stackslib"}
 thiserror = "1.0"
 tiny_http = "0.12"
-wsts = { workspace = true }
 
 [dev-dependencies]
 mutants = "0.0.3"
@@ -50,3 +51,6 @@ sha2 = { version = "0.10", features = ["asm"] }
 
 [target.'cfg(any(not(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64")), any(target_os = "windows")))'.dependencies]
 sha2 = { version = "0.10" }
+
+[features]
+monitoring_prom = ["prometheus"]
