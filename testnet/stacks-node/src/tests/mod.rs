@@ -116,7 +116,7 @@ pub fn gen_random_port() -> u16 {
     loop {
         // Note it needs to be +1 because we reserve one port for the event observer
         assert!(
-            USED_PORTS.lock().unwrap().len() + 1 < range_len,
+            USED_PORTS.lock().unwrap().len() < range_len,
             "No more available ports"
         );
         let port = rng.gen_range(1024..u16::MAX); // use a non-privileged port between 1024 and 65534
