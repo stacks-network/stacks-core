@@ -7681,7 +7681,7 @@ mod error_mapping {
         DivisionByZero = 2,
         ArithmeticLog2Error = 3,
         ArithmeticSqrtiError = 4,
-        UnwrapFailure = 5,
+        BadTypeConstruction = 5,
         Panic = 6,
         ShortReturnAssertionFailure = 7,
         ArithmeticPowError = 8,
@@ -7698,7 +7698,7 @@ mod error_mapping {
                 2 => ErrorMap::DivisionByZero,
                 3 => ErrorMap::ArithmeticLog2Error,
                 4 => ErrorMap::ArithmeticSqrtiError,
-                5 => ErrorMap::UnwrapFailure,
+                5 => ErrorMap::BadTypeConstruction,
                 6 => ErrorMap::Panic,
                 7 => ErrorMap::ShortReturnAssertionFailure,
                 8 => ErrorMap::ArithmeticPowError,
@@ -7806,8 +7806,8 @@ mod error_mapping {
                 RuntimeErrorType::Arithmetic(SQRTI_ERROR_MESSAGE.into()),
                 Some(Vec::new()),
             ),
-            ErrorMap::UnwrapFailure => {
-                Error::Runtime(RuntimeErrorType::UnwrapFailure, Some(Vec::new()))
+            ErrorMap::BadTypeConstruction => {
+                Error::Runtime(RuntimeErrorType::BadTypeConstruction, Some(Vec::new()))
             }
             ErrorMap::Panic => {
                 // TODO: see issue: #531
