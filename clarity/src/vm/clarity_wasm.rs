@@ -7674,18 +7674,53 @@ mod error_mapping {
     const SQRTI_ERROR_MESSAGE: &str = "sqrti must be passed a positive integer";
     const POW_ERROR_MESSAGE: &str = "Power argument to (pow ...) must be a u32 integer";
 
+    /// Represents various error conditions that can occur
+    /// during Clarity contract execution
+    /// or other Stacks blockchain operations.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub enum ErrorMap {
+        /// Indicates that the error is not related to Clarity contract execution.
         NotClarityError = -1,
+
+        /// Represents an arithmetic overflow error in Clarity contract execution.
+        /// This occurs when a calculation exceeds the maximum value representable.
         ArithmeticOverflow = 0,
+
+        /// Represents an arithmetic underflow error in Clarity contract execution.
+        /// This occurs when a calculation results in a value below the minimum representable value.
         ArithmeticUnderflow = 1,
+
+        /// Indicates an attempt to divide by zero in a Clarity contract.
         DivisionByZero = 2,
+
+        /// Represents an error in calculating the logarithm base 2 in a Clarity contract.
+        /// This could occur for negative inputs.
         ArithmeticLog2Error = 3,
+
+        /// Represents an error in calculating the integer square root in a Clarity contract.
+        /// This could occur for negative inputs.
         ArithmeticSqrtiError = 4,
-        UnwrapFailure = 5,
+
+        /// Indicates an error in constructing a type, possibly due to invalid parameters.
+        BadTypeConstruction = 5,
+
+        /// Represents a deliberate panic in contract execution,
+        /// usually triggered by `(unwrap-panic...)` and `(unwrap-err-panic...)`.
         Panic = 6,
+
+        /// Indicates a failure in an assertion that was expected to cause a short return,
+        /// usually triggered by `(asserts!...)`.
         ShortReturnAssertionFailure = 7,
+
+        /// Represents an error in exponentiation operations in a Clarity contract.
+        /// This could occur for invalid bases or exponents.
         ArithmeticPowError = 8,
+
+        /// Indicates an attempt to use a name that is already in use, possibly for a variable or function.
         NameAlreadyUsed = 9,
+
+        /// A catch-all for errors that are not mapped to specific error codes.
+        /// This might be used for unexpected or unclassified errors.
         NotMapped = 99,
     }
 
@@ -7698,7 +7733,7 @@ mod error_mapping {
                 2 => ErrorMap::DivisionByZero,
                 3 => ErrorMap::ArithmeticLog2Error,
                 4 => ErrorMap::ArithmeticSqrtiError,
-                5 => ErrorMap::UnwrapFailure,
+                5 => ErrorMap::BadTypeConstruction,
                 6 => ErrorMap::Panic,
                 7 => ErrorMap::ShortReturnAssertionFailure,
                 8 => ErrorMap::ArithmeticPowError,
@@ -7806,8 +7841,8 @@ mod error_mapping {
                 RuntimeErrorType::Arithmetic(SQRTI_ERROR_MESSAGE.into()),
                 Some(Vec::new()),
             ),
-            ErrorMap::UnwrapFailure => {
-                Error::Runtime(RuntimeErrorType::UnwrapFailure, Some(Vec::new()))
+            ErrorMap::BadTypeConstruction => {
+                Error::Runtime(RuntimeErrorType::BadTypeConstruction, Some(Vec::new()))
             }
             ErrorMap::Panic => {
                 // TODO: see issue: #531
