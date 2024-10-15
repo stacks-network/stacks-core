@@ -322,8 +322,7 @@ impl RewardSetEventPayload {
 }
 
 #[cfg(test)]
-static TEST_EVENT_OBSERVER_SKIP_SEND_PAYLOAD: std::sync::Mutex<Option<bool>> =
-    std::sync::Mutex::new(None);
+static TEST_EVENT_OBSERVER_SKIP_RETRY: std::sync::Mutex<Option<bool>> = std::sync::Mutex::new(None);
 
 impl EventObserver {
     fn init_db(db_path: &str) -> Result<Connection, db_error> {
@@ -381,16 +380,6 @@ impl EventObserver {
     }
 
     fn process_pending_payloads(conn: &Connection) {
-        #[cfg(test)]
-        if TEST_EVENT_OBSERVER_SKIP_SEND_PAYLOAD
-            .lock()
-            .unwrap()
-            .unwrap_or(false)
-        {
-            warn!("Fault injection: skipping retry of payload");
-            return;
-        }
-
         let pending_payloads = match Self::get_pending_payloads(conn) {
             Ok(payloads) => payloads,
             Err(e) => {
@@ -405,6 +394,17 @@ impl EventObserver {
         for (id, url, payload, timeout_ms) in pending_payloads {
             let timeout = Duration::from_millis(timeout_ms);
             Self::send_payload_directly(&payload, &url, timeout);
+
+            #[cfg(test)]
+            if TEST_EVENT_OBSERVER_SKIP_RETRY
+                .lock()
+                .unwrap()
+                .unwrap_or(false)
+            {
+                warn!("Fault injection: delete_payload");
+                return;
+            }
+
             if let Err(e) = Self::delete_payload(conn, id) {
                 error!(
                     "Event observer: failed to delete pending payload from database";
@@ -459,6 +459,17 @@ impl EventObserver {
                     );
                 }
             }
+
+            #[cfg(test)]
+            if TEST_EVENT_OBSERVER_SKIP_RETRY
+                .lock()
+                .unwrap()
+                .unwrap_or(false)
+            {
+                warn!("Fault injection: skipping retry of payload");
+                return;
+            }
+
             sleep(backoff);
             backoff *= 2;
         }
@@ -2258,10 +2269,7 @@ mod test {
 
         // Disable retrying so that it sends the payload only once
         // and that payload will be ignored by the test server.
-        TEST_EVENT_OBSERVER_SKIP_SEND_PAYLOAD
-            .lock()
-            .unwrap()
-            .replace(true);
+        TEST_EVENT_OBSERVER_SKIP_RETRY.lock().unwrap().replace(true);
 
         info!("Sending payload 1");
 
@@ -2269,7 +2277,7 @@ mod test {
         observer.send_payload(&payload, "/test");
 
         // Re-enable retrying
-        TEST_EVENT_OBSERVER_SKIP_SEND_PAYLOAD
+        TEST_EVENT_OBSERVER_SKIP_RETRY
             .lock()
             .unwrap()
             .replace(false);
