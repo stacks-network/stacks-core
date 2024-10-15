@@ -121,7 +121,7 @@ fn handle_generate_stacking_signature(
         &private_key, //
         args.reward_cycle.into(),
         args.method.topic(),
-        config.network.to_chain_id(),
+        config.to_chain_id(),
         args.period.into(),
         args.max_amount,
         args.auth_id,

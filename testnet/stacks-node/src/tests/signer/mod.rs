@@ -173,6 +173,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
             Some(100_000),
             None,
             Some(9000),
+            None,
         )
         .into_iter()
         .map(|toml| {

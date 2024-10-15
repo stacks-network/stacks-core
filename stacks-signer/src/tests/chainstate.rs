@@ -32,6 +32,7 @@ use clarity::util::vrf::VRFProof;
 use libsigner::BlockProposal;
 use slog::slog_info;
 use stacks_common::bitvec::BitVec;
+use stacks_common::consts::CHAIN_ID_TESTNET;
 use stacks_common::info;
 use stacks_common::types::chainstate::{
     ConsensusHash, StacksBlockId, StacksPrivateKey, StacksPublicKey, TrieHash,
@@ -96,6 +97,7 @@ fn setup_test_environment(
         SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 10000).to_string(),
         "FOO".into(),
         false,
+        CHAIN_ID_TESTNET,
     );
 
     let signer_db_dir = "/tmp/stacks-node-tests/signer-units/";
