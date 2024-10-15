@@ -5121,7 +5121,11 @@ fn continue_after_tenure_extend() {
 
     // It's possible that we have a pending block commit already.
     // Mine two BTC blocks to "flush" this commit.
-
+    let burn_height = signer_test
+        .stacks_client
+        .get_peer_info()
+        .expect("Failed to get peer info")
+        .burn_block_height;
     for i in 0..2 {
         info!(
             "------------- After pausing commits, triggering 2 BTC blocks: ({} of 2) -----------",
@@ -5146,6 +5150,16 @@ fn continue_after_tenure_extend() {
         })
         .expect("Timed out waiting for tenure extend block");
     }
+
+    wait_for(30, || {
+        let new_burn_height = signer_test
+            .stacks_client
+            .get_peer_info()
+            .expect("Failed to get peer info")
+            .burn_block_height;
+        Ok(new_burn_height == burn_height + 2)
+    })
+    .expect("Timed out waiting for burnchain to advance");
 
     // The last block should have a single instruction in it, the tenure extend
     let blocks = test_observer::get_blocks();

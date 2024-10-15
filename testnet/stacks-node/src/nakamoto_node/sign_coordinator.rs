@@ -255,9 +255,7 @@ impl SignCoordinator {
         let cur_burn_chain_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
             .expect("FATAL: failed to query sortition DB for canonical burn chain tip");
 
-        if cur_burn_chain_tip.consensus_hash != burn_block.consensus_hash
-            && cur_burn_chain_tip.sortition_id != burn_block.sortition_id
-        {
+        if cur_burn_chain_tip.consensus_hash != burn_block.consensus_hash {
             info!("SignCoordinator: Cancel signature aggregation; burnchain tip has changed");
             true
         } else {

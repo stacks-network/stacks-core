@@ -531,22 +531,6 @@ impl BlockMinerThread {
             ))
         })?;
 
-        let tip = SortitionDB::get_block_snapshot_consensus(
-            sort_db.conn(),
-            &new_block.header.consensus_hash,
-        )
-        .map_err(|e| {
-            NakamotoNodeError::SigningCoordinatorFailure(format!(
-                "Failed to retrieve chain tip: {:?}",
-                e
-            ))
-        })
-        .and_then(|result| {
-            result.ok_or_else(|| {
-                NakamotoNodeError::SigningCoordinatorFailure("Failed to retrieve chain tip".into())
-            })
-        })?;
-
         let reward_set = self.load_signer_set()?;
 
         if self.config.get_node_config(false).mock_mining {
@@ -574,7 +558,7 @@ impl BlockMinerThread {
 
         let signature = coordinator.run_sign_v0(
             new_block,
-            &tip,
+            &self.burn_block,
             &self.burnchain,
             &sort_db,
             &mut chain_state,
@@ -1206,9 +1190,7 @@ impl BlockMinerThread {
         let cur_burn_chain_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
             .expect("FATAL: failed to query sortition DB for canonical burn chain tip");
 
-        if cur_burn_chain_tip.consensus_hash != self.burn_block.consensus_hash
-            && cur_burn_chain_tip.sortition_id != self.burn_block.sortition_id
-        {
+        if cur_burn_chain_tip.consensus_hash != self.burn_block.consensus_hash {
             info!("Miner: Cancel block assembly; burnchain tip has changed");
             self.globals.counters.bump_missed_tenures();
             Err(NakamotoNodeError::BurnchainTipChanged)
@@ -1247,9 +1229,7 @@ impl ParentStacksBlockInfo {
         let burn_chain_tip = SortitionDB::get_canonical_burn_chain_tip(burn_db.conn())
             .expect("FATAL: failed to query sortition DB for canonical burn chain tip");
 
-        if burn_chain_tip.consensus_hash != check_burn_block.consensus_hash
-            && burn_chain_tip.sortition_id != check_burn_block.sortition_id
-        {
+        if burn_chain_tip.consensus_hash != check_burn_block.consensus_hash {
             info!(
                 "New canonical burn chain tip detected. Will not try to mine.";
                 "new_consensus_hash" => %burn_chain_tip.consensus_hash,
