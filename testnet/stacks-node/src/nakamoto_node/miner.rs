@@ -383,7 +383,7 @@ impl BlockMinerThread {
                                 "block_height" => new_block.header.chain_length,
                                 "consensus_hash" => %new_block.header.consensus_hash,
                             );
-                            continue;
+                            return Err(e);
                         }
                         _ => {
                             error!("Error while gathering signatures: {e:?}. Will try mining again.";

@@ -4324,7 +4324,9 @@ impl ParentStacksBlockInfo {
         let burn_chain_tip = SortitionDB::get_canonical_burn_chain_tip(burn_db.conn())
             .expect("FATAL: failed to query sortition DB for canonical burn chain tip");
 
-        if burn_chain_tip.consensus_hash != check_burn_block.consensus_hash {
+        if burn_chain_tip.consensus_hash != check_burn_block.consensus_hash
+            && burn_chain_tip.sortition_id != check_burn_block.sortition_id
+        {
             info!(
                 "New canonical burn chain tip detected. Will not try to mine.";
                 "new_consensus_hash" => %burn_chain_tip.consensus_hash,
