@@ -183,7 +183,12 @@ fn load_stackerdb(peer: &TestPeer, idx: usize) -> Vec<(SlotMetadata, Vec<u8>)> {
 
 fn check_sync_results(network_sync: &NetworkResult) {
     for res in network_sync.stacker_db_sync_results.iter() {
-        assert!(res.num_connections >= res.num_attempted_connections);
+        assert!(
+            res.num_connections <= res.num_attempted_connections,
+            "{} < {}",
+            res.num_connections,
+            res.num_attempted_connections
+        );
     }
 }
 
@@ -194,7 +199,14 @@ fn test_reconnect(network: &mut PeerNetwork) {
         .expect("FATAL: did not replace stacker dbs");
 
     for (_sc, stacker_db_sync) in stacker_db_syncs.iter_mut() {
-        stacker_db_sync.connect_begin(network).unwrap();
+        match stacker_db_sync.connect_begin(network) {
+            Ok(x) => {}
+            Err(net_error::PeerNotConnected) => {}
+            Err(net_error::NoSuchNeighbor) => {}
+            Err(e) => {
+                panic!("Failed to connect_begin: {:?}", &e);
+            }
+        }
     }
 
     network.stacker_db_syncs = Some(stacker_db_syncs);

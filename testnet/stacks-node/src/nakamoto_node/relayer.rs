@@ -1066,20 +1066,23 @@ impl RelayerThread {
 
         // sign and broadcast
         let mut op_signer = self.keychain.generate_op_signer();
-        let txid = self
-            .bitcoin_controller
-            .submit_operation(
-                last_committed.get_epoch_id().clone(),
-                BlockstackOperationType::LeaderBlockCommit(
-                    last_committed.get_block_commit().clone(),
-                ),
-                &mut op_signer,
-                1,
-            )
-            .map_err(|e| {
+        let res = self.bitcoin_controller.submit_operation(
+            last_committed.get_epoch_id().clone(),
+            BlockstackOperationType::LeaderBlockCommit(last_committed.get_block_commit().clone()),
+            &mut op_signer,
+            1,
+        );
+        let txid = match res {
+            Ok(txid) => txid,
+            Err(e) => {
+                if self.config.node.mock_mining {
+                    debug!("Relayer: Mock-mining enabled; not sending Bitcoin transaction");
+                    return Ok(());
+                }
                 warn!("Failed to submit block-commit bitcoin transaction: {e}");
-                NakamotoNodeError::BurnchainSubmissionFailed(e)
-            })?;
+                return Err(NakamotoNodeError::BurnchainSubmissionFailed(e));
+            }
+        };
 
         info!(
             "Relayer: Submitted block-commit";
