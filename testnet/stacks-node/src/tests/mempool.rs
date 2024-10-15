@@ -112,8 +112,14 @@ fn mempool_setup_chainstate() {
             if round == 1 {
                 eprintln!("Tenure in 1 started!");
 
-                let publish_tx1 =
-                    make_contract_publish(&contract_sk, 0, 100, "foo_contract", FOO_CONTRACT);
+                let publish_tx1 = make_contract_publish(
+                    &contract_sk,
+                    0,
+                    100,
+                    CHAIN_ID_TESTNET,
+                    "foo_contract",
+                    FOO_CONTRACT,
+                );
                 tenure
                     .mem_pool
                     .submit_raw(
@@ -127,8 +133,14 @@ fn mempool_setup_chainstate() {
                     )
                     .unwrap();
 
-                let publish_tx2 =
-                    make_contract_publish(&contract_sk, 1, 100, "trait-contract", TRAIT_CONTRACT);
+                let publish_tx2 = make_contract_publish(
+                    &contract_sk,
+                    1,
+                    100,
+                    CHAIN_ID_TESTNET,
+                    "trait-contract",
+                    TRAIT_CONTRACT,
+                );
                 tenure
                     .mem_pool
                     .submit_raw(
@@ -146,6 +158,7 @@ fn mempool_setup_chainstate() {
                     &contract_sk,
                     2,
                     100,
+                    CHAIN_ID_TESTNET,
                     "use-trait-contract",
                     USE_TRAIT_CONTRACT,
                 );
@@ -166,6 +179,7 @@ fn mempool_setup_chainstate() {
                     &contract_sk,
                     3,
                     100,
+                    CHAIN_ID_TESTNET,
                     "implement-trait-contract",
                     IMPLEMENT_TRAIT_CONTRACT,
                 );
@@ -186,6 +200,7 @@ fn mempool_setup_chainstate() {
                     &contract_sk,
                     4,
                     100,
+                    CHAIN_ID_TESTNET,
                     "bad-trait-contract",
                     BAD_TRAIT_CONTRACT,
                 );
@@ -234,8 +249,14 @@ fn mempool_setup_chainstate() {
 
                 // let's throw some transactions at it.
                 // first a couple valid ones:
-                let tx_bytes =
-                    make_contract_publish(&contract_sk, 5, 1000, "bar_contract", FOO_CONTRACT);
+                let tx_bytes = make_contract_publish(
+                    &contract_sk,
+                    5,
+                    1000,
+                    CHAIN_ID_TESTNET,
+                    "bar_contract",
+                    FOO_CONTRACT,
+                );
                 let tx =
                     StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
                 chain_state
@@ -252,6 +273,7 @@ fn mempool_setup_chainstate() {
                     &contract_sk,
                     5,
                     200,
+                    CHAIN_ID_TESTNET,
                     &contract_addr,
                     "foo_contract",
                     "bar",
@@ -269,7 +291,8 @@ fn mempool_setup_chainstate() {
                     )
                     .unwrap();
 
-                let tx_bytes = make_stacks_transfer(&contract_sk, 5, 200, &other_addr, 1000);
+                let tx_bytes =
+                    make_stacks_transfer(&contract_sk, 5, 200, CHAIN_ID_TESTNET, &other_addr, 1000);
                 let tx =
                     StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
                 chain_state
@@ -321,6 +344,7 @@ fn mempool_setup_chainstate() {
                     &contract_sk,
                     5,
                     200,
+                    CHAIN_ID_TESTNET,
                     &bad_addr,
                     "foo_contract",
                     "bar",
@@ -354,7 +378,8 @@ fn mempool_setup_chainstate() {
                 .unwrap()
                 .into();
 
-                let tx_bytes = make_stacks_transfer(&contract_sk, 5, 200, &bad_addr, 1000);
+                let tx_bytes =
+                    make_stacks_transfer(&contract_sk, 5, 200, CHAIN_ID_TESTNET, &bad_addr, 1000);
                 let tx =
                     StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
                 let e = chain_state
@@ -373,7 +398,8 @@ fn mempool_setup_chainstate() {
                 });
 
                 // bad fees
-                let tx_bytes = make_stacks_transfer(&contract_sk, 5, 0, &other_addr, 1000);
+                let tx_bytes =
+                    make_stacks_transfer(&contract_sk, 5, 0, CHAIN_ID_TESTNET, &other_addr, 1000);
                 let tx =
                     StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
                 let e = chain_state
@@ -393,7 +419,8 @@ fn mempool_setup_chainstate() {
                 });
 
                 // bad nonce
-                let tx_bytes = make_stacks_transfer(&contract_sk, 0, 200, &other_addr, 1000);
+                let tx_bytes =
+                    make_stacks_transfer(&contract_sk, 0, 200, CHAIN_ID_TESTNET, &other_addr, 1000);
                 let tx =
                     StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
                 let e = chain_state
@@ -413,7 +440,14 @@ fn mempool_setup_chainstate() {
                 });
 
                 // not enough funds
-                let tx_bytes = make_stacks_transfer(&contract_sk, 5, 110000, &other_addr, 1000);
+                let tx_bytes = make_stacks_transfer(
+                    &contract_sk,
+                    5,
+                    110000,
+                    CHAIN_ID_TESTNET,
+                    &other_addr,
+                    1000,
+                );
                 let tx =
                     StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
                 let e = chain_state
@@ -434,7 +468,14 @@ fn mempool_setup_chainstate() {
 
                 // sender == recipient
                 let contract_princ = PrincipalData::from(contract_addr.clone());
-                let tx_bytes = make_stacks_transfer(&contract_sk, 5, 300, &contract_princ, 1000);
+                let tx_bytes = make_stacks_transfer(
+                    &contract_sk,
+                    5,
+                    300,
+                    CHAIN_ID_TESTNET,
+                    &contract_princ,
+                    1000,
+                );
                 let tx =
                     StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
                 let e = chain_state
@@ -457,7 +498,14 @@ fn mempool_setup_chainstate() {
                 let mut mainnet_recipient = to_addr(&other_sk);
                 mainnet_recipient.version = C32_ADDRESS_VERSION_MAINNET_SINGLESIG;
                 let mainnet_princ = mainnet_recipient.into();
-                let tx_bytes = make_stacks_transfer(&contract_sk, 5, 300, &mainnet_princ, 1000);
+                let tx_bytes = make_stacks_transfer(
+                    &contract_sk,
+                    5,
+                    300,
+                    CHAIN_ID_TESTNET,
+                    &mainnet_princ,
+                    1000,
+                );
                 let tx =
                     StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
                 let e = chain_state
@@ -488,6 +536,7 @@ fn mempool_setup_chainstate() {
                     &contract_sk,
                     5,
                     300,
+                    CHAIN_ID_TESTNET,
                     TransactionAnchorMode::OnChainOnly,
                     TransactionVersion::Mainnet,
                 );
@@ -510,7 +559,8 @@ fn mempool_setup_chainstate() {
                 });
 
                 // send amount must be positive
-                let tx_bytes = make_stacks_transfer(&contract_sk, 5, 300, &other_addr, 0);
+                let tx_bytes =
+                    make_stacks_transfer(&contract_sk, 5, 300, CHAIN_ID_TESTNET, &other_addr, 0);
                 let tx =
                     StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
                 let e = chain_state
@@ -530,7 +580,14 @@ fn mempool_setup_chainstate() {
                 });
 
                 // not enough funds
-                let tx_bytes = make_stacks_transfer(&contract_sk, 5, 110000, &other_addr, 1000);
+                let tx_bytes = make_stacks_transfer(
+                    &contract_sk,
+                    5,
+                    110000,
+                    CHAIN_ID_TESTNET,
+                    &other_addr,
+                    1000,
+                );
                 let tx =
                     StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
                 let e = chain_state
@@ -549,7 +606,14 @@ fn mempool_setup_chainstate() {
                     false
                 });
 
-                let tx_bytes = make_stacks_transfer(&contract_sk, 5, 99700, &other_addr, 1000);
+                let tx_bytes = make_stacks_transfer(
+                    &contract_sk,
+                    5,
+                    99700,
+                    CHAIN_ID_TESTNET,
+                    &other_addr,
+                    1000,
+                );
                 let tx =
                     StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
                 let e = chain_state
@@ -572,6 +636,7 @@ fn mempool_setup_chainstate() {
                     &contract_sk,
                     5,
                     200,
+                    CHAIN_ID_TESTNET,
                     &contract_addr,
                     "bar_contract",
                     "bar",
@@ -599,6 +664,7 @@ fn mempool_setup_chainstate() {
                     &contract_sk,
                     5,
                     200,
+                    CHAIN_ID_TESTNET,
                     &contract_addr,
                     "foo_contract",
                     "foobar",
@@ -626,6 +692,7 @@ fn mempool_setup_chainstate() {
                     &contract_sk,
                     5,
                     200,
+                    CHAIN_ID_TESTNET,
                     &contract_addr,
                     "foo_contract",
                     "bar",
@@ -649,8 +716,14 @@ fn mempool_setup_chainstate() {
                     false
                 });
 
-                let tx_bytes =
-                    make_contract_publish(&contract_sk, 5, 1000, "foo_contract", FOO_CONTRACT);
+                let tx_bytes = make_contract_publish(
+                    &contract_sk,
+                    5,
+                    1000,
+                    CHAIN_ID_TESTNET,
+                    "foo_contract",
+                    FOO_CONTRACT,
+                );
                 let tx =
                     StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
                 let e = chain_state
@@ -685,7 +758,14 @@ fn mempool_setup_chainstate() {
                     signature: MessageSignature([1; 65]),
                 };
 
-                let tx_bytes = make_poison(&contract_sk, 5, 1000, microblock_1, microblock_2);
+                let tx_bytes = make_poison(
+                    &contract_sk,
+                    5,
+                    1000,
+                    CHAIN_ID_TESTNET,
+                    microblock_1,
+                    microblock_2,
+                );
                 let tx =
                     StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
                 let e = chain_state
@@ -716,7 +796,14 @@ fn mempool_setup_chainstate() {
                     signature: MessageSignature([0; 65]),
                 };
 
-                let tx_bytes = make_poison(&contract_sk, 5, 1000, microblock_1, microblock_2);
+                let tx_bytes = make_poison(
+                    &contract_sk,
+                    5,
+                    1000,
+                    CHAIN_ID_TESTNET,
+                    microblock_1,
+                    microblock_2,
+                );
                 let tx =
                     StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
                 let e = chain_state
@@ -750,7 +837,14 @@ fn mempool_setup_chainstate() {
                 microblock_1.sign(&other_sk).unwrap();
                 microblock_2.sign(&other_sk).unwrap();
 
-                let tx_bytes = make_poison(&contract_sk, 5, 1000, microblock_1, microblock_2);
+                let tx_bytes = make_poison(
+                    &contract_sk,
+                    5,
+                    1000,
+                    CHAIN_ID_TESTNET,
+                    microblock_1,
+                    microblock_2,
+                );
                 let tx =
                     StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
                 let e = chain_state
@@ -765,7 +859,7 @@ fn mempool_setup_chainstate() {
                 eprintln!("Err: {:?}", e);
                 assert!(matches!(e, MemPoolRejection::Other(_)));
 
-                let tx_bytes = make_coinbase(&contract_sk, 5, 1000);
+                let tx_bytes = make_coinbase(&contract_sk, 5, 1000, CHAIN_ID_TESTNET);
                 let tx =
                     StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
                 let e = chain_state
@@ -823,7 +917,14 @@ fn mempool_setup_chainstate() {
                 microblock_1.sign(&secret_key).unwrap();
                 microblock_2.sign(&secret_key).unwrap();
 
-                let tx_bytes = make_poison(&contract_sk, 5, 1000, microblock_1, microblock_2);
+                let tx_bytes = make_poison(
+                    &contract_sk,
+                    5,
+                    1000,
+                    CHAIN_ID_TESTNET,
+                    microblock_1,
+                    microblock_2,
+                );
                 let tx =
                     StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
                 let e = chain_state
@@ -848,6 +949,7 @@ fn mempool_setup_chainstate() {
                     &contract_sk,
                     5,
                     250,
+                    CHAIN_ID_TESTNET,
                     &contract_addr,
                     "use-trait-contract",
                     "baz",
@@ -875,6 +977,7 @@ fn mempool_setup_chainstate() {
                     &contract_sk,
                     5,
                     250,
+                    CHAIN_ID_TESTNET,
                     &contract_addr,
                     "use-trait-contract",
                     "baz",

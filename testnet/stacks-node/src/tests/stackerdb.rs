@@ -25,7 +25,7 @@ use {reqwest, serde_json};
 
 use super::bitcoin_regtest::BitcoinCoreController;
 use crate::burnchains::BurnchainController;
-use crate::config::{EventKeyType, EventObserverConfig, InitialBalance};
+use crate::config::{EventKeyType, InitialBalance};
 use crate::tests::neon_integrations::{
     neon_integration_test_conf, next_block_and_wait, submit_tx, test_observer, wait_for_runloop,
 };
@@ -113,10 +113,7 @@ fn test_stackerdb_load_store() {
     }
 
     let (mut conf, _) = neon_integration_test_conf();
-    conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
-        events_keys: vec![EventKeyType::AnyEvent],
-    });
+    test_observer::register_any(&mut conf);
 
     let privks = vec![
         // ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R
@@ -209,7 +206,14 @@ fn test_stackerdb_load_store() {
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
     eprintln!("Send contract-publish...");
-    let tx = make_contract_publish(&privks[0], 0, 10_000, "hello-world", stackerdb_contract);
+    let tx = make_contract_publish(
+        &privks[0],
+        0,
+        10_000,
+        conf.burnchain.chain_id,
+        "hello-world",
+        stackerdb_contract,
+    );
     submit_tx(&http_origin, &tx);
 
     // mine it
@@ -246,10 +250,7 @@ fn test_stackerdb_event_observer() {
     }
 
     let (mut conf, _) = neon_integration_test_conf();
-    conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
-        events_keys: vec![EventKeyType::StackerDBChunks],
-    });
+    test_observer::register(&mut conf, &[EventKeyType::StackerDBChunks]);
 
     let privks = vec![
         // ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R
@@ -342,7 +343,14 @@ fn test_stackerdb_event_observer() {
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
     eprintln!("Send contract-publish...");
-    let tx = make_contract_publish(&privks[0], 0, 10_000, "hello-world", stackerdb_contract);
+    let tx = make_contract_publish(
+        &privks[0],
+        0,
+        10_000,
+        conf.burnchain.chain_id,
+        "hello-world",
+        stackerdb_contract,
+    );
     submit_tx(&http_origin, &tx);
 
     // mine it

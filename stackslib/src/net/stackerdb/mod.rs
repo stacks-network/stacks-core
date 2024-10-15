@@ -443,6 +443,8 @@ pub struct StackerDBSync<NC: NeighborComms> {
     rounds: u128,
     /// Round when we last pushed
     push_round: u128,
+    /// time we last deliberately evicted a peer
+    last_eviction_time: u64,
 }
 
 impl StackerDBSyncResult {
