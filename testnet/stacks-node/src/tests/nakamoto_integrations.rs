@@ -7230,14 +7230,14 @@ fn get_block_times(
     let contract1_name = "test-contract-1";
     let contract3_name = "test-contract-3";
 
-    info!("Getting block times at block {block_height}, {tenure_height}...");
+    info!("Getting block times at block {block_height}, tenure {tenure_height}...");
 
     let time0_value = call_read_only(
         &naka_conf,
         &sender_addr,
         contract0_name,
         "get-time",
-        vec![&clarity::vm::Value::UInt(block_height)],
+        vec![&clarity::vm::Value::UInt(tenure_height)],
     );
     let time0 = time0_value
         .expect_optional()
@@ -7265,7 +7265,7 @@ fn get_block_times(
         &sender_addr,
         contract1_name,
         "get-time",
-        vec![&clarity::vm::Value::UInt(block_height)],
+        vec![&clarity::vm::Value::UInt(tenure_height)],
     );
     let time1 = time1_value
         .expect_optional()
