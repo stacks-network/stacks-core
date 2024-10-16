@@ -78,7 +78,7 @@ use stacks::util_lib::signed_structured_data::pox4::{
 use stacks_common::address::AddressHashMode;
 use stacks_common::bitvec::BitVec;
 use stacks_common::codec::StacksMessageCodec;
-use stacks_common::consts::STACKS_EPOCH_MAX;
+use stacks_common::consts::{CHAIN_ID_TESTNET, STACKS_EPOCH_MAX};
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksPrivateKey, StacksPublicKey,
     TrieHash,
@@ -6401,6 +6401,7 @@ fn signer_chainstate() {
             .clone()
             .unwrap_or("".into()),
         false,
+        CHAIN_ID_TESTNET,
     );
 
     wait_for_first_naka_block_commit(60, &commits_submitted);
