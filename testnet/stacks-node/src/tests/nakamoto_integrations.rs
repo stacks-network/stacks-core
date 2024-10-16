@@ -7294,7 +7294,7 @@ fn get_block_times(
         &sender_addr,
         contract3_name,
         "get-tenure-time",
-        vec![&clarity::vm::Value::UInt(tenure_height)],
+        vec![&clarity::vm::Value::UInt(block_height)],
     );
     let time3_tenure = time3_tenure_value
         .expect_optional()
@@ -7349,15 +7349,7 @@ fn get_block_times(
         time0_now, time1_now,
         "Time from pre- and post-epoch 3.0 contracts should match"
     );
-    assert_eq!(
-        time0, time3_tenure,
-        "Tenure time should match Clarity 2 block time"
-    );
     assert_eq!(time0_now, time1_now, "Time should match across contracts");
-    assert_eq!(
-        time0_now, time3_now_tenure,
-        "Clarity 3 tenure time should match Clarity 2 block time"
-    );
 
     (
         time0,
@@ -7394,7 +7386,7 @@ fn check_block_times() {
     let deploy_fee = 3000;
     naka_conf.add_initial_balance(
         PrincipalData::from(sender_addr.clone()).to_string(),
-        3 * deploy_fee + (send_amt + send_fee) * 2,
+        3 * deploy_fee + (send_amt + send_fee) * 12,
     );
     naka_conf.add_initial_balance(
         PrincipalData::from(sender_signer_addr.clone()).to_string(),
@@ -7471,7 +7463,7 @@ fn check_block_times() {
     next_block_and(&mut btc_regtest_controller, 60, || {
         let info = get_chain_info_result(&naka_conf).unwrap();
         last_stacks_block_height = info.stacks_tip_height as u128;
-        last_tenure_height = last_stacks_block_height;
+        last_tenure_height = last_stacks_block_height + 1;
         Ok(info.burn_block_height == epoch_3_start)
     })
     .unwrap();
@@ -7510,7 +7502,7 @@ fn check_block_times() {
     let contract_clarity3 = r#"
         (define-read-only (get-block-time (height uint)) (get-stacks-block-info? time height))
         (define-read-only (get-tenure-time (height uint)) (get-tenure-info? time height))
-        (define-read-only (get-last-tenure-time) (get-tenure-info? time (- tenure-height u1)))
+        (define-read-only (get-last-tenure-time) (get-tenure-info? time (- stacks-block-height u1)))
     "#;
 
     let contract_tx3 = make_contract_publish(
@@ -7546,13 +7538,22 @@ fn check_block_times() {
         last_tenure_height += 1;
         info!("New tenure {last_tenure_height}, Stacks height: {last_stacks_block_height}");
 
-        let (time0, _time0_now, _time1, _time1_now, _time3_tenure, time3_block, _time3_now_tenure) =
+        let (time0, time0_now, _time1, _time1_now, time3_tenure, time3_block, time3_now_tenure) =
             get_block_times(
                 &naka_conf,
                 &sender_addr,
                 last_stacks_block_height - 1,
                 last_tenure_height - 1,
             );
+
+        assert_eq!(
+            time0, time3_tenure,
+            "Tenure time should match Clarity 2 block time"
+        );
+        assert_eq!(
+            time0_now, time3_now_tenure,
+            "Clarity 3 tenure time should match Clarity 2 block time in the first block of a tenure"
+        );
 
         // Mine a Nakamoto block
         info!("Mining Nakamoto block");
@@ -7588,7 +7589,7 @@ fn check_block_times() {
             _time1a_now,
             _time3a_tenure,
             time3a_block,
-            _time3a_now_tenure,
+            time3a_now_tenure,
         ) = get_block_times(
             &naka_conf,
             &sender_addr,
@@ -7596,9 +7597,9 @@ fn check_block_times() {
             last_tenure_height - 1,
         );
 
-        assert!(
-            time0a - time0 >= 1,
-            "get-block-info? time should have changed. time_0 = {time0}. time_0_a = {time0a}"
+        assert_eq!(
+            time0a, time0,
+            "get-block-info? time should not have changed"
         );
         assert!(
             time3a_block - time3_block >= 1,
@@ -7618,6 +7619,7 @@ fn check_block_times() {
             send_amt,
         );
         submit_tx(&http_origin, &transfer_tx);
+        sender_nonce += 1;
 
         // wait for the block to be mined
         wait_for(30, || {
@@ -7632,11 +7634,11 @@ fn check_block_times() {
         let (
             time0b,
             _time0b_now,
-            time1b,
+            _time1b,
             _time1b_now,
             _time3b_tenure,
             time3b_block,
-            _time3b_now_tenure,
+            time3b_now_tenure,
         ) = get_block_times(
             &naka_conf,
             &sender_addr,
@@ -7645,16 +7647,16 @@ fn check_block_times() {
         );
 
         assert_eq!(
-            time0a, time0b,
+            time0b, time0a,
             "get-block-info? time should not have changed"
-        );
-        assert_eq!(
-            time0b, time1b,
-            "Time from pre- and post-epoch 3.0 contracts should match"
         );
         assert!(
             time3b_block - time3a_block >= 1,
             "get-stacks-block-info? time should have changed"
+        );
+        assert_eq!(
+            time3b_now_tenure, time3a_now_tenure,
+            "get-tenure-info? time should not have changed"
         );
     }
 
