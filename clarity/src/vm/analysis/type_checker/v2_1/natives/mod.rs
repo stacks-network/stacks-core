@@ -346,7 +346,7 @@ fn check_special_set_var(
     args: &[SymbolicExpression],
     context: &TypingContext,
 ) -> TypeResult {
-    check_arguments_at_least(2, args)?;
+    check_argument_count(2, args)?;
 
     let var_name = args[0].match_atom().ok_or(CheckErrors::BadMapName)?;
 
@@ -715,7 +715,7 @@ fn check_get_block_info(
     args: &[SymbolicExpression],
     context: &TypingContext,
 ) -> TypeResult {
-    check_arguments_at_least(2, args)?;
+    check_argument_count(2, args)?;
 
     let block_info_prop_str = args[0]
         .match_atom()

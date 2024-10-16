@@ -18,7 +18,7 @@ use stacks_common::types::StacksEpochId;
 
 use super::check_special_tuple_cons;
 use crate::vm::analysis::type_checker::v2_1::{
-    check_arguments_at_least, CheckError, CheckErrors, TypeChecker, TypeResult, TypingContext,
+    check_argument_count, CheckError, CheckErrors, TypeChecker, TypeResult, TypingContext,
 };
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{analysis_typecheck_cost, cost_functions, runtime_cost};
@@ -31,7 +31,7 @@ pub fn check_special_fetch_entry(
     args: &[SymbolicExpression],
     context: &TypingContext,
 ) -> TypeResult {
-    check_arguments_at_least(2, args)?;
+    check_argument_count(2, args)?;
 
     let map_name = args[0].match_atom().ok_or(CheckErrors::BadMapName)?;
 
@@ -71,7 +71,7 @@ pub fn check_special_delete_entry(
     args: &[SymbolicExpression],
     context: &TypingContext,
 ) -> TypeResult {
-    check_arguments_at_least(2, args)?;
+    check_argument_count(2, args)?;
 
     let map_name = args[0].match_atom().ok_or(CheckErrors::BadMapName)?;
 
@@ -104,7 +104,7 @@ fn check_set_or_insert_entry(
     args: &[SymbolicExpression],
     context: &TypingContext,
 ) -> TypeResult {
-    check_arguments_at_least(3, args)?;
+    check_argument_count(3, args)?;
 
     let map_name = args[0].match_atom().ok_or(CheckErrors::BadMapName)?;
 
