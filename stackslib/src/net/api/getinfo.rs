@@ -82,6 +82,8 @@ pub struct RPCPeerInfoData {
     pub genesis_chainstate_hash: Sha256Sum,
     pub unanchored_tip: Option<StacksBlockId>,
     pub unanchored_seq: Option<u16>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub tenure_height: Option<u64>,
     pub exit_at_block_height: Option<u64>,
     pub is_fully_synced: bool,
