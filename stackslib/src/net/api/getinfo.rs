@@ -235,7 +235,7 @@ impl RPCRequestHandler for RPCPeerInfoRequestHandler {
 
                 let coinbase_height = NakamotoChainState::get_coinbase_height(
                     &mut chainstate.index_conn(),
-                    &header.index_block_hash(),
+                    &StacksBlockId::new(&network.stacks_tip.consensus_hash, &network.stacks_tip.block_hash),
                 )
                 .map_err(|e| {
                     StacksHttpResponse::new_error(
