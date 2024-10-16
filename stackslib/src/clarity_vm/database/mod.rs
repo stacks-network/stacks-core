@@ -47,22 +47,12 @@ pub trait GetTenureStartId {
         tip: &StacksBlockId,
         tenure_id_consensus_hash: &ConsensusHash,
     ) -> Result<Option<TenureBlockId>, DBError>;
-    fn get_tenure_ch_at_cb_height(
-        &self,
-        tip: &StacksBlockId,
-        coinbase_height: u64,
-    ) -> Result<Option<ConsensusHash>, DBError>;
-    fn conn(&self) -> &Connection;
     fn get_tenure_block_id_at_cb_height(
         &self,
         tip: &StacksBlockId,
         coinbase_height: u64,
-    ) -> Result<Option<TenureBlockId>, DBError> {
-        let Some(tenure_ch) = self.get_tenure_ch_at_cb_height(tip, coinbase_height)? else {
-            return Ok(None);
-        };
-        self.get_tenure_block_id(tip, &tenure_ch)
-    }
+    ) -> Result<Option<StacksBlockId>, DBError>;
+    fn conn(&self) -> &Connection;
 }
 
 impl GetTenureStartId for StacksDBConn<'_> {
@@ -81,17 +71,17 @@ impl GetTenureStartId for StacksDBConn<'_> {
             .map(|block_id| TenureBlockId::from(block_id)))
     }
 
-    fn get_tenure_ch_at_cb_height(
+    fn get_tenure_block_id_at_cb_height(
         &self,
         tip: &StacksBlockId,
         coinbase_height: u64,
-    ) -> Result<Option<ConsensusHash>, DBError> {
+    ) -> Result<Option<StacksBlockId>, DBError> {
         let opt_out = self
             .get_indexed(
                 tip,
                 &nakamoto_keys::ongoing_tenure_coinbase_height(coinbase_height),
             )?
-            .map(|hex_inp| nakamoto_keys::parse_consensus_hash(&hex_inp))
+            .map(|hex_inp| nakamoto_keys::parse_block_id(&hex_inp))
             .flatten();
         Ok(opt_out)
     }
@@ -117,17 +107,17 @@ impl GetTenureStartId for StacksDBTx<'_> {
             .map(|block_id| TenureBlockId::from(block_id)))
     }
 
-    fn get_tenure_ch_at_cb_height(
+    fn get_tenure_block_id_at_cb_height(
         &self,
         tip: &StacksBlockId,
         coinbase_height: u64,
-    ) -> Result<Option<ConsensusHash>, DBError> {
+    ) -> Result<Option<StacksBlockId>, DBError> {
         let opt_out = self
             .get_indexed_ref(
                 tip,
                 &nakamoto_keys::ongoing_tenure_coinbase_height(coinbase_height),
             )?
-            .map(|hex_inp| nakamoto_keys::parse_consensus_hash(&hex_inp))
+            .map(|hex_inp| nakamoto_keys::parse_block_id(&hex_inp))
             .flatten();
         Ok(opt_out)
     }
@@ -151,13 +141,13 @@ impl GetTenureStartId for MARF<StacksBlockId> {
         self.sqlite_conn()
     }
 
-    fn get_tenure_ch_at_cb_height(
+    fn get_tenure_block_id_at_cb_height(
         &self,
         tip: &StacksBlockId,
         coinbase_height: u64,
-    ) -> Result<Option<ConsensusHash>, DBError> {
+    ) -> Result<Option<StacksBlockId>, DBError> {
         let dbconn = StacksDBConn::new(self, ());
-        dbconn.get_tenure_ch_at_cb_height(tip, coinbase_height)
+        dbconn.get_tenure_block_id_at_cb_height(tip, coinbase_height)
     }
 }
 
@@ -250,7 +240,7 @@ impl<'a> HeadersDB for HeadersDBConn<'a> {
         let tenure_block_id =
             GetTenureStartId::get_tenure_block_id_at_cb_height(&self.0, tip, tenure_height.into())
                 .expect("FATAL: bad DB data for tenure height lookups")?;
-        get_stacks_header_column(self.0.conn(), &tenure_block_id.0, "block_height", |r| {
+        get_stacks_header_column(self.0.conn(), &tenure_block_id, "block_height", |r| {
             u64::from_row(r)
                 .expect("FATAL: malformed block_height")
                 .try_into()
@@ -499,7 +489,7 @@ impl<'a> HeadersDB for ChainstateTx<'a> {
             tenure_height.into(),
         )
         .expect("FATAL: bad DB data for tenure height lookups")?;
-        get_stacks_header_column(self.deref(), &tenure_block_id.0, "block_height", |r| {
+        get_stacks_header_column(self.deref(), &tenure_block_id, "block_height", |r| {
             u64::from_row(r)
                 .expect("FATAL: malformed block_height")
                 .try_into()
@@ -670,17 +660,12 @@ impl HeadersDB for MARF<StacksBlockId> {
         let tenure_block_id =
             GetTenureStartId::get_tenure_block_id_at_cb_height(self, tip, tenure_height.into())
                 .expect("FATAL: bad DB data for tenure height lookups")?;
-        get_stacks_header_column(
-            self.sqlite_conn(),
-            &tenure_block_id.0,
-            "block_height",
-            |r| {
-                u64::from_row(r)
-                    .expect("FATAL: malformed block_height")
-                    .try_into()
-                    .expect("FATAL: blockchain too long")
-            },
-        )
+        get_stacks_header_column(self.sqlite_conn(), &tenure_block_id, "block_height", |r| {
+            u64::from_row(r)
+                .expect("FATAL: malformed block_height")
+                .try_into()
+                .expect("FATAL: blockchain too long")
+        })
     }
 }
 

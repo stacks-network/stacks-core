@@ -70,6 +70,7 @@ use stacks::net::api::getstackers::GetStackersResponse;
 use stacks::net::api::postblock_proposal::{
     BlockValidateReject, BlockValidateResponse, NakamotoBlockProposal, ValidateRejectCode,
 };
+use stacks::types::chainstate::StacksBlockId;
 use stacks::util::hash::hex_bytes;
 use stacks::util_lib::boot::boot_code_id;
 use stacks::util_lib::signed_structured_data::pox4::{
@@ -7671,6 +7672,8 @@ fn assert_block_info(
     miner: &Value,
     miner_spend: &clarity::vm::Value,
 ) {
+    info!("block info tuple data: {tuple0:#?}");
+
     assert!(tuple0
         .get("burnchain-header-hash")
         .unwrap()
@@ -7816,7 +7819,7 @@ fn check_block_info() {
 
     // Deploy this version with the Clarity 1 / 2 before epoch 3
     let contract0_name = "test-contract-0";
-    let contract_clarity1 = "(define-read-only (get-info (height uint))
+    let contract_clarity1 = "(define-read-only (get-block-info (height uint))
             {
                 burnchain-header-hash: (get-block-info? burnchain-header-hash height),
                 id-header-hash: (get-block-info? id-header-hash height),
@@ -7859,7 +7862,7 @@ fn check_block_info() {
         &naka_conf,
         &sender_addr,
         contract0_name,
-        "get-info",
+        "get-block-info",
         vec![&clarity::vm::Value::UInt(1)],
     );
     let tuple0 = result0.expect_tuple().unwrap().data_map;
@@ -7929,25 +7932,36 @@ fn check_block_info() {
     let info = get_chain_info_result(&naka_conf).unwrap();
     info!("Chain info: {:?}", info);
     let last_stacks_block_height = info.stacks_tip_height as u128;
+    let last_stacks_tip = StacksBlockId::new(&info.stacks_tip_consensus_hash, &info.stacks_tip);
+    let (chainstate, _) = StacksChainState::open(
+        naka_conf.is_mainnet(),
+        naka_conf.burnchain.chain_id,
+        &naka_conf.get_chainstate_path_str(),
+        None,
+    )
+    .unwrap();
 
-    let result0 = call_read_only(
-        &naka_conf,
-        &sender_addr,
-        contract0_name,
-        "get-info",
-        vec![&clarity::vm::Value::UInt(last_stacks_block_height - 2)],
-    );
-    let tuple0 = result0.expect_tuple().unwrap().data_map;
+    let last_tenure_height: u128 =
+        NakamotoChainState::get_coinbase_height(&mut chainstate.index_conn(), &last_stacks_tip)
+            .unwrap()
+            .unwrap()
+            .into();
+
+    let get_block_info = |contract_name: &str, query_height: u128| {
+        let result = call_read_only(
+            &naka_conf,
+            &sender_addr,
+            contract_name,
+            "get-block-info",
+            vec![&clarity::vm::Value::UInt(query_height)],
+        );
+        result.expect_tuple().unwrap().data_map
+    };
+
+    let tuple0 = get_block_info(contract0_name, last_tenure_height - 1);
     assert_block_info(&tuple0, &miner, &miner_spend);
 
-    let result1 = call_read_only(
-        &naka_conf,
-        &sender_addr,
-        contract1_name,
-        "get-info",
-        vec![&clarity::vm::Value::UInt(last_stacks_block_height - 2)],
-    );
-    let tuple1 = result1.expect_tuple().unwrap().data_map;
+    let tuple1 = get_block_info(contract1_name, last_tenure_height - 1);
     assert_eq!(tuple0, tuple1);
 
     let result3_tenure = call_read_only(
@@ -7981,14 +7995,8 @@ fn check_block_info() {
         tuple0.get("miner-spend-winner")
     );
 
-    let result3_block = call_read_only(
-        &naka_conf,
-        &sender_addr,
-        contract3_name,
-        "get-block-info",
-        vec![&clarity::vm::Value::UInt(last_stacks_block_height - 2)],
-    );
-    let tuple3_block1 = result3_block.expect_tuple().unwrap().data_map;
+    // this will point to the last block in the prior tenure (which should have been a 2.x block)
+    let tuple3_block1 = get_block_info(contract3_name, last_stacks_block_height - 2);
     assert_eq!(
         tuple3_block1.get("id-header-hash"),
         tuple0.get("id-header-hash")
@@ -8038,25 +8046,17 @@ fn check_block_info() {
     let info = get_chain_info_result(&naka_conf).unwrap();
     info!("Chain info: {:?}", info);
     let last_stacks_block_height = info.stacks_tip_height as u128;
+    let last_stacks_tip = StacksBlockId::new(&info.stacks_tip_consensus_hash, &info.stacks_tip);
+    let last_tenure_height: u128 =
+        NakamotoChainState::get_coinbase_height(&mut chainstate.index_conn(), &last_stacks_tip)
+            .unwrap()
+            .unwrap()
+            .into();
 
-    let result0 = call_read_only(
-        &naka_conf,
-        &sender_addr,
-        contract0_name,
-        "get-info",
-        vec![&clarity::vm::Value::UInt(last_stacks_block_height - 1)],
-    );
-    let tuple0 = result0.expect_tuple().unwrap().data_map;
+    let tuple0 = get_block_info(contract0_name, last_tenure_height);
     assert_block_info(&tuple0, &miner, &miner_spend);
 
-    let result1 = call_read_only(
-        &naka_conf,
-        &sender_addr,
-        contract1_name,
-        "get-info",
-        vec![&clarity::vm::Value::UInt(last_stacks_block_height - 1)],
-    );
-    let tuple1 = result1.expect_tuple().unwrap().data_map;
+    let tuple1 = get_block_info(contract1_name, last_tenure_height);
     assert_eq!(tuple0, tuple1);
 
     let result3_tenure = call_read_only(
@@ -8102,11 +8102,15 @@ fn check_block_info() {
     let tuple3_block2 = result3_block.expect_tuple().unwrap().data_map;
     // There should have been a block change, so these should be different.
     assert_ne!(tuple3_block1, tuple3_block2);
+
+    // tuple 0 fetches the id-header-hash for the first block of the tenure (block1)
+
+    let tuple3_block1 = get_block_info(contract3_name, last_stacks_block_height - 2);
     assert_eq!(
-        tuple3_block2.get("id-header-hash"),
+        tuple3_block1.get("id-header-hash"),
         tuple0.get("id-header-hash")
     );
-    assert_eq!(tuple3_block2.get("header-hash"), tuple0.get("header-hash"));
+    assert_eq!(tuple3_block1.get("header-hash"), tuple0.get("header-hash"));
     assert!(tuple3_block2
         .get("time")
         .unwrap()
@@ -8150,25 +8154,17 @@ fn check_block_info() {
     let info = get_chain_info_result(&naka_conf).unwrap();
     info!("Chain info: {:?}", info);
     let last_stacks_block_height = info.stacks_tip_height as u128;
+    let last_stacks_tip = StacksBlockId::new(&info.stacks_tip_consensus_hash, &info.stacks_tip);
+    let last_tenure_height: u128 =
+        NakamotoChainState::get_coinbase_height(&mut chainstate.index_conn(), &last_stacks_tip)
+            .unwrap()
+            .unwrap()
+            .into();
 
-    let result0 = call_read_only(
-        &naka_conf,
-        &sender_addr,
-        contract0_name,
-        "get-info",
-        vec![&clarity::vm::Value::UInt(last_stacks_block_height - 1)],
-    );
-    let tuple0 = result0.expect_tuple().unwrap().data_map;
+    let tuple0 = get_block_info(contract0_name, last_tenure_height);
     assert_block_info(&tuple0, &miner, &miner_spend);
 
-    let result1 = call_read_only(
-        &naka_conf,
-        &sender_addr,
-        contract1_name,
-        "get-info",
-        vec![&clarity::vm::Value::UInt(last_stacks_block_height - 1)],
-    );
-    let tuple1 = result1.expect_tuple().unwrap().data_map;
+    let tuple1 = get_block_info(contract1_name, last_tenure_height);
     assert_eq!(tuple0, tuple1);
 
     let result3_tenure = call_read_only(
@@ -8181,21 +8177,14 @@ fn check_block_info() {
     let tuple3_tenure1a = result3_tenure.expect_tuple().unwrap().data_map;
     assert_eq!(tuple3_tenure1, tuple3_tenure1a);
 
-    let result3_block = call_read_only(
-        &naka_conf,
-        &sender_addr,
-        contract3_name,
-        "get-block-info",
-        vec![&clarity::vm::Value::UInt(last_stacks_block_height - 1)],
-    );
-    let tuple3_block3 = result3_block.expect_tuple().unwrap().data_map;
+    let tuple3_block3 = get_block_info(contract3_name, last_stacks_block_height - 1);
     // There should have been a block change, so these should be different.
     assert_ne!(tuple3_block3, tuple3_block2);
     assert_eq!(
-        tuple3_block3.get("id-header-hash"),
+        tuple3_block1.get("id-header-hash"),
         tuple0.get("id-header-hash")
     );
-    assert_eq!(tuple3_block3.get("header-hash"), tuple0.get("header-hash"));
+    assert_eq!(tuple3_block1.get("header-hash"), tuple0.get("header-hash"));
     assert!(tuple3_block3
         .get("time")
         .unwrap()

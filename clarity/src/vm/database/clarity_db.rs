@@ -935,10 +935,14 @@ impl<'a> ClarityDatabase<'a> {
         if current_tenure_height < tenure_height {
             return Ok(None);
         }
-        if current_tenure_height == tenure_height {
-            return Ok(Some(self.get_current_block_height()));
-        }
         let current_height = self.get_current_block_height();
+        // check if we're querying a 2.x block
+        let id_bhh = self.get_index_block_header_hash(tenure_height)?;
+        let epoch = self.get_stacks_epoch_for_block(&id_bhh)?;
+        if !epoch.uses_nakamoto_blocks() {
+            return Ok(Some(tenure_height));
+        }
+
         // query from the parent
         let query_tip = self.get_index_block_header_hash(current_height.saturating_sub(1))?;
         Ok(self
