@@ -3933,7 +3933,8 @@ fn follower_bootup_across_multiple_cycles() {
         info!(
             "Follower tip is now at stacks tip height {} {}/{}",
             &follower_node_info.stacks_tip_height,
-            &follower_node_info.stacks_tip_consensus_hash, &follower_node_info.stacks_tip
+            &follower_node_info.stacks_tip_consensus_hash,
+            &follower_node_info.stacks_tip
         );
         Ok(
             follower_node_info.stacks_tip_consensus_hash == tip.consensus_hash
