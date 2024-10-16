@@ -7220,6 +7220,155 @@ fn continue_tenure_extend() {
     run_loop_thread.join().unwrap();
 }
 
+fn get_block_times(
+    naka_conf: &Config,
+    sender_addr: &StacksAddress,
+    block_height: u128,
+    tenure_height: u128,
+) -> (u128, u128, u128, u128, u128, u128, u128) {
+    let contract0_name = "test-contract-0";
+    let contract1_name = "test-contract-1";
+    let contract3_name = "test-contract-3";
+
+    info!("Getting block times at block {block_height}, {tenure_height}...");
+
+    let time0_value = call_read_only(
+        &naka_conf,
+        &sender_addr,
+        contract0_name,
+        "get-time",
+        vec![&clarity::vm::Value::UInt(block_height)],
+    );
+    let time0 = time0_value
+        .expect_optional()
+        .unwrap()
+        .unwrap()
+        .expect_u128()
+        .unwrap();
+
+    let time_now0_value = call_read_only(
+        &naka_conf,
+        &sender_addr,
+        contract0_name,
+        "get-last-time",
+        vec![],
+    );
+    let time0_now = time_now0_value
+        .expect_optional()
+        .unwrap()
+        .unwrap()
+        .expect_u128()
+        .unwrap();
+
+    let time1_value = call_read_only(
+        &naka_conf,
+        &sender_addr,
+        contract1_name,
+        "get-time",
+        vec![&clarity::vm::Value::UInt(block_height)],
+    );
+    let time1 = time1_value
+        .expect_optional()
+        .unwrap()
+        .unwrap()
+        .expect_u128()
+        .unwrap();
+
+    let time1_now_value = call_read_only(
+        &naka_conf,
+        &sender_addr,
+        contract1_name,
+        "get-last-time",
+        vec![],
+    );
+    let time1_now = time1_now_value
+        .expect_optional()
+        .unwrap()
+        .unwrap()
+        .expect_u128()
+        .unwrap();
+
+    let time3_tenure_value = call_read_only(
+        &naka_conf,
+        &sender_addr,
+        contract3_name,
+        "get-tenure-time",
+        vec![&clarity::vm::Value::UInt(tenure_height)],
+    );
+    let time3_tenure = time3_tenure_value
+        .expect_optional()
+        .unwrap()
+        .unwrap()
+        .expect_u128()
+        .unwrap();
+
+    let time3_block_value = call_read_only(
+        &naka_conf,
+        &sender_addr,
+        contract3_name,
+        "get-block-time",
+        vec![&clarity::vm::Value::UInt(block_height)],
+    );
+    let time3_block = time3_block_value
+        .expect_optional()
+        .unwrap()
+        .unwrap()
+        .expect_u128()
+        .unwrap();
+
+    let time3_now_tenure_value = call_read_only(
+        &naka_conf,
+        &sender_addr,
+        contract3_name,
+        "get-last-tenure-time",
+        vec![],
+    );
+    let time3_now_tenure = time3_now_tenure_value
+        .expect_optional()
+        .unwrap()
+        .unwrap()
+        .expect_u128()
+        .unwrap();
+
+    info!("Reported times:";
+        "time0" => time0,
+        "time0_now" => time0_now,
+        "time1" => time1,
+        "time1_now" => time1_now,
+        "time3_block" => time3_block,
+        "time3_tenure" => time3_tenure,
+        "time3_now_tenure" => time3_now_tenure
+    );
+
+    assert_eq!(
+        time0, time1,
+        "Time from pre- and post-epoch 3.0 contracts should match"
+    );
+    assert_eq!(
+        time0_now, time1_now,
+        "Time from pre- and post-epoch 3.0 contracts should match"
+    );
+    assert_eq!(
+        time0, time3_tenure,
+        "Tenure time should match Clarity 2 block time"
+    );
+    assert_eq!(time0_now, time1_now, "Time should match across contracts");
+    assert_eq!(
+        time0_now, time3_now_tenure,
+        "Clarity 3 tenure time should match Clarity 2 block time"
+    );
+
+    (
+        time0,
+        time0_now,
+        time1,
+        time1_now,
+        time3_tenure,
+        time3_block,
+        time3_now_tenure,
+    )
+}
+
 #[test]
 #[ignore]
 /// Verify the timestamps using `get-block-info?`, `get-stacks-block-info?`, and `get-tenure-info?`.
@@ -7267,7 +7416,6 @@ fn check_block_times() {
     let run_loop_stopper = run_loop.get_termination_switch();
     let Counters {
         blocks_processed,
-        naka_submitted_commits: commits_submitted,
         naka_proposed_blocks: proposals_submitted,
         ..
     } = run_loop.counters();
@@ -7284,8 +7432,10 @@ fn check_block_times() {
 
     // Deploy this version with the Clarity 1 / 2 before epoch 3
     let contract0_name = "test-contract-0";
-    let contract_clarity1 =
-        "(define-read-only (get-time (height uint)) (get-block-info? time height))";
+    let contract_clarity1 = r#"
+        (define-read-only (get-time (height uint)) (get-block-info? time height))
+        (define-read-only (get-last-time) (get-block-info? time (- block-height u1)))
+    "#;
 
     let contract_tx0 = make_contract_publish(
         &sender_sk,
@@ -7312,6 +7462,19 @@ fn check_block_times() {
     info!("Nakamoto miner started...");
     blind_signer(&naka_conf, &signers, proposals_submitted);
 
+    let epochs = naka_conf.burnchain.epochs.clone().unwrap();
+    let epoch_3 = &epochs[StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch30).unwrap()];
+    let epoch_3_start = epoch_3.start_height;
+    let mut last_stacks_block_height = 0;
+    let mut last_tenure_height = 0;
+    next_block_and(&mut btc_regtest_controller, 60, || {
+        let info = get_chain_info_result(&naka_conf).unwrap();
+        last_stacks_block_height = info.stacks_tip_height as u128;
+        last_tenure_height = last_stacks_block_height;
+        Ok(info.burn_block_height == epoch_3_start)
+    })
+    .unwrap();
+
     let time0_value = call_read_only(
         &naka_conf,
         &sender_addr,
@@ -7326,8 +7489,6 @@ fn check_block_times() {
         .expect_u128()
         .unwrap();
     info!("Time from pre-epoch 3.0: {}", time0);
-
-    wait_for_first_naka_block_commit(60, &commits_submitted);
 
     // This version uses the Clarity 1 / 2 function
     let contract1_name = "test-contract-1";
@@ -7345,9 +7506,11 @@ fn check_block_times() {
 
     // This version uses the Clarity 3 functions
     let contract3_name = "test-contract-3";
-    let contract_clarity3 =
-        "(define-read-only (get-block-time (height uint)) (get-stacks-block-info? time height))
-         (define-read-only (get-tenure-time (height uint)) (get-tenure-info? time height))";
+    let contract_clarity3 = r#"
+        (define-read-only (get-block-time (height uint)) (get-stacks-block-info? time height))
+        (define-read-only (get-tenure-time (height uint)) (get-tenure-info? time height))
+        (define-read-only (get-last-tenure-time) (get-tenure-info? time (- tenure-height u1)))
+    "#;
 
     let contract_tx3 = make_contract_publish(
         &sender_sk,
@@ -7360,257 +7523,139 @@ fn check_block_times() {
     submit_tx(&http_origin, &contract_tx3);
     sender_nonce += 1;
 
-    // sleep to ensure seconds have changed
-    thread::sleep(Duration::from_secs(3));
-
-    next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
-        .unwrap();
-
-    // make sure that the contracts are published
-    wait_for(30, || {
+    let mut stacks_block_height = 0;
+    wait_for(60, || {
         let cur_sender_nonce = get_account(&http_origin, &to_addr(&sender_sk)).nonce;
-        Ok(cur_sender_nonce >= sender_nonce)
+        let info = get_chain_info_result(&naka_conf).unwrap();
+        stacks_block_height = info.stacks_tip_height as u128;
+        Ok(stacks_block_height > last_stacks_block_height && cur_sender_nonce == sender_nonce)
     })
     .expect("Timed out waiting for contracts to publish");
+    last_stacks_block_height = stacks_block_height;
 
-    let info = get_chain_info_result(&naka_conf).unwrap();
-    info!("Chain info: {:?}", info.stacks_tip_height);
-    let last_stacks_block_height = info.stacks_tip_height as u128;
-    let last_tenure_height = last_stacks_block_height as u128;
-
-    let time0_value = call_read_only(
-        &naka_conf,
-        &sender_addr,
-        contract0_name,
-        "get-time",
-        vec![&clarity::vm::Value::UInt(last_stacks_block_height - 2)],
-    );
-    let time0 = time0_value
-        .expect_optional()
-        .unwrap()
-        .unwrap()
-        .expect_u128()
+    // Repeat these tests for 5 tenures
+    for _ in 0..5 {
+        next_block_and(&mut btc_regtest_controller, 60, || {
+            let info = get_chain_info_result(&naka_conf).unwrap();
+            stacks_block_height = info.stacks_tip_height as u128;
+            Ok(stacks_block_height > last_stacks_block_height)
+        })
         .unwrap();
+        last_stacks_block_height = stacks_block_height;
+        last_tenure_height += 1;
+        info!("New tenure {last_tenure_height}, Stacks height: {last_stacks_block_height}");
 
-    let time1_value = call_read_only(
-        &naka_conf,
-        &sender_addr,
-        contract1_name,
-        "get-time",
-        vec![&clarity::vm::Value::UInt(last_stacks_block_height - 2)],
-    );
-    let time1 = time1_value
-        .expect_optional()
-        .unwrap()
-        .unwrap()
-        .expect_u128()
-        .unwrap();
-    assert_eq!(
-        time0, time1,
-        "Time from pre- and post-epoch 3.0 contracts should match"
-    );
+        let (time0, _time0_now, _time1, _time1_now, _time3_tenure, time3_block, _time3_now_tenure) =
+            get_block_times(
+                &naka_conf,
+                &sender_addr,
+                last_stacks_block_height - 1,
+                last_tenure_height - 1,
+            );
 
-    let time3_tenure_value = call_read_only(
-        &naka_conf,
-        &sender_addr,
-        contract3_name,
-        "get-tenure-time",
-        vec![&clarity::vm::Value::UInt(last_tenure_height - 2)],
-    );
-    let time3_tenure = time3_tenure_value
-        .expect_optional()
-        .unwrap()
-        .unwrap()
-        .expect_u128()
-        .unwrap();
-    assert_eq!(
-        time0, time3_tenure,
-        "Tenure time should match Clarity 2 block time"
-    );
+        // Mine a Nakamoto block
+        info!("Mining Nakamoto block");
 
-    let time3_block_value = call_read_only(
-        &naka_conf,
-        &sender_addr,
-        contract3_name,
-        "get-block-time",
-        vec![&clarity::vm::Value::UInt(last_stacks_block_height - 2)],
-    );
-    let time3_block = time3_block_value
-        .expect_optional()
-        .unwrap()
-        .unwrap()
-        .expect_u128()
-        .unwrap();
+        // submit a tx so that the miner will mine an extra block
+        let transfer_tx = make_stacks_transfer(
+            &sender_sk,
+            sender_nonce,
+            send_fee,
+            naka_conf.burnchain.chain_id,
+            &recipient,
+            send_amt,
+        );
+        sender_nonce += 1;
+        submit_tx(&http_origin, &transfer_tx);
 
-    // Sleep to ensure the seconds have changed
-    thread::sleep(Duration::from_secs(2));
+        // wait for the block to be mined
+        wait_for(30, || {
+            let cur_sender_nonce = get_account(&http_origin, &to_addr(&sender_sk)).nonce;
+            let info = get_chain_info_result(&naka_conf).unwrap();
+            stacks_block_height = info.stacks_tip_height as u128;
+            Ok(stacks_block_height > last_stacks_block_height && cur_sender_nonce == sender_nonce)
+        })
+        .expect("Timed out waiting for block");
+        last_stacks_block_height = stacks_block_height;
 
-    // Mine a Nakamoto block
-    info!("Mining Nakamoto block");
+        info!("New Stacks block {last_stacks_block_height} in tenure {last_tenure_height}");
 
-    // submit a tx so that the miner will mine an extra block
-    let transfer_tx = make_stacks_transfer(
-        &sender_sk,
-        sender_nonce,
-        send_fee,
-        naka_conf.burnchain.chain_id,
-        &recipient,
-        send_amt,
-    );
-    sender_nonce += 1;
-    submit_tx(&http_origin, &transfer_tx);
+        let (
+            time0a,
+            _time0a_now,
+            _time1a,
+            _time1a_now,
+            _time3a_tenure,
+            time3a_block,
+            _time3a_now_tenure,
+        ) = get_block_times(
+            &naka_conf,
+            &sender_addr,
+            last_stacks_block_height - 1,
+            last_tenure_height - 1,
+        );
 
-    // make sure that the contracts are published
-    wait_for(30, || {
-        let cur_sender_nonce = get_account(&http_origin, &to_addr(&sender_sk)).nonce;
-        Ok(cur_sender_nonce >= sender_nonce)
-    })
-    .expect("Timed out waiting for transfer to complete");
+        assert!(
+            time0a - time0 >= 1,
+            "get-block-info? time should have changed. time_0 = {time0}. time_0_a = {time0a}"
+        );
+        assert!(
+            time3a_block - time3_block >= 1,
+            "get-stacks-block-info? time should have changed"
+        );
 
-    let info = get_chain_info_result(&naka_conf).unwrap();
-    info!("Chain info: {:?}", info.stacks_tip_height);
-    let last_stacks_block_height = info.stacks_tip_height as u128;
+        // Mine a Nakamoto block
+        info!("Mining Nakamoto block");
 
-    let time0a_value = call_read_only(
-        &naka_conf,
-        &sender_addr,
-        contract0_name,
-        "get-time",
-        vec![&clarity::vm::Value::UInt(last_stacks_block_height - 1)],
-    );
-    let time0a = time0a_value
-        .expect_optional()
-        .unwrap()
-        .unwrap()
-        .expect_u128()
-        .unwrap();
-    assert!(
-        time0a - time0 >= 1,
-        "get-block-info? time should have changed. time_0 = {time0}. time_0_a = {time0a}"
-    );
+        // submit a tx so that the miner will mine an extra block
+        let transfer_tx = make_stacks_transfer(
+            &sender_sk,
+            sender_nonce,
+            send_fee,
+            naka_conf.burnchain.chain_id,
+            &recipient,
+            send_amt,
+        );
+        submit_tx(&http_origin, &transfer_tx);
 
-    let time1a_value = call_read_only(
-        &naka_conf,
-        &sender_addr,
-        contract1_name,
-        "get-time",
-        vec![&clarity::vm::Value::UInt(last_stacks_block_height - 1)],
-    );
-    let time1a = time1a_value
-        .expect_optional()
-        .unwrap()
-        .unwrap()
-        .expect_u128()
-        .unwrap();
-    assert_eq!(
-        time0a, time1a,
-        "Time from pre- and post-epoch 3.0 contracts should match"
-    );
+        // wait for the block to be mined
+        wait_for(30, || {
+            let cur_sender_nonce = get_account(&http_origin, &to_addr(&sender_sk)).nonce;
+            let info = get_chain_info_result(&naka_conf).unwrap();
+            stacks_block_height = info.stacks_tip_height as u128;
+            Ok(stacks_block_height > last_stacks_block_height && cur_sender_nonce == sender_nonce)
+        })
+        .expect("Timed out waiting for block");
+        last_stacks_block_height = stacks_block_height;
 
-    let time3a_block_value = call_read_only(
-        &naka_conf,
-        &sender_addr,
-        contract3_name,
-        "get-block-time",
-        vec![&clarity::vm::Value::UInt(last_stacks_block_height - 1)],
-    );
-    let time3a_block = time3a_block_value
-        .expect_optional()
-        .unwrap()
-        .unwrap()
-        .expect_u128()
-        .unwrap();
-    assert!(
-        time3a_block - time3_block >= 1,
-        "get-stacks-block-info? time should have changed"
-    );
+        let (
+            time0b,
+            _time0b_now,
+            time1b,
+            _time1b_now,
+            _time3b_tenure,
+            time3b_block,
+            _time3b_now_tenure,
+        ) = get_block_times(
+            &naka_conf,
+            &sender_addr,
+            last_stacks_block_height - 1,
+            last_tenure_height - 1,
+        );
 
-    // Sleep to ensure the seconds have changed
-    thread::sleep(Duration::from_secs(1));
-
-    // Mine a Nakamoto block
-    info!("Mining Nakamoto block");
-    let blocks_processed_before = coord_channel
-        .lock()
-        .expect("Mutex poisoned")
-        .get_stacks_blocks_processed();
-
-    // submit a tx so that the miner will mine an extra block
-    let transfer_tx = make_stacks_transfer(
-        &sender_sk,
-        sender_nonce,
-        send_fee,
-        naka_conf.burnchain.chain_id,
-        &recipient,
-        send_amt,
-    );
-    submit_tx(&http_origin, &transfer_tx);
-
-    loop {
-        let blocks_processed = coord_channel
-            .lock()
-            .expect("Mutex poisoned")
-            .get_stacks_blocks_processed();
-        if blocks_processed > blocks_processed_before {
-            break;
-        }
-        thread::sleep(Duration::from_millis(100));
+        assert_eq!(
+            time0a, time0b,
+            "get-block-info? time should not have changed"
+        );
+        assert_eq!(
+            time0b, time1b,
+            "Time from pre- and post-epoch 3.0 contracts should match"
+        );
+        assert!(
+            time3b_block - time3a_block >= 1,
+            "get-stacks-block-info? time should have changed"
+        );
     }
-
-    let time0b_value = call_read_only(
-        &naka_conf,
-        &sender_addr,
-        contract0_name,
-        "get-time",
-        vec![&clarity::vm::Value::UInt(last_stacks_block_height)],
-    );
-    let time0b = time0b_value
-        .expect_optional()
-        .unwrap()
-        .unwrap()
-        .expect_u128()
-        .unwrap();
-    assert_eq!(
-        time0a, time0b,
-        "get-block-info? time should not have changed"
-    );
-
-    let time1b_value = call_read_only(
-        &naka_conf,
-        &sender_addr,
-        contract1_name,
-        "get-time",
-        vec![&clarity::vm::Value::UInt(last_stacks_block_height)],
-    );
-    let time1b = time1b_value
-        .expect_optional()
-        .unwrap()
-        .unwrap()
-        .expect_u128()
-        .unwrap();
-    assert_eq!(
-        time0b, time1b,
-        "Time from pre- and post-epoch 3.0 contracts should match"
-    );
-
-    let time3b_block_value = call_read_only(
-        &naka_conf,
-        &sender_addr,
-        contract3_name,
-        "get-block-time",
-        vec![&clarity::vm::Value::UInt(last_stacks_block_height)],
-    );
-    let time3b_block = time3b_block_value
-        .expect_optional()
-        .unwrap()
-        .unwrap()
-        .expect_u128()
-        .unwrap();
-
-    assert!(
-        time3b_block - time3a_block >= 1,
-        "get-stacks-block-info? time should have changed"
-    );
 
     coord_channel
         .lock()
