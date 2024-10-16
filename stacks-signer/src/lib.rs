@@ -48,8 +48,10 @@ mod tests;
 use std::fmt::{Debug, Display};
 use std::sync::mpsc::{channel, Receiver, Sender};
 
+use blockstack_lib::version_string;
 use chainstate::SortitionsView;
 use config::GlobalConfig;
+use lazy_static::lazy_static;
 use libsigner::{SignerEvent, SignerEventReceiver, SignerEventTrait};
 use runloop::SignerResult;
 use slog::{slog_info, slog_warn};
@@ -58,6 +60,14 @@ use stacks_common::{info, warn};
 use crate::client::StacksClient;
 use crate::config::SignerConfig;
 use crate::runloop::RunLoop;
+
+lazy_static! {
+    /// The version string for the signer
+    pub static ref VERSION_STRING: String = {
+        let pkg_version = option_env!("STACKS_NODE_VERSION").unwrap_or(env!("CARGO_PKG_VERSION"));
+        version_string("stacks-signer", pkg_version)
+    };
+}
 
 /// A trait which provides a common `Signer` interface for `v0` and `v1`
 pub trait Signer<T: SignerEventTrait>: Debug + Display {
@@ -113,6 +123,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SpawnedSigner
     /// Create a new spawned signer
     pub fn new(config: GlobalConfig) -> Self {
         let endpoint = config.endpoint;
+        info!("Stacks signer version {:?}", VERSION_STRING.as_str());
         info!("Starting signer with config: {:?}", config);
         warn!(
             "Reminder: The signer is primarily designed for use with a local or subnet network stacks node. \
