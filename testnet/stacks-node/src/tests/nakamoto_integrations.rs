@@ -70,7 +70,7 @@ use stacks::net::api::getstackers::GetStackersResponse;
 use stacks::net::api::postblock_proposal::{
     BlockValidateReject, BlockValidateResponse, NakamotoBlockProposal, ValidateRejectCode,
 };
-use stacks::util::hash::hex_bytes;
+use stacks::util::hash::{hex_bytes, MerkleTree};
 use stacks::util_lib::boot::boot_code_id;
 use stacks::util_lib::signed_structured_data::pox4::{
     make_pox_4_signer_key_signature, Pox4SignatureTopic,
@@ -80,8 +80,8 @@ use stacks_common::bitvec::BitVec;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::consts::{CHAIN_ID_TESTNET, STACKS_EPOCH_MAX};
 use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksPrivateKey, StacksPublicKey,
-    TrieHash,
+    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId, StacksPrivateKey,
+    StacksPublicKey, TrieHash,
 };
 use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::hash::{to_hex, Hash160, Sha512Trunc256Sum};
@@ -2719,7 +2719,6 @@ fn correct_burn_outs() {
 /// This endpoint allows miners to propose Nakamoto blocks to a node,
 /// and test if they would be accepted or rejected
 #[test]
-#[ignore]
 fn block_proposal_api_endpoint() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
@@ -2891,15 +2890,69 @@ fn block_proposal_api_endpoint() {
         builder.mine_nakamoto_block(&mut tenure_tx)
     };
 
+    let block_2 = {
+        let mut builder = NakamotoBlockBuilder::new(
+            &tip,
+            &tip.consensus_hash,
+            total_burn,
+            tenure_change,
+            coinbase,
+            1,
+        )
+        .expect("Failed to build Nakamoto block");
+
+        let burn_dbconn = btc_regtest_controller.sortdb_ref().index_handle_at_tip();
+        let mut miner_tenure_info = builder
+            .load_tenure_info(&mut chainstate, &burn_dbconn, tenure_cause)
+            .unwrap();
+        let mut tenure_tx = builder
+            .tenure_begin(&burn_dbconn, &mut miner_tenure_info)
+            .unwrap();
+
+        let tx = make_stacks_transfer(
+            &account_keys[0],
+            0,
+            100,
+            &to_addr(&account_keys[1]).into(),
+            10000,
+        );
+        let tx = StacksTransaction::consensus_deserialize(&mut &tx[..])
+            .expect("Failed to deserialize transaction");
+        let tx_len = tx.tx_len();
+
+        let res = builder.try_mine_tx_with_len(
+            &mut tenure_tx,
+            &tx,
+            tx_len,
+            &BlockLimitFunction::NO_LIMIT_HIT,
+            ASTRules::PrecheckSize,
+        );
+        assert!(
+            matches!(res, TransactionResult::Success(..)),
+            "Transaction failed"
+        );
+        builder.mine_nakamoto_block(&mut tenure_tx)
+    };
+
     // Construct a valid proposal. Make alterations to this to test failure cases
     let proposal = NakamotoBlockProposal {
         block,
         chain_id: chainstate.chain_id,
     };
 
+    // Construct a valid proposal. Make alterations to this to test failure cases
+    let proposal_2= NakamotoBlockProposal {
+        block: block_2,
+        chain_id: chainstate.chain_id,
+    };
+
+
     const HTTP_ACCEPTED: u16 = 202;
     const HTTP_TOO_MANY: u16 = 429;
     const HTTP_NOT_AUTHORIZED: u16 = 401;
+    // chainstate error is checked on check_block_builds_on_highest_block_in_tenure
+    // non-canonical tenure is checked on validate
+    // bad transaction where should be checked? -> it doesn't get to call any of those 2 functions
     let test_cases = [
         (
             "Valid Nakamoto block proposal",
@@ -2908,6 +2961,12 @@ fn block_proposal_api_endpoint() {
             Some(Ok(())),
         ),
         ("Must wait", sign(&proposal), HTTP_TOO_MANY, None),
+        (
+            "Valid Nakamoto block proposal 2",
+            sign(&proposal_2),
+            HTTP_ACCEPTED,
+            Some(Ok(())),
+        ),
         (
             "Non-canonical or absent tenure",
             (|| {
@@ -2948,6 +3007,80 @@ fn block_proposal_api_endpoint() {
             HTTP_ACCEPTED,
             Some(Err(ValidateRejectCode::ChainstateError)),
         ),
+        // block hash is calculated
+        // TODO: can it be modified directly to return a bad block hash without modifying the implementation?
+        (
+            "Invalid `parent_block_id`",
+            (|| {
+                let mut sp = sign(&proposal);
+                // get stacks tip and use stacks tip parent consensus hash  
+                // let parent_id = NakamotoChainState::get_parent_id
+                sp.block.header.parent_block_id = StacksBlockId([0xff; 32]);
+                sp
+            })(),
+            HTTP_ACCEPTED,
+            Some(Err(ValidateRejectCode::UnknownParent)),
+        ),
+        (
+            // TODO: add the rest components that fail
+            "Transaction small/no fees",
+            (|| {
+                let no_fees_transfer = make_stacks_transfer(
+                    &account_keys[0],
+                    1,
+                    100, // Invalid amount
+                    &to_addr(&account_keys[1]).into(),
+                    10000,
+                );
+                let mut proposal_local = proposal.clone();
+                let no_fees_tx = StacksTransaction::consensus_deserialize(&mut &no_fees_transfer[..])
+                    .expect("Failed to deserialize transaction");
+                proposal_local.block.txs.push(no_fees_tx);
+                let tx_merkle_root = {
+                    let txid_vecs = proposal_local.block
+                        .txs
+                        .iter()
+                        .map(|tx| tx.txid().as_bytes().to_vec())
+                        .collect();
+                    MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs).root()
+                };
+                proposal_local.block.header.tx_merkle_root = tx_merkle_root;
+                let sp = sign(&proposal_local);
+                sp
+            })(),
+            HTTP_ACCEPTED,
+            Some(Ok(())),
+        ),
+        // (
+        //     "Bad transaction",
+        //     (|| {
+        //         let bad_tx = make_stacks_transfer(
+        //             &account_keys[0],
+        //             0,
+        //             u64::MAX, // Invalid amount
+        //             &to_addr(&account_keys[1]).into(),
+        //             10000,
+        //         );
+        //         let mut proposal_local = proposal.clone();
+        //         let mut block_local = proposal_local.block.clone();
+        //         let bad_tx = StacksTransaction::consensus_deserialize(&mut &bad_tx[..])
+        //             .expect("Failed to deserialize transaction");
+        //         proposal_local.block.txs.push(bad_tx);
+        //         let tx_merkle_root = {
+        //             let txid_vecs = block_local
+        //                 .txs
+        //                 .iter()
+        //                 .map(|tx| tx.txid().as_bytes().to_vec())
+        //                 .collect();
+        //             MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs).root()
+        //         };
+        //         block_local.header.tx_merkle_root = tx_merkle_root;
+        //         let sp = sign(&proposal_local);
+        //         sp
+        //     })(),
+        //     HTTP_ACCEPTED,
+        //     Some(Err(ValidateRejectCode::ChainstateError)),
+        // ),
         ("Not authorized", sign(&proposal), HTTP_NOT_AUTHORIZED, None),
     ];
 
@@ -3000,8 +3133,18 @@ fn block_proposal_api_endpoint() {
         }
 
         let response_code = response.status().as_u16();
+        let response_body = response.text().unwrap_or_default();
         let response_json = if expected_http_code != &HTTP_NOT_AUTHORIZED {
-            response.json::<serde_json::Value>().unwrap().to_string()
+            info!(
+                "Full response body";
+                "test_case" => test_description,
+                "response_code" => response_code,
+                "body" => response_body.clone()
+            );
+            // response body, test_case: Bad transaction, response_code: 400, body: Failed to decode: Failed to parse body: Invalid block: tx Merkle root mismatch at line 1 column 1173
+            serde_json::from_str::<serde_json::Value>(&response_body)
+                .map(|v| v.to_string())
+                .unwrap_or_else(|_| "Invalid JSON response".to_string())
         } else {
             "No json response".to_string()
         };
