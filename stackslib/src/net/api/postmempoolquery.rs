@@ -279,7 +279,7 @@ impl RPCRequestHandler for RPCMempoolQueryRequestHandler {
             let coinbase_height = NakamotoChainState::get_coinbase_height(
                 &mut chainstate.index_conn(),
                 &StacksBlockId::new(
-                    &network.stacks_tip.consensus_hash, 
+                    &network.stacks_tip.consensus_hash,
                     &network.stacks_tip.block_hash
                 ),
             )
