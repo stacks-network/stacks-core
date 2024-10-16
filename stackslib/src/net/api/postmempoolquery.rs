@@ -116,9 +116,9 @@ impl StacksMemPoolStream {
 
         Self {
             tx_query,
-            last_randomized_txid: last_randomized_txid,
+            last_randomized_txid,
             num_txs: 0,
-            max_txs: max_txs,
+            max_txs,
             coinbase_height,
             corked: false,
             finished: false,
@@ -276,10 +276,13 @@ impl RPCRequestHandler for RPCMempoolQueryRequestHandler {
         let page_id = self.page_id.take();
 
         let stream_res = node.with_node_state(|network, sortdb, chainstate, mempool, _rpc_args| {
-            let header = self.get_stacks_chain_tip(&preamble, sortdb, chainstate)
-                .map_err(|e| StacksHttpResponse::new_error(&preamble, &HttpServerError::new(format!("Failed to load chain tip: {:?}", &e))))?;
-
-            let coinbase_height = NakamotoChainState::get_coinbase_height(&mut chainstate.index_conn(), &header.index_block_hash())
+            let coinbase_height = NakamotoChainState::get_coinbase_height(
+                &mut chainstate.index_conn(),
+                &StacksBlockId::new(
+                    &network.stacks_tip.consensus_hash, 
+                    &network.stacks_tip.block_hash
+                ),
+            )
                 .map_err(|e| StacksHttpResponse::new_error(&preamble, &HttpServerError::new(format!("Failed to load coinbase height: {:?}", &e))))?
                 .unwrap_or(0);
 

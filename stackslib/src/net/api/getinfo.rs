@@ -224,18 +224,12 @@ impl RPCRequestHandler for RPCPeerInfoRequestHandler {
 
         let rpc_peer_info: Result<RPCPeerInfoData, StacksHttpResponse> =
             node.with_node_state(|network, sortdb, chainstate, _mempool, rpc_args| {
-                let header = self
-                    .get_stacks_chain_tip(&preamble, sortdb, chainstate)
-                    .map_err(|e| {
-                        StacksHttpResponse::new_error(
-                            &preamble,
-                            &HttpServerError::new(format!("Failed to load chain tip: {:?}", &e)),
-                        )
-                    })?;
-
                 let coinbase_height = NakamotoChainState::get_coinbase_height(
                     &mut chainstate.index_conn(),
-                    &StacksBlockId::new(&network.stacks_tip.consensus_hash, &network.stacks_tip.block_hash),
+                    &StacksBlockId::new(
+                        &network.stacks_tip.consensus_hash,
+                        &network.stacks_tip.block_hash,
+                    ),
                 )
                 .map_err(|e| {
                     StacksHttpResponse::new_error(
