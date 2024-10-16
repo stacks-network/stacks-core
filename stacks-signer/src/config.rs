@@ -76,14 +76,6 @@ impl std::fmt::Display for Network {
 }
 
 impl Network {
-    /// Converts a Network enum variant to a corresponding chain id
-    pub const fn to_chain_id(&self) -> u32 {
-        match self {
-            Self::Mainnet => CHAIN_ID_MAINNET,
-            Self::Testnet | Self::Mocknet => CHAIN_ID_TESTNET,
-        }
-    }
-
     /// Convert a Network enum variant to a corresponding address version
     pub const fn to_address_version(&self) -> u8 {
         match self {
@@ -163,6 +155,8 @@ pub struct GlobalConfig {
     pub first_proposal_burn_block_timing: Duration,
     /// How much time to wait for a miner to propose a block following a sortition
     pub block_proposal_timeout: Duration,
+    /// An optional custom Chain ID
+    chain_id: Option<u32>,
 }
 
 /// Internal struct for loading up the config file
@@ -190,6 +184,8 @@ struct RawConfigFile {
     pub first_proposal_burn_block_timing_secs: Option<u64>,
     /// How much time to wait for a miner to propose a block following a sortition in milliseconds
     pub block_proposal_timeout_ms: Option<u64>,
+    /// An optional custom Chain ID
+    pub chain_id: Option<u32>,
 }
 
 impl RawConfigFile {
@@ -278,6 +274,7 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
             metrics_endpoint,
             first_proposal_burn_block_timing,
             block_proposal_timeout,
+            chain_id: raw_data.chain_id,
         })
     }
 }
@@ -308,6 +305,7 @@ impl GlobalConfig {
             Some(endpoint) => endpoint.to_string(),
             None => "None".to_string(),
         };
+        let chain_id = format!("{:x}", self.to_chain_id());
         format!(
             r#"
 Stacks node host: {node_host}
@@ -315,6 +313,7 @@ Signer endpoint: {endpoint}
 Stacks address: {stacks_address}
 Public key: {public_key}
 Network: {network}
+Chain ID: 0x{chain_id}
 Database path: {db_path}
 Metrics endpoint: {metrics_endpoint}
 "#,
@@ -328,6 +327,14 @@ Metrics endpoint: {metrics_endpoint}
             db_path = self.db_path.to_str().unwrap_or_default(),
             metrics_endpoint = metrics_endpoint,
         )
+    }
+
+    /// Get the chain ID for the network
+    pub fn to_chain_id(&self) -> u32 {
+        self.chain_id.unwrap_or_else(|| match self.network {
+            Network::Mainnet => CHAIN_ID_MAINNET,
+            Network::Testnet | Network::Mocknet => CHAIN_ID_TESTNET,
+        })
     }
 }
 
@@ -356,6 +363,7 @@ pub fn build_signer_config_tomls(
     max_tx_fee_ustx: Option<u64>,
     tx_fee_ustx: Option<u64>,
     mut metrics_port_start: Option<usize>,
+    chain_id: Option<u32>,
 ) -> Vec<String> {
     let mut signer_config_tomls = vec![];
 
@@ -421,6 +429,15 @@ metrics_endpoint = "{metrics_endpoint}"
             metrics_port_start = Some(metrics_port + 1);
         }
 
+        if let Some(chain_id) = chain_id {
+            signer_config_toml = format!(
+                r#"
+{signer_config_toml}
+chain_id = {chain_id}
+"#
+            )
+        }
+
         signer_config_tomls.push(signer_config_toml);
     }
 
@@ -453,6 +470,7 @@ mod tests {
             None,
             None,
             Some(4000),
+            None,
         );
 
         let config =
@@ -460,6 +478,8 @@ mod tests {
 
         assert_eq!(config.auth_password, "melon");
         assert_eq!(config.metrics_endpoint, Some("localhost:4000".to_string()));
+        let global_config = GlobalConfig::try_from(config).unwrap();
+        assert_eq!(global_config.to_chain_id(), CHAIN_ID_TESTNET);
     }
 
     #[test]
@@ -473,8 +493,10 @@ Signer endpoint: 127.0.0.1:30000
 Stacks address: ST3FPN8KBZ3YPBP0ZJGAAHTVFMQDTJCR5QPS7VTNJ
 Public key: 03bc489f27da3701d9f9e577c88de5567cf4023111b7577042d55cde4d823a3505
 Network: testnet
+Chain ID: 0x80000000
 Database path: :memory:
 Metrics endpoint: 0.0.0.0:9090
+Chain ID: 2147483648
 "#;
 
         let expected_str_v6 = r#"
@@ -483,6 +505,7 @@ Signer endpoint: [::1]:30000
 Stacks address: ST3FPN8KBZ3YPBP0ZJGAAHTVFMQDTJCR5QPS7VTNJ
 Public key: 03bc489f27da3701d9f9e577c88de5567cf4023111b7577042d55cde4d823a3505
 Network: testnet
+Chain ID: 0x80000000
 Database path: :memory:
 Metrics endpoint: 0.0.0.0:9090
 "#;
@@ -531,5 +554,37 @@ db_path = ":memory:"
         );
         let config = GlobalConfig::load_from_str(&config_toml).unwrap();
         assert_eq!(config.stacks_address.to_string(), expected_addr);
+        assert_eq!(config.to_chain_id(), CHAIN_ID_MAINNET);
+    }
+
+    #[test]
+    fn test_custom_chain_id() {
+        let pk = StacksPrivateKey::from_hex(
+            "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
+        )
+        .unwrap();
+
+        let node_host = "localhost";
+        let network = Network::Testnet;
+        let password = "melon";
+        let config_tomls = build_signer_config_tomls(
+            &[pk],
+            node_host,
+            None,
+            &network,
+            password,
+            rand::random(),
+            3000,
+            None,
+            None,
+            Some(4000),
+            Some(0x80000100),
+        );
+
+        let config =
+            RawConfigFile::load_from_str(&config_tomls[0]).expect("Failed to parse config file");
+        assert_eq!(config.chain_id, Some(0x80000100));
+        let global_config = GlobalConfig::try_from(config).unwrap();
+        assert_eq!(global_config.to_chain_id(), 0x80000100);
     }
 }

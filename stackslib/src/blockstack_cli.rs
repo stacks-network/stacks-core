@@ -73,7 +73,9 @@ For usage information on those methods, call `blockstack-cli [method] -h`
 
 `blockstack-cli` accepts flag options as well:
 
-   --testnet       instruct the transaction generator to use a testnet version byte instead of MAINNET (default)
+   --testnet[=chain-id]
+                     instruct the transaction generator to use a testnet version byte instead of MAINNET (default)
+                     optionally, you can specify a custom chain ID to use for the transaction
 
 ";
 
@@ -185,6 +187,7 @@ enum CliError {
     ClarityGeneralError(ClarityError),
     Message(String),
     Usage,
+    InvalidChainId(std::num::ParseIntError),
 }
 
 impl std::error::Error for CliError {
@@ -204,6 +207,7 @@ impl std::fmt::Display for CliError {
             CliError::ClarityGeneralError(e) => write!(f, "Clarity error: {}", e),
             CliError::Message(e) => write!(f, "{}", e),
             CliError::Usage => write!(f, "{}", USAGE),
+            CliError::InvalidChainId(e) => write!(f, "Invalid chain ID: {}", e),
         }
     }
 }
@@ -848,18 +852,26 @@ fn main() {
 }
 
 fn main_handler(mut argv: Vec<String>) -> Result<String, CliError> {
-    let tx_version = if let Some(ix) = argv.iter().position(|x| x == "--testnet") {
-        argv.remove(ix);
-        TransactionVersion::Testnet
-    } else {
-        TransactionVersion::Mainnet
-    };
+    let mut tx_version = TransactionVersion::Mainnet;
+    let mut chain_id = CHAIN_ID_MAINNET;
 
-    let chain_id = if tx_version == TransactionVersion::Testnet {
-        CHAIN_ID_TESTNET
-    } else {
-        CHAIN_ID_MAINNET
-    };
+    // Look for the `--testnet` flag
+    if let Some(ix) = argv.iter().position(|x| x.starts_with("--testnet")) {
+        let flag = argv.remove(ix);
+
+        // Check if `--testnet=<chain_id>` is used
+        if let Some(custom_chain_id) = flag.split('=').nth(1) {
+            // Attempt to parse the custom chain ID from hex
+            chain_id = u32::from_str_radix(custom_chain_id.trim_start_matches("0x"), 16)
+                .map_err(|err| CliError::InvalidChainId(err))?;
+        } else {
+            // Use the default testnet chain ID
+            chain_id = CHAIN_ID_TESTNET;
+        }
+
+        // Set the transaction version to Testnet
+        tx_version = TransactionVersion::Testnet;
+    }
 
     if let Some((method, args)) = argv.split_first() {
         match method.as_str() {
@@ -1219,5 +1231,44 @@ mod test {
 
         let result = main_handler(to_string_vec(&header_args)).unwrap();
         eprintln!("result:\n{}", result);
+    }
+
+    #[test]
+    fn custom_chain_id() {
+        // Standard chain id
+        let tt_args = [
+            "--testnet",
+            "token-transfer",
+            "043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3",
+            "1",
+            "0",
+            "ST1A14RBKJ289E3DP89QAZE2RRHDPWP5RHMYFRCHV",
+            "10",
+        ];
+
+        let result = main_handler(to_string_vec(&tt_args));
+        assert!(result.is_ok());
+
+        let result = result.unwrap();
+        let tx = decode_transaction(&[result], TransactionVersion::Testnet).unwrap();
+        assert!(tx.contains("chain_id\":2147483648"));
+
+        // Custom chain id
+        let tt_args = [
+            "--testnet=0x12345678",
+            "token-transfer",
+            "043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3",
+            "1",
+            "0",
+            "ST1A14RBKJ289E3DP89QAZE2RRHDPWP5RHMYFRCHV",
+            "10",
+        ];
+
+        let result = main_handler(to_string_vec(&tt_args));
+        assert!(result.is_ok());
+
+        let result = result.unwrap();
+        let tx = decode_transaction(&[result], TransactionVersion::Testnet).unwrap();
+        assert!(tx.contains("chain_id\":305419896"));
     }
 }

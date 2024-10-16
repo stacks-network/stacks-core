@@ -2991,6 +2991,7 @@ fn signer_set_rollover() {
         Some(100_000),
         None,
         Some(9000 + num_signers),
+        None,
     );
 
     let new_spawned_signers: Vec<_> = (0..new_num_signers)
