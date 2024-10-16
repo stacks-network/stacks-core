@@ -78,7 +78,7 @@ use stacks::util_lib::signed_structured_data::pox4::{
 use stacks_common::address::AddressHashMode;
 use stacks_common::bitvec::BitVec;
 use stacks_common::codec::StacksMessageCodec;
-use stacks_common::consts::STACKS_EPOCH_MAX;
+use stacks_common::consts::{CHAIN_ID_TESTNET, STACKS_EPOCH_MAX};
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksPrivateKey, StacksPublicKey,
     TrieHash,
@@ -6417,6 +6417,7 @@ fn signer_chainstate() {
             .clone()
             .unwrap_or("".into()),
         false,
+        CHAIN_ID_TESTNET,
     );
 
     wait_for_first_naka_block_commit(60, &commits_submitted);
@@ -8615,16 +8616,16 @@ fn mock_mining() {
     let send_amt = 100;
     let send_fee = 180;
 
-    let node_1_rpc = 51024;
-    let node_1_p2p = 51023;
-    let node_2_rpc = 51026;
-    let node_2_p2p = 51025;
+    let node_1_rpc = gen_random_port();
+    let node_1_p2p = gen_random_port();
+    let node_2_rpc = gen_random_port();
+    let node_2_p2p = gen_random_port();
 
     let localhost = "127.0.0.1";
-    naka_conf.node.rpc_bind = format!("{}:{}", localhost, node_1_rpc);
-    naka_conf.node.p2p_bind = format!("{}:{}", localhost, node_1_p2p);
-    naka_conf.node.data_url = format!("http://{}:{}", localhost, node_1_rpc);
-    naka_conf.node.p2p_address = format!("{}:{}", localhost, node_1_p2p);
+    naka_conf.node.rpc_bind = format!("{localhost}:{node_1_rpc}");
+    naka_conf.node.p2p_bind = format!("{localhost}:{node_1_p2p}");
+    naka_conf.node.data_url = format!("http://{localhost}:{node_1_rpc}");
+    naka_conf.node.p2p_address = format!("{localhost}:{node_1_p2p}");
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
 
     naka_conf.add_initial_balance(
@@ -8704,10 +8705,10 @@ fn mock_mining() {
     follower_conf.node.seed = vec![0x01; 32];
     follower_conf.node.local_peer_seed = vec![0x02; 32];
 
-    follower_conf.node.rpc_bind = format!("{}:{}", localhost, node_2_rpc);
-    follower_conf.node.p2p_bind = format!("{}:{}", localhost, node_2_p2p);
-    follower_conf.node.data_url = format!("http://{}:{}", localhost, node_2_rpc);
-    follower_conf.node.p2p_address = format!("{}:{}", localhost, node_2_p2p);
+    follower_conf.node.rpc_bind = format!("{localhost}:{node_2_rpc}");
+    follower_conf.node.p2p_bind = format!("{localhost}:{node_2_p2p}");
+    follower_conf.node.data_url = format!("http://{localhost}:{node_2_rpc}");
+    follower_conf.node.p2p_address = format!("{localhost}:{node_2_p2p}");
 
     let node_info = get_chain_info(&naka_conf);
     follower_conf.node.add_bootstrap_node(
