@@ -7932,7 +7932,6 @@ fn check_block_info() {
     let info = get_chain_info_result(&naka_conf).unwrap();
     info!("Chain info: {:?}", info);
     let last_stacks_block_height = info.stacks_tip_height as u128;
-    let last_stacks_tip = StacksBlockId::new(&info.stacks_tip_consensus_hash, &info.stacks_tip);
     let (chainstate, _) = StacksChainState::open(
         naka_conf.is_mainnet(),
         naka_conf.burnchain.chain_id,
@@ -7941,6 +7940,7 @@ fn check_block_info() {
     )
     .unwrap();
 
+    let last_stacks_tip = StacksBlockId::new(&info.stacks_tip_consensus_hash, &info.stacks_tip);
     let last_tenure_height: u128 =
         NakamotoChainState::get_coinbase_height(&mut chainstate.index_conn(), &last_stacks_tip)
             .unwrap()
@@ -8070,19 +8070,13 @@ fn check_block_info() {
     // There should have been a tenure change, so these should be different.
     assert_ne!(tuple3_tenure0, tuple3_tenure1);
     assert_eq!(
-        tuple3_tenure1.get("burnchain-header-hash"),
-        tuple0.get("burnchain-header-hash")
+        tuple3_tenure1["burnchain-header-hash"],
+        tuple0["burnchain-header-hash"]
     );
-    assert_eq!(
-        tuple3_tenure1.get("miner-address"),
-        tuple0.get("miner-address")
-    );
-    assert_eq!(tuple3_tenure1.get("time"), tuple0.get("time"));
-    assert_eq!(tuple3_tenure1.get("vrf-seed"), tuple0.get("vrf-seed"));
-    assert_eq!(
-        tuple3_tenure1.get("block-reward"),
-        tuple0.get("block-reward")
-    );
+    assert_eq!(tuple3_tenure1["miner-address"], tuple0["miner-address"]);
+    assert_eq!(tuple3_tenure1["time"], tuple0["time"]);
+    assert_eq!(tuple3_tenure1["vrf-seed"], tuple0["vrf-seed"]);
+    assert_eq!(tuple3_tenure1["block-reward"], tuple0["block-reward"]);
     assert_eq!(
         tuple3_tenure1.get("miner-spend-total"),
         tuple0.get("miner-spend-total")
@@ -8106,14 +8100,9 @@ fn check_block_info() {
     // tuple 0 fetches the id-header-hash for the first block of the tenure (block1)
 
     let tuple3_block1 = get_block_info(contract3_name, last_stacks_block_height - 2);
-    assert_eq!(
-        tuple3_block1.get("id-header-hash"),
-        tuple0.get("id-header-hash")
-    );
-    assert_eq!(tuple3_block1.get("header-hash"), tuple0.get("header-hash"));
-    assert!(tuple3_block2
-        .get("time")
-        .unwrap()
+    assert_eq!(tuple3_block1["id-header-hash"], tuple0["id-header-hash"]);
+    assert_eq!(tuple3_block1["header-hash"], tuple0["header-hash"]);
+    assert!(tuple3_block2["time"]
         .clone()
         .expect_optional()
         .unwrap()
@@ -8180,14 +8169,9 @@ fn check_block_info() {
     let tuple3_block3 = get_block_info(contract3_name, last_stacks_block_height - 1);
     // There should have been a block change, so these should be different.
     assert_ne!(tuple3_block3, tuple3_block2);
-    assert_eq!(
-        tuple3_block1.get("id-header-hash"),
-        tuple0.get("id-header-hash")
-    );
-    assert_eq!(tuple3_block1.get("header-hash"), tuple0.get("header-hash"));
-    assert!(tuple3_block3
-        .get("time")
-        .unwrap()
+    assert_eq!(tuple3_block1["id-header-hash"], tuple0["id-header-hash"]);
+    assert_eq!(tuple3_block1["header-hash"], tuple0["header-hash"]);
+    assert!(tuple3_block3["time"]
         .clone()
         .expect_optional()
         .unwrap()
@@ -8329,7 +8313,7 @@ fn check_block_info_rewards() {
 
     // Deploy this version with the Clarity 1 / 2 before epoch 3
     let contract0_name = "test-contract-0";
-    let contract_clarity1 = "(define-read-only (get-info (height uint))
+    let contract_clarity1 = "(define-read-only (get-block-info (height uint))
             {
                 burnchain-header-hash: (get-block-info? burnchain-header-hash height),
                 id-header-hash: (get-block-info? id-header-hash height),
@@ -8354,6 +8338,17 @@ fn check_block_info_rewards() {
     sender_nonce += 1;
     submit_tx(&http_origin, &contract_tx0);
 
+    let get_block_info = |contract_name: &str, query_height: u128| {
+        let result = call_read_only(
+            &naka_conf,
+            &sender_addr,
+            contract_name,
+            "get-block-info",
+            vec![&clarity::vm::Value::UInt(query_height)],
+        );
+        result.expect_tuple().unwrap().data_map
+    };
+
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
@@ -8368,14 +8363,7 @@ fn check_block_info_rewards() {
     info!("Nakamoto miner started...");
     blind_signer(&naka_conf, &signers, proposals_submitted);
 
-    let result0 = call_read_only(
-        &naka_conf,
-        &sender_addr,
-        contract0_name,
-        "get-info",
-        vec![&clarity::vm::Value::UInt(1)],
-    );
-    let tuple0 = result0.expect_tuple().unwrap().data_map;
+    let tuple0 = get_block_info(contract0_name, 1);
     info!("Info from pre-epoch 3.0: {:?}", tuple0);
 
     wait_for_first_naka_block_commit(60, &commits_submitted);
@@ -8489,8 +8477,22 @@ fn check_block_info_rewards() {
 
     let info = get_chain_info_result(&naka_conf).unwrap();
     info!("Chain info: {:?}", info);
+    let (chainstate, _) = StacksChainState::open(
+        naka_conf.is_mainnet(),
+        naka_conf.burnchain.chain_id,
+        &naka_conf.get_chainstate_path_str(),
+        None,
+    )
+    .unwrap();
+
     let last_stacks_block_height = info.stacks_tip_height as u128;
     let last_nakamoto_block = last_stacks_block_height;
+    let last_stacks_tip = StacksBlockId::new(&info.stacks_tip_consensus_hash, &info.stacks_tip);
+    let last_nakamoto_block_tenure_height: u128 =
+        NakamotoChainState::get_coinbase_height(&mut chainstate.index_conn(), &last_stacks_tip)
+            .unwrap()
+            .unwrap()
+            .into();
 
     // Mine more than 2 burn blocks to get the last block's reward matured
     // (only 2 blocks maturation time in tests)
@@ -8511,36 +8513,32 @@ fn check_block_info_rewards() {
     let last_stacks_block_height = info.stacks_tip_height as u128;
     let blocks = test_observer::get_blocks();
 
+    let last_stacks_tip = StacksBlockId::new(&info.stacks_tip_consensus_hash, &info.stacks_tip);
+    let last_tenure_height: u128 =
+        NakamotoChainState::get_coinbase_height(&mut chainstate.index_conn(), &last_stacks_tip)
+            .unwrap()
+            .unwrap()
+            .into();
+
     // Check the block reward is now matured in one of the tenure-change blocks
     let mature_height = last_stacks_block_height - 4;
     let expected_reward = get_expected_reward_for_height(&blocks, mature_height);
-    let result0 = call_read_only(
-        &naka_conf,
-        &sender_addr,
-        contract0_name,
-        "get-info",
-        vec![&clarity::vm::Value::UInt(mature_height)],
+    let tuple0 = get_block_info(contract0_name, last_tenure_height - 4);
+    info!(
+        "block rewards";
+        "fetched" => %tuple0["block-reward"],
+        "expected" => expected_reward,
     );
-    let tuple0 = result0.expect_tuple().unwrap().data_map;
     assert_eq!(
-        tuple0
-            .get("block-reward")
-            .unwrap()
+        tuple0["block-reward"]
             .clone()
             .expect_optional()
             .unwrap()
             .unwrap(),
-        Value::UInt(expected_reward as u128)
+        Value::UInt(expected_reward)
     );
 
-    let result1 = call_read_only(
-        &naka_conf,
-        &sender_addr,
-        contract1_name,
-        "get-info",
-        vec![&clarity::vm::Value::UInt(mature_height)],
-    );
-    let tuple1 = result1.expect_tuple().unwrap().data_map;
+    let tuple1 = get_block_info(contract1_name, last_tenure_height - 4);
     assert_eq!(tuple0, tuple1);
 
     let result3_tenure = call_read_only(
@@ -8551,41 +8549,23 @@ fn check_block_info_rewards() {
         vec![&clarity::vm::Value::UInt(mature_height)],
     );
     let tuple3_tenure = result3_tenure.expect_tuple().unwrap().data_map;
-    assert_eq!(
-        tuple3_tenure.get("block-reward"),
-        tuple0.get("block-reward")
-    );
+    assert_eq!(tuple3_tenure["block-reward"], tuple0["block-reward"]);
 
     // Check the block reward is now matured in one of the Nakamoto blocks
     let expected_reward = get_expected_reward_for_height(&blocks, last_nakamoto_block);
 
-    let result0 = call_read_only(
-        &naka_conf,
-        &sender_addr,
-        contract0_name,
-        "get-info",
-        vec![&clarity::vm::Value::UInt(last_nakamoto_block)],
-    );
-    let tuple0 = result0.expect_tuple().unwrap().data_map;
+    let tuple0 = get_block_info(contract0_name, last_nakamoto_block_tenure_height);
+
     assert_eq!(
-        tuple0
-            .get("block-reward")
-            .unwrap()
+        tuple0["block-reward"]
             .clone()
             .expect_optional()
             .unwrap()
             .unwrap(),
-        Value::UInt(expected_reward as u128)
+        Value::UInt(expected_reward)
     );
 
-    let result1 = call_read_only(
-        &naka_conf,
-        &sender_addr,
-        contract1_name,
-        "get-info",
-        vec![&clarity::vm::Value::UInt(last_nakamoto_block)],
-    );
-    let tuple1 = result1.expect_tuple().unwrap().data_map;
+    let tuple1 = get_block_info(contract1_name, last_nakamoto_block_tenure_height);
     assert_eq!(tuple0, tuple1);
 
     let result3_tenure = call_read_only(
@@ -8596,10 +8576,7 @@ fn check_block_info_rewards() {
         vec![&clarity::vm::Value::UInt(last_nakamoto_block)],
     );
     let tuple3_tenure = result3_tenure.expect_tuple().unwrap().data_map;
-    assert_eq!(
-        tuple3_tenure.get("block-reward"),
-        tuple0.get("block-reward")
-    );
+    assert_eq!(tuple3_tenure["block-reward"], tuple0["block-reward"]);
 
     coord_channel
         .lock()
