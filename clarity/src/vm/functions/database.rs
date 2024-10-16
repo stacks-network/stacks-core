@@ -769,6 +769,24 @@ pub fn special_get_block_info(
         _ => return Ok(Value::none()),
     };
 
+    let height_value = if env.contract_context.get_clarity_version() < &ClarityVersion::Clarity3 {
+        if env.global_context.epoch_id < StacksEpochId::Epoch30 {
+            height_value
+        } else {
+            // interpretting height_value as a tenure height
+            let height_opt = env
+                .global_context
+                .database
+                .get_block_height_for_tenure_height(height_value)?;
+            match height_opt {
+                Some(x) => x,
+                None => return Ok(Value::none()),
+            }
+        }
+    } else {
+        height_value
+    };
+
     let current_block_height = env.global_context.database.get_current_block_height();
     if height_value >= current_block_height {
         return Ok(Value::none());
