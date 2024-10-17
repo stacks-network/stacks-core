@@ -118,6 +118,7 @@ jobs:
           - tests::signer::v0::mine_2_nakamoto_reward_cycles
           - tests::signer::v0::signer_set_rollover
           - tests::signer::v0::signing_in_0th_tenure_of_reward_cycle
+          - tests::signer::v0::continue_after_tenure_extend
           - tests::nakamoto_integrations::burn_ops_integration_test
           - tests::nakamoto_integrations::check_block_heights
           - tests::nakamoto_integrations::clarity_burn_state

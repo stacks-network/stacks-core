@@ -34,6 +34,7 @@ use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader, NakamotoC
 use stacks::chainstate::stacks::address::PoxAddress;
 use stacks::chainstate::stacks::boot::MINERS_NAME;
 use stacks::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState, StacksHeaderInfo};
+use stacks::chainstate::stacks::{StacksTransaction, TenureChangeCause, TransactionPayload};
 use stacks::codec::StacksMessageCodec;
 use stacks::core::{StacksEpochId, CHAIN_ID_TESTNET};
 use stacks::libstackerdb::StackerDBChunkData;
@@ -42,7 +43,7 @@ use stacks::net::api::postblock_proposal::{ValidateRejectCode, TEST_VALIDATE_STA
 use stacks::net::relay::fault_injection::set_ignore_block;
 use stacks::types::chainstate::{StacksAddress, StacksBlockId, StacksPrivateKey, StacksPublicKey};
 use stacks::types::PublicKey;
-use stacks::util::hash::MerkleHashFunc;
+use stacks::util::hash::{hex_bytes, MerkleHashFunc};
 use stacks::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 use stacks::util_lib::boot::boot_code_id;
 use stacks::util_lib::signed_structured_data::pox4::{
@@ -5075,6 +5076,143 @@ fn miner_recovers_when_broadcast_block_delay_across_tenures_occurs() {
     let block_n_2 = nakamoto_blocks.last().unwrap();
     assert_eq!(info_after.stacks_tip.to_string(), block_n_2.block_hash);
     assert_ne!(block_n_2, block_n);
+}
+
+#[test]
+#[ignore]
+/// Test that we can mine a tenure extend and then continue mining afterwards.
+fn continue_after_tenure_extend() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(EnvFilter::from_default_env())
+        .init();
+
+    info!("------------------------- Test Setup -------------------------");
+    let num_signers = 5;
+    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_addr = tests::to_addr(&sender_sk);
+    let recipient = PrincipalData::from(StacksAddress::burn_address(false));
+    let send_amt = 100;
+    let send_fee = 180;
+    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new(
+        num_signers,
+        vec![(sender_addr.clone(), (send_amt + send_fee) * 5)],
+    );
+    let timeout = Duration::from_secs(200);
+    let coord_channel = signer_test.running_nodes.coord_channel.clone();
+    let http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
+
+    signer_test.boot_to_epoch_3();
+
+    info!("------------------------- Mine Normal Tenure -------------------------");
+    signer_test.mine_and_verify_confirmed_naka_block(timeout, num_signers);
+
+    info!("------------------------- Extend Tenure -------------------------");
+    signer_test
+        .running_nodes
+        .nakamoto_test_skip_commit_op
+        .0
+        .lock()
+        .unwrap()
+        .replace(true);
+
+    // It's possible that we have a pending block commit already.
+    // Mine two BTC blocks to "flush" this commit.
+    let burn_height = signer_test
+        .stacks_client
+        .get_peer_info()
+        .expect("Failed to get peer info")
+        .burn_block_height;
+    for i in 0..2 {
+        info!(
+            "------------- After pausing commits, triggering 2 BTC blocks: ({} of 2) -----------",
+            i + 1
+        );
+
+        let blocks_processed_before = coord_channel
+            .lock()
+            .expect("Mutex poisoned")
+            .get_stacks_blocks_processed();
+        signer_test
+            .running_nodes
+            .btc_regtest_controller
+            .build_next_block(1);
+
+        wait_for(60, || {
+            let blocks_processed_after = coord_channel
+                .lock()
+                .expect("Mutex poisoned")
+                .get_stacks_blocks_processed();
+            Ok(blocks_processed_after > blocks_processed_before)
+        })
+        .expect("Timed out waiting for tenure extend block");
+    }
+
+    wait_for(30, || {
+        let new_burn_height = signer_test
+            .stacks_client
+            .get_peer_info()
+            .expect("Failed to get peer info")
+            .burn_block_height;
+        Ok(new_burn_height == burn_height + 2)
+    })
+    .expect("Timed out waiting for burnchain to advance");
+
+    // The last block should have a single instruction in it, the tenure extend
+    let blocks = test_observer::get_blocks();
+    let last_block = blocks.last().unwrap();
+    let transactions = last_block["transactions"].as_array().unwrap();
+    let tx = transactions.first().expect("No transactions in block");
+    let raw_tx = tx["raw_tx"].as_str().unwrap();
+    let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
+    let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
+    match &parsed.payload {
+        TransactionPayload::TenureChange(payload)
+            if payload.cause == TenureChangeCause::Extended => {}
+        _ => panic!("Expected tenure extend transaction, got {:?}", parsed),
+    };
+
+    // Verify that the miner can continue mining in the tenure with the tenure extend
+    info!("------------------------- Mine After Tenure Extend -------------------------");
+    let mut sender_nonce = 0;
+    let mut blocks_processed_before = coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .get_stacks_blocks_processed();
+    for _ in 0..5 {
+        // submit a tx so that the miner will mine an extra block
+        let transfer_tx = make_stacks_transfer(
+            &sender_sk,
+            sender_nonce,
+            send_fee,
+            signer_test.running_nodes.conf.burnchain.chain_id,
+            &recipient,
+            send_amt,
+        );
+        sender_nonce += 1;
+        submit_tx(&http_origin, &transfer_tx);
+
+        info!("Submitted transfer tx and waiting for block proposal");
+        wait_for(30, || {
+            let blocks_processed_after = coord_channel
+                .lock()
+                .expect("Mutex poisoned")
+                .get_stacks_blocks_processed();
+            Ok(blocks_processed_after > blocks_processed_before)
+        })
+        .expect("Timed out waiting for block proposal");
+        blocks_processed_before = coord_channel
+            .lock()
+            .expect("Mutex poisoned")
+            .get_stacks_blocks_processed();
+        info!("Block {blocks_processed_before} processed, continuing");
+    }
+
+    signer_test.shutdown();
 }
 
 #[test]
