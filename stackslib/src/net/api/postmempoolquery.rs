@@ -276,8 +276,7 @@ impl RPCRequestHandler for RPCMempoolQueryRequestHandler {
         let page_id = self.page_id.take();
 
         let stream_res = node.with_node_state(|network, _sortdb, _chainstate, mempool, _rpc_args| {
-            let coinbase_height = network.stacks_tip.coinbase_height.unwrap_or(0);
-
+            let coinbase_height = network.stacks_tip.coinbase_height;
             let max_txs = network.connection_opts.mempool_max_tx_query;
             debug!(
                 "Begin mempool query";

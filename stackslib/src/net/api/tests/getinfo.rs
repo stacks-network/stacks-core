@@ -103,5 +103,5 @@ fn test_try_make_response() {
     );
     let resp = response.decode_peer_info().unwrap();
 
-    assert_eq!(resp.tenure_height, Some(1));
+    assert_eq!(resp.tenure_height, 1);
 }

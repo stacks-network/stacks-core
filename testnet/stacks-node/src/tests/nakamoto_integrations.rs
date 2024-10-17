@@ -5402,7 +5402,7 @@ fn check_block_heights() {
 
     // With the first Nakamoto block, the chain tip and the number of tenures
     // must be the same (before Nakamoto every block counts as a tenure)
-    assert_eq!(info.tenure_height.unwrap(), info.stacks_tip_height);
+    assert_eq!(info.tenure_height, info.stacks_tip_height);
 
     let mut last_burn_block_height;
     let mut last_stacks_block_height = info.stacks_tip_height as u128;
@@ -5538,7 +5538,7 @@ fn check_block_heights() {
         last_tenure_height = bh1;
 
         let info = get_chain_info_result(&naka_conf).unwrap();
-        assert_eq!(info.tenure_height.unwrap(), bh3 as u64);
+        assert_eq!(info.tenure_height, bh3 as u64);
 
         let sbh = heights3
             .get("stacks-block-height")
@@ -5649,7 +5649,7 @@ fn check_block_heights() {
             );
 
             let info = get_chain_info_result(&naka_conf).unwrap();
-            assert_eq!(info.tenure_height.unwrap(), bh3 as u64);
+            assert_eq!(info.tenure_height, bh3 as u64);
 
             let sbh = heights3
                 .get("stacks-block-height")
@@ -5692,10 +5692,7 @@ fn check_block_heights() {
     );
 
     let info = get_chain_info_result(&naka_conf).unwrap();
-    assert_eq!(
-        info.tenure_height.unwrap(),
-        block_height_pre_3_0 + tenure_count
-    );
+    assert_eq!(info.tenure_height, block_height_pre_3_0 + tenure_count);
 
     coord_channel
         .lock()

@@ -246,7 +246,7 @@ pub struct StacksTipInfo {
     pub consensus_hash: ConsensusHash,
     pub block_hash: BlockHeaderHash,
     pub height: u64,
-    pub coinbase_height: Option<u64>,
+    pub coinbase_height: u64,
     pub is_nakamoto: bool,
 }
 
@@ -256,7 +256,7 @@ impl StacksTipInfo {
             consensus_hash: ConsensusHash([0u8; 20]),
             block_hash: BlockHeaderHash([0u8; 32]),
             height: 0,
-            coinbase_height: None,
+            coinbase_height: 0,
             is_nakamoto: false,
         }
     }
@@ -4224,21 +4224,35 @@ impl PeerNetwork {
                 net_error::DBError(db_error::NotFoundError)
             })?;
 
-        // TODO: Test this!
         let parent_stacks_tip_block_hash = parent_tenure_start_header.anchored_header.block_hash();
-        let parent_tenure_start_header_cbh = NakamotoChainState::get_coinbase_height(
+        let parent_stacks_tip_block_id = StacksBlockId::new(
+            &parent_tenure_start_header.consensus_hash,
+            &parent_stacks_tip_block_hash,
+        );
+        let parent_coinbase_height = NakamotoChainState::get_coinbase_height(
             &mut chainstate.index_conn(),
-            &StacksBlockId::new(
-                &parent_tenure_start_header.consensus_hash,
-                &parent_stacks_tip_block_hash,
-            ),
+            &parent_stacks_tip_block_id,
         )?;
+
+        let coinbase_height = match parent_coinbase_height {
+            Some(cbh) => cbh,
+            None => {
+                if parent_tenure_start_header.is_epoch_2_block() {
+                    // The coinbase height is the same as the stacks block height as
+                    // every block contains a coinbase in epoch 2.x
+                    parent_tenure_start_header.stacks_block_height
+                } else {
+                    debug!("{:?}: get_parent_stacks_tip: No coinbase height found for nakamoto block {parent_stacks_tip_block_id}", self.get_local_peer());
+                    return Err(net_error::DBError(db_error::NotFoundError));
+                }
+            }
+        };
 
         let parent_stacks_tip = StacksTipInfo {
             consensus_hash: parent_tenure_start_header.consensus_hash,
             block_hash: parent_stacks_tip_block_hash,
             height: parent_tenure_start_header.anchored_header.height(),
-            coinbase_height: parent_tenure_start_header_cbh,
+            coinbase_height,
             is_nakamoto: parent_tenure_start_header
                 .anchored_header
                 .as_stacks_nakamoto()
@@ -4390,11 +4404,24 @@ impl PeerNetwork {
             self.stacks_tip.is_nakamoto
         };
 
-        // TODO: Test this!
         let stacks_tip_cbh = NakamotoChainState::get_coinbase_height(
             &mut chainstate.index_conn(),
             &new_stacks_tip_block_id,
         )?;
+
+        let coinbase_height = match stacks_tip_cbh {
+            Some(cbh) => cbh,
+            None => {
+                if !stacks_tip_is_nakamoto {
+                    // The coinbase height is the same as the stacks block height as
+                    // every block contains a coinbase in epoch 2.x
+                    stacks_tip_height
+                } else {
+                    debug!("{:?}: No coinbase height found for nakamoto block {new_stacks_tip_block_id}", self.get_local_peer());
+                    return Err(net_error::DBError(db_error::NotFoundError));
+                }
+            }
+        };
 
         let need_stackerdb_refresh = canonical_sn.canonical_stacks_tip_consensus_hash
             != self.burnchain_tip.canonical_stacks_tip_consensus_hash
@@ -4434,7 +4461,7 @@ impl PeerNetwork {
                         consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
                         block_hash: FIRST_STACKS_BLOCK_HASH.clone(),
                         height: 0,
-                        coinbase_height: None,
+                        coinbase_height: 0,
                         is_nakamoto: false,
                     }
                 }
@@ -4630,7 +4657,7 @@ impl PeerNetwork {
                 consensus_hash: stacks_tip_ch,
                 block_hash: stacks_tip_bhh,
                 height: stacks_tip_height,
-                coinbase_height: stacks_tip_cbh,
+                coinbase_height,
                 is_nakamoto: stacks_tip_is_nakamoto,
             };
             self.parent_stacks_tip = parent_stacks_tip;
