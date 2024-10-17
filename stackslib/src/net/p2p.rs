@@ -105,7 +105,7 @@ struct NetworkHandleServer {
 
 impl NetworkHandle {
     pub fn new(chan_in: SyncSender<NetworkRequest>) -> NetworkHandle {
-        NetworkHandle { chan_in: chan_in }
+        NetworkHandle { chan_in }
     }
 
     /// Send out a command to the p2p thread.  Do not bother waiting for the response.
@@ -175,7 +175,7 @@ impl NetworkHandle {
 
 impl NetworkHandleServer {
     pub fn new(chan_in: Receiver<NetworkRequest>) -> NetworkHandleServer {
-        NetworkHandleServer { chan_in: chan_in }
+        NetworkHandleServer { chan_in }
     }
 
     pub fn pair(bufsz: usize) -> (NetworkHandleServer, NetworkHandle) {
@@ -483,11 +483,11 @@ impl PeerNetwork {
         }
 
         let mut network = PeerNetwork {
-            peer_version: peer_version,
-            epochs: epochs,
+            peer_version,
+            epochs,
 
-            local_peer: local_peer,
-            chain_view: chain_view,
+            local_peer,
+            chain_view,
             chain_view_stable_consensus_hash: ConsensusHash([0u8; 20]),
             ast_rules: ASTRules::Typical,
             heaviest_affirmation_map: AffirmationMap::empty(),
@@ -506,8 +506,8 @@ impl PeerNetwork {
             tenure_start_block_id: StacksBlockId([0x00; 32]),
             current_reward_sets: BTreeMap::new(),
 
-            peerdb: peerdb,
-            atlasdb: atlasdb,
+            peerdb,
+            atlasdb,
 
             peers: PeerMap::new(),
             sockets: HashMap::new(),
@@ -523,8 +523,8 @@ impl PeerNetwork {
             p2p_network_handle: 0,
             http_network_handle: 0,
 
-            burnchain: burnchain,
-            connection_opts: connection_opts,
+            burnchain,
+            connection_opts,
 
             work_state: PeerNetworkWorkState::GetPublicIP,
             nakamoto_work_state: PeerNetworkWorkState::GetPublicIP,
@@ -555,8 +555,8 @@ impl PeerNetwork {
             attachments_downloader: None,
 
             stacker_db_syncs: Some(stacker_db_sync_map),
-            stacker_db_configs: stacker_db_configs,
-            stackerdbs: stackerdbs,
+            stacker_db_configs,
+            stackerdbs,
 
             prune_outbound_counts: HashMap::new(),
             prune_inbound_counts: HashMap::new(),
@@ -3493,7 +3493,7 @@ impl PeerNetwork {
                     }
                     let microblocks_data = MicroblocksData {
                         index_anchor_block: anchor_block_id.clone(),
-                        microblocks: microblocks,
+                        microblocks,
                     };
 
                     debug!(
@@ -4041,7 +4041,7 @@ impl PeerNetwork {
                             peer_version: nk.peer_version,
                             network_id: nk.network_id,
                             ts: get_epoch_time_secs(),
-                            pubkey: pubkey,
+                            pubkey,
                         },
                     );
 
@@ -5205,7 +5205,7 @@ mod test {
                     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0x7f,
                     0x00, 0x00, 0x01,
                 ]),
-                port: port,
+                port,
             },
             public_key: Secp256k1PublicKey::from_hex(
                 "02fa66b66f8971a8cd4d20ffded09674e030f0f33883f337f34b95ad4935bac0e3",
