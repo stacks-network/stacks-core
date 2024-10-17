@@ -550,6 +550,16 @@ impl Config {
                 &burnchain.pox_constants
             );
         }
+        let activation_reward_cycle = burnchain
+            .block_height_to_reward_cycle(epoch_30.start_height)
+            .expect("FATAL: Epoch 3.0 starts before the first burnchain block");
+        if activation_reward_cycle < 2 {
+            panic!(
+                "FATAL: Epoch 3.0 must start at or after the second reward cycle. Epoch 3.0 start set to: {}. PoX Parameters: {:?}",
+                epoch_30.start_height,
+                &burnchain.pox_constants
+            );
+        }
     }
 
     /// Connect to the MempoolDB using the configured cost estimation
