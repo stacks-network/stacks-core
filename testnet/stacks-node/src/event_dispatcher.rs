@@ -460,7 +460,7 @@ impl EventObserver {
                     warn!(
                         "Event dispatcher: connection or request failed to {}:{} - {:?}",
                         &host, &port, err;
-                        "backoff" => backoff,
+                        "backoff" => ?backoff,
                         "attempts" => attempts
                     );
                 }
