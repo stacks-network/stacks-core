@@ -443,7 +443,7 @@ impl EventObserver {
         .unwrap_or_else(|_| panic!("FATAL: failed to encode infallible data as HTTP request"));
         request.add_header("Connection".into(), "close".into());
         loop {
-            match send_http_request(host, port, request, timeout) {
+            match send_http_request(host, port, request.clone(), timeout) {
                 Ok(response) => {
                     if response.preamble().status_code == 200 {
                         debug!(
