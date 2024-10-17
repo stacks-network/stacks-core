@@ -429,6 +429,7 @@ impl EventObserver {
             .unwrap_or(PeerHost::DNS(host.to_string(), port));
 
         let mut backoff = Duration::from_millis(100);
+        let max_backoff = timeout.saturating_mul(3);
         loop {
             let mut request = StacksHttpRequest::new_for_peer(
                 peerhost.clone(),
@@ -472,7 +473,7 @@ impl EventObserver {
             }
 
             sleep(backoff);
-            backoff *= 2;
+            backoff = std::cmp::min(backoff.saturating_mul(2), max_backoff);
         }
     }
 
