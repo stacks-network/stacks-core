@@ -6938,10 +6938,10 @@ fn continue_tenure_extend() {
     // setup sender + recipient for a test stx transfer
     let sender_addr = tests::to_addr(&sender_sk);
     let send_amt = 1000;
-    let send_fee = 100;
+    let send_fee = 200;
     naka_conf.add_initial_balance(
         PrincipalData::from(sender_addr.clone()).to_string(),
-        send_amt * 2 + send_fee,
+        (send_amt + send_fee) * 20,
     );
     let sender_signer_sk = Secp256k1PrivateKey::new();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
@@ -6951,6 +6951,7 @@ fn continue_tenure_extend() {
     );
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let stacker_sk = setup_stacker(&mut naka_conf);
+    let mut transfer_nonce = 0;
 
     test_observer::spawn();
     test_observer::register_any(&mut naka_conf);
@@ -7071,7 +7072,7 @@ fn continue_tenure_extend() {
     // Submit a TX
     let transfer_tx = make_stacks_transfer(
         &sender_sk,
-        0,
+        transfer_nonce,
         send_fee,
         naka_conf.burnchain.chain_id,
         &recipient,
@@ -7133,6 +7134,26 @@ fn continue_tenure_extend() {
     })
     .unwrap();
 
+    // Mine 3 nakamoto blocks
+    for i in 0..3 {
+        info!("Triggering Nakamoto blocks after extend ({})", i + 1);
+        transfer_nonce += 1;
+        let transfer_tx = make_stacks_transfer(
+            &sender_sk,
+            transfer_nonce,
+            send_fee,
+            naka_conf.burnchain.chain_id,
+            &recipient,
+            send_amt,
+        );
+        submit_tx(&http_origin, &transfer_tx);
+        wait_for(10, || {
+            let sender_nonce = get_account(&http_origin, &to_addr(&sender_sk)).nonce;
+            Ok(sender_nonce >= transfer_nonce)
+        })
+        .expect("Timed out waiting for transfer TX to confirm");
+    }
+
     info!("Resuming commit ops to mine regular tenures.");
     test_skip_commit_op.0.lock().unwrap().replace(false);
 
@@ -7170,7 +7191,9 @@ fn continue_tenure_extend() {
     let mut tenure_extends = vec![];
     let mut tenure_block_founds = vec![];
     let mut transfer_tx_included = false;
+    let mut last_block_had_extend = false;
     for block in test_observer::get_blocks() {
+        let mut has_extend = false;
         for tx in block["transactions"].as_array().unwrap() {
             let raw_tx = tx["raw_tx"].as_str().unwrap();
             if raw_tx == &transfer_tx_hex {
@@ -7184,12 +7207,21 @@ fn continue_tenure_extend() {
             let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
             match &parsed.payload {
                 TransactionPayload::TenureChange(payload) => match payload.cause {
-                    TenureChangeCause::Extended => tenure_extends.push(parsed),
-                    TenureChangeCause::BlockFound => tenure_block_founds.push(parsed),
+                    TenureChangeCause::Extended => {
+                        has_extend = true;
+                        tenure_extends.push(parsed);
+                    }
+                    TenureChangeCause::BlockFound => {
+                        if last_block_had_extend {
+                            panic!("Expected a Nakamoto block to happen after tenure extend block");
+                        }
+                        tenure_block_founds.push(parsed);
+                    }
                 },
                 _ => {}
             };
         }
+        last_block_had_extend = has_extend;
     }
     assert!(
         !tenure_extends.is_empty(),
