@@ -965,6 +965,18 @@ impl Config {
         })
     }
 
+    /// Returns the path working directory path, and ensures it exists.
+    pub fn get_working_dir(&self) -> PathBuf {
+        let path = PathBuf::from(&self.node.working_dir);
+        fs::create_dir_all(&path).unwrap_or_else(|_| {
+            panic!(
+                "Failed to create working directory at {}",
+                path.to_string_lossy()
+            )
+        });
+        path
+    }
+
     fn get_burnchain_path(&self) -> PathBuf {
         let mut path = PathBuf::from(&self.node.working_dir);
         path.push(&self.burnchain.mode);
