@@ -156,7 +156,7 @@ pub struct GlobalConfig {
     /// How much time to wait for a miner to propose a block following a sortition
     pub block_proposal_timeout: Duration,
     /// An optional custom Chain ID
-    chain_id: Option<u32>,
+    pub chain_id: Option<u32>,
 }
 
 /// Internal struct for loading up the config file
