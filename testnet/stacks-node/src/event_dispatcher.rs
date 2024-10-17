@@ -26,6 +26,7 @@ use clarity::vm::analysis::contract_interface_builder::build_contract_interface;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::events::{FTEventType, NFTEventType, STXEventType};
 use clarity::vm::types::{AssetIdentifier, QualifiedContractIdentifier, Value};
+use rand::Rng;
 use rusqlite::{params, Connection};
 use serde_json::json;
 use stacks::burnchains::{PoxConstants, Txid};
@@ -429,17 +430,19 @@ impl EventObserver {
             .unwrap_or(PeerHost::DNS(host.to_string(), port));
 
         let mut backoff = Duration::from_millis(100);
+        let mut attempts: i32 = 0;
+        // Cap the backoff at 3x the timeout
         let max_backoff = timeout.saturating_mul(3);
-        loop {
-            let mut request = StacksHttpRequest::new_for_peer(
-                peerhost.clone(),
-                "POST".into(),
-                url.path().into(),
-                HttpRequestContents::new().payload_json(payload.clone()),
-            )
-            .unwrap_or_else(|_| panic!("FATAL: failed to encode infallible data as HTTP request"));
-            request.add_header("Connection".into(), "close".into());
 
+        let mut request = StacksHttpRequest::new_for_peer(
+            peerhost.clone(),
+            "POST".into(),
+            url.path().into(),
+            HttpRequestContents::new().payload_json(payload.clone()),
+        )
+        .unwrap_or_else(|_| panic!("FATAL: failed to encode infallible data as HTTP request"));
+        request.add_header("Connection".into(), "close".into());
+        loop {
             match send_http_request(host, port, request, timeout) {
                 Ok(response) => {
                     if response.preamble().status_code == 200 {
@@ -457,7 +460,8 @@ impl EventObserver {
                     warn!(
                         "Event dispatcher: connection or request failed to {}:{} - {:?}",
                         &host, &port, err;
-                        "backoff" => backoff
+                        "backoff" => backoff,
+                        "attempts" => attempts
                     );
                 }
             }
@@ -473,7 +477,12 @@ impl EventObserver {
             }
 
             sleep(backoff);
-            backoff = std::cmp::min(backoff.saturating_mul(2), max_backoff);
+            let jitter: u64 = rand::thread_rng().gen_range(0..100);
+            backoff = std::cmp::min(
+                backoff.saturating_mul(2) + Duration::from_millis(jitter),
+                max_backoff,
+            );
+            attempts = attempts.saturating_add(1);
         }
     }
 
