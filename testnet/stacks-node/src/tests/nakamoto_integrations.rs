@@ -7374,6 +7374,7 @@ fn check_block_times() {
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
     naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
+    naka_conf.burnchain.chain_id = CHAIN_ID_TESTNET + 1;
     let sender_sk = Secp256k1PrivateKey::new();
     let sender_signer_sk = Secp256k1PrivateKey::new();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
@@ -7771,6 +7772,8 @@ fn check_block_info() {
 
     let mut signers = TestSigners::default();
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
+    // change the chain id so that it isn't the same as primary testnet
+    naka_conf.burnchain.chain_id = CHAIN_ID_TESTNET + 1;
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
     naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
     let sender_sk = Secp256k1PrivateKey::new();
@@ -8362,6 +8365,7 @@ fn check_block_info_rewards() {
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
     naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
+    naka_conf.burnchain.chain_id = CHAIN_ID_TESTNET + 1;
     let sender_sk = Secp256k1PrivateKey::new();
     let sender_signer_sk = Secp256k1PrivateKey::new();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
