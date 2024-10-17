@@ -78,7 +78,7 @@ use crate::tests::neon_integrations::{
     get_account, get_chain_info, get_chain_info_opt, next_block_and_wait,
     run_until_burnchain_height, submit_tx, submit_tx_fallible, test_observer,
 };
-use crate::tests::{self, make_stacks_transfer};
+use crate::tests::{self, gen_random_port, make_stacks_transfer};
 use crate::{nakamoto_node, BitcoinRegtestController, BurnchainController, Config, Keychain};
 
 impl SignerTest<SpawnedSigner> {
@@ -1449,10 +1449,10 @@ fn multiple_miners() {
     let btc_miner_1_pk = Keychain::default(btc_miner_1_seed.clone()).get_pub_key();
     let btc_miner_2_pk = Keychain::default(btc_miner_2_seed.clone()).get_pub_key();
 
-    let node_1_rpc = 51024;
-    let node_1_p2p = 51023;
-    let node_2_rpc = 51026;
-    let node_2_p2p = 51025;
+    let node_1_rpc = gen_random_port();
+    let node_1_p2p = gen_random_port();
+    let node_2_rpc = gen_random_port();
+    let node_2_p2p = gen_random_port();
 
     let localhost = "127.0.0.1";
     let node_1_rpc_bind = format!("{localhost}:{node_1_rpc}");
@@ -1735,13 +1735,14 @@ fn miner_forking() {
     let btc_miner_1_pk = Keychain::default(btc_miner_1_seed.clone()).get_pub_key();
     let btc_miner_2_pk = Keychain::default(btc_miner_2_seed.clone()).get_pub_key();
 
-    let node_1_rpc = 51024;
-    let node_1_p2p = 51023;
-    let node_2_rpc = 51026;
-    let node_2_p2p = 51025;
+    let node_1_rpc = gen_random_port();
+    let node_1_p2p = gen_random_port();
+    let node_2_rpc = gen_random_port();
+    let node_2_p2p = gen_random_port();
 
-    let node_1_rpc_bind = format!("127.0.0.1:{}", node_1_rpc);
-    let node_2_rpc_bind = format!("127.0.0.1:{}", node_2_rpc);
+    let localhost = "127.0.0.1";
+    let node_1_rpc_bind = format!("{localhost}:{node_1_rpc}");
+    let node_2_rpc_bind = format!("{localhost}:{node_2_rpc}");
     let mut node_2_listeners = Vec::new();
 
     // partition the signer set so that ~half are listening and using node 1 for RPC and events,
@@ -1764,11 +1765,10 @@ fn miner_forking() {
                 Duration::from_secs(first_proposal_burn_block_timing);
         },
         |config| {
-            let localhost = "127.0.0.1";
-            config.node.rpc_bind = format!("{}:{}", localhost, node_1_rpc);
-            config.node.p2p_bind = format!("{}:{}", localhost, node_1_p2p);
-            config.node.data_url = format!("http://{}:{}", localhost, node_1_rpc);
-            config.node.p2p_address = format!("{}:{}", localhost, node_1_p2p);
+            config.node.rpc_bind = format!("{localhost}:{node_1_rpc}");
+            config.node.p2p_bind = format!("{localhost}:{node_1_p2p}");
+            config.node.data_url = format!("http://{localhost}:{node_1_rpc}");
+            config.node.p2p_address = format!("{localhost}:{node_1_p2p}");
 
             config.node.seed = btc_miner_1_seed.clone();
             config.node.local_peer_seed = btc_miner_1_seed.clone();
@@ -2744,13 +2744,14 @@ fn multiple_miners_mock_sign_epoch_25() {
     let btc_miner_1_pk = Keychain::default(btc_miner_1_seed.clone()).get_pub_key();
     let btc_miner_2_pk = Keychain::default(btc_miner_2_seed.clone()).get_pub_key();
 
-    let node_1_rpc = 51024;
-    let node_1_p2p = 51023;
-    let node_2_rpc = 51026;
-    let node_2_p2p = 51025;
+    let node_1_rpc = gen_random_port();
+    let node_1_p2p = gen_random_port();
+    let node_2_rpc = gen_random_port();
+    let node_2_p2p = gen_random_port();
 
-    let node_1_rpc_bind = format!("127.0.0.1:{}", node_1_rpc);
-    let node_2_rpc_bind = format!("127.0.0.1:{}", node_2_rpc);
+    let localhost = "127.0.0.1";
+    let node_1_rpc_bind = format!("{localhost}:{node_1_rpc}");
+    let node_2_rpc_bind = format!("{localhost}:{node_2_rpc}");
     let mut node_2_listeners = Vec::new();
 
     // partition the signer set so that ~half are listening and using node 1 for RPC and events,
@@ -2768,11 +2769,10 @@ fn multiple_miners_mock_sign_epoch_25() {
             signer_config.node_host = node_host.to_string();
         },
         |config| {
-            let localhost = "127.0.0.1";
-            config.node.rpc_bind = format!("{}:{}", localhost, node_1_rpc);
-            config.node.p2p_bind = format!("{}:{}", localhost, node_1_p2p);
-            config.node.data_url = format!("http://{}:{}", localhost, node_1_rpc);
-            config.node.p2p_address = format!("{}:{}", localhost, node_1_p2p);
+            config.node.rpc_bind = format!("{localhost}:{node_1_rpc}");
+            config.node.p2p_bind = format!("{localhost}:{node_1_p2p}");
+            config.node.data_url = format!("http://{localhost}:{node_1_rpc}");
+            config.node.p2p_address = format!("{localhost}:{node_1_p2p}");
 
             config.node.seed = btc_miner_1_seed.clone();
             config.node.local_peer_seed = btc_miner_1_seed.clone();
@@ -3469,10 +3469,10 @@ fn multiple_miners_with_nakamoto_blocks() {
     let btc_miner_1_pk = Keychain::default(btc_miner_1_seed.clone()).get_pub_key();
     let btc_miner_2_pk = Keychain::default(btc_miner_2_seed.clone()).get_pub_key();
 
-    let node_1_rpc = 51024;
-    let node_1_p2p = 51023;
-    let node_2_rpc = 51026;
-    let node_2_p2p = 51025;
+    let node_1_rpc = gen_random_port();
+    let node_1_p2p = gen_random_port();
+    let node_2_rpc = gen_random_port();
+    let node_2_p2p = gen_random_port();
 
     let localhost = "127.0.0.1";
     let node_1_rpc_bind = format!("{localhost}:{node_1_rpc}");
@@ -3746,14 +3746,14 @@ fn partial_tenure_fork() {
     let btc_miner_1_pk = Keychain::default(btc_miner_1_seed.clone()).get_pub_key();
     let btc_miner_2_pk = Keychain::default(btc_miner_2_seed.clone()).get_pub_key();
 
-    let node_1_rpc = 51024;
-    let node_1_p2p = 51023;
-    let node_2_rpc = 51026;
-    let node_2_p2p = 51025;
-
-    let node_1_rpc_bind = format!("127.0.0.1:{}", node_1_rpc);
+    let node_1_rpc = gen_random_port();
+    let node_1_p2p = gen_random_port();
+    let node_2_rpc = gen_random_port();
+    let node_2_p2p = gen_random_port();
 
     let localhost = "127.0.0.1";
+    let node_1_rpc_bind = format!("{localhost}:{node_1_rpc}");
+
     // All signers are listening to node 1
     let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
@@ -5193,10 +5193,10 @@ fn multiple_miners_with_custom_chain_id() {
     let btc_miner_1_pk = Keychain::default(btc_miner_1_seed.clone()).get_pub_key();
     let btc_miner_2_pk = Keychain::default(btc_miner_2_seed.clone()).get_pub_key();
 
-    let node_1_rpc = 51024;
-    let node_1_p2p = 51023;
-    let node_2_rpc = 51026;
-    let node_2_p2p = 51025;
+    let node_1_rpc = gen_random_port();
+    let node_1_p2p = gen_random_port();
+    let node_2_rpc = gen_random_port();
+    let node_2_p2p = gen_random_port();
 
     let localhost = "127.0.0.1";
     let node_1_rpc_bind = format!("{localhost}:{node_1_rpc}");
