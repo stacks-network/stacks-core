@@ -16,6 +16,7 @@
 
 use std::cmp;
 
+use stacks_common::consts::CHAIN_ID_TESTNET;
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::StacksEpochId;
 
@@ -767,6 +768,29 @@ pub fn special_get_block_info(
     let height_value = match u32::try_from(height_value) {
         Ok(result) => result,
         _ => return Ok(Value::none()),
+    };
+
+    // interpret height as a tenure height IFF
+    // * clarity version is less than Clarity3
+    // * the evaluated epoch is geq 3.0
+    // * we are not on (classic) primary testnet
+    let interpret_height_as_tenure_height = env.contract_context.get_clarity_version()
+        < &ClarityVersion::Clarity3
+        && env.global_context.epoch_id >= StacksEpochId::Epoch30
+        && env.global_context.chain_id != CHAIN_ID_TESTNET;
+
+    let height_value = if !interpret_height_as_tenure_height {
+        height_value
+    } else {
+        // interpretting height_value as a tenure height
+        let height_opt = env
+            .global_context
+            .database
+            .get_block_height_for_tenure_height(height_value)?;
+        match height_opt {
+            Some(x) => x,
+            None => return Ok(Value::none()),
+        }
     };
 
     let current_block_height = env.global_context.database.get_current_block_height();
