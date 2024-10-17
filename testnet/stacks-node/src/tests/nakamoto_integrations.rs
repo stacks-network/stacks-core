@@ -7117,7 +7117,7 @@ fn continue_tenure_extend() {
     })
     .unwrap();
 
-    // Mine 3 nakamoto tenures
+    // Mine 3 nakamoto blocks
     for i in 0..3 {
         info!("Triggering Nakamoto blocks after extend ({})", i + 1);
         transfer_nonce += 1;
