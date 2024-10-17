@@ -564,7 +564,9 @@ pub fn call_function<'a, 'b, 'c>(
 
     // Call the function
     func.call(&mut store, &wasm_args, &mut results)
-        .map_err(|e| error_mapping::resolve_error(e, instance, &mut store, &epoch, &clarity_version))?;
+        .map_err(|e| {
+            error_mapping::resolve_error(e, instance, &mut store, &epoch, &clarity_version)
+        })?;
 
     // If the function returns a value, translate it into a Clarity `Value`
     wasm_to_clarity_value(&return_type, 0, &results, memory, &mut &mut store, epoch)
@@ -7876,7 +7878,8 @@ mod error_mapping {
                 Error::Runtime(RuntimeErrorType::UnwrapFailure, Some(Vec::new()))
             }
             ErrorMap::ShortReturnAssertionFailure => {
-                let clarity_val = short_return_value(&instance, &mut store, epoch_id, clarity_version);
+                let clarity_val =
+                    short_return_value(&instance, &mut store, epoch_id, clarity_version);
                 Error::ShortReturn(ShortReturnType::AssertionFailed(clarity_val))
             }
             ErrorMap::ArithmeticPowError => Error::Runtime(
@@ -7903,7 +7906,8 @@ mod error_mapping {
                 Error::Unchecked(CheckErrors::NameAlreadyUsed(arg_name))
             }
             ErrorMap::ShortReturnExpectedValueResponse => {
-                let clarity_val = short_return_value(&instance, &mut store, epoch_id, clarity_version);
+                let clarity_val =
+                    short_return_value(&instance, &mut store, epoch_id, clarity_version);
                 Error::ShortReturn(ShortReturnType::ExpectedValue(Value::Response(
                     ResponseData {
                         committed: false,
@@ -7917,7 +7921,8 @@ mod error_mapping {
                 )))
             }
             ErrorMap::ShortReturnExpectedValue => {
-                let clarity_val = short_return_value(&instance, &mut store, epoch_id, clarity_version);
+                let clarity_val =
+                    short_return_value(&instance, &mut store, epoch_id, clarity_version);
                 Error::ShortReturn(ShortReturnType::ExpectedValue(clarity_val))
             }
             _ => panic!("Runtime error code {} not supported", runtime_error_code),
