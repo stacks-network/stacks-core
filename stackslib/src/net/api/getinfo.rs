@@ -225,20 +225,8 @@ impl RPCRequestHandler for RPCPeerInfoRequestHandler {
         let ibd = node.ibd;
 
         let rpc_peer_info: Result<RPCPeerInfoData, StacksHttpResponse> =
-            node.with_node_state(|network, sortdb, chainstate, _mempool, rpc_args| {
-                let coinbase_height = NakamotoChainState::get_coinbase_height(
-                    &mut chainstate.index_conn(),
-                    &StacksBlockId::new(
-                        &network.stacks_tip.consensus_hash,
-                        &network.stacks_tip.block_hash,
-                    ),
-                )
-                .map_err(|e| {
-                    StacksHttpResponse::new_error(
-                        &preamble,
-                        &HttpServerError::new(format!("Failed to load coinbase height: {:?}", &e)),
-                    )
-                })?;
+            node.with_node_state(|network, _sortdb, chainstate, _mempool, rpc_args| {
+                let coinbase_height = network.stacks_tip.coinbase_height;
 
                 Ok(RPCPeerInfoData::from_network(
                     network,

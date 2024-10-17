@@ -246,6 +246,7 @@ pub struct StacksTipInfo {
     pub consensus_hash: ConsensusHash,
     pub block_hash: BlockHeaderHash,
     pub height: u64,
+    pub coinbase_height: Option<u64>,
     pub is_nakamoto: bool,
 }
 
@@ -255,6 +256,7 @@ impl StacksTipInfo {
             consensus_hash: ConsensusHash([0u8; 20]),
             block_hash: BlockHeaderHash([0u8; 32]),
             height: 0,
+            coinbase_height: None,
             is_nakamoto: false,
         }
     }
@@ -4218,14 +4220,25 @@ impl PeerNetwork {
 
         let parent_tenure_start_header = NakamotoChainState::get_tenure_start_block_header(&mut chainstate.index_conn(), stacks_tip_block_id, &parent_header.consensus_hash)?
             .ok_or_else(|| {
-                debug!("{:?}: get_parent_stacks_tip: No tenure-start block for parent tenure {} off of child {} (parnet {})", self.get_local_peer(), &parent_header.consensus_hash, stacks_tip_block_id, &parent_block_id);
+                debug!("{:?}: get_parent_stacks_tip: No tenure-start block for parent tenure {} off of child {} (parent {})", self.get_local_peer(), &parent_header.consensus_hash, stacks_tip_block_id, &parent_block_id);
                 net_error::DBError(db_error::NotFoundError)
             })?;
 
+        // TODO: Test this!
+        let parent_stacks_tip_block_hash = parent_tenure_start_header.anchored_header.block_hash();
+        let parent_tenure_start_header_cbh = NakamotoChainState::get_coinbase_height(
+            &mut chainstate.index_conn(),
+            &StacksBlockId::new(
+                &parent_tenure_start_header.consensus_hash,
+                &parent_stacks_tip_block_hash,
+            ),
+        )?;
+
         let parent_stacks_tip = StacksTipInfo {
             consensus_hash: parent_tenure_start_header.consensus_hash,
-            block_hash: parent_tenure_start_header.anchored_header.block_hash(),
+            block_hash: parent_stacks_tip_block_hash,
             height: parent_tenure_start_header.anchored_header.height(),
+            coinbase_height: parent_tenure_start_header_cbh,
             is_nakamoto: parent_tenure_start_header
                 .anchored_header
                 .as_stacks_nakamoto()
@@ -4377,6 +4390,12 @@ impl PeerNetwork {
             self.stacks_tip.is_nakamoto
         };
 
+        // TODO: Test this!
+        let stacks_tip_cbh = NakamotoChainState::get_coinbase_height(
+            &mut chainstate.index_conn(),
+            &new_stacks_tip_block_id,
+        )?;
+
         let need_stackerdb_refresh = canonical_sn.canonical_stacks_tip_consensus_hash
             != self.burnchain_tip.canonical_stacks_tip_consensus_hash
             || burnchain_tip_changed
@@ -4415,6 +4434,7 @@ impl PeerNetwork {
                         consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
                         block_hash: FIRST_STACKS_BLOCK_HASH.clone(),
                         height: 0,
+                        coinbase_height: None,
                         is_nakamoto: false,
                     }
                 }
@@ -4610,6 +4630,7 @@ impl PeerNetwork {
                 consensus_hash: stacks_tip_ch,
                 block_hash: stacks_tip_bhh,
                 height: stacks_tip_height,
+                coinbase_height: stacks_tip_cbh,
                 is_nakamoto: stacks_tip_is_nakamoto,
             };
             self.parent_stacks_tip = parent_stacks_tip;
