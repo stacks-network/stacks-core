@@ -1470,6 +1470,11 @@ simulating a miner.
         process::exit(0);
     }
 
+    if argv[1] == "replay-naka-block" {
+        cli::command_replay_block_nakamoto(&argv[1..], None);
+        process::exit(0);
+    }
+
     if argv[1] == "replay-mock-mining" {
         cli::command_replay_mock_mining(&argv[1..], None);
         process::exit(0);

@@ -2012,6 +2012,7 @@ impl NakamotoChainState {
             commit_burn,
             sortition_burn,
             &active_reward_set,
+            false,
         ) {
             Ok(next_chain_tip_info) => (Some(next_chain_tip_info), None),
             Err(e) => (None, Some(e)),
@@ -3901,6 +3902,7 @@ impl NakamotoChainState {
         burnchain_commit_burn: u64,
         burnchain_sortition_burn: u64,
         active_reward_set: &RewardSet,
+        do_not_advance: bool,
     ) -> Result<
         (
             StacksEpochReceipt,
@@ -4095,6 +4097,7 @@ impl NakamotoChainState {
             burn_dbconn,
             block,
             parent_coinbase_height,
+            do_not_advance,
         )?;
         if new_tenure {
             // tenure height must have advanced
@@ -4274,6 +4277,46 @@ impl NakamotoChainState {
         let matured_rewards_info_opt = matured_miner_rewards_opt
             .as_ref()
             .map(|rewards| rewards.reward_info.clone());
+
+        if do_not_advance {
+            // get burn block stats, for the transaction receipt
+            let (parent_burn_block_hash, parent_burn_block_height, parent_burn_block_timestamp) =
+                if block.is_first_mined() {
+                    (BurnchainHeaderHash([0; 32]), 0, 0)
+                } else {
+                    let sn = SortitionDB::get_block_snapshot_consensus(burn_dbconn, &parent_ch)?
+                        .ok_or_else(|| {
+                            // shouldn't happen
+                            warn!(
+                                "CORRUPTION: {} does not correspond to a burn block",
+                                &parent_ch
+                            );
+                            ChainstateError::InvalidStacksBlock("No parent consensus hash".into())
+                        })?;
+                    (
+                        sn.burn_header_hash,
+                        sn.block_height,
+                        sn.burn_header_timestamp,
+                    )
+                };
+
+            let epoch_receipt = StacksEpochReceipt {
+                header: StacksHeaderInfo::regtest_genesis(),
+                tx_receipts,
+                matured_rewards,
+                matured_rewards_info: matured_rewards_info_opt,
+                parent_microblocks_cost: ExecutionCost::zero(),
+                anchored_block_cost: block_execution_cost,
+                parent_burn_block_hash,
+                parent_burn_block_height: u32::try_from(parent_burn_block_height).unwrap_or(0), // shouldn't be fatal
+                parent_burn_block_timestamp,
+                evaluated_epoch,
+                epoch_transition: applied_epoch_transition,
+                signers_updated: signer_set_calc.is_some(),
+            };
+
+            return Ok((epoch_receipt, clarity_commit, None));
+        }
 
         let new_tip = Self::advance_tip(
             &mut chainstate_tx.tx,

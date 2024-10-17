@@ -47,6 +47,7 @@ use crate::util_lib::db::IndexDBTx;
 
 /// Can be used with CLI commands to support non-mainnet chainstate
 /// Allows integration testing of these functions
+#[derive(Deserialize)]
 pub struct StacksChainConfig {
     pub chain_id: u32,
     pub first_block_height: u64,
@@ -68,10 +69,48 @@ impl StacksChainConfig {
             epochs: STACKS_EPOCHS_MAINNET.to_vec(),
         }
     }
+
+    pub fn default_testnet() -> Self {
+        let mut pox_constants = PoxConstants::regtest_default();
+        pox_constants.prepare_length = 100;
+        pox_constants.reward_cycle_length = 900;
+        pox_constants.v1_unlock_height = 3;
+        pox_constants.v2_unlock_height = 5;
+        pox_constants.pox_3_activation_height = 5;
+        pox_constants.pox_4_activation_height = 6;
+        pox_constants.v3_unlock_height = 7;
+        let mut epochs = STACKS_EPOCHS_REGTEST.to_vec();
+        epochs[0].start_height = 0;
+        epochs[0].end_height = 0;
+        epochs[1].start_height = 0;
+        epochs[1].end_height = 1;
+        epochs[2].start_height = 1;
+        epochs[2].end_height = 2;
+        epochs[3].start_height = 2;
+        epochs[3].end_height = 3;
+        epochs[4].start_height = 3;
+        epochs[4].end_height = 4;
+        epochs[5].start_height = 4;
+        epochs[5].end_height = 5;
+        epochs[6].start_height = 5;
+        epochs[6].end_height = 6;
+        epochs[7].start_height = 6;
+        epochs[7].end_height = 56_457;
+        epochs[8].start_height = 56_457;
+        Self {
+            chain_id: CHAIN_ID_TESTNET,
+            first_block_height: 0,
+            first_burn_header_hash: BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH)
+                .unwrap(),
+            first_burn_header_timestamp: BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP.into(),
+            pox_constants,
+            epochs,
+        }
+    }
 }
 
 const STACKS_CHAIN_CONFIG_DEFAULT_MAINNET: LazyCell<StacksChainConfig> =
-    LazyCell::new(StacksChainConfig::default_mainnet);
+    LazyCell::new(StacksChainConfig::default_testnet);
 
 /// Replay blocks from chainstate database
 /// Terminates on error using `process::exit()`
@@ -147,6 +186,91 @@ pub fn command_replay_block(argv: &[String], conf: Option<&StacksChainConfig>) {
             println!("Checked {i}...");
         }
         replay_staging_block(db_path, index_block_hash, conf);
+    }
+    println!("Finished. run_time_seconds = {}", start.elapsed().as_secs());
+}
+
+/// Replay blocks from chainstate database
+/// Terminates on error using `process::exit()`
+///
+/// Arguments:
+///  - `argv`: Args in CLI format: `<command-name> [args...]`
+pub fn command_replay_block_nakamoto(argv: &[String], conf: Option<&StacksChainConfig>) {
+    let print_help_and_exit = || -> ! {
+        let n = &argv[0];
+        eprintln!("Usage:");
+        eprintln!("  {n} <database-path>");
+        eprintln!("  {n} <database-path> prefix <index-block-hash-prefix>");
+        eprintln!("  {n} <database-path> index-range <start-block> <end-block>");
+        eprintln!("  {n} <database-path> range <start-block> <end-block>");
+        eprintln!("  {n} <database-path> <first|last> <block-count>");
+        process::exit(1);
+    };
+    let start = Instant::now();
+    let db_path = argv.get(1).unwrap_or_else(|| print_help_and_exit());
+    let mode = argv.get(2).map(String::as_str);
+
+    let chain_state_path = format!("{db_path}/chainstate/");
+
+    let default_conf = STACKS_CHAIN_CONFIG_DEFAULT_MAINNET;
+    let conf = conf.unwrap_or(&default_conf);
+
+    let mainnet = conf.chain_id == CHAIN_ID_MAINNET;
+    let (chainstate, _) =
+        StacksChainState::open(mainnet, conf.chain_id, &chain_state_path, None).unwrap();
+
+    let conn = chainstate.nakamoto_blocks_db();
+
+    let query = match mode {
+        Some("prefix") => format!(
+			"SELECT index_block_hash FROM nakamoto_staging_blocks WHERE orphaned = 0 AND index_block_hash LIKE \"{}%\"",
+			argv[3]
+		),
+        Some("first") => format!(
+			"SELECT index_block_hash FROM nakamoto_staging_blocks WHERE orphaned = 0 ORDER BY height ASC LIMIT {}",
+			argv[3]
+		),
+        Some("range") => {
+            let arg4 = argv[3]
+                .parse::<u64>()
+                .expect("<start_block> not a valid u64");
+            let arg5 = argv[4].parse::<u64>().expect("<end-block> not a valid u64");
+            let start = arg4.saturating_sub(1);
+            let blocks = arg5.saturating_sub(arg4);
+            format!("SELECT index_block_hash FROM nakamoto_staging_blocks WHERE orphaned = 0 ORDER BY height ASC LIMIT {start}, {blocks}")
+        }
+        Some("index-range") => {
+            let start = argv[3]
+                .parse::<u64>()
+                .expect("<start_block> not a valid u64");
+            let end = argv[4].parse::<u64>().expect("<end-block> not a valid u64");
+            let blocks = end.saturating_sub(start);
+            format!("SELECT index_block_hash FROM nakamoto_staging_blocks WHERE orphaned = 0 ORDER BY index_block_hash ASC LIMIT {start}, {blocks}")
+        }
+        Some("last") => format!(
+			"SELECT index_block_hash FROM nakamoto_staging_blocks WHERE orphaned = 0 ORDER BY height DESC LIMIT {}",
+			argv[3]
+		),
+        Some(_) => print_help_and_exit(),
+        // Default to ALL blocks
+        None => "SELECT index_block_hash FROM nakamoto_staging_blocks WHERE orphaned = 0".into(),
+    };
+
+    let mut stmt = conn.prepare(&query).unwrap();
+    let mut hashes_set = stmt.query(NO_PARAMS).unwrap();
+
+    let mut index_block_hashes: Vec<String> = vec![];
+    while let Ok(Some(row)) = hashes_set.next() {
+        index_block_hashes.push(row.get(0).unwrap());
+    }
+
+    let total = index_block_hashes.len();
+    println!("Will check {total} blocks");
+    for (i, index_block_hash) in index_block_hashes.iter().enumerate() {
+        if i % 100 == 0 {
+            println!("Checked {i}...");
+        }
+        replay_naka_staging_block(db_path, index_block_hash, &conf);
     }
     println!("Finished. run_time_seconds = {}", start.elapsed().as_secs());
 }
@@ -525,11 +649,39 @@ fn replay_block(
     };
 }
 
+/// Fetch and process a NakamotoBlock from database and call `replay_block_nakamoto()` to validate
+fn replay_naka_staging_block(db_path: &str, index_block_hash_hex: &str, conf: &StacksChainConfig) {
+    let block_id = StacksBlockId::from_hex(index_block_hash_hex).unwrap();
+    let chain_state_path = format!("{db_path}/chainstate/");
+    let sort_db_path = format!("{db_path}/burnchain/sortition");
+
+    let mainnet = conf.chain_id == CHAIN_ID_MAINNET;
+    let (mut chainstate, _) =
+        StacksChainState::open(mainnet, conf.chain_id, &chain_state_path, None).unwrap();
+
+    let mut sortdb = SortitionDB::connect(
+        &sort_db_path,
+        conf.first_block_height,
+        &conf.first_burn_header_hash,
+        conf.first_burn_header_timestamp,
+        &conf.epochs,
+        conf.pox_constants.clone(),
+        None,
+        true,
+    )
+    .unwrap();
+
+    let (block, block_size) = chainstate
+        .nakamoto_blocks_db()
+        .get_nakamoto_block(&block_id)
+        .unwrap()
+        .unwrap();
+    replay_block_nakamoto(&mut sortdb, &mut chainstate, &block, block_size).unwrap();
+}
+
 fn replay_block_nakamoto(
     sort_db: &mut SortitionDB,
     stacks_chain_state: &mut StacksChainState,
-    mut chainstate_tx: ChainstateTx,
-    clarity_instance: &mut ClarityInstance,
     block: &NakamotoBlock,
     block_size: u64,
 ) -> Result<(), ChainstateError> {
@@ -758,6 +910,7 @@ fn replay_block_nakamoto(
         commit_burn,
         sortition_burn,
         &active_reward_set,
+        true,
     ) {
         Ok(next_chain_tip_info) => (Some(next_chain_tip_info), None),
         Err(e) => (None, Some(e)),
@@ -785,18 +938,5 @@ fn replay_block_nakamoto(
         return Err(e);
     };
 
-    let (receipt, clarity_commit, reward_set_data) = ok_opt.expect("FATAL: unreachable");
-
-    assert_eq!(
-        receipt.header.anchored_header.block_hash(),
-        block.header.block_hash()
-    );
-    assert_eq!(receipt.header.consensus_hash, block.header.consensus_hash);
-
-    info!(
-        "Advanced to new tip! {}/{}",
-        &receipt.header.consensus_hash,
-        &receipt.header.anchored_header.block_hash()
-    );
     Ok(())
 }
