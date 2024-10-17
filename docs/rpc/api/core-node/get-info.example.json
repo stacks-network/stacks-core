@@ -11,6 +11,7 @@
   "stacks_tip": "b1807a2d3f7f8c7922f7c1d60d7c34145ade05d789640dc7dc9ec1021e07bb54",
   "stacks_tip_consensus_hash": "17f76e597bab45646956f38dd39573085d72cbc0",
   "unanchored_tip": "0000000000000000000000000000000000000000000000000000000000000000",
+  "tenure_height": 523,
   "exit_at_block_height": null,
   "is_fully_synced": false
 }
