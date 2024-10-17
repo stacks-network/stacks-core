@@ -927,6 +927,14 @@ impl<'a> ClarityDatabase<'a> {
         }
     }
 
+    /// Return the block height for a given tenure height
+    ///   if the block information is queryable for the tenure height.
+    /// The block information for a given tenure height is queryable iff:
+    ///  * `tenure_height` falls in 2.x, and `tenure_height` < `current_height`
+    ///  * `tenure_height` falls in 3.x, and the first block of the tenure
+    ///    at `tenure_height` has a stacks block height less than `current_height`
+    ///
+    /// If the block information isn't queryable, return `Ok(None)`
     pub fn get_block_height_for_tenure_height(
         &mut self,
         tenure_height: u32,

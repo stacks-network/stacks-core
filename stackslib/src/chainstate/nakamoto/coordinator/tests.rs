@@ -302,7 +302,7 @@ pub fn make_token_transfer(
     stx_transfer_signed
 }
 
-/// Make a token-transfer from a private key
+/// Make contract publish
 pub fn make_contract(
     chainstate: &mut StacksChainState,
     name: &str,

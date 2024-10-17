@@ -47,6 +47,9 @@ pub trait GetTenureStartId {
         tip: &StacksBlockId,
         tenure_id_consensus_hash: &ConsensusHash,
     ) -> Result<Option<TenureBlockId>, DBError>;
+    /// Return the StacksBlockId of the tenure start block for the
+    ///  tenure with coinbase height `coinbase_height` in the fork
+    ///  referenced by `tip`.
     fn get_tenure_block_id_at_cb_height(
         &self,
         tip: &StacksBlockId,
