@@ -25,7 +25,7 @@ use {reqwest, serde_json};
 
 use super::bitcoin_regtest::BitcoinCoreController;
 use crate::burnchains::BurnchainController;
-use crate::config::{EventKeyType, EventObserverConfig, InitialBalance};
+use crate::config::{EventKeyType, InitialBalance};
 use crate::tests::neon_integrations::{
     neon_integration_test_conf, next_block_and_wait, submit_tx, test_observer, wait_for_runloop,
 };
@@ -206,7 +206,14 @@ fn test_stackerdb_load_store() {
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
     eprintln!("Send contract-publish...");
-    let tx = make_contract_publish(&privks[0], 0, 10_000, "hello-world", stackerdb_contract);
+    let tx = make_contract_publish(
+        &privks[0],
+        0,
+        10_000,
+        conf.burnchain.chain_id,
+        "hello-world",
+        stackerdb_contract,
+    );
     submit_tx(&http_origin, &tx);
 
     // mine it
@@ -336,7 +343,14 @@ fn test_stackerdb_event_observer() {
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
     eprintln!("Send contract-publish...");
-    let tx = make_contract_publish(&privks[0], 0, 10_000, "hello-world", stackerdb_contract);
+    let tx = make_contract_publish(
+        &privks[0],
+        0,
+        10_000,
+        conf.burnchain.chain_id,
+        "hello-world",
+        stackerdb_contract,
+    );
     submit_tx(&http_origin, &tx);
 
     // mine it
