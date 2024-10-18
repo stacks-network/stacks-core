@@ -4048,13 +4048,13 @@ fn partial_tenure_fork() {
         } else {
             miner_2_tenures += 1;
         }
-        info!(
-            "Miner 1 tenures: {}, Miner 2 tenures: {}, Miner 1 before: {}, Miner 2 before: {}",
-            miner_1_tenures, miner_2_tenures, mined_before_1, mined_before_2,
-        );
 
         let mined_1 = blocks_mined1.load(Ordering::SeqCst);
         let mined_2 = blocks_mined2.load(Ordering::SeqCst);
+        info!(
+            "Miner 1 tenures: {miner_1_tenures}, Miner 2 tenures: {miner_2_tenures}, Miner 1 before: {mined_before_1}, Miner 2 before: {mined_before_2}, Miner 1 blocks: {mined_1}, Miner 2 blocks: {mined_2}",
+        );
+
         if miner == 1 {
             assert_eq!(mined_1, mined_before_1 + inter_blocks_per_tenure + 1);
         } else {
