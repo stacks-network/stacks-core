@@ -191,6 +191,7 @@ impl BlockEventDispatcher for DummyEventDispatcher {
         _reward_set_data: &Option<RewardSetData>,
         _signer_bitvec: &Option<BitVec<4000>>,
         _block_timestamp: Option<u64>,
+        _coinbase_height: u64,
     ) {
         assert!(
             false,
@@ -5809,8 +5810,10 @@ impl StacksChainState {
             .map(|(_, _, _, info)| info.clone());
 
         if do_not_advance {
+            let regtest_genesis_header = StacksHeaderInfo::regtest_genesis();
+            let coinbase_height = regtest_genesis_header.stacks_block_height;
             let epoch_receipt = StacksEpochReceipt {
-                header: StacksHeaderInfo::regtest_genesis(),
+                header: regtest_genesis_header,
                 tx_receipts,
                 matured_rewards,
                 matured_rewards_info,
@@ -5822,6 +5825,7 @@ impl StacksChainState {
                 evaluated_epoch,
                 epoch_transition: applied_epoch_transition,
                 signers_updated: false,
+                coinbase_height,
             };
 
             return Ok((epoch_receipt, clarity_commit, None));
@@ -5898,6 +5902,9 @@ impl StacksChainState {
         );
         set_last_execution_cost_observed(&block_execution_cost, &block_limit);
 
+        // // The coinbase height is the same as the stacks block height in epoch 2.x
+        let coinbase_height = new_tip.stacks_block_height;
+
         let epoch_receipt = StacksEpochReceipt {
             header: new_tip,
             tx_receipts,
@@ -5911,6 +5918,7 @@ impl StacksChainState {
             evaluated_epoch,
             epoch_transition: applied_epoch_transition,
             signers_updated,
+            coinbase_height,
         };
 
         Ok((epoch_receipt, clarity_commit, reward_set_data))
@@ -6411,6 +6419,7 @@ impl StacksChainState {
                 &reward_set_data,
                 &None,
                 None,
+                next_staging_block.height,
             );
         }
 
