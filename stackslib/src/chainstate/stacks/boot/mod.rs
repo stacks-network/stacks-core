@@ -1998,6 +1998,44 @@ pub mod test {
         make_tx(key, nonce, 0, payload)
     }
 
+    pub fn make_pox_4_lockup_chain_id(
+        key: &StacksPrivateKey,
+        nonce: u64,
+        amount: u128,
+        addr: &PoxAddress,
+        lock_period: u128,
+        signer_key: &StacksPublicKey,
+        burn_ht: u64,
+        signature_opt: Option<Vec<u8>>,
+        max_amount: u128,
+        auth_id: u128,
+        chain_id: u32,
+    ) -> StacksTransaction {
+        let addr_tuple = Value::Tuple(addr.as_clarity_tuple().unwrap());
+        let signature = match signature_opt {
+            Some(sig) => Value::some(Value::buff_from(sig).unwrap()).unwrap(),
+            None => Value::none(),
+        };
+        let payload = TransactionPayload::new_contract_call(
+            boot_code_test_addr(),
+            "pox-4",
+            "stack-stx",
+            vec![
+                Value::UInt(amount),
+                addr_tuple,
+                Value::UInt(burn_ht as u128),
+                Value::UInt(lock_period),
+                signature,
+                Value::buff_from(signer_key.to_bytes_compressed()).unwrap(),
+                Value::UInt(max_amount),
+                Value::UInt(auth_id),
+            ],
+        )
+        .unwrap();
+
+        make_tx_chain_id(key, nonce, 0, payload, chain_id)
+    }
+
     pub fn make_pox_2_or_3_lockup(
         key: &StacksPrivateKey,
         nonce: u64,
@@ -2451,10 +2489,20 @@ pub mod test {
         tx_fee: u64,
         payload: TransactionPayload,
     ) -> StacksTransaction {
+        make_tx_chain_id(key, nonce, tx_fee, payload, CHAIN_ID_TESTNET)
+    }
+
+    fn make_tx_chain_id(
+        key: &StacksPrivateKey,
+        nonce: u64,
+        tx_fee: u64,
+        payload: TransactionPayload,
+        chain_id: u32,
+    ) -> StacksTransaction {
         let auth = TransactionAuth::from_p2pkh(key).unwrap();
         let addr = auth.origin().address_testnet();
         let mut tx = StacksTransaction::new(TransactionVersion::Testnet, auth, payload);
-        tx.chain_id = 0x80000000;
+        tx.chain_id = chain_id;
         tx.auth.set_origin_nonce(nonce);
         tx.set_post_condition_mode(TransactionPostConditionMode::Allow);
         tx.set_tx_fee(tx_fee);
