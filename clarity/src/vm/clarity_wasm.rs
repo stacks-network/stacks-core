@@ -7669,7 +7669,7 @@ mod error_mapping {
     use stacks_common::types::StacksEpochId;
     use wasmtime::{AsContextMut, Instance, Trap};
 
-    use super::{read_identifier_from_wasm, signature_from_string};
+    use super::{read_from_wasm_indirect, read_identifier_from_wasm, signature_from_string};
     use crate::vm::errors::{CheckErrors, Error, RuntimeErrorType, ShortReturnType, WasmError};
     use crate::vm::types::{OptionalData, ResponseData};
     use crate::vm::{ClarityVersion, Value};
