@@ -439,6 +439,8 @@ pub struct MockSignature {
     signature: MessageSignature,
     /// The mock block proposal that was signed across
     pub mock_proposal: MockProposal,
+    /// The signature metadata
+    pub metadata: SignerMessageMetadata,
 }
 
 impl MockSignature {
@@ -447,6 +449,7 @@ impl MockSignature {
         let mut sig = Self {
             signature: MessageSignature::empty(),
             mock_proposal,
+            metadata: SignerMessageMetadata::default(),
         };
         sig.sign(stacks_private_key)
             .expect("Failed to sign MockSignature");
@@ -476,15 +479,18 @@ impl StacksMessageCodec for MockSignature {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
         write_next(fd, &self.signature)?;
         self.mock_proposal.consensus_serialize(fd)?;
+        self.metadata.consensus_serialize(fd)?;
         Ok(())
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
         let signature = read_next::<MessageSignature, _>(fd)?;
         let mock_proposal = MockProposal::consensus_deserialize(fd)?;
+        let metadata = SignerMessageMetadata::consensus_deserialize(fd)?;
         Ok(Self {
             signature,
             mock_proposal,
+            metadata,
         })
     }
 }
@@ -1206,6 +1212,7 @@ mod test {
         let mut mock_signature = MockSignature {
             signature: MessageSignature::empty(),
             mock_proposal: random_mock_proposal(),
+            metadata: SignerMessageMetadata::default(),
         };
         mock_signature
             .sign(&StacksPrivateKey::new())
