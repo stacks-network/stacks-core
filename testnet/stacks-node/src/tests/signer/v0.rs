@@ -1776,6 +1776,7 @@ fn miner_forking() {
             config.burnchain.local_mining_public_key = Some(btc_miner_1_pk.to_hex());
             config.miner.mining_key = Some(Secp256k1PrivateKey::from_seed(&[1]));
             config.node.pox_sync_sample_secs = 30;
+            config.burnchain.pox_reward_length = Some(30); // Increase the reward cycle length to make it more likely for our scenario to hit
 
             config.events_observers.retain(|listener| {
                 let Ok(addr) = std::net::SocketAddr::from_str(&listener.endpoint) else {
