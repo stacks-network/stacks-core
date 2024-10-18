@@ -748,6 +748,7 @@ impl EventObserver {
         reward_set_data: &Option<RewardSetData>,
         signer_bitvec_opt: &Option<BitVec<4000>>,
         block_timestamp: Option<u64>,
+        coinbase_height: u64,
     ) -> serde_json::Value {
         // Serialize events to JSON
         let serialized_events: Vec<serde_json::Value> = filtered_events
@@ -809,6 +810,7 @@ impl EventObserver {
             "signer_bitvec": signer_bitvec_value,
             "reward_set": reward_set_value,
             "cycle_number": cycle_number_value,
+            "tenure_height": coinbase_height,
         });
 
         let as_object_mut = payload.as_object_mut().unwrap();
@@ -1008,6 +1010,7 @@ impl BlockEventDispatcher for EventDispatcher {
         reward_set_data: &Option<RewardSetData>,
         signer_bitvec: &Option<BitVec<4000>>,
         block_timestamp: Option<u64>,
+        coinbase_height: u64,
     ) {
         self.process_chain_tip(
             block,
@@ -1026,6 +1029,7 @@ impl BlockEventDispatcher for EventDispatcher {
             reward_set_data,
             signer_bitvec,
             block_timestamp,
+            coinbase_height,
         );
     }
 
@@ -1209,6 +1213,7 @@ impl EventDispatcher {
         reward_set_data: &Option<RewardSetData>,
         signer_bitvec: &Option<BitVec<4000>>,
         block_timestamp: Option<u64>,
+        coinbase_height: u64,
     ) {
         let all_receipts = receipts.to_owned();
         let (dispatch_matrix, events) = self.create_dispatch_matrix_and_event_vector(&all_receipts);
@@ -1261,6 +1266,7 @@ impl EventDispatcher {
                         reward_set_data,
                         signer_bitvec,
                         block_timestamp,
+                        coinbase_height,
                     );
 
                 // Send payload
@@ -1669,6 +1675,7 @@ mod test {
         let pox_constants = PoxConstants::testnet_default();
         let signer_bitvec = BitVec::zeros(2).expect("Failed to create BitVec with length 2");
         let block_timestamp = Some(123456);
+        let coinbase_height = 1234;
 
         let payload = observer.make_new_block_processed_payload(
             filtered_events,
@@ -1687,6 +1694,7 @@ mod test {
             &None,
             &Some(signer_bitvec.clone()),
             block_timestamp,
+            coinbase_height,
         );
         assert_eq!(
             payload
@@ -1737,6 +1745,7 @@ mod test {
         let pox_constants = PoxConstants::testnet_default();
         let signer_bitvec = BitVec::zeros(2).expect("Failed to create BitVec with length 2");
         let block_timestamp = Some(123456);
+        let coinbase_height = 1234;
 
         let payload = observer.make_new_block_processed_payload(
             filtered_events,
@@ -1755,6 +1764,7 @@ mod test {
             &None,
             &Some(signer_bitvec.clone()),
             block_timestamp,
+            coinbase_height,
         );
 
         let event_signer_signature = payload
