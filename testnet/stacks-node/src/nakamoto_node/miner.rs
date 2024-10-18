@@ -646,22 +646,6 @@ impl BlockMinerThread {
             ))
         })?;
 
-        let tip = SortitionDB::get_block_snapshot_consensus(
-            sort_db.conn(),
-            &new_block.header.consensus_hash,
-        )
-        .map_err(|e| {
-            NakamotoNodeError::SigningCoordinatorFailure(format!(
-                "Failed to retrieve chain tip: {:?}",
-                e
-            ))
-        })
-        .and_then(|result| {
-            result.ok_or_else(|| {
-                NakamotoNodeError::SigningCoordinatorFailure("Failed to retrieve chain tip".into())
-            })
-        })?;
-
         let reward_set = self.load_signer_set()?;
 
         if self.config.get_node_config(false).mock_mining {
@@ -689,7 +673,7 @@ impl BlockMinerThread {
 
         let signature = coordinator.run_sign_v0(
             new_block,
-            &tip,
+            &self.burn_block,
             &self.burnchain,
             &sort_db,
             &mut chain_state,
@@ -1340,6 +1324,7 @@ impl BlockMinerThread {
     }
 
     /// Check if the tenure needs to change -- if so, return a BurnchainTipChanged error
+    /// The tenure should change if there is a new burnchain tip with a valid sortition
     fn check_burn_tip_changed(&self, sortdb: &SortitionDB) -> Result<(), NakamotoNodeError> {
         let cur_burn_chain_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
             .expect("FATAL: failed to query sortition DB for canonical burn chain tip");

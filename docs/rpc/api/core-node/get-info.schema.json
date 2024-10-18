@@ -17,6 +17,7 @@
     "stacks_tip",
     "stacks_tip_consensus_hash",
     "unanchored_tip",
+    "tenure_height",
     "exit_at_block_height",
     "is_fully_synced"
   ],
@@ -68,6 +69,10 @@
     "unanchored_tip": {
       "type": "string",
       "description": "the latest microblock hash if any microblocks were processed. if no microblock has been processed for the current block, a 000.., hex array is returned"
+    },
+    "tenure_height": {
+      "type": "integer",
+      "description": "the latest Stacks tenure height"
     },
     "exit_at_block_height": {
       "type": "integer",

@@ -28,6 +28,7 @@ use crate::client::{ClientError, StacksClient};
 use crate::config::{GlobalConfig, Network};
 use crate::monitoring::prometheus::gather_metrics_string;
 use crate::monitoring::{update_signer_nonce, update_stacks_tip_height};
+use crate::VERSION_STRING;
 
 #[derive(thiserror::Error, Debug)]
 /// Monitoring server errors
@@ -215,6 +216,7 @@ impl MonitoringServer {
             "signerPublicKey": to_hex(&self.public_key.to_bytes_compressed()),
             "network": self.network.to_string(),
             "stxAddress": self.stacks_client.get_signer_address().to_string(),
+            "version": VERSION_STRING.to_string(),
         }))
         .expect("Failed to serialize JSON")
     }
