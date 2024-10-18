@@ -706,7 +706,7 @@ impl<'a> TestPeer<'a> {
             |_| {},
             block_builder,
             |_| true,
-        )
+        ).unwrap()
     }
 
     pub fn single_block_tenure<S, F, G>(
