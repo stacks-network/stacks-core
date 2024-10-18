@@ -853,12 +853,6 @@ impl Config {
                     "Attempted to run mainnet node with `use_test_genesis_chainstate`"
                 ));
             }
-        } else if node.require_affirmed_anchor_blocks {
-            // testnet requires that we use the 2.05 rules for anchor block affirmations,
-            // because reward cycle 360 (and possibly future ones) has a different anchor
-            // block choice in 2.05 rules than in 2.1 rules.
-            debug!("Set `require_affirmed_anchor_blocks` to `false` for non-mainnet config");
-            node.require_affirmed_anchor_blocks = false;
         }
 
         if node.stacker || node.miner {
