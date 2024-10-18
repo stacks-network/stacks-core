@@ -651,7 +651,7 @@ impl fmt::Display for SymbolicExpression {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct Span {
     pub start_line: u32,
     pub start_column: u32,
