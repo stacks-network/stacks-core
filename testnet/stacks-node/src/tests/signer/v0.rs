@@ -25,7 +25,7 @@ use clarity::vm::StacksEpoch;
 use libsigner::v0::messages::{
     BlockRejection, BlockResponse, MessageSlotID, MinerSlotID, RejectCode, SignerMessage,
 };
-use libsigner::{BlockProposal, SignerSession, StackerDBSession};
+use libsigner::{BlockProposal, SignerSession, StackerDBSession, VERSION_STRING};
 use stacks::address::AddressHashMode;
 use stacks::burnchains::Txid;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
@@ -2567,10 +2567,12 @@ fn empty_sortition() {
             };
             if let SignerMessage::BlockResponse(BlockResponse::Rejected(BlockRejection {
                 reason_code,
+                metadata,
                 ..
             })) = latest_msg
             {
                 assert!(matches!(reason_code, RejectCode::SortitionViewMismatch));
+                assert_eq!(metadata.server_version, VERSION_STRING.to_string());
                 found_rejections.push(*slot_id);
             } else {
                 info!("Latest message from slot #{slot_id} isn't a block rejection, will wait to see if the signer updates to a rejection");

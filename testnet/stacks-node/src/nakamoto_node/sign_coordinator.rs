@@ -456,6 +456,7 @@ impl SignCoordinator {
                         let BlockAccepted {
                             signer_signature_hash: response_hash,
                             signature,
+                            metadata,
                         } = accepted;
                         let block_sighash = block.header.signer_signature_hash();
                         if block_sighash != response_hash {
@@ -466,7 +467,8 @@ impl SignCoordinator {
                                 "response_hash" => %response_hash,
                                 "slot_id" => slot_id,
                                 "reward_cycle_id" => reward_cycle_id,
-                                "response_hash" => %response_hash
+                                "response_hash" => %response_hash,
+                                "server_version" => %metadata.server_version
                             );
                             continue;
                         }
@@ -514,7 +516,8 @@ impl SignCoordinator {
                             "signer_weight" => signer_entry.weight,
                             "total_weight_signed" => total_weight_signed,
                             "stacks_block_hash" => %block.header.block_hash(),
-                            "stacks_block_id" => %block.header.block_id()
+                            "stacks_block_id" => %block.header.block_id(),
+                            "server_version" => metadata.server_version,
                         );
                         gathered_signatures.insert(slot_id, signature);
                         responded_signers.insert(signer_pubkey);

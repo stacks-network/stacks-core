@@ -546,10 +546,7 @@ impl Signer {
         self.signer_db
             .insert_block(&block_info)
             .unwrap_or_else(|_| panic!("{self}: Failed to insert block in DB"));
-        let accepted = BlockAccepted {
-            signer_signature_hash: block_info.signer_signature_hash(),
-            signature,
-        };
+        let accepted = BlockAccepted::new(block_info.signer_signature_hash(), signature);
         // have to save the signature _after_ the block info
         self.handle_block_signature(stacks_client, &accepted);
         Some(BlockResponse::Accepted(accepted))
@@ -742,8 +739,12 @@ impl Signer {
         let BlockAccepted {
             signer_signature_hash: block_hash,
             signature,
+            metadata,
         } = accepted;
-        debug!("{self}: Received a block-accept signature: ({block_hash}, {signature})");
+        debug!(
+            "{self}: Received a block-accept signature: ({block_hash}, {signature}, {})",
+            metadata.server_version
+        );
 
         // Have we already processed this block?
         match self
