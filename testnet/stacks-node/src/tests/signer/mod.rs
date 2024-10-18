@@ -36,7 +36,7 @@ use std::time::{Duration, Instant};
 
 use clarity::boot_util::boot_code_id;
 use clarity::vm::types::PrincipalData;
-use libsigner::v0::messages::{BlockResponse, SignerMessage};
+use libsigner::v0::messages::{BlockAccepted, BlockResponse, SignerMessage};
 use libsigner::{SignerEntries, SignerEventTrait};
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::nakamoto::signer_set::NakamotoSigners;
@@ -578,10 +578,11 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
                     let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
                         .expect("Failed to deserialize SignerMessage");
                     match message {
-                        SignerMessage::BlockResponse(BlockResponse::Accepted((
-                            hash,
-                            signature,
-                        ))) => {
+                        SignerMessage::BlockResponse(BlockResponse::Accepted(accepted)) => {
+                            let BlockAccepted {
+                                signer_signature_hash: hash,
+                                signature,
+                            } = accepted;
                             if hash == *signer_signature_hash
                                 && expected_signers.iter().any(|pk| {
                                     pk.verify(hash.bits(), &signature)

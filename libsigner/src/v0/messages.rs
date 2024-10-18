@@ -603,7 +603,7 @@ impl From<&BlockResponse> for BlockResponseTypePrefix {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum BlockResponse {
     /// The Nakamoto block was accepted and therefore signed
-    Accepted((Sha512Trunc256Sum, MessageSignature)),
+    Accepted(BlockAccepted),
     /// The Nakamoto block was rejected and therefore not signed
     Rejected(BlockRejection),
 }
@@ -616,7 +616,7 @@ impl std::fmt::Display for BlockResponse {
                 write!(
                     f,
                     "BlockAccepted: signer_sighash = {}, signature = {}",
-                    a.0, a.1
+                    a.signer_signature_hash, a.signature
                 )
             }
             BlockResponse::Rejected(r) => {
@@ -633,7 +633,10 @@ impl std::fmt::Display for BlockResponse {
 impl BlockResponse {
     /// Create a new accepted BlockResponse for the provided block signer signature hash and signature
     pub fn accepted(hash: Sha512Trunc256Sum, sig: MessageSignature) -> Self {
-        Self::Accepted((hash, sig))
+        Self::Accepted(BlockAccepted {
+            signer_signature_hash: hash,
+            signature: sig,
+        })
     }
 
     /// Create a new rejected BlockResponse for the provided block signer signature hash and rejection code and sign it with the provided private key
@@ -651,9 +654,8 @@ impl StacksMessageCodec for BlockResponse {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
         write_next(fd, &(BlockResponseTypePrefix::from(self) as u8))?;
         match self {
-            BlockResponse::Accepted((hash, sig)) => {
-                write_next(fd, hash)?;
-                write_next(fd, sig)?;
+            BlockResponse::Accepted(accepted) => {
+                write_next(fd, accepted)?;
             }
             BlockResponse::Rejected(rejection) => {
                 write_next(fd, rejection)?;
@@ -667,9 +669,8 @@ impl StacksMessageCodec for BlockResponse {
         let type_prefix = BlockResponseTypePrefix::try_from(type_prefix_byte)?;
         let response = match type_prefix {
             BlockResponseTypePrefix::Accepted => {
-                let hash = read_next::<Sha512Trunc256Sum, _>(fd)?;
-                let sig = read_next::<MessageSignature, _>(fd)?;
-                BlockResponse::Accepted((hash, sig))
+                let accepted = read_next::<BlockAccepted, _>(fd)?;
+                BlockResponse::Accepted(accepted)
             }
             BlockResponseTypePrefix::Rejected => {
                 let rejection = read_next::<BlockRejection, _>(fd)?;
@@ -677,6 +678,32 @@ impl StacksMessageCodec for BlockResponse {
             }
         };
         Ok(response)
+    }
+}
+
+/// A rejection response from a signer for a proposed block
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct BlockAccepted {
+    /// The signer signature hash of the block that was accepted
+    pub signer_signature_hash: Sha512Trunc256Sum,
+    /// The signer's signature across the acceptance
+    pub signature: MessageSignature,
+}
+
+impl StacksMessageCodec for BlockAccepted {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
+        write_next(fd, &self.signer_signature_hash)?;
+        write_next(fd, &self.signature)?;
+        Ok(())
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
+        let signer_signature_hash = read_next::<Sha512Trunc256Sum, _>(fd)?;
+        let signature = read_next::<MessageSignature, _>(fd)?;
+        Ok(Self {
+            signer_signature_hash,
+            signature,
+        })
     }
 }
 
@@ -894,7 +921,7 @@ mod test {
     use clarity::consts::CHAIN_ID_MAINNET;
     use clarity::types::chainstate::{ConsensusHash, StacksBlockId, TrieHash};
     use clarity::types::PrivateKey;
-    use clarity::util::hash::MerkleTree;
+    use clarity::util::hash::{hex_bytes, MerkleTree};
     use clarity::util::secp256k1::MessageSignature;
     use rand::rngs::mock;
     use rand::{thread_rng, Rng, RngCore};
@@ -958,8 +985,11 @@ mod test {
 
     #[test]
     fn serde_block_response() {
-        let response =
-            BlockResponse::Accepted((Sha512Trunc256Sum([0u8; 32]), MessageSignature::empty()));
+        let accepted = BlockAccepted {
+            signer_signature_hash: Sha512Trunc256Sum([0u8; 32]),
+            signature: MessageSignature::empty(),
+        };
+        let response = BlockResponse::Accepted(accepted);
         let serialized_response = response.serialize_to_vec();
         let deserialized_response = read_next::<BlockResponse, _>(&mut &serialized_response[..])
             .expect("Failed to deserialize BlockResponse");
@@ -979,10 +1009,11 @@ mod test {
 
     #[test]
     fn serde_signer_message() {
-        let signer_message = SignerMessage::BlockResponse(BlockResponse::Accepted((
-            Sha512Trunc256Sum([2u8; 32]),
-            MessageSignature::empty(),
-        )));
+        let accepted = BlockAccepted {
+            signer_signature_hash: Sha512Trunc256Sum([2u8; 32]),
+            signature: MessageSignature::empty(),
+        };
+        let signer_message = SignerMessage::BlockResponse(BlockResponse::Accepted(accepted));
         let serialized_signer_message = signer_message.serialize_to_vec();
         let deserialized_signer_message =
             read_next::<SignerMessage, _>(&mut &serialized_signer_message[..])
@@ -1121,5 +1152,49 @@ mod test {
         let deserialized_data = read_next::<MockBlock, _>(&mut &serialized_data[..])
             .expect("Failed to deserialize MockSignData");
         assert_eq!(mock_block, deserialized_data);
+    }
+
+    #[test]
+    fn test_backwards_compatibility() {
+        let block_rejected_hex = "010100000050426c6f636b206973206e6f7420612074656e7572652d737461727420626c6f636b2c20616e642068617320616e20756e7265636f676e697a65642074656e75726520636f6e73656e7375732068617368000691f95f84b7045f7dce7757052caa986ef042cb58f7df5031a3b5b5d0e3dda63e80000000006fb349212e1a1af1a3c712878d5159b5ec14636adb6f70be00a6da4ad4f88a9934d8a9abb229620dd8e0f225d63401e36c64817fb29e6c05591dcbe95c512df3";
+        let block_rejected_bytes = hex_bytes(&block_rejected_hex).unwrap();
+        let block_accepted_hex = "010011717149677c2ac97d15ae5954f7a716f10100b9cb81a2bf27551b2f2e54ef19001c694f8134c5c90f2f2bcd330e9f423204884f001b5df0050f36a2c4ff79dd93522bb2ae395ea87de4964886447507c18374b7a46ee2e371e9bf332f0706a3e8";
+        let block_accepted_bytes = hex_bytes(&block_accepted_hex).unwrap();
+        let block_rejected = read_next::<SignerMessage, _>(&mut &block_rejected_bytes[..])
+            .expect("Failed to deserialize BlockRejection");
+        let block_accepted = read_next::<SignerMessage, _>(&mut &block_accepted_bytes[..])
+            .expect("Failed to deserialize BlockRejection");
+
+        assert_eq!(
+            block_rejected,
+            SignerMessage::BlockResponse(BlockResponse::Rejected(BlockRejection {
+                reason_code: RejectCode::ValidationFailed(ValidateRejectCode::NoSuchTenure),
+                reason: "Block is not a tenure-start block, and has an unrecognized tenure consensus hash".to_string(),
+                signer_signature_hash: Sha512Trunc256Sum([145, 249, 95, 132, 183, 4, 95, 125, 206, 119, 87, 5, 44, 170, 152, 110, 240, 66, 203, 88, 247, 223, 80, 49, 163, 181, 181, 208, 227, 221, 166, 62]),
+                chain_id: CHAIN_ID_TESTNET,
+                signature: MessageSignature([
+                    0, 111, 179, 73, 33, 46, 26, 26, 241, 163, 199, 18, 135, 141, 81, 89, 181, 236,
+                    20, 99, 106, 219, 111, 112, 190, 0, 166, 218, 74, 212, 248, 138, 153, 52, 216,
+                    169, 171, 178, 41, 98, 13, 216, 224, 242, 37, 214, 52, 1, 227, 108, 100, 129,
+                    127, 178, 158, 108, 5, 89, 29, 203, 233, 92, 81, 45, 243,
+                ]),
+            }))
+        );
+
+        assert_eq!(
+            block_accepted,
+            SignerMessage::BlockResponse(BlockResponse::Accepted(BlockAccepted {
+                signer_signature_hash: Sha512Trunc256Sum([
+                    17, 113, 113, 73, 103, 124, 42, 201, 125, 21, 174, 89, 84, 247, 167, 22, 241,
+                    1, 0, 185, 203, 129, 162, 191, 39, 85, 27, 47, 46, 84, 239, 25
+                ]),
+                signature: MessageSignature([
+                    0, 28, 105, 79, 129, 52, 197, 201, 15, 47, 43, 205, 51, 14, 159, 66, 50, 4,
+                    136, 79, 0, 27, 93, 240, 5, 15, 54, 162, 196, 255, 121, 221, 147, 82, 43, 178,
+                    174, 57, 94, 168, 125, 228, 150, 72, 134, 68, 117, 7, 193, 131, 116, 183, 164,
+                    110, 226, 227, 113, 233, 191, 51, 47, 7, 6, 163, 232
+                ]),
+            }))
+        );
     }
 }

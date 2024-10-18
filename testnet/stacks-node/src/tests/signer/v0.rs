@@ -3411,7 +3411,7 @@ fn duplicate_signers() {
             })
             .filter_map(|message| match message {
                 SignerMessage::BlockResponse(BlockResponse::Accepted(m)) => {
-                    info!("Message(accepted): {message:?}");
+                    info!("Message(accepted): {:?}", &m);
                     Some(m)
                 }
                 _ => {
@@ -3425,20 +3425,23 @@ fn duplicate_signers() {
     info!("------------------------- Assert there are {unique_signers} unique signatures and recovered pubkeys -------------------------");
 
     // Pick a message hash
-    let (selected_sighash, _) = signer_accepted_responses
+    let accepted = signer_accepted_responses
         .iter()
-        .min_by_key(|(sighash, _)| *sighash)
-        .copied()
+        .min_by_key(|accepted| accepted.signer_signature_hash)
         .expect("No `BlockResponse::Accepted` messages recieved");
+    let selected_sighash = accepted.signer_signature_hash;
 
     // Filter only resonses for selected block and collect unique pubkeys and signatures
     let (pubkeys, signatures): (HashSet<_>, HashSet<_>) = signer_accepted_responses
         .into_iter()
-        .filter(|(hash, _)| *hash == selected_sighash)
-        .map(|(msg, sig)| {
-            let pubkey = Secp256k1PublicKey::recover_to_pubkey(msg.bits(), &sig)
-                .expect("Failed to recover pubkey");
-            (pubkey, sig)
+        .filter(|accepted| accepted.signer_signature_hash == selected_sighash)
+        .map(|accepted| {
+            let pubkey = Secp256k1PublicKey::recover_to_pubkey(
+                accepted.signer_signature_hash.bits(),
+                &accepted.signature,
+            )
+            .expect("Failed to recover pubkey");
+            (pubkey, accepted.signature)
         })
         .unzip();
 
@@ -4652,10 +4655,11 @@ fn reorg_locally_accepted_blocks_across_tenures_succeeds() {
                 let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
                     .expect("Failed to deserialize SignerMessage");
                 match message {
-                    SignerMessage::BlockResponse(BlockResponse::Accepted((hash, signature))) => {
-                        ignoring_signers
-                            .iter()
-                            .find(|key| key.verify(hash.bits(), &signature).is_ok())
+                    SignerMessage::BlockResponse(BlockResponse::Accepted(accepted)) => {
+                        ignoring_signers.iter().find(|key| {
+                            key.verify(accepted.signer_signature_hash.bits(), &accepted.signature)
+                                .is_ok()
+                        })
                     }
                     _ => None,
                 }
@@ -4896,12 +4900,11 @@ fn miner_recovers_when_broadcast_block_delay_across_tenures_occurs() {
                     let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
                         .expect("Failed to deserialize SignerMessage");
                     match message {
-                        SignerMessage::BlockResponse(BlockResponse::Accepted((
-                            hash,
-                            signature,
-                        ))) => {
-                            if block.header.signer_signature_hash() == hash {
-                                Some(signature)
+                        SignerMessage::BlockResponse(BlockResponse::Accepted(accepted)) => {
+                            if block.header.signer_signature_hash()
+                                == accepted.signer_signature_hash
+                            {
+                                Some(accepted.signature)
                             } else {
                                 None
                             }
