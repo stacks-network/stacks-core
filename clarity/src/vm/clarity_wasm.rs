@@ -480,6 +480,7 @@ pub fn call_function<'a, 'b, 'c>(
     sponsor: Option<PrincipalData>,
 ) -> Result<Value, Error> {
     let epoch = global_context.epoch_id;
+    let clarity_version = *contract_context.get_clarity_version();
     let context = ClarityWasmContext::new_run(
         global_context,
         contract_context,
@@ -7665,12 +7666,13 @@ mod tests {
 }
 
 mod error_mapping {
+    use stacks_common::types::StacksEpochId;
     use wasmtime::{AsContextMut, Instance, Trap};
 
-    use super::read_identifier_from_wasm;
+    use super::{read_identifier_from_wasm, signature_from_string};
     use crate::vm::errors::{CheckErrors, Error, RuntimeErrorType, ShortReturnType, WasmError};
-    use crate::vm::types::ResponseData;
-    use crate::vm::Value;
+    use crate::vm::types::{OptionalData, ResponseData};
+    use crate::vm::{ClarityVersion, Value};
 
     const LOG2_ERROR_MESSAGE: &str = "log2 must be passed a positive integer";
     const SQRTI_ERROR_MESSAGE: &str = "sqrti must be passed a positive integer";
@@ -7917,7 +7919,7 @@ mod error_mapping {
             }
             ErrorMap::ShortReturnExpectedValueOptional => {
                 Error::ShortReturn(ShortReturnType::ExpectedValue(Value::Optional(
-                    clarity::vm::types::OptionalData { data: None },
+                    OptionalData { data: None },
                 )))
             }
             ErrorMap::ShortReturnExpectedValue => {
