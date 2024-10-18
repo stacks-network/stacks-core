@@ -434,16 +434,16 @@ impl EventObserver {
         // Cap the backoff at 3x the timeout
         let max_backoff = timeout.saturating_mul(3);
 
-        let mut request = StacksHttpRequest::new_for_peer(
-            peerhost.clone(),
-            "POST".into(),
-            url.path().into(),
-            HttpRequestContents::new().payload_json(payload.clone()),
-        )
-        .unwrap_or_else(|_| panic!("FATAL: failed to encode infallible data as HTTP request"));
-        request.add_header("Connection".into(), "close".into());
         loop {
-            match send_http_request(host, port, request.clone(), timeout) {
+            let mut request = StacksHttpRequest::new_for_peer(
+                peerhost.clone(),
+                "POST".into(),
+                url.path().into(),
+                HttpRequestContents::new().payload_json(payload.clone()),
+            )
+            .unwrap_or_else(|_| panic!("FATAL: failed to encode infallible data as HTTP request"));
+            request.add_header("Connection".into(), "close".into());
+            match send_http_request(host, port, request, timeout) {
                 Ok(response) => {
                     if response.preamble().status_code == 200 {
                         debug!(
