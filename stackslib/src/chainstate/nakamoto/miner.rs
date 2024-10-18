@@ -249,7 +249,7 @@ impl NakamotoBlockBuilder {
         cause: Option<TenureChangeCause>,
         shadow_block: bool,
     ) -> Result<MinerTenureInfo<'a>, Error> {
-        debug!("Nakamoto miner tenure begin");
+        debug!("Nakamoto miner tenure begin"; "shadow" => shadow_block, "tenure_change" => ?cause);
 
         let Some(tenure_election_sn) =
             SortitionDB::get_block_snapshot_consensus(&burn_dbconn, &self.header.consensus_hash)?
