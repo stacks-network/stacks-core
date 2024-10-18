@@ -1438,7 +1438,7 @@ impl NakamotoDownloadStateMachine {
     fn download_confirmed_tenures(
         &mut self,
         network: &mut PeerNetwork,
-        chainstate: &StacksChainState,
+        chainstate: &mut StacksChainState,
         max_count: usize,
     ) -> HashMap<ConsensusHash, Vec<NakamotoBlock>> {
         // queue up more downloaders
@@ -1458,7 +1458,7 @@ impl NakamotoDownloadStateMachine {
         &mut self,
         network: &mut PeerNetwork,
         sortdb: &SortitionDB,
-        chainstate: &StacksChainState,
+        chainstate: &mut StacksChainState,
         highest_processed_block_id: Option<StacksBlockId>,
     ) -> HashMap<ConsensusHash, Vec<NakamotoBlock>> {
         // queue up more downloaders
@@ -1555,7 +1555,7 @@ impl NakamotoDownloadStateMachine {
         burnchain_height: u64,
         network: &mut PeerNetwork,
         sortdb: &SortitionDB,
-        chainstate: &StacksChainState,
+        chainstate: &mut StacksChainState,
         ibd: bool,
     ) -> HashMap<ConsensusHash, Vec<NakamotoBlock>> {
         debug!("NakamotoDownloadStateMachine in state {}", &self.state);

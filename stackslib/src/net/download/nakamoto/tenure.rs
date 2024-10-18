@@ -98,6 +98,10 @@ impl WantedTenure {
 pub struct TenureStartEnd {
     /// Consensus hash that identifies the start of the tenure
     pub tenure_id_consensus_hash: ConsensusHash,
+    /// Consensus hash that identifies the snapshot with the start block ID
+    pub start_block_snapshot_consensus_hash: ConsensusHash,
+    /// Consensus hash that identifies the snapshot with the end block ID
+    pub end_block_snapshot_consensus_hash: ConsensusHash,
     /// Tenure-start block ID
     pub start_block_id: StacksBlockId,
     /// Last block ID
@@ -119,7 +123,9 @@ pub type AvailableTenures = HashMap<ConsensusHash, TenureStartEnd>;
 impl TenureStartEnd {
     pub fn new(
         tenure_id_consensus_hash: ConsensusHash,
+        start_block_snapshot_consensus_hash: ConsensusHash,
         start_block_id: StacksBlockId,
+        end_block_snapshot_consensus_hash: ConsensusHash,
         end_block_id: StacksBlockId,
         start_reward_cycle: u64,
         end_reward_cycle: u64,
@@ -127,7 +133,9 @@ impl TenureStartEnd {
     ) -> Self {
         Self {
             tenure_id_consensus_hash,
+            start_block_snapshot_consensus_hash,
             start_block_id,
+            end_block_snapshot_consensus_hash,
             end_block_id,
             start_reward_cycle,
             end_reward_cycle,
@@ -214,7 +222,9 @@ impl TenureStartEnd {
 
             let tenure_start_end = TenureStartEnd::new(
                 wt.tenure_id_consensus_hash.clone(),
+                wt_start.tenure_id_consensus_hash.clone(),
                 wt_start.winning_block_id.clone(),
+                wt_end.tenure_id_consensus_hash.clone(),
                 wt_end.winning_block_id.clone(),
                 rc,
                 rc,
@@ -322,7 +332,9 @@ impl TenureStartEnd {
 
             let mut tenure_start_end = TenureStartEnd::new(
                 wt.tenure_id_consensus_hash.clone(),
+                wt_start.tenure_id_consensus_hash.clone(),
                 wt_start.winning_block_id.clone(),
+                wt_end.tenure_id_consensus_hash.clone(),
                 wt_end.winning_block_id.clone(),
                 rc,
                 downloader_block_height_to_reward_cycle(

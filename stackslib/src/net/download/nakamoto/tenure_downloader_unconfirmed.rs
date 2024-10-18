@@ -735,7 +735,9 @@ impl NakamotoUnconfirmedTenureDownloader {
         );
         let ntd = NakamotoTenureDownloader::new(
             tenure_tip.parent_consensus_hash.clone(),
+            tenure_tip.consensus_hash.clone(),
             tenure_tip.parent_tenure_start_block_id.clone(),
+            tenure_tip.consensus_hash.clone(),
             tenure_tip.tenure_start_block_id.clone(),
             self.naddr.clone(),
             confirmed_signer_keys.clone(),
