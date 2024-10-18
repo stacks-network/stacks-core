@@ -7917,11 +7917,9 @@ mod error_mapping {
                     },
                 )))
             }
-            ErrorMap::ShortReturnExpectedValueOptional => {
-                Error::ShortReturn(ShortReturnType::ExpectedValue(Value::Optional(
-                    OptionalData { data: None },
-                )))
-            }
+            ErrorMap::ShortReturnExpectedValueOptional => Error::ShortReturn(
+                ShortReturnType::ExpectedValue(Value::Optional(OptionalData { data: None })),
+            ),
             ErrorMap::ShortReturnExpectedValue => {
                 let clarity_val =
                     short_return_value(&instance, &mut store, epoch_id, clarity_version);
