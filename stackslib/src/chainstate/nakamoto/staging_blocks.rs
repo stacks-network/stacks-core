@@ -28,7 +28,7 @@ use stacks_common::util::{get_epoch_time_secs, sleep_ms};
 
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandle};
 use crate::chainstate::burn::BlockSnapshot;
-use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
+use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader, NakamotoChainState};
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::index::marf::MarfConnection;
 use crate::chainstate::stacks::{Error as ChainstateError, StacksBlock, StacksBlockHeader};
@@ -222,6 +222,21 @@ impl<'a> DerefMut for NakamotoStagingBlocksTx<'a> {
         &mut self.0
     }
 }
+/// Open a Blob handle to a Nakamoto block
+fn inner_open_nakamoto_block<'a>(
+    conn: &'a Connection,
+    rowid: i64,
+    readwrite: bool,
+) -> Result<Blob<'a>, ChainstateError> {
+    let blob = conn.blob_open(
+        rusqlite::DatabaseName::Main,
+        "nakamoto_staging_blocks",
+        "data",
+        rowid,
+        !readwrite,
+    )?;
+    Ok(blob)
+}
 
 impl NakamotoStagingBlocksConn {
     /// Open a Blob handle to a Nakamoto block
@@ -230,18 +245,20 @@ impl NakamotoStagingBlocksConn {
         rowid: i64,
         readwrite: bool,
     ) -> Result<Blob<'a>, ChainstateError> {
-        let blob = self.blob_open(
-            rusqlite::DatabaseName::Main,
-            "nakamoto_staging_blocks",
-            "data",
-            rowid,
-            !readwrite,
-        )?;
-        Ok(blob)
+        inner_open_nakamoto_block(self.deref(), rowid, readwrite)
     }
 }
 
 impl<'a> NakamotoStagingBlocksConnRef<'a> {
+    /// Open a Blob handle to a Nakamoto block
+    pub fn open_nakamoto_block(
+        &'a self,
+        rowid: i64,
+        readwrite: bool,
+    ) -> Result<Blob<'a>, ChainstateError> {
+        inner_open_nakamoto_block(self.deref(), rowid, readwrite)
+    }
+
     /// Determine if we have a particular block with the given index hash.
     /// Returns Ok(true) if so
     /// Returns Ok(false) if not
@@ -343,45 +360,30 @@ impl<'a> NakamotoStagingBlocksConnRef<'a> {
         )))
     }
 
-    /// Get a Nakamoto tenure, starting a the given index block hash.
-    /// Item 0 in the block list is the tenure-start block.
-    /// The last item is the block given by the index block hash
-    #[cfg(any(test, feature = "testing"))]
-    pub fn load_nakamoto_tenure(
+    /// Get a Nakamoto block header by index block hash.
+    /// Verifies its integrity
+    /// Returns Ok(Some(header)) if the block was present
+    /// Returns Ok(None) if there was no such block
+    /// Returns Err(..) on DB error, including corruption
+    pub fn get_nakamoto_block_header(
         &self,
-        tip: &StacksBlockId,
-    ) -> Result<Option<Vec<NakamotoBlock>>, ChainstateError> {
-        let Some((block, ..)) = self.get_nakamoto_block(tip)? else {
+        index_block_hash: &StacksBlockId,
+    ) -> Result<Option<NakamotoBlockHeader>, ChainstateError> {
+        let Some(rowid) = self.get_nakamoto_block_rowid(index_block_hash)? else {
             return Ok(None);
         };
-        if block.is_wellformed_tenure_start_block().map_err(|_| {
-            ChainstateError::InvalidStacksBlock("Malformed tenure-start block".into())
-        })? {
-            // we're done
-            return Ok(Some(vec![block]));
+
+        let mut fd = self.open_nakamoto_block(rowid, false)?;
+        let block_header = NakamotoBlockHeader::consensus_deserialize(&mut fd)?;
+        if &block_header.block_id() != index_block_hash {
+            error!(
+                "Staging DB corruption: expected {}, got {}",
+                index_block_hash,
+                &block_header.block_id()
+            );
+            return Err(DBError::Corruption.into());
         }
-
-        // this is an intermediate block
-        let mut tenure = vec![];
-        let mut cursor = block.header.parent_block_id.clone();
-        tenure.push(block);
-        loop {
-            let Some((block, _)) = self.get_nakamoto_block(&cursor)? else {
-                return Ok(None);
-            };
-
-            let is_tenure_start = block.is_wellformed_tenure_start_block().map_err(|e| {
-                ChainstateError::InvalidStacksBlock("Malformed tenure-start block".into())
-            })?;
-            cursor = block.header.parent_block_id.clone();
-            tenure.push(block);
-
-            if is_tenure_start {
-                break;
-            }
-        }
-        tenure.reverse();
-        Ok(Some(tenure))
+        Ok(Some(block_header))
     }
 
     /// Get the size of a Nakamoto block, given its index block hash
@@ -524,6 +526,32 @@ impl<'a> NakamotoStagingBlocksConnRef<'a> {
         let present: Option<u32> = query_row(self, qry, args)?;
         Ok(present.is_some())
     }
+
+    /// Shadow blocks, unlike Stacks blocks, have a unique place in the chain history.
+    /// They are inserted post-hoc, so they and their underlying burnchain blocks don't get
+    /// invalidated via a fork.  A consensus hash can identify (1) no tenures, (2) a single
+    /// shadow tenure, or (3) one or more non-shadow tenures.
+    ///
+    /// This is important when downloading a tenure that is ended by a shadow block, since it won't
+    /// be processed beforehand and its hash isn't learned from the burnchain (so we must be able
+    /// to infer that if this is a shadow tenure, none of the blocks in it have siblings).
+    pub fn get_shadow_tenure_start_block(
+        &self,
+        ch: &ConsensusHash,
+    ) -> Result<Option<NakamotoBlock>, ChainstateError> {
+        let qry = "SELECT data FROM nakamoto_staging_blocks WHERE consensus_hash = ?1 AND obtain_method = ?2 ORDER BY height DESC LIMIT 1";
+        let args = params![ch, &NakamotoBlockObtainMethod::Shadow.to_string()];
+        let res: Option<Vec<u8>> = query_row(self, qry, args)?;
+        let Some(block_bytes) = res else {
+            return Ok(None);
+        };
+        let block = NakamotoBlock::consensus_deserialize(&mut block_bytes.as_slice())?;
+        if !block.is_shadow_block() {
+            error!("Staging DB corruption: expected shadow block from {}", ch);
+            return Err(DBError::Corruption.into());
+        }
+        Ok(Some(block))
+    }
 }
 
 impl<'a> NakamotoStagingBlocksTx<'a> {
@@ -601,6 +629,12 @@ impl<'a> NakamotoStagingBlocksTx<'a> {
         } else {
             obtain_method
         };
+
+        if self.is_shadow_tenure(&block.header.consensus_hash)? && !block.is_shadow_block() {
+            return Err(ChainstateError::InvalidStacksBlock(
+                "Tried to insert a non-shadow block into a shadow tenure".into(),
+            ));
+        }
 
         self.execute(
             "INSERT INTO nakamoto_staging_blocks (
@@ -694,6 +728,20 @@ impl<'a> NakamotoStagingBlocksTx<'a> {
         Ok(())
     }
 
+    /// Is this a shadow tenure?
+    pub fn is_shadow_tenure(
+        &self,
+        consensus_hash: &ConsensusHash,
+    ) -> Result<bool, ChainstateError> {
+        let qry = "SELECT 1 FROM nakamoto_staging_blocks WHERE consensus_hash = ?1 AND obtain_method = ?2";
+        let args = rusqlite::params![
+            consensus_hash,
+            &NakamotoBlockObtainMethod::Shadow.to_string()
+        ];
+        let present: Option<u32> = query_row(self, qry, args)?;
+        Ok(present.is_some())
+    }
+
     /// Add a shadow block.
     /// Fails if there are any non-shadow blocks present in the tenure.
     pub fn add_shadow_block(&self, shadow_block: &NakamotoBlock) -> Result<(), ChainstateError> {
@@ -712,14 +760,28 @@ impl<'a> NakamotoStagingBlocksTx<'a> {
             return Ok(());
         }
 
-        // this tenure must be empty
+        // this tenure must be empty, or it must be a shadow tenure
         let qry = "SELECT 1 FROM nakamoto_staging_blocks WHERE consensus_hash = ?1";
         let args = rusqlite::params![&shadow_block.header.consensus_hash];
         let present: Option<u32> = query_row(self, qry, args)?;
-        if present.is_some() {
+        if present.is_some() && !self.is_shadow_tenure(&shadow_block.header.consensus_hash)? {
             return Err(ChainstateError::InvalidStacksBlock(
                 "Shadow block cannot be inserted into non-empty non-shadow tenure".into(),
             ));
+        }
+
+        // there must not be a block at this height in this tenure
+        let qry = "SELECT 1 FROM nakamoto_staging_blocks WHERE consensus_hash = ?1 AND height = ?2";
+        let args = rusqlite::params![
+            &shadow_block.header.consensus_hash,
+            u64_to_sql(shadow_block.header.chain_length)?
+        ];
+        let present: Option<u32> = query_row(self, qry, args)?;
+        if present.is_some() {
+            return Err(ChainstateError::InvalidStacksBlock(format!(
+                "Conflicting block at height {} in tenure {}",
+                shadow_block.header.chain_length, &shadow_block.header.consensus_hash
+            )));
         }
 
         // the shadow block is crafted post-hoc, so we know the consensus hash exists.
