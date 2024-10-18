@@ -45,7 +45,7 @@ use serde::Deserialize;
 use serde_json::json;
 use slog::{slog_debug, slog_warn};
 use stacks_common::codec::StacksMessageCodec;
-use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
+use stacks_common::consts::CHAIN_ID_MAINNET;
 use stacks_common::types::chainstate::{
     ConsensusHash, StacksAddress, StacksPrivateKey, StacksPublicKey,
 };
@@ -99,7 +99,7 @@ impl From<&GlobalConfig> for StacksClient {
             stacks_address: config.stacks_address,
             http_origin: format!("http://{}", config.node_host),
             tx_version: config.network.to_transaction_version(),
-            chain_id: config.network.to_chain_id(),
+            chain_id: config.to_chain_id(),
             stacks_node_client: reqwest::blocking::Client::new(),
             mainnet: config.network.is_mainnet(),
             auth_password: config.auth_password.clone(),
@@ -114,17 +114,13 @@ impl StacksClient {
         node_host: String,
         auth_password: String,
         mainnet: bool,
+        chain_id: u32,
     ) -> Self {
         let pubkey = StacksPublicKey::from_private(&stacks_private_key);
         let tx_version = if mainnet {
             TransactionVersion::Mainnet
         } else {
             TransactionVersion::Testnet
-        };
-        let chain_id = if mainnet {
-            CHAIN_ID_MAINNET
-        } else {
-            CHAIN_ID_TESTNET
         };
         let stacks_address = StacksAddress::p2pkh(mainnet, &pubkey);
         Self {
@@ -145,7 +141,13 @@ impl StacksClient {
         node_host: String,
         auth_password: String,
     ) -> Result<Self, ClientError> {
-        let mut stacks_client = Self::new(stacks_private_key, node_host, auth_password, true);
+        let mut stacks_client = Self::new(
+            stacks_private_key,
+            node_host,
+            auth_password,
+            true,
+            CHAIN_ID_MAINNET,
+        );
         let pubkey = StacksPublicKey::from_private(&stacks_private_key);
         let info = stacks_client.get_peer_info()?;
         if info.network_id == CHAIN_ID_MAINNET {
@@ -154,7 +156,7 @@ impl StacksClient {
             stacks_client.tx_version = TransactionVersion::Mainnet;
         } else {
             stacks_client.mainnet = false;
-            stacks_client.chain_id = CHAIN_ID_TESTNET;
+            stacks_client.chain_id = info.network_id;
             stacks_client.tx_version = TransactionVersion::Testnet;
         }
         stacks_client.stacks_address = StacksAddress::p2pkh(stacks_client.mainnet, &pubkey);
@@ -1218,5 +1220,13 @@ mod tests {
         let h = spawn(move || mock.client.get_last_set_cycle());
         write_response(mock.server, response.as_bytes());
         assert_eq!(h.join().unwrap().unwrap(), reward_cycle as u128);
+    }
+
+    #[test]
+    fn get_chain_id_from_config() {
+        let mock = MockServerClient::from_config(
+            GlobalConfig::load_from_file("./src/tests/conf/signer-custom-chain-id.toml").unwrap(),
+        );
+        assert_eq!(mock.client.chain_id, 0x80000100);
     }
 }

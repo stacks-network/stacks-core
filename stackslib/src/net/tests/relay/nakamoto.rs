@@ -54,7 +54,6 @@ use crate::chainstate::stacks::tests::{
 use crate::chainstate::stacks::{Error as ChainstateError, *};
 use crate::clarity_vm::clarity::ClarityConnection;
 use crate::core::*;
-use crate::net::api::getinfo::RPCPeerInfoData;
 use crate::net::asn::*;
 use crate::net::chat::*;
 use crate::net::codec::*;

@@ -263,7 +263,7 @@ impl TestMiner {
             self.as_transaction_auth().unwrap(),
             TransactionPayload::Coinbase(payload, recipient, Some(vrf_proof)),
         );
-        tx_coinbase.chain_id = 0x80000000;
+        tx_coinbase.chain_id = self.chain_id;
         tx_coinbase.anchor_mode = TransactionAnchorMode::OnChainOnly;
         tx_coinbase.auth.set_origin_nonce(nonce);
 
@@ -290,7 +290,7 @@ impl TestMiner {
             self.as_transaction_auth().unwrap(),
             TransactionPayload::TenureChange(tenure_change),
         );
-        tx_tenure_change.chain_id = 0x80000000;
+        tx_tenure_change.chain_id = self.chain_id;
         tx_tenure_change.anchor_mode = TransactionAnchorMode::OnChainOnly;
         tx_tenure_change.auth.set_origin_nonce(nonce);
 

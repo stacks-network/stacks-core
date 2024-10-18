@@ -4035,6 +4035,15 @@ impl NakamotoChainState {
         active_reward_set: &RewardSet,
     ) -> Result<(), ChainstateError> {
         if !tenure_block_commit.treatment.is_empty() {
+            let address_to_indeces: HashMap<_, Vec<_>> = active_reward_set
+                .rewarded_addresses
+                .iter()
+                .enumerate()
+                .fold(HashMap::new(), |mut map, (ix, addr)| {
+                    map.entry(addr).or_insert_with(Vec::new).push(ix);
+                    map
+                });
+
             // our block commit issued a punishment, check the reward set and bitvector
             //  to ensure that this was valid.
             for treated_addr in tenure_block_commit.treatment.iter() {
@@ -4045,24 +4054,19 @@ impl NakamotoChainState {
                 }
                 // otherwise, we need to find the indices in the rewarded_addresses
                 //  corresponding to this address.
-                let address_indices = active_reward_set
-                    .rewarded_addresses
-                    .iter()
-                    .enumerate()
-                    .filter_map(|(ix, addr)| {
-                        if addr == treated_addr.deref() {
-                            Some(ix)
-                        } else {
-                            None
-                        }
-                    });
+                let empty_vec = vec![];
+                let address_indices = address_to_indeces
+                    .get(treated_addr.deref())
+                    .unwrap_or(&empty_vec);
+
                 // if any of them are 0, punishment is okay.
                 // if all of them are 1, punishment is not okay.
                 // if all of them are 0, *must* have punished
                 let bitvec_values: Result<Vec<_>, ChainstateError> = address_indices
+                    .iter()
                     .map(
                         |ix| {
-                            let ix = u16::try_from(ix)
+                            let ix = u16::try_from(*ix)
                                 .map_err(|_| ChainstateError::InvalidStacksBlock("Reward set index outside of u16".into()))?;
                             let bitvec_value = block_bitvec.get(ix)
                                 .unwrap_or_else(|| {
@@ -4107,7 +4111,7 @@ impl NakamotoChainState {
 
     /// Append a Nakamoto Stacks block to the Stacks chain state.
     /// NOTE: This does _not_ set the block as processed!  The caller must do this.
-    fn append_block<'a>(
+    pub(crate) fn append_block<'a>(
         chainstate_tx: &mut ChainstateTx,
         clarity_instance: &'a mut ClarityInstance,
         burn_dbconn: &mut SortitionHandleConn,

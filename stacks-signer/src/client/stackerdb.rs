@@ -255,6 +255,7 @@ mod tests {
             Some(100_000),
             None,
             Some(9000),
+            None,
         );
         let config = GlobalConfig::load_from_str(&signer_config[0]).unwrap();
         let signer_config = generate_signer_config(&config, 5);
