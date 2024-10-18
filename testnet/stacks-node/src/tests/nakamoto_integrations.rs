@@ -8328,7 +8328,9 @@ fn check_block_info() {
         "Contract 3 should be able to fetch the StacksBlockId of the tip"
     );
 
-    let blocks = test_observer::get_blocks();
+    let mut blocks = test_observer::get_blocks();
+    blocks.sort_by_key(|block| block["block_height"].as_u64().unwrap());
+
     let mut last_tenture_height = 0;
     for block in blocks.iter() {
         let transactions = block.get("transactions").unwrap().as_array().unwrap();
@@ -8346,10 +8348,14 @@ fn check_block_info() {
             }
         }
         // if `signer_bitvec` is set on a block, then it's a nakamoto block
-        let is_nakamoto_block = block.get("signer_bitvec").is_some();
-
+        let is_nakamoto_block = block.get("signer_bitvec").map_or(false, |v| !v.is_null());
         let tenure_height = block.get("tenure_height").unwrap().as_u64().unwrap();
         let block_height = block.get("block_height").unwrap().as_u64().unwrap();
+
+        if block_height == 0 {
+            // genesis block
+            continue;
+        }
 
         if is_nakamoto_block {
             if block_has_tenure_change {
