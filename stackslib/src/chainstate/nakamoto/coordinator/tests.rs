@@ -540,7 +540,7 @@ impl<'a> TestPeer<'a> {
         coinbase_tx: &StacksTransaction,
         miner_setup: F,
         after_block: G,
-    ) -> NakamotoBlock
+    ) -> Result<NakamotoBlock, ChainstateError>
     where
         F: FnMut(&mut NakamotoBlockBuilder),
         G: FnMut(&mut NakamotoBlock) -> bool,
@@ -570,7 +570,7 @@ impl<'a> TestPeer<'a> {
         coinbase_tx: &StacksTransaction,
         miner_setup: F,
         after_block: G,
-    ) -> NakamotoBlock
+    ) -> Result<NakamotoBlock, ChainstateError>
     where
         F: FnMut(&mut NakamotoBlockBuilder),
         G: FnMut(&mut NakamotoBlock) -> bool,
@@ -606,19 +606,44 @@ impl<'a> TestPeer<'a> {
                 }
             },
             after_block,
-        );
+        )?;
         assert_eq!(blocks_and_sizes.len(), 1);
         let block = blocks_and_sizes.pop().unwrap().0;
-        block
+        Ok(block)
     }
 
     pub fn single_block_tenure<S, F, G>(
         &mut self,
         sender_key: &StacksPrivateKey,
         miner_setup: S,
-        mut after_burn_ops: F,
+        after_burn_ops: F,
         after_block: G,
     ) -> (NakamotoBlock, u64, StacksTransaction, StacksTransaction)
+    where
+        S: FnMut(&mut NakamotoBlockBuilder),
+        F: FnMut(&mut Vec<BlockstackOperationType>),
+        G: FnMut(&mut NakamotoBlock) -> bool,
+    {
+        self.single_block_tenure_fallible(sender_key, miner_setup, after_burn_ops, after_block)
+            .unwrap()
+    }
+
+    /// Produce a single-block tenure, containing a stx-transfer sent from `sender_key`.
+    ///
+    /// * `after_burn_ops` is called right after `self.begin_nakamoto_tenure` to modify any burn ops
+    /// for this tenure
+    ///
+    /// * `miner_setup` is called right after the Nakamoto block builder is constructed, but before
+    /// any txs are mined
+    ///
+    /// * `after_block` is called right after the block is assembled, but before it is signed.
+    pub fn single_block_tenure_fallible<S, F, G>(
+        &mut self,
+        sender_key: &StacksPrivateKey,
+        miner_setup: S,
+        mut after_burn_ops: F,
+        after_block: G,
+    ) -> Result<(NakamotoBlock, u64, StacksTransaction, StacksTransaction), ChainstateError>
     where
         S: FnMut(&mut NakamotoBlockBuilder),
         F: FnMut(&mut Vec<BlockstackOperationType>),
@@ -673,9 +698,9 @@ impl<'a> TestPeer<'a> {
             &coinbase_tx,
             miner_setup,
             after_block,
-        );
+        )?;
 
-        (block, burn_height, tenure_change_tx, coinbase_tx)
+        Ok((block, burn_height, tenure_change_tx, coinbase_tx))
     }
 }
 
@@ -892,24 +917,27 @@ fn pox_treatment() {
 
     // set the bitvec to a heterogenous one: either punish or
     //  reward is acceptable, so this block should just process.
-    let block = peer.mine_single_block_tenure(
-        &private_key,
-        &tenure_change_tx,
-        &coinbase_tx,
-        |_| {},
-        |block| {
-            // each stacker has 3 entries in the bitvec.
-            // entries are ordered by PoxAddr, so this makes every entry a 1-of-3
-            block.header.pox_treatment = BitVec::try_from(
-                [
-                    false, false, true, false, false, true, false, false, true, false, false, true,
-                ]
-                .as_slice(),
-            )
-            .unwrap();
-            true
-        },
-    );
+    let block = peer
+        .mine_single_block_tenure(
+            &private_key,
+            &tenure_change_tx,
+            &coinbase_tx,
+            |_| {},
+            |block| {
+                // each stacker has 3 entries in the bitvec.
+                // entries are ordered by PoxAddr, so this makes every entry a 1-of-3
+                block.header.pox_treatment = BitVec::try_from(
+                    [
+                        false, false, true, false, false, true, false, false, true, false, false,
+                        true,
+                    ]
+                    .as_slice(),
+                )
+                .unwrap();
+                true
+            },
+        )
+        .unwrap();
     blocks.push(block);
 
     // now we need to test punishment!
@@ -980,23 +1008,26 @@ fn pox_treatment() {
 
     // set the bitvec to a heterogenous one: either punish or
     //  reward is acceptable, so this block should just process.
-    let block = peer.mine_single_block_tenure(
-        &private_key,
-        &tenure_change_tx,
-        &coinbase_tx,
-        |miner| {
-            // each stacker has 3 entries in the bitvec.
-            // entries are ordered by PoxAddr, so this makes every entry a 1-of-3
-            miner.header.pox_treatment = BitVec::try_from(
-                [
-                    false, false, true, false, false, true, false, false, true, false, false, true,
-                ]
-                .as_slice(),
-            )
-            .unwrap();
-        },
-        |_block| true,
-    );
+    let block = peer
+        .mine_single_block_tenure(
+            &private_key,
+            &tenure_change_tx,
+            &coinbase_tx,
+            |miner| {
+                // each stacker has 3 entries in the bitvec.
+                // entries are ordered by PoxAddr, so this makes every entry a 1-of-3
+                miner.header.pox_treatment = BitVec::try_from(
+                    [
+                        false, false, true, false, false, true, false, false, true, false, false,
+                        true,
+                    ]
+                    .as_slice(),
+                )
+                .unwrap();
+            },
+            |_block| true,
+        )
+        .unwrap();
     blocks.push(block);
 
     let tip = {
