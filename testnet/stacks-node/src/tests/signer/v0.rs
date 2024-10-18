@@ -43,9 +43,7 @@ use stacks::net::api::postblock_proposal::{ValidateRejectCode, TEST_VALIDATE_STA
 use stacks::net::relay::fault_injection::set_ignore_block;
 use stacks::types::chainstate::{StacksAddress, StacksBlockId, StacksPrivateKey, StacksPublicKey};
 use stacks::types::PublicKey;
-use stacks::util::hash::{
-    hex_bytes, {to_hex, MerkleHashFunc},
-};
+use stacks::util::hash::{hex_bytes, to_hex, MerkleHashFunc};
 use stacks::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 use stacks::util_lib::boot::boot_code_id;
 use stacks::util_lib::signed_structured_data::pox4::{
