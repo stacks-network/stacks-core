@@ -1867,17 +1867,37 @@ impl NakamotoChainState {
         let block_id = next_ready_block.block_id();
 
         // find corresponding snapshot
-        let next_ready_block_snapshot = SortitionDB::get_block_snapshot_consensus(
+        let Some(next_ready_block_snapshot) = SortitionDB::get_block_snapshot_consensus(
             sort_db.conn(),
             &next_ready_block.header.consensus_hash,
         )?
-        .unwrap_or_else(|| {
+        else {
+            // might not have snapshot yet, even if the block is burn-attachable, because it could
+            // be a shadow block
+            if next_ready_block.is_shadow_block() {
+                test_debug!(
+                    "Stop processing Nakamoto blocks at shadow block {}",
+                    &next_ready_block.block_id()
+                );
+                return Ok(None);
+            }
+
+            // but this isn't allowed for non-shadow blocks, which must be marked burn-attachable
+            // separately
             panic!(
                 "CORRUPTION: staging Nakamoto block {}/{} does not correspond to a burn block",
                 &next_ready_block.header.consensus_hash,
                 &next_ready_block.header.block_hash()
-            )
-        });
+            );
+        };
+
+        debug!("Process staging Nakamoto block";
+               "consensus_hash" => %next_ready_block.header.consensus_hash,
+               "stacks_block_hash" => %next_ready_block.header.block_hash(),
+               "stacks_block_id" => %next_ready_block.header.block_id(),
+               "burn_block_hash" => %next_ready_block_snapshot.burn_header_hash,
+               "parent_block_id" => %next_ready_block.header.parent_block_id,
+        );
 
         let elected_height = sort_db
             .get_consensus_hash_height(&next_ready_block.header.consensus_hash)?
@@ -1944,14 +1964,6 @@ impl NakamotoChainState {
             staging_block_tx.commit()?;
             return Err(ChainstateError::InvalidStacksBlock(msg.into()));
         }
-
-        debug!("Process staging Nakamoto block";
-               "consensus_hash" => %next_ready_block.header.consensus_hash,
-               "stacks_block_hash" => %next_ready_block.header.block_hash(),
-               "stacks_block_id" => %next_ready_block.header.block_id(),
-               "burn_block_hash" => %next_ready_block_snapshot.burn_header_hash,
-               "parent_block_id" => %next_ready_block.header.parent_block_id,
-        );
 
         // set the sortition handle's pointer to the block's burnchain view.
         //   this is either:
@@ -2242,6 +2254,7 @@ impl NakamotoChainState {
     /// Wraps `NakamotoBlock::validate_against_burnchain()`, and
     /// verifies that all transactions in the block are allowed in this epoch.
     pub fn validate_nakamoto_block_burnchain(
+        staging_db: NakamotoStagingBlocksConnRef,
         db_handle: &SortitionHandleConn,
         expected_burn: Option<u64>,
         block: &NakamotoBlock,
@@ -2306,6 +2319,37 @@ impl NakamotoChainState {
                     "No block-commit in sortition for block's consensus hash".into(),
                 ));
             };
+
+            // if the *parent* of this block is a shadow block, then the block-commit's
+            // parent_vtxindex *MUST* be 0 and the parent_block_ptr *MUST* be the tenure of the
+            // shadow block.
+            if let Some(parent_header) =
+                staging_db.get_nakamoto_block_header(&block.header.parent_block_id)?
+            {
+                if parent_header.is_shadow_block() {
+                    if block_commit.parent_vtxindex != 0 {
+                        warn!("Invalid Nakamoto block: parent {} of {} is a shadow block but block-commit vtxindex is {}", &parent_header.block_id(), &block.block_id(), block_commit.parent_vtxindex);
+                        return Err(ChainstateError::InvalidStacksBlock("Invalid Nakamoto block: invalid block-commit parent vtxindex for parent shadow block".into()));
+                    }
+                    let Some(parent_sn) = SortitionDB::get_block_snapshot_consensus(
+                        db_handle,
+                        &parent_header.consensus_hash,
+                    )?
+                    else {
+                        warn!(
+                            "Invalid Nakamoto block: No sortition for parent shadow block {}",
+                            &block.header.parent_block_id
+                        );
+                        return Err(ChainstateError::InvalidStacksBlock(
+                            "Invalid Nakamoto block: parent shadow block has no sortition".into(),
+                        ));
+                    };
+                    if u64::from(block_commit.parent_block_ptr) != parent_sn.block_height {
+                        warn!("Invalid Nakamoto block: parent {} of {} is a shadow block but block-commit parent ptr is {}", &parent_header.block_id(), &block.block_id(), block_commit.parent_block_ptr);
+                        return Err(ChainstateError::InvalidStacksBlock("Invalid Nakamoto block: invalid block-commit parent block ptr for parent shadow block".into()));
+                    }
+                }
+            }
 
             // key register of the winning miner
             let leader_key = db_handle
@@ -2499,6 +2543,7 @@ impl NakamotoChainState {
         // this block must be consistent with its miner's leader-key and block-commit, and must
         // contain only transactions that are valid in this epoch.
         if let Err(e) = Self::validate_nakamoto_block_burnchain(
+            staging_db_tx.conn(),
             db_handle,
             expected_burn_opt,
             block,
@@ -4252,6 +4297,7 @@ impl NakamotoChainState {
                         "block_commit.last_tenure_id" => %tenure_block_commit.last_tenure_id(),
                         "parent_tip" => %parent_block_id,
                     );
+                    test_debug!("Faulty commit: {:?}", &tenure_block_commit);
 
                     return Err(ChainstateError::NoSuchBlockError);
                 }
