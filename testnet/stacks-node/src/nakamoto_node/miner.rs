@@ -370,6 +370,8 @@ impl BlockMinerThread {
             return Ok(());
         }
 
+        info!("Found outstanding parent block proposal, which the signer set could still be considering");
+
         // otherwise, there *is* an outstanding proposal, which the signer set could still be considering
         //  signal the miner thread to abort and retry
         return Err(NakamotoNodeError::MiningFailure(

@@ -42,7 +42,7 @@ use stacks::net::api::postblock_proposal::{ValidateRejectCode, TEST_VALIDATE_STA
 use stacks::net::relay::fault_injection::set_ignore_block;
 use stacks::types::chainstate::{StacksAddress, StacksBlockId, StacksPrivateKey, StacksPublicKey};
 use stacks::types::PublicKey;
-use stacks::util::hash::MerkleHashFunc;
+use stacks::util::hash::{to_hex, MerkleHashFunc};
 use stacks::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 use stacks::util_lib::boot::boot_code_id;
 use stacks::util_lib::signed_structured_data::pox4::{
@@ -65,7 +65,9 @@ use tracing_subscriber::{fmt, EnvFilter};
 use super::SignerTest;
 use crate::config::{EventKeyType, EventObserverConfig};
 use crate::event_dispatcher::MinedNakamotoBlockEvent;
-use crate::nakamoto_node::miner::{TEST_BLOCK_ANNOUNCE_STALL, TEST_BROADCAST_STALL};
+use crate::nakamoto_node::miner::{
+    TEST_BLOCK_ANNOUNCE_STALL, TEST_BROADCAST_STALL, TEST_MINE_STALL,
+};
 use crate::nakamoto_node::sign_coordinator::TEST_IGNORE_SIGNERS;
 use crate::neon::Counters;
 use crate::run_loop::boot_nakamoto;
@@ -576,6 +578,194 @@ fn miner_gather_signatures() {
         })
         .expect("Failed to advance prometheus metrics");
     }
+}
+
+/// Test that a miner can wait for a proposal from a previous
+/// miner's tenure
+#[test]
+#[ignore]
+fn miner_wait_for_proposal() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(EnvFilter::from_default_env())
+        .init();
+
+    info!("------------------------- Test Setup -------------------------");
+    let num_signers = 5;
+    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_addr = tests::to_addr(&sender_sk);
+    let recipient_sk = Secp256k1PrivateKey::new();
+    let recipient_addr = tests::to_addr(&recipient_sk);
+    let send_amt = 100;
+    let send_fee = 180;
+    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
+        num_signers,
+        vec![(sender_addr.clone(), (send_amt + send_fee) * 5)],
+        |_signer_conf| {},
+        |neon_conf| {
+            neon_conf.miner.wait_for_proposals_secs = 20;
+        },
+        None,
+        None,
+    );
+    let naka_conf = &signer_test.running_nodes.conf.clone();
+    let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
+    let timeout = Duration::from_secs(30);
+    let burnchain = naka_conf.get_burnchain();
+    let sortdb = burnchain.open_sortition_db(true).unwrap();
+
+    signer_test.boot_to_epoch_3();
+
+    info!("------------------------- Test Mine and Verify Confirmed Nakamoto Block -------------------------");
+    signer_test.mine_and_verify_confirmed_naka_block(timeout, num_signers);
+
+    // *TEST_MINE_STALL.lock().unwrap() = Some(true);
+
+    let proposal_conf = ProposalEvalConfig {
+        first_proposal_burn_block_timing: Duration::from_secs(0),
+        block_proposal_timeout: Duration::from_secs(100),
+    };
+
+    let mut block = NakamotoBlock {
+        header: NakamotoBlockHeader::empty(),
+        txs: vec![],
+    };
+
+    let view = SortitionsView::fetch_view(proposal_conf, &signer_test.stacks_client).unwrap();
+    block.header.pox_treatment = BitVec::ones(1).unwrap();
+    block.header.consensus_hash = view.cur_sortition.consensus_hash;
+
+    let all_signers: Vec<_> = signer_test
+        .signer_stacks_private_keys
+        .iter()
+        .map(StacksPublicKey::from_private)
+        .collect();
+
+    let short_timeout = Duration::from_secs(30);
+
+    // // Make more than >70% of the signers ignore the block proposal to ensure it it is not globally accepted/rejected
+    // let ignoring_signers: Vec<_> = all_signers
+    //     .iter()
+    //     .cloned()
+    //     .take(num_signers * 7 / 10)
+    //     .collect();
+    TEST_IGNORE_ALL_BLOCK_PROPOSALS
+        .lock()
+        .unwrap()
+        .replace(all_signers);
+
+    let proposals_before = signer_test
+        .running_nodes
+        .nakamoto_blocks_proposed
+        .load(Ordering::SeqCst);
+
+    // submit a tx so that the miner will mine an extra block
+    let sender_nonce = 0;
+    let transfer_tx = make_stacks_transfer(
+        &sender_sk,
+        sender_nonce,
+        send_fee,
+        signer_test.running_nodes.conf.burnchain.chain_id,
+        &recipient_addr.into(),
+        send_amt,
+    );
+    submit_tx(&http_origin, &transfer_tx);
+
+    info!("Submitted transfer tx and waiting for block proposal");
+    let start_time = Instant::now();
+    while signer_test
+        .running_nodes
+        .nakamoto_blocks_proposed
+        .load(Ordering::SeqCst)
+        <= proposals_before
+    {
+        assert!(
+            start_time.elapsed() <= short_timeout,
+            "Timed out waiting for block proposal"
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    }
+
+    let block_proposal = test_observer::get_stackerdb_chunks()
+        .into_iter()
+        .flat_map(|chunk| chunk.modified_slots)
+        .filter_map(|chunk| SignerMessage::consensus_deserialize(&mut chunk.data.as_slice()).ok())
+        .filter_map(|message| match message {
+            SignerMessage::BlockProposal(proposal) => Some(proposal),
+            _ => None,
+        })
+        .last()
+        .expect("Expected a block proposal");
+
+    // *TEST_MINE_STALL.lock().unwrap() = Some(true);
+
+    let (chainstate, _) = StacksChainState::open(
+        naka_conf.is_mainnet(),
+        naka_conf.burnchain.chain_id,
+        &naka_conf.get_chainstate_path_str(),
+        None,
+    )
+    .unwrap();
+
+    let tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
+        .unwrap()
+        .unwrap();
+
+    // let blocks = test_observer::get_blocks();
+    // let last_block = blocks.last().unwrap();
+
+    let last_stacks_height = tip.stacks_block_height;
+    // block.header.chain_length = last_stacks_height + 1;
+    // block.header.parent_block_id = tip.anchored_header.as_stacks_nakamoto().unwrap().block_id();
+
+    let block = block_proposal.block;
+
+    // First propose a block to the signers that does not have the correct consensus hash or BitVec. This should be rejected BEFORE
+    // the block is submitted to the node for validation.
+    let block_signer_signature_hash_1 = block.header.signer_signature_hash();
+    info!(
+        "------ Proposing Block ------";
+        "signer_sig_hash" => %block_signer_signature_hash_1,
+    );
+    TEST_IGNORE_ALL_BLOCK_PROPOSALS.lock().unwrap().take();
+    signer_test.propose_block(block.clone(), short_timeout);
+    info!("------ Mining BTC Block ------");
+    next_block_and_wait(
+        &mut signer_test.running_nodes.btc_regtest_controller,
+        &signer_test.running_nodes.blocks_processed,
+    );
+
+    *TEST_MINE_STALL.lock().unwrap() = Some(false);
+
+    wait_for(30, || {
+        let tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
+            .unwrap()
+            .unwrap();
+        Ok(tip.stacks_block_height > last_stacks_height)
+    })
+    .expect("Timed out waiting for new block to be mined");
+
+    let blocks = test_observer::get_blocks();
+    let last_block = blocks.last().unwrap();
+
+    let block_hash = &last_block
+        .as_object()
+        .unwrap()
+        .get("block_hash")
+        .unwrap()
+        .as_str()
+        .unwrap()[2..];
+
+    assert_eq!(
+        block_hash,
+        to_hex(&block_signer_signature_hash_1.0).as_str()
+    );
+
+    signer_test.shutdown();
 }
 
 #[test]
