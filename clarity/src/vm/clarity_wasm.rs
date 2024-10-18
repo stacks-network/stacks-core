@@ -480,6 +480,7 @@ pub fn call_function<'a, 'b, 'c>(
     sponsor: Option<PrincipalData>,
 ) -> Result<Value, Error> {
     let epoch = global_context.epoch_id;
+    let clarity_version = *contract_context.get_clarity_version();
     let context = ClarityWasmContext::new_run(
         global_context,
         contract_context,
@@ -564,7 +565,9 @@ pub fn call_function<'a, 'b, 'c>(
 
     // Call the function
     func.call(&mut store, &wasm_args, &mut results)
-        .map_err(|e| error_mapping::resolve_error(e, instance, &mut store))?;
+        .map_err(|e| {
+            error_mapping::resolve_error(e, instance, &mut store, &epoch, &clarity_version)
+        })?;
 
     // If the function returns a value, translate it into a Clarity `Value`
     wasm_to_clarity_value(&return_type, 0, &results, memory, &mut &mut store, epoch)
@@ -7663,12 +7666,13 @@ mod tests {
 }
 
 mod error_mapping {
+    use stacks_common::types::StacksEpochId;
     use wasmtime::{AsContextMut, Instance, Trap};
 
-    use super::read_identifier_from_wasm;
+    use super::{read_from_wasm_indirect, read_identifier_from_wasm, signature_from_string};
     use crate::vm::errors::{CheckErrors, Error, RuntimeErrorType, ShortReturnType, WasmError};
-    use crate::vm::types::ResponseData;
-    use crate::vm::Value;
+    use crate::vm::types::{OptionalData, ResponseData};
+    use crate::vm::{ClarityVersion, Value};
 
     const LOG2_ERROR_MESSAGE: &str = "log2 must be passed a positive integer";
     const SQRTI_ERROR_MESSAGE: &str = "sqrti must be passed a positive integer";
@@ -7719,6 +7723,18 @@ mod error_mapping {
         /// Indicates an attempt to use a name that is already in use, possibly for a variable or function.
         NameAlreadyUsed = 9,
 
+        /// Represents a short-return error for an expected value that wraps a Response type.
+        /// Usually triggered by `(try!...)`.
+        ShortReturnExpectedValueResponse = 10,
+
+        /// Represents a short-return error for an expected value that wraps an Optional type.
+        /// Usually triggered by `(try!...)`.
+        ShortReturnExpectedValueOptional = 11,
+
+        /// Represents a short-return error for an expected value.
+        /// usually triggered by `(unwrap!...)` and `(unwrap-err!...)`.
+        ShortReturnExpectedValue = 12,
+
         /// A catch-all for errors that are not mapped to specific error codes.
         /// This might be used for unexpected or unclassified errors.
         NotMapped = 99,
@@ -7738,15 +7754,20 @@ mod error_mapping {
                 7 => ErrorMap::ShortReturnAssertionFailure,
                 8 => ErrorMap::ArithmeticPowError,
                 9 => ErrorMap::NameAlreadyUsed,
+                10 => ErrorMap::ShortReturnExpectedValueResponse,
+                11 => ErrorMap::ShortReturnExpectedValueOptional,
+                12 => ErrorMap::ShortReturnExpectedValue,
                 _ => ErrorMap::NotMapped,
             }
         }
     }
 
-    pub fn resolve_error(
+    pub(crate) fn resolve_error(
         e: wasmtime::Error,
         instance: Instance,
         mut store: impl AsContextMut,
+        epoch_id: &StacksEpochId,
+        clarity_version: &ClarityVersion,
     ) -> Error {
         if let Some(vm_error) = e.root_cause().downcast_ref::<Error>() {
             // SAFETY:
@@ -7804,23 +7825,32 @@ mod error_mapping {
         // In this case, runtime errors are handled
         // by being mapped to the corresponding ClarityWasm Errors.
         if let Some(Trap::UnreachableCodeReached) = e.root_cause().downcast_ref::<Trap>() {
-            return from_runtime_error_code(instance, &mut store, e);
+            return from_runtime_error_code(instance, &mut store, e, epoch_id, clarity_version);
         }
 
         // All other errors are treated as general runtime errors.
         Error::Wasm(WasmError::Runtime(e))
     }
 
+    /// Converts a WebAssembly runtime error code into a Clarity `Error`.
+    ///
+    /// This function interprets an error code from a WebAssembly runtime execution and
+    /// translates it into an appropriate Clarity error type. It handles various categories
+    /// of errors including arithmetic errors, short returns, and other runtime issues.
+    ///
+    /// # Returns
+    ///
+    /// Returns a Clarity `Error` that corresponds to the runtime error encountered during
+    /// WebAssembly execution.
+    ///
     fn from_runtime_error_code(
         instance: Instance,
         mut store: impl AsContextMut,
         e: wasmtime::Error,
+        epoch_id: &StacksEpochId,
+        clarity_version: &ClarityVersion,
     ) -> Error {
-        let global = "runtime-error-code";
-        let runtime_error_code = instance
-            .get_global(&mut store, global)
-            .and_then(|glob| glob.get(&mut store).i32())
-            .unwrap_or_else(|| panic!("Could not find {global} global with i32 value"));
+        let runtime_error_code = get_global_i32(&instance, &mut store, "runtime-error-code");
 
         match ErrorMap::from(runtime_error_code) {
             ErrorMap::NotClarityError => Error::Wasm(WasmError::Runtime(e)),
@@ -7849,33 +7879,20 @@ mod error_mapping {
                 // This RuntimeErrorType::UnwrapFailure need to have a proper context.
                 Error::Runtime(RuntimeErrorType::UnwrapFailure, Some(Vec::new()))
             }
-            // TODO: UInt(42) value below is just a placeholder.
-            // It should be replaced by the current "thrown-value" when clarity-wasm issue #385 is resolved.
-            // Tests that reach this code are currently ignored.
-            ErrorMap::ShortReturnAssertionFailure => Error::ShortReturn(
-                ShortReturnType::AssertionFailed(Value::Response(ResponseData {
-                    committed: false,
-                    data: Box::new(Value::UInt(42)),
-                })),
-            ),
+            ErrorMap::ShortReturnAssertionFailure => {
+                let clarity_val =
+                    short_return_value(&instance, &mut store, epoch_id, clarity_version);
+                Error::ShortReturn(ShortReturnType::AssertionFailed(clarity_val))
+            }
             ErrorMap::ArithmeticPowError => Error::Runtime(
                 RuntimeErrorType::Arithmetic(POW_ERROR_MESSAGE.into()),
                 Some(Vec::new()),
             ),
             ErrorMap::NameAlreadyUsed => {
-                let runtime_error_arg_offset = instance
-                    .get_global(&mut store, "runtime-error-arg-offset")
-                    .and_then(|glob| glob.get(&mut store).i32())
-                    .unwrap_or_else(|| {
-                        panic!("Could not find $runtime-error-arg-offset global with i32 value")
-                    });
-
-                let runtime_error_arg_len = instance
-                    .get_global(&mut store, "runtime-error-arg-len")
-                    .and_then(|glob| glob.get(&mut store).i32())
-                    .unwrap_or_else(|| {
-                        panic!("Could not find $runtime-error-arg-len global with i32 value")
-                    });
+                let runtime_error_arg_offset =
+                    get_global_i32(&instance, &mut store, "runtime-error-arg-offset");
+                let runtime_error_arg_len =
+                    get_global_i32(&instance, &mut store, "runtime-error-arg-len");
 
                 let memory = instance
                     .get_memory(&mut store, "memory")
@@ -7890,7 +7907,76 @@ mod error_mapping {
 
                 Error::Unchecked(CheckErrors::NameAlreadyUsed(arg_name))
             }
+            ErrorMap::ShortReturnExpectedValueResponse => {
+                let clarity_val =
+                    short_return_value(&instance, &mut store, epoch_id, clarity_version);
+                Error::ShortReturn(ShortReturnType::ExpectedValue(Value::Response(
+                    ResponseData {
+                        committed: false,
+                        data: Box::new(clarity_val),
+                    },
+                )))
+            }
+            ErrorMap::ShortReturnExpectedValueOptional => Error::ShortReturn(
+                ShortReturnType::ExpectedValue(Value::Optional(OptionalData { data: None })),
+            ),
+            ErrorMap::ShortReturnExpectedValue => {
+                let clarity_val =
+                    short_return_value(&instance, &mut store, epoch_id, clarity_version);
+                Error::ShortReturn(ShortReturnType::ExpectedValue(clarity_val))
+            }
             _ => panic!("Runtime error code {} not supported", runtime_error_code),
         }
+    }
+
+    /// Retrieves the value of a 32-bit integer global variable from a WebAssembly instance.
+    ///
+    /// This function attempts to fetch a global variable by name from the provided WebAssembly
+    /// instance and return its value as an `i32`. It's designed to simplify the process of
+    /// reading global variables in WebAssembly modules.
+    ///
+    /// # Returns
+    ///
+    /// Returns the value of the global variable as an `i32`.
+    ///
+    fn get_global_i32(instance: &Instance, store: &mut impl AsContextMut, name: &str) -> i32 {
+        instance
+            .get_global(&mut *store, name)
+            .and_then(|glob| glob.get(store).i32())
+            .unwrap_or_else(|| panic!("Could not find ${} global with i32 value", name))
+    }
+
+    /// Retrieves and deserializes a Clarity value from WebAssembly memory in the context of a short return.
+    ///
+    /// This function is used to extract a Clarity value that has been stored in WebAssembly memory
+    /// as part of a short return operation. It reads necessary metadata from global variables,
+    /// deserializes the type information, and then reads and deserializes the actual value.
+    ///
+    /// # Returns
+    ///
+    /// Returns a deserialized Clarity `Value` representing the short return value.
+    ///
+    fn short_return_value(
+        instance: &Instance,
+        store: &mut impl AsContextMut,
+        epoch_id: &StacksEpochId,
+        clarity_version: &ClarityVersion,
+    ) -> Value {
+        let val_offset = get_global_i32(instance, store, "runtime-error-value-offset");
+        let type_ser_offset = get_global_i32(instance, store, "runtime-error-type-ser-offset");
+        let type_ser_len = get_global_i32(instance, store, "runtime-error-type-ser-len");
+
+        let memory = instance
+            .get_memory(&mut *store, "memory")
+            .unwrap_or_else(|| panic!("Could not find wasm instance memory"));
+
+        let type_ser_str = read_identifier_from_wasm(memory, store, type_ser_offset, type_ser_len)
+            .unwrap_or_else(|e| panic!("Could not recover stringified type: {}", e));
+
+        let value_ty = signature_from_string(&type_ser_str, *clarity_version, *epoch_id)
+            .unwrap_or_else(|e| panic!("Could not recover thrown value: {}", e));
+
+        read_from_wasm_indirect(memory, store, &value_ty, val_offset, *epoch_id)
+            .unwrap_or_else(|e| panic!("Could not read thrown value from memory: {}", e))
     }
 }
