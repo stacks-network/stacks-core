@@ -4879,6 +4879,7 @@ fn burn_ops_integration_test() {
                     StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
                 if let TransactionPayload::TenureChange(_tenure_change) = parsed.payload {
                     block_has_tenure_change = true;
+                    continue;
                 }
             }
         }
@@ -4897,7 +4898,6 @@ fn burn_ops_integration_test() {
                 // tenure extend block should have the same tenure height as the last tenure height
                 assert_eq!(last_tenture_height, tenure_height);
             }
-            last_tenture_height = block.get("block_height").unwrap().as_u64().unwrap();
         } else {
             // epoch2.x block tenure height is the same as the block height
             assert_eq!(tenure_height, block_height);
