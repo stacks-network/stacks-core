@@ -2397,35 +2397,64 @@ fn test_nakamoto_invs_shadow_blocks() {
     let nakamoto_start =
         NakamotoBootPlan::nakamoto_first_tenure_height(&peer.config.burnchain.pox_constants);
 
+    let mut expected_ids = vec![];
+
     // construct and add shadow blocks to this peer's chainstate
     peer.refresh_burnchain_view();
     let shadow_block = peer.make_shadow_tenure(None);
+    expected_ids.push(shadow_block.block_id());
     peer.mine_nakamoto_on(vec![shadow_block]);
 
     peer.refresh_burnchain_view();
     let (naka_block, ..) = peer.single_block_tenure(&sender_key, |_| {}, |_| {}, |_| true);
+    expected_ids.push(naka_block.block_id());
     peer.mine_nakamoto_on(vec![naka_block]);
 
     peer.refresh_burnchain_view();
     let shadow_block = peer.make_shadow_tenure(None);
+    expected_ids.push(shadow_block.block_id());
     peer.mine_nakamoto_on(vec![shadow_block]);
 
     peer.refresh_burnchain_view();
     let (naka_block, ..) = peer.single_block_tenure(&sender_key, |_| {}, |_| {}, |_| true);
+    expected_ids.push(naka_block.block_id());
     peer.mine_nakamoto_on(vec![naka_block]);
 
     peer.refresh_burnchain_view();
     let shadow_block = peer.make_shadow_tenure(None);
+    expected_ids.push(shadow_block.block_id());
     peer.mine_nakamoto_on(vec![shadow_block]);
 
     peer.refresh_burnchain_view();
     let (naka_block, ..) = peer.single_block_tenure(&sender_key, |_| {}, |_| {}, |_| true);
+    expected_ids.push(naka_block.block_id());
     peer.mine_nakamoto_on(vec![naka_block]);
 
-    let (peer, reward_cycle_invs) =
+    let (mut peer, reward_cycle_invs) =
         peer_get_nakamoto_invs(peer, &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
 
     // the inv should show `true` for each shadow tenure
     bitvecs.push(vec![true, true, true, true, true, true]);
     check_inv_messages(bitvecs, 10, nakamoto_start, reward_cycle_invs);
+
+    // shadow blocks are part of the history
+    peer.refresh_burnchain_view();
+    let tip = peer.network.stacks_tip.block_id();
+
+    let mut stored_block_ids = vec![];
+    let mut cursor = tip;
+    for _ in 0..expected_ids.len() {
+        let block = peer
+            .chainstate()
+            .nakamoto_blocks_db()
+            .get_nakamoto_block(&cursor)
+            .unwrap()
+            .unwrap()
+            .0;
+        stored_block_ids.push(block.block_id());
+        cursor = block.header.parent_block_id;
+    }
+
+    stored_block_ids.reverse();
+    assert_eq!(stored_block_ids, expected_ids);
 }
