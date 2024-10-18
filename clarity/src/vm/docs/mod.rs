@@ -2862,6 +2862,14 @@ mod test {
         ) -> Option<u128> {
             Some(12000)
         }
+
+        fn get_stacks_height_for_tenure_height(
+            &self,
+            _tip: &StacksBlockId,
+            tenure_height: u32,
+        ) -> Option<u32> {
+            Some(tenure_height)
+        }
     }
 
     struct DocBurnStateDB {}

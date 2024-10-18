@@ -47,6 +47,7 @@ use stacks_signer::config::GlobalConfig;
 use stacks_signer::monitor_signers::SignerMonitor;
 use stacks_signer::utils::stackerdb_session;
 use stacks_signer::v0::SpawnedSigner;
+use stacks_signer::VERSION_STRING;
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{fmt, EnvFilter};
 
@@ -157,7 +158,11 @@ fn handle_generate_stacking_signature(
 
 fn handle_check_config(args: RunSignerArgs) {
     let config = GlobalConfig::try_from(&args.config).unwrap();
-    println!("Config: {}", config);
+    println!(
+        "Signer version: {}\nConfig: \n{}",
+        VERSION_STRING.to_string(),
+        config
+    );
 }
 
 fn handle_generate_vote(args: GenerateVoteArgs, do_print: bool) -> MessageSignature {

@@ -139,7 +139,7 @@ fn test_get_block_info_eval(
             .unwrap();
 
         let mut env = owned_env.get_exec_environment(None, None, &mut placeholder_context);
-
+        eprintln!("{}", contracts[i]);
         let eval_result = env.eval_read_only(&contract_identifier, "(test-func)");
         match expected[i] {
             // any (some UINT) is okay for checking get-block-info? time

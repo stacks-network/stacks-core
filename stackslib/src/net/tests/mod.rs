@@ -48,7 +48,8 @@ use crate::chainstate::nakamoto::tests::node::TestStacker;
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::test::{
-    key_to_stacks_addr, make_pox_4_lockup, make_signer_key_signature, with_sortdb,
+    key_to_stacks_addr, make_pox_4_lockup, make_pox_4_lockup_chain_id, make_signer_key_signature,
+    with_sortdb,
 };
 use crate::chainstate::stacks::boot::{
     MINERS_NAME, SIGNERS_VOTING_FUNCTION_NAME, SIGNERS_VOTING_NAME,
@@ -66,6 +67,7 @@ use crate::net::relay::{BlockAcceptResponse, Relayer};
 use crate::net::stackerdb::StackerDBConfig;
 use crate::net::test::{TestEventObserver, TestPeer, TestPeerConfig};
 use crate::util_lib::boot::boot_code_id;
+use crate::util_lib::signed_structured_data::pox4::make_pox_4_signer_key_signature;
 
 /// One step of a simulated Nakamoto node's bootup procedure.
 #[derive(Debug, PartialEq, Clone)]
@@ -91,6 +93,7 @@ pub struct NakamotoBootPlan {
     pub num_peers: usize,
     /// Whether to add an initial balance for `private_key`'s account
     pub add_default_balance: bool,
+    pub network_id: u32,
 }
 
 impl NakamotoBootPlan {
@@ -106,11 +109,17 @@ impl NakamotoBootPlan {
             observer: Some(TestEventObserver::new()),
             num_peers: 0,
             add_default_balance: true,
+            network_id: TestPeerConfig::default().network_id,
         }
     }
 
     pub fn with_private_key(mut self, privk: StacksPrivateKey) -> Self {
         self.private_key = privk;
+        self
+    }
+
+    pub fn with_network_id(mut self, network_id: u32) -> Self {
+        self.network_id = network_id;
         self
     }
 
@@ -328,6 +337,7 @@ impl NakamotoBootPlan {
         observer: Option<&'a TestEventObserver>,
     ) -> (TestPeer<'a>, Vec<TestPeer>) {
         let mut peer_config = TestPeerConfig::new(&self.test_name, 0, 0);
+        peer_config.network_id = self.network_id;
         peer_config.private_key = self.private_key.clone();
         let addr = StacksAddress::from_public_keys(
             C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
@@ -487,16 +497,19 @@ impl NakamotoBootPlan {
                     .clone()
                     .unwrap_or(default_pox_addr.clone());
                 let max_amount = test_stacker.max_amount.unwrap_or(u128::MAX);
-                let signature = make_signer_key_signature(
+                let signature = make_pox_4_signer_key_signature(
                     &pox_addr,
                     &test_stacker.signer_private_key,
                     reward_cycle.into(),
                     &crate::util_lib::signed_structured_data::pox4::Pox4SignatureTopic::StackStx,
-                    12_u128,
+                    peer.config.network_id,
+                    12,
                     max_amount,
                     1,
-                );
-                make_pox_4_lockup(
+                )
+                .unwrap()
+                .to_rsv();
+                make_pox_4_lockup_chain_id(
                     &test_stacker.stacker_private_key,
                     0,
                     test_stacker.amount,
@@ -507,6 +520,7 @@ impl NakamotoBootPlan {
                     Some(signature),
                     max_amount,
                     1,
+                    peer.config.network_id,
                 )
             })
             .collect();

@@ -127,6 +127,11 @@ pub trait HeadersDB {
         id_bhh: &StacksBlockId,
         epoch: &StacksEpochId,
     ) -> Option<u128>;
+    fn get_stacks_height_for_tenure_height(
+        &self,
+        tip: &StacksBlockId,
+        tenure_height: u32,
+    ) -> Option<u32>;
 }
 
 pub trait BurnStateDB {
@@ -283,6 +288,13 @@ impl HeadersDB for NullHeadersDB {
         _id_bhh: &StacksBlockId,
         _epoch: &StacksEpochId,
     ) -> Option<u128> {
+        None
+    }
+    fn get_stacks_height_for_tenure_height(
+        &self,
+        _tip: &StacksBlockId,
+        _tenure_height: u32,
+    ) -> Option<u32> {
         None
     }
 }
@@ -913,6 +925,39 @@ impl<'a> ClarityDatabase<'a> {
         } else {
             Ok(u32::MAX)
         }
+    }
+
+    /// Return the block height for a given tenure height
+    ///   if the block information is queryable for the tenure height.
+    /// The block information for a given tenure height is queryable iff:
+    ///  * `tenure_height` falls in 2.x, and `tenure_height` < `current_height`
+    ///  * `tenure_height` falls in 3.x, and the first block of the tenure
+    ///    at `tenure_height` has a stacks block height less than `current_height`
+    ///
+    /// If the block information isn't queryable, return `Ok(None)`
+    pub fn get_block_height_for_tenure_height(
+        &mut self,
+        tenure_height: u32,
+    ) -> Result<Option<u32>> {
+        let current_tenure_height = self.get_tenure_height()?;
+        if current_tenure_height < tenure_height {
+            return Ok(None);
+        }
+        let current_height = self.get_current_block_height();
+        if current_height <= tenure_height {
+            return Ok(None);
+        }
+        // check if we're querying a 2.x block
+        let id_bhh = self.get_index_block_header_hash(tenure_height)?;
+        let epoch = self.get_stacks_epoch_for_block(&id_bhh)?;
+        if !epoch.uses_nakamoto_blocks() {
+            return Ok(Some(tenure_height));
+        }
+        // query from the parent
+        let query_tip = self.get_index_block_header_hash(current_height.saturating_sub(1))?;
+        Ok(self
+            .headers_db
+            .get_stacks_height_for_tenure_height(&query_tip, tenure_height.into()))
     }
 
     /// Get the last-known burnchain block height.

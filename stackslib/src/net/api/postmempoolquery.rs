@@ -116,9 +116,9 @@ impl StacksMemPoolStream {
 
         Self {
             tx_query,
-            last_randomized_txid: last_randomized_txid,
+            last_randomized_txid,
             num_txs: 0,
-            max_txs: max_txs,
+            max_txs,
             coinbase_height,
             corked: false,
             finished: false,
@@ -275,14 +275,8 @@ impl RPCRequestHandler for RPCMempoolQueryRequestHandler {
             .ok_or(NetError::SendError("`mempool_query` not set".into()))?;
         let page_id = self.page_id.take();
 
-        let stream_res = node.with_node_state(|network, sortdb, chainstate, mempool, _rpc_args| {
-            let header = self.get_stacks_chain_tip(&preamble, sortdb, chainstate)
-                .map_err(|e| StacksHttpResponse::new_error(&preamble, &HttpServerError::new(format!("Failed to load chain tip: {:?}", &e))))?;
-
-            let coinbase_height = NakamotoChainState::get_coinbase_height(&mut chainstate.index_conn(), &header.index_block_hash())
-                .map_err(|e| StacksHttpResponse::new_error(&preamble, &HttpServerError::new(format!("Failed to load coinbase height: {:?}", &e))))?
-                .unwrap_or(0);
-
+        let stream_res = node.with_node_state(|network, _sortdb, _chainstate, mempool, _rpc_args| {
+            let coinbase_height = network.stacks_tip.coinbase_height;
             let max_txs = network.connection_opts.mempool_max_tx_query;
             debug!(
                 "Begin mempool query";
