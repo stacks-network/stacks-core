@@ -3518,6 +3518,22 @@ pub mod test {
             self.sortdb.as_ref().unwrap()
         }
 
+        pub fn with_dbs<F, R>(&mut self, f: F) -> R
+        where
+            F: FnOnce(&mut TestPeer, &mut SortitionDB, &mut TestStacksNode, &mut MemPoolDB) -> R,
+        {
+            let mut sortdb = self.sortdb.take().unwrap();
+            let mut stacks_node = self.stacks_node.take().unwrap();
+            let mut mempool = self.mempool.take().unwrap();
+
+            let res = f(self, &mut sortdb, &mut stacks_node, &mut mempool);
+
+            self.stacks_node = Some(stacks_node);
+            self.sortdb = Some(sortdb);
+            self.mempool = Some(mempool);
+            res
+        }
+
         pub fn with_db_state<F, R>(&mut self, f: F) -> Result<R, net_error>
         where
             F: FnOnce(
