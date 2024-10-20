@@ -330,10 +330,12 @@ impl BlockMinerThread {
                 return Ok(());
             }
             Err(e) => {
-                info!(
-                    "Failed to parse message in parent tenure's miner slot, will not check for outstanding proposals";
-                    "err" => ?e
-                );
+                if latest_chunk.len() > 0 {
+                    info!(
+                        "Failed to parse message in parent tenure's miner slot, will not check for outstanding proposals";
+                        "err" => ?e
+                    );
+                }
                 return Ok(());
             }
         };

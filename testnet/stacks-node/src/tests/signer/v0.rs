@@ -42,8 +42,8 @@ use stacks::net::api::getsigner::GetSignerResponse;
 use stacks::net::api::postblock_proposal::{ValidateRejectCode, TEST_VALIDATE_STALL};
 use stacks::net::relay::fault_injection::set_ignore_block;
 use stacks::types::chainstate::{StacksAddress, StacksBlockId, StacksPrivateKey, StacksPublicKey};
-use stacks::types::PublicKey;
-use stacks::util::hash::{hex_bytes, to_hex, MerkleHashFunc};
+use stacks::types::{PrivateKey, PublicKey};
+use stacks::util::hash::{hex_bytes, MerkleHashFunc};
 use stacks::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 use stacks::util_lib::boot::boot_code_id;
 use stacks::util_lib::signed_structured_data::pox4::{
@@ -66,9 +66,7 @@ use tracing_subscriber::{fmt, EnvFilter};
 use super::SignerTest;
 use crate::config::{EventKeyType, EventObserverConfig};
 use crate::event_dispatcher::MinedNakamotoBlockEvent;
-use crate::nakamoto_node::miner::{
-    TEST_BLOCK_ANNOUNCE_STALL, TEST_BROADCAST_STALL, TEST_MINE_STALL,
-};
+use crate::nakamoto_node::miner::{TEST_BLOCK_ANNOUNCE_STALL, TEST_BROADCAST_STALL};
 use crate::nakamoto_node::sign_coordinator::TEST_IGNORE_SIGNERS;
 use crate::neon::Counters;
 use crate::run_loop::boot_nakamoto;
@@ -582,7 +580,21 @@ fn miner_gather_signatures() {
 }
 
 /// Test that a miner can wait for a proposal from a previous
-/// miner's tenure
+/// miner's tenure. Due to the way signers and miners handle changing
+/// sortitions, there is some "manual labor" done here to trigger the
+/// scenario we're testing.
+///
+/// During Tenure A, we trigger a miner to propose a nakamoto block, but
+/// we've configured signers to ignore it. We then grab this block proposal
+/// from StackerDB and save it.
+///
+/// We then advance to Tenure B, and this new miner will see that a recently proposed
+/// block is in StackerDB, and the new miner will wait for some reaction to that
+/// block.
+///
+/// Because signers will reject blocks from a previous sortition, we manually sign
+/// and broadcast BlockAccepted responses from the signers. The signers will then
+/// broadcast the block themselves once they've received enough signatures.
 #[test]
 #[ignore]
 fn miner_wait_for_proposal() {
@@ -616,29 +628,12 @@ fn miner_wait_for_proposal() {
     let naka_conf = &signer_test.running_nodes.conf.clone();
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
     let timeout = Duration::from_secs(30);
-    let burnchain = naka_conf.get_burnchain();
-    let sortdb = burnchain.open_sortition_db(true).unwrap();
 
     signer_test.boot_to_epoch_3();
 
-    info!("------------------------- Test Mine and Verify Confirmed Nakamoto Block -------------------------");
     signer_test.mine_and_verify_confirmed_naka_block(timeout, num_signers);
 
-    // *TEST_MINE_STALL.lock().unwrap() = Some(true);
-
-    let proposal_conf = ProposalEvalConfig {
-        first_proposal_burn_block_timing: Duration::from_secs(0),
-        block_proposal_timeout: Duration::from_secs(100),
-    };
-
-    let mut block = NakamotoBlock {
-        header: NakamotoBlockHeader::empty(),
-        txs: vec![],
-    };
-
-    let view = SortitionsView::fetch_view(proposal_conf, &signer_test.stacks_client).unwrap();
-    block.header.pox_treatment = BitVec::ones(1).unwrap();
-    block.header.consensus_hash = view.cur_sortition.consensus_hash;
+    info!("----- Test Start for miner_wait_for_proposal -----");
 
     let all_signers: Vec<_> = signer_test
         .signer_stacks_private_keys
@@ -648,16 +643,20 @@ fn miner_wait_for_proposal() {
 
     let short_timeout = Duration::from_secs(30);
 
-    // // Make more than >70% of the signers ignore the block proposal to ensure it it is not globally accepted/rejected
-    // let ignoring_signers: Vec<_> = all_signers
-    //     .iter()
-    //     .cloned()
-    //     .take(num_signers * 7 / 10)
-    //     .collect();
+    // Make all but 1 signers ignore. We need 1 signer to view it so that they save
+    // it in their SignerDB. If a signer has never seen a block, they won't
+    // handle other signer's block responses, which is what causes the signer to
+    // eventually broadcast the block.
+    let ignoring_signers: Vec<_> = all_signers.iter().cloned().take(num_signers - 1).collect();
+    info!(
+        "----- Ignoring block proposals from {} of {} signers -----",
+        ignoring_signers.len(),
+        all_signers.len()
+    );
     TEST_IGNORE_ALL_BLOCK_PROPOSALS
         .lock()
         .unwrap()
-        .replace(all_signers);
+        .replace(ignoring_signers);
 
     let proposals_before = signer_test
         .running_nodes
@@ -677,51 +676,38 @@ fn miner_wait_for_proposal() {
     submit_tx(&http_origin, &transfer_tx);
 
     info!("Submitted transfer tx and waiting for block proposal");
-    let start_time = Instant::now();
-    while signer_test
-        .running_nodes
-        .nakamoto_blocks_proposed
-        .load(Ordering::SeqCst)
-        <= proposals_before
-    {
-        assert!(
-            start_time.elapsed() <= short_timeout,
-            "Timed out waiting for block proposal"
-        );
-        std::thread::sleep(Duration::from_millis(100));
-    }
+    wait_for(30, || {
+        Ok(signer_test
+            .running_nodes
+            .nakamoto_blocks_proposed
+            .load(Ordering::SeqCst)
+            > proposals_before)
+    })
+    .expect("Timed out waiting for block proposal");
 
     let block_proposal = test_observer::get_stackerdb_chunks()
         .into_iter()
         .flat_map(|chunk| chunk.modified_slots)
         .filter_map(|chunk| SignerMessage::consensus_deserialize(&mut chunk.data.as_slice()).ok())
-        .filter_map(|message| match message {
-            SignerMessage::BlockProposal(proposal) => Some(proposal),
-            _ => None,
+        .filter_map(|message| {
+            let SignerMessage::BlockProposal(proposal) = message else {
+                return None;
+            };
+            let has_transfer = proposal.block.txs.iter().any(|tx| {
+                let TransactionPayload::TokenTransfer(recipient_principal, ..) = tx.clone().payload
+                else {
+                    return false;
+                };
+                recipient_principal == recipient_addr.into()
+            });
+            if has_transfer {
+                Some(proposal)
+            } else {
+                None
+            }
         })
         .last()
-        .expect("Expected a block proposal");
-
-    // *TEST_MINE_STALL.lock().unwrap() = Some(true);
-
-    let (chainstate, _) = StacksChainState::open(
-        naka_conf.is_mainnet(),
-        naka_conf.burnchain.chain_id,
-        &naka_conf.get_chainstate_path_str(),
-        None,
-    )
-    .unwrap();
-
-    let tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
-        .unwrap()
-        .unwrap();
-
-    // let blocks = test_observer::get_blocks();
-    // let last_block = blocks.last().unwrap();
-
-    let last_stacks_height = tip.stacks_block_height;
-    // block.header.chain_length = last_stacks_height + 1;
-    // block.header.parent_block_id = tip.anchored_header.as_stacks_nakamoto().unwrap().block_id();
+        .expect("Expected a block proposal to be found");
 
     let block = block_proposal.block;
 
@@ -732,7 +718,7 @@ fn miner_wait_for_proposal() {
         "------ Proposing Block ------";
         "signer_sig_hash" => %block_signer_signature_hash_1,
     );
-    TEST_IGNORE_ALL_BLOCK_PROPOSALS.lock().unwrap().take();
+
     signer_test.propose_block(block.clone(), short_timeout);
     info!("------ Mining BTC Block ------");
     next_block_and_wait(
@@ -740,31 +726,66 @@ fn miner_wait_for_proposal() {
         &signer_test.running_nodes.blocks_processed,
     );
 
-    *TEST_MINE_STALL.lock().unwrap() = Some(false);
+    let reward_cycle = signer_test.get_current_reward_cycle();
 
+    let slot_per_signer = signer_test.get_slot_per_signer(reward_cycle);
+
+    TEST_IGNORE_ALL_BLOCK_PROPOSALS.lock().unwrap().take();
+
+    // Now, generate a block response for each signer
+    signer_test.spawned_signers.iter().for_each(|signer| {
+        let sk = signer.config.stacks_private_key;
+        let pk = Secp256k1PublicKey::from_private(&sk);
+        let signature = sk.sign(block_signer_signature_hash_1.bits()).unwrap();
+        let message = SignerMessage::BlockResponse(BlockResponse::accepted(
+            block_signer_signature_hash_1,
+            signature,
+        ));
+        let Some(slot_id) = slot_per_signer.get(&pk) else {
+            return;
+        };
+        let mut stackerdb = StackerDB::<MessageSlotID>::new(
+            &signer_test.signer_configs[0].node_host,
+            sk,
+            naka_conf.is_mainnet(),
+            reward_cycle,
+            *slot_id,
+        );
+        info!("----- Sending Block response to slot id {} -----", slot_id);
+        stackerdb
+            .send_message_with_retry(message)
+            .expect("Failed to send message");
+    });
+
+    // First lets wait for our proposed block to be confirmed
     wait_for(30, || {
-        let tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
-            .unwrap()
-            .unwrap();
-        Ok(tip.stacks_block_height > last_stacks_height)
+        let blocks = test_observer::get_blocks();
+        let found_proposed_block = blocks
+            .iter()
+            .rev() // Go backwards just because it's towards the end
+            .find(|block| {
+                let Some(block_hash) = block.as_object().unwrap().get("block_hash") else {
+                    return false;
+                };
+                block_hash.as_str().unwrap()[2..] == block_signer_signature_hash_1.to_string()
+            });
+        Ok(found_proposed_block.is_some())
     })
-    .expect("Timed out waiting for new block to be mined");
+    .expect("Timed out waiting for proposed block to be mined");
 
-    let blocks = test_observer::get_blocks();
-    let last_block = blocks.last().unwrap();
-
-    let block_hash = &last_block
-        .as_object()
-        .unwrap()
-        .get("block_hash")
-        .unwrap()
-        .as_str()
-        .unwrap()[2..];
-
-    assert_eq!(
-        block_hash,
-        to_hex(&block_signer_signature_hash_1.0).as_str()
-    );
+    // Now wait for the new miner to build on top of it
+    wait_for(30, || {
+        let blocks = test_observer::get_blocks();
+        let found_new_block = blocks.iter().rev().find(|block| {
+            let Some(parent_block_hash) = block.as_object().unwrap().get("parent_block_hash")
+            else {
+                return false;
+            };
+            parent_block_hash.as_str().unwrap()[2..] == block_signer_signature_hash_1.to_string()
+        });
+        Ok(found_new_block.is_some())
+    })
+    .expect("Timed out waiting for new block to be built on top of proposed block");
 
     signer_test.shutdown();
 }
