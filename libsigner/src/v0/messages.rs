@@ -1254,14 +1254,9 @@ mod test {
             SignerMessage::BlockResponse(BlockResponse::Rejected(BlockRejection {
                 reason_code: RejectCode::ValidationFailed(ValidateRejectCode::NoSuchTenure),
                 reason: "Block is not a tenure-start block, and has an unrecognized tenure consensus hash".to_string(),
-                signer_signature_hash: Sha512Trunc256Sum([145, 249, 95, 132, 183, 4, 95, 125, 206, 119, 87, 5, 44, 170, 152, 110, 240, 66, 203, 88, 247, 223, 80, 49, 163, 181, 181, 208, 227, 221, 166, 62]),
+                signer_signature_hash: Sha512Trunc256Sum::from_hex("91f95f84b7045f7dce7757052caa986ef042cb58f7df5031a3b5b5d0e3dda63e").unwrap(),
                 chain_id: CHAIN_ID_TESTNET,
-                signature: MessageSignature([
-                    0, 111, 179, 73, 33, 46, 26, 26, 241, 163, 199, 18, 135, 141, 81, 89, 181, 236,
-                    20, 99, 106, 219, 111, 112, 190, 0, 166, 218, 74, 212, 248, 138, 153, 52, 216,
-                    169, 171, 178, 41, 98, 13, 216, 224, 242, 37, 214, 52, 1, 227, 108, 100, 129,
-                    127, 178, 158, 108, 5, 89, 29, 203, 233, 92, 81, 45, 243,
-                ]),
+                signature: MessageSignature::from_hex("006fb349212e1a1af1a3c712878d5159b5ec14636adb6f70be00a6da4ad4f88a9934d8a9abb229620dd8e0f225d63401e36c64817fb29e6c05591dcbe95c512df3").unwrap(),
                 metadata: SignerMessageMetadata::empty(),
             }))
         );
@@ -1269,17 +1264,12 @@ mod test {
         assert_eq!(
             block_accepted,
             SignerMessage::BlockResponse(BlockResponse::Accepted(BlockAccepted {
-                signer_signature_hash: Sha512Trunc256Sum([
-                    17, 113, 113, 73, 103, 124, 42, 201, 125, 21, 174, 89, 84, 247, 167, 22, 241,
-                    1, 0, 185, 203, 129, 162, 191, 39, 85, 27, 47, 46, 84, 239, 25
-                ]),
+                signer_signature_hash: Sha512Trunc256Sum::from_hex(
+                    "11717149677c2ac97d15ae5954f7a716f10100b9cb81a2bf27551b2f2e54ef19"
+                )
+                .unwrap(),
                 metadata: SignerMessageMetadata::empty(),
-                signature: MessageSignature([
-                    0, 28, 105, 79, 129, 52, 197, 201, 15, 47, 43, 205, 51, 14, 159, 66, 50, 4,
-                    136, 79, 0, 27, 93, 240, 5, 15, 54, 162, 196, 255, 121, 221, 147, 82, 43, 178,
-                    174, 57, 94, 168, 125, 228, 150, 72, 134, 68, 117, 7, 193, 131, 116, 183, 164,
-                    110, 226, 227, 113, 233, 191, 51, 47, 7, 6, 163, 232
-                ]),
+                signature: MessageSignature::from_hex("001c694f8134c5c90f2f2bcd330e9f423204884f001b5df0050f36a2c4ff79dd93522bb2ae395ea87de4964886447507c18374b7a46ee2e371e9bf332f0706a3e8").unwrap(),
             }))
         );
     }
@@ -1300,14 +1290,9 @@ mod test {
             SignerMessage::BlockResponse(BlockResponse::Rejected(BlockRejection {
                 reason_code: RejectCode::ValidationFailed(ValidateRejectCode::NoSuchTenure),
                 reason: "Block is not a tenure-start block, and has an unrecognized tenure consensus hash".to_string(),
-                signer_signature_hash: Sha512Trunc256Sum([145, 249, 95, 132, 183, 4, 95, 125, 206, 119, 87, 5, 44, 170, 152, 110, 240, 66, 203, 88, 247, 223, 80, 49, 163, 181, 181, 208, 227, 221, 166, 62]),
+                signer_signature_hash: Sha512Trunc256Sum::from_hex("91f95f84b7045f7dce7757052caa986ef042cb58f7df5031a3b5b5d0e3dda63e").unwrap(),
                 chain_id: CHAIN_ID_TESTNET,
-                signature: MessageSignature([
-                    0, 111, 179, 73, 33, 46, 26, 26, 241, 163, 199, 18, 135, 141, 81, 89, 181, 236,
-                    20, 99, 106, 219, 111, 112, 190, 0, 166, 218, 74, 212, 248, 138, 153, 52, 216,
-                    169, 171, 178, 41, 98, 13, 216, 224, 242, 37, 214, 52, 1, 227, 108, 100, 129,
-                    127, 178, 158, 108, 5, 89, 29, 203, 233, 92, 81, 45, 243,
-                ]),
+                signature: MessageSignature::from_hex("006fb349212e1a1af1a3c712878d5159b5ec14636adb6f70be00a6da4ad4f88a9934d8a9abb229620dd8e0f225d63401e36c64817fb29e6c05591dcbe95c512df3").unwrap(),
                 metadata: SignerMessageMetadata {
                     server_version: "Hello world".to_string(),
                 },
@@ -1317,19 +1302,14 @@ mod test {
         assert_eq!(
             block_accepted,
             SignerMessage::BlockResponse(BlockResponse::Accepted(BlockAccepted {
-                signer_signature_hash: Sha512Trunc256Sum([
-                    17, 113, 113, 73, 103, 124, 42, 201, 125, 21, 174, 89, 84, 247, 167, 22, 241,
-                    1, 0, 185, 203, 129, 162, 191, 39, 85, 27, 47, 46, 84, 239, 25
-                ]),
+                signer_signature_hash: Sha512Trunc256Sum::from_hex(
+                    "11717149677c2ac97d15ae5954f7a716f10100b9cb81a2bf27551b2f2e54ef19"
+                )
+                .unwrap(),
                 metadata: SignerMessageMetadata {
                     server_version: "Hello world".to_string(),
                 },
-                signature: MessageSignature([
-                    0, 28, 105, 79, 129, 52, 197, 201, 15, 47, 43, 205, 51, 14, 159, 66, 50, 4,
-                    136, 79, 0, 27, 93, 240, 5, 15, 54, 162, 196, 255, 121, 221, 147, 82, 43, 178,
-                    174, 57, 94, 168, 125, 228, 150, 72, 134, 68, 117, 7, 193, 131, 116, 183, 164,
-                    110, 226, 227, 113, 233, 191, 51, 47, 7, 6, 163, 232
-                ]),
+                signature: MessageSignature::from_hex("001c694f8134c5c90f2f2bcd330e9f423204884f001b5df0050f36a2c4ff79dd93522bb2ae395ea87de4964886447507c18374b7a46ee2e371e9bf332f0706a3e8").unwrap(),
             }))
         );
     }
