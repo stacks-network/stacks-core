@@ -14,7 +14,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 mod v0;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 // Copyright (C) 2020-2024 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
@@ -510,6 +510,23 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
                 SignerSlotID(u32::try_from(pos).expect("FATAL: number of signers exceeds u32::MAX"))
             })
             .collect::<Vec<_>>()
+    }
+
+    /// Get the slot id for each signer
+    fn get_slot_per_signer(&self, reward_cycle: u64) -> HashMap<Secp256k1PublicKey, SignerSlotID> {
+        let slots = self
+            .get_signer_slots(reward_cycle)
+            .expect("FATAL: failed to get signer slots from stackerdb");
+        let mut signer_to_slot_id = HashMap::new();
+        for signer_config in self.signer_configs.iter() {
+            let pk = Secp256k1PublicKey::from_private(&signer_config.stacks_private_key);
+            for (slot_id, (address, _)) in slots.iter().enumerate() {
+                if address == &signer_config.stacks_address {
+                    signer_to_slot_id.insert(pk, SignerSlotID(u32::try_from(slot_id).unwrap()));
+                }
+            }
+        }
+        signer_to_slot_id
     }
 
     /// Get the signer public keys for the given reward cycle
