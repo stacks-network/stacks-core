@@ -457,7 +457,10 @@ impl TestBurnchainBlock {
         .expect("FATAL: failed to read block commit");
 
         if parent_is_shadow {
-            assert!(get_commit_res.is_none());
+            assert!(
+                get_commit_res.is_none(),
+                "FATAL: shadow parent should not have a block-commit"
+            );
         }
 
         let input = SortitionDB::get_last_block_commit_by_sender(ic.conn(), &apparent_sender)
