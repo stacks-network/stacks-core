@@ -38,9 +38,11 @@ use clarity::vm::costs::ExecutionCost;
 /// This module contains shadow block-specific logic for the Nakamoto block header, Nakamoto block,
 /// Nakamoto chainstate, and Nakamoto miner structures.
 use rusqlite::Connection;
+use rusqlite::params;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, ConsensusHash, StacksAddress, StacksBlockId, StacksPrivateKey, StacksPublicKey,
 };
+use stacks_common::codec::StacksMessageCodec;
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::vrf::VRFProof;
 
@@ -49,7 +51,7 @@ use crate::chainstate::nakamoto::miner::{MinerTenureInfo, NakamotoBlockBuilder};
 use crate::chainstate::nakamoto::{
     BlockSnapshot, ChainstateError, LeaderBlockCommitOp, NakamotoBlock, NakamotoBlockHeader,
     NakamotoChainState, NakamotoStagingBlocksConnRef, SetupBlockResult, SortitionDB,
-    SortitionHandleConn, StacksDBIndexed,
+    SortitionHandleConn, StacksDBIndexed, NakamotoStagingBlocksConn, NakamotoStagingBlocksTx
 };
 use crate::chainstate::stacks::boot::RewardSet;
 use crate::chainstate::stacks::db::{
@@ -67,6 +69,11 @@ use crate::chainstate::stacks::{
 use crate::clarity::vm::types::StacksAddressExtensions;
 use crate::clarity_vm::clarity::ClarityInstance;
 use crate::clarity_vm::database::SortitionDBRef;
+
+use crate::util_lib::db::Error as DBError;
+use crate::util_lib::db::{query_row, u64_to_sql};
+
+use crate::chainstate::nakamoto::NakamotoBlockObtainMethod;
 
 impl NakamotoBlockHeader {
     /// Is this a shadow block?
@@ -720,5 +727,127 @@ impl NakamotoBlockBuilder {
         shadow_block.header.sign_miner(&miner_key)?;
 
         Ok(shadow_block)
+    }
+}
+    
+impl<'a> NakamotoStagingBlocksConnRef<'a> {
+    /// Determine if we have a particular block with the given index hash.
+    /// Returns Ok(true) if so
+    /// Returns Ok(false) if not
+    /// Returns Err(..) on DB error
+    pub fn has_shadow_nakamoto_block_with_index_hash(
+        &self,
+        index_block_hash: &StacksBlockId,
+    ) -> Result<bool, ChainstateError> {
+        let qry = "SELECT 1 FROM nakamoto_staging_blocks WHERE index_block_hash = ?1 AND obtain_method = ?2";
+        let args = params![
+            index_block_hash,
+            &NakamotoBlockObtainMethod::Shadow.to_string()
+        ];
+        let res: Option<i64> = query_row(self, qry, args)?;
+        Ok(res.is_some())
+    }
+    
+    /// Is this a shadow tenure?
+    /// If any block is a shadow block in the tenure, they must all be.
+    ///
+    /// Returns true if the tenure has at least one shadow block.
+    pub fn is_shadow_tenure(
+        &self,
+        consensus_hash: &ConsensusHash,
+    ) -> Result<bool, ChainstateError> {
+        let qry = "SELECT 1 FROM nakamoto_staging_blocks WHERE consensus_hash = ?1 AND obtain_method = ?2";
+        let args = rusqlite::params![
+            consensus_hash,
+            NakamotoBlockObtainMethod::Shadow.to_string()
+        ];
+        let present: Option<u32> = query_row(self, qry, args)?;
+        Ok(present.is_some())
+    }
+
+    /// Shadow blocks, unlike Stacks blocks, have a unique place in the chain history.
+    /// They are inserted post-hoc, so they and their underlying burnchain blocks don't get
+    /// invalidated via a fork.  A consensus hash can identify (1) no tenures, (2) a single
+    /// shadow tenure, or (3) one or more non-shadow tenures.
+    ///
+    /// This is important when downloading a tenure that is ended by a shadow block, since it won't
+    /// be processed beforehand and its hash isn't learned from the burnchain (so we must be able
+    /// to infer that if this is a shadow tenure, none of the blocks in it have siblings).
+    pub fn get_shadow_tenure_start_block(
+        &self,
+        ch: &ConsensusHash,
+    ) -> Result<Option<NakamotoBlock>, ChainstateError> {
+        let qry = "SELECT data FROM nakamoto_staging_blocks WHERE consensus_hash = ?1 AND obtain_method = ?2 ORDER BY height DESC LIMIT 1";
+        let args = params![ch, &NakamotoBlockObtainMethod::Shadow.to_string()];
+        let res: Option<Vec<u8>> = query_row(self, qry, args)?;
+        let Some(block_bytes) = res else {
+            return Ok(None);
+        };
+        let block = NakamotoBlock::consensus_deserialize(&mut block_bytes.as_slice())?;
+        if !block.is_shadow_block() {
+            error!("Staging DB corruption: expected shadow block from {}", ch);
+            return Err(DBError::Corruption.into());
+        }
+        Ok(Some(block))
+    }
+}
+
+impl<'a> NakamotoStagingBlocksTx<'a> {
+    /// Add a shadow block.
+    /// Fails if there are any non-shadow blocks present in the tenure.
+    pub fn add_shadow_block(&self, shadow_block: &NakamotoBlock) -> Result<(), ChainstateError> {
+        if !shadow_block.is_shadow_block() {
+            return Err(ChainstateError::InvalidStacksBlock(
+                "Not a shadow block".into(),
+            ));
+        }
+        let block_id = shadow_block.block_id();
+
+        // is this block stored already?
+        let qry = "SELECT 1 FROM nakamoto_staging_blocks WHERE index_block_hash = ?1";
+        let args = params![block_id];
+        let present: Option<i64> = query_row(self, qry, args)?;
+        if present.is_some() {
+            return Ok(());
+        }
+
+        // this tenure must be empty, or it must be a shadow tenure
+        let qry = "SELECT 1 FROM nakamoto_staging_blocks WHERE consensus_hash = ?1";
+        let args = rusqlite::params![&shadow_block.header.consensus_hash];
+        let present: Option<u32> = query_row(self, qry, args)?;
+        if present.is_some() && !self.conn().is_shadow_tenure(&shadow_block.header.consensus_hash)? {
+            return Err(ChainstateError::InvalidStacksBlock(
+                "Shadow block cannot be inserted into non-empty non-shadow tenure".into(),
+            ));
+        }
+
+        // there must not be a block at this height in this tenure
+        let qry = "SELECT 1 FROM nakamoto_staging_blocks WHERE consensus_hash = ?1 AND height = ?2";
+        let args = rusqlite::params![
+            &shadow_block.header.consensus_hash,
+            u64_to_sql(shadow_block.header.chain_length)?
+        ];
+        let present: Option<u32> = query_row(self, qry, args)?;
+        if present.is_some() {
+            return Err(ChainstateError::InvalidStacksBlock(format!(
+                "Conflicting block at height {} in tenure {}",
+                shadow_block.header.chain_length, &shadow_block.header.consensus_hash
+            )));
+        }
+
+        // the shadow block is crafted post-hoc, so we know the consensus hash exists.
+        // thus, it's always burn-attachable
+        let burn_attachable = true;
+
+        // shadow blocks cannot be replaced
+        let signing_weight = u32::MAX;
+
+        self.store_block(
+            shadow_block,
+            burn_attachable,
+            signing_weight,
+            NakamotoBlockObtainMethod::Shadow,
+        )?;
+        Ok(())
     }
 }
