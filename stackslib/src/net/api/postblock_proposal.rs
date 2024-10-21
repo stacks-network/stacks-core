@@ -187,7 +187,7 @@ impl NakamotoBlockProposal {
     ///   - Block header is well-formed
     ///   - Transactions are well-formed
     ///   - Miner signature is valid
-    /// - Validation of transactions by executing them agains current chainstate.
+    /// - Validation of transactions by executing them against current chainstate.
     ///   This is resource intensive, and therefore done only if previous checks pass
     pub fn validate(
         &self,

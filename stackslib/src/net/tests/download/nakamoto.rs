@@ -1626,7 +1626,7 @@ fn test_make_tenure_downloaders() {
         );
         assert_eq!(ibd_schedule.len(), rc_len as usize);
         for (i, ch) in ibd_schedule.iter().enumerate() {
-            // in IBD, we download in sortiiton order
+            // in IBD, we download in sortition order
             assert_eq!(&rc_wanted_tenures[i].tenure_id_consensus_hash, ch);
         }
 
@@ -1657,7 +1657,7 @@ fn test_make_tenure_downloaders() {
         let offset = (nakamoto_start % rc_len) as usize;
         assert_eq!(ibd_schedule.len(), (rc_len as usize) - offset);
         for (i, ch) in ibd_schedule.iter().enumerate() {
-            // in IBD, we download in sortiiton order
+            // in IBD, we download in sortition order
             assert_eq!(&rc_wanted_tenures[i + offset].tenure_id_consensus_hash, ch);
             assert!(rc_wanted_tenures[i + offset].burn_height >= nakamoto_start);
         }

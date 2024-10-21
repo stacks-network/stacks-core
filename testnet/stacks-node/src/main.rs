@@ -61,7 +61,7 @@ use crate::run_loop::boot_nakamoto;
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
 
-/// Implmentation of `pick_best_tip` CLI option
+/// Implementation of `pick_best_tip` CLI option
 fn cli_pick_best_tip(config_path: &str, at_stacks_height: Option<u64>) -> TipCandidate {
     info!("Loading config at path {}", config_path);
     let config = match ConfigFile::from_path(config_path) {

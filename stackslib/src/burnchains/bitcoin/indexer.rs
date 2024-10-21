@@ -1118,7 +1118,7 @@ impl BurnchainIndexer for BitcoinIndexer {
         Ok(new_height)
     }
 
-    /// Drop headers after a given height -- i.e. to accomodate a reorg
+    /// Drop headers after a given height -- i.e. to accommodate a reorg
     fn drop_headers(&mut self, new_height: u64) -> Result<(), burnchain_error> {
         let mut spv_client = SpvClient::new(
             &self.config.spv_headers_path,

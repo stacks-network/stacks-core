@@ -593,7 +593,7 @@ impl StacksMessageCodec for TransactionPostCondition {
             }
             _ => {
                 return Err(codec_error::DeserializeError(format!(
-                    "Failed to aprse transaction: unknown asset info ID {}",
+                    "Failed to parse transaction: unknown asset info ID {}",
                     asset_info_id
                 )));
             }
@@ -998,7 +998,7 @@ impl StacksTransaction {
     pub fn append_next_sponsor(&mut self, pubk: &StacksPublicKey) -> Result<(), net_error> {
         match self.auth {
             TransactionAuth::Standard(_) => Err(net_error::SigningError(
-                "Cannot appned a public key to the sponsor of a standard auth condition"
+                "Cannot append a public key to the sponsor of a standard auth condition"
                     .to_string(),
             )),
             TransactionAuth::Sponsored(_, ref mut sponsor_condition) => {
@@ -1338,7 +1338,7 @@ mod test {
         ) -> Result<(), net_error> {
             match self.auth {
                 TransactionAuth::Standard(_) => Err(net_error::SigningError(
-                    "Cannot appned a public key to the sponsor of a standard auth condition"
+                    "Cannot append a public key to the sponsor of a standard auth condition"
                         .to_string(),
                 )),
                 TransactionAuth::Sponsored(_, ref mut sponsor_condition) => match sponsor_condition
@@ -4045,7 +4045,7 @@ mod test {
             Err(e) => match e {
                 net_error::SigningError(msg) => assert_eq!(
                     &msg,
-                    "Cannot appned a public key to the sponsor of a standard auth condition"
+                    "Cannot append a public key to the sponsor of a standard auth condition"
                 ),
                 _ => assert!(false),
             },

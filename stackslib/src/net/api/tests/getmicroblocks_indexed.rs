@@ -165,7 +165,7 @@ fn test_try_make_response() {
         StacksHttpRequest::new_getmicroblocks_indexed(addr.into(), index_microblock_hash.clone());
     requests.push(request);
 
-    // query non-existant microblock stream
+    // query non-existent microblock stream
     let request =
         StacksHttpRequest::new_getmicroblocks_indexed(addr.into(), StacksBlockId([0x11; 32]));
     requests.push(request);

@@ -308,7 +308,7 @@ impl TriePtr {
             w.write_all(
                 block_map
                     .get_block_hash_caching(self.back_block())
-                    .expect("Block identifier {} refered to an unknown block. Consensus failure.")
+                    .expect("Block identifier {} referred to an unknown block. Consensus failure.")
                     .as_bytes(),
             )?;
         } else {

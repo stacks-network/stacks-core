@@ -38,9 +38,9 @@ use crate::chainstate::stacks::{
     C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
 
-/// Parse a script into its structured constituant opcodes and data and collect them
+/// Parse a script into its structured constituent opcodes and data and collect them
 pub fn parse_script<'a>(script: &'a Script) -> Vec<Instruction<'a>> {
-    // we will have to accept non-minimial pushdata since there's at least one OP_RETURN
+    // we will have to accept non-minimal pushdata since there's at least one OP_RETURN
     // in the transaction stream that has this property already.
     script.iter(false).collect()
 }
@@ -520,7 +520,7 @@ impl BitcoinTxInput {
     }
 
     /// parse a Bitcoin transaction input into a structured BitcoinTxInput.
-    /// Returns None if the input could not be parsed into a recognizeable format
+    /// Returns None if the input could not be parsed into a recognizable format
     pub fn from_bitcoin_txin_structured(txin: &BtcTxIn) -> Option<BitcoinTxInput> {
         let input_txid = to_txid(txin);
         match txin.witness.len() {

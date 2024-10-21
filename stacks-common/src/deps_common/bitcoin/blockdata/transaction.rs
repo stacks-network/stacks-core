@@ -106,8 +106,8 @@ pub struct TxIn {
     pub sequence: u32,
     /// Witness data: an array of byte-arrays.
     /// Note that this field is *not* (de)serialized with the rest of the TxIn in
-    /// ConsensusEncodable/ConsennsusDecodable, as it is (de)serialized at the end of the full
-    /// Transaction. It *is* (de)serialized with the rest of the TxIn in other (de)serializationn
+    /// ConsensusEncodable/ConsensusDecodable, as it is (de)serialized at the end of the full
+    /// Transaction. It *is* (de)serialized with the rest of the TxIn in other (de)serialization
     /// routines.
     pub witness: Vec<Vec<u8>>,
 }

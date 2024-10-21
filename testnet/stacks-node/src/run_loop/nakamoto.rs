@@ -381,7 +381,7 @@ impl RunLoop {
             burnchain_config.reward_cycle_to_block_height(
                 burnchain_config
                     .block_height_to_reward_cycle(sn.block_height)
-                    .expect("BUG: snapshot preceeds first reward cycle"),
+                    .expect("BUG: snapshot precedes first reward cycle"),
             ),
             sn,
         )

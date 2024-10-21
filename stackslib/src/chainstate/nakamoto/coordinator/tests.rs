@@ -598,7 +598,7 @@ fn test_simple_nakamoto_coordinator_1_tenure_10_blocks() {
 }
 
 /// Test chainstate getters against an instantiated epoch2/Nakamoto chain.
-/// There are 11 epoch2 blocks and 2 nakamto tenure with 10 nakamoto blocks each
+/// There are 11 epoch2 blocks and 2 Nakamoto tenure with 10 nakamoto blocks each
 /// Tests:
 /// * get_header_by_coinbase_height
 /// * get_parent_vrf_proof
@@ -1517,7 +1517,7 @@ fn test_nakamoto_coordinator_10_tenures_10_sortitions() {
 /// cover the time of two sortitions.
 ///
 /// Use a tenure-extend to grant the miner of the first tenure the ability to mine
-/// 20 blocks in the first tenure (10 before the second sortiton, and 10 after)
+/// 20 blocks in the first tenure (10 before the second sortition, and 10 after)
 pub fn simple_nakamoto_coordinator_2_tenures_3_sortitions<'a>() -> TestPeer<'a> {
     let private_key = StacksPrivateKey::from_seed(&[2]);
     let addr = StacksAddress::from_public_keys(

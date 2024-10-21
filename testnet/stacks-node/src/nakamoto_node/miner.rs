@@ -811,7 +811,7 @@ impl BlockMinerThread {
 
         // last chance -- confirm that the stacks tip is unchanged (since it could have taken long
         // enough to build this block that another block could have arrived), and confirm that all
-        // Stacks blocks with heights higher than the canoincal tip are processed.
+        // Stacks blocks with heights higher than the canonical tip are processed.
         self.check_burn_tip_changed(&burn_db)?;
         Ok(block)
     }

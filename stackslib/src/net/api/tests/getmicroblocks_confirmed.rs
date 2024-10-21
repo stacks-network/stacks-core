@@ -163,7 +163,7 @@ fn test_try_make_response() {
     );
     requests.push(request);
 
-    // query non-existant microblock stream
+    // query non-existent microblock stream
     let request =
         StacksHttpRequest::new_getmicroblocks_confirmed(addr.into(), StacksBlockId([0x11; 32]));
     requests.push(request);

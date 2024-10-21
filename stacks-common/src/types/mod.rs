@@ -125,7 +125,7 @@ impl StacksEpochId {
     ///
     /// Epoch 2.0 - 2.05 didn't support this feature, but they weren't epoch-guarded on it. Instead,
     ///  the behavior never activates in those epochs because the Pox1 contract does not provide
-    ///  `contibuted_stackers` information. This check maintains that exact semantics by returning
+    ///  `contributed_stackers` information. This check maintains that exact semantics by returning
     ///  true for all epochs before 2.5. For 2.5 and after, this returns false.
     pub fn supports_pox_missed_slot_unlocks(&self) -> bool {
         self < &StacksEpochId::Epoch25

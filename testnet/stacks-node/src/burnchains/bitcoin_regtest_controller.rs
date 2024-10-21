@@ -929,7 +929,7 @@ impl BitcoinRegtestController {
 
     #[cfg(test)]
     /// Build a transfer stacks tx.
-    ///   this *only* works if the only existant UTXO is from a PreStx Op
+    ///   this *only* works if the only existent UTXO is from a PreStx Op
     ///   this is okay for testing, but obviously not okay for actual use.
     ///   The reason for this constraint is that the bitcoin_regtest_controller's UTXO
     ///     and signing logic are fairly intertwined, and untangling the two seems excessive
@@ -1011,7 +1011,7 @@ impl BitcoinRegtestController {
 
     #[cfg(test)]
     /// Build a delegate stacks tx.
-    ///   this *only* works if the only existant UTXO is from a PreStx Op
+    ///   this *only* works if the only existent UTXO is from a PreStx Op
     ///   this is okay for testing, but obviously not okay for actual use.
     ///   The reason for this constraint is that the bitcoin_regtest_controller's UTXO
     ///     and signing logic are fairly intertwined, and untangling the two seems excessive
@@ -2114,7 +2114,7 @@ impl BurnchainController for BitcoinRegtestController {
         if let Some(cap) = self.config.burnchain.process_exit_at_block_height {
             if burnchain_tip.block_snapshot.block_height >= cap {
                 info!(
-                    "Node succesfully reached the end of the ongoing {} blocks epoch!",
+                    "Node successful reached the end of the ongoing {} blocks epoch!",
                     cap
                 );
                 info!("This process will automatically terminate in 30s, restart your node for participating in the next epoch.");

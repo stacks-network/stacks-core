@@ -106,7 +106,7 @@ pub mod asn;
 /// discover peers, query attachment inventories, and download attachments.
 pub mod atlas;
 /// Implements the `ConversationP2P` object, a host-to-host session abstraction which allows
-/// the node to recieve `StacksMessage` instances. The downstream consumer of this API is `PeerNetwork`.
+/// the node to receive `StacksMessage` instances. The downstream consumer of this API is `PeerNetwork`.
 /// To use OSI terminology, this module implements the session & presentation layers of the P2P network.
 /// Other functionality includes (but is not limited to):
 ///     * set up & tear down of sessions
@@ -852,7 +852,7 @@ pub struct Preamble {
 /// This struct is used only in Stacks 2.x for Stacks 2.x inventories
 #[derive(Debug, Clone, PartialEq)]
 pub struct GetBlocksInv {
-    /// Consensus hash at thestart of the reward cycle
+    /// Consensus hash at the start of the reward cycle
     pub consensus_hash: ConsensusHash,
     /// Number of sortitions to ask for. Can be up to the reward cycle length.
     pub num_blocks: u16,
@@ -872,7 +872,7 @@ pub struct BlocksInvData {
     pub microblocks_bitvec: Vec<u8>,
 }
 
-/// Request for a tenure inventroy.
+/// Request for a tenure inventory.
 /// Aligned to a PoX reward cycle.
 /// This struct is used only in Nakamoto, for Nakamoto inventories
 #[derive(Debug, Clone, PartialEq)]
@@ -1231,7 +1231,7 @@ pub trait ProtocolFamily {
     /// Given a preamble and a Read, attempt to stream a message.  This will be called if
     /// `payload_len()` returns None.  This method will be repeatedly called with new data until a
     /// message can be obtained; therefore, the ProtocolFamily implementation will need to do its
-    /// own bufferring and state-tracking.
+    /// own buffering and state-tracking.
     fn stream_payload<R: Read>(
         &mut self,
         preamble: &Self::Preamble,
@@ -1443,7 +1443,7 @@ pub struct NetworkResult {
     pub unhandled_messages: HashMap<NeighborKey, Vec<StacksMessage>>,
     /// Stacks 2.x blocks we downloaded, and time taken
     pub blocks: Vec<(ConsensusHash, StacksBlock, u64)>,
-    /// Stacks 2.x confiremd microblocks we downloaded, and time taken
+    /// Stacks 2.x confirmed microblocks we downloaded, and time taken
     pub confirmed_microblocks: Vec<(ConsensusHash, Vec<StacksMicroblock>, u64)>,
     /// Nakamoto blocks we downloaded
     pub nakamoto_blocks: HashMap<StacksBlockId, NakamotoBlock>,

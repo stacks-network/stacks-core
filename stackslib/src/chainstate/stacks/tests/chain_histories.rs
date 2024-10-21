@@ -3620,7 +3620,7 @@ fn mine_anchored_invalid_token_transfer_blocks_single() {
 // TODO: missing blocks
 // TODO: no-sortition
 // TODO: burnchain forks, and we mine the same anchored stacks block in the beginnings of the two descendent
-// forks.  Verify all descendents are unique -- if A --> B and A --> C, and B --> D and C -->
+// forks.  Verify all descendants are unique -- if A --> B and A --> C, and B --> D and C -->
 // E, and B == C, verify that it is never the case that D == E (but it is allowed that B == C
 // if the burnchain forks).
 // TODO: confirm that if A is accepted but B is rejected, then C must also be rejected even if

@@ -78,7 +78,7 @@ MessageSlotID {
     DkgEndBegin = 2,
     /// DkgEnd
     DkgEnd = 3,
-    /// DkgPublicshares
+    /// DkgPublicShares
     DkgPublicShares = 4,
     /// DkgPrivateShares
     DkgPrivateShares = 5,
@@ -444,7 +444,7 @@ impl StacksMessageCodec for SignerMessage {
     }
 }
 
-/// Work around for the fact that a lot of the structs being desierialized are not defined in messages.rs
+/// Work around for the fact that a lot of the structs being deserialized are not defined in messages.rs
 pub trait StacksMessageCodecExtensions: Sized {
     /// Serialize the struct to the provided writer
     fn inner_consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError>;
@@ -1295,7 +1295,7 @@ pub enum RejectCode {
     NonceTimeout(Vec<u32>),
     /// Insufficient signers agreed to sign the block
     InsufficientSigners(Vec<u32>),
-    /// An internal error occurred in the signer when aggregating the signaure
+    /// An internal error occurred in the signer when aggregating the signature
     AggregatorError(String),
     /// Missing the following expected transactions
     MissingTransactions(Vec<StacksTransaction>),
@@ -1402,7 +1402,7 @@ impl std::fmt::Display for RejectCode {
             ),
             RejectCode::AggregatorError(reason) => write!(
                 f,
-                "An internal error occurred in the signer when aggregating the signaure: {:?}",
+                "An internal error occurred in the signer when aggregating the signature: {:?}",
                 reason
             ),
         }

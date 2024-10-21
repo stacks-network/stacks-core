@@ -848,7 +848,7 @@ struct StacksHttpReplyData {
     stream: StacksHttpRecvStream,
 }
 
-/// Stacks HTTP state machine implementation, for bufferring up data.
+/// Stacks HTTP state machine implementation, for buffering up data.
 /// One of these exists per Connection<P: Protocol>.
 /// There can be at most one HTTP request in-flight (i.e. we don't do pipelining).
 ///
@@ -1030,7 +1030,7 @@ impl StacksHttp {
     ) -> Result<StacksHttpResponse, NetError> {
         if preamble.status_code < 400 || preamble.status_code > 599 {
             return Err(NetError::DeserializeError(
-                "Inavlid response: not an error".to_string(),
+                "Invalid response: not an error".to_string(),
             ));
         }
 
@@ -1411,7 +1411,7 @@ impl ProtocolFamily for StacksHttp {
 
                 // sanity check -- if we're receiving a response, then we must have earlier issued
                 // a request. Thus, we must already know which response handler to use.
-                // Otherwise, someone sent us malforemd data.
+                // Otherwise, someone sent us malformed data.
                 if self.request_handler_index.is_none() {
                     self.reset();
                     return Err(NetError::DeserializeError(

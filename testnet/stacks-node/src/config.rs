@@ -771,7 +771,7 @@ impl Config {
 
     /// Load up a Burnchain and apply config settings to it.
     /// Use this over the Burnchain constructors.
-    /// Panics if we are unable to instantiate a burnchain (e.g. becase we're using an unrecognized
+    /// Panics if we are unable to instantiate a burnchain (e.g. because we're using an unrecognized
     /// chain ID or something).
     pub fn get_burnchain(&self) -> Burnchain {
         let (network_name, _) = self.burnchain.get_bitcoin_network();
@@ -2787,7 +2787,7 @@ pub struct AtlasConfigFile {
 }
 
 impl AtlasConfigFile {
-    // Can't inplement `Into` trait because this takes a parameter
+    // Can't implement `Into` trait because this takes a parameter
     fn into_config(&self, mainnet: bool) -> AtlasConfig {
         let mut conf = AtlasConfig::new(mainnet);
         if let Some(val) = self.attachments_max_size {

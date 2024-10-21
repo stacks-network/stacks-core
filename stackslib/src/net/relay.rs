@@ -394,7 +394,7 @@ impl RelayerStats {
 
     /// Get the (non-normalized) probability distribution to use to sample outbound neighbors to
     /// relay messages to.  The probability of being selected is proportional to how rare the
-    /// neighbor's AS number is in our neighbor set.  The intution is that we should try to
+    /// neighbor's AS number is in our neighbor set.  The intuition is that we should try to
     /// disseminate our data to as many different _networks_ as quickly as possible, so nodes in
     /// those networks can take care of forwarding them to their inbound peers.
     pub fn get_outbound_relay_rankings(
@@ -815,7 +815,7 @@ impl Relayer {
 
                     let sz = *(mblocks_sizes.get(&anchored_block_hash).unwrap_or(&0));
                     if sz + mblock_len < (MAX_PAYLOAD_LEN as usize) {
-                        // enough space to include this block in this messaege
+                        // enough space to include this block in this message
                         if let Some((_, mblock_msg)) = mblocks_msgs.last_mut() {
                             // append to last mblocks message
                             mblock_msg.microblocks.push(mblock);
@@ -929,7 +929,7 @@ impl Relayer {
         new_blocks
     }
 
-    // fault injection -- don't accept this block if we are to deliberatly ignore
+    // fault injection -- don't accept this block if we are to deliberately ignore
     // it in a test
     #[cfg(any(test, feature = "testing"))]
     pub fn fault_injection_is_block_hidden(
@@ -1522,7 +1522,7 @@ impl Relayer {
         cur_ast_rules != processed_ast_rules
     }
 
-    /// Process blocks and microblocks that we recieved, both downloaded (confirmed) and streamed
+    /// Process blocks and microblocks that we receive, both downloaded (confirmed) and streamed
     /// (unconfirmed). Returns:
     /// * set of consensus hashes that elected the newly-discovered blocks, and the blocks, so we can turn them into BlocksAvailable / BlocksData messages
     /// * set of confirmed microblock consensus hashes for newly-discovered microblock streams, and the streams, so we can turn them into MicroblocksAvailable / MicroblocksData messages

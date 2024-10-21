@@ -93,7 +93,7 @@ impl InvTenureInfo {
 /// This struct represents cached inventory data loaded from Nakamoto headers.
 /// It is of the utmost importance that inventory message generation is _fast_, and incurs as
 /// little I/O overhead as possible, given how essential these messages are to nodes trying to keep
-/// in sync.  By caching (immutable) tenure data in this struct, we can enusre that this happens
+/// in sync.  By caching (immutable) tenure data in this struct, we can ensure that this happens
 /// all the time except for during node bootup.
 pub struct InvGenerator {
     processed_tenures: HashMap<ConsensusHash, Option<InvTenureInfo>>,
@@ -226,7 +226,7 @@ impl InvGenerator {
                 }
             } else {
                 // no active tenure during this sortition. Check the parent sortition to see if a
-                // tenure begain there.
+                // tenure began there.
                 tenure_status.push(false);
                 cur_tenure_opt =
                     self.get_processed_tenure(chainstate, &parent_sortition_consensus_hash)?;
@@ -653,7 +653,7 @@ impl<NC: NeighborComms> NakamotoInvStateMachine<NC> {
 
             let naddr = convo.to_neighbor_address();
 
-            // NOTE: this naturally garabage-collects inventories for disconnected nodes, as
+            // NOTE: this naturally garbage-collects inventories for disconnected nodes, as
             // desired
             let mut inv = self.inventories.remove(&naddr).unwrap_or_else(|| {
                 NakamotoTenureInv::new(

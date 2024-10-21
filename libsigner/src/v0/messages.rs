@@ -181,7 +181,7 @@ impl StacksMessageCodec for SignerMessage {
     }
 }
 
-/// Work around for the fact that a lot of the structs being desierialized are not defined in messages.rs
+/// Work around for the fact that a lot of the structs being deserialized are not defined in messages.rs
 pub trait StacksMessageCodecExtensions: Sized {
     /// Serialize the struct to the provided writer
     fn inner_consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError>;

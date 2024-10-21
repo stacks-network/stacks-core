@@ -16,7 +16,7 @@
 
 #![forbid(missing_docs)]
 /*!
-# libsigner: a library for creating and operating a Stacks Nakamato compliant signer.
+# libsigner: a library for creating and operating a Stacks Nakamoto compliant signer.
 
 Usage documentation can be found in the [README](https://github.com/stacks-network/stacks-blockchain/libsigner/README.md).
 */

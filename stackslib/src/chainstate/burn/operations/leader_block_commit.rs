@@ -479,7 +479,7 @@ impl StacksMessageCodec for LeaderBlockCommitOp {
     }
 
     fn consensus_deserialize<R: Read>(_fd: &mut R) -> Result<LeaderBlockCommitOp, codec_error> {
-        // Op deserialized through burchain indexer
+        // Op deserialized through burnchain indexer
         unimplemented!();
     }
 }
@@ -556,7 +556,7 @@ impl LeaderBlockCommitOp {
     /// PoX is not active).
     /// If `reward_set_info` is not None, then *only* the addresses in .recipients are used.  The u16
     /// indexes are *ignored* (and *must be* ignored, since this method gets called by
-    /// `check_intneded_sortition()`, which does not have this information).
+    /// `check_intended_sortition()`, which does not have this information).
     fn check_pox(
         &self,
         epoch_id: StacksEpochId,

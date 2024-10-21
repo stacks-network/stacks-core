@@ -799,7 +799,7 @@ impl StacksChainState {
     /// * contains the block height of the block with the slashed microblock public key hash
     /// * contains the microblock public key hash
     /// * contains the sender that reported the poison-microblock
-    /// * contains the sequence number at which the fork occured
+    /// * contains the sequence number at which the fork occurred
     pub fn handle_poison_microblock(
         env: &mut Environment,
         mblock_header_1: &StacksMicroblockHeader,
@@ -900,7 +900,7 @@ impl StacksChainState {
             if mblock_header_1.sequence < seq {
                 // this sender reports a point lower in the stream where a fork occurred, and is now
                 // entitled to a commission of the punished miner's coinbase
-                debug!("Sender {} reports a better poison-miroblock record (at {}) for key {} at height {} than {} (at {})", &sender_principal, mblock_header_1.sequence, &pubkh, mblock_pubk_height, &reporter, seq;
+                debug!("Sender {} reports a better poison-microblock record (at {}) for key {} at height {} than {} (at {})", &sender_principal, mblock_header_1.sequence, &pubkh, mblock_pubk_height, &reporter, seq;
                     "sender" => %sender_principal,
                     "microblock_pubkey_hash" => %pubkh
                 );
@@ -3104,13 +3104,13 @@ pub mod test {
                 "hello-world",
                 "set-bar-not-a-method",
                 vec![Value::Int(1), Value::Int(1)],
-            ), // call into non-existant method
+            ), // call into non-existent method
             (
                 addr.clone(),
                 "hello-world-not-a-contract",
                 "set-bar",
                 vec![Value::Int(1), Value::Int(1)],
-            ), // call into non-existant contract
+            ), // call into non-existent contract
             (
                 addr_2.clone(),
                 "hello-world",
@@ -4133,7 +4133,7 @@ pub mod test {
                 );
                 assert_eq!(account_publisher_after.nonce, expected_nonce);
 
-                // but nonce _does_ change for reciever, who sent back
+                // but nonce _does_ change for receive, who sent back
                 let account_publisher_after =
                     StacksChainState::get_account(&mut conn, &recv_addr.to_account_principal());
                 assert_eq!(account_publisher_after.nonce, expected_recv_nonce);
@@ -4892,7 +4892,7 @@ pub mod test {
                 );
                 assert_eq!(account_publisher_after.nonce, expected_nonce);
 
-                // but nonce _does_ change for reciever, who sent back
+                // but nonce _does_ change for receive, who sent back
                 let account_publisher_after =
                     StacksChainState::get_account(&mut conn, &recv_addr.to_account_principal());
                 assert_eq!(account_publisher_after.nonce, expected_recv_nonce);
@@ -8841,7 +8841,7 @@ pub mod test {
         ) {
             assert!(msg.find("not in Stacks epoch 2.1 or later").is_some());
         } else {
-            panic!("FATAL: did not recieve the appropriate error in processing a clarity2 tx in pre-2.1 epoch");
+            panic!("FATAL: did not receive the appropriate error in processing a clarity2 tx in pre-2.1 epoch");
         }
 
         conn.commit_block();

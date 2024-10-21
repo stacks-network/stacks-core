@@ -308,7 +308,7 @@ impl<'a> StackerDBTx<'a> {
                 total_slots_read
                     .checked_add(*slot_count)
                     .ok_or(net_error::OverflowError(
-                        "Slot count exceeeds u32::MAX".to_string(),
+                        "Slot count exceeds u32::MAX".to_string(),
                     ))?;
             let slots_before_principal = total_slots_read - slot_count;
             for cur_principal_slot in 0..*slot_count {

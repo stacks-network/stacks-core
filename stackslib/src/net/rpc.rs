@@ -100,7 +100,7 @@ pub struct ConversationHttp {
     total_request_count: u64,
     /// number of messages sent
     total_reply_count: u64,
-    /// absolute timestamp of the last time we recieved at least 1 byte
+    /// absolute timestamp of the last time we receive at least 1 byte
     last_request_timestamp: u64,
     /// absolute timestamp of the last time we sent at least 1 byte
     last_response_timestamp: u64,
@@ -510,7 +510,7 @@ impl ConversationHttp {
         self.last_response_timestamp
     }
 
-    /// When was this converation conencted?
+    /// When was this conversation connected?
     #[cfg_attr(test, mutants::skip)]
     pub fn get_connection_time(&self) -> u64 {
         self.connection_time

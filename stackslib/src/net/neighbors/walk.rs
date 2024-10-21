@@ -200,7 +200,7 @@ pub struct NeighborWalk<DB: NeighborWalkDB, NC: NeighborComms> {
     /// Link to the underlying neighbor DB
     neighbor_db: DB,
 
-    /// Link to the underlying p2p netwrk
+    /// Link to the underlying p2p network
     comms: NC,
 }
 
@@ -290,7 +290,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
     /// Instantiate the neighbor walk to an always-allowed node.
     /// If we're in the initial block download, then this must also be a *bootstrap* peer.
     /// Returns the neighbor walk on success
-    /// Returns NotFoundError if no always-allwed neighbors are in the DB.
+    /// Returns NotFoundError if no always-allowed neighbors are in the DB.
     /// Returns DBError if there's a problem querying the DB
     pub(crate) fn instantiate_walk_to_always_allowed(
         db: DB,
@@ -929,7 +929,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
         Ok(true)
     }
 
-    /// Begin getting the neighors of cur_neighbor's neighbors.
+    /// Begin getting the neighbors of cur_neighbor's neighbors.
     /// ReplyHandleP2Ps should be reply handles for Handshake requests.
     pub fn neighbor_handshakes_begin(
         &mut self,
@@ -1418,7 +1418,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
     /// neighbor if we were unable to take a step.
     ///
     /// This is a slightly modified MHRWDA algorithm.  The following differences are described:
-    /// * The Stacks peer network is a _directed_ graph, whereas MHRWDA is desigend to operate
+    /// * The Stacks peer network is a _directed_ graph, whereas MHRWDA is designed to operate
     /// on _undirected_ graphs.  As such, we calculate a separate peer graph with undirected edges
     /// with the same peers.  We estimate a peer's undirected degree with Neighbor::degree().
     /// * The probability of transitioning to a new peer is proportional not only to the ratio of
@@ -1751,7 +1751,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
         Ok(())
     }
 
-    /// try to finish pinging/handshaking all exisitng neighbors.
+    /// try to finish pinging/handshaking all existing neighbors.
     /// if the remote neighbor does _not_ respond to our ping, then replace it.
     ///
     /// This is the final step in the state-machine.  It returns the walk result.

@@ -767,7 +767,7 @@ pub fn preprocess_stacks_block_data(
     {
         Some(sn) => sn,
         None => {
-            test_debug!("Block commit did not win sorition: {:?}", block_commit_op);
+            test_debug!("Block commit did not win sortition: {:?}", block_commit_op);
             return None;
         }
     };

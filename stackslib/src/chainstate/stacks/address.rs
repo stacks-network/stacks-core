@@ -118,7 +118,7 @@ impl PoxAddress {
     }
 
     /// Get the version byte representation of the hash mode.  Used only in testing, where the test
-    /// knows that it will only use Bitcoin legacy addresses (i.e. so this method is infallable).
+    /// knows that it will only use Bitcoin legacy addresses (i.e. so this method is infallible).
     #[cfg(any(test, feature = "testing"))]
     pub fn version(&self) -> u8 {
         self.hashmode()

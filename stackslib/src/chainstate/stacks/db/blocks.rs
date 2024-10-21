@@ -2301,7 +2301,7 @@ impl StacksChainState {
         let update_block_args: &[&dyn ToSql] = &[consensus_hash, anchored_block_hash];
 
         // All descendants of this processed block are never attachable.
-        // Indicate this by marking all children as orphaned (but not procesed), across all burnchain forks.
+        // Indicate this by marking all children as orphaned (but not processed), across all burnchain forks.
         let update_children_sql = "UPDATE staging_blocks SET orphaned = 1, processed = 0, attachable = 0 WHERE parent_consensus_hash = ?1 AND parent_anchored_block_hash = ?2";
         let update_children_args: &[&dyn ToSql] = &[consensus_hash, anchored_block_hash];
 
@@ -3045,7 +3045,7 @@ impl StacksChainState {
         }
 
         if signed_microblocks[0].header.sequence != 0 {
-            // discontiguous -- must start with seq 0
+            // discontinuous -- must start with seq 0
             warn!(
                 "Discontiguous stream -- first microblock header sequence is {}",
                 signed_microblocks[0].header.sequence
@@ -3054,7 +3054,7 @@ impl StacksChainState {
         }
 
         if signed_microblocks[0].header.prev_block != parent_anchored_block_header.block_hash() {
-            // discontiguous -- not connected to parent
+            // discontinuous -- not connected to parent
             warn!("Discontiguous stream -- does not connect to parent");
             return None;
         }
@@ -3066,7 +3066,7 @@ impl StacksChainState {
             }
             let cur_seq = (signed_microblocks[i - 1].header.sequence as u32) + 1;
             if cur_seq < (signed_microblocks[i].header.sequence as u32) {
-                // discontiguous
+                // discontinuous
                 warn!(
                     "Discontiguous stream -- {} < {}",
                     cur_seq, signed_microblocks[i].header.sequence
@@ -3124,7 +3124,7 @@ impl StacksChainState {
             }
 
             if signed_microblocks[i - 1].block_hash() != signed_microblocks[i].header.prev_block {
-                // discontiguous
+                // discontinuous
                 debug!("Discontinuous stream -- blocks not linked by hash");
                 return None;
             }
@@ -3153,7 +3153,7 @@ impl StacksChainState {
         }
 
         if !connects {
-            // discontiguous
+            // discontinuous
             debug!(
                 "Discontiguous stream: block {} does not connect to tail",
                 anchored_block_header.block_hash()
@@ -3207,7 +3207,7 @@ impl StacksChainState {
         {
             Ok(Some(bc)) => bc,
             Ok(None) => {
-                // unsoliciated
+                // unsolicited
                 warn!(
                     "Received unsolicited block: {}/{}",
                     consensus_hash, block_hash
@@ -4854,7 +4854,7 @@ impl StacksChainState {
     ///
     /// The rationale for the new behavior in Stacks 2.1+ is that burnchain-hosted STX operations
     /// can get picked up in Stacks blocks that only live on short-lived forks, or get mined in
-    /// burnchain blocks in which there was no sortiton.  In either case, the operation does not
+    /// burnchain blocks in which there was no sortition.  In either case, the operation does not
     /// materialize on the canonical Stacks chain.  This is a bad user
     /// experience, because the act of sending a PreStxOp plus this StackStxOp / TransferStxOp is a
     /// time-consuming and tedious process that must then be repeated.
@@ -5443,7 +5443,7 @@ impl StacksChainState {
         }
 
         let (parent_consensus_hash, parent_block_hash) = if block.is_first_mined() {
-            // has to be the sentinal hashes if this block has no parent
+            // has to be the sentinel hashes if this block has no parent
             (
                 FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
                 FIRST_STACKS_BLOCK_HASH.clone(),
@@ -5479,7 +5479,7 @@ impl StacksChainState {
             || last_microblock_seq != block.header.parent_microblock_sequence
         {
             // the pre-processing step should prevent this from being reached
-            panic!("BUG: received discontiguous headers for processing: {} (seq={}) does not connect to {} (microblock parent is {} (seq {}))",
+            panic!("BUG: received discontinuous headers for processing: {} (seq={}) does not connect to {} (microblock parent is {} (seq {}))",
                    last_microblock_hash, last_microblock_seq, block.block_hash(), block.header.parent_microblock, block.header.parent_microblock_sequence);
         }
 
@@ -5799,7 +5799,7 @@ impl StacksChainState {
         let parent_block_header = parent_chain_tip
             .anchored_header
             .as_stacks_epoch2()
-            .ok_or_else(|| Error::InvalidChildOfNakomotoBlock)?;
+            .ok_or_else(|| Error::InvalidChildOfNakamotoBlock)?;
 
         let new_tip = StacksChainState::advance_tip(
             &mut chainstate_tx.tx,
@@ -5991,7 +5991,7 @@ impl StacksChainState {
             parent_block_header_info
                 .anchored_header
                 .as_stacks_epoch2()
-                .ok_or_else(|| Error::InvalidChildOfNakomotoBlock)?,
+                .ok_or_else(|| Error::InvalidChildOfNakamotoBlock)?,
             &block.header,
             &next_microblocks,
             false,
@@ -5999,7 +5999,7 @@ impl StacksChainState {
             Some((terminus, _)) => terminus,
             None => {
                 debug!(
-                    "Stopping at block {}/{} -- discontiguous header stream",
+                    "Stopping at block {}/{} -- discontinuous header stream",
                     next_staging_block.consensus_hash, next_staging_block.anchored_block_hash,
                 );
                 return Ok(vec![]);
@@ -6166,7 +6166,7 @@ impl StacksChainState {
             parent_header_info
                 .anchored_header
                 .as_stacks_epoch2()
-                .ok_or_else(|| Error::InvalidChildOfNakomotoBlock)?,
+                .ok_or_else(|| Error::InvalidChildOfNakamotoBlock)?,
             &block.header,
         ) {
             let msg = format!(
@@ -8708,7 +8708,7 @@ pub mod test {
             assert!(res.is_none());
         }
 
-        // nonempty stream, but discontiguous first microblock (doesn't connect to parent block)
+        // nonempty stream, but discontinuous first microblock (doesn't connect to parent block)
         {
             let mut broken_microblocks = microblocks.clone();
             broken_microblocks[0].header.prev_block = BlockHeaderHash([1u8; 32]);
@@ -8726,7 +8726,7 @@ pub mod test {
             assert!(res.is_none());
         }
 
-        // nonempty stream, but discontiguous first microblock (wrong sequence)
+        // nonempty stream, but discontinuous first microblock (wrong sequence)
         {
             let mut broken_microblocks = microblocks.clone();
             broken_microblocks[0].header.sequence = 1;
@@ -8744,7 +8744,7 @@ pub mod test {
             assert!(res.is_none());
         }
 
-        // nonempty stream, but discontiguous hash chain
+        // nonempty stream, but discontinuous hash chain
         {
             let mut broken_microblocks = microblocks.clone();
 

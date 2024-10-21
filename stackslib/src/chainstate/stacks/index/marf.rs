@@ -156,7 +156,7 @@ pub trait MarfConnection<T: MarfTrieId> {
     }
 
     /// Check if a block can open successfully, i.e.,
-    ///   it's a known block, the storage system isn't issueing IOErrors, _and_ it's in the same fork
+    ///   it's a known block, the storage system isn't issuing IOErrors, _and_ it's in the same fork
     ///   as the current block
     /// The MARF _must_ be open to a valid block for this check to be evaluated.
     fn check_ancestor_block_hash(&mut self, bhh: &T) -> Result<(), Error> {
@@ -607,7 +607,7 @@ impl<T: MarfTrieId> MARF<T> {
         Ok(h)
     }
 
-    // helper method for walking a node's backpr
+    // helper method for walking a node's backptr
     fn walk_backptr(
         storage: &mut TrieStorageConnection<T>,
         start_node: &TrieNodeType,
@@ -666,7 +666,7 @@ impl<T: MarfTrieId> MARF<T> {
     }
 
     /// Given a node, and the chr of one of its children, go find the last instance of that child in
-    /// the MARF and copy it forward.  Update its ptrs to point to its descendents.
+    /// the MARF and copy it forward.  Update its ptrs to point to its descendants.
     /// s must point to the block hash in which this node lives, to which the child will be copied.
     fn node_child_copy(
         storage: &mut TrieStorageConnection<T>,

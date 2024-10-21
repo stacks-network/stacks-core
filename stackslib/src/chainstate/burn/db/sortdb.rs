@@ -149,7 +149,7 @@ impl FromRow<BlockSnapshot> for BlockSnapshot {
         let index_root = TrieHash::from_column(row, "index_root")?;
         let num_sortitions = u64::from_column(row, "num_sortitions")?;
 
-        // information we learn about the stacks block this snapshot committedto
+        // information we learn about the stacks block this snapshot committed to
         let stacks_block_accepted: bool = row.get_unwrap("stacks_block_accepted");
         let stacks_block_height = u64::from_column(row, "stacks_block_height")?;
         let arrival_index = u64::from_column(row, "arrival_index")?;
@@ -260,7 +260,7 @@ impl FromRow<LeaderBlockCommitOp> for LeaderBlockCommitOp {
         let sunset_burn_str: String = row.get_unwrap("sunset_burn");
 
         let commit_outs = serde_json::from_value(row.get_unwrap("commit_outs"))
-            .expect("Unparseable value stored to database");
+            .expect("Unparsable value stored to database");
 
         let memo_bytes = hex_bytes(&memo_hex).map_err(|_e| db_error::ParseError)?;
 
@@ -274,11 +274,11 @@ impl FromRow<LeaderBlockCommitOp> for LeaderBlockCommitOp {
 
         let burn_fee = burn_fee_str
             .parse::<u64>()
-            .expect("DB Corruption: burn fee is not parseable as u64");
+            .expect("DB Corruption: burn fee is not parsable as u64");
 
         let sunset_burn = sunset_burn_str
             .parse::<u64>()
-            .expect("DB Corruption: Sunset burn is not parseable as u64");
+            .expect("DB Corruption: Sunset burn is not parsable as u64");
 
         let burn_parent_modulus: u8 = row.get_unwrap("burn_parent_modulus");
 
@@ -1274,7 +1274,7 @@ impl<'a> SortitionHandleTx<'a> {
             .map(|result| result.is_some())
     }
 
-    /// Get the latest block snapshot on this fork where a sortition occured.
+    /// Get the latest block snapshot on this fork where a sortition occurred.
     /// Search snapshots up to (but excluding) the given block height.
     /// Will always return a snapshot -- even if it's the initial sentinel snapshot.
     pub fn get_last_snapshot_with_sortition(
@@ -1865,7 +1865,7 @@ impl<'a> SortitionHandleConn<'a> {
     /// signed by this signer set?
     ///
     /// This only works if `consensus_hash` is within two reward cycles (4200 blocks) of the
-    /// sortition pointed to by this handle's sortiton tip.  If it isn't, then this
+    /// sortition pointed to by this handle's sortition tip.  If it isn't, then this
     /// method returns Ok(false).  This is to prevent a DDoS vector whereby compromised stale
     /// Signer keys can be used to blast out lots of Nakamoto blocks that will be accepted
     /// but never processed.  So, `consensus_hash` can be in the same reward cycle as
@@ -2139,7 +2139,7 @@ impl<'a> SortitionHandleConn<'a> {
         )? {
             Some(bc) => bc,
             None => {
-                // unsoliciated
+                // unsolicited
                 debug!("No block commit for {}/{}", consensus_hash, block_hash);
                 return Ok(None);
             }
@@ -2182,7 +2182,7 @@ impl<'a> SortitionHandleConn<'a> {
         Ok(Some((block_commit, stacks_chain_tip)))
     }
 
-    /// Get the latest block snapshot on this fork where a sortition occured.
+    /// Get the latest block snapshot on this fork where a sortition occurred.
     /// Search snapshots up to (but excluding) the given block height.
     /// Will always return a snapshot -- even if it's the initial sentinel snapshot.
     pub fn get_last_snapshot_with_sortition(
@@ -2291,7 +2291,7 @@ impl<'a> SortitionHandleConn<'a> {
     /// block.
     /// Returns Err(BurnchainError::MissingParentBlock) if we couldn't find the sortition for this
     /// burnchain block hash
-    /// Returns Err(CoordiantorError::NotPrepareEndBlock) if this wasn't the last block in a
+    /// Returns Err(CoordinatorError::NotPrepareEndBlock) if this wasn't the last block in a
     /// prepare phase.
     fn get_heights_for_prepare_phase_end_block(
         &self,
@@ -3597,7 +3597,7 @@ impl SortitionDB {
         Self::get_preprocessed_reward_set(self.conn(), &first_sortition)
     }
 
-    /// Get a pre-processed reawrd set.
+    /// Get a pre-processed reward set.
     /// `sortition_id` is the first sortition ID of the prepare phase.
     pub fn get_preprocessed_reward_set(
         sortdb: &DBConn,
@@ -3955,7 +3955,7 @@ impl SortitionDB {
     /// current burnchain block being considered, and the list of burnchain blocks still to be
     /// considered.  That last argument will have length 0 on the last call to `cls`.
     ///
-    /// Run `after` with the sorition handle tx right before committing.
+    /// Run `after` with the sortition handle tx right before committing.
     pub fn invalidate_descendants_with_closures<F, G>(
         &mut self,
         burn_block: &BurnchainHeaderHash,
@@ -5052,7 +5052,7 @@ impl SortitionDB {
         match ic.get_indexed(tip, &db_keys::stacks_block_present(block_hash))? {
             Some(sortition_id_hex) => {
                 let sortition_id = SortitionId::from_hex(&sortition_id_hex)
-                    .expect("FATAL: DB stored non-parseable sortition id");
+                    .expect("FATAL: DB stored non-parsable sortition id");
                 SortitionDB::get_block_snapshot(ic, &sortition_id)
             }
             None => Ok(None),
@@ -5168,7 +5168,7 @@ impl SortitionDB {
         Ok(u64::MAX)
     }
 
-    /// Get the latest block snapshot on this fork where a sortition occured.
+    /// Get the latest block snapshot on this fork where a sortition occurred.
     /// Search snapshots up to (but excluding) the given block height.
     /// Will always return a snapshot -- even if it's the initial sentinel snapshot.
     pub fn get_last_snapshot_with_sortition_tx(
@@ -6052,7 +6052,7 @@ impl<'a> SortitionHandleTx<'a> {
                             };
 
                             // NOTE: we have to have a hash mode for the address -- i.e. we have to be
-                            // able to conver it to a clarity tuple -- since this data must be available
+                            // able to convert it to a clarity tuple -- since this data must be available
                             // via `get-burn-block-info?`.
                             assert!(
                                 replace_with.as_clarity_tuple().is_some(),
@@ -6285,7 +6285,7 @@ impl<'a> SortitionHandleTx<'a> {
             // everyone else must be higher than the highest known tip to supersede it.
             if *height > best_tip_height || (*height == 0 && best_tip_height == 0) {
                 debug!(
-                    "At tip {}: {}/{} (height {}) is superceded by {}/{} (height {})",
+                    "At tip {}: {}/{} (height {}) is superseded by {}/{} (height {})",
                     &parent_tip.burn_header_hash,
                     &best_tip_consensus_hash,
                     &best_tip_block_bhh,

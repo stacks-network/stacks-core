@@ -79,7 +79,7 @@ use crate::util_lib::strings::StacksString;
 ///    a single block.
 /// Only one ClarityBlockConnection may be open at a time (enforced by the borrow checker)
 ///   and ClarityBlockConnections must be `commit_block`ed or `rollback_block`ed before discarding
-///   begining the next connection (enforced by runtime panics).
+///   beginning the next connection (enforced by runtime panics).
 ///
 /// Note on generics and abstracting the structs in `clarity_vm::clarity` into `libclarity`: while
 ///   multiple consumers of `libclarity` may need a high-level interface like
@@ -105,7 +105,7 @@ pub struct ClarityInstance {
 ///
 /// This is necessary to allow callers complete other operations like
 /// preparing a commitment to the chainstate headers MARF, and
-/// issuring event dispatches, before the Clarity database commits.
+/// issuing event dispatches, before the Clarity database commits.
 ///
 pub struct PreCommitClarityBlock<'a> {
     datastore: WritableMarfStore<'a>,
@@ -1678,7 +1678,7 @@ impl<'a, 'b> TransactionConnection for ClarityTransactionConnection<'a, 'b> {
                 );
 
                 // wrap the whole contract-call in a claritydb transaction,
-                //   so we can abort on call_back's boolean retun
+                //   so we can abort on call_back's boolean return
                 db.begin();
                 let mut vm_env = OwnedEnvironment::new_cost_limited(
                     self.mainnet,
@@ -1856,7 +1856,7 @@ impl<'a, 'b> ClarityTransactionConnection<'a, 'b> {
         Ok(result)
     }
 
-    /// Evaluate a raw Clarity snippit
+    /// Evaluate a raw Clarity snippet
     #[cfg(test)]
     pub fn clarity_eval_raw(&mut self, code: &str) -> Result<Value, Error> {
         let (result, _, _, _) = self.with_abort_callback(

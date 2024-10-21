@@ -78,7 +78,7 @@
 /// ChainsCoordinator thread needs to acquire the write-lock.
 /// This thread is responsible for:
 ///    * Receiving new blocks and microblocks from the P2P thread via a shared channel
-///    * (Sychronously) requesting the CoordinatorThread to process newly-stored Stacks blocks and
+///    * (Synchronously) requesting the CoordinatorThread to process newly-stored Stacks blocks and
 ///    microblocks
 ///    * Building up the node's unconfirmed microblock stream state, and sharing it with the P2P
 ///    thread so it can answer queries about the unconfirmed microblock chain
@@ -90,7 +90,7 @@
 ///
 /// * **Miner thread**:  This is the thread that actually produces new blocks and microblocks.  It
 /// is spawned only by the Relayer thread to carry out mining activity when the underlying
-/// chainstate is not needed by either the Relayer or ChainsCoordinator threeads.
+/// chainstate is not needed by either the Relayer or ChainsCoordinator threads.
 /// This thread does the following:
 ///    * Walk the mempool DB to build a new block or microblock
 ///    * Return the block or microblock to the Relayer thread
@@ -441,7 +441,7 @@ pub struct RelayerThread {
     globals: Globals,
     /// Authoritative copy of the keychain state
     keychain: Keychain,
-    /// Burnchian configuration
+    /// Burnchain configuration
     burnchain: Burnchain,
     /// height of last VRF key registration request
     last_vrf_key_burn_height: u64,
@@ -1271,7 +1271,7 @@ impl BlockMinerThread {
     }
 
     /// Put all tip candidates in order by stacks height, breaking ties with burnchain height.
-    /// Also, count up the number of earliersiblings each tip has -- i.e. the number of stacks
+    /// Also, count up the number of earlier siblings each tip has -- i.e. the number of stacks
     /// blocks that have the same height, but a later burnchain sortition.
     pub(crate) fn sort_and_populate_candidates(
         mut candidates: Vec<TipCandidate>,
@@ -1476,7 +1476,7 @@ impl BlockMinerThread {
                     // did we confirm a previous best-tip? If so, then clear this
                     if let Some(required_ancestor) = must_confirm.take() {
                         if required_ancestor.id() != tip.id() {
-                            // did not confirm, so restoroe
+                            // did not confirm, so restore
                             must_confirm = Some(required_ancestor);
                         }
                     }
@@ -2480,7 +2480,7 @@ impl BlockMinerThread {
 
         // last chance -- confirm that the stacks tip is unchanged (since it could have taken long
         // enough to build this block that another block could have arrived), and confirm that all
-        // Stacks blocks with heights higher than the canoincal tip are processed.
+        // Stacks blocks with heights higher than the canonical tip are processed.
         let cur_burn_chain_tip = SortitionDB::get_canonical_burn_chain_tip(burn_db.conn())
             .expect("FATAL: failed to query sortition DB for canonical burn chain tip");
 
@@ -2655,14 +2655,14 @@ impl RelayerThread {
         }
     }
 
-    /// Get an immutible ref to the sortdb
+    /// Get an immutable ref to the sortdb
     pub fn sortdb_ref(&self) -> &SortitionDB {
         self.sortdb
             .as_ref()
             .expect("FATAL: tried to access sortdb while taken")
     }
 
-    /// Get an immutible ref to the chainstate
+    /// Get an immutable ref to the chainstate
     pub fn chainstate_ref(&self) -> &StacksChainState {
         self.chainstate
             .as_ref()
@@ -2725,7 +2725,7 @@ impl RelayerThread {
 
     /// Handle a NetworkResult from the p2p/http state machine.  Usually this is the act of
     /// * preprocessing and storing new blocks and microblocks
-    /// * relaying blocks, microblocks, and transacctions
+    /// * relaying blocks, microblocks, and transactions
     /// * updating unconfirmed state views
     pub fn process_network_result(&mut self, mut net_result: NetworkResult) {
         debug!(
@@ -2923,7 +2923,7 @@ impl RelayerThread {
     /// Process a new block we mined
     /// Return true if we processed it
     /// Return false if we timed out waiting for it
-    /// Return Err(..) if we couldn't reach the chains coordiantor thread
+    /// Return Err(..) if we couldn't reach the chains coordinator thread
     fn process_new_block(&self) -> Result<bool, Error> {
         // process the block
         let stacks_blocks_processed = self.globals.coord_comms.get_stacks_blocks_processed();
@@ -3106,7 +3106,7 @@ impl RelayerThread {
             if has_new_data {
                 // process the block, now that we've advertized it
                 if let Err(Error::CoordinatorClosed) = self.process_new_block() {
-                    // coordiantor stopped
+                    // coordinator stopped
                     return (false, None);
                 }
             }
@@ -3837,7 +3837,7 @@ impl RelayerThread {
                             self.last_microblock_tenure_time = get_epoch_time_ms();
                             self.microblock_stream_cost = new_cost;
 
-                            // synchronise state
+                            // synchronize state
                             self.with_chainstate(
                                 |relayer_thread, _sortdb, chainstate, _mempool| {
                                     relayer_thread.globals.send_unconfirmed_txs(chainstate);
@@ -4590,7 +4590,7 @@ impl StacksNode {
             true,
             burnchain.pox_constants.clone(),
         )
-        .expect("Error while instantiating sor/tition db");
+        .expect("Error while instantiating sortition db");
 
         let epochs = SortitionDB::get_stacks_epochs(sortdb.conn())
             .expect("Error while loading stacks epochs");

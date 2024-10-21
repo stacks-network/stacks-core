@@ -133,7 +133,7 @@ impl MinerStats {
         let window_start_height = window_end_height + 1 - (windowed_block_commits.len() as u64);
         let mut burn_blocks = vec![false; windowed_block_commits.len()];
 
-        // set burn_blocks flags to accomodate prepare phases and PoX sunset
+        // set burn_blocks flags to accommodate prepare phases and PoX sunset
         for (i, b) in burn_blocks.iter_mut().enumerate() {
             if burnchain.is_in_prepare_phase(window_start_height + (i as u64)) {
                 // must burn

@@ -855,7 +855,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
     }
 
     /// Produce the next microblock in the stream, unconditionally, from the given txs.
-    /// Inner accouting state, like runtime and space, will be updated.
+    /// Inner accounting state, like runtime and space, will be updated.
     /// Otherwise, no validity checking will be done.
     pub fn make_next_microblock(
         &mut self,

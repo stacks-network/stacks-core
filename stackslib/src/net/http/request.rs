@@ -222,7 +222,7 @@ impl HttpRequestPreamble {
 }
 
 /// Read from a stream until we see '\r\n\r\n', with the purpose of reading a HTTP preamble.
-/// It's gonna be important here that R does some bufferring, since this reads byte by byte.
+/// It's gonna be important here that R does some buffering, since this reads byte by byte.
 /// EOF if we read 0 bytes.
 fn read_to_crlf2<R: Read>(fd: &mut R) -> Result<Vec<u8>, CodecError> {
     let mut ret = Vec::with_capacity(HTTP_PREAMBLE_MAX_ENCODED_SIZE as usize);
@@ -428,7 +428,7 @@ impl StacksMessageCodec for HttpRequestPreamble {
                             keep_alive = true;
                         } else {
                             return Err(CodecError::DeserializeError(
-                                "Inavlid HTTP request: invalid Connection: header".to_string(),
+                                "Invalid HTTP request: invalid Connection: header".to_string(),
                             ));
                         }
                     } else {
@@ -565,7 +565,7 @@ impl HttpRequestContents {
         self
     }
 
-    /// chain consturctor -- set the payload to text
+    /// chain constructor -- set the payload to text
     pub fn payload_text(mut self, value: String) -> Self {
         self.payload = HttpRequestPayload::Text(value);
         self

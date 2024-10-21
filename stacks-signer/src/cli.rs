@@ -57,7 +57,7 @@ pub enum Command {
     CheckConfig(RunSignerArgs),
 }
 
-/// Basic arguments for all cyrptographic and stacker-db functionality
+/// Basic arguments for all cryptographic and stacker-db functionality
 #[derive(Parser, Debug, Clone)]
 pub struct StackerDBArgs {
     /// The Stacks node to connect to
@@ -99,7 +99,7 @@ pub struct PutChunkArgs {
     /// The base arguments
     #[clap(flatten)]
     pub db_args: StackerDBArgs,
-    /// The Stacks private key to use in hexademical format
+    /// The Stacks private key to use in hexadecimal format
     #[arg(short, long, value_parser = parse_private_key)]
     pub private_key: StacksPrivateKey,
     /// The slot ID to get

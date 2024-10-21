@@ -1996,7 +1996,7 @@ fn test_make_miners_stackerdb_config() {
         let stackerdb_config =
             NakamotoChainState::make_miners_stackerdb_config(sort_db, &tip).unwrap();
         eprintln!(
-            "stackerdb_config at i = {} (sorition? {}): {:?}",
+            "stackerdb_config at i = {} (sortition? {}): {:?}",
             &i, sortition, &stackerdb_config
         );
 

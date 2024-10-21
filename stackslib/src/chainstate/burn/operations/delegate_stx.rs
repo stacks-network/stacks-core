@@ -45,10 +45,10 @@ impl DelegateStxOp {
                - if it is set to 1, the parse function attempts to parse the next 4 bytes as a u32,
                   and this value determines which index in the btc op outputs corresponds to the
                   reward address
-               - if it is set to 0, the value is interpreteted as None
+               - if it is set to 0, the value is interpreted as None
              "until burn height" is encoded as follows: the first byte is an option marker
                - if it is set to 1, the parse function attempts to parse the next 8 bytes as a u64
-               - if it is set to 0, the value is interpreteted as None
+               - if it is set to 0, the value is interpreted as None
 
         */
         // magic + op are omitted
@@ -254,7 +254,7 @@ impl StacksMessageCodec for DelegateStxOp {
     }
 
     fn consensus_deserialize<R: Read>(_fd: &mut R) -> Result<DelegateStxOp, codec_error> {
-        // Op deserialized through burchain indexer
+        // Op deserialized through burnchain indexer
         unimplemented!();
     }
 }

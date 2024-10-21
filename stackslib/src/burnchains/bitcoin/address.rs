@@ -133,7 +133,7 @@ pub fn legacy_version_byte_to_address_type(
 }
 
 /// Convert bitcoin address byte to stacks address byte.
-/// Only works for legacy Bitcoin addresess.
+/// Only works for legacy Bitcoin addresses.
 pub fn to_c32_version_byte(version: u8) -> Option<u8> {
     match version {
         ADDRESS_VERSION_MAINNET_SINGLESIG => Some(C32_ADDRESS_VERSION_MAINNET_SINGLESIG),

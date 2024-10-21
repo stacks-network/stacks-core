@@ -301,7 +301,7 @@ fn maybe_add_minimum_fee_rate(working_rates: &mut Vec<FeeRateAndWeight>, full_bl
 ///
 /// Returns None if:
 ///   1) There is no fee rate for the tx.
-///   2) Cacluated fee rate is infinite.
+///   2) Calculated fee rate is infinite.
 fn fee_rate_and_weight_from_receipt(
     metric: &dyn CostMetric,
     tx_receipt: &StacksTransactionReceipt,
@@ -325,7 +325,7 @@ fn fee_rate_and_weight_from_receipt(
         | TransactionPayload::SmartContract(..)
         | TransactionPayload::TenureChange(..) => {
             // These transaction payload types all "work" the same: they have associated ExecutionCosts
-            // and contibute to the block length limit with their tx_len
+            // and contribute to the block length limit with their tx_len
             metric.from_cost_and_len(&tx_receipt.execution_cost, &block_limit, tx_size)
         }
     };

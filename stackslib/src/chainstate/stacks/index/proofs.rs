@@ -1219,7 +1219,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
         // next proof item should be part of a segment proof
         match proof[i] {
             TrieMerkleProofType::Shunt(_) => {
-                test_debug!("Malformed proof -- exepcted segment proof following first shunt proof head at {}", i);
+                test_debug!("Malformed proof -- expected segment proof following first shunt proof head at {}", i);
                 return false;
             }
             _ => {}

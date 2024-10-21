@@ -644,7 +644,7 @@ mod tests {
     }
 
     /// Parse transactions in epoch 2.05 and earlier.
-    /// All inputs should be BittcoinTxInputStructured
+    /// All inputs should be BitcoinTxInputStructured
     #[test]
     fn parse_tx_test_2_05() {
         let vtxindex = 4;

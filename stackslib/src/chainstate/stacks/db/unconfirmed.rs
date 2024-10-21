@@ -131,7 +131,7 @@ impl UnconfirmedState {
         })
     }
 
-    /// Make a read-only copy of this unconfirmed state.  The resulting unconfiremd state cannot
+    /// Make a read-only copy of this unconfirmed state.  The resulting unconfirmed state cannot
     /// be refreshed, but it will represent a snapshot of the existing unconfirmed state.
     pub fn make_readonly_owned(&self) -> Result<UnconfirmedState, Error> {
         let marf = MarfedKV::open_unconfirmed(
@@ -389,7 +389,7 @@ impl UnconfirmedState {
         )
     }
 
-    /// Update the view of the current confiremd chain tip's unconfirmed microblock state
+    /// Update the view of the current confirmed chain tip's unconfirmed microblock state
     /// Returns ProcessedUnconfirmedState for the microblocks newly added to the unconfirmed state
     pub fn refresh(
         &mut self,

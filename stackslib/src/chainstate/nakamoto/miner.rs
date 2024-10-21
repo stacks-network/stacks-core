@@ -78,7 +78,7 @@ use crate::net::Error as net_error;
 use crate::util_lib::boot::boot_code_id;
 use crate::util_lib::db::Error as DBError;
 
-/// Nakamaoto tenure information
+/// Nakamoto tenure information
 pub struct NakamotoTenureInfo {
     /// Coinbase tx, if this is a new tenure
     pub coinbase_tx: Option<StacksTransaction>,

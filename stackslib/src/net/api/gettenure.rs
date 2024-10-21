@@ -67,7 +67,7 @@ pub struct NakamotoTenureStream {
     pub block_stream: NakamotoBlockStream,
     /// connection to the headers DB
     pub headers_conn: DBConn,
-    /// total bytess sent so far
+    /// total bytes sent so far
     pub total_sent: u64,
     /// stop streaming if we reach this block
     pub last_block_id: Option<StacksBlockId>,

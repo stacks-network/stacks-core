@@ -101,7 +101,7 @@ impl StacksMessageCodec for TransactionAuthField {
             _ => {
                 test_debug!("Failed to deserialize auth field ID {}", field_id);
                 return Err(codec_error::DeserializeError(format!(
-                    "Failed to parse auth field: unkonwn auth field ID {}",
+                    "Failed to parse auth field: unknown auth field ID {}",
                     field_id
                 )));
             }
@@ -554,7 +554,7 @@ impl StacksMessageCodec for SinglesigSpendingCondition {
             && key_encoding != TransactionPublicKeyEncoding::Compressed
         {
             test_debug!("Incompatible hashing mode and key encoding");
-            return Err(codec_error::DeserializeError("Failed to parse singlesig spending condition: incomaptible hash mode and key encoding".to_string()));
+            return Err(codec_error::DeserializeError("Failed to parse singlesig spending condition: incompatible hash mode and key encoding".to_string()));
         }
 
         Ok(SinglesigSpendingCondition {
@@ -1084,7 +1084,7 @@ impl TransactionSpendingCondition {
     }
 
     /// Linear-complexity verifying algorithm -- we verify a rolling hash over all data committed
-    /// to by order of signers (instead of re-serializing the tranasction each time).
+    /// to by order of signers (instead of re-serializing the transaction each time).
     /// Calculates the next sighash and public key, which the next verifier must verify.
     /// Used by StacksTransaction::verify*
     pub fn next_verification(

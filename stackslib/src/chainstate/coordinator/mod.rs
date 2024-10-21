@@ -1258,7 +1258,7 @@ impl<
                         || ancestor_sn.consensus_hash != hdr.consensus_hash
                     {
                         debug!(
-                            "Stacks tip {}/{} affirmation map {} is not attched to {},{}",
+                            "Stacks tip {}/{} affirmation map {} is not attached to {},{}",
                             &hdr.consensus_hash,
                             &hdr.anchored_header.block_hash(),
                             &am,
@@ -1372,7 +1372,7 @@ impl<
                 {
                     if divergence_rc + 1 >= (heaviest_am.len() as u64) {
                         // this can arise if there are unaffirmed PoX anchor blocks that are not
-                        // reflected in the sortiiton affirmation map
+                        // reflected in the sortition affirmation map
                         debug!("Update sortition-changed reward cycle to {} from canonical affirmation map `{}` (sortition AM is `{}`)",
                             divergence_rc, &canonical_affirmation_map, &sortition_tip_affirmation_map);
 
@@ -1413,12 +1413,12 @@ impl<
             }
         }
 
-        // no reorog
+        // no reorg
         Ok(None)
     }
 
     /// Find valid sortitions between two given heights, and given the correct affirmation map.
-    /// Returns a height-sorted list of block snapshots whose affirmation maps are cosnistent with
+    /// Returns a height-sorted list of block snapshots whose affirmation maps are consistent with
     /// the correct affirmation map.
     fn find_valid_sortitions(
         &self,
@@ -1426,7 +1426,7 @@ impl<
         start_height: u64,
         end_height: u64,
     ) -> Result<(u64, Vec<BlockSnapshot>), Error> {
-        // careful -- we might have already procesed sortitions in this
+        // careful -- we might have already processed sortitions in this
         // reward cycle with this PoX ID, but that were never confirmed
         // by a subsequent prepare phase.
         let mut last_invalidate_start_block = start_height;
@@ -1447,7 +1447,7 @@ impl<
                     &compare_am.has_prefix(&sn_am),
                 );
                 if compare_am.has_prefix(&sn_am) {
-                    // have already processed this sortitoin
+                    // have already processed this sortition
                     debug!("Already processed sortition {} at height {} with AM `{}` on comparative affirmation map {}", &sn.sortition_id, sn.block_height, &sn_am, &compare_am);
                     found = true;
                     last_invalidate_start_block = height;
@@ -1556,7 +1556,7 @@ impl<
                     found_diverged = true;
                     debug!("{} diverges from {}", &sort_am, &compare_am);
 
-                    // careful -- we might have already procesed sortitions in this
+                    // careful -- we might have already processed sortitions in this
                     // reward cycle with this PoX ID, but that were never confirmed
                     // by a subsequent prepare phase.
                     let (new_last_invalidate_start_block, mut next_valid_sortitions) = self

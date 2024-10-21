@@ -100,7 +100,7 @@ fn test_try_make_response() {
     // TODO: mid-tenure?
     // TODO: just the start of the tenure?
 
-    // query non-existant block
+    // query non-existent block
     let request =
         StacksHttpRequest::new_get_nakamoto_tenure(addr.into(), StacksBlockId([0x11; 32]), None);
     requests.push(request);

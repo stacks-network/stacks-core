@@ -180,7 +180,7 @@ impl NakamotoDownloadStateMachine {
     /// Update a given list of wanted tenures (`wanted_tenures`), which may already have wanted
     /// tenures.  Appends new tenures for the given reward cycle (`cur_rc`) to `wanted_tenures`.
     ///
-    /// Returns Ok(()) on sucess, and appends new tenures in the given reward cycle (`cur_rc`) to
+    /// Returns Ok(()) on success, and appends new tenures in the given reward cycle (`cur_rc`) to
     /// `wanted_tenures`.
     /// Returns Err(..) on DB errors.
     pub(crate) fn update_wanted_tenures_for_reward_cycle(
@@ -232,7 +232,7 @@ impl NakamotoDownloadStateMachine {
 
     /// Given the last-considered sortition tip and the current sortition tip, and a list of wanted
     /// tenures loaded so far, load up any new wanted tenure data _in the same reward cycle_.  Used
-    /// during steady-state to load up new tenures after the sorittion DB advances.
+    /// during steady-state to load up new tenures after the sortition DB advances.
     ///
     /// It may return zero tenures.
     ///
@@ -726,7 +726,7 @@ impl NakamotoDownloadStateMachine {
     /// wanted tenure data and append it to `self.wanted_tenures` via
     /// `self.extend_wanted_tenures()` above.  If it turns out that the downloader's tracked reward
     /// cycle is behind the sortition DB tip's reward cycle, then this will update
-    /// `self.wnated_tenures` and `self.prev_wanted_tenures` if it is safe to do so.
+    /// `self.wanted_tenures` and `self.prev_wanted_tenures` if it is safe to do so.
     pub(crate) fn update_wanted_tenures(
         &mut self,
         network: &PeerNetwork,
@@ -1612,7 +1612,7 @@ impl NakamotoDownloadStateMachine {
         // highest complete tenure download.  NOTE: due to the way that we call this method, we're
         // guaranteed that if the `tenure_downloads` downloader set has any downloads at all, they
         // will only be for the highest complete tenure (i.e. we only call this method if we've
-        // already downloaded all confirmed tenures), so there's no risk of clobberring any other
+        // already downloaded all confirmed tenures), so there's no risk of clobbering any other
         // in-flight requests.
         let new_confirmed_blocks = if self.tenure_downloads.inflight() > 0 {
             self.download_confirmed_tenures(network, 0)
@@ -1719,7 +1719,7 @@ impl NakamotoDownloadStateMachine {
                         .expect("FATAL: max_inflight_blocks exceeds usize::MAX"),
                 );
 
-                // keep borrow-checker happy by instantiang this ref again, now that `network` is
+                // keep borrow-checker happy by instancing this ref again, now that `network` is
                 // no longer mutably borrowed.
                 let Some(invs) = network.inv_state_nakamoto.as_ref() else {
                     // nothing to do
@@ -1773,7 +1773,7 @@ impl NakamotoDownloadStateMachine {
                     Some(highest_processed_block_id),
                 );
 
-                // keep borrow-checker happy by instantiang this ref again, now that `network` is
+                // keep borrow-checker happy by instancing this ref again, now that `network` is
                 // no longer mutably borrowed.
                 let Some(invs) = network.inv_state_nakamoto.as_ref() else {
                     // nothing to do

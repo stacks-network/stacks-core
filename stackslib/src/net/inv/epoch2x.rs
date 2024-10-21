@@ -736,7 +736,7 @@ impl NeighborBlockStats {
     }
 
     /// Determine whether or not a received PoxInv is more certain as the local PoX
-    /// inventory.  Return the loewst reward cycle where the local nodes is less certain than the
+    /// inventory.  Return the lowest reward cycle where the local nodes is less certain than the
     /// remote node.
     pub fn check_local_pox_inv_uncertainty(
         network: &mut PeerNetwork,
@@ -1440,7 +1440,7 @@ impl PeerNetwork {
             }
         };
 
-        // ask for all PoX bits in-between target_reward_cyle and highest_reward_cycle, inclusive
+        // ask for all PoX bits in-between target_reward_cycle and highest_reward_cycle, inclusive
         let num_reward_cycles =
             if target_pox_reward_cycle + GETPOXINV_MAX_BITLEN <= max_reward_cycle {
                 GETPOXINV_MAX_BITLEN
@@ -1755,7 +1755,7 @@ impl PeerNetwork {
     /// Determine at which reward cycle to begin scanning inventories
     pub(crate) fn get_block_scan_start(&self, sortdb: &SortitionDB) -> u64 {
         // see if the stacks tip affirmation map and heaviest affirmation map diverge.  If so, then
-        // start scaning at the reward cycle just before that.
+        // start scanning at the reward cycle just before that.
         let am_rescan_rc = self
             .stacks_tip_affirmation_map
             .find_inv_search(&self.heaviest_affirmation_map);
@@ -2645,7 +2645,7 @@ impl PeerNetwork {
         (done, throttled)
     }
 
-    /// Check to see if an epcoh2x peer has fully sync'ed.
+    /// Check to see if an epoch2 peer has fully sync'ed.
     /// (has crate visibility for testing)
     pub(crate) fn check_peer_epoch2x_synced(
         &self,

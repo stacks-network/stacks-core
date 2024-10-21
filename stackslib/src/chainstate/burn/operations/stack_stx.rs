@@ -356,7 +356,7 @@ impl StacksMessageCodec for PreStxOp {
     }
 
     fn consensus_deserialize<R: Read>(_fd: &mut R) -> Result<PreStxOp, codec_error> {
-        // Op deserialized through burchain indexer
+        // Op deserialized through burnchain indexer
         unimplemented!();
     }
 }
@@ -389,7 +389,7 @@ impl StacksMessageCodec for StackStxOp {
     }
 
     fn consensus_deserialize<R: Read>(_fd: &mut R) -> Result<StackStxOp, codec_error> {
-        // Op deserialized through burchain indexer
+        // Op deserialized through burnchain indexer
         unimplemented!();
     }
 }

@@ -2704,7 +2704,7 @@ impl<'a, T: MarfTrieId> TrieStorageConnection<'a, T> {
     }
 
     /// Get the last slot into which a node will be inserted in the uncommitted state.
-    /// Panics if there is no uncommmitted state instantiated.
+    /// Panics if there is no uncommitted state instantiated.
     pub fn last_ptr(&mut self) -> Result<u32, Error> {
         if let Some((_, ref mut uncommitted_trie)) = self.data.uncommitted_writes {
             uncommitted_trie.last_ptr()

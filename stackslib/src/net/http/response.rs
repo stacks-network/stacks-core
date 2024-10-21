@@ -47,7 +47,7 @@ pub struct HttpResponsePreamble {
     pub status_code: u16,
     /// HTTP status code reason
     pub reason: String,
-    /// true if `Connction: keep-alive` is present
+    /// true if `Connection: keep-alive` is present
     pub keep_alive: bool,
     /// Content-Length value, if given.  If it's not given, then the payload will be treated as
     /// chunk-encoded (and it had better have a `Transfer-Encoding: chunked` header)
@@ -112,7 +112,7 @@ impl HttpResponseContents {
     }
 
     /// Write data for this to a pipe writer, which buffers it up.
-    /// Return Ok(Some(..)) if there is mroe data to send.
+    /// Return Ok(Some(..)) if there is more data to send.
     /// Once all data is sent, return Ok(None)
     #[cfg_attr(test, mutants::skip)]
     pub fn pipe_out(&mut self, fd: &mut PipeWrite) -> Result<u64, Error> {
@@ -354,7 +354,7 @@ fn rfc7231_now() -> String {
 }
 
 /// Read from a stream until we see '\r\n\r\n', with the purpose of reading an HTTP preamble.
-/// It's gonna be important here that R does some bufferring, since this reads byte by byte.
+/// It's gonna be important here that R does some buffering, since this reads byte by byte.
 /// EOF if we read 0 bytes.
 fn read_to_crlf2<R: Read>(fd: &mut R) -> Result<Vec<u8>, CodecError> {
     let mut ret = Vec::with_capacity(HTTP_PREAMBLE_MAX_ENCODED_SIZE as usize);
@@ -558,7 +558,7 @@ impl StacksMessageCodec for HttpResponsePreamble {
                             keep_alive = true;
                         } else {
                             return Err(CodecError::DeserializeError(
-                                "Inavlid HTTP request: invalid Connection: header".to_string(),
+                                "Invalid HTTP request: invalid Connection: header".to_string(),
                             ));
                         }
                     } else if key == "transfer-encoding" {
@@ -675,7 +675,7 @@ impl HttpResponsePayload {
 
     /// Write this payload to a Write, but as a single HTTP chunk.
     /// This is here for the times where you've already sent the HTTP preamble while designating
-    /// chunked-enoding, but you don't (yet) have a Streamer implementation for your body.
+    /// chunked-ending, but you don't (yet) have a Streamer implementation for your body.
     ///
     /// You really should not use this in production.  It's mainly used in testing clients
     /// who use this library.

@@ -292,7 +292,7 @@ impl<T: AsRef<[u8]>> ToBase32 for T {
             }
 
             // Combine all bits from buffer with enough bits from this rounds byte so that they fill
-            // a u5. Save reamining bits from byte to buffer.
+            // a u5. Save remaining bits from byte to buffer.
             let from_buffer = buffer >> 3;
             let from_byte = b >> (3 + buffer_bits); // buffer_bits <= 4
 

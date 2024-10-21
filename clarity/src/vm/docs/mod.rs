@@ -1499,7 +1499,7 @@ option. If the argument is a response type, and the argument is an `(ok ...)` re
        (ok raw-name)))
 
 (get-name-or-err \"blockstack\") ;; Returns (ok (tuple (id 1337)))
-(get-name-or-err \"non-existant\") ;; Returns (err 1)",
+(get-name-or-err \"non-existent\") ;; Returns (err 1)",
 };
 
 const TRY_API: SpecialAPI = SpecialAPI {
@@ -1541,7 +1541,7 @@ option. If the argument is a response type, and the argument is an `(ok ...)` re
 (define-map names-map { name: (string-ascii 12) } { id: int })
 (map-set names-map { name: \"blockstack\" } { id: 1337 })
 (unwrap-panic (map-get? names-map { name: \"blockstack\" })) ;; Returns (tuple (id 1337))
-(unwrap-panic (map-get? names-map { name: \"non-existant\" })) ;; Throws a runtime exception
+(unwrap-panic (map-get? names-map { name: \"non-existent\" })) ;; Throws a runtime exception
 ",
 };
 
@@ -1633,7 +1633,7 @@ a `(some ...)` option, it returns the inner value of the option. If the second a
 (define-map names-map { name: (string-ascii 12) } { id: int })
 (map-set names-map { name: \"blockstack\" } { id: 1337 })
 (default-to 0 (get id (map-get? names-map (tuple (name \"blockstack\"))))) ;; Returns 1337
-(default-to 0 (get id (map-get? names-map (tuple (name \"non-existant\"))))) ;; Returns 0
+(default-to 0 (get id (map-get? names-map (tuple (name \"non-existent\"))))) ;; Returns 0
 ",
 };
 
@@ -1693,7 +1693,7 @@ and `false` if it is a `(some ...)`.",
 (define-map names-map { name: (string-ascii 12) } { id: int })
 (map-set names-map { name: \"blockstack\" } { id: 1337 })
 (is-none (get id (map-get? names-map { name: \"blockstack\" }))) ;; Returns false
-(is-none (get id (map-get? names-map { name: \"non-existant\" }))) ;; Returns true",
+(is-none (get id (map-get? names-map { name: \"non-existent\" }))) ;; Returns true",
 };
 
 const IS_ERR_API: SpecialAPI = SpecialAPI {
@@ -1719,7 +1719,7 @@ and `false` if it is a `none`.",
 (define-map names-map { name: (string-ascii 12) } { id: int })
 (map-set names-map { name: \"blockstack\" } { id: 1337 })
 (is-some (get id (map-get? names-map { name: \"blockstack\" }))) ;; Returns true
-(is-some (get id (map-get? names-map { name: \"non-existant\" }))) ;; Returns false"
+(is-some (get id (map-get? names-map { name: \"non-existent\" }))) ;; Returns false"
 };
 
 const GET_BLOCK_INFO_API: SpecialAPI = SpecialAPI {

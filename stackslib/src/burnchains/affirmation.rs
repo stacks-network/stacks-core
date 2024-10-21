@@ -1023,7 +1023,7 @@ pub fn find_heaviest_block_commit<B: BurnchainHeaderReader>(
         }
     }
 
-    warn!("Evil miners confirmed a non-existant PoX anchor block!");
+    warn!("Evil miners confirmed a non-existent PoX anchor block!");
     Ok(None)
 }
 

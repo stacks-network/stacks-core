@@ -22,7 +22,7 @@
 /// blockchain.  Instead, developers use StackerDBSet to host and replicate auxiliary smart contract
 /// data for the purposes of some (off-chain) application in a best-effort manner.  In doing so,
 /// Stacks-powered applications are able to leverage the Stacks peer-to-peer node network to host
-/// and disseminate their data without incuring the cost and performance penalties of bundling it
+/// and disseminate their data without incurring the cost and performance penalties of bundling it
 /// within a transaction.
 ///
 /// ## Data Model
@@ -371,7 +371,7 @@ pub struct StackerDBSync<NC: NeighborComms> {
     pub(crate) replicas: HashSet<NeighborAddress>,
     /// Replicas that have connected
     pub(crate) connected_replicas: HashSet<NeighborAddress>,
-    /// Comms with neigbors
+    /// Comms with neighbors
     pub(crate) comms: NC,
     /// Handle to StackerDBs
     pub(crate) stackerdbs: StackerDBs,

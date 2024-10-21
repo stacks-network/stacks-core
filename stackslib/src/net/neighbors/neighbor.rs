@@ -95,7 +95,7 @@ impl Neighbor {
 
         match peer_opt {
             None => {
-                Ok(None) // unkonwn
+                Ok(None) // unknown
             }
             Some(peer) => {
                 // expired public key?

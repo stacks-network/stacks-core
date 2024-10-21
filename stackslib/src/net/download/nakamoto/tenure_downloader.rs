@@ -74,7 +74,7 @@ pub enum NakamotoTenureDownloadState {
     ///
     /// * if this tenure contains the anchor block, and it's the last tenure in the
     /// reward cycle.  In this case, the end-block must be directly fetched, since there will be no
-    /// follow-on NakamotTenureDownloader in the same reward cycle who can provide this.
+    /// follow-on NakamotoTenureDownloader in the same reward cycle who can provide this.
     ///
     /// * if this tenure is the highest complete tenure, and we just learned the start-block of the
     /// ongoing tenure, then a NakamotoTenureDownloader will be instantiated with this tenure-end-block
@@ -298,7 +298,7 @@ impl NakamotoTenureDownloader {
     /// Transition this state-machine from waiting for its tenure-end block from another
     /// state-machine to directly fetching it.  This only needs to happen if the tenure this state
     /// machine is downloading contains the PoX anchor block, and it's also the last confirmed
-    /// tenurein this reward cycle.
+    /// tenure this reward cycle.
     ///
     /// This function is called by `NakamotoTenureDownloadSet`, which instantiates, schedules, and
     /// runs a set of these machines based on the peers' inventory vectors.  But because we don't
@@ -555,7 +555,7 @@ impl NakamotoTenureDownloader {
 
     /// Produce the next HTTP request that, when successfully executed, will fetch the data needed
     /// to advance this state machine.
-    /// Not all states require an HTTP request for advanceement.
+    /// Not all states require an HTTP request for advancement.
     ///
     /// Returns Ok(Some(request)) if a request is needed
     /// Returns Ok(None) if a request is not needed (i.e. we're waiting for some other machine's

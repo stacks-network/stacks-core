@@ -553,7 +553,7 @@ fn test_step_walk_1_neighbor_bootstrapping() {
         let mut peer_1_config = TestPeerConfig::from_port(32100);
         let peer_2_config = TestPeerConfig::from_port(32102);
 
-        // peer 1 crawls peer 2, but peer 1 doesn't add peer 2 to its frontier becuase peer 2 is
+        // peer 1 crawls peer 2, but peer 1 doesn't add peer 2 to its frontier because peer 2 is
         // too far behind.
         peer_1_config.add_neighbor(&peer_2_config.to_neighbor());
 

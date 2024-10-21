@@ -523,7 +523,7 @@ impl Trie {
     }
 
     /// Given a node and a leaf, attach the leaf.  Promote the intermediate node if necessary.
-    /// Does the same thing as try_attach_leaf, but the node might get expanaded.  In this case, the
+    /// Does the same thing as try_attach_leaf, but the node might get expanded.  In this case, the
     /// new node will be appended and the old node will be leaked in the storage implementation
     /// (leakage isn't a concern in practice, because the "leak" will happen inside the TrieRAM
     /// storage implementation, which will be garbage-collected and dumped to disk once we finish

@@ -377,7 +377,7 @@ pub struct PeerNetwork {
     public_ip_reply_handle: Option<ReplyHandleP2P>,
     public_ip_retries: u64,
 
-    // how many loops of the state-machine have occured?
+    // how many loops of the state-machine have occurred?
     // Used to coordinate with the chain synchronization logic to ensure that the node has at least
     // begun to download blocks after fetching the next reward cycles' sortitions.
     pub num_state_machine_passes: u64,
@@ -2752,7 +2752,7 @@ impl PeerNetwork {
                         self.public_ip_learned_at = get_epoch_time_secs();
                         self.public_ip_retries = 0;
 
-                        // if our IP address changed, then disconnect witih everyone
+                        // if our IP address changed, then disconnect with everyone
                         let old_ip = self.local_peer.public_ip_address.clone();
                         self.local_peer.public_ip_address =
                             Some((data.addrbytes, self.bind_nk.port));
@@ -6025,7 +6025,7 @@ impl PeerNetwork {
         }
 
         // It will never be the case that the last and current tip have different heights, but the
-        // smae consensus hash.  If they have the same height, then we would have already returned
+        // same consensus hash.  If they have the same height, then we would have already returned
         // since we've handled both the == and != cases for their consensus hashes.  So if we reach
         // this point, the heights and consensus hashes are not equal.  We only need to check that
         // last_sort_tip is an ancestor of sort_tip
@@ -6053,7 +6053,7 @@ impl PeerNetwork {
             return true;
         }
 
-        // ancestor has expected consensus hash, so no rerog
+        // ancestor has expected consensus hash, so no reorg
         false
     }
 
@@ -6137,7 +6137,7 @@ impl PeerNetwork {
             network_result.attachments.append(&mut known_attachments);
             Ok(())
         })
-        .expect("FATAL: with_attachments_downloader should be infallable (not connected)");
+        .expect("FATAL: with_attachments_downloader should be infallible (not connected)");
 
         PeerNetwork::with_network_state(self, |ref mut network, ref mut network_state| {
             let http_stacks_msgs = PeerNetwork::with_http(network, |ref mut net, ref mut http| {
@@ -6148,7 +6148,7 @@ impl PeerNetwork {
             network_result.consume_http_uploads(http_stacks_msgs);
             Ok(())
         })
-        .expect("FATAL: with_network_state should be infallable (not connected)");
+        .expect("FATAL: with_network_state should be infallible (not connected)");
 
         let burnchain_height = indexer
             .get_burnchain_headers_height()
@@ -6399,7 +6399,7 @@ mod test {
                     thread::sleep(time::Duration::from_millis(500));
                 }
 
-                // peer_2 had better have recieved that ping
+                // peer_2 had better have receive that ping
                 let mut got_ping = false;
                 for (_, convo) in peer_2.network.peers.iter() {
                     got_ping = got_ping

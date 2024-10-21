@@ -342,7 +342,7 @@ fn vote_for_aggregate_public_key_with_errors() {
     let aggregate_public_key_ill_formed = Value::buff_from_byte(0x00);
 
     let txs = vec![
-        // Alice casts a vote with a non-existant index - should return signer index mismatch error
+        // Alice casts a vote with a non-existent index - should return signer index mismatch error
         make_signers_vote_for_aggregate_public_key_value(
             alice_key,
             alice_nonce,

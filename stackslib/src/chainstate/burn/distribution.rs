@@ -299,7 +299,7 @@ impl BurnSamplePoint {
                     if commit_opt.is_some() {
                         count
                             .checked_add(1)
-                            .expect("infallable -- commit window exceeds u8::MAX")
+                            .expect("infallible -- commit window exceeds u8::MAX")
                     } else {
                         count
                     }

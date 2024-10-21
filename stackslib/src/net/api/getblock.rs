@@ -234,7 +234,7 @@ impl HttpChunkGenerator for StacksBlockStream {
             .open(&block_path)
             .map_err(|e| {
                 if e.kind() == io::ErrorKind::NotFound {
-                    let msg = format!("Blook file not found for {}", &self.index_block_hash);
+                    let msg = format!("Block file not found for {}", &self.index_block_hash);
                     warn!("{}", &msg);
                     msg
                 } else {

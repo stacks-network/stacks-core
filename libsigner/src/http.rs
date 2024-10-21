@@ -127,7 +127,7 @@ pub fn decode_http_request(payload: &[u8]) -> Result<SignerHttpRequest, EventErr
 /// Decode the HTTP response payload into its headers and body.
 /// Return the offset into payload where the body starts, and a table of headers.
 ///
-/// If the payload contains a status code other than 200, then RPCERror::HttpError(..) will be
+/// If the payload contains a status code other than 200, then RPCError::HttpError(..) will be
 /// returned with the status code.
 /// If the payload is missing necessary data, then RPCError::MalformedResponse(..) will be
 /// returned, with a human-readable reason string.
@@ -138,7 +138,7 @@ pub fn decode_http_response(payload: &[u8]) -> Result<(HashMap<String, String>, 
     let mut headers_buf = [httparse::EMPTY_HEADER; MAX_HTTP_HEADERS];
     let mut resp = httparse::Response::new(&mut headers_buf);
 
-    // consume respuest
+    // consume request
     let (headers, body_offset) =
         if let Ok(httparse::Status::Complete(body_offset)) = resp.parse(payload) {
             if let Some(code) = resp.code {
@@ -181,7 +181,7 @@ pub fn decode_http_response(payload: &[u8]) -> Result<(HashMap<String, String>, 
                 let key = resp.headers[i].name.to_string().to_lowercase();
                 if headers.contains_key(&key) {
                     return Err(RPCError::MalformedResponse(format!(
-                        "Invalid HTTP respuest: duplicate header \"{}\"",
+                        "Invalid HTTP request: duplicate header \"{}\"",
                         key
                     )));
                 }

@@ -231,7 +231,7 @@ fn build_scriptint(n: i64) -> Vec<u8> {
 /// This is a bit crazy and subtle, but it makes sense: you can load
 /// 32-bit numbers and do anything with them, which back when mult/div
 /// was allowed, could result in up to a 64-bit number. We don't want
-/// overflow since that's suprising --- and we don't want numbers that
+/// overflow since that's surprising --- and we don't want numbers that
 /// don't fit in 64 bits (for efficiency on modern processors) so we
 /// simply say, anything in excess of 32 bits is no longer a number.
 /// This is basically a ranged type implementation.

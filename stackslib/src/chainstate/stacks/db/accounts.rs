@@ -834,7 +834,7 @@ impl StacksChainState {
                 if participant.miner {
                     // the poison-reporter, not the miner, gets a (fraction of the) reward
                     debug!(
-                        "{:?} will recieve poison-microblock commission {}",
+                        "{:?} will receive poison-microblock commission {}",
                         &reporter_address.to_string(),
                         StacksChainState::poison_microblock_commission(coinbase_reward)
                     );

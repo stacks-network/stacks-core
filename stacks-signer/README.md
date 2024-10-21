@@ -74,7 +74,7 @@ Upload a chunk to the StackerDB instance.
 
 - `--host`: The stacks node host to connect to.
 - `--contract`: The contract ID of the StackerDB instance.
-- `--private_key`: The Stacks private key to use in hexademical format.
+- `--private_key`: The Stacks private key to use in hexadecimal format.
 - `--slot-id`: The slot ID to get.
 - `--slot-version`: The slot version to get.
 - `--data`: The data to upload. If you wish to pipe data using STDIN, use with '-'.

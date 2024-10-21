@@ -206,7 +206,7 @@ impl StacksMessageCodec for LeaderKeyRegisterOp {
     }
 
     fn consensus_deserialize<R: Read>(_fd: &mut R) -> Result<LeaderKeyRegisterOp, codec_error> {
-        // Op deserialized through burchain indexer
+        // Op deserialized through burnchain indexer
         unimplemented!();
     }
 }

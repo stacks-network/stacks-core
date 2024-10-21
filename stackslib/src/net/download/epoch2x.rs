@@ -309,7 +309,7 @@ impl BlockDownloader {
         self.broken_peers.clear();
         self.broken_neighbors.clear();
 
-        // perserve sortition height
+        // preserve sortition height
         // preserve download accounting
     }
 
@@ -915,13 +915,13 @@ impl BlockDownloader {
             self.next_block_sortition_height = block_sortition_height.saturating_sub(1);
 
             debug!(
-                "Awaken downloader to start scanning at block sortiton height {}",
+                "Awaken downloader to start scanning at block sortition height {}",
                 block_sortition_height.saturating_sub(1)
             );
         }
         if ibd && self.state != BlockDownloaderState::DNSLookupBegin {
             debug!(
-                "Will NOT awaken downloader to start scanning at block sortiton height {}, because it is busy at {} in state {:?}",
+                "Will NOT awaken downloader to start scanning at block sortition height {}, because it is busy at {} in state {:?}",
                 block_sortition_height.saturating_sub(1),
                 self.block_sortition_height,
                 self.state
@@ -949,13 +949,13 @@ impl BlockDownloader {
             self.next_microblock_sortition_height = mblock_sortition_height.saturating_sub(1);
 
             debug!(
-                "Awaken downloader to start scanning at microblock sortiton height {}",
+                "Awaken downloader to start scanning at microblock sortition height {}",
                 mblock_sortition_height.saturating_sub(1)
             );
         }
         if ibd && self.state != BlockDownloaderState::DNSLookupBegin {
             debug!(
-                "Will NOT awaken downloader to start scanning at microblock sortiton height {}, because it is busy at {} in state {:?}",
+                "Will NOT awaken downloader to start scanning at microblock sortition height {}, because it is busy at {} in state {:?}",
                 mblock_sortition_height.saturating_sub(1),
                 self.microblock_sortition_height,
                 self.state
@@ -1923,7 +1923,7 @@ impl PeerNetwork {
                         let peerhost = match PeerHost::try_from_url(requestable.get_url()) {
                             Some(ph) => ph,
                             None => {
-                                warn!("Unparseable URL {:?}", requestable.get_url());
+                                warn!("Unparsable URL {:?}", requestable.get_url());
                                 continue;
                             }
                         };
@@ -2111,7 +2111,7 @@ impl PeerNetwork {
                 ) {
                     Ok(Some(hdr)) => hdr,
                     Ok(None) => {
-                        warn!("Missing Stacks blcok header for {}/{}.  Possibly invalidated due to PoX reorg", &request_key.consensus_hash, &request_key.anchor_block_hash);
+                        warn!("Missing Stacks block header for {}/{}.  Possibly invalidated due to PoX reorg", &request_key.consensus_hash, &request_key.anchor_block_hash);
 
                         // don't try again
                         downloader

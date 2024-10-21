@@ -117,7 +117,7 @@ pub struct RelayerThread {
     pub(crate) globals: Globals,
     /// Authoritative copy of the keychain state
     pub(crate) keychain: Keychain,
-    /// Burnchian configuration
+    /// Burnchain configuration
     pub(crate) burnchain: Burnchain,
     /// height of last VRF key registration request
     last_vrf_key_burn_height: Option<u64>,
@@ -237,7 +237,7 @@ impl RelayerThread {
 
     /// Handle a NetworkResult from the p2p/http state machine.  Usually this is the act of
     /// * preprocessing and storing new blocks and microblocks
-    /// * relaying blocks, microblocks, and transacctions
+    /// * relaying blocks, microblocks, and transactions
     /// * updating unconfirmed state views
     pub fn process_network_result(&mut self, mut net_result: NetworkResult) {
         debug!(

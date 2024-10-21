@@ -25,7 +25,7 @@ use crate::net::http::response::HttpResponse;
 use crate::net::http::{Error, HttpContentType, HttpResponsePayload, HttpResponsePreamble};
 
 /// Default implementation of `try_parse_response()` for an HTTP error message that implements
-/// `HttpReqeust`.
+/// `HttpRequest`.
 pub fn try_parse_error_response(
     status_code: u16,
     content_type: HttpContentType,
@@ -33,7 +33,7 @@ pub fn try_parse_error_response(
 ) -> Result<HttpResponsePayload, Error> {
     if status_code < 400 || status_code > 599 {
         return Err(Error::DecodeError(
-            "Inavlid response: not an error".to_string(),
+            "Invalid response: not an error".to_string(),
         ));
     }
 

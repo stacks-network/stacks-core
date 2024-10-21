@@ -117,7 +117,7 @@ fn test_try_make_response() {
         StacksHttpRequest::new_getmicroblocks_unconfirmed(addr.into(), index_block_hash.clone(), 5);
     requests.push(request);
 
-    // get an unconfirmed stream for a non-existant block
+    // get an unconfirmed stream for a non-existent block
     let request = StacksHttpRequest::new_getmicroblocks_unconfirmed(
         addr.into(),
         StacksBlockId([0x11; 32]),
@@ -159,7 +159,7 @@ fn test_stream_unconfirmed_microblocks() {
     let index_block_header =
         StacksBlockHeader::make_index_block_hash(&consensus_hash, &block.block_hash());
 
-    // can't stream a non-existant microblock
+    // can't stream a non-existent microblock
     if let Err(chainstate_error::NoSuchBlockError) =
         StacksUnconfirmedMicroblockStream::new(&chainstate, &index_block_header, 0)
     {

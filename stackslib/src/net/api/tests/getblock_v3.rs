@@ -96,7 +96,7 @@ fn test_try_make_response() {
         StacksHttpRequest::new_get_nakamoto_block(addr.into(), nakamoto_chain_tip.clone());
     requests.push(request);
 
-    // query non-existant block
+    // query non-existent block
     let request = StacksHttpRequest::new_get_nakamoto_block(addr.into(), StacksBlockId([0x11; 32]));
     requests.push(request);
 

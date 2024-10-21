@@ -346,7 +346,7 @@ pub struct ConversationP2P {
     pub data_url: UrlString,
     /// Resolved IP address of the data URL
     pub data_ip: Option<SocketAddr>,
-    /// Time to try DNS reesolution again
+    /// Time to try DNS resolution again
     pub dns_deadline: u128,
     /// Ongoing request to DNS resolver
     pub dns_request: Option<DNSRequest>,
@@ -878,7 +878,7 @@ impl ConversationP2P {
         Ok(msg)
     }
 
-    /// Generate a signed message for this converation
+    /// Generate a signed message for this conversation
     pub fn sign_message(
         &mut self,
         chain_view: &BurnchainView,
@@ -2324,7 +2324,7 @@ impl ConversationP2P {
                 Ok(None)
             }
             Err(e) => {
-                debug!("Failed to handle messsage: {:?}", &e);
+                debug!("Failed to handle message: {:?}", &e);
                 Ok(Some(msg))
             }
         }

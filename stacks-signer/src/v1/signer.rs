@@ -923,7 +923,7 @@ impl Signer {
             );
             return None;
         }
-        // TODO: could add a check to ignore an old burn block height if we know its oudated. Would require us to store the burn block height we last saw on the side.
+        // TODO: could add a check to ignore an old burn block height if we know its outdated. Would require us to store the burn block height we last saw on the side.
         let signer_signature_hash = block_proposal.block.header.signer_signature_hash();
         let Some(mut block_info) = self
             .signer_db
@@ -1192,7 +1192,7 @@ impl Signer {
 
         // Get our current nonce from the stacks node and compare it against what we have sitting in the stackerdb instance
         let signer_address = stacks_client.get_signer_address();
-        // Retreieve ALL account nonces as we may have transactions from other signers in our stackerdb slot that we care about
+        // Retrieve ALL account nonces as we may have transactions from other signers in our stackerdb slot that we care about
         let account_nonces = self.get_account_nonces(stacks_client, &self.signer_addresses);
         let account_nonce = account_nonces.get(signer_address).unwrap_or(&0);
         let signer_transactions = self
@@ -1667,7 +1667,7 @@ fn load_encrypted_signer_state<S: SignerStateStorage>(
     if let Some(encrypted_state) = storage.get_encrypted_signer_state(id)? {
         let serialized_state = decrypt(private_key, &encrypted_state)?;
         let state = serde_json::from_slice(&serialized_state)
-            .expect("Failed to deserialize decryoted state");
+            .expect("Failed to deserialize decrypted state");
         Ok(Some(v2::Signer::load(&state)))
     } else {
         Ok(None)

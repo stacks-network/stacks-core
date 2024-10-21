@@ -858,7 +858,7 @@ impl StacksChainState {
         if !epoch_id.supports_pox_missed_slot_unlocks() {
             missed_slots.clear();
         }
-        info!("Reward set calculated"; "slots_occuppied" => reward_set.len());
+        info!("Reward set calculated"; "slots_occupied" => reward_set.len());
         RewardSet {
             rewarded_addresses: reward_set,
             start_cycle_state: PoxStartCycleInfo {

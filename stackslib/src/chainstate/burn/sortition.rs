@@ -171,7 +171,7 @@ impl BlockSnapshot {
             sort_tx.get_last_snapshot_with_sortition(burn_block_height - 1)?;
 
         let vrf_seed = if last_sortition_snapshot.is_initial() {
-            // this is the sentinal "first-sortition" block
+            // this is the sentinel "first-sortition" block
             VRFSeed::initial()
         } else {
             // there may have been a prior winning block commit.  Use its VRF seed if possible

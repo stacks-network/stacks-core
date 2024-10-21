@@ -141,7 +141,7 @@ impl StacksClient {
         self.parse_signer_slots(value)
     }
 
-    /// Helper function  that attempts to deserialize a clarity hext string as a list of signer slots and their associated number of signer slots
+    /// Helper function  that attempts to deserialize a clarity text string as a list of signer slots and their associated number of signer slots
     fn parse_signer_slots(
         &self,
         value: ClarityValue,

@@ -120,7 +120,7 @@ pub trait BurnStateDB {
 
     /// Returns the burnchain header hash for the given burn block height, as queried from the given SortitionId.
     ///
-    /// Returns Some if `self.get_burn_start_height() <= height < self.get_burn_block_height(sorition_id)`, and None otherwise.
+    /// Returns Some if `self.get_burn_start_height() <= height < self.get_burn_block_height(sortition_id)`, and None otherwise.
     fn get_burn_header_hash(
         &self,
         height: u32,

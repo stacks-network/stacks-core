@@ -82,7 +82,7 @@ fn test_try_make_response() {
     let request = StacksHttpRequest::new_getattachment(addr.into(), attachment_hash.clone());
     requests.push(request);
 
-    // query non-existant
+    // query non-existent
     let request = StacksHttpRequest::new_getattachment(addr.into(), Hash160([0x22; 20]));
     requests.push(request);
 

@@ -165,7 +165,7 @@ impl StackerDBChannel {
     /// to do so (it would just result in temporary over-use of memory while the prior channel is still
     /// open).
     ///
-    /// The StackerDBChnnel's receiver is guarded with a Mutex, so that ownership can
+    /// The StackerDBChannel's receiver is guarded with a Mutex, so that ownership can
     /// be taken by different threads without unsafety.
     pub fn replace_receiver(&self, receiver: Receiver<StackerDBChunksEvent>) {
         // not strictly necessary, but do this rather than mark the `receiver` argument as unused

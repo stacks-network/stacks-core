@@ -223,7 +223,7 @@ impl StacksMessageCodec for VoteForAggregateKeyOp {
     }
 
     fn consensus_deserialize<R: Read>(_fd: &mut R) -> Result<Self, codec_error> {
-        // Op deserialized through burchain indexer
+        // Op deserialized through burnchain indexer
         unimplemented!();
     }
 }

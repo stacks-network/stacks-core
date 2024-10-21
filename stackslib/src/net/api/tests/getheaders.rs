@@ -112,7 +112,7 @@ fn test_try_make_response() {
     );
     requests.push(request);
 
-    // query non-existant headers
+    // query non-existent headers
     let request = StacksHttpRequest::new_getheaders(
         addr.into(),
         2100,
@@ -265,7 +265,7 @@ fn test_stream_getheaders() {
         blocks_fork.push(block);
     }
 
-    // can't stream a non-existant header
+    // can't stream a non-existent header
     assert!(StacksHeaderStream::new(&chainstate, &StacksBlockId([0x11; 32]), 1).is_err());
 
     // stream back individual headers

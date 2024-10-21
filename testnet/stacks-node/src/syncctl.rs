@@ -12,7 +12,7 @@ use crate::Config;
 // amount of time to wait for an inv or download sync to complete.
 // These _really should_ complete before the PoX sync watchdog permits processing the next reward
 // cycle, so this number is intentionally high (like, there's something really wrong with your
-// network if your node is actualy waiting a day in-between reward cycles).
+// network if your node is actually waiting a day in-between reward cycles).
 const SYNC_WAIT_SECS: u64 = 24 * 3600;
 
 #[derive(Clone)]
@@ -120,7 +120,7 @@ impl PoxSyncWatchdogComms {
 }
 
 /// Monitor the state of the Stacks blockchain as the peer network and relay threads download and
-/// proces Stacks blocks.  Don't allow the node to process the next PoX reward cycle's sortitions
+/// process Stacks blocks.  Don't allow the node to process the next PoX reward cycle's sortitions
 /// unless it's reasonably sure that it has processed all Stacks blocks for this reward cycle.
 /// This struct monitors the Stacks chainstate to make this determination.
 pub struct PoxSyncWatchdog {

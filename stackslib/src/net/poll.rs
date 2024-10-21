@@ -143,7 +143,7 @@ impl NetworkState {
             })?;
 
         // N.B. the port for `addr` might be 0, in which case, `local_addr` may not be equal to
-        // `addr` since the port will be system-assigned.  Use `local_adddr`.
+        // `addr` since the port will be system-assigned.  Use `local_addr`.
         let local_addr = server.local_addr().map_err(|e| {
             error!("Failed to get local address for server: {:?}", &e);
             net_error::BindError

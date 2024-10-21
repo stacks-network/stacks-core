@@ -126,7 +126,7 @@ pub enum Error {
     MinerAborted,
     ChannelClosed(String),
     /// This error indicates a Epoch2 block attempted to build off of a Nakamoto block.
-    InvalidChildOfNakomotoBlock,
+    InvalidChildOfNakamotoBlock,
     NoRegisteredSigners(u64),
 }
 
@@ -213,7 +213,7 @@ impl fmt::Display for Error {
             Error::PoxInvalidIncrease => write!(f, "PoX increase was invalid"),
             Error::MinerAborted => write!(f, "Mining attempt aborted by signal"),
             Error::ChannelClosed(ref s) => write!(f, "Channel '{}' closed", s),
-            Error::InvalidChildOfNakomotoBlock => write!(
+            Error::InvalidChildOfNakamotoBlock => write!(
                 f,
                 "Stacks Epoch 2-style block building off of Nakamoto block"
             ),
@@ -265,7 +265,7 @@ impl error::Error for Error {
             Error::PoxInvalidIncrease => None,
             Error::MinerAborted => None,
             Error::ChannelClosed(ref _s) => None,
-            Error::InvalidChildOfNakomotoBlock => None,
+            Error::InvalidChildOfNakamotoBlock => None,
             Error::ExpectedTenureChange => None,
             Error::NoRegisteredSigners(_) => None,
         }
@@ -309,7 +309,7 @@ impl Error {
             Error::PoxInvalidIncrease => "PoxInvalidIncrease",
             Error::MinerAborted => "MinerAborted",
             Error::ChannelClosed(ref _s) => "ChannelClosed",
-            Error::InvalidChildOfNakomotoBlock => "InvalidChildOfNakomotoBlock",
+            Error::InvalidChildOfNakamotoBlock => "InvalidChildOfNakamotoBlock",
             Error::ExpectedTenureChange => "ExpectedTenureChange",
             Error::NoRegisteredSigners(_) => "NoRegisteredSigners",
         }
@@ -611,7 +611,7 @@ pub struct SinglesigSpendingCondition {
     pub hash_mode: SinglesigHashMode,
     pub signer: Hash160,
     pub nonce: u64,  // nth authorization from this account
-    pub tx_fee: u64, // microSTX/compute rate offerred by this account
+    pub tx_fee: u64, // microSTX/compute rate offered by this account
     pub key_encoding: TransactionPublicKeyEncoding,
     pub signature: MessageSignature,
 }
@@ -1096,7 +1096,7 @@ pub struct StacksMicroblockHeader {
 pub const MINER_BLOCK_CONSENSUS_HASH: ConsensusHash = ConsensusHash([1u8; 20]);
 pub const MINER_BLOCK_HEADER_HASH: BlockHeaderHash = BlockHeaderHash([1u8; 32]);
 
-/// A structure for incrementially building up a block
+/// A structure for incrementally building up a block
 #[derive(Clone)]
 pub struct StacksBlockBuilder {
     pub chain_tip: StacksHeaderInfo,

@@ -202,7 +202,7 @@ fn to_bits_p2sh_p2wsh<K: PublicKey>(num_sigs: usize, pubkeys: &Vec<K>) -> Hash16
 
 /// Convert a number of required signatures and a list of public keys into a byte-vec to hash to an
 /// address.  Validity of the hash_flag vis a vis the num_sigs and pubkeys will _NOT_ be checked.
-/// This is a low-level method.  Consider using StacksAdress::from_public_keys() if you can.
+/// This is a low-level method.  Consider using StacksAddress::from_public_keys() if you can.
 pub fn public_keys_to_address_hash<K: PublicKey>(
     hash_flag: &AddressHashMode,
     num_sigs: usize,

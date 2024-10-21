@@ -55,7 +55,7 @@ pub struct TrieBenchmark {
     /// a node in the same block
     total_write_children_hashes_same_block: u128,
     /// Total number of calls within write_children_hashes() where the node's child slot pointed to
-    /// a node in an anestor block
+    /// a node in an ancestor block
     total_write_children_hashes_ancestor_block: u128,
 
     /// Total number of nanoseconds spent within write_children_hashes() where the node's child
@@ -68,7 +68,7 @@ pub struct TrieBenchmark {
     /// pointed to a node in an ancestor trie
     total_write_children_hashes_ancestor_block_time_ns: u128,
 
-    /// Total number of naonseconds spent in calls to the inner loop of MARF::walk_from(), which
+    /// Total number of nanoseconds spent in calls to the inner loop of MARF::walk_from(), which
     /// handles walking down a MARF path.  Does not include the time taken to load the trie root or
     /// open the trie to walk from.
     total_marf_walk_from_time_ns: u128,
@@ -287,7 +287,7 @@ impl TrieBenchmark {
     }
 
     /// Start measuring the code path in write_children_hashes() where the node's child is in the
-    /// smae trie.  Returns a `SystemTime` that must be passed to
+    /// same trie.  Returns a `SystemTime` that must be passed to
     /// write_children_hashes_same_block_finish().
     pub fn write_children_hashes_same_block_start(&mut self) -> SystemTime {
         SystemTime::now()

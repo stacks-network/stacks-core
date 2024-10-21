@@ -217,7 +217,7 @@ pub trait NeighborComms {
     /// handshake response.  If the neighbor is already connected, then just send a handshake.
     ///
     /// Normally, the caller would track the returned reply handle with a call to
-    /// `add_batch_request()`.  However, this is ommitted here for callers who want to do their own
+    /// `add_batch_request()`.  However, this is omitted here for callers who want to do their own
     /// polling.
     ///
     /// Return Ok(Some(handle)) if we connected.

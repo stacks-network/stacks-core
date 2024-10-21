@@ -4119,7 +4119,7 @@ fn stack_aggregation_increase() {
     let bob_err_delegation_no_reward_cycle = bob_nonce;
     bob_nonce += 1;
 
-    // bob tries to lock tokens to a non-existant PoX reward address (should fail with
+    // bob tries to lock tokens to a non-existent PoX reward address (should fail with
     // ERR_DELEGATION_NO_REWARD_SLOT)
     txs_to_submit.push(make_pox_3_contract_call(
         &bob,

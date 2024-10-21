@@ -1380,7 +1380,7 @@ impl StacksMessage {
     }
 
     /// Sign the StacksMessage.  The StacksMessage must _not_ have any relayers (i.e. we're
-    /// originating this messsage).
+    /// originating this message).
     pub fn sign(&mut self, seq: u32, private_key: &Secp256k1PrivateKey) -> Result<(), net_error> {
         if self.relayers.len() > 0 {
             return Err(net_error::InvalidMessage);
@@ -1826,7 +1826,7 @@ pub mod test {
 
     #[test]
     fn codec_PoxInvData() {
-        // maximially big PoxInvData
+        // maximally big PoxInvData
         let maximal_bitvec = vec![0xffu8; (GETPOXINV_MAX_BITLEN / 8) as usize];
         let mut too_big_bitvec: Vec<u8> = vec![];
         for i in 0..GETPOXINV_MAX_BITLEN + 1 {

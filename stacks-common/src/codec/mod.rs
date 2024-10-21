@@ -206,7 +206,7 @@ pub const MAX_PAYLOAD_LEN: u32 = 1 + 16 * 1024 * 1024;
 pub const MAX_MESSAGE_LEN: u32 =
     MAX_PAYLOAD_LEN + (PREAMBLE_ENCODED_SIZE + MAX_RELAYERS_LEN * RELAY_DATA_ENCODED_SIZE);
 
-/// P2P preamble length (addands correspond to fields above)
+/// P2P preamble length (addends correspond to fields above)
 pub const PREAMBLE_ENCODED_SIZE: u32 = 4
     + 4
     + 4

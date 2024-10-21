@@ -56,7 +56,7 @@ impl FromColumn<PeerAddress> for PeerAddress {
             return Err(db_error::ParseError);
         }
         let addrbytes = bin_bytes(&addrbytes_bin).map_err(|_e| {
-            error!("Unparseable peer address {}", addrbytes_bin);
+            error!("Unparsable peer address {}", addrbytes_bin);
             db_error::ParseError
         })?;
 
@@ -215,7 +215,7 @@ impl FromRow<LocalPeer> for LocalPeer {
         let stackerdbs_json: Option<String> = row.get_unwrap("stacker_dbs");
 
         let nonce_bytes = hex_bytes(&nonce_hex).map_err(|_e| {
-            error!("Unparseable local peer nonce {}", &nonce_hex);
+            error!("Unparsable local peer nonce {}", &nonce_hex);
             db_error::ParseError
         })?;
 
@@ -2087,7 +2087,7 @@ mod test {
         fetched_stackerdbs.sort();
         assert_eq!(fetched_stackerdbs, all_stackerdbs);
 
-        // can't add a DB to a non-existant peer
+        // can't add a DB to a non-existent peer
         let tx = db.tx_begin().unwrap();
         PeerDB::insert_or_replace_stacker_dbs(&tx, 3, &stackerdbs).unwrap_err();
         tx.commit().unwrap();

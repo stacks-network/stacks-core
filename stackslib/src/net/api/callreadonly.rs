@@ -269,7 +269,7 @@ impl RPCRequestHandler for RPCCallReadOnlyRequestHandler {
                             // opposed to be limited to purely calling `define-read-only` functions,
                             // so use `read_only = false`.  This broadens the number of functions that
                             // can be called, and also circumvents limitations on `define-read-only`
-                            // functions that can not use `contrac-call?`, even when calling other
+                            // functions that can not use `contract-call?`, even when calling other
                             // read-only functions
                             env.execute_contract(
                                 &contract_identifier,

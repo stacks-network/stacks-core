@@ -107,7 +107,7 @@ fn test_try_make_response() {
     );
     requests.push(request);
 
-    // query non-existant contract
+    // query non-existent contract
     let request = StacksHttpRequest::new_getcontractabi(
         addr.into(),
         StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap(),

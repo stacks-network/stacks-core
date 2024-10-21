@@ -14,7 +14,7 @@
 
 //! Blockdata
 //!
-//! This module defines structions and functions for storing the blocks and
+//! This module defines structs and functions for storing the blocks and
 //! transactions which make up the Bitcoin system.
 //!
 

@@ -332,7 +332,7 @@ impl AtlasDB {
                     Ok(())
                 } else {
                     let version = version.parse().expect(
-                        "Invalid schema version for AtlasDB: should be a parseable integer",
+                        "Invalid schema version for AtlasDB: should be a parsable integer",
                     );
                     Err(db_error::OldSchema(version))
                 }

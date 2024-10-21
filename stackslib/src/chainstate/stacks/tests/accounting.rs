@@ -1654,7 +1654,7 @@ fn test_coinbase_pay_to_alt_recipient_v210(pay_to_contract: bool) {
                 // send an anchored tx
                 if tenure_id > 0 {
                     if tenure_id == 1 {
-                        // make the contract to recieve payments
+                        // make the contract to receive payments
                         let contract_publish = make_user_contract_publish(
                             &privk_anchored,
                             anchored_sender_nonce,

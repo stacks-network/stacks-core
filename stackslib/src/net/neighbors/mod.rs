@@ -41,7 +41,7 @@ pub use comms::{NeighborComms, PeerNetworkComms, ToNeighborKey};
 pub use db::{NeighborReplacements, NeighborWalkDB, PeerDBNeighborWalk};
 pub use walk::{NeighborPingback, NeighborWalk, NeighborWalkResult};
 
-/// How often we can contact other neighbors, at a minimim
+/// How often we can contact other neighbors, at a minimum
 #[cfg(test)]
 pub const NEIGHBOR_MINIMUM_CONTACT_INTERVAL: u64 = 0;
 #[cfg(not(test))]

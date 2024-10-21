@@ -853,7 +853,7 @@ const CHAINSTATE_SCHEMA_3: &'static [&'static str] = &[
     CREATE INDEX IF NOT EXISTS index_parent_block_id_by_block_id ON block_headers(index_block_hash,parent_block_id);
     "#,
     // table to map index block hashes to the txids of on-burnchain stacks operations that were
-    // proessed
+    // processed
     r#"
     CREATE TABLE burnchain_txids(
         index_block_hash TEXT PRIMARY KEY,

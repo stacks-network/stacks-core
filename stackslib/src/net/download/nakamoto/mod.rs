@@ -58,7 +58,7 @@
 //! cycle until the PoX anchor block mined in the previous reward cycle has been downloaded and
 //! processed.
 //!
-//! To achieve this, the `NakamotoDwonloadStateMachine` performs a lot of bookkeeping.  Namely, it
+//! To achieve this, the `NakamotoDownloadStateMachine` performs a lot of bookkeeping.  Namely, it
 //! keeps track of:
 //!
 //! * The ongoing and prior reward cycle's sortitions' tenure IDs and winning block hashes
@@ -80,7 +80,7 @@
 //! is a much simpler task), it simply provides an internal method for issuing requests and
 //! processing responses for its neighbors' unconfirmed tenure data.
 //!
-//! This middle layer consumes the data mantained by the `,akamotoDownloaderStateMachine` in order
+//! This middle layer consumes the data maintained by the `,NakamotoDownloaderStateMachine` in order
 //! to instantiate, drive, and clean up one or more per-tenure download state machines.
 //!
 //! ## `NakamotoTenureDownloader` and `NakamotoUnconfirmedTenureDownloader`

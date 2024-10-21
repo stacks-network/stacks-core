@@ -237,7 +237,7 @@ impl EventStopSignaler for SignerStopSignaler {
     #[cfg_attr(test, mutants::skip)]
     fn send(&mut self) {
         self.stop_signal.store(true, Ordering::SeqCst);
-        // wake up the thread so the atomicbool can be checked
+        // wake up the thread so the atomic bool can be checked
         // This makes me sad...but for now...it works.
         if let Ok(mut stream) = TcpStream::connect(self.local_addr) {
             // We need to send actual data to trigger the event receiver

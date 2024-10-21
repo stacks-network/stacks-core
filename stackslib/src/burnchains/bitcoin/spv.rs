@@ -645,7 +645,7 @@ impl SpvClient {
         Ok(max + 1)
     }
 
-    /// Report the highest heigth of the last header we got
+    /// Report the highest height of the last header we got
     pub fn get_highest_header_height(&self) -> Result<u64, btc_error> {
         match query_row::<u64, _>(
             &self.headers_db,
@@ -977,7 +977,7 @@ impl SpvClient {
 
         // contiguous?
         if block_headers[0].header.prev_blockhash != parent_header.header.bitcoin_hash() {
-            warn!("Received discontiguous headers at height {}: we have parent {:?} ({}), but were given {:?} ({})",
+            warn!("Received discontinuous headers at height {}: we have parent {:?} ({}), but were given {:?} ({})",
                   start_height, &parent_header.header, parent_header.header.bitcoin_hash(), &block_headers[0].header, &block_headers[0].header.bitcoin_hash());
             return Err(btc_error::NoncontiguousHeader);
         }
@@ -1021,7 +1021,7 @@ impl SpvClient {
                 // contiguous?
                 let last = block_headers.len() - 1;
                 if block_headers[last].header.bitcoin_hash() != child_header.header.prev_blockhash {
-                    warn!("Received discontiguous headers at height {}: we have child {:?} ({}), but were given {:?} ({})", 
+                    warn!("Received discontinuous headers at height {}: we have child {:?} ({}), but were given {:?} ({})", 
                           end_height, &child_header, child_header.header.bitcoin_hash(), &block_headers[last], &block_headers[last].header.bitcoin_hash());
                     return Err(btc_error::NoncontiguousHeader);
                 }

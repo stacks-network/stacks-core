@@ -89,7 +89,7 @@ fn test_try_make_response() {
     let request = StacksHttpRequest::new_getblock(addr.into(), stacks_chain_tip.clone());
     requests.push(request);
 
-    // query non-existant block
+    // query non-existent block
     let request = StacksHttpRequest::new_getblock(addr.into(), StacksBlockId([0x11; 32]));
     requests.push(request);
 
@@ -126,7 +126,7 @@ fn test_stream_blocks() {
     let index_block_header =
         StacksBlockHeader::make_index_block_hash(&consensus_hash, &block.block_hash());
 
-    // can't stream a non-existant block
+    // can't stream a non-existent block
     assert!(StacksBlockStream::new(&chainstate, &index_block_header).is_err());
 
     // store block to staging
