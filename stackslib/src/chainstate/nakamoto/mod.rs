@@ -2149,6 +2149,7 @@ impl NakamotoChainState {
                 &reward_set_data,
                 &Some(signer_bitvec),
                 Some(block_timestamp),
+                receipt.coinbase_height,
             );
         }
 
@@ -4622,6 +4623,7 @@ impl NakamotoChainState {
             evaluated_epoch,
             epoch_transition: applied_epoch_transition,
             signers_updated,
+            coinbase_height,
         };
 
         Ok((epoch_receipt, clarity_commit, reward_set_data))

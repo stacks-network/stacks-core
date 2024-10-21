@@ -25,7 +25,7 @@ use clarity::vm::StacksEpoch;
 use libsigner::v0::messages::{
     BlockRejection, BlockResponse, MessageSlotID, MinerSlotID, RejectCode, SignerMessage,
 };
-use libsigner::{BlockProposal, SignerSession, StackerDBSession};
+use libsigner::{BlockProposal, SignerSession, StackerDBSession, VERSION_STRING};
 use stacks::address::AddressHashMode;
 use stacks::burnchains::Txid;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
@@ -2567,10 +2567,12 @@ fn empty_sortition() {
             };
             if let SignerMessage::BlockResponse(BlockResponse::Rejected(BlockRejection {
                 reason_code,
+                metadata,
                 ..
             })) = latest_msg
             {
                 assert!(matches!(reason_code, RejectCode::SortitionViewMismatch));
+                assert_eq!(metadata.server_version, VERSION_STRING.to_string());
                 found_rejections.push(*slot_id);
             } else {
                 info!("Latest message from slot #{slot_id} isn't a block rejection, will wait to see if the signer updates to a rejection");
@@ -3411,7 +3413,7 @@ fn duplicate_signers() {
             })
             .filter_map(|message| match message {
                 SignerMessage::BlockResponse(BlockResponse::Accepted(m)) => {
-                    info!("Message(accepted): {message:?}");
+                    info!("Message(accepted): {:?}", &m);
                     Some(m)
                 }
                 _ => {
@@ -3425,20 +3427,23 @@ fn duplicate_signers() {
     info!("------------------------- Assert there are {unique_signers} unique signatures and recovered pubkeys -------------------------");
 
     // Pick a message hash
-    let (selected_sighash, _) = signer_accepted_responses
+    let accepted = signer_accepted_responses
         .iter()
-        .min_by_key(|(sighash, _)| *sighash)
-        .copied()
+        .min_by_key(|accepted| accepted.signer_signature_hash)
         .expect("No `BlockResponse::Accepted` messages recieved");
+    let selected_sighash = accepted.signer_signature_hash;
 
     // Filter only resonses for selected block and collect unique pubkeys and signatures
     let (pubkeys, signatures): (HashSet<_>, HashSet<_>) = signer_accepted_responses
         .into_iter()
-        .filter(|(hash, _)| *hash == selected_sighash)
-        .map(|(msg, sig)| {
-            let pubkey = Secp256k1PublicKey::recover_to_pubkey(msg.bits(), &sig)
-                .expect("Failed to recover pubkey");
-            (pubkey, sig)
+        .filter(|accepted| accepted.signer_signature_hash == selected_sighash)
+        .map(|accepted| {
+            let pubkey = Secp256k1PublicKey::recover_to_pubkey(
+                accepted.signer_signature_hash.bits(),
+                &accepted.signature,
+            )
+            .expect("Failed to recover pubkey");
+            (pubkey, accepted.signature)
         })
         .unzip();
 
@@ -3867,7 +3872,14 @@ fn partial_tenure_fork() {
     let mut min_miner_2_tenures = u64::MAX;
     let mut ignore_block = 0;
 
-    while miner_1_tenures < min_miner_1_tenures || miner_2_tenures < min_miner_2_tenures {
+    let mut miner_1_blocks = 0;
+    let mut miner_2_blocks = 0;
+    // Make sure that both miner 1 and 2 mine at least 1 block each
+    while miner_1_tenures < min_miner_1_tenures
+        || miner_2_tenures < min_miner_2_tenures
+        || miner_1_blocks == 0
+        || miner_2_blocks == 0
+    {
         if btc_blocks_mined >= max_nakamoto_tenures {
             panic!("Produced {btc_blocks_mined} sortitions, but didn't cover the test scenarios, aborting");
         }
@@ -3959,6 +3971,7 @@ fn partial_tenure_fork() {
             min_miner_1_tenures = miner_1_tenures + 1;
         }
 
+        let mut blocks = inter_blocks_per_tenure;
         // mine (or attempt to mine) the interim blocks
         for interim_block_ix in 0..inter_blocks_per_tenure {
             let mined_before_1 = blocks_mined1.load(Ordering::SeqCst);
@@ -4030,6 +4043,7 @@ fn partial_tenure_fork() {
                 Err(e) => {
                     if e.to_string().contains("TooMuchChaining") {
                         info!("TooMuchChaining error, skipping block");
+                        blocks = interim_block_ix;
                         break;
                     } else {
                         panic!("Failed to submit tx: {}", e);
@@ -4044,21 +4058,24 @@ fn partial_tenure_fork() {
 
         if miner == 1 {
             miner_1_tenures += 1;
+            miner_1_blocks += blocks;
         } else {
             miner_2_tenures += 1;
+            miner_2_blocks += blocks;
         }
-        info!(
-            "Miner 1 tenures: {}, Miner 2 tenures: {}, Miner 1 before: {}, Miner 2 before: {}",
-            miner_1_tenures, miner_2_tenures, mined_before_1, mined_before_2,
-        );
 
         let mined_1 = blocks_mined1.load(Ordering::SeqCst);
         let mined_2 = blocks_mined2.load(Ordering::SeqCst);
+
+        info!(
+            "Miner 1 tenures: {miner_1_tenures}, Miner 2 tenures: {miner_2_tenures}, Miner 1 before: {mined_before_1}, Miner 2 before: {mined_before_2}, Miner 1 blocks: {mined_1}, Miner 2 blocks: {mined_2}",
+        );
+
         if miner == 1 {
-            assert_eq!(mined_1, mined_before_1 + inter_blocks_per_tenure + 1);
+            assert_eq!(mined_1, mined_before_1 + blocks + 1);
         } else {
             if miner_2_tenures < min_miner_2_tenures {
-                assert_eq!(mined_2, mined_before_2 + inter_blocks_per_tenure + 1);
+                assert_eq!(mined_2, mined_before_2 + blocks + 1);
             } else {
                 // Miner 2 should have mined 0 blocks after the fork
                 assert_eq!(mined_2, mined_before_2);
@@ -4078,11 +4095,16 @@ fn partial_tenure_fork() {
     assert_eq!(peer_2_height, ignore_block - 1);
     // The height may be higher than expected due to extra transactions waiting
     // to be mined during the forking miner's tenure.
-    assert!(
-        peer_1_height
-            >= pre_nakamoto_peer_1_height
-                + (miner_1_tenures + min_miner_2_tenures - 1) * (inter_blocks_per_tenure + 1)
+    // We cannot guarantee due to TooMuchChaining that the miner will mine inter_blocks_per_tenure
+    let min_num_miner_2_blocks = std::cmp::min(
+        miner_2_blocks,
+        min_miner_2_tenures * (inter_blocks_per_tenure + 1),
     );
+    assert!(
+        miner_2_tenures >= min_miner_2_tenures,
+        "Miner 2 failed to win its minimum number of tenures"
+    );
+    assert!(peer_1_height >= pre_nakamoto_peer_1_height + miner_1_blocks + min_num_miner_2_blocks,);
     assert_eq!(
         btc_blocks_mined,
         u64::try_from(miner_1_tenures + miner_2_tenures).unwrap()
@@ -4652,10 +4674,11 @@ fn reorg_locally_accepted_blocks_across_tenures_succeeds() {
                 let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
                     .expect("Failed to deserialize SignerMessage");
                 match message {
-                    SignerMessage::BlockResponse(BlockResponse::Accepted((hash, signature))) => {
-                        ignoring_signers
-                            .iter()
-                            .find(|key| key.verify(hash.bits(), &signature).is_ok())
+                    SignerMessage::BlockResponse(BlockResponse::Accepted(accepted)) => {
+                        ignoring_signers.iter().find(|key| {
+                            key.verify(accepted.signer_signature_hash.bits(), &accepted.signature)
+                                .is_ok()
+                        })
                     }
                     _ => None,
                 }
@@ -4896,12 +4919,11 @@ fn miner_recovers_when_broadcast_block_delay_across_tenures_occurs() {
                     let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
                         .expect("Failed to deserialize SignerMessage");
                     match message {
-                        SignerMessage::BlockResponse(BlockResponse::Accepted((
-                            hash,
-                            signature,
-                        ))) => {
-                            if block.header.signer_signature_hash() == hash {
-                                Some(signature)
+                        SignerMessage::BlockResponse(BlockResponse::Accepted(accepted)) => {
+                            if block.header.signer_signature_hash()
+                                == accepted.signer_signature_hash
+                            {
+                                Some(accepted.signature)
                             } else {
                                 None
                             }
