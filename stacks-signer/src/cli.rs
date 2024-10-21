@@ -29,6 +29,7 @@ use clarity::util::hash::Sha256Sum;
 use clarity::util::secp256k1::MessageSignature;
 use clarity::vm::types::{QualifiedContractIdentifier, TupleData};
 use clarity::vm::Value;
+use libsigner::VERSION_STRING;
 use serde::{Deserialize, Serialize};
 use stacks_common::address::{
     b58, AddressHashMode, C32_ADDRESS_VERSION_MAINNET_MULTISIG,
@@ -37,8 +38,6 @@ use stacks_common::address::{
 };
 use stacks_common::define_u8_enum;
 use stacks_common::types::chainstate::StacksPrivateKey;
-
-use crate::VERSION_STRING;
 
 extern crate alloc;
 
