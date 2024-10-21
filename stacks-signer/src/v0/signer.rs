@@ -63,10 +63,6 @@ pub static TEST_PAUSE_BLOCK_BROADCAST: std::sync::Mutex<Option<bool>> = std::syn
 /// Skip broadcasting the block to the network
 pub static TEST_SKIP_BLOCK_BROADCAST: std::sync::Mutex<Option<bool>> = std::sync::Mutex::new(None);
 
-#[cfg(any(test, feature = "testing"))]
-/// Skip checking a block proposal's sortition
-pub static TEST_SKIP_SORTITION_CHECK: std::sync::Mutex<Option<bool>> = std::sync::Mutex::new(None);
-
 /// The stacks signer registered for the reward cycle
 #[derive(Debug)]
 pub struct Signer {

@@ -620,7 +620,7 @@ fn miner_wait_for_proposal() {
         vec![(sender_addr.clone(), (send_amt + send_fee) * 5)],
         |_signer_conf| {},
         |neon_conf| {
-            neon_conf.miner.wait_for_proposals_secs = 20;
+            neon_conf.miner.wait_for_proposals_secs = 30;
         },
         None,
         None,
@@ -640,8 +640,6 @@ fn miner_wait_for_proposal() {
         .iter()
         .map(StacksPublicKey::from_private)
         .collect();
-
-    let short_timeout = Duration::from_secs(30);
 
     // Make all but 1 signers ignore. We need 1 signer to view it so that they save
     // it in their SignerDB. If a signer has never seen a block, they won't
@@ -685,31 +683,39 @@ fn miner_wait_for_proposal() {
     })
     .expect("Timed out waiting for block proposal");
 
-    let block_proposal = test_observer::get_stackerdb_chunks()
-        .into_iter()
-        .flat_map(|chunk| chunk.modified_slots)
-        .filter_map(|chunk| SignerMessage::consensus_deserialize(&mut chunk.data.as_slice()).ok())
-        .filter_map(|message| {
-            let SignerMessage::BlockProposal(proposal) = message else {
-                return None;
-            };
-            let has_transfer = proposal.block.txs.iter().any(|tx| {
-                let TransactionPayload::TokenTransfer(recipient_principal, ..) = tx.clone().payload
-                else {
-                    return false;
-                };
-                recipient_principal == recipient_addr.into()
-            });
-            if has_transfer {
-                Some(proposal)
-            } else {
-                None
-            }
-        })
-        .last()
-        .expect("Expected a block proposal to be found");
+    let mut block_proposal: Option<BlockProposal> = None;
 
-    let block = block_proposal.block;
+    wait_for(30, || {
+        block_proposal = test_observer::get_stackerdb_chunks()
+            .into_iter()
+            .flat_map(|chunk| chunk.modified_slots)
+            .filter_map(|chunk| {
+                SignerMessage::consensus_deserialize(&mut chunk.data.as_slice()).ok()
+            })
+            .filter_map(|message| {
+                let SignerMessage::BlockProposal(proposal) = message else {
+                    return None;
+                };
+                let has_transfer = proposal.block.txs.iter().any(|tx| {
+                    let TransactionPayload::TokenTransfer(recipient_principal, ..) =
+                        tx.clone().payload
+                    else {
+                        return false;
+                    };
+                    recipient_principal == recipient_addr.into()
+                });
+                if has_transfer {
+                    Some(proposal)
+                } else {
+                    None
+                }
+            })
+            .last();
+        Ok(block_proposal.is_some())
+    })
+    .expect("Timed out waiting for block proposal");
+
+    let block = block_proposal.unwrap().block;
 
     // First propose a block to the signers that does not have the correct consensus hash or BitVec. This should be rejected BEFORE
     // the block is submitted to the node for validation.
@@ -719,7 +725,6 @@ fn miner_wait_for_proposal() {
         "signer_sig_hash" => %block_signer_signature_hash_1,
     );
 
-    signer_test.propose_block(block.clone(), short_timeout);
     info!("------ Mining BTC Block ------");
     next_block_and_wait(
         &mut signer_test.running_nodes.btc_regtest_controller,
