@@ -669,10 +669,12 @@ impl NakamotoTenureInv {
         match reply.payload {
             StacksMessageType::NakamotoInv(inv_data) => {
                 debug!(
-                    "{:?}: got NakamotoInv: {:?}",
+                    "{:?}: got NakamotoInv from {:?}: {:?}",
                     network.get_local_peer(),
+                    &self.neighbor_address,
                     &inv_data
                 );
+
                 let ret = self.merge_tenure_inv(inv_data.tenures, self.reward_cycle());
                 self.next_reward_cycle();
                 return Ok(ret);

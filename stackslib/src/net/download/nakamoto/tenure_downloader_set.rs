@@ -423,7 +423,9 @@ impl NakamotoTenureDownloaderSet {
             );
             let tenure_download = NakamotoTenureDownloader::new(
                 ch.clone(),
+                tenure_info.start_block_snapshot_consensus_hash.clone(),
                 tenure_info.start_block_id.clone(),
+                tenure_info.end_block_snapshot_consensus_hash.clone(),
                 tenure_info.end_block_id.clone(),
                 naddr.clone(),
                 start_reward_set.clone(),
@@ -450,6 +452,7 @@ impl NakamotoTenureDownloaderSet {
         &mut self,
         network: &mut PeerNetwork,
         neighbor_rpc: &mut NeighborRPC,
+        chainstate: &mut StacksChainState,
     ) -> HashMap<ConsensusHash, Vec<NakamotoBlock>> {
         let addrs: Vec<_> = self.peers.keys().cloned().collect();
         let mut finished = vec![];
@@ -475,6 +478,17 @@ impl NakamotoTenureDownloaderSet {
                 finished_tenures.push(downloader.tenure_id_consensus_hash.clone());
                 continue;
             }
+
+            let _ = downloader
+                .try_advance_from_chainstate(chainstate)
+                .map_err(|e| {
+                    warn!(
+                        "Failed to advance downloader in state {} for {}: {:?}",
+                        &downloader.state, &downloader.naddr, &e
+                    );
+                    e
+                });
+
             debug!(
                 "Send request to {} for tenure {} (state {})",
                 &naddr, &downloader.tenure_id_consensus_hash, &downloader.state

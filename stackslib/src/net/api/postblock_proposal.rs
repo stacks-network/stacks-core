@@ -393,6 +393,7 @@ impl NakamotoBlockProposal {
 
         // Static validation checks
         NakamotoChainState::validate_nakamoto_block_burnchain(
+            chainstate.nakamoto_blocks_db(),
             &db_handle,
             expected_burn_opt,
             &self.block,

@@ -484,7 +484,14 @@ pub fn load_nakamoto_reward_set<U: RewardSetProvider>(
     let Some(anchor_block_header) = prepare_phase_sortitions
         .into_iter()
         .find_map(|sn| {
-            if !sn.sortition {
+            let shadow_tenure = match chain_state.nakamoto_blocks_db().is_shadow_tenure(&sn.consensus_hash) {
+                Ok(x) => x,
+                Err(e) => {
+                    return Some(Err(e));
+                }
+            };
+
+            if !sn.sortition && !shadow_tenure {
                 return None
             }
 
