@@ -74,10 +74,10 @@ fn advance_to_2_1(
     test_observer::register_any(&mut conf);
 
     let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
-    epochs[1].end_height = epoch_2_05;
-    epochs[2].start_height = epoch_2_05;
-    epochs[2].end_height = epoch_2_1;
-    epochs[3].start_height = epoch_2_1;
+    epochs[StacksEpochId::Epoch20.index()].end_height = epoch_2_05;
+    epochs[StacksEpochId::Epoch2_05.index()].start_height = epoch_2_05;
+    epochs[StacksEpochId::Epoch2_05.index()].end_height = epoch_2_1;
+    epochs[StacksEpochId::Epoch21.index()].start_height = epoch_2_1;
 
     conf.burnchain.epochs = Some(epochs);
 
@@ -577,10 +577,10 @@ fn transition_fixes_bitcoin_rigidity() {
     test_observer::register_any(&mut conf);
 
     let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
-    epochs[1].end_height = epoch_2_05;
-    epochs[2].start_height = epoch_2_05;
-    epochs[2].end_height = epoch_2_1;
-    epochs[3].start_height = epoch_2_1;
+    epochs[StacksEpochId::Epoch20.index()].end_height = epoch_2_05;
+    epochs[StacksEpochId::Epoch2_05.index()].start_height = epoch_2_05;
+    epochs[StacksEpochId::Epoch2_05.index()].end_height = epoch_2_1;
+    epochs[StacksEpochId::Epoch21.index()].start_height = epoch_2_1;
 
     conf.burnchain.epochs = Some(epochs);
 
@@ -1497,10 +1497,10 @@ fn transition_removes_pox_sunset() {
     let epoch_21 = epoch_21_rc * reward_cycle_len + 1;
 
     let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
-    epochs[1].end_height = 1;
-    epochs[2].start_height = 1;
-    epochs[2].end_height = epoch_21;
-    epochs[3].start_height = epoch_21;
+    epochs[StacksEpochId::Epoch20.index()].end_height = 1;
+    epochs[StacksEpochId::Epoch2_05.index()].start_height = 1;
+    epochs[StacksEpochId::Epoch2_05.index()].end_height = epoch_21;
+    epochs[StacksEpochId::Epoch21.index()].start_height = epoch_21;
 
     conf.burnchain.epochs = Some(epochs);
 
@@ -1770,10 +1770,10 @@ fn transition_empty_blocks() {
     let (mut conf, miner_account) = neon_integration_test_conf();
 
     let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
-    epochs[1].end_height = epoch_2_05;
-    epochs[2].start_height = epoch_2_05;
-    epochs[2].end_height = epoch_2_1;
-    epochs[3].start_height = epoch_2_1;
+    epochs[StacksEpochId::Epoch20.index()].end_height = epoch_2_05;
+    epochs[StacksEpochId::Epoch2_05.index()].start_height = epoch_2_05;
+    epochs[StacksEpochId::Epoch2_05.index()].end_height = epoch_2_1;
+    epochs[StacksEpochId::Epoch21.index()].start_height = epoch_2_1;
 
     conf.node.mine_microblocks = false;
     conf.burnchain.max_rbf = 1000000;
@@ -2051,10 +2051,10 @@ fn test_pox_reorgs_three_flaps() {
 
     // make epoch 2.1 start in the middle of boot-up
     let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
-    epochs[1].end_height = 101;
-    epochs[2].start_height = 101;
-    epochs[2].end_height = 151;
-    epochs[3].start_height = 151;
+    epochs[StacksEpochId::Epoch20.index()].end_height = 101;
+    epochs[StacksEpochId::Epoch2_05.index()].start_height = 101;
+    epochs[StacksEpochId::Epoch2_05.index()].end_height = 151;
+    epochs[StacksEpochId::Epoch21.index()].start_height = 151;
     conf_template.burnchain.epochs = Some(epochs);
 
     let privks: Vec<_> = (0..5)
@@ -2593,10 +2593,10 @@ fn test_pox_reorg_one_flap() {
 
     // make epoch 2.1 start in the middle of boot-up
     let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
-    epochs[1].end_height = 101;
-    epochs[2].start_height = 101;
-    epochs[2].end_height = 151;
-    epochs[3].start_height = 151;
+    epochs[StacksEpochId::Epoch20.index()].end_height = 101;
+    epochs[StacksEpochId::Epoch2_05.index()].start_height = 101;
+    epochs[StacksEpochId::Epoch2_05.index()].end_height = 151;
+    epochs[StacksEpochId::Epoch21.index()].start_height = 151;
     conf_template.burnchain.epochs = Some(epochs);
 
     let privks: Vec<_> = (0..5)
@@ -3019,10 +3019,10 @@ fn test_pox_reorg_flap_duel() {
 
     // make epoch 2.1 start in the middle of boot-up
     let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
-    epochs[1].end_height = 101;
-    epochs[2].start_height = 101;
-    epochs[2].end_height = 151;
-    epochs[3].start_height = 151;
+    epochs[StacksEpochId::Epoch20.index()].end_height = 101;
+    epochs[StacksEpochId::Epoch2_05.index()].start_height = 101;
+    epochs[StacksEpochId::Epoch2_05.index()].end_height = 151;
+    epochs[StacksEpochId::Epoch21.index()].start_height = 151;
     conf_template.burnchain.epochs = Some(epochs);
 
     let privks: Vec<_> = (0..5)
@@ -3459,10 +3459,10 @@ fn test_pox_reorg_flap_reward_cycles() {
 
     // make epoch 2.1 start in the middle of boot-up
     let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
-    epochs[1].end_height = 101;
-    epochs[2].start_height = 101;
-    epochs[2].end_height = 151;
-    epochs[3].start_height = 151;
+    epochs[StacksEpochId::Epoch20.index()].end_height = 101;
+    epochs[StacksEpochId::Epoch2_05.index()].start_height = 101;
+    epochs[StacksEpochId::Epoch2_05.index()].end_height = 151;
+    epochs[StacksEpochId::Epoch21.index()].start_height = 151;
     conf_template.burnchain.epochs = Some(epochs);
 
     let privks: Vec<_> = (0..5)
@@ -3891,10 +3891,10 @@ fn test_pox_missing_five_anchor_blocks() {
 
     // make epoch 2.1 start in the middle of boot-up
     let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
-    epochs[1].end_height = 101;
-    epochs[2].start_height = 101;
-    epochs[2].end_height = 151;
-    epochs[3].start_height = 151;
+    epochs[StacksEpochId::Epoch20.index()].end_height = 101;
+    epochs[StacksEpochId::Epoch2_05.index()].start_height = 101;
+    epochs[StacksEpochId::Epoch2_05.index()].end_height = 151;
+    epochs[StacksEpochId::Epoch21.index()].start_height = 151;
     conf_template.burnchain.epochs = Some(epochs);
 
     let privks: Vec<_> = (0..5)
@@ -4291,10 +4291,10 @@ fn test_sortition_divergence_pre_21() {
 
     // make epoch 2.1 start after we have created this error condition
     let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
-    epochs[1].end_height = 101;
-    epochs[2].start_height = 101;
-    epochs[2].end_height = 241;
-    epochs[3].start_height = 241;
+    epochs[StacksEpochId::Epoch20.index()].end_height = 101;
+    epochs[StacksEpochId::Epoch2_05.index()].start_height = 101;
+    epochs[StacksEpochId::Epoch2_05.index()].end_height = 241;
+    epochs[StacksEpochId::Epoch21.index()].start_height = 241;
     conf_template.burnchain.epochs = Some(epochs);
 
     let privks: Vec<_> = (0..5)
@@ -4750,10 +4750,10 @@ fn trait_invocation_cross_epoch() {
     conf.initial_balances.append(&mut initial_balances);
     test_observer::register_any(&mut conf);
     let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
-    epochs[1].end_height = epoch_2_05;
-    epochs[2].start_height = epoch_2_05;
-    epochs[2].end_height = epoch_2_1;
-    epochs[3].start_height = epoch_2_1;
+    epochs[StacksEpochId::Epoch20.index()].end_height = epoch_2_05;
+    epochs[StacksEpochId::Epoch2_05.index()].start_height = epoch_2_05;
+    epochs[StacksEpochId::Epoch2_05.index()].end_height = epoch_2_1;
+    epochs[StacksEpochId::Epoch21.index()].start_height = epoch_2_1;
     conf.burnchain.epochs = Some(epochs);
 
     let mut burnchain_config = Burnchain::regtest(&conf.get_burn_db_path());
@@ -5024,10 +5024,10 @@ fn test_v1_unlock_height_with_current_stackers() {
     conf.initial_balances.append(&mut initial_balances);
 
     let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
-    epochs[1].end_height = epoch_2_05;
-    epochs[2].start_height = epoch_2_05;
-    epochs[2].end_height = epoch_2_1;
-    epochs[3].start_height = epoch_2_1;
+    epochs[StacksEpochId::Epoch20.index()].end_height = epoch_2_05;
+    epochs[StacksEpochId::Epoch2_05.index()].start_height = epoch_2_05;
+    epochs[StacksEpochId::Epoch2_05.index()].end_height = epoch_2_1;
+    epochs[StacksEpochId::Epoch21.index()].start_height = epoch_2_1;
     conf.burnchain.epochs = Some(epochs);
 
     let mut burnchain_config = Burnchain::regtest(&conf.get_burn_db_path());
@@ -5287,10 +5287,10 @@ fn test_v1_unlock_height_with_delay_and_current_stackers() {
     conf.initial_balances.append(&mut initial_balances);
 
     let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
-    epochs[1].end_height = epoch_2_05;
-    epochs[2].start_height = epoch_2_05;
-    epochs[2].end_height = epoch_2_1;
-    epochs[3].start_height = epoch_2_1;
+    epochs[StacksEpochId::Epoch20.index()].end_height = epoch_2_05;
+    epochs[StacksEpochId::Epoch2_05.index()].start_height = epoch_2_05;
+    epochs[StacksEpochId::Epoch2_05.index()].end_height = epoch_2_1;
+    epochs[StacksEpochId::Epoch21.index()].start_height = epoch_2_1;
     conf.burnchain.epochs = Some(epochs);
 
     let mut burnchain_config = Burnchain::regtest(&conf.get_burn_db_path());

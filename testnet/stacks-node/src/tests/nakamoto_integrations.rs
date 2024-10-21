@@ -806,7 +806,7 @@ pub fn boot_to_epoch_3(
     assert_eq!(stacker_sks.len(), signer_sks.len());
 
     let epochs = naka_conf.burnchain.epochs.clone().unwrap();
-    let epoch_3 = &epochs[StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch30).unwrap()];
+    let epoch_3 = &epochs[StacksEpochId::Epoch30.index()];
     let current_height = btc_regtest_controller.get_headers_height();
     info!(
         "Chain bootstrapped to bitcoin block {current_height:?}, starting Epoch 2x miner";
@@ -968,7 +968,7 @@ pub fn boot_to_pre_epoch_3_boundary(
     assert_eq!(stacker_sks.len(), signer_sks.len());
 
     let epochs = naka_conf.burnchain.epochs.clone().unwrap();
-    let epoch_3 = &epochs[StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch30).unwrap()];
+    let epoch_3 = &epochs[StacksEpochId::Epoch30.index()];
     let current_height = btc_regtest_controller.get_headers_height();
     info!(
         "Chain bootstrapped to bitcoin block {current_height:?}, starting Epoch 2x miner";
@@ -1206,7 +1206,7 @@ pub fn setup_epoch_3_reward_set(
     assert_eq!(stacker_sks.len(), signer_sks.len());
 
     let epochs = naka_conf.burnchain.epochs.clone().unwrap();
-    let epoch_3 = &epochs[StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch30).unwrap()];
+    let epoch_3 = &epochs[StacksEpochId::Epoch30.index()];
     let reward_cycle_len = naka_conf.get_burnchain().pox_constants.reward_cycle_length as u64;
     let prepare_phase_len = naka_conf.get_burnchain().pox_constants.prepare_length as u64;
 
@@ -1305,7 +1305,7 @@ pub fn boot_to_epoch_3_reward_set_calculation_boundary(
     );
 
     let epochs = naka_conf.burnchain.epochs.clone().unwrap();
-    let epoch_3 = &epochs[StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch30).unwrap()];
+    let epoch_3 = &epochs[StacksEpochId::Epoch30.index()];
     let reward_cycle_len = naka_conf.get_burnchain().pox_constants.reward_cycle_length as u64;
     let prepare_phase_len = naka_conf.get_burnchain().pox_constants.prepare_length as u64;
 
@@ -1340,7 +1340,7 @@ pub fn boot_to_epoch_25(
     btc_regtest_controller: &mut BitcoinRegtestController,
 ) {
     let epochs = naka_conf.burnchain.epochs.clone().unwrap();
-    let epoch_25 = &epochs[StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch25).unwrap()];
+    let epoch_25 = &epochs[StacksEpochId::Epoch25.index()];
     let reward_cycle_len = naka_conf.get_burnchain().pox_constants.reward_cycle_length as u64;
     let prepare_phase_len = naka_conf.get_burnchain().pox_constants.prepare_length as u64;
 
@@ -1878,7 +1878,7 @@ fn flash_blocks_on_epoch_3() {
 
     // Get the Epoch 3.0 activation height (in terms of Bitcoin block height)
     let epochs = naka_conf.burnchain.epochs.clone().unwrap();
-    let epoch_3 = &epochs[StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch30).unwrap()];
+    let epoch_3 = &epochs[StacksEpochId::Epoch30.index()];
     let epoch_3_start_height = epoch_3.start_height;
 
     // Find the gap in burn blocks
@@ -2387,13 +2387,10 @@ fn correct_burn_outs() {
 
     {
         let epochs = naka_conf.burnchain.epochs.as_mut().unwrap();
-        let epoch_24_ix = StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch24).unwrap();
-        let epoch_25_ix = StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch25).unwrap();
-        let epoch_30_ix = StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch30).unwrap();
-        epochs[epoch_24_ix].end_height = 208;
-        epochs[epoch_25_ix].start_height = 208;
-        epochs[epoch_25_ix].end_height = 225;
-        epochs[epoch_30_ix].start_height = 225;
+        epochs[StacksEpochId::Epoch24.index()].end_height = 208;
+        epochs[StacksEpochId::Epoch25.index()].start_height = 208;
+        epochs[StacksEpochId::Epoch25.index()].end_height = 225;
+        epochs[StacksEpochId::Epoch30.index()].start_height = 225;
     }
 
     naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
@@ -2447,8 +2444,8 @@ fn correct_burn_outs() {
     wait_for_runloop(&blocks_processed);
 
     let epochs = naka_conf.burnchain.epochs.clone().unwrap();
-    let epoch_3 = &epochs[StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch30).unwrap()];
-    let epoch_25 = &epochs[StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch25).unwrap()];
+    let epoch_3 = &epochs[StacksEpochId::Epoch30.index()];
+    let epoch_25 = &epochs[StacksEpochId::Epoch25.index()];
     let current_height = btc_regtest_controller.get_headers_height();
     info!(
         "Chain bootstrapped to bitcoin block {current_height:?}, starting Epoch 2x miner";
@@ -7504,7 +7501,7 @@ fn check_block_times() {
     blind_signer(&naka_conf, &signers, proposals_submitted);
 
     let epochs = naka_conf.burnchain.epochs.clone().unwrap();
-    let epoch_3 = &epochs[StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch30).unwrap()];
+    let epoch_3 = &epochs[StacksEpochId::Epoch30.index()];
     let epoch_3_start = epoch_3.start_height;
     let mut last_stacks_block_height = 0;
     let mut last_tenure_height = 0;

@@ -104,16 +104,16 @@ fn trait_invocation_behavior() {
     conf.initial_balances.append(&mut initial_balances);
 
     let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
-    epochs[1].end_height = epoch_2_05;
-    epochs[2].start_height = epoch_2_05;
-    epochs[2].end_height = epoch_2_1;
-    epochs[3].start_height = epoch_2_1;
-    epochs[3].end_height = epoch_2_2;
-    epochs[4].start_height = epoch_2_2;
-    epochs[4].end_height = epoch_2_3;
-    epochs[5].start_height = epoch_2_3;
-    epochs[5].end_height = STACKS_EPOCH_MAX;
-    epochs.truncate(6);
+    epochs[StacksEpochId::Epoch20.index()].end_height = epoch_2_05;
+    epochs[StacksEpochId::Epoch2_05.index()].start_height = epoch_2_05;
+    epochs[StacksEpochId::Epoch2_05.index()].end_height = epoch_2_1;
+    epochs[StacksEpochId::Epoch21.index()].start_height = epoch_2_1;
+    epochs[StacksEpochId::Epoch21.index()].end_height = epoch_2_2;
+    epochs[StacksEpochId::Epoch22.index()].start_height = epoch_2_2;
+    epochs[StacksEpochId::Epoch22.index()].end_height = epoch_2_3;
+    epochs[StacksEpochId::Epoch23.index()].start_height = epoch_2_3;
+    epochs[StacksEpochId::Epoch23.index()].end_height = STACKS_EPOCH_MAX;
+    epochs.truncate(StacksEpochId::Epoch23.index() + 1);
     conf.burnchain.epochs = Some(epochs);
 
     let mut burnchain_config = Burnchain::regtest(&conf.get_burn_db_path());

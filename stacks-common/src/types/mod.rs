@@ -235,6 +235,21 @@ impl StacksEpochId {
             StacksEpochId::Epoch30 => cur_reward_cycle > first_epoch30_reward_cycle,
         }
     }
+
+    /// Return the index for this epoch in the list of epochs
+    pub fn index(&self) -> usize {
+        match self {
+            StacksEpochId::Epoch10 => 0,
+            StacksEpochId::Epoch20 => 1,
+            StacksEpochId::Epoch2_05 => 2,
+            StacksEpochId::Epoch21 => 3,
+            StacksEpochId::Epoch22 => 4,
+            StacksEpochId::Epoch23 => 5,
+            StacksEpochId::Epoch24 => 6,
+            StacksEpochId::Epoch25 => 7,
+            StacksEpochId::Epoch30 => 8,
+        }
+    }
 }
 
 impl std::fmt::Display for StacksEpochId {

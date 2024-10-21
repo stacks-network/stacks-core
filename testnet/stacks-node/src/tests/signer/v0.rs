@@ -101,8 +101,7 @@ impl SignerTest<SpawnedSigner> {
         let lock_period = 12;
 
         let epochs = self.running_nodes.conf.burnchain.epochs.clone().unwrap();
-        let epoch_25 =
-            &epochs[StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch25).unwrap()];
+        let epoch_25 = &epochs[StacksEpochId::Epoch25.index()];
         let epoch_25_start_height = epoch_25.start_height;
         // stack enough to activate pox-4
         let block_height = self
@@ -807,7 +806,7 @@ fn reloads_signer_set_in() {
 
     let naka_conf = &signer_test.running_nodes.conf;
     let epochs = naka_conf.burnchain.epochs.clone().unwrap();
-    let epoch_3 = &epochs[StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch30).unwrap()];
+    let epoch_3 = &epochs[StacksEpochId::Epoch30.index()];
     let reward_cycle_len = naka_conf.get_burnchain().pox_constants.reward_cycle_length as u64;
     let prepare_phase_len = naka_conf.get_burnchain().pox_constants.prepare_length as u64;
 
@@ -2637,7 +2636,7 @@ fn mock_sign_epoch_25() {
         .epochs
         .clone()
         .unwrap();
-    let epoch_3 = &epochs[StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch30).unwrap()];
+    let epoch_3 = &epochs[StacksEpochId::Epoch30.index()];
     let epoch_3_boundary = epoch_3.start_height - 1; // We only advance to the boundary as epoch 2.5 miner gets torn down at the boundary
 
     signer_test.boot_to_epoch_25_reward_cycle();
@@ -2849,7 +2848,7 @@ fn multiple_miners_mock_sign_epoch_25() {
         .epochs
         .clone()
         .unwrap();
-    let epoch_3 = &epochs[StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch30).unwrap()];
+    let epoch_3 = &epochs[StacksEpochId::Epoch30.index()];
     let epoch_3_boundary = epoch_3.start_height - 1; // We only advance to the boundary as epoch 2.5 miner gets torn down at the boundary
 
     signer_test.boot_to_epoch_25_reward_cycle();
@@ -3791,10 +3790,10 @@ fn partial_tenure_fork() {
             // Move epoch 2.5 and 3.0 earlier, so we have more time for the
             // test before re-stacking is required.
             if let Some(epochs) = config.burnchain.epochs.as_mut() {
-                epochs[6].end_height = 131;
-                epochs[7].start_height = 131;
-                epochs[7].end_height = 166;
-                epochs[8].start_height = 166;
+                epochs[StacksEpochId::Epoch24.index()].end_height = 131;
+                epochs[StacksEpochId::Epoch25.index()].start_height = 131;
+                epochs[StacksEpochId::Epoch25.index()].end_height = 166;
+                epochs[StacksEpochId::Epoch30.index()].start_height = 166;
             } else {
                 panic!("Expected epochs to be set");
             }

@@ -5128,7 +5128,7 @@ fn size_overflow_unconfirmed_invalid_stream_microblocks_integration_test() {
         .collect();
 
     let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
-    epochs[1].block_limit = core::BLOCK_LIMIT_MAINNET_20;
+    epochs[StacksEpochId::Epoch20.index()].block_limit = core::BLOCK_LIMIT_MAINNET_20;
     conf.burnchain.epochs = Some(epochs);
 
     conf.miner.first_attempt_time_ms = i64::MAX as u64;
@@ -5278,7 +5278,7 @@ fn runtime_overflow_unconfirmed_microblocks_integration_test() {
     conf.miner.subsequent_attempt_time_ms = i64::MAX as u64;
 
     let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
-    epochs[1].block_limit = core::BLOCK_LIMIT_MAINNET_20;
+    epochs[StacksEpochId::Epoch20.index()].block_limit = core::BLOCK_LIMIT_MAINNET_20;
     conf.burnchain.epochs = Some(epochs);
 
     let txs: Vec<Vec<_>> = spender_sks

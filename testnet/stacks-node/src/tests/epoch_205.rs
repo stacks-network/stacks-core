@@ -57,8 +57,8 @@ fn test_exact_block_costs() {
 
     let (mut conf, _miner_account) = neon_integration_test_conf();
     let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
-    epochs[1].end_height = epoch_205_transition_height;
-    epochs[2].start_height = epoch_205_transition_height;
+    epochs[StacksEpochId::Epoch20.index()].end_height = epoch_205_transition_height;
+    epochs[StacksEpochId::Epoch2_05.index()].start_height = epoch_205_transition_height;
 
     conf.burnchain.epochs = Some(epochs);
     conf.node.mine_microblocks = true;
@@ -305,8 +305,8 @@ fn test_dynamic_db_method_costs() {
 
     let (mut conf, _miner_account) = neon_integration_test_conf();
     let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
-    epochs[1].end_height = epoch_205_transition_height;
-    epochs[2].start_height = epoch_205_transition_height;
+    epochs[StacksEpochId::Epoch20.index()].end_height = epoch_205_transition_height;
+    epochs[StacksEpochId::Epoch2_05.index()].start_height = epoch_205_transition_height;
 
     conf.burnchain.epochs = Some(epochs);
 
@@ -508,8 +508,8 @@ fn transition_empty_blocks() {
     let (mut conf, miner_account) = neon_integration_test_conf();
 
     let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
-    epochs[1].end_height = epoch_2_05;
-    epochs[2].start_height = epoch_2_05;
+    epochs[StacksEpochId::Epoch20.index()].end_height = epoch_2_05;
+    epochs[StacksEpochId::Epoch2_05.index()].start_height = epoch_2_05;
 
     conf.burnchain.epochs = Some(epochs);
 

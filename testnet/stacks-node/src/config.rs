@@ -531,9 +531,7 @@ impl Config {
             self.burnchain.get_bitcoin_network().1,
             self.burnchain.epochs.as_ref(),
         );
-        let Some(epoch_30) = StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch30)
-            .map(|epoch_ix| epochs[epoch_ix].clone())
-        else {
+        let Some(epoch_30) = epochs.get(StacksEpochId::Epoch30.index()) else {
             // no Epoch 3.0, so just return
             return;
         };
@@ -610,9 +608,7 @@ impl Config {
         let _ = StacksEpoch::validate_epochs(epochs);
 
         // sanity check: v1_unlock_height must happen after pox-2 instantiation
-        let epoch21_index = StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch21)
-            .expect("FATAL: no epoch 2.1 defined");
-
+        let epoch21_index = StacksEpochId::Epoch21.index();
         let epoch21 = &epochs[epoch21_index];
         let v1_unlock_height = burnchain.pox_constants.v1_unlock_height as u64;
 
@@ -714,7 +710,7 @@ impl Config {
         }
 
         // Stacks 1.0 must start at 0
-        if matched_epochs[0].1 != 0 {
+        if matched_epochs[StacksEpochId::Epoch10.index()].1 != 0 {
             return Err("Stacks 1.0 must start at height = 0".into());
         }
 
