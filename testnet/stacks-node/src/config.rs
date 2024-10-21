@@ -608,7 +608,8 @@ impl Config {
         let _ = StacksEpoch::validate_epochs(epochs);
 
         // sanity check: v1_unlock_height must happen after pox-2 instantiation
-        let epoch21_index = StacksEpochId::Epoch21.index();
+        let epoch21_index = StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch21)
+            .expect("FATAL: no epoch 2.1 defined");
         let epoch21 = &epochs[epoch21_index];
         let v1_unlock_height = burnchain.pox_constants.v1_unlock_height as u64;
 
