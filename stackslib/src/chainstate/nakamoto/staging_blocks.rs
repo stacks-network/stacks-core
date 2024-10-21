@@ -684,7 +684,6 @@ impl<'a> NakamotoStagingBlocksTx<'a> {
                     ])?;
         Ok(())
     }
-
 }
 
 impl StacksChainState {
