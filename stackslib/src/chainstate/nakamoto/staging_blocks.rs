@@ -273,6 +273,23 @@ impl<'a> NakamotoStagingBlocksConnRef<'a> {
         Ok(res.is_some())
     }
 
+    /// Determine if we have a particular block with the given index hash.
+    /// Returns Ok(true) if so
+    /// Returns Ok(false) if not
+    /// Returns Err(..) on DB error
+    pub fn has_shadow_nakamoto_block_with_index_hash(
+        &self,
+        index_block_hash: &StacksBlockId,
+    ) -> Result<bool, ChainstateError> {
+        let qry = "SELECT 1 FROM nakamoto_staging_blocks WHERE index_block_hash = ?1 AND obtain_method = ?2";
+        let args = params![
+            index_block_hash,
+            &NakamotoBlockObtainMethod::Shadow.to_string()
+        ];
+        let res: Option<i64> = query_row(self, qry, args)?;
+        Ok(res.is_some())
+    }
+
     /// Get the block ID, processed-status, orphan-status, and signing weight of the non-orphaned
     /// block with the given consensus hash and sighash with the most amount of signatures.
     /// There will be at most one such block.

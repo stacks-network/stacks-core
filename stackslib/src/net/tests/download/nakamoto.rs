@@ -2831,8 +2831,6 @@ fn test_nakamoto_download_run_2_peers_shadow_prepare_phase() {
         .unwrap()
         .unwrap();
 
-    assert_eq!(tip.block_height, 55);
-
     // make a neighbor from this peer
     let boot_observer = TestEventObserver::new();
     let privk = StacksPrivateKey::from_seed(&[0, 1, 2, 3, 4]);

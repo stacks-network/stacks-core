@@ -1663,7 +1663,8 @@ pub fn test_load_store_update_nakamoto_blocks() {
 /// Tests:
 /// * NakamotoBlockHeader::check_miner_signature
 /// * NakamotoBlockHeader::check_tenure_tx
-/// * NakamotoBlockHeader::check_coinbase_tx
+/// * NakamotoBlockHeader::check_normal_coinbase_tx
+/// * NakamotoBlockHeader::check_shadow_coinbase_tx
 #[test]
 fn test_nakamoto_block_static_verification() {
     let private_key = StacksPrivateKey::new();
@@ -1960,13 +1961,13 @@ fn test_nakamoto_block_static_verification() {
     let vrf_alt_pubkey = VRFPublicKey::from_private(&vrf_alt_privkey);
 
     assert!(nakamoto_block
-        .check_coinbase_tx(false, Some(&vrf_pubkey), &sortition_hash)
+        .check_normal_coinbase_tx(&vrf_pubkey, &sortition_hash)
         .is_ok());
     assert!(nakamoto_block
-        .check_coinbase_tx(false, Some(&vrf_pubkey), &SortitionHash([0x02; 32]))
+        .check_normal_coinbase_tx(&vrf_pubkey, &SortitionHash([0x02; 32]))
         .is_err());
     assert!(nakamoto_block
-        .check_coinbase_tx(false, Some(&vrf_alt_pubkey), &sortition_hash)
+        .check_normal_coinbase_tx(&vrf_alt_pubkey, &sortition_hash)
         .is_err());
 
     let mut shadow_block = nakamoto_shadow_recipient_block.clone();
@@ -1983,12 +1984,7 @@ fn test_nakamoto_block_static_verification() {
         .is_ok());
 
     // shadow block VRF is not checked
-    assert!(shadow_block
-        .check_coinbase_tx(false, None, &sortition_hash)
-        .is_ok());
-    assert!(shadow_block
-        .check_coinbase_tx(false, Some(&vrf_alt_pubkey), &sortition_hash)
-        .is_ok());
+    assert!(shadow_block.check_shadow_coinbase_tx(false).is_ok());
 
     // shadow blocks need burn recipeints for coinbases
     let mut shadow_block_no_recipient = nakamoto_block.clone();
@@ -1996,7 +1992,7 @@ fn test_nakamoto_block_static_verification() {
 
     assert!(shadow_block_no_recipient.is_shadow_block());
     assert!(shadow_block_no_recipient
-        .check_coinbase_tx(false, None, &sortition_hash)
+        .check_shadow_coinbase_tx(false)
         .is_err());
 
     let mut shadow_block_alt_recipient = nakamoto_block.clone();
@@ -2004,7 +2000,7 @@ fn test_nakamoto_block_static_verification() {
 
     assert!(shadow_block_alt_recipient.is_shadow_block());
     assert!(shadow_block_alt_recipient
-        .check_coinbase_tx(false, None, &sortition_hash)
+        .check_shadow_coinbase_tx(false)
         .is_err());
 
     // tenure tx requirements still hold for shadow blocks

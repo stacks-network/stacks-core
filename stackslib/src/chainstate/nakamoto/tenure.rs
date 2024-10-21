@@ -1062,6 +1062,15 @@ impl NakamotoChainState {
                 ChainstateError::NoSuchBlockError
             })?;
 
+        if snapshot.consensus_hash != *block_consensus_hash {
+            // should be unreachable, but check defensively
+            warn!(
+                "Snapshot for {} is not the same as the one for {}",
+                &burn_header_hash, block_consensus_hash
+            );
+            return Err(ChainstateError::NoSuchBlockError);
+        }
+
         Ok(snapshot)
     }
 }

@@ -28,7 +28,10 @@ use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::database::BurnStateDB;
 use clarity::vm::errors::Error as InterpreterError;
-use clarity::vm::types::{QualifiedContractIdentifier, TypeSignature};
+use clarity::vm::types::{
+    QualifiedContractIdentifier, StacksAddressExtensions as ClarityStacksAddressExtensions,
+    TypeSignature,
+};
 use libstackerdb::StackerDBChunkData;
 use serde::Deserialize;
 use stacks_common::codec::{read_next, write_next, Error as CodecError, StacksMessageCodec};
@@ -37,8 +40,9 @@ use stacks_common::types::chainstate::{
 };
 use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::get_epoch_time_ms;
-use stacks_common::util::hash::{Hash160, MerkleTree, Sha512Trunc256Sum};
+use stacks_common::util::hash::{hex_bytes, Hash160, MerkleTree, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PrivateKey};
+use stacks_common::util::vrf::VRFProof;
 
 use crate::burnchains::{PrivateKey, PublicKey};
 use crate::chainstate::burn::db::sortdb::{
@@ -58,8 +62,8 @@ use crate::chainstate::stacks::db::transactions::{
     handle_clarity_runtime_error, ClarityRuntimeTxError,
 };
 use crate::chainstate::stacks::db::{
-    ChainstateTx, ClarityTx, MinerRewardInfo, StacksBlockHeaderTypes, StacksChainState,
-    StacksHeaderInfo, MINER_REWARD_MATURITY,
+    ChainstateTx, ClarityTx, MinerRewardInfo, StacksAccount, StacksBlockHeaderTypes,
+    StacksChainState, StacksHeaderInfo, MINER_REWARD_MATURITY,
 };
 use crate::chainstate::stacks::events::{StacksTransactionEvent, StacksTransactionReceipt};
 use crate::chainstate::stacks::miner::{
@@ -117,7 +121,7 @@ pub struct NakamotoBlockBuilder {
     /// Total burn this block represents
     total_burn: u64,
     /// Matured miner rewards to process, if any.
-    matured_miner_rewards_opt: Option<MaturedMinerRewards>,
+    pub(crate) matured_miner_rewards_opt: Option<MaturedMinerRewards>,
     /// bytes of space consumed so far
     pub bytes_so_far: u64,
     /// transactions selected
@@ -387,7 +391,7 @@ impl NakamotoBlockBuilder {
         })
     }
 
-    /// Begin/resume mining a tenure's transactions.
+    /// Begin/resume mining a (normal) tenure's transactions.
     /// Returns an open ClarityTx for mining the block.
     /// NOTE: even though we don't yet know the block hash, the Clarity VM ensures that a
     /// transaction can't query information about the _current_ block (i.e. information that is not
@@ -397,6 +401,12 @@ impl NakamotoBlockBuilder {
         burn_dbconn: &'a SortitionHandleConn,
         info: &'b mut MinerTenureInfo<'a>,
     ) -> Result<ClarityTx<'b, 'b>, Error> {
+        if info.tenure_block_commit_opt.is_none() {
+            return Err(Error::InvalidStacksBlock(
+                "Block-commit is required; cannot mine a shadow block".into(),
+            ));
+        }
+
         let SetupBlockResult {
             clarity_tx,
             matured_miner_rewards_opt,
@@ -409,7 +419,6 @@ impl NakamotoBlockBuilder {
             &burn_dbconn.context.pox_constants,
             info.parent_consensus_hash,
             info.parent_header_hash,
-            info.parent_stacks_block_height,
             info.parent_burn_block_height,
             info.burn_tip,
             info.burn_tip_height,
@@ -417,7 +426,10 @@ impl NakamotoBlockBuilder {
             info.coinbase_height,
             info.cause == Some(TenureChangeCause::Extended),
             &self.header.pox_treatment,
-            info.tenure_block_commit_opt.as_ref(),
+            // safety: checked above
+            info.tenure_block_commit_opt
+                .as_ref()
+                .unwrap_or_else(|| panic!("FATAL: no block-commit for normal Nakamoto block")),
             &info.active_reward_set,
         )?;
         self.matured_miner_rewards_opt = matured_miner_rewards_opt;

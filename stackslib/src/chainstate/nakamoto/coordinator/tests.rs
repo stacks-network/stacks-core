@@ -631,7 +631,7 @@ impl<'a> TestPeer<'a> {
                         sortdb,
                         &sender_key,
                         sender_acct.nonce,
-                        100,
+                        200,
                         1,
                         &recipient_addr,
                     );

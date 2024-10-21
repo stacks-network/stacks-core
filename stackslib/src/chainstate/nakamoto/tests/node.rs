@@ -75,23 +75,6 @@ use crate::net::test::{TestPeer, TestPeerConfig, *};
 use crate::util_lib::boot::boot_code_addr;
 use crate::util_lib::db::Error as db_error;
 
-impl NakamotoBlockBuilder {
-    /// This function should be called before `tenure_begin`.
-    /// It creates a MinerTenureInfo struct which owns connections to the chainstate and sortition
-    /// DBs, so that block-processing is guaranteed to terminate before the lives of these handles
-    /// expire.
-    ///
-    /// It's used to create shadow blocks.
-    pub fn shadow_load_tenure_info<'a>(
-        &self,
-        chainstate: &'a mut StacksChainState,
-        burn_dbconn: &'a SortitionHandleConn,
-        cause: Option<TenureChangeCause>,
-    ) -> Result<MinerTenureInfo<'a>, ChainstateError> {
-        self.inner_load_tenure_info(chainstate, burn_dbconn, cause, true)
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct TestStacker {
     /// Key used to send stacking transactions
@@ -835,7 +818,6 @@ impl TestStacksNode {
                 chainstate,
                 &sortdb.index_handle_at_tip(),
                 txs,
-                false,
             )?;
             let try_to_process = after_block(&mut nakamoto_block);
             miner.sign_nakamoto_block(&mut nakamoto_block);
@@ -1018,7 +1000,6 @@ impl TestStacksNode {
         chainstate_handle: &StacksChainState,
         burn_dbconn: &SortitionHandleConn,
         mut txs: Vec<StacksTransaction>,
-        shadow_block: bool,
     ) -> Result<(NakamotoBlock, u64, ExecutionCost), ChainstateError> {
         use clarity::vm::ast::ASTRules;
 
@@ -1034,12 +1015,8 @@ impl TestStacksNode {
             break;
         }
 
-        let mut miner_tenure_info = if shadow_block {
-            builder.shadow_load_tenure_info(&mut chainstate, burn_dbconn, tenure_cause)?
-        } else {
-            builder.load_tenure_info(&mut chainstate, burn_dbconn, tenure_cause)?
-        };
-
+        let mut miner_tenure_info =
+            builder.load_tenure_info(&mut chainstate, burn_dbconn, tenure_cause)?;
         let mut tenure_tx = builder.tenure_begin(burn_dbconn, &mut miner_tenure_info)?;
         for tx in txs.drain(..) {
             let tx_len = tx.tx_len();
@@ -2337,94 +2314,26 @@ impl<'a> TestPeer<'a> {
     /// * Store the shadow block to the staging DB
     /// * Process it
     pub fn make_shadow_tenure(&mut self, tip: Option<StacksBlockId>) -> NakamotoBlock {
-        let recipient = StacksAddress::burn_address(false).to_account_principal();
-        let proof_bytes = hex_bytes("9275df67a68c8745c0ff97b48201ee6db447f7c93b23ae24cdc2400f52fdb08a1a6ac7ec71bf9c9c76e96ee4675ebff60625af28718501047bfd87b810c2d2139b73c23bd69de66360953a642c2a330a").unwrap();
-        let proof = VRFProof::from_bytes(proof_bytes.as_slice()).unwrap();
-
-        // empty sortition
+        let naka_tip_id = tip.unwrap_or(self.network.stacks_tip.block_id());
         let (_, _, tenure_id_consensus_hash) = self.next_burnchain_block(vec![]);
+
+        test_debug!(
+            "\n\nMake shadow tenure for tenure {} off of tip {}\n\n",
+            &tenure_id_consensus_hash,
+            &naka_tip_id
+        );
 
         let mut stacks_node = self.stacks_node.take().unwrap();
         let sortdb = self.sortdb.take().unwrap();
 
-        let naka_tip_id = tip.unwrap_or(self.network.stacks_tip.block_id());
-        let naka_tip_header =
-            NakamotoChainState::get_block_header(stacks_node.chainstate.db(), &naka_tip_id)
-                .unwrap()
-                .unwrap();
-
-        let Ok(Some(naka_tip_tenure_start_header)) =
-            NakamotoChainState::get_tenure_start_block_header(
-                &mut stacks_node.chainstate.index_conn(),
-                &naka_tip_id,
-                &naka_tip_header.consensus_hash,
-            )
-        else {
-            panic!(
-                "No tenure-start block header for tenure {}",
-                &naka_tip_header.consensus_hash
-            );
-        };
-
-        let miner_key = self.miner.nakamoto_miner_key();
-        let miner_addr = StacksAddress::p2pkh(false, &StacksPublicKey::from_private(&miner_key));
-        let miner_account = get_account(&mut stacks_node.chainstate, &sortdb, &miner_addr);
-
-        let tenure_change_payload = TenureChangePayload {
-            tenure_consensus_hash: tenure_id_consensus_hash.clone(),
-            prev_tenure_consensus_hash: naka_tip_header.consensus_hash,
-            burn_view_consensus_hash: tenure_id_consensus_hash.clone(),
-            previous_tenure_end: naka_tip_id,
-            previous_tenure_blocks: (naka_tip_header.anchored_header.height() + 1
-                - naka_tip_tenure_start_header.anchored_header.height())
-                as u32,
-            cause: TenureChangeCause::BlockFound,
-            pubkey_hash: self.miner.nakamoto_miner_hash160(),
-        };
-
-        let tenure_change_tx = self
-            .miner
-            .make_nakamoto_tenure_change_with_nonce(tenure_change_payload, miner_account.nonce);
-        let coinbase_tx = self.miner.make_nakamoto_coinbase_with_nonce_and_payload(
-            Some(recipient),
-            proof,
-            miner_account.nonce + 1,
-            CoinbasePayload(naka_tip_tenure_start_header.index_block_hash().0),
-        );
-
-        // make the block
-        let burn_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
-
-        debug!(
-            "Build Nakamoto shadow block in tenure {} sortition {} parent_tip {}",
-            &tenure_id_consensus_hash, &burn_tip.consensus_hash, &naka_tip_id
-        );
-
-        // make a block
-        let builder = NakamotoBlockBuilder::new(
-            &naka_tip_header,
-            &tenure_id_consensus_hash,
-            burn_tip.total_burn,
-            Some(&tenure_change_tx),
-            Some(&coinbase_tx),
-            1,
+        let shadow_block = NakamotoBlockBuilder::make_shadow_tenure(
+            &mut stacks_node.chainstate,
+            &sortdb,
+            naka_tip_id,
+            tenure_id_consensus_hash,
+            vec![],
         )
         .unwrap();
-
-        let (mut shadow_block, size, cost) = TestStacksNode::make_nakamoto_block_from_txs(
-            builder,
-            &stacks_node.chainstate,
-            &sortdb.index_handle_at_tip(),
-            vec![tenure_change_tx, coinbase_tx],
-            true,
-        )
-        .unwrap();
-
-        shadow_block.header.version |= 0x80;
-
-        // no need to sign with the signer set; just the miner is sufficient
-        // (and it can be any miner)
-        self.miner.sign_nakamoto_block(&mut shadow_block);
 
         // put it into Stacks staging DB
         let tx = stacks_node.chainstate.staging_db_tx_begin().unwrap();

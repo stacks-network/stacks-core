@@ -392,7 +392,7 @@ impl NakamotoBlockProposal {
         };
 
         // Static validation checks
-        NakamotoChainState::validate_nakamoto_block_burnchain(
+        NakamotoChainState::validate_normal_nakamoto_block_burnchain(
             chainstate.nakamoto_blocks_db(),
             &db_handle,
             expected_burn_opt,
@@ -653,6 +653,12 @@ impl HttpRequest for RPCBlockProposalRequestHandler {
                 ))
             }
         };
+
+        if block_proposal.block.is_shadow_block() {
+            return Err(Error::DecodeError(
+                "Shadow blocks cannot be submitted for validation".to_string(),
+            ));
+        }
 
         self.block_proposal = Some(block_proposal);
         Ok(HttpRequestContents::new().query_string(query))

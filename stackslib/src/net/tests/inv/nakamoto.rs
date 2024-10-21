@@ -427,7 +427,7 @@ pub fn make_nakamoto_peers_from_invs_and_balances<'a>(
         boot_plan
             .with_pox_constants(rc_len, prepare_len)
             .with_extra_peers(num_peers)
-            .with_initial_balances(vec![])
+            .with_initial_balances(initial_balances)
     })
 }
 
