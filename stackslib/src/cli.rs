@@ -110,7 +110,7 @@ impl StacksChainConfig {
 }
 
 const STACKS_CHAIN_CONFIG_DEFAULT_MAINNET: LazyCell<StacksChainConfig> =
-    LazyCell::new(StacksChainConfig::default_testnet);
+    LazyCell::new(StacksChainConfig::default_mainnet);
 
 /// Replay blocks from chainstate database
 /// Terminates on error using `process::exit()`
