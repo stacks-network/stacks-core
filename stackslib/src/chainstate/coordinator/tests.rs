@@ -431,6 +431,7 @@ impl BlockEventDispatcher for NullEventDispatcher {
         _reward_set_data: &Option<RewardSetData>,
         _signer_bitvec: &Option<BitVec<4000>>,
         _block_timestamp: Option<u64>,
+        _coinbase_height: u64,
     ) {
         assert!(
             false,
