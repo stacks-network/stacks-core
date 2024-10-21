@@ -508,6 +508,8 @@ fn handle_expression(
     }
 }
 
+// TODO: add tests from mutation testing results #4828
+#[cfg_attr(test, mutants::skip)]
 pub fn parse_lexed(input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSymbolicExpression>> {
     let mut parse_stack = Vec::new();
 

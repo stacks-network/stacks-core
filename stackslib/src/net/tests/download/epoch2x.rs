@@ -329,10 +329,12 @@ where
             let mut result = peer.step_dns(&mut dns_clients[i]).unwrap();
 
             let lp = peer.network.local_peer.clone();
+            let burnchain = peer.network.burnchain.clone();
             peer.with_db_state(|sortdb, chainstate, relayer, mempool| {
                 relayer.process_network_result(
                     &lp,
                     &mut result,
+                    &burnchain,
                     sortdb,
                     chainstate,
                     mempool,
@@ -624,7 +626,7 @@ fn make_contract_call_transaction(
 
         let chain_tip = StacksBlockHeader::make_index_block_hash(consensus_hash, block_hash);
         let cur_nonce = chainstate
-            .with_read_only_clarity_tx(&sortdb.index_conn(), &chain_tip, |clarity_tx| {
+            .with_read_only_clarity_tx(&sortdb.index_handle_at_tip(), &chain_tip, |clarity_tx| {
                 clarity_tx.with_clarity_db_readonly(|clarity_db| {
                     clarity_db
                         .get_account_nonce(&spending_account.origin_address().unwrap().into())
@@ -807,7 +809,7 @@ pub fn test_get_blocks_and_microblocks_2_peers_download_plain_100_blocks() {
                         StacksBlockBuilder::make_anchored_block_and_microblock_from_txs(
                             builder,
                             chainstate,
-                            &sortdb.index_conn(),
+                            &sortdb.index_handle_at_tip(),
                             vec![coinbase_tx, stack_tx],
                             vec![mblock_tx],
                         )
@@ -1424,7 +1426,7 @@ pub fn test_get_blocks_and_microblocks_2_peers_download_multiple_microblock_desc
                                 let (anchored_block, block_size, block_execution_cost) =
                                     StacksBlockBuilder::build_anchored_block(
                                         chainstate,
-                                        &sortdb.index_conn(),
+                                        &sortdb.index_handle_at_tip(),
                                         &mut mempool,
                                         &parent_tip,
                                         parent_tip

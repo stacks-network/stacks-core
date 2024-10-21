@@ -14,9 +14,11 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::io::Write;
-use std::net::{SocketAddr, ToSocketAddrs};
-use std::str;
+use std::io::{Read, Write};
+use std::net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
+use std::sync::mpsc::{channel, Receiver};
+use std::time::{Duration, Instant};
+use std::{str, thread};
 
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId, StacksPrivateKey};
@@ -38,12 +40,12 @@ use crate::net::api::getneighbors::{RPCNeighbor, RPCNeighborsInfo};
 use crate::net::connection::ConnectionOptions;
 use crate::net::http::{
     http_error_from_code_and_text, http_reason, HttpContentType, HttpErrorResponse,
-    HttpRequestContents, HttpRequestPreamble, HttpReservedHeader, HttpResponsePreamble,
-    HttpVersion, HTTP_PREAMBLE_MAX_NUM_HEADERS,
+    HttpRequestContents, HttpRequestPreamble, HttpReservedHeader, HttpResponsePayload,
+    HttpResponsePreamble, HttpVersion, HTTP_PREAMBLE_MAX_NUM_HEADERS,
 };
 use crate::net::httpcore::{
-    HttpPreambleExtensions, HttpRequestContentsExtensions, StacksHttp, StacksHttpMessage,
-    StacksHttpPreamble, StacksHttpRequest, StacksHttpResponse,
+    send_http_request, HttpPreambleExtensions, HttpRequestContentsExtensions, StacksHttp,
+    StacksHttpMessage, StacksHttpPreamble, StacksHttpRequest, StacksHttpResponse,
 };
 use crate::net::rpc::ConversationHttp;
 use crate::net::{ProtocolFamily, TipRequest};
@@ -117,8 +119,6 @@ fn test_parse_stacks_http_preamble_response_err() {
         ("HTTP/1.1 200 OK\r\nContent-Type: image/png\r\n\r\n",
          "Failed to decode HTTP request or HTTP response"),
         ("HTTP/1.1 200 OK\r\nContent-Length: foo\r\n\r\n",
-         "Failed to decode HTTP request or HTTP response"),
-        ("HTTP/1.1 200 OK\r\nContent-Length: 123\r\n\r\n",
          "Failed to decode HTTP request or HTTP response"),
         ("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\n",
          "Failed to decode HTTP request or HTTP response"),
@@ -418,6 +418,7 @@ fn test_http_response_type_codec() {
                 .unwrap(),
                 authenticated: true,
                 stackerdbs: Some(vec![]),
+                age: None,
             },
             RPCNeighbor {
                 network_id: 3,
@@ -433,6 +434,7 @@ fn test_http_response_type_codec() {
                 .unwrap(),
                 authenticated: false,
                 stackerdbs: Some(vec![]),
+                age: None,
             },
         ],
         inbound: vec![],
@@ -1117,4 +1119,158 @@ fn test_metrics_identifiers() {
         assert_eq!(metrics_identifier, metrics_identifier_expected);
         assert_eq!(response_handler_index.is_some(), should_have_handler);
     }
+}
+
+fn json_body(host: &str, port: u16, path: &str, json_bytes: &[u8]) -> StacksHttpRequest {
+    let peerhost: PeerHost = format!("{host}:{port}")
+        .parse()
+        .unwrap_or(PeerHost::DNS(host.to_string(), port));
+    let mut request = StacksHttpRequest::new_for_peer(
+        peerhost,
+        "POST".into(),
+        path.into(),
+        HttpRequestContents::new().payload_json(serde_json::from_slice(json_bytes).unwrap()),
+    )
+    .unwrap_or_else(|_| panic!("FATAL: failed to encode infallible data as HTTP request"));
+    request.add_header("Connection".into(), "close".into());
+
+    request
+}
+
+#[test]
+fn test_send_request_timeout() {
+    // Set up a TcpListener that accepts a connection but delays response
+    let listener = TcpListener::bind("127.0.0.1:0").expect("Failed to bind test listener");
+    let addr = listener.local_addr().unwrap();
+
+    // Spawn a thread that will accept the connection and do nothing, simulating a long delay
+    thread::spawn(move || {
+        let (stream, _addr) = listener.accept().unwrap();
+        // Hold the connection open to simulate a delay
+        thread::sleep(Duration::from_secs(10));
+        drop(stream); // Close the stream
+    });
+
+    // Set a timeout shorter than the sleep duration to force a timeout
+    let connection_timeout = Duration::from_secs(2);
+
+    // Attempt to connect, expecting a timeout error
+    let result = send_http_request(
+        "127.0.0.1",
+        addr.port(),
+        json_body("127.0.0.1", 80, "/", b"{}"),
+        connection_timeout,
+    );
+
+    // Assert that the result is an error, specifically a timeout
+    assert!(
+        result.is_err(),
+        "Expected a timeout error, got: {:?}",
+        result
+    );
+
+    if let Err(err) = result {
+        assert_eq!(
+            err.kind(),
+            std::io::ErrorKind::WouldBlock,
+            "Expected TimedOut error, got: {:?}",
+            err
+        );
+    }
+}
+
+fn start_mock_server(response: String, client_done_signal: Receiver<()>) -> String {
+    // Bind to an available port on localhost
+    let listener = TcpListener::bind("127.0.0.1:0").expect("Failed to bind server");
+    let addr = listener.local_addr().unwrap();
+
+    debug!("Mock server listening on {}", addr);
+
+    // Start the server in a new thread
+    thread::spawn(move || {
+        for stream in listener.incoming() {
+            debug!("Mock server accepted connection");
+            let mut stream = stream.expect("Failed to accept connection");
+
+            // Read the client's request (even if we don't do anything with it)
+            let mut buffer = [0; 512];
+            let _ = stream.read(&mut buffer);
+            debug!("Mock server received request");
+
+            // Simulate a basic HTTP response
+            stream
+                .write_all(response.as_bytes())
+                .expect("Failed to write response");
+            stream.flush().expect("Failed to flush stream");
+            debug!("Mock server sent response");
+
+            // Wait for the client to signal that it's done reading
+            client_done_signal
+                .recv()
+                .expect("Failed to receive client done signal");
+
+            // Explicitly drop the stream after signaling to ensure the client finishes
+            // NOTE: this will cause the test to slow down, since `send_http_request` expects
+            // `Connection: close`
+            drop(stream);
+
+            debug!("Mock server closing connection");
+
+            break; // Close after the first request
+        }
+    });
+
+    // Return the address of the mock server
+    format!("{}:{}", addr.ip(), addr.port())
+}
+
+fn parse_http_response(response: StacksHttpResponse) -> String {
+    let response_txt = match response.destruct().1 {
+        HttpResponsePayload::Text(s) => s,
+        HttpResponsePayload::Empty => "".to_string(),
+        HttpResponsePayload::JSON(js) => serde_json::to_string(&js).unwrap(),
+        HttpResponsePayload::Bytes(bytes) => String::from_utf8_lossy(bytes.as_slice()).to_string(),
+    };
+    response_txt
+}
+
+#[test]
+fn test_send_request_success() {
+    // Prepare the mock server to return a successful HTTP response
+    let mock_response = "HTTP/1.1 200 OK\r\nContent-Length: 13\r\n\r\nHello, world!";
+
+    // Create a channel to signal when the client is done reading
+    let (tx_client_done, rx_client_done) = channel();
+    let server_addr = start_mock_server(mock_response.to_string(), rx_client_done);
+    let timeout_duration = Duration::from_secs(5);
+
+    let parts = server_addr.split(':').collect::<Vec<&str>>();
+    let host = parts[0];
+    let port = parts[1].parse().unwrap();
+
+    // Attempt to send a request to the mock server
+    let result = send_http_request(
+        host,
+        port,
+        json_body(host, port, "/", b"{}"),
+        timeout_duration,
+    );
+    debug!("Got result: {:?}", result);
+
+    // Ensure the server only closes after the client has finished processing
+    if let Ok(response) = &result {
+        let body = parse_http_response(response.clone());
+        assert_eq!(body, "Hello, world!", "Unexpected response body: {}", body);
+    }
+
+    tx_client_done
+        .send(())
+        .expect("Failed to send close signal");
+
+    // Assert that the connection was successful
+    assert!(
+        result.is_ok(),
+        "Expected a successful request, but got {:?}",
+        result
+    );
 }

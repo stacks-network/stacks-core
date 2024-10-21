@@ -13,39 +13,46 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-use std::net::SocketAddr;
+use std::collections::{HashMap, VecDeque};
+use std::fmt::Display;
+use std::time::{Duration, Instant};
 
-use blockstack_lib::burnchains::Txid;
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
-use blockstack_lib::chainstate::stacks::boot::{
-    NakamotoSignerEntry, SIGNERS_VOTING_FUNCTION_NAME, SIGNERS_VOTING_NAME,
-};
+use blockstack_lib::chainstate::stacks::boot::{NakamotoSignerEntry, SIGNERS_NAME};
+use blockstack_lib::chainstate::stacks::db::StacksBlockHeaderTypes;
 use blockstack_lib::chainstate::stacks::{
     StacksTransaction, StacksTransactionSigner, TransactionAnchorMode, TransactionAuth,
     TransactionContractCall, TransactionPayload, TransactionPostConditionMode,
     TransactionSpendingCondition, TransactionVersion,
 };
 use blockstack_lib::net::api::callreadonly::CallReadOnlyResponse;
+use blockstack_lib::net::api::get_tenures_fork_info::{
+    TenureForkingInfo, RPC_TENURE_FORKING_INFO_PATH,
+};
 use blockstack_lib::net::api::getaccount::AccountEntryResponse;
-use blockstack_lib::net::api::getinfo::RPCPeerInfoData;
 use blockstack_lib::net::api::getpoxinfo::RPCPoxInfoData;
+use blockstack_lib::net::api::getsortition::{SortitionInfo, RPC_SORTITION_INFO_PATH};
 use blockstack_lib::net::api::getstackers::GetStackersResponse;
+use blockstack_lib::net::api::postblock::StacksBlockAcceptedData;
 use blockstack_lib::net::api::postblock_proposal::NakamotoBlockProposal;
-use blockstack_lib::net::api::postfeerate::{FeeRateEstimateRequestBody, RPCFeeEstimateResponse};
-use blockstack_lib::util_lib::boot::{boot_code_addr, boot_code_id};
-use clarity::util::hash::to_hex;
+use blockstack_lib::net::api::postblock_v3;
+use blockstack_lib::util_lib::boot::boot_code_id;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::{ClarityName, ContractName, Value as ClarityValue};
+use libsigner::v0::messages::PeerInfo;
 use reqwest::header::AUTHORIZATION;
+use serde::Deserialize;
 use serde_json::json;
-use slog::slog_debug;
+use slog::{slog_debug, slog_warn};
 use stacks_common::codec::StacksMessageCodec;
-use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
-use stacks_common::debug;
-use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey};
+use stacks_common::consts::CHAIN_ID_MAINNET;
+use stacks_common::types::chainstate::{
+    ConsensusHash, StacksAddress, StacksPrivateKey, StacksPublicKey,
+};
 use stacks_common::types::StacksEpochId;
-use wsts::curve::point::{Compressed, Point};
+use stacks_common::{debug, warn};
 
+use super::SignerSlotID;
 use crate::client::{retry_with_exponential_backoff, ClientError};
 use crate::config::GlobalConfig;
 use crate::runloop::RewardCycleInfo;
@@ -64,11 +71,25 @@ pub struct StacksClient {
     /// The chain we are interacting with
     chain_id: u32,
     /// Whether we are mainnet or not
-    mainnet: bool,
+    pub mainnet: bool,
     /// The Client used to make HTTP connects
     stacks_node_client: reqwest::blocking::Client,
     /// the auth password for the stacks node
     auth_password: String,
+}
+
+#[derive(Deserialize)]
+struct GetStackersErrorResp {
+    err_msg: String,
+}
+
+/// Result from fetching current and last sortition:
+///  two sortition infos
+pub struct CurrentAndLastSortition {
+    /// the latest winning sortition in the current burnchain fork
+    pub current_sortition: SortitionInfo,
+    /// the last winning sortition prior to `current_sortition`, if there was one
+    pub last_sortition: Option<SortitionInfo>,
 }
 
 impl From<&GlobalConfig> for StacksClient {
@@ -78,7 +99,7 @@ impl From<&GlobalConfig> for StacksClient {
             stacks_address: config.stacks_address,
             http_origin: format!("http://{}", config.node_host),
             tx_version: config.network.to_transaction_version(),
-            chain_id: config.network.to_chain_id(),
+            chain_id: config.to_chain_id(),
             stacks_node_client: reqwest::blocking::Client::new(),
             mainnet: config.network.is_mainnet(),
             auth_password: config.auth_password.clone(),
@@ -90,20 +111,16 @@ impl StacksClient {
     /// Create a new signer StacksClient with the provided private key, stacks node host endpoint, version, and auth password
     pub fn new(
         stacks_private_key: StacksPrivateKey,
-        node_host: SocketAddr,
+        node_host: String,
         auth_password: String,
         mainnet: bool,
+        chain_id: u32,
     ) -> Self {
         let pubkey = StacksPublicKey::from_private(&stacks_private_key);
         let tx_version = if mainnet {
             TransactionVersion::Mainnet
         } else {
             TransactionVersion::Testnet
-        };
-        let chain_id = if mainnet {
-            CHAIN_ID_MAINNET
-        } else {
-            CHAIN_ID_TESTNET
         };
         let stacks_address = StacksAddress::p2pkh(mainnet, &pubkey);
         Self {
@@ -118,9 +135,73 @@ impl StacksClient {
         }
     }
 
+    /// Create a new signer StacksClient and attempt to connect to the stacks node to determine the version
+    pub fn try_from_host(
+        stacks_private_key: StacksPrivateKey,
+        node_host: String,
+        auth_password: String,
+    ) -> Result<Self, ClientError> {
+        let mut stacks_client = Self::new(
+            stacks_private_key,
+            node_host,
+            auth_password,
+            true,
+            CHAIN_ID_MAINNET,
+        );
+        let pubkey = StacksPublicKey::from_private(&stacks_private_key);
+        let info = stacks_client.get_peer_info()?;
+        if info.network_id == CHAIN_ID_MAINNET {
+            stacks_client.mainnet = true;
+            stacks_client.chain_id = CHAIN_ID_MAINNET;
+            stacks_client.tx_version = TransactionVersion::Mainnet;
+        } else {
+            stacks_client.mainnet = false;
+            stacks_client.chain_id = info.network_id;
+            stacks_client.tx_version = TransactionVersion::Testnet;
+        }
+        stacks_client.stacks_address = StacksAddress::p2pkh(stacks_client.mainnet, &pubkey);
+        Ok(stacks_client)
+    }
+
     /// Get our signer address
     pub const fn get_signer_address(&self) -> &StacksAddress {
         &self.stacks_address
+    }
+
+    /// Get the stacks tip header of the tenure given its consensus hash
+    pub fn get_tenure_tip(
+        &self,
+        consensus_hash: &ConsensusHash,
+    ) -> Result<StacksBlockHeaderTypes, ClientError> {
+        let send_request = || {
+            self.stacks_node_client
+                .get(self.tenure_tip_path(consensus_hash))
+                .send()
+                .map_err(|e| {
+                    warn!("Signer failed to request latest sortition"; "err" => ?e);
+                    e
+                })
+        };
+        let response = send_request()?;
+        if !response.status().is_success() {
+            return Err(ClientError::RequestFailure(response.status()));
+        }
+        let sortition_info = response.json()?;
+        Ok(sortition_info)
+    }
+
+    /// Get the last set reward cycle stored within the stackerdb contract
+    pub fn get_last_set_cycle(&self) -> Result<u128, ClientError> {
+        let signer_stackerdb_contract_id = boot_code_id(SIGNERS_NAME, self.mainnet);
+        let function_name_str = "get-last-set-cycle";
+        let function_name = ClarityName::from(function_name_str);
+        let value = self.read_only_contract_call(
+            &signer_stackerdb_contract_id.issuer.clone().into(),
+            &signer_stackerdb_contract_id.name,
+            &function_name,
+            &[],
+        )?;
+        Ok(value.expect_result_ok()?.expect_u128()?)
     }
 
     /// Retrieve the signer slots stored within the stackerdb contract
@@ -164,75 +245,29 @@ impl StacksClient {
         Ok(signer_slots)
     }
 
-    /// Get the vote for a given  round, reward cycle, and signer address
-    pub fn get_vote_for_aggregate_public_key(
+    /// Get the stackerdb signer slots for a specific reward cycle
+    pub fn get_parsed_signer_slots(
         &self,
-        round: u64,
         reward_cycle: u64,
-        signer: StacksAddress,
-    ) -> Result<Option<Point>, ClientError> {
-        debug!("Getting vote for aggregate public key...");
-        let function_name = ClarityName::from("get-vote");
-        let function_args = &[
-            ClarityValue::UInt(reward_cycle as u128),
-            ClarityValue::UInt(round as u128),
-            ClarityValue::Principal(signer.into()),
-        ];
-        let value = self.read_only_contract_call(
-            &boot_code_addr(self.mainnet),
-            &ContractName::from(SIGNERS_VOTING_NAME),
-            &function_name,
-            function_args,
-        )?;
-        // Return value is of type:
-        // ```clarity
-        // (option { aggregate-public-key: (buff 33), signer-weight: uint })
-        // ```
-        let inner_data = value.expect_optional()?;
-        if let Some(inner_data) = inner_data {
-            let tuple = inner_data.expect_tuple()?;
-            let key_value = tuple.get_owned("aggregate-public-key")?;
-            self.parse_aggregate_public_key(key_value)
-        } else {
-            Ok(None)
-        }
-    }
-
-    /// Retrieve the medium estimated transaction fee in uSTX from the stacks node for the given transaction
-    pub fn get_medium_estimated_fee_ustx(
-        &self,
-        tx: &StacksTransaction,
-    ) -> Result<u64, ClientError> {
-        let request = FeeRateEstimateRequestBody {
-            estimated_len: Some(tx.tx_len()),
-            transaction_payload: to_hex(&tx.payload.serialize_to_vec()),
-        };
-        let timer =
-            crate::monitoring::new_rpc_call_timer(&self.fees_transaction_path(), &self.http_origin);
-        let send_request = || {
-            self.stacks_node_client
-                .post(self.fees_transaction_path())
-                .header("Content-Type", "application/json")
-                .json(&request)
-                .send()
-                .map_err(backoff::Error::transient)
-        };
-        let response = retry_with_exponential_backoff(send_request)?;
-        if !response.status().is_success() {
-            return Err(ClientError::RequestFailure(response.status()));
-        }
-        timer.stop_and_record();
-        let fee_estimate_response = response.json::<RPCFeeEstimateResponse>()?;
-        let fee = fee_estimate_response
-            .estimations
-            .get(1)
-            .map(|estimate| estimate.fee)
-            .ok_or_else(|| {
-                ClientError::UnexpectedResponseFormat(
-                    "RPCFeeEstimateResponse missing medium fee estimate".into(),
+    ) -> Result<HashMap<StacksAddress, SignerSlotID>, ClientError> {
+        let signer_set =
+            u32::try_from(reward_cycle % 2).expect("FATAL: reward_cycle % 2 exceeds u32::MAX");
+        let signer_stackerdb_contract_id = boot_code_id(SIGNERS_NAME, self.mainnet);
+        // Get the signer writers from the stacker-db to find the signer slot id
+        let stackerdb_signer_slots =
+            self.get_stackerdb_signer_slots(&signer_stackerdb_contract_id, signer_set)?;
+        Ok(stackerdb_signer_slots
+            .into_iter()
+            .enumerate()
+            .map(|(index, (address, _))| {
+                (
+                    address,
+                    SignerSlotID(
+                        u32::try_from(index).expect("FATAL: number of signers exceeds u32::MAX"),
+                    ),
                 )
-            })?;
-        Ok(fee)
+            })
+            .collect())
     }
 
     /// Determine the stacks node current epoch
@@ -267,6 +302,11 @@ impl StacksClient {
 
     /// Submit the block proposal to the stacks node. The block will be validated and returned via the HTTP endpoint for Block events.
     pub fn submit_block_for_validation(&self, block: NakamotoBlock) -> Result<(), ClientError> {
+        debug!("stacks_node_client: Submitting block for validation...";
+            "signer_sighash" => %block.header.signer_signature_hash(),
+            "block_id" => %block.header.block_id(),
+            "block_height" => %block.header.chain_length,
+        );
         let block_proposal = NakamotoBlockProposal {
             block,
             chain_id: self.chain_id,
@@ -291,76 +331,119 @@ impl StacksClient {
         Ok(())
     }
 
-    /// Retrieve the approved DKG aggregate public key for the given reward cycle
-    pub fn get_approved_aggregate_key(
+    /// Get information about the tenures between `chosen_parent` and `last_sortition`
+    pub fn get_tenure_forking_info(
         &self,
-        reward_cycle: u64,
-    ) -> Result<Option<Point>, ClientError> {
-        let function_name = ClarityName::from("get-approved-aggregate-key");
-        let voting_contract_id = boot_code_id(SIGNERS_VOTING_NAME, self.mainnet);
-        let function_args = &[ClarityValue::UInt(reward_cycle as u128)];
-        let value = self.read_only_contract_call(
-            &voting_contract_id.issuer.into(),
-            &voting_contract_id.name,
-            &function_name,
-            function_args,
-        )?;
-        let inner_data = value.expect_optional()?;
-        inner_data.map_or_else(
-            || Ok(None),
-            |key_value| self.parse_aggregate_public_key(key_value),
-        )
+        chosen_parent: &ConsensusHash,
+        last_sortition: &ConsensusHash,
+    ) -> Result<Vec<TenureForkingInfo>, ClientError> {
+        let mut tenures: VecDeque<TenureForkingInfo> =
+            self.get_tenure_forking_info_step(chosen_parent, last_sortition)?;
+        if tenures.is_empty() {
+            return Ok(vec![]);
+        }
+        while tenures.back().map(|x| &x.consensus_hash) != Some(chosen_parent) {
+            let new_start = tenures.back().ok_or_else(|| {
+                ClientError::InvalidResponse(
+                    "Should have tenure data in forking info response".into(),
+                )
+            })?;
+            let mut next_results =
+                self.get_tenure_forking_info_step(chosen_parent, &new_start.consensus_hash)?;
+            if next_results.pop_front().is_none() {
+                return Err(ClientError::InvalidResponse(
+                    "Could not fetch forking info all the way back to the requested chosen_parent"
+                        .into(),
+                ));
+            }
+            if next_results.is_empty() {
+                return Err(ClientError::InvalidResponse(
+                    "Could not fetch forking info all the way back to the requested chosen_parent"
+                        .into(),
+                ));
+            }
+            tenures.extend(next_results.into_iter());
+        }
+
+        Ok(tenures.into_iter().collect())
     }
 
-    /// Retrieve the current consumed weight for the given reward cycle and DKG round
-    pub fn get_round_vote_weight(
+    fn get_tenure_forking_info_step(
         &self,
-        reward_cycle: u64,
-        round_id: u64,
-    ) -> Result<Option<u128>, ClientError> {
-        let function_name = ClarityName::from("get-round-info");
-        let pox_contract_id = boot_code_id(SIGNERS_VOTING_NAME, self.mainnet);
-        let function_args = &[
-            ClarityValue::UInt(reward_cycle as u128),
-            ClarityValue::UInt(round_id as u128),
-        ];
-        let value = self.read_only_contract_call(
-            &pox_contract_id.issuer.into(),
-            &pox_contract_id.name,
-            &function_name,
-            function_args,
-        )?;
-        let inner_data = value.expect_optional()?;
-        let Some(inner_data) = inner_data else {
-            return Ok(None);
+        chosen_parent: &ConsensusHash,
+        last_sortition: &ConsensusHash,
+    ) -> Result<VecDeque<TenureForkingInfo>, ClientError> {
+        debug!("stacks_node_client: Getting tenure forking info...";
+            "chosen_parent" => %chosen_parent,
+            "last_sortition" => %last_sortition,
+        );
+        let path = self.tenure_forking_info_path(chosen_parent, last_sortition);
+        // Use a separate metrics path to allow the same metric for different start and stop hashes
+        let metrics_path = format!(
+            "{}{RPC_TENURE_FORKING_INFO_PATH}/:start/:stop",
+            self.http_origin
+        );
+        let timer = crate::monitoring::new_rpc_call_timer(&metrics_path, &self.http_origin);
+        let send_request = || {
+            self.stacks_node_client
+                .get(&path)
+                .send()
+                .map_err(backoff::Error::transient)
         };
-        let round_info = inner_data.expect_tuple()?;
-        let votes_weight = round_info.get("votes-weight")?.to_owned().expect_u128()?;
-        Ok(Some(votes_weight))
+        let response = retry_with_exponential_backoff(send_request)?;
+        timer.stop_and_record();
+        if !response.status().is_success() {
+            return Err(ClientError::RequestFailure(response.status()));
+        }
+        let tenures = response.json()?;
+
+        Ok(tenures)
     }
 
-    /// Retrieve the weight threshold required to approve a DKG vote
-    pub fn get_vote_threshold_weight(&self, reward_cycle: u64) -> Result<u128, ClientError> {
-        let function_name = ClarityName::from("get-threshold-weight");
-        let pox_contract_id = boot_code_id(SIGNERS_VOTING_NAME, self.mainnet);
-        let function_args = &[ClarityValue::UInt(reward_cycle as u128)];
-        let value = self.read_only_contract_call(
-            &pox_contract_id.issuer.into(),
-            &pox_contract_id.name,
-            &function_name,
-            function_args,
-        )?;
-        Ok(value.expect_u128()?)
-    }
-
-    /// Retrieve the current account nonce for the provided address
-    pub fn get_account_nonce(&self, address: &StacksAddress) -> Result<u64, ClientError> {
-        self.get_account_entry(address).map(|entry| entry.nonce)
+    /// Get the current winning sortition and the last winning sortition
+    pub fn get_current_and_last_sortition(&self) -> Result<CurrentAndLastSortition, ClientError> {
+        debug!("stacks_node_client: Getting current and prior sortition...");
+        let path = format!("{}/latest_and_last", self.sortition_info_path());
+        let timer = crate::monitoring::new_rpc_call_timer(&path, &self.http_origin);
+        let send_request = || {
+            self.stacks_node_client.get(&path).send().map_err(|e| {
+                warn!("Signer failed to request latest sortition"; "err" => ?e);
+                e
+            })
+        };
+        let response = send_request()?;
+        timer.stop_and_record();
+        if !response.status().is_success() {
+            return Err(ClientError::RequestFailure(response.status()));
+        }
+        let mut info_list: VecDeque<SortitionInfo> = response.json()?;
+        let Some(current_sortition) = info_list.pop_front() else {
+            return Err(ClientError::UnexpectedResponseFormat(
+                "Empty SortitionInfo returned".into(),
+            ));
+        };
+        if !current_sortition.was_sortition {
+            return Err(ClientError::UnexpectedResponseFormat(
+                "'Current' SortitionInfo returned which was not a winning sortition".into(),
+            ));
+        }
+        let last_sortition = if current_sortition.last_sortition_ch.is_some() {
+            let Some(last_sortition) = info_list.pop_back() else {
+                return Err(ClientError::UnexpectedResponseFormat("'Current' SortitionInfo has `last_sortition_ch` field, but corresponding data not returned".into()));
+            };
+            Some(last_sortition)
+        } else {
+            None
+        };
+        Ok(CurrentAndLastSortition {
+            current_sortition,
+            last_sortition,
+        })
     }
 
     /// Get the current peer info data from the stacks node
-    pub fn get_peer_info(&self) -> Result<RPCPeerInfoData, ClientError> {
-        debug!("Getting stacks node info...");
+    pub fn get_peer_info(&self) -> Result<PeerInfo, ClientError> {
+        debug!("stacks_node_client: Getting peer info...");
         let timer =
             crate::monitoring::new_rpc_call_timer(&self.core_info_path(), &self.http_origin);
         let send_request = || {
@@ -374,35 +457,8 @@ impl StacksClient {
         if !response.status().is_success() {
             return Err(ClientError::RequestFailure(response.status()));
         }
-        let peer_info_data = response.json::<RPCPeerInfoData>()?;
+        let peer_info_data = response.json::<PeerInfo>()?;
         Ok(peer_info_data)
-    }
-
-    /// Retrieve the last DKG vote round number for the current reward cycle
-    pub fn get_last_round(&self, reward_cycle: u64) -> Result<Option<u64>, ClientError> {
-        debug!("Getting the last DKG vote round of reward cycle {reward_cycle}...");
-        let contract_addr = boot_code_addr(self.mainnet);
-        let contract_name = ContractName::from(SIGNERS_VOTING_NAME);
-        let function_name = ClarityName::from("get-last-round");
-        let function_args = &[ClarityValue::UInt(reward_cycle as u128)];
-        let opt_value = self
-            .read_only_contract_call(
-                &contract_addr,
-                &contract_name,
-                &function_name,
-                function_args,
-            )?
-            .expect_optional()?;
-        let round = if let Some(value) = opt_value {
-            Some(u64::try_from(value.expect_u128()?).map_err(|e| {
-                ClientError::MalformedContractData(format!(
-                    "Failed to convert vote round to u64: {e}"
-                ))
-            })?)
-        } else {
-            None
-        };
-        Ok(round)
     }
 
     /// Get the reward set signers from the stacks node for the given reward cycle
@@ -410,30 +466,43 @@ impl StacksClient {
         &self,
         reward_cycle: u64,
     ) -> Result<Option<Vec<NakamotoSignerEntry>>, ClientError> {
-        debug!("Getting reward set for reward cycle {reward_cycle}...");
+        debug!("stacks_node_client: Getting reward set signers for reward cycle {reward_cycle}...");
         let timer = crate::monitoring::new_rpc_call_timer(
-            &self.reward_set_path(reward_cycle),
+            &format!("{}/v3/stacker_set/:reward_cycle", self.http_origin),
             &self.http_origin,
         );
         let send_request = || {
-            self.stacks_node_client
+            let response = self
+                .stacks_node_client
                 .get(self.reward_set_path(reward_cycle))
                 .send()
-                .map_err(backoff::Error::transient)
+                .map_err(|e| backoff::Error::transient(e.into()))?;
+            let status = response.status();
+            if status.is_success() {
+                return response.json().map_err(|e| {
+                    warn!("Failed to parse the GetStackers response: {e}");
+                    backoff::Error::permanent(e.into())
+                });
+            }
+            let error_data = response.json::<GetStackersErrorResp>().map_err(|e| {
+                warn!("Failed to parse the GetStackers error response: {e}");
+                backoff::Error::permanent(e.into())
+            })?;
+
+            warn!("Got error response ({status}): {}", error_data.err_msg);
+            Err(backoff::Error::permanent(ClientError::RequestFailure(
+                status,
+            )))
         };
-        let response = retry_with_exponential_backoff(send_request)?;
+        let stackers_response =
+            retry_with_exponential_backoff::<_, ClientError, GetStackersResponse>(send_request)?;
         timer.stop_and_record();
-        if !response.status().is_success() {
-            return Err(ClientError::RequestFailure(response.status()));
-        }
-        let stackers_response = response.json::<GetStackersResponse>()?;
         Ok(stackers_response.stacker_set.signers)
     }
 
-    /// Retreive the current pox data from the stacks node
+    /// Retrieve the current pox data from the stacks node
     pub fn get_pox_data(&self) -> Result<RPCPoxInfoData, ClientError> {
-        debug!("Getting pox data...");
-        #[cfg(feature = "monitoring_prom")]
+        debug!("stacks_node_client: Getting pox data...");
         let timer = crate::monitoring::new_rpc_call_timer(&self.pox_path(), &self.http_origin);
         let send_request = || {
             self.stacks_node_client
@@ -442,7 +511,6 @@ impl StacksClient {
                 .map_err(backoff::Error::transient)
         };
         let response = retry_with_exponential_backoff(send_request)?;
-        #[cfg(feature = "monitoring_prom")]
         timer.stop_and_record();
         if !response.status().is_success() {
             return Err(ClientError::RequestFailure(response.status()));
@@ -480,9 +548,9 @@ impl StacksClient {
         &self,
         address: &StacksAddress,
     ) -> Result<AccountEntryResponse, ClientError> {
-        debug!("Getting account info...");
-        let timer =
-            crate::monitoring::new_rpc_call_timer(&self.accounts_path(address), &self.http_origin);
+        debug!("stacks_node_client: Getting account info...");
+        let timer_label = format!("{}/v2/accounts/:principal", self.http_origin);
+        let timer = crate::monitoring::new_rpc_call_timer(&timer_label, &self.http_origin);
         let send_request = || {
             self.stacks_node_client
                 .get(self.accounts_path(address))
@@ -498,75 +566,50 @@ impl StacksClient {
         Ok(account_entry)
     }
 
-    /// Helper function that attempts to deserialize a clarity hex string as the aggregate public key
-    fn parse_aggregate_public_key(
-        &self,
-        value: ClarityValue,
-    ) -> Result<Option<Point>, ClientError> {
-        debug!("Parsing aggregate public key...");
-        let data = value.expect_buff(33)?;
-        // It is possible that the point was invalid though when voted upon and this cannot be prevented by pox 4 definitions...
-        // Pass up this error if the conversions fail.
-        let compressed_data = Compressed::try_from(data.as_slice()).map_err(|e| {
-            ClientError::MalformedClarityValue(format!(
-                "Failed to convert aggregate public key to compressed data: {e}"
-            ))
-        })?;
-        let dkg_public_key = Point::try_from(&compressed_data).map_err(|e| {
-            ClientError::MalformedClarityValue(format!(
-                "Failed to convert aggregate public key to a point: {e}"
-            ))
-        })?;
-        Ok(Some(dkg_public_key))
+    /// Post a block to the stacks-node, retry forever on errors.
+    ///
+    /// In tests, this panics if the retry takes longer than 30 seconds.
+    pub fn post_block_until_ok<F: Display>(&self, log_fmt: &F, block: &NakamotoBlock) -> bool {
+        let start_time = Instant::now();
+        loop {
+            match self.post_block(block) {
+                Ok(block_push_result) => {
+                    debug!("{log_fmt}: Block pushed to stacks node: {block_push_result:?}");
+                    return block_push_result;
+                }
+                Err(e) => {
+                    if cfg!(any(test, feature = "testing"))
+                        && start_time.elapsed() > Duration::from_secs(30)
+                    {
+                        panic!(
+                            "{log_fmt}: Timed out in test while pushing block to stacks node: {e}"
+                        );
+                    }
+                    warn!("{log_fmt}: Failed to push block to stacks node: {e}. Retrying...");
+                }
+            };
+        }
     }
 
-    /// Helper function to create a stacks transaction for a modifying contract call
-    pub fn build_unsigned_vote_for_aggregate_public_key(
-        &self,
-        signer_index: u32,
-        round: u64,
-        dkg_public_key: Point,
-        reward_cycle: u64,
-        nonce: u64,
-    ) -> Result<StacksTransaction, ClientError> {
-        debug!("Building {SIGNERS_VOTING_FUNCTION_NAME} transaction...");
-        let contract_address = boot_code_addr(self.mainnet);
-        let contract_name = ContractName::from(SIGNERS_VOTING_NAME);
-        let function_name = ClarityName::from(SIGNERS_VOTING_FUNCTION_NAME);
-        let function_args = vec![
-            ClarityValue::UInt(signer_index as u128),
-            ClarityValue::buff_from(dkg_public_key.compress().data.to_vec())?,
-            ClarityValue::UInt(round as u128),
-            ClarityValue::UInt(reward_cycle as u128),
-        ];
-
-        let unsigned_tx = Self::build_unsigned_contract_call_transaction(
-            &contract_address,
-            contract_name,
-            function_name,
-            &function_args,
-            &self.stacks_private_key,
-            self.tx_version,
-            self.chain_id,
-            nonce,
-        )?;
-        Ok(unsigned_tx)
-    }
-
-    /// Helper function to submit a transaction to the Stacks mempool
-    pub fn submit_transaction(&self, tx: &StacksTransaction) -> Result<Txid, ClientError> {
-        let txid = tx.txid();
-        let tx = tx.serialize_to_vec();
-        let timer =
-            crate::monitoring::new_rpc_call_timer(&self.transaction_path(), &self.http_origin);
+    /// Try to post a completed nakamoto block to our connected stacks-node
+    /// Returns `true` if the block was accepted or `false` if the block
+    ///   was rejected.
+    pub fn post_block(&self, block: &NakamotoBlock) -> Result<bool, ClientError> {
+        debug!("stacks_node_client: Posting block to the stacks node...";
+            "block_id" => %block.header.block_id(),
+            "block_height" => %block.header.chain_length,
+        );
+        let path = format!("{}{}?broadcast=1", self.http_origin, postblock_v3::PATH);
+        let timer = crate::monitoring::new_rpc_call_timer(&path, &self.http_origin);
         let send_request = || {
             self.stacks_node_client
-                .post(self.transaction_path())
+                .post(&path)
                 .header("Content-Type", "application/octet-stream")
-                .body(tx.clone())
+                .header(AUTHORIZATION, self.auth_password.clone())
+                .body(block.serialize_to_vec())
                 .send()
                 .map_err(|e| {
-                    debug!("Failed to submit transaction to the Stacks node: {e:?}");
+                    debug!("Failed to submit block to the Stacks node: {e:?}");
                     backoff::Error::transient(e)
                 })
         };
@@ -575,7 +618,8 @@ impl StacksClient {
         if !response.status().is_success() {
             return Err(ClientError::RequestFailure(response.status()));
         }
-        Ok(txid)
+        let post_block_resp = response.json::<StacksBlockAcceptedData>()?;
+        Ok(post_block_resp.accepted)
     }
 
     /// Makes a read only contract call to a stacks contract
@@ -586,7 +630,7 @@ impl StacksClient {
         function_name: &ClarityName,
         function_args: &[ClarityValue],
     ) -> Result<ClarityValue, ClientError> {
-        debug!("Calling read-only function {function_name} with args {function_args:?}...");
+        debug!("stacks_node_client: Calling read-only function {function_name} with args {function_args:?}...");
         let args = function_args
             .iter()
             .filter_map(|arg| arg.serialize_to_hex().ok())
@@ -600,7 +644,11 @@ impl StacksClient {
         let body =
             json!({"sender": self.stacks_address.to_string(), "arguments": args}).to_string();
         let path = self.read_only_path(contract_addr, contract_name, function_name);
-        let timer = crate::monitoring::new_rpc_call_timer(&path, &self.http_origin);
+        let timer_label = format!(
+            "{}/v2/contracts/call-read/:principal/{contract_name}/{function_name}",
+            self.http_origin
+        );
+        let timer = crate::monitoring::new_rpc_call_timer(&timer_label, &self.http_origin);
         let response = self
             .stacks_node_client
             .post(path)
@@ -629,10 +677,6 @@ impl StacksClient {
         format!("{}/v2/pox", self.http_origin)
     }
 
-    fn transaction_path(&self) -> String {
-        format!("{}/v2/transactions", self.http_origin)
-    }
-
     fn read_only_path(
         &self,
         contract_addr: &StacksAddress,
@@ -646,7 +690,20 @@ impl StacksClient {
     }
 
     fn block_proposal_path(&self) -> String {
-        format!("{}/v2/block_proposal", self.http_origin)
+        format!("{}/v3/block_proposal", self.http_origin)
+    }
+
+    fn sortition_info_path(&self) -> String {
+        format!("{}{RPC_SORTITION_INFO_PATH}", self.http_origin)
+    }
+
+    fn tenure_forking_info_path(&self, start: &ConsensusHash, stop: &ConsensusHash) -> String {
+        format!(
+            "{}{RPC_TENURE_FORKING_INFO_PATH}/{}/{}",
+            self.http_origin,
+            start.to_hex(),
+            stop.to_hex()
+        )
     }
 
     fn core_info_path(&self) -> String {
@@ -658,11 +715,11 @@ impl StacksClient {
     }
 
     fn reward_set_path(&self, reward_cycle: u64) -> String {
-        format!("{}/v2/stacker_set/{reward_cycle}", self.http_origin)
+        format!("{}/v3/stacker_set/{reward_cycle}", self.http_origin)
     }
 
-    fn fees_transaction_path(&self) -> String {
-        format!("{}/v2/fees/transaction", self.http_origin)
+    fn tenure_tip_path(&self, consensus_hash: &ConsensusHash) -> String {
+        format!("{}/v3/tenures/tip/{}", self.http_origin, consensus_hash)
     }
 
     /// Helper function to create a stacks transaction for a modifying contract call
@@ -723,7 +780,6 @@ impl StacksClient {
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
-    use std::io::{BufWriter, Write};
     use std::thread::spawn;
 
     use blockstack_lib::burnchains::Address;
@@ -732,22 +788,23 @@ mod tests {
     use blockstack_lib::chainstate::stacks::boot::{
         NakamotoSignerEntry, PoxStartCycleInfo, RewardSet,
     };
+    use clarity::types::chainstate::{StacksBlockId, TrieHash};
+    use clarity::util::hash::Sha512Trunc256Sum;
+    use clarity::util::secp256k1::MessageSignature;
     use clarity::vm::types::{
         ListData, ListTypeData, ResponseData, SequenceData, TupleData, TupleTypeSignature,
         TypeSignature,
     };
     use rand::thread_rng;
     use rand_core::RngCore;
-    use stacks_common::consts::{CHAIN_ID_TESTNET, SIGNER_SLOTS_PER_USER};
-    use wsts::curve::scalar::Scalar;
+    use stacks_common::bitvec::BitVec;
+    use stacks_common::consts::SIGNER_SLOTS_PER_USER;
 
     use super::*;
     use crate::client::tests::{
-        build_account_nonce_response, build_get_approved_aggregate_key_response,
-        build_get_last_round_response, build_get_medium_estimated_fee_ustx_response,
-        build_get_peer_info_response, build_get_pox_data_response, build_get_round_info_response,
-        build_get_vote_for_aggregate_key_response, build_get_weight_threshold_response,
-        build_read_only_response, write_response, MockServerClient,
+        build_get_last_set_cycle_response, build_get_peer_info_response,
+        build_get_pox_data_response, build_get_tenure_tip_response, build_read_only_response,
+        write_response, MockServerClient,
     };
 
     #[test]
@@ -877,149 +934,6 @@ mod tests {
     }
 
     #[test]
-    fn get_aggregate_public_key_should_succeed() {
-        let orig_point = Point::from(Scalar::random(&mut rand::thread_rng()));
-        let response = build_get_approved_aggregate_key_response(Some(orig_point));
-        let mock = MockServerClient::new();
-        let h = spawn(move || mock.client.get_approved_aggregate_key(0));
-        write_response(mock.server, response.as_bytes());
-        let res = h.join().unwrap().unwrap();
-        assert_eq!(res, Some(orig_point));
-
-        let response = build_get_approved_aggregate_key_response(None);
-        let mock = MockServerClient::new();
-        let h = spawn(move || mock.client.get_approved_aggregate_key(0));
-        write_response(mock.server, response.as_bytes());
-        let res = h.join().unwrap().unwrap();
-        assert!(res.is_none());
-    }
-
-    #[test]
-    fn parse_valid_aggregate_public_key_should_succeed() {
-        let mock = MockServerClient::new();
-        let orig_point = Point::from(Scalar::random(&mut rand::thread_rng()));
-        let clarity_value = ClarityValue::buff_from(orig_point.compress().as_bytes().to_vec())
-            .expect("BUG: Failed to create clarity value from point");
-        let result = mock
-            .client
-            .parse_aggregate_public_key(clarity_value)
-            .unwrap();
-        assert_eq!(result, Some(orig_point));
-    }
-
-    #[test]
-    fn parse_invalid_aggregate_public_key_should_fail() {
-        let mock = MockServerClient::new();
-        let value = ClarityValue::UInt(10_u128);
-        let result = mock.client.parse_aggregate_public_key(value);
-        assert!(result.is_err())
-    }
-
-    #[test]
-    fn transaction_contract_call_should_send_bytes_to_node() {
-        let mock = MockServerClient::new();
-        let private_key = StacksPrivateKey::new();
-        let unsigned_tx = StacksClient::build_unsigned_contract_call_transaction(
-            &mock.client.stacks_address,
-            ContractName::from("contract-name"),
-            ClarityName::from("function-name"),
-            &[],
-            &private_key,
-            TransactionVersion::Testnet,
-            CHAIN_ID_TESTNET,
-            0,
-        )
-        .unwrap();
-
-        let tx = mock.client.sign_transaction(unsigned_tx).unwrap();
-
-        let mut tx_bytes = [0u8; 1024];
-        {
-            let mut tx_bytes_writer = BufWriter::new(&mut tx_bytes[..]);
-            tx.consensus_serialize(&mut tx_bytes_writer).unwrap();
-            tx_bytes_writer.flush().unwrap();
-        }
-
-        let bytes_len = tx_bytes
-            .iter()
-            .enumerate()
-            .rev()
-            .find(|(_, &x)| x != 0)
-            .unwrap()
-            .0
-            + 1;
-
-        let tx_clone = tx.clone();
-        let h = spawn(move || mock.client.submit_transaction(&tx_clone));
-
-        let request_bytes = write_response(
-            mock.server,
-            format!("HTTP/1.1 200 OK\n\n{}", tx.txid()).as_bytes(),
-        );
-        let returned_txid = h.join().unwrap().unwrap();
-
-        assert_eq!(returned_txid, tx.txid());
-        assert!(
-            request_bytes
-                .windows(bytes_len)
-                .any(|window| window == &tx_bytes[..bytes_len]),
-            "Request bytes did not contain the transaction bytes"
-        );
-    }
-
-    #[test]
-    fn build_vote_for_aggregate_public_key_should_succeed() {
-        let mock = MockServerClient::new();
-        let point = Point::from(Scalar::random(&mut rand::thread_rng()));
-        let nonce = thread_rng().next_u64();
-        let signer_index = thread_rng().next_u32();
-        let round = thread_rng().next_u64();
-        let reward_cycle = thread_rng().next_u64();
-
-        let h = spawn(move || {
-            mock.client.build_unsigned_vote_for_aggregate_public_key(
-                signer_index,
-                round,
-                point,
-                reward_cycle,
-                nonce,
-            )
-        });
-        assert!(h.join().unwrap().is_ok());
-    }
-
-    #[test]
-    fn broadcast_vote_for_aggregate_public_key_should_succeed() {
-        let mock = MockServerClient::new();
-        let point = Point::from(Scalar::random(&mut rand::thread_rng()));
-        let nonce = thread_rng().next_u64();
-        let signer_index = thread_rng().next_u32();
-        let round = thread_rng().next_u64();
-        let reward_cycle = thread_rng().next_u64();
-        let unsigned_tx = mock
-            .client
-            .build_unsigned_vote_for_aggregate_public_key(
-                signer_index,
-                round,
-                point,
-                reward_cycle,
-                nonce,
-            )
-            .unwrap();
-        let tx = mock.client.sign_transaction(unsigned_tx).unwrap();
-        let tx_clone = tx.clone();
-        let h = spawn(move || mock.client.submit_transaction(&tx_clone));
-
-        write_response(
-            mock.server,
-            format!("HTTP/1.1 200 OK\n\n{}", tx.txid()).as_bytes(),
-        );
-        let returned_txid = h.join().unwrap().unwrap();
-
-        assert_eq!(returned_txid, tx.txid());
-    }
-
-    #[test]
     fn core_info_call_for_burn_block_height_should_succeed() {
         let mock = MockServerClient::new();
         let h = spawn(move || mock.client.get_burn_block_height());
@@ -1036,29 +950,6 @@ mod tests {
         write_response(
             mock.server,
             b"HTTP/1.1 200 OK\n\n4e99f99bc4a05437abb8c7d0c306618f45b203196498e2ebe287f10497124958",
-        );
-        assert!(h.join().unwrap().is_err());
-    }
-
-    #[test]
-    fn get_account_nonce_should_succeed() {
-        let mock = MockServerClient::new();
-        let address = mock.client.stacks_address;
-        let h = spawn(move || mock.client.get_account_nonce(&address));
-        let nonce = thread_rng().next_u64();
-        write_response(mock.server, build_account_nonce_response(nonce).as_bytes());
-        let returned_nonce = h.join().unwrap().expect("Failed to deserialize response");
-        assert_eq!(returned_nonce, nonce);
-    }
-
-    #[test]
-    fn get_account_nonce_should_fail() {
-        let mock = MockServerClient::new();
-        let address = mock.client.stacks_address;
-        let h = spawn(move || mock.client.get_account_nonce(&address));
-        write_response(
-            mock.server,
-            b"HTTP/1.1 200 OK\n\n{\"nonce\":\"invalid nonce\",\"balance\":\"0x00000000000000000000000000000000\",\"locked\":\"0x00000000000000000000000000000000\",\"unlock_height\":0}"
         );
         assert!(h.join().unwrap().is_err());
     }
@@ -1253,26 +1144,27 @@ mod tests {
         let (response, peer_info) = build_get_peer_info_response(None, None);
         let h = spawn(move || mock.client.get_peer_info());
         write_response(mock.server, response.as_bytes());
-        assert_eq!(h.join().unwrap().unwrap(), peer_info);
-    }
-
-    #[test]
-    fn get_last_round_should_succeed() {
-        let mock = MockServerClient::new();
-        let round = rand::thread_rng().next_u64();
-        let response = build_get_last_round_response(round);
-        let h = spawn(move || mock.client.get_last_round(0));
-
-        write_response(mock.server, response.as_bytes());
-        assert_eq!(h.join().unwrap().unwrap().unwrap(), round);
+        let reduced_peer_info = h.join().unwrap().unwrap();
+        assert_eq!(
+            reduced_peer_info.burn_block_height,
+            peer_info.burn_block_height
+        );
+        assert_eq!(reduced_peer_info.pox_consensus, peer_info.pox_consensus);
+        assert_eq!(
+            reduced_peer_info.stacks_tip_consensus_hash,
+            peer_info.stacks_tip_consensus_hash
+        );
+        assert_eq!(reduced_peer_info.stacks_tip, peer_info.stacks_tip);
+        assert_eq!(reduced_peer_info.server_version, peer_info.server_version);
     }
 
     #[test]
     fn get_reward_set_should_succeed() {
         let mock = MockServerClient::new();
-        let point = Point::from(Scalar::random(&mut rand::thread_rng())).compress();
+        let private_key = StacksPrivateKey::new();
+        let public_key = StacksPublicKey::from_private(&private_key);
         let mut bytes = [0u8; 33];
-        bytes.copy_from_slice(point.as_bytes());
+        bytes.copy_from_slice(&public_key.to_bytes_compressed());
         let stacker_set = RewardSet {
             rewarded_addresses: vec![PoxAddress::standard_burn_address(false)],
             start_cycle_state: PoxStartCycleInfo {
@@ -1298,76 +1190,43 @@ mod tests {
     }
 
     #[test]
-    fn get_vote_for_aggregate_public_key_should_succeed() {
+    fn get_tenure_tip_should_succeed() {
         let mock = MockServerClient::new();
-        let point = Point::from(Scalar::random(&mut rand::thread_rng()));
-        let stacks_address = mock.client.stacks_address;
-        let key_response = build_get_vote_for_aggregate_key_response(Some(point));
-        let h = spawn(move || {
-            mock.client
-                .get_vote_for_aggregate_public_key(0, 0, stacks_address)
+        let consensus_hash = ConsensusHash([15; 20]);
+        let header = StacksBlockHeaderTypes::Nakamoto(NakamotoBlockHeader {
+            version: 1,
+            chain_length: 10,
+            burn_spent: 10,
+            consensus_hash: ConsensusHash([15; 20]),
+            parent_block_id: StacksBlockId([0; 32]),
+            tx_merkle_root: Sha512Trunc256Sum([0; 32]),
+            state_index_root: TrieHash([0; 32]),
+            timestamp: 3,
+            miner_signature: MessageSignature::empty(),
+            signer_signature: vec![],
+            pox_treatment: BitVec::ones(1).unwrap(),
         });
-        write_response(mock.server, key_response.as_bytes());
-        assert_eq!(h.join().unwrap().unwrap(), Some(point));
-
-        let mock = MockServerClient::new();
-        let stacks_address = mock.client.stacks_address;
-        let key_response = build_get_vote_for_aggregate_key_response(None);
-        let h = spawn(move || {
-            mock.client
-                .get_vote_for_aggregate_public_key(0, 0, stacks_address)
-        });
-        write_response(mock.server, key_response.as_bytes());
-        assert_eq!(h.join().unwrap().unwrap(), None);
-    }
-
-    #[test]
-    fn get_round_vote_weight_should_succeed() {
-        let mock = MockServerClient::new();
-        let vote_count = rand::thread_rng().next_u64();
-        let weight = rand::thread_rng().next_u64();
-        let round_response = build_get_round_info_response(Some((vote_count, weight)));
-        let h = spawn(move || mock.client.get_round_vote_weight(0, 0));
-        write_response(mock.server, round_response.as_bytes());
-        assert_eq!(h.join().unwrap().unwrap(), Some(weight as u128));
-
-        let mock = MockServerClient::new();
-        let round_response = build_get_round_info_response(None);
-        let h = spawn(move || mock.client.get_round_vote_weight(0, 0));
-        write_response(mock.server, round_response.as_bytes());
-        assert_eq!(h.join().unwrap().unwrap(), None);
-    }
-
-    #[test]
-    fn get_vote_threshold_weight_should_succeed() {
-        let mock = MockServerClient::new();
-        let weight = rand::thread_rng().next_u64();
-        let round_response = build_get_weight_threshold_response(weight);
-        let h = spawn(move || mock.client.get_vote_threshold_weight(0));
-        write_response(mock.server, round_response.as_bytes());
-        assert_eq!(h.join().unwrap().unwrap(), weight as u128);
-    }
-
-    #[test]
-    fn get_medium_estimated_fee_ustx_should_succeed() {
-        let mock = MockServerClient::new();
-        let private_key = StacksPrivateKey::new();
-        let unsigned_tx = StacksClient::build_unsigned_contract_call_transaction(
-            &mock.client.stacks_address,
-            ContractName::from("contract-name"),
-            ClarityName::from("function-name"),
-            &[],
-            &private_key,
-            TransactionVersion::Testnet,
-            CHAIN_ID_TESTNET,
-            0,
-        )
-        .unwrap();
-
-        let estimate = thread_rng().next_u64();
-        let response = build_get_medium_estimated_fee_ustx_response(estimate).0;
-        let h = spawn(move || mock.client.get_medium_estimated_fee_ustx(&unsigned_tx));
+        let response = build_get_tenure_tip_response(&header);
+        let h = spawn(move || mock.client.get_tenure_tip(&consensus_hash));
         write_response(mock.server, response.as_bytes());
-        assert_eq!(h.join().unwrap().unwrap(), estimate);
+        assert_eq!(h.join().unwrap().unwrap(), header);
+    }
+
+    #[test]
+    fn get_last_set_cycle_should_succeed() {
+        let mock = MockServerClient::new();
+        let reward_cycle = thread_rng().next_u64();
+        let response = build_get_last_set_cycle_response(reward_cycle);
+        let h = spawn(move || mock.client.get_last_set_cycle());
+        write_response(mock.server, response.as_bytes());
+        assert_eq!(h.join().unwrap().unwrap(), reward_cycle as u128);
+    }
+
+    #[test]
+    fn get_chain_id_from_config() {
+        let mock = MockServerClient::from_config(
+            GlobalConfig::load_from_file("./src/tests/conf/signer-custom-chain-id.toml").unwrap(),
+        );
+        assert_eq!(mock.client.chain_id, 0x80000100);
     }
 }

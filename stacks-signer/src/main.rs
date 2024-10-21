@@ -1,4 +1,4 @@
-//! # stacks-signer: Stacks signer binary for executing DKG rounds, signing transactions and blocks, and more.
+//! # stacks-signer: Stacks signer binary for signing block proposals, interacting with stackerdb, and more.
 //!
 //! Usage documentation can be found in the [README]("https://github.com/blockstack/stacks-blockchain/stacks-signer/README.md).
 //!
@@ -30,28 +30,25 @@ use std::io::{self, Write};
 
 use blockstack_lib::util_lib::signed_structured_data::pox4::make_pox_4_signer_key_signature;
 use clap::Parser;
-use clarity::vm::types::QualifiedContractIdentifier;
-use libsigner::{SignerSession, StackerDBSession};
+use clarity::types::chainstate::StacksPublicKey;
+use clarity::util::sleep_ms;
+use libsigner::{SignerSession, VERSION_STRING};
 use libstackerdb::StackerDBChunkData;
-use slog::slog_debug;
-use stacks_common::debug;
+use slog::{slog_debug, slog_error};
 use stacks_common::util::hash::to_hex;
-use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PublicKey};
+use stacks_common::util::secp256k1::MessageSignature;
+use stacks_common::{debug, error};
 use stacks_signer::cli::{
-    Cli, Command, GenerateStackingSignatureArgs, GetChunkArgs, GetLatestChunkArgs, PutChunkArgs,
-    RunSignerArgs, StackerDBArgs,
+    Cli, Command, GenerateStackingSignatureArgs, GenerateVoteArgs, GetChunkArgs,
+    GetLatestChunkArgs, MonitorSignersArgs, PutChunkArgs, RunSignerArgs, StackerDBArgs,
+    VerifyVoteArgs,
 };
 use stacks_signer::config::GlobalConfig;
-use stacks_signer::v1;
+use stacks_signer::monitor_signers::SignerMonitor;
+use stacks_signer::utils::stackerdb_session;
+use stacks_signer::v0::SpawnedSigner;
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{fmt, EnvFilter};
-
-/// Create a new stacker db session
-fn stackerdb_session(host: &str, contract: QualifiedContractIdentifier) -> StackerDBSession {
-    let mut session = StackerDBSession::new(host, contract.clone());
-    session.connect(host.to_string(), contract).unwrap();
-    session
-}
 
 /// Write the chunk to stdout
 fn write_chunk_to_stdout(chunk_opt: Option<Vec<u8>>) {
@@ -103,7 +100,7 @@ fn handle_put_chunk(args: PutChunkArgs) {
 fn handle_run(args: RunSignerArgs) {
     debug!("Running signer...");
     let config = GlobalConfig::try_from(&args.config).unwrap();
-    let spawned_signer = v1::SpawnedSigner::from(config);
+    let spawned_signer = SpawnedSigner::new(config);
     println!("Signer spawned successfully. Waiting for messages to process...");
     // Wait for the spawned signer to stop (will only occur if an error occurs)
     let _ = spawned_signer.join();
@@ -116,14 +113,15 @@ fn handle_generate_stacking_signature(
     let config = GlobalConfig::try_from(&args.config).unwrap();
 
     let private_key = config.stacks_private_key;
-    let public_key = Secp256k1PublicKey::from_private(&private_key);
+    let public_key = StacksPublicKey::from_private(&private_key);
+    let pk_hex = to_hex(&public_key.to_bytes_compressed());
 
     let signature = make_pox_4_signer_key_signature(
         &args.pox_address,
         &private_key, //
         args.reward_cycle.into(),
         args.method.topic(),
-        config.network.to_chain_id(),
+        config.to_chain_id(),
         args.period.into(),
         args.max_amount,
         args.auth_id,
@@ -132,7 +130,7 @@ fn handle_generate_stacking_signature(
 
     let output_str = if args.json {
         serde_json::to_string(&serde_json::json!({
-            "signerKey": to_hex(&public_key.to_bytes_compressed()),
+            "signerKey": pk_hex,
             "signerSignature": to_hex(signature.to_rsv().as_slice()),
             "authId": format!("{}", args.auth_id),
             "rewardCycle": args.reward_cycle,
@@ -145,7 +143,7 @@ fn handle_generate_stacking_signature(
     } else {
         format!(
             "Signer Public Key: 0x{}\nSigner Key Signature: 0x{}\n\n",
-            to_hex(&public_key.to_bytes_compressed()),
+            pk_hex,
             to_hex(signature.to_rsv().as_slice()) // RSV is needed for Clarity
         )
     };
@@ -159,7 +157,49 @@ fn handle_generate_stacking_signature(
 
 fn handle_check_config(args: RunSignerArgs) {
     let config = GlobalConfig::try_from(&args.config).unwrap();
-    println!("Config: {}", config);
+    println!(
+        "Signer version: {}\nConfig: \n{}",
+        VERSION_STRING.to_string(),
+        config
+    );
+}
+
+fn handle_generate_vote(args: GenerateVoteArgs, do_print: bool) -> MessageSignature {
+    let config = GlobalConfig::try_from(&args.config).unwrap();
+    let message_signature = args.vote_info.sign(&config.stacks_private_key).unwrap();
+    if do_print {
+        println!("{}", to_hex(message_signature.as_bytes()));
+    }
+    message_signature
+}
+
+fn handle_verify_vote(args: VerifyVoteArgs, do_print: bool) -> bool {
+    let valid_vote = args
+        .vote_info
+        .verify(&args.public_key, &args.signature)
+        .unwrap();
+    if do_print {
+        if valid_vote {
+            println!("Valid vote");
+        } else {
+            println!("Invalid vote");
+        }
+    }
+    valid_vote
+}
+
+fn handle_monitor_signers(args: MonitorSignersArgs) {
+    // Verify that the host is a valid URL
+    let mut signer_monitor = SignerMonitor::new(args);
+    loop {
+        if let Err(e) = signer_monitor.start() {
+            error!(
+                "Error occurred monitoring signers: {:?}. Waiting and trying again.",
+                e
+            );
+            sleep_ms(1000);
+        }
+    }
 }
 
 fn main() {
@@ -192,6 +232,15 @@ fn main() {
         Command::CheckConfig(args) => {
             handle_check_config(args);
         }
+        Command::GenerateVote(args) => {
+            handle_generate_vote(args, true);
+        }
+        Command::VerifyVote(args) => {
+            handle_verify_vote(args, true);
+        }
+        Command::MonitorSigners(args) => {
+            handle_monitor_signers(args);
+        }
     }
 }
 
@@ -202,11 +251,13 @@ pub mod tests {
     use blockstack_lib::util_lib::signed_structured_data::pox4::{
         make_pox_4_signer_key_message_hash, Pox4SignatureTopic,
     };
+    use clarity::util::secp256k1::Secp256k1PrivateKey;
     use clarity::vm::{execute_v2, Value};
+    use rand::{Rng, RngCore};
     use stacks_common::consts::CHAIN_ID_TESTNET;
     use stacks_common::types::PublicKey;
     use stacks_common::util::secp256k1::Secp256k1PublicKey;
-    use stacks_signer::cli::parse_pox_addr;
+    use stacks_signer::cli::{parse_pox_addr, VerifyVoteArgs, Vote, VoteInfo};
 
     use super::{handle_generate_stacking_signature, *};
     use crate::{GenerateStackingSignatureArgs, GlobalConfig};
@@ -335,5 +386,81 @@ pub mod tests {
         let verify_result = public_key.verify(&message_hash.0, &signature);
         assert!(verify_result.is_ok());
         assert!(verify_result.unwrap());
+    }
+
+    #[test]
+    fn test_vote() {
+        let mut rand = rand::thread_rng();
+        let vote_info = VoteInfo {
+            vote: rand.gen_range(0..2).try_into().unwrap(),
+            sip: rand.next_u32(),
+        };
+        let config_file = "./src/tests/conf/signer-0.toml";
+        let config = GlobalConfig::load_from_file(config_file).unwrap();
+        let private_key = config.stacks_private_key;
+        let public_key = StacksPublicKey::from_private(&private_key);
+        let args = GenerateVoteArgs {
+            config: config_file.into(),
+            vote_info,
+        };
+        let message_signature = handle_generate_vote(args, false);
+        assert!(
+            vote_info.verify(&public_key, &message_signature).unwrap(),
+            "Vote should be valid"
+        );
+    }
+
+    #[test]
+    fn test_verify_vote() {
+        let mut rand = rand::thread_rng();
+        let private_key = Secp256k1PrivateKey::new();
+        let public_key = StacksPublicKey::from_private(&private_key);
+
+        let invalid_private_key = Secp256k1PrivateKey::new();
+        let invalid_public_key = StacksPublicKey::from_private(&invalid_private_key);
+
+        let sip = rand.next_u32();
+        let vote_info = VoteInfo {
+            vote: Vote::No,
+            sip,
+        };
+
+        let args = VerifyVoteArgs {
+            public_key,
+            signature: vote_info.sign(&private_key).unwrap(),
+            vote_info,
+        };
+        let valid = handle_verify_vote(args, false);
+        assert!(valid, "Vote should be valid");
+
+        let args = VerifyVoteArgs {
+            public_key: invalid_public_key,
+            signature: vote_info.sign(&private_key).unwrap(), // Invalid corresponding public key
+            vote_info,
+        };
+        let valid = handle_verify_vote(args, false);
+        assert!(!valid, "Vote should be invalid");
+
+        let args = VerifyVoteArgs {
+            public_key,
+            signature: vote_info.sign(&private_key).unwrap(),
+            vote_info: VoteInfo {
+                vote: Vote::Yes, // Invalid vote
+                sip,
+            },
+        };
+        let valid = handle_verify_vote(args, false);
+        assert!(!valid, "Vote should be invalid");
+
+        let args = VerifyVoteArgs {
+            public_key,
+            signature: vote_info.sign(&private_key).unwrap(),
+            vote_info: VoteInfo {
+                vote: Vote::No,
+                sip: sip.wrapping_add(1), // Invalid sip number
+            },
+        };
+        let valid = handle_verify_vote(args, false);
+        assert!(!valid, "Vote should be invalid");
     }
 }

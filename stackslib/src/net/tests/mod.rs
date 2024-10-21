@@ -14,10 +14,15 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+pub mod convergence;
 pub mod download;
 pub mod httpcore;
 pub mod inv;
+pub mod mempool;
 pub mod neighbors;
+pub mod relay;
+
+use std::collections::HashSet;
 
 use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::types::PrincipalData;
@@ -28,24 +33,23 @@ use stacks_common::consts::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_H
 use stacks_common::types::chainstate::{
     StacksAddress, StacksBlockId, StacksPrivateKey, StacksPublicKey,
 };
-use stacks_common::types::Address;
+use stacks_common::types::{Address, StacksEpochId};
 use stacks_common::util::vrf::VRFProof;
-use wsts::curve::point::Point;
 
 use crate::burnchains::PoxConstants;
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandle};
 use crate::chainstate::burn::operations::BlockstackOperationType;
 use crate::chainstate::coordinator::tests::p2pkh_from;
-use crate::chainstate::nakamoto::coordinator::tests::{
-    boot_nakamoto, make_all_signers_vote_for_aggregate_key,
-};
+use crate::chainstate::nakamoto::coordinator::tests::boot_nakamoto;
+use crate::chainstate::nakamoto::staging_blocks::NakamotoBlockObtainMethod;
 use crate::chainstate::nakamoto::test_signers::TestSigners;
 use crate::chainstate::nakamoto::tests::get_account;
 use crate::chainstate::nakamoto::tests::node::TestStacker;
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::test::{
-    key_to_stacks_addr, make_pox_4_lockup, make_signer_key_signature, with_sortdb,
+    key_to_stacks_addr, make_pox_4_lockup, make_pox_4_lockup_chain_id, make_signer_key_signature,
+    with_sortdb,
 };
 use crate::chainstate::stacks::boot::{
     MINERS_NAME, SIGNERS_VOTING_FUNCTION_NAME, SIGNERS_VOTING_NAME,
@@ -59,10 +63,11 @@ use crate::chainstate::stacks::{
 };
 use crate::clarity::vm::types::StacksAddressExtensions;
 use crate::core::{StacksEpoch, StacksEpochExtension};
-use crate::net::relay::Relayer;
+use crate::net::relay::{BlockAcceptResponse, Relayer};
 use crate::net::stackerdb::StackerDBConfig;
 use crate::net::test::{TestEventObserver, TestPeer, TestPeerConfig};
 use crate::util_lib::boot::boot_code_id;
+use crate::util_lib::signed_structured_data::pox4::make_pox_4_signer_key_signature;
 
 /// One step of a simulated Nakamoto node's bootup procedure.
 #[derive(Debug, PartialEq, Clone)]
@@ -86,25 +91,35 @@ pub struct NakamotoBootPlan {
     pub test_signers: TestSigners,
     pub observer: Option<TestEventObserver>,
     pub num_peers: usize,
+    /// Whether to add an initial balance for `private_key`'s account
+    pub add_default_balance: bool,
+    pub network_id: u32,
 }
 
 impl NakamotoBootPlan {
     pub fn new(test_name: &str) -> Self {
-        let test_signers = TestSigners::default();
+        let (test_signers, test_stackers) = TestStacker::common_signing_set();
         Self {
             test_name: test_name.to_string(),
             pox_constants: TestPeerConfig::default().burnchain.pox_constants,
             private_key: StacksPrivateKey::from_seed(&[2]),
             initial_balances: vec![],
-            test_stackers: TestStacker::common_signing_set(&test_signers),
+            test_stackers,
             test_signers,
             observer: Some(TestEventObserver::new()),
             num_peers: 0,
+            add_default_balance: true,
+            network_id: TestPeerConfig::default().network_id,
         }
     }
 
     pub fn with_private_key(mut self, privk: StacksPrivateKey) -> Self {
         self.private_key = privk;
+        self
+    }
+
+    pub fn with_network_id(mut self, network_id: u32) -> Self {
+        self.network_id = network_id;
         self
     }
 
@@ -215,6 +230,7 @@ impl NakamotoBootPlan {
     fn apply_blocks_to_other_peers(
         burn_ops: &[BlockstackOperationType],
         blocks: &[NakamotoBlock],
+        malleablized_blocks: &[NakamotoBlock],
         other_peers: &mut [TestPeer],
     ) {
         info!("Applying block to other peers"; "block_height" => ?burn_ops.first().map(|op| op.block_height()));
@@ -227,17 +243,29 @@ impl NakamotoBootPlan {
             let sort_tip = SortitionDB::get_canonical_sortition_tip(sortdb.conn()).unwrap();
             let mut sort_handle = sortdb.index_handle(&sort_tip);
 
+            let mut possible_chain_tips = HashSet::new();
+
             for block in blocks {
+                debug!(
+                    "Apply block {} (sighash {}) to peer {} ({})",
+                    &block.block_id(),
+                    &block.header.signer_signature_hash(),
+                    i,
+                    &peer.to_neighbor().addr
+                );
                 let block_id = block.block_id();
                 let accepted = Relayer::process_new_nakamoto_block(
+                    &peer.network.burnchain,
                     &sortdb,
                     &mut sort_handle,
                     &mut node.chainstate,
-                    block.clone(),
+                    &peer.network.stacks_tip.block_id(),
+                    &block,
                     None,
+                    NakamotoBlockObtainMethod::Pushed,
                 )
                 .unwrap();
-                if accepted {
+                if accepted.is_accepted() {
                     test_debug!("Accepted Nakamoto block {block_id} to other peer {}", i);
                     peer.coord.handle_new_nakamoto_stacks_block().unwrap();
                 } else {
@@ -246,22 +274,70 @@ impl NakamotoBootPlan {
                         i
                     );
                 }
+
+                possible_chain_tips.insert(block.block_id());
+
+                // process it
+                peer.coord.handle_new_stacks_block().unwrap();
+                peer.coord.handle_new_nakamoto_stacks_block().unwrap();
+            }
+
+            for block in malleablized_blocks {
+                debug!(
+                    "Apply malleablized block {} (sighash {}) to peer {} ({})",
+                    &block.block_id(),
+                    &block.header.signer_signature_hash(),
+                    i,
+                    &peer.to_neighbor().addr
+                );
+                let block_id = block.block_id();
+                let accepted = Relayer::process_new_nakamoto_block(
+                    &peer.network.burnchain,
+                    &sortdb,
+                    &mut sort_handle,
+                    &mut node.chainstate,
+                    &peer.network.stacks_tip.block_id(),
+                    &block,
+                    None,
+                    NakamotoBlockObtainMethod::Pushed,
+                )
+                .unwrap();
+                if accepted.is_accepted() {
+                    test_debug!(
+                        "Accepted malleablized Nakamoto block {block_id} to other peer {}",
+                        i
+                    );
+                    peer.coord.handle_new_nakamoto_stacks_block().unwrap();
+                } else {
+                    panic!(
+                        "Did NOT accept malleablized Nakamoto block {block_id} to other peer {}",
+                        i
+                    );
+                }
+
+                possible_chain_tips.insert(block.block_id());
+
+                // process it
+                peer.coord.handle_new_stacks_block().unwrap();
+                peer.coord.handle_new_nakamoto_stacks_block().unwrap();
             }
 
             peer.sortdb = Some(sortdb);
             peer.stacks_node = Some(node);
             peer.refresh_burnchain_view();
+
+            assert!(possible_chain_tips.contains(&peer.network.stacks_tip.block_id()));
         }
     }
 
     /// Make a peer and transition it into the Nakamoto epoch.
     /// The node needs to be stacking; otherwise, Nakamoto won't activate.
-    fn boot_nakamoto<'a>(
+    fn boot_nakamoto_peers<'a>(
         mut self,
-        aggregate_public_key: Point,
         observer: Option<&'a TestEventObserver>,
     ) -> (TestPeer<'a>, Vec<TestPeer>) {
         let mut peer_config = TestPeerConfig::new(&self.test_name, 0, 0);
+        peer_config.network_id = self.network_id;
         peer_config.private_key = self.private_key.clone();
         let addr = StacksAddress::from_public_keys(
             C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
@@ -275,7 +351,6 @@ impl NakamotoBootPlan {
         // first 25 blocks are boot-up
         // reward cycle 6 instantiates pox-3
         // we stack in reward cycle 7 so pox-3 is evaluated to find reward set participation
-        peer_config.aggregate_public_key = Some(aggregate_public_key.clone());
         peer_config
             .stacker_dbs
             .push(boot_code_id(MINERS_NAME, false));
@@ -285,11 +360,16 @@ impl NakamotoBootPlan {
                 + 1)
             .into(),
         ));
-        peer_config.initial_balances =
-            vec![(addr.to_account_principal(), 1_000_000_000_000_000_000)];
+        peer_config.initial_balances = vec![];
+        if self.add_default_balance {
+            peer_config
+                .initial_balances
+                .push((addr.to_account_principal(), 1_000_000_000_000_000_000));
+        }
         peer_config
             .initial_balances
             .append(&mut self.initial_balances.clone());
+        peer_config.connection_opts.auth_token = Some("password".to_string());
 
         // Create some balances for test Stackers
         // They need their stacking amount + enough to pay fees
@@ -336,28 +416,38 @@ impl NakamotoBootPlan {
         let mut peer_nonce = 0;
         let mut other_peer_nonces = vec![0; other_peers.len()];
         let addr = StacksAddress::p2pkh(false, &StacksPublicKey::from_private(&self.private_key));
+        let default_pox_addr =
+            PoxAddress::from_legacy(AddressHashMode::SerializeP2PKH, addr.bytes.clone());
 
-        let tip = {
-            let sort_db = peer.sortdb.as_mut().unwrap();
-            let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
-            tip
-        };
-
+        let mut sortition_height = peer.get_burn_block_height();
         debug!("\n\n======================");
         debug!("PoxConstants = {:#?}", &peer.config.burnchain.pox_constants);
-        debug!("tip = {}", tip.block_height);
+        debug!("tip = {}", sortition_height);
         debug!("========================\n\n");
 
-        // advance to just past pox-3 unlock
-        let mut sortition_height = tip.block_height;
-        while sortition_height
-            <= peer
-                .config
-                .burnchain
-                .pox_constants
-                .pox_4_activation_height
-                .into()
-        {
+        let epoch_25_height = peer
+            .config
+            .epochs
+            .as_ref()
+            .unwrap()
+            .iter()
+            .find(|e| e.epoch_id == StacksEpochId::Epoch25)
+            .unwrap()
+            .start_height;
+
+        let epoch_30_height = peer
+            .config
+            .epochs
+            .as_ref()
+            .unwrap()
+            .iter()
+            .find(|e| e.epoch_id == StacksEpochId::Epoch30)
+            .unwrap()
+            .start_height;
+
+        // advance to just past pox-4 instantiation
+        let mut blocks_produced = false;
+        while sortition_height <= epoch_25_height {
             peer.tenure_with_txs(&vec![], &mut peer_nonce);
             for (other_peer, other_peer_nonce) in
                 other_peers.iter_mut().zip(other_peer_nonces.iter_mut())
@@ -365,12 +455,23 @@ impl NakamotoBootPlan {
                 other_peer.tenure_with_txs(&vec![], other_peer_nonce);
             }
 
-            let tip = {
-                let sort_db = peer.sortdb.as_mut().unwrap();
-                let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
-                tip
-            };
-            sortition_height = tip.block_height;
+            sortition_height = peer.get_burn_block_height();
+            blocks_produced = true;
+        }
+
+        // need to produce at least 1 block before making pox-4 lockups:
+        //  the way `burn-block-height` constant works in Epoch 2.5 is such
+        //  that if its the first block produced, this will be 0 which will
+        //  prevent the lockups from being valid.
+        if !blocks_produced {
+            peer.tenure_with_txs(&vec![], &mut peer_nonce);
+            for (other_peer, other_peer_nonce) in
+                other_peers.iter_mut().zip(other_peer_nonces.iter_mut())
+            {
+                other_peer.tenure_with_txs(&vec![], other_peer_nonce);
+            }
+
+            sortition_height = peer.get_burn_block_height();
         }
 
         debug!("\n\n======================");
@@ -391,37 +492,64 @@ impl NakamotoBootPlan {
             .unwrap_or(vec![])
             .iter()
             .map(|test_stacker| {
-                let pox_addr =
-                    PoxAddress::from_legacy(AddressHashMode::SerializeP2PKH, addr.bytes.clone());
-                let signature = make_signer_key_signature(
+                let pox_addr = test_stacker
+                    .pox_addr
+                    .clone()
+                    .unwrap_or(default_pox_addr.clone());
+                let max_amount = test_stacker.max_amount.unwrap_or(u128::MAX);
+                let signature = make_pox_4_signer_key_signature(
                     &pox_addr,
                     &test_stacker.signer_private_key,
                     reward_cycle.into(),
                     &crate::util_lib::signed_structured_data::pox4::Pox4SignatureTopic::StackStx,
-                    12_u128,
-                    u128::MAX,
+                    peer.config.network_id,
+                    12,
+                    max_amount,
                     1,
-                );
-                make_pox_4_lockup(
+                )
+                .unwrap()
+                .to_rsv();
+                make_pox_4_lockup_chain_id(
                     &test_stacker.stacker_private_key,
                     0,
                     test_stacker.amount,
                     &pox_addr,
                     12,
                     &StacksPublicKey::from_private(&test_stacker.signer_private_key),
-                    34,
+                    sortition_height + 1,
                     Some(signature),
-                    u128::MAX,
+                    max_amount,
                     1,
+                    peer.config.network_id,
                 )
             })
             .collect();
 
+        let old_tip = peer.network.stacks_tip.clone();
         let mut stacks_block = peer.tenure_with_txs(&stack_txs, &mut peer_nonce);
+
+        let (stacks_tip_ch, stacks_tip_bh) =
+            SortitionDB::get_canonical_stacks_chain_tip_hash(peer.sortdb().conn()).unwrap();
+        let stacks_tip = StacksBlockId::new(&stacks_tip_ch, &stacks_tip_bh);
+        assert_eq!(peer.network.stacks_tip.block_id(), stacks_tip);
+        if old_tip.block_id() != stacks_tip {
+            assert_eq!(old_tip, peer.network.parent_stacks_tip);
+        }
+
         for (other_peer, other_peer_nonce) in
             other_peers.iter_mut().zip(other_peer_nonces.iter_mut())
         {
+            let old_tip = other_peer.network.stacks_tip.clone();
             other_peer.tenure_with_txs(&stack_txs, other_peer_nonce);
+
+            let (stacks_tip_ch, stacks_tip_bh) =
+                SortitionDB::get_canonical_stacks_chain_tip_hash(other_peer.sortdb().conn())
+                    .unwrap();
+            let stacks_tip = StacksBlockId::new(&stacks_tip_ch, &stacks_tip_bh);
+            assert_eq!(other_peer.network.stacks_tip.block_id(), stacks_tip);
+            if old_tip.block_id() != stacks_tip {
+                assert_eq!(old_tip, other_peer.network.parent_stacks_tip);
+            }
         }
 
         debug!("\n\n======================");
@@ -432,47 +560,33 @@ impl NakamotoBootPlan {
             .burnchain
             .is_in_prepare_phase(sortition_height.into())
         {
+            let old_tip = peer.network.stacks_tip.clone();
             stacks_block = peer.tenure_with_txs(&[], &mut peer_nonce);
+
+            let (stacks_tip_ch, stacks_tip_bh) =
+                SortitionDB::get_canonical_stacks_chain_tip_hash(peer.sortdb().conn()).unwrap();
+            let stacks_tip = StacksBlockId::new(&stacks_tip_ch, &stacks_tip_bh);
+            assert_eq!(peer.network.stacks_tip.block_id(), stacks_tip);
+            if old_tip.block_id() != stacks_tip {
+                assert_eq!(old_tip, peer.network.parent_stacks_tip);
+            }
             other_peers
                 .iter_mut()
                 .zip(other_peer_nonces.iter_mut())
                 .for_each(|(peer, nonce)| {
+                    let old_tip = peer.network.stacks_tip.clone();
                     peer.tenure_with_txs(&[], nonce);
+
+                    let (stacks_tip_ch, stacks_tip_bh) =
+                        SortitionDB::get_canonical_stacks_chain_tip_hash(peer.sortdb().conn())
+                            .unwrap();
+                    let stacks_tip = StacksBlockId::new(&stacks_tip_ch, &stacks_tip_bh);
+                    assert_eq!(peer.network.stacks_tip.block_id(), stacks_tip);
+                    if old_tip.block_id() != stacks_tip {
+                        assert_eq!(old_tip, peer.network.parent_stacks_tip);
+                    }
                 });
-            let tip = {
-                let sort_db = peer.sortdb.as_mut().unwrap();
-                let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
-                tip
-            };
-            sortition_height = tip.block_height;
-        }
-
-        debug!("\n\n======================");
-        debug!("Vote for the Aggregate Key");
-        debug!("========================\n\n");
-
-        let target_cycle = peer
-            .config
-            .burnchain
-            .block_height_to_reward_cycle(sortition_height.into())
-            .expect("Failed to get reward cycle")
-            + 1;
-        let vote_txs = with_sortdb(peer, |chainstate, sortdb| {
-            make_all_signers_vote_for_aggregate_key(
-                chainstate,
-                sortdb,
-                &stacks_block,
-                &mut self.test_signers,
-                &self.test_stackers,
-                target_cycle.into(),
-            )
-        });
-
-        peer.tenure_with_txs(&vote_txs, &mut peer_nonce);
-        for (other_peer, other_peer_nonce) in
-            other_peers.iter_mut().zip(other_peer_nonces.iter_mut())
-        {
-            other_peer.tenure_with_txs(&vote_txs, other_peer_nonce);
+            sortition_height = peer.get_burn_block_height();
         }
 
         debug!("\n\n======================");
@@ -480,21 +594,34 @@ impl NakamotoBootPlan {
         debug!("========================\n\n");
 
         // advance to the start of epoch 3.0
-        while sortition_height
-            < Self::nakamoto_start_burn_height(&peer.config.burnchain.pox_constants)
-        {
+        while sortition_height < epoch_30_height - 1 {
+            let old_tip = peer.network.stacks_tip.clone();
             peer.tenure_with_txs(&vec![], &mut peer_nonce);
+
+            let (stacks_tip_ch, stacks_tip_bh) =
+                SortitionDB::get_canonical_stacks_chain_tip_hash(peer.sortdb().conn()).unwrap();
+            let stacks_tip = StacksBlockId::new(&stacks_tip_ch, &stacks_tip_bh);
+            assert_eq!(peer.network.stacks_tip.block_id(), stacks_tip);
+            if old_tip.block_id() != stacks_tip {
+                assert_eq!(old_tip, peer.network.parent_stacks_tip);
+            }
+
             for (other_peer, other_peer_nonce) in
                 other_peers.iter_mut().zip(other_peer_nonces.iter_mut())
             {
+                let old_tip = peer.network.stacks_tip.clone();
                 other_peer.tenure_with_txs(&vec![], other_peer_nonce);
+
+                let (stacks_tip_ch, stacks_tip_bh) =
+                    SortitionDB::get_canonical_stacks_chain_tip_hash(other_peer.sortdb().conn())
+                        .unwrap();
+                let stacks_tip = StacksBlockId::new(&stacks_tip_ch, &stacks_tip_bh);
+                assert_eq!(other_peer.network.stacks_tip.block_id(), stacks_tip);
+                if old_tip.block_id() != stacks_tip {
+                    assert_eq!(old_tip, other_peer.network.parent_stacks_tip);
+                }
             }
-            let tip = {
-                let sort_db = peer.sortdb.as_mut().unwrap();
-                let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
-                tip
-            };
-            sortition_height = tip.block_height;
+            sortition_height = peer.get_burn_block_height();
         }
 
         debug!("\n\n======================");
@@ -511,14 +638,17 @@ impl NakamotoBootPlan {
         let pox_constants = self.pox_constants.clone();
         let test_stackers = self.test_stackers.clone();
 
-        let (mut peer, mut other_peers) =
-            self.boot_nakamoto(test_signers.aggregate_public_key.clone(), observer);
+        let (mut peer, mut other_peers) = self.boot_nakamoto_peers(observer);
+        if boot_plan.is_empty() {
+            debug!("No boot plan steps supplied -- returning once nakamoto epoch has been reached");
+            return (peer, other_peers);
+        }
 
         let mut all_blocks = vec![];
+        let mut malleablized_block_ids = HashSet::new();
         let mut consensus_hashes = vec![];
         let mut last_tenure_change: Option<TenureChangePayload> = None;
         let mut blocks_since_last_tenure = 0;
-        let stx_miner_key = peer.miner.nakamoto_miner_key();
 
         debug!("\n\nProcess plan with {} steps", boot_plan.len());
 
@@ -605,12 +735,24 @@ impl NakamotoBootPlan {
                         .map(|(block, _, _)| block)
                         .collect();
 
+                    let malleablized_blocks =
+                        std::mem::replace(&mut peer.malleablized_blocks, vec![]);
+                    for mblk in malleablized_blocks.iter() {
+                        malleablized_block_ids.insert(mblk.block_id());
+                    }
+
                     Self::check_blocks_against_boot_plan(
                         &blocks,
                         &boot_steps,
                         num_expected_transactions,
                     );
-                    Self::apply_blocks_to_other_peers(&burn_ops, &blocks, &mut other_peers);
+
+                    Self::apply_blocks_to_other_peers(
+                        &burn_ops,
+                        &blocks,
+                        &malleablized_blocks,
+                        &mut other_peers,
+                    );
                     all_blocks.push(blocks);
                 }
                 NakamotoBootTenure::Sortition(boot_steps) => {
@@ -651,29 +793,6 @@ impl NakamotoBootPlan {
                             i += 1;
 
                             let mut txs = vec![];
-                            // check if the stacker/signers need to vote for an aggregate key. if so, append those transactions
-                            //  to the end of the block.
-                            // NOTE: this will only work the block after .signers is updated, because `make_all_signers_vote...`
-                            //  checks the chainstate as of `tip` to obtain the signer vector. this means that some tests may
-                            //  need to produce an extra block in a tenure in order to get the signer votes in place.
-                            //  The alternative to doing this would be to either manually build the signer vector or to refactor
-                            //  the testpeer such that a callback is provided during the actual mining of the block with a
-                            //  `ClarityBlockConnection`.
-                            let mut voting_txs = if pox_constants.is_in_prepare_phase(first_burn_ht, burn_ht) {
-                                let tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), sortdb).unwrap().unwrap();
-                                let cycle_id = 1 + pox_constants.block_height_to_reward_cycle(first_burn_ht, burn_ht).unwrap();
-                                make_all_signers_vote_for_aggregate_key(
-                                    chainstate,
-                                    sortdb,
-                                    &tip.index_block_hash(),
-                                    &mut test_signers.clone(),
-                                    &test_stackers,
-                                    u128::from(cycle_id),
-                                )
-                            } else {
-                                vec![]
-                            };
-
                             let last_block_opt = blocks_so_far
                                 .last()
                                 .as_ref()
@@ -705,9 +824,6 @@ impl NakamotoBootPlan {
                                 }
                             }
 
-                            num_expected_transactions += voting_txs.len();
-                            txs.append(&mut voting_txs);
-
                             blocks_since_last_tenure += 1;
                             txs
                         });
@@ -719,26 +835,44 @@ impl NakamotoBootPlan {
                         .map(|(block, _, _)| block)
                         .collect();
 
+                    let malleablized_blocks =
+                        std::mem::replace(&mut peer.malleablized_blocks, vec![]);
+                    for mblk in malleablized_blocks.iter() {
+                        malleablized_block_ids.insert(mblk.block_id());
+                    }
+
                     Self::check_blocks_against_boot_plan(
                         &blocks,
                         &boot_steps,
                         num_expected_transactions,
                     );
-                    Self::apply_blocks_to_other_peers(&burn_ops, &blocks, &mut other_peers);
+                    Self::apply_blocks_to_other_peers(
+                        &burn_ops,
+                        &blocks,
+                        &malleablized_blocks,
+                        &mut other_peers,
+                    );
 
                     all_blocks.push(blocks);
                 }
             }
         }
+
         // check that our tenure-extends have been getting applied
         let (highest_tenure, sort_tip) = {
             let chainstate = &mut peer.stacks_node.as_mut().unwrap().chainstate;
             let sort_db = peer.sortdb.as_mut().unwrap();
             let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
-            let tenure =
-                NakamotoChainState::get_highest_nakamoto_tenure(chainstate.db(), sort_db.conn())
+            let tenure = NakamotoChainState::get_ongoing_tenure(
+                &mut chainstate.index_conn(),
+                &sort_db
+                    .index_handle_at_tip()
+                    .get_nakamoto_tip_block_id()
                     .unwrap()
-                    .unwrap();
+                    .unwrap(),
+            )
+            .unwrap()
+            .unwrap();
             (tenure, tip)
         };
 
@@ -763,12 +897,24 @@ impl NakamotoBootPlan {
         // already checked that `all_blocks` matches the boot plan, so just check that each
         // transaction in `all_blocks` ran to completion
         if let Some(observer) = observer {
-            let observed_blocks = observer.get_blocks();
+            let mut observed_blocks = observer.get_blocks();
             let mut block_idx = (peer.config.burnchain.pox_constants.pox_4_activation_height
                 + peer.config.burnchain.pox_constants.reward_cycle_length
                 - 25) as usize;
-            for tenure in all_blocks {
-                for block in tenure {
+
+            // filter out observed blocks that are malleablized
+            observed_blocks.retain(|blk| {
+                if let Some(nakamoto_block_header) =
+                    blk.metadata.anchored_header.as_stacks_nakamoto()
+                {
+                    !malleablized_block_ids.contains(&nakamoto_block_header.block_id())
+                } else {
+                    true
+                }
+            });
+
+            for tenure in all_blocks.iter() {
+                for block in tenure.iter() {
                     let observed_block = &observed_blocks[block_idx];
                     block_idx += 1;
 
@@ -809,9 +955,13 @@ impl NakamotoBootPlan {
                 let chainstate = &mut other_peer.stacks_node.as_mut().unwrap().chainstate;
                 let sort_db = other_peer.sortdb.as_mut().unwrap();
                 let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
-                let tenure = NakamotoChainState::get_highest_nakamoto_tenure(
-                    chainstate.db(),
-                    sort_db.conn(),
+                let tenure = NakamotoChainState::get_ongoing_tenure(
+                    &mut chainstate.index_conn(),
+                    &sort_db
+                        .index_handle_at_tip()
+                        .get_nakamoto_tip_block_id()
+                        .unwrap()
+                        .unwrap(),
                 )
                 .unwrap()
                 .unwrap();
@@ -822,9 +972,14 @@ impl NakamotoBootPlan {
             assert_eq!(other_sort_tip, sort_tip);
         }
 
+        // flatten
+        let all_blocks: Vec<NakamotoBlock> = all_blocks.into_iter().flatten().collect();
+
         peer.check_nakamoto_migration();
+        peer.check_malleablized_blocks(all_blocks.clone(), 2);
         for other_peer in other_peers.iter_mut() {
             other_peer.check_nakamoto_migration();
+            other_peer.check_malleablized_blocks(all_blocks.clone(), 2);
         }
         (peer, other_peers)
     }
@@ -954,11 +1109,18 @@ fn test_boot_nakamoto_peer() {
         NakamotoBootTenure::Sortition(vec![NakamotoBootStep::Block(vec![next_stx_transfer()])]),
     ];
 
+    // make malleablized blocks
+    let (test_signers, test_stackers) = TestStacker::multi_signing_set(&[
+        0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3,
+    ]);
+
     let plan = NakamotoBootPlan::new(&function_name!())
         .with_private_key(private_key)
         .with_pox_constants(10, 3)
         .with_initial_balances(vec![(addr.into(), 1_000_000)])
-        .with_extra_peers(2);
+        .with_extra_peers(2)
+        .with_test_signers(test_signers)
+        .with_test_stackers(test_stackers);
 
     let observer = TestEventObserver::new();
     let (peer, other_peers) = plan.boot_into_nakamoto_peers(boot_tenures, Some(&observer));

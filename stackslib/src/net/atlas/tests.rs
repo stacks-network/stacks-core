@@ -18,6 +18,7 @@ use std::collections::{BinaryHeap, HashMap, HashSet};
 use std::{thread, time};
 
 use clarity::vm::types::QualifiedContractIdentifier;
+use rusqlite::params;
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId};
 use stacks_common::types::net::{PeerAddress, PeerHost};
 use stacks_common::util::hash::Hash160;
@@ -832,16 +833,16 @@ fn schema_2_migration() {
                attachment_index, block_height, is_available,
                 metadata, contract_id, tx_id)
             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-            rusqlite::params![
-                &attachment.content_hash,
-                &0,
-                &attachment.index_block_hash,
-                &attachment.attachment_index,
-                &u64_to_sql(attachment.stacks_block_height).unwrap(),
-                &true,
-                &attachment.metadata,
-                &attachment.contract_id.to_string(),
-                &attachment.tx_id,
+            params![
+                attachment.content_hash,
+                0,
+                attachment.index_block_hash,
+                attachment.attachment_index,
+                u64_to_sql(attachment.stacks_block_height).unwrap(),
+                true,
+                attachment.metadata,
+                attachment.contract_id.to_string(),
+                attachment.tx_id,
             ],
         )
         .unwrap();

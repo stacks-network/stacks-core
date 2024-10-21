@@ -1,5 +1,18 @@
 import { Pox4SignatureTopic, poxAddressToTuple } from "@stacks/stacking";
-import { logCommand, PoxCommand, Real, Stub, Wallet } from "./pox_CommandModel";
+import {
+  hasPoolMembers,
+  isAmountLockedPositive,
+  isPeriodWithinMax,
+  isDelegating,
+  isStacking,
+  isStackingSolo,
+  isStackingMinimumCalculated,
+  logCommand,
+  PoxCommand,
+  Real,
+  Stub,
+  Wallet,
+} from "./pox_CommandModel";
 import {
   currentCycle,
   FIRST_BURNCHAIN_BLOCK_HEIGHT,
@@ -15,7 +28,7 @@ export class StackExtendSigCommand implements PoxCommand {
   readonly currentCycle: number;
 
   /**
-   * Constructs a `StackExtendSigCommand` to lock uSTX for stacking.
+   * Constructs a `StackExtendSigCommand` to extend an active stacking lock.
    *
    * This command calls `stack-extend` using a `signature`.
    *
@@ -50,9 +63,10 @@ export class StackExtendSigCommand implements PoxCommand {
     // - The new lock period must be less than or equal to 12.
     const stacker = model.stackers.get(this.wallet.stxAddress)!;
 
-    const firstRewardCycle = stacker.firstLockedRewardCycle < this.currentCycle
-      ? this.currentCycle
-      : stacker.firstLockedRewardCycle;
+    const firstRewardCycle = Math.max(
+      stacker.firstLockedRewardCycle,
+      this.currentCycle,
+    );
     const firstExtendCycle = Math.floor(
       (stacker.unlockHeight - FIRST_BURNCHAIN_BLOCK_HEIGHT) /
         REWARD_CYCLE_LENGTH,
@@ -61,13 +75,13 @@ export class StackExtendSigCommand implements PoxCommand {
     const totalPeriod = lastExtendCycle - firstRewardCycle + 1;
 
     return (
-      model.stackingMinimum > 0 &&
-      stacker.isStacking &&
-      stacker.isStackingSolo &&
-      !stacker.hasDelegated &&
-      stacker.amountLocked > 0 &&
-      stacker.poolMembers.length === 0 &&
-      totalPeriod <= 12
+      isStackingMinimumCalculated(model) &&
+      isStacking(stacker) &&
+      isStackingSolo(stacker) &&
+      !isDelegating(stacker) &&
+      isAmountLockedPositive(stacker) &&
+      !hasPoolMembers(stacker) &&
+      isPeriodWithinMax(totalPeriod)
     );
   }
 

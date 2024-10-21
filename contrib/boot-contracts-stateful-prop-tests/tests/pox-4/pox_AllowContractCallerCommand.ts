@@ -74,32 +74,16 @@ export class AllowContractCallerCommand implements PoxCommand {
 
     // Get the wallets involved from the model and update it with the new state.
     const wallet = model.stackers.get(this.wallet.stxAddress)!;
-    const callerAllowedBefore = wallet.allowedContractCaller;
-
-    const callerAllowedBeforeState = model.stackers.get(callerAllowedBefore) ||
-      null;
-
-    if (callerAllowedBeforeState) {
-      // Remove the allower from the ex-allowed caller's allowance list.
-
-      const walletIndexInsideAllowedByList = callerAllowedBeforeState
-        .callerAllowedBy.indexOf(
-          this.wallet.stxAddress,
-        );
-
-      expect(walletIndexInsideAllowedByList).toBeGreaterThan(-1);
-
-      callerAllowedBeforeState.callerAllowedBy.splice(
-        walletIndexInsideAllowedByList,
-        1,
-      );
-    }
 
     const callerToAllow = model.stackers.get(this.allowanceTo.stxAddress)!;
     // Update model so that we know this wallet has authorized a contract-caller.
+    const callerToAllowIndexInAllowedList = wallet.allowedContractCallers
+      .indexOf(this.allowanceTo.stxAddress);
 
-    wallet.allowedContractCaller = this.allowanceTo.stxAddress;
-    callerToAllow.callerAllowedBy.push(this.wallet.stxAddress);
+    if (callerToAllowIndexInAllowedList == -1) {
+      wallet.allowedContractCallers.push(this.allowanceTo.stxAddress);
+      callerToAllow.callerAllowedBy.push(this.wallet.stxAddress);
+    }
 
     // Log to console for debugging purposes. This is not necessary for the
     // test to pass but it is useful for debugging and eyeballing the test.

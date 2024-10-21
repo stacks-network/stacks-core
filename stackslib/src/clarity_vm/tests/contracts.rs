@@ -169,7 +169,7 @@ fn test_get_burn_block_info_eval() {
         // burnchain is 100 blocks ahead of stacks chain in this sim
         assert_eq!(
             Value::Optional(OptionalData { data: None }),
-            tx.eval_read_only(&contract_identifier, "(test-func u103)")
+            tx.eval_read_only(&contract_identifier, "(test-func u203)")
                 .unwrap()
         );
     });
@@ -898,6 +898,8 @@ fn test_block_heights() {
     }
 
     let block_height = sim.block_height as u128;
+    let burn_block_height = sim.burn_block_height() as u128;
+    let tenure_height = sim.tenure_height as u128;
     sim.execute_next_block_as_conn(|conn| {
         let epoch = conn.get_epoch();
         assert_eq!(epoch, StacksEpochId::Epoch30);
@@ -1010,17 +1012,17 @@ fn test_block_heights() {
         let mut tx = conn.start_transaction_processing();
         assert_eq!(
             Value::Tuple(TupleData::from_data(vec![
-                ("burn-block-height".into(), Value::UInt(block_height)),
-                ("block-height".into(), Value::UInt(block_height + 1))
+                ("burn-block-height".into(), Value::UInt(burn_block_height + 1)),
+                ("block-height".into(), Value::UInt(tenure_height + 1))
             ]).unwrap()),
             tx.eval_read_only(&contract_identifier1, "(test-func)")
                 .unwrap()
         );
         assert_eq!(
             Value::Tuple(TupleData::from_data(vec![
-                ("burn-block-height".into(), Value::UInt(block_height)),
+                ("burn-block-height".into(), Value::UInt(burn_block_height + 1)),
                 ("stacks-block-height".into(), Value::UInt(block_height + 1)),
-                ("tenure-height".into(), Value::UInt(block_height + 1))
+                ("tenure-height".into(), Value::UInt(tenure_height + 1))
             ]).unwrap()),
             tx.eval_read_only(&contract_identifier2, "(test-func)")
                 .unwrap()
@@ -1029,13 +1031,18 @@ fn test_block_heights() {
 
     // Call the contracts in the next block and validate the results
     let block_height = sim.block_height as u128;
+    let burn_block_height = sim.burn_block_height() as u128;
+    let tenure_height = sim.tenure_height as u128;
     sim.execute_next_block_as_conn(|conn| {
         let mut tx = conn.start_transaction_processing();
         assert_eq!(
             Value::Tuple(
                 TupleData::from_data(vec![
-                    ("burn-block-height".into(), Value::UInt(block_height)),
-                    ("block-height".into(), Value::UInt(block_height + 1)),
+                    (
+                        "burn-block-height".into(),
+                        Value::UInt(burn_block_height + 1)
+                    ),
+                    ("block-height".into(), Value::UInt(tenure_height + 1)),
                 ])
                 .unwrap()
             ),
@@ -1045,9 +1052,12 @@ fn test_block_heights() {
         assert_eq!(
             Value::Tuple(
                 TupleData::from_data(vec![
-                    ("burn-block-height".into(), Value::UInt(block_height)),
+                    (
+                        "burn-block-height".into(),
+                        Value::UInt(burn_block_height + 1)
+                    ),
                     ("stacks-block-height".into(), Value::UInt(block_height + 1)),
-                    ("tenure-height".into(), Value::UInt(block_height + 1))
+                    ("tenure-height".into(), Value::UInt(tenure_height + 1))
                 ])
                 .unwrap()
             ),
@@ -1058,13 +1068,15 @@ fn test_block_heights() {
 
     // Call the contracts in the next block with no new tenure and validate the results
     let block_height = sim.block_height as u128;
+    let burn_block_height = sim.burn_block_height() as u128;
+    let tenure_height = sim.tenure_height as u128;
     sim.execute_next_block_as_conn_with_tenure(false, |conn| {
         let mut tx = conn.start_transaction_processing();
         assert_eq!(
             Value::Tuple(
                 TupleData::from_data(vec![
-                    ("burn-block-height".into(), Value::UInt(block_height)),
-                    ("block-height".into(), Value::UInt(block_height))
+                    ("burn-block-height".into(), Value::UInt(burn_block_height)),
+                    ("block-height".into(), Value::UInt(tenure_height))
                 ])
                 .unwrap()
             ),
@@ -1074,9 +1086,9 @@ fn test_block_heights() {
         assert_eq!(
             Value::Tuple(
                 TupleData::from_data(vec![
-                    ("burn-block-height".into(), Value::UInt(block_height)),
+                    ("burn-block-height".into(), Value::UInt(burn_block_height)),
                     ("stacks-block-height".into(), Value::UInt(block_height + 1)),
-                    ("tenure-height".into(), Value::UInt(block_height))
+                    ("tenure-height".into(), Value::UInt(tenure_height))
                 ])
                 .unwrap()
             ),
@@ -1087,13 +1099,15 @@ fn test_block_heights() {
 
     // Call the contracts in the next block with no new tenure and validate the results
     let block_height = sim.block_height as u128;
-    sim.execute_next_block_as_conn(|conn| {
+    let burn_block_height = sim.burn_block_height() as u128;
+    let tenure_height = sim.tenure_height as u128;
+    sim.execute_next_block_as_conn_with_tenure(false, |conn| {
         let mut tx = conn.start_transaction_processing();
         assert_eq!(
             Value::Tuple(
                 TupleData::from_data(vec![
-                    ("burn-block-height".into(), Value::UInt(block_height)),
-                    ("block-height".into(), Value::UInt(block_height))
+                    ("burn-block-height".into(), Value::UInt(burn_block_height)),
+                    ("block-height".into(), Value::UInt(tenure_height))
                 ])
                 .unwrap()
             ),
@@ -1103,9 +1117,46 @@ fn test_block_heights() {
         assert_eq!(
             Value::Tuple(
                 TupleData::from_data(vec![
-                    ("burn-block-height".into(), Value::UInt(block_height)),
+                    ("burn-block-height".into(), Value::UInt(burn_block_height)),
                     ("stacks-block-height".into(), Value::UInt(block_height + 1)),
-                    ("tenure-height".into(), Value::UInt(block_height))
+                    ("tenure-height".into(), Value::UInt(tenure_height))
+                ])
+                .unwrap()
+            ),
+            tx.eval_read_only(&contract_identifier2, "(test-func)")
+                .unwrap()
+        );
+    });
+
+    // Call the contracts in the next block with a new tenure and validate the results
+    let block_height = sim.block_height as u128;
+    let burn_block_height = sim.burn_block_height() as u128;
+    let tenure_height = sim.tenure_height as u128;
+    sim.execute_next_block_as_conn(|conn| {
+        let mut tx = conn.start_transaction_processing();
+        assert_eq!(
+            Value::Tuple(
+                TupleData::from_data(vec![
+                    (
+                        "burn-block-height".into(),
+                        Value::UInt(burn_block_height + 1)
+                    ),
+                    ("block-height".into(), Value::UInt(tenure_height + 1))
+                ])
+                .unwrap()
+            ),
+            tx.eval_read_only(&contract_identifier1, "(test-func)")
+                .unwrap()
+        );
+        assert_eq!(
+            Value::Tuple(
+                TupleData::from_data(vec![
+                    (
+                        "burn-block-height".into(),
+                        Value::UInt(burn_block_height + 1)
+                    ),
+                    ("stacks-block-height".into(), Value::UInt(block_height + 1)),
+                    ("tenure-height".into(), Value::UInt(tenure_height + 1))
                 ])
                 .unwrap()
             ),
@@ -1558,8 +1609,8 @@ fn test_block_heights_at_block() {
         assert_eq!(epoch, StacksEpochId::Epoch30);
 
         let contract =r#"
-            (define-private (test-tenure) (at-block (unwrap-panic (get-block-info? id-header-hash u0)) tenure-height))
-            (define-private (test-stacks) (at-block (unwrap-panic (get-block-info? id-header-hash u1)) stacks-block-height))
+            (define-private (test-tenure) (at-block (unwrap-panic (get-stacks-block-info? id-header-hash u0)) tenure-height))
+            (define-private (test-stacks) (at-block (unwrap-panic (get-stacks-block-info? id-header-hash u1)) stacks-block-height))
             "#;
 
         conn.as_transaction(|clarity_db| {
@@ -1593,6 +1644,118 @@ fn test_block_heights_at_block() {
         assert_eq!(
             Value::UInt(1),
             tx.eval_read_only(&contract_identifier, "(test-stacks)")
+                .unwrap()
+        );
+    });
+}
+
+#[test]
+fn test_get_block_info_time() {
+    let mut sim = ClarityTestSim::new();
+    sim.epoch_bounds = vec![0, 1, 2, 3, 4, 5, 6, 7];
+
+    let contract_identifier2 = QualifiedContractIdentifier::local("test-contract-2").unwrap();
+    let contract_identifier3 = QualifiedContractIdentifier::local("test-contract-3").unwrap();
+    let contract_identifier3_3 = QualifiedContractIdentifier::local("test-contract-3-3").unwrap();
+
+    // Advance to epoch 3.0
+    while sim.block_height <= 10 {
+        sim.execute_next_block(|_env| {});
+    }
+
+    let block_height = sim.block_height as u128;
+    sim.execute_next_block_as_conn(|conn| {
+        let epoch = conn.get_epoch();
+        assert_eq!(epoch, StacksEpochId::Epoch30);
+
+        let contract2 = "(define-private (get-time) (get-block-info? time (- block-height u1)))";
+        let contract3 =
+            "(define-private (get-time) (get-stacks-block-info? time (- stacks-block-height u1)))";
+        let contract3_3 = "(define-private (get-time) (get-stacks-block-info? time u1))";
+
+        conn.as_transaction(|clarity_db| {
+            // Analyze the contract as Clarity 2
+            let (ast, analysis) = clarity_db
+                .analyze_smart_contract(
+                    &contract_identifier2,
+                    ClarityVersion::Clarity2,
+                    &contract2,
+                    ASTRules::PrecheckSize,
+                )
+                .unwrap();
+
+            // Publish the contract as Clarity 2
+            clarity_db
+                .initialize_smart_contract(
+                    &contract_identifier2,
+                    ClarityVersion::Clarity2,
+                    &ast,
+                    contract2,
+                    None,
+                    |_, _| false,
+                )
+                .unwrap();
+
+            // Analyze the contract as Clarity 3
+            let (ast, analysis) = clarity_db
+                .analyze_smart_contract(
+                    &contract_identifier3,
+                    ClarityVersion::Clarity3,
+                    &contract3,
+                    ASTRules::PrecheckSize,
+                )
+                .unwrap();
+
+            // Publish the contract as Clarity 3
+            clarity_db
+                .initialize_smart_contract(
+                    &contract_identifier3,
+                    ClarityVersion::Clarity3,
+                    &ast,
+                    contract3,
+                    None,
+                    |_, _| false,
+                )
+                .unwrap();
+
+            // Analyze the contract as Clarity 3
+            let (ast, analysis) = clarity_db
+                .analyze_smart_contract(
+                    &contract_identifier3_3,
+                    ClarityVersion::Clarity3,
+                    &contract3_3,
+                    ASTRules::PrecheckSize,
+                )
+                .unwrap();
+
+            // Publish the contract as Clarity 3
+            clarity_db
+                .initialize_smart_contract(
+                    &contract_identifier3_3,
+                    ClarityVersion::Clarity3,
+                    &ast,
+                    contract3_3,
+                    None,
+                    |_, _| false,
+                )
+                .unwrap();
+        });
+
+        // Call the contracts and validate the results
+        let mut tx = conn.start_transaction_processing();
+        assert_eq!(
+            Value::some(Value::UInt(11)).unwrap(),
+            tx.eval_read_only(&contract_identifier2, "(get-time)")
+                .unwrap()
+        );
+        assert_eq!(
+            Value::some(Value::UInt(1713799984)).unwrap(),
+            tx.eval_read_only(&contract_identifier3, "(get-time)")
+                .unwrap()
+        );
+        assert_eq!(
+            Value::some(Value::UInt(1)).unwrap(),
+            tx.eval_read_only(&contract_identifier3_3, "(get-time)")
                 .unwrap()
         );
     });

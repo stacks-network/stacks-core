@@ -41,37 +41,13 @@ pub const SYSTEM_FORK_SET_VERSION: [u8; 4] = [23u8, 0u8, 0u8, 0u8];
 
 // chain id
 pub use stacks_common::consts::{
-    CHAIN_ID_MAINNET, CHAIN_ID_TESTNET, MINING_COMMITMENT_WINDOW, STACKS_EPOCH_MAX,
+    CHAIN_ID_MAINNET, CHAIN_ID_TESTNET, MINING_COMMITMENT_WINDOW, NETWORK_ID_MAINNET,
+    NETWORK_ID_TESTNET, PEER_NETWORK_EPOCH, PEER_VERSION_EPOCH_1_0, PEER_VERSION_EPOCH_2_0,
+    PEER_VERSION_EPOCH_2_05, PEER_VERSION_EPOCH_2_1, PEER_VERSION_EPOCH_2_2,
+    PEER_VERSION_EPOCH_2_3, PEER_VERSION_EPOCH_2_4, PEER_VERSION_EPOCH_2_5, PEER_VERSION_EPOCH_3_0,
+    PEER_VERSION_MAINNET, PEER_VERSION_MAINNET_MAJOR, PEER_VERSION_TESTNET,
+    PEER_VERSION_TESTNET_MAJOR, STACKS_EPOCH_MAX,
 };
-
-// peer version (big-endian)
-// first byte == major network protocol version (currently 0x18)
-// second and third bytes are unused
-// fourth byte == highest epoch supported by this node
-pub const PEER_VERSION_MAINNET_MAJOR: u32 = 0x18000000;
-pub const PEER_VERSION_TESTNET_MAJOR: u32 = 0xfacade00;
-
-pub const PEER_VERSION_EPOCH_1_0: u8 = 0x00;
-pub const PEER_VERSION_EPOCH_2_0: u8 = 0x00;
-pub const PEER_VERSION_EPOCH_2_05: u8 = 0x05;
-pub const PEER_VERSION_EPOCH_2_1: u8 = 0x06;
-pub const PEER_VERSION_EPOCH_2_2: u8 = 0x07;
-pub const PEER_VERSION_EPOCH_2_3: u8 = 0x08;
-pub const PEER_VERSION_EPOCH_2_4: u8 = 0x09;
-pub const PEER_VERSION_EPOCH_2_5: u8 = 0x0a;
-pub const PEER_VERSION_EPOCH_3_0: u8 = 0x0b;
-
-// this should be updated to the latest network epoch version supported by
-//  this node. this will be checked by the `validate_epochs()` method.
-pub const PEER_NETWORK_EPOCH: u32 = PEER_VERSION_EPOCH_2_5 as u32;
-
-// set the fourth byte of the peer version
-pub const PEER_VERSION_MAINNET: u32 = PEER_VERSION_MAINNET_MAJOR | PEER_NETWORK_EPOCH;
-pub const PEER_VERSION_TESTNET: u32 = PEER_VERSION_TESTNET_MAJOR | PEER_NETWORK_EPOCH;
-
-// network identifiers
-pub const NETWORK_ID_MAINNET: u32 = 0x17000000;
-pub const NETWORK_ID_TESTNET: u32 = 0xff000000;
 
 // default port
 pub const NETWORK_P2P_PORT: u16 = 6265;
@@ -121,7 +97,7 @@ pub const BITCOIN_MAINNET_STACKS_24_BURN_HEIGHT: u64 = 791_551;
 /// This is Epoch-2.5, activation height proposed in SIP-021
 pub const BITCOIN_MAINNET_STACKS_25_BURN_HEIGHT: u64 = 840_360;
 /// This is Epoch-3.0, activation height proposed in SIP-021
-pub const BITCOIN_MAINNET_STACKS_30_BURN_HEIGHT: u64 = 2_000_000;
+pub const BITCOIN_MAINNET_STACKS_30_BURN_HEIGHT: u64 = 867_867;
 
 pub const BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT: u64 = 2000000;
 pub const BITCOIN_TESTNET_FIRST_BLOCK_TIMESTAMP: u32 = 1622691840;
@@ -192,6 +168,10 @@ pub const POX_V3_MAINNET_EARLY_UNLOCK_HEIGHT: u32 =
     (BITCOIN_MAINNET_STACKS_25_BURN_HEIGHT as u32) + 1;
 pub const POX_V3_TESTNET_EARLY_UNLOCK_HEIGHT: u32 =
     (BITCOIN_TESTNET_STACKS_25_BURN_HEIGHT as u32) + 1;
+
+// The threshold of weighted votes on a block to approve it in Nakamoto.
+// This is out of 10, so 7 means "70%".
+pub const NAKAMOTO_SIGNER_BLOCK_APPROVAL_THRESHOLD: u64 = 7;
 
 /// Burn block height at which the ASTRules::PrecheckSize becomes the default behavior on mainnet
 pub const AST_RULES_PRECHECK_SIZE: u64 = 752000; // on or about Aug 30 2022

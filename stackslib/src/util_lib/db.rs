@@ -14,28 +14,33 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::backtrace::Backtrace;
 use std::io::Error as IOError;
 use std::ops::{Deref, DerefMut};
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 use std::{error, fmt, fs, io};
 
 use clarity::vm::types::QualifiedContractIdentifier;
 use rand::{thread_rng, Rng, RngCore};
 use rusqlite::types::{FromSql, ToSql};
 use rusqlite::{
-    Connection, Error as sqlite_error, OpenFlags, OptionalExtension, Row, Transaction,
-    TransactionBehavior, NO_PARAMS,
+    params, Connection, Error as sqlite_error, OpenFlags, OptionalExtension, Params, Row,
+    Transaction, TransactionBehavior,
 };
 use serde_json::Error as serde_error;
 use stacks_common::types::chainstate::{SortitionId, StacksAddress, StacksBlockId, TrieHash};
+use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::types::Address;
+use stacks_common::util::db::update_lock_table;
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 use stacks_common::util::sleep_ms;
 
+use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::stacks::index::marf::{MarfConnection, MarfTransaction, MARF};
 use crate::chainstate::stacks::index::{Error as MARFError, MARFValue, MarfTrieId};
+use crate::core::{StacksEpoch, StacksEpochId};
 
 pub type DBConn = rusqlite::Connection;
 pub type DBTx<'a> = rusqlite::Transaction<'a>;
@@ -394,8 +399,7 @@ fn log_sql_eqp(_conn: &Connection, _sql_query: &str) {}
 /// boilerplate code for querying rows
 pub fn query_rows<T, P>(conn: &Connection, sql_query: &str, sql_args: P) -> Result<Vec<T>, Error>
 where
-    P: IntoIterator,
-    P::Item: ToSql,
+    P: Params,
     T: FromRow<T>,
 {
     log_sql_eqp(conn, sql_query);
@@ -409,8 +413,7 @@ where
 ///   if more than 1 row is returned, excess rows are ignored.
 pub fn query_row<T, P>(conn: &Connection, sql_query: &str, sql_args: P) -> Result<Option<T>, Error>
 where
-    P: IntoIterator,
-    P::Item: ToSql,
+    P: Params,
     T: FromRow<T>,
 {
     log_sql_eqp(conn, sql_query);
@@ -430,8 +433,7 @@ pub fn query_expect_row<T, P>(
     sql_args: P,
 ) -> Result<Option<T>, Error>
 where
-    P: IntoIterator,
-    P::Item: ToSql,
+    P: Params,
     T: FromRow<T>,
 {
     log_sql_eqp(conn, sql_query);
@@ -456,8 +458,7 @@ pub fn query_row_panic<T, P, F>(
     panic_message: F,
 ) -> Result<Option<T>, Error>
 where
-    P: IntoIterator,
-    P::Item: ToSql,
+    P: Params,
     T: FromRow<T>,
     F: FnOnce() -> String,
 {
@@ -482,8 +483,7 @@ pub fn query_row_columns<T, P>(
     column_name: &str,
 ) -> Result<Vec<T>, Error>
 where
-    P: IntoIterator,
-    P::Item: ToSql,
+    P: Params,
     T: FromColumn<T>,
 {
     log_sql_eqp(conn, sql_query);
@@ -503,8 +503,7 @@ where
 /// Boilerplate for querying a single integer (first and only item of the query must be an int)
 pub fn query_int<P>(conn: &Connection, sql_query: &str, sql_args: P) -> Result<i64, Error>
 where
-    P: IntoIterator,
-    P::Item: ToSql,
+    P: Params,
 {
     log_sql_eqp(conn, sql_query);
     let mut stmt = conn.prepare(sql_query)?;
@@ -527,8 +526,7 @@ where
 
 pub fn query_count<P>(conn: &Connection, sql_query: &str, sql_args: P) -> Result<i64, Error>
 where
-    P: IntoIterator,
-    P::Item: ToSql,
+    P: Params,
 {
     query_int(conn, sql_query, sql_args)
 }
@@ -658,25 +656,9 @@ impl<'a, C: Clone, T: MarfTrieId> DerefMut for IndexDBTx<'a, C, T> {
     }
 }
 
+/// Called by `rusqlite` if we are waiting too long on a database lock
 pub fn tx_busy_handler(run_count: i32) -> bool {
-    let mut sleep_count = 2;
-    if run_count > 0 {
-        sleep_count = 2u64.saturating_pow(run_count as u32);
-    }
-    sleep_count = sleep_count.saturating_add(thread_rng().gen::<u64>() % sleep_count);
-
-    if sleep_count > 100 {
-        let jitter = thread_rng().gen::<u64>() % 20;
-        sleep_count = 100 - jitter;
-    }
-
-    debug!(
-        "Database is locked; sleeping {}ms and trying again",
-        &sleep_count
-    );
-
-    sleep_ms(sleep_count);
-    true
+    stacks_common::util::db::tx_busy_handler(run_count)
 }
 
 /// Begin an immediate-mode transaction, and handle busy errors with exponential backoff.
@@ -693,6 +675,7 @@ pub fn tx_begin_immediate<'a>(conn: &'a mut Connection) -> Result<DBTx<'a>, Erro
 pub fn tx_begin_immediate_sqlite<'a>(conn: &'a mut Connection) -> Result<DBTx<'a>, sqlite_error> {
     conn.busy_handler(Some(tx_busy_handler))?;
     let tx = Transaction::new(conn, TransactionBehavior::Immediate)?;
+    update_lock_table(tx.deref());
     Ok(tx)
 }
 
@@ -770,7 +753,7 @@ fn load_indexed(conn: &DBConn, marf_value: &MARFValue) -> Result<Option<String>,
         .prepare("SELECT value FROM __fork_storage WHERE value_hash = ?1 LIMIT 2")
         .map_err(Error::SqliteError)?;
     let mut rows = stmt
-        .query(&[&marf_value.to_hex() as &dyn ToSql])
+        .query(params![marf_value.to_hex()])
         .map_err(Error::SqliteError)?;
     let mut value = None;
 
@@ -904,6 +887,12 @@ impl<'a, C: Clone, T: MarfTrieId> IndexDBTx<'a, C, T> {
     /// Get a value from the fork index
     pub fn get_indexed(&mut self, header_hash: &T, key: &str) -> Result<Option<String>, Error> {
         get_indexed(self.index_mut(), header_hash, key)
+    }
+
+    /// Get a value from the fork index, but with a read-only reference
+    pub fn get_indexed_ref(&self, header_hash: &T, key: &str) -> Result<Option<String>, Error> {
+        let mut ro_index = self.index().reopen_readonly()?;
+        get_indexed(&mut ro_index, header_hash, key)
     }
 
     /// Put all keys and values in a single MARF transaction, and seal it.

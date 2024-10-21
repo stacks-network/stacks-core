@@ -609,7 +609,9 @@ impl NeighborBlockStats {
         let mut broken = false;
         let mut stale = false;
 
-        if nack_data.error_code == NackErrorCodes::Throttled {
+        if nack_data.error_code == NackErrorCodes::Throttled
+            || nack_data.error_code == NackErrorCodes::HandshakeRequired
+        {
             // TODO: do something smarter here, like just back off
             return NodeStatus::Dead;
         } else if nack_data.error_code == NackErrorCodes::NoSuchBurnchainBlock {
@@ -971,6 +973,9 @@ pub struct InvState {
 
     /// What's the last reward cycle we _started_ the inv scan at?
     pub block_sortition_start: u64,
+
+    /// event IDs of connections we established, so they don't get pruned
+    pinned: HashSet<usize>,
 }
 
 impl InvState {
@@ -992,11 +997,13 @@ impl InvState {
             num_inv_syncs: 0,
 
             block_sortition_start: 0,
+            pinned: HashSet::new(),
         }
     }
 
     fn reset_sync_peers(
         &mut self,
+        network: &PeerNetwork,
         peers: HashSet<NeighborKey>,
         bootstrap_peers: &HashSet<NeighborKey>,
         max_neighbors: usize,
@@ -1040,6 +1047,24 @@ impl InvState {
             added,
             &peers
         );
+
+        // if we're still connected to these peers, then keep them pinned
+        self.pinned.clear();
+        for peer in peers.iter() {
+            if let Some(event_id) = network.get_event_id(&peer) {
+                self.pinned.insert(event_id);
+            }
+        }
+    }
+
+    /// Pin a connection
+    pub fn pin_connection(&mut self, event_id: usize) {
+        self.pinned.insert(event_id);
+    }
+
+    /// Get the set of connections this state machine is using
+    pub fn get_pinned_connections(&self) -> &HashSet<usize> {
+        &self.pinned
     }
 
     pub fn get_peer_status(&self, nk: &NeighborKey) -> NodeStatus {
@@ -1799,6 +1824,7 @@ impl PeerNetwork {
     /// Start requesting the next batch of PoX inventories
     fn inv_getpoxinv_begin(
         &mut self,
+        pins: &mut HashSet<usize>,
         sortdb: &SortitionDB,
         nk: &NeighborKey,
         stats: &mut NeighborBlockStats,
@@ -1819,6 +1845,8 @@ impl PeerNetwork {
         };
 
         let payload = StacksMessageType::GetPoxInv(getpoxinv);
+        let event_id_opt = self.get_event_id(&nk);
+
         let message = self.sign_for_neighbor(nk, payload)?;
         let request = self
             .send_neighbor_message(nk, message, request_timeout)
@@ -1828,6 +1856,10 @@ impl PeerNetwork {
             })?;
 
         stats.getpoxinv_begin(request, target_pox_reward_cycle);
+        if let Some(event_id) = event_id_opt {
+            pins.insert(event_id);
+        }
+
         Ok(())
     }
 
@@ -1986,6 +2018,7 @@ impl PeerNetwork {
     /// Start requesting the next batch of block inventories
     fn inv_getblocksinv_begin(
         &mut self,
+        pins: &mut HashSet<usize>,
         sortdb: &SortitionDB,
         nk: &NeighborKey,
         stats: &mut NeighborBlockStats,
@@ -2006,6 +2039,7 @@ impl PeerNetwork {
 
         let num_blocks_expected = getblocksinv.num_blocks;
         let payload = StacksMessageType::GetBlocksInv(getblocksinv);
+        let event_id_opt = self.get_event_id(nk);
         let message = self.sign_for_neighbor(nk, payload)?;
         let request = self
             .send_neighbor_message(nk, message, request_timeout)
@@ -2015,6 +2049,9 @@ impl PeerNetwork {
             })?;
 
         stats.getblocksinv_begin(request, target_block_reward_cycle, num_blocks_expected);
+        if let Some(event_id) = event_id_opt {
+            pins.insert(event_id);
+        }
         Ok(())
     }
 
@@ -2112,6 +2149,7 @@ impl PeerNetwork {
     /// Run a single state-machine to completion
     fn inv_sync_run(
         &mut self,
+        pins: &mut HashSet<usize>,
         sortdb: &SortitionDB,
         nk: &NeighborKey,
         stats: &mut NeighborBlockStats,
@@ -2125,15 +2163,16 @@ impl PeerNetwork {
                 break;
             }
 
+            debug!("Inv sync state is {:?}", &stats.state);
             let again = match stats.state {
                 InvWorkState::GetPoxInvBegin => self
-                    .inv_getpoxinv_begin(sortdb, nk, stats, request_timeout)
+                    .inv_getpoxinv_begin(pins, sortdb, nk, stats, request_timeout)
                     .and_then(|_| Ok(true))?,
                 InvWorkState::GetPoxInvFinish => {
                     self.inv_getpoxinv_try_finish(sortdb, nk, stats, ibd)?
                 }
                 InvWorkState::GetBlocksInvBegin => self
-                    .inv_getblocksinv_begin(sortdb, nk, stats, request_timeout)
+                    .inv_getblocksinv_begin(pins, sortdb, nk, stats, request_timeout)
                     .and_then(|_| Ok(true))?,
                 InvWorkState::GetBlocksInvFinish => {
                     self.inv_getblocksinv_try_finish(nk, stats, ibd)?
@@ -2228,9 +2267,10 @@ impl PeerNetwork {
     ) -> (bool, bool, Vec<NeighborKey>, Vec<NeighborKey>) {
         PeerNetwork::with_inv_state(self, |network, inv_state| {
             debug!(
-                "{:?}: Inventory state has {} block stats tracked",
+                "{:?}: Inventory state has {} block stats tracked on connections {:?}",
                 &network.local_peer,
-                inv_state.block_stats.len()
+                inv_state.block_stats.len(),
+                inv_state.pinned,
             );
 
             let mut all_done = true;
@@ -2258,6 +2298,7 @@ impl PeerNetwork {
                 return (true, true, vec![], vec![]);
             }
 
+            let mut new_pins = HashSet::new();
             for (nk, stats) in inv_state.block_stats.iter_mut() {
                 debug!(
                     "{:?}: inv state-machine for {:?} is in state {:?}, at PoX {},target={}; blocks {},target={}; status {:?}, done={}",
@@ -2272,7 +2313,7 @@ impl PeerNetwork {
                     stats.done
                 );
                 if !stats.done {
-                    match network.inv_sync_run(sortdb, nk, stats, inv_state.request_timeout, ibd) {
+                    match network.inv_sync_run(&mut new_pins, sortdb, nk, stats, inv_state.request_timeout, ibd) {
                         Ok(d) => d,
                         Err(net_error::StaleView) => {
                             // stop work on this state machine -- it needs to be restarted.
@@ -2338,6 +2379,9 @@ impl PeerNetwork {
                     }
                 }
             }
+            let _ = new_pins
+                .into_iter()
+                .map(|event_id| inv_state.pin_connection(event_id));
 
             if all_done {
                 let mut new_sync_peers = network.get_outbound_sync_peers();
@@ -2447,6 +2491,7 @@ impl PeerNetwork {
                 }
 
                 inv_state.reset_sync_peers(
+                    network,
                     good_sync_peers_set,
                     &bootstrap_peers,
                     network.connection_opts.num_neighbors as usize,
@@ -2629,7 +2674,7 @@ impl PeerNetwork {
         }
 
         // synchronize peer block inventories
-        let (done, throttled, dead_neighbors, broken_neighbors) =
+        let (done, throttled, broken_neighbors, dead_neighbors) =
             self.sync_inventories_epoch2x(sortdb, ibd);
 
         // disconnect and ban broken peers

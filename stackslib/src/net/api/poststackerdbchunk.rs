@@ -83,7 +83,7 @@ impl HttpRequest for RPCPostStackerDBChunkRequestHandler {
     }
 
     fn metrics_identifier(&self) -> &str {
-        "/v2/block_proposal/:principal/:contract_name/chunks"
+        "/v2/stackerdb/:principal/:contract_name/chunks"
     }
 
     /// Try to decode this request.

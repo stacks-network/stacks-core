@@ -19,13 +19,16 @@ use std::collections::HashMap;
 use std::fs;
 
 use clarity::types::chainstate::{PoxId, SortitionId, StacksBlockId};
+use clarity::util::secp256k1::Secp256k1PrivateKey;
 use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::StacksAddressExtensions;
 use clarity::vm::Value;
 use libstackerdb::StackerDBChunkData;
-use rand::{thread_rng, RngCore};
-use rusqlite::{Connection, ToSql};
+use rand::distributions::Standard;
+use rand::{thread_rng, Rng, RngCore};
+use rusqlite::types::ToSql;
+use rusqlite::{params, Connection};
 use stacks_common::address::AddressHashMode;
 use stacks_common::bitvec::BitVec;
 use stacks_common::codec::StacksMessageCodec;
@@ -43,8 +46,6 @@ use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PublicKey};
 use stacks_common::util::vrf::{VRFPrivateKey, VRFProof, VRFPublicKey, VRF};
 use stdext::prelude::Integer;
 use stx_genesis::GenesisData;
-use wsts::curve::point::Point;
-use wsts::curve::scalar::Scalar;
 
 use crate::burnchains::{BurnchainSigner, PoxConstants, Txid};
 use crate::chainstate::burn::db::sortdb::tests::make_fork_run;
@@ -61,16 +62,18 @@ use crate::chainstate::coordinator::tests::{
 use crate::chainstate::nakamoto::coordinator::tests::boot_nakamoto;
 use crate::chainstate::nakamoto::miner::NakamotoBlockBuilder;
 use crate::chainstate::nakamoto::signer_set::NakamotoSigners;
-use crate::chainstate::nakamoto::staging_blocks::NakamotoStagingBlocksConnRef;
-use crate::chainstate::nakamoto::tenure::NakamotoTenure;
+use crate::chainstate::nakamoto::staging_blocks::{
+    NakamotoBlockObtainMethod, NakamotoStagingBlocksConnRef,
+};
+use crate::chainstate::nakamoto::tenure::NakamotoTenureEvent;
 use crate::chainstate::nakamoto::test_signers::TestSigners;
 use crate::chainstate::nakamoto::tests::node::TestStacker;
 use crate::chainstate::nakamoto::{
-    query_rows, NakamotoBlock, NakamotoBlockHeader, NakamotoChainState, SortitionHandle,
+    query_row, NakamotoBlock, NakamotoBlockHeader, NakamotoChainState, SortitionHandle,
     FIRST_STACKS_BLOCK_ID,
 };
 use crate::chainstate::stacks::boot::{
-    MINERS_NAME, SIGNERS_VOTING_FUNCTION_NAME, SIGNERS_VOTING_NAME,
+    NakamotoSignerEntry, RewardSet, MINERS_NAME, SIGNERS_VOTING_FUNCTION_NAME, SIGNERS_VOTING_NAME,
 };
 use crate::chainstate::stacks::db::{
     ChainStateBootData, ChainstateAccountBalance, ChainstateAccountLockup, ChainstateBNSName,
@@ -79,9 +82,9 @@ use crate::chainstate::stacks::db::{
 };
 use crate::chainstate::stacks::{
     CoinbasePayload, Error as ChainstateError, StacksBlock, StacksBlockHeader, StacksTransaction,
-    StacksTransactionSigner, TenureChangeCause, TenureChangePayload, ThresholdSignature,
-    TokenTransferMemo, TransactionAnchorMode, TransactionAuth, TransactionContractCall,
-    TransactionPayload, TransactionPostConditionMode, TransactionSmartContract, TransactionVersion,
+    StacksTransactionSigner, TenureChangeCause, TenureChangePayload, TokenTransferMemo,
+    TransactionAnchorMode, TransactionAuth, TransactionContractCall, TransactionPayload,
+    TransactionPostConditionMode, TransactionSmartContract, TransactionVersion,
 };
 use crate::core;
 use crate::core::{StacksEpochExtension, STACKS_EPOCH_3_0_MARKER};
@@ -92,19 +95,26 @@ use crate::util_lib::db::Error as db_error;
 use crate::util_lib::strings::StacksString;
 
 impl<'a> NakamotoStagingBlocksConnRef<'a> {
-    #[cfg(test)]
     pub fn get_all_blocks_in_tenure(
         &self,
         tenure_id_consensus_hash: &ConsensusHash,
+        tip: &StacksBlockId,
     ) -> Result<Vec<NakamotoBlock>, ChainstateError> {
-        let qry = "SELECT data FROM nakamoto_staging_blocks WHERE consensus_hash = ?1 ORDER BY height ASC";
-        let args: &[&dyn ToSql] = &[tenure_id_consensus_hash];
-        let block_data: Vec<Vec<u8>> = query_rows(self, qry, args)?;
-        let mut blocks = Vec::with_capacity(block_data.len());
-        for data in block_data.into_iter() {
-            let block = NakamotoBlock::consensus_deserialize(&mut data.as_slice())?;
+        let mut blocks = vec![];
+        let mut cursor = tip.clone();
+        let qry = "SELECT data FROM nakamoto_staging_blocks WHERE index_block_hash = ?1";
+        loop {
+            let Some(block_data): Option<Vec<u8>> = query_row(self, qry, params![cursor])? else {
+                break;
+            };
+            let block = NakamotoBlock::consensus_deserialize(&mut block_data.as_slice())?;
+            if &block.header.consensus_hash != tenure_id_consensus_hash {
+                break;
+            }
+            cursor = block.header.parent_block_id.clone();
             blocks.push(block);
         }
+        blocks.reverse();
         Ok(blocks)
     }
 }
@@ -126,9 +136,12 @@ pub fn get_account(
         &tip
     );
 
+    let snapshot = SortitionDB::get_block_snapshot_consensus(&sortdb.conn(), &tip.consensus_hash)
+        .unwrap()
+        .unwrap();
     chainstate
         .with_read_only_clarity_tx(
-            &sortdb.index_conn(),
+            &sortdb.index_handle(&snapshot.sortition_id),
             &tip.index_block_hash(),
             |clarity_conn| {
                 StacksChainState::get_account(clarity_conn, &addr.to_account_principal())
@@ -153,9 +166,10 @@ fn codec_nakamoto_header() {
         parent_block_id: StacksBlockId([0x05; 32]),
         tx_merkle_root: Sha512Trunc256Sum([0x06; 32]),
         state_index_root: TrieHash([0x07; 32]),
+        timestamp: 8,
         miner_signature: MessageSignature::empty(),
-        signer_signature: ThresholdSignature::empty(),
-        signer_bitvec: BitVec::zeros(8).unwrap(),
+        signer_signature: vec![MessageSignature::from_bytes(&[0x01; 65]).unwrap()],
+        pox_treatment: BitVec::zeros(8).unwrap(),
     };
 
     let mut bytes = vec![
@@ -173,17 +187,19 @@ fn codec_nakamoto_header() {
         0x06, 0x06, // state index root
         0x07, 0x07, 0x07, 0x07, 0x07, 0x07, 0x07, 0x07, 0x07, 0x07, 0x07, 0x07, 0x07, 0x07, 0x07,
         0x07, 0x07, 0x07, 0x07, 0x07, 0x07, 0x07, 0x07, 0x07, 0x07, 0x07, 0x07, 0x07, 0x07, 0x07,
-        0x07, 0x07, // miner signature
+        0x07, 0x07, // timestamp
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, // miner signature
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, // stacker signature (mocked)
-        0x02, 0x79, 0xbe, 0x66, 0x7e, 0xf9, 0xdc, 0xbb, 0xac, 0x55, 0xa0, 0x62, 0x95, 0xce, 0x87,
-        0x0b, 0x07, 0x02, 0x9b, 0xfc, 0xdb, 0x2d, 0xce, 0x28, 0xd9, 0x59, 0xf2, 0x81, 0x5b, 0x16,
-        0xf8, 0x17, 0x98, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, // signatures length
+        0x00, 0x00, 0x00, 0x01, // stacker signature (mocked)
+        0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,
+        0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,
+        0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,
+        0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,
+        0x01, 0x01, 0x01, 0x01, 0x01,
     ];
 
     let signer_bitvec_serialization = "00080000000100";
@@ -203,9 +219,10 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
         parent_block_id: StacksBlockId([0x05; 32]),
         tx_merkle_root: Sha512Trunc256Sum([0x06; 32]),
         state_index_root: TrieHash([0x07; 32]),
+        timestamp: 8,
         miner_signature: MessageSignature::empty(),
-        signer_signature: ThresholdSignature::empty(),
-        signer_bitvec: BitVec::zeros(1).unwrap(),
+        signer_signature: vec![],
+        pox_treatment: BitVec::zeros(1).unwrap(),
     };
 
     // sortition-inducing tenure change
@@ -556,47 +573,7 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
     );
 }
 
-struct MockSortitionHandle {
-    nakamoto_tip: (ConsensusHash, BlockHeaderHash, u64),
-}
-
-impl MockSortitionHandle {
-    pub fn new(consensus_hash: ConsensusHash, bhh: BlockHeaderHash, height: u64) -> Self {
-        Self {
-            nakamoto_tip: (consensus_hash, bhh, height),
-        }
-    }
-}
-
-impl SortitionHandle for MockSortitionHandle {
-    fn get_block_snapshot_by_height(
-        &mut self,
-        block_height: u64,
-    ) -> Result<Option<BlockSnapshot>, db_error> {
-        unimplemented!()
-    }
-
-    fn first_burn_block_height(&self) -> u64 {
-        unimplemented!()
-    }
-
-    fn pox_constants(&self) -> &PoxConstants {
-        unimplemented!()
-    }
-
-    fn sqlite(&self) -> &Connection {
-        unimplemented!()
-    }
-
-    fn tip(&self) -> SortitionId {
-        unimplemented!()
-    }
-
-    fn get_nakamoto_tip(&self) -> Result<Option<(ConsensusHash, BlockHeaderHash, u64)>, db_error> {
-        Ok(Some(self.nakamoto_tip.clone()))
-    }
-}
-
+/// Tests for non-MARF'ed block storage
 #[test]
 pub fn test_load_store_update_nakamoto_blocks() {
     let test_name = function_name!();
@@ -675,6 +652,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
         burn_header_height: 100,
         burn_header_timestamp: 1000,
         anchored_block_size: 12345,
+        burn_view: None,
     };
 
     let epoch2_execution_cost = ExecutionCost {
@@ -687,7 +665,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
 
     let tenure_change_payload = TenureChangePayload {
         tenure_consensus_hash: ConsensusHash([0x04; 20]), // same as in nakamoto header
-        prev_tenure_consensus_hash: ConsensusHash([0x01; 20]),
+        prev_tenure_consensus_hash: epoch2_consensus_hash.clone(),
         burn_view_consensus_hash: ConsensusHash([0x04; 20]),
         previous_tenure_end: epoch2_parent_block_id.clone(),
         previous_tenure_blocks: 1,
@@ -722,6 +700,14 @@ pub fn test_load_store_update_nakamoto_blocks() {
     stx_transfer_tx_3.chain_id = 0x80000000;
     stx_transfer_tx_3.anchor_mode = TransactionAnchorMode::OnChainOnly;
 
+    let mut stx_transfer_tx_4 = StacksTransaction::new(
+        TransactionVersion::Testnet,
+        TransactionAuth::from_p2pkh(&private_key).unwrap(),
+        TransactionPayload::TokenTransfer(recipient_addr.into(), 125, TokenTransferMemo([0u8; 34])),
+    );
+    stx_transfer_tx_4.chain_id = 0x80000000;
+    stx_transfer_tx_4.anchor_mode = TransactionAnchorMode::OnChainOnly;
+
     let nakamoto_txs = vec![tenure_change_tx.clone(), coinbase_tx.clone()];
     let nakamoto_tx_merkle_root = {
         let txid_vecs = nakamoto_txs
@@ -752,6 +738,21 @@ pub fn test_load_store_update_nakamoto_blocks() {
         MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs).root()
     };
 
+    let nakamoto_txs_4 = vec![stx_transfer_tx_4.clone()];
+    let nakamoto_tx_merkle_root_4 = {
+        let txid_vecs = nakamoto_txs_4
+            .iter()
+            .map(|tx| tx.txid().as_bytes().to_vec())
+            .collect();
+
+        MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs).root()
+    };
+
+    let header_signatures = vec![
+        MessageSignature::from_bytes(&[0x01; 65]).unwrap(),
+        MessageSignature::from_bytes(&[0x02; 65]).unwrap(),
+    ];
+
     let nakamoto_header = NakamotoBlockHeader {
         version: 1,
         chain_length: 457,
@@ -760,9 +761,10 @@ pub fn test_load_store_update_nakamoto_blocks() {
         parent_block_id: epoch2_parent_block_id.clone(),
         tx_merkle_root: nakamoto_tx_merkle_root,
         state_index_root: TrieHash([0x07; 32]),
+        timestamp: 8,
         miner_signature: MessageSignature::empty(),
-        signer_signature: ThresholdSignature::empty(),
-        signer_bitvec: BitVec::zeros(1).unwrap(),
+        signer_signature: header_signatures.clone(),
+        pox_treatment: BitVec::zeros(1).unwrap(),
     };
 
     let nakamoto_header_info = StacksHeaderInfo {
@@ -775,6 +777,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
         burn_header_height: 200,
         burn_header_timestamp: 1001,
         anchored_block_size: 123,
+        burn_view: Some(nakamoto_header.consensus_hash),
     };
 
     let epoch2_block = StacksBlock {
@@ -804,9 +807,10 @@ pub fn test_load_store_update_nakamoto_blocks() {
         parent_block_id: nakamoto_header.block_id(),
         tx_merkle_root: nakamoto_tx_merkle_root_2,
         state_index_root: TrieHash([0x07; 32]),
+        timestamp: 8,
         miner_signature: MessageSignature::empty(),
-        signer_signature: ThresholdSignature::empty(),
-        signer_bitvec: BitVec::zeros(1).unwrap(),
+        signer_signature: vec![],
+        pox_treatment: BitVec::zeros(1).unwrap(),
     };
 
     let nakamoto_header_info_2 = StacksHeaderInfo {
@@ -819,6 +823,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
         burn_header_height: 200,
         burn_header_timestamp: 1001,
         anchored_block_size: 123,
+        burn_view: Some(nakamoto_header_2.consensus_hash),
     };
 
     let nakamoto_block_2 = NakamotoBlock {
@@ -843,9 +848,10 @@ pub fn test_load_store_update_nakamoto_blocks() {
         parent_block_id: nakamoto_header_2.block_id(),
         tx_merkle_root: nakamoto_tx_merkle_root_3,
         state_index_root: TrieHash([0x07; 32]),
+        timestamp: 8,
         miner_signature: MessageSignature::empty(),
-        signer_signature: ThresholdSignature::empty(),
-        signer_bitvec: BitVec::zeros(1).unwrap(),
+        signer_signature: vec![],
+        pox_treatment: BitVec::zeros(1).unwrap(),
     };
 
     let nakamoto_header_info_3 = StacksHeaderInfo {
@@ -858,19 +864,96 @@ pub fn test_load_store_update_nakamoto_blocks() {
         burn_header_height: 200,
         burn_header_timestamp: 1001,
         anchored_block_size: 123,
+        burn_view: Some(nakamoto_header_3.consensus_hash),
     };
 
     let nakamoto_block_3 = NakamotoBlock {
         header: nakamoto_header_3.clone(),
-        txs: nakamoto_txs_3,
+        txs: nakamoto_txs_3.clone(),
     };
+
+    // third nakamoto block, but with a higher signing weight
+    let nakamoto_header_3_weight_2 = NakamotoBlockHeader {
+        version: 1,
+        chain_length: 459,
+        burn_spent: 128,
+        consensus_hash: tenure_change_payload.tenure_consensus_hash.clone(),
+        parent_block_id: nakamoto_header_2.block_id(),
+        tx_merkle_root: nakamoto_tx_merkle_root_3,
+        state_index_root: TrieHash([0x07; 32]),
+        timestamp: 8,
+        miner_signature: MessageSignature::empty(),
+        signer_signature: vec![MessageSignature::from_bytes(&[0x01; 65]).unwrap()],
+        pox_treatment: BitVec::zeros(1).unwrap(),
+    };
+
+    let nakamoto_header_info_3_weight_2 = StacksHeaderInfo {
+        anchored_header: StacksBlockHeaderTypes::Nakamoto(nakamoto_header_3_weight_2.clone()),
+        microblock_tail: None,
+        stacks_block_height: nakamoto_header_2.chain_length,
+        index_root: TrieHash([0x67; 32]),
+        consensus_hash: nakamoto_header_2.consensus_hash.clone(),
+        burn_header_hash: BurnchainHeaderHash([0x88; 32]),
+        burn_header_height: 200,
+        burn_header_timestamp: 1001,
+        anchored_block_size: 123,
+        burn_view: Some(nakamoto_header_3.consensus_hash),
+    };
+
+    let nakamoto_block_3_weight_2 = NakamotoBlock {
+        header: nakamoto_header_3_weight_2.clone(),
+        txs: nakamoto_txs_3.clone(),
+    };
+
+    // fourth nakamoto block -- confirms nakamoto_block_3_weight_2
+    let nakamoto_header_4 = NakamotoBlockHeader {
+        version: 1,
+        chain_length: 460,
+        burn_spent: 128,
+        consensus_hash: tenure_change_payload.tenure_consensus_hash.clone(),
+        parent_block_id: nakamoto_header_3_weight_2.block_id(),
+        tx_merkle_root: nakamoto_tx_merkle_root_4,
+        state_index_root: TrieHash([0x71; 32]),
+        timestamp: 10,
+        miner_signature: MessageSignature::empty(),
+        signer_signature: vec![],
+        pox_treatment: BitVec::zeros(1).unwrap(),
+    };
+
+    let nakamoto_header_info_4 = StacksHeaderInfo {
+        anchored_header: StacksBlockHeaderTypes::Nakamoto(nakamoto_header_4.clone()),
+        microblock_tail: None,
+        stacks_block_height: nakamoto_header_4.chain_length,
+        index_root: TrieHash([0x71; 32]),
+        consensus_hash: nakamoto_header_3_weight_2.consensus_hash.clone(),
+        burn_header_hash: BurnchainHeaderHash([0x88; 32]),
+        burn_header_height: 200,
+        burn_header_timestamp: 1001,
+        anchored_block_size: 123,
+        burn_view: Some(nakamoto_header_4.consensus_hash),
+    };
+
+    let nakamoto_block_4 = NakamotoBlock {
+        header: nakamoto_header_4.clone(),
+        txs: nakamoto_txs_4.clone(),
+    };
+
+    // nakamoto block 3 only differs in signers
+    assert_eq!(
+        nakamoto_block_3.block_id(),
+        nakamoto_block_3_weight_2.block_id()
+    );
+    assert_eq!(
+        nakamoto_block_3.header.signer_signature_hash(),
+        nakamoto_block_3_weight_2.header.signer_signature_hash()
+    );
 
     let mut total_nakamoto_execution_cost = nakamoto_execution_cost.clone();
     total_nakamoto_execution_cost
         .add(&nakamoto_execution_cost_2)
         .unwrap();
 
-    let nakamoto_tenure = NakamotoTenure {
+    let nakamoto_tenure = NakamotoTenureEvent {
         tenure_id_consensus_hash: tenure_change_payload.tenure_consensus_hash.clone(),
         prev_tenure_id_consensus_hash: tenure_change_payload.prev_tenure_consensus_hash.clone(),
         burn_view_consensus_hash: tenure_change_payload.burn_view_consensus_hash.clone(),
@@ -878,7 +961,6 @@ pub fn test_load_store_update_nakamoto_blocks() {
         block_hash: nakamoto_block.header.block_hash(),
         block_id: nakamoto_block.header.block_id(),
         coinbase_height: epoch2_header.total_work.work + 1,
-        tenure_index: 1,
         num_blocks_confirmed: 1,
     };
 
@@ -899,15 +981,12 @@ pub fn test_load_store_update_nakamoto_blocks() {
 
         // tenure length doesn't apply to epoch2 blocks
         assert_eq!(
-            NakamotoChainState::get_nakamoto_tenure_length(&tx, &epoch2_header_info.consensus_hash)
-                .unwrap(),
+            NakamotoChainState::get_nakamoto_tenure_length(
+                &tx,
+                &epoch2_header_info.index_block_hash()
+            )
+            .unwrap(),
             0
-        );
-
-        // no tenure rows
-        assert_eq!(
-            NakamotoChainState::get_highest_nakamoto_coinbase_height(&tx, i64::MAX as u64).unwrap(),
-            None
         );
 
         // but, this upcoming tenure-change payload should be the first-ever tenure-change payload!
@@ -920,18 +999,9 @@ pub fn test_load_store_update_nakamoto_blocks() {
 
         // no tenure yet, so zero blocks
         assert_eq!(
-            NakamotoChainState::get_nakamoto_tenure_length(
-                &tx,
-                &nakamoto_block.header.consensus_hash
-            )
-            .unwrap(),
+            NakamotoChainState::get_nakamoto_tenure_length(&tx, &nakamoto_block.header.block_id(),)
+                .unwrap(),
             0
-        );
-
-        // no tenure rows
-        assert_eq!(
-            NakamotoChainState::get_highest_nakamoto_coinbase_height(&tx, i64::MAX as u64).unwrap(),
-            None
         );
 
         // add the tenure for these blocks
@@ -939,27 +1009,15 @@ pub fn test_load_store_update_nakamoto_blocks() {
             &tx,
             &nakamoto_header,
             epoch2_header.total_work.work + 1,
-            1,
             &tenure_change_payload,
         )
         .unwrap();
 
         // no blocks yet, so zero blocks
         assert_eq!(
-            NakamotoChainState::get_nakamoto_tenure_length(
-                &tx,
-                &nakamoto_block.header.consensus_hash
-            )
-            .unwrap(),
-            0
-        );
-
-        // have a tenure
-        assert_eq!(
-            NakamotoChainState::get_highest_nakamoto_coinbase_height(&tx, i64::MAX as u64)
-                .unwrap()
+            NakamotoChainState::get_nakamoto_tenure_length(&tx, &nakamoto_block.header.block_id(),)
                 .unwrap(),
-            epoch2_header.total_work.work + 1
+            0
         );
 
         // this succeeds now
@@ -971,27 +1029,24 @@ pub fn test_load_store_update_nakamoto_blocks() {
             &nakamoto_execution_cost,
             &nakamoto_execution_cost,
             true,
+            1,
             300,
         )
         .unwrap();
-        NakamotoChainState::store_block(&staging_tx, nakamoto_block.clone(), false).unwrap();
+        NakamotoChainState::store_block_if_better(
+            &staging_tx,
+            &nakamoto_block,
+            false,
+            1,
+            NakamotoBlockObtainMethod::Downloaded,
+        )
+        .unwrap();
 
         // tenure has one block
         assert_eq!(
-            NakamotoChainState::get_nakamoto_tenure_length(
-                &tx,
-                &nakamoto_block.header.consensus_hash
-            )
-            .unwrap(),
-            1
-        );
-
-        // same tenure
-        assert_eq!(
-            NakamotoChainState::get_highest_nakamoto_coinbase_height(&tx, i64::MAX as u64)
-                .unwrap()
+            NakamotoChainState::get_nakamoto_tenure_length(&tx, &nakamoto_block.header.block_id(),)
                 .unwrap(),
-            epoch2_header.total_work.work + 1
+            1
         );
 
         // this succeeds now
@@ -1003,32 +1058,94 @@ pub fn test_load_store_update_nakamoto_blocks() {
             &nakamoto_execution_cost,
             &total_nakamoto_execution_cost,
             false,
+            2,
             400,
         )
         .unwrap();
 
-        NakamotoChainState::store_block(&staging_tx, nakamoto_block_2.clone(), false).unwrap();
+        NakamotoChainState::store_block_if_better(
+            &staging_tx,
+            &nakamoto_block_2,
+            false,
+            1,
+            NakamotoBlockObtainMethod::Downloaded,
+        )
+        .unwrap();
 
         // tenure has two blocks
         assert_eq!(
             NakamotoChainState::get_nakamoto_tenure_length(
                 &tx,
-                &nakamoto_block.header.consensus_hash
+                &nakamoto_block_2.header.block_id(),
             )
             .unwrap(),
             2
         );
-
-        // same tenure
         assert_eq!(
-            NakamotoChainState::get_highest_nakamoto_coinbase_height(&tx, i64::MAX as u64)
-                .unwrap()
+            NakamotoChainState::get_nakamoto_tenure_length(&tx, &nakamoto_block.header.block_id(),)
                 .unwrap(),
-            epoch2_header.total_work.work + 1
+            1
         );
 
         // store, but do not process, a block
-        NakamotoChainState::store_block(&staging_tx, nakamoto_block_3.clone(), false).unwrap();
+        NakamotoChainState::store_block_if_better(
+            &staging_tx,
+            &nakamoto_block_3,
+            false,
+            1,
+            NakamotoBlockObtainMethod::Downloaded,
+        )
+        .unwrap();
+        assert_eq!(
+            staging_tx
+                .conn()
+                .get_nakamoto_block(&nakamoto_header_3.block_id())
+                .unwrap()
+                .unwrap()
+                .0,
+            nakamoto_block_3
+        );
+        assert_eq!(
+            staging_tx
+                .conn()
+                .get_block_processed_and_signed_weight(
+                    &nakamoto_header_3.consensus_hash,
+                    &nakamoto_header_3.block_hash(),
+                )
+                .unwrap()
+                .unwrap(),
+            (nakamoto_header_3.block_id(), false, false, 1)
+        );
+
+        // store, but do not process, the same block with a heavier weight
+        NakamotoChainState::store_block_if_better(
+            &staging_tx,
+            &nakamoto_block_3_weight_2,
+            false,
+            2,
+            NakamotoBlockObtainMethod::Downloaded,
+        )
+        .unwrap();
+        assert_eq!(
+            staging_tx
+                .conn()
+                .get_nakamoto_block(&nakamoto_header_3_weight_2.block_id())
+                .unwrap()
+                .unwrap()
+                .0,
+            nakamoto_block_3_weight_2
+        );
+        assert_eq!(
+            staging_tx
+                .conn()
+                .get_block_processed_and_signed_weight(
+                    &nakamoto_header_3.consensus_hash,
+                    &nakamoto_header_3.block_hash(),
+                )
+                .unwrap()
+                .unwrap(),
+            (nakamoto_header_3_weight_2.block_id(), false, false, 2)
+        );
 
         staging_tx.commit().unwrap();
         tx.commit().unwrap();
@@ -1036,13 +1153,16 @@ pub fn test_load_store_update_nakamoto_blocks() {
 
     // can load Nakamoto block, but only the Nakamoto block
     let nakamoto_blocks_db = chainstate.nakamoto_blocks_db();
+    let first_nakamoto_block = nakamoto_blocks_db
+        .get_nakamoto_block(&nakamoto_header.block_id())
+        .unwrap()
+        .unwrap()
+        .0;
+    assert_eq!(first_nakamoto_block, nakamoto_block,);
+    // Double check that the signatures match
     assert_eq!(
-        nakamoto_blocks_db
-            .get_nakamoto_block(&nakamoto_header.block_id())
-            .unwrap()
-            .unwrap()
-            .0,
-        nakamoto_block
+        first_nakamoto_block.header.signer_signature,
+        header_signatures
     );
     assert_eq!(
         nakamoto_blocks_db
@@ -1074,6 +1194,19 @@ pub fn test_load_store_update_nakamoto_blocks() {
         (true, false)
     );
 
+    // however, in the staging DB, this block is not yet marked as processed
+    assert_eq!(
+        chainstate
+            .nakamoto_blocks_db()
+            .get_block_processed_and_signed_weight(
+                &nakamoto_header.consensus_hash,
+                &nakamoto_header.block_hash(),
+            )
+            .unwrap()
+            .unwrap(),
+        (nakamoto_header.block_id(), false, false, 1)
+    );
+
     // same goes for block 2
     assert_eq!(
         NakamotoChainState::get_nakamoto_block_status(
@@ -1086,18 +1219,41 @@ pub fn test_load_store_update_nakamoto_blocks() {
         .unwrap(),
         (true, false)
     );
+    assert_eq!(
+        chainstate
+            .nakamoto_blocks_db()
+            .get_block_processed_and_signed_weight(
+                &nakamoto_header.consensus_hash,
+                &nakamoto_header_2.block_hash(),
+            )
+            .unwrap()
+            .unwrap(),
+        (nakamoto_header_2.block_id(), false, false, 1)
+    );
 
     // block 3 has only been stored, but no header has been added
     assert_eq!(
         NakamotoChainState::get_nakamoto_block_status(
             chainstate.nakamoto_blocks_db(),
             chainstate.db(),
-            &nakamoto_header_3.consensus_hash,
-            &nakamoto_header_3.block_hash()
+            &nakamoto_header_3_weight_2.consensus_hash,
+            &nakamoto_header_3_weight_2.block_hash()
         )
         .unwrap()
         .unwrap(),
         (false, false)
+    );
+
+    assert_eq!(
+        chainstate
+            .nakamoto_blocks_db()
+            .get_block_processed_and_signed_weight(
+                &nakamoto_header_3_weight_2.consensus_hash,
+                &nakamoto_header_3_weight_2.block_hash()
+            )
+            .unwrap()
+            .unwrap(),
+        (nakamoto_header_3_weight_2.block_id(), false, false, 2)
     );
 
     // this method doesn't return data for epoch2
@@ -1112,40 +1268,223 @@ pub fn test_load_store_update_nakamoto_blocks() {
         None
     );
 
-    // set nakamoto block processed
+    // set nakamoto block processed, and store a sibling if it's the chain tip
     {
         let (tx, staging_tx) = chainstate.headers_and_staging_tx_begin().unwrap();
+
         staging_tx
-            .set_block_processed(&nakamoto_header_3.block_id())
+            .set_block_processed(&nakamoto_header_3_weight_2.block_id())
             .unwrap();
         assert_eq!(
             NakamotoChainState::get_nakamoto_block_status(
                 staging_tx.conn(),
                 &tx,
-                &nakamoto_header_3.consensus_hash,
-                &nakamoto_header_3.block_hash()
+                &nakamoto_header_3_weight_2.consensus_hash,
+                &nakamoto_header_3_weight_2.block_hash()
             )
             .unwrap()
             .unwrap(),
             (true, false)
+        );
+        assert_eq!(
+            staging_tx
+                .conn()
+                .get_block_processed_and_signed_weight(
+                    &nakamoto_header_3_weight_2.consensus_hash,
+                    &nakamoto_header_3_weight_2.block_hash()
+                )
+                .unwrap()
+                .unwrap(),
+            (nakamoto_header_3_weight_2.block_id(), true, false, 2)
+        );
+
+        // store a sibling with more weight, even though this block has been processed.
+        // This is allowed because we don't commit to signatures.
+        NakamotoChainState::store_block_if_better(
+            &staging_tx,
+            &nakamoto_block_3,
+            false,
+            3,
+            NakamotoBlockObtainMethod::Downloaded,
+        )
+        .unwrap();
+        assert_eq!(
+            staging_tx
+                .conn()
+                .get_nakamoto_block(&nakamoto_header_3.block_id())
+                .unwrap()
+                .unwrap()
+                .0,
+            nakamoto_block_3
+        );
+        assert_eq!(
+            staging_tx
+                .conn()
+                .get_block_processed_and_signed_weight(
+                    &nakamoto_header_3.consensus_hash,
+                    &nakamoto_header_3.block_hash()
+                )
+                .unwrap()
+                .unwrap(),
+            (nakamoto_header_3.block_id(), true, false, 3)
+        );
+    }
+
+    // set nakamoto block processed, and store a processed children, and verify that we'll still
+    // accept siblings with higher signing power.
+    {
+        let (tx, staging_tx) = chainstate.headers_and_staging_tx_begin().unwrap();
+
+        // set block 3 weight 2 processed
+        staging_tx
+            .set_block_processed(&nakamoto_header_3_weight_2.block_id())
+            .unwrap();
+        assert_eq!(
+            NakamotoChainState::get_nakamoto_block_status(
+                staging_tx.conn(),
+                &tx,
+                &nakamoto_header_3_weight_2.consensus_hash,
+                &nakamoto_header_3_weight_2.block_hash()
+            )
+            .unwrap()
+            .unwrap(),
+            (true, false)
+        );
+        assert_eq!(
+            staging_tx
+                .conn()
+                .get_block_processed_and_signed_weight(
+                    &nakamoto_header_3_weight_2.consensus_hash,
+                    &nakamoto_header_3_weight_2.block_hash()
+                )
+                .unwrap()
+                .unwrap(),
+            (nakamoto_header_3_weight_2.block_id(), true, false, 2)
+        );
+
+        // store block 4, which descends from block 3 weight 2
+        NakamotoChainState::store_block_if_better(
+            &staging_tx,
+            &nakamoto_block_4,
+            false,
+            1,
+            NakamotoBlockObtainMethod::Downloaded,
+        )
+        .unwrap();
+        assert_eq!(
+            staging_tx
+                .conn()
+                .get_nakamoto_block(&nakamoto_header_4.block_id())
+                .unwrap()
+                .unwrap()
+                .0,
+            nakamoto_block_4
+        );
+
+        // set block 4 processed
+        staging_tx
+            .set_block_processed(&nakamoto_header_4.block_id())
+            .unwrap();
+        assert_eq!(
+            NakamotoChainState::get_nakamoto_block_status(
+                staging_tx.conn(),
+                &tx,
+                &nakamoto_header_4.consensus_hash,
+                &nakamoto_header_4.block_hash()
+            )
+            .unwrap()
+            .unwrap(),
+            (true, false)
+        );
+
+        NakamotoChainState::store_block_if_better(
+            &staging_tx,
+            &nakamoto_block_3,
+            false,
+            3,
+            NakamotoBlockObtainMethod::Downloaded,
+        )
+        .unwrap();
+        assert_eq!(
+            staging_tx
+                .conn()
+                .get_nakamoto_block(&nakamoto_header_3.block_id())
+                .unwrap()
+                .unwrap()
+                .0,
+            nakamoto_block_3
         );
     }
     // set nakamoto block orphaned
     {
         let (tx, staging_tx) = chainstate.headers_and_staging_tx_begin().unwrap();
         staging_tx
-            .set_block_orphaned(&nakamoto_header.block_id())
+            .set_block_orphaned(&nakamoto_header_3_weight_2.block_id())
             .unwrap();
         assert_eq!(
             NakamotoChainState::get_nakamoto_block_status(
                 staging_tx.conn(),
                 &tx,
-                &nakamoto_header.consensus_hash,
-                &nakamoto_header.block_hash()
+                &nakamoto_header_3_weight_2.consensus_hash,
+                &nakamoto_header_3_weight_2.block_hash()
             )
             .unwrap()
             .unwrap(),
             (true, true)
+        );
+        assert_eq!(
+            staging_tx
+                .conn()
+                .get_block_processed_and_signed_weight(
+                    &nakamoto_header_3_weight_2.consensus_hash,
+                    &nakamoto_header_3_weight_2.block_hash()
+                )
+                .unwrap()
+                .unwrap(),
+            (nakamoto_header_3_weight_2.block_id(), true, true, 2)
+        );
+
+        // can't re-store it, even if its signing power is better
+        assert!(!NakamotoChainState::store_block_if_better(
+            &staging_tx,
+            &nakamoto_block_3_weight_2,
+            false,
+            3,
+            NakamotoBlockObtainMethod::Downloaded
+        )
+        .unwrap());
+        assert_eq!(
+            NakamotoChainState::get_nakamoto_block_status(
+                staging_tx.conn(),
+                &tx,
+                &nakamoto_header_3_weight_2.consensus_hash,
+                &nakamoto_header_3_weight_2.block_hash()
+            )
+            .unwrap()
+            .unwrap(),
+            (true, true)
+        );
+
+        // can't store a sibling with the same sighash either, since if a block with the given sighash is orphaned, then
+        // it doesn't matter how many signers it has
+        assert!(!NakamotoChainState::store_block_if_better(
+            &staging_tx,
+            &nakamoto_block_3,
+            false,
+            3,
+            NakamotoBlockObtainMethod::Downloaded
+        )
+        .unwrap());
+        assert_eq!(
+            staging_tx
+                .conn()
+                .get_block_processed_and_signed_weight(
+                    &nakamoto_header_3.consensus_hash,
+                    &nakamoto_header_3.block_hash()
+                )
+                .unwrap()
+                .unwrap(),
+            (nakamoto_header_3_weight_2.block_id(), true, true, 2)
         );
     }
     // orphan nakamoto block by parent
@@ -1165,47 +1504,18 @@ pub fn test_load_store_update_nakamoto_blocks() {
             .unwrap(),
             (false, true)
         );
+        assert_eq!(
+            staging_tx
+                .conn()
+                .get_block_processed_and_signed_weight(
+                    &nakamoto_header.consensus_hash,
+                    &nakamoto_header.block_hash()
+                )
+                .unwrap()
+                .unwrap(),
+            (nakamoto_header.block_id(), false, true, 1)
+        );
     }
-
-    // check start/finish
-    assert_eq!(
-        NakamotoChainState::get_nakamoto_tenure_start_block_header(
-            chainstate.db(),
-            &nakamoto_header.consensus_hash
-        )
-        .unwrap()
-        .unwrap(),
-        nakamoto_header_info
-    );
-    assert_eq!(
-        NakamotoChainState::get_nakamoto_tenure_finish_block_header(
-            chainstate.db(),
-            &nakamoto_header.consensus_hash
-        )
-        .unwrap()
-        .unwrap(),
-        nakamoto_header_info_2
-    );
-
-    // can query the tenure-start and epoch2 headers by consensus hash
-    assert_eq!(
-        NakamotoChainState::get_block_header_by_consensus_hash(
-            chainstate.db(),
-            &nakamoto_header.consensus_hash
-        )
-        .unwrap()
-        .unwrap(),
-        nakamoto_header_info
-    );
-    assert_eq!(
-        NakamotoChainState::get_block_header_by_consensus_hash(
-            chainstate.db(),
-            &epoch2_consensus_hash
-        )
-        .unwrap()
-        .unwrap(),
-        epoch2_header_info
-    );
 
     // can query the tenure-start and epoch2 headers by block ID
     assert_eq!(
@@ -1228,29 +1538,6 @@ pub fn test_load_store_update_nakamoto_blocks() {
         .unwrap()
         .unwrap(),
         epoch2_header_info
-    );
-
-    // can get tenure height of nakamoto blocks and epoch2 blocks
-    assert_eq!(
-        NakamotoChainState::get_coinbase_height(chainstate.db(), &nakamoto_header.block_id())
-            .unwrap()
-            .unwrap(),
-        epoch2_header_info.anchored_header.height() + 1
-    );
-    assert_eq!(
-        NakamotoChainState::get_coinbase_height(chainstate.db(), &nakamoto_header_2.block_id())
-            .unwrap()
-            .unwrap(),
-        epoch2_header_info.anchored_header.height() + 1
-    );
-    assert_eq!(
-        NakamotoChainState::get_coinbase_height(
-            chainstate.db(),
-            &epoch2_header_info.index_block_hash()
-        )
-        .unwrap()
-        .unwrap(),
-        epoch2_header_info.anchored_header.height()
     );
 
     // can get total tenure cost for nakamoto blocks, but not epoch2 blocks
@@ -1306,33 +1593,22 @@ pub fn test_load_store_update_nakamoto_blocks() {
         None
     );
 
-    // can get block VRF proof for both nakamoto and epoch2 blocks
-    assert_eq!(
-        NakamotoChainState::get_block_vrf_proof(chainstate.db(), &nakamoto_header.consensus_hash)
-            .unwrap()
-            .unwrap(),
-        nakamoto_proof
-    );
-    assert_eq!(
-        NakamotoChainState::get_block_vrf_proof(chainstate.db(), &epoch2_consensus_hash)
-            .unwrap()
-            .unwrap(),
-        epoch2_proof
-    );
-
     // can get nakamoto VRF proof only for nakamoto blocks
     assert_eq!(
         NakamotoChainState::get_nakamoto_tenure_vrf_proof(
             chainstate.db(),
-            &nakamoto_header.consensus_hash
+            &nakamoto_header.block_id(),
         )
         .unwrap()
         .unwrap(),
         nakamoto_proof
     );
     assert_eq!(
-        NakamotoChainState::get_nakamoto_tenure_vrf_proof(chainstate.db(), &epoch2_consensus_hash)
-            .unwrap(),
+        NakamotoChainState::get_nakamoto_tenure_vrf_proof(
+            chainstate.db(),
+            &epoch2_header_info.index_block_hash()
+        )
+        .unwrap(),
         None
     );
 
@@ -1341,16 +1617,8 @@ pub fn test_load_store_update_nakamoto_blocks() {
     {
         let (tx, staging_tx) = chainstate.headers_and_staging_tx_begin().unwrap();
         let staging_conn = staging_tx.conn();
-        let sh = MockSortitionHandle::new(
-            nakamoto_block_2.header.consensus_hash.clone(),
-            nakamoto_block_2.header.block_hash(),
-            nakamoto_block_2.header.chain_length,
-        );
 
-        assert_eq!(
-            staging_conn.next_ready_nakamoto_block(&tx, &sh).unwrap(),
-            None
-        );
+        assert_eq!(staging_conn.next_ready_nakamoto_block(&tx).unwrap(), None);
 
         // set parent epoch2 block processed
         staging_tx
@@ -1358,10 +1626,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
             .unwrap();
 
         // but it's not enough -- child's consensus hash needs to be burn_processable
-        assert_eq!(
-            staging_conn.next_ready_nakamoto_block(&tx, &sh).unwrap(),
-            None
-        );
+        assert_eq!(staging_conn.next_ready_nakamoto_block(&tx).unwrap(), None);
 
         // set burn processed
         staging_tx
@@ -1371,7 +1636,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
         // this works now
         assert_eq!(
             staging_conn
-                .next_ready_nakamoto_block(&tx, &sh)
+                .next_ready_nakamoto_block(&tx)
                 .unwrap()
                 .unwrap()
                 .0,
@@ -1386,7 +1651,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
         // next nakamoto block
         assert_eq!(
             staging_conn
-                .next_ready_nakamoto_block(&tx, &sh)
+                .next_ready_nakamoto_block(&tx)
                 .unwrap()
                 .unwrap()
                 .0,
@@ -1518,9 +1783,10 @@ fn test_nakamoto_block_static_verification() {
         parent_block_id: StacksBlockId([0x03; 32]),
         tx_merkle_root: nakamoto_tx_merkle_root,
         state_index_root: TrieHash([0x07; 32]),
+        timestamp: 8,
         miner_signature: MessageSignature::empty(),
-        signer_signature: ThresholdSignature::empty(),
-        signer_bitvec: BitVec::zeros(1).unwrap(),
+        signer_signature: vec![],
+        pox_treatment: BitVec::zeros(1).unwrap(),
     };
     nakamoto_header.sign_miner(&private_key).unwrap();
 
@@ -1537,9 +1803,10 @@ fn test_nakamoto_block_static_verification() {
         parent_block_id: StacksBlockId([0x03; 32]),
         tx_merkle_root: nakamoto_tx_merkle_root_bad_ch,
         state_index_root: TrieHash([0x07; 32]),
+        timestamp: 8,
         miner_signature: MessageSignature::empty(),
-        signer_signature: ThresholdSignature::empty(),
-        signer_bitvec: BitVec::zeros(1).unwrap(),
+        signer_signature: vec![],
+        pox_treatment: BitVec::zeros(1).unwrap(),
     };
     nakamoto_header_bad_ch.sign_miner(&private_key).unwrap();
 
@@ -1556,9 +1823,10 @@ fn test_nakamoto_block_static_verification() {
         parent_block_id: StacksBlockId([0x03; 32]),
         tx_merkle_root: nakamoto_tx_merkle_root_bad_miner_sig,
         state_index_root: TrieHash([0x07; 32]),
+        timestamp: 8,
         miner_signature: MessageSignature::empty(),
-        signer_signature: ThresholdSignature::empty(),
-        signer_bitvec: BitVec::zeros(1).unwrap(),
+        signer_signature: vec![],
+        pox_treatment: BitVec::zeros(1).unwrap(),
     };
     nakamoto_header_bad_miner_sig
         .sign_miner(&private_key)
@@ -1605,226 +1873,12 @@ fn test_nakamoto_block_static_verification() {
         .is_err());
 }
 
-/// Mock block arrivals
-fn make_fork_run_with_arrivals(
-    sort_db: &mut SortitionDB,
-    start_snapshot: &BlockSnapshot,
-    length: u64,
-    bit_pattern: u8,
-) -> Vec<BlockSnapshot> {
-    let mut last_snapshot = start_snapshot.clone();
-    let mut new_snapshots = vec![];
-    for i in last_snapshot.block_height..(last_snapshot.block_height + length) {
-        let snapshot = BlockSnapshot {
-            accumulated_coinbase_ustx: 0,
-            pox_valid: true,
-            block_height: last_snapshot.block_height + 1,
-            burn_header_timestamp: get_epoch_time_secs(),
-            burn_header_hash: BurnchainHeaderHash([(i as u8) | bit_pattern; 32]),
-            sortition_id: SortitionId([(i as u8) | bit_pattern; 32]),
-            parent_sortition_id: last_snapshot.sortition_id.clone(),
-            parent_burn_header_hash: last_snapshot.burn_header_hash.clone(),
-            consensus_hash: ConsensusHash([((i + 1) as u8) | bit_pattern; 20]),
-            ops_hash: OpsHash([(i as u8) | bit_pattern; 32]),
-            total_burn: 0,
-            sortition: true,
-            sortition_hash: SortitionHash([(i as u8) | bit_pattern; 32]),
-            winning_block_txid: Txid([(i as u8) | bit_pattern; 32]),
-            winning_stacks_block_hash: BlockHeaderHash([(i as u8) | bit_pattern; 32]),
-            index_root: TrieHash([0u8; 32]),
-            num_sortitions: last_snapshot.num_sortitions + 1,
-            stacks_block_accepted: false,
-            stacks_block_height: 0,
-            arrival_index: 0,
-            canonical_stacks_tip_height: last_snapshot.canonical_stacks_tip_height + 10,
-            canonical_stacks_tip_hash: BlockHeaderHash([((i + 1) as u8) | bit_pattern; 32]),
-            canonical_stacks_tip_consensus_hash: ConsensusHash([((i + 1) as u8) | bit_pattern; 20]),
-            miner_pk_hash: None,
-        };
-        new_snapshots.push(snapshot.clone());
-        {
-            let mut tx = SortitionHandleTx::begin(sort_db, &last_snapshot.sortition_id).unwrap();
-            let _index_root = tx
-                .append_chain_tip_snapshot(
-                    &last_snapshot,
-                    &snapshot,
-                    &vec![],
-                    &vec![],
-                    None,
-                    None,
-                    None,
-                )
-                .unwrap();
-            tx.test_update_canonical_stacks_tip(
-                &snapshot.sortition_id,
-                &snapshot.canonical_stacks_tip_consensus_hash,
-                &snapshot.canonical_stacks_tip_hash,
-                snapshot.canonical_stacks_tip_height,
-            )
-            .unwrap();
-            tx.commit().unwrap();
-        }
-        last_snapshot = SortitionDB::get_block_snapshot(sort_db.conn(), &snapshot.sortition_id)
-            .unwrap()
-            .unwrap();
-    }
-    new_snapshots
-}
-
-/// Tests that getting the highest nakamoto tenure works in the presence of forks
-#[test]
-pub fn test_get_highest_nakamoto_tenure() {
-    let mut test_signers = TestSigners::default();
-    let test_stackers = TestStacker::common_signing_set(&test_signers);
-    let mut peer = boot_nakamoto(
-        function_name!(),
-        vec![],
-        &mut test_signers,
-        &test_stackers,
-        None,
-    );
-
-    // extract chainstate and sortdb -- we don't need the peer anymore
-    let chainstate = &mut peer.stacks_node.as_mut().unwrap().chainstate;
-    let sort_db = peer.sortdb.as_mut().unwrap();
-
-    // seed a single fork of tenures
-    let last_snapshot = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
-
-    // mock block arrivals
-    let snapshots = make_fork_run_with_arrivals(sort_db, &last_snapshot, 5, 0);
-
-    let mut last_header: Option<NakamotoBlockHeader> = None;
-    let mut last_tenure_change: Option<TenureChangePayload> = None;
-    let mut all_headers = vec![];
-    let mut all_tenure_changes = vec![];
-    for (i, sn) in snapshots.iter().enumerate() {
-        let block_header = NakamotoBlockHeader {
-            version: 0,
-            chain_length: sn.canonical_stacks_tip_height,
-            burn_spent: i as u64,
-            consensus_hash: sn.consensus_hash.clone(),
-            parent_block_id: last_header
-                .as_ref()
-                .map(|hdr| hdr.block_id())
-                .unwrap_or(FIRST_STACKS_BLOCK_ID.clone()),
-            tx_merkle_root: Sha512Trunc256Sum([0x00; 32]),
-            state_index_root: TrieHash([0x00; 32]),
-            miner_signature: MessageSignature::empty(),
-            signer_signature: ThresholdSignature::empty(),
-            signer_bitvec: BitVec::zeros(1).unwrap(),
-        };
-        let tenure_change = TenureChangePayload {
-            tenure_consensus_hash: sn.consensus_hash.clone(),
-            prev_tenure_consensus_hash: last_tenure_change
-                .as_ref()
-                .map(|tc| tc.tenure_consensus_hash.clone())
-                .unwrap_or(last_snapshot.consensus_hash.clone()),
-            burn_view_consensus_hash: sn.consensus_hash.clone(),
-            previous_tenure_end: block_header.block_id(),
-            previous_tenure_blocks: 10,
-            cause: TenureChangeCause::BlockFound,
-            pubkey_hash: Hash160([0x00; 20]),
-        };
-
-        let tx = chainstate.db_tx_begin().unwrap();
-        NakamotoChainState::insert_nakamoto_tenure(
-            &tx,
-            &block_header,
-            1 + i as u64,
-            1 + i as u64,
-            &tenure_change,
-        )
-        .unwrap();
-        tx.commit().unwrap();
-
-        all_headers.push(block_header.clone());
-        all_tenure_changes.push(tenure_change.clone());
-
-        last_header = Some(block_header);
-        last_tenure_change = Some(tenure_change);
-    }
-
-    // highest tenure should be the last one we inserted
-    let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
-    let (stacks_ch, stacks_bhh, stacks_height) =
-        SortitionDB::get_canonical_stacks_chain_tip_hash_and_height(sort_db.conn()).unwrap();
-    debug!("tip = {:?}", &tip);
-    debug!(
-        "stacks tip = {},{},{}",
-        &stacks_ch, &stacks_bhh, stacks_height
-    );
-    let highest_tenure =
-        NakamotoChainState::get_highest_nakamoto_tenure(chainstate.db(), sort_db.conn())
-            .unwrap()
-            .unwrap();
-
-    let last_tenure_change = last_tenure_change.unwrap();
-    let last_header = last_header.unwrap();
-    assert_eq!(
-        highest_tenure.tenure_id_consensus_hash,
-        last_tenure_change.tenure_consensus_hash
-    );
-    assert_eq!(
-        highest_tenure.prev_tenure_id_consensus_hash,
-        last_tenure_change.prev_tenure_consensus_hash
-    );
-    assert_eq!(
-        highest_tenure.burn_view_consensus_hash,
-        last_tenure_change.burn_view_consensus_hash
-    );
-    assert_eq!(highest_tenure.cause, last_tenure_change.cause);
-    assert_eq!(highest_tenure.block_hash, last_header.block_hash());
-    assert_eq!(highest_tenure.block_id, last_header.block_id());
-    assert_eq!(highest_tenure.coinbase_height, 5);
-    assert_eq!(highest_tenure.tenure_index, 5);
-    assert_eq!(highest_tenure.num_blocks_confirmed, 10);
-
-    // uh oh, a bitcoin fork!
-    let last_snapshot = snapshots[2].clone();
-    let snapshots = make_fork_run(sort_db, &last_snapshot, 7, 0x80);
-
-    let new_tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
-    debug!("tip = {:?}", &new_tip);
-    debug!(
-        "stacks tip = {},{},{}",
-        &stacks_ch, &stacks_bhh, stacks_height
-    );
-
-    // new tip doesn't include the last two tenures
-    let highest_tenure =
-        NakamotoChainState::get_highest_nakamoto_tenure(chainstate.db(), sort_db.conn())
-            .unwrap()
-            .unwrap();
-    let last_tenure_change = &all_tenure_changes[2];
-    let last_header = &all_headers[2];
-    assert_eq!(
-        highest_tenure.tenure_id_consensus_hash,
-        last_tenure_change.tenure_consensus_hash
-    );
-    assert_eq!(
-        highest_tenure.prev_tenure_id_consensus_hash,
-        last_tenure_change.prev_tenure_consensus_hash
-    );
-    assert_eq!(
-        highest_tenure.burn_view_consensus_hash,
-        last_tenure_change.burn_view_consensus_hash
-    );
-    assert_eq!(highest_tenure.cause, last_tenure_change.cause);
-    assert_eq!(highest_tenure.block_hash, last_header.block_hash());
-    assert_eq!(highest_tenure.block_id, last_header.block_id());
-    assert_eq!(highest_tenure.coinbase_height, 3);
-    assert_eq!(highest_tenure.tenure_index, 3);
-    assert_eq!(highest_tenure.num_blocks_confirmed, 10);
-}
-
 /// Test that we can generate a .miners stackerdb config.
 /// The config must be stable across sortitions -- if a miner is given slot i, then it continues
 /// to have slot i in subsequent sortitions.
 #[test]
 fn test_make_miners_stackerdb_config() {
-    let mut test_signers = TestSigners::default();
-    let test_stackers = TestStacker::common_signing_set(&test_signers);
+    let (mut test_signers, test_stackers) = TestStacker::common_signing_set();
     let mut peer = boot_nakamoto(
         function_name!(),
         vec![],
@@ -1946,6 +2000,7 @@ fn test_make_miners_stackerdb_config() {
             block_height: snapshot.block_height,
             burn_parent_modulus: ((snapshot.block_height - 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: snapshot.burn_header_hash.clone(),
+            treatment: vec![],
         };
 
         let winning_ops = if i == 0 {
@@ -1993,8 +2048,9 @@ fn test_make_miners_stackerdb_config() {
 
         let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
         // check the stackerdb config as of this chain tip
-        let stackerdb_config =
-            NakamotoChainState::make_miners_stackerdb_config(sort_db, &tip).unwrap();
+        let stackerdb_config = NakamotoChainState::make_miners_stackerdb_config(sort_db, &tip)
+            .unwrap()
+            .0;
         eprintln!(
             "stackerdb_config at i = {} (sorition? {}): {:?}",
             &i, sortition, &stackerdb_config
@@ -2011,9 +2067,10 @@ fn test_make_miners_stackerdb_config() {
             parent_block_id: StacksBlockId([0x05; 32]),
             tx_merkle_root: Sha512Trunc256Sum([0x06; 32]),
             state_index_root: TrieHash([0x07; 32]),
+            timestamp: 8,
             miner_signature: MessageSignature::empty(),
-            signer_signature: ThresholdSignature::empty(),
-            signer_bitvec: BitVec::zeros(1).unwrap(),
+            signer_signature: vec![],
+            pox_treatment: BitVec::zeros(1).unwrap(),
         };
         let block = NakamotoBlock {
             header,
@@ -2022,7 +2079,7 @@ fn test_make_miners_stackerdb_config() {
         let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
         let miner_privkey = &miner_keys[i];
         let miner_pubkey = StacksPublicKey::from_private(miner_privkey);
-        let slot_id = NakamotoChainState::get_miner_slot(&sort_db, &tip, &miner_pubkey)
+        let slot_id = NakamotoChainState::get_miner_slot(&sort_db, &tip, &tip.consensus_hash)
             .expect("Failed to get miner slot");
         if sortition {
             let slot_id = slot_id.expect("No miner slot exists for this miner").start;
@@ -2112,9 +2169,8 @@ fn parse_vote_for_aggregate_public_key_valid() {
     let signer_index = thread_rng().next_u64();
     let signer_index_arg = Value::UInt(signer_index as u128);
 
-    let point = Point::from(Scalar::random(&mut thread_rng()));
-    let point_arg =
-        Value::buff_from(point.compress().data.to_vec()).expect("Failed to create buff");
+    let aggregate_key: Vec<u8> = rand::thread_rng().sample_iter(Standard).take(33).collect();
+    let aggregate_key_arg = Value::buff_from(aggregate_key.clone()).expect("Failed to create buff");
     let round = thread_rng().next_u64();
     let round_arg = Value::UInt(round as u128);
 
@@ -2123,7 +2179,7 @@ fn parse_vote_for_aggregate_public_key_valid() {
 
     let valid_function_args = vec![
         signer_index_arg.clone(),
-        point_arg.clone(),
+        aggregate_key_arg.clone(),
         round_arg.clone(),
         reward_cycle_arg.clone(),
     ];
@@ -2143,7 +2199,7 @@ fn parse_vote_for_aggregate_public_key_valid() {
     };
     let params = NakamotoSigners::parse_vote_for_aggregate_public_key(&valid_tx).unwrap();
     assert_eq!(params.signer_index, signer_index);
-    assert_eq!(params.aggregate_key, point);
+    assert_eq!(params.aggregate_key, aggregate_key);
     assert_eq!(params.voting_round, round);
     assert_eq!(params.reward_cycle, reward_cycle);
 }
@@ -2159,10 +2215,8 @@ fn parse_vote_for_aggregate_public_key_invalid() {
 
     let signer_index = thread_rng().next_u32();
     let signer_index_arg = Value::UInt(signer_index as u128);
-
-    let point = Point::from(Scalar::random(&mut thread_rng()));
-    let point_arg =
-        Value::buff_from(point.compress().data.to_vec()).expect("Failed to create buff");
+    let aggregate_key: Vec<u8> = rand::thread_rng().sample_iter(Standard).take(33).collect();
+    let aggregate_key_arg = Value::buff_from(aggregate_key).expect("Failed to create buff");
     let round = thread_rng().next_u64();
     let round_arg = Value::UInt(round as u128);
 
@@ -2171,7 +2225,7 @@ fn parse_vote_for_aggregate_public_key_invalid() {
 
     let valid_function_args = vec![
         signer_index_arg.clone(),
-        point_arg.clone(),
+        aggregate_key_arg.clone(),
         round_arg.clone(),
         reward_cycle_arg.clone(),
     ];
@@ -2239,8 +2293,8 @@ fn parse_vote_for_aggregate_public_key_invalid() {
             contract_name: contract_name.clone(),
             function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
             function_args: vec![
-                point_arg.clone(),
-                point_arg.clone(),
+                aggregate_key_arg.clone(),
+                aggregate_key_arg.clone(),
                 round_arg.clone(),
                 reward_cycle_arg.clone(),
             ],
@@ -2282,8 +2336,8 @@ fn parse_vote_for_aggregate_public_key_invalid() {
             function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
             function_args: vec![
                 signer_index_arg.clone(),
-                point_arg.clone(),
-                point_arg.clone(),
+                aggregate_key_arg.clone(),
+                aggregate_key_arg.clone(),
                 reward_cycle_arg.clone(),
             ],
         }),
@@ -2303,9 +2357,9 @@ fn parse_vote_for_aggregate_public_key_invalid() {
             function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
             function_args: vec![
                 signer_index_arg.clone(),
-                point_arg.clone(),
+                aggregate_key_arg.clone(),
                 round_arg.clone(),
-                point_arg.clone(),
+                aggregate_key_arg.clone(),
             ],
         }),
     };
@@ -2345,9 +2399,8 @@ fn valid_vote_transaction() {
     let signer_index = thread_rng().next_u32();
     let signer_index_arg = Value::UInt(signer_index as u128);
 
-    let point = Point::from(Scalar::random(&mut thread_rng()));
-    let point_arg =
-        Value::buff_from(point.compress().data.to_vec()).expect("Failed to create buff");
+    let aggregate_key: Vec<u8> = rand::thread_rng().sample_iter(Standard).take(33).collect();
+    let aggregate_key_arg = Value::buff_from(aggregate_key).expect("Failed to create buff");
     let round = thread_rng().next_u64();
     let round_arg = Value::UInt(round as u128);
 
@@ -2356,7 +2409,7 @@ fn valid_vote_transaction() {
 
     let valid_function_args = vec![
         signer_index_arg.clone(),
-        point_arg.clone(),
+        aggregate_key_arg.clone(),
         round_arg.clone(),
         reward_cycle_arg.clone(),
     ];
@@ -2396,9 +2449,8 @@ fn valid_vote_transaction_malformed_transactions() {
     let signer_index = thread_rng().next_u32();
     let signer_index_arg = Value::UInt(signer_index as u128);
 
-    let point = Point::from(Scalar::random(&mut thread_rng()));
-    let point_arg =
-        Value::buff_from(point.compress().data.to_vec()).expect("Failed to create buff");
+    let aggregate_key: Vec<u8> = rand::thread_rng().sample_iter(Standard).take(33).collect();
+    let aggregate_key_arg = Value::buff_from(aggregate_key).expect("Failed to create buff");
     let round = thread_rng().next_u64();
     let round_arg = Value::UInt(round as u128);
 
@@ -2407,7 +2459,7 @@ fn valid_vote_transaction_malformed_transactions() {
 
     let valid_function_args = vec![
         signer_index_arg.clone(),
-        point_arg.clone(),
+        aggregate_key_arg.clone(),
         round_arg.clone(),
         reward_cycle_arg.clone(),
     ];
@@ -2508,8 +2560,8 @@ fn valid_vote_transaction_malformed_transactions() {
             contract_name: contract_name.clone(),
             function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
             function_args: vec![
-                point_arg.clone(),
-                point_arg.clone(),
+                aggregate_key_arg.clone(),
+                aggregate_key_arg.clone(),
                 round_arg.clone(),
                 reward_cycle_arg.clone(),
             ],
@@ -2551,8 +2603,8 @@ fn valid_vote_transaction_malformed_transactions() {
             function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
             function_args: vec![
                 signer_index_arg.clone(),
-                point_arg.clone(),
-                point_arg.clone(),
+                aggregate_key_arg.clone(),
+                aggregate_key_arg.clone(),
                 reward_cycle_arg.clone(),
             ],
         }),
@@ -2572,9 +2624,9 @@ fn valid_vote_transaction_malformed_transactions() {
             function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
             function_args: vec![
                 signer_index_arg.clone(),
-                point_arg.clone(),
+                aggregate_key_arg.clone(),
                 round_arg.clone(),
-                point_arg.clone(),
+                aggregate_key_arg.clone(),
             ],
         }),
     };
@@ -2631,9 +2683,8 @@ fn filter_one_transaction_per_signer_multiple_addresses() {
     let signer_index = thread_rng().next_u32();
     let signer_index_arg = Value::UInt(signer_index as u128);
 
-    let point = Point::from(Scalar::random(&mut thread_rng()));
-    let point_arg =
-        Value::buff_from(point.compress().data.to_vec()).expect("Failed to create buff");
+    let aggregate_key: Vec<u8> = rand::thread_rng().sample_iter(Standard).take(33).collect();
+    let aggregate_key_arg = Value::buff_from(aggregate_key).expect("Failed to create buff");
     let round = thread_rng().next_u64();
     let round_arg = Value::UInt(round as u128);
 
@@ -2642,7 +2693,7 @@ fn filter_one_transaction_per_signer_multiple_addresses() {
 
     let function_args = vec![
         signer_index_arg.clone(),
-        point_arg.clone(),
+        aggregate_key_arg.clone(),
         round_arg.clone(),
         reward_cycle_arg.clone(),
     ];
@@ -2760,9 +2811,8 @@ fn filter_one_transaction_per_signer_duplicate_nonces() {
     let signer_index = thread_rng().next_u32();
     let signer_index_arg = Value::UInt(signer_index as u128);
 
-    let point = Point::from(Scalar::random(&mut thread_rng()));
-    let point_arg =
-        Value::buff_from(point.compress().data.to_vec()).expect("Failed to create buff");
+    let aggregate_key: Vec<u8> = rand::thread_rng().sample_iter(Standard).take(33).collect();
+    let aggregate_key_arg = Value::buff_from(aggregate_key).expect("Failed to create buff");
     let round = thread_rng().next_u64();
     let round_arg = Value::UInt(round as u128);
 
@@ -2771,7 +2821,7 @@ fn filter_one_transaction_per_signer_duplicate_nonces() {
 
     let function_args = vec![
         signer_index_arg.clone(),
-        point_arg.clone(),
+        aggregate_key_arg.clone(),
         round_arg.clone(),
         reward_cycle_arg.clone(),
     ];
@@ -2838,4 +2888,391 @@ fn filter_one_transaction_per_signer_duplicate_nonces() {
     txs.sort_by(|a, b| a.txid().cmp(&b.txid()));
     assert_eq!(filtered_txs.len(), 1);
     assert!(filtered_txs.contains(&txs.first().expect("failed to get first tx")));
+}
+
+pub mod nakamoto_block_signatures {
+    use super::*;
+
+    /// Helper function make a reward set with (PrivateKey, weight) tuples
+    fn make_reward_set(signers: Vec<(Secp256k1PrivateKey, u32)>) -> RewardSet {
+        let mut reward_set = RewardSet::empty();
+        reward_set.signers = Some(
+            signers
+                .iter()
+                .map(|(s, w)| {
+                    let mut signing_key = [0u8; 33];
+                    signing_key.copy_from_slice(
+                        &Secp256k1PublicKey::from_private(s)
+                            .to_bytes_compressed()
+                            .as_slice(),
+                    );
+                    NakamotoSignerEntry {
+                        signing_key,
+                        stacked_amt: 100_u128,
+                        weight: *w,
+                    }
+                })
+                .collect(),
+        );
+        reward_set
+    }
+
+    #[test]
+    // Test that signatures succeed with exactly 70% of the votes
+    pub fn test_exactly_enough_votes() {
+        let signers = vec![
+            (Secp256k1PrivateKey::default(), 35),
+            (Secp256k1PrivateKey::default(), 35),
+            (Secp256k1PrivateKey::default(), 30),
+        ];
+        let reward_set = make_reward_set(signers.clone());
+
+        let mut header = NakamotoBlockHeader::empty();
+
+        // Sign the block with the first two signers
+        let message = header.signer_signature_hash().0;
+        let signer_signature = signers
+            .iter()
+            .take(2)
+            .map(|(s, _)| s.sign(&message).expect("Failed to sign block sighash"))
+            .collect::<Vec<_>>();
+
+        header.signer_signature = signer_signature;
+
+        header
+            .verify_signer_signatures(&reward_set)
+            .expect("Failed to verify signatures");
+    }
+
+    #[test]
+    /// Test that signatures fail with just under 70% of the votes
+    pub fn test_just_not_enough_votes() {
+        let signers = vec![
+            (Secp256k1PrivateKey::default(), 3500),
+            (Secp256k1PrivateKey::default(), 3499),
+            (Secp256k1PrivateKey::default(), 3001),
+        ];
+        let reward_set = make_reward_set(signers.clone());
+
+        let mut header = NakamotoBlockHeader::empty();
+
+        // Sign the block with the first two signers
+        let message = header.signer_signature_hash().0;
+        let signer_signature = signers
+            .iter()
+            .take(2)
+            .map(|(s, _)| s.sign(&message).expect("Failed to sign block sighash"))
+            .collect::<Vec<_>>();
+
+        header.signer_signature = signer_signature;
+
+        match header.verify_signer_signatures(&reward_set) {
+            Ok(_) => panic!("Expected insufficient signatures to fail"),
+            Err(ChainstateError::InvalidStacksBlock(msg)) => {
+                assert!(msg.contains("Not enough signatures"));
+            }
+            _ => panic!("Expected InvalidStacksBlock error"),
+        }
+    }
+
+    #[test]
+    /// Base success case - 3 signers of equal weight, all signing the block
+    pub fn test_nakamoto_block_verify_signatures() {
+        let signers = vec![
+            Secp256k1PrivateKey::default(),
+            Secp256k1PrivateKey::default(),
+            Secp256k1PrivateKey::default(),
+        ];
+
+        let reward_set = make_reward_set(signers.iter().map(|s| (s.clone(), 100)).collect());
+
+        let mut header = NakamotoBlockHeader::empty();
+
+        // Sign the block sighash for each signer
+
+        let message = header.signer_signature_hash().0;
+        let signer_signature = signers
+            .iter()
+            .map(|s| s.sign(&message).expect("Failed to sign block sighash"))
+            .collect::<Vec<_>>();
+
+        header.signer_signature = signer_signature;
+
+        header
+            .verify_signer_signatures(&reward_set)
+            .expect("Failed to verify signatures");
+        // assert!(&header.verify_signer_signatures(&reward_set).is_ok());
+    }
+
+    #[test]
+    /// Fully signed block, but not in order
+    fn test_out_of_order_signer_signatures() {
+        let signers = vec![
+            (Secp256k1PrivateKey::default(), 100),
+            (Secp256k1PrivateKey::default(), 100),
+            (Secp256k1PrivateKey::default(), 100),
+        ];
+        let reward_set = make_reward_set(signers.clone());
+
+        let mut header = NakamotoBlockHeader::empty();
+
+        // Sign the block for each signer, but in reverse
+        let message = header.signer_signature_hash().0;
+        let signer_signature = signers
+            .iter()
+            .rev()
+            .map(|(s, _)| s.sign(&message).expect("Failed to sign block sighash"))
+            .collect::<Vec<_>>();
+
+        header.signer_signature = signer_signature;
+
+        match header.verify_signer_signatures(&reward_set) {
+            Ok(_) => panic!("Expected out of order signatures to fail"),
+            Err(ChainstateError::InvalidStacksBlock(msg)) => {
+                assert!(msg.contains("out of order"));
+            }
+            _ => panic!("Expected InvalidStacksBlock error"),
+        }
+    }
+
+    #[test]
+    // Test with 3 equal signers, and only two sign
+    fn test_insufficient_signatures() {
+        let signers = vec![
+            (Secp256k1PrivateKey::default(), 100),
+            (Secp256k1PrivateKey::default(), 100),
+            (Secp256k1PrivateKey::default(), 100),
+        ];
+        let reward_set = make_reward_set(signers.clone());
+
+        let mut header = NakamotoBlockHeader::empty();
+
+        // Sign the block with just the first two signers
+        let message = header.signer_signature_hash().0;
+        let signer_signature = signers
+            .iter()
+            .take(2)
+            .map(|(s, _)| s.sign(&message).expect("Failed to sign block sighash"))
+            .collect::<Vec<_>>();
+
+        header.signer_signature = signer_signature;
+
+        match header.verify_signer_signatures(&reward_set) {
+            Ok(_) => panic!("Expected insufficient signatures to fail"),
+            Err(ChainstateError::InvalidStacksBlock(msg)) => {
+                assert!(msg.contains("Not enough signatures"));
+            }
+            _ => panic!("Expected InvalidStacksBlock error"),
+        }
+    }
+
+    #[test]
+    // Test with 4 signers, but one has 75% weight. Only the whale signs
+    // and the block is valid
+    fn test_single_signature_threshold() {
+        let signers = vec![
+            (Secp256k1PrivateKey::default(), 75),
+            (Secp256k1PrivateKey::default(), 10),
+            (Secp256k1PrivateKey::default(), 5),
+            (Secp256k1PrivateKey::default(), 10),
+        ];
+        let reward_set = make_reward_set(signers.clone());
+
+        let mut header = NakamotoBlockHeader::empty();
+
+        // Sign the block with just the whale
+        let message = header.signer_signature_hash().0;
+        let signer_signature = signers
+            .iter()
+            .take(1)
+            .map(|(s, _)| s.sign(&message).expect("Failed to sign block sighash"))
+            .collect::<Vec<_>>();
+
+        header.signer_signature = signer_signature;
+
+        header
+            .verify_signer_signatures(&reward_set)
+            .expect("Failed to verify signatures");
+    }
+
+    #[test]
+    // Test with a signature that didn't come from the signer set
+    fn test_invalid_signer() {
+        let signers = vec![(Secp256k1PrivateKey::default(), 100)];
+
+        let reward_set = make_reward_set(signers.clone());
+
+        let mut header = NakamotoBlockHeader::empty();
+
+        let message = header.signer_signature_hash().0;
+
+        // Sign with all signers
+        let mut signer_signature = signers
+            .iter()
+            .map(|(s, _)| s.sign(&message).expect("Failed to sign block sighash"))
+            .collect::<Vec<_>>();
+
+        let invalid_signature = Secp256k1PrivateKey::default()
+            .sign(&message)
+            .expect("Failed to sign block sighash");
+
+        signer_signature.push(invalid_signature);
+
+        header.signer_signature = signer_signature;
+
+        match header.verify_signer_signatures(&reward_set) {
+            Ok(_) => panic!("Expected invalid signature to fail"),
+            Err(ChainstateError::InvalidStacksBlock(msg)) => {
+                assert!(msg.contains("not found in the reward set"));
+            }
+            _ => panic!("Expected InvalidStacksBlock error"),
+        }
+    }
+
+    #[test]
+    fn test_duplicate_signatures() {
+        let signers = vec![
+            (Secp256k1PrivateKey::default(), 100),
+            (Secp256k1PrivateKey::default(), 100),
+            (Secp256k1PrivateKey::default(), 100),
+        ];
+        let reward_set = make_reward_set(signers.clone());
+
+        let mut header = NakamotoBlockHeader::empty();
+
+        let message = header.signer_signature_hash().0;
+
+        // First, sign with the first 2 signers
+        let mut signer_signature = signers
+            .iter()
+            .take(2)
+            .map(|(s, _)| s.sign(&message).expect("Failed to sign block sighash"))
+            .collect::<Vec<_>>();
+
+        // Sign again with the first signer
+        let duplicate_signature = signers[0]
+            .0
+            .sign(&message)
+            .expect("Failed to sign block sighash");
+
+        signer_signature.push(duplicate_signature);
+
+        header.signer_signature = signer_signature;
+
+        match header.verify_signer_signatures(&reward_set) {
+            Ok(_) => panic!("Expected duplicate signature to fail"),
+            Err(ChainstateError::InvalidStacksBlock(msg)) => {
+                assert!(msg.contains("Signatures are out of order"));
+            }
+            _ => panic!("Expected InvalidStacksBlock error"),
+        }
+    }
+
+    #[test]
+    // Test where a signature used a different message
+    fn test_signature_invalid_message() {
+        let signers = vec![
+            (Secp256k1PrivateKey::default(), 100),
+            (Secp256k1PrivateKey::default(), 100),
+            (Secp256k1PrivateKey::default(), 100),
+            (Secp256k1PrivateKey::default(), 100),
+        ];
+
+        let reward_set = make_reward_set(signers.clone());
+
+        let mut header = NakamotoBlockHeader::empty();
+
+        let message = header.signer_signature_hash().0;
+
+        let mut signer_signature = signers
+            .iter()
+            .take(3)
+            .map(|(s, _)| s.sign(&message).expect("Failed to sign block sighash"))
+            .collect::<Vec<_>>();
+
+        // With the 4th signer, use a junk message
+        let message = [0u8; 32];
+
+        let bad_signature = signers[3]
+            .0
+            .sign(&message)
+            .expect("Failed to sign block sighash");
+
+        signer_signature.push(bad_signature);
+
+        header.signer_signature = signer_signature;
+
+        match header.verify_signer_signatures(&reward_set) {
+            Ok(_) => panic!("Expected invalid message to fail"),
+            Err(ChainstateError::InvalidStacksBlock(msg)) => {}
+            _ => panic!("Expected InvalidStacksBlock error"),
+        }
+    }
+
+    #[test]
+    // Test where a signature is not recoverable
+    fn test_unrecoverable_signature() {
+        let signers = vec![
+            (Secp256k1PrivateKey::default(), 100),
+            (Secp256k1PrivateKey::default(), 100),
+            (Secp256k1PrivateKey::default(), 100),
+            (Secp256k1PrivateKey::default(), 100),
+        ];
+
+        let reward_set = make_reward_set(signers.clone());
+
+        let mut header = NakamotoBlockHeader::empty();
+
+        let message = header.signer_signature_hash().0;
+
+        let mut signer_signature = signers
+            .iter()
+            .take(3)
+            .map(|(s, _)| s.sign(&message).expect("Failed to sign block sighash"))
+            .collect::<Vec<_>>();
+
+        // Now append an unrecoverable signature
+        signer_signature.push(MessageSignature::empty());
+
+        header.signer_signature = signer_signature;
+
+        match header.verify_signer_signatures(&reward_set) {
+            Ok(_) => panic!("Expected invalid message to fail"),
+            Err(ChainstateError::InvalidStacksBlock(msg)) => {
+                if !msg.contains("Unable to recover public key") {
+                    panic!("Unexpected error msg: {}", msg);
+                }
+            }
+            _ => panic!("Expected InvalidStacksBlock error"),
+        }
+    }
+
+    #[test]
+    pub fn test_compute_voting_weight_threshold() {
+        assert_eq!(
+            NakamotoBlockHeader::compute_voting_weight_threshold(100_u32).unwrap(),
+            70_u32,
+        );
+
+        assert_eq!(
+            NakamotoBlockHeader::compute_voting_weight_threshold(10_u32).unwrap(),
+            7_u32,
+        );
+
+        assert_eq!(
+            NakamotoBlockHeader::compute_voting_weight_threshold(3000_u32).unwrap(),
+            2100_u32,
+        );
+
+        assert_eq!(
+            NakamotoBlockHeader::compute_voting_weight_threshold(4000_u32).unwrap(),
+            2800_u32,
+        );
+
+        // Round-up check
+        assert_eq!(
+            NakamotoBlockHeader::compute_voting_weight_threshold(511_u32).unwrap(),
+            358_u32,
+        );
+    }
 }

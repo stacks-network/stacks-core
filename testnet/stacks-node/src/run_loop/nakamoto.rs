@@ -31,19 +31,21 @@ use stacks::chainstate::stacks::db::{ChainStateBootData, StacksChainState};
 use stacks::chainstate::stacks::miner::{signal_mining_blocked, signal_mining_ready, MinerStatus};
 use stacks::core::StacksEpochId;
 use stacks::net::atlas::{AtlasConfig, AtlasDB, Attachment};
-use stacks::net::p2p::PeerNetwork;
 use stacks_common::types::PublicKey;
 use stacks_common::util::hash::Hash160;
+use stacks_common::util::{get_epoch_time_secs, sleep_ms};
 use stx_genesis::GenesisData;
 
 use crate::burnchains::make_bitcoin_indexer;
 use crate::globals::Globals as GenericGlobals;
 use crate::monitoring::{start_serving_monitoring_metrics, MonitoringError};
 use crate::nakamoto_node::{self, StacksNode, BLOCK_PROCESSOR_STACK_SIZE, RELAYER_MAX_BUFFER};
+use crate::neon_node::LeaderKeyRegistrationState;
 use crate::node::{
     get_account_balances, get_account_lockups, get_names, get_namespaces,
     use_test_genesis_chainstate,
 };
+use crate::run_loop::boot_nakamoto::Neon2NakaData;
 use crate::run_loop::neon;
 use crate::run_loop::neon::Counters;
 use crate::syncctl::{PoxSyncWatchdog, PoxSyncWatchdogComms};
@@ -91,7 +93,7 @@ impl RunLoop {
 
         let mut event_dispatcher = EventDispatcher::new();
         for observer in config.events_observers.iter() {
-            event_dispatcher.register_observer(observer);
+            event_dispatcher.register_observer(observer, config.get_working_dir());
         }
 
         Self {
@@ -154,6 +156,11 @@ impl RunLoop {
         self.miner_status.clone()
     }
 
+    /// Seconds to wait before retrying UTXO check during startup
+    const UTXO_RETRY_INTERVAL: u64 = 10;
+    /// Number of times to retry UTXO check during startup
+    const UTXO_RETRY_COUNT: u64 = 6;
+
     /// Determine if we're the miner.
     /// If there's a network error, then assume that we're not a miner.
     fn check_is_miner(&mut self, burnchain: &mut BitcoinRegtestController) -> bool {
@@ -186,22 +193,26 @@ impl RunLoop {
                 ));
             }
 
-            for (epoch_id, btc_addr) in btc_addrs.into_iter() {
-                info!("Miner node: checking UTXOs at address: {}", &btc_addr);
-                let utxos = burnchain.get_utxos(epoch_id, &op_signer.get_public_key(), 1, None, 0);
-                if utxos.is_none() {
-                    warn!("UTXOs not found for {}. If this is unexpected, please ensure that your bitcoind instance is indexing transactions for the address {} (importaddress)", btc_addr, btc_addr);
-                } else {
-                    info!("UTXOs found - will run as a Miner node");
+            // retry UTXO check a few times, in case bitcoind is still starting up
+            for _ in 0..Self::UTXO_RETRY_COUNT {
+                for (epoch_id, btc_addr) in &btc_addrs {
+                    info!("Miner node: checking UTXOs at address: {btc_addr}");
+                    let utxos =
+                        burnchain.get_utxos(*epoch_id, &op_signer.get_public_key(), 1, None, 0);
+                    if utxos.is_none() {
+                        warn!("UTXOs not found for {btc_addr}. If this is unexpected, please ensure that your bitcoind instance is indexing transactions for the address {btc_addr} (importaddress)");
+                    } else {
+                        info!("UTXOs found - will run as a Miner node");
+                        return true;
+                    }
+                }
+                if self.config.get_node_config(false).mock_mining {
+                    info!("No UTXOs found, but configured to mock mine");
                     return true;
                 }
+                thread::sleep(std::time::Duration::from_secs(Self::UTXO_RETRY_INTERVAL));
             }
-            if self.config.get_node_config(false).mock_mining {
-                info!("No UTXOs found, but configured to mock mine");
-                return true;
-            } else {
-                return false;
-            }
+            panic!("No UTXOs found, exiting");
         } else {
             info!("Will run as a Follower node");
             false
@@ -397,7 +408,7 @@ impl RunLoop {
         &mut self,
         burnchain_opt: Option<Burnchain>,
         mut mine_start: u64,
-        peer_network: Option<PeerNetwork>,
+        data_from_neon: Option<Neon2NakaData>,
     ) {
         let (coordinator_receivers, coordinator_senders) = self
             .coordinator_channels
@@ -446,6 +457,7 @@ impl RunLoop {
             self.pox_watchdog_comms.clone(),
             self.should_keep_running.clone(),
             mine_start,
+            LeaderKeyRegistrationState::default(),
         );
         self.set_globals(globals.clone());
 
@@ -481,7 +493,7 @@ impl RunLoop {
 
         // Boot up the p2p network and relayer, and figure out how many sortitions we have so far
         // (it could be non-zero if the node is resuming from chainstate)
-        let mut node = StacksNode::spawn(self, globals.clone(), relay_recv, peer_network);
+        let mut node = StacksNode::spawn(self, globals.clone(), relay_recv, data_from_neon);
 
         // Wait for all pending sortitions to process
         let burnchain_db = burnchain_config
@@ -519,6 +531,7 @@ impl RunLoop {
         );
 
         let mut last_tenure_sortition_height = 0;
+        let mut poll_deadline = 0;
 
         loop {
             if !globals.keep_running() {
@@ -578,6 +591,12 @@ impl RunLoop {
                     break;
                 }
 
+                if poll_deadline > get_epoch_time_secs() {
+                    sleep_ms(1_000);
+                    continue;
+                }
+                poll_deadline = get_epoch_time_secs() + self.config().burnchain.poll_time_secs;
+
                 let (next_burnchain_tip, tip_burnchain_height) =
                     match burnchain.sync(Some(target_burnchain_block_height)) {
                         Ok(x) => x,
@@ -633,9 +652,12 @@ impl RunLoop {
                         let sortition_id = &block.sortition_id;
 
                         // Have the node process the new block, that can include, or not, a sortition.
-                        if let Err(e) =
-                            node.process_burnchain_state(burnchain.sortdb_mut(), sortition_id, ibd)
-                        {
+                        if let Err(e) = node.process_burnchain_state(
+                            self.config(),
+                            burnchain.sortdb_mut(),
+                            sortition_id,
+                            ibd,
+                        ) {
                             // relayer errored, exit.
                             error!("Runloop: Block relayer and miner errored, exiting."; "err" => ?e);
                             return;
@@ -713,6 +735,7 @@ impl RunLoop {
                             );
                         }
                         last_tenure_sortition_height = sortition_db_height;
+                        globals.raise_initiative("runloop-synced".to_string());
                     }
                 }
             }

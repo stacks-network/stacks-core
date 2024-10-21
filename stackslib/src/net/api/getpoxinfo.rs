@@ -190,17 +190,21 @@ impl RPCPoxInfoData {
             + 1;
 
         let data = chainstate
-            .maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
-                clarity_tx.with_readonly_clarity_env(
-                    mainnet,
-                    chain_id,
-                    ClarityVersion::Clarity2,
-                    sender,
-                    None,
-                    cost_track,
-                    |env| env.execute_contract(&contract_identifier, function, &[], true),
-                )
-            })
+            .maybe_read_only_clarity_tx(
+                &sortdb.index_handle_at_block(chainstate, tip)?,
+                tip,
+                |clarity_tx| {
+                    clarity_tx.with_readonly_clarity_env(
+                        mainnet,
+                        chain_id,
+                        ClarityVersion::Clarity2,
+                        sender,
+                        None,
+                        cost_track,
+                        |env| env.execute_contract(&contract_identifier, function, &[], true),
+                    )
+                },
+            )
             .map_err(|_| NetError::NotFoundError)?;
 
         let res = match data {

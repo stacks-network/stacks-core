@@ -732,6 +732,22 @@ define_named_enum!(BurnBlockInfoProperty {
     PoxAddrs("pox-addrs"),
 });
 
+define_named_enum!(StacksBlockInfoProperty {
+    IndexHeaderHash("id-header-hash"),
+    HeaderHash("header-hash"),
+    Time("time"),
+});
+
+define_named_enum!(TenureInfoProperty {
+    Time("time"),
+    VrfSeed("vrf-seed"),
+    BurnchainHeaderHash("burnchain-header-hash"),
+    MinerAddress("miner-address"),
+    MinerSpendWinner("miner-spend-winner"),
+    MinerSpendTotal("miner-spend-total"),
+    BlockReward("block-reward"),
+});
+
 impl OptionalData {
     pub fn type_signature(&self) -> std::result::Result<TypeSignature, CheckErrors> {
         let type_result = match self.data {
@@ -803,6 +819,27 @@ impl BurnBlockInfoProperty {
             .into(),
         };
         Ok(result)
+    }
+}
+
+impl StacksBlockInfoProperty {
+    pub fn type_result(&self) -> TypeSignature {
+        use self::StacksBlockInfoProperty::*;
+        match self {
+            Time => TypeSignature::UIntType,
+            IndexHeaderHash | HeaderHash => BUFF_32.clone(),
+        }
+    }
+}
+
+impl TenureInfoProperty {
+    pub fn type_result(&self) -> TypeSignature {
+        use self::TenureInfoProperty::*;
+        match self {
+            Time | MinerSpendWinner | MinerSpendTotal | BlockReward => TypeSignature::UIntType,
+            VrfSeed | BurnchainHeaderHash => BUFF_32.clone(),
+            MinerAddress => TypeSignature::PrincipalType,
+        }
     }
 }
 
@@ -1516,9 +1553,7 @@ impl TupleData {
         self.data_map.is_empty()
     }
 
-    ///TODO: #4587 create default for TupleData, then check if the mutation tests are caught for the case:
-    /// Ok((Default::default()))    
-    /// Or keep the skip and remove the comment
+    // TODO: add tests from mutation testing results #4833
     #[cfg_attr(test, mutants::skip)]
     pub fn from_data(data: Vec<(ClarityName, Value)>) -> Result<TupleData> {
         let mut type_map = BTreeMap::new();
@@ -1536,9 +1571,7 @@ impl TupleData {
         Self::new(TupleTypeSignature::try_from(type_map)?, data_map)
     }
 
-    ///TODO: #4587 create default for TupleData, then check if the mutation tests are caught for the case:
-    /// Ok((Default::default()))
-    /// Or keep the skip and remove the comment
+    // TODO: add tests from mutation testing results #4834
     #[cfg_attr(test, mutants::skip)]
     pub fn from_data_typed(
         epoch: &StacksEpochId,

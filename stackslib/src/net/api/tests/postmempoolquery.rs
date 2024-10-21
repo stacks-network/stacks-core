@@ -174,6 +174,7 @@ fn test_stream_mempool_txs() {
             &mut chainstate,
             &ConsensusHash([0x1 + (block_height as u8); 20]),
             &BlockHeaderHash([0x2 + (block_height as u8); 32]),
+            false, // don't resolve the above chain tip since it doesn't exist
             txid.clone(),
             tx_bytes,
             tx_fee,

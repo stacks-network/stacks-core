@@ -974,7 +974,8 @@ pub fn find_heaviest_block_commit<B: BurnchainHeaderReader>(
                 // found
                 debug!(
                     "PoX anchor block-commit {},{},{} has {} burnt, {} confs",
-                    &opdata.txid, opdata.block_height, opdata.vtxindex, most_burnt, most_confs
+                    &opdata.txid, opdata.block_height, opdata.vtxindex, most_burnt, most_confs;
+                    "stacks_block_hash" => opdata.block_header_hash
                 );
 
                 // sanity check -- there should be exactly as many confirmations on the suspected
@@ -996,7 +997,9 @@ pub fn find_heaviest_block_commit<B: BurnchainHeaderReader>(
                             if *op_ancestor_height == ancestor_block
                                 && *op_ancestor_vtxindex == ancestor_vtxindex
                             {
-                                debug!("Block-commit {},{} descends from likely PoX anchor block {},{}", opdata.block_height, opdata.vtxindex, op_ancestor_height, op_ancestor_vtxindex);
+                                debug!("Block-commit {},{} descends from likely PoX anchor block {},{}", opdata.block_height, opdata.vtxindex, op_ancestor_height, op_ancestor_vtxindex;
+                                    "stacks_block_hash" => opdata.block_header_hash
+                                );
                                 block_descendancy.push(true);
                                 if !found_conf {
                                     conf_count += 1;
@@ -1004,11 +1007,15 @@ pub fn find_heaviest_block_commit<B: BurnchainHeaderReader>(
                                 }
                                 burn_count += opdata.burn_fee;
                             } else {
-                                debug!("Block-commit {},{} does NOT descend from likely PoX anchor block {},{}", opdata.block_height, opdata.vtxindex, ancestor_block, ancestor_vtxindex);
+                                debug!("Block-commit {},{} does NOT descend from likely PoX anchor block {},{}", opdata.block_height, opdata.vtxindex, ancestor_block, ancestor_vtxindex;
+                                    "stacks_block_hash" => opdata.block_header_hash
+                                );
                                 block_descendancy.push(false);
                             }
                         } else {
-                            debug!("Block-commit {},{} does NOT descend from likely PoX anchor block {},{}", opdata.block_height, opdata.vtxindex, ancestor_block, ancestor_vtxindex);
+                            debug!("Block-commit {},{} does NOT descend from likely PoX anchor block {},{}", opdata.block_height, opdata.vtxindex, ancestor_block, ancestor_vtxindex;
+                                "stacks_block_hash" => opdata.block_header_hash
+                            );
                             block_descendancy.push(false);
                         }
                     }

@@ -183,34 +183,38 @@ impl RPCRequestHandler for RPCGetMapEntryRequestHandler {
 
         let data_resp =
             node.with_node_state(|_network, sortdb, chainstate, _mempool, _rpc_args| {
-                chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), &tip, |clarity_tx| {
-                    clarity_tx.with_clarity_db_readonly(|clarity_db| {
-                        let (value_hex, marf_proof): (String, _) = if with_proof {
-                            clarity_db
-                                .get_data_with_proof(&key)
-                                .ok()
-                                .flatten()
-                                .map(|(a, b)| (a, Some(format!("0x{}", to_hex(&b)))))
-                                .unwrap_or_else(|| {
-                                    test_debug!("No value for '{}' in {}", &key, tip);
-                                    (none_response, Some("".into()))
-                                })
-                        } else {
-                            clarity_db
-                                .get_data(&key)
-                                .ok()
-                                .flatten()
-                                .map(|a| (a, None))
-                                .unwrap_or_else(|| {
-                                    test_debug!("No value for '{}' in {}", &key, tip);
-                                    (none_response, None)
-                                })
-                        };
+                chainstate.maybe_read_only_clarity_tx(
+                    &sortdb.index_handle_at_block(chainstate, &tip)?,
+                    &tip,
+                    |clarity_tx| {
+                        clarity_tx.with_clarity_db_readonly(|clarity_db| {
+                            let (value_hex, marf_proof): (String, _) = if with_proof {
+                                clarity_db
+                                    .get_data_with_proof(&key)
+                                    .ok()
+                                    .flatten()
+                                    .map(|(a, b)| (a, Some(format!("0x{}", to_hex(&b)))))
+                                    .unwrap_or_else(|| {
+                                        test_debug!("No value for '{}' in {}", &key, tip);
+                                        (none_response, Some("".into()))
+                                    })
+                            } else {
+                                clarity_db
+                                    .get_data(&key)
+                                    .ok()
+                                    .flatten()
+                                    .map(|a| (a, None))
+                                    .unwrap_or_else(|| {
+                                        test_debug!("No value for '{}' in {}", &key, tip);
+                                        (none_response, None)
+                                    })
+                            };
 
-                        let data = format!("0x{}", value_hex);
-                        MapEntryResponse { data, marf_proof }
-                    })
-                })
+                            let data = format!("0x{}", value_hex);
+                            MapEntryResponse { data, marf_proof }
+                        })
+                    },
+                )
             });
 
         let data_resp = match data_resp {

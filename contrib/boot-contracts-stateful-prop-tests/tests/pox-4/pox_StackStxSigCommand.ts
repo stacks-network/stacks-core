@@ -1,4 +1,7 @@
 import {
+  isDelegating,
+  isStacking,
+  isStackingMinimumCalculated,
   logCommand,
   PoxCommand,
   Real,
@@ -66,7 +69,9 @@ export class StackStxSigCommand implements PoxCommand {
 
     const stacker = model.stackers.get(this.wallet.stxAddress)!;
     return (
-      model.stackingMinimum > 0 && !stacker.isStacking && !stacker.hasDelegated
+      isStackingMinimumCalculated(model) &&
+      !isStacking(stacker) &&
+      !isDelegating(stacker)
     );
   }
 
@@ -123,7 +128,7 @@ export class StackStxSigCommand implements PoxCommand {
         // (pox-addr (tuple (version (buff 1)) (hashbytes (buff 32))))
         poxAddressToTuple(this.wallet.btcAddress),
         // (start-burn-ht uint)
-        Cl.uint(burnBlockHeight),
+        Cl.uint(burnBlockHeight + 1),
         // (lock-period uint)
         Cl.uint(this.period),
         // (signer-sig (optional (buff 65)))

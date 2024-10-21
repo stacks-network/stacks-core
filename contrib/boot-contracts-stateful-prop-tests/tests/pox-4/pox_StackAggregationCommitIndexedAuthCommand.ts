@@ -1,4 +1,6 @@
 import {
+  hasLockedStackers,
+  isATCAboveThreshold,
   logCommand,
   PoxCommand,
   Real,
@@ -9,6 +11,7 @@ import { poxAddressToTuple } from "@stacks/stacking";
 import { expect } from "vitest";
 import { Cl } from "@stacks/transactions";
 import { currentCycle } from "./pox_Commands.ts";
+import { tx } from "@hirosystems/clarinet-sdk";
 
 /**
  * The `StackAggregationCommitIndexedAuthCommand` allows an operator to
@@ -32,8 +35,8 @@ export class StackAggregationCommitIndexedAuthCommand implements PoxCommand {
   readonly authId: number;
 
   /**
-   * Constructs a `StackAggregationCommitIndexedAuthCommand` to lock uSTX
-   * for stacking.
+   * Constructs a `StackAggregationCommitIndexedAuthCommand` to commit partially 
+   * locked uSTX.
    *
    * @param operator - Represents the `Operator`'s wallet.
    * @param authId - Unique `auth-id` for the authorization.
@@ -54,8 +57,8 @@ export class StackAggregationCommitIndexedAuthCommand implements PoxCommand {
 
     const operator = model.stackers.get(this.operator.stxAddress)!;
     return (
-      operator.lockedAddresses.length > 0 &&
-      operator.amountToCommit >= model.stackingMinimum
+      hasLockedStackers(operator) &&
+      isATCAboveThreshold(operator, model)
     );
   }
 
@@ -65,54 +68,61 @@ export class StackAggregationCommitIndexedAuthCommand implements PoxCommand {
     const operatorWallet = model.stackers.get(this.operator.stxAddress)!;
     const committedAmount = operatorWallet.amountToCommit;
 
-    const { result: setSignature } = real.network.callPublicFn(
-      "ST000000000000000000002AMW42H.pox-4",
-      "set-signer-key-authorization",
-      [
-        // (pox-addr (tuple (version (buff 1)) (hashbytes (buff 32))))
-        poxAddressToTuple(this.operator.btcAddress),
-        // (period uint)
-        Cl.uint(1),
-        // (reward-cycle uint)
-        Cl.uint(currentRewCycle + 1),
-        // (topic (string-ascii 14))
-        Cl.stringAscii("agg-commit"),
-        // (signer-key (buff 33))
-        Cl.bufferFromHex(this.operator.signerPubKey),
-        // (allowed bool)
-        Cl.bool(true),
-        // (max-amount uint)
-        Cl.uint(committedAmount),
-        // (auth-id uint)
-        Cl.uint(this.authId),
-      ],
-      this.operator.stxAddress,
-    );
-    expect(setSignature).toBeOk(Cl.bool(true));
-
     // Act
-    const stackAggregationCommitIndexed = real.network.callPublicFn(
-      "ST000000000000000000002AMW42H.pox-4",
-      "stack-aggregation-commit-indexed",
-      [
-        // (pox-addr (tuple (version (buff 1)) (hashbytes (buff 32))))
-        poxAddressToTuple(this.operator.btcAddress),
-        // (reward-cycle uint)
-        Cl.uint(currentRewCycle + 1),
-        // (signer-sig (optional (buff 65)))
-        Cl.none(),
-        // (signer-key (buff 33))
-        Cl.bufferFromHex(this.operator.signerPubKey),
-        // (max-amount uint)
-        Cl.uint(committedAmount),
-        // (auth-id uint)
-        Cl.uint(this.authId),
-      ],
-      this.operator.stxAddress,
-    );
+
+    // Include the authorization and the `stack-aggregation-commit-indexed` 
+    // transactions in a single block. This way we ensure both the authorization 
+    // and the stack-aggregation-commit-indexed transactions are called during 
+    // the same reward cycle, so the authorization currentRewCycle param is 
+    // relevant for the upcoming stack-aggregation-commit-indexed call.
+    const block = real.network.mineBlock([
+      tx.callPublicFn(
+        "ST000000000000000000002AMW42H.pox-4",
+        "set-signer-key-authorization",
+        [
+          // (pox-addr (tuple (version (buff 1)) (hashbytes (buff 32))))
+          poxAddressToTuple(this.operator.btcAddress),
+          // (period uint)
+          Cl.uint(1),
+          // (reward-cycle uint)
+          Cl.uint(currentRewCycle + 1),
+          // (topic (string-ascii 14))
+          Cl.stringAscii("agg-commit"),
+          // (signer-key (buff 33))
+          Cl.bufferFromHex(this.operator.signerPubKey),
+          // (allowed bool)
+          Cl.bool(true),
+          // (max-amount uint)
+          Cl.uint(committedAmount),
+          // (auth-id uint)
+          Cl.uint(this.authId),
+        ],
+        this.operator.stxAddress,
+      ),
+      tx.callPublicFn(
+        "ST000000000000000000002AMW42H.pox-4",
+        "stack-aggregation-commit-indexed",
+        [
+          // (pox-addr (tuple (version (buff 1)) (hashbytes (buff 32))))
+          poxAddressToTuple(this.operator.btcAddress),
+          // (reward-cycle uint)
+          Cl.uint(currentRewCycle + 1),
+          // (signer-sig (optional (buff 65)))
+          Cl.none(),
+          // (signer-key (buff 33))
+          Cl.bufferFromHex(this.operator.signerPubKey),
+          // (max-amount uint)
+          Cl.uint(committedAmount),
+          // (auth-id uint)
+          Cl.uint(this.authId),
+        ],
+        this.operator.stxAddress,
+      ),
+    ]);
 
     // Assert
-    expect(stackAggregationCommitIndexed.result).toBeOk(
+    expect(block[0].result).toBeOk(Cl.bool(true));
+    expect(block[1].result).toBeOk(
       Cl.uint(model.nextRewardSetIndex),
     );
 

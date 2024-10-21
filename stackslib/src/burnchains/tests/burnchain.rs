@@ -153,6 +153,7 @@ fn test_process_block_ops() {
 
     let block_commit_1 = LeaderBlockCommitOp {
         sunset_burn: 0,
+        treatment: vec![],
         commit_outs: vec![],
         block_header_hash: BlockHeaderHash::from_bytes(
             &hex_bytes("2222222222222222222222222222222222222222222222222222222222222222").unwrap(),
@@ -191,6 +192,7 @@ fn test_process_block_ops() {
 
     let block_commit_2 = LeaderBlockCommitOp {
         sunset_burn: 0,
+        treatment: vec![],
         commit_outs: vec![],
         block_header_hash: BlockHeaderHash::from_bytes(
             &hex_bytes("2222222222222222222222222222222222222222222222222222222222222223").unwrap(),
@@ -229,6 +231,7 @@ fn test_process_block_ops() {
 
     let block_commit_3 = LeaderBlockCommitOp {
         sunset_burn: 0,
+        treatment: vec![],
         commit_outs: vec![],
         block_header_hash: BlockHeaderHash::from_bytes(
             &hex_bytes("2222222222222222222222222222222222222222222222222222222222222224").unwrap(),
@@ -778,6 +781,7 @@ fn test_burn_snapshot_sequence() {
         if i > 0 {
             let next_block_commit = LeaderBlockCommitOp {
                 sunset_burn: 0,
+                treatment: vec![],
                 commit_outs: vec![],
                 block_header_hash: BlockHeaderHash::from_bytes(&vec![
                     i, i, i, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,

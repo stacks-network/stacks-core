@@ -1,4 +1,13 @@
 import {
+  isAmountLockedPositive,
+  isAmountWithinDelegationLimit,
+  isPeriodWithinMax,
+  isStackerDelegatingToOperator,
+  isDelegating,
+  isStacking,
+  isUBHWithinDelegationLimit,
+  isStackerInOperatorPool,
+  isStackerLockedByOperator,
   logCommand,
   PoxCommand,
   Real,
@@ -37,8 +46,9 @@ export class DelegateStackExtendCommand implements PoxCommand {
    * height as a Pool Operator on behalf of a Stacker.
    *
    * @param operator - Represents the Pool Operator's wallet.
-   * @param stacker - Represents the STacker's wallet.
-   * @param extendCount - Represents the cycles to be expended.
+   * @param stacker - Represents the Stacker's wallet.
+   * @param extendCount - Represents the number of cycles to extend
+   *                      the stack for.
    * @param currentCycle - Represents the current PoX reward cycle.
    */
   constructor(
@@ -63,10 +73,10 @@ export class DelegateStackExtendCommand implements PoxCommand {
     const operatorWallet = model.stackers.get(this.operator.stxAddress)!;
     const stackerWallet = model.stackers.get(this.stacker.stxAddress)!;
 
-    const firstRewardCycle =
-      this.currentCycle > stackerWallet.firstLockedRewardCycle
-        ? this.currentCycle
-        : stackerWallet.firstLockedRewardCycle;
+    const firstRewardCycle = Math.max(
+      stackerWallet.firstLockedRewardCycle,
+      this.currentCycle,
+    );
     const firstExtendCycle = Math.floor(
       (stackerWallet.unlockHeight - FIRST_BURNCHAIN_BLOCK_HEIGHT) /
         REWARD_CYCLE_LENGTH,
@@ -79,15 +89,15 @@ export class DelegateStackExtendCommand implements PoxCommand {
     const stackedAmount = stackerWallet.amountLocked;
 
     return (
-      stackerWallet.amountLocked > 0 &&
-      stackerWallet.hasDelegated === true &&
-      stackerWallet.isStacking === true &&
-      stackerWallet.delegatedTo === this.operator.stxAddress &&
-      stackerWallet.delegatedUntilBurnHt >= newUnlockHeight &&
-      stackerWallet.delegatedMaxAmount >= stackedAmount &&
-      operatorWallet.poolMembers.includes(this.stacker.stxAddress) &&
-      operatorWallet.lockedAddresses.includes(this.stacker.stxAddress) &&
-      totalPeriod <= 12
+      isAmountLockedPositive(stackerWallet) &&
+      isDelegating(stackerWallet) &&
+      isStacking(stackerWallet) &&
+      isStackerDelegatingToOperator(stackerWallet, this.operator) &&
+      isUBHWithinDelegationLimit(stackerWallet, newUnlockHeight) &&
+      isAmountWithinDelegationLimit(stackerWallet, stackedAmount) &&
+      isStackerInOperatorPool(operatorWallet, this.stacker) &&
+      isStackerLockedByOperator(operatorWallet, this.stacker) &&
+      isPeriodWithinMax(totalPeriod)
     );
   }
 

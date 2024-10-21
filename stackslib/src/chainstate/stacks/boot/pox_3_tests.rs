@@ -3348,24 +3348,28 @@ fn get_burn_pox_addr_info(peer: &mut TestPeer) -> (Vec<PoxAddress>, u128) {
     let burn_height = tip.block_height - 1;
     let addrs_and_payout = with_sortdb(peer, |ref mut chainstate, ref mut sortdb| {
         let addrs = chainstate
-            .maybe_read_only_clarity_tx(&sortdb.index_conn(), &tip_index_block, |clarity_tx| {
-                clarity_tx
-                    .with_readonly_clarity_env(
-                        false,
-                        0x80000000,
-                        ClarityVersion::Clarity2,
-                        PrincipalData::Standard(StandardPrincipalData::transient()),
-                        None,
-                        LimitedCostTracker::new_free(),
-                        |env| {
-                            env.eval_read_only(
-                                &boot_code_id("pox-2", false),
-                                &format!("(get-burn-block-info? pox-addrs u{})", &burn_height),
-                            )
-                        },
-                    )
-                    .unwrap()
-            })
+            .maybe_read_only_clarity_tx(
+                &sortdb.index_handle_at_tip(),
+                &tip_index_block,
+                |clarity_tx| {
+                    clarity_tx
+                        .with_readonly_clarity_env(
+                            false,
+                            0x80000000,
+                            ClarityVersion::Clarity2,
+                            PrincipalData::Standard(StandardPrincipalData::transient()),
+                            None,
+                            LimitedCostTracker::new_free(),
+                            |env| {
+                                env.eval_read_only(
+                                    &boot_code_id("pox-2", false),
+                                    &format!("(get-burn-block-info? pox-addrs u{})", &burn_height),
+                                )
+                            },
+                        )
+                        .unwrap()
+                },
+            )
             .unwrap();
         addrs
     })

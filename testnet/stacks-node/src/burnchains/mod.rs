@@ -10,6 +10,7 @@ use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::BlockstackOperationType;
 use stacks::chainstate::burn::BlockSnapshot;
 use stacks::core::{StacksEpoch, StacksEpochId};
+use stacks_common::codec::Error as CodecError;
 
 pub use self::bitcoin_regtest_controller::{make_bitcoin_indexer, BitcoinRegtestController};
 pub use self::mocknet_controller::MocknetController;
@@ -19,6 +20,12 @@ use super::operations::BurnchainOpSigner;
 pub enum Error {
     CoordinatorClosed,
     IndexerError(burnchains::Error),
+    BurnchainError,
+    MaxFeeRateExceeded,
+    IdenticalOperation,
+    NoUTXOs,
+    TransactionSubmissionFailed(String),
+    SerializerError(CodecError),
 }
 
 impl fmt::Display for Error {
@@ -26,6 +33,14 @@ impl fmt::Display for Error {
         match self {
             Error::CoordinatorClosed => write!(f, "ChainsCoordinator closed"),
             Error::IndexerError(ref e) => write!(f, "Indexer error: {:?}", e),
+            Error::BurnchainError => write!(f, "Burnchain error"),
+            Error::MaxFeeRateExceeded => write!(f, "Max fee rate exceeded"),
+            Error::IdenticalOperation => write!(f, "Identical operation, not submitting"),
+            Error::NoUTXOs => write!(f, "No UTXOs available"),
+            Error::TransactionSubmissionFailed(e) => {
+                write!(f, "Transaction submission failed: {e}")
+            }
+            Error::SerializerError(e) => write!(f, "Serializer error: {e}"),
         }
     }
 }
@@ -45,7 +60,7 @@ pub trait BurnchainController {
         operation: BlockstackOperationType,
         op_signer: &mut BurnchainOpSigner,
         attempt: u64,
-    ) -> Option<Txid>;
+    ) -> Result<Txid, Error>;
     fn sync(&mut self, target_block_height_opt: Option<u64>) -> Result<(BurnchainTip, u64), Error>;
     fn sortdb_ref(&self) -> &SortitionDB;
     fn sortdb_mut(&mut self) -> &mut SortitionDB;

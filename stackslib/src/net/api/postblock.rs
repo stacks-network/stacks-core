@@ -47,7 +47,7 @@ use crate::net::httpcore::{
     StacksHttpRequest, StacksHttpResponse,
 };
 use crate::net::p2p::PeerNetwork;
-use crate::net::relay::Relayer;
+use crate::net::relay::{BlockAcceptResponse, Relayer};
 use crate::net::{
     Attachment, BlocksData, BlocksDatum, Error as NetError, StacksMessageType, StacksNodeState,
 };
@@ -177,16 +177,10 @@ impl RPCRequestHandler for RPCPostBlockRequestHandler {
                         ) {
                             Ok(accepted) => {
                                 debug!(
-                                    "{} Stacks block {}/{}",
-                                    if accepted {
-                                        "Accepted"
-                                    } else {
-                                        "Did not accept"
-                                    },
-                                    &consensus_hash,
-                                    &block_hash,
+                                    "Received POSTed Stacks block {}/{}: {:?}",
+                                    &consensus_hash, &block_hash, &accepted
                                 );
-                                return Ok(accepted);
+                                return Ok(BlockAcceptResponse::Accepted == accepted);
                             }
                             Err(e) => {
                                 let msg = format!(

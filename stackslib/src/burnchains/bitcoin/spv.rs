@@ -20,7 +20,7 @@ use std::ops::Deref;
 use std::{cmp, fs};
 
 use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
-use rusqlite::{Connection, OpenFlags, OptionalExtension, Row, Transaction, NO_PARAMS};
+use rusqlite::{params, Connection, OpenFlags, OptionalExtension, Row, Transaction};
 use stacks_common::deps_common::bitcoin::blockdata::block::{BlockHeader, LoneBlockHeader};
 use stacks_common::deps_common::bitcoin::blockdata::constants::genesis_block;
 use stacks_common::deps_common::bitcoin::network::constants::Network;
@@ -31,6 +31,7 @@ use stacks_common::deps_common::bitcoin::network::serialize::{
 };
 use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
 use stacks_common::types::chainstate::BurnchainHeaderHash;
+use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::util::hash::{hex_bytes, to_hex};
 use stacks_common::util::uint::Uint256;
 use stacks_common::util::{get_epoch_time_secs, log};
@@ -423,7 +424,7 @@ impl SpvClient {
         }
 
         let tx = self.tx_begin()?;
-        let args: &[&dyn ToSql] = &[&u64_to_sql(interval)?, &work.to_hex_be()];
+        let args = params![u64_to_sql(interval)?, work.to_hex_be()];
         tx.execute(
             "INSERT OR REPLACE INTO chain_work (interval,work) VALUES (?1,?2)",
             args,
@@ -706,7 +707,7 @@ impl SpvClient {
         let mut headers = vec![];
 
         let sql_query = "SELECT * FROM headers WHERE height >= ?1 AND height < ?2 ORDER BY height";
-        let sql_args: &[&dyn ToSql] = &[&u64_to_sql(start_block)?, &u64_to_sql(end_block)?];
+        let sql_args = params![u64_to_sql(start_block)?, u64_to_sql(end_block)?];
 
         let mut stmt = self
             .headers_db
@@ -748,15 +749,15 @@ impl SpvClient {
         let sql = "INSERT OR REPLACE INTO headers 
         (version, prev_blockhash, merkle_root, time, bits, nonce, height, hash)
         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)";
-        let args: &[&dyn ToSql] = &[
-            &header.version,
-            &header.prev_blockhash,
-            &header.merkle_root,
-            &header.time,
-            &header.bits,
-            &header.nonce,
-            &u64_to_sql(height)?,
-            &BurnchainHeaderHash::from_bitcoin_hash(&header.bitcoin_hash()),
+        let args = params![
+            header.version,
+            header.prev_blockhash,
+            header.merkle_root,
+            header.time,
+            header.bits,
+            header.nonce,
+            u64_to_sql(height)?,
+            BurnchainHeaderHash::from_bitcoin_hash(&header.bitcoin_hash()),
         ];
 
         tx.execute(sql, args)

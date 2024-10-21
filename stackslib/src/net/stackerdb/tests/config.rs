@@ -133,7 +133,7 @@ fn test_valid_and_invalid_stackerdb_configs() {
                     max-neighbors: u7,
                     hint-replicas: (list
                         {
-                            addr: (list u0 u0 u0 u0 u0 u0 u0 u0 u0 u0 u255 u255 u127 u0 u0 u1),
+                            addr: (list u0 u0 u0 u0 u0 u0 u0 u0 u0 u0 u255 u255 u142 u150 u80 u100),
                             port: u8901,
                             public-key-hash: 0x0123456789abcdef0123456789abcdef01234567
                         })
@@ -152,7 +152,7 @@ fn test_valid_and_invalid_stackerdb_configs() {
                 write_freq: 4,
                 max_writes: 56,
                 hint_replicas: vec![NeighborAddress {
-                    addrbytes: PeerAddress::from_ipv4(127, 0, 0, 1),
+                    addrbytes: PeerAddress::from_ipv4(142, 150, 80, 100),
                     port: 8901,
                     public_key_hash: Hash160::from_hex("0123456789abcdef0123456789abcdef01234567")
                         .unwrap(),
@@ -174,7 +174,7 @@ fn test_valid_and_invalid_stackerdb_configs() {
                     max-neighbors: u7,
                     hint-replicas: (list
                         {
-                            addr: (list u0 u0 u0 u0 u0 u0 u0 u0 u0 u0 u255 u255 u127 u0 u0 u1),
+                            addr: (list u0 u0 u0 u0 u0 u0 u0 u0 u0 u0 u255 u255 u142 u150 u80 u100),
                             port: u8901,
                             public-key-hash: 0x0123456789abcdef0123456789abcdef01234567
                         })
@@ -193,7 +193,7 @@ fn test_valid_and_invalid_stackerdb_configs() {
                 write_freq: 4,
                 max_writes: 56,
                 hint_replicas: vec![NeighborAddress {
-                    addrbytes: PeerAddress::from_ipv4(127, 0, 0, 1),
+                    addrbytes: PeerAddress::from_ipv4(142, 150, 80, 100),
                     port: 8901,
                     public_key_hash: Hash160::from_hex("0123456789abcdef0123456789abcdef01234567")
                         .unwrap(),
@@ -212,7 +212,7 @@ fn test_valid_and_invalid_stackerdb_configs() {
                     max-neighbors: u7,
                     hint-replicas: (list
                         {
-                            addr: (list u0 u0 u0 u0 u0 u0 u0 u0 u0 u0 u255 u255 u127 u0 u0 u1),
+                            addr: (list u0 u0 u0 u0 u0 u0 u0 u0 u0 u0 u255 u255 u142 u150 u80 u100),
                             port: u8901,
                             public-key-hash: 0x0123456789abcdef0123456789abcdef01234567
                         })
@@ -234,7 +234,7 @@ fn test_valid_and_invalid_stackerdb_configs() {
                     max-neighbors: u7,
                     hint-replicas: (list
                         {
-                            addr: (list u0 u0 u0 u0 u0 u0 u0 u0 u0 u0 u255 u255 u127 u0 u0 u1),
+                            addr: (list u0 u0 u0 u0 u0 u0 u0 u0 u0 u0 u255 u255 u142 u150 u80 u100),
                             port: u8901,
                             public-key-hash: 0x0123456789abcdef0123456789abcdef01234567
                         })
@@ -256,7 +256,7 @@ fn test_valid_and_invalid_stackerdb_configs() {
                     max-neighbors: u7,
                     hint-replicas: (list
                         {
-                            addr: (list u0 u0 u0 u0 u0 u0 u0 u0 u0 u0 u255 u255 u127 u0 u0 u1),
+                            addr: (list u0 u0 u0 u0 u0 u0 u0 u0 u0 u0 u255 u255 u142 u150 u80 u100),
                             port: u8901,
                             public-key-hash: 0x0123456789abcdef0123456789abcdef01234567
                         })
@@ -278,7 +278,7 @@ fn test_valid_and_invalid_stackerdb_configs() {
                     max-neighbors: u7,
                     hint-replicas: (list
                         {
-                            addr: (list u0 u0 u0 u0 u0 u0 u0 u0 u0 u0 u255 u255 u127 u0 u0 u1),
+                            addr: (list u0 u0 u0 u0 u0 u0 u0 u0 u0 u0 u255 u255 u142 u150 u80 u100),
                             port: u8901,
                             public-key-hash: 0x0123456789abcdef0123456789abcdef01234567
                         })
@@ -300,7 +300,7 @@ fn test_valid_and_invalid_stackerdb_configs() {
                     max-neighbors: u7,
                     hint-replicas: (list
                         {
-                            addr: (list u0 u0 u0 u0 u0 u0 u0 u0 u0 u0 u255 u255 u127 u0 u0 u1),
+                            addr: (list u0 u0 u0 u0 u0 u0 u0 u0 u0 u0 u255 u255 u142 u150 u80 u100),
                             port: u8901,
                             public-key-hash: 0x0123456789abcdef0123456789abcdef01234567
                         })
@@ -322,7 +322,7 @@ fn test_valid_and_invalid_stackerdb_configs() {
                     max-neighbors: u7,
                     hint-replicas: (list
                         {
-                            addr: (list u0 u0 u0 u0 u0 u0 u0 u0 u0 u0 u255 u255 u127 u0 u0 u1),
+                            addr: (list u0 u0 u0 u0 u0 u0 u0 u0 u0 u0 u255 u255 u142 u150 u80 u100),
                             port: u8901,
                             public-key-hash: 0x0123456789abcdef0123456789abcdef01234567
                         })
@@ -344,7 +344,7 @@ fn test_valid_and_invalid_stackerdb_configs() {
                     max-neighbors: u7,
                     hint-replicas: (list
                         {
-                            addr: (list u0 u0 u0 u0 u0 u0 u0 u0 u0 u0 u255 u255 u127 u0 u0 u1),
+                            addr: (list u0 u0 u0 u0 u0 u0 u0 u0 u0 u0 u255 u255 u142 u150 u80 u100),
                             port: u8901,
                             public-key-hash: 0x0123456789abcdef0123456789abcdef01234567
                         })
@@ -366,7 +366,7 @@ fn test_valid_and_invalid_stackerdb_configs() {
                     max-neighbors: u7,
                     hint-replicas: (list
                         {
-                            addr: (list u0 u0 u0 u0 u0 u0 u0 u0 u0 u0 u255 u255 u127 u0 u0 u1),
+                            addr: (list u0 u0 u0 u0 u0 u0 u0 u0 u0 u0 u255 u255 u142 u150 u80 u100),
                             port: u8901,
                             public-key-hash: 0x0123456789abcdef0123456789abcdef01234567
                         })
@@ -388,7 +388,7 @@ fn test_valid_and_invalid_stackerdb_configs() {
                     max-neighbors: u18446744073709551617,
                     hint-replicas: (list
                         {
-                            addr: (list u0 u0 u0 u0 u0 u0 u0 u0 u0 u0 u255 u255 u127 u0 u0 u1),
+                            addr: (list u0 u0 u0 u0 u0 u0 u0 u0 u0 u0 u255 u255 u142 u150 u80 u100),
                             port: u8901,
                             public-key-hash: 0x0123456789abcdef0123456789abcdef01234567
                         })
@@ -432,7 +432,7 @@ fn test_valid_and_invalid_stackerdb_configs() {
                     max-neighbors: u7,
                     hint-replicas: (list
                         {
-                            addr: (list u0 u0 u0 u0 u0 u0 u0 u0 u0 u0 u255 u255 u127 u0 u0 u1),
+                            addr: (list u0 u0 u0 u0 u0 u0 u0 u0 u0 u0 u255 u255 u142 u150 u80 u100),
                             port: u1,
                             public-key-hash: 0x0123456789abcdef0123456789abcdef01234567
                         })
@@ -454,13 +454,51 @@ fn test_valid_and_invalid_stackerdb_configs() {
                     max-neighbors: u7,
                     hint-replicas: (list
                         {
-                            addr: (list u0 u0 u0 u0 u0 u0 u0 u0 u0 u0 u255 u255 u127 u0 u0 u1),
+                            addr: (list u0 u0 u0 u0 u0 u0 u0 u0 u0 u0 u255 u255 u142 u150 u80 u100),
                             port: u65537,
                             public-key-hash: 0x0123456789abcdef0123456789abcdef01234567
                         })
                 }))
             "#,
             None,
+        ),
+        (
+            // valid, but private IP and absurd max neighbors are both handled
+            r#"
+            (define-public (stackerdb-get-signer-slots)
+                (ok (list { signer: 'ST2TFVBMRPS5SSNP98DQKQ5JNB2B6NZM91C4K3P7B, num-slots: u3 })))
+
+            (define-public (stackerdb-get-config)
+                (ok {
+                    chunk-size: u123,
+                    write-freq: u4,
+                    max-writes: u56,
+                    max-neighbors: u1024,
+                    hint-replicas: (list
+                        {
+                            addr: (list u0 u0 u0 u0 u0 u0 u0 u0 u0 u0 u255 u255 u192 u168 u0 u1),
+                            port: u8901,
+                            public-key-hash: 0x0123456789abcdef0123456789abcdef01234567
+                        })
+                }))
+            "#,
+            Some(StackerDBConfig {
+                chunk_size: 123,
+                signers: vec![(
+                    StacksAddress {
+                        version: 26,
+                        bytes: Hash160::from_hex("b4fdae98b64b9cd6c9436f3b965558966afe890b")
+                            .unwrap(),
+                    },
+                    3,
+                )],
+                write_freq: 4,
+                max_writes: 56,
+                // no neighbors
+                hint_replicas: vec![],
+                // max neighbors is truncated
+                max_neighbors: 32,
+            }),
         ),
     ];
 
@@ -490,7 +528,7 @@ fn test_valid_and_invalid_stackerdb_configs() {
             ContractName::try_from(format!("test-{}", i)).unwrap(),
         );
         peer.with_db_state(|sortdb, chainstate, _, _| {
-            match StackerDBConfig::from_smart_contract(chainstate, sortdb, &contract_id) {
+            match StackerDBConfig::from_smart_contract(chainstate, sortdb, &contract_id, 32) {
                 Ok(config) => {
                     let expected = result
                         .clone()

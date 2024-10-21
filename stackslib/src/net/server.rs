@@ -560,14 +560,14 @@ impl HttpPeer {
         let mut msgs = vec![];
         for event_id in &poll_state.ready {
             if !self.sockets.contains_key(&event_id) {
-                test_debug!("Rogue socket event {}", event_id);
+                debug!("Rogue socket event {}", event_id);
                 to_remove.push(*event_id);
                 continue;
             }
 
             let client_sock_opt = self.sockets.get_mut(&event_id);
             if client_sock_opt.is_none() {
-                test_debug!("No such socket event {}", event_id);
+                debug!("No such socket event {}", event_id);
                 to_remove.push(*event_id);
                 continue;
             }
@@ -576,7 +576,7 @@ impl HttpPeer {
             match self.peers.get_mut(event_id) {
                 Some(ref mut convo) => {
                     // activity on a http socket
-                    test_debug!("Process HTTP data from {:?}", convo);
+                    debug!("Process HTTP data from {:?}", convo);
                     match HttpPeer::process_http_conversation(
                         node_state,
                         *event_id,
@@ -585,11 +585,13 @@ impl HttpPeer {
                     ) {
                         Ok((alive, mut new_msgs)) => {
                             if !alive {
+                                debug!("HTTP convo {:?} is no longer alive", &convo);
                                 to_remove.push(*event_id);
                             }
                             msgs.append(&mut new_msgs);
                         }
-                        Err(_e) => {
+                        Err(e) => {
+                            debug!("Failed to process HTTP convo {:?}: {:?}", &convo, &e);
                             to_remove.push(*event_id);
                             continue;
                         }
