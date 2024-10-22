@@ -10,8 +10,8 @@ mode = "krypton"
 peer_host = "127.0.0.1"
 username = "<Bitcoin RPC username>"
 password = "<Bitcoin RPC password>"
-rpc_port = <Bitcoin RPC port>
-peer_port = <Bitcoin P2P port>
+rpc_port = 12345 # Bitcoin RPC port
+peer_port = 6789 # Bitcoin P2P port
 pox_prepare_length = 100
 pox_reward_length = 900
 # Maximum amount (in sats) of "burn commitment" to broadcast for the next block's leader election
