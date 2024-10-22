@@ -3244,7 +3244,7 @@ fn test_stacks_on_burnchain_ops() {
 
             // mocked
             txid: Txid([i as u8; 32]),
-            vtxindex: 1,
+            vtxindex: 11,
             block_height: block_height + 1,
             burn_header_hash: BurnchainHeaderHash([0x00; 32]),
         }));
@@ -3264,7 +3264,7 @@ fn test_stacks_on_burnchain_ops() {
 
             // mocked
             txid: Txid([(i as u8) | 0x80; 32]),
-            vtxindex: 2,
+            vtxindex: 12,
             block_height: block_height + 1,
             burn_header_hash: BurnchainHeaderHash([0x00; 32]),
         }));
@@ -3276,7 +3276,7 @@ fn test_stacks_on_burnchain_ops() {
 
             // mocked
             txid: Txid([(i as u8) | 0x40; 32]),
-            vtxindex: 3,
+            vtxindex: 13,
             block_height: block_height + 1,
             burn_header_hash: BurnchainHeaderHash([0x00; 32]),
         }));
@@ -3295,7 +3295,7 @@ fn test_stacks_on_burnchain_ops() {
 
                 // mocked
                 txid: Txid([(i as u8) | 0xc0; 32]),
-                vtxindex: 4,
+                vtxindex: 14,
                 block_height: block_height + 1,
                 burn_header_hash: BurnchainHeaderHash([0x00; 32]),
             },
