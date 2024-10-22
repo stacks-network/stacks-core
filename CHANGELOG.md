@@ -11,7 +11,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ### Added
 
-- **Nakamoto consensus rules, activating in epoch 3.0 at block 867,867**
+- **Nakamoto consensus rules, activating in epoch 3.0 at block 867,867** (see [SIP-021](https://github.com/stacksgov/sips/blob/main/sips/sip-021/sip-021-nakamoto.md) for details)
 - Clarity 3, activating with epoch 3.0
   - Keywords / variable
     - `tenure-height` added
