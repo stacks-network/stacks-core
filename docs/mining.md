@@ -13,14 +13,9 @@ seed = "YOUR PRIVATE KEY"
 #mock_mining = True
 
 [miner]
-# Smallest allowed tx fee, in microSTX
-min_tx_fee = 100
 # Time to spend on the first attempt to make a block, in milliseconds.
 # This can be small, so your node gets a block-commit into the Bitcoin mempool early.
 first_attempt_time_ms = 1000
-# Time to spend on subsequent attempts to make a block, in milliseconds.
-# This can be bigger -- new block-commits will be RBF'ed.
-subsequent_attempt_time_ms = 60000
 # Time to spend mining a Nakamoto block, in milliseconds.
 nakamoto_attempt_time_ms = 20000
 
