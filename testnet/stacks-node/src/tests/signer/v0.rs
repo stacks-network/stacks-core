@@ -1645,11 +1645,11 @@ fn multiple_miners() {
     assert_eq!(peer_1_height, peer_2_height);
     assert_eq!(
         peer_1_height,
-        pre_nakamoto_peer_1_height + btc_blocks_mined - 1
+        pre_nakamoto_peer_1_height + btc_blocks_mined as u64 - 1
     );
     assert_eq!(
         btc_blocks_mined,
-        u64::try_from(miner_1_tenures + miner_2_tenures).unwrap()
+        u32::try_from(miner_1_tenures + miner_2_tenures).unwrap()
     );
 
     rl2_coord_channels
