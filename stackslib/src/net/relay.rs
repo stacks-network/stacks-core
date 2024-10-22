@@ -2500,8 +2500,8 @@ impl Relayer {
                         let md = chunk.get_slot_metadata();
                         if let Err(e) = tx.try_replace_chunk(&sc, &md, &chunk.data) {
                             if matches!(e, Error::StaleChunk { .. }) {
-                                // This is a common and expected error, so log it as a debug and with a sep message
-                                // to distinguish it from other error types.
+                                // This is a common and expected message, so log it as a debug and with a sep message
+                                // to distinguish it from other message types.
                                 debug!(
                                     "Dropping stale StackerDB chunk";
                                     "stackerdb_contract_id" => &format!("{}", &sync_result.contract_id),
