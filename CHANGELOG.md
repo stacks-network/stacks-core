@@ -5,11 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
+## [Unreleased]
+
 ## [3.0.0.0.0]
 
 ### Added
 
-- Nakamoto consensus rules, activating in epoch 3.0 at block 867,867
+- **Nakamoto consensus rules, activating in epoch 3.0 at block 867,867**
 - Clarity 3, activating with epoch 3.0
   - Keywords / variable
     - `tenure-height` added
