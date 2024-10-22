@@ -50,7 +50,7 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 
 use chainstate::SortitionsView;
 use config::GlobalConfig;
-use libsigner::{SignerEvent, SignerEventReceiver, SignerEventTrait};
+use libsigner::{SignerEvent, SignerEventReceiver, SignerEventTrait, VERSION_STRING};
 use runloop::SignerResult;
 use slog::{slog_info, slog_warn};
 use stacks_common::{info, warn};
@@ -113,6 +113,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SpawnedSigner
     /// Create a new spawned signer
     pub fn new(config: GlobalConfig) -> Self {
         let endpoint = config.endpoint;
+        info!("Stacks signer version {:?}", VERSION_STRING.as_str());
         info!("Starting signer with config: {:?}", config);
         warn!(
             "Reminder: The signer is primarily designed for use with a local or subnet network stacks node. \

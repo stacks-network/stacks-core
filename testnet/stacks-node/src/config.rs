@@ -550,6 +550,16 @@ impl Config {
                 &burnchain.pox_constants
             );
         }
+        let activation_reward_cycle = burnchain
+            .block_height_to_reward_cycle(epoch_30.start_height)
+            .expect("FATAL: Epoch 3.0 starts before the first burnchain block");
+        if activation_reward_cycle < 2 {
+            panic!(
+                "FATAL: Epoch 3.0 must start at or after the second reward cycle. Epoch 3.0 start set to: {}. PoX Parameters: {:?}",
+                epoch_30.start_height,
+                &burnchain.pox_constants
+            );
+        }
     }
 
     /// Connect to the MempoolDB using the configured cost estimation
@@ -843,12 +853,6 @@ impl Config {
                     "Attempted to run mainnet node with `use_test_genesis_chainstate`"
                 ));
             }
-        } else if node.require_affirmed_anchor_blocks {
-            // testnet requires that we use the 2.05 rules for anchor block affirmations,
-            // because reward cycle 360 (and possibly future ones) has a different anchor
-            // block choice in 2.05 rules than in 2.1 rules.
-            debug!("Set `require_affirmed_anchor_blocks` to `false` for non-mainnet config");
-            node.require_affirmed_anchor_blocks = false;
         }
 
         if node.stacker || node.miner {
@@ -953,6 +957,18 @@ impl Config {
             miner,
             atlas,
         })
+    }
+
+    /// Returns the path working directory path, and ensures it exists.
+    pub fn get_working_dir(&self) -> PathBuf {
+        let path = PathBuf::from(&self.node.working_dir);
+        fs::create_dir_all(&path).unwrap_or_else(|_| {
+            panic!(
+                "Failed to create working directory at {}",
+                path.to_string_lossy()
+            )
+        });
+        path
     }
 
     fn get_burnchain_path(&self) -> PathBuf {
@@ -1946,7 +1962,7 @@ impl Default for NodeConfig {
             marf_defer_hashing: true,
             pox_sync_sample_secs: 30,
             use_test_genesis_chainstate: None,
-            always_use_affirmation_maps: false,
+            always_use_affirmation_maps: true,
             require_affirmed_anchor_blocks: true,
             fault_injection_block_push_fail_probability: None,
             fault_injection_hide_blocks: false,

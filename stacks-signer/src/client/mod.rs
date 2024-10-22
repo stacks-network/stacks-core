@@ -322,6 +322,7 @@ pub(crate) mod tests {
             stacks_tip_consensus_hash: generate_random_consensus_hash(),
             unanchored_tip: None,
             unanchored_seq: Some(0),
+            tenure_height: thread_rng().next_u64(),
             exit_at_block_height: None,
             is_fully_synced: false,
             genesis_chainstate_hash: Sha256Sum::zero(),

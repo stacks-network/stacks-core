@@ -16,6 +16,7 @@
 
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Mutex;
 use std::thread::sleep;
@@ -25,6 +26,8 @@ use clarity::vm::analysis::contract_interface_builder::build_contract_interface;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::events::{FTEventType, NFTEventType, STXEventType};
 use clarity::vm::types::{AssetIdentifier, QualifiedContractIdentifier, Value};
+use rand::Rng;
+use rusqlite::{params, Connection};
 use serde_json::json;
 use stacks::burnchains::{PoxConstants, Txid};
 use stacks::chainstate::burn::operations::BlockstackOperationType;
@@ -56,6 +59,7 @@ use stacks::net::http::HttpRequestContents;
 use stacks::net::httpcore::{send_http_request, StacksHttpRequest};
 use stacks::net::stackerdb::StackerDBEventDispatcher;
 use stacks::util::hash::to_hex;
+use stacks::util_lib::db::Error as db_error;
 use stacks_common::bitvec::BitVec;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksBlockId};
@@ -68,7 +72,12 @@ use super::config::{EventKeyType, EventObserverConfig};
 
 #[derive(Debug, Clone)]
 struct EventObserver {
+    /// Path to the database where pending payloads are stored. If `None`, then
+    /// the database is not used and events are not recoverable across restarts.
+    db_path: Option<PathBuf>,
+    /// URL to which events will be sent
     endpoint: String,
+    /// Timeout for sending events to this observer
     timeout: Duration,
 }
 
@@ -313,22 +322,106 @@ impl RewardSetEventPayload {
     }
 }
 
+#[cfg(test)]
+static TEST_EVENT_OBSERVER_SKIP_RETRY: std::sync::Mutex<Option<bool>> = std::sync::Mutex::new(None);
+
 impl EventObserver {
-    pub fn send_payload(&self, payload: &serde_json::Value, path: &str) {
+    fn init_db(db_path: &str) -> Result<Connection, db_error> {
+        let conn = Connection::open(db_path)?;
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS pending_payloads (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                url TEXT NOT NULL,
+                payload TEXT NOT NULL,
+                timeout INTEGER NOT NULL
+            )",
+            [],
+        )?;
+        Ok(conn)
+    }
+
+    fn insert_payload(
+        conn: &Connection,
+        url: &str,
+        payload: &serde_json::Value,
+        timeout: Duration,
+    ) -> Result<(), db_error> {
+        let payload_text = payload.to_string();
+        let timeout_ms: u64 = timeout.as_millis().try_into().expect("Timeout too large");
+        conn.execute(
+            "INSERT INTO pending_payloads (url, payload, timeout) VALUES (?1, ?2, ?3)",
+            params![url, payload_text, timeout_ms],
+        )?;
+        Ok(())
+    }
+
+    fn get_pending_payloads(
+        conn: &Connection,
+    ) -> Result<Vec<(i64, String, serde_json::Value, u64)>, db_error> {
+        let mut stmt =
+            conn.prepare("SELECT id, url, payload, timeout FROM pending_payloads ORDER BY id")?;
+        let payload_iter = stmt.query_and_then(
+            [],
+            |row| -> Result<(i64, String, serde_json::Value, u64), db_error> {
+                let id: i64 = row.get(0)?;
+                let url: String = row.get(1)?;
+                let payload_text: String = row.get(2)?;
+                let payload: serde_json::Value = serde_json::from_str(&payload_text)
+                    .map_err(|e| db_error::SerializationError(e))?;
+                let timeout_ms: u64 = row.get(3)?;
+                Ok((id, url, payload, timeout_ms))
+            },
+        )?;
+        payload_iter.collect()
+    }
+
+    fn delete_payload(conn: &Connection, id: i64) -> Result<(), db_error> {
+        conn.execute("DELETE FROM pending_payloads WHERE id = ?1", params![id])?;
+        Ok(())
+    }
+
+    fn process_pending_payloads(conn: &Connection) {
+        let pending_payloads = match Self::get_pending_payloads(conn) {
+            Ok(payloads) => payloads,
+            Err(e) => {
+                error!(
+                    "Event observer: failed to retrieve pending payloads from database";
+                    "error" => ?e
+                );
+                return;
+            }
+        };
+
+        for (id, url, payload, timeout_ms) in pending_payloads {
+            let timeout = Duration::from_millis(timeout_ms);
+            Self::send_payload_directly(&payload, &url, timeout);
+
+            #[cfg(test)]
+            if TEST_EVENT_OBSERVER_SKIP_RETRY
+                .lock()
+                .unwrap()
+                .unwrap_or(false)
+            {
+                warn!("Fault injection: delete_payload");
+                return;
+            }
+
+            if let Err(e) = Self::delete_payload(conn, id) {
+                error!(
+                    "Event observer: failed to delete pending payload from database";
+                    "error" => ?e
+                );
+            }
+        }
+    }
+
+    fn send_payload_directly(payload: &serde_json::Value, full_url: &str, timeout: Duration) {
         debug!(
-            "Event dispatcher: Sending payload"; "url" => %path, "payload" => ?payload
+            "Event dispatcher: Sending payload"; "url" => %full_url, "payload" => ?payload
         );
 
-        let url = {
-            let joined_components = if path.starts_with('/') {
-                format!("{}{}", &self.endpoint, path)
-            } else {
-                format!("{}/{}", &self.endpoint, path)
-            };
-            let url = format!("http://{}", joined_components);
-            Url::parse(&url)
-                .unwrap_or_else(|_| panic!("Event dispatcher: unable to parse {} as a URL", url))
-        };
+        let url = Url::parse(full_url)
+            .unwrap_or_else(|_| panic!("Event dispatcher: unable to parse {} as a URL", full_url));
 
         let host = url.host_str().expect("Invalid URL: missing host");
         let port = url.port_or_known_default().unwrap_or(80);
@@ -337,6 +430,10 @@ impl EventObserver {
             .unwrap_or(PeerHost::DNS(host.to_string(), port));
 
         let mut backoff = Duration::from_millis(100);
+        let mut attempts: i32 = 0;
+        // Cap the backoff at 3x the timeout
+        let max_backoff = timeout.saturating_mul(3);
+
         loop {
             let mut request = StacksHttpRequest::new_for_peer(
                 peerhost.clone(),
@@ -346,8 +443,7 @@ impl EventObserver {
             )
             .unwrap_or_else(|_| panic!("FATAL: failed to encode infallible data as HTTP request"));
             request.add_header("Connection".into(), "close".into());
-
-            match send_http_request(host, port, request, self.timeout) {
+            match send_http_request(host, port, request, timeout) {
                 Ok(response) => {
                     if response.preamble().status_code == 200 {
                         debug!(
@@ -363,12 +459,79 @@ impl EventObserver {
                 Err(err) => {
                     warn!(
                         "Event dispatcher: connection or request failed to {}:{} - {:?}",
-                        &host, &port, err
+                        &host, &port, err;
+                        "backoff" => ?backoff,
+                        "attempts" => attempts
                     );
                 }
             }
+
+            #[cfg(test)]
+            if TEST_EVENT_OBSERVER_SKIP_RETRY
+                .lock()
+                .unwrap()
+                .unwrap_or(false)
+            {
+                warn!("Fault injection: skipping retry of payload");
+                return;
+            }
+
             sleep(backoff);
-            backoff *= 2;
+            let jitter: u64 = rand::thread_rng().gen_range(0..100);
+            backoff = std::cmp::min(
+                backoff.saturating_mul(2) + Duration::from_millis(jitter),
+                max_backoff,
+            );
+            attempts = attempts.saturating_add(1);
+        }
+    }
+
+    fn new(working_dir: Option<PathBuf>, endpoint: String, timeout: Duration) -> Self {
+        let db_path = if let Some(mut db_path) = working_dir {
+            db_path.push("event_observers.sqlite");
+
+            Self::init_db(
+                db_path
+                    .to_str()
+                    .expect("Failed to convert chainstate path to string"),
+            )
+            .expect("Failed to initialize database for event observer");
+            Some(db_path)
+        } else {
+            None
+        };
+
+        EventObserver {
+            db_path,
+            endpoint,
+            timeout,
+        }
+    }
+
+    /// Send the payload to the given URL.
+    /// Before sending this payload, any pending payloads in the database will be sent first.
+    pub fn send_payload(&self, payload: &serde_json::Value, path: &str) {
+        // Construct the full URL
+        let url_str = if path.starts_with('/') {
+            format!("{}{}", &self.endpoint, path)
+        } else {
+            format!("{}/{}", &self.endpoint, path)
+        };
+        let full_url = format!("http://{}", url_str);
+
+        if let Some(db_path) = &self.db_path {
+            let conn =
+                Connection::open(db_path).expect("Failed to open database for event observer");
+
+            // Insert the new payload into the database
+            Self::insert_payload(&conn, &full_url, payload, self.timeout)
+                .expect("Failed to insert payload into event observer database");
+
+            // Process all pending payloads
+            Self::process_pending_payloads(&conn);
+        } else {
+            // No database, just send the payload
+            Self::send_payload_directly(payload, &full_url, self.timeout);
         }
     }
 
@@ -596,6 +759,7 @@ impl EventObserver {
         reward_set_data: &Option<RewardSetData>,
         signer_bitvec_opt: &Option<BitVec<4000>>,
         block_timestamp: Option<u64>,
+        coinbase_height: u64,
     ) -> serde_json::Value {
         // Serialize events to JSON
         let serialized_events: Vec<serde_json::Value> = filtered_events
@@ -657,6 +821,7 @@ impl EventObserver {
             "signer_bitvec": signer_bitvec_value,
             "reward_set": reward_set_value,
             "cycle_number": cycle_number_value,
+            "tenure_height": coinbase_height,
         });
 
         let as_object_mut = payload.as_object_mut().unwrap();
@@ -856,6 +1021,7 @@ impl BlockEventDispatcher for EventDispatcher {
         reward_set_data: &Option<RewardSetData>,
         signer_bitvec: &Option<BitVec<4000>>,
         block_timestamp: Option<u64>,
+        coinbase_height: u64,
     ) {
         self.process_chain_tip(
             block,
@@ -874,6 +1040,7 @@ impl BlockEventDispatcher for EventDispatcher {
             reward_set_data,
             signer_bitvec,
             block_timestamp,
+            coinbase_height,
         );
     }
 
@@ -1057,6 +1224,7 @@ impl EventDispatcher {
         reward_set_data: &Option<RewardSetData>,
         signer_bitvec: &Option<BitVec<4000>>,
         block_timestamp: Option<u64>,
+        coinbase_height: u64,
     ) {
         let all_receipts = receipts.to_owned();
         let (dispatch_matrix, events) = self.create_dispatch_matrix_and_event_vector(&all_receipts);
@@ -1109,6 +1277,7 @@ impl EventDispatcher {
                         reward_set_data,
                         signer_bitvec,
                         block_timestamp,
+                        coinbase_height,
                     );
 
                 // Send payload
@@ -1403,12 +1572,13 @@ impl EventDispatcher {
         }
     }
 
-    pub fn register_observer(&mut self, conf: &EventObserverConfig) {
+    pub fn register_observer(&mut self, conf: &EventObserverConfig, working_dir: PathBuf) {
         info!("Registering event observer at: {}", conf.endpoint);
-        let event_observer = EventObserver {
-            endpoint: conf.endpoint.clone(),
-            timeout: Duration::from_millis(conf.timeout_ms),
-        };
+        let event_observer = EventObserver::new(
+            Some(working_dir),
+            conf.endpoint.clone(),
+            Duration::from_millis(conf.timeout_ms),
+        );
 
         let observer_index = self.registered_observers.len() as u16;
 
@@ -1492,16 +1662,14 @@ mod test {
     use stacks::util::secp256k1::MessageSignature;
     use stacks_common::bitvec::BitVec;
     use stacks_common::types::chainstate::{BurnchainHeaderHash, StacksBlockId};
+    use tempfile::tempdir;
     use tiny_http::{Method, Response, Server, StatusCode};
 
     use super::*;
 
     #[test]
     fn build_block_processed_event() {
-        let observer = EventObserver {
-            endpoint: "nowhere".to_string(),
-            timeout: Duration::from_secs(3),
-        };
+        let observer = EventObserver::new(None, "nowhere".to_string(), Duration::from_secs(3));
 
         let filtered_events = vec![];
         let block = StacksBlock::genesis_block();
@@ -1518,6 +1686,7 @@ mod test {
         let pox_constants = PoxConstants::testnet_default();
         let signer_bitvec = BitVec::zeros(2).expect("Failed to create BitVec with length 2");
         let block_timestamp = Some(123456);
+        let coinbase_height = 1234;
 
         let payload = observer.make_new_block_processed_payload(
             filtered_events,
@@ -1536,6 +1705,7 @@ mod test {
             &None,
             &Some(signer_bitvec.clone()),
             block_timestamp,
+            coinbase_height,
         );
         assert_eq!(
             payload
@@ -1559,10 +1729,7 @@ mod test {
 
     #[test]
     fn test_block_processed_event_nakamoto() {
-        let observer = EventObserver {
-            endpoint: "nowhere".to_string(),
-            timeout: Duration::from_secs(3),
-        };
+        let observer = EventObserver::new(None, "nowhere".to_string(), Duration::from_secs(3));
 
         let filtered_events = vec![];
         let mut block_header = NakamotoBlockHeader::empty();
@@ -1589,6 +1756,7 @@ mod test {
         let pox_constants = PoxConstants::testnet_default();
         let signer_bitvec = BitVec::zeros(2).expect("Failed to create BitVec with length 2");
         let block_timestamp = Some(123456);
+        let coinbase_height = 1234;
 
         let payload = observer.make_new_block_processed_payload(
             filtered_events,
@@ -1607,6 +1775,7 @@ mod test {
             &None,
             &Some(signer_bitvec.clone()),
             block_timestamp,
+            coinbase_height,
         );
 
         let event_signer_signature = payload
@@ -1680,6 +1849,231 @@ mod test {
     }
 
     #[test]
+    fn test_init_db() {
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("test_init_db.sqlite");
+        let db_path_str = db_path.to_str().unwrap();
+
+        // Call init_db
+        let conn_result = EventObserver::init_db(db_path_str);
+        assert!(conn_result.is_ok(), "Failed to initialize the database");
+
+        // Check that the database file exists
+        assert!(db_path.exists(), "Database file was not created");
+
+        // Check that the table exists
+        let conn = conn_result.unwrap();
+        let mut stmt = conn
+            .prepare(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='pending_payloads'",
+            )
+            .unwrap();
+        let table_exists = stmt.exists([]).unwrap();
+        assert!(table_exists, "Table 'pending_payloads' does not exist");
+    }
+
+    #[test]
+    fn test_insert_and_get_pending_payloads() {
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("test_payloads.sqlite");
+        let db_path_str = db_path.to_str().unwrap();
+
+        let conn = EventObserver::init_db(db_path_str).expect("Failed to initialize the database");
+
+        let url = "http://example.com/api";
+        let payload = json!({"key": "value"});
+        let timeout = Duration::from_secs(5);
+
+        // Insert payload
+        let insert_result = EventObserver::insert_payload(&conn, url, &payload, timeout);
+        assert!(insert_result.is_ok(), "Failed to insert payload");
+
+        // Get pending payloads
+        let pending_payloads =
+            EventObserver::get_pending_payloads(&conn).expect("Failed to get pending payloads");
+        assert_eq!(pending_payloads.len(), 1, "Expected one pending payload");
+
+        let (_id, retrieved_url, retrieved_payload, timeout_ms) = &pending_payloads[0];
+        assert_eq!(retrieved_url, url, "URL does not match");
+        assert_eq!(retrieved_payload, &payload, "Payload does not match");
+        assert_eq!(
+            *timeout_ms,
+            timeout.as_millis() as u64,
+            "Timeout does not match"
+        );
+    }
+
+    #[test]
+    fn test_delete_payload() {
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("test_delete_payload.sqlite");
+        let db_path_str = db_path.to_str().unwrap();
+
+        let conn = EventObserver::init_db(db_path_str).expect("Failed to initialize the database");
+
+        let url = "http://example.com/api";
+        let payload = json!({"key": "value"});
+        let timeout = Duration::from_secs(5);
+
+        // Insert payload
+        EventObserver::insert_payload(&conn, url, &payload, timeout)
+            .expect("Failed to insert payload");
+
+        // Get pending payloads
+        let pending_payloads =
+            EventObserver::get_pending_payloads(&conn).expect("Failed to get pending payloads");
+        assert_eq!(pending_payloads.len(), 1, "Expected one pending payload");
+
+        let (id, _, _, _) = pending_payloads[0];
+
+        // Delete payload
+        let delete_result = EventObserver::delete_payload(&conn, id);
+        assert!(delete_result.is_ok(), "Failed to delete payload");
+
+        // Verify that the pending payloads list is empty
+        let pending_payloads =
+            EventObserver::get_pending_payloads(&conn).expect("Failed to get pending payloads");
+        assert_eq!(pending_payloads.len(), 0, "Expected no pending payloads");
+    }
+
+    #[test]
+    fn test_process_pending_payloads() {
+        use mockito::Matcher;
+
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("test_process_payloads.sqlite");
+        let db_path_str = db_path.to_str().unwrap();
+
+        let conn = EventObserver::init_db(db_path_str).expect("Failed to initialize the database");
+
+        let payload = json!({"key": "value"});
+        let timeout = Duration::from_secs(5);
+
+        // Create a mock server
+        let mut server = mockito::Server::new();
+        let _m = server
+            .mock("POST", "/api")
+            .match_header("content-type", Matcher::Regex("application/json.*".into()))
+            .match_body(Matcher::Json(payload.clone()))
+            .with_status(200)
+            .create();
+
+        let url = &format!("{}/api", &server.url());
+
+        // Insert payload
+        EventObserver::insert_payload(&conn, url, &payload, timeout)
+            .expect("Failed to insert payload");
+
+        // Process pending payloads
+        EventObserver::process_pending_payloads(&conn);
+
+        // Verify that the pending payloads list is empty
+        let pending_payloads =
+            EventObserver::get_pending_payloads(&conn).expect("Failed to get pending payloads");
+        assert_eq!(pending_payloads.len(), 0, "Expected no pending payloads");
+
+        // Verify that the mock was called
+        _m.assert();
+    }
+
+    #[test]
+    fn test_new_event_observer_with_db() {
+        let dir = tempdir().unwrap();
+        let working_dir = dir.path().to_path_buf();
+
+        let endpoint = "http://example.com".to_string();
+        let timeout = Duration::from_secs(5);
+
+        let observer = EventObserver::new(Some(working_dir.clone()), endpoint.clone(), timeout);
+
+        // Verify fields
+        assert_eq!(observer.endpoint, endpoint);
+        assert_eq!(observer.timeout, timeout);
+
+        // Verify that the database was initialized
+        let mut db_path = working_dir;
+        db_path.push("event_observers.sqlite");
+        assert!(db_path.exists(), "Database file was not created");
+    }
+
+    #[test]
+    fn test_new_event_observer_without_db() {
+        let endpoint = "http://example.com".to_string();
+        let timeout = Duration::from_secs(5);
+
+        let observer = EventObserver::new(None, endpoint.clone(), timeout);
+
+        // Verify fields
+        assert_eq!(observer.endpoint, endpoint);
+        assert_eq!(observer.timeout, timeout);
+        assert!(observer.db_path.is_none(), "Expected db_path to be None");
+    }
+
+    #[test]
+    fn test_send_payload_with_db() {
+        use mockito::Matcher;
+
+        let dir = tempdir().unwrap();
+        let working_dir = dir.path().to_path_buf();
+        let payload = json!({"key": "value"});
+
+        // Create a mock server
+        let mut server = mockito::Server::new();
+        let _m = server
+            .mock("POST", "/test")
+            .match_header("content-type", Matcher::Regex("application/json.*".into()))
+            .match_body(Matcher::Json(payload.clone()))
+            .with_status(200)
+            .create();
+
+        let endpoint = server.url().strip_prefix("http://").unwrap().to_string();
+        let timeout = Duration::from_secs(5);
+
+        let observer = EventObserver::new(Some(working_dir.clone()), endpoint, timeout);
+
+        // Call send_payload
+        observer.send_payload(&payload, "/test");
+
+        // Verify that the payload was sent and database is empty
+        _m.assert();
+
+        // Verify that the database is empty
+        let db_path = observer.db_path.unwrap();
+        let db_path_str = db_path.to_str().unwrap();
+        let conn = Connection::open(db_path_str).expect("Failed to open database");
+        let pending_payloads =
+            EventObserver::get_pending_payloads(&conn).expect("Failed to get pending payloads");
+        assert_eq!(pending_payloads.len(), 0, "Expected no pending payloads");
+    }
+
+    #[test]
+    fn test_send_payload_without_db() {
+        use mockito::Matcher;
+
+        let timeout = Duration::from_secs(5);
+        let payload = json!({"key": "value"});
+
+        // Create a mock server
+        let mut server = mockito::Server::new();
+        let _m = server
+            .mock("POST", "/test")
+            .match_header("content-type", Matcher::Regex("application/json.*".into()))
+            .match_body(Matcher::Json(payload.clone()))
+            .with_status(200)
+            .create();
+
+        let endpoint = server.url().strip_prefix("http://").unwrap().to_string();
+
+        let observer = EventObserver::new(None, endpoint, timeout);
+
+        // Call send_payload
+        observer.send_payload(&payload, "/test");
+
+        // Verify that the payload was sent
+        _m.assert();
+    }
+
+    #[test]
     fn test_send_payload_success() {
         let port = get_random_port();
 
@@ -1701,10 +2095,8 @@ mod test {
             tx.send(()).unwrap();
         });
 
-        let observer = EventObserver {
-            endpoint: format!("127.0.0.1:{}", port),
-            timeout: Duration::from_secs(3),
-        };
+        let observer =
+            EventObserver::new(None, format!("127.0.0.1:{}", port), Duration::from_secs(3));
 
         let payload = json!({"key": "value"});
 
@@ -1752,10 +2144,8 @@ mod test {
             }
         });
 
-        let observer = EventObserver {
-            endpoint: format!("127.0.0.1:{}", port),
-            timeout: Duration::from_secs(3),
-        };
+        let observer =
+            EventObserver::new(None, format!("127.0.0.1:{}", port), Duration::from_secs(3));
 
         let payload = json!({"key": "value"});
 
@@ -1799,10 +2189,7 @@ mod test {
             }
         });
 
-        let observer = EventObserver {
-            endpoint: format!("127.0.0.1:{}", port),
-            timeout,
-        };
+        let observer = EventObserver::new(None, format!("127.0.0.1:{}", port), timeout);
 
         let payload = json!({"key": "value"});
 
@@ -1827,6 +2214,101 @@ mod test {
         );
 
         // Wait for the server to process the request
+        rx.recv_timeout(Duration::from_secs(5))
+            .expect("Server did not receive request in time");
+    }
+
+    #[test]
+    fn test_send_payload_with_db_force_restart() {
+        let port = get_random_port();
+        let timeout = Duration::from_secs(3);
+        let dir = tempdir().unwrap();
+        let working_dir = dir.path().to_path_buf();
+
+        // Set up a channel to notify when the server has processed the request
+        let (tx, rx) = channel();
+
+        info!("Starting mock server on port {}", port);
+        // Start a mock server in a separate thread
+        let server = Server::http(format!("127.0.0.1:{}", port)).unwrap();
+        thread::spawn(move || {
+            let mut attempt = 0;
+            let mut _request_holder = None;
+            while let Ok(mut request) = server.recv() {
+                attempt += 1;
+                match attempt {
+                    1 => {
+                        debug!("Mock server received request attempt 1");
+                        // Do not reply, forcing the sender to timeout and retry,
+                        // but don't drop the request or it will receive a 500 error,
+                        _request_holder = Some(request);
+                    }
+                    2 => {
+                        debug!("Mock server received request attempt 2");
+
+                        // Verify the payload
+                        let mut payload = String::new();
+                        request.as_reader().read_to_string(&mut payload).unwrap();
+                        let expected_payload = r#"{"key":"value"}"#;
+                        assert_eq!(payload, expected_payload);
+
+                        // Simulate a successful response on the second attempt
+                        let response = Response::from_string("HTTP/1.1 200 OK");
+                        request.respond(response).unwrap();
+                    }
+                    3 => {
+                        debug!("Mock server received request attempt 3");
+
+                        // Verify the payload
+                        let mut payload = String::new();
+                        request.as_reader().read_to_string(&mut payload).unwrap();
+                        let expected_payload = r#"{"key":"value2"}"#;
+                        assert_eq!(payload, expected_payload);
+
+                        // Simulate a successful response on the second attempt
+                        let response = Response::from_string("HTTP/1.1 200 OK");
+                        request.respond(response).unwrap();
+
+                        // When we receive attempt 3 (message 1, re-sent message 1, message 2),
+                        // notify the test that the request was processed successfully
+                        tx.send(()).unwrap();
+                        break;
+                    }
+                    _ => panic!("Unexpected request attempt"),
+                }
+            }
+        });
+
+        let observer = EventObserver::new(
+            Some(working_dir.clone()),
+            format!("127.0.0.1:{}", port),
+            timeout,
+        );
+
+        let payload = json!({"key": "value"});
+        let payload2 = json!({"key": "value2"});
+
+        // Disable retrying so that it sends the payload only once
+        // and that payload will be ignored by the test server.
+        TEST_EVENT_OBSERVER_SKIP_RETRY.lock().unwrap().replace(true);
+
+        info!("Sending payload 1");
+
+        // Send the payload
+        observer.send_payload(&payload, "/test");
+
+        // Re-enable retrying
+        TEST_EVENT_OBSERVER_SKIP_RETRY
+            .lock()
+            .unwrap()
+            .replace(false);
+
+        info!("Sending payload 2");
+
+        // Send another payload
+        observer.send_payload(&payload2, "/test");
+
+        // Wait for the server to process the requests
         rx.recv_timeout(Duration::from_secs(5))
             .expect("Server did not receive request in time");
     }
