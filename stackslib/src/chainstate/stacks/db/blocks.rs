@@ -3045,7 +3045,7 @@ impl StacksChainState {
         }
 
         if signed_microblocks[0].header.sequence != 0 {
-            // discontinuous -- must start with seq 0
+            // discontiguous -- must start with seq 0
             warn!(
                 "Discontiguous stream -- first microblock header sequence is {}",
                 signed_microblocks[0].header.sequence
@@ -3054,7 +3054,7 @@ impl StacksChainState {
         }
 
         if signed_microblocks[0].header.prev_block != parent_anchored_block_header.block_hash() {
-            // discontinuous -- not connected to parent
+            // discontiguous -- not connected to parent
             warn!("Discontiguous stream -- does not connect to parent");
             return None;
         }

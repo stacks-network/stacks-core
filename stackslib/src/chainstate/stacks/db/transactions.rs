@@ -4133,7 +4133,7 @@ pub mod test {
                 );
                 assert_eq!(account_publisher_after.nonce, expected_nonce);
 
-                // but nonce _does_ change for receive, who sent back
+                // but nonce _does_ change for receiver, who sent back
                 let account_publisher_after =
                     StacksChainState::get_account(&mut conn, &recv_addr.to_account_principal());
                 assert_eq!(account_publisher_after.nonce, expected_recv_nonce);
@@ -4892,7 +4892,7 @@ pub mod test {
                 );
                 assert_eq!(account_publisher_after.nonce, expected_nonce);
 
-                // but nonce _does_ change for receive, who sent back
+                // but nonce _does_ change for receiver, who sent back
                 let account_publisher_after =
                     StacksChainState::get_account(&mut conn, &recv_addr.to_account_principal());
                 assert_eq!(account_publisher_after.nonce, expected_recv_nonce);
