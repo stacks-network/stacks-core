@@ -683,6 +683,11 @@ fn miner_wait_for_proposal() {
     })
     .expect("Timed out waiting for block proposal");
 
+    let proposals_before = signer_test
+        .running_nodes
+        .nakamoto_blocks_proposed
+        .load(Ordering::SeqCst);
+
     let mut block_proposal: Option<BlockProposal> = None;
 
     wait_for(30, || {
@@ -736,6 +741,16 @@ fn miner_wait_for_proposal() {
     let slot_per_signer = signer_test.get_slot_per_signer(reward_cycle);
 
     TEST_IGNORE_ALL_BLOCK_PROPOSALS.lock().unwrap().take();
+
+    // Ensure that the new miner hasn't proposed any blocks yet
+    wait_for(10, || {
+        Ok(signer_test
+            .running_nodes
+            .nakamoto_blocks_proposed
+            .load(Ordering::SeqCst)
+            > proposals_before)
+    })
+    .expect_err("New miner proposed a block before we expected");
 
     // Now, generate a block response for each signer
     signer_test.spawned_signers.iter().for_each(|signer| {
