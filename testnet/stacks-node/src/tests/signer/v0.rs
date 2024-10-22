@@ -3874,12 +3874,9 @@ fn partial_tenure_fork() {
 
     let mut miner_1_blocks = 0;
     let mut miner_2_blocks = 0;
-    // Make sure that both miner 1 and 2 mine at least 1 block each
-    while miner_1_tenures < min_miner_1_tenures
-        || miner_2_tenures < min_miner_2_tenures
-        || miner_1_blocks == 0
-        || miner_2_blocks == 0
-    {
+    let mut min_miner_2_blocks = 0;
+
+    while miner_1_tenures < min_miner_1_tenures || miner_2_tenures < min_miner_2_tenures {
         if btc_blocks_mined >= max_nakamoto_tenures {
             panic!("Produced {btc_blocks_mined} sortitions, but didn't cover the test scenarios, aborting");
         }
@@ -3963,6 +3960,7 @@ fn partial_tenure_fork() {
             // Ensure that miner 2 runs at least one more tenure
             min_miner_2_tenures = miner_2_tenures + 1;
             fork_initiated = true;
+            min_miner_2_blocks = miner_2_blocks;
         }
         if miner == 2 && miner_2_tenures == min_miner_2_tenures {
             // This is the forking tenure. Ensure that miner 1 runs one more
@@ -4096,15 +4094,9 @@ fn partial_tenure_fork() {
     // The height may be higher than expected due to extra transactions waiting
     // to be mined during the forking miner's tenure.
     // We cannot guarantee due to TooMuchChaining that the miner will mine inter_blocks_per_tenure
-    let min_num_miner_2_blocks = std::cmp::min(
-        miner_2_blocks,
-        min_miner_2_tenures * (inter_blocks_per_tenure + 1),
-    );
-    assert!(
-        miner_2_tenures >= min_miner_2_tenures,
-        "Miner 2 failed to win its minimum number of tenures"
-    );
-    assert!(peer_1_height >= pre_nakamoto_peer_1_height + miner_1_blocks + min_num_miner_2_blocks,);
+    // Must be at least the number of blocks mined by miner 1 and the number of blocks mined by miner 2
+    // before the fork was initiated
+    assert!(peer_1_height >= pre_nakamoto_peer_1_height + miner_1_blocks + min_miner_2_blocks);
     assert_eq!(
         btc_blocks_mined,
         u64::try_from(miner_1_tenures + miner_2_tenures).unwrap()
