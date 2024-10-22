@@ -892,7 +892,7 @@ impl RelayerThread {
         // The node will try to build on the sortition with the last winner, even if it does not yet have all of
         // the ancestor Stacks blocks necessary to do so.  This is okay, because (1) the node eventually
         // will catch up and (2) the signers won't let the miner orphan blocks they have already seen (and
-        // signers see all the blocks).  So, the miner should try and mine off of the chain tip the signers 
+        // signers see all the blocks).  So, the miner should try and mine off of the chain tip the signers
         // will accept, if it mines at all.
         let last_winner_snapshot = {
             let ih = self.sortdb.index_handle(&burn_tip.sortition_id);
