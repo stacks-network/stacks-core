@@ -1460,7 +1460,6 @@ fn multiple_miners() {
     let node_2_rpc_bind = format!("{localhost}:{node_2_rpc}");
     let mut node_2_listeners = Vec::new();
 
-
     let max_nakamoto_tenures = 30;
     // partition the signer set so that ~half are listening and using node 1 for RPC and events,
     //  and the rest are using node 2
