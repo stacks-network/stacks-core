@@ -17,6 +17,9 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
     - `get-tenure-info?` added
     - `get-block-info?` removed
 - Added `/v3/signer/{signer_pubkey}/{reward_cycle}` endpoint
+- Added `tenure_height` to `/v2/info` endpoint
+- Added optional `timeout_ms` to `events_observer` configuration
+- Added support for re-sending events to event observers across restarts
 
 ## [2.5.0.0.7]
 

@@ -25,7 +25,7 @@ use clarity::vm::StacksEpoch;
 use libsigner::v0::messages::{
     BlockRejection, BlockResponse, MessageSlotID, MinerSlotID, RejectCode, SignerMessage,
 };
-use libsigner::{BlockProposal, SignerSession, StackerDBSession};
+use libsigner::{BlockProposal, SignerSession, StackerDBSession, VERSION_STRING};
 use stacks::address::AddressHashMode;
 use stacks::burnchains::Txid;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
@@ -34,6 +34,7 @@ use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader, NakamotoC
 use stacks::chainstate::stacks::address::PoxAddress;
 use stacks::chainstate::stacks::boot::MINERS_NAME;
 use stacks::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState, StacksHeaderInfo};
+use stacks::chainstate::stacks::{StacksTransaction, TenureChangeCause, TransactionPayload};
 use stacks::codec::StacksMessageCodec;
 use stacks::core::{StacksEpochId, CHAIN_ID_TESTNET};
 use stacks::libstackerdb::StackerDBChunkData;
@@ -42,7 +43,7 @@ use stacks::net::api::postblock_proposal::{ValidateRejectCode, TEST_VALIDATE_STA
 use stacks::net::relay::fault_injection::set_ignore_block;
 use stacks::types::chainstate::{StacksAddress, StacksBlockId, StacksPrivateKey, StacksPublicKey};
 use stacks::types::PublicKey;
-use stacks::util::hash::MerkleHashFunc;
+use stacks::util::hash::{hex_bytes, MerkleHashFunc};
 use stacks::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 use stacks::util_lib::boot::boot_code_id;
 use stacks::util_lib::signed_structured_data::pox4::{
@@ -78,7 +79,7 @@ use crate::tests::neon_integrations::{
     get_account, get_chain_info, get_chain_info_opt, next_block_and_wait,
     run_until_burnchain_height, submit_tx, submit_tx_fallible, test_observer,
 };
-use crate::tests::{self, make_stacks_transfer};
+use crate::tests::{self, gen_random_port, make_stacks_transfer};
 use crate::{nakamoto_node, BitcoinRegtestController, BurnchainController, Config, Keychain};
 
 impl SignerTest<SpawnedSigner> {
@@ -139,6 +140,7 @@ impl SignerTest<SpawnedSigner> {
                 &stacker_sk,
                 0,
                 1000,
+                self.running_nodes.conf.burnchain.chain_id,
                 &StacksAddress::burn_address(false),
                 "pox-4",
                 "stack-stx",
@@ -1140,8 +1142,14 @@ fn forked_tenure_testing(
         let start_time = Instant::now();
         // submit a tx so that the miner will mine an extra block
         let sender_nonce = 0;
-        let transfer_tx =
-            make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
+        let transfer_tx = make_stacks_transfer(
+            &sender_sk,
+            sender_nonce,
+            send_fee,
+            naka_conf.burnchain.chain_id,
+            &recipient,
+            send_amt,
+        );
         let tx = submit_tx(&http_origin, &transfer_tx);
         info!("Submitted tx {tx} in Tenure C to mine a second block");
         while mined_blocks.load(Ordering::SeqCst) <= blocks_before {
@@ -1442,10 +1450,10 @@ fn multiple_miners() {
     let btc_miner_1_pk = Keychain::default(btc_miner_1_seed.clone()).get_pub_key();
     let btc_miner_2_pk = Keychain::default(btc_miner_2_seed.clone()).get_pub_key();
 
-    let node_1_rpc = 51024;
-    let node_1_p2p = 51023;
-    let node_2_rpc = 51026;
-    let node_2_p2p = 51025;
+    let node_1_rpc = gen_random_port();
+    let node_1_p2p = gen_random_port();
+    let node_2_rpc = gen_random_port();
+    let node_2_p2p = gen_random_port();
 
     let localhost = "127.0.0.1";
     let node_1_rpc_bind = format!("{localhost}:{node_1_rpc}");
@@ -1472,7 +1480,7 @@ fn multiple_miners() {
             config.node.data_url = format!("http://{localhost}:{node_1_rpc}");
             config.node.p2p_address = format!("{localhost}:{node_1_p2p}");
             config.miner.wait_on_interim_blocks = Duration::from_secs(5);
-            config.node.pox_sync_sample_secs = 5;
+            config.node.pox_sync_sample_secs = 30;
 
             config.node.seed = btc_miner_1_seed.clone();
             config.node.local_peer_seed = btc_miner_1_seed.clone();
@@ -1728,13 +1736,14 @@ fn miner_forking() {
     let btc_miner_1_pk = Keychain::default(btc_miner_1_seed.clone()).get_pub_key();
     let btc_miner_2_pk = Keychain::default(btc_miner_2_seed.clone()).get_pub_key();
 
-    let node_1_rpc = 51024;
-    let node_1_p2p = 51023;
-    let node_2_rpc = 51026;
-    let node_2_p2p = 51025;
+    let node_1_rpc = gen_random_port();
+    let node_1_p2p = gen_random_port();
+    let node_2_rpc = gen_random_port();
+    let node_2_p2p = gen_random_port();
 
-    let node_1_rpc_bind = format!("127.0.0.1:{}", node_1_rpc);
-    let node_2_rpc_bind = format!("127.0.0.1:{}", node_2_rpc);
+    let localhost = "127.0.0.1";
+    let node_1_rpc_bind = format!("{localhost}:{node_1_rpc}");
+    let node_2_rpc_bind = format!("{localhost}:{node_2_rpc}");
     let mut node_2_listeners = Vec::new();
 
     // partition the signer set so that ~half are listening and using node 1 for RPC and events,
@@ -1757,17 +1766,16 @@ fn miner_forking() {
                 Duration::from_secs(first_proposal_burn_block_timing);
         },
         |config| {
-            let localhost = "127.0.0.1";
-            config.node.rpc_bind = format!("{}:{}", localhost, node_1_rpc);
-            config.node.p2p_bind = format!("{}:{}", localhost, node_1_p2p);
-            config.node.data_url = format!("http://{}:{}", localhost, node_1_rpc);
-            config.node.p2p_address = format!("{}:{}", localhost, node_1_p2p);
+            config.node.rpc_bind = format!("{localhost}:{node_1_rpc}");
+            config.node.p2p_bind = format!("{localhost}:{node_1_p2p}");
+            config.node.data_url = format!("http://{localhost}:{node_1_rpc}");
+            config.node.p2p_address = format!("{localhost}:{node_1_p2p}");
 
             config.node.seed = btc_miner_1_seed.clone();
             config.node.local_peer_seed = btc_miner_1_seed.clone();
             config.burnchain.local_mining_public_key = Some(btc_miner_1_pk.to_hex());
             config.miner.mining_key = Some(Secp256k1PrivateKey::from_seed(&[1]));
-            config.node.pox_sync_sample_secs = 5;
+            config.node.pox_sync_sample_secs = 30;
 
             config.events_observers.retain(|listener| {
                 let Ok(addr) = std::net::SocketAddr::from_str(&listener.endpoint) else {
@@ -2083,8 +2091,14 @@ fn end_of_tenure() {
     let start_height = info.stacks_tip_height;
     // submit a tx so that the miner will mine an extra block
     let sender_nonce = 0;
-    let transfer_tx =
-        make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
+    let transfer_tx = make_stacks_transfer(
+        &sender_sk,
+        sender_nonce,
+        send_fee,
+        signer_test.running_nodes.conf.burnchain.chain_id,
+        &recipient,
+        send_amt,
+    );
     submit_tx(&http_origin, &transfer_tx);
 
     info!("Submitted transfer tx and waiting for block proposal");
@@ -2194,8 +2208,14 @@ fn retry_on_rejection() {
     let start_time = Instant::now();
     // submit a tx so that the miner will mine a stacks block
     let mut sender_nonce = 0;
-    let transfer_tx =
-        make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
+    let transfer_tx = make_stacks_transfer(
+        &sender_sk,
+        sender_nonce,
+        send_fee,
+        signer_test.running_nodes.conf.burnchain.chain_id,
+        &recipient,
+        send_amt,
+    );
     let tx = submit_tx(&http_origin, &transfer_tx);
     sender_nonce += 1;
     info!("Submitted tx {tx} in to mine the first Nakamoto block");
@@ -2231,8 +2251,14 @@ fn retry_on_rejection() {
         .load(Ordering::SeqCst);
 
     // submit a tx so that the miner will mine a block
-    let transfer_tx =
-        make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
+    let transfer_tx = make_stacks_transfer(
+        &sender_sk,
+        sender_nonce,
+        send_fee,
+        signer_test.running_nodes.conf.burnchain.chain_id,
+        &recipient,
+        send_amt,
+    );
     submit_tx(&http_origin, &transfer_tx);
 
     info!("Submitted transfer tx and waiting for block proposal");
@@ -2338,8 +2364,14 @@ fn signers_broadcast_signed_blocks() {
 
     // submit a tx so that the miner will mine a blockn
     let sender_nonce = 0;
-    let transfer_tx =
-        make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
+    let transfer_tx = make_stacks_transfer(
+        &sender_sk,
+        sender_nonce,
+        send_fee,
+        signer_test.running_nodes.conf.burnchain.chain_id,
+        &recipient,
+        send_amt,
+    );
     submit_tx(&http_origin, &transfer_tx);
 
     debug!("Transaction sent; waiting for block-mining");
@@ -2484,8 +2516,14 @@ fn empty_sortition() {
 
     // submit a tx so that the miner will mine an extra block
     let sender_nonce = 0;
-    let transfer_tx =
-        make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
+    let transfer_tx = make_stacks_transfer(
+        &sender_sk,
+        sender_nonce,
+        send_fee,
+        signer_test.running_nodes.conf.burnchain.chain_id,
+        &recipient,
+        send_amt,
+    );
     submit_tx(&http_origin, &transfer_tx);
 
     std::thread::sleep(block_proposal_timeout.add(Duration::from_secs(1)));
@@ -2529,10 +2567,12 @@ fn empty_sortition() {
             };
             if let SignerMessage::BlockResponse(BlockResponse::Rejected(BlockRejection {
                 reason_code,
+                metadata,
                 ..
             })) = latest_msg
             {
                 assert!(matches!(reason_code, RejectCode::SortitionViewMismatch));
+                assert_eq!(metadata.server_version, VERSION_STRING.to_string());
                 found_rejections.push(*slot_id);
             } else {
                 info!("Latest message from slot #{slot_id} isn't a block rejection, will wait to see if the signer updates to a rejection");
@@ -2707,13 +2747,14 @@ fn multiple_miners_mock_sign_epoch_25() {
     let btc_miner_1_pk = Keychain::default(btc_miner_1_seed.clone()).get_pub_key();
     let btc_miner_2_pk = Keychain::default(btc_miner_2_seed.clone()).get_pub_key();
 
-    let node_1_rpc = 51024;
-    let node_1_p2p = 51023;
-    let node_2_rpc = 51026;
-    let node_2_p2p = 51025;
+    let node_1_rpc = gen_random_port();
+    let node_1_p2p = gen_random_port();
+    let node_2_rpc = gen_random_port();
+    let node_2_p2p = gen_random_port();
 
-    let node_1_rpc_bind = format!("127.0.0.1:{}", node_1_rpc);
-    let node_2_rpc_bind = format!("127.0.0.1:{}", node_2_rpc);
+    let localhost = "127.0.0.1";
+    let node_1_rpc_bind = format!("{localhost}:{node_1_rpc}");
+    let node_2_rpc_bind = format!("{localhost}:{node_2_rpc}");
     let mut node_2_listeners = Vec::new();
 
     // partition the signer set so that ~half are listening and using node 1 for RPC and events,
@@ -2731,11 +2772,10 @@ fn multiple_miners_mock_sign_epoch_25() {
             signer_config.node_host = node_host.to_string();
         },
         |config| {
-            let localhost = "127.0.0.1";
-            config.node.rpc_bind = format!("{}:{}", localhost, node_1_rpc);
-            config.node.p2p_bind = format!("{}:{}", localhost, node_1_p2p);
-            config.node.data_url = format!("http://{}:{}", localhost, node_1_rpc);
-            config.node.p2p_address = format!("{}:{}", localhost, node_1_p2p);
+            config.node.rpc_bind = format!("{localhost}:{node_1_rpc}");
+            config.node.p2p_bind = format!("{localhost}:{node_1_p2p}");
+            config.node.data_url = format!("http://{localhost}:{node_1_rpc}");
+            config.node.p2p_address = format!("{localhost}:{node_1_p2p}");
 
             config.node.seed = btc_miner_1_seed.clone();
             config.node.local_peer_seed = btc_miner_1_seed.clone();
@@ -2953,6 +2993,7 @@ fn signer_set_rollover() {
         Some(100_000),
         None,
         Some(9000 + num_signers),
+        None,
     );
 
     let new_spawned_signers: Vec<_> = (0..new_num_signers)
@@ -2985,6 +3026,7 @@ fn signer_set_rollover() {
                         EventKeyType::BlockProposal,
                         EventKeyType::BurnchainBlocks,
                     ],
+                    timeout_ms: 1000,
                 });
             }
             naka_conf.node.rpc_bind = rpc_bind.clone();
@@ -3039,8 +3081,14 @@ fn signer_set_rollover() {
     info!("---- Mining a block to trigger the signer set -----");
     // submit a tx so that the miner will mine an extra block
     let sender_nonce = 0;
-    let transfer_tx =
-        make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
+    let transfer_tx = make_stacks_transfer(
+        &sender_sk,
+        sender_nonce,
+        send_fee,
+        signer_test.running_nodes.conf.burnchain.chain_id,
+        &recipient,
+        send_amt,
+    );
     submit_tx(&http_origin, &transfer_tx);
     signer_test.mine_nakamoto_block(short_timeout);
     let mined_block = test_observer::get_mined_nakamoto_blocks().pop().unwrap();
@@ -3090,6 +3138,7 @@ fn signer_set_rollover() {
             &stacker_sk,
             0,
             1000,
+            signer_test.running_nodes.conf.burnchain.chain_id,
             &StacksAddress::burn_address(false),
             "pox-4",
             "stack-stx",
@@ -3162,8 +3211,14 @@ fn signer_set_rollover() {
 
     info!("---- Mining a block to verify new signer set -----");
     let sender_nonce = 1;
-    let transfer_tx =
-        make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
+    let transfer_tx = make_stacks_transfer(
+        &sender_sk,
+        sender_nonce,
+        send_fee,
+        signer_test.running_nodes.conf.burnchain.chain_id,
+        &recipient,
+        send_amt,
+    );
     submit_tx(&http_origin, &transfer_tx);
     signer_test.mine_nakamoto_block(short_timeout);
     let mined_block = test_observer::get_mined_nakamoto_blocks().pop().unwrap();
@@ -3247,8 +3302,14 @@ fn min_gap_between_blocks() {
 
     // Submit a tx so that the miner will mine a block
     let sender_nonce = 0;
-    let transfer_tx =
-        make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
+    let transfer_tx = make_stacks_transfer(
+        &sender_sk,
+        sender_nonce,
+        send_fee,
+        signer_test.running_nodes.conf.burnchain.chain_id,
+        &recipient,
+        send_amt,
+    );
     submit_tx(&http_origin, &transfer_tx);
 
     info!("Submitted transfer tx and waiting for block to be processed. Ensure it does not arrive before the gap is exceeded");
@@ -3352,7 +3413,7 @@ fn duplicate_signers() {
             })
             .filter_map(|message| match message {
                 SignerMessage::BlockResponse(BlockResponse::Accepted(m)) => {
-                    info!("Message(accepted): {message:?}");
+                    info!("Message(accepted): {:?}", &m);
                     Some(m)
                 }
                 _ => {
@@ -3366,20 +3427,23 @@ fn duplicate_signers() {
     info!("------------------------- Assert there are {unique_signers} unique signatures and recovered pubkeys -------------------------");
 
     // Pick a message hash
-    let (selected_sighash, _) = signer_accepted_responses
+    let accepted = signer_accepted_responses
         .iter()
-        .min_by_key(|(sighash, _)| *sighash)
-        .copied()
+        .min_by_key(|accepted| accepted.signer_signature_hash)
         .expect("No `BlockResponse::Accepted` messages recieved");
+    let selected_sighash = accepted.signer_signature_hash;
 
     // Filter only resonses for selected block and collect unique pubkeys and signatures
     let (pubkeys, signatures): (HashSet<_>, HashSet<_>) = signer_accepted_responses
         .into_iter()
-        .filter(|(hash, _)| *hash == selected_sighash)
-        .map(|(msg, sig)| {
-            let pubkey = Secp256k1PublicKey::recover_to_pubkey(msg.bits(), &sig)
-                .expect("Failed to recover pubkey");
-            (pubkey, sig)
+        .filter(|accepted| accepted.signer_signature_hash == selected_sighash)
+        .map(|accepted| {
+            let pubkey = Secp256k1PublicKey::recover_to_pubkey(
+                accepted.signer_signature_hash.bits(),
+                &accepted.signature,
+            )
+            .expect("Failed to recover pubkey");
+            (pubkey, accepted.signature)
         })
         .unzip();
 
@@ -3411,10 +3475,10 @@ fn multiple_miners_with_nakamoto_blocks() {
     let btc_miner_1_pk = Keychain::default(btc_miner_1_seed.clone()).get_pub_key();
     let btc_miner_2_pk = Keychain::default(btc_miner_2_seed.clone()).get_pub_key();
 
-    let node_1_rpc = 51024;
-    let node_1_p2p = 51023;
-    let node_2_rpc = 51026;
-    let node_2_p2p = 51025;
+    let node_1_rpc = gen_random_port();
+    let node_1_p2p = gen_random_port();
+    let node_2_rpc = gen_random_port();
+    let node_2_p2p = gen_random_port();
 
     let localhost = "127.0.0.1";
     let node_1_rpc_bind = format!("{localhost}:{node_1_rpc}");
@@ -3443,7 +3507,7 @@ fn multiple_miners_with_nakamoto_blocks() {
             config.node.data_url = format!("http://{localhost}:{node_1_rpc}");
             config.node.p2p_address = format!("{localhost}:{node_1_p2p}");
             config.miner.wait_on_interim_blocks = Duration::from_secs(5);
-            config.node.pox_sync_sample_secs = 5;
+            config.node.pox_sync_sample_secs = 30;
 
             config.node.seed = btc_miner_1_seed.clone();
             config.node.local_peer_seed = btc_miner_1_seed.clone();
@@ -3573,8 +3637,14 @@ fn multiple_miners_with_nakamoto_blocks() {
             let blocks_processed_before =
                 blocks_mined1.load(Ordering::SeqCst) + blocks_mined2.load(Ordering::SeqCst);
             // submit a tx so that the miner will mine an extra block
-            let transfer_tx =
-                make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
+            let transfer_tx = make_stacks_transfer(
+                &sender_sk,
+                sender_nonce,
+                send_fee,
+                signer_test.running_nodes.conf.burnchain.chain_id,
+                &recipient,
+                send_amt,
+            );
             sender_nonce += 1;
             submit_tx(&http_origin, &transfer_tx);
 
@@ -3682,14 +3752,14 @@ fn partial_tenure_fork() {
     let btc_miner_1_pk = Keychain::default(btc_miner_1_seed.clone()).get_pub_key();
     let btc_miner_2_pk = Keychain::default(btc_miner_2_seed.clone()).get_pub_key();
 
-    let node_1_rpc = 51024;
-    let node_1_p2p = 51023;
-    let node_2_rpc = 51026;
-    let node_2_p2p = 51025;
-
-    let node_1_rpc_bind = format!("127.0.0.1:{}", node_1_rpc);
+    let node_1_rpc = gen_random_port();
+    let node_1_p2p = gen_random_port();
+    let node_2_rpc = gen_random_port();
+    let node_2_p2p = gen_random_port();
 
     let localhost = "127.0.0.1";
+    let node_1_rpc_bind = format!("{localhost}:{node_1_rpc}");
+
     // All signers are listening to node 1
     let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
@@ -3706,7 +3776,7 @@ fn partial_tenure_fork() {
             config.node.data_url = format!("http://{localhost}:{node_1_rpc}");
             config.node.p2p_address = format!("{localhost}:{node_1_p2p}");
             config.miner.wait_on_interim_blocks = Duration::from_secs(5);
-            config.node.pox_sync_sample_secs = 5;
+            config.node.pox_sync_sample_secs = 30;
 
             config.node.seed = btc_miner_1_seed.clone();
             config.node.local_peer_seed = btc_miner_1_seed.clone();
@@ -3802,6 +3872,10 @@ fn partial_tenure_fork() {
     let mut min_miner_2_tenures = u64::MAX;
     let mut ignore_block = 0;
 
+    let mut miner_1_blocks = 0;
+    let mut miner_2_blocks = 0;
+    let mut min_miner_2_blocks = 0;
+
     while miner_1_tenures < min_miner_1_tenures || miner_2_tenures < min_miner_2_tenures {
         if btc_blocks_mined >= max_nakamoto_tenures {
             panic!("Produced {btc_blocks_mined} sortitions, but didn't cover the test scenarios, aborting");
@@ -3886,6 +3960,7 @@ fn partial_tenure_fork() {
             // Ensure that miner 2 runs at least one more tenure
             min_miner_2_tenures = miner_2_tenures + 1;
             fork_initiated = true;
+            min_miner_2_blocks = miner_2_blocks;
         }
         if miner == 2 && miner_2_tenures == min_miner_2_tenures {
             // This is the forking tenure. Ensure that miner 1 runs one more
@@ -3894,6 +3969,7 @@ fn partial_tenure_fork() {
             min_miner_1_tenures = miner_1_tenures + 1;
         }
 
+        let mut blocks = inter_blocks_per_tenure;
         // mine (or attempt to mine) the interim blocks
         for interim_block_ix in 0..inter_blocks_per_tenure {
             let mined_before_1 = blocks_mined1.load(Ordering::SeqCst);
@@ -3914,8 +3990,14 @@ fn partial_tenure_fork() {
 
             // submit a tx so that the miner will mine an extra block
             let sender_nonce = (btc_blocks_mined - 1) * inter_blocks_per_tenure + interim_block_ix;
-            let transfer_tx =
-                make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
+            let transfer_tx = make_stacks_transfer(
+                &sender_sk,
+                sender_nonce,
+                send_fee,
+                signer_test.running_nodes.conf.burnchain.chain_id,
+                &recipient,
+                send_amt,
+            );
             // This may fail if the forking miner wins too many tenures and this account's
             // nonces get too high (TooMuchChaining)
             match submit_tx_fallible(&http_origin, &transfer_tx) {
@@ -3959,6 +4041,7 @@ fn partial_tenure_fork() {
                 Err(e) => {
                     if e.to_string().contains("TooMuchChaining") {
                         info!("TooMuchChaining error, skipping block");
+                        blocks = interim_block_ix;
                         break;
                     } else {
                         panic!("Failed to submit tx: {}", e);
@@ -3973,21 +4056,24 @@ fn partial_tenure_fork() {
 
         if miner == 1 {
             miner_1_tenures += 1;
+            miner_1_blocks += blocks;
         } else {
             miner_2_tenures += 1;
+            miner_2_blocks += blocks;
         }
-        info!(
-            "Miner 1 tenures: {}, Miner 2 tenures: {}, Miner 1 before: {}, Miner 2 before: {}",
-            miner_1_tenures, miner_2_tenures, mined_before_1, mined_before_2,
-        );
 
         let mined_1 = blocks_mined1.load(Ordering::SeqCst);
         let mined_2 = blocks_mined2.load(Ordering::SeqCst);
+
+        info!(
+            "Miner 1 tenures: {miner_1_tenures}, Miner 2 tenures: {miner_2_tenures}, Miner 1 before: {mined_before_1}, Miner 2 before: {mined_before_2}, Miner 1 blocks: {mined_1}, Miner 2 blocks: {mined_2}",
+        );
+
         if miner == 1 {
-            assert_eq!(mined_1, mined_before_1 + inter_blocks_per_tenure + 1);
+            assert_eq!(mined_1, mined_before_1 + blocks + 1);
         } else {
             if miner_2_tenures < min_miner_2_tenures {
-                assert_eq!(mined_2, mined_before_2 + inter_blocks_per_tenure + 1);
+                assert_eq!(mined_2, mined_before_2 + blocks + 1);
             } else {
                 // Miner 2 should have mined 0 blocks after the fork
                 assert_eq!(mined_2, mined_before_2);
@@ -4007,11 +4093,10 @@ fn partial_tenure_fork() {
     assert_eq!(peer_2_height, ignore_block - 1);
     // The height may be higher than expected due to extra transactions waiting
     // to be mined during the forking miner's tenure.
-    assert!(
-        peer_1_height
-            >= pre_nakamoto_peer_1_height
-                + (miner_1_tenures + min_miner_2_tenures - 1) * (inter_blocks_per_tenure + 1)
-    );
+    // We cannot guarantee due to TooMuchChaining that the miner will mine inter_blocks_per_tenure
+    // Must be at least the number of blocks mined by miner 1 and the number of blocks mined by miner 2
+    // before the fork was initiated
+    assert!(peer_1_height >= pre_nakamoto_peer_1_height + miner_1_blocks + min_miner_2_blocks);
     assert_eq!(
         btc_blocks_mined,
         u64::try_from(miner_1_tenures + miner_2_tenures).unwrap()
@@ -4099,8 +4184,14 @@ fn locally_accepted_blocks_overriden_by_global_rejection() {
     let blocks_before = mined_blocks.load(Ordering::SeqCst);
     // submit a tx so that the miner will mine a stacks block
     let mut sender_nonce = 0;
-    let transfer_tx =
-        make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
+    let transfer_tx = make_stacks_transfer(
+        &sender_sk,
+        sender_nonce,
+        send_fee,
+        signer_test.running_nodes.conf.burnchain.chain_id,
+        &recipient,
+        send_amt,
+    );
     let tx = submit_tx(&http_origin, &transfer_tx);
     info!("Submitted tx {tx} in to mine block N");
     wait_for(short_timeout_secs, || {
@@ -4142,8 +4233,14 @@ fn locally_accepted_blocks_overriden_by_global_rejection() {
         .unwrap()
         .replace(rejecting_signers.clone());
     test_observer::clear();
-    let transfer_tx =
-        make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
+    let transfer_tx = make_stacks_transfer(
+        &sender_sk,
+        sender_nonce,
+        send_fee,
+        signer_test.running_nodes.conf.burnchain.chain_id,
+        &recipient,
+        send_amt,
+    );
     let tx = submit_tx(&http_origin, &transfer_tx);
     sender_nonce += 1;
     info!("Submitted tx {tx} to mine block N+1");
@@ -4170,8 +4267,14 @@ fn locally_accepted_blocks_overriden_by_global_rejection() {
         .unwrap()
         .replace(Vec::new());
 
-    let transfer_tx =
-        make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
+    let transfer_tx = make_stacks_transfer(
+        &sender_sk,
+        sender_nonce,
+        send_fee,
+        signer_test.running_nodes.conf.burnchain.chain_id,
+        &recipient,
+        send_amt,
+    );
     let tx = submit_tx(&http_origin, &transfer_tx);
     info!("Submitted tx {tx} to mine block N+1'");
 
@@ -4270,8 +4373,14 @@ fn locally_rejected_blocks_overriden_by_global_acceptance() {
 
     // submit a tx so that the miner will mine a stacks block N
     let mut sender_nonce = 0;
-    let transfer_tx =
-        make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
+    let transfer_tx = make_stacks_transfer(
+        &sender_sk,
+        sender_nonce,
+        send_fee,
+        signer_test.running_nodes.conf.burnchain.chain_id,
+        &recipient,
+        send_amt,
+    );
     let tx = submit_tx(&http_origin, &transfer_tx);
     sender_nonce += 1;
     info!("Submitted tx {tx} in to mine block N");
@@ -4324,8 +4433,14 @@ fn locally_rejected_blocks_overriden_by_global_acceptance() {
         .stacks_client
         .get_peer_info()
         .expect("Failed to get peer info");
-    let transfer_tx =
-        make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
+    let transfer_tx = make_stacks_transfer(
+        &sender_sk,
+        sender_nonce,
+        send_fee,
+        signer_test.running_nodes.conf.burnchain.chain_id,
+        &recipient,
+        send_amt,
+    );
     let tx = submit_tx(&http_origin, &transfer_tx);
     sender_nonce += 1;
     info!("Submitted tx {tx} in to mine block N+1");
@@ -4380,8 +4495,14 @@ fn locally_rejected_blocks_overriden_by_global_acceptance() {
         .replace(Vec::new());
 
     // submit a tx so that the miner will mine a stacks block N+2 and ensure ALL signers accept it
-    let transfer_tx =
-        make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
+    let transfer_tx = make_stacks_transfer(
+        &sender_sk,
+        sender_nonce,
+        send_fee,
+        signer_test.running_nodes.conf.burnchain.chain_id,
+        &recipient,
+        send_amt,
+    );
     let tx = submit_tx(&http_origin, &transfer_tx);
     info!("Submitted tx {tx} in to mine block N+2");
     wait_for(30, || {
@@ -4473,8 +4594,14 @@ fn reorg_locally_accepted_blocks_across_tenures_succeeds() {
 
     // submit a tx so that the miner will mine a stacks block
     let mut sender_nonce = 0;
-    let transfer_tx =
-        make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
+    let transfer_tx = make_stacks_transfer(
+        &sender_sk,
+        sender_nonce,
+        send_fee,
+        signer_test.running_nodes.conf.burnchain.chain_id,
+        &recipient,
+        send_amt,
+    );
     let tx = submit_tx(&http_origin, &transfer_tx);
     sender_nonce += 1;
     info!("Submitted tx {tx} in to mine block N");
@@ -4515,8 +4642,14 @@ fn reorg_locally_accepted_blocks_across_tenures_succeeds() {
     test_observer::clear();
 
     // submit a tx so that the miner will ATTEMPT to mine a stacks block N+1
-    let transfer_tx =
-        make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
+    let transfer_tx = make_stacks_transfer(
+        &sender_sk,
+        sender_nonce,
+        send_fee,
+        signer_test.running_nodes.conf.burnchain.chain_id,
+        &recipient,
+        send_amt,
+    );
     let tx = submit_tx(&http_origin, &transfer_tx);
 
     info!("Submitted tx {tx} in to attempt to mine block N+1");
@@ -4533,10 +4666,11 @@ fn reorg_locally_accepted_blocks_across_tenures_succeeds() {
                 let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
                     .expect("Failed to deserialize SignerMessage");
                 match message {
-                    SignerMessage::BlockResponse(BlockResponse::Accepted((hash, signature))) => {
-                        ignoring_signers
-                            .iter()
-                            .find(|key| key.verify(hash.bits(), &signature).is_ok())
+                    SignerMessage::BlockResponse(BlockResponse::Accepted(accepted)) => {
+                        ignoring_signers.iter().find(|key| {
+                            key.verify(accepted.signer_signature_hash.bits(), &accepted.signature)
+                                .is_ok()
+                        })
                     }
                     _ => None,
                 }
@@ -4683,8 +4817,14 @@ fn miner_recovers_when_broadcast_block_delay_across_tenures_occurs() {
 
     // submit a tx so that the miner will mine a stacks block
     let mut sender_nonce = 0;
-    let transfer_tx =
-        make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
+    let transfer_tx = make_stacks_transfer(
+        &sender_sk,
+        sender_nonce,
+        send_fee,
+        signer_test.running_nodes.conf.burnchain.chain_id,
+        &recipient,
+        send_amt,
+    );
     let tx = submit_tx(&http_origin, &transfer_tx);
     info!("Submitted tx {tx} in to mine block N");
 
@@ -4726,8 +4866,14 @@ fn miner_recovers_when_broadcast_block_delay_across_tenures_occurs() {
         .get_peer_info()
         .expect("Failed to get peer info");
 
-    let transfer_tx =
-        make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
+    let transfer_tx = make_stacks_transfer(
+        &sender_sk,
+        sender_nonce,
+        send_fee,
+        signer_test.running_nodes.conf.burnchain.chain_id,
+        &recipient,
+        send_amt,
+    );
     sender_nonce += 1;
 
     let tx = submit_tx(&http_origin, &transfer_tx);
@@ -4765,12 +4911,11 @@ fn miner_recovers_when_broadcast_block_delay_across_tenures_occurs() {
                     let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
                         .expect("Failed to deserialize SignerMessage");
                     match message {
-                        SignerMessage::BlockResponse(BlockResponse::Accepted((
-                            hash,
-                            signature,
-                        ))) => {
-                            if block.header.signer_signature_hash() == hash {
-                                Some(signature)
+                        SignerMessage::BlockResponse(BlockResponse::Accepted(accepted)) => {
+                            if block.header.signer_signature_hash()
+                                == accepted.signer_signature_hash
+                            {
+                                Some(accepted.signature)
                             } else {
                                 None
                             }
@@ -4889,8 +5034,14 @@ fn miner_recovers_when_broadcast_block_delay_across_tenures_occurs() {
     }
 
     // Induce block N+2 to get mined
-    let transfer_tx =
-        make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
+    let transfer_tx = make_stacks_transfer(
+        &sender_sk,
+        sender_nonce,
+        send_fee,
+        signer_test.running_nodes.conf.burnchain.chain_id,
+        &recipient,
+        send_amt,
+    );
 
     let tx = submit_tx(&http_origin, &transfer_tx);
     info!("Submitted tx {tx} in to attempt to mine block N+2");
@@ -4939,6 +5090,143 @@ fn miner_recovers_when_broadcast_block_delay_across_tenures_occurs() {
     let block_n_2 = nakamoto_blocks.last().unwrap();
     assert_eq!(info_after.stacks_tip.to_string(), block_n_2.block_hash);
     assert_ne!(block_n_2, block_n);
+}
+
+#[test]
+#[ignore]
+/// Test that we can mine a tenure extend and then continue mining afterwards.
+fn continue_after_tenure_extend() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(EnvFilter::from_default_env())
+        .init();
+
+    info!("------------------------- Test Setup -------------------------");
+    let num_signers = 5;
+    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_addr = tests::to_addr(&sender_sk);
+    let recipient = PrincipalData::from(StacksAddress::burn_address(false));
+    let send_amt = 100;
+    let send_fee = 180;
+    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new(
+        num_signers,
+        vec![(sender_addr.clone(), (send_amt + send_fee) * 5)],
+    );
+    let timeout = Duration::from_secs(200);
+    let coord_channel = signer_test.running_nodes.coord_channel.clone();
+    let http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
+
+    signer_test.boot_to_epoch_3();
+
+    info!("------------------------- Mine Normal Tenure -------------------------");
+    signer_test.mine_and_verify_confirmed_naka_block(timeout, num_signers);
+
+    info!("------------------------- Extend Tenure -------------------------");
+    signer_test
+        .running_nodes
+        .nakamoto_test_skip_commit_op
+        .0
+        .lock()
+        .unwrap()
+        .replace(true);
+
+    // It's possible that we have a pending block commit already.
+    // Mine two BTC blocks to "flush" this commit.
+    let burn_height = signer_test
+        .stacks_client
+        .get_peer_info()
+        .expect("Failed to get peer info")
+        .burn_block_height;
+    for i in 0..2 {
+        info!(
+            "------------- After pausing commits, triggering 2 BTC blocks: ({} of 2) -----------",
+            i + 1
+        );
+
+        let blocks_processed_before = coord_channel
+            .lock()
+            .expect("Mutex poisoned")
+            .get_stacks_blocks_processed();
+        signer_test
+            .running_nodes
+            .btc_regtest_controller
+            .build_next_block(1);
+
+        wait_for(60, || {
+            let blocks_processed_after = coord_channel
+                .lock()
+                .expect("Mutex poisoned")
+                .get_stacks_blocks_processed();
+            Ok(blocks_processed_after > blocks_processed_before)
+        })
+        .expect("Timed out waiting for tenure extend block");
+    }
+
+    wait_for(30, || {
+        let new_burn_height = signer_test
+            .stacks_client
+            .get_peer_info()
+            .expect("Failed to get peer info")
+            .burn_block_height;
+        Ok(new_burn_height == burn_height + 2)
+    })
+    .expect("Timed out waiting for burnchain to advance");
+
+    // The last block should have a single instruction in it, the tenure extend
+    let blocks = test_observer::get_blocks();
+    let last_block = blocks.last().unwrap();
+    let transactions = last_block["transactions"].as_array().unwrap();
+    let tx = transactions.first().expect("No transactions in block");
+    let raw_tx = tx["raw_tx"].as_str().unwrap();
+    let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
+    let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
+    match &parsed.payload {
+        TransactionPayload::TenureChange(payload)
+            if payload.cause == TenureChangeCause::Extended => {}
+        _ => panic!("Expected tenure extend transaction, got {:?}", parsed),
+    };
+
+    // Verify that the miner can continue mining in the tenure with the tenure extend
+    info!("------------------------- Mine After Tenure Extend -------------------------");
+    let mut sender_nonce = 0;
+    let mut blocks_processed_before = coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .get_stacks_blocks_processed();
+    for _ in 0..5 {
+        // submit a tx so that the miner will mine an extra block
+        let transfer_tx = make_stacks_transfer(
+            &sender_sk,
+            sender_nonce,
+            send_fee,
+            signer_test.running_nodes.conf.burnchain.chain_id,
+            &recipient,
+            send_amt,
+        );
+        sender_nonce += 1;
+        submit_tx(&http_origin, &transfer_tx);
+
+        info!("Submitted transfer tx and waiting for block proposal");
+        wait_for(30, || {
+            let blocks_processed_after = coord_channel
+                .lock()
+                .expect("Mutex poisoned")
+                .get_stacks_blocks_processed();
+            Ok(blocks_processed_after > blocks_processed_before)
+        })
+        .expect("Timed out waiting for block proposal");
+        blocks_processed_before = coord_channel
+            .lock()
+            .expect("Mutex poisoned")
+            .get_stacks_blocks_processed();
+        info!("Block {blocks_processed_before} processed, continuing");
+    }
+
+    signer_test.shutdown();
 }
 
 #[test]
@@ -5033,4 +5321,286 @@ fn signing_in_0th_tenure_of_reward_cycle() {
         assert_eq!(blocks_signed, 1);
     }
     assert_eq!(signer_test.get_current_reward_cycle(), next_reward_cycle);
+}
+
+/// This test involves two miners with a custom chain id, each mining tenures with 6 blocks each.
+/// Half of the signers are attached to each miner, so the test also verifies that
+/// the signers' messages successfully make their way to the active miner.
+#[test]
+#[ignore]
+fn multiple_miners_with_custom_chain_id() {
+    let num_signers = 5;
+    let max_nakamoto_tenures = 20;
+    let inter_blocks_per_tenure = 5;
+
+    // setup sender + recipient for a test stx transfer
+    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_addr = tests::to_addr(&sender_sk);
+    let send_amt = 1000;
+    let send_fee = 180;
+    let recipient = PrincipalData::from(StacksAddress::burn_address(false));
+
+    let btc_miner_1_seed = vec![1, 1, 1, 1];
+    let btc_miner_2_seed = vec![2, 2, 2, 2];
+    let btc_miner_1_pk = Keychain::default(btc_miner_1_seed.clone()).get_pub_key();
+    let btc_miner_2_pk = Keychain::default(btc_miner_2_seed.clone()).get_pub_key();
+
+    let node_1_rpc = gen_random_port();
+    let node_1_p2p = gen_random_port();
+    let node_2_rpc = gen_random_port();
+    let node_2_p2p = gen_random_port();
+
+    let localhost = "127.0.0.1";
+    let node_1_rpc_bind = format!("{localhost}:{node_1_rpc}");
+    let node_2_rpc_bind = format!("{localhost}:{node_2_rpc}");
+    let mut node_2_listeners = Vec::new();
+    let chain_id = 0x87654321;
+    // partition the signer set so that ~half are listening and using node 1 for RPC and events,
+    //  and the rest are using node 2
+    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
+        num_signers,
+        vec![(
+            sender_addr.clone(),
+            (send_amt + send_fee) * max_nakamoto_tenures * inter_blocks_per_tenure,
+        )],
+        |signer_config| {
+            let node_host = if signer_config.endpoint.port() % 2 == 0 {
+                &node_1_rpc_bind
+            } else {
+                &node_2_rpc_bind
+            };
+            signer_config.node_host = node_host.to_string();
+            signer_config.chain_id = Some(chain_id)
+        },
+        |config| {
+            config.node.rpc_bind = format!("{localhost}:{node_1_rpc}");
+            config.node.p2p_bind = format!("{localhost}:{node_1_p2p}");
+            config.node.data_url = format!("http://{localhost}:{node_1_rpc}");
+            config.node.p2p_address = format!("{localhost}:{node_1_p2p}");
+            config.miner.wait_on_interim_blocks = Duration::from_secs(5);
+            config.node.pox_sync_sample_secs = 30;
+            config.burnchain.chain_id = chain_id;
+
+            config.node.seed = btc_miner_1_seed.clone();
+            config.node.local_peer_seed = btc_miner_1_seed.clone();
+            config.burnchain.local_mining_public_key = Some(btc_miner_1_pk.to_hex());
+            config.miner.mining_key = Some(Secp256k1PrivateKey::from_seed(&[1]));
+
+            config.events_observers.retain(|listener| {
+                let Ok(addr) = std::net::SocketAddr::from_str(&listener.endpoint) else {
+                    warn!(
+                        "Cannot parse {} to a socket, assuming it isn't a signer-listener binding",
+                        listener.endpoint
+                    );
+                    return true;
+                };
+                if addr.port() % 2 == 0 || addr.port() == test_observer::EVENT_OBSERVER_PORT {
+                    return true;
+                }
+                node_2_listeners.push(listener.clone());
+                false
+            })
+        },
+        Some(vec![btc_miner_1_pk.clone(), btc_miner_2_pk.clone()]),
+        None,
+    );
+    let blocks_mined1 = signer_test.running_nodes.nakamoto_blocks_mined.clone();
+
+    let conf = signer_test.running_nodes.conf.clone();
+    let mut conf_node_2 = conf.clone();
+    conf_node_2.node.rpc_bind = format!("{localhost}:{node_2_rpc}");
+    conf_node_2.node.p2p_bind = format!("{localhost}:{node_2_p2p}");
+    conf_node_2.node.data_url = format!("http://{localhost}:{node_2_rpc}");
+    conf_node_2.node.p2p_address = format!("{localhost}:{node_2_p2p}");
+    conf_node_2.node.seed = btc_miner_2_seed.clone();
+    conf_node_2.burnchain.local_mining_public_key = Some(btc_miner_2_pk.to_hex());
+    conf_node_2.node.local_peer_seed = btc_miner_2_seed.clone();
+    conf_node_2.miner.mining_key = Some(Secp256k1PrivateKey::from_seed(&[2]));
+    conf_node_2.node.miner = true;
+    conf_node_2.events_observers.clear();
+    conf_node_2.events_observers.extend(node_2_listeners);
+
+    assert!(!conf_node_2.events_observers.is_empty());
+
+    let node_1_sk = Secp256k1PrivateKey::from_seed(&conf.node.local_peer_seed);
+    let node_1_pk = StacksPublicKey::from_private(&node_1_sk);
+
+    conf_node_2.node.working_dir = format!("{}-{}", conf_node_2.node.working_dir, "1");
+
+    conf_node_2.node.set_bootstrap_nodes(
+        format!("{}@{}", &node_1_pk.to_hex(), conf.node.p2p_bind),
+        conf.burnchain.chain_id,
+        conf.burnchain.peer_version,
+    );
+
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+
+    let mut run_loop_2 = boot_nakamoto::BootRunLoop::new(conf_node_2.clone()).unwrap();
+    let run_loop_stopper_2 = run_loop_2.get_termination_switch();
+    let rl2_coord_channels = run_loop_2.coordinator_channels();
+    let Counters {
+        naka_submitted_commits: rl2_commits,
+        naka_mined_blocks: blocks_mined2,
+        ..
+    } = run_loop_2.counters();
+    let run_loop_2_thread = thread::Builder::new()
+        .name("run_loop_2".into())
+        .spawn(move || run_loop_2.start(None, 0))
+        .unwrap();
+
+    signer_test.boot_to_epoch_3();
+
+    wait_for(120, || {
+        let Some(node_1_info) = get_chain_info_opt(&conf) else {
+            return Ok(false);
+        };
+        let Some(node_2_info) = get_chain_info_opt(&conf_node_2) else {
+            return Ok(false);
+        };
+        Ok(node_1_info.stacks_tip_height == node_2_info.stacks_tip_height)
+    })
+    .expect("Timed out waiting for follower to catch up to the miner");
+
+    let pre_nakamoto_peer_1_height = get_chain_info(&conf).stacks_tip_height;
+
+    info!("------------------------- Reached Epoch 3.0 -------------------------");
+
+    // due to the random nature of mining sortitions, the way this test is structured
+    //  is that we keep track of how many tenures each miner produced, and once enough sortitions
+    //  have been produced such that each miner has produced 3 tenures, we stop and check the
+    //  results at the end
+    let rl1_coord_channels = signer_test.running_nodes.coord_channel.clone();
+    let rl1_commits = signer_test.running_nodes.commits_submitted.clone();
+
+    let miner_1_pk = StacksPublicKey::from_private(conf.miner.mining_key.as_ref().unwrap());
+    let miner_2_pk = StacksPublicKey::from_private(conf_node_2.miner.mining_key.as_ref().unwrap());
+    let mut btc_blocks_mined = 1;
+    let mut miner_1_tenures = 0;
+    let mut miner_2_tenures = 0;
+    let mut sender_nonce = 0;
+    while !(miner_1_tenures >= 3 && miner_2_tenures >= 3) {
+        if btc_blocks_mined > max_nakamoto_tenures {
+            panic!("Produced {btc_blocks_mined} sortitions, but didn't cover the test scenarios, aborting");
+        }
+        let blocks_processed_before =
+            blocks_mined1.load(Ordering::SeqCst) + blocks_mined2.load(Ordering::SeqCst);
+        signer_test.mine_block_wait_on_processing(
+            &[&rl1_coord_channels, &rl2_coord_channels],
+            &[&rl1_commits, &rl2_commits],
+            Duration::from_secs(30),
+        );
+        btc_blocks_mined += 1;
+
+        // wait for the new block to be processed
+        wait_for(60, || {
+            let blocks_processed =
+                blocks_mined1.load(Ordering::SeqCst) + blocks_mined2.load(Ordering::SeqCst);
+            Ok(blocks_processed > blocks_processed_before)
+        })
+        .unwrap();
+
+        info!(
+            "Nakamoto blocks mined: {}",
+            blocks_mined1.load(Ordering::SeqCst) + blocks_mined2.load(Ordering::SeqCst)
+        );
+
+        // mine the interim blocks
+        info!("Mining interim blocks");
+        for interim_block_ix in 0..inter_blocks_per_tenure {
+            let blocks_processed_before =
+                blocks_mined1.load(Ordering::SeqCst) + blocks_mined2.load(Ordering::SeqCst);
+            // submit a tx so that the miner will mine an extra block
+            let transfer_tx = make_stacks_transfer(
+                &sender_sk,
+                sender_nonce,
+                send_fee,
+                signer_test.running_nodes.conf.burnchain.chain_id,
+                &recipient,
+                send_amt,
+            );
+            sender_nonce += 1;
+            submit_tx(&http_origin, &transfer_tx);
+
+            wait_for(60, || {
+                let blocks_processed =
+                    blocks_mined1.load(Ordering::SeqCst) + blocks_mined2.load(Ordering::SeqCst);
+                Ok(blocks_processed > blocks_processed_before)
+            })
+            .unwrap();
+            info!(
+                "Mined interim block {}:{}",
+                btc_blocks_mined, interim_block_ix
+            );
+        }
+
+        let blocks = get_nakamoto_headers(&conf);
+        let mut seen_burn_hashes = HashSet::new();
+        miner_1_tenures = 0;
+        miner_2_tenures = 0;
+        for header in blocks.iter() {
+            if seen_burn_hashes.contains(&header.burn_header_hash) {
+                continue;
+            }
+            seen_burn_hashes.insert(header.burn_header_hash.clone());
+
+            let header = header.anchored_header.as_stacks_nakamoto().unwrap();
+            if miner_1_pk
+                .verify(
+                    header.miner_signature_hash().as_bytes(),
+                    &header.miner_signature,
+                )
+                .unwrap()
+            {
+                miner_1_tenures += 1;
+            }
+            if miner_2_pk
+                .verify(
+                    header.miner_signature_hash().as_bytes(),
+                    &header.miner_signature,
+                )
+                .unwrap()
+            {
+                miner_2_tenures += 1;
+            }
+        }
+        info!(
+            "Miner 1 tenures: {}, Miner 2 tenures: {}",
+            miner_1_tenures, miner_2_tenures
+        );
+    }
+
+    info!(
+        "New chain info 1: {:?}",
+        get_chain_info(&signer_test.running_nodes.conf)
+    );
+
+    info!("New chain info 2: {:?}", get_chain_info(&conf_node_2));
+
+    let peer_1_height = get_chain_info(&conf).stacks_tip_height;
+    let peer_2_height = get_chain_info(&conf_node_2).stacks_tip_height;
+    info!("Peer height information"; "peer_1" => peer_1_height, "peer_2" => peer_2_height, "pre_naka_height" => pre_nakamoto_peer_1_height);
+    assert_eq!(peer_1_height, peer_2_height);
+    assert_eq!(
+        peer_1_height,
+        pre_nakamoto_peer_1_height + (btc_blocks_mined - 1) * (inter_blocks_per_tenure + 1)
+    );
+    assert_eq!(
+        btc_blocks_mined,
+        u64::try_from(miner_1_tenures + miner_2_tenures).unwrap()
+    );
+
+    // Verify both nodes have the correct chain id
+    let miner1_info = get_chain_info(&signer_test.running_nodes.conf);
+    assert_eq!(miner1_info.network_id, chain_id);
+
+    let miner2_info = get_chain_info(&conf_node_2);
+    assert_eq!(miner2_info.network_id, chain_id);
+
+    rl2_coord_channels
+        .lock()
+        .expect("Mutex poisoned")
+        .stop_chains_coordinator();
+    run_loop_stopper_2.store(false, Ordering::SeqCst);
+    run_loop_2_thread.join().unwrap();
+    signer_test.shutdown();
 }

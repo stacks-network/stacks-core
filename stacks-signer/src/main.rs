@@ -32,7 +32,7 @@ use blockstack_lib::util_lib::signed_structured_data::pox4::make_pox_4_signer_ke
 use clap::Parser;
 use clarity::types::chainstate::StacksPublicKey;
 use clarity::util::sleep_ms;
-use libsigner::SignerSession;
+use libsigner::{SignerSession, VERSION_STRING};
 use libstackerdb::StackerDBChunkData;
 use slog::{slog_debug, slog_error};
 use stacks_common::util::hash::to_hex;
@@ -121,7 +121,7 @@ fn handle_generate_stacking_signature(
         &private_key, //
         args.reward_cycle.into(),
         args.method.topic(),
-        config.network.to_chain_id(),
+        config.to_chain_id(),
         args.period.into(),
         args.max_amount,
         args.auth_id,
@@ -157,7 +157,11 @@ fn handle_generate_stacking_signature(
 
 fn handle_check_config(args: RunSignerArgs) {
     let config = GlobalConfig::try_from(&args.config).unwrap();
-    println!("Config: {}", config);
+    println!(
+        "Signer version: {}\nConfig: \n{}",
+        VERSION_STRING.to_string(),
+        config
+    );
 }
 
 fn handle_generate_vote(args: GenerateVoteArgs, do_print: bool) -> MessageSignature {

@@ -766,6 +766,14 @@ impl HeadersDB for CLIHeadersDB {
         // if the block is defined at all, then return a constant
         get_cli_block_height(&self.conn(), id_bhh).map(|_| 3000)
     }
+
+    fn get_stacks_height_for_tenure_height(
+        &self,
+        _tip: &StacksBlockId,
+        tenure_height: u32,
+    ) -> Option<u32> {
+        Some(tenure_height)
+    }
 }
 
 fn get_eval_input(invoked_by: &str, args: &[String]) -> EvalInput {

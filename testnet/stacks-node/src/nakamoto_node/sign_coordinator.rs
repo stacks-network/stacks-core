@@ -20,7 +20,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use hashbrown::{HashMap, HashSet};
-use libsigner::v0::messages::{BlockResponse, MinerSlotID, SignerMessage as SignerMessageV0};
+use libsigner::v0::messages::{
+    BlockAccepted, BlockResponse, MinerSlotID, SignerMessage as SignerMessageV0,
+};
 use libsigner::{BlockProposal, SignerEntries, SignerEvent, SignerSession, StackerDBSession};
 use stacks::burnchains::Burnchain;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
@@ -251,11 +253,11 @@ impl SignCoordinator {
     }
 
     /// Check if the tenure needs to change
-    fn check_burn_tip_changed(sortdb: &SortitionDB, consensus_hash: &ConsensusHash) -> bool {
+    fn check_burn_tip_changed(sortdb: &SortitionDB, burn_block: &BlockSnapshot) -> bool {
         let cur_burn_chain_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
             .expect("FATAL: failed to query sortition DB for canonical burn chain tip");
 
-        if cur_burn_chain_tip.consensus_hash != *consensus_hash {
+        if cur_burn_chain_tip.consensus_hash != burn_block.consensus_hash {
             info!("SignCoordinator: Cancel signature aggregation; burnchain tip has changed");
             true
         } else {
@@ -365,7 +367,7 @@ impl SignCoordinator {
                 return Ok(stored_block.header.signer_signature);
             }
 
-            if Self::check_burn_tip_changed(&sortdb, &burn_tip.consensus_hash) {
+            if Self::check_burn_tip_changed(&sortdb, &burn_tip) {
                 debug!("SignCoordinator: Exiting due to new burnchain tip");
                 return Err(NakamotoNodeError::BurnchainTipChanged);
             }
@@ -450,10 +452,12 @@ impl SignCoordinator {
                 }
 
                 match message {
-                    SignerMessageV0::BlockResponse(BlockResponse::Accepted((
-                        response_hash,
-                        signature,
-                    ))) => {
+                    SignerMessageV0::BlockResponse(BlockResponse::Accepted(accepted)) => {
+                        let BlockAccepted {
+                            signer_signature_hash: response_hash,
+                            signature,
+                            metadata,
+                        } = accepted;
                         let block_sighash = block.header.signer_signature_hash();
                         if block_sighash != response_hash {
                             warn!(
@@ -463,7 +467,8 @@ impl SignCoordinator {
                                 "response_hash" => %response_hash,
                                 "slot_id" => slot_id,
                                 "reward_cycle_id" => reward_cycle_id,
-                                "response_hash" => %response_hash
+                                "response_hash" => %response_hash,
+                                "server_version" => %metadata.server_version
                             );
                             continue;
                         }
@@ -511,7 +516,8 @@ impl SignCoordinator {
                             "signer_weight" => signer_entry.weight,
                             "total_weight_signed" => total_weight_signed,
                             "stacks_block_hash" => %block.header.block_hash(),
-                            "stacks_block_id" => %block.header.block_id()
+                            "stacks_block_id" => %block.header.block_id(),
+                            "server_version" => metadata.server_version,
                         );
                         gathered_signatures.insert(slot_id, signature);
                         responded_signers.insert(signer_pubkey);

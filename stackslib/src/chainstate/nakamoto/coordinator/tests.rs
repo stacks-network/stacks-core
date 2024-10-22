@@ -17,9 +17,12 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 
+use clarity::consts::CHAIN_ID_TESTNET;
 use clarity::vm::clarity::ClarityConnection;
-use clarity::vm::types::PrincipalData;
-use clarity::vm::Value;
+use clarity::vm::costs::ExecutionCost;
+use clarity::vm::database::clarity_db::NullBurnStateDB;
+use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
+use clarity::vm::{ClarityVersion, Value};
 use rand::prelude::SliceRandom;
 use rand::{thread_rng, Rng, RngCore};
 use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
@@ -35,6 +38,7 @@ use stacks_common::util::hash::Hash160;
 use stacks_common::util::secp256k1::Secp256k1PrivateKey;
 use stacks_common::util::vrf::VRFProof;
 
+use crate::burnchains::tests::TestMiner;
 use crate::burnchains::{PoxConstants, Txid};
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandle};
 use crate::chainstate::burn::operations::{
@@ -64,7 +68,7 @@ use crate::chainstate::stacks::events::TransactionOrigin;
 use crate::chainstate::stacks::{
     CoinbasePayload, Error as ChainstateError, StacksTransaction, StacksTransactionSigner,
     TenureChangeCause, TokenTransferMemo, TransactionAnchorMode, TransactionAuth,
-    TransactionPayload, TransactionVersion,
+    TransactionPayload, TransactionSmartContract, TransactionVersion,
 };
 use crate::clarity::vm::types::StacksAddressExtensions;
 use crate::core::StacksEpochExtension;
@@ -76,6 +80,7 @@ use crate::stacks_common::codec::StacksMessageCodec;
 use crate::util_lib::boot::boot_code_id;
 use crate::util_lib::db::{query_rows, u64_to_sql};
 use crate::util_lib::signed_structured_data::pox4::Pox4SignatureTopic;
+use crate::util_lib::strings::StacksString;
 
 impl<'a> NakamotoStagingBlocksConnRef<'a> {
     pub fn get_blocks_at_height(&self, height: u64) -> Vec<NakamotoBlock> {
@@ -285,7 +290,7 @@ pub fn make_token_transfer(
             TokenTransferMemo([0x00; 34]),
         ),
     );
-    stx_transfer.chain_id = 0x80000000;
+    stx_transfer.chain_id = chainstate.chain_id;
     stx_transfer.anchor_mode = TransactionAnchorMode::OnChainOnly;
     stx_transfer.set_tx_fee(fee);
     stx_transfer.auth.set_origin_nonce(nonce);
@@ -295,6 +300,37 @@ pub fn make_token_transfer(
     let stx_transfer_signed = tx_signer.get_tx().unwrap();
 
     stx_transfer_signed
+}
+
+/// Make contract publish
+pub fn make_contract(
+    chainstate: &mut StacksChainState,
+    name: &str,
+    code: &str,
+    private_key: &StacksPrivateKey,
+    version: ClarityVersion,
+    nonce: u64,
+    fee: u64,
+) -> StacksTransaction {
+    let mut stx_tx = StacksTransaction::new(
+        TransactionVersion::Testnet,
+        TransactionAuth::from_p2pkh(private_key).unwrap(),
+        TransactionPayload::SmartContract(
+            TransactionSmartContract {
+                name: name.into(),
+                code_body: StacksString::from_str(code).unwrap(),
+            },
+            Some(version),
+        ),
+    );
+    stx_tx.chain_id = chainstate.chain_id;
+    stx_tx.anchor_mode = TransactionAnchorMode::OnChainOnly;
+    stx_tx.set_tx_fee(fee);
+    stx_tx.auth.set_origin_nonce(nonce);
+
+    let mut tx_signer = StacksTransactionSigner::new(&stx_tx);
+    tx_signer.sign_origin(&private_key).unwrap();
+    tx_signer.get_tx().unwrap()
 }
 
 /// Given the blocks and block-commits for a reward cycle, replay the sortitions on the given
@@ -612,6 +648,67 @@ impl<'a> TestPeer<'a> {
         block
     }
 
+    pub fn mine_tenure<F>(&mut self, block_builder: F) -> Vec<(NakamotoBlock, u64, ExecutionCost)>
+    where
+        F: FnMut(
+            &mut TestMiner,
+            &mut StacksChainState,
+            &SortitionDB,
+            &[(NakamotoBlock, u64, ExecutionCost)],
+        ) -> Vec<StacksTransaction>,
+    {
+        let (burn_ops, mut tenure_change, miner_key) =
+            self.begin_nakamoto_tenure(TenureChangeCause::BlockFound);
+        let (burn_height, _, consensus_hash) = self.next_burnchain_block(burn_ops.clone());
+        let pox_constants = self.sortdb().pox_constants.clone();
+        let first_burn_height = self.sortdb().first_block_height;
+        let mut test_signers = self.config.test_signers.clone().unwrap();
+
+        info!(
+            "Burnchain block produced: {burn_height}, in_prepare_phase?: {}, first_reward_block?: {}",
+            pox_constants.is_in_prepare_phase(first_burn_height, burn_height),
+            pox_constants.is_naka_signing_cycle_start(first_burn_height, burn_height)
+        );
+        let vrf_proof = self.make_nakamoto_vrf_proof(miner_key);
+
+        tenure_change.tenure_consensus_hash = consensus_hash.clone();
+        tenure_change.burn_view_consensus_hash = consensus_hash.clone();
+
+        let nakamoto_tip =
+            if let Some(nakamoto_parent_tenure) = self.nakamoto_parent_tenure_opt.as_ref() {
+                nakamoto_parent_tenure.last().as_ref().unwrap().block_id()
+            } else {
+                let tip = {
+                    let chainstate = &mut self.stacks_node.as_mut().unwrap().chainstate;
+                    let sort_db = self.sortdb.as_mut().unwrap();
+                    NakamotoChainState::get_canonical_block_header(chainstate.db(), sort_db)
+                        .unwrap()
+                        .unwrap()
+                };
+                tip.index_block_hash()
+            };
+
+        let miner_addr = self.miner.origin_address().unwrap();
+        let miner_acct = self.get_account(&nakamoto_tip, &miner_addr.to_account_principal());
+
+        let tenure_change_tx = self
+            .miner
+            .make_nakamoto_tenure_change_with_nonce(tenure_change.clone(), miner_acct.nonce);
+
+        let coinbase_tx =
+            self.miner
+                .make_nakamoto_coinbase_with_nonce(None, vrf_proof, miner_acct.nonce + 1);
+
+        self.make_nakamoto_tenure_and(
+            tenure_change_tx,
+            coinbase_tx,
+            &mut test_signers,
+            |_| {},
+            block_builder,
+            |_| true,
+        )
+    }
+
     pub fn single_block_tenure<S, F, G>(
         &mut self,
         sender_key: &StacksPrivateKey,
@@ -762,6 +859,439 @@ fn block_descendant() {
         first_reward_block.header.parent_block_id,
         naka_anchor_block.block_id()
     );
+}
+
+#[test]
+fn block_info_primary_testnet() {
+    block_info_tests(true)
+}
+
+#[test]
+fn block_info_other_testnet() {
+    block_info_tests(false)
+}
+
+fn block_info_tests(use_primary_testnet: bool) {
+    let private_key = StacksPrivateKey::from_seed(&[2]);
+    let addr = StacksAddress::p2pkh(false, &StacksPublicKey::from_private(&private_key));
+
+    let num_stackers: u32 = 4;
+    let mut signing_key_seed = num_stackers.to_be_bytes().to_vec();
+    signing_key_seed.extend_from_slice(&[1, 1, 1, 1]);
+    let signing_key = StacksPrivateKey::from_seed(signing_key_seed.as_slice());
+    let test_stackers = (0..num_stackers)
+        .map(|index| TestStacker {
+            signer_private_key: signing_key.clone(),
+            stacker_private_key: StacksPrivateKey::from_seed(&index.to_be_bytes()),
+            amount: u64::MAX as u128 - 10000,
+            pox_addr: Some(PoxAddress::Standard(
+                StacksAddress::new(
+                    C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+                    Hash160::from_data(&index.to_be_bytes()),
+                ),
+                Some(AddressHashMode::SerializeP2PKH),
+            )),
+            max_amount: None,
+        })
+        .collect::<Vec<_>>();
+    let test_signers = TestSigners::new(vec![signing_key]);
+    let mut pox_constants = TestPeerConfig::default().burnchain.pox_constants;
+    pox_constants.reward_cycle_length = 10;
+    pox_constants.v2_unlock_height = 21;
+    pox_constants.pox_3_activation_height = 26;
+    pox_constants.v3_unlock_height = 27;
+    pox_constants.pox_4_activation_height = 28;
+
+    let chain_id = if use_primary_testnet {
+        CHAIN_ID_TESTNET
+    } else {
+        CHAIN_ID_TESTNET + 1
+    };
+    let mut boot_plan =
+        NakamotoBootPlan::new(&format!("{}.{use_primary_testnet}", function_name!()))
+            .with_test_stackers(test_stackers.clone())
+            .with_test_signers(test_signers.clone())
+            .with_private_key(private_key)
+            .with_network_id(chain_id);
+    boot_plan.pox_constants = pox_constants;
+
+    // Supply an empty vec to make sure we have no nakamoto blocks when this test begins
+    let mut peer = boot_plan.boot_into_nakamoto_peer(vec![], None);
+
+    let clar1_contract = "
+       (define-read-only (get-info (height uint)) (get-block-info? id-header-hash height))
+    ";
+    let clar3_contract = "
+       (define-read-only (get-info (height uint)) (get-stacks-block-info? id-header-hash height))
+    ";
+
+    let clar1_contract_name = "clar1";
+    let clar3_contract_name = "clar3";
+
+    let clar1_contract_id = QualifiedContractIdentifier {
+        issuer: addr.clone().into(),
+        name: clar1_contract_name.into(),
+    };
+    let clar3_contract_id = QualifiedContractIdentifier {
+        issuer: addr.clone().into(),
+        name: clar3_contract_name.into(),
+    };
+
+    let get_tip_info = |peer: &mut TestPeer| {
+        peer.with_db_state(|sortdb, _, _, _| {
+            let (tip_ch, tip_bh, tip_height) =
+                SortitionDB::get_canonical_stacks_chain_tip_hash_and_height(sortdb.conn()).unwrap();
+            let tip_block_id = StacksBlockId::new(&tip_ch, &tip_bh);
+            Ok((tip_block_id, tip_height))
+        })
+        .unwrap()
+    };
+
+    let get_info = |peer: &mut TestPeer,
+                    version: ClarityVersion,
+                    query_ht: u64,
+                    tip_block_id: &StacksBlockId| {
+        let contract_id = match version {
+            ClarityVersion::Clarity1 => &clar1_contract_id,
+            ClarityVersion::Clarity2 => panic!(),
+            ClarityVersion::Clarity3 => &clar3_contract_id,
+        };
+        peer.with_db_state(|sortdb, chainstate, _, _| {
+            let sortdb_handle = sortdb.index_handle_at_tip();
+            let output = chainstate
+                .clarity_eval_read_only(
+                    &sortdb_handle,
+                    &tip_block_id,
+                    contract_id,
+                    &format!("(get-info u{query_ht})"),
+                )
+                .expect_optional()
+                .unwrap()
+                .map(|value| StacksBlockId::from_vec(&value.expect_buff(32).unwrap()).unwrap());
+
+            info!("At stacks block {tip_block_id}, {contract_id} returned {output:?}");
+
+            Ok(output)
+        })
+        .unwrap()
+    };
+
+    let (last_2x_block_id, last_2x_block_ht) = get_tip_info(&mut peer);
+
+    peer.mine_tenure(|miner, chainstate, sortdb, blocks_so_far| {
+        if blocks_so_far.len() > 0 {
+            return vec![];
+        }
+        info!("Producing first nakamoto block, publishing our three contracts");
+        let account = get_account(chainstate, sortdb, &addr);
+        let tx_0 = make_contract(
+            chainstate,
+            clar1_contract_name,
+            clar1_contract,
+            &private_key,
+            ClarityVersion::Clarity1,
+            account.nonce,
+            1000,
+        );
+        let tx_1 = make_contract(
+            chainstate,
+            clar3_contract_name,
+            clar3_contract,
+            &private_key,
+            ClarityVersion::Clarity3,
+            account.nonce + 1,
+            1000,
+        );
+
+        vec![tx_0, tx_1]
+    });
+
+    let (tenure_1_start_block_id, tenure_1_block_ht) = get_tip_info(&mut peer);
+    assert_eq!(
+        get_info(
+            &mut peer,
+            ClarityVersion::Clarity1,
+            last_2x_block_ht,
+            &tenure_1_start_block_id
+        )
+        .unwrap(),
+        last_2x_block_id,
+    );
+    assert_eq!(
+        get_info(
+            &mut peer,
+            ClarityVersion::Clarity3,
+            last_2x_block_ht,
+            &tenure_1_start_block_id
+        )
+        .unwrap(),
+        last_2x_block_id,
+    );
+    assert!(get_info(
+        &mut peer,
+        ClarityVersion::Clarity1,
+        tenure_1_block_ht,
+        &tenure_1_start_block_id
+    )
+    .is_none());
+    assert!(get_info(
+        &mut peer,
+        ClarityVersion::Clarity3,
+        tenure_1_block_ht,
+        &tenure_1_start_block_id
+    )
+    .is_none());
+
+    let recipient_addr = StacksAddress::p2pkh(
+        false,
+        &StacksPublicKey::from_private(&StacksPrivateKey::from_seed(&[2, 1, 2])),
+    );
+
+    let tenure_2_blocks: Vec<_> = peer
+        .mine_tenure(|miner, chainstate, sortdb, blocks_so_far| {
+            if blocks_so_far.len() > 3 {
+                return vec![];
+            }
+            info!("Producing block #{} in Tenure #2", blocks_so_far.len());
+            let account = get_account(chainstate, sortdb, &addr);
+            let tx_0 = make_token_transfer(
+                chainstate,
+                sortdb,
+                &private_key,
+                account.nonce,
+                100,
+                1,
+                &recipient_addr,
+            );
+
+            vec![tx_0]
+        })
+        .into_iter()
+        .map(|(block, ..)| block.header.block_id())
+        .collect();
+
+    let (tenure_2_last_block_id, tenure_2_last_block_ht) = get_tip_info(&mut peer);
+
+    assert_eq!(&tenure_2_last_block_id, tenure_2_blocks.last().unwrap());
+
+    let c3_tenure1_from_tenure2 = get_info(
+        &mut peer,
+        ClarityVersion::Clarity3,
+        tenure_1_block_ht,
+        &tenure_2_blocks[0],
+    )
+    .unwrap();
+    let c1_tenure1_from_tenure2 = get_info(
+        &mut peer,
+        ClarityVersion::Clarity1,
+        tenure_1_block_ht,
+        &tenure_2_blocks[0],
+    )
+    .unwrap();
+
+    // note, since tenure_1 only has one block in it, tenure_1_block_ht is *also* the tenure height, so this should return the
+    // same value regardless of the `primary_tesnet` flag
+    assert_eq!(c1_tenure1_from_tenure2, c3_tenure1_from_tenure2);
+    assert_eq!(c1_tenure1_from_tenure2, tenure_1_start_block_id);
+
+    let tenure_2_start_block_ht = tenure_1_block_ht + 1;
+    let tenure_2_tenure_ht = tenure_1_block_ht + 1;
+
+    // make sure we can't look up block info from the block we're evaluating at
+    if use_primary_testnet {
+        assert!(get_info(
+            &mut peer,
+            ClarityVersion::Clarity1,
+            tenure_2_start_block_ht,
+            &tenure_2_blocks[0]
+        )
+        .is_none());
+    } else {
+        assert!(get_info(
+            &mut peer,
+            ClarityVersion::Clarity1,
+            tenure_2_tenure_ht,
+            &tenure_2_blocks[0]
+        )
+        .is_none());
+    }
+    assert!(get_info(
+        &mut peer,
+        ClarityVersion::Clarity3,
+        tenure_2_start_block_ht,
+        &tenure_2_blocks[0]
+    )
+    .is_none());
+
+    // but we can from the next block in the tenure
+    let c1_tenure_2_start_block = if use_primary_testnet {
+        get_info(
+            &mut peer,
+            ClarityVersion::Clarity1,
+            tenure_2_start_block_ht,
+            &tenure_2_blocks[1],
+        )
+        .unwrap()
+    } else {
+        get_info(
+            &mut peer,
+            ClarityVersion::Clarity1,
+            tenure_2_tenure_ht,
+            &tenure_2_blocks[1],
+        )
+        .unwrap()
+    };
+    let c3_tenure_2_start_block = get_info(
+        &mut peer,
+        ClarityVersion::Clarity3,
+        tenure_2_start_block_ht,
+        &tenure_2_blocks[1],
+    )
+    .unwrap();
+    assert_eq!(c1_tenure_2_start_block, c3_tenure_2_start_block);
+    assert_eq!(&c1_tenure_2_start_block, &tenure_2_blocks[0]);
+
+    // try to query the middle block from the last block in the tenure
+    let c1_tenure_2_mid_block = if use_primary_testnet {
+        get_info(
+            &mut peer,
+            ClarityVersion::Clarity1,
+            tenure_2_start_block_ht + 1,
+            &tenure_2_blocks[2],
+        )
+    } else {
+        get_info(
+            &mut peer,
+            ClarityVersion::Clarity1,
+            tenure_2_start_block_ht + 1,
+            &tenure_2_blocks[2],
+        )
+    };
+    let c3_tenure_2_mid_block = get_info(
+        &mut peer,
+        ClarityVersion::Clarity3,
+        tenure_2_start_block_ht + 1,
+        &tenure_2_blocks[2],
+    )
+    .unwrap();
+    assert_eq!(&c3_tenure_2_mid_block, &tenure_2_blocks[1]);
+    if use_primary_testnet {
+        assert_eq!(c1_tenure_2_mid_block.unwrap(), c3_tenure_2_mid_block);
+    } else {
+        // if interpreted as a tenure-height, this will return none, because there's no tenure at height +1 yet
+        assert!(c1_tenure_2_mid_block.is_none());
+
+        // query the tenure height again from the latest block for good measure
+        let start_block_result = get_info(
+            &mut peer,
+            ClarityVersion::Clarity1,
+            tenure_2_tenure_ht,
+            &tenure_2_blocks[2],
+        )
+        .unwrap();
+        assert_eq!(&start_block_result, &tenure_2_blocks[0]);
+    }
+
+    let tenure_3_tenure_ht = tenure_2_tenure_ht + 1;
+    let tenure_3_start_block_ht =
+        tenure_2_start_block_ht + u64::try_from(tenure_2_blocks.len()).unwrap();
+
+    let tenure_3_blocks: Vec<_> = peer
+        .mine_tenure(|miner, chainstate, sortdb, blocks_so_far| {
+            if blocks_so_far.len() > 3 {
+                return vec![];
+            }
+            info!("Producing block #{} in Tenure #3", blocks_so_far.len());
+            let account = get_account(chainstate, sortdb, &addr);
+            let tx_0 = make_token_transfer(
+                chainstate,
+                sortdb,
+                &private_key,
+                account.nonce,
+                100,
+                1,
+                &recipient_addr,
+            );
+
+            vec![tx_0]
+        })
+        .into_iter()
+        .map(|(block, ..)| block.header.block_id())
+        .collect();
+
+    let (tenure_3_last_block_id, tenure_3_last_block_ht) = get_tip_info(&mut peer);
+
+    assert_eq!(&tenure_3_last_block_id, tenure_3_blocks.last().unwrap());
+    assert_eq!(tenure_3_start_block_ht, tenure_2_last_block_ht + 1);
+
+    // query the current tenure information from the middle block
+    let c1_tenure_3_start_block = if use_primary_testnet {
+        get_info(
+            &mut peer,
+            ClarityVersion::Clarity1,
+            tenure_3_start_block_ht,
+            &tenure_3_blocks[1],
+        )
+        .unwrap()
+    } else {
+        get_info(
+            &mut peer,
+            ClarityVersion::Clarity1,
+            tenure_3_tenure_ht,
+            &tenure_3_blocks[1],
+        )
+        .unwrap()
+    };
+    let c3_tenure_3_start_block = get_info(
+        &mut peer,
+        ClarityVersion::Clarity3,
+        tenure_3_start_block_ht,
+        &tenure_3_blocks[1],
+    )
+    .unwrap();
+    assert_eq!(c1_tenure_3_start_block, c3_tenure_3_start_block);
+    assert_eq!(&c1_tenure_3_start_block, &tenure_3_blocks[0]);
+
+    // try to query the middle block from the last block in the tenure
+    let c1_tenure_3_mid_block = if use_primary_testnet {
+        get_info(
+            &mut peer,
+            ClarityVersion::Clarity1,
+            tenure_3_start_block_ht + 1,
+            &tenure_3_blocks[2],
+        )
+    } else {
+        get_info(
+            &mut peer,
+            ClarityVersion::Clarity1,
+            tenure_3_start_block_ht + 1,
+            &tenure_3_blocks[2],
+        )
+    };
+    let c3_tenure_3_mid_block = get_info(
+        &mut peer,
+        ClarityVersion::Clarity3,
+        tenure_3_start_block_ht + 1,
+        &tenure_3_blocks[2],
+    )
+    .unwrap();
+    assert_eq!(&c3_tenure_3_mid_block, &tenure_3_blocks[1]);
+    if use_primary_testnet {
+        assert_eq!(c1_tenure_3_mid_block.unwrap(), c3_tenure_3_mid_block);
+    } else {
+        // if interpreted as a tenure-height, this will return none, because there's no tenure at height +1 yet
+        assert!(c1_tenure_3_mid_block.is_none());
+
+        // query the tenure height again from the latest block for good measure
+        let start_block_result = get_info(
+            &mut peer,
+            ClarityVersion::Clarity1,
+            tenure_3_tenure_ht,
+            &tenure_3_blocks[2],
+        )
+        .unwrap();
+        assert_eq!(&start_block_result, &tenure_3_blocks[0]);
+    }
 }
 
 #[test]

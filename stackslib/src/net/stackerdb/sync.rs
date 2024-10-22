@@ -79,6 +79,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
             num_attempted_connections: 0,
             rounds: 0,
             push_round: 0,
+            last_eviction_time: get_epoch_time_secs(),
         };
         dbsync.reset(None, config);
         dbsync
@@ -217,9 +218,36 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
         self.expected_versions.clear();
         self.downloaded_chunks.clear();
 
-        // reset comms, but keep all connected replicas pinned
+        // reset comms, but keep all connected replicas pinned.
+        // Randomly evict one every so often.
         self.comms.reset();
         if let Some(network) = network {
+            let mut eviction_index = None;
+            if self.last_eviction_time + 60 < get_epoch_time_secs() {
+                self.last_eviction_time = get_epoch_time_secs();
+                if self.replicas.len() > 0 {
+                    eviction_index = Some(thread_rng().gen_range(0..self.replicas.len()));
+                }
+            }
+
+            let remove_naddr = eviction_index.and_then(|idx| {
+                let removed = self.replicas.iter().nth(idx).cloned();
+                if let Some(naddr) = removed.as_ref() {
+                    debug!(
+                        "{:?}: {}: don't reuse connection for replica {:?}",
+                        network.get_local_peer(),
+                        &self.smart_contract_id,
+                        &naddr,
+                    );
+                }
+                removed
+            });
+
+            if let Some(naddr) = remove_naddr {
+                self.replicas.remove(&naddr);
+            }
+
+            // retain the remaining replica connections
             for naddr in self.replicas.iter() {
                 if let Some(event_id) = network.get_event_id(&naddr.to_neighbor_key(network)) {
                     self.comms.pin_connection(event_id);
@@ -668,7 +696,8 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
     /// We might not be connected to any yet.
     /// Clears self.replicas, and fills in self.connected_replicas with already-connected neighbors
     /// Returns Ok(true) if we can proceed to sync
-    /// Returns Ok(false) if we have no known peers
+    /// Returns Ok(false) if we should try this again
+    /// Returns Err(NoSuchNeighbor) if we don't have anyone to talk to
     /// Returns Err(..) on DB query error
     pub fn connect_begin(&mut self, network: &mut PeerNetwork) -> Result<bool, net_error> {
         if self.replicas.len() == 0 {
@@ -686,7 +715,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
         );
         if self.replicas.len() == 0 {
             // nothing to do
-            return Ok(false);
+            return Err(net_error::NoSuchNeighbor);
         }
 
         let naddrs = mem::replace(&mut self.replicas, HashSet::new());
@@ -729,11 +758,12 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                     );
                     self.num_attempted_connections += 1;
                     self.num_connections += 1;
+                    self.connected_replicas.insert(naddr);
                 }
                 Ok(false) => {
                     // need to retry
-                    self.replicas.insert(naddr);
                     self.num_attempted_connections += 1;
+                    self.replicas.insert(naddr);
                 }
                 Err(_e) => {
                     debug!(
@@ -746,7 +776,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                 }
             }
         }
-        Ok(self.replicas.len() == 0)
+        Ok(self.connected_replicas.len() > 0)
     }
 
     /// Finish up connecting to our replicas.
@@ -1154,7 +1184,8 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
         );
 
         // fill up our comms with $capacity requests
-        for _i in 0..self.request_capacity {
+        let mut num_sent = 0;
+        for _i in 0..self.chunk_push_priorities.len() {
             if self.comms.count_inflight() >= self.request_capacity {
                 break;
             }
@@ -1173,6 +1204,9 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                     chunk_push.chunk_data.slot_id,
                     chunk_push.chunk_data.slot_version,
                 );
+
+                // next-prioritized chunk
+                cur_priority = (cur_priority + 1) % self.chunk_push_priorities.len();
                 continue;
             };
 
@@ -1213,6 +1247,11 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
 
             // next-prioritized chunk
             cur_priority = (cur_priority + 1) % self.chunk_push_priorities.len();
+
+            num_sent += 1;
+            if num_sent > self.request_capacity {
+                break;
+            }
         }
         self.next_chunk_push_priority = cur_priority;
         Ok(self
@@ -1370,14 +1409,22 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
             let mut blocked = true;
             match self.state {
                 StackerDBSyncState::ConnectBegin => {
-                    let done = self.connect_begin(network)?;
+                    let done = match self.connect_begin(network) {
+                        Ok(done) => done,
+                        Err(net_error::NoSuchNeighbor) => {
+                            // nothing to do
+                            self.state = StackerDBSyncState::Finished;
+                            blocked = false;
+                            false
+                        }
+                        Err(e) => {
+                            return Err(e);
+                        }
+                    };
                     if done {
                         self.state = StackerDBSyncState::ConnectFinish;
-                    } else {
-                        // no replicas; try again
-                        self.state = StackerDBSyncState::Finished;
+                        blocked = false;
                     }
-                    blocked = false;
                 }
                 StackerDBSyncState::ConnectFinish => {
                     let done = self.connect_try_finish(network)?;
