@@ -595,17 +595,17 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
                     let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
                         .expect("Failed to deserialize SignerMessage");
                     match message {
-                        SignerMessage::BlockResponse(BlockResponse::Accepted((
-                            hash,
-                            signature,
-                        ))) => {
-                            if hash == *signer_signature_hash
+                        SignerMessage::BlockResponse(BlockResponse::Accepted(accepted)) => {
+                            if accepted.signer_signature_hash == *signer_signature_hash
                                 && expected_signers.iter().any(|pk| {
-                                    pk.verify(hash.bits(), &signature)
-                                        .expect("Failed to verify signature")
+                                    pk.verify(
+                                        accepted.signer_signature_hash.bits(),
+                                        &accepted.signature,
+                                    )
+                                    .expect("Failed to verify signature")
                                 })
                             {
-                                Some(signature)
+                                Some(accepted.signature)
                             } else {
                                 None
                             }
