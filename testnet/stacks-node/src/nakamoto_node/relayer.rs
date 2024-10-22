@@ -883,16 +883,6 @@ impl RelayerThread {
             SortitionDB::get_canonical_stacks_chain_tip_hash(self.sortdb.conn()).unwrap();
         let canonical_stacks_tip =
             StacksBlockId::new(&canonical_stacks_tip_ch, &canonical_stacks_tip_bh);
-        let block_election_snapshot =
-            SortitionDB::get_block_snapshot_consensus(self.sortdb.conn(), &canonical_stacks_tip_ch)
-                .map_err(|e| {
-                    error!("Relayer: failed to get block snapshot for canonical tip: {e:?}");
-                    NakamotoNodeError::SnapshotNotFoundForChainTip
-                })?
-                .ok_or_else(|| {
-                    error!("Relayer: failed to get block snapshot for canonical tip");
-                    NakamotoNodeError::SnapshotNotFoundForChainTip
-                })?;
 
         let Some(ref mining_key) = self.config.miner.mining_key else {
             return Ok(());
@@ -916,7 +906,7 @@ impl RelayerThread {
             "last_winner_snapshot.miner_pk_hash" => ?last_winner_snapshot.miner_pk_hash,
             "canonical_stacks_tip_id" => %canonical_stacks_tip,
             "canonical_stacks_tip_ch" => %canonical_stacks_tip_ch,
-            "block_election_ch" => %block_election_snapshot.consensus_hash,
+            "block_election_ch" => %last_winner_snapshot.consensus_hash,
             "burn_view_ch" => %new_burn_view,
         );
 
@@ -926,7 +916,7 @@ impl RelayerThread {
 
         match self.start_new_tenure(
             canonical_stacks_tip, // For tenure extend, we should be extending off the canonical tip
-            block_election_snapshot,
+            last_winner_snapshot,
             burn_tip,
             MinerReason::Extended {
                 burn_view_consensus_hash: new_burn_view,
