@@ -26,6 +26,7 @@ use hashbrown::HashMap;
 use rand::seq::SliceRandom;
 use rand::{CryptoRng, RngCore, SeedableRng};
 use rand_chacha::ChaCha20Rng;
+use rusqlite::params;
 use stacks_common::address::*;
 use stacks_common::consts::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 use stacks_common::types::chainstate::{
@@ -52,7 +53,9 @@ use crate::chainstate::nakamoto::coordinator::{
     get_nakamoto_next_recipients, load_nakamoto_reward_set,
 };
 use crate::chainstate::nakamoto::miner::{MinerTenureInfo, NakamotoBlockBuilder};
-use crate::chainstate::nakamoto::staging_blocks::NakamotoBlockObtainMethod;
+use crate::chainstate::nakamoto::staging_blocks::{
+    NakamotoBlockObtainMethod, NakamotoStagingBlocksConnRef,
+};
 use crate::chainstate::nakamoto::test_signers::TestSigners;
 use crate::chainstate::nakamoto::tests::get_account;
 use crate::chainstate::nakamoto::{
@@ -73,7 +76,7 @@ use crate::cost_estimates::UnitEstimator;
 use crate::net::relay::{BlockAcceptResponse, Relayer};
 use crate::net::test::{TestPeer, TestPeerConfig, *};
 use crate::util_lib::boot::boot_code_addr;
-use crate::util_lib::db::Error as db_error;
+use crate::util_lib::db::{query_row, Error as db_error};
 
 #[derive(Debug, Clone)]
 pub struct TestStacker {
@@ -285,6 +288,15 @@ impl TestMiner {
 
     pub fn sign_nakamoto_block(&self, block: &mut NakamotoBlock) {
         block.header.sign_miner(&self.nakamoto_miner_key()).unwrap();
+    }
+}
+
+impl<'a> NakamotoStagingBlocksConnRef<'a> {
+    pub fn get_any_normal_tenure(&self) -> Result<Option<ConsensusHash>, ChainstateError> {
+        let qry = "SELECT consensus_hash FROM nakamoto_staging_blocks WHERE obtain_method != ?1 ORDER BY RANDOM() LIMIT 1";
+        let args = params![&NakamotoBlockObtainMethod::Shadow.to_string()];
+        let res: Option<ConsensusHash> = query_row(self, qry, args)?;
+        Ok(res)
     }
 }
 
@@ -674,6 +686,10 @@ impl TestStacksNode {
     ///
     /// The first block will contain a coinbase, if coinbase is Some(..)
     /// Process the blocks via the chains coordinator as we produce them.
+    ///
+    /// If malleablize is true, then malleablized blocks will be created by varying the number of
+    /// signatures. Each malleablized block will be processed and stored if its signatures clear
+    /// the signing threshold.
     ///
     /// Returns a list of
     ///     * the block
@@ -2306,6 +2322,175 @@ impl<'a> TestPeer<'a> {
             )
             .unwrap());
         }
+
+        // validate_shadow_parent_burnchain
+        // should always succeed
+        NakamotoChainState::validate_shadow_parent_burnchain(
+            chainstate.nakamoto_blocks_db(),
+            &sortdb.index_handle_at_tip(),
+            block,
+            &tenure_block_commit,
+        )
+        .unwrap();
+
+        if parent_block_header
+            .anchored_header
+            .as_stacks_nakamoto()
+            .map(|hdr| hdr.is_shadow_block())
+            .unwrap_or(false)
+        {
+            // test error cases
+            let mut bad_tenure_block_commit_vtxindex = tenure_block_commit.clone();
+            bad_tenure_block_commit_vtxindex.parent_vtxindex = 1;
+
+            let mut bad_tenure_block_commit_block_ptr = tenure_block_commit.clone();
+            bad_tenure_block_commit_block_ptr.parent_block_ptr += 1;
+
+            let mut bad_block_no_parent = block.clone();
+            bad_block_no_parent.header.parent_block_id = StacksBlockId([0x11; 32]);
+
+            // not a problem if there's no (nakamoto) parent, since the parent can be a
+            // (non-shadow) epoch2 block not present in the staging chainstate
+            NakamotoChainState::validate_shadow_parent_burnchain(
+                chainstate.nakamoto_blocks_db(),
+                &sortdb.index_handle_at_tip(),
+                &bad_block_no_parent,
+                &tenure_block_commit,
+            )
+            .unwrap();
+
+            // should fail because vtxindex must be 0
+            let ChainstateError::InvalidStacksBlock(_) =
+                NakamotoChainState::validate_shadow_parent_burnchain(
+                    chainstate.nakamoto_blocks_db(),
+                    &sortdb.index_handle_at_tip(),
+                    block,
+                    &bad_tenure_block_commit_vtxindex,
+                )
+                .unwrap_err()
+            else {
+                panic!("validate_shadow_parent_burnchain did not fail as expected");
+            };
+
+            // should fail because it doesn't point to shadow tenure
+            let ChainstateError::InvalidStacksBlock(_) =
+                NakamotoChainState::validate_shadow_parent_burnchain(
+                    chainstate.nakamoto_blocks_db(),
+                    &sortdb.index_handle_at_tip(),
+                    block,
+                    &bad_tenure_block_commit_block_ptr,
+                )
+                .unwrap_err()
+            else {
+                panic!("validate_shadow_parent_burnchain did not fail as expected");
+            };
+        }
+
+        if block.is_shadow_block() {
+            // block is stored
+            assert!(chainstate
+                .nakamoto_blocks_db()
+                .has_shadow_nakamoto_block_with_index_hash(&block.block_id())
+                .unwrap());
+
+            // block is in a shadow tenure
+            assert!(chainstate
+                .nakamoto_blocks_db()
+                .is_shadow_tenure(&block.header.consensus_hash)
+                .unwrap());
+
+            // shadow tenure has a start block
+            assert!(chainstate
+                .nakamoto_blocks_db()
+                .get_shadow_tenure_start_block(&block.header.consensus_hash)
+                .unwrap()
+                .is_some());
+
+            // succeeds without burn
+            NakamotoChainState::validate_shadow_nakamoto_block_burnchain(
+                chainstate.nakamoto_blocks_db(),
+                &sortdb.index_handle_at_tip(),
+                None,
+                &block,
+                false,
+                0x80000000,
+            )
+            .unwrap();
+
+            // succeeds with expected burn
+            NakamotoChainState::validate_shadow_nakamoto_block_burnchain(
+                chainstate.nakamoto_blocks_db(),
+                &sortdb.index_handle_at_tip(),
+                Some(block.header.burn_spent),
+                &block,
+                false,
+                0x80000000,
+            )
+            .unwrap();
+
+            // fails with invalid burn
+            let ChainstateError::InvalidStacksBlock(_) =
+                NakamotoChainState::validate_shadow_nakamoto_block_burnchain(
+                    chainstate.nakamoto_blocks_db(),
+                    &sortdb.index_handle_at_tip(),
+                    Some(block.header.burn_spent + 1),
+                    &block,
+                    false,
+                    0x80000000,
+                )
+                .unwrap_err()
+            else {
+                panic!("validate_shadow_nakamoto_block_burnchain succeeded when it shouldn't have");
+            };
+
+            // block must be stored alreay
+            let mut bad_block = block.clone();
+            bad_block.header.version += 1;
+
+            // fails because block_id() isn't present
+            let ChainstateError::InvalidStacksBlock(_) =
+                NakamotoChainState::validate_shadow_nakamoto_block_burnchain(
+                    chainstate.nakamoto_blocks_db(),
+                    &sortdb.index_handle_at_tip(),
+                    None,
+                    &bad_block,
+                    false,
+                    0x80000000,
+                )
+                .unwrap_err()
+            else {
+                panic!("validate_shadow_nakamoto_block_burnchain succeeded when it shouldn't have");
+            };
+
+            // VRF proof must be present
+            assert!(NakamotoChainState::get_shadow_vrf_proof(
+                &mut chainstate.index_conn(),
+                &block.block_id()
+            )
+            .unwrap()
+            .is_some());
+        } else {
+            // not a shadow block
+            assert!(!chainstate
+                .nakamoto_blocks_db()
+                .has_shadow_nakamoto_block_with_index_hash(&block.block_id())
+                .unwrap());
+            assert!(!chainstate
+                .nakamoto_blocks_db()
+                .is_shadow_tenure(&block.header.consensus_hash)
+                .unwrap());
+            assert!(chainstate
+                .nakamoto_blocks_db()
+                .get_shadow_tenure_start_block(&block.header.consensus_hash)
+                .unwrap()
+                .is_none());
+            assert!(NakamotoChainState::get_shadow_vrf_proof(
+                &mut chainstate.index_conn(),
+                &block.block_id()
+            )
+            .unwrap()
+            .is_none());
+        }
     }
 
     /// Add a shadow tenure on a given tip.
@@ -2313,6 +2498,9 @@ impl<'a> TestPeer<'a> {
     /// * Generate a shadow block for the empty sortition
     /// * Store the shadow block to the staging DB
     /// * Process it
+    ///
+    /// Tests:
+    /// * NakamotoBlockHeader::get_shadow_signer_weight()
     pub fn make_shadow_tenure(&mut self, tip: Option<StacksBlockId>) -> NakamotoBlock {
         let naka_tip_id = tip.unwrap_or(self.network.stacks_tip.block_id());
         let (_, _, tenure_id_consensus_hash) = self.next_burnchain_block(vec![]);
@@ -2335,10 +2523,75 @@ impl<'a> TestPeer<'a> {
         )
         .unwrap();
 
+        // Get the reward set
+        let sort_tip_sn = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+        let reward_set = load_nakamoto_reward_set(
+            self.miner
+                .burnchain
+                .block_height_to_reward_cycle(sort_tip_sn.block_height)
+                .expect("FATAL: no reward cycle for sortition"),
+            &sort_tip_sn.sortition_id,
+            &self.miner.burnchain,
+            &mut stacks_node.chainstate,
+            &shadow_block.header.parent_block_id,
+            &sortdb,
+            &OnChainRewardSetProvider::new(),
+        )
+        .expect("Failed to load reward set")
+        .expect("Expected a reward set")
+        .0
+        .known_selected_anchor_block_owned()
+        .expect("Unknown reward set");
+
+        // check signer weight
+        let mut max_signing_weight = 0;
+        for signer in reward_set.signers.as_ref().unwrap().iter() {
+            max_signing_weight += signer.weight;
+        }
+
+        assert_eq!(
+            shadow_block
+                .header
+                .get_shadow_signer_weight(&reward_set)
+                .unwrap(),
+            max_signing_weight
+        );
+
         // put it into Stacks staging DB
         let tx = stacks_node.chainstate.staging_db_tx_begin().unwrap();
         tx.add_shadow_block(&shadow_block).unwrap();
+
+        // inserts of the same block are idempotent
+        tx.add_shadow_block(&shadow_block).unwrap();
+
         tx.commit().unwrap();
+
+        let rollback_tx = stacks_node.chainstate.staging_db_tx_begin().unwrap();
+
+        if let Some(normal_tenure) = rollback_tx.conn().get_any_normal_tenure().unwrap() {
+            // can't insert into a non-shadow tenure
+            let mut bad_shadow_block_tenure = shadow_block.clone();
+            bad_shadow_block_tenure.header.consensus_hash = normal_tenure;
+
+            let ChainstateError::InvalidStacksBlock(_) = rollback_tx
+                .add_shadow_block(&bad_shadow_block_tenure)
+                .unwrap_err()
+            else {
+                panic!("add_shadow_block succeeded when it should have failed");
+            };
+        }
+
+        // can't insert into the same height twice with different blocks
+        let mut bad_shadow_block_height = shadow_block.clone();
+        bad_shadow_block_height.header.version += 1;
+        let ChainstateError::InvalidStacksBlock(_) = rollback_tx
+            .add_shadow_block(&bad_shadow_block_height)
+            .unwrap_err()
+        else {
+            panic!("add_shadow_block succeeded when it should have failed");
+        };
+
+        drop(rollback_tx);
 
         self.stacks_node = Some(stacks_node);
         self.sortdb = Some(sortdb);

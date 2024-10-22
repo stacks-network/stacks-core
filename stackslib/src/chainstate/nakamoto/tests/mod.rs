@@ -1663,6 +1663,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
 /// Tests:
 /// * NakamotoBlockHeader::check_miner_signature
 /// * NakamotoBlockHeader::check_tenure_tx
+/// * NakamotoBlockHeader::is_shadow_block
 /// * NakamotoBlockHeader::check_normal_coinbase_tx
 /// * NakamotoBlockHeader::check_shadow_coinbase_tx
 #[test]
