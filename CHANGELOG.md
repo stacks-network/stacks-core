@@ -43,6 +43,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
   - Include `tenure_height` in `/v2/info` endpoint
   - Include `block_time` and `tenure_height` in `/new/block` event payload
 - Various improvements to logging, reducing log spam and improving log messages
+- Various improvements and bugfixes
 
 ## [2.5.0.0.7]
 
