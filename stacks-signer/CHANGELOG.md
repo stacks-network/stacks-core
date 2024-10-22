@@ -11,6 +11,24 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ### Changed
 
+## [3.0.0.0.0]
+
+### Added
+
+- Improved StackerDB message structures
+- Improved mock signing during epoch 2.5
+- Include the `stacks-signer` binary version in startup logging and StackerDB messages
+- Added a `monitor-signers` CLI command for better visibility into other signers on the network
+- Support custom Chain ID in signer configuration
+- Refresh the signer's sortition view when it sees a block proposal for a new tenure
+- Fixed a race condition where a signer would try to update before StackerDB configuration was set
+
+### Changed
+
+- Migrate to new Stacks Node RPC endpoint `/v3/tenures/fork_info/:start/:stop`
+- Improved chainstate storage for handling of forks and other state
+- Updated prometheus metric labels to reduce high cardinality
+
 ## [2.5.0.0.5.3]
 
 ### Added
