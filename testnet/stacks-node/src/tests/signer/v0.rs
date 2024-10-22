@@ -1460,6 +1460,8 @@ fn multiple_miners() {
     let node_2_rpc_bind = format!("{localhost}:{node_2_rpc}");
     let mut node_2_listeners = Vec::new();
 
+
+    let max_nakamoto_tenures = 30;
     // partition the signer set so that ~half are listening and using node 1 for RPC and events,
     //  and the rest are using node 2
 
@@ -1481,7 +1483,7 @@ fn multiple_miners() {
             config.node.p2p_address = format!("{localhost}:{node_1_p2p}");
             config.miner.wait_on_interim_blocks = Duration::from_secs(5);
             config.node.pox_sync_sample_secs = 30;
-            config.burnchain.pox_reward_length = Some(30);
+            config.burnchain.pox_reward_length = Some(max_nakamoto_tenures);
 
             config.node.seed = btc_miner_1_seed.clone();
             config.node.local_peer_seed = btc_miner_1_seed.clone();
@@ -1560,8 +1562,6 @@ fn multiple_miners() {
     let pre_nakamoto_peer_1_height = get_chain_info(&conf).stacks_tip_height;
 
     info!("------------------------- Reached Epoch 3.0 -------------------------");
-
-    let max_nakamoto_tenures = 20;
 
     // due to the random nature of mining sortitions, the way this test is structured
     //  is that we keep track of how many tenures each miner produced, and once enough sortitions
