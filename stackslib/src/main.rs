@@ -49,6 +49,7 @@ use blockstack_lib::chainstate::burn::db::sortdb::{
 use blockstack_lib::chainstate::burn::operations::BlockstackOperationType;
 use blockstack_lib::chainstate::burn::{BlockSnapshot, ConsensusHash};
 use blockstack_lib::chainstate::coordinator::{get_reward_cycle_info, OnChainRewardSetProvider};
+use blockstack_lib::chainstate::nakamoto::miner::NakamotoBlockBuilder;
 use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use blockstack_lib::chainstate::stacks::db::blocks::{DummyEventDispatcher, StagingBlock};
 use blockstack_lib::chainstate::stacks::db::{
@@ -245,6 +246,30 @@ impl P2PSession {
 
         Ok(session)
     }
+}
+
+fn open_nakamoto_chainstate_dbs(
+    chainstate_dir: &str,
+    network: &str,
+) -> (SortitionDB, StacksChainState) {
+    let (mainnet, chain_id, pox_constants) = match network {
+        "mainnet" => (true, CHAIN_ID_MAINNET, PoxConstants::mainnet_default()),
+        "krypton" => (false, 0x80000100, PoxConstants::nakamoto_testnet_default()),
+        _ => {
+            panic!("Unrecognized network name '{}'", network);
+        }
+    };
+
+    let chain_state_path = format!("{}/{}/chainstate/", chainstate_dir, network);
+    let sort_db_path = format!("{}/{}/burnchain/sortition/", chainstate_dir, network);
+
+    let sort_db = SortitionDB::open(&sort_db_path, false, pox_constants)
+        .unwrap_or_else(|_| panic!("Failed to open {sort_db_path}"));
+
+    let (chain_state, _) = StacksChainState::open(mainnet, chain_id, &chain_state_path, None)
+        .expect("Failed to open stacks chain state");
+
+    (sort_db, chain_state)
 }
 
 #[cfg_attr(test, mutants::skip)]
@@ -1164,6 +1189,162 @@ simulating a miner.
         };
 
         println!("{:?}", inv);
+    }
+
+    if argv[1] == "get-nakamoto-tip" {
+        if argv.len() < 4 {
+            eprintln!(
+                "Usage: {} get-nakamoto-tip CHAINSTATAE_DIR NETWORK",
+                &argv[0]
+            );
+            process::exit(1);
+        }
+
+        let chainstate_dir = argv[2].as_str();
+        let network = argv[3].as_str();
+
+        if network != "mainnet" && network != "krypton" {
+            eprintln!(
+                "Unknown network '{}': only support 'mainnet' and 'krypton'",
+                &network
+            );
+            process::exit(1);
+        }
+
+        let (sort_db, chain_state) = open_nakamoto_chainstate_dbs(chainstate_dir, network);
+
+        let header = NakamotoChainState::get_canonical_block_header(chain_state.db(), &sort_db)
+            .unwrap()
+            .unwrap();
+        println!("{}", &header.index_block_hash());
+        process::exit(0);
+    }
+
+    if argv[1] == "get-account" {
+        if argv.len() < 5 {
+            eprintln!(
+                "Usage: {} get-account CHAINSTATE_DIR mainnet|krypton ADDRESS [CHAIN_TIP]",
+                &argv[0]
+            );
+            process::exit(1);
+        }
+
+        let chainstate_dir = argv[2].as_str();
+        let network = argv[3].as_str();
+        let addr = StacksAddress::from_string(&argv[4]).unwrap();
+        let chain_tip: Option<StacksBlockId> =
+            argv.get(5).map(|tip| StacksBlockId::from_hex(tip).unwrap());
+
+        if network != "mainnet" && network != "krypton" {
+            eprintln!(
+                "Unknown network '{}': only support 'mainnet' and 'krypton'",
+                &network
+            );
+            process::exit(1);
+        }
+
+        let (sort_db, mut chain_state) = open_nakamoto_chainstate_dbs(chainstate_dir, network);
+
+        let chain_tip_header = chain_tip
+            .map(|tip| {
+                let header = NakamotoChainState::get_block_header_nakamoto(chain_state.db(), &tip)
+                    .unwrap()
+                    .unwrap();
+                header
+            })
+            .unwrap_or_else(|| {
+                let header =
+                    NakamotoChainState::get_canonical_block_header(chain_state.db(), &sort_db)
+                        .unwrap()
+                        .unwrap();
+                header
+            });
+
+        let account =
+            NakamotoBlockBuilder::get_account(&mut chain_state, &sort_db, &addr, &chain_tip_header)
+                .unwrap();
+        println!("{:#?}", &account);
+        process::exit(0);
+    }
+
+    if argv[1] == "make-shadow-block" {
+        if argv.len() < 5 {
+            eprintln!(
+                "Usage: {} make-shadow-block CHAINSTATE_DIR NETWORK CHAIN_TIP_HASH [TX...]",
+                &argv[0]
+            );
+            process::exit(1);
+        }
+        let chainstate_dir = argv[2].as_str();
+        let network = argv[3].as_str();
+        let chain_tip = StacksBlockId::from_hex(argv[4].as_str()).unwrap();
+        let txs = argv[5..]
+            .iter()
+            .map(|tx_str| {
+                let tx_bytes = hex_bytes(&tx_str).unwrap();
+                let tx = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
+                tx
+            })
+            .collect();
+
+        if network != "mainnet" && network != "krypton" {
+            eprintln!(
+                "Unknown network '{}': only support 'mainnet' and 'krypton'",
+                &network
+            );
+            process::exit(1);
+        }
+
+        let (sort_db, mut chain_state) = open_nakamoto_chainstate_dbs(chainstate_dir, network);
+        let header = NakamotoChainState::get_block_header(chain_state.db(), &chain_tip)
+            .unwrap()
+            .unwrap();
+
+        let shadow_block = NakamotoBlockBuilder::make_shadow_tenure(
+            &mut chain_state,
+            &sort_db,
+            chain_tip,
+            header.consensus_hash,
+            txs,
+        )
+        .unwrap();
+
+        println!("{}", to_hex(&shadow_block.serialize_to_vec()));
+        process::exit(0);
+    }
+
+    if argv[1] == "add-shadow-block" {
+        if argv.len() < 5 {
+            eprintln!(
+                "Usage: {} add-shadow-block CHAINSTATE_DIR NETWORK SHADOW_BLOCK_HEX",
+                &argv[0]
+            );
+            process::exit(1);
+        }
+        let chainstate_dir = argv[2].as_str();
+        let network = argv[3].as_str();
+        let block_hex = argv[4].as_str();
+        let shadow_block =
+            NakamotoBlock::consensus_deserialize(&mut hex_bytes(block_hex).unwrap().as_slice())
+                .unwrap();
+
+        assert!(shadow_block.is_shadow_block());
+
+        if network != "mainnet" && network != "krypton" {
+            eprintln!(
+                "Unknown network '{}': only support 'mainnet' and 'krypton'",
+                &network
+            );
+            process::exit(1);
+        }
+
+        let (_, mut chain_state) = open_nakamoto_chainstate_dbs(chainstate_dir, network);
+
+        let tx = chain_state.staging_db_tx_begin().unwrap();
+        tx.add_shadow_block(&shadow_block).unwrap();
+        tx.commit().unwrap();
+
+        process::exit(0);
     }
 
     if argv[1] == "replay-chainstate" {
