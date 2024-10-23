@@ -20,7 +20,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use hashbrown::{HashMap, HashSet};
-use libsigner::v0::messages::{BlockResponse, MinerSlotID, SignerMessage as SignerMessageV0};
+use libsigner::v0::messages::{
+    BlockAccepted, BlockResponse, MinerSlotID, SignerMessage as SignerMessageV0,
+};
 use libsigner::{BlockProposal, SignerEntries, SignerEvent, SignerSession, StackerDBSession};
 use stacks::burnchains::Burnchain;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
@@ -450,10 +452,12 @@ impl SignCoordinator {
                 }
 
                 match message {
-                    SignerMessageV0::BlockResponse(BlockResponse::Accepted((
-                        response_hash,
-                        signature,
-                    ))) => {
+                    SignerMessageV0::BlockResponse(BlockResponse::Accepted(accepted)) => {
+                        let BlockAccepted {
+                            signer_signature_hash: response_hash,
+                            signature,
+                            metadata,
+                        } = accepted;
                         let block_sighash = block.header.signer_signature_hash();
                         if block_sighash != response_hash {
                             warn!(
@@ -463,7 +467,8 @@ impl SignCoordinator {
                                 "response_hash" => %response_hash,
                                 "slot_id" => slot_id,
                                 "reward_cycle_id" => reward_cycle_id,
-                                "response_hash" => %response_hash
+                                "response_hash" => %response_hash,
+                                "server_version" => %metadata.server_version
                             );
                             continue;
                         }
@@ -511,7 +516,8 @@ impl SignCoordinator {
                             "signer_weight" => signer_entry.weight,
                             "total_weight_signed" => total_weight_signed,
                             "stacks_block_hash" => %block.header.block_hash(),
-                            "stacks_block_id" => %block.header.block_id()
+                            "stacks_block_id" => %block.header.block_id(),
+                            "server_version" => metadata.server_version,
                         );
                         gathered_signatures.insert(slot_id, signature);
                         responded_signers.insert(signer_pubkey);
