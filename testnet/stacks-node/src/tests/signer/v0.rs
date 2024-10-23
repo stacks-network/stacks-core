@@ -1746,6 +1746,8 @@ fn miner_forking() {
     let node_2_rpc_bind = format!("{localhost}:{node_2_rpc}");
     let mut node_2_listeners = Vec::new();
 
+    let max_sortitions = 30;
+
     // partition the signer set so that ~half are listening and using node 1 for RPC and events,
     //  and the rest are using node 2
 
@@ -1776,7 +1778,7 @@ fn miner_forking() {
             config.burnchain.local_mining_public_key = Some(btc_miner_1_pk.to_hex());
             config.miner.mining_key = Some(Secp256k1PrivateKey::from_seed(&[1]));
             config.node.pox_sync_sample_secs = 30;
-            config.burnchain.pox_reward_length = Some(30); // Increase the reward cycle length to make it more likely for our scenario to hit
+            config.burnchain.pox_reward_length = Some(max_sortitions as u32);
 
             config.events_observers.retain(|listener| {
                 let Ok(addr) = std::net::SocketAddr::from_str(&listener.endpoint) else {
@@ -1798,11 +1800,10 @@ fn miner_forking() {
     );
     let conf = signer_test.running_nodes.conf.clone();
     let mut conf_node_2 = conf.clone();
-    let localhost = "127.0.0.1";
-    conf_node_2.node.rpc_bind = format!("{}:{}", localhost, node_2_rpc);
-    conf_node_2.node.p2p_bind = format!("{}:{}", localhost, node_2_p2p);
-    conf_node_2.node.data_url = format!("http://{}:{}", localhost, node_2_rpc);
-    conf_node_2.node.p2p_address = format!("{}:{}", localhost, node_2_p2p);
+    conf_node_2.node.rpc_bind = node_2_rpc_bind;
+    conf_node_2.node.p2p_bind = format!("{localhost}:{node_2_p2p}");
+    conf_node_2.node.data_url = format!("http://{localhost}:{node_2_rpc}");
+    conf_node_2.node.p2p_address = format!("{localhost}:{node_2_p2p}");
     conf_node_2.node.seed = btc_miner_2_seed.clone();
     conf_node_2.burnchain.local_mining_public_key = Some(btc_miner_2_pk.to_hex());
     conf_node_2.node.local_peer_seed = btc_miner_2_seed.clone();
@@ -1932,7 +1933,6 @@ fn miner_forking() {
     // (a) its the first nakamoto tenure
     // (b) the prior sortition didn't have a tenure (because by this time RL2 will have up-to-date block processing)
     let mut expects_miner_2_to_be_valid = true;
-    let max_sortitions = 20;
     // due to the random nature of mining sortitions, the way this test is structured
     //  is that keeps track of two scenarios that we want to cover, and once enough sortitions
     //  have been produced to cover those scenarios, it stops and checks the results at the end.
