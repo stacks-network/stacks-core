@@ -19,8 +19,8 @@ use std::collections::HashSet;
 use clarity::vm::costs::ExecutionCost;
 use lazy_static::lazy_static;
 use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksBlockId};
-use stacks_common::types::StacksEpoch as GenericStacksEpoch;
 pub use stacks_common::types::StacksEpochId;
+use stacks_common::types::{EpochList as GenericEpochList, StacksEpoch as GenericStacksEpoch};
 use stacks_common::util::log;
 
 pub use self::mempool::MemPoolDB;
@@ -35,6 +35,7 @@ pub mod tests;
 
 use std::cmp::Ordering;
 pub type StacksEpoch = GenericStacksEpoch<ExecutionCost>;
+pub type EpochList = GenericEpochList<ExecutionCost>;
 
 // fork set identifier -- to be mixed with the consensus hash (encodes the version)
 pub const SYSTEM_FORK_SET_VERSION: [u8; 4] = [23u8, 0u8, 0u8, 0u8];
@@ -558,35 +559,35 @@ fn test_ord_for_stacks_epoch_id() {
 }
 pub trait StacksEpochExtension {
     #[cfg(test)]
-    fn unit_test(stacks_epoch_id: StacksEpochId, epoch_2_0_block_height: u64) -> Vec<StacksEpoch>;
+    fn unit_test(stacks_epoch_id: StacksEpochId, epoch_2_0_block_height: u64) -> EpochList;
     #[cfg(test)]
-    fn unit_test_2_05(epoch_2_0_block_height: u64) -> Vec<StacksEpoch>;
+    fn unit_test_2_05(epoch_2_0_block_height: u64) -> EpochList;
     #[cfg(test)]
-    fn unit_test_2_05_only(epoch_2_0_block_height: u64) -> Vec<StacksEpoch>;
+    fn unit_test_2_05_only(epoch_2_0_block_height: u64) -> EpochList;
     #[cfg(test)]
-    fn unit_test_pre_2_05(epoch_2_0_block_height: u64) -> Vec<StacksEpoch>;
+    fn unit_test_pre_2_05(epoch_2_0_block_height: u64) -> EpochList;
     #[cfg(test)]
-    fn unit_test_2_1(epoch_2_0_block_height: u64) -> Vec<StacksEpoch>;
+    fn unit_test_2_1(epoch_2_0_block_height: u64) -> EpochList;
     #[cfg(test)]
-    fn unit_test_2_2(epoch_2_0_block_height: u64) -> Vec<StacksEpoch>;
+    fn unit_test_2_2(epoch_2_0_block_height: u64) -> EpochList;
     #[cfg(test)]
-    fn unit_test_2_3(epoch_2_0_block_height: u64) -> Vec<StacksEpoch>;
+    fn unit_test_2_3(epoch_2_0_block_height: u64) -> EpochList;
     #[cfg(test)]
-    fn unit_test_2_4(epoch_2_0_block_height: u64) -> Vec<StacksEpoch>;
+    fn unit_test_2_4(epoch_2_0_block_height: u64) -> EpochList;
     #[cfg(test)]
-    fn unit_test_2_5(epoch_2_0_block_height: u64) -> Vec<StacksEpoch>;
+    fn unit_test_2_5(epoch_2_0_block_height: u64) -> EpochList;
     #[cfg(test)]
-    fn unit_test_3_0(epoch_2_0_block_height: u64) -> Vec<StacksEpoch>;
+    fn unit_test_3_0(epoch_2_0_block_height: u64) -> EpochList;
     #[cfg(test)]
-    fn unit_test_2_1_only(epoch_2_0_block_height: u64) -> Vec<StacksEpoch>;
+    fn unit_test_2_1_only(epoch_2_0_block_height: u64) -> EpochList;
     #[cfg(test)]
-    fn unit_test_3_0_only(first_burnchain_height: u64) -> Vec<StacksEpoch>;
+    fn unit_test_3_0_only(first_burnchain_height: u64) -> EpochList;
     fn all(
         epoch_2_0_block_height: u64,
         epoch_2_05_block_height: u64,
         epoch_2_1_block_height: u64,
-    ) -> Vec<StacksEpoch>;
-    fn validate_epochs(epochs: &[StacksEpoch]) -> Vec<StacksEpoch>;
+    ) -> EpochList;
+    fn validate_epochs(epochs: &[StacksEpoch]) -> EpochList;
     /// This method gets the epoch vector.
     ///
     /// Choose according to:
@@ -597,15 +598,15 @@ pub trait StacksEpochExtension {
     ///
     fn get_epochs(
         bitcoin_network: BitcoinNetworkType,
-        configured_epochs: Option<&Vec<StacksEpoch>>,
-    ) -> Vec<StacksEpoch>;
+        configured_epochs: Option<&EpochList>,
+    ) -> EpochList;
 }
 
 impl StacksEpochExtension for StacksEpoch {
     fn get_epochs(
         bitcoin_network: BitcoinNetworkType,
-        configured_epochs: Option<&Vec<StacksEpoch>>,
-    ) -> Vec<StacksEpoch> {
+        configured_epochs: Option<&EpochList>,
+    ) -> EpochList {
         match configured_epochs {
             Some(epochs) => {
                 assert!(bitcoin_network != BitcoinNetworkType::Mainnet);
@@ -616,13 +617,13 @@ impl StacksEpochExtension for StacksEpoch {
     }
 
     #[cfg(test)]
-    fn unit_test_pre_2_05(first_burnchain_height: u64) -> Vec<StacksEpoch> {
+    fn unit_test_pre_2_05(first_burnchain_height: u64) -> EpochList {
         info!(
             "StacksEpoch unit_test first_burn_height = {}",
             first_burnchain_height
         );
 
-        vec![
+        EpochList::new(&[
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch10,
                 start_height: 0,
@@ -637,17 +638,17 @@ impl StacksEpochExtension for StacksEpoch {
                 block_limit: ExecutionCost::max_value(),
                 network_epoch: PEER_VERSION_EPOCH_2_0,
             },
-        ]
+        ])
     }
 
     #[cfg(test)]
-    fn unit_test_2_05(first_burnchain_height: u64) -> Vec<StacksEpoch> {
+    fn unit_test_2_05(first_burnchain_height: u64) -> EpochList {
         info!(
             "StacksEpoch unit_test first_burn_height = {}",
             first_burnchain_height
         );
 
-        vec![
+        EpochList::new(&[
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch10,
                 start_height: 0,
@@ -675,17 +676,17 @@ impl StacksEpochExtension for StacksEpoch {
                 },
                 network_epoch: PEER_VERSION_EPOCH_2_05,
             },
-        ]
+        ])
     }
 
     #[cfg(test)]
-    fn unit_test_2_05_only(first_burnchain_height: u64) -> Vec<StacksEpoch> {
+    fn unit_test_2_05_only(first_burnchain_height: u64) -> EpochList {
         info!(
             "StacksEpoch unit_test first_burn_height = {}",
             first_burnchain_height
         );
 
-        vec![
+        EpochList::new(&[
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch10,
                 start_height: 0,
@@ -713,17 +714,17 @@ impl StacksEpochExtension for StacksEpoch {
                 },
                 network_epoch: PEER_VERSION_EPOCH_2_05,
             },
-        ]
+        ])
     }
 
     #[cfg(test)]
-    fn unit_test_2_1(first_burnchain_height: u64) -> Vec<StacksEpoch> {
+    fn unit_test_2_1(first_burnchain_height: u64) -> EpochList {
         info!(
             "StacksEpoch unit_test first_burn_height = {}",
             first_burnchain_height
         );
 
-        vec![
+        EpochList::new(&[
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch10,
                 start_height: 0,
@@ -764,17 +765,17 @@ impl StacksEpochExtension for StacksEpoch {
                 },
                 network_epoch: PEER_VERSION_EPOCH_2_1,
             },
-        ]
+        ])
     }
 
     #[cfg(test)]
-    fn unit_test_2_2(first_burnchain_height: u64) -> Vec<StacksEpoch> {
+    fn unit_test_2_2(first_burnchain_height: u64) -> EpochList {
         info!(
             "StacksEpoch unit_test first_burn_height = {}",
             first_burnchain_height
         );
 
-        vec![
+        EpochList::new(&[
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch10,
                 start_height: 0,
@@ -828,17 +829,17 @@ impl StacksEpochExtension for StacksEpoch {
                 },
                 network_epoch: PEER_VERSION_EPOCH_2_2,
             },
-        ]
+        ])
     }
 
     #[cfg(test)]
-    fn unit_test_2_3(first_burnchain_height: u64) -> Vec<StacksEpoch> {
+    fn unit_test_2_3(first_burnchain_height: u64) -> EpochList {
         info!(
             "StacksEpoch unit_test_2_3 first_burn_height = {}",
             first_burnchain_height
         );
 
-        vec![
+        EpochList::new(&[
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch10,
                 start_height: 0,
@@ -905,17 +906,17 @@ impl StacksEpochExtension for StacksEpoch {
                 },
                 network_epoch: PEER_VERSION_EPOCH_2_3,
             },
-        ]
+        ])
     }
 
     #[cfg(test)]
-    fn unit_test_2_4(first_burnchain_height: u64) -> Vec<StacksEpoch> {
+    fn unit_test_2_4(first_burnchain_height: u64) -> EpochList {
         info!(
             "StacksEpoch unit_test_2_4 first_burn_height = {}",
             first_burnchain_height
         );
 
-        vec![
+        EpochList::new(&[
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch10,
                 start_height: 0,
@@ -995,17 +996,17 @@ impl StacksEpochExtension for StacksEpoch {
                 },
                 network_epoch: PEER_VERSION_EPOCH_2_4,
             },
-        ]
+        ])
     }
 
     #[cfg(test)]
-    fn unit_test_2_5(first_burnchain_height: u64) -> Vec<StacksEpoch> {
+    fn unit_test_2_5(first_burnchain_height: u64) -> EpochList {
         info!(
             "StacksEpoch unit_test_2_5 first_burn_height = {}",
             first_burnchain_height
         );
 
-        vec![
+        EpochList::new(&[
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch10,
                 start_height: 0,
@@ -1098,17 +1099,17 @@ impl StacksEpochExtension for StacksEpoch {
                 },
                 network_epoch: PEER_VERSION_EPOCH_2_5,
             },
-        ]
+        ])
     }
 
     #[cfg(test)]
-    fn unit_test_3_0(first_burnchain_height: u64) -> Vec<StacksEpoch> {
+    fn unit_test_3_0(first_burnchain_height: u64) -> EpochList {
         info!(
             "StacksEpoch unit_test_3_0 first_burn_height = {}",
             first_burnchain_height
         );
 
-        vec![
+        EpochList::new(&[
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch10,
                 start_height: 0,
@@ -1214,17 +1215,17 @@ impl StacksEpochExtension for StacksEpoch {
                 },
                 network_epoch: PEER_VERSION_EPOCH_3_0,
             },
-        ]
+        ])
     }
 
     #[cfg(test)]
-    fn unit_test_2_1_only(first_burnchain_height: u64) -> Vec<StacksEpoch> {
+    fn unit_test_2_1_only(first_burnchain_height: u64) -> EpochList {
         info!(
             "StacksEpoch unit_test first_burn_height = {}",
             first_burnchain_height
         );
 
-        vec![
+        EpochList::new(&[
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch10,
                 start_height: 0,
@@ -1265,17 +1266,17 @@ impl StacksEpochExtension for StacksEpoch {
                 },
                 network_epoch: PEER_VERSION_EPOCH_2_1,
             },
-        ]
+        ])
     }
 
     #[cfg(test)]
-    fn unit_test_3_0_only(first_burnchain_height: u64) -> Vec<StacksEpoch> {
+    fn unit_test_3_0_only(first_burnchain_height: u64) -> EpochList {
         info!(
             "StacksEpoch unit_test first_burn_height = {}",
             first_burnchain_height
         );
 
-        vec![
+        EpochList::new(&[
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch10,
                 start_height: 0,
@@ -1339,11 +1340,11 @@ impl StacksEpochExtension for StacksEpoch {
                 block_limit: BLOCK_LIMIT_MAINNET_21,
                 network_epoch: PEER_VERSION_EPOCH_3_0,
             },
-        ]
+        ])
     }
 
     #[cfg(test)]
-    fn unit_test(stacks_epoch_id: StacksEpochId, first_burnchain_height: u64) -> Vec<StacksEpoch> {
+    fn unit_test(stacks_epoch_id: StacksEpochId, first_burnchain_height: u64) -> EpochList {
         match stacks_epoch_id {
             StacksEpochId::Epoch10 | StacksEpochId::Epoch20 => {
                 StacksEpoch::unit_test_pre_2_05(first_burnchain_height)
@@ -1362,8 +1363,8 @@ impl StacksEpochExtension for StacksEpoch {
         epoch_2_0_block_height: u64,
         epoch_2_05_block_height: u64,
         epoch_2_1_block_height: u64,
-    ) -> Vec<StacksEpoch> {
-        vec![
+    ) -> EpochList {
+        EpochList::new(&[
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch10,
                 start_height: 0,
@@ -1392,13 +1393,13 @@ impl StacksEpochExtension for StacksEpoch {
                 block_limit: ExecutionCost::max_value(),
                 network_epoch: PEER_VERSION_EPOCH_1_0,
             },
-        ]
+        ])
     }
 
     /// Verify that a list of epochs is well-formed, and if so, return the list of epochs.
     /// Epochs must proceed in order, and must represent contiguous block ranges.
     /// Panic if the list is not well-formed.
-    fn validate_epochs(epochs_ref: &[StacksEpoch]) -> Vec<StacksEpoch> {
+    fn validate_epochs(epochs_ref: &[StacksEpoch]) -> EpochList {
         // sanity check -- epochs must all be contiguous, each epoch must be unique,
         // and the range of epochs should span the whole non-negative i64 space.
         let mut epochs = epochs_ref.to_vec();
@@ -1449,6 +1450,6 @@ impl StacksEpochExtension for StacksEpoch {
         }
 
         assert_eq!(epoch_end_height, STACKS_EPOCH_MAX);
-        epochs
+        EpochList::new(&epochs)
     }
 }

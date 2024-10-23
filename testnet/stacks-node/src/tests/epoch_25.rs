@@ -17,7 +17,7 @@ use std::{env, thread};
 
 use clarity::vm::types::PrincipalData;
 use stacks::burnchains::{Burnchain, PoxConstants};
-use stacks::core::{self, StacksEpochId};
+use stacks::core::{self, EpochList, StacksEpochId};
 use stacks_common::consts::STACKS_EPOCH_MAX;
 use stacks_common::types::chainstate::StacksPrivateKey;
 
@@ -86,21 +86,21 @@ fn microblocks_disabled() {
     test_observer::register_any(&mut conf);
     conf.initial_balances.append(&mut initial_balances);
 
-    let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
-    epochs[StacksEpochId::Epoch20.index()].end_height = epoch_2_05;
-    epochs[StacksEpochId::Epoch2_05.index()].start_height = epoch_2_05;
-    epochs[StacksEpochId::Epoch2_05.index()].end_height = epoch_2_1;
-    epochs[StacksEpochId::Epoch21.index()].start_height = epoch_2_1;
-    epochs[StacksEpochId::Epoch21.index()].end_height = epoch_2_2;
-    epochs[StacksEpochId::Epoch22.index()].start_height = epoch_2_2;
-    epochs[StacksEpochId::Epoch22.index()].end_height = epoch_2_3;
-    epochs[StacksEpochId::Epoch23.index()].start_height = epoch_2_3;
-    epochs[StacksEpochId::Epoch23.index()].end_height = epoch_2_4;
-    epochs[StacksEpochId::Epoch24.index()].start_height = epoch_2_4;
-    epochs[StacksEpochId::Epoch24.index()].end_height = epoch_2_5;
-    epochs[StacksEpochId::Epoch25.index()].start_height = epoch_2_5;
-    epochs[StacksEpochId::Epoch25.index()].end_height = STACKS_EPOCH_MAX;
-    epochs.truncate(StacksEpochId::Epoch25.index() + 1);
+    let mut epochs = EpochList::new(&*core::STACKS_EPOCHS_REGTEST);
+    epochs[StacksEpochId::Epoch20].end_height = epoch_2_05;
+    epochs[StacksEpochId::Epoch2_05].start_height = epoch_2_05;
+    epochs[StacksEpochId::Epoch2_05].end_height = epoch_2_1;
+    epochs[StacksEpochId::Epoch21].start_height = epoch_2_1;
+    epochs[StacksEpochId::Epoch21].end_height = epoch_2_2;
+    epochs[StacksEpochId::Epoch22].start_height = epoch_2_2;
+    epochs[StacksEpochId::Epoch22].end_height = epoch_2_3;
+    epochs[StacksEpochId::Epoch23].start_height = epoch_2_3;
+    epochs[StacksEpochId::Epoch23].end_height = epoch_2_4;
+    epochs[StacksEpochId::Epoch24].start_height = epoch_2_4;
+    epochs[StacksEpochId::Epoch24].end_height = epoch_2_5;
+    epochs[StacksEpochId::Epoch25].start_height = epoch_2_5;
+    epochs[StacksEpochId::Epoch25].end_height = STACKS_EPOCH_MAX;
+    epochs.truncate_after(StacksEpochId::Epoch25);
     conf.burnchain.epochs = Some(epochs);
 
     let mut burnchain_config = Burnchain::regtest(&conf.get_burn_db_path());

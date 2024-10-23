@@ -238,7 +238,7 @@ impl BootRunLoop {
             config.burnchain.epochs.as_ref(),
         );
         let epoch_3 = epochs
-            .get(StacksEpochId::Epoch30.index())
+            .get(StacksEpochId::Epoch30)
             .ok_or("No Epoch-3.0 defined")?;
 
         Ok(u64::from(burn_height) >= epoch_3.start_height - 1)

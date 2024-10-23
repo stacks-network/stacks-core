@@ -2969,9 +2969,9 @@ impl SortitionDB {
         db_tx: &Transaction,
         epochs: &[StacksEpoch],
     ) -> Result<(), db_error> {
-        let epochs = StacksEpoch::validate_epochs(epochs);
+        let epochs: &[StacksEpoch] = &StacksEpoch::validate_epochs(epochs);
         let existing_epochs = Self::get_stacks_epochs(db_tx)?;
-        if existing_epochs == epochs {
+        if &existing_epochs == epochs {
             return Ok(());
         }
 
@@ -3482,9 +3482,10 @@ impl SortitionDB {
                         tx.commit()?;
                     } else if version == expected_version {
                         // this transaction is almost never needed
-                        let validated_epochs = StacksEpoch::validate_epochs(epochs);
+                        let validated_epochs: &[StacksEpoch] =
+                            &StacksEpoch::validate_epochs(epochs);
                         let existing_epochs = Self::get_stacks_epochs(self.conn())?;
-                        if existing_epochs == validated_epochs {
+                        if &existing_epochs == validated_epochs {
                             return Ok(());
                         }
 

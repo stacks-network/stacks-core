@@ -53,7 +53,7 @@ pub struct StacksChainConfig {
     pub first_burn_header_hash: BurnchainHeaderHash,
     pub first_burn_header_timestamp: u64,
     pub pox_constants: PoxConstants,
-    pub epochs: Vec<StacksEpoch>,
+    pub epochs: EpochList,
 }
 
 impl StacksChainConfig {
@@ -65,7 +65,7 @@ impl StacksChainConfig {
                 .unwrap(),
             first_burn_header_timestamp: BITCOIN_MAINNET_FIRST_BLOCK_TIMESTAMP.into(),
             pox_constants: PoxConstants::mainnet_default(),
-            epochs: STACKS_EPOCHS_MAINNET.to_vec(),
+            epochs: EpochList::new(&*STACKS_EPOCHS_MAINNET),
         }
     }
 }

@@ -1,5 +1,6 @@
 use std::cmp::Ordering;
 use std::fmt;
+use std::ops::{Deref, DerefMut, Index, IndexMut};
 
 #[cfg(feature = "canonical")]
 pub mod sqlite;
@@ -235,21 +236,6 @@ impl StacksEpochId {
             StacksEpochId::Epoch30 => cur_reward_cycle > first_epoch30_reward_cycle,
         }
     }
-
-    /// Return the index for this epoch in the list of epochs
-    pub fn index(&self) -> usize {
-        match self {
-            StacksEpochId::Epoch10 => 0,
-            StacksEpochId::Epoch20 => 1,
-            StacksEpochId::Epoch2_05 => 2,
-            StacksEpochId::Epoch21 => 3,
-            StacksEpochId::Epoch22 => 4,
-            StacksEpochId::Epoch23 => 5,
-            StacksEpochId::Epoch24 => 6,
-            StacksEpochId::Epoch25 => 7,
-            StacksEpochId::Epoch30 => 8,
-        }
-    }
 }
 
 impl std::fmt::Display for StacksEpochId {
@@ -473,5 +459,60 @@ impl<L: PartialEq> PartialOrd for StacksEpoch<L> {
 impl<L: PartialEq + Eq> Ord for StacksEpoch<L> {
     fn cmp(&self, other: &StacksEpoch<L>) -> Ordering {
         self.epoch_id.cmp(&other.epoch_id)
+    }
+}
+
+/// A wrapper for holding a list of Epochs, indexable by StacksEpochId
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq)]
+pub struct EpochList<L: Clone>(Vec<StacksEpoch<L>>);
+
+impl<L: Clone> EpochList<L> {
+    pub fn new(epochs: &[StacksEpoch<L>]) -> EpochList<L> {
+        EpochList(epochs.to_vec())
+    }
+
+    pub fn get(&self, index: StacksEpochId) -> Option<&StacksEpoch<L>> {
+        self.0.get(StacksEpoch::find_epoch_by_id(&self.0, index)?)
+    }
+
+    pub fn get_mut(&mut self, index: StacksEpochId) -> Option<&mut StacksEpoch<L>> {
+        let index = StacksEpoch::find_epoch_by_id(&self.0, index)?;
+        self.0.get_mut(index)
+    }
+
+    /// Truncates the list after the given epoch id
+    pub fn truncate_after(&mut self, epoch_id: StacksEpochId) {
+        if let Some(index) = StacksEpoch::find_epoch_by_id(&self.0, epoch_id) {
+            self.0.truncate(index + 1);
+        }
+    }
+}
+
+impl<L: Clone> Index<StacksEpochId> for EpochList<L> {
+    type Output = StacksEpoch<L>;
+    fn index(&self, index: StacksEpochId) -> &StacksEpoch<L> {
+        self.get(index)
+            .expect("Invalid StacksEpochId: could not find corresponding epoch")
+    }
+}
+
+impl<L: Clone> IndexMut<StacksEpochId> for EpochList<L> {
+    fn index_mut(&mut self, index: StacksEpochId) -> &mut StacksEpoch<L> {
+        self.get_mut(index)
+            .expect("Invalid StacksEpochId: could not find corresponding epoch")
+    }
+}
+
+impl<L: Clone> Deref for EpochList<L> {
+    type Target = [StacksEpoch<L>];
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<L: Clone> DerefMut for EpochList<L> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
     }
 }
