@@ -1478,7 +1478,7 @@ simulating a miner.
                     process::exit(1);
                 };
 
-                let network_config = match network_choice.as_str() {
+                let network_config = match network_choice.to_lowercase().as_str() {
                     "testnet" => cli::StacksChainConfig::default_testnet(),
                     "mainnet" => cli::StacksChainConfig::default_mainnet(),
                     other => {

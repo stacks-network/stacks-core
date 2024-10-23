@@ -3885,6 +3885,60 @@ impl NakamotoChainState {
         Ok(())
     }
 
+    pub(crate) fn make_non_advancing_receipt<'a>(
+        clarity_commit: PreCommitClarityBlock<'a>,
+        burn_dbconn: &SortitionHandleConn,
+        parent_ch: &ConsensusHash,
+        evaluated_epoch: StacksEpochId,
+        matured_rewards: Vec<MinerReward>,
+        tx_receipts: Vec<StacksTransactionReceipt>,
+        matured_rewards_info_opt: Option<MinerRewardInfo>,
+        block_execution_cost: ExecutionCost,
+        applied_epoch_transition: bool,
+        signers_updated: bool,
+    ) -> Result<
+        (
+            StacksEpochReceipt,
+            PreCommitClarityBlock<'a>,
+            Option<RewardSetData>,
+        ),
+        ChainstateError,
+    > {
+        // get burn block stats, for the transaction receipt
+
+        let parent_sn = SortitionDB::get_block_snapshot_consensus(burn_dbconn, &parent_ch)?
+            .ok_or_else(|| {
+                // shouldn't happen
+                warn!(
+                    "CORRUPTION: {} does not correspond to a burn block",
+                    &parent_ch
+                );
+                ChainstateError::InvalidStacksBlock("No parent consensus hash".into())
+            })?;
+        let (parent_burn_block_hash, parent_burn_block_height, parent_burn_block_timestamp) = (
+            parent_sn.burn_header_hash,
+            parent_sn.block_height,
+            parent_sn.burn_header_timestamp,
+        );
+
+        let epoch_receipt = StacksEpochReceipt {
+            header: StacksHeaderInfo::regtest_genesis(),
+            tx_receipts,
+            matured_rewards,
+            matured_rewards_info: matured_rewards_info_opt,
+            parent_microblocks_cost: ExecutionCost::zero(),
+            anchored_block_cost: block_execution_cost,
+            parent_burn_block_hash,
+            parent_burn_block_height: u32::try_from(parent_burn_block_height).unwrap_or(0), // shouldn't be fatal
+            parent_burn_block_timestamp,
+            evaluated_epoch,
+            epoch_transition: applied_epoch_transition,
+            signers_updated,
+        };
+
+        return Ok((epoch_receipt, clarity_commit, None));
+    }
+
     /// Append a Nakamoto Stacks block to the Stacks chain state.
     /// NOTE: This does _not_ set the block as processed!  The caller must do this.
     pub(crate) fn append_block<'a>(
@@ -4279,43 +4333,20 @@ impl NakamotoChainState {
             .map(|rewards| rewards.reward_info.clone());
 
         if do_not_advance {
-            // get burn block stats, for the transaction receipt
-            let (parent_burn_block_hash, parent_burn_block_height, parent_burn_block_timestamp) =
-                if block.is_first_mined() {
-                    (BurnchainHeaderHash([0; 32]), 0, 0)
-                } else {
-                    let sn = SortitionDB::get_block_snapshot_consensus(burn_dbconn, &parent_ch)?
-                        .ok_or_else(|| {
-                            // shouldn't happen
-                            warn!(
-                                "CORRUPTION: {} does not correspond to a burn block",
-                                &parent_ch
-                            );
-                            ChainstateError::InvalidStacksBlock("No parent consensus hash".into())
-                        })?;
-                    (
-                        sn.burn_header_hash,
-                        sn.block_height,
-                        sn.burn_header_timestamp,
-                    )
-                };
-
-            let epoch_receipt = StacksEpochReceipt {
-                header: StacksHeaderInfo::regtest_genesis(),
-                tx_receipts,
-                matured_rewards,
-                matured_rewards_info: matured_rewards_info_opt,
-                parent_microblocks_cost: ExecutionCost::zero(),
-                anchored_block_cost: block_execution_cost,
-                parent_burn_block_hash,
-                parent_burn_block_height: u32::try_from(parent_burn_block_height).unwrap_or(0), // shouldn't be fatal
-                parent_burn_block_timestamp,
+            // if we're performing a block replay, and we don't want to advance any
+            //  of the db state, return a fake receipt
+            return Self::make_non_advancing_receipt(
+                clarity_commit,
+                burn_dbconn,
+                &parent_ch,
                 evaluated_epoch,
-                epoch_transition: applied_epoch_transition,
-                signers_updated: signer_set_calc.is_some(),
-            };
-
-            return Ok((epoch_receipt, clarity_commit, None));
+                matured_rewards,
+                tx_receipts,
+                matured_rewards_info_opt,
+                block_execution_cost,
+                applied_epoch_transition,
+                signer_set_calc.is_some(),
+            );
         }
 
         let new_tip = Self::advance_tip(
