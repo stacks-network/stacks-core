@@ -461,7 +461,7 @@ impl NakamotoBlockBuilder {
     }
 
     /// Get an address's account
-    fn get_account(
+    pub fn get_account(
         chainstate: &mut StacksChainState,
         sortdb: &SortitionDB,
         addr: &StacksAddress,
@@ -568,6 +568,10 @@ impl NakamotoBlockBuilder {
     /// Produce a single-block shadow tenure.
     /// Used by tooling to synthesize shadow blocks in case of an emergency.
     /// The details and circumatances will be recorded in an accompanying SIP.
+    ///
+    /// `naka_tip_id` is the Stacks chain tip on top of which the shadow block will be built.
+    /// `tenure_id_consensus_hash` is the sortition in which the shadow block will be built.
+    /// `txs` are transactions to include, beyond a coinbase and tenure-change
     pub fn make_shadow_tenure(
         chainstate: &mut StacksChainState,
         sortdb: &SortitionDB,
