@@ -1460,6 +1460,7 @@ fn multiple_miners() {
     let node_2_rpc_bind = format!("{localhost}:{node_2_rpc}");
     let mut node_2_listeners = Vec::new();
 
+    let max_nakamoto_tenures = 30;
     // partition the signer set so that ~half are listening and using node 1 for RPC and events,
     //  and the rest are using node 2
 
@@ -1481,6 +1482,7 @@ fn multiple_miners() {
             config.node.p2p_address = format!("{localhost}:{node_1_p2p}");
             config.miner.wait_on_interim_blocks = Duration::from_secs(5);
             config.node.pox_sync_sample_secs = 30;
+            config.burnchain.pox_reward_length = Some(max_nakamoto_tenures);
 
             config.node.seed = btc_miner_1_seed.clone();
             config.node.local_peer_seed = btc_miner_1_seed.clone();
@@ -1559,8 +1561,6 @@ fn multiple_miners() {
     let pre_nakamoto_peer_1_height = get_chain_info(&conf).stacks_tip_height;
 
     info!("------------------------- Reached Epoch 3.0 -------------------------");
-
-    let max_nakamoto_tenures = 20;
 
     // due to the random nature of mining sortitions, the way this test is structured
     //  is that we keep track of how many tenures each miner produced, and once enough sortitions
@@ -1645,11 +1645,11 @@ fn multiple_miners() {
     assert_eq!(peer_1_height, peer_2_height);
     assert_eq!(
         peer_1_height,
-        pre_nakamoto_peer_1_height + btc_blocks_mined - 1
+        pre_nakamoto_peer_1_height + btc_blocks_mined as u64 - 1
     );
     assert_eq!(
         btc_blocks_mined,
-        u64::try_from(miner_1_tenures + miner_2_tenures).unwrap()
+        u32::try_from(miner_1_tenures + miner_2_tenures).unwrap()
     );
 
     rl2_coord_channels
@@ -1664,7 +1664,7 @@ fn multiple_miners() {
 /// Read processed nakamoto block IDs from the test observer, and use `config` to open
 ///  a chainstate DB and returns their corresponding StacksHeaderInfos
 fn get_nakamoto_headers(config: &Config) -> Vec<StacksHeaderInfo> {
-    let nakamoto_block_ids: Vec<_> = test_observer::get_blocks()
+    let nakamoto_block_ids: HashSet<_> = test_observer::get_blocks()
         .into_iter()
         .filter_map(|block_json| {
             if block_json
