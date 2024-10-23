@@ -355,6 +355,42 @@ impl EventObserver {
         Ok(())
     }
 
+    /// Insert a payload into the database, retrying on failure.
+    fn insert_payload_with_retry(
+        conn: &Connection,
+        url: &str,
+        payload: &serde_json::Value,
+        timeout: Duration,
+    ) {
+        let mut attempts = 0i64;
+        let mut backoff = Duration::from_millis(100); // Initial backoff duration
+        let max_backoff = Duration::from_secs(5); // Cap the backoff duration
+
+        loop {
+            match Self::insert_payload(conn, url, payload, timeout) {
+                Ok(_) => {
+                    // Successful insert, break the loop
+                    return;
+                }
+                Err(err) => {
+                    // Log the error, then retry after a delay
+                    warn!("Failed to insert payload into event observer database: {:?}", err;
+                        "backoff" => ?backoff,
+                        "attempts" => attempts
+                    );
+
+                    // Wait for the backoff duration
+                    sleep(backoff);
+
+                    // Increase the backoff duration (with exponential backoff)
+                    backoff = std::cmp::min(backoff.saturating_mul(2), max_backoff);
+
+                    attempts = attempts.saturating_add(1);
+                }
+            }
+        }
+    }
+
     fn get_pending_payloads(
         conn: &Connection,
     ) -> Result<Vec<(i64, String, serde_json::Value, u64)>, db_error> {
@@ -524,8 +560,7 @@ impl EventObserver {
                 Connection::open(db_path).expect("Failed to open database for event observer");
 
             // Insert the new payload into the database
-            Self::insert_payload(&conn, &full_url, payload, self.timeout)
-                .expect("Failed to insert payload into event observer database");
+            Self::insert_payload_with_retry(&conn, &full_url, payload, self.timeout);
 
             // Process all pending payloads
             Self::process_pending_payloads(&conn);
