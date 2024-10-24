@@ -5302,7 +5302,19 @@ fn signing_in_0th_tenure_of_reward_cycle() {
     })
     .unwrap();
 
-    for signer in &signer_public_keys {
+    let block_mined = test_observer::get_mined_nakamoto_blocks()
+        .last()
+        .unwrap()
+        .clone();
+    // Must ensure that the signers that signed the block have their blocks_signed updated appropriately
+    for signature in &block_mined.signer_signature {
+        let signer = signer_public_keys
+            .iter()
+            .find(|pk| {
+                pk.verify(block_mined.signer_signature_hash.as_bytes(), signature)
+                    .unwrap()
+            })
+            .expect("Unknown signer signature");
         let blocks_signed = get_v3_signer(&signer, next_reward_cycle);
         assert_eq!(blocks_signed, 1);
     }
