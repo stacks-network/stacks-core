@@ -22,6 +22,7 @@ use std::time::Instant;
 use std::{env, fs, io, process, thread};
 
 use clarity::types::chainstate::SortitionId;
+use db::blocks::DummyEventDispatcher;
 use db::ChainstateTx;
 use regex::Regex;
 use rusqlite::{Connection, OpenFlags};
@@ -30,12 +31,16 @@ use stacks_common::types::sqlite::NO_PARAMS;
 
 use crate::burnchains::db::BurnchainDB;
 use crate::burnchains::PoxConstants;
-use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandle, SortitionHandleContext};
+use crate::chainstate::burn::db::sortdb::{
+    get_ancestor_sort_id, SortitionDB, SortitionHandle, SortitionHandleContext,
+};
 use crate::chainstate::burn::{BlockSnapshot, ConsensusHash};
+use crate::chainstate::coordinator::OnChainRewardSetProvider;
+use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use crate::chainstate::stacks::db::blocks::StagingBlock;
 use crate::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState, StacksHeaderInfo};
 use crate::chainstate::stacks::miner::*;
-use crate::chainstate::stacks::*;
+use crate::chainstate::stacks::{Error as ChainstateError, *};
 use crate::clarity_vm::clarity::ClarityInstance;
 use crate::core::*;
 use crate::util_lib::db::IndexDBTx;
@@ -518,4 +523,280 @@ fn replay_block(
             process::exit(1);
         }
     };
+}
+
+fn replay_block_nakamoto(
+    sort_db: &mut SortitionDB,
+    stacks_chain_state: &mut StacksChainState,
+    mut chainstate_tx: ChainstateTx,
+    clarity_instance: &mut ClarityInstance,
+    block: &NakamotoBlock,
+    block_size: u64,
+) -> Result<(), ChainstateError> {
+    // find corresponding snapshot
+    let next_ready_block_snapshot =
+        SortitionDB::get_block_snapshot_consensus(sort_db.conn(), &block.header.consensus_hash)?
+            .unwrap_or_else(|| {
+                panic!(
+                    "CORRUPTION: staging Nakamoto block {}/{} does not correspond to a burn block",
+                    &block.header.consensus_hash,
+                    &block.header.block_hash()
+                )
+            });
+
+    debug!("Process staging Nakamoto block";
+           "consensus_hash" => %block.header.consensus_hash,
+           "stacks_block_hash" => %block.header.block_hash(),
+           "stacks_block_id" => %block.header.block_id(),
+           "burn_block_hash" => %next_ready_block_snapshot.burn_header_hash
+    );
+
+    let elected_height = sort_db
+        .get_consensus_hash_height(&block.header.consensus_hash)?
+        .ok_or_else(|| ChainstateError::NoSuchBlockError)?;
+    let elected_in_cycle = sort_db
+        .pox_constants
+        .block_height_to_reward_cycle(sort_db.first_block_height, elected_height)
+        .ok_or_else(|| {
+            ChainstateError::InvalidStacksBlock(
+                "Elected in block height before first_block_height".into(),
+            )
+        })?;
+    let active_reward_set = OnChainRewardSetProvider::<DummyEventDispatcher>(None)
+        .read_reward_set_nakamoto_of_cycle(
+            elected_in_cycle,
+            stacks_chain_state,
+            sort_db,
+            &block.header.parent_block_id,
+            true,
+        )
+        .map_err(|e| {
+            warn!(
+                "Cannot process Nakamoto block: could not load reward set that elected the block";
+                "err" => ?e,
+                "consensus_hash" => %block.header.consensus_hash,
+                "stacks_block_hash" => %block.header.block_hash(),
+                "stacks_block_id" => %block.header.block_id(),
+                "parent_block_id" => %block.header.parent_block_id,
+            );
+            ChainstateError::NoSuchBlockError
+        })?;
+    let (mut chainstate_tx, clarity_instance) = stacks_chain_state.chainstate_tx_begin()?;
+
+    // find parent header
+    let Some(parent_header_info) =
+        NakamotoChainState::get_block_header(&chainstate_tx.tx, &block.header.parent_block_id)?
+    else {
+        // no parent; cannot process yet
+        info!("Cannot process Nakamoto block: missing parent header";
+               "consensus_hash" => %block.header.consensus_hash,
+               "stacks_block_hash" => %block.header.block_hash(),
+               "stacks_block_id" => %block.header.block_id(),
+               "parent_block_id" => %block.header.parent_block_id
+        );
+        return Ok(());
+    };
+
+    // sanity check -- must attach to parent
+    let parent_block_id = StacksBlockId::new(
+        &parent_header_info.consensus_hash,
+        &parent_header_info.anchored_header.block_hash(),
+    );
+    if parent_block_id != block.header.parent_block_id {
+        drop(chainstate_tx);
+
+        let msg = "Discontinuous Nakamoto Stacks block";
+        warn!("{}", &msg;
+              "child parent_block_id" => %block.header.parent_block_id,
+              "expected parent_block_id" => %parent_block_id,
+              "consensus_hash" => %block.header.consensus_hash,
+              "stacks_block_hash" => %block.header.block_hash(),
+              "stacks_block_id" => %block.header.block_id()
+        );
+        return Err(ChainstateError::InvalidStacksBlock(msg.into()));
+    }
+
+    // set the sortition handle's pointer to the block's burnchain view.
+    //   this is either:
+    //    (1)  set by the tenure change tx if one exists
+    //    (2)  the same as parent block id
+
+    let burnchain_view = if let Some(tenure_change) = block.get_tenure_tx_payload() {
+        if let Some(ref parent_burn_view) = parent_header_info.burn_view {
+            // check that the tenure_change's burn view descends from the parent
+            let parent_burn_view_sn = SortitionDB::get_block_snapshot_consensus(
+                sort_db.conn(),
+                parent_burn_view,
+            )?
+            .ok_or_else(|| {
+                warn!(
+                    "Cannot process Nakamoto block: could not find parent block's burnchain view";
+                    "consensus_hash" => %block.header.consensus_hash,
+                    "stacks_block_hash" => %block.header.block_hash(),
+                    "stacks_block_id" => %block.header.block_id(),
+                    "parent_block_id" => %block.header.parent_block_id
+                );
+                ChainstateError::InvalidStacksBlock(
+                    "Failed to load burn view of parent block ID".into(),
+                )
+            })?;
+            let handle = sort_db.index_handle_at_ch(&tenure_change.burn_view_consensus_hash)?;
+            let connected_sort_id = get_ancestor_sort_id(
+                &handle,
+                parent_burn_view_sn.block_height,
+                &handle.context.chain_tip,
+            )?
+            .ok_or_else(|| {
+                warn!(
+                    "Cannot process Nakamoto block: could not find parent block's burnchain view";
+                    "consensus_hash" => %block.header.consensus_hash,
+                    "stacks_block_hash" => %block.header.block_hash(),
+                    "stacks_block_id" => %block.header.block_id(),
+                    "parent_block_id" => %block.header.parent_block_id
+                );
+                ChainstateError::InvalidStacksBlock(
+                    "Failed to load burn view of parent block ID".into(),
+                )
+            })?;
+            if connected_sort_id != parent_burn_view_sn.sortition_id {
+                warn!(
+                    "Cannot process Nakamoto block: parent block's burnchain view does not connect to own burn view";
+                    "consensus_hash" => %block.header.consensus_hash,
+                    "stacks_block_hash" => %block.header.block_hash(),
+                    "stacks_block_id" => %block.header.block_id(),
+                    "parent_block_id" => %block.header.parent_block_id
+                );
+                return Err(ChainstateError::InvalidStacksBlock(
+                    "Does not connect to burn view of parent block ID".into(),
+                ));
+            }
+        }
+        tenure_change.burn_view_consensus_hash
+    } else {
+        parent_header_info.burn_view.clone().ok_or_else(|| {
+                warn!(
+                    "Cannot process Nakamoto block: parent block does not have a burnchain view and current block has no tenure tx";
+                    "consensus_hash" => %block.header.consensus_hash,
+                    "stacks_block_hash" => %block.header.block_hash(),
+                    "stacks_block_id" => %block.header.block_id(),
+                    "parent_block_id" => %block.header.parent_block_id
+                );
+                ChainstateError::InvalidStacksBlock("Failed to load burn view of parent block ID".into())
+            })?
+    };
+    let Some(burnchain_view_sn) =
+        SortitionDB::get_block_snapshot_consensus(sort_db.conn(), &burnchain_view)?
+    else {
+        // This should be checked already during block acceptance and parent block processing
+        //   - The check for expected burns returns `NoSuchBlockError` if the burnchain view
+        //      could not be found for a block with a tenure tx.
+        // We error here anyways, but the check during block acceptance makes sure that the staging
+        //  db doesn't get into a situation where it continuously tries to retry such a block (because
+        //  such a block shouldn't land in the staging db).
+        warn!(
+            "Cannot process Nakamoto block: failed to find Sortition ID associated with burnchain view";
+            "consensus_hash" => %block.header.consensus_hash,
+            "stacks_block_hash" => %block.header.block_hash(),
+            "stacks_block_id" => %block.header.block_id(),
+            "burn_view_consensus_hash" => %burnchain_view,
+        );
+        return Ok(());
+    };
+
+    // find commit and sortition burns if this is a tenure-start block
+    let Ok(new_tenure) = block.is_wellformed_tenure_start_block() else {
+        return Err(ChainstateError::InvalidStacksBlock(
+            "Invalid Nakamoto block: invalid tenure change tx(s)".into(),
+        ));
+    };
+
+    let (commit_burn, sortition_burn) = if new_tenure {
+        // find block-commit to get commit-burn
+        let block_commit = SortitionDB::get_block_commit(
+            sort_db.conn(),
+            &next_ready_block_snapshot.winning_block_txid,
+            &next_ready_block_snapshot.sortition_id,
+        )?
+        .expect("FATAL: no block-commit for tenure-start block");
+
+        let sort_burn =
+            SortitionDB::get_block_burn_amount(sort_db.conn(), &next_ready_block_snapshot)?;
+        (block_commit.burn_fee, sort_burn)
+    } else {
+        (0, 0)
+    };
+
+    // attach the block to the chain state and calculate the next chain tip.
+    let pox_constants = sort_db.pox_constants.clone();
+
+    // NOTE: because block status is updated in a separate transaction, we need `chainstate_tx`
+    // and `clarity_instance` to go out of scope before we can issue the it (since we need a
+    // mutable reference to `stacks_chain_state` to start it).  This means ensuring that, in the
+    // `Ok(..)` case, the `clarity_commit` gets dropped beforehand.  In order to do this, we first
+    // run `::append_block()` here, and capture both the Ok(..) and Err(..) results as
+    // Option<..>'s.  Then, if we errored, we can explicitly drop the `Ok(..)` option (even
+    // though it will always be None), which gets the borrow-checker to believe that it's safe
+    // to access `stacks_chain_state` again.  In the `Ok(..)` case, it's instead sufficient so
+    // simply commit the block before beginning the second transaction to mark it processed.
+
+    let mut burn_view_handle = sort_db.index_handle(&burnchain_view_sn.sortition_id);
+    let (ok_opt, err_opt) = match NakamotoChainState::append_block(
+        &mut chainstate_tx,
+        clarity_instance,
+        &mut burn_view_handle,
+        &burnchain_view,
+        &pox_constants,
+        &parent_header_info,
+        &next_ready_block_snapshot.burn_header_hash,
+        next_ready_block_snapshot
+            .block_height
+            .try_into()
+            .expect("Failed to downcast u64 to u32"),
+        next_ready_block_snapshot.burn_header_timestamp,
+        &block,
+        block_size,
+        commit_burn,
+        sortition_burn,
+        &active_reward_set,
+    ) {
+        Ok(next_chain_tip_info) => (Some(next_chain_tip_info), None),
+        Err(e) => (None, Some(e)),
+    };
+
+    if let Some(e) = err_opt {
+        // force rollback
+        drop(ok_opt);
+        drop(chainstate_tx);
+
+        warn!(
+            "Failed to append {}/{}: {:?}",
+            &block.header.consensus_hash,
+            &block.header.block_hash(),
+            &e;
+            "stacks_block_id" => %block.header.block_id()
+        );
+
+        // as a separate transaction, mark this block as processed and orphaned.
+        // This is done separately so that the staging blocks DB, which receives writes
+        // from the network to store blocks, will be available for writes while a block is
+        // being processed. Therefore, it's *very important* that block-processing happens
+        // within the same, single thread.  Also, it's *very important* that this update
+        // succeeds, since *we have already processed* the block.
+        return Err(e);
+    };
+
+    let (receipt, clarity_commit, reward_set_data) = ok_opt.expect("FATAL: unreachable");
+
+    assert_eq!(
+        receipt.header.anchored_header.block_hash(),
+        block.header.block_hash()
+    );
+    assert_eq!(receipt.header.consensus_hash, block.header.consensus_hash);
+
+    info!(
+        "Advanced to new tip! {}/{}",
+        &receipt.header.consensus_hash,
+        &receipt.header.anchored_header.block_hash()
+    );
+    Ok(())
 }

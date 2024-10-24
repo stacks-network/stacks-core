@@ -105,7 +105,7 @@ struct NetworkHandleServer {
 
 impl NetworkHandle {
     pub fn new(chan_in: SyncSender<NetworkRequest>) -> NetworkHandle {
-        NetworkHandle { chan_in: chan_in }
+        NetworkHandle { chan_in }
     }
 
     /// Send out a command to the p2p thread.  Do not bother waiting for the response.
@@ -175,7 +175,7 @@ impl NetworkHandle {
 
 impl NetworkHandleServer {
     pub fn new(chan_in: Receiver<NetworkRequest>) -> NetworkHandleServer {
-        NetworkHandleServer { chan_in: chan_in }
+        NetworkHandleServer { chan_in }
     }
 
     pub fn pair(bufsz: usize) -> (NetworkHandleServer, NetworkHandle) {
@@ -246,6 +246,7 @@ pub struct StacksTipInfo {
     pub consensus_hash: ConsensusHash,
     pub block_hash: BlockHeaderHash,
     pub height: u64,
+    pub coinbase_height: u64,
     pub is_nakamoto: bool,
 }
 
@@ -255,6 +256,7 @@ impl StacksTipInfo {
             consensus_hash: ConsensusHash([0u8; 20]),
             block_hash: BlockHeaderHash([0u8; 32]),
             height: 0,
+            coinbase_height: 0,
             is_nakamoto: false,
         }
     }
@@ -481,11 +483,11 @@ impl PeerNetwork {
         }
 
         let mut network = PeerNetwork {
-            peer_version: peer_version,
-            epochs: epochs,
+            peer_version,
+            epochs,
 
-            local_peer: local_peer,
-            chain_view: chain_view,
+            local_peer,
+            chain_view,
             chain_view_stable_consensus_hash: ConsensusHash([0u8; 20]),
             ast_rules: ASTRules::Typical,
             heaviest_affirmation_map: AffirmationMap::empty(),
@@ -504,8 +506,8 @@ impl PeerNetwork {
             tenure_start_block_id: StacksBlockId([0x00; 32]),
             current_reward_sets: BTreeMap::new(),
 
-            peerdb: peerdb,
-            atlasdb: atlasdb,
+            peerdb,
+            atlasdb,
 
             peers: PeerMap::new(),
             sockets: HashMap::new(),
@@ -521,8 +523,8 @@ impl PeerNetwork {
             p2p_network_handle: 0,
             http_network_handle: 0,
 
-            burnchain: burnchain,
-            connection_opts: connection_opts,
+            burnchain,
+            connection_opts,
 
             work_state: PeerNetworkWorkState::GetPublicIP,
             nakamoto_work_state: PeerNetworkWorkState::GetPublicIP,
@@ -553,8 +555,8 @@ impl PeerNetwork {
             attachments_downloader: None,
 
             stacker_db_syncs: Some(stacker_db_sync_map),
-            stacker_db_configs: stacker_db_configs,
-            stackerdbs: stackerdbs,
+            stacker_db_configs,
+            stackerdbs,
 
             prune_outbound_counts: HashMap::new(),
             prune_inbound_counts: HashMap::new(),
@@ -3491,7 +3493,7 @@ impl PeerNetwork {
                     }
                     let microblocks_data = MicroblocksData {
                         index_anchor_block: anchor_block_id.clone(),
-                        microblocks: microblocks,
+                        microblocks,
                     };
 
                     debug!(
@@ -4039,7 +4041,7 @@ impl PeerNetwork {
                             peer_version: nk.peer_version,
                             network_id: nk.network_id,
                             ts: get_epoch_time_secs(),
-                            pubkey: pubkey,
+                            pubkey,
                         },
                     );
 
@@ -4218,14 +4220,39 @@ impl PeerNetwork {
 
         let parent_tenure_start_header = NakamotoChainState::get_tenure_start_block_header(&mut chainstate.index_conn(), stacks_tip_block_id, &parent_header.consensus_hash)?
             .ok_or_else(|| {
-                debug!("{:?}: get_parent_stacks_tip: No tenure-start block for parent tenure {} off of child {} (parnet {})", self.get_local_peer(), &parent_header.consensus_hash, stacks_tip_block_id, &parent_block_id);
+                debug!("{:?}: get_parent_stacks_tip: No tenure-start block for parent tenure {} off of child {} (parent {})", self.get_local_peer(), &parent_header.consensus_hash, stacks_tip_block_id, &parent_block_id);
                 net_error::DBError(db_error::NotFoundError)
             })?;
 
+        let parent_stacks_tip_block_hash = parent_tenure_start_header.anchored_header.block_hash();
+        let parent_stacks_tip_block_id = StacksBlockId::new(
+            &parent_tenure_start_header.consensus_hash,
+            &parent_stacks_tip_block_hash,
+        );
+        let parent_coinbase_height = NakamotoChainState::get_coinbase_height(
+            &mut chainstate.index_conn(),
+            &parent_stacks_tip_block_id,
+        )?;
+
+        let coinbase_height = match parent_coinbase_height {
+            Some(cbh) => cbh,
+            None => {
+                if parent_tenure_start_header.is_epoch_2_block() {
+                    // The coinbase height is the same as the stacks block height as
+                    // every block contains a coinbase in epoch 2.x
+                    parent_tenure_start_header.stacks_block_height
+                } else {
+                    debug!("{:?}: get_parent_stacks_tip: No coinbase height found for nakamoto block {parent_stacks_tip_block_id}", self.get_local_peer());
+                    return Err(net_error::DBError(db_error::NotFoundError));
+                }
+            }
+        };
+
         let parent_stacks_tip = StacksTipInfo {
             consensus_hash: parent_tenure_start_header.consensus_hash,
-            block_hash: parent_tenure_start_header.anchored_header.block_hash(),
+            block_hash: parent_stacks_tip_block_hash,
             height: parent_tenure_start_header.anchored_header.height(),
+            coinbase_height,
             is_nakamoto: parent_tenure_start_header
                 .anchored_header
                 .as_stacks_nakamoto()
@@ -4377,6 +4404,25 @@ impl PeerNetwork {
             self.stacks_tip.is_nakamoto
         };
 
+        let stacks_tip_cbh = NakamotoChainState::get_coinbase_height(
+            &mut chainstate.index_conn(),
+            &new_stacks_tip_block_id,
+        )?;
+
+        let coinbase_height = match stacks_tip_cbh {
+            Some(cbh) => cbh,
+            None => {
+                if !stacks_tip_is_nakamoto {
+                    // The coinbase height is the same as the stacks block height as
+                    // every block contains a coinbase in epoch 2.x
+                    stacks_tip_height
+                } else {
+                    debug!("{:?}: No coinbase height found for nakamoto block {new_stacks_tip_block_id}", self.get_local_peer());
+                    return Err(net_error::DBError(db_error::NotFoundError));
+                }
+            }
+        };
+
         let need_stackerdb_refresh = canonical_sn.canonical_stacks_tip_consensus_hash
             != self.burnchain_tip.canonical_stacks_tip_consensus_hash
             || burnchain_tip_changed
@@ -4415,6 +4461,7 @@ impl PeerNetwork {
                         consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
                         block_hash: FIRST_STACKS_BLOCK_HASH.clone(),
                         height: 0,
+                        coinbase_height: 0,
                         is_nakamoto: false,
                     }
                 }
@@ -4610,6 +4657,7 @@ impl PeerNetwork {
                 consensus_hash: stacks_tip_ch,
                 block_hash: stacks_tip_bhh,
                 height: stacks_tip_height,
+                coinbase_height,
                 is_nakamoto: stacks_tip_is_nakamoto,
             };
             self.parent_stacks_tip = parent_stacks_tip;
@@ -4998,7 +5046,7 @@ impl PeerNetwork {
     /// Log our neighbors.
     /// Used for testing and debuggin
     fn log_neighbors(&mut self) {
-        if self.get_connection_opts().log_neighbors_freq == 0 {
+        if !cfg!(test) && self.get_connection_opts().log_neighbors_freq == 0 {
             return;
         }
 
@@ -5184,7 +5232,7 @@ mod test {
                     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0x7f,
                     0x00, 0x00, 0x01,
                 ]),
-                port: port,
+                port,
             },
             public_key: Secp256k1PublicKey::from_hex(
                 "02fa66b66f8971a8cd4d20ffded09674e030f0f33883f337f34b95ad4935bac0e3",

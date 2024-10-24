@@ -93,7 +93,7 @@ impl RunLoop {
 
         let mut event_dispatcher = EventDispatcher::new();
         for observer in config.events_observers.iter() {
-            event_dispatcher.register_observer(observer);
+            event_dispatcher.register_observer(observer, config.get_working_dir());
         }
 
         Self {
@@ -723,10 +723,17 @@ impl RunLoop {
 
                     // at tip, and not downloading. proceed to mine.
                     if last_tenure_sortition_height != sortition_db_height {
-                        info!(
-                            "Runloop: Synchronized full burnchain up to height {}. Proceeding to mine blocks",
-                            sortition_db_height
-                        );
+                        if is_miner {
+                            info!(
+                                "Runloop: Synchronized full burnchain up to height {}. Proceeding to mine blocks",
+                                sortition_db_height
+                            );
+                        } else {
+                            info!(
+                                "Runloop: Synchronized full burnchain up to height {}.",
+                                sortition_db_height
+                            );
+                        }
                         last_tenure_sortition_height = sortition_db_height;
                         globals.raise_initiative("runloop-synced".to_string());
                     }

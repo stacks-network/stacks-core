@@ -50,7 +50,7 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 
 use chainstate::SortitionsView;
 use config::GlobalConfig;
-use libsigner::{SignerEvent, SignerEventReceiver, SignerEventTrait};
+use libsigner::{SignerEvent, SignerEventReceiver, SignerEventTrait, VERSION_STRING};
 use runloop::SignerResult;
 use slog::{slog_info, slog_warn};
 use stacks_common::{info, warn};
@@ -113,6 +113,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SpawnedSigner
     /// Create a new spawned signer
     pub fn new(config: GlobalConfig) -> Self {
         let endpoint = config.endpoint;
+        info!("Stacks signer version {:?}", VERSION_STRING.as_str());
         info!("Starting signer with config: {:?}", config);
         warn!(
             "Reminder: The signer is primarily designed for use with a local or subnet network stacks node. \
@@ -120,7 +121,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SpawnedSigner
             as this could potentially expose sensitive data or functionalities to security risks \
             if additional proper security checks are not integrated in place. \
             For more information, check the documentation at \
-            https://docs.stacks.co/nakamoto-upgrade/signing-and-stacking/faq#what-should-the-networking-setup-for-my-signer-look-like."
+            https://docs.stacks.co/guides-and-tutorials/running-a-signer#preflight-setup"
         );
         let (res_send, res_recv) = channel();
         let ev = SignerEventReceiver::new(config.network.is_mainnet());
