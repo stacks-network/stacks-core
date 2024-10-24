@@ -55,6 +55,7 @@ use crate::chainstate::nakamoto::{
     SortitionHandleConn, StacksDBIndexed,
 };
 use crate::chainstate::stacks::boot::RewardSet;
+use crate::chainstate::stacks::db::blocks::DummyEventDispatcher;
 use crate::chainstate::stacks::db::{
     ChainstateTx, ClarityTx, StacksAccount, StacksChainState, StacksHeaderInfo,
 };
@@ -70,6 +71,7 @@ use crate::chainstate::stacks::{
 use crate::clarity::vm::types::StacksAddressExtensions;
 use crate::clarity_vm::clarity::ClarityInstance;
 use crate::clarity_vm::database::SortitionDBRef;
+use crate::net::Error as NetError;
 use crate::util_lib::db::{query_row, u64_to_sql, Error as DBError};
 
 impl NakamotoBlockHeader {
@@ -561,7 +563,7 @@ impl NakamotoBlockBuilder {
         }
         let block = builder.mine_nakamoto_block(&mut tenure_tx);
         let size = builder.bytes_so_far;
-        let cost = builder.tenure_finish(tenure_tx).unwrap();
+        let cost = builder.tenure_finish(tenure_tx)?;
         Ok((block, size, cost))
     }
 
@@ -708,8 +710,7 @@ impl NakamotoBlockBuilder {
             Some(&tenure_change_tx),
             Some(&coinbase_tx),
             1,
-        )
-        .unwrap();
+        )?;
 
         let mut block_txs = vec![tenure_change_tx, coinbase_tx];
         block_txs.append(&mut txs);
@@ -855,4 +856,135 @@ impl<'a> NakamotoStagingBlocksTx<'a> {
         )?;
         Ok(())
     }
+}
+
+/// DO NOT RUN ON A RUNNING NODE (unless you're testing).
+///
+/// Insert and process a shadow block into the Stacks chainstate.
+pub fn process_shadow_block(
+    chain_state: &mut StacksChainState,
+    sort_db: &mut SortitionDB,
+    shadow_block: NakamotoBlock,
+) -> Result<(), ChainstateError> {
+    let tx = chain_state.staging_db_tx_begin()?;
+    tx.add_shadow_block(&shadow_block)?;
+    tx.commit()?;
+
+    let no_dispatch: Option<DummyEventDispatcher> = None;
+    loop {
+        let sort_tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn())?;
+
+        // process at most one block per loop pass
+        let processed_block_receipt = match NakamotoChainState::process_next_nakamoto_block(
+            chain_state,
+            sort_db,
+            &sort_tip.sortition_id,
+            no_dispatch.as_ref(),
+        ) {
+            Ok(receipt_opt) => receipt_opt,
+            Err(ChainstateError::InvalidStacksBlock(msg)) => {
+                warn!("Encountered invalid block: {}", &msg);
+                continue;
+            }
+            Err(ChainstateError::NetError(NetError::DeserializeError(msg))) => {
+                // happens if we load a zero-sized block (i.e. an invalid block)
+                warn!("Encountered invalid block (codec error): {}", &msg);
+                continue;
+            }
+            Err(e) => {
+                // something else happened
+                return Err(e.into());
+            }
+        };
+
+        if processed_block_receipt.is_none() {
+            // out of blocks
+            info!("No more blocks to process (no receipts)");
+            break;
+        };
+
+        let Some((_, processed, orphaned, _)) = chain_state
+            .nakamoto_blocks_db()
+            .get_block_processed_and_signed_weight(
+                &shadow_block.header.consensus_hash,
+                &shadow_block.header.block_hash(),
+            )?
+        else {
+            return Err(ChainstateError::InvalidStacksBlock(format!(
+                "Shadow block {} for tenure {} not store",
+                &shadow_block.block_id(),
+                &shadow_block.header.consensus_hash
+            )));
+        };
+
+        if orphaned {
+            return Err(ChainstateError::InvalidStacksBlock(format!(
+                "Shadow block {} for tenure {} was orphaned",
+                &shadow_block.block_id(),
+                &shadow_block.header.consensus_hash
+            )));
+        }
+
+        if processed {
+            break;
+        }
+    }
+    Ok(())
+}
+
+/// DO NOT RUN ON A RUNNING NODE (unless you're testing).
+///
+/// Automatically repair a node that has been stalled due to an empty prepare phase.
+/// Works by synthesizing, inserting, and processing shadow tenures in-between the last sortition
+/// with a winner and the burnchain tip.
+///
+/// This is meant to be accessed by the tooling. Once the blocks are synthesized, they would be
+/// added into other broken nodes' chainstates by the same tooling.  Ultimately, a patched node
+/// would be released with these shadow blocks added in as part of the chainstate schema.
+///
+/// Returns the syntheisized shadow blocks on success.
+/// Returns error on failure.
+pub fn shadow_chainstate_repair(
+    chain_state: &mut StacksChainState,
+    sort_db: &mut SortitionDB,
+) -> Result<Vec<NakamotoBlock>, ChainstateError> {
+    let sort_tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn())?;
+
+    let header = NakamotoChainState::get_canonical_block_header(chain_state.db(), &sort_db)?
+        .ok_or_else(|| ChainstateError::NoSuchBlockError)?;
+
+    let header_sn =
+        SortitionDB::get_block_snapshot_consensus(sort_db.conn(), &header.consensus_hash)?
+            .ok_or_else(|| {
+                ChainstateError::InvalidStacksBlock(
+                    "Canonical stacks header does not have a sortition".into(),
+                )
+            })?;
+
+    let mut shadow_blocks = vec![];
+    for burn_height in (header_sn.block_height + 1)..sort_tip.block_height {
+        let sort_tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn())?;
+        let sort_handle = sort_db.index_handle(&sort_tip.sortition_id);
+        let sn = sort_handle
+            .get_block_snapshot_by_height(burn_height)?
+            .ok_or_else(|| ChainstateError::InvalidStacksBlock("No sortition at height".into()))?;
+
+        let header = NakamotoChainState::get_canonical_block_header(chain_state.db(), &sort_db)?
+            .ok_or_else(|| ChainstateError::NoSuchBlockError)?;
+
+        let chain_tip = header.index_block_hash();
+        let shadow_block = NakamotoBlockBuilder::make_shadow_tenure(
+            chain_state,
+            sort_db,
+            chain_tip.clone(),
+            sn.consensus_hash,
+            vec![],
+        )?;
+
+        shadow_blocks.push(shadow_block.clone());
+
+        process_shadow_block(chain_state, sort_db, shadow_block)?;
+    }
+
+    Ok(shadow_blocks)
 }
