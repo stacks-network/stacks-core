@@ -182,7 +182,7 @@ use stacks::chainstate::stacks::{
     TransactionAnchorMode, TransactionPayload, TransactionVersion,
 };
 use stacks::core::mempool::MemPoolDB;
-use stacks::core::{FIRST_BURNCHAIN_CONSENSUS_HASH, STACKS_EPOCH_3_0_MARKER};
+use stacks::core::{EpochList, FIRST_BURNCHAIN_CONSENSUS_HASH, STACKS_EPOCH_3_0_MARKER};
 use stacks::cost_estimates::metrics::{CostMetric, UnitMetric};
 use stacks::cost_estimates::{CostEstimator, FeeEstimator, UnitEstimator};
 use stacks::monitoring::{increment_stx_blocks_mined_counter, update_active_miners_count_gauge};
@@ -4863,8 +4863,9 @@ impl StacksNode {
         )
         .expect("Error while instantiating sor/tition db");
 
-        let epochs = SortitionDB::get_stacks_epochs(sortdb.conn())
+        let epochs_vec = SortitionDB::get_stacks_epochs(sortdb.conn())
             .expect("Error while loading stacks epochs");
+        let epochs = EpochList::new(&epochs_vec);
 
         let view = {
             let sortition_tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn())

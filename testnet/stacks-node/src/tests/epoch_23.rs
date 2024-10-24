@@ -18,8 +18,7 @@ use std::{env, thread};
 
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use stacks::burnchains::{Burnchain, PoxConstants};
-use stacks::core;
-use stacks::core::STACKS_EPOCH_MAX;
+use stacks::core::{self, EpochList, STACKS_EPOCH_MAX};
 use stacks_common::util::sleep_ms;
 
 use crate::config::InitialBalance;
@@ -103,17 +102,17 @@ fn trait_invocation_behavior() {
     test_observer::register_any(&mut conf);
     conf.initial_balances.append(&mut initial_balances);
 
-    let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
-    epochs[1].end_height = epoch_2_05;
-    epochs[2].start_height = epoch_2_05;
-    epochs[2].end_height = epoch_2_1;
-    epochs[3].start_height = epoch_2_1;
-    epochs[3].end_height = epoch_2_2;
-    epochs[4].start_height = epoch_2_2;
-    epochs[4].end_height = epoch_2_3;
-    epochs[5].start_height = epoch_2_3;
-    epochs[5].end_height = STACKS_EPOCH_MAX;
-    epochs.truncate(6);
+    let mut epochs = EpochList::new(&*core::STACKS_EPOCHS_REGTEST);
+    epochs[StacksEpochId::Epoch20].end_height = epoch_2_05;
+    epochs[StacksEpochId::Epoch2_05].start_height = epoch_2_05;
+    epochs[StacksEpochId::Epoch2_05].end_height = epoch_2_1;
+    epochs[StacksEpochId::Epoch21].start_height = epoch_2_1;
+    epochs[StacksEpochId::Epoch21].end_height = epoch_2_2;
+    epochs[StacksEpochId::Epoch22].start_height = epoch_2_2;
+    epochs[StacksEpochId::Epoch22].end_height = epoch_2_3;
+    epochs[StacksEpochId::Epoch23].start_height = epoch_2_3;
+    epochs[StacksEpochId::Epoch23].end_height = STACKS_EPOCH_MAX;
+    epochs.truncate_after(StacksEpochId::Epoch23);
     conf.burnchain.epochs = Some(epochs);
 
     let mut burnchain_config = Burnchain::regtest(&conf.get_burn_db_path());

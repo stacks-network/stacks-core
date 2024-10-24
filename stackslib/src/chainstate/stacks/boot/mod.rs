@@ -1640,7 +1640,7 @@ pub mod test {
     pub fn instantiate_pox_peer_with_epoch<'a>(
         burnchain: &Burnchain,
         test_name: &str,
-        epochs: Option<Vec<StacksEpoch>>,
+        epochs: Option<EpochList>,
         observer: Option<&'a TestEventObserver>,
     ) -> (TestPeer<'a>, Vec<StacksPrivateKey>) {
         let mut peer_config = TestPeerConfig::new(test_name, 0, 0);

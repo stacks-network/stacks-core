@@ -21,7 +21,7 @@ use stacks_common::util::hash::*;
 use stacks_common::util::sleep_ms;
 
 use crate::core::{
-    StacksEpoch, StacksEpochId, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05,
+    EpochList, StacksEpoch, StacksEpochId, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05,
     PEER_VERSION_TESTNET, STACKS_EPOCH_MAX,
 };
 use crate::net::asn::*;
@@ -350,23 +350,23 @@ fn test_step_walk_1_neighbor_bad_epoch() {
 
         // peer 1 thinks its always epoch 2.0
         peer_1_config.peer_version = 0x18000000;
-        peer_1_config.epochs = Some(vec![StacksEpoch {
+        peer_1_config.epochs = Some(EpochList::new(&[StacksEpoch {
             epoch_id: StacksEpochId::Epoch20,
             start_height: 0,
             end_height: STACKS_EPOCH_MAX,
             block_limit: ExecutionCost::max_value(),
             network_epoch: PEER_VERSION_EPOCH_2_0,
-        }]);
+        }]));
 
         // peer 2 thinks its always epoch 2.05
         peer_2_config.peer_version = 0x18000005;
-        peer_2_config.epochs = Some(vec![StacksEpoch {
+        peer_2_config.epochs = Some(EpochList::new(&[StacksEpoch {
             epoch_id: StacksEpochId::Epoch2_05,
             start_height: 0,
             end_height: STACKS_EPOCH_MAX,
             block_limit: ExecutionCost::max_value(),
             network_epoch: PEER_VERSION_EPOCH_2_05,
-        }]);
+        }]));
 
         let mut peer_1 = TestPeer::new(peer_1_config);
         let mut peer_2 = TestPeer::new(peer_2_config);

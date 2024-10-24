@@ -2969,9 +2969,9 @@ impl SortitionDB {
         db_tx: &Transaction,
         epochs: &[StacksEpoch],
     ) -> Result<(), db_error> {
-        let epochs = StacksEpoch::validate_epochs(epochs);
+        let epochs: &[StacksEpoch] = &StacksEpoch::validate_epochs(epochs);
         let existing_epochs = Self::get_stacks_epochs(db_tx)?;
-        if existing_epochs == epochs {
+        if &existing_epochs == epochs {
             return Ok(());
         }
 
@@ -3482,9 +3482,10 @@ impl SortitionDB {
                         tx.commit()?;
                     } else if version == expected_version {
                         // this transaction is almost never needed
-                        let validated_epochs = StacksEpoch::validate_epochs(epochs);
+                        let validated_epochs: &[StacksEpoch] =
+                            &StacksEpoch::validate_epochs(epochs);
                         let existing_epochs = Self::get_stacks_epochs(self.conn())?;
-                        if existing_epochs == validated_epochs {
+                        if &existing_epochs == validated_epochs {
                             return Ok(());
                         }
 
@@ -6636,7 +6637,7 @@ pub mod tests {
         pub fn connect_test_with_epochs(
             first_block_height: u64,
             first_burn_hash: &BurnchainHeaderHash,
-            epochs: Vec<StacksEpoch>,
+            epochs: EpochList,
         ) -> Result<SortitionDB, db_error> {
             let mut rng = rand::thread_rng();
             let mut buf = [0u8; 32];

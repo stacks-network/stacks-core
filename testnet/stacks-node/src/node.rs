@@ -28,7 +28,7 @@ use stacks::chainstate::stacks::{
     TransactionAnchorMode, TransactionPayload, TransactionVersion,
 };
 use stacks::core::mempool::MemPoolDB;
-use stacks::core::STACKS_EPOCH_2_1_MARKER;
+use stacks::core::{EpochList, STACKS_EPOCH_2_1_MARKER};
 use stacks::cost_estimates::metrics::UnitMetric;
 use stacks::cost_estimates::UnitEstimator;
 use stacks::net::atlas::{AtlasConfig, AtlasDB, AttachmentInstance};
@@ -401,8 +401,9 @@ impl Node {
         )
         .expect("Error while instantiating burnchain db");
 
-        let epochs = SortitionDB::get_stacks_epochs(sortdb.conn())
+        let epochs_vec = SortitionDB::get_stacks_epochs(sortdb.conn())
             .expect("Error while loading stacks epochs");
+        let epochs = EpochList::new(&epochs_vec);
 
         Config::assert_valid_epoch_settings(&burnchain, &epochs);
 

@@ -290,7 +290,7 @@ pub fn setup_states_with_epochs(
     pox_consts: Option<PoxConstants>,
     initial_balances: Option<Vec<(PrincipalData, u64)>>,
     stacks_epoch_id: StacksEpochId,
-    epochs_opt: Option<Vec<StacksEpoch>>,
+    epochs_opt: Option<EpochList>,
 ) {
     let mut burn_block = None;
     let mut others = vec![];

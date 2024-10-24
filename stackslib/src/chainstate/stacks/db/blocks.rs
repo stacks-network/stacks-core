@@ -11048,8 +11048,8 @@ pub mod test {
         init_balances.push((addr.to_account_principal(), initial_balance));
         peer_config.initial_balances = init_balances;
         let mut epochs = StacksEpoch::unit_test_2_1(0);
-        let num_epochs = epochs.len();
-        epochs[num_epochs - 1].block_limit.runtime = 10_000_000;
+        let last_epoch = epochs.last_mut().unwrap();
+        last_epoch.block_limit.runtime = 10_000_000;
         peer_config.epochs = Some(epochs);
         peer_config.burnchain.pox_constants.v1_unlock_height = 26;
         let burnchain = peer_config.burnchain.clone();
@@ -11373,9 +11373,9 @@ pub mod test {
         init_balances.push((addr.to_account_principal(), initial_balance));
         peer_config.initial_balances = init_balances;
         let mut epochs = StacksEpoch::unit_test_2_1(0);
-        let num_epochs = epochs.len();
-        epochs[num_epochs - 1].block_limit.runtime = 10_000_000;
-        epochs[num_epochs - 1].block_limit.read_length = 10_000_000;
+        let last_epoch = epochs.last_mut().unwrap();
+        last_epoch.block_limit.runtime = 10_000_000;
+        last_epoch.block_limit.read_length = 10_000_000;
         peer_config.epochs = Some(epochs);
         peer_config.burnchain.pox_constants.v1_unlock_height = 26;
         let burnchain = peer_config.burnchain.clone();
