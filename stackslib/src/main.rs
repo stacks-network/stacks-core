@@ -1223,7 +1223,7 @@ simulating a miner.
     if argv[1] == "get-nakamoto-tip" {
         if argv.len() < 4 {
             eprintln!(
-                "Usage: {} get-nakamoto-tip CHAINSTATAE_DIR NETWORK",
+                "Usage: {} get-nakamoto-tip CHAINSTATE_DIR NETWORK",
                 &argv[0]
             );
             process::exit(1);
