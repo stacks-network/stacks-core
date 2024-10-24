@@ -278,7 +278,7 @@ impl<'a> NakamotoStagingBlocksConnRef<'a> {
     /// There will be at most one such block.
     ///
     /// NOTE: for Nakamoto blocks, the sighash is the same as the block hash.
-    pub(crate) fn get_block_processed_and_signed_weight(
+    pub fn get_block_processed_and_signed_weight(
         &self,
         consensus_hash: &ConsensusHash,
         block_hash: &BlockHeaderHash,

@@ -450,6 +450,7 @@ impl PoxConstants {
         )
     }
 
+    // NOTE: this is the *old* pre-Nakamoto testnet
     pub fn testnet_default() -> PoxConstants {
         PoxConstants::new(
             POX_REWARD_CYCLE_LENGTH / 2,   // 1050
