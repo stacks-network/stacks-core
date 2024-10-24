@@ -1470,6 +1470,35 @@ simulating a miner.
         process::exit(0);
     }
 
+    if argv[1] == "replay-naka-block" {
+        let chain_config =
+            if let Some(network_flag_ix) = argv.iter().position(|arg| arg == "--network") {
+                let Some(network_choice) = argv.get(network_flag_ix + 1) else {
+                    eprintln!("Must supply network choice after `--network` option");
+                    process::exit(1);
+                };
+
+                let network_config = match network_choice.to_lowercase().as_str() {
+                    "testnet" => cli::StacksChainConfig::default_testnet(),
+                    "mainnet" => cli::StacksChainConfig::default_mainnet(),
+                    other => {
+                        eprintln!("Unknown network choice `{other}`");
+                        process::exit(1);
+                    }
+                };
+
+                argv.remove(network_flag_ix + 1);
+                argv.remove(network_flag_ix);
+
+                Some(network_config)
+            } else {
+                None
+            };
+
+        cli::command_replay_block_nakamoto(&argv[1..], chain_config.as_ref());
+        process::exit(0);
+    }
+
     if argv[1] == "replay-mock-mining" {
         cli::command_replay_mock_mining(&argv[1..], None);
         process::exit(0);
