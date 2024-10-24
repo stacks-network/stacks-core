@@ -1073,8 +1073,7 @@ impl StacksChainState {
                                       "contract_name" => %contract_id,
                                       "function_name" => %contract_call.function_name,
                                       "function_args" => %VecDisplay(&contract_call.function_args),
-                                      "error" => ?error,
-                                      "txid" => %tx.txid());
+                                      "error" => ?error);
                             (Value::err_none(), AssetMap::new(), vec![])
                         }
                         ClarityRuntimeTxError::AbortedByCallback(value, assets, events) => {
@@ -1084,8 +1083,7 @@ impl StacksChainState {
                                       "origin_nonce" => %origin_account.nonce,
                                       "contract_name" => %contract_id,
                                       "function_name" => %contract_call.function_name,
-                                      "function_args" => %VecDisplay(&contract_call.function_args),
-                                      "txid" => %tx.txid());
+                                      "function_args" => %VecDisplay(&contract_call.function_args));
                             let receipt = StacksTransactionReceipt::from_condition_aborted_contract_call(
                                     tx.clone(),
                                     events,
@@ -1109,8 +1107,7 @@ impl StacksChainState {
                                       "contract_name" => %contract_id,
                                       "function_name" => %contract_call.function_name,
                                       "function_args" => %VecDisplay(&contract_call.function_args),
-                                      "error" => %check_error,
-                                      "txid" => %tx.txid());
+                                      "error" => %check_error);
 
                                 let receipt =
                                     StacksTransactionReceipt::from_runtime_failure_contract_call(
@@ -1128,8 +1125,7 @@ impl StacksChainState {
                                            "contract_name" => %contract_id,
                                            "function_name" => %contract_call.function_name,
                                            "function_args" => %VecDisplay(&contract_call.function_args),
-                                           "error" => %check_error,
-                                           "txid" => %tx.txid());
+                                           "error" => %check_error);
                                 return Err(Error::ClarityError(clarity_error::Interpreter(
                                     InterpreterError::Unchecked(check_error),
                                 )));
@@ -1143,8 +1139,7 @@ impl StacksChainState {
                                        "contract_name" => %contract_id,
                                        "function_name" => %contract_call.function_name,
                                        "function_args" => %VecDisplay(&contract_call.function_args),
-                                       "error" => ?e,
-                                       "txid" => %tx.txid());
+                                       "error" => ?e);
                             return Err(Error::ClarityError(e));
                         }
                     },
