@@ -4866,6 +4866,7 @@ fn burn_ops_integration_test() {
         "Stack-stx tx without a signer_key shouldn't have been submitted"
     );
     assert!(transfer_stx_found, "Expected transfer STX op");
+
     assert!(delegate_stx_found, "Expected delegate STX op");
     let sortdb = btc_regtest_controller.sortdb_mut();
     let sortdb_conn = sortdb.conn();
@@ -8326,6 +8327,51 @@ fn check_block_info() {
         interim_stacks_tip,
         "Contract 3 should be able to fetch the StacksBlockId of the tip"
     );
+
+    let mut blocks = test_observer::get_blocks();
+    blocks.sort_by_key(|block| block["block_height"].as_u64().unwrap());
+
+    let mut last_tenture_height = 0;
+    for block in blocks.iter() {
+        let transactions = block.get("transactions").unwrap().as_array().unwrap();
+        let mut block_has_tenure_change = false;
+        for tx in transactions.iter().rev() {
+            let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
+            if raw_tx != "0x00" {
+                let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
+                let parsed =
+                    StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
+                if let TransactionPayload::TenureChange(_tenure_change) = parsed.payload {
+                    block_has_tenure_change = true;
+                    continue;
+                }
+            }
+        }
+        // if `signer_bitvec` is set on a block, then it's a nakamoto block
+        let is_nakamoto_block = block.get("signer_bitvec").map_or(false, |v| !v.is_null());
+        let tenure_height = block.get("tenure_height").unwrap().as_u64().unwrap();
+        let block_height = block.get("block_height").unwrap().as_u64().unwrap();
+
+        if block_height == 0 {
+            // genesis block
+            continue;
+        }
+
+        if is_nakamoto_block {
+            if block_has_tenure_change {
+                // tenure change block should have tenure height 1 more than the last tenure height
+                assert_eq!(last_tenture_height + 1, tenure_height);
+                last_tenture_height = tenure_height;
+            } else {
+                // tenure extend block should have the same tenure height as the last tenure height
+                assert_eq!(last_tenture_height, tenure_height);
+            }
+        } else {
+            // epoch2.x block tenure height is the same as the block height
+            assert_eq!(tenure_height, block_height);
+            last_tenture_height = block_height;
+        }
+    }
 
     coord_channel
         .lock()
