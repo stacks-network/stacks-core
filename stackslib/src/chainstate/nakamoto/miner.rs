@@ -674,10 +674,19 @@ impl BlockBuilder for NakamotoBlockBuilder {
                                             tx.txid(),
                                             100 - TX_BLOCK_LIMIT_PROPORTION_HEURISTIC,
                                             &total_budget
+                                    );
+                                    let mut measured_cost = cost_after;
+                                    let measured_cost = if measured_cost.sub(&cost_before).is_ok() {
+                                        Some(measured_cost)
+                                    } else {
+                                        warn!(
+                                            "Failed to compute measured cost of a too big transaction"
                                         );
+                                        None
+                                    };
                                     return TransactionResult::error(
                                         &tx,
-                                        Error::TransactionTooBigError,
+                                        Error::TransactionTooBigError(measured_cost),
                                     );
                                 } else {
                                     warn!(

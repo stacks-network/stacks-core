@@ -19,6 +19,7 @@ use std::time::Instant;
 
 use clarity::util::hash::to_hex;
 use clarity::util::secp256k1::Secp256k1PublicKey;
+use libsigner::VERSION_STRING;
 use slog::{slog_debug, slog_error, slog_info, slog_warn};
 use stacks_common::{debug, error, info, warn};
 use tiny_http::{Response as HttpResponse, Server as HttpServer};
@@ -28,7 +29,6 @@ use crate::client::{ClientError, StacksClient};
 use crate::config::{GlobalConfig, Network};
 use crate::monitoring::prometheus::gather_metrics_string;
 use crate::monitoring::{update_signer_nonce, update_stacks_tip_height};
-use crate::VERSION_STRING;
 
 #[derive(thiserror::Error, Debug)]
 /// Monitoring server errors

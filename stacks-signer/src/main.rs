@@ -32,7 +32,7 @@ use blockstack_lib::util_lib::signed_structured_data::pox4::make_pox_4_signer_ke
 use clap::Parser;
 use clarity::types::chainstate::StacksPublicKey;
 use clarity::util::sleep_ms;
-use libsigner::SignerSession;
+use libsigner::{SignerSession, VERSION_STRING};
 use libstackerdb::StackerDBChunkData;
 use slog::{slog_debug, slog_error};
 use stacks_common::util::hash::to_hex;
@@ -47,7 +47,6 @@ use stacks_signer::config::GlobalConfig;
 use stacks_signer::monitor_signers::SignerMonitor;
 use stacks_signer::utils::stackerdb_session;
 use stacks_signer::v0::SpawnedSigner;
-use stacks_signer::VERSION_STRING;
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{fmt, EnvFilter};
 
