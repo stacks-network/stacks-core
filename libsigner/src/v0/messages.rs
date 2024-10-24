@@ -26,6 +26,7 @@
 use std::fmt::{Debug, Display};
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
+use std::ops::Range;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::Arc;
@@ -89,6 +90,14 @@ MinerSlotID {
     /// Block pushed from the miner
     BlockPushed = 1
 });
+
+impl MinerSlotID {
+    /// Return the u32 slot id for messages of this type from a given miner's
+    /// slot range in the .miners contract
+    pub fn get_slot_for_miner(&self, miner_range: &Range<u32>) -> u32 {
+        miner_range.start.saturating_add(self.to_u8().into())
+    }
+}
 
 impl MessageSlotIDTrait for MessageSlotID {
     fn stacker_db_contract(&self, mainnet: bool, reward_cycle: u64) -> QualifiedContractIdentifier {
@@ -1236,6 +1245,21 @@ mod test {
         let deserialized_data = read_next::<MockBlock, _>(&mut &serialized_data[..])
             .expect("Failed to deserialize MockSignData");
         assert_eq!(mock_block, deserialized_data);
+    }
+
+    #[test]
+    fn get_slot_for_miner() {
+        let miner_range = std::ops::Range { start: 7, end: 10 };
+        assert_eq!(
+            MinerSlotID::BlockProposal.get_slot_for_miner(&miner_range),
+            7,
+            "Block proposals should be in the first slot assigned to a miner"
+        );
+        assert_eq!(
+            MinerSlotID::BlockPushed.get_slot_for_miner(&miner_range),
+            8,
+            "Block pushes should be in the second slot assigned to a miner"
+        );
     }
 
     #[test]
