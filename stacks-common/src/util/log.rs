@@ -215,14 +215,13 @@ fn make_json_logger() -> Logger {
     panic!("Tried to construct JSON logger, but stacks-blockchain built without slog_json feature enabled.")
 }
 
-#[cfg(not(any(test, feature = "testing")))]
 fn make_logger() -> Logger {
     if env::var("STACKS_LOG_JSON") == Ok("1".into()) {
         make_json_logger()
     } else {
         let debug = env::var("STACKS_LOG_DEBUG") == Ok("1".into());
         let pretty_print = env::var("STACKS_LOG_PP") == Ok("1".into());
-        let decorator = slog_term::PlainSyncDecorator::new(std::io::stderr());
+        let decorator = get_decorator();
         let atty = isatty(Stream::Stderr);
         let drain = TermFormat::new(decorator, pretty_print, debug, atty);
         let logger = Logger::root(drain.ignore_res(), o!());
@@ -231,17 +230,13 @@ fn make_logger() -> Logger {
 }
 
 #[cfg(any(test, feature = "testing"))]
-fn make_logger() -> Logger {
-    if env::var("STACKS_LOG_JSON") == Ok("1".into()) {
-        make_json_logger()
-    } else {
-        let debug = env::var("STACKS_LOG_DEBUG") == Ok("1".into());
-        let plain = slog_term::PlainSyncDecorator::new(slog_term::TestStdoutWriter);
-        let isatty = isatty(Stream::Stdout);
-        let drain = TermFormat::new(plain, false, debug, isatty);
-        let logger = Logger::root(drain.ignore_res(), o!());
-        logger
-    }
+fn get_decorator() -> slog_term::PlainSyncDecorator<slog_term::TestStdoutWriter> {
+    slog_term::PlainSyncDecorator::new(slog_term::TestStdoutWriter)
+}
+
+#[cfg(not(any(test, feature = "testing")))]
+fn get_decorator() -> slog_term::PlainSyncDecorator<std::io::Stderr> {
+    slog_term::PlainSyncDecorator::new(std::io::stderr())
 }
 
 fn inner_get_loglevel() -> slog::Level {
