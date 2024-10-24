@@ -24,7 +24,7 @@ use clarity::vm::costs::{CostErrors, ExecutionCost};
 use clarity::vm::errors::Error as clarity_interpreter_error;
 use clarity::vm::representations::{ClarityName, ContractName};
 use clarity::vm::types::{
-    PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, Value,
+    AssetIdentifier, PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, Value,
 };
 use clarity::vm::ClarityVersion;
 use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
@@ -948,6 +948,18 @@ pub enum PostConditionPrincipal {
     Contract(StacksAddress, ContractName),
 }
 
+impl fmt::Display for PostConditionPrincipal {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            PostConditionPrincipal::Origin => write!(f, "Origin"),
+            PostConditionPrincipal::Standard(address) => write!(f, "Standard({})", address),
+            PostConditionPrincipal::Contract(address, contract_name) => {
+                write!(f, "Contract({}, {})", address, contract_name)
+            }
+        }
+    }
+}
+
 impl PostConditionPrincipal {
     pub fn to_principal_data(&self, origin_principal: &PrincipalData) -> PrincipalData {
         match *self {
@@ -989,6 +1001,59 @@ pub enum TransactionPostCondition {
         Value,
         NonfungibleConditionCode,
     ),
+}
+
+impl fmt::Display for TransactionPostCondition {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            TransactionPostCondition::STX(principal, condition_code, amount) => {
+                write!(f, "STX({}, {:?}, {})", principal, condition_code, amount)
+            }
+            TransactionPostCondition::Fungible(principal, asset_info, condition_code, amount) => {
+                write!(
+                    f,
+                    "Fungible({}, {:?}, {:?}, {})",
+                    principal, asset_info, condition_code, amount
+                )
+            }
+            TransactionPostCondition::Nonfungible(principal, asset_info, value, condition_code) => {
+                write!(
+                    f,
+                    "Nonfungible({}, {:?}, {:?}, {:?})",
+                    principal, asset_info, value, condition_code
+                )
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum TransactionPostConditionStatus {
+    Success,
+    FailedFungibleAssetPostCondition((TransactionPostCondition, u128)),
+    FailedNonFungibleAssetPostCondition((TransactionPostCondition, Value)),
+    UncheckedFungibleAsset((AssetIdentifier, PrincipalData, Option<Value>)),
+    UncheckedNonFungibleAsset((AssetIdentifier, PrincipalData, Option<Value>)),
+}
+
+impl fmt::Display for TransactionPostConditionStatus {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            TransactionPostConditionStatus::Success => write!(f, "Success"),
+            TransactionPostConditionStatus::FailedFungibleAssetPostCondition(data) => {
+                write!(f, "Failed fungible asset post condition: {:?}", data)
+            }
+            TransactionPostConditionStatus::FailedNonFungibleAssetPostCondition(data) => {
+                write!(f, "Failed non-fungible asset post condition: {:?}", data)
+            }
+            TransactionPostConditionStatus::UncheckedFungibleAsset(asset) => {
+                write!(f, "Unchecked fungible asset: {:?}", asset)
+            }
+            TransactionPostConditionStatus::UncheckedNonFungibleAsset(asset) => {
+                write!(f, "Unchecked non-fungible asset: {:?}", asset)
+            }
+        }
+    }
 }
 
 /// Post-condition modes for unspecified assets
