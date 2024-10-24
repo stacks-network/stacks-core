@@ -468,6 +468,10 @@ impl PoxConstants {
         ) // total liquid supply is 40000000000000000 µSTX
     }
 
+    pub fn nakamoto_testnet_default() -> PoxConstants {
+        PoxConstants::new(900, 100, 51, 100, 0, u64::MAX, u64::MAX, 242, 243, 246, 244)
+    }
+
     // TODO: add tests from mutation testing results #4838
     #[cfg_attr(test, mutants::skip)]
     pub fn regtest_default() -> PoxConstants {
