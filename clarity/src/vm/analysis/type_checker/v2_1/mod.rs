@@ -45,7 +45,7 @@ use crate::vm::representations::SymbolicExpressionType::{
 };
 use crate::vm::representations::{depth_traverse, ClarityName, SymbolicExpression};
 use crate::vm::types::signatures::{
-    CallableSubtype, FunctionArgSignature, FunctionReturnsSignature, FunctionSignature, BUFF_20,
+    CallableSubtype, FunctionArgSignature, FunctionReturnsSignature, FunctionSignature, MethodSignature, BUFF_20
 };
 use crate::vm::types::{
     parse_name_type_pairs, CallableData, FixedFunction, FunctionArg, FunctionType, ListData,
@@ -647,8 +647,8 @@ fn check_function_arg_signature<T: CostTracker>(
 fn clarity2_check_functions_compatible<T: CostTracker>(
     db: &mut AnalysisDatabase,
     contract_context: Option<&ContractContext>,
-    expected_sig: &FunctionSignature,
-    actual_sig: &FunctionSignature,
+    expected_sig: &MethodSignature,
+    actual_sig: &MethodSignature,
     tracker: &mut T,
 ) -> bool {
     if expected_sig.args.len() != actual_sig.args.len() {
@@ -692,9 +692,9 @@ pub fn clarity2_trait_check_trait_compliance<T: CostTracker>(
     db: &mut AnalysisDatabase,
     contract_context: Option<&ContractContext>,
     actual_trait_identifier: &TraitIdentifier,
-    actual_trait: &BTreeMap<ClarityName, FunctionSignature>,
+    actual_trait: &BTreeMap<ClarityName, MethodSignature>,
     expected_trait_identifier: &TraitIdentifier,
-    expected_trait: &BTreeMap<ClarityName, FunctionSignature>,
+    expected_trait: &BTreeMap<ClarityName, MethodSignature>,
     tracker: &mut T,
 ) -> CheckResult<()> {
     // Shortcut for the simple case when the two traits are the same.
@@ -910,7 +910,7 @@ fn clarity2_lookup_trait<T: CostTracker>(
     contract_context: Option<&ContractContext>,
     trait_id: &TraitIdentifier,
     tracker: &mut T,
-) -> CheckResult<BTreeMap<ClarityName, FunctionSignature>> {
+) -> CheckResult<BTreeMap<ClarityName, MethodSignature>> {
     if let Some(contract_context) = contract_context {
         // If the trait is from this contract, then it must be in the context or it doesn't exist.
         if contract_context.is_contract(&trait_id.contract_identifier) {
@@ -956,7 +956,7 @@ fn clarity2_lookup_trait<T: CostTracker>(
     }
 }
 
-fn trait_type_size(trait_sig: &BTreeMap<ClarityName, FunctionSignature>) -> CheckResult<u64> {
+fn trait_type_size(trait_sig: &BTreeMap<ClarityName, MethodSignature>) -> CheckResult<u64> {
     let mut total_size = 0;
     for (_func_name, value) in trait_sig.iter() {
         total_size = total_size.cost_overflow_add(value.total_type_size()?)?;
@@ -1610,7 +1610,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         trait_name: &ClarityName,
         function_types: &[SymbolicExpression],
         _context: &mut TypingContext,
-    ) -> CheckResult<(ClarityName, BTreeMap<ClarityName, FunctionSignature>)> {
+    ) -> CheckResult<(ClarityName, BTreeMap<ClarityName, MethodSignature>)> {
         let trait_signature = TypeSignature::parse_trait_type_repr(
             function_types,
             &mut (),
