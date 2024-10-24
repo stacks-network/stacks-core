@@ -401,11 +401,11 @@ impl NakamotoBlockBuilder {
         burn_dbconn: &'a SortitionHandleConn,
         info: &'b mut MinerTenureInfo<'a>,
     ) -> Result<ClarityTx<'b, 'b>, Error> {
-        if info.tenure_block_commit_opt.is_none() {
+        let Some(block_commit) = info.tenure_block_commit_opt.as_ref() else {
             return Err(Error::InvalidStacksBlock(
                 "Block-commit is required; cannot mine a shadow block".into(),
             ));
-        }
+        };
 
         let SetupBlockResult {
             clarity_tx,
@@ -426,10 +426,7 @@ impl NakamotoBlockBuilder {
             info.coinbase_height,
             info.cause == Some(TenureChangeCause::Extended),
             &self.header.pox_treatment,
-            // safety: checked above
-            info.tenure_block_commit_opt
-                .as_ref()
-                .unwrap_or_else(|| panic!("FATAL: no block-commit for normal Nakamoto block")),
+            block_commit,
             &info.active_reward_set,
         )?;
         self.matured_miner_rewards_opt = matured_miner_rewards_opt;
