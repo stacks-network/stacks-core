@@ -221,15 +221,22 @@ fn make_logger() -> Logger {
     } else {
         let debug = env::var("STACKS_LOG_DEBUG") == Ok("1".into());
         let pretty_print = env::var("STACKS_LOG_PP") == Ok("1".into());
-        #[cfg(not(any(test, feature = "testing")))]
-        let decorator = slog_term::PlainSyncDecorator::new(std::io::stderr());
-        #[cfg(any(test, feature = "testing"))]
-        let decorator = slog_term::PlainSyncDecorator::new(slog_term::TestStdoutWriter);
+        let decorator = get_decorator();
         let atty = isatty(Stream::Stderr);
         let drain = TermFormat::new(decorator, pretty_print, debug, atty);
         let logger = Logger::root(drain.ignore_res(), o!());
         logger
     }
+}
+
+#[cfg(any(test, feature = "testing"))]
+fn get_decorator() -> slog_term::PlainSyncDecorator<slog_term::TestStdoutWriter> {
+    slog_term::PlainSyncDecorator::new(slog_term::TestStdoutWriter)
+}
+
+#[cfg(not(any(test, feature = "testing")))]
+fn get_decorator() -> slog_term::PlainSyncDecorator<std::io::Stderr> {
+    slog_term::PlainSyncDecorator::new(std::io::stderr())
 }
 
 fn inner_get_loglevel() -> slog::Level {
