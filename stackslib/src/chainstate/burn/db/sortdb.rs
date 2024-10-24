@@ -6637,7 +6637,7 @@ pub mod tests {
         pub fn connect_test_with_epochs(
             first_block_height: u64,
             first_burn_hash: &BurnchainHeaderHash,
-            epochs: Vec<StacksEpoch>,
+            epochs: EpochList,
         ) -> Result<SortitionDB, db_error> {
             let mut rng = rand::thread_rng();
             let mut buf = [0u8; 32];

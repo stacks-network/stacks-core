@@ -486,6 +486,37 @@ impl<L: Clone> EpochList<L> {
             self.0.truncate(index + 1);
         }
     }
+
+    /// Determine which epoch, if any, a given burnchain height falls into.
+    pub fn epoch_id_at_height(&self, height: u64) -> Option<StacksEpochId> {
+        for epoch in self.0.iter() {
+            if epoch.start_height <= height && height < epoch.end_height {
+                return Some(epoch.epoch_id);
+            }
+        }
+        None
+    }
+
+    /// Determine which epoch, if any, a given burnchain height falls into.
+    pub fn epoch_at_height(&self, height: u64) -> Option<StacksEpoch<L>> {
+        for epoch in self.0.iter() {
+            if epoch.start_height <= height && height < epoch.end_height {
+                return Some(epoch.clone());
+            }
+        }
+        None
+    }
+
+    /// Pushes a new `StacksEpoch` to the end of the list
+    pub fn push(&mut self, epoch: StacksEpoch<L>) {
+        if let Some(last) = self.0.last() {
+            assert!(
+                epoch.start_height == last.end_height && epoch.epoch_id > last.epoch_id,
+                "Epochs must be pushed in order"
+            );
+        }
+        self.0.push(epoch);
+    }
 }
 
 impl<L: Clone> Index<StacksEpochId> for EpochList<L> {

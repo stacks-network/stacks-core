@@ -50,7 +50,7 @@ use crate::chainstate::nakamoto::coordinator::load_nakamoto_reward_set;
 use crate::chainstate::stacks::boot::{RewardSet, MINERS_NAME};
 use crate::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState};
 use crate::chainstate::stacks::{StacksBlockHeader, MAX_BLOCK_LEN, MAX_TRANSACTION_LEN};
-use crate::core::StacksEpoch;
+use crate::core::{EpochList, StacksEpoch};
 use crate::monitoring::{update_inbound_neighbors, update_outbound_neighbors};
 use crate::net::asn::ASEntry4;
 use crate::net::atlas::{AtlasDB, AttachmentInstance, AttachmentsDownloader};
@@ -269,7 +269,7 @@ impl StacksTipInfo {
 pub struct PeerNetwork {
     // constants
     pub peer_version: u32,
-    pub epochs: Vec<StacksEpoch>,
+    pub epochs: EpochList,
 
     // refreshed when peer key expires
     pub local_peer: LocalPeer,
@@ -453,7 +453,7 @@ impl PeerNetwork {
             QualifiedContractIdentifier,
             (StackerDBConfig, StackerDBSync<PeerNetworkComms>),
         >,
-        epochs: Vec<StacksEpoch>,
+        epochs: EpochList,
     ) -> PeerNetwork {
         let http = HttpPeer::new(
             connection_opts.clone(),
@@ -625,26 +625,14 @@ impl PeerNetwork {
 
     /// Get an epoch at a burn block height
     pub fn get_epoch_at_burn_height(&self, burn_height: u64) -> StacksEpoch {
-        let epoch_index = StacksEpoch::find_epoch(&self.epochs, burn_height)
-            .unwrap_or_else(|| panic!("BUG: block {} is not in a known epoch", burn_height,));
-        let epoch = self
-            .epochs
-            .get(epoch_index)
-            .expect("BUG: no epoch at found index")
-            .clone();
-        epoch
+        self.epochs
+            .epoch_at_height(burn_height)
+            .unwrap_or_else(|| panic!("BUG: block {} is not in a known epoch", burn_height))
     }
 
     /// Get an epoch by epoch ID
     pub fn get_epoch_by_epoch_id(&self, epoch_id: StacksEpochId) -> StacksEpoch {
-        let epoch_index = StacksEpoch::find_epoch_by_id(&self.epochs, epoch_id)
-            .unwrap_or_else(|| panic!("BUG: epoch {} is not in a known epoch", epoch_id,));
-        let epoch = self
-            .epochs
-            .get(epoch_index)
-            .expect("BUG: no epoch at found index")
-            .clone();
-        epoch
+        self.epochs[epoch_id].clone()
     }
 
     /// Do something with the HTTP peer.
