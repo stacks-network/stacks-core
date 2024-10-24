@@ -567,7 +567,7 @@ impl NakamotoBlockBuilder {
 
     /// Produce a single-block shadow tenure.
     /// Used by tooling to synthesize shadow blocks in case of an emergency.
-    /// The details and circumatances will be recorded in an accompanying SIP.
+    /// The details and circumstances will be recorded in an accompanying SIP.
     pub fn make_shadow_tenure(
         chainstate: &mut StacksChainState,
         sortdb: &SortitionDB,
