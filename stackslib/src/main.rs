@@ -50,6 +50,9 @@ use blockstack_lib::chainstate::burn::operations::BlockstackOperationType;
 use blockstack_lib::chainstate::burn::{BlockSnapshot, ConsensusHash};
 use blockstack_lib::chainstate::coordinator::{get_reward_cycle_info, OnChainRewardSetProvider};
 use blockstack_lib::chainstate::nakamoto::miner::NakamotoBlockBuilder;
+use blockstack_lib::chainstate::nakamoto::shadow::{
+    process_shadow_block, shadow_chainstate_repair,
+};
 use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use blockstack_lib::chainstate::stacks::db::blocks::{DummyEventDispatcher, StagingBlock};
 use blockstack_lib::chainstate::stacks::db::{
@@ -252,16 +255,32 @@ fn open_nakamoto_chainstate_dbs(
     chainstate_dir: &str,
     network: &str,
 ) -> (SortitionDB, StacksChainState) {
-    let (mainnet, chain_id, pox_constants) = match network {
-        "mainnet" => (true, CHAIN_ID_MAINNET, PoxConstants::mainnet_default()),
-        "krypton" => (false, 0x80000100, PoxConstants::nakamoto_testnet_default()),
+    let (mainnet, chain_id, pox_constants, dirname) = match network {
+        "mainnet" => (
+            true,
+            CHAIN_ID_MAINNET,
+            PoxConstants::mainnet_default(),
+            network,
+        ),
+        "krypton" => (
+            false,
+            0x80000100,
+            PoxConstants::nakamoto_testnet_default(),
+            network,
+        ),
+        "naka3" => (
+            false,
+            0x80000000,
+            PoxConstants::new(20, 5, 3, 100, 0, u64::MAX, u64::MAX, 104, 105, 106, 107),
+            "nakamoto-neon",
+        ),
         _ => {
             panic!("Unrecognized network name '{}'", network);
         }
     };
 
-    let chain_state_path = format!("{}/{}/chainstate/", chainstate_dir, network);
-    let sort_db_path = format!("{}/{}/burnchain/sortition/", chainstate_dir, network);
+    let chain_state_path = format!("{}/{}/chainstate/", chainstate_dir, dirname);
+    let sort_db_path = format!("{}/{}/burnchain/sortition/", chainstate_dir, dirname);
 
     let sort_db = SortitionDB::open(&sort_db_path, false, pox_constants)
         .unwrap_or_else(|_| panic!("Failed to open {sort_db_path}"));
@@ -270,6 +289,16 @@ fn open_nakamoto_chainstate_dbs(
         .expect("Failed to open stacks chain state");
 
     (sort_db, chain_state)
+}
+
+fn check_shadow_network(network: &str) {
+    if network != "mainnet" && network != "krypton" && network != "naka3" {
+        eprintln!(
+            "Unknown network '{}': only support 'mainnet', 'krypton', or 'naka3'",
+            &network
+        );
+        process::exit(1);
+    }
 }
 
 #[cfg_attr(test, mutants::skip)]
@@ -1203,14 +1232,7 @@ simulating a miner.
         let chainstate_dir = argv[2].as_str();
         let network = argv[3].as_str();
 
-        if network != "mainnet" && network != "krypton" {
-            eprintln!(
-                "Unknown network '{}': only support 'mainnet' and 'krypton'",
-                &network
-            );
-            process::exit(1);
-        }
-
+        check_shadow_network(network);
         let (sort_db, chain_state) = open_nakamoto_chainstate_dbs(chainstate_dir, network);
 
         let header = NakamotoChainState::get_canonical_block_header(chain_state.db(), &sort_db)
@@ -1235,14 +1257,7 @@ simulating a miner.
         let chain_tip: Option<StacksBlockId> =
             argv.get(5).map(|tip| StacksBlockId::from_hex(tip).unwrap());
 
-        if network != "mainnet" && network != "krypton" {
-            eprintln!(
-                "Unknown network '{}': only support 'mainnet' and 'krypton'",
-                &network
-            );
-            process::exit(1);
-        }
-
+        check_shadow_network(network);
         let (sort_db, mut chain_state) = open_nakamoto_chainstate_dbs(chainstate_dir, network);
 
         let chain_tip_header = chain_tip
@@ -1287,14 +1302,7 @@ simulating a miner.
             })
             .collect();
 
-        if network != "mainnet" && network != "krypton" {
-            eprintln!(
-                "Unknown network '{}': only support 'mainnet' and 'krypton'",
-                &network
-            );
-            process::exit(1);
-        }
-
+        check_shadow_network(network);
         let (sort_db, mut chain_state) = open_nakamoto_chainstate_dbs(chainstate_dir, network);
         let header = NakamotoChainState::get_block_header(chain_state.db(), &chain_tip)
             .unwrap()
@@ -1310,6 +1318,68 @@ simulating a miner.
         .unwrap();
 
         println!("{}", to_hex(&shadow_block.serialize_to_vec()));
+        process::exit(0);
+    }
+
+    /// Generates the shadow blocks needed to restore this node to working order.
+    /// Automatically inserts and processes them as well.
+    /// Prints out the generated shadow blocks (as JSON)
+    if argv[1] == "shadow-chainstate-repair" {
+        if argv.len() < 4 {
+            eprintln!(
+                "Usage: {} shadow-chainstate-repair CHAINSTATE_DIR NETWORK",
+                &argv[0]
+            );
+            process::exit(1);
+        }
+
+        let chainstate_dir = argv[2].as_str();
+        let network = argv[3].as_str();
+
+        check_shadow_network(network);
+
+        let (mut sort_db, mut chain_state) = open_nakamoto_chainstate_dbs(chainstate_dir, network);
+        let shadow_blocks = shadow_chainstate_repair(&mut chain_state, &mut sort_db).unwrap();
+
+        let shadow_blocks_hex: Vec<_> = shadow_blocks
+            .into_iter()
+            .map(|blk| to_hex(&blk.serialize_to_vec()))
+            .collect();
+
+        println!("{}", serde_json::to_string(&shadow_blocks));
+        process::exit(0);
+    }
+
+    /// Inserts and processes shadow blocks generated from `shadow-chainstate-repair`
+    if argv[1] == "shadow-chainstate-patch" {
+        if argv.len() < 5 {
+            eprintln!(
+                "Usage: {} shadow-chainstate-repair CHAINSTATE_DIR NETWORK SHADOW_BLOCKS_JSON",
+                &argv[0]
+            );
+            process::exit(1);
+        }
+
+        let chainstate_dir = argv[2].as_str();
+        let network = argv[3].as_str();
+        let shadow_blocks_json = argv[4].as_str();
+
+        let shadow_blocks_hex: Vec<String> = serde_json::from_str(shadow_blocks_json).unwrap();
+        let shadow_blocks: Vec<_> = shadow_blocks_hex
+            .into_iter()
+            .map(|blk_hex| {
+                NakamotoBlock::consensus_deserialize(&mut hex_bytes(&blk_hex).unwrap().as_slice())
+                    .unwrap()
+            })
+            .collect();
+
+        check_shadow_network(network);
+
+        let (mut sort_db, mut chain_state) = open_nakamoto_chainstate_dbs(chainstate_dir, network);
+        for shadow_block in shadow_blocks.into_iter() {
+            process_shadow_block(&mut chain_state, &mut sort_db, shadow_block).unwrap();
+        }
+
         process::exit(0);
     }
 
@@ -1330,14 +1400,7 @@ simulating a miner.
 
         assert!(shadow_block.is_shadow_block());
 
-        if network != "mainnet" && network != "krypton" {
-            eprintln!(
-                "Unknown network '{}': only support 'mainnet' and 'krypton'",
-                &network
-            );
-            process::exit(1);
-        }
-
+        check_shadow_network(network);
         let (_, mut chain_state) = open_nakamoto_chainstate_dbs(chainstate_dir, network);
 
         let tx = chain_state.staging_db_tx_begin().unwrap();
