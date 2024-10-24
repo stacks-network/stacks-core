@@ -18,6 +18,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::ThreadId;
+use std::time::Instant;
 use std::{cmp, fs, mem};
 
 use clarity::vm::analysis::{CheckError, CheckErrors};
@@ -39,7 +40,9 @@ use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PrivateKey};
 use stacks_common::util::vrf::*;
 
 use crate::burnchains::{Burnchain, PrivateKey, PublicKey};
-use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionDBConn, SortitionHandleTx};
+use crate::chainstate::burn::db::sortdb::{
+    SortitionDB, SortitionDBConn, SortitionHandleConn, SortitionHandleTx,
+};
 use crate::chainstate::burn::operations::*;
 use crate::chainstate::burn::*;
 use crate::chainstate::stacks::address::StacksAddressExtensions;
@@ -63,6 +66,30 @@ use crate::monitoring::{
 };
 use crate::net::relay::Relayer;
 use crate::net::Error as net_error;
+
+/// Fully-assembled Stacks anchored, block as well as some extra metadata pertaining to how it was
+/// linked to the burnchain and what view(s) the miner had of the burnchain before and after
+/// completing the block.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AssembledAnchorBlock {
+    /// Consensus hash of the parent Stacks block
+    pub parent_consensus_hash: ConsensusHash,
+    /// Consensus hash this Stacks block
+    pub consensus_hash: ConsensusHash,
+    /// Burnchain tip's block hash when we finished mining
+    pub burn_hash: BurnchainHeaderHash,
+    /// Burnchain tip's block height when we finished mining
+    pub burn_block_height: u64,
+    /// Burnchain tip's block hash when we started mining (could be different)
+    pub orig_burn_hash: BurnchainHeaderHash,
+    /// The block we produced
+    pub anchored_block: StacksBlock,
+    /// The attempt count of this block (multiple blocks will be attempted per burnchain block)
+    pub attempt: u64,
+    /// Epoch timestamp in milliseconds when we started producing the block.
+    pub tenure_begin: u128,
+}
+impl_file_io_serde_json!(AssembledAnchorBlock);
 
 /// System status for mining.
 /// The miner can be Ready, in which case a miner is allowed to run
@@ -131,6 +158,7 @@ pub fn signal_mining_blocked(miner_status: Arc<Mutex<MinerStatus>>) {
 
 /// resume mining if we blocked it earlier
 pub fn signal_mining_ready(miner_status: Arc<Mutex<MinerStatus>>) {
+    debug!("Signaling miner to resume"; "thread_id" => ?std::thread::current().id());
     match miner_status.lock() {
         Ok(mut status) => {
             status.remove_blocked();
@@ -170,6 +198,8 @@ pub struct BlockBuilderSettings {
 }
 
 impl BlockBuilderSettings {
+    // TODO: add tests from mutation testing results #4873
+    #[cfg_attr(test, mutants::skip)]
     pub fn limited() -> BlockBuilderSettings {
         BlockBuilderSettings {
             max_miner_time_ms: u64::MAX,
@@ -179,6 +209,8 @@ impl BlockBuilderSettings {
         }
     }
 
+    // TODO: add tests from mutation testing results #4873
+    #[cfg_attr(test, mutants::skip)]
     pub fn max_value() -> BlockBuilderSettings {
         BlockBuilderSettings {
             max_miner_time_ms: u64::MAX,
@@ -290,7 +322,7 @@ pub struct TransactionSuccessEvent {
 }
 
 /// Represents an event for a failed transaction. Something went wrong when processing this transaction.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TransactionErrorEvent {
     #[serde(deserialize_with = "hex_deserialize", serialize_with = "hex_serialize")]
     pub txid: Txid,
@@ -337,7 +369,7 @@ pub enum TransactionResult {
     Success(TransactionSuccess),
     /// Transaction failed when processed.
     ProcessingError(TransactionError),
-    /// Transaction wasn't ready to be be processed, but might succeed later.
+    /// Transaction wasn't ready to be processed, but might succeed later.
     Skipped(TransactionSkipped),
     /// Transaction is problematic (e.g. a DDoS vector) and should be dropped.
     /// This error variant is a placeholder for fixing Clarity VM quirks in the next network
@@ -347,13 +379,13 @@ pub enum TransactionResult {
 
 /// This struct is used to transmit data about transaction results through either the `mined_block`
 /// or `mined_microblock` event.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum TransactionEvent {
     /// Transaction has already succeeded.
     Success(TransactionSuccessEvent),
     /// Transaction failed. It may succeed later depending on the error.
     ProcessingError(TransactionErrorEvent),
-    /// Transaction wasn't ready to be be processed, but might succeed later.
+    /// Transaction wasn't ready to be processed, but might succeed later.
     /// The bool represents whether mempool propagation should halt or continue
     Skipped(TransactionSkippedEvent),
     /// Transaction is problematic and will be dropped
@@ -725,11 +757,11 @@ impl<'a> StacksMicroblockBuilder<'a> {
             anchor_block,
             anchor_block_consensus_hash,
             anchor_block_height,
-            runtime: runtime,
+            runtime,
             clarity_tx: Some(clarity_tx),
             header_reader,
             unconfirmed: false,
-            settings: settings,
+            settings,
             ast_rules,
         })
     }
@@ -803,11 +835,11 @@ impl<'a> StacksMicroblockBuilder<'a> {
             anchor_block: anchored_block_hash,
             anchor_block_consensus_hash: anchored_consensus_hash,
             anchor_block_height: anchored_block_height,
-            runtime: runtime,
+            runtime,
             clarity_tx: Some(clarity_tx),
             header_reader,
             unconfirmed: true,
-            settings: settings,
+            settings,
             ast_rules,
         })
     }
@@ -1008,9 +1040,18 @@ impl<'a> StacksMicroblockBuilder<'a> {
                                     100 - TX_BLOCK_LIMIT_PROPORTION_HEURISTIC,
                                     &total_budget
                                 );
+                                let mut measured_cost = cost_after.clone();
+                                let measured_cost = if measured_cost.sub(cost_before).is_ok() {
+                                    Some(measured_cost)
+                                } else {
+                                    warn!(
+                                        "Failed to compute measured cost of a too big transaction"
+                                    );
+                                    None
+                                };
                                 return Ok(TransactionResult::error(
                                     &tx,
-                                    Error::TransactionTooBigError,
+                                    Error::TransactionTooBigError(measured_cost),
                                 ));
                             } else {
                                 warn!(
@@ -1197,7 +1238,6 @@ impl<'a> StacksMicroblockBuilder<'a> {
                 intermediate_result = mem_pool.iterate_candidates(
                     &mut clarity_tx,
                     &mut tx_events,
-                    self.anchor_block_height,
                     mempool_settings.clone(),
                     |clarity_tx, to_consider, estimator| {
                         let mempool_tx = &to_consider.tx;
@@ -1292,7 +1332,22 @@ impl<'a> StacksMicroblockBuilder<'a> {
                                                     return Ok(None);
                                                 }
                                             }
-                                            Error::TransactionTooBigError => {
+                                            Error::TransactionTooBigError(measured_cost) => {
+                                                if update_estimator {
+                                                    if let Some(measured_cost) = measured_cost {
+                                                        if let Err(e) = estimator.notify_event(
+                                                            &mempool_tx.tx.payload,
+                                                            &measured_cost,
+                                                            &block_limit,
+                                                            &stacks_epoch_id,
+                                                        ) {
+                                                            warn!("Error updating estimator";
+                                                                  "txid" => %mempool_tx.metadata.txid,
+                                                                  "error" => ?e);
+                                                        }
+                                                    }
+                                                }
+
                                                 invalidated_txs.push(mempool_tx.metadata.txid);
                                             }
                                             _ => {}
@@ -1493,6 +1548,7 @@ impl StacksBlockBuilder {
             burn_header_timestamp: genesis_burn_header_timestamp,
             burn_header_height: genesis_burn_header_height,
             anchored_block_size: 0,
+            burn_view: None,
         };
 
         let mut builder = StacksBlockBuilder::from_parent_pubkey_hash(
@@ -1793,6 +1849,8 @@ impl StacksBlockBuilder {
         }
     }
 
+    // TODO: add tests from mutation testing results #4859
+    #[cfg_attr(test, mutants::skip)]
     /// This function should be called before `epoch_begin`.
     /// It loads the parent microblock stream, sets the parent microblock, and returns
     /// data necessary for `epoch_begin`.
@@ -1803,7 +1861,7 @@ impl StacksBlockBuilder {
     pub fn pre_epoch_begin<'a>(
         &mut self,
         chainstate: &'a mut StacksChainState,
-        burn_dbconn: &'a SortitionDBConn,
+        burn_dbconn: &'a SortitionHandleConn,
         confirm_microblocks: bool,
     ) -> Result<MinerEpochInfo<'a>, Error> {
         debug!(
@@ -1912,7 +1970,7 @@ impl StacksBlockBuilder {
     /// returned ClarityTx object.
     pub fn epoch_begin<'a, 'b>(
         &mut self,
-        burn_dbconn: &'a SortitionDBConn,
+        burn_dbconn: &'a SortitionHandleConn,
         info: &'b mut MinerEpochInfo<'a>,
     ) -> Result<(ClarityTx<'b, 'b>, ExecutionCost), Error> {
         let SetupBlockResult {
@@ -1974,7 +2032,7 @@ impl StacksBlockBuilder {
     pub fn make_anchored_block_from_txs(
         builder: StacksBlockBuilder,
         chainstate_handle: &StacksChainState,
-        burn_dbconn: &SortitionDBConn,
+        burn_dbconn: &SortitionHandleConn,
         txs: Vec<StacksTransaction>,
     ) -> Result<(StacksBlock, u64, ExecutionCost), Error> {
         Self::make_anchored_block_and_microblock_from_txs(
@@ -1993,7 +2051,7 @@ impl StacksBlockBuilder {
     pub fn make_anchored_block_and_microblock_from_txs(
         mut builder: StacksBlockBuilder,
         chainstate_handle: &StacksChainState,
-        burn_dbconn: &SortitionDBConn,
+        burn_dbconn: &SortitionHandleConn,
         mut txs: Vec<StacksTransaction>,
         mut mblock_txs: Vec<StacksTransaction>,
     ) -> Result<(StacksBlock, u64, ExecutionCost, Option<StacksMicroblock>), Error> {
@@ -2047,6 +2105,8 @@ impl StacksBlockBuilder {
         Ok((block, size, cost, mblock_opt))
     }
 
+    // TODO: add tests from mutation testing results #4860
+    #[cfg_attr(test, mutants::skip)]
     /// Create a block builder for mining
     pub fn make_block_builder(
         burnchain: &Burnchain,
@@ -2101,6 +2161,8 @@ impl StacksBlockBuilder {
         Ok(builder)
     }
 
+    // TODO: add tests from mutation testing results #4860
+    #[cfg_attr(test, mutants::skip)]
     /// Create a block builder for regtest mining
     pub fn make_regtest_block_builder(
         burnchain: &Burnchain,
@@ -2174,6 +2236,15 @@ impl StacksBlockBuilder {
             );
         }
 
+        // nakamoto miner tenure start heuristic:
+        //  mine an empty block so you can start your tenure quickly!
+        if let Some(tx) = initial_txs.first() {
+            if matches!(&tx.payload, TransactionPayload::TenureChange(_)) {
+                info!("Nakamoto miner heuristic: during tenure change blocks, produce a fast short block to begin tenure");
+                return Ok((false, tx_events));
+            }
+        }
+
         mempool.reset_nonce_cache()?;
         mempool.estimate_tx_rates(100, &block_limit, &stacks_epoch_id)?;
 
@@ -2184,6 +2255,7 @@ impl StacksBlockBuilder {
 
         let mut invalidated_txs = vec![];
         let mut to_drop_and_blacklist = vec![];
+        let mut update_timings = vec![];
 
         let deadline = ts_start + u128::from(max_miner_time_ms);
         let mut num_txs = 0;
@@ -2191,13 +2263,12 @@ impl StacksBlockBuilder {
 
         debug!("Block transaction selection begins (parent height = {tip_height})");
         let result = {
-            let mut intermediate_result: Result<_, Error> = Ok(0);
+            let mut loop_result = Ok(());
             while block_limit_hit != BlockLimitFunction::LIMIT_REACHED {
                 let mut num_considered = 0;
-                intermediate_result = mempool.iterate_candidates(
+                let intermediate_result = mempool.iterate_candidates(
                     epoch_tx,
                     &mut tx_events,
-                    tip_height,
                     mempool_settings.clone(),
                     |epoch_tx, to_consider, estimator| {
                         // first, have we been preempted?
@@ -2214,9 +2285,26 @@ impl StacksBlockBuilder {
                         if block_limit_hit == BlockLimitFunction::LIMIT_REACHED {
                             return Ok(None);
                         }
-                        if get_epoch_time_ms() >= deadline {
+                        let time_now = get_epoch_time_ms();
+                        if time_now >= deadline {
                             debug!("Miner mining time exceeded ({} ms)", max_miner_time_ms);
                             return Ok(None);
+                        }
+                        if let Some(time_estimate) = txinfo.metadata.time_estimate_ms {
+                            if time_now.saturating_add(time_estimate.into()) > deadline {
+                                debug!("Mining tx would cause us to exceed our deadline, skipping";
+                                       "txid" => %txinfo.tx.txid(),
+                                       "deadline" => deadline,
+                                       "now" => time_now,
+                                       "estimate" => time_estimate);
+                                return Ok(Some(
+                                    TransactionResult::skipped(
+                                        &txinfo.tx,
+                                        "Transaction would exceed deadline.".into(),
+                                    )
+                                    .convert_to_event(),
+                                ));
+                            }
                         }
 
                         // skip transactions early if we can
@@ -2267,6 +2355,7 @@ impl StacksBlockBuilder {
                         considered.insert(txinfo.tx.txid());
                         num_considered += 1;
 
+                        let tx_start = Instant::now();
                         let tx_result = builder.try_mine_tx_with_len(
                             epoch_tx,
                             &txinfo.tx,
@@ -2278,6 +2367,21 @@ impl StacksBlockBuilder {
                         let result_event = tx_result.convert_to_event();
                         match tx_result {
                             TransactionResult::Success(TransactionSuccess { receipt, .. }) => {
+                                if txinfo.metadata.time_estimate_ms.is_none() {
+                                    // use i64 to avoid running into issues when storing in
+                                    //  rusqlite.
+                                    let time_estimate_ms: i64 = tx_start
+                                        .elapsed()
+                                        .as_millis()
+                                        .try_into()
+                                        .unwrap_or_else(|_| i64::MAX);
+                                    let time_estimate_ms: u64 = time_estimate_ms
+                                        .try_into()
+                                        // should be unreachable
+                                        .unwrap_or_else(|_| 0);
+                                    update_timings.push((txinfo.tx.txid(), time_estimate_ms));
+                                }
+
                                 num_txs += 1;
                                 if update_estimator {
                                     if let Err(e) = estimator.notify_event(
@@ -2325,7 +2429,22 @@ impl StacksBlockBuilder {
                                             return Ok(None);
                                         }
                                     }
-                                    Error::TransactionTooBigError => {
+                                    Error::TransactionTooBigError(measured_cost) => {
+                                        if update_estimator {
+                                            if let Some(measured_cost) = measured_cost {
+                                                if let Err(e) = estimator.notify_event(
+                                                    &txinfo.tx.payload,
+                                                    &measured_cost,
+                                                    &block_limit,
+                                                    &stacks_epoch_id,
+                                                ) {
+                                                    warn!("Error updating estimator";
+                                                                  "txid" => %txinfo.metadata.txid,
+                                                                  "error" => ?e);
+                                                }
+                                            }
+                                        }
+
                                         invalidated_txs.push(txinfo.metadata.txid);
                                     }
                                     Error::InvalidStacksTransaction(_, true) => {
@@ -2350,12 +2469,29 @@ impl StacksBlockBuilder {
                     },
                 );
 
+                if !update_timings.is_empty() {
+                    if let Err(e) = mempool.update_tx_time_estimates(&update_timings) {
+                        warn!("Error while updating time estimates for mempool"; "err" => ?e);
+                    }
+                }
+
                 if to_drop_and_blacklist.len() > 0 {
                     let _ = mempool.drop_and_blacklist_txs(&to_drop_and_blacklist);
                 }
 
-                if intermediate_result.is_err() {
-                    break;
+                match intermediate_result {
+                    Err(e) => {
+                        loop_result = Err(e);
+                        break;
+                    }
+                    Ok((_txs_considered, stop_reason)) => {
+                        match stop_reason {
+                            MempoolIterationStopReason::NoMoreCandidates => break,
+                            MempoolIterationStopReason::DeadlineReached => break,
+                            // if the iterator function exited, let the loop tick: it checks the block limits
+                            MempoolIterationStopReason::IteratorExited => {}
+                        }
+                    }
                 }
 
                 if num_considered == 0 {
@@ -2363,7 +2499,7 @@ impl StacksBlockBuilder {
                 }
             }
             debug!("Block transaction selection finished (parent height {}): {} transactions selected ({} considered)", &tip_height, num_txs, considered.len());
-            intermediate_result
+            loop_result
         };
 
         mempool.drop_txs(&invalidated_txs)?;
@@ -2381,11 +2517,14 @@ impl StacksBlockBuilder {
         Ok((blocked, tx_events))
     }
 
+    // TODO: add tests from mutation testing results #4861
+    // Or keep the skip and remove the comment
+    #[cfg_attr(test, mutants::skip)]
     /// Given access to the mempool, mine an anchored block with no more than the given execution cost.
     ///   returns the assembled block, and the consumed execution budget.
     pub fn build_anchored_block(
         chainstate_handle: &StacksChainState, // not directly used; used as a handle to open other chainstates
-        burn_dbconn: &SortitionDBConn,
+        burn_dbconn: &SortitionHandleConn,
         mempool: &mut MemPoolDB,
         parent_stacks_header: &StacksHeaderInfo, // Stacks header we're building off of
         total_burn: u64, // the burn so far on the burnchain (i.e. from the last burnchain block)
@@ -2499,7 +2638,7 @@ impl StacksBlockBuilder {
 
         info!(
             "Miner: mined anchored block";
-            "block_hash" => %block.block_hash(),
+            "stacks_block_hash" => %block.block_hash(),
             "height" => block.header.total_work.work,
             "tx_count" => block.txs.len(),
             "parent_stacks_block_hash" => %block.header.parent_block,
@@ -2614,9 +2753,18 @@ impl BlockBuilder for StacksBlockBuilder {
                                             100 - TX_BLOCK_LIMIT_PROPORTION_HEURISTIC,
                                             &total_budget
                                         );
+                                    let mut measured_cost = cost_after;
+                                    let measured_cost = if measured_cost.sub(&cost_before).is_ok() {
+                                        Some(measured_cost)
+                                    } else {
+                                        warn!(
+                                        "Failed to compute measured cost of a too big transaction"
+                                    );
+                                        None
+                                    };
                                     return TransactionResult::error(
                                         &tx,
-                                        Error::TransactionTooBigError,
+                                        Error::TransactionTooBigError(measured_cost),
                                     );
                                 } else {
                                     warn!(
@@ -2695,9 +2843,19 @@ impl BlockBuilder for StacksBlockBuilder {
                                         100 - TX_BLOCK_LIMIT_PROPORTION_HEURISTIC,
                                         &total_budget
                                     );
+                                    let mut measured_cost = cost_after;
+                                    let measured_cost = if measured_cost.sub(&cost_before).is_ok() {
+                                        Some(measured_cost)
+                                    } else {
+                                        warn!(
+                                        "Failed to compute measured cost of a too big transaction"
+                                    );
+                                        None
+                                    };
+
                                     return TransactionResult::error(
                                         &tx,
-                                        Error::TransactionTooBigError,
+                                        Error::TransactionTooBigError(measured_cost),
                                     );
                                 } else {
                                     warn!(

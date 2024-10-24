@@ -20,11 +20,12 @@ use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::Arc;
+use std::time::SystemTime;
 
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
 use blockstack_lib::chainstate::stacks::boot::{MINERS_NAME, SIGNERS_NAME};
 use blockstack_lib::chainstate::stacks::events::StackerDBChunksEvent;
-use blockstack_lib::chainstate::stacks::{StacksTransaction, ThresholdSignature};
+use blockstack_lib::chainstate::stacks::StacksTransaction;
 use blockstack_lib::net::api::postblock_proposal::{
     BlockValidateReject, BlockValidateResponse, ValidateRejectCode,
 };
@@ -39,17 +40,14 @@ use stacks_common::codec::{
     StacksMessageCodec,
 };
 pub use stacks_common::consts::SIGNER_SLOTS_PER_USER;
-use stacks_common::types::chainstate::StacksPublicKey;
-use stacks_common::util::hash::Sha512Trunc256Sum;
+use stacks_common::types::chainstate::{
+    BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, SortitionId, StacksPublicKey,
+};
+use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum};
+use stacks_common::util::HexError;
 use tiny_http::{
     Method as HttpMethod, Request as HttpRequest, Response as HttpResponse, Server as HttpServer,
 };
-use wsts::common::Signature;
-use wsts::net::{
-    DkgBegin, DkgEnd, DkgEndBegin, DkgPrivateBegin, DkgPrivateShares, DkgPublicShares, DkgStatus,
-    Message, NonceRequest, NonceResponse, Packet, SignatureShareRequest, SignatureShareResponse,
-};
-use wsts::state_machine::signer;
 
 use crate::http::{decode_http_body, decode_http_request};
 use crate::EventError;
@@ -108,7 +106,14 @@ pub enum SignerEvent<T: SignerEventTrait> {
     /// Status endpoint request
     StatusCheck,
     /// A new burn block event was received with the given burnchain block height
-    NewBurnBlock(u64),
+    NewBurnBlock {
+        /// the burn height for the newly processed burn block
+        burn_height: u64,
+        /// the burn hash for the newly processed burn block
+        burn_header_hash: BurnchainHeaderHash,
+        /// the time at which this event was received by the signer's event processor
+        received_time: SystemTime,
+    },
 }
 
 /// Trait to implement a stop-signaler for the event receiver thread.
@@ -303,6 +308,9 @@ impl<T: SignerEventTrait> EventReceiver<T> for SignerEventReceiver<T> {
                 process_proposal_response(request)
             } else if request.url() == "/new_burn_block" {
                 process_new_burn_block_event(request)
+            } else if request.url() == "/shutdown" {
+                event_receiver.stop_signal.store(true, Ordering::SeqCst);
+                return Err(EventError::Terminated);
             } else {
                 let url = request.url().to_string();
                 // `/new_block` is expected, but not specifically handled. do not log.
@@ -375,12 +383,13 @@ fn ack_dispatcher(request: HttpRequest) {
     };
 }
 
+// TODO: add tests from mutation testing results #4835
+#[cfg_attr(test, mutants::skip)]
 /// Process a stackerdb event from the node
 fn process_stackerdb_event<T: SignerEventTrait>(
     local_addr: Option<SocketAddr>,
     mut request: HttpRequest,
 ) -> Result<SignerEvent<T>, EventError> {
-    debug!("Got stackerdb_chunks event");
     let mut body = String::new();
     if let Err(e) = request.as_reader().read_to_string(&mut body) {
         error!("Failed to read body: {:?}", &e);
@@ -391,6 +400,7 @@ fn process_stackerdb_event<T: SignerEventTrait>(
         )));
     }
 
+    debug!("Got stackerdb_chunks event"; "chunks_event_body" => %body);
     let event: StackerDBChunksEvent = serde_json::from_slice(body.as_bytes())
         .map_err(|e| EventError::Deserialize(format!("Could not decode body to JSON: {:?}", &e)))?;
 
@@ -511,7 +521,19 @@ fn process_new_burn_block_event<T: SignerEventTrait>(
     }
     let temp: TempBurnBlockEvent = serde_json::from_slice(body.as_bytes())
         .map_err(|e| EventError::Deserialize(format!("Could not decode body to JSON: {:?}", &e)))?;
-    let event = SignerEvent::NewBurnBlock(temp.burn_block_height);
+    let burn_header_hash = temp
+        .burn_block_hash
+        .get(2..)
+        .ok_or_else(|| EventError::Deserialize("Hex string should be 0x prefixed".into()))
+        .and_then(|hex| {
+            BurnchainHeaderHash::from_hex(hex)
+                .map_err(|e| EventError::Deserialize(format!("Invalid hex string: {e}")))
+        })?;
+    let event = SignerEvent::NewBurnBlock {
+        burn_height: temp.burn_block_height,
+        received_time: SystemTime::now(),
+        burn_header_hash,
+    };
     if let Err(e) = request.respond(HttpResponse::empty(200u16)) {
         error!("Failed to respond to request: {:?}", &e);
     }

@@ -4,7 +4,12 @@
   "title": "TransactionFeeEstimateResponse",
   "type": "object",
   "additionalProperties": false,
-  "required": ["estimated_cost", "estimated_cost_scalar", "estimated_fee_rates", "estimated_fees"],
+  "required": [
+    "estimated_cost",
+    "estimated_cost_scalar",
+    "cost_scalar_change_by_byte",
+    "estimations"
+  ],
   "properties": {
     "estimated_cost_scalar": {
       "type": "integer"

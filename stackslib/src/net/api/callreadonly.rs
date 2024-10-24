@@ -234,52 +234,56 @@ impl RPCRequestHandler for RPCCallReadOnlyRequestHandler {
                 cost_limit.write_length = 0;
                 cost_limit.write_count = 0;
 
-                chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), &tip, |clarity_tx| {
-                    let epoch = clarity_tx.get_epoch();
-                    let cost_track = clarity_tx
-                        .with_clarity_db_readonly(|clarity_db| {
-                            LimitedCostTracker::new_mid_block(
-                                mainnet, chain_id, cost_limit, clarity_db, epoch,
-                            )
-                        })
-                        .map_err(|_| {
-                            ClarityRuntimeError::from(InterpreterError::CostContractLoadFailure)
-                        })?;
+                chainstate.maybe_read_only_clarity_tx(
+                    &sortdb.index_handle_at_block(chainstate, &tip)?,
+                    &tip,
+                    |clarity_tx| {
+                        let epoch = clarity_tx.get_epoch();
+                        let cost_track = clarity_tx
+                            .with_clarity_db_readonly(|clarity_db| {
+                                LimitedCostTracker::new_mid_block(
+                                    mainnet, chain_id, cost_limit, clarity_db, epoch,
+                                )
+                            })
+                            .map_err(|_| {
+                                ClarityRuntimeError::from(InterpreterError::CostContractLoadFailure)
+                            })?;
 
-                    let clarity_version = clarity_tx
-                        .with_analysis_db_readonly(|analysis_db| {
-                            analysis_db.get_clarity_version(&contract_identifier)
-                        })
-                        .map_err(|_| {
-                            ClarityRuntimeError::from(CheckErrors::NoSuchContract(format!(
-                                "{}",
-                                &contract_identifier
-                            )))
-                        })?;
+                        let clarity_version = clarity_tx
+                            .with_analysis_db_readonly(|analysis_db| {
+                                analysis_db.get_clarity_version(&contract_identifier)
+                            })
+                            .map_err(|_| {
+                                ClarityRuntimeError::from(CheckErrors::NoSuchContract(format!(
+                                    "{}",
+                                    &contract_identifier
+                                )))
+                            })?;
 
-                    clarity_tx.with_readonly_clarity_env(
-                        mainnet,
-                        chain_id,
-                        clarity_version,
-                        sender,
-                        sponsor,
-                        cost_track,
-                        |env| {
-                            // we want to execute any function as long as no actual writes are made as
-                            // opposed to be limited to purely calling `define-read-only` functions,
-                            // so use `read_only = false`.  This broadens the number of functions that
-                            // can be called, and also circumvents limitations on `define-read-only`
-                            // functions that can not use `contrac-call?`, even when calling other
-                            // read-only functions
-                            env.execute_contract(
-                                &contract_identifier,
-                                function.as_str(),
-                                &args,
-                                false,
-                            )
-                        },
-                    )
-                })
+                        clarity_tx.with_readonly_clarity_env(
+                            mainnet,
+                            chain_id,
+                            clarity_version,
+                            sender,
+                            sponsor,
+                            cost_track,
+                            |env| {
+                                // we want to execute any function as long as no actual writes are made as
+                                // opposed to be limited to purely calling `define-read-only` functions,
+                                // so use `read_only = false`.  This broadens the number of functions that
+                                // can be called, and also circumvents limitations on `define-read-only`
+                                // functions that can not use `contrac-call?`, even when calling other
+                                // read-only functions
+                                env.execute_contract(
+                                    &contract_identifier,
+                                    function.as_str(),
+                                    &args,
+                                    false,
+                                )
+                            },
+                        )
+                    },
+                )
             });
 
         // decode the response

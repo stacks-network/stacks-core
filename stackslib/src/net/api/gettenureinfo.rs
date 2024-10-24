@@ -22,7 +22,7 @@ use serde::de::Error as de_Error;
 use stacks_common::codec::{StacksMessageCodec, MAX_MESSAGE_LEN};
 use stacks_common::types::chainstate::{ConsensusHash, StacksBlockId};
 use stacks_common::types::net::PeerHost;
-use stacks_common::util::hash::to_hex;
+use stacks_common::util::hash::{to_hex, Sha512Trunc256Sum};
 use {serde, serde_json};
 
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState, NakamotoStagingBlocksConn};
@@ -116,15 +116,18 @@ impl RPCRequestHandler for RPCNakamotoTenureInfoRequestHandler {
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let info = node.with_node_state(|network, _sortdb, _chainstate, _mempool, _rpc_args| {
             RPCGetTenureInfo {
-                consensus_hash: network.stacks_tip.0.clone(),
+                consensus_hash: network.stacks_tip.consensus_hash.clone(),
                 tenure_start_block_id: network.tenure_start_block_id.clone(),
-                parent_consensus_hash: network.parent_stacks_tip.0.clone(),
+                parent_consensus_hash: network.parent_stacks_tip.consensus_hash.clone(),
                 parent_tenure_start_block_id: StacksBlockId::new(
-                    &network.parent_stacks_tip.0,
-                    &network.parent_stacks_tip.1,
+                    &network.parent_stacks_tip.consensus_hash,
+                    &network.parent_stacks_tip.block_hash,
                 ),
-                tip_block_id: StacksBlockId::new(&network.stacks_tip.0, &network.stacks_tip.1),
-                tip_height: network.stacks_tip.2,
+                tip_block_id: StacksBlockId::new(
+                    &network.stacks_tip.consensus_hash,
+                    &network.stacks_tip.block_hash,
+                ),
+                tip_height: network.stacks_tip.height,
                 reward_cycle: network
                     .burnchain
                     .block_height_to_reward_cycle(network.burnchain_tip.block_height)

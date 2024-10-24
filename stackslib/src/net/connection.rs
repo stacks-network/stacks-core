@@ -25,8 +25,6 @@ use std::{io, net};
 
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::BOUND_VALUE_SERIALIZATION_HEX;
-use mio;
-use mio::net as mio_net;
 use stacks_common::codec::{StacksMessageCodec, MAX_MESSAGE_LEN};
 use stacks_common::types::net::PeerAddress;
 use stacks_common::util::hash::to_hex;
@@ -43,7 +41,7 @@ use crate::net::inv::{INV_REWARD_CYCLES, INV_SYNC_INTERVAL};
 use crate::net::neighbors::{
     MAX_NEIGHBOR_AGE, NEIGHBOR_REQUEST_TIMEOUT, NEIGHBOR_WALK_INTERVAL, NUM_INITIAL_WALKS,
     WALK_MAX_DURATION, WALK_MIN_DURATION, WALK_RESET_INTERVAL, WALK_RESET_PROB, WALK_RETRY_COUNT,
-    WALK_STATE_TIMEOUT,
+    WALK_SEED_PROBABILITY, WALK_STATE_TIMEOUT,
 };
 use crate::net::{
     Error as net_error, MessageSequence, Preamble, ProtocolFamily, RelayData, StacksHttp, StacksP2P,
@@ -345,15 +343,37 @@ pub struct ConnectionOptions {
     pub max_http_clients: u64,
     pub neighbor_request_timeout: u64,
     pub max_neighbor_age: u64,
+    /// How many walk steps to take when the node has booted up.  This influences how quickly the
+    /// node will find new peers on start-up.  This describes the maximum length of such walks.
     pub num_initial_walks: u64,
+    /// How many walk state-machine restarts to take when the node has boote dup.  This influences
+    /// how quickly the node will find new peers on start-up.  This describes the maximum number of
+    /// such walk state-machine run-throughs.
     pub walk_retry_count: u64,
+    /// How often, in seconds, to run the walk state machine.
     pub walk_interval: u64,
+    /// The regularity of doing an inbound neighbor walk (as opposed to an outbound neighbor walk).
+    /// Every `walk_inbound_ratio + 1`-th walk will be an inbound neighbor walk.
     pub walk_inbound_ratio: u64,
+    /// Minimum number of steps a walk will run until it can be reset.
     pub walk_min_duration: u64,
+    /// Maximum number of steps a walk will run until forcibly reset.
     pub walk_max_duration: u64,
+    /// Probabiility that the walk will be reset once `walk_min_duration` steps are taken.
     pub walk_reset_prob: f64,
+    /// Maximum number of seconds a walk can last before being reset.
     pub walk_reset_interval: u64,
+    /// Maximum number of seconds a walk can remain in the same state before being reset.
     pub walk_state_timeout: u64,
+    /// If the node is booting up, or if the node is not connected to an always-allowed peer and
+    /// there are one or more such peers in the peers DB, then this controls the probability that
+    /// the node will attempt to start a walk to an always-allowed peer.  It's good to have this
+    /// close to, but not equal to 1.0, so that if the node can't reach any always-allowed peer for
+    /// some reason but can reach other neighbors, then neighbor walks can continue.
+    pub walk_seed_probability: f64,
+    /// How often, if ever, to log our neighbors via DEBG.
+    /// Units are milliseconds.  A value of 0 means "never".
+    pub log_neighbors_freq: u64,
     pub inv_sync_interval: u64,
     pub inv_reward_cycles: u64,
     pub download_interval: u64,
@@ -368,6 +388,7 @@ pub struct ConnectionOptions {
     pub max_microblocks_push_bandwidth: u64,
     pub max_transaction_push_bandwidth: u64,
     pub max_stackerdb_push_bandwidth: u64,
+    pub max_nakamoto_block_push_bandwidth: u64,
     pub max_sockets: usize,
     pub public_ip_address: Option<(PeerAddress, u16)>,
     pub public_ip_request_timeout: u64,
@@ -377,10 +398,18 @@ pub struct ConnectionOptions {
     pub max_microblock_push: u64,
     pub antientropy_retry: u64,
     pub antientropy_public: bool,
+    /// maximum number of Stacks 2.x BlocksAvailable messages that can be buffered before processing
     pub max_buffered_blocks_available: u64,
+    /// maximum number of Stacks 2.x MicroblocksAvailable that can be buffered before processing
     pub max_buffered_microblocks_available: u64,
+    /// maximum number of Stacks 2.x pushed Block messages we can buffer before processing
     pub max_buffered_blocks: u64,
+    /// maximum number of Stacks 2.x pushed Microblock messages we can buffer before processing
     pub max_buffered_microblocks: u64,
+    /// maximum number of pushed Nakamoto Block messages we can buffer before processing
+    pub max_buffered_nakamoto_blocks: u64,
+    /// maximum number of pushed StackerDB chunk messages we can buffer before processing
+    pub max_buffered_stackerdb_chunks: u64,
     /// how often to query a remote peer for its mempool, in seconds
     pub mempool_sync_interval: u64,
     /// how many transactions to ask for in a mempool query
@@ -393,30 +422,63 @@ pub struct ConnectionOptions {
     pub socket_send_buffer_size: u32,
     /// whether or not to announce or accept neighbors that are behind private networks
     pub private_neighbors: bool,
+    /// maximum number of confirmations for a nakamoto block's sortition for which it will be
+    /// pushed
+    pub max_nakamoto_block_relay_age: u64,
+    /// minimum amount of time between requests to push nakamoto blocks (millis)
+    pub nakamoto_push_interval_ms: u128,
+    /// minimum amount of time between requests to push nakamoto blocks (millis)
+    pub nakamoto_inv_sync_burst_interval_ms: u128,
+    /// time between unconfirmed downloader runs
+    pub nakamoto_unconfirmed_downloader_interval_ms: u128,
+    /// The authorization token to enable privileged RPC endpoints
+    pub auth_token: Option<String>,
 
     // fault injection
+    /// Disable neighbor walk and discovery
     pub disable_neighbor_walk: bool,
+    /// Disable sharing neighbors to a remote requester
     pub disable_chat_neighbors: bool,
+    /// Disable block inventory sync state machine
     pub disable_inv_sync: bool,
+    /// Disable sending inventory messages to a remote requester
     pub disable_inv_chat: bool,
+    /// Disable block download state machine
     pub disable_block_download: bool,
+    /// Disable network pruning
     pub disable_network_prune: bool,
+    /// Disable banning misbehaving peers
     pub disable_network_bans: bool,
+    /// Disable block availability advertisement
     pub disable_block_advertisement: bool,
+    /// Disable block pushing
     pub disable_block_push: bool,
+    /// Disable microblock pushing
     pub disable_microblock_push: bool,
+    /// Disable walk pingbacks -- don't attempt to walk to a remote peer even if it contacted us
+    /// first
     pub disable_pingbacks: bool,
+    /// Disable walking to inbound neighbors
     pub disable_inbound_walks: bool,
+    /// Disable all attempts to learn our IP address
     pub disable_natpunch: bool,
+    /// Disable handshakes from inbound neighbors
     pub disable_inbound_handshakes: bool,
+    /// Disable getting chunks from StackerDB (e.g. to test push-only)
     pub disable_stackerdb_get_chunks: bool,
+    /// Disable running stackerdb sync altogether (e.g. to test push-only)
+    pub disable_stackerdb_sync: bool,
+    /// Unconditionally disconnect a peer after this amount of time
     pub force_disconnect_interval: Option<u64>,
     /// If set to true, this forces the p2p state machine to believe that it is running in
     /// the reward cycle in which Nakamoto activates, and thus needs to run both the epoch
     /// 2.x and Nakamoto state machines.
     pub force_nakamoto_epoch_transition: bool,
-    /// The authorization token to enable the block proposal RPC endpoint
-    pub block_proposal_token: Option<String>,
+
+    // test facilitation
+    /// Do not require that an unsolicited message originate from an authenticated, connected
+    /// neighbor
+    pub test_disable_unsolicited_message_authentication: bool,
 }
 
 impl std::default::Default for ConnectionOptions {
@@ -452,6 +514,8 @@ impl std::default::Default for ConnectionOptions {
             walk_reset_prob: WALK_RESET_PROB,
             walk_reset_interval: WALK_RESET_INTERVAL,
             walk_state_timeout: WALK_STATE_TIMEOUT,
+            walk_seed_probability: WALK_SEED_PROBABILITY,
+            log_neighbors_freq: 60_000,
             inv_sync_interval: INV_SYNC_INTERVAL, // how often to synchronize block inventories
             inv_reward_cycles: INV_REWARD_CYCLES, // how many reward cycles of blocks to sync in a non-full inventory sync
             download_interval: BLOCK_DOWNLOAD_INTERVAL, // how often to scan for blocks to download
@@ -472,6 +536,7 @@ impl std::default::Default for ConnectionOptions {
             max_microblocks_push_bandwidth: 0, // infinite upload bandwidth allowed
             max_transaction_push_bandwidth: 0, // infinite upload bandwidth allowed
             max_stackerdb_push_bandwidth: 0, // infinite upload bandwidth allowed
+            max_nakamoto_block_push_bandwidth: 0, // infinite upload bandwidth allowed
             max_sockets: 800,            // maximum number of client sockets we'll ever register
             public_ip_address: None,     // resolve it at runtime by default
             public_ip_request_timeout: 60, // how often we can attempt to look up our public IP address
@@ -481,16 +546,23 @@ impl std::default::Default for ConnectionOptions {
             max_microblock_push: 10, // maximum number of microblocks messages to push out via our anti-entropy protocol
             antientropy_retry: 3600, // retry pushing data once every hour
             antientropy_public: true, // run antientropy even if we're NOT NAT'ed
-            max_buffered_blocks_available: 1,
-            max_buffered_microblocks_available: 1,
-            max_buffered_blocks: 1,
-            max_buffered_microblocks: 10,
+            max_buffered_blocks_available: 5,
+            max_buffered_microblocks_available: 5,
+            max_buffered_blocks: 5,
+            max_buffered_microblocks: 1024,
+            max_buffered_nakamoto_blocks: 1024,
+            max_buffered_stackerdb_chunks: 4096,
             mempool_sync_interval: 30, // number of seconds in-between mempool sync
             mempool_max_tx_query: 128, // maximum number of transactions to visit per mempool query
             mempool_sync_timeout: 180, // how long a mempool sync can go for (3 minutes)
             socket_recv_buffer_size: 131072, // Linux default
             socket_send_buffer_size: 16384, // Linux default
             private_neighbors: true,
+            max_nakamoto_block_relay_age: 6,
+            nakamoto_push_interval_ms: 30_000, // re-send a block no more than once every 30 seconds
+            nakamoto_inv_sync_burst_interval_ms: 1_000, // wait 1 second after a sortition before running inventory sync
+            nakamoto_unconfirmed_downloader_interval_ms: 5_000, // run unconfirmed downloader once every 5 seconds
+            auth_token: None,
 
             // no faults on by default
             disable_neighbor_walk: false,
@@ -508,9 +580,12 @@ impl std::default::Default for ConnectionOptions {
             disable_natpunch: false,
             disable_inbound_handshakes: false,
             disable_stackerdb_get_chunks: false,
+            disable_stackerdb_sync: false,
             force_disconnect_interval: None,
             force_nakamoto_epoch_transition: false,
-            block_proposal_token: None,
+
+            // no test facilitations on by default
+            test_disable_unsolicited_message_authentication: false,
         }
     }
 }
@@ -938,7 +1013,7 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
             // NOTE: it's important that buf not be too big, since up to buf.len()-1 bytes may need
             // to be copied if a message boundary isn't aligned with buf (which is usually the
             // case).
-            let mut buf = [0u8; 4096];
+            let mut buf = [0u8; 65536];
             let num_read = match fd.read(&mut buf) {
                 Ok(0) => {
                     // remote fd is closed, but do try to consume all remaining bytes in the buffer

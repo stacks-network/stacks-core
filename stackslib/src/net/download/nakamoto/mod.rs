@@ -127,7 +127,6 @@ use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs, log};
-use wsts::curve::point::Point;
 
 use crate::burnchains::{Burnchain, BurnchainView, PoxConstants};
 use crate::chainstate::burn::db::sortdb::{
@@ -176,6 +175,14 @@ pub use crate::net::download::nakamoto::tenure_downloader_unconfirmed::{
     NakamotoUnconfirmedDownloadState, NakamotoUnconfirmedTenureDownloader,
 };
 
+pub fn downloader_block_height_to_reward_cycle(
+    pox_constants: &PoxConstants,
+    first_block_height: u64,
+    block_height: u64,
+) -> Option<u64> {
+    pox_constants.block_height_to_reward_cycle(first_block_height, block_height.saturating_sub(1))
+}
+
 impl PeerNetwork {
     /// Set up the Nakamoto block downloader
     pub fn init_nakamoto_block_downloader(&mut self) {
@@ -183,7 +190,8 @@ impl PeerNetwork {
             return;
         }
         let epoch = self.get_epoch_by_epoch_id(StacksEpochId::Epoch30);
-        let downloader = NakamotoDownloadStateMachine::new(epoch.start_height);
+        let downloader =
+            NakamotoDownloadStateMachine::new(epoch.start_height, self.stacks_tip.block_id());
         self.block_downloader_nakamoto = Some(downloader);
     }
 
@@ -192,7 +200,7 @@ impl PeerNetwork {
         &mut self,
         burnchain_height: u64,
         sortdb: &SortitionDB,
-        chainstate: &StacksChainState,
+        chainstate: &mut StacksChainState,
         ibd: bool,
     ) -> Result<HashMap<ConsensusHash, Vec<NakamotoBlock>>, NetError> {
         if self.block_downloader_nakamoto.is_none() {
@@ -214,9 +222,13 @@ impl PeerNetwork {
         &mut self,
         burnchain_height: u64,
         sortdb: &SortitionDB,
-        chainstate: &StacksChainState,
+        chainstate: &mut StacksChainState,
         ibd: bool,
     ) -> Result<HashMap<ConsensusHash, Vec<NakamotoBlock>>, NetError> {
+        if self.connection_opts.disable_block_download {
+            return Ok(HashMap::new());
+        }
+
         let res = self.sync_blocks_nakamoto(burnchain_height, sortdb, chainstate, ibd)?;
 
         let Some(mut block_downloader) = self.block_downloader_nakamoto.take() else {

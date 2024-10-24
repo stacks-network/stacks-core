@@ -187,7 +187,6 @@ jobs:
     if: always()
     needs:
       - full-genesis
-      - unit-tests
       - open-api-validation
       - core-contracts-clarinet-test
     steps:

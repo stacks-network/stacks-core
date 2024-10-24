@@ -199,9 +199,11 @@ impl PeerNetwork {
             match org_neighbors.get_mut(&org) {
                 None => {}
                 Some(ref mut neighbor_infos) => {
-                    neighbor_infos.sort_by(|&(ref _nk1, ref stats1), &(ref _nk2, ref stats2)| {
-                        PeerNetwork::compare_neighbor_uptime_health(stats1, stats2)
-                    });
+                    neighbor_infos.sort_unstable_by(
+                        |&(ref _nk1, ref stats1), &(ref _nk2, ref stats2)| {
+                            PeerNetwork::compare_neighbor_uptime_health(stats1, stats2)
+                        },
+                    );
                 }
             }
         }

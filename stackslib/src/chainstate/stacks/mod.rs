@@ -27,8 +27,8 @@ use clarity::vm::types::{
     PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, Value,
 };
 use clarity::vm::ClarityVersion;
-use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSqlOutput, ValueRef};
-use rusqlite::{Error as RusqliteError, ToSql};
+use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
+use rusqlite::Error as RusqliteError;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sha2::{Digest, Sha512_256};
@@ -36,6 +36,7 @@ use stacks_common::address::AddressHashMode;
 use stacks_common::codec::{
     read_next, write_next, Error as codec_error, StacksMessageCodec, MAX_MESSAGE_LEN,
 };
+use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId, StacksWorkScore, TrieHash,
     TRIEHASH_ENCODED_SIZE,
@@ -99,9 +100,11 @@ pub enum Error {
     StacksTransactionSkipped(String),
     PostConditionFailed(String),
     NoSuchBlockError,
+    /// The supplied Sortition IDs, consensus hashes, or stacks blocks are not in the same fork.
+    NotInSameFork,
     InvalidChainstateDB,
     BlockTooBigError,
-    TransactionTooBigError,
+    TransactionTooBigError(Option<ExecutionCost>),
     BlockCostExceeded,
     NoTransactionsToMine,
     MicroblockStreamTooLongError,
@@ -165,7 +168,9 @@ impl fmt::Display for Error {
             Error::NoSuchBlockError => write!(f, "No such Stacks block"),
             Error::InvalidChainstateDB => write!(f, "Invalid chainstate database"),
             Error::BlockTooBigError => write!(f, "Too much data in block"),
-            Error::TransactionTooBigError => write!(f, "Too much data in transaction"),
+            Error::TransactionTooBigError(ref c) => {
+                write!(f, "Too much data in transaction: measured_cost={c:?}")
+            }
             Error::BlockCostExceeded => write!(f, "Block execution budget exceeded"),
             Error::MicroblockStreamTooLongError => write!(f, "Too many microblocks in stream"),
             Error::IncompatibleSpendingConditionError => {
@@ -224,6 +229,9 @@ impl fmt::Display for Error {
             Error::NoRegisteredSigners(reward_cycle) => {
                 write!(f, "No registered signers for reward cycle {reward_cycle}")
             }
+            Error::NotInSameFork => {
+                write!(f, "The supplied block identifiers are not in the same fork")
+            }
         }
     }
 }
@@ -240,7 +248,7 @@ impl error::Error for Error {
             Error::NoSuchBlockError => None,
             Error::InvalidChainstateDB => None,
             Error::BlockTooBigError => None,
-            Error::TransactionTooBigError => None,
+            Error::TransactionTooBigError(..) => None,
             Error::BlockCostExceeded => None,
             Error::MicroblockStreamTooLongError => None,
             Error::IncompatibleSpendingConditionError => None,
@@ -268,6 +276,7 @@ impl error::Error for Error {
             Error::InvalidChildOfNakomotoBlock => None,
             Error::ExpectedTenureChange => None,
             Error::NoRegisteredSigners(_) => None,
+            Error::NotInSameFork => None,
         }
     }
 }
@@ -284,7 +293,7 @@ impl Error {
             Error::NoSuchBlockError => "NoSuchBlockError",
             Error::InvalidChainstateDB => "InvalidChainstateDB",
             Error::BlockTooBigError => "BlockTooBigError",
-            Error::TransactionTooBigError => "TransactionTooBigError",
+            Error::TransactionTooBigError(..) => "TransactionTooBigError",
             Error::BlockCostExceeded => "BlockCostExceeded",
             Error::MicroblockStreamTooLongError => "MicroblockStreamTooLongError",
             Error::IncompatibleSpendingConditionError => "IncompatibleSpendingConditionError",
@@ -312,6 +321,7 @@ impl Error {
             Error::InvalidChildOfNakomotoBlock => "InvalidChildOfNakomotoBlock",
             Error::ExpectedTenureChange => "ExpectedTenureChange",
             Error::NoRegisteredSigners(_) => "NoRegisteredSigners",
+            Error::NotInSameFork => "NotInSameFork",
         }
     }
 
@@ -377,6 +387,14 @@ impl Txid {
     /// A sighash is calculated the same way as a txid
     pub fn from_sighash_bytes(txdata: &[u8]) -> Txid {
         Txid::from_stacks_tx(txdata)
+    }
+
+    /// Create a Txid from the tx hash bytes used in bitcoin.
+    /// This just reverses the inner bytes of the input.
+    pub fn from_bitcoin_tx_hash(tx_hash: &Sha256dHash) -> Txid {
+        let mut txid_bytes = tx_hash.0.clone();
+        txid_bytes.reverse();
+        Self(txid_bytes)
     }
 }
 
@@ -725,49 +743,6 @@ pub enum TenureChangeError {
     PreviousTenureInvalid,
     /// Block is not a Nakamoto block
     NotNakamoto,
-}
-
-/// Schnorr threshold signature using types from `wsts`
-#[derive(Debug, Clone, PartialEq)]
-pub struct ThresholdSignature(pub wsts::common::Signature);
-impl FromSql for ThresholdSignature {
-    fn column_result(value: ValueRef) -> FromSqlResult<ThresholdSignature> {
-        let hex_str = value.as_str()?;
-        let bytes = hex_bytes(&hex_str).map_err(|_| FromSqlError::InvalidType)?;
-        let ts = ThresholdSignature::consensus_deserialize(&mut &bytes[..])
-            .map_err(|_| FromSqlError::InvalidType)?;
-        Ok(ts)
-    }
-}
-
-impl fmt::Display for ThresholdSignature {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        to_hex(&self.serialize_to_vec()).fmt(f)
-    }
-}
-
-impl ToSql for ThresholdSignature {
-    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput> {
-        let bytes = self.serialize_to_vec();
-        let hex_str = to_hex(&bytes);
-        Ok(hex_str.into())
-    }
-}
-
-impl serde::Serialize for ThresholdSignature {
-    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-        let bytes = self.serialize_to_vec();
-        s.serialize_str(&to_hex(&bytes))
-    }
-}
-
-impl<'de> serde::Deserialize<'de> for ThresholdSignature {
-    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        let hex_str = String::deserialize(d)?;
-        let bytes = hex_bytes(&hex_str).map_err(serde::de::Error::custom)?;
-        ThresholdSignature::consensus_deserialize(&mut bytes.as_slice())
-            .map_err(serde::de::Error::custom)
-    }
 }
 
 /// A transaction from Stackers to signal new mining tenure
@@ -1126,12 +1101,18 @@ pub const MAX_MICROBLOCK_SIZE: u32 = 65536;
 
 #[cfg(test)]
 pub mod test {
+    use clarity::util::get_epoch_time_secs;
     use clarity::vm::representations::{ClarityName, ContractName};
     use clarity::vm::ClarityVersion;
+    use stacks_common::bitvec::BitVec;
     use stacks_common::util::hash::*;
     use stacks_common::util::log;
+    use stacks_common::util::secp256k1::Secp256k1PrivateKey;
 
     use super::*;
+    use crate::chainstate::burn::BlockSnapshot;
+    use crate::chainstate::nakamoto::miner::NakamotoBlockBuilder;
+    use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
     use crate::chainstate::stacks::{StacksPublicKey as PubKey, *};
     use crate::core::*;
     use crate::net::codec::test::check_codec_and_corruption;
@@ -1652,6 +1633,67 @@ pub mod test {
         };
 
         StacksBlock {
+            header,
+            txs: txs_anchored,
+        }
+    }
+
+    pub fn make_codec_test_nakamoto_block(
+        epoch_id: StacksEpochId,
+        miner_privk: &StacksPrivateKey,
+    ) -> NakamotoBlock {
+        let proof_bytes = hex_bytes("9275df67a68c8745c0ff97b48201ee6db447f7c93b23ae24cdc2400f52fdb08a1a6ac7ec71bf9c9c76e96ee4675ebff60625af28718501047bfd87b810c2d2139b73c23bd69de66360953a642c2a330a").unwrap();
+        let proof = VRFProof::from_bytes(&proof_bytes[..].to_vec()).unwrap();
+
+        let privk = StacksPrivateKey::from_hex(
+            "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
+        )
+        .unwrap();
+
+        let stx_address = StacksAddress {
+            version: 1,
+            bytes: Hash160([0xff; 20]),
+        };
+        let payload = TransactionPayload::TokenTransfer(
+            stx_address.into(),
+            123,
+            TokenTransferMemo([0u8; 34]),
+        );
+
+        let auth = TransactionAuth::from_p2pkh(miner_privk).unwrap();
+        let addr = auth.origin().address_testnet();
+        let mut tx = StacksTransaction::new(TransactionVersion::Testnet, auth, payload);
+        tx.chain_id = 0x80000000;
+        tx.auth.set_origin_nonce(34);
+        tx.set_post_condition_mode(TransactionPostConditionMode::Allow);
+        tx.set_tx_fee(300);
+        let mut tx_signer = StacksTransactionSigner::new(&tx);
+        tx_signer.sign_origin(miner_privk).unwrap();
+        let tx = tx_signer.get_tx().unwrap();
+
+        let txid_vecs = vec![tx.txid().as_bytes().to_vec()];
+        let txs_anchored = vec![tx];
+        let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs);
+        let tx_merkle_root = merkle_tree.root();
+
+        let header = NakamotoBlockHeader {
+            version: 0x00,
+            chain_length: 107,
+            burn_spent: 25000,
+            consensus_hash: MINER_BLOCK_CONSENSUS_HASH.clone(),
+            parent_block_id: StacksBlockId::from_bytes(&[0x11; 32]).unwrap(),
+            tx_merkle_root,
+            state_index_root: TrieHash::from_hex(
+                "fb419c3d8f40ae154018f2abf3935e2275a14c091e071bacaf6cbf5579743a0f",
+            )
+            .unwrap(),
+            timestamp: get_epoch_time_secs(),
+            miner_signature: MessageSignature::empty(),
+            signer_signature: Vec::new(),
+            pox_treatment: BitVec::ones(8).unwrap(),
+        };
+
+        NakamotoBlock {
             header,
             txs: txs_anchored,
         }

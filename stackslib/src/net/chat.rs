@@ -128,6 +128,8 @@ pub struct NeighborStats {
     pub transaction_push_rx_counts: VecDeque<(u64, u64)>,
     /// (timestamp, num bytes)
     pub stackerdb_push_rx_counts: VecDeque<(u64, u64)>,
+    /// (timestamp, num bytes)
+    pub nakamoto_block_push_rx_counts: VecDeque<(u64, u64)>,
     pub relayed_messages: HashMap<NeighborAddress, RelayStats>,
 }
 
@@ -152,6 +154,7 @@ impl NeighborStats {
             microblocks_push_rx_counts: VecDeque::new(),
             transaction_push_rx_counts: VecDeque::new(),
             stackerdb_push_rx_counts: VecDeque::new(),
+            nakamoto_block_push_rx_counts: VecDeque::new(),
             relayed_messages: HashMap::new(),
         }
     }
@@ -211,6 +214,17 @@ impl NeighborStats {
             .push_back((get_epoch_time_secs(), message_size));
         while self.stackerdb_push_rx_counts.len() > NUM_BANDWIDTH_POINTS {
             self.stackerdb_push_rx_counts.pop_front();
+        }
+    }
+
+    /// Record that we recently received a Nakamoto blcok push of the given size.
+    /// Keeps track of the last `NUM_BANDWIDTH_POINTS` such events, so we can estimate the current
+    /// bandwidth consumed by Nakamoto block pushes
+    pub fn add_nakamoto_block_push(&mut self, message_size: u64) -> () {
+        self.nakamoto_block_push_rx_counts
+            .push_back((get_epoch_time_secs(), message_size));
+        while self.nakamoto_block_push_rx_counts.len() > NUM_BANDWIDTH_POINTS {
+            self.nakamoto_block_push_rx_counts.pop_front();
         }
     }
 
@@ -296,6 +310,14 @@ impl NeighborStats {
     /// Get a peer's total stackerdb-push bandwidth usage
     pub fn get_stackerdb_push_bandwidth(&self) -> f64 {
         NeighborStats::get_bandwidth(&self.stackerdb_push_rx_counts, BANDWIDTH_POINT_LIFETIME)
+    }
+
+    /// Get a peer's total nakamoto block bandwidth usage
+    pub fn get_nakamoto_block_push_bandwidth(&self) -> f64 {
+        NeighborStats::get_bandwidth(
+            &self.nakamoto_block_push_rx_counts,
+            BANDWIDTH_POINT_LIFETIME,
+        )
     }
 
     /// Determine how many of a particular message this peer has received
@@ -585,6 +607,10 @@ impl ConversationP2P {
 
             epochs: epochs,
         }
+    }
+
+    pub fn age(&self) -> u64 {
+        get_epoch_time_secs().saturating_sub(self.instantiated)
     }
 
     pub fn set_public_key(&mut self, pubkey_opt: Option<Secp256k1PublicKey>) -> () {
@@ -1411,6 +1437,8 @@ impl ConversationP2P {
 
         // get neighbors at random as long as they're fresh, and as long as they're compatible with
         // the current system epoch.
+        // Alternate at random between serving public-only and public/private-mixed IPs, since for
+        // the time being, the remote peer has no way of asking for a particular subset.
         let mut neighbors = PeerDB::get_fresh_random_neighbors(
             peer_dbconn,
             self.network_id,
@@ -1419,6 +1447,7 @@ impl ConversationP2P {
             MAX_NEIGHBORS_DATA_LEN,
             chain_view.burn_block_height,
             false,
+            thread_rng().gen(),
         )
         .map_err(net_error::DBError)?;
 
@@ -1617,7 +1646,7 @@ impl ConversationP2P {
             .map_err(|e| net_error::from(e))?;
 
         if cfg!(test) {
-            // make *sure* the behavior stays the same
+            // make *sure* the behavior stays the same in epoch 2
             let original_blocks_inv_data: BlocksInvData =
                 chainstate.get_blocks_inventory(&block_hashes)?;
 
@@ -1715,6 +1744,8 @@ impl ConversationP2P {
             &tip,
             sortdb,
             chainstate,
+            &network.stacks_tip.consensus_hash,
+            &network.stacks_tip.block_hash,
             reward_cycle,
         )?;
         let nakamoto_inv = NakamotoInvData::try_from(&bitvec_bools).map_err(|e| {
@@ -1724,6 +1755,11 @@ impl ConversationP2P {
             );
             e
         })?;
+
+        debug!(
+            "Reply NakamotoInv for {} (rc {}): {:?}",
+            &get_nakamoto_inv.consensus_hash, reward_cycle, &nakamoto_inv
+        );
 
         Ok(StacksMessageType::NakamotoInv(nakamoto_inv))
     }
@@ -1889,25 +1925,16 @@ impl ConversationP2P {
     /// Generates a Nack if we don't have this DB, or if the request's consensus hash is invalid.
     fn make_stacker_db_getchunkinv_response(
         network: &PeerNetwork,
+        naddr: NeighborAddress,
+        chainstate: &mut StacksChainState,
         getchunkinv: &StackerDBGetChunkInvData,
     ) -> Result<StacksMessageType, net_error> {
-        let local_peer = network.get_local_peer();
-        let burnchain_view = network.get_chain_view();
-
-        // remote peer's Stacks chain tip is different from ours, meaning it might have a different
-        // stackerdb configuration view (and we won't be able to authenticate their chunks, and
-        // vice versa)
-        if burnchain_view.rc_consensus_hash != getchunkinv.rc_consensus_hash {
-            debug!(
-                "{:?}: NACK StackerDBGetChunkInv; {} != {}",
-                local_peer, &burnchain_view.rc_consensus_hash, &getchunkinv.rc_consensus_hash
-            );
-            return Ok(StacksMessageType::Nack(NackData::new(
-                NackErrorCodes::StaleView,
-            )));
-        }
-
-        Ok(network.make_StackerDBChunksInv_or_Nack(&getchunkinv.contract_id))
+        Ok(network.make_StackerDBChunksInv_or_Nack(
+            naddr,
+            chainstate,
+            &getchunkinv.contract_id,
+            &getchunkinv.rc_consensus_hash,
+        ))
     }
 
     /// Handle an inbound StackerDBGetChunkInv request.
@@ -1915,10 +1942,16 @@ impl ConversationP2P {
     fn handle_stacker_db_getchunkinv(
         &mut self,
         network: &PeerNetwork,
+        chainstate: &mut StacksChainState,
         preamble: &Preamble,
         getchunkinv: &StackerDBGetChunkInvData,
     ) -> Result<ReplyHandleP2P, net_error> {
-        let response = ConversationP2P::make_stacker_db_getchunkinv_response(network, getchunkinv)?;
+        let response = ConversationP2P::make_stacker_db_getchunkinv_response(
+            network,
+            self.to_neighbor_address(),
+            chainstate,
+            getchunkinv,
+        )?;
         self.sign_and_reply(
             network.get_local_peer(),
             network.get_chain_view(),
@@ -2098,7 +2131,8 @@ impl ConversationP2P {
                 > (self.connection.options.max_block_push_bandwidth as f64)
         {
             debug!(
-                "Neighbor {:?} exceeded max block-push bandwidth of {} bytes/sec (currently at {})",
+                "{:?}: Neighbor {:?} exceeded max block-push bandwidth of {} bytes/sec (currently at {})",
+                &self,
                 &self.to_neighbor_key(),
                 self.connection.options.max_block_push_bandwidth,
                 self.stats.get_block_push_bandwidth()
@@ -2140,7 +2174,7 @@ impl ConversationP2P {
             && self.stats.get_microblocks_push_bandwidth()
                 > (self.connection.options.max_microblocks_push_bandwidth as f64)
         {
-            debug!("Neighbor {:?} exceeded max microblocks-push bandwidth of {} bytes/sec (currently at {})", &self.to_neighbor_key(), self.connection.options.max_microblocks_push_bandwidth, self.stats.get_microblocks_push_bandwidth());
+            debug!("{:?}: Neighbor {:?} exceeded max microblocks-push bandwidth of {} bytes/sec (currently at {})", self, &self.to_neighbor_key(), self.connection.options.max_microblocks_push_bandwidth, self.stats.get_microblocks_push_bandwidth());
             return self
                 .reply_nack(local_peer, chain_view, preamble, NackErrorCodes::Throttled)
                 .and_then(|handle| Ok(Some(handle)));
@@ -2177,7 +2211,7 @@ impl ConversationP2P {
             && self.stats.get_transaction_push_bandwidth()
                 > (self.connection.options.max_transaction_push_bandwidth as f64)
         {
-            debug!("Neighbor {:?} exceeded max transaction-push bandwidth of {} bytes/sec (currently at {})", &self.to_neighbor_key(), self.connection.options.max_transaction_push_bandwidth, self.stats.get_transaction_push_bandwidth());
+            debug!("{:?}: Neighbor {:?} exceeded max transaction-push bandwidth of {} bytes/sec (currently at {})", self, &self.to_neighbor_key(), self.connection.options.max_transaction_push_bandwidth, self.stats.get_transaction_push_bandwidth());
             return self
                 .reply_nack(local_peer, chain_view, preamble, NackErrorCodes::Throttled)
                 .and_then(|handle| Ok(Some(handle)));
@@ -2215,7 +2249,46 @@ impl ConversationP2P {
             && self.stats.get_stackerdb_push_bandwidth()
                 > (self.connection.options.max_stackerdb_push_bandwidth as f64)
         {
-            debug!("Neighbor {:?} exceeded max stackerdb-push bandwidth of {} bytes/sec (currently at {})", &self.to_neighbor_key(), self.connection.options.max_stackerdb_push_bandwidth, self.stats.get_stackerdb_push_bandwidth());
+            debug!("{:?}: Neighbor {:?} exceeded max stackerdb-push bandwidth of {} bytes/sec (currently at {})", self, &self.to_neighbor_key(), self.connection.options.max_stackerdb_push_bandwidth, self.stats.get_stackerdb_push_bandwidth());
+            return self
+                .reply_nack(local_peer, chain_view, preamble, NackErrorCodes::Throttled)
+                .and_then(|handle| Ok(Some(handle)));
+        }
+
+        Ok(None)
+    }
+
+    /// Validate a pushed Nakamoto block list.
+    /// Update bandwidth accounting, but forward the blocks along if we can accept them.
+    /// Possibly return a reply handle for a NACK if we throttle the remote sender
+    fn validate_nakamoto_block_push(
+        &mut self,
+        network: &PeerNetwork,
+        preamble: &Preamble,
+        relayers: Vec<RelayData>,
+    ) -> Result<Option<ReplyHandleP2P>, net_error> {
+        assert!(preamble.payload_len > 1); // don't count 1-byte type prefix
+
+        let local_peer = network.get_local_peer();
+        let chain_view = network.get_chain_view();
+
+        if !self.process_relayers(local_peer, preamble, &relayers) {
+            warn!(
+                "Drop pushed Nakamoto blocks -- invalid relayers {:?}",
+                &relayers
+            );
+            self.stats.msgs_err += 1;
+            return Err(net_error::InvalidMessage);
+        }
+
+        self.stats
+            .add_nakamoto_block_push((preamble.payload_len as u64) - 1);
+
+        if self.connection.options.max_nakamoto_block_push_bandwidth > 0
+            && self.stats.get_nakamoto_block_push_bandwidth()
+                > (self.connection.options.max_nakamoto_block_push_bandwidth as f64)
+        {
+            debug!("{:?}: Neighbor {:?} exceeded max Nakamoto block push bandwidth of {} bytes/sec (currently at {})", self, &self.to_neighbor_key(), self.connection.options.max_nakamoto_block_push_bandwidth, self.stats.get_nakamoto_block_push_bandwidth());
             return self
                 .reply_nack(local_peer, chain_view, preamble, NackErrorCodes::Throttled)
                 .and_then(|handle| Ok(Some(handle)));
@@ -2296,7 +2369,7 @@ impl ConversationP2P {
                 }
             }
             StacksMessageType::StackerDBGetChunkInv(ref getchunkinv) => {
-                self.handle_stacker_db_getchunkinv(network, &msg.preamble, getchunkinv)
+                self.handle_stacker_db_getchunkinv(network, chainstate, &msg.preamble, getchunkinv)
             }
             StacksMessageType::StackerDBGetChunk(ref getchunk) => {
                 self.handle_stacker_db_getchunk(network, &msg.preamble, getchunk)
@@ -2305,6 +2378,21 @@ impl ConversationP2P {
                 // not handled here, but do some accounting -- we can't receive too many
                 // stackerdb chunks per second
                 match self.validate_stackerdb_push(network, &msg.preamble, msg.relayers.clone())? {
+                    Some(handle) => Ok(handle),
+                    None => {
+                        // will forward upstream
+                        return Ok(Some(msg));
+                    }
+                }
+            }
+            StacksMessageType::NakamotoBlocks(_) => {
+                // not handled here, but do some accounting -- we can't receive too many
+                // Nakamoto blocks per second
+                match self.validate_nakamoto_block_push(
+                    network,
+                    &msg.preamble,
+                    msg.relayers.clone(),
+                )? {
                     Some(handle) => Ok(handle),
                     None => {
                         // will forward upstream
@@ -6600,6 +6688,54 @@ mod test {
 
         // 100 bytes/sec
         assert_eq!(bw_stats.get_stackerdb_push_bandwidth(), 110.0);
+    }
+
+    #[test]
+    fn test_neighbor_stats_nakamoto_block_push_bandwidth() {
+        let mut stats = NeighborStats::new(false);
+
+        assert_eq!(stats.get_nakamoto_block_push_bandwidth(), 0.0);
+
+        stats.add_nakamoto_block_push(100);
+        assert_eq!(stats.get_nakamoto_block_push_bandwidth(), 0.0);
+
+        // this should all happen in one second
+        let bw_stats = loop {
+            let mut bw_stats = stats.clone();
+            let start = get_epoch_time_secs();
+
+            for _ in 0..(NUM_BANDWIDTH_POINTS - 1) {
+                bw_stats.add_nakamoto_block_push(100);
+            }
+
+            let end = get_epoch_time_secs();
+            if end == start {
+                break bw_stats;
+            }
+        };
+
+        assert_eq!(
+            bw_stats.get_nakamoto_block_push_bandwidth(),
+            (NUM_BANDWIDTH_POINTS as f64) * 100.0
+        );
+
+        // space some out; make sure it takes 11 seconds
+        let bw_stats = loop {
+            let mut bw_stats = NeighborStats::new(false);
+            let start = get_epoch_time_secs();
+            for _ in 0..11 {
+                bw_stats.add_nakamoto_block_push(100);
+                sleep_ms(1001);
+            }
+
+            let end = get_epoch_time_secs();
+            if end == start + 11 {
+                break bw_stats;
+            }
+        };
+
+        // 100 bytes/sec
+        assert_eq!(bw_stats.get_nakamoto_block_push_bandwidth(), 110.0);
     }
 
     #[test]

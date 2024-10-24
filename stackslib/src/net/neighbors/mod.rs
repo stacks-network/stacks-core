@@ -106,6 +106,10 @@ pub const NEIGHBOR_WALK_INTERVAL: u64 = 0;
 #[cfg(not(test))]
 pub const NEIGHBOR_WALK_INTERVAL: u64 = 120; // seconds
 
+/// Probability that we begin an always-allowed peer walk if we're either in IBD or if we're not
+/// connected to at least one always-allowed node
+pub const WALK_SEED_PROBABILITY: f64 = 0.9;
+
 impl PeerNetwork {
     /// Begin an outbound walk or a pingback walk, depending on whether or not we have pingback
     /// state.
@@ -115,6 +119,10 @@ impl PeerNetwork {
         &self,
     ) -> Result<NeighborWalk<PeerDBNeighborWalk, PeerNetworkComms>, net_error> {
         if self.get_walk_pingbacks().len() == 0 {
+            debug!(
+                "{:?}: no walk pingbacks, so instantiate a normal neighbor walk",
+                self.get_local_peer()
+            );
             // unconditionally do an outbound walk
             return NeighborWalk::instantiate_walk(
                 self.get_neighbor_walk_db(),
@@ -127,6 +135,10 @@ impl PeerNetwork {
         // If one fails, then try the other
         let do_outbound = thread_rng().gen::<bool>();
         if do_outbound {
+            debug!(
+                "{:?}: instantiate a normal neighbor walk",
+                self.get_local_peer()
+            );
             match NeighborWalk::instantiate_walk(
                 self.get_neighbor_walk_db(),
                 self.get_neighbor_comms(),
@@ -148,6 +160,10 @@ impl PeerNetwork {
                 }
             }
         } else {
+            debug!(
+                "{:?}: instantiate a pingback neighbor walk",
+                self.get_local_peer()
+            );
             match NeighborWalk::instantiate_walk_from_pingback(
                 self.get_neighbor_walk_db(),
                 self.get_neighbor_comms(),
@@ -215,10 +231,18 @@ impl PeerNetwork {
             .count_connected_always_allowed_peers()
             .unwrap_or((0, 0));
 
-        // always ensure we're connected to always-allowed outbound peers
-        let walk_res = if ibd || (num_always_connected == 0 && total_always_connected > 0) {
+        // always ensure we're connected to always-allowed outbound peers other than ourselves
+        let walk_seed =
+            thread_rng().gen::<f64>() < self.get_connection_opts().walk_seed_probability;
+        let walk_res = if ibd
+            || (num_always_connected == 0 && total_always_connected > 0 && walk_seed)
+        {
             // always connect to bootstrap peers if in IBD, or if we're not connected to an
             // always-allowed peer already
+            debug!("{:?}: Instantiate walk to always allowed", self.get_local_peer();
+                   "num_always_connected" => num_always_connected,
+                   "total_always_connected" => total_always_connected,
+                   "ibd" => ibd);
             NeighborWalk::instantiate_walk_to_always_allowed(
                 self.get_neighbor_walk_db(),
                 self.get_neighbor_comms(),
@@ -226,12 +250,26 @@ impl PeerNetwork {
                 ibd,
             )
         } else if self.walk_attempts % (self.connection_opts.walk_inbound_ratio + 1) == 0 {
-            // not IBD. Time to try an inbound neighbor
+            // not IBD, or not walk_seed, or connected to an always-allowed peer, or no always-allowed.
+            // Time to try an inbound neighbor
+            debug!("{:?}: Instantiate walk to inbound neigbor", self.get_local_peer();
+                   "walk_attempts" => self.walk_attempts,
+                   "walk_inbound_ratio" => self.connection_opts.walk_inbound_ratio,
+                   "num_always_connected" => num_always_connected,
+                   "total_always_connected" => total_always_connected,
+                   "walk_seed" => walk_seed);
+
             self.new_maybe_inbound_walk()
         } else {
-            // not IBD, and not time to try an inbound neighbor.
+            // no need to walk to an always-allowed peer, and not time to try an inbound neighbor.
             // Either do an outbound walk, or do a pingback walk.
             // If one fails, then try the other.
+            debug!("{:?}: Instantiate walk to either outbound or pingback neighbor", self.get_local_peer();
+                   "walk_attempts" => self.walk_attempts,
+                   "walk_inbound_ratio" => self.connection_opts.walk_inbound_ratio,
+                   "num_always_connected" => num_always_connected,
+                   "total_always_connected" => total_always_connected,
+                   "walk_seed" => walk_seed);
             self.new_outbound_or_pingback_walk()
         };
 

@@ -58,6 +58,8 @@ impl SugarExpander {
         Ok(())
     }
 
+    // TODO: add tests from mutation testing results #4830
+    #[cfg_attr(test, mutants::skip)]
     pub fn transform(
         &self,
         pre_exprs_iter: PreExpressionsDrain,

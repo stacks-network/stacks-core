@@ -16,5 +16,5 @@ libsigner/**/*.rs @stacks-network/blockchain-team-signer
 stacks-signer/**/*.rs @stacks-network/blockchain-team-signer
 
 # CI workflows
-./github/workflows/ @stacks-network/blockchain-team-ci
-./github/actions/ @stacks-network/blockchain-team-ci
+/.github/workflows/ @stacks-network/blockchain-team-ci
+/.github/actions/ @stacks-network/blockchain-team-ci

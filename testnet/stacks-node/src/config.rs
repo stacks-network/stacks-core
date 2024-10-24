@@ -1,3 +1,19 @@
+// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
+// Copyright (C) 2020-2024 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 use std::collections::{HashMap, HashSet};
 use std::net::{Ipv4Addr, SocketAddr, ToSocketAddrs};
 use std::path::PathBuf;
@@ -49,262 +65,43 @@ use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 use crate::chain_data::MinerStats;
 
 pub const DEFAULT_SATS_PER_VB: u64 = 50;
+pub const OP_TX_BLOCK_COMMIT_ESTIM_SIZE: u64 = 380;
+pub const OP_TX_DELEGATE_STACKS_ESTIM_SIZE: u64 = 230;
+pub const OP_TX_LEADER_KEY_ESTIM_SIZE: u64 = 290;
+pub const OP_TX_PRE_STACKS_ESTIM_SIZE: u64 = 280;
+pub const OP_TX_STACK_STX_ESTIM_SIZE: u64 = 250;
+pub const OP_TX_TRANSFER_STACKS_ESTIM_SIZE: u64 = 230;
+pub const OP_TX_VOTE_AGG_ESTIM_SIZE: u64 = 230;
+
+pub const OP_TX_ANY_ESTIM_SIZE: u64 = fmax!(
+    OP_TX_BLOCK_COMMIT_ESTIM_SIZE,
+    OP_TX_DELEGATE_STACKS_ESTIM_SIZE,
+    OP_TX_LEADER_KEY_ESTIM_SIZE,
+    OP_TX_PRE_STACKS_ESTIM_SIZE,
+    OP_TX_STACK_STX_ESTIM_SIZE,
+    OP_TX_TRANSFER_STACKS_ESTIM_SIZE,
+    OP_TX_VOTE_AGG_ESTIM_SIZE
+);
+
 const DEFAULT_MAX_RBF_RATE: u64 = 150; // 1.5x
 const DEFAULT_RBF_FEE_RATE_INCREMENT: u64 = 5;
-const LEADER_KEY_TX_ESTIM_SIZE: u64 = 290;
-const BLOCK_COMMIT_TX_ESTIM_SIZE: u64 = 350;
 const INV_REWARD_CYCLES_TESTNET: u64 = 6;
+const DEFAULT_MIN_TIME_BETWEEN_BLOCKS_MS: u64 = 1000;
 
 #[derive(Clone, Deserialize, Default, Debug)]
+#[serde(deny_unknown_fields)]
 pub struct ConfigFile {
     pub __path: Option<String>, // Only used for config file reloads
     pub burnchain: Option<BurnchainConfigFile>,
     pub node: Option<NodeConfigFile>,
     pub ustx_balance: Option<Vec<InitialBalanceFile>>,
+    /// Deprecated: use `ustx_balance` instead
+    pub mstx_balance: Option<Vec<InitialBalanceFile>>,
     pub events_observer: Option<HashSet<EventObserverConfigFile>>,
     pub connection_options: Option<ConnectionOptionsFile>,
     pub fee_estimation: Option<FeeEstimationConfigFile>,
     pub miner: Option<MinerConfigFile>,
     pub atlas: Option<AtlasConfigFile>,
-}
-
-#[derive(Clone, Deserialize, Default)]
-pub struct LegacyMstxConfigFile {
-    pub mstx_balance: Option<Vec<InitialBalanceFile>>,
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_config_file() {
-        assert_eq!(
-            format!("Invalid path: No such file or directory (os error 2)"),
-            ConfigFile::from_path("some_path").unwrap_err()
-        );
-        assert_eq!(
-            format!("Invalid toml: unexpected character found: `/` at line 1 column 1"),
-            ConfigFile::from_str("//[node]").unwrap_err()
-        );
-        assert!(ConfigFile::from_str("").is_ok());
-    }
-
-    #[test]
-    fn test_config() {
-        assert_eq!(
-            format!("node.seed should be a hex encoded string"),
-            Config::from_config_file(
-                ConfigFile::from_str(
-                    r#"
-                    [node]
-                    seed = "invalid-hex-value"
-                    "#,
-                )
-                .unwrap(),
-                false
-            )
-            .unwrap_err()
-        );
-
-        assert_eq!(
-            format!("node.local_peer_seed should be a hex encoded string"),
-            Config::from_config_file(
-                ConfigFile::from_str(
-                    r#"
-                    [node]
-                    local_peer_seed = "invalid-hex-value"
-                    "#,
-                )
-                .unwrap(),
-                false
-            )
-            .unwrap_err()
-        );
-
-        let expected_err_prefix =
-            "Invalid burnchain.peer_host: failed to lookup address information:";
-        let actual_err_msg = Config::from_config_file(
-            ConfigFile::from_str(
-                r#"
-                [burnchain]
-                peer_host = "bitcoin2.blockstack.com"
-                "#,
-            )
-            .unwrap(),
-            false,
-        )
-        .unwrap_err();
-        assert_eq!(
-            expected_err_prefix,
-            &actual_err_msg[..expected_err_prefix.len()]
-        );
-
-        assert!(Config::from_config_file(ConfigFile::from_str("").unwrap(), false).is_ok());
-    }
-
-    #[test]
-    fn should_load_legacy_mstx_balances_toml() {
-        let config = ConfigFile::from_str(
-            r#"
-            [[ustx_balance]]
-            address = "ST2QKZ4FKHAH1NQKYKYAYZPY440FEPK7GZ1R5HBP2"
-            amount = 10000000000000000
-
-            [[ustx_balance]]
-            address = "ST319CF5WV77KYR1H3GT0GZ7B8Q4AQPY42ETP1VPF"
-            amount = 10000000000000000
-
-            [[mstx_balance]] # legacy property name
-            address = "ST221Z6TDTC5E0BYR2V624Q2ST6R0Q71T78WTAX6H"
-            amount = 10000000000000000
-
-            [[mstx_balance]] # legacy property name
-            address = "ST2TFVBMRPS5SSNP98DQKQ5JNB2B6NZM91C4K3P7B"
-            amount = 10000000000000000
-            "#,
-        );
-        let config = config.unwrap();
-        assert!(config.ustx_balance.is_some());
-        let balances = config
-            .ustx_balance
-            .expect("Failed to parse stx balances from toml");
-        assert_eq!(balances.len(), 4);
-        assert_eq!(
-            balances[0].address,
-            "ST2QKZ4FKHAH1NQKYKYAYZPY440FEPK7GZ1R5HBP2"
-        );
-        assert_eq!(
-            balances[1].address,
-            "ST319CF5WV77KYR1H3GT0GZ7B8Q4AQPY42ETP1VPF"
-        );
-        assert_eq!(
-            balances[2].address,
-            "ST221Z6TDTC5E0BYR2V624Q2ST6R0Q71T78WTAX6H"
-        );
-        assert_eq!(
-            balances[3].address,
-            "ST2TFVBMRPS5SSNP98DQKQ5JNB2B6NZM91C4K3P7B"
-        );
-    }
-
-    #[test]
-    fn should_load_block_proposal_token() {
-        let config = Config::from_config_file(
-            ConfigFile::from_str(
-                r#"
-                [connection_options]
-                block_proposal_token = "password"
-                "#,
-            )
-            .unwrap(),
-            false,
-        )
-        .expect("Expected to be able to parse block proposal token from file");
-
-        assert_eq!(
-            config.connection_options.block_proposal_token,
-            Some("password".to_string())
-        );
-    }
-
-    #[test]
-    fn should_load_affirmation_map() {
-        let affirmation_string = "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnppnnnnnnnnnnnnnnnnnnnnnnnnpppppnnnnnnnnnnnnnnnnnnnnnnnpppppppppppppppnnnnnnnnnnnnnnnnnnnnnnnppppppppppnnnnnnnnnnnnnnnnnnnppppnnnnnnnnnnnnnnnnnnnnnnnppppppppnnnnnnnnnnnnnnnnnnnnnnnppnppnnnnnnnnnnnnnnnnnnnnnnnppppnnnnnnnnnnnnnnnnnnnnnnnnnppppppnnnnnnnnnnnnnnnnnnnnnnnnnppnnnnnnnnnnnnnnnnnnnnnnnnnpppppppnnnnnnnnnnnnnnnnnnnnnnnnnnpnnnnnnnnnnnnnnnnnnnnnnnnnpppnppppppppppppppnnppppnpa";
-        let affirmation =
-            AffirmationMap::decode(affirmation_string).expect("Failed to decode affirmation map");
-        let config = Config::from_config_file(
-            ConfigFile::from_str(&format!(
-                r#"
-                    [[burnchain.affirmation_overrides]]
-                    reward_cycle = 413
-                    affirmation = "{affirmation_string}"
-                "#
-            ))
-            .expect("Expected to be able to parse config file from string"),
-            false,
-        )
-        .expect("Expected to be able to parse affirmation map from file");
-
-        assert_eq!(config.burnchain.affirmation_overrides.len(), 1);
-        assert_eq!(config.burnchain.affirmation_overrides.get(&0), None);
-        assert_eq!(
-            config.burnchain.affirmation_overrides.get(&413),
-            Some(&affirmation)
-        );
-    }
-
-    #[test]
-    fn should_fail_to_load_invalid_affirmation_map() {
-        let bad_affirmation_string = "bad_map";
-        let file = ConfigFile::from_str(&format!(
-            r#"
-                    [[burnchain.affirmation_overrides]]
-                    reward_cycle = 1
-                    affirmation = "{bad_affirmation_string}"
-                "#
-        ))
-        .expect("Expected to be able to parse config file from string");
-
-        assert!(Config::from_config_file(file, false).is_err());
-    }
-
-    #[test]
-    fn should_load_empty_affirmation_map() {
-        let config = Config::from_config_file(
-            ConfigFile::from_str(r#""#)
-                .expect("Expected to be able to parse config file from string"),
-            false,
-        )
-        .expect("Expected to be able to parse affirmation map from file");
-
-        assert!(config.burnchain.affirmation_overrides.is_empty());
-    }
-
-    #[test]
-    fn should_include_xenon_default_affirmation_overrides() {
-        let config = Config::from_config_file(
-            ConfigFile::from_str(
-                r#"
-                [burnchain]
-                chain = "bitcoin"
-                mode = "xenon"
-                "#,
-            )
-            .expect("Expected to be able to parse config file from string"),
-            false,
-        )
-        .expect("Expected to be able to parse affirmation map from file");
-        // Should default add xenon affirmation overrides
-        assert_eq!(config.burnchain.affirmation_overrides.len(), 5);
-    }
-
-    #[test]
-    fn should_override_xenon_default_affirmation_overrides() {
-        let affirmation_string = "aaapnnnnnnnnnnnnnnnnnnnnnnnnnnnnppnnnnnnnnnnnnnnnnnnnnnnnnpppppnnnnnnnnnnnnnnnnnnnnnnnpppppppppppppppnnnnnnnnnnnnnnnnnnnnnnnppppppppppnnnnnnnnnnnnnnnnnnnppppnnnnnnnnnnnnnnnnnnnnnnnppppppppnnnnnnnnnnnnnnnnnnnnnnnppnppnnnnnnnnnnnnnnnnnnnnnnnppppnnnnnnnnnnnnnnnnnnnnnnnnnppppppnnnnnnnnnnnnnnnnnnnnnnnnnppnnnnnnnnnnnnnnnnnnnnnnnnnpppppppnnnnnnnnnnnnnnnnnnnnnnnnnnpnnnnnnnnnnnnnnnnnnnnnnnnnpppnppppppppppppppnnppppnpa";
-        let affirmation =
-            AffirmationMap::decode(affirmation_string).expect("Failed to decode affirmation map");
-
-        let config = Config::from_config_file(
-            ConfigFile::from_str(&format!(
-                r#"
-                [burnchain]
-                chain = "bitcoin"
-                mode = "xenon"
-
-                [[burnchain.affirmation_overrides]]
-                reward_cycle = 413
-                affirmation = "{affirmation_string}"
-                "#,
-            ))
-            .expect("Expected to be able to parse config file from string"),
-            false,
-        )
-        .expect("Expected to be able to parse affirmation map from file");
-        // Should default add xenon affirmation overrides, but overwrite with the configured one above
-        assert_eq!(config.burnchain.affirmation_overrides.len(), 5);
-        assert_eq!(config.burnchain.affirmation_overrides[&413], affirmation);
-    }
 }
 
 impl ConfigFile {
@@ -318,13 +115,16 @@ impl ConfigFile {
     pub fn from_str(content: &str) -> Result<ConfigFile, String> {
         let mut config: ConfigFile =
             toml::from_str(content).map_err(|e| format!("Invalid toml: {}", e))?;
-        let legacy_config: LegacyMstxConfigFile = toml::from_str(content).unwrap();
-        if let Some(mstx_balance) = legacy_config.mstx_balance {
-            warn!("'mstx_balance' inside toml config is deprecated, replace with 'ustx_balance'");
-            config.ustx_balance = match config.ustx_balance {
-                Some(balance) => Some([balance, mstx_balance].concat()),
-                None => Some(mstx_balance),
-            };
+        if let Some(mstx_balance) = config.mstx_balance.take() {
+            warn!("'mstx_balance' in the config is deprecated; please use 'ustx_balance' instead.");
+            match config.ustx_balance {
+                Some(ref mut ustx_balance) => {
+                    ustx_balance.extend(mstx_balance);
+                }
+                None => {
+                    config.ustx_balance = Some(mstx_balance);
+                }
+            }
         }
         Ok(config)
     }
@@ -513,7 +313,7 @@ lazy_static! {
         heartbeat: 3600,
         // can't use u64::max, because sqlite stores as i64.
         private_key_lifetime: 9223372036854775807,
-        num_neighbors: 16,              // number of neighbors whose inventories we track
+        num_neighbors: 32,              // number of neighbors whose inventories we track
         num_clients: 750,               // number of inbound p2p connections
         soft_num_neighbors: 16,         // soft-limit on the number of neighbors whose inventories we track
         soft_num_clients: 750,          // soft limit on the number of inbound p2p connections
@@ -525,6 +325,8 @@ lazy_static! {
         max_http_clients: 1000,         // maximum number of HTTP connections
         max_neighbors_of_neighbor: 10,  // maximum number of neighbors we'll handshake with when doing a neighbor walk (I/O for this can be expensive, so keep small-ish)
         walk_interval: 60,              // how often, in seconds, we do a neighbor walk
+        walk_seed_probability: 0.1,     // 10% of the time when not in IBD, walk to a non-seed node even if we aren't connected to a seed node
+        log_neighbors_freq: 60_000,     // every minute, log all peer connections
         inv_sync_interval: 45,          // how often, in seconds, we refresh block inventories
         inv_reward_cycles: 3,           // how many reward cycles to look back on, for mainnet
         download_interval: 10,          // how often, in seconds, we do a block download scan (should be less than inv_sync_interval)
@@ -748,6 +550,16 @@ impl Config {
                 &burnchain.pox_constants
             );
         }
+        let activation_reward_cycle = burnchain
+            .block_height_to_reward_cycle(epoch_30.start_height)
+            .expect("FATAL: Epoch 3.0 starts before the first burnchain block");
+        if activation_reward_cycle < 2 {
+            panic!(
+                "FATAL: Epoch 3.0 must start at or after the second reward cycle. Epoch 3.0 start set to: {}. PoX Parameters: {:?}",
+                epoch_30.start_height,
+                &burnchain.pox_constants
+            );
+        }
     }
 
     /// Connect to the MempoolDB using the configured cost estimation
@@ -827,6 +639,8 @@ impl Config {
         }
     }
 
+    // TODO: add tests from mutation testing results #4866
+    #[cfg_attr(test, mutants::skip)]
     fn make_epochs(
         conf_epochs: &[StacksEpochConfigFile],
         burn_mode: &str,
@@ -1039,12 +853,6 @@ impl Config {
                     "Attempted to run mainnet node with `use_test_genesis_chainstate`"
                 ));
             }
-        } else if node.require_affirmed_anchor_blocks {
-            // testnet requires that we use the 2.05 rules for anchor block affirmations,
-            // because reward cycle 360 (and possibly future ones) has a different anchor
-            // block choice in 2.05 rules than in 2.1 rules.
-            debug!("Set `require_affirmed_anchor_blocks` to `false` for non-mainnet config");
-            node.require_affirmed_anchor_blocks = false;
         }
 
         if node.stacker || node.miner {
@@ -1091,11 +899,10 @@ impl Config {
                         .map(|e| EventKeyType::from_string(e).unwrap())
                         .collect();
 
-                    let endpoint = format!("{}", observer.endpoint);
-
                     observers.insert(EventObserverConfig {
-                        endpoint,
+                        endpoint: observer.endpoint,
                         events_keys,
+                        timeout_ms: observer.timeout_ms.unwrap_or(1_000),
                     });
                 }
                 observers
@@ -1109,6 +916,7 @@ impl Config {
                 events_observers.insert(EventObserverConfig {
                     endpoint: val,
                     events_keys: vec![EventKeyType::AnyEvent],
+                    timeout_ms: 1_000,
                 });
                 ()
             }
@@ -1134,6 +942,10 @@ impl Config {
             .validate()
             .map_err(|e| format!("Atlas config error: {e}"))?;
 
+        if miner.mining_key.is_none() && miner.pre_nakamoto_mock_signing {
+            return Err("Cannot use pre_nakamoto_mock_signing without a mining_key".to_string());
+        }
+
         Ok(Config {
             config_path: config_file.__path,
             node,
@@ -1145,6 +957,18 @@ impl Config {
             miner,
             atlas,
         })
+    }
+
+    /// Returns the path working directory path, and ensures it exists.
+    pub fn get_working_dir(&self) -> PathBuf {
+        let path = PathBuf::from(&self.node.working_dir);
+        fs::create_dir_all(&path).unwrap_or_else(|_| {
+            panic!(
+                "Failed to create working directory at {}",
+                path.to_string_lossy()
+            )
+        });
+        path
     }
 
     fn get_burnchain_path(&self) -> PathBuf {
@@ -1274,6 +1098,8 @@ impl Config {
         }
     }
 
+    // TODO: add tests from mutation testing results #4867
+    #[cfg_attr(test, mutants::skip)]
     pub fn make_block_builder_settings(
         &self,
         attempt: u64,
@@ -1330,9 +1156,9 @@ impl Config {
     /// the poll time is dependent on the first attempt time.
     pub fn get_poll_time(&self) -> u64 {
         let poll_timeout = if self.node.miner {
-            cmp::min(5000, self.miner.first_attempt_time_ms / 2)
+            cmp::min(1000, self.miner.first_attempt_time_ms / 2)
         } else {
-            5000
+            1000
         };
         poll_timeout
     }
@@ -1375,6 +1201,7 @@ pub struct BurnchainConfig {
     pub rpc_ssl: bool,
     pub username: Option<String>,
     pub password: Option<String>,
+    /// Timeout, in seconds, for communication with bitcoind
     pub timeout: u32,
     pub magic_bytes: MagicBytes,
     pub local_mining_public_key: Option<String>,
@@ -1399,6 +1226,13 @@ pub struct BurnchainConfig {
     pub wallet_name: String,
     pub ast_precheck_size_height: Option<u64>,
     pub affirmation_overrides: HashMap<u64, AffirmationMap>,
+    /// fault injection to simulate a slow burnchain peer.
+    /// Delay burnchain block downloads by the given number of millseconds
+    pub fault_injection_burnchain_block_delay: u64,
+    /// The maximum number of unspent UTXOs to request from the bitcoin node.
+    /// This value is passed as the `maximumCount` query option to the
+    /// `listunspent` RPC call.
+    pub max_unspent_utxos: Option<u64>,
 }
 
 impl BurnchainConfig {
@@ -1416,15 +1250,15 @@ impl BurnchainConfig {
             rpc_ssl: false,
             username: None,
             password: None,
-            timeout: 300,
+            timeout: 60,
             magic_bytes: BLOCKSTACK_MAGIC_MAINNET.clone(),
             local_mining_public_key: None,
             process_exit_at_block_height: None,
             poll_time_secs: 10, // TODO: this is a testnet specific value.
             satoshis_per_byte: DEFAULT_SATS_PER_VB,
             max_rbf: DEFAULT_MAX_RBF_RATE,
-            leader_key_tx_estimated_size: LEADER_KEY_TX_ESTIM_SIZE,
-            block_commit_tx_estimated_size: BLOCK_COMMIT_TX_ESTIM_SIZE,
+            leader_key_tx_estimated_size: OP_TX_LEADER_KEY_ESTIM_SIZE,
+            block_commit_tx_estimated_size: OP_TX_BLOCK_COMMIT_ESTIM_SIZE,
             rbf_fee_increment: DEFAULT_RBF_FEE_RATE_INCREMENT,
             first_burn_block_height: None,
             first_burn_block_timestamp: None,
@@ -1438,6 +1272,8 @@ impl BurnchainConfig {
             wallet_name: "".to_string(),
             ast_precheck_size_height: None,
             affirmation_overrides: HashMap::new(),
+            fault_injection_burnchain_block_delay: 0,
+            max_unspent_utxos: Some(1024),
         }
     }
     pub fn get_rpc_url(&self, wallet: Option<String>) -> String {
@@ -1499,10 +1335,12 @@ pub struct AffirmationOverride {
 }
 
 #[derive(Clone, Deserialize, Default, Debug)]
+#[serde(deny_unknown_fields)]
 pub struct BurnchainConfigFile {
     pub chain: Option<String>,
-    pub burn_fee_cap: Option<u64>,
     pub mode: Option<String>,
+    pub chain_id: Option<u32>,
+    pub burn_fee_cap: Option<u64>,
     pub commit_anchor_block_within: Option<u64>,
     pub peer_host: Option<String>,
     pub peer_port: Option<u16>,
@@ -1510,6 +1348,7 @@ pub struct BurnchainConfigFile {
     pub rpc_ssl: Option<bool>,
     pub username: Option<String>,
     pub password: Option<String>,
+    /// Timeout, in seconds, for communication with bitcoind
     pub timeout: Option<u32>,
     pub magic_bytes: Option<String>,
     pub local_mining_public_key: Option<String>,
@@ -1532,6 +1371,8 @@ pub struct BurnchainConfigFile {
     pub wallet_name: Option<String>,
     pub ast_precheck_size_height: Option<u64>,
     pub affirmation_overrides: Option<Vec<AffirmationOverride>>,
+    pub fault_injection_burnchain_block_delay: Option<u64>,
+    pub max_unspent_utxos: Option<u64>,
 }
 
 impl BurnchainConfigFile {
@@ -1646,10 +1487,22 @@ impl BurnchainConfigFile {
 
         let mut config = BurnchainConfig {
             chain: self.chain.unwrap_or(default_burnchain_config.chain),
-            chain_id: if is_mainnet {
-                CHAIN_ID_MAINNET
-            } else {
-                CHAIN_ID_TESTNET
+            chain_id: match self.chain_id {
+                Some(chain_id) => {
+                    if is_mainnet && chain_id != CHAIN_ID_MAINNET {
+                        return Err(format!(
+                            "Attempted to run mainnet node with chain_id {chain_id}",
+                        ));
+                    }
+                    chain_id
+                }
+                None => {
+                    if is_mainnet {
+                        CHAIN_ID_MAINNET
+                    } else {
+                        CHAIN_ID_TESTNET
+                    }
+                }
             },
             peer_version: if is_mainnet {
                 PEER_VERSION_MAINNET
@@ -1744,6 +1597,16 @@ impl BurnchainConfigFile {
                 .pox_prepare_length
                 .or(default_burnchain_config.pox_prepare_length),
             affirmation_overrides,
+            fault_injection_burnchain_block_delay: self
+                .fault_injection_burnchain_block_delay
+                .unwrap_or(default_burnchain_config.fault_injection_burnchain_block_delay),
+            max_unspent_utxos: self
+                .max_unspent_utxos
+                .map(|val| {
+                    assert!(val <= 1024, "Value for max_unspent_utxos should be <= 1024");
+                    val
+                })
+                .or(default_burnchain_config.max_unspent_utxos),
         };
 
         if let BitcoinNetworkType::Mainnet = config.get_bitcoin_network().1 {
@@ -1775,6 +1638,7 @@ impl BurnchainConfigFile {
         Ok(config)
     }
 }
+
 #[derive(Clone, Debug)]
 pub struct NodeConfig {
     pub name: String,
@@ -1790,6 +1654,8 @@ pub struct NodeConfig {
     pub miner: bool,
     pub stacker: bool,
     pub mock_mining: bool,
+    /// Where to output blocks from mock mining
+    pub mock_mining_output_dir: Option<PathBuf>,
     pub mine_microblocks: bool,
     pub microblock_frequency: u64,
     pub max_microblocks: u64,
@@ -1809,6 +1675,8 @@ pub struct NodeConfig {
     pub use_test_genesis_chainstate: Option<bool>,
     pub always_use_affirmation_maps: bool,
     pub require_affirmed_anchor_blocks: bool,
+    /// Fault injection for failing to push blocks
+    pub fault_injection_block_push_fail_probability: Option<u8>,
     // fault injection for hiding blocks.
     // not part of the config file.
     pub fault_injection_hide_blocks: bool,
@@ -2082,6 +1950,7 @@ impl Default for NodeConfig {
             miner: false,
             stacker: false,
             mock_mining: false,
+            mock_mining_output_dir: None,
             mine_microblocks: true,
             microblock_frequency: 30_000,
             max_microblocks: u16::MAX as u64,
@@ -2093,8 +1962,9 @@ impl Default for NodeConfig {
             marf_defer_hashing: true,
             pox_sync_sample_secs: 30,
             use_test_genesis_chainstate: None,
-            always_use_affirmation_maps: false,
+            always_use_affirmation_maps: true,
             require_affirmed_anchor_blocks: true,
+            fault_injection_block_push_fail_probability: None,
             fault_injection_hide_blocks: false,
             chain_liveness_poll_time_secs: 300,
             stacker_dbs: vec![],
@@ -2121,7 +1991,6 @@ impl NodeConfig {
                 let contract_name = NakamotoSigners::make_signers_db_name(signer_set, message_id);
                 let contract_id = boot_code_id(contract_name.as_str(), is_mainnet);
                 if !self.stacker_dbs.contains(&contract_id) {
-                    debug!("A miner/stacker must subscribe to the {contract_id} stacker db contract. Forcibly subscribing...");
                     self.stacker_dbs.push(contract_id);
                 }
             }
@@ -2131,7 +2000,6 @@ impl NodeConfig {
     pub fn add_miner_stackerdb(&mut self, is_mainnet: bool) {
         let miners_contract_id = boot_code_id(MINERS_NAME, is_mainnet);
         if !self.stacker_dbs.contains(&miners_contract_id) {
-            debug!("A miner/stacker must subscribe to the {miners_contract_id} stacker db contract. Forcibly subscribing...");
             self.stacker_dbs.push(miners_contract_id);
         }
     }
@@ -2144,7 +2012,7 @@ impl NodeConfig {
     ) -> Neighbor {
         Neighbor {
             addr: NeighborKey {
-                peer_version: peer_version,
+                peer_version,
                 network_id: chain_id,
                 addrbytes: PeerAddress::from_socketaddr(&addr),
                 port: addr.port(),
@@ -2310,8 +2178,11 @@ pub struct MinerConfig {
     /// When selecting the "nicest" tip, do not consider tips that are more than this many blocks
     /// behind the highest tip.
     pub max_reorg_depth: u64,
-    /// Amount of time while mining in nakamoto to wait for signers to respond to a proposed block
-    pub wait_on_signers: Duration,
+    /// Whether to mock sign in Epoch 2.5 through the .miners and .signers contracts. This is used for testing purposes in Epoch 2.5 only.
+    pub pre_nakamoto_mock_signing: bool,
+    /// The minimum time to wait between mining blocks in milliseconds. The value must be greater than or equal to 1000 ms because if a block is mined
+    /// within the same second as its parent, it will be rejected by the signers.
+    pub min_time_between_blocks_ms: u64,
 }
 
 impl Default for MinerConfig {
@@ -2320,7 +2191,7 @@ impl Default for MinerConfig {
             first_attempt_time_ms: 10,
             subsequent_attempt_time_ms: 120_000,
             microblock_attempt_time_ms: 30_000,
-            nakamoto_attempt_time_ms: 10_000,
+            nakamoto_attempt_time_ms: 5_000,
             probability_pick_no_estimate_tx: 25,
             block_reward_recipient: None,
             segwit: false,
@@ -2340,13 +2211,14 @@ impl Default for MinerConfig {
             txs_to_consider: MemPoolWalkTxTypes::all(),
             filter_origins: HashSet::new(),
             max_reorg_depth: 3,
-            // TODO: update to a sane value based on stackerdb benchmarking
-            wait_on_signers: Duration::from_secs(200),
+            pre_nakamoto_mock_signing: false, // Should only default true if mining key is set
+            min_time_between_blocks_ms: DEFAULT_MIN_TIME_BETWEEN_BLOCKS_MS,
         }
     }
 }
 
 #[derive(Clone, Default, Deserialize, Debug)]
+#[serde(deny_unknown_fields)]
 pub struct ConnectionOptionsFile {
     pub inbox_maxlen: Option<usize>,
     pub outbox_maxlen: Option<usize>,
@@ -2368,6 +2240,8 @@ pub struct ConnectionOptionsFile {
     pub soft_max_clients_per_host: Option<u64>,
     pub max_sockets: Option<u64>,
     pub walk_interval: Option<u64>,
+    pub walk_seed_probability: Option<f64>,
+    pub log_neighbors_freq: Option<u64>,
     pub dns_timeout: Option<u64>,
     pub max_inflight_blocks: Option<u64>,
     pub max_inflight_attachments: Option<u64>,
@@ -2388,7 +2262,7 @@ pub struct ConnectionOptionsFile {
     pub force_disconnect_interval: Option<u64>,
     pub antientropy_public: Option<bool>,
     pub private_neighbors: Option<bool>,
-    pub block_proposal_token: Option<String>,
+    pub auth_token: Option<String>,
     pub antientropy_retry: Option<u64>,
 }
 
@@ -2472,6 +2346,12 @@ impl ConnectionOptionsFile {
             walk_interval: self
                 .walk_interval
                 .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.walk_interval.clone()),
+            walk_seed_probability: self
+                .walk_seed_probability
+                .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.walk_seed_probability),
+            log_neighbors_freq: self
+                .log_neighbors_freq
+                .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.log_neighbors_freq),
             dns_timeout: self
                 .dns_timeout
                 .map(|dns_timeout| dns_timeout as u128)
@@ -2514,7 +2394,7 @@ impl ConnectionOptionsFile {
             max_sockets: self.max_sockets.unwrap_or(800) as usize,
             antientropy_public: self.antientropy_public.unwrap_or(true),
             private_neighbors: self.private_neighbors.unwrap_or(true),
-            block_proposal_token: self.block_proposal_token,
+            auth_token: self.auth_token,
             antientropy_retry: self.antientropy_retry.unwrap_or(default.antientropy_retry),
             ..default
         })
@@ -2522,6 +2402,7 @@ impl ConnectionOptionsFile {
 }
 
 #[derive(Clone, Deserialize, Default, Debug)]
+#[serde(deny_unknown_fields)]
 pub struct NodeConfigFile {
     pub name: Option<String>,
     pub seed: Option<String>,
@@ -2536,6 +2417,7 @@ pub struct NodeConfigFile {
     pub miner: Option<bool>,
     pub stacker: Option<bool>,
     pub mock_mining: Option<bool>,
+    pub mock_mining_output_dir: Option<String>,
     pub mine_microblocks: Option<bool>,
     pub microblock_frequency: Option<u64>,
     pub max_microblocks: Option<u64>,
@@ -2554,6 +2436,8 @@ pub struct NodeConfigFile {
     pub chain_liveness_poll_time_secs: Option<u64>,
     /// Stacker DBs we replicate
     pub stacker_dbs: Option<Vec<String>>,
+    /// fault injection: fail to push blocks with this probability (0-100)
+    pub fault_injection_block_push_fail_probability: Option<u8>,
 }
 
 impl NodeConfigFile {
@@ -2575,10 +2459,9 @@ impl NodeConfigFile {
             p2p_address: self.p2p_address.unwrap_or(rpc_bind.clone()),
             bootstrap_node: vec![],
             deny_nodes: vec![],
-            data_url: match self.data_url {
-                Some(data_url) => data_url,
-                None => format!("http://{}", rpc_bind),
-            },
+            data_url: self
+                .data_url
+                .unwrap_or_else(|| format!("http://{rpc_bind}")),
             local_peer_seed: match self.local_peer_seed {
                 Some(seed) => hex_bytes(&seed)
                     .map_err(|_e| format!("node.local_peer_seed should be a hex encoded string"))?,
@@ -2587,6 +2470,14 @@ impl NodeConfigFile {
             miner,
             stacker,
             mock_mining: self.mock_mining.unwrap_or(default_node_config.mock_mining),
+            mock_mining_output_dir: self
+                .mock_mining_output_dir
+                .map(PathBuf::from)
+                .map(fs::canonicalize)
+                .transpose()
+                .unwrap_or_else(|e| {
+                    panic!("Failed to construct PathBuf from node.mock_mining_output_dir: {e}")
+                }),
             mine_microblocks: self
                 .mine_microblocks
                 .unwrap_or(default_node_config.mine_microblocks),
@@ -2632,12 +2523,21 @@ impl NodeConfigFile {
                 .iter()
                 .filter_map(|contract_id| QualifiedContractIdentifier::parse(contract_id).ok())
                 .collect(),
+            fault_injection_block_push_fail_probability: if self
+                .fault_injection_block_push_fail_probability
+                .is_some()
+            {
+                self.fault_injection_block_push_fail_probability
+            } else {
+                default_node_config.fault_injection_block_push_fail_probability
+            },
         };
         Ok(node_config)
     }
 }
 
 #[derive(Clone, Deserialize, Default, Debug)]
+#[serde(deny_unknown_fields)]
 pub struct FeeEstimationConfigFile {
     pub cost_estimator: Option<String>,
     pub fee_estimator: Option<String>,
@@ -2649,6 +2549,7 @@ pub struct FeeEstimationConfigFile {
 }
 
 #[derive(Clone, Deserialize, Default, Debug)]
+#[serde(deny_unknown_fields)]
 pub struct MinerConfigFile {
     pub first_attempt_time_ms: Option<u64>,
     pub subsequent_attempt_time_ms: Option<u64>,
@@ -2672,11 +2573,18 @@ pub struct MinerConfigFile {
     pub txs_to_consider: Option<String>,
     pub filter_origins: Option<String>,
     pub max_reorg_depth: Option<u64>,
-    pub wait_on_signers_ms: Option<u64>,
+    pub pre_nakamoto_mock_signing: Option<bool>,
+    pub min_time_between_blocks_ms: Option<u64>,
 }
 
 impl MinerConfigFile {
     fn into_config_default(self, miner_default_config: MinerConfig) -> Result<MinerConfig, String> {
+        let mining_key = self
+            .mining_key
+            .as_ref()
+            .map(|x| Secp256k1PrivateKey::from_hex(x))
+            .transpose()?;
+        let pre_nakamoto_mock_signing = mining_key.is_some();
         Ok(MinerConfig {
             first_attempt_time_ms: self
                 .first_attempt_time_ms
@@ -2771,14 +2679,20 @@ impl MinerConfigFile {
             max_reorg_depth: self
                 .max_reorg_depth
                 .unwrap_or(miner_default_config.max_reorg_depth),
-            wait_on_signers: self
-                .wait_on_signers_ms
-                .map(Duration::from_millis)
-                .unwrap_or(miner_default_config.wait_on_signers),
+            pre_nakamoto_mock_signing: self
+                .pre_nakamoto_mock_signing
+                .unwrap_or(pre_nakamoto_mock_signing), // Should only default true if mining key is set
+                min_time_between_blocks_ms: self.min_time_between_blocks_ms.map(|ms| if ms < DEFAULT_MIN_TIME_BETWEEN_BLOCKS_MS {
+                warn!("miner.min_time_between_blocks_ms is less than the minimum allowed value of {DEFAULT_MIN_TIME_BETWEEN_BLOCKS_MS} ms. Using the default value instead.");
+                DEFAULT_MIN_TIME_BETWEEN_BLOCKS_MS
+            } else {
+                ms
+            }).unwrap_or(miner_default_config.min_time_between_blocks_ms),
         })
     }
 }
 #[derive(Clone, Deserialize, Default, Debug)]
+#[serde(deny_unknown_fields)]
 pub struct AtlasConfigFile {
     pub attachments_max_size: Option<u32>,
     pub max_uninstantiated_attachments: Option<u32>,
@@ -2807,15 +2721,18 @@ impl AtlasConfigFile {
 }
 
 #[derive(Clone, Deserialize, Default, Debug, Hash, PartialEq, Eq, PartialOrd)]
+#[serde(deny_unknown_fields)]
 pub struct EventObserverConfigFile {
     pub endpoint: String,
     pub events_keys: Vec<String>,
+    pub timeout_ms: Option<u64>,
 }
 
 #[derive(Clone, Default, Debug, Hash, PartialEq, Eq, PartialOrd)]
 pub struct EventObserverConfig {
     pub endpoint: String,
     pub events_keys: Vec<EventKeyType>,
+    pub timeout_ms: u64,
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd)]
@@ -2907,7 +2824,450 @@ pub struct InitialBalance {
 }
 
 #[derive(Clone, Deserialize, Default, Debug)]
+#[serde(deny_unknown_fields)]
 pub struct InitialBalanceFile {
     pub address: String,
     pub amount: u64,
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use super::*;
+
+    #[test]
+    fn test_config_file() {
+        assert_eq!(
+            format!("Invalid path: No such file or directory (os error 2)"),
+            ConfigFile::from_path("some_path").unwrap_err()
+        );
+        assert_eq!(
+            format!("Invalid toml: unexpected character found: `/` at line 1 column 1"),
+            ConfigFile::from_str("//[node]").unwrap_err()
+        );
+        assert!(ConfigFile::from_str("").is_ok());
+    }
+
+    #[test]
+    fn test_config() {
+        assert_eq!(
+            format!("node.seed should be a hex encoded string"),
+            Config::from_config_file(
+                ConfigFile::from_str(
+                    r#"
+                    [node]
+                    seed = "invalid-hex-value"
+                    "#,
+                )
+                .unwrap(),
+                false
+            )
+            .unwrap_err()
+        );
+
+        assert_eq!(
+            format!("node.local_peer_seed should be a hex encoded string"),
+            Config::from_config_file(
+                ConfigFile::from_str(
+                    r#"
+                    [node]
+                    local_peer_seed = "invalid-hex-value"
+                    "#,
+                )
+                .unwrap(),
+                false
+            )
+            .unwrap_err()
+        );
+
+        let expected_err_prefix =
+            "Invalid burnchain.peer_host: failed to lookup address information:";
+        let actual_err_msg = Config::from_config_file(
+            ConfigFile::from_str(
+                r#"
+                [burnchain]
+                peer_host = "bitcoin2.blockstack.com"
+                "#,
+            )
+            .unwrap(),
+            false,
+        )
+        .unwrap_err();
+        assert_eq!(
+            expected_err_prefix,
+            &actual_err_msg[..expected_err_prefix.len()]
+        );
+
+        assert!(Config::from_config_file(ConfigFile::from_str("").unwrap(), false).is_ok());
+    }
+
+    #[test]
+    fn test_deny_unknown_fields() {
+        {
+            let err = ConfigFile::from_str(
+                r#"
+            [node]
+            name = "test"
+            unknown_field = "test"
+            "#,
+            )
+            .unwrap_err();
+            assert!(err.starts_with("Invalid toml: unknown field `unknown_field`"));
+        }
+
+        {
+            let err = ConfigFile::from_str(
+                r#"
+            [burnchain]
+            chain_id = 0x00000500
+            unknown_field = "test"
+            chain = "bitcoin"
+            "#,
+            )
+            .unwrap_err();
+            assert!(err.starts_with("Invalid toml: unknown field `unknown_field`"));
+        }
+
+        {
+            let err = ConfigFile::from_str(
+                r#"
+            [node]
+            rpc_bind = "0.0.0.0:20443"
+            unknown_field = "test"
+            p2p_bind = "0.0.0.0:20444"
+            "#,
+            )
+            .unwrap_err();
+            assert!(err.starts_with("Invalid toml: unknown field `unknown_field`"));
+        }
+
+        {
+            let err = ConfigFile::from_str(
+                r#"
+            [[ustx_balance]]
+            address = "ST3AM1A56AK2C1XAFJ4115ZSV26EB49BVQ10MGCS0"
+            amount = 10000000000000000
+            unknown_field = "test"
+            "#,
+            )
+            .unwrap_err();
+            assert!(err.starts_with("Invalid toml: unknown field `unknown_field`"));
+        }
+
+        {
+            let err = ConfigFile::from_str(
+                r#"
+            [[events_observer]]
+            endpoint = "localhost:30000"
+            unknown_field = "test"
+            events_keys = ["stackerdb", "block_proposal", "burn_blocks"]
+            "#,
+            )
+            .unwrap_err();
+            assert!(err.starts_with("Invalid toml: unknown field `unknown_field`"));
+        }
+
+        {
+            let err = ConfigFile::from_str(
+                r#"
+            [connection_options]
+            inbox_maxlen = 100
+            outbox_maxlen = 200
+            unknown_field = "test"
+            "#,
+            )
+            .unwrap_err();
+            assert!(err.starts_with("Invalid toml: unknown field `unknown_field`"));
+        }
+
+        {
+            let err = ConfigFile::from_str(
+                r#"
+            [fee_estimation]
+            cost_estimator = "foo"
+            unknown_field = "test"
+            "#,
+            )
+            .unwrap_err();
+            assert!(err.starts_with("Invalid toml: unknown field `unknown_field`"));
+        }
+
+        {
+            let err = ConfigFile::from_str(
+                r#"
+            [miner]
+            first_attempt_time_ms = 180_000
+            unknown_field = "test"
+            subsequent_attempt_time_ms = 360_000
+            "#,
+            )
+            .unwrap_err();
+            println!("{}", err);
+            assert!(err.starts_with("Invalid toml: unknown field `unknown_field`"));
+        }
+
+        {
+            let err = ConfigFile::from_str(
+                r#"
+                [atlas]
+                attachments_max_size = 100
+                unknown_field = "test"
+                "#,
+            )
+            .unwrap_err();
+            assert!(err.starts_with("Invalid toml: unknown field `unknown_field`"));
+        }
+    }
+
+    #[test]
+    fn test_example_confs() {
+        // For each config file in the ../conf/ directory, we should be able to parse it
+        let conf_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("conf");
+        println!("Reading config files from: {:?}", conf_dir);
+        let conf_files = fs::read_dir(conf_dir).unwrap();
+
+        for entry in conf_files {
+            let entry = entry.unwrap();
+            let path = entry.path();
+            if path.is_file() {
+                let file_name = path.file_name().unwrap().to_str().unwrap();
+                if file_name.ends_with(".toml") {
+                    debug!("Parsing config file: {file_name}");
+                    let _config = ConfigFile::from_path(path.to_str().unwrap()).unwrap();
+                    debug!("Parsed config file: {file_name}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn should_load_legacy_mstx_balances_toml() {
+        let config = ConfigFile::from_str(
+            r#"
+            [[ustx_balance]]
+            address = "ST2QKZ4FKHAH1NQKYKYAYZPY440FEPK7GZ1R5HBP2"
+            amount = 10000000000000000
+
+            [[ustx_balance]]
+            address = "ST319CF5WV77KYR1H3GT0GZ7B8Q4AQPY42ETP1VPF"
+            amount = 10000000000000000
+
+            [[mstx_balance]] # legacy property name
+            address = "ST221Z6TDTC5E0BYR2V624Q2ST6R0Q71T78WTAX6H"
+            amount = 10000000000000000
+
+            [[mstx_balance]] # legacy property name
+            address = "ST2TFVBMRPS5SSNP98DQKQ5JNB2B6NZM91C4K3P7B"
+            amount = 10000000000000000
+            "#,
+        );
+        let config = config.unwrap();
+        assert!(config.ustx_balance.is_some());
+        let balances = config
+            .ustx_balance
+            .expect("Failed to parse stx balances from toml");
+        assert_eq!(balances.len(), 4);
+        assert_eq!(
+            balances[0].address,
+            "ST2QKZ4FKHAH1NQKYKYAYZPY440FEPK7GZ1R5HBP2"
+        );
+        assert_eq!(
+            balances[1].address,
+            "ST319CF5WV77KYR1H3GT0GZ7B8Q4AQPY42ETP1VPF"
+        );
+        assert_eq!(
+            balances[2].address,
+            "ST221Z6TDTC5E0BYR2V624Q2ST6R0Q71T78WTAX6H"
+        );
+        assert_eq!(
+            balances[3].address,
+            "ST2TFVBMRPS5SSNP98DQKQ5JNB2B6NZM91C4K3P7B"
+        );
+    }
+
+    #[test]
+    fn should_load_auth_token() {
+        let config = Config::from_config_file(
+            ConfigFile::from_str(
+                r#"
+                [connection_options]
+                auth_token = "password"
+                "#,
+            )
+            .unwrap(),
+            false,
+        )
+        .expect("Expected to be able to parse block proposal token from file");
+
+        assert_eq!(
+            config.connection_options.auth_token,
+            Some("password".to_string())
+        );
+    }
+
+    #[test]
+    fn should_load_affirmation_map() {
+        let affirmation_string = "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnppnnnnnnnnnnnnnnnnnnnnnnnnpppppnnnnnnnnnnnnnnnnnnnnnnnpppppppppppppppnnnnnnnnnnnnnnnnnnnnnnnppppppppppnnnnnnnnnnnnnnnnnnnppppnnnnnnnnnnnnnnnnnnnnnnnppppppppnnnnnnnnnnnnnnnnnnnnnnnppnppnnnnnnnnnnnnnnnnnnnnnnnppppnnnnnnnnnnnnnnnnnnnnnnnnnppppppnnnnnnnnnnnnnnnnnnnnnnnnnppnnnnnnnnnnnnnnnnnnnnnnnnnpppppppnnnnnnnnnnnnnnnnnnnnnnnnnnpnnnnnnnnnnnnnnnnnnnnnnnnnpppnppppppppppppppnnppppnpa";
+        let affirmation =
+            AffirmationMap::decode(affirmation_string).expect("Failed to decode affirmation map");
+        let config = Config::from_config_file(
+            ConfigFile::from_str(&format!(
+                r#"
+                    [[burnchain.affirmation_overrides]]
+                    reward_cycle = 413
+                    affirmation = "{affirmation_string}"
+                "#
+            ))
+            .expect("Expected to be able to parse config file from string"),
+            false,
+        )
+        .expect("Expected to be able to parse affirmation map from file");
+
+        assert_eq!(config.burnchain.affirmation_overrides.len(), 1);
+        assert_eq!(config.burnchain.affirmation_overrides.get(&0), None);
+        assert_eq!(
+            config.burnchain.affirmation_overrides.get(&413),
+            Some(&affirmation)
+        );
+    }
+
+    #[test]
+    fn should_fail_to_load_invalid_affirmation_map() {
+        let bad_affirmation_string = "bad_map";
+        let file = ConfigFile::from_str(&format!(
+            r#"
+                    [[burnchain.affirmation_overrides]]
+                    reward_cycle = 1
+                    affirmation = "{bad_affirmation_string}"
+                "#
+        ))
+        .expect("Expected to be able to parse config file from string");
+
+        assert!(Config::from_config_file(file, false).is_err());
+    }
+
+    #[test]
+    fn should_load_empty_affirmation_map() {
+        let config = Config::from_config_file(
+            ConfigFile::from_str(r#""#)
+                .expect("Expected to be able to parse config file from string"),
+            false,
+        )
+        .expect("Expected to be able to parse affirmation map from file");
+
+        assert!(config.burnchain.affirmation_overrides.is_empty());
+    }
+
+    #[test]
+    fn should_include_xenon_default_affirmation_overrides() {
+        let config = Config::from_config_file(
+            ConfigFile::from_str(
+                r#"
+                [burnchain]
+                chain = "bitcoin"
+                mode = "xenon"
+                "#,
+            )
+            .expect("Expected to be able to parse config file from string"),
+            false,
+        )
+        .expect("Expected to be able to parse affirmation map from file");
+        // Should default add xenon affirmation overrides
+        assert_eq!(config.burnchain.affirmation_overrides.len(), 5);
+    }
+
+    #[test]
+    fn should_override_xenon_default_affirmation_overrides() {
+        let affirmation_string = "aaapnnnnnnnnnnnnnnnnnnnnnnnnnnnnppnnnnnnnnnnnnnnnnnnnnnnnnpppppnnnnnnnnnnnnnnnnnnnnnnnpppppppppppppppnnnnnnnnnnnnnnnnnnnnnnnppppppppppnnnnnnnnnnnnnnnnnnnppppnnnnnnnnnnnnnnnnnnnnnnnppppppppnnnnnnnnnnnnnnnnnnnnnnnppnppnnnnnnnnnnnnnnnnnnnnnnnppppnnnnnnnnnnnnnnnnnnnnnnnnnppppppnnnnnnnnnnnnnnnnnnnnnnnnnppnnnnnnnnnnnnnnnnnnnnnnnnnpppppppnnnnnnnnnnnnnnnnnnnnnnnnnnpnnnnnnnnnnnnnnnnnnnnnnnnnpppnppppppppppppppnnppppnpa";
+        let affirmation =
+            AffirmationMap::decode(affirmation_string).expect("Failed to decode affirmation map");
+
+        let config = Config::from_config_file(
+            ConfigFile::from_str(&format!(
+                r#"
+                [burnchain]
+                chain = "bitcoin"
+                mode = "xenon"
+
+                [[burnchain.affirmation_overrides]]
+                reward_cycle = 413
+                affirmation = "{affirmation_string}"
+                "#,
+            ))
+            .expect("Expected to be able to parse config file from string"),
+            false,
+        )
+        .expect("Expected to be able to parse affirmation map from file");
+        // Should default add xenon affirmation overrides, but overwrite with the configured one above
+        assert_eq!(config.burnchain.affirmation_overrides.len(), 5);
+        assert_eq!(config.burnchain.affirmation_overrides[&413], affirmation);
+    }
+
+    #[test]
+    fn test_into_config_default_chain_id() {
+        // Helper function to create BurnchainConfigFile with mode and optional chain_id
+        fn make_burnchain_config_file(mainnet: bool, chain_id: Option<u32>) -> BurnchainConfigFile {
+            let mut config = BurnchainConfigFile::default();
+            if mainnet {
+                config.mode = Some("mainnet".to_string());
+            }
+            config.chain_id = chain_id;
+            config
+        }
+        let default_burnchain_config = BurnchainConfig::default();
+
+        // **Case 1a:** Should panic when `is_mainnet` is true and `chain_id` != `CHAIN_ID_MAINNET`
+        {
+            let config_file = make_burnchain_config_file(true, Some(CHAIN_ID_TESTNET));
+
+            let result = config_file.into_config_default(default_burnchain_config.clone());
+
+            assert!(
+                result.is_err(),
+                "Expected error when chain_id != CHAIN_ID_MAINNET on mainnet"
+            );
+        }
+
+        // **Case 1b:** Should not panic when `is_mainnet` is true and `chain_id` == `CHAIN_ID_MAINNET`
+        {
+            let config_file = make_burnchain_config_file(true, Some(CHAIN_ID_MAINNET));
+
+            let config = config_file
+                .into_config_default(default_burnchain_config.clone())
+                .expect("Should not panic");
+            assert_eq!(config.chain_id, CHAIN_ID_MAINNET);
+        }
+
+        // **Case 1c:** Should not panic when `is_mainnet` is false; chain_id should be as provided
+        {
+            let chain_id = 123456;
+            let config_file = make_burnchain_config_file(false, Some(chain_id));
+
+            let config = config_file
+                .into_config_default(default_burnchain_config.clone())
+                .expect("Should not panic");
+            assert_eq!(config.chain_id, chain_id);
+        }
+
+        // **Case 2a:** Should not panic when `chain_id` is None and `is_mainnet` is true
+        {
+            let config_file = make_burnchain_config_file(true, None);
+
+            let config = config_file
+                .into_config_default(default_burnchain_config.clone())
+                .expect("Should not panic");
+            assert_eq!(config.chain_id, CHAIN_ID_MAINNET);
+        }
+
+        // **Case 2b:** Should not panic when `chain_id` is None and `is_mainnet` is false
+        {
+            let config_file = make_burnchain_config_file(false, None);
+
+            let config = config_file
+                .into_config_default(default_burnchain_config.clone())
+                .expect("Should not panic");
+            assert_eq!(config.chain_id, CHAIN_ID_TESTNET);
+        }
+    }
 }

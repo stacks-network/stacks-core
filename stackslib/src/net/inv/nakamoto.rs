@@ -14,14 +14,15 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use stacks_common::bitvec::BitVec;
+use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId};
 use stacks_common::types::StacksEpochId;
-use stacks_common::util::get_epoch_time_secs;
+use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs};
 
 use crate::burnchains::PoxConstants;
-use crate::chainstate::burn::db::sortdb::SortitionDB;
+use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandle};
 use crate::chainstate::burn::{BlockSnapshot, ConsensusHash};
 use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::db::StacksChainState;
@@ -29,17 +30,18 @@ use crate::net::db::PeerDB;
 use crate::net::neighbors::comms::PeerNetworkComms;
 use crate::net::p2p::PeerNetwork;
 use crate::net::{
-    Error as NetError, GetNakamotoInvData, NakamotoInvData, NeighborAddress, NeighborComms,
-    NeighborKey, StacksMessage, StacksMessageType,
+    Error as NetError, GetNakamotoInvData, NackErrorCodes, NakamotoInvData, NeighborAddress,
+    NeighborComms, NeighborKey, StacksMessage, StacksMessageType,
 };
 use crate::util_lib::db::Error as DBError;
+
+const TIP_ANCESTOR_SEARCH_DEPTH: u64 = 10;
 
 /// Cached data for a sortition in the sortition DB.
 /// Caching this allows us to avoid calls to `SortitionDB::get_block_snapshot_consensus()`.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct InvSortitionInfo {
     parent_consensus_hash: ConsensusHash,
-    block_height: u64,
 }
 
 impl InvSortitionInfo {
@@ -56,7 +58,6 @@ impl InvSortitionInfo {
 
         Ok(Self {
             parent_consensus_hash: parent_sn.consensus_hash,
-            block_height: sn.block_height,
         })
     }
 }
@@ -72,21 +73,29 @@ pub(crate) struct InvTenureInfo {
 
 impl InvTenureInfo {
     /// Load up cacheable tenure state for a given tenure-ID consensus hash.
-    /// This only returns Ok(Some(..)) if there was a tenure-change tx for this consensus hash.
+    /// This only returns Ok(Some(..)) if there was a tenure-change tx for this consensus hash
+    /// (i.e. it was a BlockFound tenure, not an Extension tenure)
     pub fn load(
         chainstate: &StacksChainState,
-        consensus_hash: &ConsensusHash,
+        tip_block_id: &StacksBlockId,
+        tenure_id_consensus_hash: &ConsensusHash,
     ) -> Result<Option<InvTenureInfo>, NetError> {
-        Ok(
-            NakamotoChainState::get_highest_nakamoto_tenure_change_by_tenure_id(
-                chainstate.db(),
-                consensus_hash,
-            )?
-            .map(|tenure| Self {
+        Ok(NakamotoChainState::get_block_found_tenure(
+            &mut chainstate.index_conn(),
+            tip_block_id,
+            tenure_id_consensus_hash,
+        )?
+        .map(|tenure| {
+            debug!("BlockFound tenure for {}", &tenure_id_consensus_hash);
+            Self {
                 tenure_id_consensus_hash: tenure.tenure_id_consensus_hash,
                 parent_tenure_id_consensus_hash: tenure.prev_tenure_id_consensus_hash,
-            }),
-        )
+            }
+        })
+        .or_else(|| {
+            debug!("No BlockFound tenure for {}", &tenure_id_consensus_hash);
+            None
+        }))
     }
 }
 
@@ -96,8 +105,17 @@ impl InvTenureInfo {
 /// in sync.  By caching (immutable) tenure data in this struct, we can enusre that this happens
 /// all the time except for during node bootup.
 pub struct InvGenerator {
-    processed_tenures: HashMap<ConsensusHash, Option<InvTenureInfo>>,
+    /// Map stacks tips to a table of (tenure ID, optional tenure info)
+    processed_tenures: HashMap<StacksBlockId, HashMap<ConsensusHash, Option<InvTenureInfo>>>,
+    /// Map consensus hashes to sortition data about them
     sortitions: HashMap<ConsensusHash, InvSortitionInfo>,
+    /// how far back to search for ancestor Stacks blocks when processing a new tip
+    tip_ancestor_search_depth: u64,
+    /// count cache misses for `processed_tenures`
+    cache_misses: u128,
+    /// Disable caching (test only)
+    #[cfg(test)]
+    no_cache: bool,
 }
 
 impl InvGenerator {
@@ -105,24 +123,203 @@ impl InvGenerator {
         Self {
             processed_tenures: HashMap::new(),
             sortitions: HashMap::new(),
+            tip_ancestor_search_depth: TIP_ANCESTOR_SEARCH_DEPTH,
+            cache_misses: 0,
+            #[cfg(test)]
+            no_cache: false,
         }
     }
 
-    /// Get a processed tenure. If it's not cached, then load it.
-    /// Returns Some(..) if there existed a tenure-change tx for this given consensus hash
-    fn get_processed_tenure(
+    #[cfg(test)]
+    pub fn new_no_cache() -> Self {
+        Self {
+            processed_tenures: HashMap::new(),
+            sortitions: HashMap::new(),
+            tip_ancestor_search_depth: TIP_ANCESTOR_SEARCH_DEPTH,
+            cache_misses: 0,
+            no_cache: true,
+        }
+    }
+
+    pub fn with_tip_ancestor_search_depth(mut self, depth: u64) -> Self {
+        self.tip_ancestor_search_depth = depth;
+        self
+    }
+
+    #[cfg(test)]
+    pub(crate) fn cache_misses(&self) -> u128 {
+        self.cache_misses
+    }
+
+    /// Find the highest ancestor of `tip_block_id` that has an entry in `processed_tenures`.
+    /// Search up to `self.tip_ancestor_search_depth` ancestors back.
+    ///
+    /// The intuition here is that `tip_block_id` is the highest block known to the node, and it
+    /// can advance when new blocks are processed.  We associate a set of cached processed tenures with
+    /// each tip, but if the tip advances, we simply move the cached processed tenures "up to" the
+    /// new tip instead of reloading them from disk each time.
+    ///
+    /// However, searching for an ancestor tip incurs a sqlite DB read, so we want to bound the
+    /// search depth.  In practice, the bound on this depth would be derived from how often the
+    /// chain tip changes relative to how often we serve up inventory data.  The depth should be
+    /// the maximum expected number of blocks to be processed in-between handling `GetNakamotoInv`
+    /// messages.
+    ///
+    /// If found, then return the ancestor block ID represented in `self.processed_tenures`, as
+    /// well as the list of any intermediate tenures between (and including) that of `tip_block_id`
+    /// and that of (and including) the highest-found ancestor.
+    ///
+    /// If not, then return None.
+    pub(crate) fn find_ancestor_processed_tenures(
+        &self,
+        chainstate: &StacksChainState,
+        tip_block_id: &StacksBlockId,
+    ) -> Result<Option<(StacksBlockId, Vec<ConsensusHash>)>, NetError> {
+        let mut cursor = tip_block_id.clone();
+        let mut chs = vec![];
+        let Some(ch) =
+            NakamotoChainState::get_block_header_nakamoto_tenure_id(chainstate.db(), &cursor)?
+        else {
+            return Ok(None);
+        };
+        chs.push(ch);
+        for _ in 0..self.tip_ancestor_search_depth {
+            let parent_id_opt =
+                NakamotoChainState::get_nakamoto_parent_block_id(chainstate.db(), &cursor)?;
+
+            let Some(parent_id) = parent_id_opt else {
+                return Ok(None);
+            };
+
+            let Some(parent_ch) = NakamotoChainState::get_block_header_nakamoto_tenure_id(
+                chainstate.db(),
+                &parent_id,
+            )?
+            else {
+                return Ok(None);
+            };
+            chs.push(parent_ch);
+
+            if self.processed_tenures.contains_key(&parent_id) {
+                return Ok(Some((parent_id, chs)));
+            }
+            cursor = parent_id;
+        }
+        Ok(None)
+    }
+
+    #[cfg(not(test))]
+    fn test_clear_cache(&mut self) {}
+
+    /// Clear the cache (test only)
+    #[cfg(test)]
+    fn test_clear_cache(&mut self) {
+        if self.no_cache {
+            self.processed_tenures.clear();
+        }
+    }
+
+    /// Get a processed tenure. If it's not cached, then load it from disk.
+    ///
+    /// Loading it is expensive, so once loaded, store it with the cached processed tenure map
+    /// associated with `tip_block_id`.
+    ///
+    /// If there is no such map, then see if a recent ancestor of `tip_block_id` is represented. If
+    /// so, then remove that map and associate it with `tip_block_id`.  This way, as the blockchain
+    /// advances, cached tenure information for the same Stacks fork stays associated with that
+    /// fork's chain tip (assuming this code gets run sufficiently often relative to the
+    /// advancement of the `tip_block_id` tip value).
+    ///
+    /// Returns Ok(Some(..)) if there existed a tenure-change tx for this given consensus hash
+    /// Returns Ok(None) if not
+    /// Returns Err(..) on DB error
+    pub(crate) fn get_processed_tenure(
         &mut self,
         chainstate: &StacksChainState,
+        tip_block_ch: &ConsensusHash,
+        tip_block_bh: &BlockHeaderHash,
         tenure_id_consensus_hash: &ConsensusHash,
     ) -> Result<Option<InvTenureInfo>, NetError> {
-        if let Some(info_opt) = self.processed_tenures.get(&tenure_id_consensus_hash) {
-            return Ok((*info_opt).clone());
+        let tip_block_id = StacksBlockId::new(tip_block_ch, tip_block_bh);
+        if self.processed_tenures.get(&tip_block_id).is_none() {
+            // this tip has no known table.
+            // does it have an ancestor with a table? If so, then move its ancestor's table to this
+            // tip. Otherwise, make a new table.
+            if let Some((ancestor_tip_id, intermediate_tenures)) =
+                self.find_ancestor_processed_tenures(chainstate, &tip_block_id)?
+            {
+                // The table removals here are for cache maintenance.
+                //
+                // Between successive calls to this function, the Stacks tip (identified by
+                // `tip_block_ch` and `tip_block_bh`) can advance as more blocks are discovered.
+                // This means that tenures that had previously been treated as absent could now be
+                // present.  By evicting cached data for all tenures between (and including) the
+                // highest ancestor of the current Stacks tip, and the current Stacks tip, we force
+                // this code to re-evaluate the presence or absence of each potentially-affected
+                // tenure.
+                //
+                // First, remove the highest ancestor's table, so we can re-assign it to the new
+                // tip.
+                let mut ancestor_tenures = self
+                    .processed_tenures
+                    .remove(&ancestor_tip_id)
+                    .unwrap_or_else(|| {
+                        panic!("FATAL: did not have ancestor tip reported by search");
+                    });
+
+                // Clear out any intermediate cached results for tenure presence/absence, including
+                // both that of the highest ancestor and the current tip.
+                for ch in intermediate_tenures.into_iter() {
+                    ancestor_tenures.remove(&ch);
+                }
+                ancestor_tenures.remove(tip_block_ch);
+
+                // Update the table so it is pointed to by the new tip.
+                self.processed_tenures
+                    .insert(tip_block_id.clone(), ancestor_tenures);
+            } else {
+                self.processed_tenures
+                    .insert(tip_block_id.clone(), HashMap::new());
+            }
+        }
+
+        let Some(tenure_infos) = self.processed_tenures.get_mut(&tip_block_id) else {
+            unreachable!("FATAL: inserted table for chain tip, but didn't get it back");
         };
-        // not cached so go load it
-        let loaded_info_opt = InvTenureInfo::load(chainstate, &tenure_id_consensus_hash)?;
-        self.processed_tenures
-            .insert(tenure_id_consensus_hash.clone(), loaded_info_opt.clone());
-        Ok(loaded_info_opt)
+
+        let ret = if let Some(loaded_tenure_info) = tenure_infos.get(tenure_id_consensus_hash) {
+            // we've loaded this tenure info before for this tip
+            Ok(loaded_tenure_info.clone())
+        } else {
+            // we have not loaded the tenure info for this tip, or it was cleared via cache
+            // maintenance.  Either way, got get it from disk.
+            let loaded_info_opt =
+                InvTenureInfo::load(chainstate, &tip_block_id, &tenure_id_consensus_hash)?;
+
+            tenure_infos.insert(tenure_id_consensus_hash.clone(), loaded_info_opt.clone());
+            self.cache_misses = self.cache_misses.saturating_add(1);
+            Ok(loaded_info_opt)
+        };
+        self.test_clear_cache();
+        ret
+    }
+
+    /// Get sortition info, loading it from our cache if needed
+    pub(crate) fn get_sortition_info(
+        &mut self,
+        sortdb: &SortitionDB,
+        cur_consensus_hash: &ConsensusHash,
+    ) -> Result<&InvSortitionInfo, NetError> {
+        if !self.sortitions.contains_key(cur_consensus_hash) {
+            let loaded_info = InvSortitionInfo::load(sortdb, cur_consensus_hash)?;
+            self.sortitions
+                .insert(cur_consensus_hash.clone(), loaded_info);
+        };
+
+        Ok(self
+            .sortitions
+            .get(cur_consensus_hash)
+            .expect("infallible: just inserted this data"))
     }
 
     /// Generate an block inventory bit vector for a reward cycle.
@@ -144,9 +341,14 @@ impl InvGenerator {
         tip: &BlockSnapshot,
         sortdb: &SortitionDB,
         chainstate: &StacksChainState,
+        nakamoto_tip_ch: &ConsensusHash,
+        nakamoto_tip_bh: &BlockHeaderHash,
         reward_cycle: u64,
     ) -> Result<Vec<bool>, NetError> {
+        let nakamoto_tip = StacksBlockId::new(nakamoto_tip_ch, nakamoto_tip_bh);
         let ih = sortdb.index_handle(&tip.sortition_id);
+
+        // N.B. reward_cycle_to_block_height starts at reward index 1
         let reward_cycle_end_height = sortdb
             .pox_constants
             .reward_cycle_to_block_height(sortdb.first_block_height, reward_cycle + 1)
@@ -162,7 +364,12 @@ impl InvGenerator {
         let mut cur_height = reward_cycle_end_tip.block_height;
         let mut cur_consensus_hash = reward_cycle_end_tip.consensus_hash;
 
-        let mut cur_tenure_opt = self.get_processed_tenure(chainstate, &cur_consensus_hash)?;
+        let mut cur_tenure_opt = self.get_processed_tenure(
+            chainstate,
+            nakamoto_tip_ch,
+            nakamoto_tip_bh,
+            &cur_consensus_hash,
+        )?;
 
         // loop variables and invariants:
         //
@@ -197,39 +404,48 @@ impl InvGenerator {
                 // done scanning this reward cycle
                 break;
             }
-            let cur_sortition_info = if let Some(info) = self.sortitions.get(&cur_consensus_hash) {
-                info
-            } else {
-                let loaded_info = InvSortitionInfo::load(sortdb, &cur_consensus_hash)?;
-                self.sortitions
-                    .insert(cur_consensus_hash.clone(), loaded_info);
-                self.sortitions
-                    .get(&cur_consensus_hash)
-                    .expect("infallible: just inserted this data")
-            };
-            let parent_sortition_consensus_hash = cur_sortition_info.parent_consensus_hash.clone();
+            let cur_sortition_info = self.get_sortition_info(sortdb, &cur_consensus_hash)?;
+            let parent_sortition_consensus_hash = cur_sortition_info.parent_consensus_hash;
 
-            test_debug!("Get sortition and tenure info for height {}. cur_consensus_hash = {}, cur_tenure_info = {:?}, cur_sortition_info = {:?}", cur_height, &cur_consensus_hash, &cur_tenure_opt, cur_sortition_info);
+            debug!("Get sortition and tenure info for height {}. cur_consensus_hash = {}, cur_tenure_info = {:?}, parent_sortition_consensus_hash = {}", cur_height, &cur_consensus_hash, &cur_tenure_opt, &parent_sortition_consensus_hash);
 
             if let Some(cur_tenure_info) = cur_tenure_opt.as_ref() {
                 // a tenure was active when this sortition happened...
                 if cur_tenure_info.tenure_id_consensus_hash == cur_consensus_hash {
                     // ...and this tenure started in this sortition
+                    debug!(
+                        "Tenure was started for {} (height {})",
+                        cur_consensus_hash, cur_height
+                    );
                     tenure_status.push(true);
                     cur_tenure_opt = self.get_processed_tenure(
                         chainstate,
+                        nakamoto_tip_ch,
+                        nakamoto_tip_bh,
                         &cur_tenure_info.parent_tenure_id_consensus_hash,
                     )?;
                 } else {
                     // ...but this tenure did not start in this sortition
+                    debug!(
+                        "Tenure was NOT started for {} (bit {})",
+                        cur_consensus_hash, cur_height
+                    );
                     tenure_status.push(false);
                 }
             } else {
                 // no active tenure during this sortition. Check the parent sortition to see if a
                 // tenure begain there.
+                debug!(
+                    "No winning sortition for {} (bit {})",
+                    cur_consensus_hash, cur_height
+                );
                 tenure_status.push(false);
-                cur_tenure_opt =
-                    self.get_processed_tenure(chainstate, &parent_sortition_consensus_hash)?;
+                cur_tenure_opt = self.get_processed_tenure(
+                    chainstate,
+                    nakamoto_tip_ch,
+                    nakamoto_tip_bh,
+                    &parent_sortition_consensus_hash,
+                )?;
             }
 
             // next sortition
@@ -241,14 +457,16 @@ impl InvGenerator {
         }
 
         tenure_status.reverse();
+        debug!(
+            "Tenure bits off of {} and {}: {:?}",
+            nakamoto_tip, &tip.consensus_hash, &tenure_status
+        );
         Ok(tenure_status)
     }
 }
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct NakamotoTenureInv {
-    /// What state is the machine in?
-    pub state: NakamotoInvState,
     /// Bitmap of which tenures a peer has.
     /// Maps reward cycle to bitmap.
     pub tenures_inv: BTreeMap<u64, BitVec<2100>>,
@@ -279,7 +497,6 @@ impl NakamotoTenureInv {
         neighbor_address: NeighborAddress,
     ) -> Self {
         Self {
-            state: NakamotoInvState::GetNakamotoInvBegin,
             tenures_inv: BTreeMap::new(),
             last_updated_at: 0,
             first_block_height,
@@ -335,7 +552,8 @@ impl NakamotoTenureInv {
 
     /// Add in a newly-discovered inventory.
     /// NOTE: inventories are supposed to be aligned to the reward cycle
-    /// Returns true if we learned about at least one new tenure-start block
+    /// Returns true if the tenure bitvec has changed -- we either learned about a new tenure-start
+    /// block, or the remote peer "un-learned" it (e.g. due to a reorg).
     /// Returns false if not.
     pub fn merge_tenure_inv(&mut self, tenure_inv: BitVec<2100>, reward_cycle: u64) -> bool {
         // populate the tenures bitmap to we can fit this tenures inv
@@ -353,7 +571,7 @@ impl NakamotoTenureInv {
     /// Adjust the next reward cycle to query.
     /// Returns the reward cycle to query.
     pub fn next_reward_cycle(&mut self) -> u64 {
-        test_debug!("Next reward cycle: {}", self.cur_reward_cycle + 1);
+        debug!("Next reward cycle: {}", self.cur_reward_cycle + 1);
         let query_rc = self.cur_reward_cycle;
         self.cur_reward_cycle = self.cur_reward_cycle.saturating_add(1);
         query_rc
@@ -366,12 +584,17 @@ impl NakamotoTenureInv {
         if self.start_sync_time + inv_sync_interval <= now
             && (self.cur_reward_cycle >= cur_rc || !self.online)
         {
-            test_debug!("Reset inv comms for {}", &self.neighbor_address);
-            self.state = NakamotoInvState::GetNakamotoInvBegin;
-            self.online = true;
-            self.start_sync_time = now;
-            self.cur_reward_cycle = start_rc;
+            self.reset_comms(start_rc);
         }
+    }
+
+    /// Reset synchronization state for this peer in the last reward cycle.
+    /// Called as part of processing a new burnchain block
+    pub fn reset_comms(&mut self, start_rc: u64) {
+        debug!("Reset inv comms for {}", &self.neighbor_address);
+        self.online = true;
+        self.start_sync_time = get_epoch_time_secs();
+        self.cur_reward_cycle = start_rc;
     }
 
     /// Get the reward cycle we're sync'ing for
@@ -456,8 +679,13 @@ impl NakamotoTenureInv {
             }
             StacksMessageType::Nack(nack_data) => {
                 info!("{:?}: remote peer NACKed our GetNakamotoInv", network.get_local_peer();
+                      "remote_peer" => %self.neighbor_address,
                       "error_code" => nack_data.error_code);
-                self.set_online(false);
+
+                if nack_data.error_code != NackErrorCodes::NoSuchBurnchainBlock {
+                    // any other error besides this one is a problem
+                    self.set_online(false);
+                }
                 return Ok(false);
             }
             _ => {
@@ -472,13 +700,17 @@ impl NakamotoTenureInv {
             }
         }
     }
-}
 
-#[derive(Debug, PartialEq, Clone, Copy)]
-pub enum NakamotoInvState {
-    GetNakamotoInvBegin,
-    GetNakamotoInvFinish,
-    Done,
+    /// Get the burnchain tip reward cycle for purposes of inv sync
+    fn get_current_reward_cycle(tip: &BlockSnapshot, sortdb: &SortitionDB) -> u64 {
+        sortdb
+            .pox_constants
+            .block_height_to_reward_cycle(
+                sortdb.first_block_height,
+                tip.block_height.saturating_sub(1),
+            )
+            .expect("FATAL: snapshot occurred before system start")
+    }
 }
 
 /// Nakamoto inventory state machine
@@ -491,6 +723,10 @@ pub struct NakamotoInvStateMachine<NC: NeighborComms> {
     reward_cycle_consensus_hashes: BTreeMap<u64, ConsensusHash>,
     /// last observed sortition tip
     last_sort_tip: Option<BlockSnapshot>,
+    /// deadline to stop inv sync burst
+    burst_deadline_ms: u128,
+    /// time we did our last burst
+    last_burst_ms: u128,
 }
 
 impl<NC: NeighborComms> NakamotoInvStateMachine<NC> {
@@ -500,11 +736,17 @@ impl<NC: NeighborComms> NakamotoInvStateMachine<NC> {
             inventories: HashMap::new(),
             reward_cycle_consensus_hashes: BTreeMap::new(),
             last_sort_tip: None,
+            burst_deadline_ms: get_epoch_time_ms(),
+            last_burst_ms: get_epoch_time_ms(),
         }
     }
 
     pub fn reset(&mut self) {
         self.comms.reset();
+    }
+
+    pub fn get_pinned_connections(&self) -> &HashSet<usize> {
+        self.comms.get_pinned_connections()
     }
 
     /// Remove state for a particular neighbor
@@ -548,7 +790,7 @@ impl<NC: NeighborComms> NakamotoInvStateMachine<NC> {
         let reorg = PeerNetwork::is_reorg(self.last_sort_tip.as_ref(), tip, sortdb);
         if reorg {
             // drop the last two reward cycles
-            test_debug!("Detected reorg! Refreshing inventory consensus hashes");
+            debug!("Detected reorg! Refreshing inventory consensus hashes");
             let highest_rc = self
                 .reward_cycle_consensus_hashes
                 .last_key_value()
@@ -566,20 +808,11 @@ impl<NC: NeighborComms> NakamotoInvStateMachine<NC> {
             .map(|(highest_rc, _)| *highest_rc)
             .unwrap_or(0);
 
-        // NOTE: reward cycles start when (sortition_height % reward_cycle_len) == 1, not 0, but
-        // .block_height_to_reward_cycle does not account for this.
-        let tip_rc = sortdb
-            .pox_constants
-            .block_height_to_reward_cycle(
-                sortdb.first_block_height,
-                tip.block_height.saturating_sub(1),
-            )
-            .expect("FATAL: snapshot occurred before system start");
+        let tip_rc = NakamotoTenureInv::get_current_reward_cycle(tip, sortdb);
 
-        test_debug!(
+        debug!(
             "Load all reward cycle consensus hashes from {} to {}",
-            highest_rc,
-            tip_rc
+            highest_rc, tip_rc
         );
         for rc in highest_rc..=tip_rc {
             if self.reward_cycle_consensus_hashes.contains_key(&rc) {
@@ -590,7 +823,7 @@ impl<NC: NeighborComms> NakamotoInvStateMachine<NC> {
                 warn!("Failed to load consensus hash for reward cycle {}", rc);
                 return Err(DBError::NotFoundError.into());
             };
-            test_debug!("Inv reward cycle consensus hash for {} is {}", rc, &ch);
+            debug!("Inv reward cycle consensus hash for {} is {}", rc, &ch);
             self.reward_cycle_consensus_hashes.insert(rc, ch);
         }
         Ok(tip_rc)
@@ -619,6 +852,7 @@ impl<NC: NeighborComms> NakamotoInvStateMachine<NC> {
         // make sure we know all consensus hashes for all reward cycles.
         let current_reward_cycle =
             self.update_reward_cycle_consensus_hashes(&network.burnchain_tip, sortdb)?;
+
         let nakamoto_start_height = network
             .get_epoch_by_epoch_id(StacksEpochId::Epoch30)
             .start_height;
@@ -630,6 +864,12 @@ impl<NC: NeighborComms> NakamotoInvStateMachine<NC> {
         // we're updating inventories, so preserve the state we have
         let mut new_inventories = HashMap::new();
         let event_ids: Vec<usize> = network.iter_peer_event_ids().map(|e_id| *e_id).collect();
+
+        debug!(
+            "Send GetNakamotoInv to up to {} peers (ibd={})",
+            event_ids.len(),
+            ibd
+        );
         for event_id in event_ids.into_iter() {
             let Some(convo) = network.get_p2p_convo(event_id) else {
                 continue;
@@ -668,12 +908,15 @@ impl<NC: NeighborComms> NakamotoInvStateMachine<NC> {
                 )
             });
 
-            let proceed = inv.getnakamotoinv_begin(network, current_reward_cycle);
+            // try to get all of the reward cycles we know about, plus the next one. We try to get
+            // the next one as well in case we're at a reward cycle boundary, but we're not at the
+            // chain tip -- the block downloader still needs that next inventory to proceed.
+            let proceed = inv.getnakamotoinv_begin(network, current_reward_cycle.saturating_add(1));
             let inv_rc = inv.reward_cycle();
             new_inventories.insert(naddr.clone(), inv);
 
             if self.comms.has_inflight(&naddr) {
-                test_debug!(
+                debug!(
                     "{:?}: still waiting for reply from {}",
                     network.get_local_peer(),
                     &naddr
@@ -723,7 +966,7 @@ impl<NC: NeighborComms> NakamotoInvStateMachine<NC> {
         let num_msgs = replies.len();
 
         for (naddr, reply) in replies.into_iter() {
-            test_debug!(
+            debug!(
                 "{:?}: got reply from {}: {:?}",
                 network.get_local_peer(),
                 &naddr,
@@ -758,7 +1001,41 @@ impl<NC: NeighborComms> NakamotoInvStateMachine<NC> {
         Ok((num_msgs, learned))
     }
 
+    /// Do we need to do an inv sync burst?
+    /// This happens after `burst_interval` milliseconds have passed since we noticed the sortition
+    /// changed.
+    fn need_inv_burst(&self) -> bool {
+        self.burst_deadline_ms < get_epoch_time_ms() && self.last_burst_ms < self.burst_deadline_ms
+    }
+
+    /// Top-level state machine execution
     pub fn run(&mut self, network: &mut PeerNetwork, sortdb: &SortitionDB, ibd: bool) -> bool {
+        // if the burnchain tip has changed, then force all communications to reset for the current
+        // reward cycle in order to hasten block download
+        if let Some(last_sort_tip) = self.last_sort_tip.as_ref() {
+            if last_sort_tip.consensus_hash != network.burnchain_tip.consensus_hash {
+                debug!(
+                    "Sortition tip changed: {} != {}. Configuring inventory burst",
+                    &last_sort_tip.consensus_hash, &network.burnchain_tip.consensus_hash
+                );
+                self.burst_deadline_ms = get_epoch_time_ms()
+                    .saturating_add(network.connection_opts.nakamoto_inv_sync_burst_interval_ms);
+            }
+        }
+        if self.need_inv_burst() {
+            debug!("Forcibly restarting all Nakamoto inventory comms due to inventory burst");
+
+            let tip_rc =
+                NakamotoTenureInv::get_current_reward_cycle(&network.burnchain_tip, sortdb);
+            for inv_state in self.inventories.values_mut() {
+                inv_state.reset_comms(tip_rc.saturating_sub(1));
+            }
+
+            self.last_burst_ms = get_epoch_time_ms()
+                .saturating_add(network.connection_opts.nakamoto_inv_sync_burst_interval_ms)
+                .max(self.burst_deadline_ms);
+        }
+
         if let Err(e) = self.process_getnakamotoinv_begins(network, sortdb, ibd) {
             warn!(
                 "{:?}: Failed to begin Nakamoto tenure inventory sync: {:?}",
@@ -824,7 +1101,7 @@ impl PeerNetwork {
     /// Return whether or not we learned something
     pub fn do_network_inv_sync_nakamoto(&mut self, sortdb: &SortitionDB, ibd: bool) -> bool {
         if cfg!(test) && self.connection_opts.disable_inv_sync {
-            test_debug!("{:?}: inv sync is disabled", &self.local_peer);
+            debug!("{:?}: inv sync is disabled", &self.local_peer);
             return false;
         }
 

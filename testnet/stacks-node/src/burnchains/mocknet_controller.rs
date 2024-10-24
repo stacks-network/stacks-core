@@ -168,10 +168,10 @@ impl BurnchainController for MocknetController {
         operation: BlockstackOperationType,
         _op_signer: &mut BurnchainOpSigner,
         _attempt: u64,
-    ) -> Option<Txid> {
+    ) -> Result<Txid, BurnchainControllerError> {
         let txid = operation.txid();
         self.queued_operations.push_back(operation);
-        Some(txid)
+        Ok(txid)
     }
 
     fn sync(
@@ -199,6 +199,7 @@ impl BurnchainController for MocknetController {
                 }
                 BlockstackOperationType::LeaderBlockCommit(payload) => {
                     BlockstackOperationType::LeaderBlockCommit(LeaderBlockCommitOp {
+                        treatment: vec![],
                         sunset_burn: 0,
                         block_header_hash: payload.block_header_hash,
                         new_seed: payload.new_seed,

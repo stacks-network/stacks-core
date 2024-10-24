@@ -140,30 +140,34 @@ impl RPCRequestHandler for RPCGetContractSrcRequestHandler {
 
         let data_resp =
             node.with_node_state(|_network, sortdb, chainstate, _mempool, _rpc_args| {
-                chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), &tip, |clarity_tx| {
-                    clarity_tx.with_clarity_db_readonly(|db| {
-                        let source = db.get_contract_src(&contract_identifier)?;
-                        let contract_commit_key = make_contract_hash_key(&contract_identifier);
-                        let (contract_commit, proof) = if with_proof {
-                            db.get_data_with_proof::<ContractCommitment>(&contract_commit_key)
-                                .ok()
-                                .flatten()
-                                .map(|(a, b)| (a, Some(format!("0x{}", to_hex(&b)))))?
-                        } else {
-                            db.get_data::<ContractCommitment>(&contract_commit_key)
-                                .ok()
-                                .flatten()
-                                .map(|a| (a, None))?
-                        };
+                chainstate.maybe_read_only_clarity_tx(
+                    &sortdb.index_handle_at_block(chainstate, &tip)?,
+                    &tip,
+                    |clarity_tx| {
+                        clarity_tx.with_clarity_db_readonly(|db| {
+                            let source = db.get_contract_src(&contract_identifier)?;
+                            let contract_commit_key = make_contract_hash_key(&contract_identifier);
+                            let (contract_commit, proof) = if with_proof {
+                                db.get_data_with_proof::<ContractCommitment>(&contract_commit_key)
+                                    .ok()
+                                    .flatten()
+                                    .map(|(a, b)| (a, Some(format!("0x{}", to_hex(&b)))))?
+                            } else {
+                                db.get_data::<ContractCommitment>(&contract_commit_key)
+                                    .ok()
+                                    .flatten()
+                                    .map(|a| (a, None))?
+                            };
 
-                        let publish_height = contract_commit.block_height;
-                        Some(ContractSrcResponse {
-                            source,
-                            publish_height,
-                            marf_proof: proof,
+                            let publish_height = contract_commit.block_height;
+                            Some(ContractSrcResponse {
+                                source,
+                                publish_height,
+                                marf_proof: proof,
+                            })
                         })
-                    })
-                })
+                    },
+                )
             });
 
         let data_resp = match data_resp {

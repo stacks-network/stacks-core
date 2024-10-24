@@ -31,15 +31,15 @@ use crate::vm::types::{
 };
 use crate::vm::{StacksEpoch, Value};
 
-#[cfg(rollback_value_check)]
+#[cfg(feature = "rollback_value_check")]
 type RollbackValueCheck = String;
-#[cfg(not(rollback_value_check))]
+#[cfg(not(feature = "rollback_value_check"))]
 type RollbackValueCheck = ();
 
-#[cfg(not(rollback_value_check))]
+#[cfg(not(feature = "rollback_value_check"))]
 fn rollback_value_check(_value: &str, _check: &RollbackValueCheck) {}
 
-#[cfg(not(rollback_value_check))]
+#[cfg(not(feature = "rollback_value_check"))]
 fn rollback_edits_push<T>(edits: &mut Vec<(T, RollbackValueCheck)>, key: T, _value: &str) {
     edits.push((key, ()));
 }
@@ -47,7 +47,7 @@ fn rollback_edits_push<T>(edits: &mut Vec<(T, RollbackValueCheck)>, key: T, _val
 //   wrapper -- i.e., when committing to the underlying store. for the _unchecked_ implementation
 //   this is used to get the edit _value_ out of the lookupmap, for used in the subsequent `put_all`
 //   command.
-#[cfg(not(rollback_value_check))]
+#[cfg(not(feature = "rollback_value_check"))]
 fn rollback_check_pre_bottom_commit<T>(
     edits: Vec<(T, RollbackValueCheck)>,
     lookup_map: &mut HashMap<T, Vec<String>>,
@@ -71,11 +71,11 @@ where
     output
 }
 
-#[cfg(rollback_value_check)]
+#[cfg(feature = "rollback_value_check")]
 fn rollback_value_check(value: &String, check: &RollbackValueCheck) {
     assert_eq!(value, check)
 }
-#[cfg(rollback_value_check)]
+#[cfg(feature = "rollback_value_check")]
 fn rollback_edits_push<T>(edits: &mut Vec<(T, RollbackValueCheck)>, key: T, value: &String)
 where
     T: Eq + Hash + Clone,
@@ -84,7 +84,7 @@ where
 }
 // this function is used to check the lookup map when committing at the "bottom" of the
 //   wrapper -- i.e., when committing to the underlying store.
-#[cfg(rollback_value_check)]
+#[cfg(feature = "rollback_value_check")]
 fn rollback_check_pre_bottom_commit<T>(
     edits: Vec<(T, RollbackValueCheck)>,
     lookup_map: &mut HashMap<T, Vec<String>>,

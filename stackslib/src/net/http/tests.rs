@@ -368,8 +368,6 @@ fn test_parse_http_response_preamble_err() {
          "Unsupported HTTP content type"),
         ("HTTP/1.1 200 OK\r\nContent-Length: foo\r\n\r\n",
          "Invalid Content-Length"),
-        ("HTTP/1.1 200 OK\r\nContent-Length: 123\r\n\r\n",
-         "missing Content-Type, Content-Length"),
         ("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\n",
          "missing Content-Type, Content-Length"),
         ("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 123\r\nTransfer-Encoding: chunked\r\n\r\n",

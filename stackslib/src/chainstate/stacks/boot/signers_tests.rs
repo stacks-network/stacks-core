@@ -171,7 +171,8 @@ fn make_signer_sanity_panic_1() {
 
 #[test]
 fn signers_get_config() {
-    let (burnchain, mut peer, keys, latest_block, ..) = prepare_pox4_test(function_name!(), None);
+    let (burnchain, mut peer, keys, latest_block, ..) =
+        prepare_pox4_test(function_name!(), None, false);
 
     assert_eq!(
         readonly_call(
@@ -349,7 +350,11 @@ pub fn prepare_signers_test<'a>(
     stackers: &[TestStacker],
     observer: Option<&'a TestEventObserver>,
 ) -> (TestPeer<'a>, TestSigners, StacksBlockId, u128) {
-    let mut test_signers = TestSigners::default();
+    let signer_keys = stackers
+        .iter()
+        .map(|s| s.signer_private_key.clone())
+        .collect::<Vec<_>>();
+    let mut test_signers = TestSigners::new(signer_keys);
 
     let mut peer = boot_nakamoto(
         test_name,
@@ -483,26 +488,30 @@ pub fn readonly_call_with_sortdb(
     args: Vec<Value>,
 ) -> Value {
     chainstate
-        .with_read_only_clarity_tx(&sortdb.index_conn(), tip, |connection| {
-            connection
-                .with_readonly_clarity_env(
-                    false,
-                    0x80000000,
-                    ClarityVersion::Clarity2,
-                    PrincipalData::from(boot_code_addr(false)),
-                    None,
-                    LimitedCostTracker::new_free(),
-                    |env| {
-                        env.execute_contract_allow_private(
-                            &boot_code_id(&boot_contract, false),
-                            &function_name,
-                            &symbols_from_values(args),
-                            true,
-                        )
-                    },
-                )
-                .unwrap()
-        })
+        .with_read_only_clarity_tx(
+            &sortdb.index_handle_at_block(chainstate, tip).unwrap(),
+            tip,
+            |connection| {
+                connection
+                    .with_readonly_clarity_env(
+                        false,
+                        0x80000000,
+                        ClarityVersion::Clarity2,
+                        PrincipalData::from(boot_code_addr(false)),
+                        None,
+                        LimitedCostTracker::new_free(),
+                        |env| {
+                            env.execute_contract_allow_private(
+                                &boot_code_id(&boot_contract, false),
+                                &function_name,
+                                &symbols_from_values(args),
+                                true,
+                            )
+                        },
+                    )
+                    .unwrap()
+            },
+        )
         .unwrap()
 }
 

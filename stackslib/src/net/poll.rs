@@ -89,7 +89,7 @@ impl NetworkState {
     }
 
     fn bind_address(addr: &SocketAddr) -> Result<mio_net::TcpListener, net_error> {
-        if !cfg!(test) {
+        if !cfg!(test) && !cfg!(feature = "testing") {
             mio_net::TcpListener::bind(addr).map_err(|e| {
                 error!("Failed to bind to {:?}: {:?}", addr, e);
                 net_error::BindError

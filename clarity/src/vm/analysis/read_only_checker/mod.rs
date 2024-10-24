@@ -290,10 +290,11 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
             | BuffToUIntBe | IntToAscii | IntToUtf8 | StringToInt | StringToUInt | IsStandard
             | ToConsensusBuff | PrincipalDestruct | PrincipalConstruct | Append | Concat
             | AsMaxLen | ContractOf | PrincipalOf | ListCons | GetBlockInfo | GetBurnBlockInfo
-            | TupleGet | TupleMerge | Len | Print | AsContract | Begin | FetchVar
-            | GetStxBalance | StxGetAccount | GetTokenBalance | GetAssetOwner | GetTokenSupply
-            | ElementAt | IndexOf | Slice | ReplaceAt | BitwiseAnd | BitwiseOr | BitwiseNot
-            | BitwiseLShift | BitwiseRShift | BitwiseXor2 | ElementAtAlias | IndexOfAlias => {
+            | GetStacksBlockInfo | GetTenureInfo | TupleGet | TupleMerge | Len | Print
+            | AsContract | Begin | FetchVar | GetStxBalance | StxGetAccount | GetTokenBalance
+            | GetAssetOwner | GetTokenSupply | ElementAt | IndexOf | Slice | ReplaceAt
+            | BitwiseAnd | BitwiseOr | BitwiseNot | BitwiseLShift | BitwiseRShift | BitwiseXor2
+            | ElementAtAlias | IndexOfAlias => {
                 // Check all arguments.
                 self.check_each_expression_is_read_only(args)
             }

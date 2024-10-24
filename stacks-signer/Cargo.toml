@@ -43,18 +43,14 @@ tiny_http = { version = "0.12", optional = true }
 toml = "0.5.6"
 tracing = "0.1.37"
 tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
-wsts = { workspace = true }
 rand = { workspace = true }
 url = "2.1.0"
+rusqlite = { workspace = true }
 
 [dev-dependencies]
 clarity = { path = "../clarity", features = ["testing"] }
 polynomial = "0.2.6"
 num-traits = "0.2.18"
-
-[dependencies.rusqlite]
-version = "=0.24.2"
-features = ["blob", "serde_json", "i128_blob", "bundled", "trace"]
 
 [dependencies.serde_json]
 version = "1.0"
@@ -66,3 +62,4 @@ features = ["serde", "recovery"]
 
 [features]
 monitoring_prom = ["libsigner/monitoring_prom", "prometheus", "tiny_http"]
+testing = []

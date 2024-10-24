@@ -8,6 +8,6 @@
   "properties": {
     "is_implemented": {
       "type": "boolean"
-    },
+    }
   }
 }

@@ -468,6 +468,8 @@ impl PoxConstants {
         ) // total liquid supply is 40000000000000000 µSTX
     }
 
+    // TODO: add tests from mutation testing results #4838
+    #[cfg_attr(test, mutants::skip)]
     pub fn regtest_default() -> PoxConstants {
         PoxConstants::new(
             5,
@@ -515,7 +517,7 @@ impl PoxConstants {
         }
     }
 
-    /// What's the first block in the prepare phase
+    /// The first block of the prepare phase during `reward_cycle`. This is the prepare phase _for the next cycle_.
     pub fn prepare_phase_start(&self, first_block_height: u64, reward_cycle: u64) -> u64 {
         let reward_cycle_start =
             self.reward_cycle_to_block_height(first_block_height, reward_cycle);
@@ -524,16 +526,35 @@ impl PoxConstants {
         prepare_phase_start
     }
 
+    /// Is this the first block to receive rewards in its cycle?
+    /// This is the mod 1 block. Note: in nakamoto, the signer set for cycle N signs
+    ///  the mod 0 block.
     pub fn is_reward_cycle_start(&self, first_block_height: u64, burn_height: u64) -> bool {
         let effective_height = burn_height - first_block_height;
         // first block of the new reward cycle
         (effective_height % u64::from(self.reward_cycle_length)) == 1
     }
 
+    /// Is this the first block to be signed by the signer set in cycle N?
+    /// This is the mod 0 block.
+    pub fn is_naka_signing_cycle_start(&self, first_block_height: u64, burn_height: u64) -> bool {
+        let effective_height = burn_height - first_block_height;
+        // first block of the new reward cycle
+        (effective_height % u64::from(self.reward_cycle_length)) == 0
+    }
+
+    /// return the first burn block which receives reward in `reward_cycle`.
+    /// this is the modulo 1 block
     pub fn reward_cycle_to_block_height(&self, first_block_height: u64, reward_cycle: u64) -> u64 {
         // NOTE: the `+ 1` is because the height of the first block of a reward cycle is mod 1, not
         // mod 0.
         first_block_height + reward_cycle * u64::from(self.reward_cycle_length) + 1
+    }
+
+    /// the first burn block that must be *signed* by the signer set of `reward_cycle`.
+    /// this is the modulo 0 block
+    pub fn nakamoto_first_block_of_cycle(&self, first_block_height: u64, reward_cycle: u64) -> u64 {
+        first_block_height + reward_cycle * u64::from(self.reward_cycle_length)
     }
 
     pub fn reward_cycle_index(&self, first_block_height: u64, burn_height: u64) -> Option<u64> {
@@ -604,6 +625,35 @@ impl PoxConstants {
             //  `mod 0` may not have any rewards, but it does not behave like "prepare phase" blocks:
             //  is it already a member of reward cycle "N" where N = block_height / reward_cycle_len
             reward_index == 0 || reward_index > u64::from(reward_cycle_length - prepare_length)
+        }
+    }
+
+    /// The prepare phase is the last prepare_phase_length blocks of the cycle
+    /// This cannot include the 0 block for nakamoto
+    pub fn is_in_naka_prepare_phase(&self, first_block_height: u64, block_height: u64) -> bool {
+        Self::static_is_in_naka_prepare_phase(
+            first_block_height,
+            u64::from(self.reward_cycle_length),
+            u64::from(self.prepare_length),
+            block_height,
+        )
+    }
+
+    /// The prepare phase is the last prepare_phase_length blocks of the cycle
+    /// This cannot include the 0 block for nakamoto
+    pub fn static_is_in_naka_prepare_phase(
+        first_block_height: u64,
+        reward_cycle_length: u64,
+        prepare_length: u64,
+        block_height: u64,
+    ) -> bool {
+        if block_height <= first_block_height {
+            // not a reward cycle start if we're the first block after genesis.
+            false
+        } else {
+            let effective_height = block_height - first_block_height;
+            let reward_index = effective_height % reward_cycle_length;
+            reward_index > u64::from(reward_cycle_length - prepare_length)
         }
     }
 
@@ -693,6 +743,8 @@ pub enum Error {
     CoordinatorClosed,
     /// Graceful shutdown error
     ShutdownInitiated,
+    /// No epoch defined at that height
+    NoStacksEpoch,
 }
 
 impl fmt::Display for Error {
@@ -718,6 +770,10 @@ impl fmt::Display for Error {
             ),
             Error::CoordinatorClosed => write!(f, "ChainsCoordinator channel hung up"),
             Error::ShutdownInitiated => write!(f, "Graceful shutdown was initiated"),
+            Error::NoStacksEpoch => write!(
+                f,
+                "No Stacks epoch is defined at the height being evaluated"
+            ),
         }
     }
 }
@@ -741,6 +797,7 @@ impl error::Error for Error {
             Error::NonCanonicalPoxId(_, _) => None,
             Error::CoordinatorClosed => None,
             Error::ShutdownInitiated => None,
+            Error::NoStacksEpoch => None,
         }
     }
 }

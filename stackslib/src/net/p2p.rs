@@ -33,22 +33,22 @@ use stacks_common::consts::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_H
 use stacks_common::types::chainstate::{PoxId, SortitionId};
 use stacks_common::types::net::{PeerAddress, PeerHost};
 use stacks_common::types::StacksEpochId;
-use stacks_common::util::hash::to_hex;
+use stacks_common::util::hash::{to_hex, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::Secp256k1PublicKey;
 use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs, log};
-use wsts::curve::point::Point;
 use {mio, url};
 
 use crate::burnchains::db::{BurnchainDB, BurnchainHeaderReader};
 use crate::burnchains::{Address, Burnchain, BurnchainView, PublicKey};
-use crate::chainstate::burn::db::sortdb::{BlockHeaderCache, SortitionDB};
+use crate::chainstate::burn::db::sortdb::{get_ancestor_sort_id, BlockHeaderCache, SortitionDB};
 use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::coordinator::{
     static_get_canonical_affirmation_map, static_get_heaviest_affirmation_map,
-    static_get_stacks_tip_affirmation_map,
+    static_get_stacks_tip_affirmation_map, OnChainRewardSetProvider, RewardCycleInfo,
 };
-use crate::chainstate::stacks::boot::MINERS_NAME;
-use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::nakamoto::coordinator::load_nakamoto_reward_set;
+use crate::chainstate::stacks::boot::{RewardSet, MINERS_NAME};
+use crate::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState};
 use crate::chainstate::stacks::{StacksBlockHeader, MAX_BLOCK_LEN, MAX_TRANSACTION_LEN};
 use crate::core::StacksEpoch;
 use crate::monitoring::{update_inbound_neighbors, update_outbound_neighbors};
@@ -63,6 +63,7 @@ use crate::net::http::HttpRequestContents;
 use crate::net::httpcore::StacksHttpRequest;
 use crate::net::inv::inv2x::*;
 use crate::net::inv::nakamoto::{InvGenerator, NakamotoInvStateMachine};
+use crate::net::mempool::MempoolSync;
 use crate::net::neighbors::*;
 use crate::net::poll::{NetworkPollState, NetworkState};
 use crate::net::prune::*;
@@ -90,6 +91,7 @@ pub enum NetworkRequest {
 /// The "main loop" for sending/receiving data is a select/poll loop, and runs outside of other
 /// threads that need a synchronous RPC or a multi-RPC interface.  This object gives those threads
 /// a way to issue commands and hear back replies from them.
+#[derive(Clone)]
 pub struct NetworkHandle {
     chan_in: SyncSender<NetworkRequest>,
 }
@@ -103,7 +105,7 @@ struct NetworkHandleServer {
 
 impl NetworkHandle {
     pub fn new(chan_in: SyncSender<NetworkRequest>) -> NetworkHandle {
-        NetworkHandle { chan_in: chan_in }
+        NetworkHandle { chan_in }
     }
 
     /// Send out a command to the p2p thread.  Do not bother waiting for the response.
@@ -173,7 +175,7 @@ impl NetworkHandle {
 
 impl NetworkHandleServer {
     pub fn new(chan_in: Receiver<NetworkRequest>) -> NetworkHandleServer {
-        NetworkHandleServer { chan_in: chan_in }
+        NetworkHandleServer { chan_in }
     }
 
     pub fn pair(bufsz: usize) -> (NetworkHandleServer, NetworkHandle) {
@@ -193,22 +195,8 @@ pub enum PeerNetworkWorkState {
     Prune,
 }
 
-/// The four states the mempool sync state machine can be in
-#[derive(Debug, Clone, PartialEq)]
-pub enum MempoolSyncState {
-    /// Picking an outbound peer
-    PickOutboundPeer,
-    /// Resolving its data URL to a SocketAddr. Contains the data URL, DNS request handle, and
-    /// mempool page ID
-    ResolveURL(UrlString, DNSRequest, Txid),
-    /// Sending the request for mempool transactions. Contains the data URL, resolved socket, and
-    /// mempool page.
-    SendQuery(UrlString, SocketAddr, Txid),
-    /// Receiving the mempool response. Contains the URL, socket address, and event ID
-    RecvResponse(UrlString, SocketAddr, usize),
-}
-
 pub type PeerMap = HashMap<usize, ConversationP2P>;
+pub type PendingMessages = HashMap<(usize, NeighborKey), Vec<StacksMessage>>;
 
 pub struct ConnectingPeer {
     socket: mio_net::TcpStream,
@@ -233,6 +221,51 @@ impl ConnectingPeer {
     }
 }
 
+/// Cached reward cycle, for validating pushed blocks
+#[derive(Clone, Debug, PartialEq)]
+pub struct CurrentRewardSet {
+    pub reward_cycle: u64,
+    pub reward_cycle_info: RewardCycleInfo,
+    pub anchor_block_consensus_hash: ConsensusHash,
+    pub anchor_block_hash: BlockHeaderHash,
+}
+
+impl CurrentRewardSet {
+    pub fn reward_set(&self) -> Option<&RewardSet> {
+        self.reward_cycle_info.known_selected_anchor_block()
+    }
+
+    pub fn anchor_block_id(&self) -> StacksBlockId {
+        StacksBlockId::new(&self.anchor_block_consensus_hash, &self.anchor_block_hash)
+    }
+}
+
+/// Cached stacks chain tip info, consumed by RPC endpoints
+#[derive(Clone, Debug, PartialEq)]
+pub struct StacksTipInfo {
+    pub consensus_hash: ConsensusHash,
+    pub block_hash: BlockHeaderHash,
+    pub height: u64,
+    pub coinbase_height: u64,
+    pub is_nakamoto: bool,
+}
+
+impl StacksTipInfo {
+    pub fn empty() -> Self {
+        Self {
+            consensus_hash: ConsensusHash([0u8; 20]),
+            block_hash: BlockHeaderHash([0u8; 32]),
+            height: 0,
+            coinbase_height: 0,
+            is_nakamoto: false,
+        }
+    }
+
+    pub fn block_id(&self) -> StacksBlockId {
+        StacksBlockId::new(&self.consensus_hash, &self.block_hash)
+    }
+}
+
 pub struct PeerNetwork {
     // constants
     pub peer_version: u32,
@@ -248,24 +281,18 @@ pub struct PeerNetwork {
     pub ast_rules: ASTRules,
 
     /// Current Stacks tip -- the highest block's consensus hash, block hash, and height
-    pub stacks_tip: (ConsensusHash, BlockHeaderHash, u64),
-    /// Sortition that corresponds to the current Stacks tip, if known
-    pub stacks_tip_sn: Option<BlockSnapshot>,
+    pub stacks_tip: StacksTipInfo,
     /// Parent tenure Stacks tip -- the last block in the current tip's parent tenure.
     /// In epoch 2.x, this is the parent block.
     /// In nakamoto, this is the last block in the parent tenure
-    pub parent_stacks_tip: (ConsensusHash, BlockHeaderHash, u64),
+    pub parent_stacks_tip: StacksTipInfo,
     /// The block id of the first block in this tenure.
     /// In epoch 2.x, this is the same as the tip block ID
     /// In nakamoto, this is the block ID of the first block in the current tenure
     pub tenure_start_block_id: StacksBlockId,
-    /// The aggregate public keys of each witnessed reward cycle.
-    /// Only active during epoch 3.x and beyond.
-    /// Gets refreshed on each new Stacks block arrival, which deals with burnchain forks.
-    /// Stored in a BTreeMap because we often need to query the last or second-to-last reward cycle
-    /// aggregate public key, and we need to determine whether or not to load new reward cycles'
-    /// keys.
-    pub aggregate_public_keys: BTreeMap<u64, Option<Point>>,
+    /// The reward sets of the past three reward cycles.
+    /// Needed to validate blocks, which are signed by a threshold of stackers
+    pub current_reward_sets: BTreeMap<u64, CurrentRewardSet>,
 
     // information about the state of the network's anchor blocks
     pub heaviest_affirmation_map: AffirmationMap,
@@ -307,7 +334,10 @@ pub struct PeerNetwork {
     // work state -- we can be walking, fetching block inventories, fetching blocks, pruning, etc.
     pub work_state: PeerNetworkWorkState,
     pub nakamoto_work_state: PeerNetworkWorkState,
-    have_data_to_download: bool,
+    pub(crate) have_data_to_download: bool,
+
+    /// Mempool sync machine
+    pub mempool_sync: Option<MempoolSync>,
 
     // neighbor walk state
     pub walk: Option<NeighborWalk<PeerDBNeighborWalk, PeerNetworkComms>>,
@@ -319,6 +349,9 @@ pub struct PeerNetwork {
     pub walk_total_step_count: u64,
     pub walk_pingbacks: HashMap<NeighborAddress, NeighborPingback>, // inbound peers for us to try to ping back and add to our frontier, mapped to (peer_version, network_id, timeout, pubkey)
     pub walk_result: NeighborWalkResult, // last successful neighbor walk result
+
+    /// last time we logged neigbhors
+    last_neighbor_log: u128,
 
     /// Epoch 2.x inventory state
     pub inv_state: Option<InvState>,
@@ -349,15 +382,6 @@ pub struct PeerNetwork {
     pub stacker_db_configs: HashMap<QualifiedContractIdentifier, StackerDBConfig>,
     // handle to all stacker DB state
     pub stackerdbs: StackerDBs,
-
-    // outstanding request to perform a mempool sync
-    // * mempool_sync_deadline is when the next mempool sync must start
-    // * mempool_sync_timeout is when the current mempool sync must stop
-    mempool_state: MempoolSyncState,
-    mempool_sync_deadline: u64,
-    mempool_sync_timeout: u64,
-    mempool_sync_completions: u64,
-    mempool_sync_txs: u64,
 
     // how often we pruned a given inbound/outbound peer
     pub prune_outbound_counts: HashMap<NeighborKey, u64>,
@@ -395,9 +419,14 @@ pub struct PeerNetwork {
     antientropy_start_reward_cycle: u64,
     pub antientropy_last_push_ts: u64,
 
-    // pending messages (BlocksAvailable, MicroblocksAvailable, BlocksData, Microblocks) that we
-    // can't process yet, but might be able to process on the next chain view update
-    pub pending_messages: HashMap<usize, Vec<StacksMessage>>,
+    /// Pending messages (BlocksAvailable, MicroblocksAvailable, BlocksData, Microblocks,
+    /// NakamotoBlocks) that we can't process yet, but might be able to process on a subsequent
+    /// burnchain view update.
+    pub pending_messages: PendingMessages,
+
+    /// Pending messages (StackerDBPushChunk) that we can't process yet, but might be able
+    /// to process on a subsequent Stacks view update
+    pub pending_stacks_messages: PendingMessages,
 
     // fault injection -- force disconnects
     fault_last_disconnect: u64,
@@ -454,11 +483,11 @@ impl PeerNetwork {
         }
 
         let mut network = PeerNetwork {
-            peer_version: peer_version,
-            epochs: epochs,
+            peer_version,
+            epochs,
 
-            local_peer: local_peer,
-            chain_view: chain_view,
+            local_peer,
+            chain_view,
             chain_view_stable_consensus_hash: ConsensusHash([0u8; 20]),
             ast_rules: ASTRules::Typical,
             heaviest_affirmation_map: AffirmationMap::empty(),
@@ -472,14 +501,13 @@ impl PeerNetwork {
                 &first_burn_header_hash,
                 first_burn_header_ts as u64,
             ),
-            stacks_tip: (ConsensusHash([0x00; 20]), BlockHeaderHash([0x00; 32]), 0),
-            stacks_tip_sn: None,
-            parent_stacks_tip: (ConsensusHash([0x00; 20]), BlockHeaderHash([0x00; 32]), 0),
+            stacks_tip: StacksTipInfo::empty(),
+            parent_stacks_tip: StacksTipInfo::empty(),
             tenure_start_block_id: StacksBlockId([0x00; 32]),
-            aggregate_public_keys: BTreeMap::new(),
+            current_reward_sets: BTreeMap::new(),
 
-            peerdb: peerdb,
-            atlasdb: atlasdb,
+            peerdb,
+            atlasdb,
 
             peers: PeerMap::new(),
             sockets: HashMap::new(),
@@ -495,12 +523,14 @@ impl PeerNetwork {
             p2p_network_handle: 0,
             http_network_handle: 0,
 
-            burnchain: burnchain,
-            connection_opts: connection_opts,
+            burnchain,
+            connection_opts,
 
             work_state: PeerNetworkWorkState::GetPublicIP,
             nakamoto_work_state: PeerNetworkWorkState::GetPublicIP,
             have_data_to_download: false,
+
+            mempool_sync: Some(MempoolSync::new()),
 
             walk: None,
             walk_deadline: 0,
@@ -511,6 +541,8 @@ impl PeerNetwork {
             walk_total_step_count: 0,
             walk_pingbacks: HashMap::new(),
             walk_result: NeighborWalkResult::new(),
+
+            last_neighbor_log: 0,
 
             inv_state: None,
             inv_state_nakamoto: None,
@@ -523,14 +555,8 @@ impl PeerNetwork {
             attachments_downloader: None,
 
             stacker_db_syncs: Some(stacker_db_sync_map),
-            stacker_db_configs: stacker_db_configs,
-            stackerdbs: stackerdbs,
-
-            mempool_state: MempoolSyncState::PickOutboundPeer,
-            mempool_sync_deadline: 0,
-            mempool_sync_timeout: 0,
-            mempool_sync_completions: 0,
-            mempool_sync_txs: 0,
+            stacker_db_configs,
+            stackerdbs,
 
             prune_outbound_counts: HashMap::new(),
             prune_inbound_counts: HashMap::new(),
@@ -559,7 +585,8 @@ impl PeerNetwork {
             antientropy_last_push_ts: 0,
             antientropy_start_reward_cycle: 0,
 
-            pending_messages: HashMap::new(),
+            pending_messages: PendingMessages::new(),
+            pending_stacks_messages: PendingMessages::new(),
 
             fault_last_disconnect: 0,
 
@@ -1005,13 +1032,15 @@ impl PeerNetwork {
         })?
     }
 
-    /// Broadcast a message to a list of neighbors
+    /// Broadcast a message to a list of neighbors.
+    /// Neighbors in the `relay_hints` vec will *not* receive data, since they were the one(s) that
+    /// sent this peer the message in the first place.
     pub fn broadcast_message(
         &mut self,
         mut neighbor_keys: Vec<NeighborKey>,
         relay_hints: Vec<RelayData>,
         message_payload: StacksMessageType,
-    ) -> () {
+    ) {
         debug!(
             "{:?}: Will broadcast '{}' to up to {} neighbors; relayed by {:?}",
             &self.local_peer,
@@ -1023,6 +1052,9 @@ impl PeerNetwork {
             if let Some(event_id) = self.events.get(&nk) {
                 let event_id = *event_id;
                 if let Some(convo) = self.peers.get_mut(&event_id) {
+                    if !convo.is_authenticated() {
+                        continue;
+                    }
                     // safety check -- don't send to someone who has already been a relayer
                     let mut do_relay = true;
                     if let Some(pubkey) = convo.ref_public_key() {
@@ -1334,12 +1366,13 @@ impl PeerNetwork {
         Ok(ret)
     }
 
+    #[cfg_attr(test, mutants::skip)]
     /// Dispatch a single request from another thread.
     pub fn dispatch_request(&mut self, request: NetworkRequest) -> Result<(), net_error> {
         match request {
             NetworkRequest::Ban(neighbor_keys) => {
                 for neighbor_key in neighbor_keys.iter() {
-                    debug!("Request to ban {:?}", neighbor_key);
+                    info!("Request to ban {:?}", neighbor_key);
                     match self.events.get(neighbor_key) {
                         Some(event_id) => {
                             debug!("Will ban {:?} (event {})", neighbor_key, event_id);
@@ -1390,6 +1423,20 @@ impl PeerNetwork {
                             }
                         }
                         Ok(all_neighbors.into_iter().collect())
+                    }
+                    StacksMessageType::NakamotoBlocks(ref data) => {
+                        // send to each neighbor that needs one
+                        let mut all_neighbors = HashSet::new();
+                        for nakamoto_block in data.blocks.iter() {
+                            let neighbors =
+                                self.sample_broadcast_peers(&relay_hints, nakamoto_block)?;
+
+                            all_neighbors.extend(neighbors);
+                        }
+                        Ok(all_neighbors.into_iter().collect())
+                    }
+                    StacksMessageType::StackerDBPushChunk(ref data) => {
+                        Ok(self.sample_broadcast_peers(&relay_hints, data)?)
                     }
                     StacksMessageType::Transaction(ref data) => {
                         self.sample_broadcast_peers(&relay_hints, data)
@@ -1870,8 +1917,10 @@ impl PeerNetwork {
                     "{:?}: Remove inventory state for Nakamoto {:?}",
                     &self.local_peer, &nk
                 );
-                inv_state.del_peer(&NeighborAddress::from_neighbor_key(nk, pubkh));
+                inv_state.del_peer(&NeighborAddress::from_neighbor_key(nk.clone(), pubkh));
             }
+            self.pending_messages.remove(&(event_id, nk.clone()));
+            self.pending_stacks_messages.remove(&(event_id, nk.clone()));
         }
 
         match self.network {
@@ -1890,7 +1939,6 @@ impl PeerNetwork {
 
         self.relay_handles.remove(&event_id);
         self.peers.remove(&event_id);
-        self.pending_messages.remove(&event_id);
     }
 
     /// Deregister by neighbor key
@@ -2356,7 +2404,7 @@ impl PeerNetwork {
     }
 
     /// Prune inbound and outbound connections if we can
-    fn prune_connections(&mut self) -> () {
+    pub(crate) fn prune_connections(&mut self) -> () {
         if cfg!(test) && self.connection_opts.disable_network_prune {
             return;
         }
@@ -2400,6 +2448,22 @@ impl PeerNetwork {
                 }
             }
 
+            // if we're in the middle of epoch2 inv sync, then don't prune any connections it
+            // established
+            if let Some(inv_state) = self.inv_state.as_ref() {
+                if inv_state.get_pinned_connections().contains(event_id) {
+                    safe.insert(*event_id);
+                }
+            }
+
+            // if we're in the middle of nakamoto inv sync, then don't prune any connections it
+            // established
+            if let Some(nakamoto_inv) = self.inv_state_nakamoto.as_ref() {
+                if nakamoto_inv.get_pinned_connections().contains(event_id) {
+                    safe.insert(*event_id);
+                }
+            }
+
             // if we're running stacker DBs, then don't prune any outbound connections it
             // established
             if let Some(stacker_db_syncs) = self.stacker_db_syncs.as_ref() {
@@ -2411,6 +2475,7 @@ impl PeerNetwork {
             }
         }
 
+        debug!("Pinned connections: {:?}", &safe);
         self.prune_frontier(&safe);
     }
 
@@ -2569,55 +2634,6 @@ impl PeerNetwork {
             }
         }
         done
-    }
-
-    /// Do a mempool sync. Return any transactions we might receive.
-    #[cfg_attr(test, mutants::skip)]
-    fn do_network_mempool_sync(
-        &mut self,
-        dns_client_opt: &mut Option<&mut DNSClient>,
-        mempool: &MemPoolDB,
-        ibd: bool,
-    ) -> Option<Vec<StacksTransaction>> {
-        if ibd {
-            return None;
-        }
-
-        return match self.do_mempool_sync(dns_client_opt, mempool) {
-            (true, txs_opt) => {
-                // did we run to completion?
-                if let Some(txs) = txs_opt {
-                    debug!(
-                        "{:?}: Mempool sync obtained {} transactions from mempool sync, and done receiving",
-                        &self.local_peer,
-                        txs.len()
-                    );
-
-                    self.mempool_sync_deadline =
-                        get_epoch_time_secs() + self.connection_opts.mempool_sync_interval;
-                    self.mempool_sync_completions = self.mempool_sync_completions.saturating_add(1);
-                    self.mempool_sync_txs = self.mempool_sync_txs.saturating_add(txs.len() as u64);
-                    Some(txs)
-                } else {
-                    None
-                }
-            }
-            (false, txs_opt) => {
-                // did we get some transactions, but have more to get?
-                if let Some(txs) = txs_opt {
-                    debug!(
-                        "{:?}: Mempool sync obtained {} transactions from mempool sync, but have more",
-                        &self.local_peer,
-                        txs.len()
-                    );
-
-                    self.mempool_sync_txs = self.mempool_sync_txs.saturating_add(txs.len() as u64);
-                    Some(txs)
-                } else {
-                    None
-                }
-            }
-        };
     }
 
     /// Begin the process of learning this peer's public IP address.
@@ -3477,7 +3493,7 @@ impl PeerNetwork {
                     }
                     let microblocks_data = MicroblocksData {
                         index_anchor_block: anchor_block_id.clone(),
-                        microblocks: microblocks,
+                        microblocks,
                     };
 
                     debug!(
@@ -3549,435 +3565,6 @@ impl PeerNetwork {
         }
     }
 
-    /// Reset a mempool sync
-    fn mempool_sync_reset(&mut self) {
-        self.mempool_state = MempoolSyncState::PickOutboundPeer;
-        self.mempool_sync_timeout = 0;
-    }
-
-    /// Pick a peer to mempool sync with.
-    /// Returns Ok(None) if we're done syncing the mempool.
-    /// Returns Ok(Some(..)) if we're not done, and can proceed
-    /// Returns the new sync state -- either ResolveURL if we need to resolve a data URL,
-    /// or SendQuery if we got the IP address and can just issue the query.
-    #[cfg_attr(test, mutants::skip)]
-    fn mempool_sync_pick_outbound_peer(
-        &mut self,
-        dns_client_opt: &mut Option<&mut DNSClient>,
-        page_id: &Txid,
-    ) -> Result<Option<MempoolSyncState>, net_error> {
-        if self.peers.len() == 0 {
-            debug!("No peers connected; cannot do mempool sync");
-            return Ok(None);
-        }
-
-        let mut idx = thread_rng().gen::<usize>() % self.peers.len();
-        let mut mempool_sync_data_url = None;
-        for _ in 0..self.peers.len() + 1 {
-            let event_id = match self.peers.keys().skip(idx).next() {
-                Some(eid) => *eid,
-                None => {
-                    idx = 0;
-                    continue;
-                }
-            };
-            idx = (idx + 1) % self.peers.len();
-
-            if let Some(convo) = self.peers.get(&event_id) {
-                if !convo.is_authenticated() || !convo.is_outbound() {
-                    continue;
-                }
-                if !ConversationP2P::supports_mempool_query(convo.peer_services) {
-                    continue;
-                }
-                if convo.data_url.len() == 0 {
-                    continue;
-                }
-                let url = convo.data_url.clone();
-                if dns_client_opt.is_none() {
-                    if let Ok(Some(_)) = PeerNetwork::try_get_url_ip(&url) {
-                    } else {
-                        // need a DNS client for this one
-                        continue;
-                    }
-                }
-
-                mempool_sync_data_url = Some(url);
-                break;
-            }
-        }
-
-        if let Some(url) = mempool_sync_data_url {
-            self.mempool_sync_begin_resolve_data_url(url, dns_client_opt, page_id)
-        } else {
-            debug!("No peer has a data URL, so no mempool sync can happen");
-            Ok(None)
-        }
-    }
-
-    /// Begin resolving the DNS host of a data URL for mempool sync.
-    /// Returns Ok(None) if we're done syncing the mempool.
-    /// Returns Ok(Some(..)) if we're not done, and can proceed
-    /// Returns the new sync state -- either ResolveURL if we need to resolve a data URL,
-    /// or SendQuery if we got the IP address and can just issue the query.
-    #[cfg_attr(test, mutants::skip)]
-    fn mempool_sync_begin_resolve_data_url(
-        &self,
-        url_str: UrlString,
-        dns_client_opt: &mut Option<&mut DNSClient>,
-        page_id: &Txid,
-    ) -> Result<Option<MempoolSyncState>, net_error> {
-        // start resolving
-        let url = url_str.parse_to_block_url()?;
-        let port = match url.port_or_known_default() {
-            Some(p) => p,
-            None => {
-                warn!("Unsupported URL {:?}: unknown port", &url);
-                return Ok(None);
-            }
-        };
-
-        // bare IP address?
-        if let Some(addr) = PeerNetwork::try_get_url_ip(&url_str)? {
-            return Ok(Some(MempoolSyncState::SendQuery(
-                url_str,
-                addr,
-                page_id.clone(),
-            )));
-        } else if let Some(url::Host::Domain(domain)) = url.host() {
-            if let Some(ref mut dns_client) = dns_client_opt {
-                // begin DNS query
-                match dns_client.queue_lookup(
-                    domain,
-                    port,
-                    get_epoch_time_ms() + self.connection_opts.dns_timeout,
-                ) {
-                    Ok(_) => {}
-                    Err(_) => {
-                        warn!("Failed to queue DNS lookup on {}", &url_str);
-                        return Ok(None);
-                    }
-                }
-                return Ok(Some(MempoolSyncState::ResolveURL(
-                    url_str,
-                    DNSRequest::new(domain.to_string(), port, 0),
-                    page_id.clone(),
-                )));
-            } else {
-                // can't proceed -- no DNS client
-                return Ok(None);
-            }
-        } else {
-            // can't proceed
-            return Ok(None);
-        }
-    }
-
-    /// Resolve our picked mempool sync peer's data URL.
-    /// Returns Ok(true, ..) if we're done syncing the mempool.
-    /// Returns Ok(false, ..) if there's more to do
-    /// Returns the socket addr if we ever succeed in resolving it.
-    #[cfg_attr(test, mutants::skip)]
-    fn mempool_sync_resolve_data_url(
-        &mut self,
-        url_str: &UrlString,
-        request: &DNSRequest,
-        dns_client_opt: &mut Option<&mut DNSClient>,
-    ) -> Result<(bool, Option<SocketAddr>), net_error> {
-        if let Ok(Some(addr)) = PeerNetwork::try_get_url_ip(url_str) {
-            // URL contains an IP address -- go with that
-            Ok((false, Some(addr)))
-        } else if let Some(dns_client) = dns_client_opt {
-            // keep trying to resolve
-            match dns_client.poll_lookup(&request.host, request.port) {
-                Ok(Some(dns_response)) => match dns_response.result {
-                    Ok(mut addrs) => {
-                        if let Some(addr) = addrs.pop() {
-                            // resolved!
-                            return Ok((false, Some(addr)));
-                        } else {
-                            warn!("DNS returned no results for {}", url_str);
-                            return Ok((true, None));
-                        }
-                    }
-                    Err(msg) => {
-                        warn!("DNS failed to look up {:?}: {}", &url_str, msg);
-                        return Ok((true, None));
-                    }
-                },
-                Ok(None) => {
-                    // still in-flight
-                    return Ok((false, None));
-                }
-                Err(e) => {
-                    warn!("DNS lookup failed on {:?}: {:?}", url_str, &e);
-                    return Ok((true, None));
-                }
-            }
-        } else {
-            // can't do anything
-            debug!("No DNS client, and URL contains a domain, so no mempool sync can happen");
-            return Ok((true, None));
-        }
-    }
-
-    /// Ask the remote peer for its mempool, connecting to it in the process if need be.
-    /// Returns Ok((true, ..)) if we're done mempool syncing
-    /// Returns Ok((false, ..)) if there's more to do
-    /// Returns the event ID on success
-    #[cfg_attr(test, mutants::skip)]
-    fn mempool_sync_send_query(
-        &mut self,
-        url: &UrlString,
-        addr: &SocketAddr,
-        mempool: &MemPoolDB,
-        page_id: Txid,
-    ) -> Result<(bool, Option<usize>), net_error> {
-        let sync_data = mempool.make_mempool_sync_data()?;
-        let request = StacksHttpRequest::new_for_peer(
-            PeerHost::from_socketaddr(addr),
-            "POST".into(),
-            "/v2/mempool/query".into(),
-            HttpRequestContents::new()
-                .query_arg("page_id".into(), format!("{}", &page_id))
-                .payload_stacks(&sync_data),
-        )?;
-
-        let event_id = self.connect_or_send_http_request(url.clone(), addr.clone(), request)?;
-        return Ok((false, Some(event_id)));
-    }
-
-    /// Receive the mempool sync response.
-    /// Return Ok(true, ..) if we're done with the mempool sync.
-    /// Return Ok(false, ..) if we have more work to do.
-    /// Returns the page ID of the next request to make, and the list of transactions we got
-    #[cfg_attr(test, mutants::skip)]
-    fn mempool_sync_recv_response(
-        &mut self,
-        event_id: usize,
-    ) -> Result<(bool, Option<Txid>, Option<Vec<StacksTransaction>>), net_error> {
-        PeerNetwork::with_http(self, |network, http| {
-            match http.get_conversation(event_id) {
-                None => {
-                    if http.is_connecting(event_id) {
-                        debug!(
-                            "{:?}: Mempool sync event {} is not connected yet",
-                            &network.local_peer, event_id
-                        );
-                        return Ok((false, None, None));
-                    } else {
-                        // conversation died
-                        debug!("{:?}: Mempool sync peer hung up", &network.local_peer);
-                        return Ok((true, None, None));
-                    }
-                }
-                Some(ref mut convo) => {
-                    match convo.try_get_response() {
-                        None => {
-                            // still waiting
-                            debug!(
-                                "{:?}: Mempool sync event {} still waiting for a response",
-                                &network.local_peer, event_id
-                            );
-                            return Ok((false, None, None));
-                        }
-                        Some(http_response) => match http_response.decode_mempool_txs_page() {
-                            Ok((txs, page_id_opt)) => {
-                                debug!("{:?}: Mempool sync received response for {} txs, next page {:?}", &network.local_peer, txs.len(), &page_id_opt);
-                                return Ok((true, page_id_opt, Some(txs)));
-                            }
-                            Err(e) => {
-                                warn!(
-                                    "{:?}: Mempool sync request did not receive a txs page: {:?}",
-                                    &network.local_peer, &e
-                                );
-                                return Ok((true, None, None));
-                            }
-                        },
-                    }
-                }
-            }
-        })
-    }
-
-    /// Do a mempool sync
-    /// Return true if we're done and can advance to the next state.
-    /// Returns the transactions as well if the sync ran to completion.
-    #[cfg_attr(test, mutants::skip)]
-    fn do_mempool_sync(
-        &mut self,
-        dns_client_opt: &mut Option<&mut DNSClient>,
-        mempool: &MemPoolDB,
-    ) -> (bool, Option<Vec<StacksTransaction>>) {
-        if get_epoch_time_secs() <= self.mempool_sync_deadline {
-            debug!(
-                "{:?}: Wait until {} to do a mempool sync",
-                &self.local_peer, self.mempool_sync_deadline
-            );
-            return (true, None);
-        }
-
-        if self.mempool_sync_timeout == 0 {
-            // begin new sync
-            self.mempool_sync_timeout =
-                get_epoch_time_secs() + self.connection_opts.mempool_sync_timeout;
-        } else {
-            if get_epoch_time_secs() > self.mempool_sync_timeout {
-                debug!(
-                    "{:?}: Mempool sync took too long; terminating",
-                    &self.local_peer
-                );
-                self.mempool_sync_reset();
-                return (true, None);
-            }
-        }
-
-        // try advancing states until we get blocked.
-        // Once we get blocked, return.
-        loop {
-            let cur_state = self.mempool_state.clone();
-            debug!(
-                "{:?}: Mempool sync state is {:?}",
-                &self.local_peer, &cur_state
-            );
-            match cur_state {
-                MempoolSyncState::PickOutboundPeer => {
-                    // 1. pick a random outbound conversation.
-                    match self.mempool_sync_pick_outbound_peer(dns_client_opt, &Txid([0u8; 32])) {
-                        Ok(Some(next_state)) => {
-                            // success! can advance to either resolve a URL or to send a query
-                            self.mempool_state = next_state;
-                        }
-                        Ok(None) => {
-                            // done
-                            self.mempool_sync_reset();
-                            return (true, None);
-                        }
-                        Err(e) => {
-                            // done; need reset
-                            warn!("mempool_sync_pick_outbound_peer returned {:?}", &e);
-                            self.mempool_sync_reset();
-                            return (true, None);
-                        }
-                    }
-                }
-                MempoolSyncState::ResolveURL(ref url_str, ref dns_request, ref page_id) => {
-                    // 2. resolve its data URL
-                    match self.mempool_sync_resolve_data_url(url_str, dns_request, dns_client_opt) {
-                        Ok((false, Some(addr))) => {
-                            // success! advance
-                            self.mempool_state =
-                                MempoolSyncState::SendQuery(url_str.clone(), addr, page_id.clone());
-                        }
-                        Ok((false, None)) => {
-                            // try again later
-                            return (false, None);
-                        }
-                        Ok((true, _)) => {
-                            // done
-                            self.mempool_sync_reset();
-                            return (true, None);
-                        }
-                        Err(e) => {
-                            // failed
-                            warn!(
-                                "mempool_sync_resolve_data_url({}) failed: {:?}",
-                                url_str, &e
-                            );
-                            self.mempool_sync_reset();
-                            return (true, None);
-                        }
-                    }
-                }
-                MempoolSyncState::SendQuery(ref url, ref addr, ref page_id) => {
-                    // 3. ask for the remote peer's mempool's novel txs
-                    debug!(
-                        "{:?}: Mempool sync will query {} for mempool transactions at {}",
-                        &self.local_peer, url, page_id
-                    );
-                    match self.mempool_sync_send_query(url, addr, mempool, page_id.clone()) {
-                        Ok((false, Some(event_id))) => {
-                            // success! advance
-                            debug!("{:?}: Mempool sync query {} for mempool transactions at {} on event {}", &self.local_peer, url, page_id, event_id);
-                            self.mempool_state =
-                                MempoolSyncState::RecvResponse(url.clone(), addr.clone(), event_id);
-                        }
-                        Ok((false, None)) => {
-                            // try again later
-                            return (false, None);
-                        }
-                        Ok((true, _)) => {
-                            // done
-                            self.mempool_sync_reset();
-                            return (true, None);
-                        }
-                        Err(e) => {
-                            // done
-                            warn!("mempool_sync_send_query({}) returned {:?}", url, &e);
-                            self.mempool_sync_reset();
-                            return (true, None);
-                        }
-                    }
-                }
-                MempoolSyncState::RecvResponse(ref url, ref addr, ref event_id) => {
-                    match self.mempool_sync_recv_response(*event_id) {
-                        Ok((true, next_page_id_opt, Some(txs))) => {
-                            debug!(
-                                "{:?}: Mempool sync received {} transactions; next page is {:?}",
-                                &self.local_peer,
-                                txs.len(),
-                                &next_page_id_opt
-                            );
-
-                            // done! got data
-                            let ret = match next_page_id_opt {
-                                Some(next_page_id) => {
-                                    // get the next page
-                                    self.mempool_state = MempoolSyncState::SendQuery(
-                                        url.clone(),
-                                        addr.clone(),
-                                        next_page_id,
-                                    );
-                                    false
-                                }
-                                None => {
-                                    // done
-                                    self.mempool_sync_reset();
-                                    true
-                                }
-                            };
-                            return (ret, Some(txs));
-                        }
-                        Ok((true, _, None)) => {
-                            // done! did not get data
-                            self.mempool_sync_reset();
-                            return (true, None);
-                        }
-                        Ok((false, _, None)) => {
-                            // still receiving; try again later
-                            return (false, None);
-                        }
-                        Ok((false, _, Some(_))) => {
-                            // should never happen
-                            if cfg!(test) {
-                                panic!("Reached invalid state in {:?}, aborting...", &cur_state);
-                            }
-                            warn!("Reached invalid state in {:?}, resetting...", &cur_state);
-                            self.mempool_sync_reset();
-                            return (true, None);
-                        }
-                        Err(e) => {
-                            // likely a network error
-                            warn!("mempool_sync_recv_response returned {:?}", &e);
-                            self.mempool_sync_reset();
-                            return (true, None);
-                        }
-                    }
-                }
-            }
-        }
-    }
-
     /// Do the actual work in the state machine.
     /// Return true if we need to prune connections.
     /// This will call the epoch-appropriate network worker
@@ -3995,8 +3582,8 @@ impl PeerNetwork {
         let prune = if cur_epoch.epoch_id >= StacksEpochId::Epoch30 {
             debug!("{:?}: run Nakamoto work loop", self.get_local_peer());
 
-            // in Nakamoto epoch, so do Nakamoto things
-            let prune = self.do_network_work_nakamoto(
+            // in Nakamoto epoch, so we can always prune
+            self.do_network_work_nakamoto(
                 burnchain_height,
                 sortdb,
                 chainstate,
@@ -4028,9 +3615,10 @@ impl PeerNetwork {
                     "{:?}: ran Epoch 2.x work loop in Nakamoto epoch",
                     self.get_local_peer()
                 );
-                prune || epoch2_prune
+                epoch2_prune
             } else {
-                prune
+                // we can always prune in Nakamoto, since all state machines pin their connections
+                true
             }
         } else {
             // in epoch 2.x, so do epoch 2.x things
@@ -4055,92 +3643,44 @@ impl PeerNetwork {
         &mut self,
         burnchain_height: u64,
         sortdb: &SortitionDB,
-        chainstate: &StacksChainState,
+        chainstate: &mut StacksChainState,
         ibd: bool,
         network_result: &mut NetworkResult,
-    ) -> bool {
-        // do some Actual Work(tm)
-        let mut do_prune = false;
-        let mut did_cycle = false;
+    ) {
+        // always do an inv sync
+        let learned = self.do_network_inv_sync_nakamoto(sortdb, ibd);
+        debug!(
+            "{:?}: network work state is {:?}",
+            self.get_local_peer(),
+            &self.nakamoto_work_state;
+            "learned_new_blocks?" => learned
+        );
 
-        while !did_cycle {
-            // always do an inv sync
-            let learned = self.do_network_inv_sync_nakamoto(sortdb, ibd);
-            debug!(
-                "{:?}: network work state is {:?}",
-                self.get_local_peer(),
-                &self.nakamoto_work_state;
-                "learned_new_blocks?" => learned
-            );
+        // always do block download
+        let new_blocks = self
+            .do_network_block_sync_nakamoto(burnchain_height, sortdb, chainstate, ibd)
+            .map_err(|e| {
+                warn!(
+                    "{:?}: Failed to perform Nakamoto block sync: {:?}",
+                    &self.get_local_peer(),
+                    &e
+                );
+                e
+            })
+            .unwrap_or(HashMap::new());
 
-            // always do block download
-            let new_blocks = self
-                .do_network_block_sync_nakamoto(burnchain_height, sortdb, chainstate, ibd)
-                .map_err(|e| {
-                    warn!(
-                        "{:?}: Failed to perform Nakamoto block sync: {:?}",
-                        &self.get_local_peer(),
-                        &e
-                    );
-                    e
-                })
-                .unwrap_or(HashMap::new());
+        network_result.consume_nakamoto_blocks(new_blocks);
 
-            network_result.consume_nakamoto_blocks(new_blocks);
-
-            let cur_state = self.nakamoto_work_state;
-            match self.nakamoto_work_state {
-                PeerNetworkWorkState::GetPublicIP => {
-                    if cfg!(test) && self.connection_opts.disable_natpunch {
-                        self.nakamoto_work_state = PeerNetworkWorkState::BlockDownload;
-                    } else {
-                        // (re)determine our public IP address
-                        let done = self.do_get_public_ip();
-                        if done {
-                            self.nakamoto_work_state = PeerNetworkWorkState::BlockDownload;
-                        }
-                    }
-                }
-                PeerNetworkWorkState::BlockInvSync => {
-                    // this state is useless in Nakamoto since we're always doing inv-syncs
-                    self.nakamoto_work_state = PeerNetworkWorkState::BlockDownload;
-                }
-                PeerNetworkWorkState::BlockDownload => {
-                    // this state is useless in Nakamoto since we're always doing download-syncs
-                    self.nakamoto_work_state = PeerNetworkWorkState::AntiEntropy;
-                }
-                PeerNetworkWorkState::AntiEntropy => {
-                    debug!(
-                        "{:?}: Block anti-entropy for Nakamoto is not yet implemented",
-                        self.get_local_peer()
-                    );
-                    self.nakamoto_work_state = PeerNetworkWorkState::Prune;
-                }
-                PeerNetworkWorkState::Prune => {
-                    // did one pass
-                    did_cycle = true;
-                    do_prune = true;
-
-                    // restart
-                    self.nakamoto_work_state = PeerNetworkWorkState::GetPublicIP;
-                }
-            }
-
-            if self.nakamoto_work_state == cur_state {
-                // only break early if we can't make progress
-                break;
-            }
+        // make sure our public IP is fresh (this self-throttles if we recently learned it).
+        if !self.connection_opts.disable_natpunch {
+            self.do_get_public_ip();
         }
 
-        if did_cycle {
-            self.num_state_machine_passes += 1;
-            debug!(
-                "{:?}: Finished full p2p state-machine pass for Nakamoto ({})",
-                &self.local_peer, self.num_state_machine_passes
-            );
-        }
-
-        do_prune
+        self.num_state_machine_passes += 1;
+        debug!(
+            "{:?}: Finished full p2p state-machine pass for Nakamoto ({})",
+            &self.local_peer, self.num_state_machine_passes
+        );
     }
 
     /// Do the actual work in the state machine.
@@ -4425,759 +3965,6 @@ impl PeerNetwork {
         Some(outbound_neighbor_key)
     }
 
-    /// Update a peer's inventory state to indicate that the given block is available.
-    /// If updated, return the sortition height of the bit in the inv that was set.
-    /// Only valid for epoch 2.x
-    fn handle_unsolicited_inv_update_epoch2x(
-        &mut self,
-        sortdb: &SortitionDB,
-        event_id: usize,
-        outbound_neighbor_key: &NeighborKey,
-        consensus_hash: &ConsensusHash,
-        microblocks: bool,
-    ) -> Result<Option<u64>, net_error> {
-        let epoch = self.get_current_epoch();
-        if epoch.epoch_id >= StacksEpochId::Epoch30 {
-            info!(
-                "{:?}: Ban peer event {} for sending an inv 2.x update for {} in epoch 3.x",
-                event_id,
-                self.get_local_peer(),
-                consensus_hash
-            );
-            self.bans.insert(event_id);
-
-            if let Some(outbound_event_id) = self.events.get(&outbound_neighbor_key) {
-                self.bans.insert(*outbound_event_id);
-            }
-            return Ok(None);
-        }
-
-        let block_sortition_height = match self.inv_state {
-            Some(ref mut inv) => {
-                let res = if microblocks {
-                    inv.set_microblocks_available(
-                        &self.burnchain,
-                        outbound_neighbor_key,
-                        sortdb,
-                        consensus_hash,
-                    )
-                } else {
-                    inv.set_block_available(
-                        &self.burnchain,
-                        outbound_neighbor_key,
-                        sortdb,
-                        consensus_hash,
-                    )
-                };
-
-                match res {
-                    Ok(Some(block_height)) => block_height,
-                    Ok(None) => {
-                        debug!(
-                            "{:?}: We already know the inventory state in {} for {}",
-                            &self.local_peer, outbound_neighbor_key, consensus_hash
-                        );
-                        return Ok(None);
-                    }
-                    Err(net_error::NotFoundError) => {
-                        // is this remote node simply ahead of us?
-                        if let Some(convo) = self.peers.get(&event_id) {
-                            if self.chain_view.burn_block_height < convo.burnchain_tip_height {
-                                debug!("{:?}: Unrecognized consensus hash {}; it is possible that {} is ahead of us", &self.local_peer, consensus_hash, outbound_neighbor_key);
-                                return Err(net_error::NotFoundError);
-                            }
-                        }
-                        // not ahead of us -- it's a bad consensus hash
-                        debug!("{:?}: Unrecognized consensus hash {}; assuming that {} has a different chain view", &self.local_peer, consensus_hash, outbound_neighbor_key);
-                        return Ok(None);
-                    }
-                    Err(net_error::InvalidMessage) => {
-                        // punish this peer
-                        info!(
-                            "Peer {:?} sent an invalid update for {}",
-                            &outbound_neighbor_key,
-                            if microblocks {
-                                "streamed microblocks"
-                            } else {
-                                "blocks"
-                            }
-                        );
-                        self.bans.insert(event_id);
-
-                        if let Some(outbound_event_id) = self.events.get(&outbound_neighbor_key) {
-                            self.bans.insert(*outbound_event_id);
-                        }
-                        return Ok(None);
-                    }
-                    Err(e) => {
-                        warn!(
-                            "Failed to update inv state for {:?}: {:?}",
-                            &outbound_neighbor_key, &e
-                        );
-                        return Ok(None);
-                    }
-                }
-            }
-            None => {
-                return Ok(None);
-            }
-        };
-        Ok(Some(block_sortition_height))
-    }
-
-    /// Buffer a message for re-processing once the burnchain view updates
-    fn buffer_data_message(&mut self, event_id: usize, msg: StacksMessage) -> () {
-        if let Some(msgs) = self.pending_messages.get_mut(&event_id) {
-            // check limits:
-            // at most 1 BlocksAvailable
-            // at most 1 MicroblocksAvailable
-            // at most 1 BlocksData
-            // at most $self.connection_opts.max_buffered_microblocks MicroblocksDatas
-            let mut blocks_available = 0;
-            let mut microblocks_available = 0;
-            let mut blocks_data = 0;
-            let mut microblocks_data = 0;
-            for msg in msgs.iter() {
-                match &msg.payload {
-                    StacksMessageType::BlocksAvailable(_) => {
-                        blocks_available += 1;
-                    }
-                    StacksMessageType::MicroblocksAvailable(_) => {
-                        microblocks_available += 1;
-                    }
-                    StacksMessageType::Blocks(_) => {
-                        blocks_data += 1;
-                    }
-                    StacksMessageType::Microblocks(_) => {
-                        microblocks_data += 1;
-                    }
-                    _ => {}
-                }
-            }
-
-            if let StacksMessageType::BlocksAvailable(_) = &msg.payload {
-                if blocks_available >= self.connection_opts.max_buffered_blocks_available {
-                    debug!(
-                        "{:?}: Drop BlocksAvailable from event {} -- already have {} buffered",
-                        &self.local_peer, event_id, blocks_available
-                    );
-                    return;
-                }
-            }
-            if let StacksMessageType::MicroblocksAvailable(_) = &msg.payload {
-                if microblocks_available >= self.connection_opts.max_buffered_microblocks_available
-                {
-                    debug!(
-                        "{:?}: Drop MicroblocksAvailable from event {} -- already have {} buffered",
-                        &self.local_peer, event_id, microblocks_available
-                    );
-                    return;
-                }
-            }
-            if let StacksMessageType::Blocks(_) = &msg.payload {
-                if blocks_data >= self.connection_opts.max_buffered_blocks {
-                    debug!(
-                        "{:?}: Drop BlocksData from event {} -- already have {} buffered",
-                        &self.local_peer, event_id, blocks_data
-                    );
-                    return;
-                }
-            }
-            if let StacksMessageType::Microblocks(_) = &msg.payload {
-                if microblocks_data >= self.connection_opts.max_buffered_microblocks {
-                    debug!(
-                        "{:?}: Drop MicroblocksData from event {} -- already have {} buffered",
-                        &self.local_peer, event_id, microblocks_data
-                    );
-                    return;
-                }
-            }
-            msgs.push(msg);
-            debug!(
-                "{:?}: Event {} has {} messages buffered",
-                &self.local_peer,
-                event_id,
-                msgs.len()
-            );
-        } else {
-            self.pending_messages.insert(event_id, vec![msg]);
-            debug!(
-                "{:?}: Event {} has 1 messages buffered",
-                &self.local_peer, event_id
-            );
-        }
-    }
-
-    /// Do we need a block or microblock stream, given its sortition's consensus hash?
-    fn need_block_or_microblock_stream(
-        sortdb: &SortitionDB,
-        chainstate: &StacksChainState,
-        consensus_hash: &ConsensusHash,
-        is_microblock: bool,
-    ) -> Result<bool, net_error> {
-        let sn = SortitionDB::get_block_snapshot_consensus(sortdb.conn(), &consensus_hash)?
-            .ok_or(chainstate_error::NoSuchBlockError)?;
-        let block_hash_opt = if sn.sortition {
-            Some(sn.winning_stacks_block_hash)
-        } else {
-            None
-        };
-
-        let inv = chainstate.get_blocks_inventory(&[(consensus_hash.clone(), block_hash_opt)])?;
-        if is_microblock {
-            // checking for microblock absence
-            Ok(inv.microblocks_bitvec[0] == 0)
-        } else {
-            // checking for block absence
-            Ok(inv.block_bitvec[0] == 0)
-        }
-    }
-
-    /// Handle unsolicited BlocksAvailable.
-    /// Update our inv for this peer.
-    /// Mask errors.
-    /// Return whether or not we need to buffer this message
-    fn handle_unsolicited_BlocksAvailable(
-        &mut self,
-        sortdb: &SortitionDB,
-        chainstate: &StacksChainState,
-        event_id: usize,
-        new_blocks: &BlocksAvailableData,
-        ibd: bool,
-        buffer: bool,
-    ) -> bool {
-        let outbound_neighbor_key = match self.find_outbound_neighbor(event_id) {
-            Some(onk) => onk,
-            None => {
-                return false;
-            }
-        };
-
-        debug!(
-            "{:?}: Process BlocksAvailable from {:?} with {} entries",
-            &self.local_peer,
-            outbound_neighbor_key,
-            new_blocks.available.len()
-        );
-
-        let mut to_buffer = false;
-        for (consensus_hash, block_hash) in new_blocks.available.iter() {
-            let block_sortition_height = match self.handle_unsolicited_inv_update_epoch2x(
-                sortdb,
-                event_id,
-                &outbound_neighbor_key,
-                consensus_hash,
-                false,
-            ) {
-                Ok(Some(bsh)) => bsh,
-                Ok(None) => {
-                    continue;
-                }
-                Err(net_error::NotFoundError) => {
-                    if buffer {
-                        debug!("{:?}: Will buffer BlocksAvailable for {} until the next burnchain view update", &self.local_peer, &consensus_hash);
-                        to_buffer = true;
-                    }
-                    continue;
-                }
-                Err(e) => {
-                    info!(
-                        "{:?}: Failed to handle BlocksAvailable({}/{}) from {}: {:?}",
-                        &self.local_peer, &consensus_hash, &block_hash, &outbound_neighbor_key, &e
-                    );
-                    continue;
-                }
-            };
-
-            let need_block = match PeerNetwork::need_block_or_microblock_stream(
-                sortdb,
-                chainstate,
-                &consensus_hash,
-                false,
-            ) {
-                Ok(x) => x,
-                Err(e) => {
-                    warn!(
-                        "Failed to determine if we need block for consensus hash {}: {:?}",
-                        &consensus_hash, &e
-                    );
-                    false
-                }
-            };
-
-            debug!(
-                "Need block {}/{}? {}",
-                &consensus_hash, &block_hash, need_block
-            );
-
-            if need_block {
-                // have the downloader request this block if it's new and we don't have it
-                match self.block_downloader {
-                    Some(ref mut downloader) => {
-                        downloader.hint_block_sortition_height_available(
-                            block_sortition_height,
-                            ibd,
-                            need_block,
-                        );
-
-                        // advance straight to download state if we're in inv state
-                        if self.work_state == PeerNetworkWorkState::BlockInvSync {
-                            debug!("{:?}: advance directly to block download with knowledge of block sortition {}", &self.local_peer, block_sortition_height);
-                        }
-                        self.have_data_to_download = true;
-                    }
-                    None => {}
-                }
-            }
-        }
-
-        to_buffer
-    }
-
-    /// Handle unsolicited MicroblocksAvailable.
-    /// Update our inv for this peer.
-    /// Mask errors.
-    /// Return whether or not we need to buffer this message
-    fn handle_unsolicited_MicroblocksAvailable(
-        &mut self,
-        sortdb: &SortitionDB,
-        chainstate: &StacksChainState,
-        event_id: usize,
-        new_mblocks: &BlocksAvailableData,
-        ibd: bool,
-        buffer: bool,
-    ) -> bool {
-        let outbound_neighbor_key = match self.find_outbound_neighbor(event_id) {
-            Some(onk) => onk,
-            None => {
-                return false;
-            }
-        };
-
-        debug!(
-            "{:?}: Process MicroblocksAvailable from {:?} with {} entries",
-            &self.local_peer,
-            outbound_neighbor_key,
-            new_mblocks.available.len()
-        );
-
-        let mut to_buffer = false;
-        for (consensus_hash, block_hash) in new_mblocks.available.iter() {
-            let mblock_sortition_height = match self.handle_unsolicited_inv_update_epoch2x(
-                sortdb,
-                event_id,
-                &outbound_neighbor_key,
-                consensus_hash,
-                true,
-            ) {
-                Ok(Some(bsh)) => bsh,
-                Ok(None) => {
-                    continue;
-                }
-                Err(net_error::NotFoundError) => {
-                    if buffer {
-                        debug!("{:?}: Will buffer MicroblocksAvailable for {} until the next burnchain view update", &self.local_peer, &consensus_hash);
-                        to_buffer = true;
-                    }
-                    continue;
-                }
-                Err(e) => {
-                    info!(
-                        "{:?}: Failed to handle MicroblocksAvailable({}/{}) from {}: {:?}",
-                        &self.local_peer, &consensus_hash, &block_hash, &outbound_neighbor_key, &e
-                    );
-                    continue;
-                }
-            };
-
-            let need_microblock_stream = match PeerNetwork::need_block_or_microblock_stream(
-                sortdb,
-                chainstate,
-                &consensus_hash,
-                true,
-            ) {
-                Ok(x) => x,
-                Err(e) => {
-                    warn!("Failed to determine if we need microblock stream for consensus hash {}: {:?}", &consensus_hash, &e);
-                    false
-                }
-            };
-
-            debug!(
-                "Need microblock stream {}/{}? {}",
-                &consensus_hash, &block_hash, need_microblock_stream
-            );
-
-            if need_microblock_stream {
-                // have the downloader request this microblock stream if it's new to us
-                match self.block_downloader {
-                    Some(ref mut downloader) => {
-                        downloader.hint_microblock_sortition_height_available(
-                            mblock_sortition_height,
-                            ibd,
-                            need_microblock_stream,
-                        );
-
-                        // advance straight to download state if we're in inv state
-                        if self.work_state == PeerNetworkWorkState::BlockInvSync {
-                            debug!("{:?}: advance directly to block download with knowledge of microblock stream {}", &self.local_peer, mblock_sortition_height);
-                        }
-                        self.have_data_to_download = true;
-                    }
-                    None => {}
-                }
-            }
-        }
-        to_buffer
-    }
-
-    /// Handle unsolicited BlocksData.
-    /// Don't (yet) validate the data, but do update our inv for the peer that sent it, if we have
-    /// an outbound connection to that peer.  Accept the blocks data either way if it corresponds
-    /// to a winning sortition -- this will cause the blocks data to be fed into the relayer, which
-    /// will then decide whether or not it needs to be stored and/or forwarded.
-    /// Mask errors.
-    fn handle_unsolicited_BlocksData(
-        &mut self,
-        sortdb: &SortitionDB,
-        event_id: usize,
-        new_blocks: &BlocksData,
-        buffer: bool,
-    ) -> bool {
-        let (remote_neighbor_key, remote_is_authenticated) = match self.peers.get(&event_id) {
-            Some(convo) => (convo.to_neighbor_key(), convo.is_authenticated()),
-            None => {
-                test_debug!(
-                    "{:?}: No such neighbor event={}",
-                    &self.local_peer,
-                    event_id
-                );
-                return false;
-            }
-        };
-
-        if !remote_is_authenticated {
-            // drop -- a correct peer will have authenticated before sending this message
-            test_debug!(
-                "{:?}: Drop unauthenticated BlocksData from {:?}",
-                &self.local_peer,
-                &remote_neighbor_key
-            );
-            return false;
-        }
-
-        let outbound_neighbor_key_opt = self.find_outbound_neighbor(event_id);
-
-        debug!(
-            "{:?}: Process BlocksData from {:?} with {} entries",
-            &self.local_peer,
-            outbound_neighbor_key_opt
-                .as_ref()
-                .unwrap_or(&remote_neighbor_key),
-            new_blocks.blocks.len()
-        );
-
-        let mut to_buffer = false;
-
-        for BlocksDatum(consensus_hash, block) in new_blocks.blocks.iter() {
-            let sn = match SortitionDB::get_block_snapshot_consensus(
-                &sortdb.conn(),
-                &consensus_hash,
-            ) {
-                Ok(Some(sn)) => sn,
-                Ok(None) => {
-                    if buffer {
-                        debug!(
-                                "{:?}: Will buffer unsolicited BlocksData({}/{}) ({}) -- consensus hash not (yet) recognized",
-                                &self.local_peer,
-                                &consensus_hash,
-                                &block.block_hash(),
-                                StacksBlockHeader::make_index_block_hash(
-                                    &consensus_hash,
-                                    &block.block_hash()
-                                )
-                            );
-                        to_buffer = true;
-                    } else {
-                        debug!(
-                                "{:?}: Will drop unsolicited BlocksData({}/{}) ({}) -- consensus hash not (yet) recognized",
-                                &self.local_peer,
-                                &consensus_hash,
-                                &block.block_hash(),
-                                StacksBlockHeader::make_index_block_hash(
-                                    &consensus_hash,
-                                    &block.block_hash()
-                                )
-                            );
-                    }
-                    continue;
-                }
-                Err(e) => {
-                    info!(
-                        "{:?}: Failed to query block snapshot for {}: {:?}",
-                        &self.local_peer, consensus_hash, &e
-                    );
-                    continue;
-                }
-            };
-
-            if !sn.pox_valid {
-                info!(
-                    "{:?}: Failed to query snapshot for {}: not on the valid PoX fork",
-                    &self.local_peer, consensus_hash
-                );
-                continue;
-            }
-
-            if sn.winning_stacks_block_hash != block.block_hash() {
-                info!(
-                    "{:?}: Ignoring block {} -- winning block was {} (sortition: {})",
-                    &self.local_peer,
-                    block.block_hash(),
-                    sn.winning_stacks_block_hash,
-                    sn.sortition
-                );
-                continue;
-            }
-
-            // only bother updating the inventory for this event's peer if we have an outbound
-            // connection to it.
-            if let Some(outbound_neighbor_key) = outbound_neighbor_key_opt.as_ref() {
-                let _ = self.handle_unsolicited_inv_update_epoch2x(
-                    sortdb,
-                    event_id,
-                    &outbound_neighbor_key,
-                    &sn.consensus_hash,
-                    false,
-                );
-            }
-        }
-
-        to_buffer
-    }
-
-    /// Handle unsolicited MicroblocksData.
-    /// Returns whether or not to buffer (if buffer is true)
-    /// Returns whether or not to pass to the relayer (if buffer is false).
-    fn handle_unsolicited_MicroblocksData(
-        &mut self,
-        chainstate: &StacksChainState,
-        event_id: usize,
-        new_microblocks: &MicroblocksData,
-        buffer: bool,
-    ) -> bool {
-        let (remote_neighbor_key, remote_is_authenticated) = match self.peers.get(&event_id) {
-            Some(convo) => (convo.to_neighbor_key(), convo.is_authenticated()),
-            None => {
-                test_debug!(
-                    "{:?}: No such neighbor event={}",
-                    &self.local_peer,
-                    event_id
-                );
-                return false;
-            }
-        };
-
-        if !remote_is_authenticated {
-            // drop -- a correct peer will have authenticated before sending this message
-            test_debug!(
-                "{:?}: Drop unauthenticated MicroblocksData from {:?}",
-                &self.local_peer,
-                &remote_neighbor_key
-            );
-            return false;
-        }
-
-        let outbound_neighbor_key_opt = self.find_outbound_neighbor(event_id);
-
-        debug!(
-            "{:?}: Process MicroblocksData from {:?} for {} with {} entries",
-            &self.local_peer,
-            outbound_neighbor_key_opt
-                .as_ref()
-                .unwrap_or(&remote_neighbor_key),
-            &new_microblocks.index_anchor_block,
-            new_microblocks.microblocks.len()
-        );
-
-        // do we have the associated anchored block?
-        match chainstate.get_block_header_hashes(&new_microblocks.index_anchor_block) {
-            Ok(Some(_)) => {
-                // yup; can process now
-                debug!("{:?}: have microblock parent anchored block {}, so can process its microblocks", &self.local_peer, &new_microblocks.index_anchor_block);
-                !buffer
-            }
-            Ok(None) => {
-                if buffer {
-                    debug!(
-                        "{:?}: Will buffer unsolicited MicroblocksData({})",
-                        &self.local_peer, &new_microblocks.index_anchor_block
-                    );
-                    true
-                } else {
-                    debug!(
-                        "{:?}: Will not buffer unsolicited MicroblocksData({})",
-                        &self.local_peer, &new_microblocks.index_anchor_block
-                    );
-                    false
-                }
-            }
-            Err(e) => {
-                warn!(
-                    "{:?}: Failed to get header hashes for {:?}: {:?}",
-                    &self.local_peer, &new_microblocks.index_anchor_block, &e
-                );
-                false
-            }
-        }
-    }
-
-    /// Returns (true, x) if we should buffer the message and try again
-    /// Returns (x, true) if the relayer should receive the message
-    fn handle_unsolicited_message(
-        &mut self,
-        sortdb: &SortitionDB,
-        chainstate: &StacksChainState,
-        event_id: usize,
-        preamble: &Preamble,
-        payload: &StacksMessageType,
-        ibd: bool,
-        buffer: bool,
-    ) -> (bool, bool) {
-        match payload {
-            // Update our inv state for this peer, but only do so if we have an
-            // outbound connection to it and it's authenticated (we don't synchronize inv
-            // state with inbound peers).  Since we will have received this message
-            // from an _inbound_ conversation, we need to find the reciprocal _outbound_
-            // conversation and use _that_ conversation's neighbor key to identify
-            // which inventory we need to update.
-            StacksMessageType::BlocksAvailable(ref new_blocks) => {
-                let to_buffer = self.handle_unsolicited_BlocksAvailable(
-                    sortdb, chainstate, event_id, new_blocks, ibd, buffer,
-                );
-                (to_buffer, false)
-            }
-            StacksMessageType::MicroblocksAvailable(ref new_mblocks) => {
-                let to_buffer = self.handle_unsolicited_MicroblocksAvailable(
-                    sortdb,
-                    chainstate,
-                    event_id,
-                    new_mblocks,
-                    ibd,
-                    buffer,
-                );
-                (to_buffer, false)
-            }
-            StacksMessageType::Blocks(ref new_blocks) => {
-                // update inv state for this peer
-                let to_buffer =
-                    self.handle_unsolicited_BlocksData(sortdb, event_id, new_blocks, buffer);
-
-                // forward to relayer for processing
-                (to_buffer, true)
-            }
-            StacksMessageType::Microblocks(ref new_mblocks) => {
-                let to_buffer = self.handle_unsolicited_MicroblocksData(
-                    chainstate,
-                    event_id,
-                    new_mblocks,
-                    buffer,
-                );
-
-                // only forward to the relayer if we don't need to buffer it.
-                (to_buffer, true)
-            }
-            StacksMessageType::StackerDBPushChunk(ref data) => {
-                match self.handle_unsolicited_StackerDBPushChunk(event_id, preamble, data) {
-                    Ok(x) => {
-                        // don't buffer, but do reject if invalid
-                        (false, x)
-                    }
-                    Err(e) => {
-                        info!(
-                            "{:?}: failed to handle unsolicited {:?}: {:?}",
-                            &self.local_peer, payload, &e
-                        );
-                        (false, false)
-                    }
-                }
-            }
-            _ => (false, true),
-        }
-    }
-
-    /// Handle unsolicited messages propagated up to us from our ongoing ConversationP2Ps.
-    /// Return messages that we couldn't handle here, but key them by neighbor, not event.
-    /// Drop invalid messages.
-    /// If buffer is true, then re-try handling this message once the burnchain view advances.
-    fn handle_unsolicited_messages(
-        &mut self,
-        sortdb: &SortitionDB,
-        chainstate: &StacksChainState,
-        unsolicited: HashMap<usize, Vec<StacksMessage>>,
-        ibd: bool,
-        buffer: bool,
-    ) -> HashMap<NeighborKey, Vec<StacksMessage>> {
-        let mut unhandled: HashMap<NeighborKey, Vec<StacksMessage>> = HashMap::new();
-        for (event_id, messages) in unsolicited.into_iter() {
-            if messages.len() == 0 {
-                // no messages for this event
-                continue;
-            }
-
-            let neighbor_key = if let Some(convo) = self.peers.get(&event_id) {
-                convo.to_neighbor_key()
-            } else {
-                debug!(
-                    "{:?}: No longer such neighbor event={}, dropping {} unsolicited messages",
-                    &self.local_peer,
-                    event_id,
-                    messages.len()
-                );
-                continue;
-            };
-
-            debug!("{:?}: Process {} unsolicited messages from {:?}", &self.local_peer, messages.len(), &neighbor_key; "buffer" => %buffer);
-
-            for message in messages.into_iter() {
-                if !buffer {
-                    debug!(
-                        "{:?}: Re-try handling buffered message {} from {:?}",
-                        &self.local_peer,
-                        &message.payload.get_message_description(),
-                        &neighbor_key
-                    );
-                }
-                let (to_buffer, relay) = self.handle_unsolicited_message(
-                    sortdb,
-                    chainstate,
-                    event_id,
-                    &message.preamble,
-                    &message.payload,
-                    ibd,
-                    buffer,
-                );
-                if buffer && to_buffer {
-                    self.buffer_data_message(event_id, message);
-                } else if relay {
-                    // forward to relayer for processing
-                    debug!(
-                        "{:?}: Will forward message {} from {:?} to relayer",
-                        &self.local_peer,
-                        &message.payload.get_message_description(),
-                        &neighbor_key
-                    );
-                    if let Some(msgs) = unhandled.get_mut(&neighbor_key) {
-                        msgs.push(message);
-                    } else {
-                        unhandled.insert(neighbor_key.clone(), vec![message]);
-                    }
-                }
-            }
-        }
-        unhandled
-    }
-
     /// Find unauthenticated inbound conversations
     fn find_unauthenticated_inbound_convos(&self) -> Vec<usize> {
         let mut ret = vec![];
@@ -5254,7 +4041,7 @@ impl PeerNetwork {
                             peer_version: nk.peer_version,
                             network_id: nk.network_id,
                             ts: get_epoch_time_secs(),
-                            pubkey: pubkey,
+                            pubkey,
                         },
                     );
 
@@ -5360,125 +4147,223 @@ impl PeerNetwork {
             chainstate,
             sortdb,
             stacker_db_configs,
+            self.connection_opts.num_neighbors,
         )?;
         Ok(())
     }
 
     /// Load up the parent stacks tip.
     /// For epoch 2.x, this is the pointer to the parent block of the current stacks tip
-    /// For epoch 3.x, this is the pointer to the tenure-start block of the parent tenure of the
+    /// For epoch 3.x, this is the pointer to the _tenure-start_ block of the parent tenure of the
     /// current stacks tip.
     /// If this is the first tenure in epoch 3.x, then this is the pointer to the epoch 2.x block
     /// that it builds atop.
     pub(crate) fn get_parent_stacks_tip(
-        cur_epoch: StacksEpochId,
+        &self,
         chainstate: &StacksChainState,
         stacks_tip_block_id: &StacksBlockId,
-    ) -> Result<(ConsensusHash, BlockHeaderHash, u64), net_error> {
+    ) -> Result<StacksTipInfo, net_error> {
         let header = NakamotoChainState::get_block_header(chainstate.db(), stacks_tip_block_id)?
-            .ok_or(net_error::DBError(db_error::NotFoundError))?;
+            .ok_or_else(|| {
+                debug!(
+                    "{:?}: get_parent_stacks_tip: No such stacks block: {:?}",
+                    self.get_local_peer(),
+                    stacks_tip_block_id
+                );
+                net_error::DBError(db_error::NotFoundError)
+            })?;
 
-        let parent_header = if cur_epoch < StacksEpochId::Epoch30 {
-            // prior to epoch 3.0, the self.prev_stacks_tip field is just the parent block
-            let parent_block_id =
-                StacksChainState::get_parent_block_id(chainstate.db(), &header.index_block_hash())?
-                    .ok_or(net_error::DBError(db_error::NotFoundError))?;
-
-            NakamotoChainState::get_block_header(chainstate.db(), &parent_block_id)?
-                .ok_or(net_error::DBError(db_error::NotFoundError))?
-        } else {
-            // in epoch 3.0 and later, self.prev_stacks_tip is the first tenure block of the
-            // current tip's parent tenure.
-            match NakamotoChainState::get_nakamoto_parent_tenure_id_consensus_hash(
-                chainstate.db(),
+        let tenure_start_header = NakamotoChainState::get_tenure_start_block_header(
+            &mut chainstate.index_conn(),
+            stacks_tip_block_id,
+            &header.consensus_hash,
+        )?
+        .ok_or_else(|| {
+            debug!(
+                "{:?}: get_parent_stacks_tip: No tenure-start block for {} off of {}",
+                self.get_local_peer(),
                 &header.consensus_hash,
-            )? {
-                Some(ch) => NakamotoChainState::get_nakamoto_tenure_start_block_header(
-                    chainstate.db(),
-                    &ch,
-                )?
-                .ok_or(net_error::DBError(db_error::NotFoundError))?,
-                None => {
-                    // parent in epoch 2
-                    let tenure_start_block_header =
-                        NakamotoChainState::get_block_header_by_consensus_hash(
-                            chainstate.db(),
-                            &header.consensus_hash,
-                        )?
-                        .ok_or(net_error::DBError(db_error::NotFoundError))?;
+                stacks_tip_block_id
+            );
+            net_error::DBError(db_error::NotFoundError)
+        })?;
 
-                    let nakamoto_header = tenure_start_block_header
-                        .anchored_header
-                        .as_stacks_nakamoto()
-                        .ok_or(net_error::DBError(db_error::NotFoundError))?;
+        let parent_block_id = match tenure_start_header.anchored_header {
+            StacksBlockHeaderTypes::Nakamoto(ref nakamoto_header) => {
+                nakamoto_header.parent_block_id.clone()
+            }
+            StacksBlockHeaderTypes::Epoch2(..) => StacksChainState::get_parent_block_id(
+                chainstate.db(),
+                &tenure_start_header.index_block_hash(),
+            )?
+            .ok_or_else(|| {
+                debug!(
+                    "{:?}: get_parent_stacks_tip: No parent block ID found for epoch2x block {}",
+                    self.get_local_peer(),
+                    &tenure_start_header.index_block_hash()
+                );
+                net_error::DBError(db_error::NotFoundError)
+            })?,
+        };
 
-                    NakamotoChainState::get_block_header(
-                        chainstate.db(),
-                        &nakamoto_header.parent_block_id,
-                    )?
-                    .ok_or(net_error::DBError(db_error::NotFoundError))?
+        let parent_header =
+            NakamotoChainState::get_block_header(chainstate.db(), &parent_block_id)?.ok_or_else(
+                || {
+                    debug!(
+                        "{:?}: get_parent_stacks_tip: No such parent stacks block: {:?}",
+                        self.get_local_peer(),
+                        &parent_block_id
+                    );
+                    net_error::DBError(db_error::NotFoundError)
+                },
+            )?;
+
+        let parent_tenure_start_header = NakamotoChainState::get_tenure_start_block_header(&mut chainstate.index_conn(), stacks_tip_block_id, &parent_header.consensus_hash)?
+            .ok_or_else(|| {
+                debug!("{:?}: get_parent_stacks_tip: No tenure-start block for parent tenure {} off of child {} (parent {})", self.get_local_peer(), &parent_header.consensus_hash, stacks_tip_block_id, &parent_block_id);
+                net_error::DBError(db_error::NotFoundError)
+            })?;
+
+        let parent_stacks_tip_block_hash = parent_tenure_start_header.anchored_header.block_hash();
+        let parent_stacks_tip_block_id = StacksBlockId::new(
+            &parent_tenure_start_header.consensus_hash,
+            &parent_stacks_tip_block_hash,
+        );
+        let parent_coinbase_height = NakamotoChainState::get_coinbase_height(
+            &mut chainstate.index_conn(),
+            &parent_stacks_tip_block_id,
+        )?;
+
+        let coinbase_height = match parent_coinbase_height {
+            Some(cbh) => cbh,
+            None => {
+                if parent_tenure_start_header.is_epoch_2_block() {
+                    // The coinbase height is the same as the stacks block height as
+                    // every block contains a coinbase in epoch 2.x
+                    parent_tenure_start_header.stacks_block_height
+                } else {
+                    debug!("{:?}: get_parent_stacks_tip: No coinbase height found for nakamoto block {parent_stacks_tip_block_id}", self.get_local_peer());
+                    return Err(net_error::DBError(db_error::NotFoundError));
                 }
             }
         };
-        Ok((
-            parent_header.consensus_hash,
-            parent_header.anchored_header.block_hash(),
-            parent_header.anchored_header.height(),
-        ))
+
+        let parent_stacks_tip = StacksTipInfo {
+            consensus_hash: parent_tenure_start_header.consensus_hash,
+            block_hash: parent_stacks_tip_block_hash,
+            height: parent_tenure_start_header.anchored_header.height(),
+            coinbase_height,
+            is_nakamoto: parent_tenure_start_header
+                .anchored_header
+                .as_stacks_nakamoto()
+                .is_some(),
+        };
+        debug!(
+            "{:?}: Parent Stacks tip off of {} is {:?}",
+            self.get_local_peer(),
+            &stacks_tip_block_id,
+            &parent_stacks_tip
+        );
+        Ok(parent_stacks_tip)
     }
 
-    /// Refresh our view of the aggregate public keys
-    /// Returns a list of (reward-cycle, option(pubkey)) pairs.
-    /// An option(pubkey) is defined for all reward cycles, but for epochs 2.4 and earlier, it will
-    /// be None.
-    fn find_new_aggregate_public_keys(
+    /// Clear out old reward cycles
+    fn free_old_reward_cycles(&mut self, rc: u64) {
+        if self.current_reward_sets.len() > 3 {
+            self.current_reward_sets.retain(|old_rc, _| {
+                if (*old_rc).saturating_add(2) < rc {
+                    debug!("Drop reward cycle info for cycle {}", old_rc);
+                    return false;
+                }
+                true
+            });
+        }
+    }
+
+    /// Refresh our view of the last three reward cycles
+    /// This ensures that the PeerNetwork has cached copies of the reward cycle data (including the
+    /// signing set) for the current, previous, and previous-previous reward cycles.  This data is
+    /// in turn consumed by the Nakamoto block downloader, which must validate blocks signed from
+    /// any of these reward cycles.
+    #[cfg_attr(test, mutants::skip)]
+    fn refresh_reward_cycles(
         &mut self,
         sortdb: &SortitionDB,
-        tip_sn: &BlockSnapshot,
         chainstate: &mut StacksChainState,
-        stacks_tip_block_id: &StacksBlockId,
-    ) -> Result<Vec<(u64, Option<Point>)>, net_error> {
-        let sort_tip_rc = self
+        tip_sn: &BlockSnapshot,
+        tip_block_id: &StacksBlockId,
+    ) -> Result<(), net_error> {
+        let cur_rc = self
             .burnchain
             .block_height_to_reward_cycle(tip_sn.block_height)
             .expect("FATAL: sortition from before system start");
-        let next_agg_pubkey_rc = self
-            .aggregate_public_keys
-            .last_key_value()
-            .map(|(rc, _)| rc.saturating_add(1))
-            .unwrap_or(0);
-        let mut new_agg_pubkeys: Vec<_> = (next_agg_pubkey_rc..=sort_tip_rc)
-            .filter_map(|key_rc| {
-                let ih = sortdb.index_handle(&tip_sn.sortition_id);
-                let agg_pubkey_opt = if self.get_current_epoch().epoch_id < StacksEpochId::Epoch25 {
-                    None
-                } else {
-                    test_debug!(
-                        "Try to get aggregate public key for reward cycle {}",
-                        key_rc
-                    );
-                    NakamotoChainState::load_aggregate_public_key(
-                        sortdb,
-                        &ih,
-                        chainstate,
-                        self.burnchain.reward_cycle_to_block_height(key_rc),
-                        &stacks_tip_block_id,
-                        false,
-                    )
-                    .ok()
-                };
-                if agg_pubkey_opt.is_none() {
-                    return None;
-                }
-                Some((key_rc, agg_pubkey_opt))
-            })
-            .collect();
 
-        if new_agg_pubkeys.len() == 0 && self.aggregate_public_keys.len() == 0 {
-            // special case -- we're before epoch 3.0, so don't waste time doing this again
-            new_agg_pubkeys.push((sort_tip_rc, None));
+        let prev_rc = cur_rc.saturating_sub(1);
+        let prev_prev_rc = prev_rc.saturating_sub(1);
+        let ih = sortdb.index_handle(&tip_sn.sortition_id);
+
+        for rc in [cur_rc, prev_rc, prev_prev_rc] {
+            debug!("Refresh reward cycle info for cycle {}", rc);
+            let rc_start_height = self.burnchain.nakamoto_first_block_of_cycle(rc);
+            let Some(ancestor_sort_id) =
+                get_ancestor_sort_id(&ih, rc_start_height, &tip_sn.sortition_id)?
+            else {
+                // reward cycle is too far back for there to be an ancestor
+                continue;
+            };
+            let ancestor_ih = sortdb.index_handle(&ancestor_sort_id);
+            let anchor_hash_opt = ancestor_ih.get_last_anchor_block_hash()?;
+
+            if let Some(cached_rc_info) = self.current_reward_sets.get(&rc) {
+                if let Some(anchor_hash) = anchor_hash_opt.as_ref() {
+                    // careful -- the sortition DB stores a StacksBlockId's value (the tenure-start
+                    // StacksBlockId) as a BlockHeaderHash, since that's what it was designed to
+                    // deal with in the pre-Nakamoto days
+                    if cached_rc_info.anchor_block_id() == StacksBlockId(anchor_hash.0.clone())
+                        || cached_rc_info.anchor_block_hash == *anchor_hash
+                    {
+                        // cached reward set data is still valid
+                        continue;
+                    }
+                }
+            }
+
+            debug!("Load reward cycle info for cycle {}", rc);
+            let Some((reward_set_info, anchor_block_header)) = load_nakamoto_reward_set(
+                rc,
+                &tip_sn.sortition_id,
+                &self.burnchain,
+                chainstate,
+                tip_block_id,
+                sortdb,
+                &OnChainRewardSetProvider::new(),
+            )
+            .map_err(|e| {
+                warn!(
+                    "Failed to load reward cycle info for cycle {}: {:?}",
+                    rc, &e
+                );
+                e
+            })
+            .unwrap_or(None) else {
+                continue;
+            };
+
+            let rc_info = CurrentRewardSet {
+                reward_cycle: rc,
+                reward_cycle_info: reward_set_info,
+                anchor_block_consensus_hash: anchor_block_header.consensus_hash,
+                anchor_block_hash: anchor_block_header.anchored_header.block_hash(),
+            };
+
+            debug!(
+                "Store cached reward set for reward cycle {} anchor block {}",
+                rc, &rc_info.anchor_block_hash
+            );
+            self.current_reward_sets.insert(rc, rc_info);
         }
-        Ok(new_agg_pubkeys)
+        self.free_old_reward_cycles(cur_rc);
+        Ok(())
     }
 
     /// Refresh view of burnchain, if needed.
@@ -5494,62 +4379,99 @@ impl PeerNetwork {
         sortdb: &SortitionDB,
         chainstate: &mut StacksChainState,
         ibd: bool,
-    ) -> Result<HashMap<NeighborKey, Vec<StacksMessage>>, net_error> {
+    ) -> Result<PendingMessages, net_error> {
         // update burnchain snapshot if we need to (careful -- it's expensive)
         let canonical_sn = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())?;
-        let stacks_tip =
+        let (stacks_tip_ch, stacks_tip_bhh, stacks_tip_height) =
             SortitionDB::get_canonical_stacks_chain_tip_hash_and_height(sortdb.conn())?;
 
         let burnchain_tip_changed = canonical_sn.block_height != self.chain_view.burn_block_height
-            || self.num_state_machine_passes == 0;
-        let stacks_tip_changed = self.stacks_tip != stacks_tip;
-        let new_stacks_tip_block_id = StacksBlockId::new(&stacks_tip.0, &stacks_tip.1);
+            || self.num_state_machine_passes == 0
+            || canonical_sn.sortition_id != self.burnchain_tip.sortition_id;
+
+        let stacks_tip_changed = self.stacks_tip.consensus_hash != stacks_tip_ch
+            || self.stacks_tip.block_hash != stacks_tip_bhh
+            || self.stacks_tip.height != stacks_tip_height;
+
+        let new_stacks_tip_block_id = StacksBlockId::new(&stacks_tip_ch, &stacks_tip_bhh);
+        let stacks_tip_is_nakamoto = if stacks_tip_changed {
+            // go check
+            chainstate
+                .nakamoto_blocks_db()
+                .has_nakamoto_block_with_index_hash(&new_stacks_tip_block_id)
+                .unwrap_or(false)
+        } else {
+            self.stacks_tip.is_nakamoto
+        };
+
+        let stacks_tip_cbh = NakamotoChainState::get_coinbase_height(
+            &mut chainstate.index_conn(),
+            &new_stacks_tip_block_id,
+        )?;
+
+        let coinbase_height = match stacks_tip_cbh {
+            Some(cbh) => cbh,
+            None => {
+                if !stacks_tip_is_nakamoto {
+                    // The coinbase height is the same as the stacks block height as
+                    // every block contains a coinbase in epoch 2.x
+                    stacks_tip_height
+                } else {
+                    debug!("{:?}: No coinbase height found for nakamoto block {new_stacks_tip_block_id}", self.get_local_peer());
+                    return Err(net_error::DBError(db_error::NotFoundError));
+                }
+            }
+        };
+
         let need_stackerdb_refresh = canonical_sn.canonical_stacks_tip_consensus_hash
             != self.burnchain_tip.canonical_stacks_tip_consensus_hash
             || burnchain_tip_changed
             || stacks_tip_changed;
-        let mut ret: HashMap<NeighborKey, Vec<StacksMessage>> = HashMap::new();
 
-        let aggregate_public_keys = self.find_new_aggregate_public_keys(
-            sortdb,
-            &canonical_sn,
-            chainstate,
-            &new_stacks_tip_block_id,
-        )?;
-        let (parent_stacks_tip, tenure_start_block_id, stacks_tip_sn) = if stacks_tip_changed {
-            let stacks_tip_sn =
-                SortitionDB::get_block_snapshot_consensus(sortdb.conn(), &stacks_tip.0)?;
+        if burnchain_tip_changed || stacks_tip_changed {
+            self.refresh_reward_cycles(
+                sortdb,
+                chainstate,
+                &canonical_sn,
+                &new_stacks_tip_block_id,
+            )?;
+        }
+
+        let (parent_stacks_tip, tenure_start_block_id) = if stacks_tip_changed {
             let tenure_start_block_id = if let Some(header) =
                 NakamotoChainState::get_nakamoto_tenure_start_block_header(
-                    chainstate.db(),
-                    &stacks_tip.0,
+                    &mut chainstate.index_conn(),
+                    &new_stacks_tip_block_id,
+                    &stacks_tip_ch,
                 )? {
                 header.index_block_hash()
             } else {
                 new_stacks_tip_block_id.clone()
             };
-            let parent_tip_id = match Self::get_parent_stacks_tip(
-                self.get_current_epoch().epoch_id,
-                chainstate,
-                &new_stacks_tip_block_id,
-            ) {
-                Ok(tip_id) => tip_id,
+            let parent_tip = match self.get_parent_stacks_tip(chainstate, &new_stacks_tip_block_id)
+            {
+                Ok(tip) => tip,
                 Err(net_error::DBError(db_error::NotFoundError)) => {
                     // this is the first block
-                    (
-                        FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
-                        FIRST_STACKS_BLOCK_HASH.clone(),
-                        0,
-                    )
+                    debug!(
+                        "First-ever block (no parent): {:?} ({}/{})",
+                        &new_stacks_tip_block_id, &stacks_tip_ch, &stacks_tip_bhh
+                    );
+                    StacksTipInfo {
+                        consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
+                        block_hash: FIRST_STACKS_BLOCK_HASH.clone(),
+                        height: 0,
+                        coinbase_height: 0,
+                        is_nakamoto: false,
+                    }
                 }
                 Err(e) => return Err(e),
             };
-            (parent_tip_id, tenure_start_block_id, stacks_tip_sn)
+            (parent_tip, tenure_start_block_id)
         } else {
             (
                 self.parent_stacks_tip.clone(),
                 self.tenure_start_block_id.clone(),
-                self.stacks_tip_sn.clone(),
             )
         };
 
@@ -5683,23 +4605,74 @@ impl PeerNetwork {
         }
 
         // can't fail after this point
-
+        let mut ret = PendingMessages::new();
         if burnchain_tip_changed {
             // try processing previously-buffered messages (best-effort)
+            debug!(
+                "{:?}: handle unsolicited stacks messages: burnchain changed {} != {}, {} buffered",
+                self.get_local_peer(),
+                &self.burnchain_tip.consensus_hash,
+                &canonical_sn.consensus_hash,
+                self.pending_messages
+                    .iter()
+                    .fold(0, |acc, (_, msgs)| acc + msgs.len())
+            );
             let buffered_messages = mem::replace(&mut self.pending_messages, HashMap::new());
-            ret =
-                self.handle_unsolicited_messages(sortdb, chainstate, buffered_messages, ibd, false);
+            let unhandled = self.handle_unsolicited_sortition_messages(
+                sortdb,
+                chainstate,
+                buffered_messages,
+                ibd,
+                false,
+            );
+            ret.extend(unhandled);
+        }
+
+        if self.stacks_tip.consensus_hash != stacks_tip_ch {
+            // try processing previously-buffered messages (best-effort)
+            debug!(
+                "{:?}: handle unsolicited stacks messages: tenure changed {} != {}, {} buffered",
+                self.get_local_peer(),
+                &self.burnchain_tip.consensus_hash,
+                &canonical_sn.consensus_hash,
+                self.pending_stacks_messages
+                    .iter()
+                    .fold(0, |acc, (_, msgs)| acc + msgs.len())
+            );
+            let buffered_stacks_messages =
+                mem::replace(&mut self.pending_stacks_messages, HashMap::new());
+            let unhandled = self.handle_unsolicited_stacks_messages(
+                chainstate,
+                buffered_stacks_messages,
+                false,
+            );
+            ret.extend(unhandled);
         }
 
         // update cached stacks chain view for /v2/info and /v3/tenures/info
         self.burnchain_tip = canonical_sn;
-        self.stacks_tip = stacks_tip;
-        self.stacks_tip_sn = stacks_tip_sn;
-        self.parent_stacks_tip = parent_stacks_tip;
-        for (key_rc, agg_pubkey_opt) in aggregate_public_keys {
-            self.aggregate_public_keys.insert(key_rc, agg_pubkey_opt);
-        }
         self.tenure_start_block_id = tenure_start_block_id;
+        if stacks_tip_changed {
+            self.stacks_tip = StacksTipInfo {
+                consensus_hash: stacks_tip_ch,
+                block_hash: stacks_tip_bhh,
+                height: stacks_tip_height,
+                coinbase_height,
+                is_nakamoto: stacks_tip_is_nakamoto,
+            };
+            self.parent_stacks_tip = parent_stacks_tip;
+
+            debug!(
+                "{:?}: canonical Stacks tip is now {:?}",
+                self.get_local_peer(),
+                &self.stacks_tip
+            );
+            debug!(
+                "{:?}: parent canonical Stacks tip is now {:?}",
+                self.get_local_peer(),
+                &self.parent_stacks_tip
+            );
+        }
 
         Ok(ret)
     }
@@ -5750,8 +4723,20 @@ impl PeerNetwork {
             );
             self.deregister_peer(error_event);
         }
+
+        // filter out unsolicited messages and buffer up ones that might become processable
+        let unhandled_messages = self.authenticate_unsolicited_messages(unsolicited_messages);
+        let unhandled_messages = self.handle_unsolicited_sortition_messages(
+            sortdb,
+            chainstate,
+            unhandled_messages,
+            ibd,
+            true,
+        );
+
         let unhandled_messages =
-            self.handle_unsolicited_messages(sortdb, chainstate, unsolicited_messages, ibd, true);
+            self.handle_unsolicited_stacks_messages(chainstate, unhandled_messages, true);
+
         network_result.consume_unsolicited(unhandled_messages);
 
         // schedule now-authenticated inbound convos for pingback
@@ -5790,7 +4775,7 @@ impl PeerNetwork {
 
         // In parallel, do a mempool sync.
         // Remember any txs we get, so we can feed them to the relayer thread.
-        if let Some(mut txs) = self.do_network_mempool_sync(&mut dns_client_opt, mempool, ibd) {
+        if let Some(mut txs) = self.run_mempool_sync(&mut dns_client_opt, mempool, ibd) {
             network_result.synced_transactions.append(&mut txs);
         }
 
@@ -5895,16 +4880,17 @@ impl PeerNetwork {
             debug!("Already have tx {}", txid);
             return false;
         }
-        let stacks_epoch = match sortdb
-            .index_conn()
-            .get_stacks_epoch(burnchain_tip.block_height as u32)
+        let stacks_epoch = match SortitionDB::get_stacks_epoch(
+            sortdb.conn(),
+            burnchain_tip.block_height,
+        )
+        .ok()
+        .flatten()
         {
             Some(epoch) => epoch,
             None => {
-                warn!(
-                        "Failed to store transaction because could not load Stacks epoch for canonical burn height = {}",
-                        burnchain_tip.block_height
-                    );
+                warn!("Failed to store transaction because could not load Stacks epoch for canonical burn height = {}",
+                      burnchain_tip.block_height);
                 return false;
             }
         };
@@ -6057,6 +5043,33 @@ impl PeerNetwork {
         false
     }
 
+    /// Log our neighbors.
+    /// Used for testing and debuggin
+    fn log_neighbors(&mut self) {
+        if !cfg!(test) && self.get_connection_opts().log_neighbors_freq == 0 {
+            return;
+        }
+
+        let now = get_epoch_time_ms();
+        if self.last_neighbor_log + u128::from(self.get_connection_opts().log_neighbors_freq) >= now
+        {
+            return;
+        }
+
+        let convo_strs: Vec<_> = self
+            .peers
+            .values()
+            .map(|convo| format!("{:?}", &convo))
+            .collect();
+
+        debug!(
+            "{:?}: current neighbors are {:?}",
+            self.get_local_peer(),
+            &convo_strs
+        );
+        self.last_neighbor_log = now;
+    }
+
     /// Top-level main-loop circuit to take.
     /// -- polls the peer network and http network server sockets to get new sockets and detect ready sockets
     /// -- carries out network conversations
@@ -6113,9 +5126,11 @@ impl PeerNetwork {
             };
 
         let mut network_result = NetworkResult::new(
+            self.stacks_tip.block_id(),
             self.num_state_machine_passes,
             self.num_inv_sync_passes,
             self.num_downloader_passes,
+            self.peers.len(),
             self.chain_view.burn_block_height,
             self.chain_view.rc_consensus_hash.clone(),
             self.get_stacker_db_configs_owned(),
@@ -6142,7 +5157,7 @@ impl PeerNetwork {
         PeerNetwork::with_network_state(self, |ref mut network, ref mut network_state| {
             let http_stacks_msgs = PeerNetwork::with_http(network, |ref mut net, ref mut http| {
                 let mut node_state =
-                    StacksNodeState::new(net, sortdb, chainstate, mempool, handler_args);
+                    StacksNodeState::new(net, sortdb, chainstate, mempool, handler_args, ibd);
                 http.run(network_state, &mut node_state, http_poll_state)
             });
             network_result.consume_http_uploads(http_stacks_msgs);
@@ -6168,6 +5183,7 @@ impl PeerNetwork {
             p2p_poll_state,
         );
 
+        self.log_neighbors();
         debug!("<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< End Network Dispatch <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<");
         Ok(network_result)
     }
@@ -6195,8 +5211,8 @@ mod test {
     use crate::net::atlas::*;
     use crate::net::codec::*;
     use crate::net::db::*;
-    use crate::net::relay::test::make_contract_tx;
     use crate::net::test::*;
+    use crate::net::tests::relay::epoch2x::make_contract_tx;
     use crate::net::*;
     use crate::util_lib::test::*;
 
@@ -6216,7 +5232,7 @@ mod test {
                     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0x7f,
                     0x00, 0x00, 0x01,
                 ]),
-                port: port,
+                port,
             },
             public_key: Secp256k1PublicKey::from_hex(
                 "02fa66b66f8971a8cd4d20ffded09674e030f0f33883f337f34b95ad4935bac0e3",
@@ -6544,831 +5560,6 @@ mod test {
             endpoint_thread.join().unwrap();
             test_debug!("fake endpoint thread joined");
         })
-    }
-
-    #[test]
-    fn test_mempool_sync_2_peers() {
-        // peer 1 gets some transactions; verify peer 2 gets the recent ones and not the old
-        // ones
-        let mut peer_1_config = TestPeerConfig::new(function_name!(), 2210, 2211);
-        let mut peer_2_config = TestPeerConfig::new(function_name!(), 2212, 2213);
-
-        peer_1_config.add_neighbor(&peer_2_config.to_neighbor());
-        peer_2_config.add_neighbor(&peer_1_config.to_neighbor());
-
-        peer_1_config.connection_opts.mempool_sync_interval = 1;
-        peer_2_config.connection_opts.mempool_sync_interval = 1;
-
-        let num_txs = 10;
-        let pks: Vec<_> = (0..num_txs).map(|_| StacksPrivateKey::new()).collect();
-        let addrs: Vec<_> = pks.iter().map(|pk| to_addr(pk)).collect();
-        let initial_balances: Vec<_> = addrs
-            .iter()
-            .map(|a| (a.to_account_principal(), 1000000000))
-            .collect();
-
-        peer_1_config.initial_balances = initial_balances.clone();
-        peer_2_config.initial_balances = initial_balances.clone();
-
-        let mut peer_1 = TestPeer::new(peer_1_config);
-        let mut peer_2 = TestPeer::new(peer_2_config);
-
-        let num_blocks = 10;
-        let first_stacks_block_height = {
-            let sn =
-                SortitionDB::get_canonical_burn_chain_tip(&peer_1.sortdb.as_ref().unwrap().conn())
-                    .unwrap();
-            sn.block_height + 1
-        };
-
-        for i in 0..(num_blocks / 2) {
-            let (burn_ops, stacks_block, microblocks) = peer_2.make_default_tenure();
-
-            peer_1.next_burnchain_block(burn_ops.clone());
-            peer_2.next_burnchain_block(burn_ops.clone());
-
-            peer_1.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
-            peer_2.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
-        }
-
-        let addr = StacksAddress {
-            version: C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-            bytes: Hash160([0xff; 20]),
-        };
-
-        // old transactions
-        let num_txs = 10;
-        let mut old_txs = HashMap::new();
-        let mut peer_1_mempool = peer_1.mempool.take().unwrap();
-        let mut mempool_tx = peer_1_mempool.tx_begin().unwrap();
-        for i in 0..num_txs {
-            let pk = &pks[i];
-            let mut tx = StacksTransaction {
-                version: TransactionVersion::Testnet,
-                chain_id: 0x80000000,
-                auth: TransactionAuth::from_p2pkh(&pk).unwrap(),
-                anchor_mode: TransactionAnchorMode::Any,
-                post_condition_mode: TransactionPostConditionMode::Allow,
-                post_conditions: vec![],
-                payload: TransactionPayload::TokenTransfer(
-                    addr.to_account_principal(),
-                    123,
-                    TokenTransferMemo([0u8; 34]),
-                ),
-            };
-            tx.set_tx_fee(1000);
-            tx.set_origin_nonce(0);
-
-            let mut tx_signer = StacksTransactionSigner::new(&tx);
-            tx_signer.sign_origin(&pk).unwrap();
-
-            let tx = tx_signer.get_tx().unwrap();
-
-            let txid = tx.txid();
-            let tx_bytes = tx.serialize_to_vec();
-            let origin_addr = tx.origin_address();
-            let origin_nonce = tx.get_origin_nonce();
-            let sponsor_addr = tx.sponsor_address().unwrap_or(origin_addr.clone());
-            let sponsor_nonce = tx.get_sponsor_nonce().unwrap_or(origin_nonce);
-            let tx_fee = tx.get_tx_fee();
-
-            old_txs.insert(tx.txid(), tx.clone());
-
-            // should succeed
-            MemPoolDB::try_add_tx(
-                &mut mempool_tx,
-                peer_1.chainstate(),
-                &ConsensusHash([0x1 + (num_blocks as u8); 20]),
-                &BlockHeaderHash([0x2 + (num_blocks as u8); 32]),
-                txid.clone(),
-                tx_bytes,
-                tx_fee,
-                (num_blocks / 2) as u64,
-                &origin_addr,
-                origin_nonce,
-                &sponsor_addr,
-                sponsor_nonce,
-                None,
-            )
-            .unwrap();
-
-            eprintln!("Added {} {}", i, &txid);
-        }
-        mempool_tx.commit().unwrap();
-        peer_1.mempool = Some(peer_1_mempool);
-
-        // keep mining to make these txs old
-        for i in (num_blocks / 2)..num_blocks {
-            let (burn_ops, stacks_block, microblocks) = peer_2.make_default_tenure();
-
-            peer_1.next_burnchain_block(burn_ops.clone());
-            peer_2.next_burnchain_block(burn_ops.clone());
-
-            peer_1.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
-            peer_2.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
-        }
-
-        let num_burn_blocks = {
-            let sn =
-                SortitionDB::get_canonical_burn_chain_tip(peer_1.sortdb.as_ref().unwrap().conn())
-                    .unwrap();
-            sn.block_height + 1
-        };
-
-        let mut txs = HashMap::new();
-        let mut peer_1_mempool = peer_1.mempool.take().unwrap();
-        let mut mempool_tx = peer_1_mempool.tx_begin().unwrap();
-        for i in 0..num_txs {
-            let pk = &pks[i];
-            let mut tx = StacksTransaction {
-                version: TransactionVersion::Testnet,
-                chain_id: 0x80000000,
-                auth: TransactionAuth::from_p2pkh(&pk).unwrap(),
-                anchor_mode: TransactionAnchorMode::Any,
-                post_condition_mode: TransactionPostConditionMode::Allow,
-                post_conditions: vec![],
-                payload: TransactionPayload::TokenTransfer(
-                    addr.to_account_principal(),
-                    123,
-                    TokenTransferMemo([0u8; 34]),
-                ),
-            };
-            tx.set_tx_fee(1000);
-            tx.set_origin_nonce(1);
-
-            let mut tx_signer = StacksTransactionSigner::new(&tx);
-            tx_signer.sign_origin(&pk).unwrap();
-
-            let tx = tx_signer.get_tx().unwrap();
-
-            let txid = tx.txid();
-            let tx_bytes = tx.serialize_to_vec();
-            let origin_addr = tx.origin_address();
-            let origin_nonce = tx.get_origin_nonce();
-            let sponsor_addr = tx.sponsor_address().unwrap_or(origin_addr.clone());
-            let sponsor_nonce = tx.get_sponsor_nonce().unwrap_or(origin_nonce);
-            let tx_fee = tx.get_tx_fee();
-
-            txs.insert(tx.txid(), tx.clone());
-
-            // should succeed
-            MemPoolDB::try_add_tx(
-                &mut mempool_tx,
-                peer_1.chainstate(),
-                &ConsensusHash([0x1 + (num_blocks as u8); 20]),
-                &BlockHeaderHash([0x2 + (num_blocks as u8); 32]),
-                txid.clone(),
-                tx_bytes,
-                tx_fee,
-                num_blocks as u64,
-                &origin_addr,
-                origin_nonce,
-                &sponsor_addr,
-                sponsor_nonce,
-                None,
-            )
-            .unwrap();
-
-            eprintln!("Added {} {}", i, &txid);
-        }
-        mempool_tx.commit().unwrap();
-        peer_1.mempool = Some(peer_1_mempool);
-
-        let mut round = 0;
-        let mut peer_1_mempool_txs = 0;
-        let mut peer_2_mempool_txs = 0;
-
-        while peer_1_mempool_txs < num_txs || peer_2_mempool_txs < num_txs {
-            if let Ok(mut result) = peer_1.step_with_ibd(false) {
-                let lp = peer_1.network.local_peer.clone();
-                peer_1
-                    .with_db_state(|sortdb, chainstate, relayer, mempool| {
-                        relayer.process_network_result(
-                            &lp,
-                            &mut result,
-                            sortdb,
-                            chainstate,
-                            mempool,
-                            false,
-                            None,
-                            None,
-                        )
-                    })
-                    .unwrap();
-            }
-
-            if let Ok(mut result) = peer_2.step_with_ibd(false) {
-                let lp = peer_2.network.local_peer.clone();
-                peer_2
-                    .with_db_state(|sortdb, chainstate, relayer, mempool| {
-                        relayer.process_network_result(
-                            &lp,
-                            &mut result,
-                            sortdb,
-                            chainstate,
-                            mempool,
-                            false,
-                            None,
-                            None,
-                        )
-                    })
-                    .unwrap();
-            }
-
-            round += 1;
-
-            let mp = peer_1.mempool.take().unwrap();
-            peer_1_mempool_txs = MemPoolDB::get_all_txs(mp.conn()).unwrap().len();
-            peer_1.mempool.replace(mp);
-
-            let mp = peer_2.mempool.take().unwrap();
-            peer_2_mempool_txs = MemPoolDB::get_all_txs(mp.conn()).unwrap().len();
-            peer_2.mempool.replace(mp);
-
-            info!(
-                "Peer 1: {}, Peer 2: {}",
-                peer_1_mempool_txs, peer_2_mempool_txs
-            );
-        }
-
-        info!("Completed mempool sync in {} step(s)", round);
-
-        let mp = peer_2.mempool.take().unwrap();
-        let peer_2_mempool_txs = MemPoolDB::get_all_txs(mp.conn()).unwrap();
-        peer_2.mempool.replace(mp);
-
-        // peer 2 has all the recent txs
-        // peer 2 has none of the old ones
-        for tx in peer_2_mempool_txs {
-            assert_eq!(&tx.tx, txs.get(&tx.tx.txid()).unwrap());
-            assert!(old_txs.get(&tx.tx.txid()).is_none());
-        }
-    }
-
-    #[test]
-    fn test_mempool_sync_2_peers_paginated() {
-        // peer 1 gets some transactions; verify peer 2 gets them all
-        let mut peer_1_config = TestPeerConfig::new(function_name!(), 2214, 2215);
-        let mut peer_2_config = TestPeerConfig::new(function_name!(), 2216, 2217);
-
-        peer_1_config.add_neighbor(&peer_2_config.to_neighbor());
-        peer_2_config.add_neighbor(&peer_1_config.to_neighbor());
-
-        peer_1_config.connection_opts.mempool_sync_interval = 1;
-        peer_2_config.connection_opts.mempool_sync_interval = 1;
-
-        let num_txs = 1024;
-        let pks: Vec<_> = (0..num_txs).map(|_| StacksPrivateKey::new()).collect();
-        let addrs: Vec<_> = pks.iter().map(|pk| to_addr(pk)).collect();
-        let initial_balances: Vec<_> = addrs
-            .iter()
-            .map(|a| (a.to_account_principal(), 1000000000))
-            .collect();
-
-        peer_1_config.initial_balances = initial_balances.clone();
-        peer_2_config.initial_balances = initial_balances.clone();
-
-        let mut peer_1 = TestPeer::new(peer_1_config);
-        let mut peer_2 = TestPeer::new(peer_2_config);
-
-        let num_blocks = 10;
-        let first_stacks_block_height = {
-            let sn =
-                SortitionDB::get_canonical_burn_chain_tip(&peer_1.sortdb.as_ref().unwrap().conn())
-                    .unwrap();
-            sn.block_height + 1
-        };
-
-        for i in 0..num_blocks {
-            let (burn_ops, stacks_block, microblocks) = peer_2.make_default_tenure();
-
-            peer_1.next_burnchain_block(burn_ops.clone());
-            peer_2.next_burnchain_block(burn_ops.clone());
-
-            peer_1.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
-            peer_2.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
-        }
-
-        let addr = StacksAddress {
-            version: C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-            bytes: Hash160([0xff; 20]),
-        };
-
-        // fill peer 1 with lots of transactions
-        let mut txs = HashMap::new();
-        let mut peer_1_mempool = peer_1.mempool.take().unwrap();
-        let mut mempool_tx = peer_1_mempool.tx_begin().unwrap();
-        for i in 0..num_txs {
-            let pk = &pks[i];
-            let mut tx = StacksTransaction {
-                version: TransactionVersion::Testnet,
-                chain_id: 0x80000000,
-                auth: TransactionAuth::from_p2pkh(&pk).unwrap(),
-                anchor_mode: TransactionAnchorMode::Any,
-                post_condition_mode: TransactionPostConditionMode::Allow,
-                post_conditions: vec![],
-                payload: TransactionPayload::TokenTransfer(
-                    addr.to_account_principal(),
-                    123,
-                    TokenTransferMemo([0u8; 34]),
-                ),
-            };
-            tx.set_tx_fee(1000);
-            tx.set_origin_nonce(0);
-
-            let mut tx_signer = StacksTransactionSigner::new(&tx);
-            tx_signer.sign_origin(&pk).unwrap();
-
-            let tx = tx_signer.get_tx().unwrap();
-
-            let txid = tx.txid();
-            let tx_bytes = tx.serialize_to_vec();
-            let origin_addr = tx.origin_address();
-            let origin_nonce = tx.get_origin_nonce();
-            let sponsor_addr = tx.sponsor_address().unwrap_or(origin_addr.clone());
-            let sponsor_nonce = tx.get_sponsor_nonce().unwrap_or(origin_nonce);
-            let tx_fee = tx.get_tx_fee();
-
-            txs.insert(tx.txid(), tx.clone());
-
-            // should succeed
-            MemPoolDB::try_add_tx(
-                &mut mempool_tx,
-                peer_1.chainstate(),
-                &ConsensusHash([0x1 + (num_blocks as u8); 20]),
-                &BlockHeaderHash([0x2 + (num_blocks as u8); 32]),
-                txid.clone(),
-                tx_bytes,
-                tx_fee,
-                num_blocks,
-                &origin_addr,
-                origin_nonce,
-                &sponsor_addr,
-                sponsor_nonce,
-                None,
-            )
-            .unwrap();
-
-            eprintln!("Added {} {}", i, &txid);
-        }
-        mempool_tx.commit().unwrap();
-        peer_1.mempool = Some(peer_1_mempool);
-
-        let num_burn_blocks = {
-            let sn =
-                SortitionDB::get_canonical_burn_chain_tip(peer_1.sortdb.as_ref().unwrap().conn())
-                    .unwrap();
-            sn.block_height + 1
-        };
-
-        let mut round = 0;
-        let mut peer_1_mempool_txs = 0;
-        let mut peer_2_mempool_txs = 0;
-
-        while peer_1_mempool_txs < num_txs || peer_2_mempool_txs < num_txs {
-            if let Ok(mut result) = peer_1.step_with_ibd(false) {
-                let lp = peer_1.network.local_peer.clone();
-                peer_1
-                    .with_db_state(|sortdb, chainstate, relayer, mempool| {
-                        relayer.process_network_result(
-                            &lp,
-                            &mut result,
-                            sortdb,
-                            chainstate,
-                            mempool,
-                            false,
-                            None,
-                            None,
-                        )
-                    })
-                    .unwrap();
-            }
-
-            if let Ok(mut result) = peer_2.step_with_ibd(false) {
-                let lp = peer_2.network.local_peer.clone();
-                peer_2
-                    .with_db_state(|sortdb, chainstate, relayer, mempool| {
-                        relayer.process_network_result(
-                            &lp,
-                            &mut result,
-                            sortdb,
-                            chainstate,
-                            mempool,
-                            false,
-                            None,
-                            None,
-                        )
-                    })
-                    .unwrap();
-            }
-
-            round += 1;
-
-            let mp = peer_1.mempool.take().unwrap();
-            peer_1_mempool_txs = MemPoolDB::get_all_txs(mp.conn()).unwrap().len();
-            peer_1.mempool.replace(mp);
-
-            let mp = peer_2.mempool.take().unwrap();
-            peer_2_mempool_txs = MemPoolDB::get_all_txs(mp.conn()).unwrap().len();
-            peer_2.mempool.replace(mp);
-
-            info!(
-                "Peer 1: {}, Peer 2: {}",
-                peer_1_mempool_txs, peer_2_mempool_txs
-            );
-        }
-
-        info!("Completed mempool sync in {} step(s)", round);
-
-        let mp = peer_2.mempool.take().unwrap();
-        let peer_2_mempool_txs = MemPoolDB::get_all_txs(mp.conn()).unwrap();
-        peer_2.mempool.replace(mp);
-
-        for tx in peer_2_mempool_txs {
-            assert_eq!(&tx.tx, txs.get(&tx.tx.txid()).unwrap());
-        }
-    }
-
-    #[test]
-    fn test_mempool_sync_2_peers_blacklisted() {
-        // peer 1 gets some transactions; peer 2 blacklists some of them;
-        // verify peer 2 gets only the non-blacklisted ones.
-        let mut peer_1_config = TestPeerConfig::new(function_name!(), 2218, 2219);
-        let mut peer_2_config = TestPeerConfig::new(function_name!(), 2220, 2221);
-
-        peer_1_config.add_neighbor(&peer_2_config.to_neighbor());
-        peer_2_config.add_neighbor(&peer_1_config.to_neighbor());
-
-        peer_1_config.connection_opts.mempool_sync_interval = 1;
-        peer_2_config.connection_opts.mempool_sync_interval = 1;
-
-        let num_txs = 1024;
-        let pks: Vec<_> = (0..num_txs).map(|_| StacksPrivateKey::new()).collect();
-        let addrs: Vec<_> = pks.iter().map(|pk| to_addr(pk)).collect();
-        let initial_balances: Vec<_> = addrs
-            .iter()
-            .map(|a| (a.to_account_principal(), 1000000000))
-            .collect();
-
-        peer_1_config.initial_balances = initial_balances.clone();
-        peer_2_config.initial_balances = initial_balances.clone();
-
-        let mut peer_1 = TestPeer::new(peer_1_config);
-        let mut peer_2 = TestPeer::new(peer_2_config);
-
-        let num_blocks = 10;
-        let first_stacks_block_height = {
-            let sn =
-                SortitionDB::get_canonical_burn_chain_tip(&peer_1.sortdb.as_ref().unwrap().conn())
-                    .unwrap();
-            sn.block_height + 1
-        };
-
-        for i in 0..num_blocks {
-            let (burn_ops, stacks_block, microblocks) = peer_2.make_default_tenure();
-
-            peer_1.next_burnchain_block(burn_ops.clone());
-            peer_2.next_burnchain_block(burn_ops.clone());
-
-            peer_1.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
-            peer_2.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
-        }
-
-        let addr = StacksAddress {
-            version: C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-            bytes: Hash160([0xff; 20]),
-        };
-
-        // fill peer 1 with lots of transactions
-        let mut txs = HashMap::new();
-        let mut peer_1_mempool = peer_1.mempool.take().unwrap();
-        let mut mempool_tx = peer_1_mempool.tx_begin().unwrap();
-        let mut peer_2_blacklist = vec![];
-        for i in 0..num_txs {
-            let pk = &pks[i];
-            let mut tx = StacksTransaction {
-                version: TransactionVersion::Testnet,
-                chain_id: 0x80000000,
-                auth: TransactionAuth::from_p2pkh(&pk).unwrap(),
-                anchor_mode: TransactionAnchorMode::Any,
-                post_condition_mode: TransactionPostConditionMode::Allow,
-                post_conditions: vec![],
-                payload: TransactionPayload::TokenTransfer(
-                    addr.to_account_principal(),
-                    123,
-                    TokenTransferMemo([0u8; 34]),
-                ),
-            };
-            tx.set_tx_fee(1000);
-            tx.set_origin_nonce(0);
-
-            let mut tx_signer = StacksTransactionSigner::new(&tx);
-            tx_signer.sign_origin(&pk).unwrap();
-
-            let tx = tx_signer.get_tx().unwrap();
-
-            let txid = tx.txid();
-            let tx_bytes = tx.serialize_to_vec();
-            let origin_addr = tx.origin_address();
-            let origin_nonce = tx.get_origin_nonce();
-            let sponsor_addr = tx.sponsor_address().unwrap_or(origin_addr.clone());
-            let sponsor_nonce = tx.get_sponsor_nonce().unwrap_or(origin_nonce);
-            let tx_fee = tx.get_tx_fee();
-
-            txs.insert(tx.txid(), tx.clone());
-
-            // should succeed
-            MemPoolDB::try_add_tx(
-                &mut mempool_tx,
-                peer_1.chainstate(),
-                &ConsensusHash([0x1 + (num_blocks as u8); 20]),
-                &BlockHeaderHash([0x2 + (num_blocks as u8); 32]),
-                txid.clone(),
-                tx_bytes,
-                tx_fee,
-                num_blocks,
-                &origin_addr,
-                origin_nonce,
-                &sponsor_addr,
-                sponsor_nonce,
-                None,
-            )
-            .unwrap();
-
-            eprintln!("Added {} {}", i, &txid);
-
-            if i % 2 == 0 {
-                // peer 2 blacklists even-numbered txs
-                peer_2_blacklist.push(txid);
-            }
-        }
-        mempool_tx.commit().unwrap();
-        peer_1.mempool = Some(peer_1_mempool);
-
-        // peer 2 blacklists them all
-        let mut peer_2_mempool = peer_2.mempool.take().unwrap();
-
-        // blacklisted txs never time out
-        peer_2_mempool.blacklist_timeout = u64::MAX / 2;
-
-        let mempool_tx = peer_2_mempool.tx_begin().unwrap();
-        MemPoolDB::inner_blacklist_txs(&mempool_tx, &peer_2_blacklist, get_epoch_time_secs())
-            .unwrap();
-        mempool_tx.commit().unwrap();
-
-        peer_2.mempool = Some(peer_2_mempool);
-
-        let num_burn_blocks = {
-            let sn =
-                SortitionDB::get_canonical_burn_chain_tip(peer_1.sortdb.as_ref().unwrap().conn())
-                    .unwrap();
-            sn.block_height + 1
-        };
-
-        let mut round = 0;
-        let mut peer_1_mempool_txs = 0;
-        let mut peer_2_mempool_txs = 0;
-
-        while peer_1_mempool_txs < num_txs || peer_2_mempool_txs < num_txs / 2 {
-            if let Ok(mut result) = peer_1.step_with_ibd(false) {
-                let lp = peer_1.network.local_peer.clone();
-                peer_1
-                    .with_db_state(|sortdb, chainstate, relayer, mempool| {
-                        relayer.process_network_result(
-                            &lp,
-                            &mut result,
-                            sortdb,
-                            chainstate,
-                            mempool,
-                            false,
-                            None,
-                            None,
-                        )
-                    })
-                    .unwrap();
-            }
-
-            if let Ok(mut result) = peer_2.step_with_ibd(false) {
-                let lp = peer_2.network.local_peer.clone();
-                peer_2
-                    .with_db_state(|sortdb, chainstate, relayer, mempool| {
-                        relayer.process_network_result(
-                            &lp,
-                            &mut result,
-                            sortdb,
-                            chainstate,
-                            mempool,
-                            false,
-                            None,
-                            None,
-                        )
-                    })
-                    .unwrap();
-            }
-
-            round += 1;
-
-            let mp = peer_1.mempool.take().unwrap();
-            peer_1_mempool_txs = MemPoolDB::get_all_txs(mp.conn()).unwrap().len();
-            peer_1.mempool.replace(mp);
-
-            let mp = peer_2.mempool.take().unwrap();
-            peer_2_mempool_txs = MemPoolDB::get_all_txs(mp.conn()).unwrap().len();
-            peer_2.mempool.replace(mp);
-
-            info!(
-                "Peer 1: {}, Peer 2: {}",
-                peer_1_mempool_txs, peer_2_mempool_txs
-            );
-        }
-
-        info!("Completed mempool sync in {} step(s)", round);
-
-        let mp = peer_2.mempool.take().unwrap();
-        let peer_2_mempool_txs = MemPoolDB::get_all_txs(mp.conn()).unwrap();
-        peer_2.mempool.replace(mp);
-
-        for tx in peer_2_mempool_txs {
-            assert_eq!(&tx.tx, txs.get(&tx.tx.txid()).unwrap());
-            assert!(!peer_2_blacklist.contains(&tx.tx.txid()));
-        }
-    }
-
-    /// Make sure mempool sync never stores problematic transactions
-    #[test]
-    fn test_mempool_sync_2_peers_problematic() {
-        // peer 1 gets some transactions; peer 2 blacklists them all due to being invalid.
-        // verify peer 2 stores nothing.
-        let mut peer_1_config = TestPeerConfig::new(function_name!(), 2218, 2219);
-        let mut peer_2_config = TestPeerConfig::new(function_name!(), 2220, 2221);
-
-        peer_1_config.add_neighbor(&peer_2_config.to_neighbor());
-        peer_2_config.add_neighbor(&peer_1_config.to_neighbor());
-
-        peer_1_config.connection_opts.mempool_sync_interval = 1;
-        peer_2_config.connection_opts.mempool_sync_interval = 1;
-
-        let num_txs = 128;
-        let pks: Vec<_> = (0..num_txs).map(|_| StacksPrivateKey::new()).collect();
-        let addrs: Vec<_> = pks.iter().map(|pk| to_addr(pk)).collect();
-        let initial_balances: Vec<_> = addrs
-            .iter()
-            .map(|a| (a.to_account_principal(), 1000000000))
-            .collect();
-
-        peer_1_config.initial_balances = initial_balances.clone();
-        peer_2_config.initial_balances = initial_balances.clone();
-
-        let mut peer_1 = TestPeer::new(peer_1_config);
-        let mut peer_2 = TestPeer::new(peer_2_config);
-
-        let num_blocks = 10;
-        let first_stacks_block_height = {
-            let sn =
-                SortitionDB::get_canonical_burn_chain_tip(&peer_1.sortdb.as_ref().unwrap().conn())
-                    .unwrap();
-            sn.block_height + 1
-        };
-
-        for i in 0..num_blocks {
-            let (burn_ops, stacks_block, microblocks) = peer_2.make_default_tenure();
-
-            peer_1.next_burnchain_block(burn_ops.clone());
-            peer_2.next_burnchain_block(burn_ops.clone());
-
-            peer_1.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
-            peer_2.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
-        }
-
-        let addr = StacksAddress {
-            version: C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-            bytes: Hash160([0xff; 20]),
-        };
-
-        // fill peer 1 with lots of transactions
-        let mut txs = HashMap::new();
-        let mut peer_1_mempool = peer_1.mempool.take().unwrap();
-        let mut mempool_tx = peer_1_mempool.tx_begin().unwrap();
-        for i in 0..num_txs {
-            let pk = &pks[i];
-
-            let exceeds_repeat_factor = AST_CALL_STACK_DEPTH_BUFFER + (MAX_CALL_STACK_DEPTH as u64);
-            let tx_exceeds_body_start = "{ a : ".repeat(exceeds_repeat_factor as usize);
-            let tx_exceeds_body_end = "} ".repeat(exceeds_repeat_factor as usize);
-            let tx_exceeds_body = format!("{}u1 {}", tx_exceeds_body_start, tx_exceeds_body_end);
-
-            let tx = make_contract_tx(
-                &pk,
-                0,
-                (tx_exceeds_body.len() * 100) as u64,
-                "test-exceeds",
-                &tx_exceeds_body,
-            );
-
-            let txid = tx.txid();
-            let tx_bytes = tx.serialize_to_vec();
-            let origin_addr = tx.origin_address();
-            let origin_nonce = tx.get_origin_nonce();
-            let sponsor_addr = tx.sponsor_address().unwrap_or(origin_addr.clone());
-            let sponsor_nonce = tx.get_sponsor_nonce().unwrap_or(origin_nonce);
-            let tx_fee = tx.get_tx_fee();
-
-            txs.insert(tx.txid(), tx.clone());
-
-            // should succeed
-            MemPoolDB::try_add_tx(
-                &mut mempool_tx,
-                peer_1.chainstate(),
-                &ConsensusHash([0x1 + (num_blocks as u8); 20]),
-                &BlockHeaderHash([0x2 + (num_blocks as u8); 32]),
-                txid.clone(),
-                tx_bytes,
-                tx_fee,
-                num_blocks,
-                &origin_addr,
-                origin_nonce,
-                &sponsor_addr,
-                sponsor_nonce,
-                None,
-            )
-            .unwrap();
-
-            eprintln!("Added {} {}", i, &txid);
-        }
-        mempool_tx.commit().unwrap();
-        peer_1.mempool = Some(peer_1_mempool);
-
-        // blacklisted txs never time out
-        let mut peer_2_mempool = peer_2.mempool.take().unwrap();
-        peer_2_mempool.blacklist_timeout = u64::MAX / 2;
-        peer_2.mempool = Some(peer_2_mempool);
-
-        let num_burn_blocks = {
-            let sn =
-                SortitionDB::get_canonical_burn_chain_tip(peer_1.sortdb.as_ref().unwrap().conn())
-                    .unwrap();
-            sn.block_height + 1
-        };
-
-        let mut round = 0;
-        let mut peer_1_mempool_txs = 0;
-
-        while peer_1_mempool_txs < num_txs || peer_2.network.mempool_sync_txs < (num_txs as u64) {
-            if let Ok(mut result) = peer_1.step_with_ibd(false) {
-                let lp = peer_1.network.local_peer.clone();
-                peer_1
-                    .with_db_state(|sortdb, chainstate, relayer, mempool| {
-                        relayer.process_network_result(
-                            &lp,
-                            &mut result,
-                            sortdb,
-                            chainstate,
-                            mempool,
-                            false,
-                            None,
-                            None,
-                        )
-                    })
-                    .unwrap();
-            }
-
-            if let Ok(mut result) = peer_2.step_with_ibd(false) {
-                let lp = peer_2.network.local_peer.clone();
-                peer_2
-                    .with_db_state(|sortdb, chainstate, relayer, mempool| {
-                        relayer.process_network_result(
-                            &lp,
-                            &mut result,
-                            sortdb,
-                            chainstate,
-                            mempool,
-                            false,
-                            None,
-                            None,
-                        )
-                    })
-                    .unwrap();
-            }
-
-            round += 1;
-
-            let mp = peer_1.mempool.take().unwrap();
-            peer_1_mempool_txs = MemPoolDB::get_all_txs(mp.conn()).unwrap().len();
-            peer_1.mempool.replace(mp);
-
-            info!(
-                "Peer 1: {}, Peer 2: {}",
-                peer_1_mempool_txs, peer_2.network.mempool_sync_txs
-            );
-        }
-
-        info!("Completed mempool sync in {} step(s)", round);
-
-        let mp = peer_2.mempool.take().unwrap();
-        let peer_2_mempool_txs = MemPoolDB::get_all_txs(mp.conn()).unwrap();
-        peer_2.mempool.replace(mp);
-
-        assert_eq!(peer_2_mempool_txs.len(), 128);
     }
 
     #[test]

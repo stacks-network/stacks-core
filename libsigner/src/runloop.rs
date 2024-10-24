@@ -41,7 +41,7 @@ const STDERR: i32 = 2;
 /// Trait describing the needful components of a top-level runloop.
 /// This is where the signer business logic would go.
 /// Implement this, and you get all the multithreaded setup for free.
-pub trait SignerRunLoop<R: Send, CMD: Send, T: SignerEventTrait> {
+pub trait SignerRunLoop<R: Send, T: SignerEventTrait> {
     /// Hint to set how long to wait for new events
     fn set_event_timeout(&mut self, timeout: Duration);
     /// Getter for the event poll timeout
@@ -49,12 +49,7 @@ pub trait SignerRunLoop<R: Send, CMD: Send, T: SignerEventTrait> {
     /// Run one pass of the event loop, given new Signer events discovered since the last pass.
     /// Returns Some(R) if this is the final pass -- the runloop evaluated to R
     /// Returns None to keep running.
-    fn run_one_pass(
-        &mut self,
-        event: Option<SignerEvent<T>>,
-        cmd: Option<CMD>,
-        res: Sender<R>,
-    ) -> Option<R>;
+    fn run_one_pass(&mut self, event: Option<SignerEvent<T>>, res: &Sender<R>) -> Option<R>;
 
     /// This is the main loop body for the signer. It continuously receives events from
     /// `event_recv`, polling for up to `self.get_event_timeout()` units of time.  Once it has
@@ -66,10 +61,10 @@ pub trait SignerRunLoop<R: Send, CMD: Send, T: SignerEventTrait> {
     fn main_loop<EVST: EventStopSignaler>(
         &mut self,
         event_recv: Receiver<SignerEvent<T>>,
-        command_recv: Receiver<CMD>,
         result_send: Sender<R>,
         mut event_stop_signaler: EVST,
     ) -> Option<R> {
+        info!("Signer runloop begin");
         loop {
             let poll_timeout = self.get_event_timeout();
             let next_event_opt = match event_recv.recv_timeout(poll_timeout) {
@@ -80,11 +75,7 @@ pub trait SignerRunLoop<R: Send, CMD: Send, T: SignerEventTrait> {
                     return None;
                 }
             };
-            // Do not block for commands
-            let next_command_opt = command_recv.try_recv().ok();
-            if let Some(final_state) =
-                self.run_one_pass(next_event_opt, next_command_opt, result_send.clone())
-            {
+            if let Some(final_state) = self.run_one_pass(next_event_opt, &result_send) {
                 info!("Runloop exit; signaling event-receiver to stop");
                 event_stop_signaler.send();
                 return Some(final_state);
@@ -94,13 +85,11 @@ pub trait SignerRunLoop<R: Send, CMD: Send, T: SignerEventTrait> {
 }
 
 /// The top-level signer implementation
-pub struct Signer<CMD, R, SL, EV, T> {
+pub struct Signer<R, SL, EV, T> {
     /// the runloop itself
     signer_loop: Option<SL>,
     /// the event receiver to use
     event_receiver: Option<EV>,
-    /// the command receiver to use
-    command_receiver: Option<Receiver<CMD>>,
     /// the result sender to use
     result_sender: Option<Sender<R>>,
     /// phantom data for the codec
@@ -192,18 +181,12 @@ pub fn set_runloop_signal_handler<ST: EventStopSignaler + Send + 'static>(mut st
     }).expect("FATAL: failed to set signal handler");
 }
 
-impl<CMD, R, SL, EV, T> Signer<CMD, R, SL, EV, T> {
+impl<R, SL, EV, T> Signer<R, SL, EV, T> {
     /// Create a new signer with the given runloop and event receiver.
-    pub fn new(
-        runloop: SL,
-        event_receiver: EV,
-        command_receiver: Receiver<CMD>,
-        result_sender: Sender<R>,
-    ) -> Signer<CMD, R, SL, EV, T> {
+    pub fn new(runloop: SL, event_receiver: EV, result_sender: Sender<R>) -> Signer<R, SL, EV, T> {
         Signer {
             signer_loop: Some(runloop),
             event_receiver: Some(event_receiver),
-            command_receiver: Some(command_receiver),
             result_sender: Some(result_sender),
             phantom_data: PhantomData,
         }
@@ -211,12 +194,11 @@ impl<CMD, R, SL, EV, T> Signer<CMD, R, SL, EV, T> {
 }
 
 impl<
-        CMD: Send + 'static,
         R: Send + 'static,
         T: SignerEventTrait + 'static,
-        SL: SignerRunLoop<R, CMD, T> + Send + 'static,
+        SL: SignerRunLoop<R, T> + Send + 'static,
         EV: EventReceiver<T> + Send + 'static,
-    > Signer<CMD, R, SL, EV, T>
+    > Signer<R, SL, EV, T>
 {
     /// This is a helper function to spawn both the runloop and event receiver in their own
     /// threads.  Advanced signers may not need this method, and instead opt to run the receiver
@@ -233,10 +215,6 @@ impl<
             .event_receiver
             .take()
             .ok_or(EventError::AlreadyRunning)?;
-        let command_receiver = self
-            .command_receiver
-            .take()
-            .ok_or(EventError::AlreadyRunning)?;
         let result_sender = self
             .result_sender
             .take()
@@ -246,13 +224,14 @@ impl<
         let (event_send, event_recv) = channel();
         event_receiver.add_consumer(event_send);
 
+        let bind_port = bind_addr.port();
         event_receiver.bind(bind_addr)?;
         let stop_signaler = event_receiver.get_stop_signaler()?;
         let mut ret_stop_signaler = event_receiver.get_stop_signaler()?;
 
         // start a thread for the event receiver
         let event_thread = thread::Builder::new()
-            .name("event_receiver".to_string())
+            .name(format!("event_receiver:{bind_port}"))
             .stack_size(THREAD_STACK_SIZE)
             .spawn(move || event_receiver.main_loop())
             .map_err(|e| {
@@ -262,11 +241,9 @@ impl<
 
         // start receiving events and doing stuff with them
         let runloop_thread = thread::Builder::new()
-            .name("signer_runloop".to_string())
+            .name(format!("signer_runloop:{bind_port}"))
             .stack_size(THREAD_STACK_SIZE)
-            .spawn(move || {
-                signer_loop.main_loop(event_recv, command_receiver, result_sender, stop_signaler)
-            })
+            .spawn(move || signer_loop.main_loop(event_recv, result_sender, stop_signaler))
             .map_err(|e| {
                 error!("SignerRunLoop failed to start: {:?}", &e);
                 ret_stop_signaler.send();

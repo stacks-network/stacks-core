@@ -19,7 +19,7 @@ use std::{fs, io};
 
 use regex::{Captures, Regex};
 use serde::de::Error as de_Error;
-use stacks_common::codec::{StacksMessageCodec, MAX_MESSAGE_LEN};
+use stacks_common::codec::{StacksMessageCodec, MAX_PAYLOAD_LEN};
 use stacks_common::types::chainstate::{ConsensusHash, StacksBlockId};
 use stacks_common::types::net::PeerHost;
 use stacks_common::util::hash::to_hex;
@@ -46,7 +46,7 @@ pub struct RPCNakamotoTenureRequestHandler {
     /// Block to start streaming from. It and its ancestors will be incrementally streamed until one of
     /// hte following happens:
     /// * we reach the first block in the tenure
-    /// * we would exceed MAX_MESSAGE_LEN bytes transmitted if we started sending the next block
+    /// * we would exceed MAX_PAYLOAD_LEN bytes transmitted if we started sending the next block
     pub block_id: Option<StacksBlockId>,
     /// What's the final block ID to stream from?
     /// Passed as `stop=` query parameter
@@ -132,7 +132,7 @@ impl NakamotoTenureStream {
         self.total_sent = self
             .total_sent
             .saturating_add(self.block_stream.total_bytes);
-        if self.total_sent.saturating_add(parent_size) > MAX_MESSAGE_LEN.into() {
+        if self.total_sent.saturating_add(parent_size) > MAX_PAYLOAD_LEN.into() {
             // out of space to send this
             return Ok(false);
         }
@@ -284,7 +284,7 @@ impl HttpResponse for RPCNakamotoTenureRequestHandler {
         preamble: &HttpResponsePreamble,
         body: &[u8],
     ) -> Result<HttpResponsePayload, Error> {
-        let bytes = parse_bytes(preamble, body, MAX_MESSAGE_LEN.into())?;
+        let bytes = parse_bytes(preamble, body, MAX_PAYLOAD_LEN.into())?;
         Ok(HttpResponsePayload::Bytes(bytes))
     }
 }

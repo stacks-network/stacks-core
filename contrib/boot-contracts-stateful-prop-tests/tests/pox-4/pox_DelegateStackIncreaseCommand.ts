@@ -1,4 +1,13 @@
 import {
+  isAmountLockedPositive,
+  isAmountWithinDelegationLimit,
+  isIncreaseAmountGTZero,
+  isIncreaseByWithinUnlockedBalance,
+  isStackerDelegatingToOperator,
+  isDelegating,
+  isStacking,
+  isUnlockedWithinCurrentRC,
+  isStackerLockedByOperator,
   logCommand,
   PoxCommand,
   Real,
@@ -10,7 +19,7 @@ import { expect } from "vitest";
 import { Cl } from "@stacks/transactions";
 
 /**
- * The DelegateStackIncreaseCommand allows a pool operator to
+ * The `DelegateStackIncreaseCommand` allows a pool operator to
  * increase an active stacking lock, issuing a "partial commitment"
  * for the increased cycles.
  *
@@ -33,7 +42,7 @@ export class DelegateStackIncreaseCommand implements PoxCommand {
   readonly increaseBy: number;
 
   /**
-   * Constructs a DelegateStackIncreaseCommand to increase the uSTX amount
+   * Constructs a `DelegateStackIncreaseCommand` to increase the uSTX amount
    * previously locked on behalf of a Stacker.
    *
    * @param operator - Represents the Pool Operator's wallet.
@@ -61,15 +70,18 @@ export class DelegateStackIncreaseCommand implements PoxCommand {
     const stackerWallet = model.stackers.get(this.stacker.stxAddress)!;
 
     return (
-      stackerWallet.amountLocked > 0 &&
-      stackerWallet.hasDelegated === true &&
-      stackerWallet.isStacking === true &&
-      this.increaseBy > 0 &&
-      operatorWallet.poolMembers.includes(this.stacker.stxAddress) &&
-      stackerWallet.amountUnlocked >= this.increaseBy &&
-      stackerWallet.delegatedMaxAmount >=
-        this.increaseBy + stackerWallet.amountLocked &&
-      operatorWallet.lockedAddresses.indexOf(this.stacker.stxAddress) > -1
+      isAmountLockedPositive(stackerWallet) &&
+      isDelegating(stackerWallet) &&
+      isStacking(stackerWallet) &&
+      isIncreaseAmountGTZero(this.increaseBy) &&
+      isStackerDelegatingToOperator(stackerWallet, this.operator) &&
+      isIncreaseByWithinUnlockedBalance(stackerWallet, this.increaseBy) &&
+      isAmountWithinDelegationLimit(
+        stackerWallet,
+        this.increaseBy + stackerWallet.amountLocked,
+      ) &&
+      isStackerLockedByOperator(operatorWallet, this.stacker) &&
+      isUnlockedWithinCurrentRC(stackerWallet, model)
     );
   }
 

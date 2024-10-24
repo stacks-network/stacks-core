@@ -134,11 +134,7 @@ fn disable_pox() {
     conf.miner.subsequent_attempt_time_ms = i64::MAX as u64;
 
     test_observer::spawn();
-
-    conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
-        events_keys: vec![EventKeyType::AnyEvent],
-    });
+    test_observer::register_any(&mut conf);
     conf.initial_balances.append(&mut initial_balances);
 
     let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
@@ -231,6 +227,7 @@ fn disable_pox() {
         &spender_sk,
         0,
         3000,
+        conf.burnchain.chain_id,
         &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
         "pox",
         "stack-stx",
@@ -279,6 +276,7 @@ fn disable_pox() {
         &spender_sk,
         1,
         3000,
+        conf.burnchain.chain_id,
         &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
         "pox-2",
         "stack-stx",
@@ -297,6 +295,7 @@ fn disable_pox() {
         &spender_2_sk,
         0,
         3000,
+        conf.burnchain.chain_id,
         &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
         "pox-2",
         "stack-stx",
@@ -328,6 +327,7 @@ fn disable_pox() {
         &spender_sk,
         2,
         3000,
+        conf.burnchain.chain_id,
         &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
         "pox-2",
         "stack-increase",
@@ -354,6 +354,7 @@ fn disable_pox() {
         &spender_sk,
         aborted_increase_nonce,
         3000,
+        conf.burnchain.chain_id,
         &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
         "pox-2",
         "stack-increase",
@@ -400,7 +401,7 @@ fn disable_pox() {
             reward_cycle_pox_addrs.insert(reward_cycle, HashMap::new());
         }
 
-        let iconn = sortdb.index_conn();
+        let iconn = sortdb.index_handle_at_block(&chainstate, &tip).unwrap();
         let pox_addrs = chainstate
             .clarity_eval_read_only(
                 &iconn,
@@ -671,6 +672,7 @@ fn pox_2_unlock_all() {
     conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
+        timeout_ms: 1000,
     });
     conf.initial_balances.append(&mut initial_balances);
 
@@ -764,6 +766,7 @@ fn pox_2_unlock_all() {
         &spender_sk,
         0,
         tx_fee,
+        conf.burnchain.chain_id,
         &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
         "pox",
         "stack-stx",
@@ -814,6 +817,7 @@ fn pox_2_unlock_all() {
         &spender_sk,
         1,
         tx_fee,
+        conf.burnchain.chain_id,
         "unlock-height",
         "(define-public (unlock-height (x principal)) (ok (get unlock-height (stx-account x))))",
     );
@@ -823,6 +827,7 @@ fn pox_2_unlock_all() {
         &spender_sk,
         2,
         tx_fee,
+        conf.burnchain.chain_id,
         &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
         "pox-2",
         "stack-stx",
@@ -842,6 +847,7 @@ fn pox_2_unlock_all() {
         &spender_2_sk,
         0,
         tx_fee,
+        conf.burnchain.chain_id,
         &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
         "pox-2",
         "stack-stx",
@@ -872,6 +878,7 @@ fn pox_2_unlock_all() {
         &spender_sk,
         3,
         tx_fee,
+        conf.burnchain.chain_id,
         &to_addr(&spender_sk),
         "unlock-height",
         "unlock-height",
@@ -891,6 +898,7 @@ fn pox_2_unlock_all() {
         &spender_sk,
         4,
         tx_fee,
+        conf.burnchain.chain_id,
         &to_addr(&spender_sk),
         "unlock-height",
         "unlock-height",
@@ -980,7 +988,14 @@ fn pox_2_unlock_all() {
     );
 
     // perform a transfer
-    let tx = make_stacks_transfer(&spender_sk, 5, tx_fee, &spender_3_addr, 1_000_000);
+    let tx = make_stacks_transfer(
+        &spender_sk,
+        5,
+        tx_fee,
+        conf.burnchain.chain_id,
+        &spender_3_addr,
+        1_000_000,
+    );
 
     info!("Submit stack transfer tx to {:?}", &http_origin);
     submit_tx(&http_origin, &tx);
@@ -1069,7 +1084,7 @@ fn pox_2_unlock_all() {
             reward_cycle_pox_addrs.insert(reward_cycle, HashMap::new());
         }
 
-        let iconn = sortdb.index_conn();
+        let iconn = sortdb.index_handle_at_block(&chainstate, &tip).unwrap();
         let pox_addrs = chainstate
             .clarity_eval_read_only(
                 &iconn,
@@ -1511,6 +1526,7 @@ fn test_pox_reorg_one_flap() {
                 pk,
                 0,
                 1360,
+                conf_template.burnchain.chain_id,
                 &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
                 "pox-2",
                 "stack-stx",
@@ -1534,7 +1550,9 @@ fn test_pox_reorg_one_flap() {
     let all_txs: Vec<_> = privks
         .iter()
         .enumerate()
-        .map(|(i, pk)| make_random_tx_chain(pk, (25 * i) as u64, false))
+        .map(|(i, pk)| {
+            make_random_tx_chain(pk, (25 * i) as u64, conf_template.burnchain.chain_id, false)
+        })
         .collect();
 
     // everyone locks up

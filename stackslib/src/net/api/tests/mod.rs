@@ -22,10 +22,11 @@ use libstackerdb::SlotMetadata;
 use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{
-    BlockHeaderHash, ConsensusHash, StacksAddress, StacksBlockId, StacksPrivateKey, StacksPublicKey,
+    BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, SortitionId, StacksAddress, StacksBlockId,
+    StacksPrivateKey, StacksPublicKey,
 };
 use stacks_common::util::get_epoch_time_secs;
-use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum};
+use stacks_common::util::hash::{to_hex, Hash160, Sha512Trunc256Sum};
 use stacks_common::util::pipe::Pipe;
 
 use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
@@ -40,6 +41,7 @@ use crate::chainstate::stacks::{
     TransactionAuth, TransactionPayload, TransactionPostConditionMode, TransactionVersion,
 };
 use crate::core::MemPoolDB;
+use crate::net::api::{prefix_hex, prefix_opt_hex};
 use crate::net::db::PeerDB;
 use crate::net::httpcore::{StacksHttpRequest, StacksHttpResponse};
 use crate::net::relay::Relayer;
@@ -47,10 +49,12 @@ use crate::net::rpc::ConversationHttp;
 use crate::net::test::{TestEventObserver, TestPeer, TestPeerConfig};
 use crate::net::tests::inv::nakamoto::make_nakamoto_peers_from_invs;
 use crate::net::{
-    Attachment, AttachmentInstance, RPCHandlerArgs, StackerDBConfig, StacksNodeState, UrlString,
+    Attachment, AttachmentInstance, MemPoolEventDispatcher, RPCHandlerArgs, StackerDBConfig,
+    StacksNodeState, UrlString,
 };
 
 mod callreadonly;
+mod get_tenures_fork_info;
 mod getaccount;
 mod getattachment;
 mod getattachmentsinv;
@@ -69,14 +73,19 @@ mod getmicroblocks_indexed;
 mod getmicroblocks_unconfirmed;
 mod getneighbors;
 mod getpoxinfo;
+mod getsigner;
+mod getsortition;
 mod getstackerdbchunk;
 mod getstackerdbmetadata;
 mod getstxtransfercost;
 mod gettenure;
 mod gettenureinfo;
+mod gettenuretip;
 mod gettransaction_unconfirmed;
 mod liststackerdbreplicas;
 mod postblock;
+mod postblock_proposal;
+mod postblock_v3;
 mod postfeerate;
 mod postmempoolquery;
 mod postmicroblock;
@@ -258,6 +267,7 @@ impl<'a> TestRPC<'a> {
             runtime: 2000000,
         };
         peer_1_config.connection_opts.maximum_call_argument_size = 4096;
+        peer_1_config.connection_opts.auth_token = Some("password".to_string());
 
         peer_2_config.connection_opts.read_only_call_limit = ExecutionCost {
             write_length: 0,
@@ -267,6 +277,7 @@ impl<'a> TestRPC<'a> {
             runtime: 2000000,
         };
         peer_2_config.connection_opts.maximum_call_argument_size = 4096;
+        peer_2_config.connection_opts.auth_token = Some("password".to_string());
 
         // stacker DBs get initialized thru reconfiguration when the above block gets processed
         peer_1_config.add_stacker_db(
@@ -454,7 +465,7 @@ impl<'a> TestRPC<'a> {
                     StacksBlockBuilder::make_anchored_block_from_txs(
                         block_builder,
                         chainstate,
-                        &sortdb.index_conn(),
+                        &sortdb.index_handle_at_tip(),
                         vec![tx_coinbase_signed.clone(), tx_contract_signed.clone()],
                     )
                     .unwrap();
@@ -477,7 +488,7 @@ impl<'a> TestRPC<'a> {
             let sortdb = peer_1.sortdb.take().unwrap();
             Relayer::setup_unconfirmed_state(peer_1.chainstate(), &sortdb).unwrap();
             let mblock = {
-                let sort_iconn = sortdb.index_conn();
+                let sort_iconn = sortdb.index_handle_at_tip();
                 let mut microblock_builder = StacksMicroblockBuilder::new(
                     stacks_block.block_hash(),
                     consensus_hash.clone(),
@@ -529,11 +540,11 @@ impl<'a> TestRPC<'a> {
             let sortdb2 = peer_2.sortdb.take().unwrap();
             peer_1
                 .chainstate()
-                .reload_unconfirmed_state(&sortdb1.index_conn(), canonical_tip.clone())
+                .reload_unconfirmed_state(&sortdb1.index_handle_at_tip(), canonical_tip.clone())
                 .unwrap();
             peer_2
                 .chainstate()
-                .reload_unconfirmed_state(&sortdb2.index_conn(), canonical_tip.clone())
+                .reload_unconfirmed_state(&sortdb2.index_handle_at_tip(), canonical_tip.clone())
                 .unwrap();
             peer_1.sortdb = Some(sortdb1);
             peer_2.sortdb = Some(sortdb2);
@@ -591,6 +602,7 @@ impl<'a> TestRPC<'a> {
                     peer_1.chainstate(),
                     &consensus_hash,
                     &stacks_block.block_hash(),
+                    true,
                     txid.clone(),
                     tx_bytes,
                     tx_fee,
@@ -732,7 +744,7 @@ impl<'a> TestRPC<'a> {
                     StacksBlockBuilder::make_anchored_block_from_txs(
                         block_builder,
                         chainstate,
-                        &sortdb.index_conn(),
+                        &sortdb.index_handle_at_tip(),
                         vec![tx_coinbase_signed.clone()],
                     )
                     .unwrap();
@@ -907,9 +919,17 @@ impl<'a> TestRPC<'a> {
         }
     }
 
+    pub fn run(self, requests: Vec<StacksHttpRequest>) -> Vec<StacksHttpResponse> {
+        self.run_with_observer(requests, None)
+    }
+
     /// Run zero or more HTTP requests on this setup RPC test harness.
     /// Return the list of responses.
-    pub fn run(self, requests: Vec<StacksHttpRequest>) -> Vec<StacksHttpResponse> {
+    pub fn run_with_observer(
+        self,
+        requests: Vec<StacksHttpRequest>,
+        event_observer: Option<&dyn MemPoolEventDispatcher>,
+    ) -> Vec<StacksHttpResponse> {
         let mut peer_1 = self.peer_1;
         let mut peer_2 = self.peer_2;
         let peer_1_indexer = self.peer_1_indexer;
@@ -943,13 +963,15 @@ impl<'a> TestRPC<'a> {
             }
 
             {
-                let rpc_args = RPCHandlerArgs::default();
+                let mut rpc_args = RPCHandlerArgs::default();
+                rpc_args.event_observer = event_observer;
                 let mut node_state = StacksNodeState::new(
                     &mut peer_1.network,
                     &peer_1_sortdb,
                     &mut peer_1_stacks_node.chainstate,
                     &mut peer_1_mempool,
                     &rpc_args,
+                    false,
                 );
                 convo_1.chat(&mut node_state).unwrap();
             }
@@ -985,13 +1007,15 @@ impl<'a> TestRPC<'a> {
             }
 
             {
-                let rpc_args = RPCHandlerArgs::default();
+                let mut rpc_args = RPCHandlerArgs::default();
+                rpc_args.event_observer = event_observer;
                 let mut node_state = StacksNodeState::new(
                     &mut peer_2.network,
                     &peer_2_sortdb,
                     &mut peer_2_stacks_node.chainstate,
                     &mut peer_2_mempool,
                     &rpc_args,
+                    false,
                 );
                 convo_2.chat(&mut node_state).unwrap();
             }
@@ -1038,6 +1062,7 @@ impl<'a> TestRPC<'a> {
                     &mut peer_1_stacks_node.chainstate,
                     &mut peer_1_mempool,
                     &rpc_args,
+                    false,
                 );
                 convo_1.chat(&mut node_state).unwrap();
             }
@@ -1072,4 +1097,96 @@ impl<'a> TestRPC<'a> {
 pub fn test_rpc(test_name: &str, requests: Vec<StacksHttpRequest>) -> Vec<StacksHttpResponse> {
     let test = TestRPC::setup(test_name);
     test.run(requests)
+}
+
+#[test]
+fn prefixed_opt_hex_serialization() {
+    let tests_32b = [
+        None,
+        Some([0u8; 32]),
+        Some([15; 32]),
+        Some([
+            0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+            11, 12, 13, 14, 15,
+        ]),
+    ];
+
+    for test in tests_32b.iter() {
+        let inp = test.clone().map(|bytes| BurnchainHeaderHash(bytes));
+        let mut out_buff = Vec::new();
+        let mut serializer = serde_json::Serializer::new(&mut out_buff);
+        prefix_opt_hex::serialize(&inp, &mut serializer).unwrap();
+        let hex_str = String::from_utf8(out_buff).unwrap();
+        eprintln!("{hex_str}");
+
+        let mut deserializer = serde_json::Deserializer::from_str(&hex_str);
+        let out: Option<BurnchainHeaderHash> =
+            prefix_opt_hex::deserialize(&mut deserializer).unwrap();
+
+        assert_eq!(out, inp);
+        if test.is_some() {
+            assert_eq!(
+                hex_str,
+                format!("\"0x{}\"", to_hex(&inp.as_ref().unwrap().0))
+            );
+        } else {
+            assert_eq!(hex_str, "null");
+        }
+    }
+}
+
+#[test]
+fn prefixed_hex_bad_desers() {
+    let inp = "\"1\"";
+    let mut opt_deserializer = serde_json::Deserializer::from_str(inp);
+    assert_eq!(
+        prefix_opt_hex::deserialize::<_, BurnchainHeaderHash>(&mut opt_deserializer)
+            .unwrap_err()
+            .to_string(),
+        "invalid length 1, expected at least length 2 string".to_string(),
+    );
+    let inp = "\"0x\"";
+    let mut opt_deserializer = serde_json::Deserializer::from_str(inp);
+    assert_eq!(
+        prefix_opt_hex::deserialize::<_, BurnchainHeaderHash>(&mut opt_deserializer)
+            .unwrap_err()
+            .to_string(),
+        "bad length 0 for hex string".to_string(),
+    );
+    let inp = "\"0x00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff00\"";
+    let mut opt_deserializer = serde_json::Deserializer::from_str(inp);
+    assert_eq!(
+        prefix_opt_hex::deserialize::<_, BurnchainHeaderHash>(&mut opt_deserializer)
+            .unwrap_err()
+            .to_string(),
+        "bad length 66 for hex string".to_string(),
+    );
+}
+
+#[test]
+fn prefixed_hex_serialization() {
+    let tests_32b = [
+        [0u8; 32],
+        [1; 32],
+        [15; 32],
+        [
+            0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+            11, 12, 13, 14, 15,
+        ],
+    ];
+
+    for test in tests_32b.iter() {
+        let inp = BurnchainHeaderHash(test.clone());
+        let mut out_buff = Vec::new();
+        let mut serializer = serde_json::Serializer::new(&mut out_buff);
+        prefix_hex::serialize(&inp, &mut serializer).unwrap();
+        let hex_str = String::from_utf8(out_buff).unwrap();
+        eprintln!("{hex_str}");
+
+        let mut deserializer = serde_json::Deserializer::from_str(&hex_str);
+        let out: BurnchainHeaderHash = prefix_hex::deserialize(&mut deserializer).unwrap();
+
+        assert_eq!(out, inp);
+        assert_eq!(hex_str, format!("\"0x{}\"", to_hex(&inp.0)));
+    }
 }

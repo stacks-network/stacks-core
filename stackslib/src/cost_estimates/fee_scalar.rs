@@ -1,11 +1,13 @@
 use std::cmp;
 use std::path::Path;
 
+use clarity::types::sqlite::NO_PARAMS;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::database::{ClaritySerializable, STXBalance};
-use rusqlite::types::{FromSql, FromSqlError};
+use rusqlite::types::{FromSql, FromSqlError, ToSql};
 use rusqlite::{
-    Connection, Error as SqliteError, OptionalExtension, ToSql, Transaction as SqlTransaction,
+    params, Connection, Error as SqliteError, OpenFlags, OptionalExtension,
+    Transaction as SqlTransaction,
 };
 use serde_json::Value as JsonValue;
 
@@ -46,7 +48,7 @@ impl<M: CostMetric> ScalarFeeRateEstimator<M> {
     pub fn open(p: &Path, metric: M) -> Result<Self, SqliteError> {
         let mut db = sqlite_open(
             p,
-            rusqlite::OpenFlags::SQLITE_OPEN_CREATE | rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE,
+            OpenFlags::SQLITE_OPEN_CREATE | OpenFlags::SQLITE_OPEN_READ_WRITE,
             false,
         )?;
 
@@ -72,7 +74,7 @@ impl<M: CostMetric> ScalarFeeRateEstimator<M> {
 
     fn instantiate_db(tx: &SqlTransaction) -> Result<(), SqliteError> {
         if !Self::db_already_instantiated(tx)? {
-            tx.execute(CREATE_TABLE, rusqlite::NO_PARAMS)?;
+            tx.execute(CREATE_TABLE, NO_PARAMS)?;
         }
 
         Ok(())
@@ -130,7 +132,7 @@ impl<M: CostMetric> ScalarFeeRateEstimator<M> {
 
         tx.execute(
             sql,
-            rusqlite::params![
+            params![
                 SINGLETON_ROW_ID,
                 next_estimate.high,
                 next_estimate.middle,
@@ -238,7 +240,7 @@ impl<M: CostMetric> FeeEstimator for ScalarFeeRateEstimator<M> {
     fn get_rate_estimates(&self) -> Result<FeeRateEstimate, EstimatorError> {
         let sql = "SELECT high, middle, low FROM scalar_fee_estimator WHERE estimate_key = ?";
         self.db
-            .query_row(sql, &[SINGLETON_ROW_ID], |row| {
+            .query_row(sql, params![SINGLETON_ROW_ID], |row| {
                 let high: f64 = row.get(0)?;
                 let middle: f64 = row.get(1)?;
                 let low: f64 = row.get(2)?;

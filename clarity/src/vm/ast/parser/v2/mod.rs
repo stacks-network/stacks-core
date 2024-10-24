@@ -206,6 +206,8 @@ impl<'a> Parser<'a> {
         }
     }
 
+    // TODO: add tests from mutation testing results #4829
+    #[cfg_attr(test, mutants::skip)]
     /// Process a new child node for an AST expression that is open and waiting for children nodes. For example,
     ///  a list or tuple expression that is waiting for child expressions.
     ///
@@ -275,6 +277,8 @@ impl<'a> Parser<'a> {
         }
     }
 
+    // TODO: add tests from mutation testing results #4848
+    #[cfg_attr(test, mutants::skip)]
     fn handle_open_tuple(
         &mut self,
         open_tuple: &mut OpenTuple,

@@ -35,7 +35,7 @@ use stacks_common::util::hash::{bytes_to_hex, hex_bytes, Hash160};
 use stacks_common::util::secp256k1::Secp256k1PublicKey;
 use stacks_common::util::sleep_ms;
 
-use crate::config::{EventKeyType, EventObserverConfig, InitialBalance};
+use crate::config::InitialBalance;
 use crate::stacks_common::codec::StacksMessageCodec;
 use crate::tests::bitcoin_regtest::BitcoinCoreController;
 use crate::tests::neon_integrations::{
@@ -152,11 +152,7 @@ fn fix_to_pox_contract() {
     conf.miner.subsequent_attempt_time_ms = i64::MAX as u64;
 
     test_observer::spawn();
-
-    conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
-        events_keys: vec![EventKeyType::AnyEvent],
-    });
+    test_observer::register_any(&mut conf);
     conf.initial_balances.append(&mut initial_balances);
 
     let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
@@ -253,6 +249,7 @@ fn fix_to_pox_contract() {
         &spender_sk,
         0,
         3000,
+        conf.burnchain.chain_id,
         &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
         "pox",
         "stack-stx",
@@ -302,6 +299,7 @@ fn fix_to_pox_contract() {
         &spender_sk,
         1,
         3000,
+        conf.burnchain.chain_id,
         &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
         "pox-2",
         "stack-stx",
@@ -336,6 +334,7 @@ fn fix_to_pox_contract() {
         &spender_sk,
         aborted_increase_nonce_2_2,
         3000,
+        conf.burnchain.chain_id,
         &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
         "pox-2",
         "stack-increase",
@@ -361,6 +360,7 @@ fn fix_to_pox_contract() {
         &spender_sk,
         aborted_increase_nonce_2_3,
         3000,
+        conf.burnchain.chain_id,
         &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
         "pox-2",
         "stack-increase",
@@ -399,6 +399,7 @@ fn fix_to_pox_contract() {
         &spender_sk,
         4,
         3000,
+        conf.burnchain.chain_id,
         &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
         "pox-3",
         "stack-stx",
@@ -418,6 +419,7 @@ fn fix_to_pox_contract() {
         &spender_2_sk,
         0,
         3000,
+        conf.burnchain.chain_id,
         &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
         "pox-3",
         "stack-stx",
@@ -449,6 +451,7 @@ fn fix_to_pox_contract() {
         &spender_sk,
         5,
         3000,
+        conf.burnchain.chain_id,
         &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
         "pox-3",
         "stack-increase",
@@ -493,7 +496,7 @@ fn fix_to_pox_contract() {
             reward_cycle_pox_addrs.insert(reward_cycle, HashMap::new());
         }
 
-        let iconn = sortdb.index_conn();
+        let iconn = sortdb.index_handle_at_block(&chainstate, &tip).unwrap();
         let pox_addrs = chainstate
             .clarity_eval_read_only(
                 &iconn,
@@ -791,11 +794,7 @@ fn verify_auto_unlock_behavior() {
     conf.miner.subsequent_attempt_time_ms = i64::MAX as u64;
 
     test_observer::spawn();
-
-    conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
-        events_keys: vec![EventKeyType::AnyEvent],
-    });
+    test_observer::register_any(&mut conf);
     conf.initial_balances.append(&mut initial_balances);
 
     let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
@@ -897,6 +896,7 @@ fn verify_auto_unlock_behavior() {
         &spender_sk,
         0,
         3000,
+        conf.burnchain.chain_id,
         &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
         "pox",
         "stack-stx",
@@ -946,6 +946,7 @@ fn verify_auto_unlock_behavior() {
         &spender_sk,
         1,
         3000,
+        conf.burnchain.chain_id,
         &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
         "pox-2",
         "stack-stx",
@@ -1031,6 +1032,7 @@ fn verify_auto_unlock_behavior() {
         &spender_sk,
         2,
         3000,
+        conf.burnchain.chain_id,
         &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
         "pox-3",
         "stack-stx",
@@ -1050,6 +1052,7 @@ fn verify_auto_unlock_behavior() {
         &spender_2_sk,
         0,
         3000,
+        conf.burnchain.chain_id,
         &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
         "pox-3",
         "stack-stx",
@@ -1131,6 +1134,7 @@ fn verify_auto_unlock_behavior() {
         &spender_sk,
         3,
         3000,
+        conf.burnchain.chain_id,
         &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
         "pox-3",
         "stack-increase",
@@ -1213,7 +1217,7 @@ fn verify_auto_unlock_behavior() {
             reward_cycle_pox_addrs.insert(reward_cycle, HashMap::new());
         }
 
-        let iconn = sortdb.index_conn();
+        let iconn = sortdb.index_handle_at_block(&chainstate, &tip).unwrap();
         let pox_addrs = chainstate
             .clarity_eval_read_only(
                 &iconn,

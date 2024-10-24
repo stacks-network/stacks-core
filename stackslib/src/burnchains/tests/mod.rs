@@ -123,11 +123,13 @@ pub struct TestMiner {
     pub nonce: u64,
     pub spent_at_nonce: HashMap<u64, u128>, // how much uSTX this miner paid in a given tx's nonce
     pub test_with_tx_fees: bool, // set to true to make certain helper methods attach a pre-defined tx fee
+    pub chain_id: u32,
 }
 
 pub struct TestMinerFactory {
     pub key_seed: [u8; 32],
     pub next_miner_id: usize,
+    pub chain_id: u32,
 }
 
 impl TestMiner {
@@ -136,6 +138,7 @@ impl TestMiner {
         privks: &Vec<StacksPrivateKey>,
         num_sigs: u16,
         hash_mode: &AddressHashMode,
+        chain_id: u32,
     ) -> TestMiner {
         TestMiner {
             burnchain: burnchain.clone(),
@@ -150,6 +153,7 @@ impl TestMiner {
             nonce: 0,
             spent_at_nonce: HashMap::new(),
             test_with_tx_fees: true,
+            chain_id,
         }
     }
 
@@ -161,10 +165,7 @@ impl TestMiner {
     }
 
     pub fn last_block_commit(&self) -> Option<LeaderBlockCommitOp> {
-        match self.block_commits.len() {
-            0 => None,
-            x => Some(self.block_commits[x - 1].clone()),
-        }
+        self.block_commits.last().cloned()
     }
 
     pub fn block_commit_at(&self, idx: usize) -> Option<LeaderBlockCommitOp> {
@@ -317,15 +318,7 @@ impl TestMinerFactory {
         TestMinerFactory {
             key_seed: [0u8; 32],
             next_miner_id: 1,
-        }
-    }
-
-    pub fn from_u16(seed: u16) -> TestMinerFactory {
-        let mut bytes = [0u8; 32];
-        (&mut bytes[0..2]).copy_from_slice(&seed.to_be_bytes());
-        TestMinerFactory {
-            key_seed: bytes,
-            next_miner_id: seed as usize,
+            chain_id: CHAIN_ID_TESTNET,
         }
     }
 
@@ -349,7 +342,7 @@ impl TestMinerFactory {
         }
 
         test_debug!("New miner: {:?} {}:{:?}", &hash_mode, num_sigs, &keys);
-        let mut m = TestMiner::new(burnchain, &keys, num_sigs, &hash_mode);
+        let mut m = TestMiner::new(burnchain, &keys, num_sigs, &hash_mode, self.chain_id);
         m.id = self.next_miner_id;
         self.next_miner_id += 1;
         m

@@ -1005,7 +1005,7 @@ pub fn get_all_mining_rewards(
     block_height: u64,
 ) -> Vec<Vec<MinerPaymentSchedule>> {
     let mut ret = vec![];
-    let mut tx = chainstate.index_tx_begin().unwrap();
+    let mut tx = chainstate.index_tx_begin();
 
     for i in 0..block_height {
         let block_rewards =
@@ -1050,7 +1050,7 @@ pub fn make_coinbase_with_nonce(
             None,
         ),
     );
-    tx_coinbase.chain_id = 0x80000000;
+    tx_coinbase.chain_id = miner.chain_id;
     tx_coinbase.anchor_mode = TransactionAnchorMode::OnChainOnly;
     tx_coinbase.auth.set_origin_nonce(nonce);
 
@@ -1147,7 +1147,7 @@ pub fn make_contract_call(
         .unwrap(),
     );
 
-    tx_contract_call.chain_id = 0x80000000;
+    tx_contract_call.chain_id = miner.chain_id;
     tx_contract_call.auth.set_origin_nonce(miner.get_nonce());
 
     if miner.test_with_tx_fees {
@@ -1179,7 +1179,7 @@ pub fn make_token_transfer(
         TransactionPayload::TokenTransfer((*recipient).clone().into(), amount, (*memo).clone()),
     );
 
-    tx_stx_transfer.chain_id = 0x80000000;
+    tx_stx_transfer.chain_id = miner.chain_id;
     tx_stx_transfer
         .auth
         .set_origin_nonce(nonce.unwrap_or(miner.get_nonce()));
@@ -1418,9 +1418,11 @@ pub fn get_stacks_account(peer: &mut TestPeer, addr: &PrincipalData) -> StacksAc
             let stacks_block_id =
                 StacksBlockHeader::make_index_block_hash(&consensus_hash, &block_bhh);
             let acct = chainstate
-                .with_read_only_clarity_tx(&sortdb.index_conn(), &stacks_block_id, |clarity_tx| {
-                    StacksChainState::get_account(clarity_tx, addr)
-                })
+                .with_read_only_clarity_tx(
+                    &sortdb.index_handle_at_tip(),
+                    &stacks_block_id,
+                    |clarity_tx| StacksChainState::get_account(clarity_tx, addr),
+                )
                 .unwrap();
             Ok(acct)
         })

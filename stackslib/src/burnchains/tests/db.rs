@@ -16,11 +16,12 @@
 
 use std::cmp;
 
-use rusqlite::{ToSql, NO_PARAMS};
+use rusqlite::ToSql;
 use stacks_common::address::AddressHashMode;
 use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction as BtcTx;
 use stacks_common::deps_common::bitcoin::network::serialize::deserialize;
 use stacks_common::types::chainstate::StacksAddress;
+use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::util::hash::*;
 
 use super::*;
@@ -53,8 +54,10 @@ impl BurnchainDB {
         &self,
         block_hash: &BurnchainHeaderHash,
     ) -> Result<Vec<BlockstackOperationType>, BurnchainError> {
+        use rusqlite::params;
+
         let sql = "SELECT op FROM burnchain_db_block_ops WHERE block_hash = ?1";
-        let args: &[&dyn ToSql] = &[block_hash];
+        let args = params![block_hash];
         let mut ops: Vec<BlockstackOperationType> = query_rows(&self.conn, sql, args)?;
         ops.sort_by(|a, b| a.vtxindex().cmp(&b.vtxindex()));
         Ok(ops)
@@ -515,6 +518,7 @@ pub fn make_simple_block_commit(
     let block_height = burn_header.block_height;
     let mut new_op = LeaderBlockCommitOp {
         sunset_burn: 0,
+        treatment: vec![],
         block_header_hash: block_hash,
         new_seed: VRFSeed([1u8; 32]),
         parent_block_ptr: 0,
