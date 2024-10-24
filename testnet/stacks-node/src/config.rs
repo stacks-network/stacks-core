@@ -3033,8 +3033,9 @@ mod tests {
             if path.is_file() {
                 let file_name = path.file_name().unwrap().to_str().unwrap();
                 if file_name.ends_with(".toml") {
+                    debug!("Parsing config file: {file_name}");
                     let _config = ConfigFile::from_path(path.to_str().unwrap()).unwrap();
-                    debug!("Parsed config file: {}", file_name);
+                    debug!("Parsed config file: {file_name}");
                 }
             }
         }
