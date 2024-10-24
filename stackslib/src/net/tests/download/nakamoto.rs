@@ -2526,7 +2526,7 @@ fn test_nakamoto_microfork_download_run_2_peers() {
     boot_dns_thread_handle.join().unwrap();
 }
 
-/// Test booting up a node where there is one shadow block in the prepare phase, as well as soem
+/// Test booting up a node where there is one shadow block in the prepare phase, as well as some
 /// blocks that mine atop it.
 #[test]
 fn test_nakamoto_download_run_2_peers_with_one_shadow_block() {
