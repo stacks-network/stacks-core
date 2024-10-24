@@ -470,7 +470,7 @@ impl PoxConstants {
     }
 
     pub fn nakamoto_testnet_default() -> PoxConstants {
-        PoxConstants::new(900, 100, 0, 100, 0, u64::MAX, u64::MAX, 242, 243, 246, 244)
+        PoxConstants::new(900, 100, 51, 100, 0, u64::MAX, u64::MAX, 242, 243, 246, 244)
     }
 
     // TODO: add tests from mutation testing results #4838
