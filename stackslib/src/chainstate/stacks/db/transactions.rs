@@ -1061,8 +1061,7 @@ impl StacksChainState {
                               "function_name" => %contract_call.function_name,
                               "function_args" => %VecDisplay(&contract_call.function_args),
                               "return_value" => %return_value,
-                              "cost" => ?total_cost,
-                              "txid" => %tx.txid());
+                              "cost" => ?total_cost);
                         (return_value, asset_map, events)
                     }
                     Err(e) => match handle_clarity_runtime_error(e) {
