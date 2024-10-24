@@ -3897,6 +3897,7 @@ impl NakamotoChainState {
         block_execution_cost: ExecutionCost,
         applied_epoch_transition: bool,
         signers_updated: bool,
+        coinbase_height: u64,
     ) -> Result<
         (
             StacksEpochReceipt,
@@ -3935,6 +3936,7 @@ impl NakamotoChainState {
             evaluated_epoch,
             epoch_transition: applied_epoch_transition,
             signers_updated,
+            coinbase_height,
         };
 
         return Ok((epoch_receipt, clarity_commit, None));
@@ -4347,6 +4349,7 @@ impl NakamotoChainState {
                 block_execution_cost,
                 applied_epoch_transition,
                 signer_set_calc.is_some(),
+                coinbase_height,
             );
         }
 
