@@ -2504,14 +2504,27 @@ impl Relayer {
                     for chunk in sync_result.chunks_to_store.into_iter() {
                         let md = chunk.get_slot_metadata();
                         if let Err(e) = tx.try_replace_chunk(&sc, &md, &chunk.data) {
-                            warn!(
-                                "Failed to store chunk for StackerDB";
-                                "stackerdb_contract_id" => &format!("{}", &sync_result.contract_id),
-                                "slot_id" => md.slot_id,
-                                "slot_version" => md.slot_version,
-                                "num_bytes" => chunk.data.len(),
-                                "error" => %e
-                            );
+                            if matches!(e, Error::StaleChunk { .. }) {
+                                // This is a common and expected message, so log it as a debug and with a sep message
+                                // to distinguish it from other message types.
+                                debug!(
+                                    "Dropping stale StackerDB chunk";
+                                    "stackerdb_contract_id" => &format!("{}", &sync_result.contract_id),
+                                    "slot_id" => md.slot_id,
+                                    "slot_version" => md.slot_version,
+                                    "num_bytes" => chunk.data.len(),
+                                    "error" => %e
+                                );
+                            } else {
+                                warn!(
+                                    "Failed to store chunk for StackerDB";
+                                    "stackerdb_contract_id" => &format!("{}", &sync_result.contract_id),
+                                    "slot_id" => md.slot_id,
+                                    "slot_version" => md.slot_version,
+                                    "num_bytes" => chunk.data.len(),
+                                    "error" => %e
+                                );
+                            }
                             continue;
                         } else {
                             debug!("Stored chunk"; "stackerdb_contract_id" => &format!("{}", &sync_result.contract_id), "slot_id" => md.slot_id, "slot_version" => md.slot_version);
