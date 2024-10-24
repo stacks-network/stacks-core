@@ -579,7 +579,7 @@ impl StacksClient {
                 }
                 Err(e) => {
                     if cfg!(any(test, feature = "testing"))
-                        && start_time.elapsed() > Duration::from_secs(30)
+                        && start_time.elapsed() > Duration::from_secs(5)
                     {
                         panic!(
                             "{log_fmt}: Timed out in test while pushing block to stacks node: {e}"
