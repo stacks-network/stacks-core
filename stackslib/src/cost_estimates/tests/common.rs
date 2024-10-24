@@ -52,5 +52,6 @@ pub fn make_block_receipt(tx_receipts: Vec<StacksTransactionReceipt>) -> StacksE
         evaluated_epoch: StacksEpochId::Epoch20,
         epoch_transition: false,
         signers_updated: false,
+        coinbase_height: 1234,
     }
 }

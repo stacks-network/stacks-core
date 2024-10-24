@@ -1040,9 +1040,18 @@ impl<'a> StacksMicroblockBuilder<'a> {
                                     100 - TX_BLOCK_LIMIT_PROPORTION_HEURISTIC,
                                     &total_budget
                                 );
+                                let mut measured_cost = cost_after.clone();
+                                let measured_cost = if measured_cost.sub(cost_before).is_ok() {
+                                    Some(measured_cost)
+                                } else {
+                                    warn!(
+                                        "Failed to compute measured cost of a too big transaction"
+                                    );
+                                    None
+                                };
                                 return Ok(TransactionResult::error(
                                     &tx,
-                                    Error::TransactionTooBigError,
+                                    Error::TransactionTooBigError(measured_cost),
                                 ));
                             } else {
                                 warn!(
@@ -1323,7 +1332,22 @@ impl<'a> StacksMicroblockBuilder<'a> {
                                                     return Ok(None);
                                                 }
                                             }
-                                            Error::TransactionTooBigError => {
+                                            Error::TransactionTooBigError(measured_cost) => {
+                                                if update_estimator {
+                                                    if let Some(measured_cost) = measured_cost {
+                                                        if let Err(e) = estimator.notify_event(
+                                                            &mempool_tx.tx.payload,
+                                                            &measured_cost,
+                                                            &block_limit,
+                                                            &stacks_epoch_id,
+                                                        ) {
+                                                            warn!("Error updating estimator";
+                                                                  "txid" => %mempool_tx.metadata.txid,
+                                                                  "error" => ?e);
+                                                        }
+                                                    }
+                                                }
+
                                                 invalidated_txs.push(mempool_tx.metadata.txid);
                                             }
                                             _ => {}
@@ -2405,7 +2429,22 @@ impl StacksBlockBuilder {
                                             return Ok(None);
                                         }
                                     }
-                                    Error::TransactionTooBigError => {
+                                    Error::TransactionTooBigError(measured_cost) => {
+                                        if update_estimator {
+                                            if let Some(measured_cost) = measured_cost {
+                                                if let Err(e) = estimator.notify_event(
+                                                    &txinfo.tx.payload,
+                                                    &measured_cost,
+                                                    &block_limit,
+                                                    &stacks_epoch_id,
+                                                ) {
+                                                    warn!("Error updating estimator";
+                                                                  "txid" => %txinfo.metadata.txid,
+                                                                  "error" => ?e);
+                                                }
+                                            }
+                                        }
+
                                         invalidated_txs.push(txinfo.metadata.txid);
                                     }
                                     Error::InvalidStacksTransaction(_, true) => {
@@ -2714,9 +2753,18 @@ impl BlockBuilder for StacksBlockBuilder {
                                             100 - TX_BLOCK_LIMIT_PROPORTION_HEURISTIC,
                                             &total_budget
                                         );
+                                    let mut measured_cost = cost_after;
+                                    let measured_cost = if measured_cost.sub(&cost_before).is_ok() {
+                                        Some(measured_cost)
+                                    } else {
+                                        warn!(
+                                        "Failed to compute measured cost of a too big transaction"
+                                    );
+                                        None
+                                    };
                                     return TransactionResult::error(
                                         &tx,
-                                        Error::TransactionTooBigError,
+                                        Error::TransactionTooBigError(measured_cost),
                                     );
                                 } else {
                                     warn!(
@@ -2795,9 +2843,19 @@ impl BlockBuilder for StacksBlockBuilder {
                                         100 - TX_BLOCK_LIMIT_PROPORTION_HEURISTIC,
                                         &total_budget
                                     );
+                                    let mut measured_cost = cost_after;
+                                    let measured_cost = if measured_cost.sub(&cost_before).is_ok() {
+                                        Some(measured_cost)
+                                    } else {
+                                        warn!(
+                                        "Failed to compute measured cost of a too big transaction"
+                                    );
+                                        None
+                                    };
+
                                     return TransactionResult::error(
                                         &tx,
-                                        Error::TransactionTooBigError,
+                                        Error::TransactionTooBigError(measured_cost),
                                     );
                                 } else {
                                     warn!(
