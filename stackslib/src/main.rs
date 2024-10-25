@@ -282,7 +282,7 @@ fn open_nakamoto_chainstate_dbs(
     let chain_state_path = format!("{}/{}/chainstate/", chainstate_dir, dirname);
     let sort_db_path = format!("{}/{}/burnchain/sortition/", chainstate_dir, dirname);
 
-    let sort_db = SortitionDB::open(&sort_db_path, false, pox_constants)
+    let sort_db = SortitionDB::open(&sort_db_path, true, pox_constants)
         .unwrap_or_else(|_| panic!("Failed to open {sort_db_path}"));
 
     let (chain_state, _) = StacksChainState::open(mainnet, chain_id, &chain_state_path, None)
