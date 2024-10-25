@@ -1354,7 +1354,7 @@ simulating a miner.
     if argv[1] == "shadow-chainstate-patch" {
         if argv.len() < 5 {
             eprintln!(
-                "Usage: {} shadow-chainstate-patch CHAINSTATE_DIR NETWORK SHADOW_BLOCKS_JSON",
+                "Usage: {} shadow-chainstate-patch CHAINSTATE_DIR NETWORK SHADOW_BLOCKS_PATH.JSON",
                 &argv[0]
             );
             process::exit(1);
@@ -1362,9 +1362,17 @@ simulating a miner.
 
         let chainstate_dir = argv[2].as_str();
         let network = argv[3].as_str();
-        let shadow_blocks_json = argv[4].as_str();
+        let shadow_blocks_json_path = argv[4].as_str();
 
-        let shadow_blocks_hex: Vec<String> = serde_json::from_str(shadow_blocks_json).unwrap();
+        let shadow_blocks_hex = {
+            let mut blocks_json_file =
+                File::open(shadow_blocks_json_path).expect("Unable to open file");
+            let mut buffer = vec![];
+            blocks_json_file.read_to_end(&mut buffer).unwrap();
+            let shadow_blocks_hex: Vec<String> = serde_json::from_slice(&buffer).unwrap();
+            shadow_blocks_hex
+        };
+
         let shadow_blocks: Vec<_> = shadow_blocks_hex
             .into_iter()
             .map(|blk_hex| {
