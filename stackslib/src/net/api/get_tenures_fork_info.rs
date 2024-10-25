@@ -231,21 +231,29 @@ impl RPCRequestHandler for GetTenuresForkInfo {
                 chainstate,
                 &network.stacks_tip.block_id(),
             )?);
-            let handle = sortdb.index_handle(&cursor.sortition_id);
             let mut depth = 0;
             while depth < DEPTH_LIMIT && cursor.consensus_hash != recurse_end {
                 depth += 1;
                 if height_bound >= cursor.block_height {
                     return Err(ChainError::NotInSameFork);
                 }
-                cursor = handle
-                    .get_last_snapshot_with_sortition(cursor.block_height.saturating_sub(1))?;
-                results.push(TenureForkingInfo::from_snapshot(
-                    &cursor,
-                    sortdb,
-                    chainstate,
-                    &network.stacks_tip.block_id(),
-                )?);
+
+                if cursor.sortition
+                    || chainstate
+                        .nakamoto_blocks_db()
+                        .is_shadow_tenure(&cursor.consensus_hash)?
+                {
+                    results.push(TenureForkingInfo::from_snapshot(
+                        &cursor,
+                        sortdb,
+                        chainstate,
+                        &network.stacks_tip.block_id(),
+                    )?);
+                }
+
+                cursor =
+                    SortitionDB::get_block_snapshot(sortdb.conn(), &cursor.parent_sortition_id)?
+                        .ok_or_else(|| ChainError::NoSuchBlockError)?;
             }
 
             Ok(results)
