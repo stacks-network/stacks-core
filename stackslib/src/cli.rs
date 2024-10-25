@@ -528,8 +528,6 @@ fn replay_block(
 fn replay_block_nakamoto(
     sort_db: &mut SortitionDB,
     stacks_chain_state: &mut StacksChainState,
-    mut chainstate_tx: ChainstateTx,
-    clarity_instance: &mut ClarityInstance,
     block: &NakamotoBlock,
     block_size: u64,
 ) -> Result<(), ChainstateError> {
@@ -785,7 +783,7 @@ fn replay_block_nakamoto(
         return Err(e);
     };
 
-    let (receipt, clarity_commit, reward_set_data) = ok_opt.expect("FATAL: unreachable");
+    let (receipt, _clarity_commit, _reward_set_data) = ok_opt.expect("FATAL: unreachable");
 
     assert_eq!(
         receipt.header.anchored_header.block_hash(),
