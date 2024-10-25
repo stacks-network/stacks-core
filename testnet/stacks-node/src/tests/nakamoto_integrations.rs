@@ -91,6 +91,7 @@ use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PrivateKey, Secp
 use stacks_common::util::{get_epoch_time_secs, sleep_ms};
 use stacks_signer::chainstate::{ProposalEvalConfig, SortitionsView};
 use stacks_signer::signerdb::{BlockInfo, BlockState, ExtraBlockInfo, SignerDb};
+use stacks_signer::v0::SpawnedSigner;
 
 use super::bitcoin_regtest::BitcoinCoreController;
 use crate::config::{EventKeyType, InitialBalance};
@@ -105,6 +106,7 @@ use crate::tests::neon_integrations::{
     get_neighbors, get_pox_info, next_block_and_wait, run_until_burnchain_height, submit_tx,
     test_observer, wait_for_runloop,
 };
+use crate::tests::signer::SignerTest;
 use crate::tests::{
     gen_random_port, get_chain_info, make_contract_publish, make_contract_publish_versioned,
     make_stacks_transfer, to_addr,
@@ -9605,87 +9607,19 @@ fn test_shadow_recovery() {
         return;
     }
 
-    let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
-    let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
-    naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
-    let sender_sk = Secp256k1PrivateKey::new();
-    let sender_signer_sk = Secp256k1PrivateKey::new();
-    let sender_signer_addr = tests::to_addr(&sender_signer_sk);
-    // setup sender + recipient for some test stx transfers
-    // these are necessary for the interim blocks to get mined at all
-    let sender_addr = tests::to_addr(&sender_sk);
-    let send_amt = 100;
-    let send_fee = 180;
-    naka_conf.add_initial_balance(PrincipalData::from(sender_addr.clone()).to_string(), 100000);
-    naka_conf.add_initial_balance(
-        PrincipalData::from(sender_signer_addr.clone()).to_string(),
-        100000,
-    );
-    let recipient = PrincipalData::from(StacksAddress::burn_address(false));
-    let stacker_sk = setup_stacker(&mut naka_conf);
+    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new(1, vec![]);
+    signer_test.boot_to_epoch_3();
 
-    test_observer::spawn();
-    test_observer::register_any(&mut naka_conf);
-
-    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
-    btcd_controller
-        .start_bitcoind()
-        .expect("Failed starting bitcoind");
-    let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
-    btc_regtest_controller.bootstrap_chain(201);
-
-    let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
-    let run_loop_stopper = run_loop.get_termination_switch();
-    let Counters {
-        blocks_processed,
-        naka_submitted_commits: commits_submitted,
-        naka_proposed_blocks: proposals_submitted,
-        ..
-    } = run_loop.counters();
-
-    let coord_channel = run_loop.coordinator_channels();
-
-    let run_loop_thread = thread::Builder::new()
-        .name("run_loop".into())
-        .spawn(move || run_loop.start(None, 0))
-        .unwrap();
-    wait_for_runloop(&blocks_processed);
-    let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
-    boot_to_epoch_3(
-        &naka_conf,
-        &blocks_processed,
-        &[stacker_sk],
-        &[sender_signer_sk],
-        &mut Some(&mut signers),
-        &mut btc_regtest_controller,
-    );
-
-    info!("Bootstrapped to Epoch-3.0 boundary, starting nakamoto miner");
+    let naka_conf = signer_test.running_nodes.conf.clone();
+    let btc_regtest_controller = &mut signer_test.running_nodes.btc_regtest_controller;
+    let coord_channel = signer_test.running_nodes.coord_channel.clone();
+    let commits_submitted = signer_test.running_nodes.commits_submitted.clone();
 
     let burnchain = naka_conf.get_burnchain();
-    let sortdb = burnchain.open_sortition_db(true).unwrap();
-    let (chainstate, _) = StacksChainState::open(
-        naka_conf.is_mainnet(),
-        naka_conf.burnchain.chain_id,
-        &naka_conf.get_chainstate_path_str(),
-        None,
-    )
-    .unwrap();
-
-    let block_height_pre_3_0 =
-        NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
-            .unwrap()
-            .unwrap()
-            .stacks_block_height;
-
-    info!("Nakamoto miner started...");
-    blind_signer(&naka_conf, &signers, proposals_submitted);
-
-    wait_for_first_naka_block_commit(60, &commits_submitted);
 
     // make another tenure
     next_block_and_mine_commit(
-        &mut btc_regtest_controller,
+        btc_regtest_controller,
         60,
         &coord_channel,
         &commits_submitted,
@@ -9736,7 +9670,6 @@ fn test_shadow_recovery() {
     })
     .unwrap();
 
-    let burn_height_after = get_chain_info(&naka_conf).burn_block_height;
     let stacks_height_before = get_chain_info(&naka_conf).stacks_tip_height;
 
     // fix node
@@ -9753,14 +9686,14 @@ fn test_shadow_recovery() {
     .unwrap();
 
     // revive ATC-C by waiting for commits
-    for i in 0..4 {
+    for _i in 0..4 {
         btc_regtest_controller.bootstrap_chain(1);
         sleep_ms(30_000);
     }
 
     // make another tenure
     next_block_and_mine_commit(
-        &mut btc_regtest_controller,
+        btc_regtest_controller,
         60,
         &coord_channel,
         &commits_submitted,

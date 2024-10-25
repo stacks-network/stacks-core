@@ -112,7 +112,7 @@ pub struct SignerTest<S> {
 }
 
 impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<SpawnedSigner<S, T>> {
-    fn new(num_signers: usize, initial_balances: Vec<(StacksAddress, u64)>) -> Self {
+    pub fn new(num_signers: usize, initial_balances: Vec<(StacksAddress, u64)>) -> Self {
         Self::new_with_config_modifications(
             num_signers,
             initial_balances,
@@ -123,7 +123,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         )
     }
 
-    fn new_with_config_modifications<
+    pub fn new_with_config_modifications<
         F: FnMut(&mut SignerConfig) -> (),
         G: FnMut(&mut NeonConfig) -> (),
     >(
