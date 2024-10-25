@@ -1346,7 +1346,7 @@ simulating a miner.
             .map(|blk| to_hex(&blk.serialize_to_vec()))
             .collect();
 
-        println!("{}", serde_json::to_string(&shadow_blocks));
+        println!("{}", serde_json::to_string(&shadow_blocks_hex).unwrap());
         process::exit(0);
     }
 
@@ -1354,7 +1354,7 @@ simulating a miner.
     if argv[1] == "shadow-chainstate-patch" {
         if argv.len() < 5 {
             eprintln!(
-                "Usage: {} shadow-chainstate-repair CHAINSTATE_DIR NETWORK SHADOW_BLOCKS_JSON",
+                "Usage: {} shadow-chainstate-patch CHAINSTATE_DIR NETWORK SHADOW_BLOCKS_JSON",
                 &argv[0]
             );
             process::exit(1);
