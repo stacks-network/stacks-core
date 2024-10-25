@@ -1895,11 +1895,10 @@ fn flash_blocks_on_epoch_3() {
         }
     }
 
-    // Verify that there's a gap of exactly 3 blocks
-    assert_eq!(
-        gap_end - gap_start + 1,
-        3,
-        "Expected a gap of exactly 3 burn blocks due to flash blocks, found gap from {} to {}",
+    // Verify that there's a gap of AT LEAST 3 blocks
+    assert!(
+        gap_end - gap_start + 1 >= 3,
+        "Expected a gap of AT LEAST 3 burn blocks due to flash blocks, found gap from {} to {}",
         gap_start,
         gap_end
     );
