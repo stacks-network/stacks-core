@@ -1321,9 +1321,9 @@ simulating a miner.
         process::exit(0);
     }
 
-    /// Generates the shadow blocks needed to restore this node to working order.
-    /// Automatically inserts and processes them as well.
-    /// Prints out the generated shadow blocks (as JSON)
+    // Generates the shadow blocks needed to restore this node to working order.
+    // Automatically inserts and processes them as well.
+    // Prints out the generated shadow blocks (as JSON)
     if argv[1] == "shadow-chainstate-repair" {
         if argv.len() < 4 {
             eprintln!(
@@ -1350,7 +1350,7 @@ simulating a miner.
         process::exit(0);
     }
 
-    /// Inserts and processes shadow blocks generated from `shadow-chainstate-repair`
+    // Inserts and processes shadow blocks generated from `shadow-chainstate-repair`
     if argv[1] == "shadow-chainstate-patch" {
         if argv.len() < 5 {
             eprintln!(
