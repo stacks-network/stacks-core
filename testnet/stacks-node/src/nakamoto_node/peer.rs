@@ -307,7 +307,8 @@ impl PeerThread {
                     have_update = true;
                 }
 
-                if network_result.has_data_to_store()
+                if ((ibd || download_backpressure) && network_result.has_block_data_to_store())
+                    || (!ibd && network_result.has_data_to_store())
                     || self.last_burn_block_height != network_result.burn_height
                     || have_update
                 {

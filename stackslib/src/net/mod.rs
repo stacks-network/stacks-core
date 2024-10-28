@@ -1616,6 +1616,10 @@ impl NetworkResult {
             || self.has_stackerdb_chunks()
     }
 
+    pub fn has_block_data_to_store(&self) -> bool {
+        self.has_blocks() || self.has_microblocks() || self.has_nakamoto_blocks()
+    }
+
     pub fn consume_unsolicited(&mut self, unhandled_messages: PendingMessages) {
         for ((_event_id, neighbor_key), messages) in unhandled_messages.into_iter() {
             for message in messages.into_iter() {
