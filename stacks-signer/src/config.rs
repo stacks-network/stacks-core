@@ -34,7 +34,7 @@ use stacks_common::util::hash::Hash160;
 use crate::client::SignerSlotID;
 
 const EVENT_TIMEOUT_MS: u64 = 5000;
-const BLOCK_PROPOSAL_TIMEOUT_MS: u64 = 45_000;
+const BLOCK_PROPOSAL_TIMEOUT_MS: u64 = 600_000;
 const DEFAULT_FIRST_PROPOSAL_BURN_BLOCK_TIMING_SECS: u64 = 60;
 
 #[derive(thiserror::Error, Debug)]
