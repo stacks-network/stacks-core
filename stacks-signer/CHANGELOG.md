@@ -11,7 +11,15 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ### Changed
 
-## [3.0.0.0.0]
+## [3.0.0.0.0.1]
+
+### Added
+
+### Changed
+- Update block proposal timeout default to 10 minutes (#5391)
+- Updated documentation link in output (#5363)
+
+## [3.0.0.0.0.0]
 
 ### Added
 
