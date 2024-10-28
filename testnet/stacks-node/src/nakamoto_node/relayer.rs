@@ -17,7 +17,7 @@ use core::fmt;
 use std::collections::HashSet;
 use std::fs;
 use std::io::Read;
-use std::sync::mpsc::{Receiver, RecvTimeoutError};
+use std::sync::mpsc::{Receiver, RecvTimeoutError, TryRecvError};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -1198,7 +1198,7 @@ impl RelayerThread {
         while self.globals.keep_running() {
             let raised_initiative = self.globals.take_initiative();
             let timed_out = Instant::now() >= self.next_initiative;
-            let directive = if raised_initiative.is_some() || timed_out {
+            let mut initiative_directive = if raised_initiative.is_some() || timed_out {
                 self.next_initiative =
                     Instant::now() + Duration::from_millis(self.config.node.next_initiative_delay);
                 self.initiative()
@@ -1206,28 +1206,71 @@ impl RelayerThread {
                 None
             };
 
-            let directive = if let Some(directive) = directive {
-                directive
-            } else {
-                match relay_rcv.recv_timeout(Duration::from_millis(
-                    self.config.node.next_initiative_delay,
-                )) {
-                    Ok(directive) => directive,
-                    Err(RecvTimeoutError::Timeout) => {
-                        continue;
+            let mut handled = true;
+            let mut disconnect = false;
+            let mut try_recv = true;
+            let mut drained = false;
+            let raised_initiative_fmt =
+                format!("{}", raised_initiative.unwrap_or("relay_rcv".to_string()));
+
+            debug!("Relayer: drain channel");
+            // drain the channel
+            while !disconnect && handled && !drained {
+                let directive = if let Some(directive) = initiative_directive.take() {
+                    debug!("Relayer: initiative from directive");
+                    directive
+                } else if try_recv {
+                    // drain the channel
+                    match relay_rcv.try_recv() {
+                        Ok(directive) => {
+                            debug!("Relayer: initiative from try_recv");
+                            directive
+                        }
+                        Err(TryRecvError::Empty) => {
+                            try_recv = false;
+                            continue;
+                        }
+                        Err(TryRecvError::Disconnected) => {
+                            disconnect = true;
+                            break;
+                        }
                     }
-                    Err(RecvTimeoutError::Disconnected) => {
-                        break;
+                } else {
+                    // channel was drained, so do a time-bound recv
+                    match relay_rcv.recv_timeout(Duration::from_millis(
+                        self.config.node.next_initiative_delay,
+                    )) {
+                        Ok(directive) => {
+                            // only do this once, so we can call .initiative() again
+                            debug!("Relayer: initiative from recv_timeout");
+                            drained = true;
+                            directive
+                        }
+                        Err(RecvTimeoutError::Timeout) => {
+                            break;
+                        }
+                        Err(RecvTimeoutError::Disconnected) => {
+                            disconnect = true;
+                            break;
+                        }
                     }
+                };
+
+                debug!("Relayer: main loop directive";
+                       "try_recv" => %try_recv,
+                       "drained" => %drained,
+                       "directive" => %directive,
+                       "raised_initiative" => %raised_initiative_fmt,
+                       "timed_out" => %timed_out);
+
+                if !self.handle_directive(directive) {
+                    handled = false;
+                    break;
                 }
-            };
-
-            debug!("Relayer: main loop directive";
-                   "directive" => %directive,
-                   "raised_initiative" => %raised_initiative.unwrap_or("relay_rcv".to_string()),
-                   "timed_out" => %timed_out);
-
-            if !self.handle_directive(directive) {
+            }
+            debug!("Relayer: drained channel");
+            if disconnect || !handled {
+                info!("Exiting relayer main loop");
                 break;
             }
         }
