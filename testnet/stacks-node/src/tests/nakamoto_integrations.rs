@@ -9685,6 +9685,8 @@ fn test_shadow_recovery() {
     })
     .unwrap();
 
+    info!("Beginning post-shadow tenures");
+
     // revive ATC-C by waiting for commits
     for _i in 0..4 {
         btc_regtest_controller.bootstrap_chain(1);
