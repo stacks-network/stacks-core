@@ -4841,7 +4841,13 @@ fn miner_recovers_when_broadcast_block_delay_across_tenures_occurs() {
 
     // a tenure has begun, so wait until we mine a block
     wait_for(30, || {
-        Ok(mined_blocks.load(Ordering::SeqCst) > blocks_before)
+        let new_height = signer_test
+            .stacks_client
+            .get_peer_info()
+            .expect("Failed to get peer info")
+            .stacks_tip_height;
+        Ok(mined_blocks.load(Ordering::SeqCst) > blocks_before
+            && new_height > info_before.stacks_tip_height)
     })
     .expect("Timed out waiting for block to be mined and processed");
 
