@@ -37,7 +37,7 @@ use stacks::chainstate::burn::operations::{
 };
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::coordinator::OnChainRewardSetProvider;
-use stacks::chainstate::nakamoto::coordinator::load_nakamoto_reward_set;
+use stacks::chainstate::nakamoto::coordinator::{load_nakamoto_reward_set, TEST_COORDINATOR_STALL};
 use stacks::chainstate::nakamoto::miner::NakamotoBlockBuilder;
 use stacks::chainstate::nakamoto::shadow::shadow_chainstate_repair;
 use stacks::chainstate::nakamoto::test_signers::TestSigners;
@@ -9672,6 +9672,10 @@ fn test_shadow_recovery() {
 
     let stacks_height_before = get_chain_info(&naka_conf).stacks_tip_height;
 
+    // TODO: stall block processing; otherwise this test can flake
+    // stop block processing on the node
+    TEST_COORDINATOR_STALL.lock().unwrap().replace(true);
+
     // fix node
     let shadow_blocks = shadow_chainstate_repair(&mut chainstate, &mut sortdb).unwrap();
     assert!(shadow_blocks.len() > 0);
@@ -9685,6 +9689,7 @@ fn test_shadow_recovery() {
     })
     .unwrap();
 
+    TEST_COORDINATOR_STALL.lock().unwrap().replace(false);
     info!("Beginning post-shadow tenures");
 
     // revive ATC-C by waiting for commits
