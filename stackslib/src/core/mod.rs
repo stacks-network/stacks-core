@@ -96,8 +96,9 @@ pub const BITCOIN_MAINNET_STACKS_23_BURN_HEIGHT: u64 = 788_240;
 pub const BITCOIN_MAINNET_STACKS_24_BURN_HEIGHT: u64 = 791_551;
 /// This is Epoch-2.5, activation height proposed in SIP-021
 pub const BITCOIN_MAINNET_STACKS_25_BURN_HEIGHT: u64 = 840_360;
-/// This is Epoch-3.0, activation height proposed in SIP-021
-pub const BITCOIN_MAINNET_STACKS_30_BURN_HEIGHT: u64 = 867_867;
+/// This pushes the Epoch-3.0 activation height to the far future until an actual height
+/// is set
+pub const BITCOIN_MAINNET_STACKS_30_BURN_HEIGHT: u64 = 2_000_000;
 
 pub const BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT: u64 = 2000000;
 pub const BITCOIN_TESTNET_FIRST_BLOCK_TIMESTAMP: u32 = 1622691840;
