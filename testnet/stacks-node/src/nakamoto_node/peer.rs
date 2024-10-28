@@ -318,6 +318,16 @@ impl PeerThread {
                     self.results_with_data
                         .push_back(RelayerDirective::HandleNetResult(network_result));
                 }
+
+                if ibd || download_backpressure {
+                    // if we have backpressure or we're in ibd, then only keep network results that tell us
+                    // block data or information about download and inv passes
+                    self.results_with_data.retain(|netres| {
+                        netres.has_block_data_to_store()
+                            || self.last_burn_block_height != network_result.burn_height
+                            || have_update
+                    })
+                }
             }
             Err(e) => {
                 // this is only reachable if the network is not instantiated correctly --
