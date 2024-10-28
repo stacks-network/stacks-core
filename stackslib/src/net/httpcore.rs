@@ -1199,7 +1199,7 @@ impl StacksHttp {
             Err(NetError::Http(e)) => {
                 debug!("RPC handler for {} failed: {:?}", decoded_path, &e);
                 return StacksHttpResponse::new_error(&request_preamble, &*e.into_http_error())
-                    .try_into_contents()
+                    .try_into_contents();
             }
             Err(e) => {
                 warn!("Irrecoverable error when handling request"; "path" => %request_preamble.path_and_query_str, "error" => %e);

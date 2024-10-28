@@ -29,8 +29,9 @@ use {serde, serde_json};
 
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::BlockSnapshot;
-use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState, NakamotoStagingBlocksConn};
-use crate::chainstate::nakamoto::StacksDBIndexed;
+use crate::chainstate::nakamoto::{
+    NakamotoBlock, NakamotoChainState, NakamotoStagingBlocksConn, StacksDBIndexed,
+};
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::Error as ChainError;
 use crate::net::api::getblock_v3::NakamotoBlockStream;
@@ -157,9 +158,11 @@ impl GetSortitionHandler {
         sortition_sn: BlockSnapshot,
         sortdb: &SortitionDB,
         chainstate: &mut StacksChainState,
-        tip: &StacksBlockId
+        tip: &StacksBlockId,
     ) -> Result<SortitionInfo, ChainError> {
-        let is_shadow = chainstate.nakamoto_blocks_db().is_shadow_tenure(&sortition_sn.consensus_hash)?;
+        let is_shadow = chainstate
+            .nakamoto_blocks_db()
+            .is_shadow_tenure(&sortition_sn.consensus_hash)?;
         let (miner_pk_hash160, stacks_parent_ch, committed_block_hash, last_sortition_ch) =
             if !sortition_sn.sortition && !is_shadow {
                 let handle = sortdb.index_handle(&sortition_sn.sortition_id);
@@ -168,13 +171,27 @@ impl GetSortitionHandler {
                 (None, None, None, Some(last_sortition.consensus_hash))
             } else if !sortition_sn.sortition && is_shadow {
                 // this is a shadow tenure.
-                let parent_tenure_ch = chainstate.index_conn().get_parent_tenure_consensus_hash(tip, &sortition_sn.consensus_hash)?
-                    .ok_or_else(|| DBError::NotFoundError)?;
-    
-                let parent_tenure_start_header = NakamotoChainState::get_nakamoto_tenure_start_block_header(&mut chainstate.index_conn(), tip, &parent_tenure_ch)?
+                let parent_tenure_ch = chainstate
+                    .index_conn()
+                    .get_parent_tenure_consensus_hash(tip, &sortition_sn.consensus_hash)?
                     .ok_or_else(|| DBError::NotFoundError)?;
 
-                (Some(Hash160([0x00; 20])), Some(parent_tenure_ch.clone()), Some(BlockHeaderHash(parent_tenure_start_header.index_block_hash().0)), Some(parent_tenure_ch))
+                let parent_tenure_start_header =
+                    NakamotoChainState::get_nakamoto_tenure_start_block_header(
+                        &mut chainstate.index_conn(),
+                        tip,
+                        &parent_tenure_ch,
+                    )?
+                    .ok_or_else(|| DBError::NotFoundError)?;
+
+                (
+                    Some(Hash160([0x00; 20])),
+                    Some(parent_tenure_ch.clone()),
+                    Some(BlockHeaderHash(
+                        parent_tenure_start_header.index_block_hash().0,
+                    )),
+                    Some(parent_tenure_ch),
+                )
             } else {
                 let block_commit = SortitionDB::get_block_commit(sortdb.conn(), &sortition_sn.winning_block_txid, &sortition_sn.sortition_id)?
                         .ok_or_else(|| {
@@ -324,7 +341,12 @@ impl RPCRequestHandler for GetSortitionHandler {
                 }
             };
             let sortition_sn = query_result?.ok_or_else(|| ChainError::NoSuchBlockError)?;
-            Self::get_sortition_info(sortition_sn, sortdb, chainstate, &network.stacks_tip.block_id())
+            Self::get_sortition_info(
+                sortition_sn,
+                sortdb,
+                chainstate,
+                &network.stacks_tip.block_id(),
+            )
         });
 
         let block = match result {
@@ -358,7 +380,12 @@ impl RPCRequestHandler for GetSortitionHandler {
                         &last_sortition_ch,
                     )?
                     .ok_or_else(|| ChainError::NoSuchBlockError)?;
-                    Self::get_sortition_info(last_sortition_sn, sortdb, chainstate, &network.stacks_tip.block_id())
+                    Self::get_sortition_info(
+                        last_sortition_sn,
+                        sortdb,
+                        chainstate,
+                        &network.stacks_tip.block_id(),
+                    )
                 });
                 let last_block = match result {
                     Ok(block) => block,
