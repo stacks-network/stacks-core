@@ -317,6 +317,10 @@ impl PeerThread {
                     self.last_burn_block_height = network_result.burn_height;
                     self.results_with_data
                         .push_back(RelayerDirective::HandleNetResult(network_result));
+
+                    self.globals.raise_initiative(
+                        "PeerThread::run_one_pass() with data-bearing network result".to_string(),
+                    );
                 }
 
                 if ibd || download_backpressure {
@@ -340,6 +344,9 @@ impl PeerThread {
         while let Some(next_result) = self.results_with_data.pop_front() {
             // have blocks, microblocks, and/or transactions (don't care about anything else),
             // or a directive to mine microblocks
+            self.globals.raise_initiative(
+                "PeerThread::run_one_pass() with backlogged network results".to_string(),
+            );
             if let Err(e) = self.globals.relay_send.try_send(next_result) {
                 debug!(
                     "P2P: {:?}: download backpressure detected (bufferred {})",
@@ -362,9 +369,6 @@ impl PeerThread {
                 debug!(
                     "P2P: Dispatched result to Relayer! {} results remaining",
                     self.results_with_data.len()
-                );
-                self.globals.raise_initiative(
-                    "PeerThread::run_one_pass() with data-bearing network result".to_string(),
                 );
             }
         }
