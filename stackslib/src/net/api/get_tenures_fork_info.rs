@@ -237,7 +237,9 @@ impl RPCRequestHandler for GetTenuresForkInfo {
                 if height_bound >= cursor.block_height {
                     return Err(ChainError::NotInSameFork);
                 }
-
+                cursor =
+                    SortitionDB::get_block_snapshot(sortdb.conn(), &cursor.parent_sortition_id)?
+                        .ok_or_else(|| ChainError::NoSuchBlockError)?;
                 if cursor.sortition
                     || chainstate
                         .nakamoto_blocks_db()
@@ -250,10 +252,6 @@ impl RPCRequestHandler for GetTenuresForkInfo {
                         &network.stacks_tip.block_id(),
                     )?);
                 }
-
-                cursor =
-                    SortitionDB::get_block_snapshot(sortdb.conn(), &cursor.parent_sortition_id)?
-                        .ok_or_else(|| ChainError::NoSuchBlockError)?;
             }
 
             Ok(results)
