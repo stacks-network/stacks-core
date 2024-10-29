@@ -75,6 +75,8 @@ pub enum Command {
     VerifyVote(VerifyVoteArgs),
     /// Verify signer signatures by checking stackerdb slots contain the correct data
     MonitorSigners(MonitorSignersArgs),
+    /// Decode a chunk
+    DecodeChunk(DecodeChunkArgs),
 }
 
 /// Basic arguments for all cyrptographic and stacker-db functionality
@@ -86,6 +88,13 @@ pub struct StackerDBArgs {
     /// The stacker-db contract to use. Must be in the format of "STACKS_ADDRESS.CONTRACT_NAME"
     #[arg(short, long, value_parser = parse_contract)]
     pub contract: QualifiedContractIdentifier,
+}
+
+/// Arguments for the get-chunk command
+#[derive(Parser, Debug, Clone)]
+pub struct DecodeChunkArgs {
+    /// The base arguments
+    pub chunk_hex: String,
 }
 
 /// Arguments for the get-chunk command

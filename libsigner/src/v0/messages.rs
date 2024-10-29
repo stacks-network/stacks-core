@@ -47,7 +47,7 @@ use clarity::types::chainstate::{
     BlockHeaderHash, ConsensusHash, StacksPrivateKey, StacksPublicKey,
 };
 use clarity::types::PrivateKey;
-use clarity::util::hash::Sha256Sum;
+use clarity::util::hash::{to_hex, Sha256Sum};
 use clarity::util::retry::BoundReader;
 use clarity::util::secp256k1::MessageSignature;
 use clarity::vm::types::serialization::SerializationError;
@@ -302,13 +302,15 @@ impl StacksMessageCodec for PeerInfo {
         let mut bytes = vec![0u8; len_byte as usize];
         fd.read_exact(&mut bytes).map_err(CodecError::ReadError)?;
         // must encode a valid string
-        let server_version = String::from_utf8(bytes).map_err(|_e| {
-            CodecError::DeserializeError(
-                "Failed to parse server version name: could not contruct from utf8".to_string(),
-            )
+        eprintln!("burn_block_height = {burn_block_height} stacks_tip = {stacks_tip} stacks_tip_height = {stacks_tip_height} len = {len_byte}, bytes = {}", to_hex(&bytes));
+        let server_version = String::from_utf8(bytes).map_err(|e| {
+            CodecError::DeserializeError(format!(
+                "Failed to parse server version name: could not contruct from utf8: {e}"
+            ))
         })?;
         let pox_consensus = read_next::<ConsensusHash, _>(fd)?;
         let network_id = read_next(fd)?;
+        eprintln!("net_id = {network_id}");
         Ok(Self {
             burn_block_height,
             stacks_tip_consensus_hash,
@@ -484,7 +486,8 @@ impl StacksMessageCodec for MockSignature {
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
-        let signature = read_next::<MessageSignature, _>(fd)?;
+        eprintln!("Deserializing mock signature");
+        let signature = MessageSignature::consensus_deserialize(fd)?;
         let mock_proposal = MockProposal::consensus_deserialize(fd)?;
         let metadata = SignerMessageMetadata::consensus_deserialize(fd)?;
         Ok(Self {
@@ -513,6 +516,7 @@ impl StacksMessageCodec for MockBlock {
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
         let mock_proposal = MockProposal::consensus_deserialize(fd)?;
+        eprintln!("Deserializing mock signatures...");
         let mock_signatures = read_next::<Vec<MockSignature>, _>(fd)?;
         Ok(Self {
             mock_proposal,
@@ -712,10 +716,12 @@ impl StacksMessageCodec for SignerMessageMetadata {
                         &e
                     ))
                 })?;
+                eprintln!("server_version = {server_version}");
                 Ok(Self { server_version })
             }
-            Err(_) => {
+            Err(e) => {
                 // For backwards compatibility, return empty metadata
+                eprintln!("server_version_err = {e:?}");
                 Ok(Self::empty())
             }
         }

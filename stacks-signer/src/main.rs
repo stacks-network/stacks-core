@@ -30,8 +30,11 @@ use std::io::{self, Write};
 
 use blockstack_lib::util_lib::signed_structured_data::pox4::make_pox_4_signer_key_signature;
 use clap::Parser;
+use clarity::codec::StacksMessageCodec;
 use clarity::types::chainstate::StacksPublicKey;
+use clarity::util::hash::hex_bytes;
 use clarity::util::sleep_ms;
+use libsigner::v0::messages::SignerMessage;
 use libsigner::{SignerSession, VERSION_STRING};
 use libstackerdb::StackerDBChunkData;
 use slog::{slog_debug, slog_error};
@@ -240,6 +243,11 @@ fn main() {
         }
         Command::MonitorSigners(args) => {
             handle_monitor_signers(args);
+        }
+        Command::DecodeChunk(args) => {
+            let bytes = hex_bytes(&args.chunk_hex).unwrap();
+            let msg = SignerMessage::consensus_deserialize(&mut bytes.as_slice()).unwrap();
+            println!("{}", serde_json::json!(msg));
         }
     }
 }
