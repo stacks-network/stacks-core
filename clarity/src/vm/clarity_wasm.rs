@@ -7737,7 +7737,10 @@ mod error_mapping {
     use stacks_common::types::StacksEpochId;
     use wasmtime::{AsContextMut, Instance, Trap};
 
-    use super::{read_from_wasm_indirect, read_identifier_from_wasm, signature_from_string};
+    use super::{
+        read_bytes_from_wasm, read_from_wasm_indirect, read_identifier_from_wasm,
+        signature_from_string,
+    };
     use crate::vm::errors::{CheckErrors, Error, RuntimeErrorType, ShortReturnType, WasmError};
     use crate::vm::types::{OptionalData, ResponseData};
     use crate::vm::{ClarityVersion, Value};
@@ -7997,11 +8000,9 @@ mod error_mapping {
                     },
                 )))
             }
-            ErrorMap::ShortReturnExpectedValueOptional => {
-                Error::ShortReturn(ShortReturnType::ExpectedValue(Value::Optional(
-                    clarity::vm::types::OptionalData { data: None },
-                )))
-            }
+            ErrorMap::ShortReturnExpectedValueOptional => Error::ShortReturn(
+                ShortReturnType::ExpectedValue(Value::Optional(OptionalData { data: None })),
+            ),
             ErrorMap::ShortReturnExpectedValue => {
                 let clarity_val =
                     short_return_value(&instance, &mut store, epoch_id, clarity_version);
