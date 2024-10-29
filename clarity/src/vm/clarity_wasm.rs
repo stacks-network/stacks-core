@@ -3258,7 +3258,7 @@ fn link_stx_burn_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error
              amount_hi: i64,
              principal_offset: i32,
              principal_length: i32| {
-                let amount = (amount_hi as u128) << 64 | (amount_lo as u128);
+                let amount = (amount_hi as u128) << 64 | ((amount_lo as u64) as u128);
 
                 // Get the memory from the caller
                 let memory = caller
@@ -3358,7 +3358,7 @@ fn link_stx_transfer_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), E
              recipient_length: i32,
              memo_offset: i32,
              memo_length: i32| {
-                let amount = (amount_hi as u128) << 64 | (amount_lo as u128);
+                let amount = (amount_hi as u128) << 64 | ((amount_lo as u64) as u128);
 
                 // Get the memory from the caller
                 let memory = caller
@@ -3624,7 +3624,7 @@ fn link_ft_burn_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error>
                 let token_name = ClarityName::try_from(name.clone())?;
 
                 // Compute the amount
-                let amount = (amount_hi as u128) << 64 | (amount_lo as u128);
+                let amount = (amount_hi as u128) << 64 | ((amount_lo as u64) as u128);
 
                 // Read the sender principal from the Wasm memory
                 let value = read_from_wasm(
@@ -3754,7 +3754,7 @@ fn link_ft_mint_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error>
                 let token_name = ClarityName::try_from(name.clone())?;
 
                 // Compute the amount
-                let amount = (amount_hi as u128) << 64 | (amount_lo as u128);
+                let amount = (amount_hi as u128) << 64 | ((amount_lo as u64) as u128);
 
                 // Read the sender principal from the Wasm memory
                 let value = read_from_wasm(
@@ -3804,7 +3804,9 @@ fn link_ft_mint_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error>
 
                 // This `expect` is safe because the `checked_increase_token_supply` call above
                 // would have failed if the addition would have overflowed.
-                let final_to_bal = to_bal.checked_add(amount).expect("FT overflow");
+                let final_to_bal = to_bal
+                    .checked_add(amount)
+                    .ok_or(Error::Runtime(RuntimeErrorType::ArithmeticOverflow, None))?;
 
                 caller
                     .data_mut()
@@ -3882,7 +3884,7 @@ fn link_ft_transfer_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Er
                 let token_name = ClarityName::try_from(name.clone())?;
 
                 // Compute the amount
-                let amount = (amount_hi as u128) << 64 | (amount_lo as u128);
+                let amount = (amount_hi as u128) << 64 | ((amount_lo as u64) as u128);
 
                 // Read the sender principal from the Wasm memory
                 let value = read_from_wasm(
@@ -4034,8 +4036,8 @@ fn link_nft_get_owner_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
             |mut caller: Caller<'_, ClarityWasmContext>,
              name_offset: i32,
              name_length: i32,
-             asset_offset: i32,
-             asset_length: i32,
+             mut asset_offset: i32,
+             mut asset_length: i32,
              return_offset: i32,
              _return_length: i32| {
                 // Get the memory from the caller
@@ -4064,6 +4066,10 @@ fn link_nft_get_owner_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
                 let expected_asset_type = &nft_metadata.key_type;
 
                 // Read in the NFT identifier from the Wasm memory
+                if is_in_memory_type(expected_asset_type) {
+                    (asset_offset, asset_length) =
+                        read_indirect_offset_and_length(memory, &mut caller, asset_offset)?;
+                }
                 let asset = read_from_wasm(
                     memory,
                     &mut caller,
@@ -4130,8 +4136,8 @@ fn link_nft_burn_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error
             |mut caller: Caller<'_, ClarityWasmContext>,
              name_offset: i32,
              name_length: i32,
-             asset_offset: i32,
-             asset_length: i32,
+             mut asset_offset: i32,
+             mut asset_length: i32,
              sender_offset: i32,
              sender_length: i32| {
                 // Get the memory from the caller
@@ -4161,6 +4167,10 @@ fn link_nft_burn_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error
                 let expected_asset_type = &nft_metadata.key_type;
 
                 // Read in the NFT identifier from the Wasm memory
+                if is_in_memory_type(expected_asset_type) {
+                    (asset_offset, asset_length) =
+                        read_indirect_offset_and_length(memory, &mut caller, asset_offset)?;
+                }
                 let asset = read_from_wasm(
                     memory,
                     &mut caller,
@@ -4265,8 +4275,8 @@ fn link_nft_mint_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error
             |mut caller: Caller<'_, ClarityWasmContext>,
              name_offset: i32,
              name_length: i32,
-             asset_offset: i32,
-             asset_length: i32,
+             mut asset_offset: i32,
+             mut asset_length: i32,
              recipient_offset: i32,
              recipient_length: i32| {
                 // Get the memory from the caller
@@ -4296,6 +4306,10 @@ fn link_nft_mint_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error
                 let expected_asset_type = &nft_metadata.key_type;
 
                 // Read in the NFT identifier from the Wasm memory
+                if is_in_memory_type(expected_asset_type) {
+                    (asset_offset, asset_length) =
+                        read_indirect_offset_and_length(memory, &mut caller, asset_offset)?;
+                }
                 let asset = read_from_wasm(
                     memory,
                     &mut caller,
@@ -4389,8 +4403,8 @@ fn link_nft_transfer_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), E
             |mut caller: Caller<'_, ClarityWasmContext>,
              name_offset: i32,
              name_length: i32,
-             asset_offset: i32,
-             asset_length: i32,
+             mut asset_offset: i32,
+             mut asset_length: i32,
              sender_offset: i32,
              sender_length: i32,
              recipient_offset: i32,
@@ -4422,6 +4436,10 @@ fn link_nft_transfer_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), E
                 let expected_asset_type = &nft_metadata.key_type;
 
                 // Read in the NFT identifier from the Wasm memory
+                if is_in_memory_type(expected_asset_type) {
+                    (asset_offset, asset_length) =
+                        read_indirect_offset_and_length(memory, &mut caller, asset_offset)?;
+                }
                 let asset = read_from_wasm(
                     memory,
                     &mut caller,
@@ -5849,11 +5867,38 @@ fn link_secp256k1_recover_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<
                     .and_then(|export| export.into_memory())
                     .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
 
+                let ret_ty = TypeSignature::new_response(BUFF_33.clone(), TypeSignature::UIntType)?;
+                let repr_size = get_type_size(&ret_ty);
+
                 // Read the message bytes from the memory
                 let msg_bytes = read_bytes_from_wasm(memory, &mut caller, msg_offset, msg_length)?;
+                // To match the interpreter behavior, if the message is the
+                // wrong length, throw a runtime type error.
+                if msg_bytes.len() != 32 {
+                    return Err(CheckErrors::TypeValueError(
+                        BUFF_32.clone(),
+                        Value::buff_from(msg_bytes)?,
+                    )
+                    .into());
+                }
 
                 // Read the signature bytes from the memory
                 let sig_bytes = read_bytes_from_wasm(memory, &mut caller, sig_offset, sig_length)?;
+                // To match the interpreter behavior, if the signature is the
+                // wrong length, return a Clarity error.
+                if sig_bytes.len() != 65 || sig_bytes[64] > 3 {
+                    let result = Value::err_uint(2);
+                    write_to_wasm(
+                        caller,
+                        memory,
+                        &ret_ty,
+                        return_offset,
+                        return_offset + repr_size,
+                        &result,
+                        true,
+                    )?;
+                    return Ok(());
+                }
 
                 let result = match secp256k1_recover(&msg_bytes, &sig_bytes) {
                     Ok(pubkey) => Value::okay(Value::buff_from(pubkey.to_vec()).unwrap()).unwrap(),
@@ -5861,9 +5906,6 @@ fn link_secp256k1_recover_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<
                 };
 
                 // Write the result to the return buffer
-                let ret_ty =
-                    TypeSignature::new_response(BUFF_33.clone(), TypeSignature::UIntType).unwrap();
-                let repr_size = get_type_size(&ret_ty);
                 write_to_wasm(
                     caller,
                     memory,
@@ -5910,12 +5952,38 @@ fn link_secp256k1_verify_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(
 
                 // Read the message bytes from the memory
                 let msg_bytes = read_bytes_from_wasm(memory, &mut caller, msg_offset, msg_length)?;
+                // To match the interpreter behavior, if the message is the
+                // wrong length, throw a runtime type error.
+                if msg_bytes.len() != 32 {
+                    return Err(CheckErrors::TypeValueError(
+                        BUFF_32.clone(),
+                        Value::buff_from(msg_bytes)?,
+                    )
+                    .into());
+                }
 
                 // Read the signature bytes from the memory
                 let sig_bytes = read_bytes_from_wasm(memory, &mut caller, sig_offset, sig_length)?;
+                // To match the interpreter behavior, if the signature is the
+                // wrong length, return a Clarity error.
+                if sig_bytes.len() < 64
+                    || sig_bytes.len() > 65
+                    || sig_bytes.len() == 65 && sig_bytes[64] > 3
+                {
+                    return Ok(0i32);
+                }
 
                 // Read the public-key bytes from the memory
                 let pk_bytes = read_bytes_from_wasm(memory, &mut caller, pk_offset, pk_length)?;
+                // To match the interpreter behavior, if the public key is the
+                // wrong length, throw a runtime type error.
+                if pk_bytes.len() != 33 {
+                    return Err(CheckErrors::TypeValueError(
+                        BUFF_33.clone(),
+                        Value::buff_from(pk_bytes)?,
+                    )
+                    .into());
+                }
 
                 Ok(secp256k1_verify(&msg_bytes, &sig_bytes, &pk_bytes).map_or(0i32, |_| 1i32))
             },
@@ -7669,7 +7737,10 @@ mod error_mapping {
     use stacks_common::types::StacksEpochId;
     use wasmtime::{AsContextMut, Instance, Trap};
 
-    use super::{read_from_wasm_indirect, read_identifier_from_wasm, signature_from_string};
+    use super::{
+        read_bytes_from_wasm, read_from_wasm_indirect, read_identifier_from_wasm,
+        signature_from_string,
+    };
     use crate::vm::errors::{CheckErrors, Error, RuntimeErrorType, ShortReturnType, WasmError};
     use crate::vm::types::{OptionalData, ResponseData};
     use crate::vm::{ClarityVersion, Value};
@@ -7735,6 +7806,15 @@ mod error_mapping {
         /// usually triggered by `(unwrap!...)` and `(unwrap-err!...)`.
         ShortReturnExpectedValue = 12,
 
+        /// Indicates an attempt to use a function with the wrong amount of arguments
+        ArgumentCountMismatch = 13,
+
+        /// Indicates an attempt to use a function with too few arguments
+        ArgumentCountAtLeast = 14,
+
+        /// Indicates an attempt to use a function with too many arguments
+        ArgumentCountAtMost = 15,
+
         /// A catch-all for errors that are not mapped to specific error codes.
         /// This might be used for unexpected or unclassified errors.
         NotMapped = 99,
@@ -7757,6 +7837,9 @@ mod error_mapping {
                 10 => ErrorMap::ShortReturnExpectedValueResponse,
                 11 => ErrorMap::ShortReturnExpectedValueOptional,
                 12 => ErrorMap::ShortReturnExpectedValue,
+                13 => ErrorMap::ArgumentCountMismatch,
+                14 => ErrorMap::ArgumentCountAtLeast,
+                15 => ErrorMap::ArgumentCountAtMost,
                 _ => ErrorMap::NotMapped,
             }
         }
@@ -7925,6 +8008,18 @@ mod error_mapping {
                     short_return_value(&instance, &mut store, epoch_id, clarity_version);
                 Error::ShortReturn(ShortReturnType::ExpectedValue(clarity_val))
             }
+            ErrorMap::ArgumentCountMismatch => {
+                let (expected, got) = get_runtime_error_arg_lengths(&instance, &mut store);
+                Error::Unchecked(CheckErrors::IncorrectArgumentCount(expected, got))
+            }
+            ErrorMap::ArgumentCountAtLeast => {
+                let (expected, got) = get_runtime_error_arg_lengths(&instance, &mut store);
+                Error::Unchecked(CheckErrors::RequiresAtLeastArguments(expected, got))
+            }
+            ErrorMap::ArgumentCountAtMost => {
+                let (expected, got) = get_runtime_error_arg_lengths(&instance, &mut store);
+                Error::Unchecked(CheckErrors::RequiresAtMostArguments(expected, got))
+            }
             _ => panic!("Runtime error code {} not supported", runtime_error_code),
         }
     }
@@ -7944,6 +8039,28 @@ mod error_mapping {
             .get_global(&mut *store, name)
             .and_then(|glob| glob.get(store).i32())
             .unwrap_or_else(|| panic!("Could not find ${} global with i32 value", name))
+    }
+
+    /// Retrieves the expected and actual argument counts from a byte-encoded string.
+    ///
+    /// This function interprets a string as a sequence of bytes, where the first 4 bytes
+    /// represent the expected number of arguments, and the bytes at positions 16 to 19
+    /// represent the actual number of arguments received. It converts these byte sequences
+    /// into `usize` values and returns them as a tuple.
+    ///
+    /// # Returns
+    ///
+    /// A tuple `(expected, got)` where:
+    /// - `expected` is the number of arguments expected.
+    /// - `got` is the number of arguments actually received.
+    fn extract_expected_and_got(bytes: &[u8]) -> (usize, usize) {
+        // Assuming the first 4 bytes represent the expected value
+        let expected = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]) as usize;
+
+        // Assuming the next 4 bytes represent the got value
+        let got = u32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]) as usize;
+
+        (expected, got)
     }
 
     /// Retrieves and deserializes a Clarity value from WebAssembly memory in the context of a short return.
@@ -7978,5 +8095,34 @@ mod error_mapping {
 
         read_from_wasm_indirect(memory, store, &value_ty, val_offset, *epoch_id)
             .unwrap_or_else(|e| panic!("Could not read thrown value from memory: {}", e))
+    }
+
+    /// Retrieves the argument lengths from the runtime error global variables.
+    ///
+    /// This function reads the global variables `runtime-error-arg-offset` and `runtime-error-arg-len`
+    /// from the WebAssembly instance and constructs a string representing the argument lengths.
+    ///
+    /// # Returns
+    ///
+    /// A string representing the argument lengths.
+    fn get_runtime_error_arg_lengths(
+        instance: &Instance,
+        store: &mut impl AsContextMut,
+    ) -> (usize, usize) {
+        let runtime_error_arg_offset = get_global_i32(instance, store, "runtime-error-arg-offset");
+        let runtime_error_arg_len = get_global_i32(instance, store, "runtime-error-arg-len");
+
+        let memory = instance
+            .get_memory(&mut *store, "memory")
+            .unwrap_or_else(|| panic!("Could not find wasm instance memory"));
+        let arg_lengths = read_bytes_from_wasm(
+            memory,
+            store,
+            runtime_error_arg_offset,
+            runtime_error_arg_len,
+        )
+        .unwrap_or_else(|e| panic!("Could not recover arg_lengths: {e}"));
+
+        extract_expected_and_got(&arg_lengths)
     }
 }
