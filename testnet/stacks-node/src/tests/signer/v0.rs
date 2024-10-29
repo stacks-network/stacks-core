@@ -4246,6 +4246,8 @@ fn locally_accepted_blocks_overriden_by_global_rejection() {
         .unwrap()
         .replace(rejecting_signers.clone());
     test_observer::clear();
+    // Make a new stacks transaction to create a different block signature, but make sure to propose it
+    // AFTER the signers are unfrozen so they don't inadvertently prevent the new block being accepted
     let transfer_tx = make_stacks_transfer(
         &sender_sk,
         sender_nonce,
