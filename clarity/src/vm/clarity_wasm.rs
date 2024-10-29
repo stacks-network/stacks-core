@@ -7960,7 +7960,8 @@ mod error_mapping {
                 Error::Runtime(RuntimeErrorType::UnwrapFailure, Some(Vec::new()))
             }
             ErrorMap::ShortReturnAssertionFailure => {
-                let clarity_val = short_return_value(&instance, &mut store, epoch_id, clarity_version);
+                let clarity_val =
+                    short_return_value(&instance, &mut store, epoch_id, clarity_version);
                 Error::ShortReturn(ShortReturnType::AssertionFailed(clarity_val))
             }
             ErrorMap::ArithmeticPowError => Error::Runtime(
@@ -7987,7 +7988,8 @@ mod error_mapping {
                 Error::Unchecked(CheckErrors::NameAlreadyUsed(arg_name))
             }
             ErrorMap::ShortReturnExpectedValueResponse => {
-                let clarity_val = short_return_value(&instance, &mut store, epoch_id, clarity_version);
+                let clarity_val =
+                    short_return_value(&instance, &mut store, epoch_id, clarity_version);
                 Error::ShortReturn(ShortReturnType::ExpectedValue(Value::Response(
                     ResponseData {
                         committed: false,
@@ -8001,7 +8003,8 @@ mod error_mapping {
                 )))
             }
             ErrorMap::ShortReturnExpectedValue => {
-                let clarity_val = short_return_value(&instance, &mut store, epoch_id, clarity_version);
+                let clarity_val =
+                    short_return_value(&instance, &mut store, epoch_id, clarity_version);
                 Error::ShortReturn(ShortReturnType::ExpectedValue(clarity_val))
             }
             ErrorMap::ArgumentCountMismatch => {
