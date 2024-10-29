@@ -520,9 +520,8 @@ impl Signer {
                 {
                     debug!("{self}: Received block validation for a block that is already marked as {}. Ignoring...", block_info.state);
                     return None;
-                } else {
-                    block_info
                 }
+                block_info
             }
             Ok(None) => {
                 // We have not seen this block before. Why are we getting a response for it?
@@ -569,9 +568,8 @@ impl Signer {
                 {
                     debug!("{self}: Received block validation for a block that is already marked as {}. Ignoring...", block_info.state);
                     return None;
-                } else {
-                    block_info
                 }
+                block_info
             }
             Ok(None) => {
                 // We have not seen this block before. Why are we getting a response for it?
