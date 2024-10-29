@@ -78,7 +78,11 @@ const BUILD_TYPE: &'static str = "debug";
 #[cfg(not(debug_assertions))]
 const BUILD_TYPE: &'static str = "release";
 
-pub fn version_string(pkg_name: &str, pkg_version: &str) -> String {
+/// The version string for the stackslib
+pub const STACKS_VERSION: &str = "3.0.0.0.0";
+
+pub fn version_string(pkg_name: &str, pkg_version: Option<&str>) -> String {
+    let pkg_version = pkg_version.unwrap_or(STACKS_VERSION);
     let git_branch = GIT_BRANCH
         .map(|x| format!("{}", x))
         .unwrap_or("".to_string());
