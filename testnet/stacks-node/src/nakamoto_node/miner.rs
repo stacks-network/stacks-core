@@ -283,6 +283,7 @@ impl BlockMinerThread {
         }
         let mut stackerdbs = StackerDBs::connect(&self.config.get_stacker_db_file_path(), true)
             .map_err(|e| NakamotoNodeError::MiningFailure(ChainstateError::NetError(e)))?;
+        let mut last_block_rejected = false;
 
         // now, actually run this tenure
         loop {
@@ -386,15 +387,26 @@ impl BlockMinerThread {
                             return Err(e);
                         }
                         _ => {
-                            error!("Error while gathering signatures: {e:?}. Will try mining again.";
+                            // Sleep for a bit to allow signers to catch up
+                            let pause_ms = if last_block_rejected {
+                                self.config.miner.subsequent_rejection_pause_ms
+                            } else {
+                                self.config.miner.first_rejection_pause_ms
+                            };
+                            thread::sleep(Duration::from_millis(pause_ms));
+                            last_block_rejected = true;
+
+                            error!("Error while gathering signatures: {e:?}. Will try mining again in {pause_ms}.";
                                 "signer_sighash" => %new_block.header.signer_signature_hash(),
                                 "block_height" => new_block.header.chain_length,
                                 "consensus_hash" => %new_block.header.consensus_hash,
                             );
+
                             continue;
                         }
                     },
                 };
+                last_block_rejected = false;
 
                 new_block.header.signer_signature = signer_signature;
                 if let Err(e) = self.broadcast(new_block.clone(), reward_set, &stackerdbs) {
