@@ -283,6 +283,7 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
             mainnet: self.config.network.is_mainnet(),
             db_path: self.config.db_path.clone(),
             block_proposal_timeout: self.config.block_proposal_timeout,
+            block_proposal_validation_timeout: self.config.block_proposal_validation_timeout,
         }))
     }
 

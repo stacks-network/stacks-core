@@ -119,6 +119,8 @@ pub struct ProposalEvalConfig {
     pub first_proposal_burn_block_timing: Duration,
     /// Time between processing a sortition and proposing a block before the block is considered invalid
     pub block_proposal_timeout: Duration,
+    /// How long to wait for a block proposal validation response
+    pub block_proposal_validation_timeout: Duration,
 }
 
 impl From<&SignerConfig> for ProposalEvalConfig {
@@ -126,6 +128,7 @@ impl From<&SignerConfig> for ProposalEvalConfig {
         Self {
             first_proposal_burn_block_timing: value.first_proposal_burn_block_timing,
             block_proposal_timeout: value.block_proposal_timeout,
+            block_proposal_validation_timeout: value.block_proposal_validation_timeout,
         }
     }
 }

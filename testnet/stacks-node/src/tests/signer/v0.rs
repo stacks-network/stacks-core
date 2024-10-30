@@ -456,6 +456,7 @@ fn block_proposal_rejection() {
     let proposal_conf = ProposalEvalConfig {
         first_proposal_burn_block_timing: Duration::from_secs(0),
         block_proposal_timeout: Duration::from_secs(100),
+        block_proposal_validation_timeout: Duration::from_secs(100),
     };
     let mut block = NakamotoBlock {
         header: NakamotoBlockHeader::empty(),
