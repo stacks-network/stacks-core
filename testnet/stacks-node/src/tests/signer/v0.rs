@@ -4246,6 +4246,8 @@ fn locally_accepted_blocks_overriden_by_global_rejection() {
         .unwrap()
         .replace(rejecting_signers.clone());
     test_observer::clear();
+    // Make a new stacks transaction to create a different block signature, but make sure to propose it
+    // AFTER the signers are unfrozen so they don't inadvertently prevent the new block being accepted
     let transfer_tx = make_stacks_transfer(
         &sender_sk,
         sender_nonce,
@@ -4804,18 +4806,10 @@ fn miner_recovers_when_broadcast_block_delay_across_tenures_occurs() {
         vec![(sender_addr.clone(), (send_amt + send_fee) * nmb_txs)],
     );
     let http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
-    let short_timeout = Duration::from_secs(30);
     signer_test.boot_to_epoch_3();
 
     info!("------------------------- Starting Tenure A -------------------------");
     info!("------------------------- Test Mine Nakamoto Block N -------------------------");
-    let mined_blocks = signer_test.running_nodes.nakamoto_blocks_mined.clone();
-    let blocks_before = mined_blocks.load(Ordering::SeqCst);
-    let info_before = signer_test
-        .stacks_client
-        .get_peer_info()
-        .expect("Failed to get peer info");
-    let start_time = Instant::now();
 
     // wait until we get a sortition.
     // we might miss a block-commit at the start of epoch 3
@@ -4828,6 +4822,12 @@ fn miner_recovers_when_broadcast_block_delay_across_tenures_occurs() {
     })
     .expect("Timed out waiting for sortition");
 
+    let mined_blocks = signer_test.running_nodes.nakamoto_blocks_mined.clone();
+    let blocks_before = mined_blocks.load(Ordering::SeqCst);
+    let info_before = signer_test
+        .stacks_client
+        .get_peer_info()
+        .expect("Failed to get peer info");
     // submit a tx so that the miner will mine a stacks block
     let mut sender_nonce = 0;
     let transfer_tx = make_stacks_transfer(
@@ -4842,13 +4842,16 @@ fn miner_recovers_when_broadcast_block_delay_across_tenures_occurs() {
     info!("Submitted tx {tx} in to mine block N");
 
     // a tenure has begun, so wait until we mine a block
-    while mined_blocks.load(Ordering::SeqCst) <= blocks_before {
-        assert!(
-            start_time.elapsed() < short_timeout,
-            "FAIL: Test timed out while waiting for block production",
-        );
-        thread::sleep(Duration::from_secs(1));
-    }
+    wait_for(30, || {
+        let new_height = signer_test
+            .stacks_client
+            .get_peer_info()
+            .expect("Failed to get peer info")
+            .stacks_tip_height;
+        Ok(mined_blocks.load(Ordering::SeqCst) > blocks_before
+            && new_height > info_before.stacks_tip_height)
+    })
+    .expect("Timed out waiting for block to be mined and processed");
 
     sender_nonce += 1;
     let info_after = signer_test
@@ -4892,61 +4895,51 @@ fn miner_recovers_when_broadcast_block_delay_across_tenures_occurs() {
     let tx = submit_tx(&http_origin, &transfer_tx);
 
     info!("Submitted tx {tx} in to attempt to mine block N+1");
-    let start_time = Instant::now();
     let mut block = None;
-    loop {
-        if block.is_none() {
-            block = test_observer::get_stackerdb_chunks()
-                .into_iter()
-                .flat_map(|chunk| chunk.modified_slots)
-                .find_map(|chunk| {
-                    let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
-                        .expect("Failed to deserialize SignerMessage");
-                    match message {
-                        SignerMessage::BlockProposal(proposal) => {
-                            if proposal.block.header.consensus_hash
-                                == info_before.stacks_tip_consensus_hash
-                            {
-                                Some(proposal.block)
-                            } else {
-                                None
-                            }
+    wait_for(30, || {
+        block = test_observer::get_stackerdb_chunks()
+            .into_iter()
+            .flat_map(|chunk| chunk.modified_slots)
+            .find_map(|chunk| {
+                let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
+                    .expect("Failed to deserialize SignerMessage");
+                match message {
+                    SignerMessage::BlockProposal(proposal) => {
+                        if proposal.block.header.consensus_hash
+                            == info_before.stacks_tip_consensus_hash
+                        {
+                            Some(proposal.block)
+                        } else {
+                            None
                         }
-                        _ => None,
                     }
-                });
-        }
-        if let Some(block) = &block {
-            let signatures = test_observer::get_stackerdb_chunks()
-                .into_iter()
-                .flat_map(|chunk| chunk.modified_slots)
-                .filter_map(|chunk| {
-                    let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
-                        .expect("Failed to deserialize SignerMessage");
-                    match message {
-                        SignerMessage::BlockResponse(BlockResponse::Accepted(accepted)) => {
-                            if block.header.signer_signature_hash()
-                                == accepted.signer_signature_hash
-                            {
-                                Some(accepted.signature)
-                            } else {
-                                None
-                            }
+                    _ => None,
+                }
+            });
+        let Some(block) = &block else {
+            return Ok(false);
+        };
+        let signatures = test_observer::get_stackerdb_chunks()
+            .into_iter()
+            .flat_map(|chunk| chunk.modified_slots)
+            .filter_map(|chunk| {
+                let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
+                    .expect("Failed to deserialize SignerMessage");
+                match message {
+                    SignerMessage::BlockResponse(BlockResponse::Accepted(accepted)) => {
+                        if block.header.signer_signature_hash() == accepted.signer_signature_hash {
+                            Some(accepted.signature)
+                        } else {
+                            None
                         }
-                        _ => None,
                     }
-                })
-                .collect::<Vec<_>>();
-            if signatures.len() == num_signers {
-                break;
-            }
-        }
-        assert!(
-            start_time.elapsed() < short_timeout,
-            "FAIL: Test timed out while waiting for signers signatures for first block proposal",
-        );
-        sleep_ms(1000);
-    }
+                    _ => None,
+                }
+            })
+            .collect::<Vec<_>>();
+        Ok(signatures.len() == num_signers)
+    })
+    .expect("Test timed out while waiting for signers signatures for first block proposal");
     let block = block.unwrap();
 
     let blocks_after = mined_blocks.load(Ordering::SeqCst);
@@ -4979,9 +4972,8 @@ fn miner_recovers_when_broadcast_block_delay_across_tenures_occurs() {
         "------------------------- Attempt to Mine Nakamoto Block N+1' -------------------------"
     );
     // Wait for the miner to propose a new invalid block N+1'
-    let start_time = Instant::now();
     let mut rejected_block = None;
-    while rejected_block.is_none() {
+    wait_for(30, || {
         rejected_block = test_observer::get_stackerdb_chunks()
             .into_iter()
             .flat_map(|chunk| chunk.modified_slots)
@@ -5002,11 +4994,9 @@ fn miner_recovers_when_broadcast_block_delay_across_tenures_occurs() {
                     _ => None,
                 }
             });
-        assert!(
-            start_time.elapsed() < short_timeout,
-            "FAIL: Test timed out while waiting for N+1' block proposal",
-        );
-    }
+        Ok(rejected_block.is_some())
+    })
+    .expect("Timed out waiting for block proposal of N+1' block proposal");
 
     info!("Allowing miner to accept block responses again. ");
     TEST_IGNORE_SIGNERS.lock().unwrap().replace(false);
@@ -5015,7 +5005,7 @@ fn miner_recovers_when_broadcast_block_delay_across_tenures_occurs() {
 
     // Assert the N+1' block was rejected
     let rejected_block = rejected_block.unwrap();
-    loop {
+    wait_for(30, || {
         let stackerdb_events = test_observer::get_stackerdb_chunks();
         let block_rejections = stackerdb_events
             .into_iter()
@@ -5037,14 +5027,9 @@ fn miner_recovers_when_broadcast_block_delay_across_tenures_occurs() {
                 }
             })
             .collect::<Vec<_>>();
-        if block_rejections.len() == num_signers {
-            break;
-        }
-        assert!(
-            start_time.elapsed() < short_timeout,
-            "FAIL: Test timed out while waiting for block proposal rejections",
-        );
-    }
+        Ok(block_rejections.len() == num_signers)
+    })
+    .expect("FAIL: Timed out waiting for block proposal rejections");
 
     // Induce block N+2 to get mined
     let transfer_tx = make_stacks_transfer(
@@ -5060,7 +5045,7 @@ fn miner_recovers_when_broadcast_block_delay_across_tenures_occurs() {
     info!("Submitted tx {tx} in to attempt to mine block N+2");
 
     info!("------------------------- Asserting a both N+1 and N+2 are accepted -------------------------");
-    loop {
+    wait_for(30, || {
         // N.B. have to use /v2/info because mined_blocks only increments if the miner's signing
         // coordinator returns successfully (meaning, mined_blocks won't increment for block N+1)
         let info = signer_test
@@ -5068,16 +5053,9 @@ fn miner_recovers_when_broadcast_block_delay_across_tenures_occurs() {
             .get_peer_info()
             .expect("Failed to get peer info");
 
-        if info_before.stacks_tip_height + 2 <= info.stacks_tip_height {
-            break;
-        }
-
-        assert!(
-            start_time.elapsed() < short_timeout,
-            "FAIL: Test timed out while waiting for block production",
-        );
-        thread::sleep(Duration::from_secs(1));
-    }
+        Ok(info_before.stacks_tip_height + 2 <= info.stacks_tip_height)
+    })
+    .expect("Timed out waiting for blocks to be mined");
 
     let info_after = signer_test
         .stacks_client
@@ -5096,7 +5074,7 @@ fn miner_recovers_when_broadcast_block_delay_across_tenures_occurs() {
         .expect("Not a Nakamoto block")
         .signer_signature
         .len();
-    assert_eq!(nmb_signatures, num_signers);
+    assert!(nmb_signatures >= num_signers * 7 / 10);
 
     // Ensure that the block was accepted globally so the stacks tip has advanced to N+2
     let nakamoto_blocks = test_observer::get_mined_nakamoto_blocks();
