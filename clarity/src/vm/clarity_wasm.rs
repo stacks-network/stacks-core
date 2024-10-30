@@ -5765,7 +5765,8 @@ fn link_exit_at_block_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
                 caller
                     .data_mut()
                     .global_context
-                    .cost_track.drop_memory(cost_constants::AT_BLOCK_MEMORY)?;
+                    .cost_track
+                    .drop_memory(cost_constants::AT_BLOCK_MEMORY)?;
 
                 Ok(())
             },
