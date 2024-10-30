@@ -339,11 +339,17 @@ impl Signer {
             };
             // Submit a proposal response to the .signers contract for miners
             debug!("{self}: Broadcasting a block response to stacks node: {block_response:?}");
-            if let Err(e) = self
+            let accepted = matches!(block_response, BlockResponse::Accepted(..));
+            match self
                 .stackerdb
                 .send_message_with_retry::<SignerMessage>(block_response.into())
             {
-                warn!("{self}: Failed to send block rejection to stacker-db: {e:?}",);
+                Ok(_) => {
+                    crate::monitoring::increment_block_responses_sent(accepted);
+                }
+                Err(e) => {
+                    warn!("{self}: Failed to send block rejection to stacker-db: {e:?}",);
+                }
             }
             return;
         }
@@ -612,12 +618,12 @@ impl Signer {
         info!(
             "{self}: Broadcasting a block response to stacks node: {response:?}";
         );
+        let accepted = matches!(response, BlockResponse::Accepted(..));
         match self
             .stackerdb
-            .send_message_with_retry::<SignerMessage>(response.clone().into())
+            .send_message_with_retry::<SignerMessage>(response.into())
         {
             Ok(_) => {
-                let accepted = matches!(response, BlockResponse::Accepted(..));
                 crate::monitoring::increment_block_responses_sent(accepted);
             }
             Err(e) => {
