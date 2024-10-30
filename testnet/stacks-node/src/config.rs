@@ -2185,9 +2185,9 @@ pub struct MinerConfig {
     /// The minimum time to wait between mining blocks in milliseconds. The value must be greater than or equal to 1000 ms because if a block is mined
     /// within the same second as its parent, it will be rejected by the signers.
     pub min_time_between_blocks_ms: u64,
-    /// Time in milliseconds to pause after receiving the first rejection, before proposing a new block.
+    /// Time in milliseconds to pause after receiving the first threshold rejection, before proposing a new block.
     pub first_rejection_pause_ms: u64,
-    /// Time in milliseconds to pause after receiving the subsequent rejections, before proposing a new block.
+    /// Time in milliseconds to pause after receiving subsequent threshold rejections, before proposing a new block.
     pub subsequent_rejection_pause_ms: u64,
 }
 
