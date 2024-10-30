@@ -348,7 +348,7 @@ impl Signer {
                     crate::monitoring::increment_block_responses_sent(accepted);
                 }
                 Err(e) => {
-                    warn!("{self}: Failed to send block rejection to stacker-db: {e:?}",);
+                    warn!("{self}: Failed to send block response to stacker-db: {e:?}",);
                 }
             }
             return;
