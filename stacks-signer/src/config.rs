@@ -35,6 +35,7 @@ use crate::client::SignerSlotID;
 
 const EVENT_TIMEOUT_MS: u64 = 5000;
 const BLOCK_PROPOSAL_TIMEOUT_MS: u64 = 600_000;
+const BLOCK_PROPOSAL_VALIDATION_TIMEOUT_MS: u64 = 120_000;
 const DEFAULT_FIRST_PROPOSAL_BURN_BLOCK_TIMING_SECS: u64 = 60;
 
 #[derive(thiserror::Error, Debug)]
@@ -158,6 +159,9 @@ pub struct GlobalConfig {
     pub block_proposal_timeout: Duration,
     /// An optional custom Chain ID
     pub chain_id: Option<u32>,
+    /// How long to wait for a response from a block proposal validation response from the node
+    /// before marking that block as invalid and rejecting it
+    pub block_proposal_validation_timeout: Duration,
 }
 
 /// Internal struct for loading up the config file
@@ -187,6 +191,9 @@ struct RawConfigFile {
     pub block_proposal_timeout_ms: Option<u64>,
     /// An optional custom Chain ID
     pub chain_id: Option<u32>,
+    /// How long to wait for a response from a block proposal validation response from the node
+    /// before marking that block as invalid and rejecting it in milliseconds.
+    pub block_proposal_validation_timeout_ms: Option<u64>,
 }
 
 impl RawConfigFile {
@@ -266,6 +273,11 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
                 .unwrap_or(BLOCK_PROPOSAL_TIMEOUT_MS),
         );
 
+        let block_proposal_validation_timeout = Duration::from_millis(
+            raw_data
+                .block_proposal_validation_timeout_ms
+                .unwrap_or(BLOCK_PROPOSAL_VALIDATION_TIMEOUT_MS),
+        );
         Ok(Self {
             node_host: raw_data.node_host,
             endpoint,
@@ -279,6 +291,7 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
             first_proposal_burn_block_timing,
             block_proposal_timeout,
             chain_id: raw_data.chain_id,
+            block_proposal_validation_timeout,
         })
     }
 }
