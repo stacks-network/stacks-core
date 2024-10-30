@@ -411,15 +411,17 @@ impl NakamotoTenureDownloaderSet {
                 "tenure_start_block" => %tenure_info.start_block_id,
                 "tenure_end_block" => %tenure_info.end_block_id,
                 "tenure_start_reward_cycle" => tenure_info.start_reward_cycle,
-                "tenure_end_reward_cycle" => tenure_info.end_reward_cycle);
+                "tenure_end_reward_cycle" => tenure_info.end_reward_cycle,
+                "tenure_burn_height" => tenure_info.tenure_id_burn_block_height);
 
             debug!(
-                "Download tenure {} (start={}, end={}) (rc {},{})",
+                "Download tenure {} (start={}, end={}) (rc {},{}) burn_height {}",
                 &ch,
                 &tenure_info.start_block_id,
                 &tenure_info.end_block_id,
                 tenure_info.start_reward_cycle,
-                tenure_info.end_reward_cycle
+                tenure_info.end_reward_cycle,
+                tenure_info.tenure_id_burn_block_height,
             );
             let tenure_download = NakamotoTenureDownloader::new(
                 ch.clone(),
