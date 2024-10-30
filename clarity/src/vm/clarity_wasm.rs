@@ -20,6 +20,7 @@ use super::database::{ClarityDatabase, DataVariableMetadata, STXBalance};
 use super::errors::RuntimeErrorType;
 use super::events::*;
 use super::functions::crypto::{pubkey_to_address_v1, pubkey_to_address_v2};
+use super::types::signatures::CallableSubtype;
 use super::types::{
     ASCIIData, AssetIdentifier, BlockInfoProperty, BuffData, BurnBlockInfoProperty, CallableData,
     CharType, FixedFunction, FunctionType, ListData, ListTypeData, OptionalData, PrincipalData,
@@ -5749,13 +5750,12 @@ fn link_exit_at_block_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
             "exit_at_block",
             |mut caller: Caller<'_, ClarityWasmContext>| {
                 // Pop back to the current block
-                let bhh = caller.data_mut().pop_at_block();
+                let bhh = caller.data_mut().pop_at_block()?;
                 caller
                     .data_mut()
                     .global_context
                     .database
-                    .set_block_hash(bhh, true)
-                    .expect("ERROR: Failed to restore prior active block after time-shifted evaluation.");
+                    .set_block_hash(bhh, true)?;
 
                 // Roll back any changes that occurred during the `at-block`
                 // expression. This is precautionary, since only read-only
