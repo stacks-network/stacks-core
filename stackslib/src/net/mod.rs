@@ -16,7 +16,6 @@
 
 #[warn(unused_imports)]
 use std::collections::HashMap;
-#[cfg(any(test, feature = "testing"))]
 use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
 use std::io::prelude::*;
@@ -1466,7 +1465,7 @@ pub const DENY_BAN_DURATION: u64 = 86400; // seconds (1 day)
 pub const DENY_MIN_BAN_DURATION: u64 = 2;
 
 /// Result of doing network work
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Debug)]
 pub struct NetworkResult {
     /// Stacks chain tip when we began this pass
     pub stacks_tip: StacksBlockId,
@@ -1561,6 +1560,539 @@ impl NetworkResult {
             rc_consensus_hash,
             stacker_db_configs,
         }
+    }
+
+    /// Get the set of all StacksBlocks represented
+    fn all_block_ids(&self) -> HashSet<StacksBlockId> {
+        let mut blocks: HashSet<_> = self
+            .blocks
+            .iter()
+            .map(|(ch, blk, _)| StacksBlockId::new(&ch, &blk.block_hash()))
+            .collect();
+
+        let pushed_blocks: HashSet<_> = self
+            .pushed_blocks
+            .iter()
+            .map(|(_, block_list)| {
+                block_list
+                    .iter()
+                    .map(|block_data| {
+                        block_data
+                            .blocks
+                            .iter()
+                            .map(|block_datum| {
+                                StacksBlockId::new(&block_datum.0, &block_datum.1.block_hash())
+                            })
+                            .collect::<HashSet<_>>()
+                    })
+                    .collect::<Vec<HashSet<_>>>()
+            })
+            .collect::<Vec<Vec<HashSet<_>>>>()
+            .into_iter()
+            .flatten()
+            .into_iter()
+            .fold(HashSet::new(), |mut acc, next| {
+                acc.extend(next.into_iter());
+                acc
+            });
+
+        let uploaded_blocks: HashSet<_> = self
+            .uploaded_blocks
+            .iter()
+            .map(|blk_data| {
+                blk_data
+                    .blocks
+                    .iter()
+                    .map(|blk| StacksBlockId::new(&blk.0, &blk.1.block_hash()))
+                    .collect::<HashSet<_>>()
+            })
+            .collect::<Vec<HashSet<_>>>()
+            .into_iter()
+            .fold(HashSet::new(), |mut acc, next| {
+                acc.extend(next.into_iter());
+                acc
+            });
+
+        blocks.extend(pushed_blocks.into_iter());
+        blocks.extend(uploaded_blocks.into_iter());
+        blocks
+    }
+
+    /// Get the set of all microblocks represented
+    fn all_microblock_hashes(&self) -> HashSet<BlockHeaderHash> {
+        let mut mblocks: HashSet<_> = self
+            .confirmed_microblocks
+            .iter()
+            .map(|(_, mblocks, _)| {
+                mblocks
+                    .iter()
+                    .map(|mblk| mblk.block_hash())
+                    .collect::<HashSet<_>>()
+            })
+            .collect::<Vec<HashSet<_>>>()
+            .into_iter()
+            .fold(HashSet::new(), |mut acc, next| {
+                acc.extend(next.into_iter());
+                acc
+            });
+
+        let pushed_microblocks: HashSet<_> = self
+            .pushed_microblocks
+            .iter()
+            .map(|(_, mblock_list)| {
+                mblock_list
+                    .iter()
+                    .map(|(_, mblock_data)| {
+                        mblock_data
+                            .microblocks
+                            .iter()
+                            .map(|mblock| mblock.block_hash())
+                            .collect::<HashSet<_>>()
+                    })
+                    .collect::<Vec<HashSet<_>>>()
+            })
+            .collect::<Vec<Vec<HashSet<_>>>>()
+            .into_iter()
+            .flatten()
+            .into_iter()
+            .fold(HashSet::new(), |mut acc, next| {
+                acc.extend(next.into_iter());
+                acc
+            });
+
+        let uploaded_microblocks: HashSet<_> = self
+            .uploaded_microblocks
+            .iter()
+            .map(|mblk_data| {
+                mblk_data
+                    .microblocks
+                    .iter()
+                    .map(|mblk| mblk.block_hash())
+                    .collect::<HashSet<_>>()
+            })
+            .collect::<Vec<HashSet<_>>>()
+            .into_iter()
+            .fold(HashSet::new(), |mut acc, next| {
+                acc.extend(next.into_iter());
+                acc
+            });
+
+        mblocks.extend(pushed_microblocks.into_iter());
+        mblocks.extend(uploaded_microblocks.into_iter());
+        mblocks
+    }
+
+    /// Get the set of all nakamoto blocks represented
+    fn all_nakamoto_block_ids(&self) -> HashSet<StacksBlockId> {
+        let mut naka_block_ids: HashSet<_> = self
+            .nakamoto_blocks
+            .iter()
+            .map(|(_, nblk)| nblk.block_id())
+            .collect();
+
+        let pushed_nakamoto_blocks: HashSet<_> = self
+            .pushed_nakamoto_blocks
+            .iter()
+            .map(|(_, naka_blocks_list)| {
+                naka_blocks_list
+                    .iter()
+                    .map(|(_, naka_blocks)| {
+                        naka_blocks
+                            .blocks
+                            .iter()
+                            .map(|nblk| nblk.block_id())
+                            .collect::<HashSet<_>>()
+                    })
+                    .collect::<Vec<HashSet<_>>>()
+            })
+            .collect::<Vec<Vec<HashSet<_>>>>()
+            .into_iter()
+            .flatten()
+            .into_iter()
+            .fold(HashSet::new(), |mut acc, next| {
+                acc.extend(next.into_iter());
+                acc
+            });
+
+        let uploaded_nakamoto_blocks: HashSet<_> = self
+            .uploaded_nakamoto_blocks
+            .iter()
+            .map(|nblk| nblk.block_id())
+            .collect();
+
+        naka_block_ids.extend(pushed_nakamoto_blocks.into_iter());
+        naka_block_ids.extend(uploaded_nakamoto_blocks.into_iter());
+        naka_block_ids
+    }
+
+    /// Get the set of all txids represented
+    fn all_txids(&self) -> HashSet<Txid> {
+        let mut txids: HashSet<_> = self
+            .uploaded_transactions
+            .iter()
+            .map(|tx| tx.txid())
+            .collect();
+        let pushed_txids: HashSet<_> = self
+            .pushed_transactions
+            .iter()
+            .map(|(_, tx_list)| {
+                tx_list
+                    .iter()
+                    .map(|(_, tx)| tx.txid())
+                    .collect::<HashSet<_>>()
+            })
+            .collect::<Vec<HashSet<_>>>()
+            .into_iter()
+            .fold(HashSet::new(), |mut acc, next| {
+                acc.extend(next.into_iter());
+                acc
+            });
+
+        let synced_txids: HashSet<_> = self
+            .synced_transactions
+            .iter()
+            .map(|tx| tx.txid())
+            .collect();
+
+        txids.extend(pushed_txids.into_iter());
+        txids.extend(synced_txids.into_iter());
+        txids
+    }
+
+    /// Get all unhandled message signatures.
+    /// This is unique per message.
+    fn all_msg_sigs(&self) -> HashSet<MessageSignature> {
+        self.unhandled_messages
+            .iter()
+            .map(|(_, msgs)| {
+                msgs.iter()
+                    .map(|msg| msg.preamble.signature.clone())
+                    .collect::<HashSet<_>>()
+            })
+            .into_iter()
+            .fold(HashSet::new(), |mut acc, next| {
+                acc.extend(next.into_iter());
+                acc
+            })
+    }
+
+    /// Merge self into `newer`, and return `newer`.
+    /// deduplicate messages when possible.
+    pub fn update(mut self, mut newer: NetworkResult) -> Self {
+        // merge unhandled messaegs, but deduplicate
+        let newer_msgs = newer.all_msg_sigs();
+        for (nk, mut msgs) in self.unhandled_messages.drain() {
+            msgs.retain(|msg| {
+                let retain = !newer_msgs.contains(&msg.preamble.signature);
+                if !retain {
+                    debug!(
+                        "Drop duplicate p2p message {} seq {}",
+                        &msg.get_message_name(),
+                        &msg.preamble.seq
+                    );
+                }
+                retain
+            });
+            if let Some(newer_msgs) = newer.unhandled_messages.get_mut(&nk) {
+                newer_msgs.append(&mut msgs);
+            } else {
+                newer.unhandled_messages.insert(nk, msgs);
+            }
+        }
+
+        let newer_blocks = newer.all_block_ids();
+        let newer_microblocks = newer.all_microblock_hashes();
+        let newer_naka_blocks = newer.all_nakamoto_block_ids();
+        let newer_txids = newer.all_txids();
+
+        // only retain blocks not found in `newer`
+        self.blocks.retain(|(ch, blk, _)| {
+            let block_id = StacksBlockId::new(&ch, &blk.block_hash());
+            let retain = !newer_blocks.contains(&block_id);
+            if !retain {
+                debug!("Drop duplicate downloaded block {}", &block_id);
+            }
+            retain
+        });
+        newer.blocks.append(&mut self.blocks);
+
+        // merge microblocks, but deduplicate
+        self.confirmed_microblocks
+            .retain_mut(|(_, ref mut mblocks, _)| {
+                mblocks.retain(|mblk| {
+                    let retain = !newer_microblocks.contains(&mblk.block_hash());
+                    if !retain {
+                        debug!(
+                            "Drop duplicate downloaded microblock {}",
+                            &mblk.block_hash()
+                        );
+                    }
+                    retain
+                });
+                mblocks.len() > 0
+            });
+        newer
+            .confirmed_microblocks
+            .append(&mut self.confirmed_microblocks);
+
+        // merge nakamoto blocks, but deduplicate
+        self.nakamoto_blocks.retain(|_, nblk| {
+            let retain = !newer_naka_blocks.contains(&nblk.block_id());
+            if !retain {
+                debug!(
+                    "Drop duplicate downloaded nakamoto block {}",
+                    &nblk.block_id()
+                );
+            }
+            retain
+        });
+        newer.nakamoto_blocks.extend(self.nakamoto_blocks.drain());
+
+        // merge pushed transactions, but deduplicate
+        for (nk, mut tx_data) in self.pushed_transactions.drain() {
+            tx_data.retain(|(_, tx)| {
+                let retain = !newer_txids.contains(&tx.txid());
+                if !retain {
+                    debug!("Drop duplicate pushed transaction {}", &tx.txid());
+                }
+                retain
+            });
+            if tx_data.len() == 0 {
+                continue;
+            }
+
+            if let Some(newer_tx_data) = newer.pushed_transactions.get_mut(&nk) {
+                newer_tx_data.append(&mut tx_data);
+            } else {
+                newer.pushed_transactions.insert(nk, tx_data);
+            }
+        }
+
+        // merge pushed blocks, but deduplicate
+        for (nk, mut block_list) in self.pushed_blocks.drain() {
+            block_list.retain_mut(|ref mut block_data| {
+                block_data.blocks.retain(|blk_datum| {
+                    let block_id = StacksBlockId::new(&blk_datum.0, &blk_datum.1.block_hash());
+                    let retain = !newer_blocks.contains(&block_id);
+                    if !retain {
+                        debug!("Drop duplicate pushed block {}", &block_id);
+                    }
+                    retain
+                });
+                block_data.blocks.len() > 0
+            });
+            if block_list.len() == 0 {
+                continue;
+            }
+
+            if let Some(newer_block_data) = newer.pushed_blocks.get_mut(&nk) {
+                newer_block_data.append(&mut block_list);
+            } else {
+                newer.pushed_blocks.insert(nk, block_list);
+            }
+        }
+
+        // merge pushed microblocks, but deduplicate
+        for (nk, mut microblock_data) in self.pushed_microblocks.drain() {
+            microblock_data.retain_mut(|(_, ref mut mblock_data)| {
+                mblock_data.microblocks.retain(|mblk| {
+                    let retain = !newer_microblocks.contains(&mblk.block_hash());
+                    if !retain {
+                        debug!("Drop duplicate pushed microblock {}", &mblk.block_hash());
+                    }
+                    retain
+                });
+                mblock_data.microblocks.len() > 0
+            });
+            if microblock_data.len() == 0 {
+                continue;
+            }
+
+            if let Some(newer_microblock_data) = newer.pushed_microblocks.get_mut(&nk) {
+                newer_microblock_data.append(&mut microblock_data);
+            } else {
+                newer.pushed_microblocks.insert(nk, microblock_data);
+            }
+        }
+
+        // merge pushed nakamoto blocks, but deduplicate
+        for (nk, mut nakamoto_block_data) in self.pushed_nakamoto_blocks.drain() {
+            nakamoto_block_data.retain_mut(|(_, ref mut naka_blocks)| {
+                naka_blocks.blocks.retain(|nblk| {
+                    let retain = !newer_naka_blocks.contains(&nblk.block_id());
+                    if !retain {
+                        debug!("Drop duplicate pushed nakamoto block {}", &nblk.block_id());
+                    }
+                    retain
+                });
+                naka_blocks.blocks.len() > 0
+            });
+            if nakamoto_block_data.len() == 0 {
+                continue;
+            }
+
+            if let Some(newer_nakamoto_data) = newer.pushed_nakamoto_blocks.get_mut(&nk) {
+                newer_nakamoto_data.append(&mut nakamoto_block_data);
+            } else {
+                newer.pushed_nakamoto_blocks.insert(nk, nakamoto_block_data);
+            }
+        }
+
+        // merge uploaded data, but deduplicate
+        self.uploaded_transactions.retain(|tx| {
+            let retain = !newer_txids.contains(&tx.txid());
+            if !retain {
+                debug!("Drop duplicate uploaded transaction {}", &tx.txid());
+            }
+            retain
+        });
+        self.uploaded_blocks.retain_mut(|ref mut blk_data| {
+            blk_data.blocks.retain(|blk| {
+                let block_id = StacksBlockId::new(&blk.0, &blk.1.block_hash());
+                let retain = !newer_blocks.contains(&block_id);
+                if !retain {
+                    debug!("Drop duplicate uploaded block {}", &block_id);
+                }
+                retain
+            });
+
+            blk_data.blocks.len() > 0
+        });
+        self.uploaded_microblocks.retain_mut(|ref mut mblock_data| {
+            mblock_data.microblocks.retain(|mblk| {
+                let retain = !newer_microblocks.contains(&mblk.block_hash());
+                if !retain {
+                    debug!("Drop duplicate uploaded microblock {}", &mblk.block_hash());
+                }
+                retain
+            });
+
+            mblock_data.microblocks.len() > 0
+        });
+        self.uploaded_nakamoto_blocks.retain(|nblk| {
+            let retain = !newer_naka_blocks.contains(&nblk.block_id());
+            if !retain {
+                debug!(
+                    "Drop duplicate uploaded nakamoto block {}",
+                    &nblk.block_id()
+                );
+            }
+            retain
+        });
+
+        newer
+            .uploaded_transactions
+            .append(&mut self.uploaded_transactions);
+        newer.uploaded_blocks.append(&mut self.uploaded_blocks);
+        newer
+            .uploaded_microblocks
+            .append(&mut self.uploaded_microblocks);
+        newer
+            .uploaded_nakamoto_blocks
+            .append(&mut self.uploaded_nakamoto_blocks);
+
+        // merge uploaded/pushed stackerdb, but drop stale versions
+        let newer_stackerdb_chunk_versions: HashMap<_, _> = newer
+            .uploaded_stackerdb_chunks
+            .iter()
+            .chain(newer.pushed_stackerdb_chunks.iter())
+            .map(|chunk| {
+                (
+                    (
+                        chunk.contract_id.clone(),
+                        chunk.rc_consensus_hash.clone(),
+                        chunk.chunk_data.slot_id,
+                    ),
+                    chunk.chunk_data.slot_version,
+                )
+            })
+            .collect();
+
+        self.uploaded_stackerdb_chunks.retain(|push_chunk| {
+            if push_chunk.rc_consensus_hash != newer.rc_consensus_hash {
+                debug!(
+                    "Drop pushed StackerDB chunk for {} due to stale view ({} != {}): {:?}",
+                    &push_chunk.contract_id,
+                    &push_chunk.rc_consensus_hash,
+                    &newer.rc_consensus_hash,
+                    &push_chunk.chunk_data
+                );
+                return false;
+            }
+            if let Some(version) = newer_stackerdb_chunk_versions.get(&(
+                push_chunk.contract_id.clone(),
+                push_chunk.rc_consensus_hash.clone(),
+                push_chunk.chunk_data.slot_id,
+            )) {
+                let retain = push_chunk.chunk_data.slot_version > *version;
+                if !retain {
+                    debug!(
+                        "Drop pushed StackerDB chunk for {} due to stale version: {:?}",
+                        &push_chunk.contract_id, &push_chunk.chunk_data
+                    );
+                }
+                retain
+            } else {
+                true
+            }
+        });
+
+        self.pushed_stackerdb_chunks.retain(|push_chunk| {
+            if push_chunk.rc_consensus_hash != newer.rc_consensus_hash {
+                debug!(
+                    "Drop uploaded StackerDB chunk for {} due to stale view ({} != {}): {:?}",
+                    &push_chunk.contract_id,
+                    &push_chunk.rc_consensus_hash,
+                    &newer.rc_consensus_hash,
+                    &push_chunk.chunk_data
+                );
+                return false;
+            }
+            if let Some(version) = newer_stackerdb_chunk_versions.get(&(
+                push_chunk.contract_id.clone(),
+                push_chunk.rc_consensus_hash.clone(),
+                push_chunk.chunk_data.slot_id,
+            )) {
+                let retain = push_chunk.chunk_data.slot_version > *version;
+                if !retain {
+                    debug!(
+                        "Drop uploaded StackerDB chunk for {} due to stale version: {:?}",
+                        &push_chunk.contract_id, &push_chunk.chunk_data
+                    );
+                }
+                retain
+            } else {
+                true
+            }
+        });
+
+        newer
+            .uploaded_stackerdb_chunks
+            .append(&mut self.uploaded_stackerdb_chunks);
+        newer
+            .pushed_stackerdb_chunks
+            .append(&mut self.pushed_stackerdb_chunks);
+
+        // dedup sync'ed transactions
+        self.synced_transactions.retain(|tx| {
+            let retain = !newer_txids.contains(&tx.txid());
+            if !retain {
+                debug!("Drop duplicate sync'ed transaction {}", &tx.txid());
+            }
+            retain
+        });
+
+        newer
+            .synced_transactions
+            .append(&mut self.synced_transactions);
+
+        // no dedup here, but do merge
+        newer
+            .stacker_db_sync_results
+            .append(&mut self.stacker_db_sync_results);
+        newer.attachments.append(&mut self.attachments);
+
+        newer
     }
 
     pub fn has_blocks(&self) -> bool {
