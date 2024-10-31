@@ -15,7 +15,7 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::mpsc::Sender;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
 use blockstack_lib::net::api::postblock_proposal::{
@@ -86,6 +86,9 @@ pub struct Signer {
     pub signer_db: SignerDb,
     /// Configuration for proposal evaluation
     pub proposal_config: ProposalEvalConfig,
+    /// How long to wait for a block proposal validation response to arrive before
+    /// marking a submitted block as invalid
+    pub block_proposal_validation_timeout: Duration,
     /// The current submitted block proposal and its submission time
     pub submitted_block_proposal: Option<(BlockProposal, Instant)>,
 }
@@ -279,6 +282,7 @@ impl From<SignerConfig> for Signer {
             signer_db,
             proposal_config,
             submitted_block_proposal: None,
+            block_proposal_validation_timeout: signer_config.block_proposal_validation_timeout,
         }
     }
 }
@@ -670,7 +674,7 @@ impl Signer {
             // Nothing to check.
             return;
         };
-        if block_submission.elapsed() < self.proposal_config.block_proposal_validation_timeout {
+        if block_submission.elapsed() < self.block_proposal_validation_timeout {
             // Not expired yet.
             return;
         }
@@ -710,7 +714,7 @@ impl Signer {
             }
         };
         warn!(
-            "{self}: Failed to receive block validation response within {} ms. Rejecting block.", self.proposal_config.block_proposal_validation_timeout.as_millis();
+            "{self}: Failed to receive block validation response within {} ms. Rejecting block.", self.block_proposal_validation_timeout.as_millis();
             "signer_sighash" => %signature_sighash,
             "block_id" => %block_proposal.block.block_id(),
         );
