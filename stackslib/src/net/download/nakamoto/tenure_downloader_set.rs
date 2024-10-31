@@ -285,7 +285,7 @@ impl NakamotoTenureDownloaderSet {
                 idled.push(naddr.clone());
                 continue;
             };
-            let Some(downloader) = downloader_opt else {
+            let Some(downloader) = downloader_opt.as_ref() else {
                 debug!("Remove peer {} for null download {}", &naddr, i);
                 idled.push(naddr.clone());
                 continue;
@@ -307,10 +307,11 @@ impl NakamotoTenureDownloaderSet {
     /// this up with a call to `clear_available_peers()`.
     pub fn clear_finished_downloaders(&mut self) {
         for downloader_opt in self.downloaders.iter_mut() {
-            let Some(downloader) = downloader_opt else {
-                continue;
-            };
-            if downloader.is_done() {
+            if downloader_opt
+                .as_ref()
+                .map(|dl| dl.is_done())
+                .unwrap_or(false)
+            {
                 *downloader_opt = None;
             }
         }
@@ -470,8 +471,13 @@ impl NakamotoTenureDownloaderSet {
                 };
 
             info!("Download tenure {}", &ch;
+                "peer" => %naddr,
                 "attempt" => attempt_count.saturating_add(1),
                 "failed" => attempt_failed_count,
+                "downloads_scheduled" => %self.num_scheduled_downloaders(),
+                "downloads_total" => %self.num_downloaders(),
+                "downloads_max_count" => count,
+                "downloads_inflight" => self.inflight(),
                 "tenure_start_block" => %tenure_info.start_block_id,
                 "tenure_end_block" => %tenure_info.end_block_id,
                 "tenure_start_reward_cycle" => tenure_info.start_reward_cycle,
