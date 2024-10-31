@@ -31,7 +31,8 @@ stacks_common = { package = "stacks-common", path = "../stacks-common", optional
 rstest = "0.17.0"
 rstest_reuse = "0.5.0"
 hashbrown = { workspace = true }
-rusqlite = { workspace = true, optional = true}
+rusqlite = { workspace = true, optional = true }
+thiserror = { workspace = true }
 
 [dependencies.serde_json]
 version = "1.0"

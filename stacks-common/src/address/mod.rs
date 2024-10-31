@@ -33,60 +33,31 @@ pub const C32_ADDRESS_VERSION_MAINNET_MULTISIG: u8 = 20; // M
 pub const C32_ADDRESS_VERSION_TESTNET_SINGLESIG: u8 = 26; // T
 pub const C32_ADDRESS_VERSION_TESTNET_MULTISIG: u8 = 21; // N
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum Error {
+    #[error("Invalid crockford 32 string")]
     InvalidCrockford32,
+    #[error("Invalid version {0}")]
     InvalidVersion(u8),
+    #[error("Empty data")]
     EmptyData,
     /// Invalid character encountered
+    #[error("invalid base58 character 0x{0:x}")]
     BadByte(u8),
     /// Checksum was not correct (expected, actual)
+    #[error("base58ck checksum 0x{1:x} does not match expected 0x{0:x}")]
     BadChecksum(u32, u32),
     /// The length (in bytes) of the object was not correct
     /// Note that if the length is excessively long the provided length may be
     /// an estimate (and the checksum step may be skipped).
+    #[error("length {0} invalid for this base58 type")]
     InvalidLength(usize),
     /// Checked data was less than 4 bytes
+    #[error("base58ck data not even long enough for a checksum")]
     TooShort(usize),
     /// Any other error
+    #[error("{0}")]
     Other(String),
-}
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            Error::InvalidCrockford32 => write!(f, "Invalid crockford 32 string"),
-            Error::InvalidVersion(ref v) => write!(f, "Invalid version {}", v),
-            Error::EmptyData => f.write_str("Empty data"),
-            Error::BadByte(b) => write!(f, "invalid base58 character 0x{:x}", b),
-            Error::BadChecksum(exp, actual) => write!(
-                f,
-                "base58ck checksum 0x{:x} does not match expected 0x{:x}",
-                actual, exp
-            ),
-            Error::InvalidLength(ell) => write!(f, "length {} invalid for this base58 type", ell),
-            Error::TooShort(_) => write!(f, "base58ck data not even long enough for a checksum"),
-            Error::Other(ref s) => f.write_str(s),
-        }
-    }
-}
-
-impl error::Error for Error {
-    fn cause(&self) -> Option<&dyn error::Error> {
-        None
-    }
-    fn description(&self) -> &'static str {
-        match *self {
-            Error::InvalidCrockford32 => "Invalid crockford 32 string",
-            Error::InvalidVersion(_) => "Invalid version",
-            Error::EmptyData => "Empty data",
-            Error::BadByte(_) => "invalid b58 character",
-            Error::BadChecksum(_, _) => "invalid b58ck checksum",
-            Error::InvalidLength(_) => "invalid length for b58 type",
-            Error::TooShort(_) => "b58ck data less than 4 bytes",
-            Error::Other(_) => "unknown b58 error",
-        }
-    }
 }
 
 /// Serialization modes for public keys to addresses.  These apply to Stacks addresses, which

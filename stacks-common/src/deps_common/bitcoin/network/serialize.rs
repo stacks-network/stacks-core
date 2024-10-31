@@ -28,13 +28,16 @@ use crate::deps_common::bitcoin::util::hash::Sha256dHash;
 use crate::util::hash::to_hex as hex_encode;
 
 /// Serialization error
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum Error {
     /// And I/O error
-    Io(io::Error),
+    #[error("{0}")]
+    Io(#[from] io::Error),
     /// Base58 encoding error
-    Base58(address::Error),
+    #[error("{0}")]
+    Base58(#[from] address::Error),
     /// Network magic was not expected
+    #[error("unexpected network magic: expected {expected}, actual {actual}")]
     UnexpectedNetworkMagic {
         /// The expected network magic
         expected: u32,
@@ -42,6 +45,7 @@ pub enum Error {
         actual: u32,
     },
     /// Tried to allocate an oversized vector
+    #[error("allocation of oversized vector requested: requested {requested}, maximum {max}")]
     OversizedVectorAllocation {
         /// The capacity requested
         requested: usize,
@@ -49,6 +53,7 @@ pub enum Error {
         max: usize,
     },
     /// Checksum was invalid
+    #[error("invalid checksum: expected {expected:?}, actual {actual:?}")]
     InvalidChecksum {
         /// The expected checksum
         expected: [u8; 4],
@@ -56,91 +61,23 @@ pub enum Error {
         actual: [u8; 4],
     },
     /// Network magic was unknown
+    #[error("unknown network magic: {0}")]
     UnknownNetworkMagic(u32),
     /// Parsing error
+    #[error("parse failed: {0}")]
     ParseFailed(&'static str),
     /// Unsupported witness version
+    #[error("unsupported witness version: {0}")]
     UnsupportedWitnessVersion(u8),
     /// Unsupported Segwit flag
+    #[error("unsupported segwit version: {0}")]
     UnsupportedSegwitFlag(u8),
     /// Unrecognized network command
+    #[error("unrecognized network command: {0}")]
     UnrecognizedNetworkCommand(String),
     /// Unexpected hex digit
+    #[error("unexpected hex digit: {0}")]
     UnexpectedHexDigit(char),
-}
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            Error::Io(ref e) => fmt::Display::fmt(e, f),
-            Error::Base58(ref e) => fmt::Display::fmt(e, f),
-            Error::UnexpectedNetworkMagic {
-                expected: ref e,
-                actual: ref a,
-            } => write!(f, "unexpected network magic: expected {}, actual {}", e, a),
-            Error::OversizedVectorAllocation {
-                requested: ref r,
-                max: ref m,
-            } => write!(
-                f,
-                "allocation of oversized vector requested: requested {}, maximum {}",
-                r, m
-            ),
-            Error::InvalidChecksum {
-                expected: ref e,
-                actual: ref a,
-            } => write!(
-                f,
-                "invalid checksum: expected {}, actual {}",
-                hex_encode(e),
-                hex_encode(a)
-            ),
-            Error::UnknownNetworkMagic(ref m) => write!(f, "unknown network magic: {}", m),
-            Error::ParseFailed(ref e) => write!(f, "parse failed: {}", e),
-            Error::UnsupportedWitnessVersion(ref wver) => {
-                write!(f, "unsupported witness version: {}", wver)
-            }
-            Error::UnsupportedSegwitFlag(ref swflag) => {
-                write!(f, "unsupported segwit version: {}", swflag)
-            }
-            Error::UnrecognizedNetworkCommand(ref nwcmd) => {
-                write!(f, "unrecognized network command: {}", nwcmd)
-            }
-            Error::UnexpectedHexDigit(ref d) => write!(f, "unexpected hex digit: {}", d),
-        }
-    }
-}
-
-impl error::Error for Error {
-    fn cause(&self) -> Option<&dyn error::Error> {
-        match *self {
-            Error::Io(ref e) => Some(e),
-            Error::Base58(ref e) => Some(e),
-            Error::UnexpectedNetworkMagic { .. }
-            | Error::OversizedVectorAllocation { .. }
-            | Error::InvalidChecksum { .. }
-            | Error::UnknownNetworkMagic(..)
-            | Error::ParseFailed(..)
-            | Error::UnsupportedWitnessVersion(..)
-            | Error::UnsupportedSegwitFlag(..)
-            | Error::UnrecognizedNetworkCommand(..)
-            | Error::UnexpectedHexDigit(..) => None,
-        }
-    }
-}
-
-#[doc(hidden)]
-impl From<address::Error> for Error {
-    fn from(e: address::Error) -> Error {
-        Error::Base58(e)
-    }
-}
-
-#[doc(hidden)]
-impl From<io::Error> for Error {
-    fn from(error: io::Error) -> Self {
-        Error::Io(error)
-    }
 }
 
 /// Objects which are referred to by hash

@@ -46,14 +46,34 @@ use crate::vm::types::{
 /// Any IOErrrors from the supplied buffer will manifest as IOError variants,
 ///   except for EOF -- if the deserialization code experiences an EOF, it is caught
 ///   and rethrown as DeserializationError
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, thiserror::Error)]
 pub enum SerializationError {
+    #[error("Serialization error caused by IO: {}", .0.err)]
     IOError(IncomparableError<std::io::Error>),
-    BadTypeError(CheckErrors),
+    #[error("Deserialization error, bad type, caused by: {0}")]
+    BadTypeError(#[from] CheckErrors),
+    #[error("Deserialization error: {0}")]
     DeserializationError(String),
-    DeserializeExpected(TypeSignature),
-    LeftoverBytesInDeserialization,
+    #[error("Serialization error: {0}")]
     SerializationError(String),
+    #[error("Deserialization expected the type of the input to be: {0}")]
+    DeserializeExpected(TypeSignature),
+    #[error("Deserialization error: bytes left over in buffer")]
+    LeftoverBytesInDeserialization,
+}
+
+// Note: a byte stream that describes a longer type than
+//   there are available bytes to read will result in an IOError(UnexpectedEOF)
+impl From<std::io::Error> for SerializationError {
+    fn from(err: std::io::Error) -> Self {
+        SerializationError::IOError(IncomparableError { err })
+    }
+}
+
+impl From<&str> for SerializationError {
+    fn from(e: &str) -> Self {
+        SerializationError::DeserializationError(e.into())
+    }
 }
 
 lazy_static! {
@@ -76,63 +96,6 @@ const SANITIZATION_READ_BOUND: u64 = 15_000_000;
 /// After epoch-2.4, with type sanitization support, the full
 ///  clarity depth limit is supported.
 const UNSANITIZED_DEPTH_CHECK: usize = 16;
-
-impl std::fmt::Display for SerializationError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match self {
-            SerializationError::IOError(e) => {
-                write!(f, "Serialization error caused by IO: {}", e.err)
-            }
-            SerializationError::BadTypeError(e) => {
-                write!(f, "Deserialization error, bad type, caused by: {}", e)
-            }
-            SerializationError::DeserializationError(e) => {
-                write!(f, "Deserialization error: {}", e)
-            }
-            SerializationError::SerializationError(e) => {
-                write!(f, "Serialization error: {}", e)
-            }
-            SerializationError::DeserializeExpected(e) => write!(
-                f,
-                "Deserialization expected the type of the input to be: {}",
-                e
-            ),
-            SerializationError::LeftoverBytesInDeserialization => {
-                write!(f, "Deserialization error: bytes left over in buffer")
-            }
-        }
-    }
-}
-
-impl error::Error for SerializationError {
-    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
-        match self {
-            SerializationError::IOError(e) => Some(&e.err),
-            SerializationError::BadTypeError(e) => Some(e),
-            _ => None,
-        }
-    }
-}
-
-// Note: a byte stream that describes a longer type than
-//   there are available bytes to read will result in an IOError(UnexpectedEOF)
-impl From<std::io::Error> for SerializationError {
-    fn from(err: std::io::Error) -> Self {
-        SerializationError::IOError(IncomparableError { err })
-    }
-}
-
-impl From<&str> for SerializationError {
-    fn from(e: &str) -> Self {
-        SerializationError::DeserializationError(e.into())
-    }
-}
-
-impl From<CheckErrors> for SerializationError {
-    fn from(e: CheckErrors) -> Self {
-        SerializationError::BadTypeError(e)
-    }
-}
 
 define_u8_enum!(TypePrefix {
     Int = 0,

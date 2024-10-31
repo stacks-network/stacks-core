@@ -33,6 +33,7 @@ chrono = "0.4.19"
 libc = "0.2.82"
 hashbrown = { workspace = true }
 rusqlite = { workspace = true, optional = true }
+thiserror = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
 nix = "0.23"

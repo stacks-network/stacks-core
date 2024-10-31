@@ -45,108 +45,68 @@ pub type PeerMessage = stacks_common::deps_common::bitcoin::network::message::Ne
 // Borrowed from Andrew Poelstra's rust-bitcoin
 
 /// Network error
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum Error {
     /// I/O error
+    #[error("{0}")]
     Io(io::Error),
     /// Not connected to peer
+    #[error("Not connected to peer")]
     SocketNotConnectedToPeer,
     /// Serialization error
+    #[error("{0}")]
     SerializationError(btc_serialize_error),
-    /// Invalid Message to peer
+    /// Invalid message to peer
+    #[error("Invalid message to send")]
     InvalidMessage(PeerMessage),
-    /// Invalid Reply from peer
+    /// Invalid reply from peer
+    #[error("Invalid reply for given message")]
     InvalidReply,
     /// Invalid magic
+    #[error("Invalid network magic")]
     InvalidMagic,
     /// Unhandled message
+    #[error("Unhandled message")]
     UnhandledMessage(PeerMessage),
     /// Connection is broken and ought to be re-established
+    #[error("Connection to peer node is broken")]
     ConnectionBroken,
     /// Connection could not be (re-)established
+    #[error("Connection to peer could not be (re-)established")]
     ConnectionError,
-    /// general filesystem error
+    /// General filesystem error
+    #[error("{0}")]
     FilesystemError(io::Error),
     /// Database error
-    DBError(db_error),
+    #[error("{0}")]
+    DBError(#[from] db_error),
     /// Hashing error
+    #[error("{0}")]
     HashError(btc_hex_error),
     /// Non-contiguous header
+    #[error("Non-contiguous header")]
     NoncontiguousHeader,
     /// Missing header
+    #[error("Missing header")]
     MissingHeader,
-    /// Invalid header proof-of-work (i.e. due to a bad timestamp or a bad `bits` field)
+    /// Invalid header proof-of-work
+    #[error("Invalid proof of work")]
     InvalidPoW,
     /// Chainwork would decrease by including a given header
+    #[error("Chain difficulty cannot decrease")]
     InvalidChainWork,
     /// Wrong number of bytes for constructing an address
+    #[error("Invalid sequence of bytes")]
     InvalidByteSequence,
     /// Configuration error
+    #[error("{0}")]
     ConfigError(String),
     /// Tried to synchronize to a point above the chain tip
+    #[error("Value is beyond the end of the blockchain")]
     BlockchainHeight,
     /// Request timed out
+    #[error("Request timed out")]
     TimedOut,
-}
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            Error::Io(ref e) => fmt::Display::fmt(e, f),
-            Error::SocketNotConnectedToPeer => write!(f, "not connected to peer"),
-            Error::SerializationError(ref e) => fmt::Display::fmt(e, f),
-            Error::InvalidMessage(ref _msg) => write!(f, "Invalid message to send"),
-            Error::InvalidReply => write!(f, "invalid reply for given message"),
-            Error::InvalidMagic => write!(f, "invalid network magic"),
-            Error::UnhandledMessage(ref _msg) => write!(f, "Unhandled message"),
-            Error::ConnectionBroken => write!(f, "connection to peer node is broken"),
-            Error::ConnectionError => write!(f, "connection to peer could not be (re-)established"),
-            Error::FilesystemError(ref e) => fmt::Display::fmt(e, f),
-            Error::DBError(ref e) => fmt::Display::fmt(e, f),
-            Error::HashError(ref e) => fmt::Display::fmt(e, f),
-            Error::NoncontiguousHeader => write!(f, "Non-contiguous header"),
-            Error::MissingHeader => write!(f, "Missing header"),
-            Error::InvalidPoW => write!(f, "Invalid proof of work"),
-            Error::InvalidChainWork => write!(f, "Chain difficulty cannot decrease"),
-            Error::InvalidByteSequence => write!(f, "Invalid sequence of bytes"),
-            Error::ConfigError(ref e_str) => fmt::Display::fmt(e_str, f),
-            Error::BlockchainHeight => write!(f, "Value is beyond the end of the blockchain"),
-            Error::TimedOut => write!(f, "Request timed out"),
-        }
-    }
-}
-
-impl error::Error for Error {
-    fn cause(&self) -> Option<&dyn error::Error> {
-        match *self {
-            Error::Io(ref e) => Some(e),
-            Error::SocketNotConnectedToPeer => None,
-            Error::SerializationError(ref e) => Some(e),
-            Error::InvalidMessage(ref _msg) => None,
-            Error::InvalidReply => None,
-            Error::InvalidMagic => None,
-            Error::UnhandledMessage(ref _msg) => None,
-            Error::ConnectionBroken => None,
-            Error::ConnectionError => None,
-            Error::FilesystemError(ref e) => Some(e),
-            Error::DBError(ref e) => Some(e),
-            Error::HashError(ref e) => Some(e),
-            Error::NoncontiguousHeader => None,
-            Error::MissingHeader => None,
-            Error::InvalidPoW => None,
-            Error::InvalidChainWork => None,
-            Error::InvalidByteSequence => None,
-            Error::ConfigError(ref _e_str) => None,
-            Error::BlockchainHeight => None,
-            Error::TimedOut => None,
-        }
-    }
-}
-
-impl From<db_error> for Error {
-    fn from(e: db_error) -> Error {
-        Error::DBError(e)
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

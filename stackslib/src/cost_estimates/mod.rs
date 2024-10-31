@@ -181,32 +181,12 @@ pub trait CostEstimator: Send {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, thiserror::Error)]
 pub enum EstimatorError {
+    #[error("No estimate available for the provided payload.")]
     NoEstimateAvailable,
-    SqliteError(SqliteError),
-}
-
-impl Error for EstimatorError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            EstimatorError::SqliteError(ref e) => Some(e),
-            _ => None,
-        }
-    }
-}
-
-impl Display for EstimatorError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            EstimatorError::NoEstimateAvailable => {
-                write!(f, "No estimate available for the provided payload.")
-            }
-            EstimatorError::SqliteError(e) => {
-                write!(f, "Sqlite error from estimator: {}", e)
-            }
-        }
-    }
+    #[error("Sqlite error from estimator: {0}")]
+    SqliteError(#[from] SqliteError),
 }
 
 impl EstimatorError {

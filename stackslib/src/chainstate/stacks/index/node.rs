@@ -36,27 +36,14 @@ use crate::chainstate::stacks::index::{
     TrieLeaf, MARF_VALUE_ENCODED_SIZE,
 };
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum CursorError {
+    #[error("Path diverged")]
     PathDiverged,
+    #[error("Back-pointer encountered")]
     BackptrEncountered(TriePtr),
+    #[error("Node child not found")]
     ChrNotFound,
-}
-
-impl fmt::Display for CursorError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            CursorError::PathDiverged => write!(f, "Path diverged"),
-            CursorError::BackptrEncountered(_) => write!(f, "Back-pointer encountered"),
-            CursorError::ChrNotFound => write!(f, "Node child not found"),
-        }
-    }
-}
-
-impl error::Error for CursorError {
-    fn cause(&self) -> Option<&dyn error::Error> {
-        None
-    }
 }
 
 // All numeric values of a Trie node when encoded.

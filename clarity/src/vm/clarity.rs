@@ -13,44 +13,23 @@ use crate::vm::events::StacksTransactionEvent;
 use crate::vm::types::{BuffData, PrincipalData, QualifiedContractIdentifier};
 use crate::vm::{analysis, ast, ClarityVersion, ContractContext, SymbolicExpression, Value};
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum Error {
+    #[error("Analysis Error: {0}")]
     Analysis(CheckError),
+    #[error("Parse Error: {0}")]
     Parse(ParseError),
+    #[error("Interpreter Error: {0}")]
     Interpreter(InterpreterError),
+    #[error("Bad Transaction: {0}")]
     BadTransaction(String),
+    #[error("Cost Error: {0} cost exceeded budget of {1} cost")]
     CostError(ExecutionCost, ExecutionCost),
+    #[error("Post condition aborted transaction")]
     AbortedByCallback(Option<Value>, AssetMap, Vec<StacksTransactionEvent>),
 }
 
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            Error::CostError(ref a, ref b) => {
-                write!(f, "Cost Error: {} cost exceeded budget of {} cost", a, b)
-            }
-            Error::Analysis(ref e) => fmt::Display::fmt(e, f),
-            Error::Parse(ref e) => fmt::Display::fmt(e, f),
-            Error::AbortedByCallback(..) => write!(f, "Post condition aborted transaction"),
-            Error::Interpreter(ref e) => fmt::Display::fmt(e, f),
-            Error::BadTransaction(ref s) => fmt::Display::fmt(s, f),
-        }
-    }
-}
-
-impl std::error::Error for Error {
-    fn cause(&self) -> Option<&dyn std::error::Error> {
-        match *self {
-            Error::CostError(ref _a, ref _b) => None,
-            Error::AbortedByCallback(..) => None,
-            Error::Analysis(ref e) => Some(e),
-            Error::Parse(ref e) => Some(e),
-            Error::Interpreter(ref e) => Some(e),
-            Error::BadTransaction(ref _s) => None,
-        }
-    }
-}
-
+// Custom From implementation for CheckError
 impl From<CheckError> for Error {
     fn from(e: CheckError) -> Self {
         match e.err {
@@ -58,7 +37,7 @@ impl From<CheckError> for Error {
                 Error::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
             }
             CheckErrors::CostBalanceExceeded(a, b) => Error::CostError(a, b),
-            CheckErrors::MemoryBalanceExceeded(_a, _b) => {
+            CheckErrors::MemoryBalanceExceeded(_, _) => {
                 Error::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
             }
             _ => Error::Analysis(e),

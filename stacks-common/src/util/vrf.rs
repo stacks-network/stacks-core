@@ -185,31 +185,14 @@ impl VRFPublicKey {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum Error {
+    #[error("Invalid public key")]
     InvalidPublicKey,
+    #[error("No data could be found")]
     InvalidDataError,
+    #[error("{0}")]
     OSRNGError(rand::Error),
-}
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            Error::InvalidPublicKey => write!(f, "Invalid public key"),
-            Error::InvalidDataError => write!(f, "No data could be found"),
-            Error::OSRNGError(ref e) => fmt::Display::fmt(e, f),
-        }
-    }
-}
-
-impl error::Error for Error {
-    fn cause(&self) -> Option<&dyn error::Error> {
-        match *self {
-            Error::InvalidPublicKey => None,
-            Error::InvalidDataError => None,
-            Error::OSRNGError(ref e) => Some(e),
-        }
-    }
 }
 
 pub const SUITE: u8 = 0x03;

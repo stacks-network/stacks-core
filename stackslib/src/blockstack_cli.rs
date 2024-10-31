@@ -181,52 +181,23 @@ raw binary microblocks will be read from stdin.
 N.B. Stacks microblocks are not stored as files in the Stacks chainstate -- they are stored in
 block's sqlite database.";
 
-#[derive(Debug)]
+#[derive(thiserror::Error, Debug)]
 enum CliError {
-    ClarityRuntimeError(RuntimeErrorType),
-    ClarityGeneralError(ClarityError),
+    #[error("Clarity error: {0}")]
+    ClarityRuntimeError(#[from] RuntimeErrorType),
+    #[error("Clarity error: {0}")]
+    ClarityGeneralError(#[from] ClarityError),
+    #[error("{0}")]
     Message(String),
+    #[error("{}", USAGE)]
     Usage,
+    #[error("Invalid chain ID: {0}")]
     InvalidChainId(std::num::ParseIntError),
-}
-
-impl std::error::Error for CliError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            CliError::ClarityRuntimeError(e) => Some(e),
-            CliError::ClarityGeneralError(e) => Some(e),
-            _ => None,
-        }
-    }
-}
-
-impl std::fmt::Display for CliError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            CliError::ClarityRuntimeError(e) => write!(f, "Clarity error: {:?}", e),
-            CliError::ClarityGeneralError(e) => write!(f, "Clarity error: {}", e),
-            CliError::Message(e) => write!(f, "{}", e),
-            CliError::Usage => write!(f, "{}", USAGE),
-            CliError::InvalidChainId(e) => write!(f, "Invalid chain ID: {}", e),
-        }
-    }
 }
 
 impl From<&str> for CliError {
     fn from(value: &str) -> Self {
         CliError::Message(value.into())
-    }
-}
-
-impl From<RuntimeErrorType> for CliError {
-    fn from(value: RuntimeErrorType) -> Self {
-        CliError::ClarityRuntimeError(value)
-    }
-}
-
-impl From<ClarityError> for CliError {
-    fn from(value: ClarityError) -> Self {
-        CliError::ClarityGeneralError(value)
     }
 }
 

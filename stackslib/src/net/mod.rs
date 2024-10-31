@@ -148,150 +148,218 @@ use crate::net::stackerdb::{StackerDBConfig, StackerDBSync, StackerDBSyncResult,
 #[cfg(test)]
 pub mod tests;
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum Error {
     /// Failed to encode
+    #[error("Failed to encode: {0}")]
     SerializeError(String),
     /// Failed to read
+    #[error("Failed to read: {0}")]
     ReadError(io::Error),
     /// Failed to decode
+    #[error("Failed to decode: {0}")]
     DeserializeError(String),
     /// Failed to write
+    #[error("Failed to write: {0}")]
     WriteError(io::Error),
     /// Underflow -- not enough bytes to form the message
+    #[error("Underflow: {0}")]
     UnderflowError(String),
     /// Overflow -- message too big
+    #[error("Overflow: {0}")]
     OverflowError(String),
     /// Wrong protocol family
+    #[error("Wrong protocol family")]
     WrongProtocolFamily,
     /// Array is too big
+    #[error("Array too long")]
     ArrayTooLong,
     /// Receive timed out
+    #[error("Receive timed out")]
     RecvTimeout,
     /// Error signing a message
+    #[error("Error signing message: {0}")]
     SigningError(String),
     /// Error verifying a message
+    #[error("Error verifying message: {0}")]
     VerifyingError(String),
-    /// Read stream is drained.  Try again
+    /// Read stream is drained. Try again
+    #[error("Read stream temporarily drained. Try again later.")]
     TemporarilyDrained,
     /// Read stream has reached EOF (socket closed, end-of-file reached, etc.)
+    #[error("Read stream permanently drained.")]
     PermanentlyDrained,
     /// Failed to read from the FS
+    #[error("Filesystem error")]
     FilesystemError,
     /// Database error
-    DBError(db_error),
+    #[error("Database error: {0}")]
+    DBError(#[from] db_error),
     /// Socket mutex was poisoned
+    #[error("Socket mutex was poisoned")]
     SocketMutexPoisoned,
     /// Socket not instantiated
+    #[error("Socket not connected to peer")]
     SocketNotConnectedToPeer,
     /// Not connected to peer
+    #[error("Connection broken")]
     ConnectionBroken,
     /// Connection could not be (re-)established
+    #[error("Connection error")]
     ConnectionError,
     /// Too many outgoing messages
+    #[error("Outbox overflow: too many outgoing messages")]
     OutboxOverflow,
     /// Too many incoming messages
+    #[error("Inbox overflow: too many incoming messages")]
     InboxOverflow,
     /// Send error
+    #[error("Send error: {0}")]
     SendError(String),
     /// Recv error
+    #[error("Receive error: {0}")]
     RecvError(String),
     /// Invalid message
+    #[error("Invalid message")]
     InvalidMessage,
     /// Invalid network handle
+    #[error("Invalid network handle")]
     InvalidHandle,
     /// Network handle is full
+    #[error("Network handle is full")]
     FullHandle,
     /// Invalid handshake
+    #[error("Invalid handshake")]
     InvalidHandshake,
     /// Stale neighbor
+    #[error("Stale neighbor")]
     StaleNeighbor,
     /// No such neighbor
+    #[error("No such neighbor")]
     NoSuchNeighbor,
     /// Failed to bind
+    #[error("Failed to bind")]
     BindError,
     /// Failed to poll
+    #[error("Failed to poll")]
     PollError,
     /// Failed to accept
+    #[error("Failed to accept")]
     AcceptError,
     /// Failed to register socket with poller
+    #[error("Failed to register socket with poller")]
     RegisterError,
     /// Failed to query socket metadata
+    #[error("Socket error")]
     SocketError,
-    /// server is not bound to a socket
+    /// Server is not bound to a socket
+    #[error("Not connected to peer")]
     NotConnected,
     /// Remote peer is not connected
+    #[error("Remote peer is not connected")]
     PeerNotConnected,
     /// Too many peers
+    #[error("Too many peers connected")]
     TooManyPeers,
     /// Peer already connected
+    #[error("Peer already connected: {0}, {1}")]
     AlreadyConnected(usize, NeighborKey),
     /// Message already in progress
+    #[error("Message already in progress")]
     InProgress,
     /// Peer is denied
+    #[error("Peer is denied")]
     Denied,
     /// Data URL is not known
+    #[error("Data URL is not known")]
     NoDataUrl,
     /// Peer is transmitting too fast
+    #[error("Peer is transmitting too fast")]
     PeerThrottled,
     /// Error resolving a DNS name
+    #[error("DNS lookup error: {0}")]
     LookupError(String),
     /// MARF error, percolated up from chainstate
-    MARFError(marf_error),
+    #[error("MARF error: {0}")]
+    MARFError(#[from] marf_error),
     /// Clarity VM error, percolated up from chainstate
-    ClarityError(clarity_error),
+    #[error("Clarity error: {0}")]
+    ClarityError(#[from] clarity_error),
     /// Catch-all for chainstate errors that don't map cleanly into network errors
+    #[error("Chainstate error: {0}")]
     ChainstateError(String),
     /// Coordinator hung up
+    #[error("Coordinator hung up")]
     CoordinatorClosed,
-    /// view of state is stale (e.g. from the sortition db)
+    /// View of state is stale (e.g. from the sortition db)
+    #[error("Stale view")]
     StaleView,
     /// Tried to connect to myself
+    #[error("Connection cycle detected")]
     ConnectionCycle,
     /// Requested data not found
+    #[error("Requested data not found")]
     NotFoundError,
     /// Transient error (akin to EAGAIN)
+    #[error("Transient error: {0}")]
     Transient(String),
     /// Expected end-of-stream, but had more data
+    #[error("Expected end of stream, but had more data")]
     ExpectedEndOfStream,
-    /// burnchain error
-    BurnchainError(burnchain_error),
-    /// chunk is stale
+    /// Burnchain error
+    #[error("Burnchain error: {0}")]
+    BurnchainError(#[from] burnchain_error),
+    /// Chunk is stale
+    #[error("Stale chunk (supplied={supplied_version}, latest={latest_version})")]
     StaleChunk {
         supplied_version: u32,
         latest_version: u32,
     },
-    /// no such slot
+    /// No such slot
+    #[error("No such slot ({0}, {1})")]
     NoSuchSlot(QualifiedContractIdentifier, u32),
-    /// no such DB
+    /// No such DB
+    #[error("No such StackerDB: {0}")]
     NoSuchStackerDB(QualifiedContractIdentifier),
-    /// stacker DB exists
+    /// Stacker DB exists
+    #[error("StackerDB already exists: {0}")]
     StackerDBExists(QualifiedContractIdentifier),
-    /// slot signer is wrong
+    /// Slot signer is wrong
+    #[error("Bad slot signer ({0}, {1})")]
     BadSlotSigner(StacksAddress, u32),
-    /// too many writes to a slot
+    /// Too many writes to a slot
+    #[error("Too many slot writes (supplied={supplied_version}, max={max_writes})")]
     TooManySlotWrites {
         supplied_version: u32,
         max_writes: u32,
     },
-    /// too frequent writes to a slot
+    /// Too frequent writes to a slot
+    #[error("Too frequent slot writes (deadline={0})")]
     TooFrequentSlotWrites(u64),
     /// Invalid control smart contract for a Stacker DB
+    #[error("Invalid StackerDB contract {0}: {1}")]
     InvalidStackerDBContract(QualifiedContractIdentifier, String),
-    /// state machine step took too long
+    /// State machine step took too long
+    #[error("State machine step took too long")]
     StepTimeout,
-    /// stacker DB chunk is too big
+    /// Stacker DB chunk is too big
+    #[error("StackerDB chunk size is too big ({0})")]
     StackerDBChunkTooBig(usize),
     /// HTTP error
-    Http(HttpErr),
+    #[error("HTTP error: {0}")]
+    Http(#[from] HttpErr),
     /// Invalid state machine state reached
+    #[error("Invalid state machine state reached")]
     InvalidState,
     /// Waiting for DNS resolution
+    #[error("Waiting for DNS resolution")]
     WaitingForDNS,
     /// No reward set for given reward cycle
+    #[error("No PoX reward set for cycle {0}")]
     NoPoXRewardSet(u64),
 }
 
+// Implementing conversions using From traits
 impl From<libstackerdb_error> for Error {
     fn from(e: libstackerdb_error) -> Self {
         match e {
@@ -317,202 +385,10 @@ impl From<codec_error> for Error {
     }
 }
 
-impl From<HttpErr> for Error {
-    fn from(e: HttpErr) -> Error {
-        Error::Http(e)
-    }
-}
-
 impl From<AddrError> for Error {
     fn from(e: AddrError) -> Error {
         match e {
             AddrError::DecodeError(s) => Error::DeserializeError(s),
-        }
-    }
-}
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Error::SerializeError(ref s) => fmt::Display::fmt(s, f),
-            Error::DeserializeError(ref s) => fmt::Display::fmt(s, f),
-            Error::ReadError(ref io) => fmt::Display::fmt(io, f),
-            Error::WriteError(ref io) => fmt::Display::fmt(io, f),
-            Error::UnderflowError(ref s) => fmt::Display::fmt(s, f),
-            Error::OverflowError(ref s) => fmt::Display::fmt(s, f),
-            Error::WrongProtocolFamily => write!(f, "Improper use of protocol family"),
-            Error::ArrayTooLong => write!(f, "Array too long"),
-            Error::RecvTimeout => write!(f, "Packet receive timeout"),
-            Error::SigningError(ref s) => fmt::Display::fmt(s, f),
-            Error::VerifyingError(ref s) => fmt::Display::fmt(s, f),
-            Error::TemporarilyDrained => {
-                write!(f, "Temporarily out of bytes to read; try again later")
-            }
-            Error::PermanentlyDrained => write!(f, "Out of bytes to read"),
-            Error::FilesystemError => write!(f, "Disk I/O error"),
-            Error::DBError(ref e) => fmt::Display::fmt(e, f),
-            Error::SocketMutexPoisoned => write!(f, "socket mutex was poisoned"),
-            Error::SocketNotConnectedToPeer => write!(f, "not connected to peer"),
-            Error::ConnectionBroken => write!(f, "connection to peer node is broken"),
-            Error::ConnectionError => write!(f, "connection to peer could not be (re-)established"),
-            Error::OutboxOverflow => write!(f, "too many outgoing messages queued"),
-            Error::InboxOverflow => write!(f, "too many messages pending"),
-            Error::SendError(ref s) => fmt::Display::fmt(s, f),
-            Error::RecvError(ref s) => fmt::Display::fmt(s, f),
-            Error::InvalidMessage => write!(f, "invalid message (malformed or bad signature)"),
-            Error::InvalidHandle => write!(f, "invalid network handle"),
-            Error::FullHandle => write!(f, "network handle is full and needs to be drained"),
-            Error::InvalidHandshake => write!(f, "invalid handshake from remote peer"),
-            Error::StaleNeighbor => write!(f, "neighbor is too far behind the chain tip"),
-            Error::NoSuchNeighbor => write!(f, "no such neighbor"),
-            Error::BindError => write!(f, "Failed to bind to the given address"),
-            Error::PollError => write!(f, "Failed to poll"),
-            Error::AcceptError => write!(f, "Failed to accept connection"),
-            Error::RegisterError => write!(f, "Failed to register socket with poller"),
-            Error::SocketError => write!(f, "Socket error"),
-            Error::NotConnected => write!(f, "Not connected to peer network"),
-            Error::PeerNotConnected => write!(f, "Remote peer is not connected to us"),
-            Error::TooManyPeers => write!(f, "Too many peer connections open"),
-            Error::AlreadyConnected(ref _id, ref _nk) => write!(f, "Peer already connected"),
-            Error::InProgress => write!(f, "Message already in progress"),
-            Error::Denied => write!(f, "Peer is denied"),
-            Error::NoDataUrl => write!(f, "No data URL available"),
-            Error::PeerThrottled => write!(f, "Peer is transmitting too fast"),
-            Error::LookupError(ref s) => fmt::Display::fmt(s, f),
-            Error::ChainstateError(ref s) => fmt::Display::fmt(s, f),
-            Error::ClarityError(ref e) => fmt::Display::fmt(e, f),
-            Error::MARFError(ref e) => fmt::Display::fmt(e, f),
-            Error::CoordinatorClosed => write!(f, "Coordinator hung up"),
-            Error::StaleView => write!(f, "State view is stale"),
-            Error::ConnectionCycle => write!(f, "Tried to connect to myself"),
-            Error::NotFoundError => write!(f, "Requested data not found"),
-            Error::Transient(ref s) => write!(f, "Transient network error: {}", s),
-            Error::ExpectedEndOfStream => write!(f, "Expected end-of-stream"),
-            Error::BurnchainError(ref e) => fmt::Display::fmt(e, f),
-            Error::StaleChunk {
-                supplied_version,
-                latest_version,
-            } => {
-                write!(
-                    f,
-                    "Stale DB chunk (supplied={},latest={})",
-                    supplied_version, latest_version
-                )
-            }
-            Error::NoSuchSlot(ref addr, ref slot_id) => {
-                write!(f, "No such DB slot ({},{})", addr, slot_id)
-            }
-            Error::NoSuchStackerDB(ref addr) => {
-                write!(f, "No such StackerDB {}", addr)
-            }
-            Error::StackerDBExists(ref addr) => {
-                write!(f, "StackerDB already exists: {}", addr)
-            }
-            Error::BadSlotSigner(ref addr, ref slot_id) => {
-                write!(f, "Bad DB slot signer ({},{})", addr, slot_id)
-            }
-            Error::TooManySlotWrites {
-                supplied_version,
-                max_writes,
-            } => {
-                write!(
-                    f,
-                    "Too many slot writes (max={},given={})",
-                    max_writes, supplied_version
-                )
-            }
-            Error::TooFrequentSlotWrites(ref deadline) => {
-                write!(f, "Too frequent slot writes (deadline={})", deadline)
-            }
-            Error::InvalidStackerDBContract(ref contract_id, ref reason) => {
-                write!(
-                    f,
-                    "Invalid StackerDB control smart contract {}: {}",
-                    contract_id, reason
-                )
-            }
-            Error::StepTimeout => write!(f, "State-machine step took too long"),
-            Error::StackerDBChunkTooBig(ref sz) => {
-                write!(f, "StackerDB chunk size is too big ({})", sz)
-            }
-            Error::Http(e) => fmt::Display::fmt(&e, f),
-            Error::InvalidState => write!(f, "Invalid state-machine state reached"),
-            Error::WaitingForDNS => write!(f, "Waiting for DNS resolution"),
-            Error::NoPoXRewardSet(rc) => write!(f, "No PoX reward set for cycle {}", rc),
-        }
-    }
-}
-
-impl error::Error for Error {
-    fn cause(&self) -> Option<&dyn error::Error> {
-        match *self {
-            Error::SerializeError(ref _s) => None,
-            Error::ReadError(ref io) => Some(io),
-            Error::DeserializeError(ref _s) => None,
-            Error::WriteError(ref io) => Some(io),
-            Error::UnderflowError(ref _s) => None,
-            Error::OverflowError(ref _s) => None,
-            Error::WrongProtocolFamily => None,
-            Error::ArrayTooLong => None,
-            Error::RecvTimeout => None,
-            Error::SigningError(ref _s) => None,
-            Error::VerifyingError(ref _s) => None,
-            Error::TemporarilyDrained => None,
-            Error::PermanentlyDrained => None,
-            Error::FilesystemError => None,
-            Error::DBError(ref e) => Some(e),
-            Error::SocketMutexPoisoned => None,
-            Error::SocketNotConnectedToPeer => None,
-            Error::ConnectionBroken => None,
-            Error::ConnectionError => None,
-            Error::OutboxOverflow => None,
-            Error::InboxOverflow => None,
-            Error::SendError(ref _s) => None,
-            Error::RecvError(ref _s) => None,
-            Error::InvalidMessage => None,
-            Error::InvalidHandle => None,
-            Error::FullHandle => None,
-            Error::InvalidHandshake => None,
-            Error::StaleNeighbor => None,
-            Error::NoSuchNeighbor => None,
-            Error::BindError => None,
-            Error::PollError => None,
-            Error::AcceptError => None,
-            Error::RegisterError => None,
-            Error::SocketError => None,
-            Error::NotConnected => None,
-            Error::PeerNotConnected => None,
-            Error::TooManyPeers => None,
-            Error::AlreadyConnected(ref _id, ref _nk) => None,
-            Error::InProgress => None,
-            Error::Denied => None,
-            Error::NoDataUrl => None,
-            Error::PeerThrottled => None,
-            Error::LookupError(ref _s) => None,
-            Error::ChainstateError(ref _s) => None,
-            Error::ClarityError(ref e) => Some(e),
-            Error::MARFError(ref e) => Some(e),
-            Error::CoordinatorClosed => None,
-            Error::StaleView => None,
-            Error::ConnectionCycle => None,
-            Error::NotFoundError => None,
-            Error::Transient(ref _s) => None,
-            Error::ExpectedEndOfStream => None,
-            Error::BurnchainError(ref e) => Some(e),
-            Error::StaleChunk { .. } => None,
-            Error::NoSuchSlot(..) => None,
-            Error::NoSuchStackerDB(..) => None,
-            Error::StackerDBExists(..) => None,
-            Error::BadSlotSigner(..) => None,
-            Error::TooManySlotWrites { .. } => None,
-            Error::TooFrequentSlotWrites(..) => None,
-            Error::InvalidStackerDBContract(..) => None,
-            Error::StepTimeout => None,
-            Error::StackerDBChunkTooBig(..) => None,
-            Error::Http(ref e) => Some(e),
-            Error::InvalidState => None,
-            Error::WaitingForDNS => None,
-            Error::NoPoXRewardSet(..) => None,
         }
     }
 }
@@ -543,27 +419,9 @@ impl From<chain_error> for Error {
     }
 }
 
-impl From<db_error> for Error {
-    fn from(e: db_error) -> Error {
-        Error::DBError(e)
-    }
-}
-
 impl From<rusqlite::Error> for Error {
     fn from(e: rusqlite::Error) -> Error {
         Error::DBError(db_error::SqliteError(e))
-    }
-}
-
-impl From<burnchain_error> for Error {
-    fn from(e: burnchain_error) -> Self {
-        Error::BurnchainError(e)
-    }
-}
-
-impl From<clarity_error> for Error {
-    fn from(e: clarity_error) -> Self {
-        Error::ClarityError(e)
     }
 }
 

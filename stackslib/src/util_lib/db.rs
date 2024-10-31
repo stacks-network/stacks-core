@@ -51,114 +51,60 @@ pub const SQLITE_MMAP_SIZE: i64 = 256 * 1024 * 1024;
 // 32K
 pub const SQLITE_MARF_PAGE_SIZE: i64 = 32768;
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum Error {
     /// Not implemented
+    #[error("Not implemented")]
     NotImplemented,
     /// Database doesn't exist
+    #[error("Database does not exist")]
     NoDBError,
     /// Read-only and tried to write
+    #[error("Database is opened read-only")]
     ReadOnly,
     /// Type error -- can't represent the given data in the database
+    #[error("Invalid or unrepresentable database type")]
     TypeError,
     /// Database is corrupt -- we got data that shouldn't be there, or didn't get data when we
     /// should have
+    #[error("Database is corrupt")]
     Corruption,
     /// Serialization error -- can't serialize data
-    SerializationError(serde_error),
+    #[error("{0}")]
+    SerializationError(#[from] serde_error),
     /// Parse error -- failed to load data we stored directly
+    #[error("Parse error")]
     ParseError,
     /// Operation would overflow
+    #[error("Numeric overflow")]
     Overflow,
     /// Data not found
+    #[error("Not found")]
     NotFoundError,
     /// Data already exists
+    #[error("Already exists")]
     ExistsError,
     /// Data corresponds to a non-canonical PoX sortition
+    #[error("Invalid PoX sortition")]
     InvalidPoxSortition,
     /// Sqlite3 error
-    SqliteError(sqlite_error),
+    #[error("{0}")]
+    SqliteError(#[from] sqlite_error),
     /// I/O error
-    IOError(IOError),
+    #[error("{0}")]
+    IOError(#[from] IOError),
     /// MARF index error
-    IndexError(MARFError),
+    #[error("{0}")]
+    IndexError(#[from] MARFError),
     /// Old schema error
+    #[error("Old database schema: {0}")]
     OldSchema(u64),
     /// Database is too old for epoch
+    #[error("Database is not compatible with current system epoch")]
     TooOldForEpoch,
     /// Other error
+    #[error("{0}")]
     Other(String),
-}
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            Error::NotImplemented => write!(f, "Not implemented"),
-            Error::NoDBError => write!(f, "Database does not exist"),
-            Error::ReadOnly => write!(f, "Database is opened read-only"),
-            Error::TypeError => write!(f, "Invalid or unrepresentable database type"),
-            Error::Corruption => write!(f, "Database is corrupt"),
-            Error::SerializationError(ref e) => fmt::Display::fmt(e, f),
-            Error::ParseError => write!(f, "Parse error"),
-            Error::Overflow => write!(f, "Numeric overflow"),
-            Error::NotFoundError => write!(f, "Not found"),
-            Error::ExistsError => write!(f, "Already exists"),
-            Error::InvalidPoxSortition => write!(f, "Invalid PoX sortition"),
-            Error::IOError(ref e) => fmt::Display::fmt(e, f),
-            Error::SqliteError(ref e) => fmt::Display::fmt(e, f),
-            Error::IndexError(ref e) => fmt::Display::fmt(e, f),
-            Error::OldSchema(ref s) => write!(f, "Old database schema: {}", s),
-            Error::TooOldForEpoch => {
-                write!(f, "Database is not compatible with current system epoch")
-            }
-            Error::Other(ref s) => fmt::Display::fmt(s, f),
-        }
-    }
-}
-
-impl error::Error for Error {
-    fn cause(&self) -> Option<&dyn error::Error> {
-        match *self {
-            Error::NotImplemented => None,
-            Error::NoDBError => None,
-            Error::ReadOnly => None,
-            Error::TypeError => None,
-            Error::Corruption => None,
-            Error::SerializationError(ref e) => Some(e),
-            Error::ParseError => None,
-            Error::Overflow => None,
-            Error::NotFoundError => None,
-            Error::ExistsError => None,
-            Error::InvalidPoxSortition => None,
-            Error::SqliteError(ref e) => Some(e),
-            Error::IOError(ref e) => Some(e),
-            Error::IndexError(ref e) => Some(e),
-            Error::OldSchema(ref _s) => None,
-            Error::TooOldForEpoch => None,
-            Error::Other(ref _s) => None,
-        }
-    }
-}
-
-impl From<serde_error> for Error {
-    #[cfg_attr(test, mutants::skip)]
-    fn from(e: serde_error) -> Self {
-        Self::SerializationError(e)
-    }
-}
-
-impl From<sqlite_error> for Error {
-    #[cfg_attr(test, mutants::skip)]
-    fn from(e: sqlite_error) -> Self {
-        Self::SqliteError(e)
-    }
-}
-
-impl From<MARFError> for Error {
-    #[cfg_attr(test, mutants::skip)]
-    fn from(e: MARFError) -> Self {
-        Self::IndexError(e)
-    }
 }
 
 pub trait FromRow<T> {

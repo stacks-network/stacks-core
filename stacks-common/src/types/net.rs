@@ -24,25 +24,10 @@ use serde::ser::Serialize;
 
 use crate::util::hash::to_bin;
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum Error {
+    #[error("{0}")]
     DecodeError(String),
-}
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Error::DecodeError(msg) => write!(f, "{}", &msg),
-        }
-    }
-}
-
-impl std::error::Error for Error {
-    fn cause(&self) -> Option<&dyn std::error::Error> {
-        match self {
-            Error::DecodeError(_) => None,
-        }
-    }
 }
 
 /// A container for an IPv4 or IPv6 address.

@@ -19,8 +19,8 @@ extern crate serde;
 extern crate sha2;
 extern crate stacks_common;
 
+use std::fmt;
 use std::io::{Read, Write};
-use std::{error, fmt};
 
 use clarity::vm::types::QualifiedContractIdentifier;
 use serde::{Deserialize, Serialize};
@@ -41,30 +41,14 @@ pub const SIGNERS_STACKERDB_CHUNK_SIZE: usize = 2 * 1024 * 1024; // 2MB
 #[cfg(test)]
 mod tests;
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum Error {
     /// Error signing a message
+    #[error("{0}")]
     SigningError(String),
     /// Error verifying a message
+    #[error("{0}")]
     VerifyingError(String),
-}
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            Error::SigningError(ref s) => fmt::Display::fmt(s, f),
-            Error::VerifyingError(ref s) => fmt::Display::fmt(s, f),
-        }
-    }
-}
-
-impl error::Error for Error {
-    fn cause(&self) -> Option<&dyn error::Error> {
-        match *self {
-            Error::SigningError(ref _s) => None,
-            Error::VerifyingError(ref _s) => None,
-        }
-    }
 }
 
 /// Slot metadata from the DB.

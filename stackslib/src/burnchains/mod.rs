@@ -712,111 +712,61 @@ pub struct BurnchainStateTransitionOps {
     pub consumed_leader_keys: Vec<LeaderKeyRegisterOp>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum Error {
     /// Unsupported burn chain
+    #[error("Unsupported burnchain")]
     UnsupportedBurnchain,
     /// Bitcoin-related error
-    Bitcoin(btc_error),
+    #[error("{0}")]
+    Bitcoin(#[from] btc_error),
     /// burn database error
-    DBError(db_error),
+    #[error("{0}")]
+    DBError(#[from] db_error),
     /// Download error
+    #[error("{0}")]
     DownloadError(btc_error),
     /// Parse error
+    #[error("Parse error")]
     ParseError,
     /// Thread channel error
+    #[error("Error in thread channel")]
     ThreadChannelError,
     /// Missing headers
+    #[error("Missing block headers")]
     MissingHeaders,
     /// Missing parent block
+    #[error("Missing parent block")]
     MissingParentBlock,
     /// Remote burnchain peer has misbehaved
+    #[error("Remote burnchain peer has misbehaved")]
     BurnchainPeerBroken,
     /// filesystem error
+    #[error("{0}")]
     FSError(io::Error),
     /// Operation processing error
+    #[error("{0}")]
     OpError(op_error),
     /// Try again error
+    #[error("Try synchronizing again")]
     TrySyncAgain,
+    #[error("Unknown burnchain block {0}")]
     UnknownBlock(BurnchainHeaderHash),
+    #[error("{0} is not a descendant of the canonical parent PoXId: {1}")]
     NonCanonicalPoxId(PoxId, PoxId),
+    #[error("ChainsCoordinator channel hung up")]
     CoordinatorClosed,
     /// Graceful shutdown error
+    #[error("Graceful shutdown was initiated")]
     ShutdownInitiated,
     /// No epoch defined at that height
+    #[error("No Stacks epoch is defined at the height being evaluated")]
     NoStacksEpoch,
-}
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Error::UnsupportedBurnchain => write!(f, "Unsupported burnchain"),
-            Error::Bitcoin(ref btce) => fmt::Display::fmt(btce, f),
-            Error::DBError(ref dbe) => fmt::Display::fmt(dbe, f),
-            Error::DownloadError(ref btce) => fmt::Display::fmt(btce, f),
-            Error::ParseError => write!(f, "Parse error"),
-            Error::MissingHeaders => write!(f, "Missing block headers"),
-            Error::MissingParentBlock => write!(f, "Missing parent block"),
-            Error::ThreadChannelError => write!(f, "Error in thread channel"),
-            Error::BurnchainPeerBroken => write!(f, "Remote burnchain peer has misbehaved"),
-            Error::FSError(ref e) => fmt::Display::fmt(e, f),
-            Error::OpError(ref e) => fmt::Display::fmt(e, f),
-            Error::TrySyncAgain => write!(f, "Try synchronizing again"),
-            Error::UnknownBlock(block) => write!(f, "Unknown burnchain block {}", block),
-            Error::NonCanonicalPoxId(parent, child) => write!(
-                f,
-                "{} is not a descendant of the canonical parent PoXId: {}",
-                parent, child
-            ),
-            Error::CoordinatorClosed => write!(f, "ChainsCoordinator channel hung up"),
-            Error::ShutdownInitiated => write!(f, "Graceful shutdown was initiated"),
-            Error::NoStacksEpoch => write!(
-                f,
-                "No Stacks epoch is defined at the height being evaluated"
-            ),
-        }
-    }
-}
-
-impl error::Error for Error {
-    fn cause(&self) -> Option<&dyn error::Error> {
-        match *self {
-            Error::UnsupportedBurnchain => None,
-            Error::Bitcoin(ref e) => Some(e),
-            Error::DBError(ref e) => Some(e),
-            Error::DownloadError(ref e) => Some(e),
-            Error::ParseError => None,
-            Error::MissingHeaders => None,
-            Error::MissingParentBlock => None,
-            Error::ThreadChannelError => None,
-            Error::BurnchainPeerBroken => None,
-            Error::FSError(ref e) => Some(e),
-            Error::OpError(ref e) => Some(e),
-            Error::TrySyncAgain => None,
-            Error::UnknownBlock(_) => None,
-            Error::NonCanonicalPoxId(_, _) => None,
-            Error::CoordinatorClosed => None,
-            Error::ShutdownInitiated => None,
-            Error::NoStacksEpoch => None,
-        }
-    }
-}
-
-impl From<db_error> for Error {
-    fn from(e: db_error) -> Error {
-        Error::DBError(e)
-    }
 }
 
 impl From<sqlite_error> for Error {
     fn from(e: sqlite_error) -> Error {
         Error::DBError(db_error::SqliteError(e))
-    }
-}
-
-impl From<btc_error> for Error {
-    fn from(e: btc_error) -> Error {
-        Error::Bitcoin(e)
     }
 }
 

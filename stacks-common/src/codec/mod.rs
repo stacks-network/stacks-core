@@ -9,58 +9,35 @@ use crate::util::secp256k1::MESSAGE_SIGNATURE_ENCODED_SIZE;
 #[macro_use]
 pub mod macros;
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum Error {
     /// Failed to encode
+    #[error("{0}")]
     SerializeError(String),
     /// Failed to read
+    #[error("{0}")]
     ReadError(io::Error),
     /// Failed to decode
+    #[error("{0}")]
     DeserializeError(String),
     /// Failed to write
+    #[error("{0}")]
     WriteError(io::Error),
     /// Underflow -- not enough bytes to form the message
+    #[error("{0}")]
     UnderflowError(String),
     /// Overflow -- message too big
+    #[error("{0}")]
     OverflowError(String),
     /// Array is too big
+    #[error("Array too long")]
     ArrayTooLong,
     /// Failed to sign
+    #[error("{0}")]
     SigningError(String),
     /// Generic error
+    #[error("{0}")]
     GenericError(String),
-}
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            Error::SerializeError(ref s) => fmt::Display::fmt(s, f),
-            Error::DeserializeError(ref s) => fmt::Display::fmt(s, f),
-            Error::ReadError(ref io) => fmt::Display::fmt(io, f),
-            Error::WriteError(ref io) => fmt::Display::fmt(io, f),
-            Error::UnderflowError(ref s) => fmt::Display::fmt(s, f),
-            Error::OverflowError(ref s) => fmt::Display::fmt(s, f),
-            Error::ArrayTooLong => write!(f, "Array too long"),
-            Error::SigningError(ref s) => fmt::Display::fmt(s, f),
-            Error::GenericError(ref s) => fmt::Display::fmt(s, f),
-        }
-    }
-}
-
-impl error::Error for Error {
-    fn cause(&self) -> Option<&dyn error::Error> {
-        match *self {
-            Error::SerializeError(ref _s) => None,
-            Error::ReadError(ref io) => Some(io),
-            Error::DeserializeError(ref _s) => None,
-            Error::WriteError(ref io) => Some(io),
-            Error::UnderflowError(ref _s) => None,
-            Error::OverflowError(ref _s) => None,
-            Error::ArrayTooLong => None,
-            Error::SigningError(ref _s) => None,
-            Error::GenericError(ref _s) => None,
-        }
-    }
 }
 
 /// Helper trait for various primitive types that make up Stacks messages

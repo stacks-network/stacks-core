@@ -164,33 +164,18 @@ display_from_debug!(Builder);
 /// Ways that a script might fail. Not everything is split up as
 /// much as it could be; patches welcome if more detailed errors
 /// would help you.
-#[derive(PartialEq, Eq, Debug, Clone)]
+#[derive(PartialEq, Eq, Debug, Clone, thiserror::Error)]
 pub enum Error {
     /// Something did a non-minimal push; for more information see
     /// `https://github.com/bitcoin/bips/blob/master/bip-0062.mediawiki#Push_operators`
+    #[error("non-minimal datapush")]
     NonMinimalPush,
     /// Some opcode expected a parameter, but it was missing or truncated
+    #[error("unexpected end of script")]
     EarlyEndOfScript,
     /// Tried to read an array off the stack as a number when it was more than 4 bytes
+    #[error("numeric overflow (number on stack larger than 4 bytes)")]
     NumericOverflow,
-}
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            Error::NonMinimalPush => write!(f, "non-minimal datapush"),
-            Error::EarlyEndOfScript => write!(f, "unexpected end of script"),
-            Error::NumericOverflow => {
-                write!(f, "numeric overflow (number on stack larger than 4 bytes)")
-            }
-        }
-    }
-}
-
-impl error::Error for Error {
-    fn cause(&self) -> Option<&dyn error::Error> {
-        None
-    }
 }
 
 /// Helper to encode an integer in script format

@@ -22,28 +22,12 @@ use crate::deps_common::httparse;
 
 /// NOTE: it is imperative that the given Read and Write impls here _never_ fail with EWOULDBLOCK.
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum ChunkedError {
+    #[error("{0}")]
     DeserializeError(String),
+    #[error("{0}")]
     OverflowError(String),
-}
-
-impl fmt::Display for ChunkedError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            ChunkedError::DeserializeError(ref s) => fmt::Display::fmt(s, f),
-            ChunkedError::OverflowError(ref s) => fmt::Display::fmt(s, f),
-        }
-    }
-}
-
-impl error::Error for ChunkedError {
-    fn cause(&self) -> Option<&dyn error::Error> {
-        match *self {
-            ChunkedError::DeserializeError(..) => None,
-            ChunkedError::OverflowError(..) => None,
-        }
-    }
 }
 
 #[allow(clippy::upper_case_acronyms)]

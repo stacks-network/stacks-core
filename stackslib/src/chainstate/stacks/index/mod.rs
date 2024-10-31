@@ -302,33 +302,46 @@ impl MARFValue {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum Error {
+    #[error("Tried to read data from unopened storage")]
     NotOpenedError,
-    IOError(io::Error),
+    #[error("{0}")]
+    IOError(#[from] io::Error),
+    #[error("{0}")]
     SQLError(rusqlite::Error),
+    #[error("BUG: MARF requested the identifier for a RAM trie")]
     RequestedIdentifierForExtensionTrie,
+    #[error("Object not found")]
     NotFoundError,
+    #[error("Object not found from backptrs")]
     BackptrNotFoundError,
+    #[error("Object exists")]
     ExistsError,
+    #[error("Bad seek value")]
     BadSeekValue,
+    #[error("{0}")]
     CorruptionError(String),
+    #[error("Corrupted MARF BlockHashMap{}", format!("{}", .0.as_deref().map(|e| format!(": {e}")).unwrap_or("".to_string())))]
     BlockHashMapCorruptionError(Option<Box<Error>>),
+    #[error("Storage is in read-only mode")]
     ReadOnlyError,
+    #[error("Storage is in unconfirmed mode")]
     UnconfirmedError,
+    #[error("Not a directory")]
     NotDirectoryError,
+    #[error("Data is partially written and not yet recovered")]
     PartialWriteError,
+    #[error("Write was in progress")]
     InProgressError,
+    #[error("Write has not begun")]
     WriteNotBegunError,
+    #[error("{0}")]
     CursorError(node::CursorError),
+    #[error("{0}")]
     RestoreMarfBlockError(Box<Error>),
+    #[error("Max fee rate exceeded")]
     NonMatchingForks([u8; 32], [u8; 32]),
-}
-
-impl From<io::Error> for Error {
-    fn from(err: io::Error) -> Self {
-        Error::IOError(err)
-    }
 }
 
 impl From<rusqlite::Error> for Error {
@@ -340,69 +353,12 @@ impl From<rusqlite::Error> for Error {
         }
     }
 }
-
 impl From<db_error> for Error {
     fn from(e: db_error) -> Error {
         match e {
             db_error::SqliteError(se) => Error::SQLError(se),
             db_error::NotFoundError => Error::NotFoundError,
             _ => Error::CorruptionError(format!("{}", &e)),
-        }
-    }
-}
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            Error::IOError(ref e) => fmt::Display::fmt(e, f),
-            Error::SQLError(ref e) => fmt::Display::fmt(e, f),
-            Error::CorruptionError(ref s) => fmt::Display::fmt(s, f),
-            Error::CursorError(ref e) => fmt::Display::fmt(e, f),
-            Error::BlockHashMapCorruptionError(ref opt_e) => {
-                f.write_str("Corrupted MARF BlockHashMap")?;
-                match opt_e {
-                    Some(e) => write!(f, ": {}", e),
-                    None => Ok(()),
-                }
-            }
-            Error::NotOpenedError => write!(f, "Tried to read data from unopened storage"),
-            Error::NotFoundError => write!(f, "Object not found"),
-            Error::BackptrNotFoundError => write!(f, "Object not found from backptrs"),
-            Error::ExistsError => write!(f, "Object exists"),
-            Error::BadSeekValue => write!(f, "Bad seek value"),
-            Error::ReadOnlyError => write!(f, "Storage is in read-only mode"),
-            Error::UnconfirmedError => write!(f, "Storage is in unconfirmed mode"),
-            Error::NotDirectoryError => write!(f, "Not a directory"),
-            Error::PartialWriteError => {
-                write!(f, "Data is partially written and not yet recovered")
-            }
-            Error::InProgressError => write!(f, "Write was in progress"),
-            Error::WriteNotBegunError => write!(f, "Write has not begun"),
-            Error::RestoreMarfBlockError(_) => write!(
-                f,
-                "Failed to restore previous open block during block header check"
-            ),
-            Error::NonMatchingForks(_, _) => {
-                write!(f, "The supplied blocks are not in the same fork")
-            }
-            Error::RequestedIdentifierForExtensionTrie => {
-                write!(f, "BUG: MARF requested the identifier for a RAM trie")
-            }
-        }
-    }
-}
-
-impl error::Error for Error {
-    fn cause(&self) -> Option<&dyn error::Error> {
-        match *self {
-            Error::IOError(ref e) => Some(e),
-            Error::SQLError(ref e) => Some(e),
-            Error::RestoreMarfBlockError(ref e) => Some(e),
-            Error::BlockHashMapCorruptionError(ref opt_e) => match opt_e {
-                Some(ref e) => Some(e),
-                None => None,
-            },
-            _ => None,
         }
     }
 }

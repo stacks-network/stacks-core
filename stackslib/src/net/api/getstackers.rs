@@ -51,8 +51,11 @@ pub struct GetStackersResponse {
     pub stacker_set: RewardSet,
 }
 
+#[derive(thiserror::Error, Debug)]
 pub enum GetStackersErrors {
+    #[error("Could not read reward set. Prepare phase may not have started for this cycle yet. Err = {0:?}")]
     NotAvailableYet(crate::chainstate::coordinator::Error),
+    #[error("{0}")]
     Other(String),
 }
 
@@ -71,15 +74,6 @@ impl GetStackersErrors {
 impl From<&str> for GetStackersErrors {
     fn from(value: &str) -> Self {
         GetStackersErrors::Other(value.into())
-    }
-}
-
-impl std::fmt::Display for GetStackersErrors {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            GetStackersErrors::NotAvailableYet(e) => write!(f, "Could not read reward set. Prepare phase may not have started for this cycle yet. Err = {e:?}"),
-            GetStackersErrors::Other(msg) => write!(f, "{msg}")
-        }
     }
 }
 

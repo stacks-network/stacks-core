@@ -49,66 +49,32 @@ pub use crate::net::http::response::{
 };
 pub use crate::net::http::stream::HttpChunkGenerator;
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum Error {
     /// Serde failed to serialize or deserialize
-    JsonError(serde_json::Error),
+    #[error("{0}")]
+    JsonError(#[from] serde_json::Error),
     /// We failed to decode something
+    #[error("{0}")]
     DecodeError(String),
     /// The underlying StacksMessageCodec failed
-    CodecError(CodecError),
+    #[error("{0}")]
+    CodecError(#[from] CodecError),
     /// Failed to write()
+    #[error("{0}")]
     WriteError(io::Error),
     /// Failed to read()
+    #[error("{0}")]
     ReadError(io::Error),
     /// Not enough bytes to parse
+    #[error("{0}")]
     UnderflowError(String),
     /// Http error response
+    #[error("code={0}, msg={1}")]
     Http(u16, String),
     /// Application error
+    #[error("{0}")]
     AppError(String),
-}
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Error::JsonError(json_error) => fmt::Display::fmt(&json_error, f),
-            Error::DecodeError(msg) => write!(f, "{}", &msg),
-            Error::CodecError(codec_error) => fmt::Display::fmt(&codec_error, f),
-            Error::WriteError(io_error) => fmt::Display::fmt(&io_error, f),
-            Error::ReadError(io_error) => fmt::Display::fmt(&io_error, f),
-            Error::UnderflowError(msg) => write!(f, "{}", msg),
-            Error::Http(code, msg) => write!(f, "code={}, msg={}", code, msg),
-            Error::AppError(msg) => write!(f, "{}", &msg),
-        }
-    }
-}
-
-impl std::error::Error for Error {
-    fn cause(&self) -> Option<&dyn std::error::Error> {
-        match self {
-            Error::JsonError(json_error) => Some(json_error),
-            Error::DecodeError(_) => None,
-            Error::CodecError(codec_error) => Some(codec_error),
-            Error::WriteError(io_error) => Some(io_error),
-            Error::ReadError(io_error) => Some(io_error),
-            Error::UnderflowError(_) => None,
-            Error::Http(..) => None,
-            Error::AppError(_) => None,
-        }
-    }
-}
-
-impl From<serde_json::Error> for Error {
-    fn from(e: serde_json::Error) -> Error {
-        Error::JsonError(e)
-    }
-}
-
-impl From<CodecError> for Error {
-    fn from(e: CodecError) -> Error {
-        Error::CodecError(e)
-    }
 }
 
 impl Error {

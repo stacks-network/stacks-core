@@ -47,25 +47,19 @@ pub struct ArithmeticOnlyChecker<'a> {
     clarity_version: &'a ClarityVersion,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(thiserror::Error, Debug, PartialEq, Eq, Clone)]
+/// Errors originating from the arithmetic checker
 pub enum Error {
+    #[error("Define type forbidden: {0}")]
     DefineTypeForbidden(DefineFunctions),
+    #[error("Variable forbidden: {0}")]
     VariableForbidden(NativeVariables),
+    #[error("Function not permitted: {0}")]
     FunctionNotPermitted(NativeFunctions),
+    #[error("Trait references forbidden")]
     TraitReferencesForbidden,
+    #[error("Unexpected contract structure")]
     UnexpectedContractStructure,
-}
-
-impl std::error::Error for Error {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        None
-    }
-}
-
-impl std::fmt::Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self)
-    }
 }
 
 impl<'a> ArithmeticOnlyChecker<'a> {

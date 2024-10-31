@@ -30,31 +30,15 @@ pub mod message_blockdata;
 pub mod message_network;
 
 /// Network error
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum Error {
     /// And I/O error
-    Io(io::Error),
+    #[error("{0}")]
+    Io(#[from] io::Error),
     /// Socket mutex was poisoned
+    #[error("socket mutex was poisoned")]
     SocketMutexPoisoned,
     /// Not connected to peer
+    #[error("not connected to peer")]
     SocketNotConnectedToPeer,
-}
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            Error::Io(ref e) => fmt::Display::fmt(e, f),
-            Error::SocketMutexPoisoned => write!(f, "socket mutex was poisoned"),
-            Error::SocketNotConnectedToPeer => write!(f, "not connected to peer"),
-        }
-    }
-}
-
-impl error::Error for Error {
-    fn cause(&self) -> Option<&dyn error::Error> {
-        match *self {
-            Error::Io(ref e) => Some(e),
-            Error::SocketMutexPoisoned | Error::SocketNotConnectedToPeer => None,
-        }
-    }
 }

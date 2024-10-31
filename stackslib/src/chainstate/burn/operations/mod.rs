@@ -51,123 +51,64 @@ pub mod vote_for_aggregate_key;
 mod test;
 
 /// This module contains all burn-chain operations
-
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum Error {
     /// Failed to parse the operation from the burnchain transaction
+    #[error("Failed to parse transaction into Blockstack operation")]
     ParseError,
     /// Invalid input data
+    #[error("Invalid input")]
     InvalidInput,
     /// Database error
-    DBError(db_error),
-
-    // block commits related errors
+    #[error("{0}")]
+    DBError(#[from] db_error),
+    // Block commits related errors
+    #[error("Block commit predates genesis block")]
     BlockCommitPredatesGenesis,
+    #[error("Block commit commits to an already-seen block")]
     BlockCommitAlreadyExists,
+    #[error("Block commit has no matching register key")]
     BlockCommitNoLeaderKey,
+    #[error("Block commit parent does not exist")]
     BlockCommitNoParent,
+    #[error("Block commit tx input does not match register key tx output")]
     BlockCommitBadInput,
-    BlockCommitBadOutputs,
+    #[error("Failure checking PoX anchor block for commit")]
     BlockCommitAnchorCheck,
+    #[error("Block commit included a bad commitment output")]
+    BlockCommitBadOutputs,
+    #[error("Block commit included a bad burn block height modulus")]
     BlockCommitBadModulus,
+    #[error("Block commit has an invalid epoch")]
     BlockCommitBadEpoch,
+    #[error("Block commit missed its target sortition height by too much")]
     BlockCommitMissDistanceTooBig,
+    #[error("Block commit included in a burn block that was not intended")]
     MissedBlockCommit(MissedBlockCommit),
-
-    // leader key register related errors
+    // Leader key register related errors
+    #[error("Leader key has already been registered")]
     LeaderKeyAlreadyRegistered,
-
-    // transfer stx related errors
+    // Transfer STX related errors
+    #[error("Transfer STX must be positive amount")]
     TransferStxMustBePositive,
+    #[error("Transfer STX must not send to self")]
     TransferStxSelfSend,
-
-    // stack stx related errors
+    // Stack STX related errors
+    #[error("Stack STX must be positive amount")]
     StackStxMustBePositive,
+    #[error("Stack STX must set num cycles between 1 and max num cycles")]
     StackStxInvalidCycles,
+    #[error("Signer key is invalid")]
     StackStxInvalidKey,
-
-    // errors associated with delegate stx
+    // Errors associated with delegate STX
+    #[error("Delegate STX must be positive amount")]
     DelegateStxMustBePositive,
-
     // sBTC errors
+    #[error("Peg in amount must be positive")]
     AmountMustBePositive,
-
-    // vote-for-aggregate-public-key errors
+    // Vote-for-aggregate-public-key errors
+    #[error("Aggregate key is invalid")]
     VoteForAggregateKeyInvalidKey,
-}
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            Error::ParseError => write!(f, "Failed to parse transaction into Blockstack operation"),
-            Error::InvalidInput => write!(f, "Invalid input"),
-            Error::DBError(ref e) => fmt::Display::fmt(e, f),
-
-            Error::BlockCommitPredatesGenesis => write!(f, "Block commit predates genesis block"),
-            Error::BlockCommitAlreadyExists => {
-                write!(f, "Block commit commits to an already-seen block")
-            }
-            Error::BlockCommitNoLeaderKey => write!(f, "Block commit has no matching register key"),
-            Error::BlockCommitNoParent => write!(f, "Block commit parent does not exist"),
-            Error::BlockCommitBadInput => write!(
-                f,
-                "Block commit tx input does not match register key tx output"
-            ),
-            Error::BlockCommitAnchorCheck => {
-                write!(f, "Failure checking PoX anchor block for commit")
-            }
-            Error::BlockCommitBadOutputs => {
-                write!(f, "Block commit included a bad commitment output")
-            }
-            Error::BlockCommitBadModulus => {
-                write!(f, "Block commit included a bad burn block height modulus")
-            }
-            Error::BlockCommitBadEpoch => {
-                write!(f, "Block commit has an invalid epoch")
-            }
-            Error::BlockCommitMissDistanceTooBig => {
-                write!(
-                    f,
-                    "Block commit missed its target sortition height by too much"
-                )
-            }
-            Error::MissedBlockCommit(_) => write!(
-                f,
-                "Block commit included in a burn block that was not intended"
-            ),
-            Error::LeaderKeyAlreadyRegistered => {
-                write!(f, "Leader key has already been registered")
-            }
-            Error::TransferStxMustBePositive => write!(f, "Transfer STX must be positive amount"),
-            Error::TransferStxSelfSend => write!(f, "Transfer STX must not send to self"),
-            Error::StackStxMustBePositive => write!(f, "Stack STX must be positive amount"),
-            Error::StackStxInvalidCycles => write!(
-                f,
-                "Stack STX must set num cycles between 1 and max num cycles"
-            ),
-            Error::StackStxInvalidKey => write!(f, "Signer key is invalid"),
-            Error::DelegateStxMustBePositive => write!(f, "Delegate STX must be positive amount"),
-            Error::VoteForAggregateKeyInvalidKey => {
-                write!(f, "Aggregate key is invalid")
-            }
-            Self::AmountMustBePositive => write!(f, "Peg in amount must be positive"),
-        }
-    }
-}
-
-impl error::Error for Error {
-    fn cause(&self) -> Option<&dyn error::Error> {
-        match *self {
-            Error::DBError(ref e) => Some(e),
-            _ => None,
-        }
-    }
-}
-
-impl From<db_error> for Error {
-    fn from(e: db_error) -> Error {
-        Error::DBError(e)
-    }
 }
 
 #[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]

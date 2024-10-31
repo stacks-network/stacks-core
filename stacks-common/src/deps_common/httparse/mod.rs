@@ -325,55 +325,33 @@ fn is_header_value_token(b: u8) -> bool {
 }
 
 /// An error in parsing.
-#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug, thiserror::Error)]
 pub enum Error {
     /// Invalid byte in header name.
+    #[error("invalid header name")]
     HeaderName,
     /// Invalid byte in header value.
+    #[error("invalid header value")]
     HeaderValue,
     /// Invalid byte in new line.
+    #[error("invalid new line")]
     NewLine,
     /// Invalid byte in Response status.
+    #[error("invalid response status")]
     Status,
     /// Invalid byte where token is required.
+    #[error("invalid token")]
     Token,
     /// Parsed more headers than provided buffer can contain.
+    #[error("too many headers")]
     TooManyHeaders,
     /// Invalid byte in HTTP version.
+    #[error("invalid HTTP version")]
     Version,
     /// Invalid chunk size
+    #[error("invalid chunk size")]
     ChunkSize,
 }
-
-impl Error {
-    #[inline]
-    fn description_str(&self) -> &'static str {
-        match *self {
-            Error::HeaderName => "invalid header name",
-            Error::HeaderValue => "invalid header value",
-            Error::NewLine => "invalid new line",
-            Error::Status => "invalid response status",
-            Error::Token => "invalid token",
-            Error::TooManyHeaders => "too many headers",
-            Error::Version => "invalid HTTP version",
-            Error::ChunkSize => "invalid chunk size",
-        }
-    }
-}
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.write_str(self.description_str())
-    }
-}
-
-/*
-impl error::Error for Error {
-    fn description(&self) -> &str {
-        self.description_str()
-    }
-}
-*/
 
 /// A Result of any parsing action.
 ///
@@ -1285,6 +1263,6 @@ mod tests {
 
         use super::Error;
         let err = Error::HeaderName;
-        assert_eq!(err.to_string(), err.description_str());
+        assert_eq!(err.to_string(), format!("{err}"));
     }
 }

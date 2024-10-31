@@ -653,6 +653,7 @@ dependencies = [
  "serde_stacker",
  "slog",
  "stacks-common",
+ "thiserror",
  "time 0.2.27",
 ]
 
@@ -1886,6 +1887,7 @@ dependencies = [
  "serde_stacker",
  "sha2 0.10.8",
  "stacks-common",
+ "thiserror",
 ]
 
 [[package]]
@@ -3291,6 +3293,7 @@ dependencies = [
  "slog",
  "slog-json",
  "slog-term",
+ "thiserror",
  "time 0.2.27",
  "winapi 0.3.9",
 ]
@@ -3328,6 +3331,7 @@ dependencies = [
  "stackslib",
  "stx-genesis",
  "tempfile",
+ "thiserror",
  "tikv-jemallocator",
  "tiny_http",
  "tokio",
@@ -3418,6 +3422,7 @@ dependencies = [
  "stacks-common",
  "stdext",
  "stx-genesis",
+ "thiserror",
  "tikv-jemallocator",
  "time 0.2.27",
  "url",

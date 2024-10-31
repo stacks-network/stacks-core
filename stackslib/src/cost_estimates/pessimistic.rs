@@ -246,12 +246,6 @@ impl PessimisticEstimator {
     }
 }
 
-impl From<SqliteError> for EstimatorError {
-    fn from(e: SqliteError) -> Self {
-        EstimatorError::SqliteError(e)
-    }
-}
-
 impl CostEstimator for PessimisticEstimator {
     fn notify_event(
         &mut self,

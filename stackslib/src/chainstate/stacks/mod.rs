@@ -85,199 +85,100 @@ pub const STACKS_BLOCK_VERSION_AST_PRECHECK_SIZE: u8 = 1;
 pub const MAX_BLOCK_LEN: u32 = 2 * 1024 * 1024;
 pub const MAX_TRANSACTION_LEN: u32 = MAX_BLOCK_LEN;
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum Error {
+    #[error("Invalid fee")]
     InvalidFee,
+    #[error("{0}")]
     InvalidStacksBlock(String),
+    #[error("Block has a different tenure than parent, but no tenure change transaction")]
     ExpectedTenureChange,
+    #[error("{0}")]
     InvalidStacksMicroblock(String, BlockHeaderHash),
     // The bool is true if the invalid transaction was quietly ignored.
+    #[error("{0}")]
     InvalidStacksTransaction(String, bool),
     /// This error indicates that the considered transaction was skipped
     /// because of the current state of the block assembly algorithm,
     /// but the transaction otherwise may be valid (e.g., block assembly is
     /// only considering STX transfers and this tx isn't a transfer).
+    #[error("Stacks transaction skipped during assembly due to: {0}")]
     StacksTransactionSkipped(String),
+    #[error("{0}")]
     PostConditionFailed(String),
+    #[error("No such Stacks block")]
     NoSuchBlockError,
     /// The supplied Sortition IDs, consensus hashes, or stacks blocks are not in the same fork.
+    #[error("The supplied block identifiers are not in the same fork")]
     NotInSameFork,
+    #[error("Invalid chainstate database")]
     InvalidChainstateDB,
+    #[error("Too much data in block")]
     BlockTooBigError,
+    #[error("Too much data in transaction: measured_cost={0:?}")]
     TransactionTooBigError(Option<ExecutionCost>),
+    #[error("Block execution budget exceeded")]
     BlockCostExceeded,
+    #[error("No transactions to mine")]
     NoTransactionsToMine,
+    #[error("Too many microblocks in stream")]
     MicroblockStreamTooLongError,
+    #[error("Spending condition is incompatible with this operation")]
     IncompatibleSpendingConditionError,
+    #[error("Cost overflow: before={0}, after={1}, budget={2}")]
     CostOverflowError(ExecutionCost, ExecutionCost, ExecutionCost),
-    ClarityError(clarity_error),
-    DBError(db_error),
-    NetError(net_error),
-    CodecError(codec_error),
-    MARFError(marf_error),
+    #[error("{0}")]
+    ClarityError(#[from] clarity_error),
+    #[error("{0}")]
+    DBError(#[from] db_error),
+    #[error("{0}")]
+    NetError(#[from] net_error),
+    #[error("{0}")]
+    CodecError(#[from] codec_error),
+    #[error("{0}")]
+    MARFError(#[from] marf_error),
+    #[error("{0}")]
     ReadError(io::Error),
+    #[error("{0}")]
     WriteError(io::Error),
+    #[error("{0}")]
     MemPoolError(String),
+    #[error("Account has already locked STX for PoX")]
     PoxAlreadyLocked,
+    #[error("Not enough STX to lock")]
     PoxInsufficientBalance,
+    #[error("No such reward cycle")]
     PoxNoRewardCycle,
+    #[error("Account has not already locked STX for PoX extend")]
     PoxExtendNotLocked,
+    #[error("PoX increase only allowed for pox-2 locks")]
     PoxIncreaseOnV1,
+    #[error("PoX increase was invalid")]
     PoxInvalidIncrease,
+    #[error("A defunct PoX contract was called after transition")]
     DefunctPoxContract,
+    #[error("Transaction {0} is problematic and will not be mined again")]
     ProblematicTransaction(Txid),
+    #[error("Mining attempt aborted by signal")]
     MinerAborted,
+    #[error("Channel '{0}' closed")]
     ChannelClosed(String),
     /// This error indicates a Epoch2 block attempted to build off of a Nakamoto block.
+    #[error("Stacks Epoch 2-style block building off of Nakamoto block")]
     InvalidChildOfNakomotoBlock,
+    #[error("No registered signers for reward cycle {0}")]
     NoRegisteredSigners(u64),
 }
 
-impl From<marf_error> for Error {
-    fn from(e: marf_error) -> Error {
-        Error::MARFError(e)
+impl From<RusqliteError> for Error {
+    fn from(e: RusqliteError) -> Error {
+        Error::DBError(db_error::SqliteError(e))
     }
 }
 
-impl From<clarity_error> for Error {
-    fn from(e: clarity_error) -> Error {
-        Error::ClarityError(e)
-    }
-}
-
-impl From<net_error> for Error {
-    fn from(e: net_error) -> Error {
-        Error::NetError(e)
-    }
-}
-
-impl From<codec_error> for Error {
-    fn from(e: codec_error) -> Error {
-        Error::CodecError(e)
-    }
-}
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            Error::InvalidFee => write!(f, "Invalid fee"),
-            Error::InvalidStacksBlock(ref s) => fmt::Display::fmt(s, f),
-            Error::InvalidStacksMicroblock(ref s, _) => fmt::Display::fmt(s, f),
-            Error::InvalidStacksTransaction(ref s, _) => fmt::Display::fmt(s, f),
-            Error::PostConditionFailed(ref s) => fmt::Display::fmt(s, f),
-            Error::NoSuchBlockError => write!(f, "No such Stacks block"),
-            Error::InvalidChainstateDB => write!(f, "Invalid chainstate database"),
-            Error::BlockTooBigError => write!(f, "Too much data in block"),
-            Error::TransactionTooBigError(ref c) => {
-                write!(f, "Too much data in transaction: measured_cost={c:?}")
-            }
-            Error::BlockCostExceeded => write!(f, "Block execution budget exceeded"),
-            Error::MicroblockStreamTooLongError => write!(f, "Too many microblocks in stream"),
-            Error::IncompatibleSpendingConditionError => {
-                write!(f, "Spending condition is incompatible with this operation")
-            }
-            Error::CostOverflowError(ref c1, ref c2, ref c3) => write!(
-                f,
-                "{}",
-                &format!(
-                    "Cost overflow: before={:?}, after={:?}, budget={:?}",
-                    c1, c2, c3
-                )
-            ),
-            Error::ClarityError(ref e) => fmt::Display::fmt(e, f),
-            Error::DBError(ref e) => fmt::Display::fmt(e, f),
-            Error::NetError(ref e) => fmt::Display::fmt(e, f),
-            Error::CodecError(ref e) => fmt::Display::fmt(e, f),
-            Error::MARFError(ref e) => fmt::Display::fmt(e, f),
-            Error::ReadError(ref e) => fmt::Display::fmt(e, f),
-            Error::WriteError(ref e) => fmt::Display::fmt(e, f),
-            Error::MemPoolError(ref s) => fmt::Display::fmt(s, f),
-            Error::NoTransactionsToMine => write!(f, "No transactions to mine"),
-            Error::PoxAlreadyLocked => write!(f, "Account has already locked STX for PoX"),
-            Error::PoxExtendNotLocked => {
-                write!(f, "Account has not already locked STX for PoX extend")
-            }
-            Error::PoxInsufficientBalance => write!(f, "Not enough STX to lock"),
-            Error::PoxNoRewardCycle => write!(f, "No such reward cycle"),
-            Error::StacksTransactionSkipped(ref r) => {
-                write!(
-                    f,
-                    "Stacks transaction skipped during assembly due to: {}",
-                    r
-                )
-            }
-            Error::DefunctPoxContract => {
-                write!(f, "A defunct PoX contract was called after transition")
-            }
-            Error::ProblematicTransaction(ref txid) => write!(
-                f,
-                "Transaction {} is problematic and will not be mined again",
-                txid
-            ),
-            Error::PoxIncreaseOnV1 => write!(f, "PoX increase only allowed for pox-2 locks"),
-            Error::PoxInvalidIncrease => write!(f, "PoX increase was invalid"),
-            Error::MinerAborted => write!(f, "Mining attempt aborted by signal"),
-            Error::ChannelClosed(ref s) => write!(f, "Channel '{}' closed", s),
-            Error::InvalidChildOfNakomotoBlock => write!(
-                f,
-                "Stacks Epoch 2-style block building off of Nakamoto block"
-            ),
-            Error::ExpectedTenureChange => write!(
-                f,
-                "Block has a different tenure than parent, but no tenure change transaction"
-            ),
-            Error::NoRegisteredSigners(reward_cycle) => {
-                write!(f, "No registered signers for reward cycle {reward_cycle}")
-            }
-            Error::NotInSameFork => {
-                write!(f, "The supplied block identifiers are not in the same fork")
-            }
-        }
-    }
-}
-
-impl error::Error for Error {
-    #[cfg_attr(test, mutants::skip)]
-    fn cause(&self) -> Option<&dyn error::Error> {
-        match *self {
-            Error::InvalidFee => None,
-            Error::InvalidStacksBlock(ref _s) => None,
-            Error::InvalidStacksMicroblock(ref _s, ref _h) => None,
-            Error::InvalidStacksTransaction(ref _s, _q) => None,
-            Error::PostConditionFailed(ref _s) => None,
-            Error::NoSuchBlockError => None,
-            Error::InvalidChainstateDB => None,
-            Error::BlockTooBigError => None,
-            Error::TransactionTooBigError(..) => None,
-            Error::BlockCostExceeded => None,
-            Error::MicroblockStreamTooLongError => None,
-            Error::IncompatibleSpendingConditionError => None,
-            Error::CostOverflowError(..) => None,
-            Error::ClarityError(ref e) => Some(e),
-            Error::DBError(ref e) => Some(e),
-            Error::NetError(ref e) => Some(e),
-            Error::CodecError(ref e) => Some(e),
-            Error::MARFError(ref e) => Some(e),
-            Error::ReadError(ref e) => Some(e),
-            Error::WriteError(ref e) => Some(e),
-            Error::MemPoolError(ref _s) => None,
-            Error::NoTransactionsToMine => None,
-            Error::PoxAlreadyLocked => None,
-            Error::PoxInsufficientBalance => None,
-            Error::PoxNoRewardCycle => None,
-            Error::PoxExtendNotLocked => None,
-            Error::DefunctPoxContract => None,
-            Error::StacksTransactionSkipped(ref _r) => None,
-            Error::ProblematicTransaction(ref _txid) => None,
-            Error::PoxIncreaseOnV1 => None,
-            Error::PoxInvalidIncrease => None,
-            Error::MinerAborted => None,
-            Error::ChannelClosed(ref _s) => None,
-            Error::InvalidChildOfNakomotoBlock => None,
-            Error::ExpectedTenureChange => None,
-            Error::NoRegisteredSigners(_) => None,
-            Error::NotInSameFork => None,
-        }
+impl From<clarity_interpreter_error> for Error {
+    fn from(e: clarity_interpreter_error) -> Error {
+        Error::ClarityError(clarity_error::Interpreter(e))
     }
 }
 
@@ -335,24 +236,6 @@ impl Error {
             "reason_data": reason_data
         });
         result
-    }
-}
-
-impl From<RusqliteError> for Error {
-    fn from(e: RusqliteError) -> Error {
-        Error::DBError(db_error::SqliteError(e))
-    }
-}
-
-impl From<db_error> for Error {
-    fn from(e: db_error) -> Error {
-        Error::DBError(e)
-    }
-}
-
-impl From<clarity_interpreter_error> for Error {
-    fn from(e: clarity_interpreter_error) -> Error {
-        Error::ClarityError(clarity_error::Interpreter(e))
     }
 }
 

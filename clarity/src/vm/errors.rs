@@ -36,74 +36,129 @@ pub struct IncomparableError<T> {
     pub err: T,
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum Error {
     /// UncheckedErrors are errors that *should* be caught by the
     ///   TypeChecker and other check passes. Test executions may
     ///   trigger these errors.
-    Unchecked(CheckErrors),
-    Interpreter(InterpreterError),
+    #[error("{0:?}")]
+    Unchecked(#[from] CheckErrors),
+    #[error("{0:?}")]
+    Interpreter(#[from] InterpreterError),
+    #[error("{0}{}", .1.as_deref().map(|stack_trace| 
+        {
+            let result = "\n StackTrace: \n".into();
+            stack_trace.iter().fold(result, |acc, item| {
+                format!("{}{}\n", acc, item)
+            })
+        }).unwrap_or("".into()))]
     Runtime(RuntimeErrorType, Option<StackTrace>),
+    #[error("{0:?}")]
     ShortReturn(ShortReturnType),
 }
 
 /// InterpreterErrors are errors that *should never* occur.
 /// Test executions may trigger these errors.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, thiserror::Error)]
 pub enum InterpreterError {
+    #[error("Bad sender: {0}")]
     BadSender(Value),
+    #[error("Bad symbolic representation: {0}")]
     BadSymbolicRepresentation(String),
+    #[error("Interpreter error: {0}")]
     InterpreterError(String),
+    #[error("Uninitialized persisted variable")]
     UninitializedPersistedVariable,
+    #[error("Failed to construct asset table")]
     FailedToConstructAssetTable,
+    #[error("Failed to construct event batch")]
     FailedToConstructEventBatch,
     #[cfg(feature = "canonical")]
+    #[error("Sqlite error: {0:?}")]
     SqliteError(IncomparableError<SqliteError>),
+    #[error("Bad file name")]
     BadFileName,
+    #[error("Failed to create data directory")]
     FailedToCreateDataDirectory,
+    #[error("MARF failure: {0}")]
     MarfFailure(String),
+    #[error("Failure constructing tuple with type")]
     FailureConstructingTupleWithType,
+    #[error("Failure constructing list with type")]
     FailureConstructingListWithType,
+    #[error("Insufficient balance")]
     InsufficientBalance,
+    #[error("Cost contract load failure")]
     CostContractLoadFailure,
+    #[error("DB error: {0}")]
     DBError(String),
+    #[error("Expect: {0}")]
     Expect(String),
 }
 
 /// RuntimeErrors are errors that smart contracts are expected
 ///   to be able to trigger during execution (e.g., arithmetic errors)
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, thiserror::Error)]
 pub enum RuntimeErrorType {
+    #[error("Arithmetic: {0}")]
     Arithmetic(String),
+    #[error("Arithmetic overflow")]
     ArithmeticOverflow,
+    #[error("Arithmetic underflow")]
     ArithmeticUnderflow,
+    #[error("Supply overflow: {0} + {1}")]
     SupplyOverflow(u128, u128),
+    #[error("Supply underflow: {0} - {1}")]
     SupplyUnderflow(u128, u128),
+    #[error("Division by zero")]
     DivisionByZero,
     // error in parsing types
+    #[error("Parse type error: {0}")]
     ParseError(String),
     // error in parsing the AST
+    #[error("AST parsing error: {0}")]
     ASTError(ParseError),
+    #[error("Max stack depth reached")]
     MaxStackDepthReached,
+    #[error("Max context depth reached")]
     MaxContextDepthReached,
+    #[error("List dimension too high")]
     ListDimensionTooHigh,
+    #[error("Bad type construciton")]
     BadTypeConstruction,
+    #[error("Value too large")]
     ValueTooLarge,
+    #[error("Bad block height: {0}")]
     BadBlockHeight(String),
+    #[error("Transfer non positive amount")]
     TransferNonPositiveAmount,
+    #[error("No such token")]
     NoSuchToken,
+    #[error("Not implemented")]
     NotImplemented,
+    #[error("No caller in context")]
     NoCallerInContext,
+    #[error("No sender in context")]
     NoSenderInContext,
+    #[error("Non positive token supply")]
     NonPositiveTokenSupply,
+    #[error("JSON parse error: {0:?}")]
     JSONParseError(IncomparableError<SerdeJSONErr>),
+    #[error("Attempt to fetch in transient context")]
     AttemptToFetchInTransientContext,
+    #[error("Bad name value: {0}, {1}")]
     BadNameValue(&'static str, String),
+    #[error("Unknown block header hash: {0}")]
     UnknownBlockHeaderHash(BlockHeaderHash),
+    #[error("Bad block hash: {0:?}")]
     BadBlockHash(Vec<u8>),
+    #[error("Unwrap failure")]
     UnwrapFailure,
+    #[error("Defunct pox contract")]
     DefunctPoxContract,
+    #[error("Pox already locked")]
     PoxAlreadyLocked,
+    #[error("Metadata already set")]
     MetadataAlreadySet,
 }
 
@@ -130,45 +185,6 @@ impl PartialEq<Error> for Error {
             (Error::Interpreter(x), Error::Interpreter(y)) => x == y,
             _ => false,
         }
-    }
-}
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Error::Runtime(ref err, ref stack) => {
-                match err {
-                    _ => write!(f, "{}", err),
-                }?;
-
-                if let Some(ref stack_trace) = stack {
-                    write!(f, "\n Stack Trace: \n")?;
-                    for item in stack_trace.iter() {
-                        write!(f, "{}\n", item)?;
-                    }
-                }
-                Ok(())
-            }
-            _ => write!(f, "{:?}", self),
-        }
-    }
-}
-
-impl fmt::Display for RuntimeErrorType {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self)
-    }
-}
-
-impl error::Error for Error {
-    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
-        None
-    }
-}
-
-impl error::Error for RuntimeErrorType {
-    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
-        None
     }
 }
 
@@ -202,22 +218,9 @@ impl From<RuntimeErrorType> for Error {
         Error::Runtime(err, None)
     }
 }
-
-impl From<CheckErrors> for Error {
-    fn from(err: CheckErrors) -> Self {
-        Error::Unchecked(err)
-    }
-}
-
 impl From<ShortReturnType> for Error {
     fn from(err: ShortReturnType) -> Self {
         Error::ShortReturn(err)
-    }
-}
-
-impl From<InterpreterError> for Error {
-    fn from(err: InterpreterError) -> Self {
-        Error::Interpreter(err)
     }
 }
 
