@@ -67,6 +67,33 @@ use crate::net::server::HttpPeer;
 use crate::net::{Error as NetError, Neighbor, NeighborAddress, NeighborKey};
 use crate::util_lib::db::{DBConn, Error as DBError};
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct CompletedTenure {
+    tenure_id: ConsensusHash,
+    start_block: StacksBlockId,
+    end_block: StacksBlockId,
+}
+
+impl From<&TenureStartEnd> for CompletedTenure {
+    fn from(tse: &TenureStartEnd) -> Self {
+        Self {
+            tenure_id: tse.tenure_id_consensus_hash.clone(),
+            start_block: tse.start_block_id.clone(),
+            end_block: tse.end_block_id.clone(),
+        }
+    }
+}
+
+impl From<&mut NakamotoTenureDownloader> for CompletedTenure {
+    fn from(ntd: &mut NakamotoTenureDownloader) -> Self {
+        Self {
+            tenure_id: ntd.tenure_id_consensus_hash,
+            start_block: ntd.tenure_start_block_id,
+            end_block: ntd.tenure_end_block_id,
+        }
+    }
+}
+
 /// A set of confirmed downloader state machines assigned to one or more neighbors.  The block
 /// downloader runs tenure-downloaders in parallel, since the downloader for the N+1'st tenure
 /// needs to feed data into the Nth tenure.  This struct is responsible for scheduling peer
@@ -83,7 +110,9 @@ pub struct NakamotoTenureDownloaderSet {
     pub(crate) peers: HashMap<NeighborAddress, usize>,
     /// The set of tenures that have been successfully downloaded (but possibly not yet stored or
     /// processed)
-    pub(crate) completed_tenures: HashSet<ConsensusHash>,
+    pub(crate) completed_tenures: HashSet<CompletedTenure>,
+    /// Number of times a tenure download was attempted
+    pub(crate) attempted_tenures: HashMap<ConsensusHash, u64>,
 }
 
 impl NakamotoTenureDownloaderSet {
@@ -92,6 +121,7 @@ impl NakamotoTenureDownloaderSet {
             downloaders: vec![],
             peers: HashMap::new(),
             completed_tenures: HashSet::new(),
+            attempted_tenures: HashMap::new(),
         }
     }
 
@@ -178,15 +208,6 @@ impl NakamotoTenureDownloaderSet {
             cnt += 1;
         }
         cnt
-    }
-
-    /// Determine whether or not there exists a downloader for the given tenure, identified by its
-    /// consensus hash.
-    pub fn is_tenure_inflight(&self, ch: &ConsensusHash) -> bool {
-        self.downloaders
-            .iter()
-            .find(|d| d.as_ref().map(|x| &x.tenure_id_consensus_hash) == Some(ch))
-            .is_some()
     }
 
     /// Determine if this downloader set is empty -- i.e. there's no in-progress downloaders.
@@ -341,11 +362,6 @@ impl NakamotoTenureDownloaderSet {
             let Some(ch) = schedule.front() else {
                 break;
             };
-            if self.completed_tenures.contains(&ch) {
-                debug!("Already successfully downloaded tenure {}", &ch);
-                schedule.pop_front();
-                continue;
-            }
             let Some(neighbors) = available.get_mut(ch) else {
                 // not found on any neighbors, so stop trying this tenure
                 debug!("No neighbors have tenure {}", ch);
@@ -382,6 +398,24 @@ impl NakamotoTenureDownloaderSet {
                 debug!("Neighbor {} does not serve tenure {}", &naddr, ch);
                 continue;
             };
+            if tenure_info.processed {
+                // we already have this tenure
+                debug!("Already have processed tenure {}", ch);
+                self.completed_tenures
+                    .remove(&CompletedTenure::from(tenure_info));
+                continue;
+            }
+            if self
+                .completed_tenures
+                .contains(&CompletedTenure::from(tenure_info))
+            {
+                debug!(
+                    "Already successfully downloaded tenure {} ({}-{})",
+                    &ch, &tenure_info.start_block_id, &tenure_info.end_block_id
+                );
+                schedule.pop_front();
+                continue;
+            }
             let Some(Some(start_reward_set)) = current_reward_cycles
                 .get(&tenure_info.start_reward_cycle)
                 .map(|cycle_info| cycle_info.reward_set())
@@ -407,7 +441,16 @@ impl NakamotoTenureDownloaderSet {
                 continue;
             };
 
+            let attempt_count = if let Some(attempt_count) = self.attempted_tenures.get(&ch) {
+                *attempt_count
+            } else {
+                0
+            };
+            self.attempted_tenures
+                .insert(ch.clone(), attempt_count.saturating_add(1));
+
             info!("Download tenure {}", &ch;
+                "attempt" => attempt_count.saturating_add(1),
                 "tenure_start_block" => %tenure_info.start_block_id,
                 "tenure_end_block" => %tenure_info.end_block_id,
                 "tenure_start_reward_cycle" => tenure_info.start_reward_cycle,
@@ -474,7 +517,7 @@ impl NakamotoTenureDownloaderSet {
                     &naddr, &downloader.tenure_id_consensus_hash
                 );
                 finished.push(naddr.clone());
-                finished_tenures.push(downloader.tenure_id_consensus_hash.clone());
+                finished_tenures.push(CompletedTenure::from(downloader));
                 continue;
             }
             debug!(
@@ -482,7 +525,10 @@ impl NakamotoTenureDownloaderSet {
                 &naddr, &downloader.tenure_id_consensus_hash, &downloader.state
             );
             let Ok(sent) = downloader.send_next_download_request(network, neighbor_rpc) else {
-                debug!("Downloader for {} failed; this peer is dead", &naddr);
+                info!(
+                    "Downloader for tenure {} to {} failed; this peer is dead",
+                    &downloader.tenure_id_consensus_hash, &naddr
+                );
                 neighbor_rpc.add_dead(network, naddr);
                 continue;
             };
@@ -523,11 +569,17 @@ impl NakamotoTenureDownloaderSet {
             let Ok(blocks_opt) = downloader
                 .handle_next_download_response(response)
                 .map_err(|e| {
-                    debug!("Failed to handle response from {}: {:?}", &naddr, &e);
+                    info!(
+                        "Failed to handle response from {} on tenure {}: {:?}",
+                        &naddr, &downloader.tenure_id_consensus_hash, &e
+                    );
                     e
                 })
             else {
-                debug!("Failed to handle download response from {}", &naddr);
+                info!(
+                    "Failed to handle download response from {} on tenure {}",
+                    &naddr, &downloader.tenure_id_consensus_hash
+                );
                 neighbor_rpc.add_dead(network, &naddr);
                 continue;
             };
@@ -543,12 +595,16 @@ impl NakamotoTenureDownloaderSet {
             );
             new_blocks.insert(downloader.tenure_id_consensus_hash.clone(), blocks);
             if downloader.is_done() {
+                info!(
+                    "Downloader for tenure {} is finished",
+                    &downloader.tenure_id_consensus_hash
+                );
                 debug!(
-                    "Downloader for {} on tenure {} is finished",
-                    &naddr, &downloader.tenure_id_consensus_hash
+                    "Downloader for tenure {} finished on {}",
+                    &downloader.tenure_id_consensus_hash, &naddr
                 );
                 finished.push(naddr.clone());
-                finished_tenures.push(downloader.tenure_id_consensus_hash.clone());
+                finished_tenures.push(CompletedTenure::from(downloader));
                 continue;
             }
         }
