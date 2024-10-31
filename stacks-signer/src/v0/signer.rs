@@ -670,17 +670,15 @@ impl Signer {
     /// Check the current tracked submitted block proposal to see if it has timed out.
     /// Broadcasts a rejection and marks the block locally rejected if it has.
     fn check_submitted_block_proposal(&mut self) {
-        let Some((block_proposal, block_submission)) = self.submitted_block_proposal.clone() else {
+        let Some((block_proposal, block_submission)) = self.submitted_block_proposal.take() else {
             // Nothing to check.
             return;
         };
         if block_submission.elapsed() < self.block_proposal_validation_timeout {
-            // Not expired yet.
+            // Not expired yet. Put it back!
+            self.submitted_block_proposal = Some((block_proposal, block_submission));
             return;
         }
-        // Let us immediately flush, even if we later encounter an error broadcasting our responses.
-        // We should still attempt to handle a new proposal at this point.
-        self.submitted_block_proposal = None;
         let signature_sighash = block_proposal.block.header.signer_signature_hash();
         // For mutability reasons, we need to take the block_info out of the map and add it back after processing
         let mut block_info = match self
@@ -710,6 +708,8 @@ impl Signer {
                 return;
             }
         };
+        // We cannot determine the validity of the block, but we have not reached consensus on it yet.
+        // Reject it so we aren't holding up the network because of our inaction.
         warn!(
             "{self}: Failed to receive block validation response within {} ms. Rejecting block.", self.block_proposal_validation_timeout.as_millis();
             "signer_sighash" => %signature_sighash,
@@ -721,7 +721,6 @@ impl Signer {
             &self.private_key,
             self.mainnet,
         );
-        // We know proposal is invalid. Send rejection message, do not do further validation
         if let Err(e) = block_info.mark_locally_rejected() {
             warn!("{self}: Failed to mark block as locally rejected: {e:?}",);
         };
@@ -855,6 +854,7 @@ impl Signer {
             .map(|(proposal, _)| &proposal.block.header.signer_signature_hash() == block_hash)
             .unwrap_or(false)
         {
+            // Consensus reached! No longer bother tracking its validation submission to the node as we are too late to participate in the decision anyway.
             self.submitted_block_proposal = None;
         }
     }
@@ -1005,6 +1005,7 @@ impl Signer {
             .map(|(proposal, _)| &proposal.block.header.signer_signature_hash() == block_hash)
             .unwrap_or(false)
         {
+            // Consensus reached! No longer bother tracking its validation submission to the node as we are too late to participate in the decision anyway.
             self.submitted_block_proposal = None;
         }
     }

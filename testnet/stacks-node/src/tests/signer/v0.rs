@@ -5608,7 +5608,9 @@ fn multiple_miners_with_custom_chain_id() {
     signer_test.shutdown();
 }
 
-// Teimout a block validation response
+// Ensures that a signer will issue ConnectivityIssues rejections if a block submission
+// times out. Also ensures that no other proposal gets submitted for validation if we
+// are already waiting for a block submission response.
 #[test]
 #[ignore]
 fn block_validation_response_timeout() {
@@ -5732,11 +5734,12 @@ fn block_validation_response_timeout() {
             };
             // We are waiting for the original block proposal which will have a diff signature to our
             // second proposed block.
-            if signer_signature_hash != block_signer_signature_hash_1 {
+            assert_ne!(
+                signer_signature_hash, block_signer_signature_hash_1,
+                "Received a rejection for the wrong block"
+            );
+            if matches!(reason_code, RejectCode::ConnectivityIssues) {
                 rejected_signers.push(signature);
-                if matches!(reason_code, RejectCode::ConnectivityIssues) {
-                    break;
-                }
             }
         }
         assert!(
