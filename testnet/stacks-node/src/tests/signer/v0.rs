@@ -1003,10 +1003,7 @@ fn forked_tenure_testing(
     signer_test
         .running_nodes
         .nakamoto_test_skip_commit_op
-        .0
-        .lock()
-        .unwrap()
-        .replace(true);
+        .set(true);
     TEST_BROADCAST_STALL.lock().unwrap().replace(false);
 
     // Wait for a stacks block to be broadcasted
@@ -1083,10 +1080,7 @@ fn forked_tenure_testing(
             signer_test
                 .running_nodes
                 .nakamoto_test_skip_commit_op
-                .0
-                .lock()
-                .unwrap()
-                .replace(false);
+                .set(false);
 
             let commits_count = commits_submitted.load(Ordering::SeqCst);
             if commits_count > commits_before {
@@ -1850,7 +1844,7 @@ fn miner_forking() {
 
     let pre_nakamoto_peer_1_height = get_chain_info(&conf).stacks_tip_height;
 
-    naka_skip_commit_op.0.lock().unwrap().replace(false);
+    naka_skip_commit_op.set(true);
     info!("------------------------- Reached Epoch 3.0 -------------------------");
 
     let mut sortitions_seen = Vec::new();
@@ -1868,7 +1862,7 @@ fn miner_forking() {
             .running_nodes
             .btc_regtest_controller
             .build_next_block(1);
-        naka_skip_commit_op.0.lock().unwrap().replace(false);
+        naka_skip_commit_op.set(false);
 
         // wait until a commit is submitted by run_loop_2
         wait_for(60, || {
@@ -1892,7 +1886,7 @@ fn miner_forking() {
 
         // block commits from RL2 -- this will block until the start of the next iteration
         //  in this loop.
-        naka_skip_commit_op.0.lock().unwrap().replace(true);
+        naka_skip_commit_op.set(true);
         // ensure RL1 performs an RBF after unblock block broadcast
         let rl1_commits_before = signer_test
             .running_nodes
@@ -2499,10 +2493,7 @@ fn empty_sortition() {
     signer_test
         .running_nodes
         .nakamoto_test_skip_commit_op
-        .0
-        .lock()
-        .unwrap()
-        .replace(true);
+        .set(true);
 
     let blocks_after = signer_test
         .running_nodes
@@ -5120,10 +5111,7 @@ fn continue_after_tenure_extend() {
     signer_test
         .running_nodes
         .nakamoto_test_skip_commit_op
-        .0
-        .lock()
-        .unwrap()
-        .replace(true);
+        .set(true);
 
     // It's possible that we have a pending block commit already.
     // Mine two BTC blocks to "flush" this commit.

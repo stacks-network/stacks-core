@@ -1003,13 +1003,7 @@ impl RelayerThread {
 
     #[cfg(test)]
     fn fault_injection_skip_block_commit(&self) -> bool {
-        self.globals
-            .counters
-            .naka_skip_commit_op
-            .0
-            .lock()
-            .unwrap()
-            .unwrap_or(false)
+        self.globals.counters.naka_skip_commit_op.get()
     }
 
     #[cfg(not(test))]

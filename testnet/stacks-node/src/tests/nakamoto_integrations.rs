@@ -5051,7 +5051,7 @@ fn forked_tenure_is_ignored() {
 
     // Unpause the broadcast of Tenure B's block, do not submit commits, and do not allow blocks to
     // be processed
-    test_skip_commit_op.0.lock().unwrap().replace(true);
+    test_skip_commit_op.set(true);
     TEST_BROADCAST_STALL.lock().unwrap().replace(false);
 
     // Wait for a stacks block to be broadcasted.
@@ -5104,7 +5104,7 @@ fn forked_tenure_is_ignored() {
         .expect("Mutex poisoned")
         .get_stacks_blocks_processed();
     next_block_and(&mut btc_regtest_controller, 60, || {
-        test_skip_commit_op.0.lock().unwrap().replace(false);
+        test_skip_commit_op.set(false);
         TEST_BLOCK_ANNOUNCE_STALL.lock().unwrap().replace(false);
         let commits_count = commits_submitted.load(Ordering::SeqCst);
         let blocks_count = mined_blocks.load(Ordering::SeqCst);
@@ -7054,7 +7054,7 @@ fn continue_tenure_extend() {
         .get_stacks_blocks_processed();
 
     info!("Pausing commit ops to trigger a tenure extend.");
-    test_skip_commit_op.0.lock().unwrap().replace(true);
+    test_skip_commit_op.set(true);
 
     next_block_and(&mut btc_regtest_controller, 60, || Ok(true)).unwrap();
 
@@ -7153,7 +7153,7 @@ fn continue_tenure_extend() {
     }
 
     info!("Resuming commit ops to mine regular tenures.");
-    test_skip_commit_op.0.lock().unwrap().replace(false);
+    test_skip_commit_op.set(false);
 
     // Mine 15 more regular nakamoto tenures
     for _i in 0..15 {
