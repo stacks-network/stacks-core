@@ -68,7 +68,7 @@ use crate::net::{Error as NetError, Neighbor, NeighborAddress, NeighborKey};
 use crate::util_lib::db::{DBConn, Error as DBError};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-struct CompletedTenure {
+pub(crate) struct CompletedTenure {
     tenure_id: ConsensusHash,
     start_block: StacksBlockId,
     end_block: StacksBlockId,
