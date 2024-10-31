@@ -335,7 +335,7 @@ Metrics endpoint: {metrics_endpoint}
 
     /// Get the chain ID for the network
     pub fn to_chain_id(&self) -> u32 {
-        self.chain_id.unwrap_or_else(|| match self.network {
+        self.chain_id.unwrap_or(match self.network {
             Network::Mainnet => CHAIN_ID_MAINNET,
             Network::Testnet | Network::Mocknet => CHAIN_ID_TESTNET,
         })
