@@ -94,6 +94,8 @@ impl From<&mut NakamotoTenureDownloader> for CompletedTenure {
     }
 }
 
+pub const PEER_DEPRIORITIZATION_TIME: u64 = 60;
+
 /// A set of confirmed downloader state machines assigned to one or more neighbors.  The block
 /// downloader runs tenure-downloaders in parallel, since the downloader for the N+1'st tenure
 /// needs to feed data into the Nth tenure.  This struct is responsible for scheduling peer
@@ -115,6 +117,9 @@ pub struct NakamotoTenureDownloaderSet {
     pub(crate) attempted_tenures: HashMap<ConsensusHash, u64>,
     /// Number of times a tenure download failed
     pub(crate) attempt_failed_tenures: HashMap<ConsensusHash, u64>,
+    /// Peers that should be deprioritized because they're dead (maps to when they can be used
+    /// again)
+    pub(crate) deprioritized_peers: HashMap<NeighborAddress, u64>,
 }
 
 impl NakamotoTenureDownloaderSet {
@@ -125,6 +130,7 @@ impl NakamotoTenureDownloaderSet {
             completed_tenures: HashSet::new(),
             attempted_tenures: HashMap::new(),
             attempt_failed_tenures: HashMap::new(),
+            deprioritized_peers: HashMap::new(),
         }
     }
 
@@ -136,6 +142,18 @@ impl NakamotoTenureDownloaderSet {
         } else {
             attempt_failed_tenures.insert(ch.clone(), 1);
         }
+    }
+
+    /// Mark a peer as deprioritized
+    /// Implemented statically to appease the borrow checker.
+    fn mark_deprioritized(
+        deprioritized_peers: &mut HashMap<NeighborAddress, u64>,
+        peer: &NeighborAddress,
+    ) {
+        deprioritized_peers.insert(
+            peer.clone(),
+            get_epoch_time_secs() + PEER_DEPRIORITIZATION_TIME,
+        );
     }
 
     /// Assign the given peer to the given downloader state machine.  Allocate a slot for it if
@@ -393,6 +411,15 @@ impl NakamotoTenureDownloaderSet {
                 schedule.pop_front();
                 continue;
             };
+            if get_epoch_time_secs() < *self.deprioritized_peers.get(&naddr).unwrap_or(&0) {
+                debug!(
+                    "Peer {} is deprioritized until {}",
+                    &naddr,
+                    self.deprioritized_peers.get(&naddr).unwrap_or(&0)
+                );
+                continue;
+            }
+
             if self.try_resume_peer(naddr.clone()) {
                 continue;
             };
@@ -560,6 +587,7 @@ impl NakamotoTenureDownloaderSet {
                     &mut self.attempt_failed_tenures,
                     &downloader.tenure_id_consensus_hash,
                 );
+                Self::mark_deprioritized(&mut self.deprioritized_peers, &naddr);
                 neighbor_rpc.add_dead(network, naddr);
                 continue;
             };
@@ -615,6 +643,7 @@ impl NakamotoTenureDownloaderSet {
                     &mut self.attempt_failed_tenures,
                     &downloader.tenure_id_consensus_hash,
                 );
+                Self::mark_deprioritized(&mut self.deprioritized_peers, &naddr);
                 neighbor_rpc.add_dead(network, &naddr);
                 continue;
             };
