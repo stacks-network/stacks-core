@@ -129,7 +129,7 @@ pub struct SignerConfig {
     pub first_proposal_burn_block_timing: Duration,
     /// How much time to wait for a miner to propose a block following a sortition
     pub block_proposal_timeout: Duration,
-    /// How much time ot wait for a block proposal validation response before marking the block invalid
+    /// How much time to wait for a block proposal validation response before marking the block invalid
     pub block_proposal_validation_timeout: Duration,
 }
 

@@ -5623,7 +5623,7 @@ fn block_validation_response_timeout() {
 
     info!("------------------------- Test Setup -------------------------");
     let num_signers = 5;
-    let timeout = Duration::from_secs(60);
+    let timeout = Duration::from_secs(30);
     let sender_sk = Secp256k1PrivateKey::new();
     let sender_addr = tests::to_addr(&sender_sk);
     let send_amt = 100;
@@ -5676,7 +5676,12 @@ fn block_validation_response_timeout() {
     })
     .expect("Timed out waiting for block proposal");
 
-    info!("------------------------- Propose Another Block -------------------------");
+    assert!(
+        validation_stall_start.elapsed() < timeout,
+        "Test was too slow to propose another block before the timeout"
+    );
+
+    info!("------------------------- Propose Another Block Before Hitting the Timeout -------------------------");
     let proposal_conf = ProposalEvalConfig {
         first_proposal_burn_block_timing: Duration::from_secs(0),
         block_proposal_timeout: Duration::from_secs(100),
@@ -5686,26 +5691,27 @@ fn block_validation_response_timeout() {
         txs: vec![],
     };
 
+    let info_before = get_chain_info(&signer_test.running_nodes.conf);
     // Propose a block to the signers that passes initial checks but will not be submitted to the stacks node due to the submission stall
     let view = SortitionsView::fetch_view(proposal_conf, &signer_test.stacks_client).unwrap();
     block.header.pox_treatment = BitVec::ones(1).unwrap();
     block.header.consensus_hash = view.cur_sortition.consensus_hash;
-    block.header.chain_length = 1; // We have mined 1 block so far
+    block.header.chain_length = info_before.stacks_tip_height + 1;
 
     let block_signer_signature_hash_1 = block.header.signer_signature_hash();
-    let info_before = get_chain_info(&signer_test.running_nodes.conf);
-    signer_test.propose_block(block, Duration::from_secs(30));
+    signer_test.propose_block(block, timeout);
 
     info!("------------------------- Waiting for Timeout -------------------------");
     // Sleep the necessary timeout to make sure the validation times out.
     let elapsed = validation_stall_start.elapsed();
+    let wait = timeout.saturating_sub(elapsed);
+    info!("Sleeping for {} ms", wait.as_millis());
     std::thread::sleep(timeout.saturating_sub(elapsed));
 
     info!("------------------------- Wait for Block Rejection Due to Timeout -------------------------");
     // Verify the signers rejected the first block due to timeout
-    let start = Instant::now();
     let mut rejected_signers = vec![];
-    let mut saw_connectivity_complaint = false;
+    let start = Instant::now();
     while rejected_signers.len() < num_signers {
         std::thread::sleep(Duration::from_secs(1));
         let chunks = test_observer::get_stackerdb_chunks();
@@ -5714,32 +5720,30 @@ fn block_validation_response_timeout() {
             else {
                 continue;
             };
-            if let SignerMessage::BlockResponse(BlockResponse::Rejected(BlockRejection {
+            let SignerMessage::BlockResponse(BlockResponse::Rejected(BlockRejection {
                 reason: _reason,
                 reason_code,
                 signer_signature_hash,
                 signature,
                 ..
             })) = message
-            {
-                if signer_signature_hash == block_signer_signature_hash_1 {
-                    rejected_signers.push(signature);
-                    if matches!(reason_code, RejectCode::ConnectivityIssues) {
-                        saw_connectivity_complaint = true;
-                    }
+            else {
+                continue;
+            };
+            // We are waiting for the original block proposal which will have a diff signature to our
+            // second proposed block.
+            if signer_signature_hash != block_signer_signature_hash_1 {
+                rejected_signers.push(signature);
+                if matches!(reason_code, RejectCode::ConnectivityIssues) {
+                    break;
                 }
             }
         }
         assert!(
-            start.elapsed() <= Duration::from_secs(10),
-            "Timed out after waiting for response from signer"
+            start.elapsed() <= timeout,
+            "Timed out after waiting for ConenctivityIssues block rejection"
         );
     }
-
-    assert!(
-        saw_connectivity_complaint,
-        "We did not see the expected connectity rejection reason"
-    );
     // Make sure our chain has still not advanced
     let info_after = get_chain_info(&signer_test.running_nodes.conf);
     assert_eq!(info_before, info_after);

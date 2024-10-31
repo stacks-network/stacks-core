@@ -691,8 +691,7 @@ impl Signer {
                 if block_info.state == BlockState::GloballyRejected
                     || block_info.state == BlockState::GloballyAccepted
                 {
-                    // The block has already reached consensus. This should never really hit, but check just to be safe.
-                    self.submitted_block_proposal = None;
+                    // The block has already reached consensus.
                     return;
                 }
                 block_info
@@ -704,12 +703,10 @@ impl Signer {
                     "signer_sighash" => %signature_sighash,
                     "block_id" => %block_proposal.block.block_id(),
                 );
-                self.submitted_block_proposal = None;
                 return;
             }
             Err(e) => {
                 error!("{self}: Failed to lookup block in signer db: {e:?}",);
-                self.submitted_block_proposal = None;
                 return;
             }
         };
