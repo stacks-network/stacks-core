@@ -86,7 +86,9 @@ pub const OP_TX_ANY_ESTIM_SIZE: u64 = fmax!(
 const DEFAULT_MAX_RBF_RATE: u64 = 150; // 1.5x
 const DEFAULT_RBF_FEE_RATE_INCREMENT: u64 = 5;
 const INV_REWARD_CYCLES_TESTNET: u64 = 6;
-const DEFAULT_MIN_TIME_BETWEEN_BLOCKS_MS: u64 = 1000;
+const DEFAULT_MIN_TIME_BETWEEN_BLOCKS_MS: u64 = 1_000;
+const DEFAULT_FIRST_REJECTION_PAUSE_MS: u64 = 5_000;
+const DEFAULT_SUBSEQUENT_REJECTION_PAUSE_MS: u64 = 10_000;
 
 #[derive(Clone, Deserialize, Default, Debug)]
 #[serde(deny_unknown_fields)]
@@ -2183,6 +2185,10 @@ pub struct MinerConfig {
     /// The minimum time to wait between mining blocks in milliseconds. The value must be greater than or equal to 1000 ms because if a block is mined
     /// within the same second as its parent, it will be rejected by the signers.
     pub min_time_between_blocks_ms: u64,
+    /// Time in milliseconds to pause after receiving the first threshold rejection, before proposing a new block.
+    pub first_rejection_pause_ms: u64,
+    /// Time in milliseconds to pause after receiving subsequent threshold rejections, before proposing a new block.
+    pub subsequent_rejection_pause_ms: u64,
 }
 
 impl Default for MinerConfig {
@@ -2213,6 +2219,8 @@ impl Default for MinerConfig {
             max_reorg_depth: 3,
             pre_nakamoto_mock_signing: false, // Should only default true if mining key is set
             min_time_between_blocks_ms: DEFAULT_MIN_TIME_BETWEEN_BLOCKS_MS,
+            first_rejection_pause_ms: DEFAULT_FIRST_REJECTION_PAUSE_MS,
+            subsequent_rejection_pause_ms: DEFAULT_SUBSEQUENT_REJECTION_PAUSE_MS,
         }
     }
 }
@@ -2575,6 +2583,8 @@ pub struct MinerConfigFile {
     pub max_reorg_depth: Option<u64>,
     pub pre_nakamoto_mock_signing: Option<bool>,
     pub min_time_between_blocks_ms: Option<u64>,
+    pub first_rejection_pause_ms: Option<u64>,
+    pub subsequent_rejection_pause_ms: Option<u64>,
 }
 
 impl MinerConfigFile {
@@ -2688,6 +2698,8 @@ impl MinerConfigFile {
             } else {
                 ms
             }).unwrap_or(miner_default_config.min_time_between_blocks_ms),
+            first_rejection_pause_ms: self.first_rejection_pause_ms.unwrap_or(miner_default_config.first_rejection_pause_ms),
+            subsequent_rejection_pause_ms: self.subsequent_rejection_pause_ms.unwrap_or(miner_default_config.subsequent_rejection_pause_ms),
         })
     }
 }

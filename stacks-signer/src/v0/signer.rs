@@ -348,7 +348,7 @@ impl Signer {
                     crate::monitoring::increment_block_responses_sent(accepted);
                 }
                 Err(e) => {
-                    warn!("{self}: Failed to send block rejection to stacker-db: {e:?}",);
+                    warn!("{self}: Failed to send block response to stacker-db: {e:?}",);
                 }
             }
             return;
@@ -434,30 +434,8 @@ impl Signer {
         };
 
         #[cfg(any(test, feature = "testing"))]
-        let block_response = match &*TEST_REJECT_ALL_BLOCK_PROPOSAL.lock().unwrap() {
-            Some(public_keys) => {
-                if public_keys.contains(
-                    &stacks_common::types::chainstate::StacksPublicKey::from_private(
-                        &self.private_key,
-                    ),
-                ) {
-                    warn!("{self}: Rejecting block proposal automatically due to testing directive";
-                        "block_id" => %block_proposal.block.block_id(),
-                        "height" => block_proposal.block.header.chain_length,
-                        "consensus_hash" => %block_proposal.block.header.consensus_hash
-                    );
-                    Some(BlockResponse::rejected(
-                        block_proposal.block.header.signer_signature_hash(),
-                        RejectCode::TestingDirective,
-                        &self.private_key,
-                        self.mainnet,
-                    ))
-                } else {
-                    None
-                }
-            }
-            None => block_response,
-        };
+        let block_response =
+            self.test_reject_block_proposal(block_proposal, &mut block_info, block_response);
 
         if let Some(block_response) = block_response {
             // We know proposal is invalid. Send rejection message, do not do further validation
@@ -526,9 +504,8 @@ impl Signer {
                 {
                     debug!("{self}: Received block validation for a block that is already marked as {}. Ignoring...", block_info.state);
                     return None;
-                } else {
-                    block_info
                 }
+                block_info
             }
             Ok(None) => {
                 // We have not seen this block before. Why are we getting a response for it?
@@ -569,7 +546,15 @@ impl Signer {
             .signer_db
             .block_lookup(self.reward_cycle, &signer_signature_hash)
         {
-            Ok(Some(block_info)) => block_info,
+            Ok(Some(block_info)) => {
+                if block_info.state == BlockState::GloballyRejected
+                    || block_info.state == BlockState::GloballyAccepted
+                {
+                    debug!("{self}: Received block validation for a block that is already marked as {}. Ignoring...", block_info.state);
+                    return None;
+                }
+                block_info
+            }
             Ok(None) => {
                 // We have not seen this block before. Why are we getting a response for it?
                 debug!("{self}: Received a block validate response for a block we have not seen before. Ignoring...");
@@ -939,6 +924,44 @@ impl Signer {
             return true;
         }
         false
+    }
+
+    #[cfg(any(test, feature = "testing"))]
+    fn test_reject_block_proposal(
+        &mut self,
+        block_proposal: &BlockProposal,
+        block_info: &mut BlockInfo,
+        block_response: Option<BlockResponse>,
+    ) -> Option<BlockResponse> {
+        let Some(public_keys) = &*TEST_REJECT_ALL_BLOCK_PROPOSAL.lock().unwrap() else {
+            return block_response;
+        };
+        if public_keys.contains(
+            &stacks_common::types::chainstate::StacksPublicKey::from_private(&self.private_key),
+        ) {
+            warn!("{self}: Rejecting block proposal automatically due to testing directive";
+                "block_id" => %block_proposal.block.block_id(),
+                "height" => block_proposal.block.header.chain_length,
+                "consensus_hash" => %block_proposal.block.header.consensus_hash
+            );
+            if let Err(e) = block_info.mark_locally_rejected() {
+                warn!("{self}: Failed to mark block as locally rejected: {e:?}",);
+            };
+            // We must insert the block into the DB to prevent subsequent repeat proposals being accepted (should reject
+            // as invalid since we rejected in a prior round if this crops up again)
+            // in case this is the first time we saw this block. Safe to do since this is testing case only.
+            self.signer_db
+                .insert_block(block_info)
+                .unwrap_or_else(|_| panic!("{self}: Failed to insert block in DB"));
+            Some(BlockResponse::rejected(
+                block_proposal.block.header.signer_signature_hash(),
+                RejectCode::TestingDirective,
+                &self.private_key,
+                self.mainnet,
+            ))
+        } else {
+            None
+        }
     }
 
     /// Send a mock signature to stackerdb to prove we are still alive
