@@ -113,6 +113,8 @@ pub struct NakamotoTenureDownloaderSet {
     pub(crate) completed_tenures: HashSet<CompletedTenure>,
     /// Number of times a tenure download was attempted
     pub(crate) attempted_tenures: HashMap<ConsensusHash, u64>,
+    /// Number of times a tenure download failed
+    pub(crate) attempt_failed_tenures: HashMap<ConsensusHash, u64>,
 }
 
 impl NakamotoTenureDownloaderSet {
@@ -122,6 +124,17 @@ impl NakamotoTenureDownloaderSet {
             peers: HashMap::new(),
             completed_tenures: HashSet::new(),
             attempted_tenures: HashMap::new(),
+            attempt_failed_tenures: HashMap::new(),
+        }
+    }
+
+    /// Mark a tenure as having failed to download.
+    /// Implemented statically to appease the borrow checker.
+    fn mark_failure(attempt_failed_tenures: &mut HashMap<ConsensusHash, u64>, ch: &ConsensusHash) {
+        if let Some(failures) = attempt_failed_tenures.get_mut(ch) {
+            *failures = (*failures).saturating_add(1);
+        } else {
+            attempt_failed_tenures.insert(ch.clone(), 1);
         }
     }
 
@@ -358,7 +371,7 @@ impl NakamotoTenureDownloaderSet {
 
         self.clear_finished_downloaders();
         self.clear_available_peers();
-        while self.inflight() < count {
+        while self.num_scheduled_downloaders() < count {
             let Some(ch) = schedule.front() else {
                 break;
             };
@@ -449,8 +462,16 @@ impl NakamotoTenureDownloaderSet {
             self.attempted_tenures
                 .insert(ch.clone(), attempt_count.saturating_add(1));
 
+            let attempt_failed_count =
+                if let Some(attempt_failed_count) = self.attempt_failed_tenures.get(&ch) {
+                    *attempt_failed_count
+                } else {
+                    0
+                };
+
             info!("Download tenure {}", &ch;
                 "attempt" => attempt_count.saturating_add(1),
+                "failed" => attempt_failed_count,
                 "tenure_start_block" => %tenure_info.start_block_id,
                 "tenure_end_block" => %tenure_info.end_block_id,
                 "tenure_start_reward_cycle" => tenure_info.start_reward_cycle,
@@ -529,6 +550,10 @@ impl NakamotoTenureDownloaderSet {
                     "Downloader for tenure {} to {} failed; this peer is dead",
                     &downloader.tenure_id_consensus_hash, &naddr
                 );
+                Self::mark_failure(
+                    &mut self.attempt_failed_tenures,
+                    &downloader.tenure_id_consensus_hash,
+                );
                 neighbor_rpc.add_dead(network, naddr);
                 continue;
             };
@@ -576,9 +601,13 @@ impl NakamotoTenureDownloaderSet {
                     e
                 })
             else {
-                info!(
+                debug!(
                     "Failed to handle download response from {} on tenure {}",
                     &naddr, &downloader.tenure_id_consensus_hash
+                );
+                Self::mark_failure(
+                    &mut self.attempt_failed_tenures,
+                    &downloader.tenure_id_consensus_hash,
                 );
                 neighbor_rpc.add_dead(network, &naddr);
                 continue;
