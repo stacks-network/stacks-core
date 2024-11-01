@@ -903,6 +903,7 @@ const CHAINSTATE_INDEXES: &'static [&'static str] = &[
     "CREATE INDEX IF NOT EXISTS index_block_header_by_affirmation_weight ON block_headers(affirmation_weight);",
     "CREATE INDEX IF NOT EXISTS index_block_header_by_height_and_affirmation_weight ON block_headers(block_height,affirmation_weight);",
     "CREATE INDEX IF NOT EXISTS index_headers_by_consensus_hash ON block_headers(consensus_hash);",
+    "CREATE INDEX IF NOT EXISTS index_block_hash ON nakamoto_block_headers(index_block_hash);",
 ];
 
 pub use stacks_common::consts::MINER_REWARD_MATURITY;
