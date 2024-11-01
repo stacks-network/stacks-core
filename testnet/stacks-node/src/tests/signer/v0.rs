@@ -66,14 +66,16 @@ use tracing_subscriber::{fmt, EnvFilter};
 use super::SignerTest;
 use crate::config::{EventKeyType, EventObserverConfig};
 use crate::event_dispatcher::MinedNakamotoBlockEvent;
-use crate::nakamoto_node::miner::{TEST_BLOCK_ANNOUNCE_STALL, TEST_BROADCAST_STALL};
+use crate::nakamoto_node::miner::{
+    TEST_BLOCK_ANNOUNCE_STALL, TEST_BROADCAST_STALL, TEST_MINE_STALL,
+};
 use crate::nakamoto_node::sign_coordinator::TEST_IGNORE_SIGNERS;
 use crate::neon::Counters;
 use crate::run_loop::boot_nakamoto;
 use crate::tests::nakamoto_integrations::{
     boot_to_epoch_25, boot_to_epoch_3_reward_set, next_block_and, next_block_and_controller,
-    setup_epoch_3_reward_set, wait_for, POX_4_DEFAULT_STACKER_BALANCE,
-    POX_4_DEFAULT_STACKER_STX_AMT,
+    next_block_and_process_new_stacks_block, setup_epoch_3_reward_set, wait_for,
+    POX_4_DEFAULT_STACKER_BALANCE, POX_4_DEFAULT_STACKER_STX_AMT,
 };
 use crate::tests::neon_integrations::{
     get_account, get_chain_info, get_chain_info_opt, next_block_and_wait,
@@ -2588,6 +2590,338 @@ fn empty_sortition() {
         // the signers have rejected the block
         Ok(found_rejections.len() == signer_slot_ids.len() && rejections > rejected_before)
     }).unwrap();
+    signer_test.shutdown();
+}
+
+#[test]
+#[ignore]
+/// This test checks the behavior of signers when an empty sortition arrives
+/// before the first block of the previous tenure has been approved.
+/// Specifically:
+/// - The empty sortition will trigger the miner to attempt a tenure extend.
+/// - Signers will accept the tenure extend and sign subsequent blocks built
+///   off the old sortition
+fn empty_sortition_before_approval() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(EnvFilter::from_default_env())
+        .init();
+
+    info!("------------------------- Test Setup -------------------------");
+    let num_signers = 5;
+    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_addr = tests::to_addr(&sender_sk);
+    let send_amt = 100;
+    let send_fee = 180;
+    let recipient = PrincipalData::from(StacksAddress::burn_address(false));
+    let block_proposal_timeout = Duration::from_secs(20);
+    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
+        num_signers,
+        vec![(sender_addr.clone(), send_amt + send_fee)],
+        |config| {
+            // make the duration long enough that the miner will be marked as malicious
+            config.block_proposal_timeout = block_proposal_timeout;
+        },
+        |_| {},
+        None,
+        None,
+    );
+    let http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
+
+    signer_test.boot_to_epoch_3();
+
+    next_block_and_process_new_stacks_block(
+        &mut signer_test.running_nodes.btc_regtest_controller,
+        60,
+        &signer_test.running_nodes.coord_channel,
+    )
+    .unwrap();
+
+    let info = get_chain_info(&signer_test.running_nodes.conf);
+    let burn_height_before = info.burn_block_height;
+    let stacks_height_before = info.stacks_tip_height;
+
+    info!("Forcing miner to ignore signatures for next block");
+    TEST_IGNORE_SIGNERS.lock().unwrap().replace(true);
+
+    info!("Pausing block commits to trigger an empty sortition.");
+    signer_test
+        .running_nodes
+        .nakamoto_test_skip_commit_op
+        .0
+        .lock()
+        .unwrap()
+        .replace(true);
+
+    info!("------------------------- Test Mine Tenure A  -------------------------");
+    let proposed_before = signer_test
+        .running_nodes
+        .nakamoto_blocks_proposed
+        .load(Ordering::SeqCst);
+    // Mine a regular tenure and wait for a block proposal
+    next_block_and(
+        &mut signer_test.running_nodes.btc_regtest_controller,
+        60,
+        || {
+            let proposed_count = signer_test
+                .running_nodes
+                .nakamoto_blocks_proposed
+                .load(Ordering::SeqCst);
+            Ok(proposed_count > proposed_before)
+        },
+    )
+    .expect("Failed to mine tenure A and propose a block");
+
+    info!("------------------------- Test Mine Empty Tenure B  -------------------------");
+
+    // Trigger an empty tenure
+    next_block_and(
+        &mut signer_test.running_nodes.btc_regtest_controller,
+        60,
+        || {
+            let burn_height = get_chain_info(&signer_test.running_nodes.conf).burn_block_height;
+            Ok(burn_height == burn_height_before + 2)
+        },
+    )
+    .expect("Failed to mine empty tenure");
+
+    info!("Unpause block commits");
+    signer_test
+        .running_nodes
+        .nakamoto_test_skip_commit_op
+        .0
+        .lock()
+        .unwrap()
+        .replace(false);
+
+    info!("Stop ignoring signers and wait for the tip to advance");
+    TEST_IGNORE_SIGNERS.lock().unwrap().replace(false);
+
+    wait_for(60, || {
+        let info = get_chain_info(&signer_test.running_nodes.conf);
+        Ok(info.stacks_tip_height > stacks_height_before)
+    })
+    .expect("Failed to advance chain tip");
+
+    let info = get_chain_info(&signer_test.running_nodes.conf);
+    info!("Current state: {:?}", info);
+
+    // Wait for a block with a tenure extend to be mined
+    wait_for(60, || {
+        let blocks = test_observer::get_blocks();
+        let last_block = blocks.last().unwrap();
+        info!("Last block mined: {:?}", last_block);
+        for tx in last_block["transactions"].as_array().unwrap() {
+            let raw_tx = tx["raw_tx"].as_str().unwrap();
+            if raw_tx == "0x00" {
+                continue;
+            }
+            let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
+            let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
+            match &parsed.payload {
+                TransactionPayload::TenureChange(payload) => match payload.cause {
+                    TenureChangeCause::Extended => {
+                        info!("Found tenure extend block");
+                        return Ok(true);
+                    }
+                    TenureChangeCause::BlockFound => {
+                        info!("Found block with tenure change");
+                    }
+                },
+                payload => {
+                    info!("Found tx with payload: {:?}", payload);
+                }
+            };
+        }
+        Ok(false)
+    })
+    .expect("Timed out waiting for tenure extend");
+
+    let stacks_height_before = get_chain_info(&signer_test.running_nodes.conf).stacks_tip_height;
+
+    // submit a tx so that the miner will mine an extra block
+    let sender_nonce = 0;
+    let transfer_tx = make_stacks_transfer(
+        &sender_sk,
+        sender_nonce,
+        send_fee,
+        signer_test.running_nodes.conf.burnchain.chain_id,
+        &recipient,
+        send_amt,
+    );
+    submit_tx(&http_origin, &transfer_tx);
+
+    wait_for(60, || {
+        let info = get_chain_info(&signer_test.running_nodes.conf);
+        Ok(info.stacks_tip_height > stacks_height_before)
+    })
+    .expect("Failed to advance chain tip with STX transfer");
+
+    next_block_and_process_new_stacks_block(
+        &mut signer_test.running_nodes.btc_regtest_controller,
+        60,
+        &signer_test.running_nodes.coord_channel,
+    )
+    .expect("Failed to mine a normal tenure after the tenure extend");
+
+    signer_test.shutdown();
+}
+
+#[test]
+#[ignore]
+/// This test checks the behavior of signers when an empty sortition arrives
+/// before the first block of the previous tenure has been proposed.
+/// Specifically:
+/// - The empty sortition will trigger the miner to attempt a tenure extend.
+/// - Signers will accept the tenure extend and sign subsequent blocks built
+///   off the old sortition
+fn empty_sortition_before_proposal() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(EnvFilter::from_default_env())
+        .init();
+
+    info!("------------------------- Test Setup -------------------------");
+    let num_signers = 5;
+    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_addr = tests::to_addr(&sender_sk);
+    let send_amt = 100;
+    let send_fee = 180;
+    let recipient = PrincipalData::from(StacksAddress::burn_address(false));
+    let block_proposal_timeout = Duration::from_secs(20);
+    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
+        num_signers,
+        vec![(sender_addr.clone(), send_amt + send_fee)],
+        |config| {
+            // make the duration long enough that the miner will be marked as malicious
+            config.block_proposal_timeout = block_proposal_timeout;
+        },
+        |_| {},
+        None,
+        None,
+    );
+    let http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
+
+    signer_test.boot_to_epoch_3();
+
+    next_block_and_process_new_stacks_block(
+        &mut signer_test.running_nodes.btc_regtest_controller,
+        60,
+        &signer_test.running_nodes.coord_channel,
+    )
+    .unwrap();
+
+    let info = get_chain_info(&signer_test.running_nodes.conf);
+    let stacks_height_before = info.stacks_tip_height;
+
+    info!("Pause block commits to ensure we get an empty sortition");
+    signer_test
+        .running_nodes
+        .nakamoto_test_skip_commit_op
+        .0
+        .lock()
+        .unwrap()
+        .replace(true);
+
+    info!("Pause miner so it doesn't propose a block before the next tenure arrives");
+    TEST_MINE_STALL.lock().unwrap().replace(true);
+
+    info!("------------------------- Test Mine Tenure A and B  -------------------------");
+    signer_test
+        .running_nodes
+        .btc_regtest_controller
+        .build_next_block(2);
+
+    // Sleep to ensure the signers see both burn blocks
+    sleep_ms(5_000);
+
+    info!("Unpause miner");
+    TEST_MINE_STALL.lock().unwrap().replace(false);
+
+    info!("Unpause block commits");
+    signer_test
+        .running_nodes
+        .nakamoto_test_skip_commit_op
+        .0
+        .lock()
+        .unwrap()
+        .replace(false);
+
+    wait_for(60, || {
+        let info = get_chain_info(&signer_test.running_nodes.conf);
+        Ok(info.stacks_tip_height > stacks_height_before)
+    })
+    .expect("Failed to advance chain tip");
+
+    let info = get_chain_info(&signer_test.running_nodes.conf);
+    info!("Current state: {:?}", info);
+
+    // Wait for a block with a tenure extend to be mined
+    wait_for(60, || {
+        let blocks = test_observer::get_blocks();
+        let last_block = blocks.last().unwrap();
+        info!("Last block mined: {:?}", last_block);
+        for tx in last_block["transactions"].as_array().unwrap() {
+            let raw_tx = tx["raw_tx"].as_str().unwrap();
+            if raw_tx == "0x00" {
+                continue;
+            }
+            let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
+            let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
+            match &parsed.payload {
+                TransactionPayload::TenureChange(payload) => match payload.cause {
+                    TenureChangeCause::Extended => {
+                        info!("Found tenure extend block");
+                        return Ok(true);
+                    }
+                    TenureChangeCause::BlockFound => {
+                        info!("Found block with tenure change");
+                    }
+                },
+                payload => {
+                    info!("Found tx with payload: {:?}", payload);
+                }
+            };
+        }
+        Ok(false)
+    })
+    .expect("Timed out waiting for tenure extend");
+
+    let stacks_height_before = get_chain_info(&signer_test.running_nodes.conf).stacks_tip_height;
+
+    // submit a tx so that the miner will mine an extra block
+    let sender_nonce = 0;
+    let transfer_tx = make_stacks_transfer(
+        &sender_sk,
+        sender_nonce,
+        send_fee,
+        signer_test.running_nodes.conf.burnchain.chain_id,
+        &recipient,
+        send_amt,
+    );
+    submit_tx(&http_origin, &transfer_tx);
+
+    wait_for(60, || {
+        let info = get_chain_info(&signer_test.running_nodes.conf);
+        Ok(info.stacks_tip_height > stacks_height_before)
+    })
+    .expect("Failed to advance chain tip with STX transfer");
+
+    next_block_and_process_new_stacks_block(
+        &mut signer_test.running_nodes.btc_regtest_controller,
+        60,
+        &signer_test.running_nodes.coord_channel,
+    )
+    .expect("Failed to mine a normal tenure after the tenure extend");
+
     signer_test.shutdown();
 }
 
