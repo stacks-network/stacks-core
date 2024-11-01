@@ -30,7 +30,7 @@ slog-term = "2.6.0"
 slog-json = { version = "2.3.0", optional = true }
 stacks-common = { path = "../stacks-common" }
 stackslib = { path = "../stackslib"}
-thiserror = "1.0"
+thiserror = { workspace = true }
 tiny_http = "0.12"
 
 [dev-dependencies]
