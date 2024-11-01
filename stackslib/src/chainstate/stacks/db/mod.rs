@@ -55,7 +55,7 @@ use crate::chainstate::burn::{ConsensusHash, ConsensusHashExtensions};
 use crate::chainstate::nakamoto::{
     HeaderTypeNames, NakamotoBlock, NakamotoBlockHeader, NakamotoChainState,
     NakamotoStagingBlocksConn, NAKAMOTO_CHAINSTATE_SCHEMA_1, NAKAMOTO_CHAINSTATE_SCHEMA_2,
-    NAKAMOTO_CHAINSTATE_SCHEMA_3, NAKAMOTO_CHAINSTATE_SCHEMA_4,
+    NAKAMOTO_CHAINSTATE_SCHEMA_3, NAKAMOTO_CHAINSTATE_SCHEMA_4, NAKAMOTO_CHAINSTATE_SCHEMA_5,
 };
 use crate::chainstate::stacks::address::StacksAddressExtensions;
 use crate::chainstate::stacks::boot::*;
@@ -299,14 +299,14 @@ impl DBConfig {
         });
         match epoch_id {
             StacksEpochId::Epoch10 => true,
-            StacksEpochId::Epoch20 => version_u32 >= 1 && version_u32 <= 7,
-            StacksEpochId::Epoch2_05 => version_u32 >= 2 && version_u32 <= 7,
-            StacksEpochId::Epoch21 => version_u32 >= 3 && version_u32 <= 7,
-            StacksEpochId::Epoch22 => version_u32 >= 3 && version_u32 <= 7,
-            StacksEpochId::Epoch23 => version_u32 >= 3 && version_u32 <= 7,
-            StacksEpochId::Epoch24 => version_u32 >= 3 && version_u32 <= 7,
-            StacksEpochId::Epoch25 => version_u32 >= 3 && version_u32 <= 7,
-            StacksEpochId::Epoch30 => version_u32 >= 3 && version_u32 <= 7,
+            StacksEpochId::Epoch20 => version_u32 >= 1 && version_u32 <= 8,
+            StacksEpochId::Epoch2_05 => version_u32 >= 2 && version_u32 <= 8,
+            StacksEpochId::Epoch21 => version_u32 >= 3 && version_u32 <= 8,
+            StacksEpochId::Epoch22 => version_u32 >= 3 && version_u32 <= 8,
+            StacksEpochId::Epoch23 => version_u32 >= 3 && version_u32 <= 8,
+            StacksEpochId::Epoch24 => version_u32 >= 3 && version_u32 <= 8,
+            StacksEpochId::Epoch25 => version_u32 >= 3 && version_u32 <= 8,
+            StacksEpochId::Epoch30 => version_u32 >= 3 && version_u32 <= 8,
         }
     }
 }
@@ -680,7 +680,7 @@ impl<'a> DerefMut for ChainstateTx<'a> {
     }
 }
 
-pub const CHAINSTATE_VERSION: &'static str = "7";
+pub const CHAINSTATE_VERSION: &'static str = "8";
 
 const CHAINSTATE_INITIAL_SCHEMA: &'static [&'static str] = &[
     "PRAGMA foreign_keys = ON;",
@@ -1130,6 +1130,15 @@ impl StacksChainState {
                         "Migrating chainstate schema from version 6 to 7: adds signer_stats table"
                     );
                     for cmd in NAKAMOTO_CHAINSTATE_SCHEMA_4.iter() {
+                        tx.execute_batch(cmd)?;
+                    }
+                }
+                "7" => {
+                    // migrate to nakamoto 3
+                    info!(
+                        "Migrating chainstate schema from version 7 to 8: just bump the schema (added indexes)"
+                    );
+                    for cmd in NAKAMOTO_CHAINSTATE_SCHEMA_5.iter() {
                         tx.execute_batch(cmd)?;
                     }
                 }
