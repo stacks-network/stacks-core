@@ -99,6 +99,8 @@ jobs:
           - tests::signer::v0::forked_tenure_okay
           - tests::signer::v0::forked_tenure_invalid
           - tests::signer::v0::empty_sortition
+          - tests::signer::v0::empty_sortition_before_approval
+          - tests::signer::v0::empty_sortition_before_proposal
           - tests::signer::v0::bitcoind_forking_test
           - tests::signer::v0::multiple_miners
           - tests::signer::v0::mock_sign_epoch_25
