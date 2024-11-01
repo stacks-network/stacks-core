@@ -289,6 +289,12 @@ lazy_static! {
         );
     "#,
     ];
+
+    pub static ref NAKAMOTO_CHAINSTATE_SCHEMA_5: [&'static str; 1] = [
+    r#"
+        UPDATE db_config SET version = "8";
+    "#
+    ];
 }
 
 #[cfg(test)]
