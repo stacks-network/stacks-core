@@ -191,7 +191,7 @@ fn spawn_peer(
             let sortdb = match SortitionDB::open(&burn_db_path, false, pox_consts.clone()) {
                 Ok(x) => x,
                 Err(e) => {
-                    warn!("Error while connecting burnchain db in peer loop: {}", e);
+                    warn!("Error while connecting burnchain db in peer loop: {e}");
                     thread::sleep(time::Duration::from_secs(1));
                     continue;
                 }
@@ -204,7 +204,7 @@ fn spawn_peer(
             ) {
                 Ok(x) => x,
                 Err(e) => {
-                    warn!("Error while connecting chainstate db in peer loop: {}", e);
+                    warn!("Error while connecting chainstate db in peer loop: {e}");
                     thread::sleep(time::Duration::from_secs(1));
                     continue;
                 }
@@ -222,7 +222,7 @@ fn spawn_peer(
             ) {
                 Ok(x) => x,
                 Err(e) => {
-                    warn!("Error while connecting to mempool db in peer loop: {}", e);
+                    warn!("Error while connecting to mempool db in peer loop: {e}");
                     thread::sleep(time::Duration::from_secs(1));
                     continue;
                 }
@@ -319,9 +319,8 @@ impl Node {
         let (chain_state, receipts) = match chain_state_result {
             Ok(res) => res,
             Err(err) => panic!(
-                "Error while opening chain state at path {}: {:?}",
-                config.get_chainstate_path_str(),
-                err
+                "Error while opening chain state at path {}: {err:?}",
+                config.get_chainstate_path_str()
             ),
         };
 
@@ -419,7 +418,7 @@ impl Node {
 
         let initial_neighbors = self.config.node.bootstrap_node.clone();
 
-        println!("BOOTSTRAP WITH {:?}", initial_neighbors);
+        println!("BOOTSTRAP WITH {initial_neighbors:?}");
 
         let rpc_sock: SocketAddr =
             self.config.node.rpc_bind.parse().unwrap_or_else(|_| {
@@ -785,15 +784,13 @@ impl Node {
             )
             .unwrap_or_else(|_| {
                 panic!(
-                    "BUG: could not query chainstate to find parent consensus hash of {}/{}",
-                    consensus_hash,
+                    "BUG: could not query chainstate to find parent consensus hash of {consensus_hash}/{}",
                     &anchored_block.block_hash()
                 )
             })
             .unwrap_or_else(|| {
                 panic!(
-                    "BUG: no such parent of block {}/{}",
-                    consensus_hash,
+                    "BUG: no such parent of block {consensus_hash}/{}",
                     &anchored_block.block_hash()
                 )
             });
@@ -848,7 +845,7 @@ impl Node {
                 )
             };
             match process_blocks_at_tip {
-                Err(e) => panic!("Error while processing block - {:?}", e),
+                Err(e) => panic!("Error while processing block - {e:?}"),
                 Ok(ref mut blocks) => {
                     if blocks.is_empty() {
                         break;

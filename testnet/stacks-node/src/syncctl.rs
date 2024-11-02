@@ -180,8 +180,7 @@ impl PoxSyncWatchdog {
                 Ok(cs) => cs,
                 Err(e) => {
                     return Err(format!(
-                        "Failed to open chainstate at '{}': {:?}",
-                        &chainstate_path, &e
+                        "Failed to open chainstate at '{chainstate_path}': {e:?}"
                     ));
                 }
             };
@@ -217,7 +216,7 @@ impl PoxSyncWatchdog {
             self.max_staging,
             self.last_attachable_query,
         )
-        .map_err(|e| format!("Failed to count attachable staging blocks: {:?}", &e))?;
+        .map_err(|e| format!("Failed to count attachable staging blocks: {e:?}"))?;
 
         self.last_attachable_query = get_epoch_time_secs();
         Ok(cnt)
@@ -233,7 +232,7 @@ impl PoxSyncWatchdog {
             self.max_staging,
             self.last_processed_query,
         )
-        .map_err(|e| format!("Failed to count attachable staging blocks: {:?}", &e))?;
+        .map_err(|e| format!("Failed to count attachable staging blocks: {e:?}"))?;
 
         self.last_processed_query = get_epoch_time_secs();
         Ok(cnt)
@@ -250,13 +249,13 @@ impl PoxSyncWatchdog {
             last_processed_height + (burnchain.stable_confirmations as u64) < burnchain_height;
         if ibd {
             debug!(
-                "PoX watchdog: {} + {} < {}, so initial block download",
-                last_processed_height, burnchain.stable_confirmations, burnchain_height
+                "PoX watchdog: {last_processed_height} + {} < {burnchain_height}, so initial block download",
+                burnchain.stable_confirmations
             );
         } else {
             debug!(
-                "PoX watchdog: {} + {} >= {}, so steady-state",
-                last_processed_height, burnchain.stable_confirmations, burnchain_height
+                "PoX watchdog: {last_processed_height} + {} >= {burnchain_height}, so steady-state",
+                burnchain.stable_confirmations
             );
         }
         ibd
@@ -344,7 +343,7 @@ impl PoxSyncWatchdog {
     ) -> f64 {
         let this_reward_cycle = burnchain
             .block_height_to_reward_cycle(tip_height)
-            .unwrap_or_else(|| panic!("BUG: no reward cycle for {}", tip_height));
+            .unwrap_or_else(|| panic!("BUG: no reward cycle for {tip_height}"));
         let prev_reward_cycle = this_reward_cycle.saturating_sub(1);
 
         let start_height = burnchain.reward_cycle_to_block_height(prev_reward_cycle);
@@ -372,7 +371,7 @@ impl PoxSyncWatchdog {
     ) -> f64 {
         let this_reward_cycle = burnchain
             .block_height_to_reward_cycle(tip_height)
-            .unwrap_or_else(|| panic!("BUG: no reward cycle for {}", tip_height));
+            .unwrap_or_else(|| panic!("BUG: no reward cycle for {tip_height}"));
         let prev_reward_cycle = this_reward_cycle.saturating_sub(1);
 
         let start_height = burnchain.reward_cycle_to_block_height(prev_reward_cycle);
@@ -459,10 +458,7 @@ impl PoxSyncWatchdog {
         }
 
         if self.unconditionally_download {
-            debug!(
-                "PoX watchdog set to unconditionally download (ibd={})",
-                ibbd
-            );
+            debug!("PoX watchdog set to unconditionally download (ibd={ibbd})");
             self.relayer_comms.set_ibd(ibbd);
             return Ok(ibbd);
         }
@@ -561,7 +557,7 @@ impl PoxSyncWatchdog {
                         && get_epoch_time_secs() < expected_first_block_deadline
                     {
                         // still waiting for that first block in this reward cycle
-                        debug!("PoX watchdog: Still warming up: waiting until {}s for first Stacks block download (estimated download time: {}s)...", expected_first_block_deadline, self.estimated_block_download_time);
+                        debug!("PoX watchdog: Still warming up: waiting until {expected_first_block_deadline}s for first Stacks block download (estimated download time: {}s)...", self.estimated_block_download_time);
                         sleep_ms(PER_SAMPLE_WAIT_MS);
                         continue;
                     }
@@ -596,8 +592,8 @@ impl PoxSyncWatchdog {
                     let (flat_processed, processed_deviants) =
                         PoxSyncWatchdog::is_mostly_flat(&processed_delta, 0);
 
-                    debug!("PoX watchdog: flat-attachable?: {}, flat-processed?: {}, estimated block-download time: {}s, estimated block-processing time: {}s",
-                           flat_attachable, flat_processed, self.estimated_block_download_time, self.estimated_block_process_time);
+                    debug!("PoX watchdog: flat-attachable?: {flat_attachable}, flat-processed?: {flat_processed}, estimated block-download time: {}s, estimated block-processing time: {}s",
+                           self.estimated_block_download_time, self.estimated_block_process_time);
 
                     if flat_attachable && flat_processed && self.last_block_processed_ts == 0 {
                         // we're flat-lining -- this may be the end of this cycle
@@ -607,8 +603,8 @@ impl PoxSyncWatchdog {
                     if self.last_block_processed_ts > 0
                         && get_epoch_time_secs() < expected_last_block_deadline
                     {
-                        debug!("PoX watchdog: Still processing blocks; waiting until at least min({},{})s before burnchain synchronization (estimated block-processing time: {}s)", 
-                               get_epoch_time_secs() + 1, expected_last_block_deadline, self.estimated_block_process_time);
+                        debug!("PoX watchdog: Still processing blocks; waiting until at least min({},{expected_last_block_deadline})s before burnchain synchronization (estimated block-processing time: {}s)", 
+                               get_epoch_time_secs() + 1, self.estimated_block_process_time);
                         sleep_ms(PER_SAMPLE_WAIT_MS);
                         continue;
                     }
@@ -617,8 +613,7 @@ impl PoxSyncWatchdog {
                         // doing initial burnchain block download right now.
                         // only proceed to fetch the next reward cycle's burnchain blocks if we're neither downloading nor
                         // attaching blocks recently
-                        debug!("PoX watchdog: In initial burnchain block download: flat-attachable = {}, flat-processed = {}, min-attachable: {}, min-processed: {}",
-                               flat_attachable, flat_processed, &attachable_deviants, &processed_deviants);
+                        debug!("PoX watchdog: In initial burnchain block download: flat-attachable = {flat_attachable}, flat-processed = {flat_processed}, min-attachable: {attachable_deviants}, min-processed: {processed_deviants}");
 
                         if !flat_attachable || !flat_processed {
                             sleep_ms(PER_SAMPLE_WAIT_MS);
@@ -645,7 +640,7 @@ impl PoxSyncWatchdog {
                 }
                 (err_attach, err_processed) => {
                     // can only happen on DB query failure
-                    error!("PoX watchdog: Failed to count recently attached ('{:?}') and/or processed ('{:?}') staging blocks", &err_attach, &err_processed);
+                    error!("PoX watchdog: Failed to count recently attached ('{err_attach:?}') and/or processed ('{err_processed:?}') staging blocks");
                     panic!();
                 }
             };

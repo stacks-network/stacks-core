@@ -243,8 +243,7 @@ impl PeerThread {
         let poll_ms = if !download_backpressure && self.net.has_more_downloads() {
             // keep getting those blocks -- drive the downloader state-machine
             debug!(
-                "P2P: backpressure: {}, more downloads: {}",
-                download_backpressure,
+                "P2P: backpressure: {download_backpressure}, more downloads: {}",
                 self.net.has_more_downloads()
             );
             1
@@ -321,7 +320,7 @@ impl PeerThread {
             Err(e) => {
                 // this is only reachable if the network is not instantiated correctly --
                 // i.e. you didn't connect it
-                panic!("P2P: Failed to process network dispatch: {:?}", &e);
+                panic!("P2P: Failed to process network dispatch: {e:?}");
             }
         };
 

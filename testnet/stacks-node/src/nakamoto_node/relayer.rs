@@ -475,7 +475,7 @@ impl RelayerThread {
             .expect("FATAL: failed to query sortition DB");
 
         if cur_sn.consensus_hash != consensus_hash {
-            info!("Relayer: Current sortition {} is ahead of processed sortition {}; taking no action", &cur_sn.consensus_hash, consensus_hash);
+            info!("Relayer: Current sortition {} is ahead of processed sortition {consensus_hash}; taking no action", &cur_sn.consensus_hash);
             self.globals
                 .raise_initiative("process_sortition".to_string());
             return Ok(None);
@@ -571,15 +571,13 @@ impl RelayerThread {
         )
         .map_err(|e| {
             error!(
-                "Relayer: Failed to get tenure-start block header for stacks tip {}: {:?}",
-                &stacks_tip, &e
+                "Relayer: Failed to get tenure-start block header for stacks tip {stacks_tip}: {e:?}"
             );
             NakamotoNodeError::ParentNotFound
         })?
         .ok_or_else(|| {
             error!(
-                "Relayer: Failed to find tenure-start block header for stacks tip {}",
-                &stacks_tip
+                "Relayer: Failed to find tenure-start block header for stacks tip {stacks_tip}"
             );
             NakamotoNodeError::ParentNotFound
         })?;
@@ -592,17 +590,11 @@ impl RelayerThread {
             tip_block_ch,
         )
         .map_err(|e| {
-            error!(
-                "Failed to load VRF proof for {} off of {}: {:?}",
-                tip_block_ch, &stacks_tip, &e
-            );
+            error!("Failed to load VRF proof for {tip_block_ch} off of {stacks_tip}: {e:?}");
             NakamotoNodeError::ParentNotFound
         })?
         .ok_or_else(|| {
-            error!(
-                "No block VRF proof for {} off of {}",
-                tip_block_ch, &stacks_tip
-            );
+            error!("No block VRF proof for {tip_block_ch} off of {stacks_tip}");
             NakamotoNodeError::ParentNotFound
         })?;
 
@@ -615,7 +607,7 @@ impl RelayerThread {
             &self.burnchain,
         )
         .map_err(|e| {
-            error!("Relayer: Failure fetching recipient set: {:?}", e);
+            error!("Relayer: Failure fetching recipient set: {e:?}");
             NakamotoNodeError::SnapshotNotFoundForChainTip
         })?;
 
@@ -759,8 +751,7 @@ impl RelayerThread {
 
         if burn_chain_tip != burn_header_hash {
             debug!(
-                "Relayer: Drop stale RunTenure for {}: current sortition is for {}",
-                &burn_header_hash, &burn_chain_tip
+                "Relayer: Drop stale RunTenure for {burn_header_hash}: current sortition is for {burn_chain_tip}"
             );
             self.globals.counters.bump_missed_tenures();
             return Err(NakamotoNodeError::MissedMiningOpportunity);
@@ -820,14 +811,14 @@ impl RelayerThread {
             .stack_size(BLOCK_PROCESSOR_STACK_SIZE)
             .spawn(move || {
                 if let Err(e) = new_miner_state.run_miner(prior_tenure_thread) {
-                    info!("Miner thread failed: {:?}", &e);
+                    info!("Miner thread failed: {e:?}");
                     Err(e)
                 } else {
                     Ok(())
                 }
             })
             .map_err(|e| {
-                error!("Relayer: Failed to start tenure thread: {:?}", &e);
+                error!("Relayer: Failed to start tenure thread: {e:?}");
                 NakamotoNodeError::SpawnError(e)
             })?;
         debug!(
@@ -853,7 +844,7 @@ impl RelayerThread {
             .name(format!("tenure-stop-{}", self.local_peer.data_url))
             .spawn(move || BlockMinerThread::stop_miner(&globals, prior_tenure_thread))
             .map_err(|e| {
-                error!("Relayer: Failed to spawn a stop-tenure thread: {:?}", &e);
+                error!("Relayer: Failed to spawn a stop-tenure thread: {e:?}");
                 NakamotoNodeError::SpawnError(e)
             })?;
 
@@ -956,7 +947,7 @@ impl RelayerThread {
                     return true;
                 }
                 Err(e) => {
-                    warn!("Relayer: process_sortition returned {:?}", &e);
+                    warn!("Relayer: process_sortition returned {e:?}");
                     return false;
                 }
             };
@@ -1034,14 +1025,13 @@ impl RelayerThread {
         let (cur_stacks_tip_ch, cur_stacks_tip_bh) =
             SortitionDB::get_canonical_stacks_chain_tip_hash(self.sortdb.conn()).unwrap_or_else(
                 |e| {
-                    panic!("Failed to load canonical stacks tip: {:?}", &e);
+                    panic!("Failed to load canonical stacks tip: {e:?}");
                 },
             );
 
         if cur_stacks_tip_ch != tip_block_ch || cur_stacks_tip_bh != tip_block_bh {
             info!(
-                "Stacks tip changed prior to commit: {}/{} != {}/{}",
-                &cur_stacks_tip_ch, &cur_stacks_tip_bh, &tip_block_ch, &tip_block_bh
+                "Stacks tip changed prior to commit: {cur_stacks_tip_ch}/{cur_stacks_tip_bh} != {tip_block_ch}/{tip_block_bh}"
             );
             return Err(NakamotoNodeError::StacksTipChanged);
         }
@@ -1051,16 +1041,12 @@ impl RelayerThread {
             &StacksBlockId::new(&tip_block_ch, &tip_block_bh),
         )
         .map_err(|e| {
-            warn!(
-                "Relayer: failed to load tip {}/{}: {:?}",
-                &tip_block_ch, &tip_block_bh, &e
-            );
+            warn!("Relayer: failed to load tip {tip_block_ch}/{tip_block_bh}: {e:?}");
             NakamotoNodeError::ParentNotFound
         })?
         .map(|header| header.stacks_block_height) else {
             warn!(
-                "Relayer: failed to load height for tip {}/{} (got None)",
-                &tip_block_ch, &tip_block_bh
+                "Relayer: failed to load height for tip {tip_block_ch}/{tip_block_bh} (got None)"
             );
             return Err(NakamotoNodeError::ParentNotFound);
         };
@@ -1132,7 +1118,7 @@ impl RelayerThread {
         // load up canonical sortition and stacks tips
         let Ok(sort_tip) =
             SortitionDB::get_canonical_burn_chain_tip(self.sortdb.conn()).map_err(|e| {
-                error!("Failed to load canonical sortition tip: {:?}", &e);
+                error!("Failed to load canonical sortition tip: {e:?}");
                 e
             })
         else {
@@ -1142,7 +1128,7 @@ impl RelayerThread {
         // NOTE: this may be an epoch2x tip
         let Ok((stacks_tip_ch, stacks_tip_bh)) =
             SortitionDB::get_canonical_stacks_chain_tip_hash(self.sortdb.conn()).map_err(|e| {
-                error!("Failed to load canonical stacks tip: {:?}", &e);
+                error!("Failed to load canonical stacks tip: {e:?}");
                 e
             })
         else {
@@ -1247,25 +1233,19 @@ impl RelayerThread {
         let mut f = match fs::File::open(path) {
             Ok(f) => f,
             Err(e) => {
-                warn!("Could not open {}: {:?}", &path, &e);
+                warn!("Could not open {path}: {e:?}");
                 return None;
             }
         };
         let mut registered_key_bytes = vec![];
         if let Err(e) = f.read_to_end(&mut registered_key_bytes) {
-            warn!(
-                "Failed to read registered key bytes from {}: {:?}",
-                path, &e
-            );
+            warn!("Failed to read registered key bytes from {path}: {e:?}");
             return None;
         }
 
         let Ok(registered_key) = serde_json::from_slice::<RegisteredKey>(&registered_key_bytes)
         else {
-            warn!(
-                "Did not load registered key from {}: could not decode JSON",
-                &path
-            );
+            warn!("Did not load registered key from {path}: could not decode JSON");
             return None;
         };
 
@@ -1275,7 +1255,7 @@ impl RelayerThread {
             return None;
         }
 
-        info!("Loaded registered key from {}", &path);
+        info!("Loaded registered key from {path}");
         Some(registered_key)
     }
 

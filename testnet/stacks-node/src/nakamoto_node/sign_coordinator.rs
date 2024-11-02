@@ -91,7 +91,7 @@ impl SignCoordinator {
         let is_mainnet = config.is_mainnet();
         let Some(ref reward_set_signers) = reward_set.signers else {
             error!("Could not initialize signing coordinator for reward set without signer");
-            debug!("reward set: {:?}", &reward_set);
+            debug!("reward set: {reward_set:?}");
             return Err(ChainstateError::NoRegisteredSigners(0));
         };
 
@@ -357,9 +357,8 @@ impl SignCoordinator {
                 .get_nakamoto_block(&block.block_id())
                 .map_err(|e| {
                     warn!(
-                        "Failed to query chainstate for block {}: {:?}",
-                        &block.block_id(),
-                        &e
+                        "Failed to query chainstate for block {}: {e:?}",
+                        &block.block_id()
                     );
                     e
                 })
@@ -551,8 +550,7 @@ impl SignCoordinator {
                         };
                         responded_signers.insert(rejected_pubkey);
                         debug!(
-                            "Signer {} rejected our block {}/{}",
-                            slot_id,
+                            "Signer {slot_id} rejected our block {}/{}",
                             &block.header.consensus_hash,
                             &block.header.block_hash()
                         );
@@ -564,8 +562,7 @@ impl SignCoordinator {
                             > self.total_weight
                         {
                             debug!(
-                                "{}/{} signers vote to reject our block {}/{}",
-                                total_reject_weight,
+                                "{total_reject_weight}/{} signers vote to reject our block {}/{}",
                                 self.total_weight,
                                 &block.header.consensus_hash,
                                 &block.header.block_hash()
