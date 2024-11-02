@@ -1087,28 +1087,24 @@ impl StacksChainState {
         while db_config.version != CHAINSTATE_VERSION {
             match db_config.version.as_str() {
                 "1" => {
-                    // migrate to 2
                     info!("Migrating chainstate schema from version 1 to 2");
                     for cmd in CHAINSTATE_SCHEMA_2.iter() {
                         tx.execute_batch(cmd)?;
                     }
                 }
                 "2" => {
-                    // migrate to 3
                     info!("Migrating chainstate schema from version 2 to 3");
                     for cmd in CHAINSTATE_SCHEMA_3.iter() {
                         tx.execute_batch(cmd)?;
                     }
                 }
                 "3" => {
-                    // migrate to nakamoto 1
                     info!("Migrating chainstate schema from version 3 to 4: nakamoto support");
                     for cmd in NAKAMOTO_CHAINSTATE_SCHEMA_1.iter() {
                         tx.execute_batch(cmd)?;
                     }
                 }
                 "4" => {
-                    // migrate to nakamoto 2
                     info!(
                         "Migrating chainstate schema from version 4 to 5: fix nakamoto tenure typo"
                     );
@@ -1117,14 +1113,12 @@ impl StacksChainState {
                     }
                 }
                 "5" => {
-                    // migrate to nakamoto 3
                     info!("Migrating chainstate schema from version 5 to 6: adds height_in_tenure field");
                     for cmd in NAKAMOTO_CHAINSTATE_SCHEMA_3.iter() {
                         tx.execute_batch(cmd)?;
                     }
                 }
                 "6" => {
-                    // migrate to nakamoto 3
                     info!(
                         "Migrating chainstate schema from version 6 to 7: adds signer_stats table"
                     );
@@ -1133,9 +1127,8 @@ impl StacksChainState {
                     }
                 }
                 "7" => {
-                    // migrate to nakamoto 3
                     info!(
-                        "Migrating chainstate schema from version 7 to 8: just bump the schema (added indexes)"
+                        "Migrating chainstate schema from version 7 to 8: add index for nakamoto block headers"
                     );
                     for cmd in NAKAMOTO_CHAINSTATE_SCHEMA_5.iter() {
                         tx.execute_batch(cmd)?;
