@@ -7,6 +7,9 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ## [Unreleased]
 
+### Changed
+- Add index for StacksBlockId to nakamoto block headers table (improves node performance)
+
 ## [3.0.0.0.0]
 
 ### Added
