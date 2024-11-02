@@ -475,14 +475,14 @@ impl TestStacksNode {
             };
 
             if StacksChainState::has_stored_block(
-                &self.chainstate.db(),
+                self.chainstate.db(),
                 &self.chainstate.blocks_path,
                 &consensus_hash,
                 &bc.block_header_hash,
             )
             .unwrap()
                 && !StacksChainState::is_block_orphaned(
-                    &self.chainstate.db(),
+                    self.chainstate.db(),
                     &consensus_hash,
                     &bc.block_header_hash,
                 )

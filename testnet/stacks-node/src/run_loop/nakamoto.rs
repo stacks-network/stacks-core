@@ -100,7 +100,7 @@ impl RunLoop {
             config,
             globals: None,
             coordinator_channels: Some(channels),
-            counters: counters.unwrap_or_else(|| Counters::new()),
+            counters: counters.unwrap_or_default(),
             should_keep_running,
             event_dispatcher,
             pox_watchdog: None,
@@ -167,9 +167,8 @@ impl RunLoop {
         if self.config.node.miner {
             let keychain = Keychain::default(self.config.node.seed.clone());
             let mut op_signer = keychain.generate_op_signer();
-            match burnchain.create_wallet_if_dne() {
-                Err(e) => warn!("Error when creating wallet: {:?}", e),
-                _ => {}
+            if let Err(e) = burnchain.create_wallet_if_dne() {
+                warn!("Error when creating wallet: {:?}", e);
             }
             let mut btc_addrs = vec![(
                 StacksEpochId::Epoch2_05,
@@ -285,7 +284,6 @@ impl RunLoop {
         let mut atlas_config = AtlasConfig::new(self.config.is_mainnet());
         let genesis_attachments = GenesisData::new(use_test_genesis_data)
             .read_name_zonefiles()
-            .into_iter()
             .map(|z| Attachment::new(z.zonefile_content.as_bytes().to_vec()))
             .collect();
         atlas_config.genesis_attachments = Some(genesis_attachments);
@@ -296,7 +294,7 @@ impl RunLoop {
         let moved_atlas_config = self.config.atlas.clone();
         let moved_config = self.config.clone();
         let moved_burnchain_config = burnchain_config.clone();
-        let mut coordinator_dispatcher = self.event_dispatcher.clone();
+        let coordinator_dispatcher = self.event_dispatcher.clone();
         let atlas_db = AtlasDB::connect(
             moved_atlas_config.clone(),
             &self.config.get_atlas_db_file_path(),
@@ -325,13 +323,12 @@ impl RunLoop {
                     require_affirmed_anchor_blocks: moved_config
                         .node
                         .require_affirmed_anchor_blocks,
-                    ..ChainsCoordinatorConfig::new()
                 };
                 ChainsCoordinator::run(
                     coord_config,
                     chain_state_db,
                     moved_burnchain_config,
-                    &mut coordinator_dispatcher,
+                    &coordinator_dispatcher,
                     coordinator_receivers,
                     moved_atlas_config,
                     cost_estimator.as_deref_mut(),
@@ -382,7 +379,7 @@ impl RunLoop {
             Some(sn) => sn,
             None => {
                 debug!("No canonical stacks chain tip hash present");
-                let sn = SortitionDB::get_first_block_snapshot(&sortdb.conn())
+                let sn = SortitionDB::get_first_block_snapshot(sortdb.conn())
                     .expect("BUG: failed to get first-ever block snapshot");
                 sn
             }
@@ -477,7 +474,7 @@ impl RunLoop {
         // Make sure at least one sortition has happened, and make sure it's globally available
         let sortdb = burnchain.sortdb_mut();
         let (rc_aligned_height, sn) =
-            RunLoop::get_reward_cycle_sortition_db_height(&sortdb, &burnchain_config);
+            RunLoop::get_reward_cycle_sortition_db_height(sortdb, &burnchain_config);
 
         let burnchain_tip_snapshot = if sn.block_height == burnchain_config.first_block_height {
             // need at least one sortition to happen.

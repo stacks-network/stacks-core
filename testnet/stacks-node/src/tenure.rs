@@ -41,7 +41,8 @@ pub struct Tenure {
     parent_block_total_burn: u64,
 }
 
-impl<'a> Tenure {
+impl Tenure {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         parent_block: ChainTip,
         coinbase_tx: StacksTransaction,
@@ -82,7 +83,7 @@ impl<'a> Tenure {
             elapsed = Instant::now().duration_since(self.burnchain_tip.received_at);
         }
 
-        let (mut chain_state, _) = StacksChainState::open(
+        let (chain_state, _) = StacksChainState::open(
             self.config.is_mainnet(),
             self.config.burnchain.chain_id,
             &self.config.get_chainstate_path_str(),
@@ -91,13 +92,13 @@ impl<'a> Tenure {
         .unwrap();
 
         let (anchored_block, _, _) = StacksBlockBuilder::build_anchored_block(
-            &mut chain_state,
+            &chain_state,
             burn_dbconn,
             &mut self.mem_pool,
             &self.parent_block.metadata,
             self.parent_block_total_burn,
             self.vrf_proof.clone(),
-            self.microblock_pubkeyhash.clone(),
+            self.microblock_pubkeyhash,
             &self.coinbase_tx,
             BlockBuilderSettings::limited(),
             None,

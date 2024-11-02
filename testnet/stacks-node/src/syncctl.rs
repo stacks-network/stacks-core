@@ -69,7 +69,7 @@ impl PoxSyncWatchdogComms {
             self.interruptable_sleep(1)?;
             std::hint::spin_loop();
         }
-        return Ok(true);
+        Ok(true)
     }
 
     fn interruptable_sleep(&self, secs: u64) -> Result<(), burnchain_error> {
@@ -95,7 +95,7 @@ impl PoxSyncWatchdogComms {
             self.interruptable_sleep(1)?;
             std::hint::spin_loop();
         }
-        return Ok(true);
+        Ok(true)
     }
 
     pub fn should_keep_running(&self) -> bool {
@@ -192,7 +192,7 @@ impl PoxSyncWatchdog {
             new_processed_blocks: VecDeque::new(),
             last_attachable_query: 0,
             last_processed_query: 0,
-            max_samples: max_samples,
+            max_samples,
             max_staging: 10,
             watch_start_ts: 0,
             last_block_processed_ts: 0,
@@ -200,7 +200,7 @@ impl PoxSyncWatchdog {
             estimated_block_process_time: 5.0,
             steady_state_burnchain_sync_interval: burnchain_poll_time,
             steady_state_resync_ts: 0,
-            chainstate: chainstate,
+            chainstate,
             relayer_comms: watchdog_comms,
         })
     }
@@ -213,7 +213,7 @@ impl PoxSyncWatchdog {
     fn count_attachable_stacks_blocks(&mut self) -> Result<u64, String> {
         // number of staging blocks that have arrived since the last sortition
         let cnt = StacksChainState::count_attachable_staging_blocks(
-            &self.chainstate.db(),
+            self.chainstate.db(),
             self.max_staging,
             self.last_attachable_query,
         )
@@ -229,7 +229,7 @@ impl PoxSyncWatchdog {
     fn count_processed_stacks_blocks(&mut self) -> Result<u64, String> {
         // number of staging blocks that have arrived since the last sortition
         let cnt = StacksChainState::count_processed_staging_blocks(
-            &self.chainstate.db(),
+            self.chainstate.db(),
             self.max_staging,
             self.last_processed_query,
         )
@@ -281,7 +281,7 @@ impl PoxSyncWatchdog {
     /// Is a derivative approximately flat, with a maximum absolute deviation from 0?
     /// Return whether or not the sample is mostly flat, and how many points were over the given
     /// error bar in either direction.
-    fn is_mostly_flat(deriv: &Vec<i64>, error: i64) -> (bool, usize) {
+    fn is_mostly_flat(deriv: &[i64], error: i64) -> (bool, usize) {
         let mut total_deviates = 0;
         let mut ret = true;
         for d in deriv.iter() {
@@ -294,7 +294,7 @@ impl PoxSyncWatchdog {
     }
 
     /// low and high pass filter average -- take average without the smallest and largest values
-    fn hilo_filter_avg(samples: &Vec<i64>) -> f64 {
+    fn hilo_filter_avg(samples: &[i64]) -> f64 {
         // take average with low and high pass
         let mut min = i64::MAX;
         let mut max = i64::MIN;
@@ -358,7 +358,7 @@ impl PoxSyncWatchdog {
         }
 
         let block_wait_times =
-            StacksChainState::measure_block_wait_time(&chainstate.db(), start_height, end_height)
+            StacksChainState::measure_block_wait_time(chainstate.db(), start_height, end_height)
                 .expect("BUG: failed to query chainstate block-processing times");
 
         PoxSyncWatchdog::hilo_filter_avg(&block_wait_times)
@@ -386,7 +386,7 @@ impl PoxSyncWatchdog {
         }
 
         let block_download_times = StacksChainState::measure_block_download_time(
-            &chainstate.db(),
+            chainstate.db(),
             start_height,
             end_height,
         )
