@@ -2699,13 +2699,9 @@ fn empty_sortition_before_approval() {
                         info!("Found tenure extend block");
                         return Ok(true);
                     }
-                    TenureChangeCause::BlockFound => {
-                        info!("Found block with tenure change");
-                    }
+                    TenureChangeCause::BlockFound => {}
                 },
-                payload => {
-                    info!("Found tx with payload: {:?}", payload);
-                }
+                _ => {}
             };
         }
         Ok(false)
@@ -2805,13 +2801,21 @@ fn empty_sortition_before_proposal() {
     info!("Pause miner so it doesn't propose a block before the next tenure arrives");
     TEST_MINE_STALL.lock().unwrap().replace(true);
 
+    let burn_height_before = get_chain_info(&signer_test.running_nodes.conf).burn_block_height;
+
     info!("------------------------- Test Mine Tenure A and B  -------------------------");
     signer_test
         .running_nodes
         .btc_regtest_controller
         .build_next_block(2);
 
-    // Sleep to ensure the signers see both burn blocks
+    wait_for(60, || {
+        let info = get_chain_info(&signer_test.running_nodes.conf);
+        Ok(info.burn_block_height == burn_height_before + 2)
+    })
+    .expect("Failed to advance chain tip");
+
+    // Sleep a bit more to ensure the signers see both burn blocks
     sleep_ms(5_000);
 
     info!("Unpause miner");
@@ -2853,13 +2857,9 @@ fn empty_sortition_before_proposal() {
                         info!("Found tenure extend block");
                         return Ok(true);
                     }
-                    TenureChangeCause::BlockFound => {
-                        info!("Found block with tenure change");
-                    }
+                    TenureChangeCause::BlockFound => {}
                 },
-                payload => {
-                    info!("Found tx with payload: {:?}", payload);
-                }
+                _ => {}
             };
         }
         Ok(false)
