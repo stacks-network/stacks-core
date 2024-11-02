@@ -100,7 +100,7 @@ impl RunLoop {
             config,
             globals: None,
             coordinator_channels: Some(channels),
-            counters: counters.unwrap_or_else(|| Counters::new()),
+            counters: counters.unwrap_or_default(),
             should_keep_running,
             event_dispatcher,
             pox_watchdog: None,
@@ -167,9 +167,8 @@ impl RunLoop {
         if self.config.node.miner {
             let keychain = Keychain::default(self.config.node.seed.clone());
             let mut op_signer = keychain.generate_op_signer();
-            match burnchain.create_wallet_if_dne() {
-                Err(e) => warn!("Error when creating wallet: {:?}", e),
-                _ => {}
+            if let Err(e) = burnchain.create_wallet_if_dne() {
+                warn!("Error when creating wallet: {e:?}");
             }
             let mut btc_addrs = vec![(
                 StacksEpochId::Epoch2_05,
@@ -285,7 +284,6 @@ impl RunLoop {
         let mut atlas_config = AtlasConfig::new(self.config.is_mainnet());
         let genesis_attachments = GenesisData::new(use_test_genesis_data)
             .read_name_zonefiles()
-            .into_iter()
             .map(|z| Attachment::new(z.zonefile_content.as_bytes().to_vec()))
             .collect();
         atlas_config.genesis_attachments = Some(genesis_attachments);
@@ -296,7 +294,7 @@ impl RunLoop {
         let moved_atlas_config = self.config.atlas.clone();
         let moved_config = self.config.clone();
         let moved_burnchain_config = burnchain_config.clone();
-        let mut coordinator_dispatcher = self.event_dispatcher.clone();
+        let coordinator_dispatcher = self.event_dispatcher.clone();
         let atlas_db = AtlasDB::connect(
             moved_atlas_config.clone(),
             &self.config.get_atlas_db_file_path(),
@@ -325,13 +323,12 @@ impl RunLoop {
                     require_affirmed_anchor_blocks: moved_config
                         .node
                         .require_affirmed_anchor_blocks,
-                    ..ChainsCoordinatorConfig::new()
                 };
                 ChainsCoordinator::run(
                     coord_config,
                     chain_state_db,
                     moved_burnchain_config,
-                    &mut coordinator_dispatcher,
+                    &coordinator_dispatcher,
                     coordinator_receivers,
                     moved_atlas_config,
                     cost_estimator.as_deref_mut(),
@@ -382,7 +379,7 @@ impl RunLoop {
             Some(sn) => sn,
             None => {
                 debug!("No canonical stacks chain tip hash present");
-                let sn = SortitionDB::get_first_block_snapshot(&sortdb.conn())
+                let sn = SortitionDB::get_first_block_snapshot(sortdb.conn())
                     .expect("BUG: failed to get first-ever block snapshot");
                 sn
             }
@@ -432,7 +429,7 @@ impl RunLoop {
                 return;
             }
             Err(e) => {
-                error!("Error initializing burnchain: {}", e);
+                error!("Error initializing burnchain: {e}");
                 info!("Exiting stacks-node");
                 return;
             }
@@ -477,7 +474,7 @@ impl RunLoop {
         // Make sure at least one sortition has happened, and make sure it's globally available
         let sortdb = burnchain.sortdb_mut();
         let (rc_aligned_height, sn) =
-            RunLoop::get_reward_cycle_sortition_db_height(&sortdb, &burnchain_config);
+            RunLoop::get_reward_cycle_sortition_db_height(sortdb, &burnchain_config);
 
         let burnchain_tip_snapshot = if sn.block_height == burnchain_config.first_block_height {
             // need at least one sortition to happen.
@@ -525,10 +522,7 @@ impl RunLoop {
             burnchain.get_headers_height() - 1,
         );
 
-        debug!(
-            "Runloop: Begin main runloop starting a burnchain block {}",
-            sortition_db_height
-        );
+        debug!("Runloop: Begin main runloop starting a burnchain block {sortition_db_height}");
 
         let mut last_tenure_sortition_height = 0;
         let mut poll_deadline = 0;
@@ -576,11 +570,10 @@ impl RunLoop {
             // runloop will cause the PoX sync watchdog to wait until it believes that the node has
             // obtained all the Stacks blocks it can.
             debug!(
-                "Runloop: Download burnchain blocks up to reward cycle #{} (height {})",
+                "Runloop: Download burnchain blocks up to reward cycle #{} (height {target_burnchain_block_height})",
                 burnchain_config
                     .block_height_to_reward_cycle(target_burnchain_block_height)
-                    .expect("FATAL: target burnchain block height does not have a reward cycle"),
-                target_burnchain_block_height;
+                    .expect("FATAL: target burnchain block height does not have a reward cycle");
                 "total_burn_sync_percent" => %percent,
                 "local_burn_height" => burnchain_tip.block_snapshot.block_height,
                 "remote_tip_height" => remote_chain_height
@@ -615,15 +608,13 @@ impl RunLoop {
 
                 if next_sortition_height != last_tenure_sortition_height {
                     info!(
-                        "Runloop: Downloaded burnchain blocks up to height {}; target height is {}; remote_chain_height = {} next_sortition_height = {}, sortition_db_height = {}",
-                        burnchain_height, target_burnchain_block_height, remote_chain_height, next_sortition_height, sortition_db_height
+                        "Runloop: Downloaded burnchain blocks up to height {burnchain_height}; target height is {target_burnchain_block_height}; remote_chain_height = {remote_chain_height} next_sortition_height = {next_sortition_height}, sortition_db_height = {sortition_db_height}"
                     );
                 }
 
                 if next_sortition_height > sortition_db_height {
                     debug!(
-                        "Runloop: New burnchain block height {} > {}",
-                        next_sortition_height, sortition_db_height
+                        "Runloop: New burnchain block height {next_sortition_height} > {sortition_db_height}"
                     );
 
                     let mut sort_count = 0;
@@ -669,8 +660,7 @@ impl RunLoop {
 
                     num_sortitions_in_last_cycle = sort_count;
                     debug!(
-                        "Runloop: Synchronized sortitions up to block height {} from {} (chain tip height is {}); {} sortitions",
-                        next_sortition_height, sortition_db_height, burnchain_height, num_sortitions_in_last_cycle;
+                        "Runloop: Synchronized sortitions up to block height {next_sortition_height} from {sortition_db_height} (chain tip height is {burnchain_height}); {num_sortitions_in_last_cycle} sortitions"
                     );
 
                     sortition_db_height = next_sortition_height;
@@ -702,7 +692,7 @@ impl RunLoop {
                 remote_chain_height,
             );
 
-            debug!("Runloop: Advance target burnchain block height from {} to {} (sortition height {})", target_burnchain_block_height, next_target_burnchain_block_height, sortition_db_height);
+            debug!("Runloop: Advance target burnchain block height from {target_burnchain_block_height} to {next_target_burnchain_block_height} (sortition height {sortition_db_height})");
             target_burnchain_block_height = next_target_burnchain_block_height;
 
             if sortition_db_height >= burnchain_height && !ibd {
@@ -712,9 +702,7 @@ impl RunLoop {
                         .unwrap_or(0);
                 if canonical_stacks_tip_height < mine_start {
                     info!(
-                        "Runloop: Synchronized full burnchain, but stacks tip height is {}, and we are trying to boot to {}, not mining until reaching chain tip",
-                        canonical_stacks_tip_height,
-                        mine_start
+                        "Runloop: Synchronized full burnchain, but stacks tip height is {canonical_stacks_tip_height}, and we are trying to boot to {mine_start}, not mining until reaching chain tip"
                     );
                 } else {
                     // once we've synced to the chain tip once, don't apply this check again.
@@ -725,13 +713,11 @@ impl RunLoop {
                     if last_tenure_sortition_height != sortition_db_height {
                         if is_miner {
                             info!(
-                                "Runloop: Synchronized full burnchain up to height {}. Proceeding to mine blocks",
-                                sortition_db_height
+                                "Runloop: Synchronized full burnchain up to height {sortition_db_height}. Proceeding to mine blocks"
                             );
                         } else {
                             info!(
-                                "Runloop: Synchronized full burnchain up to height {}.",
-                                sortition_db_height
+                                "Runloop: Synchronized full burnchain up to height {sortition_db_height}."
                             );
                         }
                         last_tenure_sortition_height = sortition_db_height;
