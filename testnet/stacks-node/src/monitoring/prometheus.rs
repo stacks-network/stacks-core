@@ -20,10 +20,7 @@ pub fn start_serving_prometheus_metrics(bind_address: String) -> Result<(), Moni
                     warn!("Prometheus monitoring: unable to get local bind address, will not spawn prometheus endpoint service.");
                     MonitoringError::UnableToGetAddress
                 })?;
-        info!(
-            "Prometheus monitoring: server listening on http://{}",
-            local_addr
-        );
+        info!("Prometheus monitoring: server listening on http://{local_addr}");
 
         let mut incoming = listener.incoming();
         while let Some(stream) = incoming.next().await {

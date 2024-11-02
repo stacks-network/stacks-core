@@ -67,6 +67,7 @@ use crate::run_loop::RegisteredKey;
 use crate::BitcoinRegtestController;
 
 /// Command types for the Nakamoto relayer thread, issued to it by other threads
+#[allow(clippy::large_enum_variant)]
 pub enum RelayerDirective {
     /// Handle some new data that arrived on the network (such as blocks, transactions, and
     HandleNetResult(NetworkResult),
@@ -142,7 +143,7 @@ impl LastCommit {
 
     /// What's the parent tenure's tenure-start block hash?
     pub fn parent_tenure_id(&self) -> StacksBlockId {
-        StacksBlockId(self.block_commit.block_header_hash.clone().0)
+        StacksBlockId(self.block_commit.block_header_hash.0)
     }
 
     /// What's the stacks tip at the time of commit?
@@ -167,7 +168,7 @@ impl LastCommit {
 
     /// Set our txid
     pub fn set_txid(&mut self, txid: &Txid) {
-        self.txid = Some(txid.clone());
+        self.txid = Some(*txid);
     }
 }
 
@@ -302,6 +303,8 @@ impl RelayerThread {
 
     /// have we waited for the right conditions under which to start mining a block off of our
     /// chain tip?
+    #[allow(clippy::nonminimal_bool)]
+    #[allow(clippy::eq_op)]
     fn has_waited_for_latest_blocks(&self) -> bool {
         // a network download pass took place
         (self.min_network_download_passes <= self.last_network_download_passes
@@ -472,7 +475,7 @@ impl RelayerThread {
             .expect("FATAL: failed to query sortition DB");
 
         if cur_sn.consensus_hash != consensus_hash {
-            info!("Relayer: Current sortition {} is ahead of processed sortition {}; taking no action", &cur_sn.consensus_hash, consensus_hash);
+            info!("Relayer: Current sortition {} is ahead of processed sortition {consensus_hash}; taking no action", &cur_sn.consensus_hash);
             self.globals
                 .raise_initiative("process_sortition".to_string());
             return Ok(None);
@@ -497,7 +500,7 @@ impl RelayerThread {
         BlockstackOperationType::LeaderKeyRegister(LeaderKeyRegisterOp {
             public_key: vrf_public_key,
             memo: miner_pkh.as_bytes().to_vec(),
-            consensus_hash: consensus_hash.clone(),
+            consensus_hash: *consensus_hash,
             vtxindex: 0,
             txid: Txid([0u8; 32]),
             block_height: 0,
@@ -564,19 +567,17 @@ impl RelayerThread {
         let highest_tenure_start_block_header = NakamotoChainState::get_tenure_start_block_header(
             &mut self.chainstate.index_conn(),
             &stacks_tip,
-            &tip_block_ch,
+            tip_block_ch,
         )
         .map_err(|e| {
             error!(
-                "Relayer: Failed to get tenure-start block header for stacks tip {}: {:?}",
-                &stacks_tip, &e
+                "Relayer: Failed to get tenure-start block header for stacks tip {stacks_tip}: {e:?}"
             );
             NakamotoNodeError::ParentNotFound
         })?
         .ok_or_else(|| {
             error!(
-                "Relayer: Failed to find tenure-start block header for stacks tip {}",
-                &stacks_tip
+                "Relayer: Failed to find tenure-start block header for stacks tip {stacks_tip}"
             );
             NakamotoNodeError::ParentNotFound
         })?;
@@ -589,17 +590,11 @@ impl RelayerThread {
             tip_block_ch,
         )
         .map_err(|e| {
-            error!(
-                "Failed to load VRF proof for {} off of {}: {:?}",
-                tip_block_ch, &stacks_tip, &e
-            );
+            error!("Failed to load VRF proof for {tip_block_ch} off of {stacks_tip}: {e:?}");
             NakamotoNodeError::ParentNotFound
         })?
         .ok_or_else(|| {
-            error!(
-                "No block VRF proof for {} off of {}",
-                tip_block_ch, &stacks_tip
-            );
+            error!("No block VRF proof for {tip_block_ch} off of {stacks_tip}");
             NakamotoNodeError::ParentNotFound
         })?;
 
@@ -612,7 +607,7 @@ impl RelayerThread {
             &self.burnchain,
         )
         .map_err(|e| {
-            error!("Relayer: Failure fetching recipient set: {:?}", e);
+            error!("Relayer: Failure fetching recipient set: {e:?}");
             NakamotoNodeError::SnapshotNotFoundForChainTip
         })?;
 
@@ -730,9 +725,7 @@ impl RelayerThread {
     /// * last_burn_block corresponds to the canonical sortition DB's chain tip
     /// * the time of issuance is sufficiently recent
     /// * there are no unprocessed stacks blocks in the staging DB
-    /// * the relayer has already tried a download scan that included this sortition (which, if a
-    /// block was found, would have placed it into the staging DB and marked it as
-    /// unprocessed)
+    /// * the relayer has already tried a download scan that included this sortition (which, if a block was found, would have placed it into the staging DB and marked it as unprocessed)
     /// * a miner thread is not running already
     fn create_block_miner(
         &mut self,
@@ -750,16 +743,15 @@ impl RelayerThread {
             return Err(NakamotoNodeError::FaultInjection);
         }
 
-        let burn_header_hash = burn_tip.burn_header_hash.clone();
+        let burn_header_hash = burn_tip.burn_header_hash;
         let burn_chain_sn = SortitionDB::get_canonical_burn_chain_tip(self.sortdb.conn())
             .expect("FATAL: failed to query sortition DB for canonical burn chain tip");
 
-        let burn_chain_tip = burn_chain_sn.burn_header_hash.clone();
+        let burn_chain_tip = burn_chain_sn.burn_header_hash;
 
         if burn_chain_tip != burn_header_hash {
             debug!(
-                "Relayer: Drop stale RunTenure for {}: current sortition is for {}",
-                &burn_header_hash, &burn_chain_tip
+                "Relayer: Drop stale RunTenure for {burn_header_hash}: current sortition is for {burn_chain_tip}"
             );
             self.globals.counters.bump_missed_tenures();
             return Err(NakamotoNodeError::MissedMiningOpportunity);
@@ -819,14 +811,14 @@ impl RelayerThread {
             .stack_size(BLOCK_PROCESSOR_STACK_SIZE)
             .spawn(move || {
                 if let Err(e) = new_miner_state.run_miner(prior_tenure_thread) {
-                    info!("Miner thread failed: {:?}", &e);
+                    info!("Miner thread failed: {e:?}");
                     Err(e)
                 } else {
                     Ok(())
                 }
             })
             .map_err(|e| {
-                error!("Relayer: Failed to start tenure thread: {:?}", &e);
+                error!("Relayer: Failed to start tenure thread: {e:?}");
                 NakamotoNodeError::SpawnError(e)
             })?;
         debug!(
@@ -852,7 +844,7 @@ impl RelayerThread {
             .name(format!("tenure-stop-{}", self.local_peer.data_url))
             .spawn(move || BlockMinerThread::stop_miner(&globals, prior_tenure_thread))
             .map_err(|e| {
-                error!("Relayer: Failed to spawn a stop-tenure thread: {:?}", &e);
+                error!("Relayer: Failed to spawn a stop-tenure thread: {e:?}");
                 NakamotoNodeError::SpawnError(e)
             })?;
 
@@ -955,7 +947,7 @@ impl RelayerThread {
                     return true;
                 }
                 Err(e) => {
-                    warn!("Relayer: process_sortition returned {:?}", &e);
+                    warn!("Relayer: process_sortition returned {e:?}");
                     return false;
                 }
             };
@@ -1033,14 +1025,13 @@ impl RelayerThread {
         let (cur_stacks_tip_ch, cur_stacks_tip_bh) =
             SortitionDB::get_canonical_stacks_chain_tip_hash(self.sortdb.conn()).unwrap_or_else(
                 |e| {
-                    panic!("Failed to load canonical stacks tip: {:?}", &e);
+                    panic!("Failed to load canonical stacks tip: {e:?}");
                 },
             );
 
         if cur_stacks_tip_ch != tip_block_ch || cur_stacks_tip_bh != tip_block_bh {
             info!(
-                "Stacks tip changed prior to commit: {}/{} != {}/{}",
-                &cur_stacks_tip_ch, &cur_stacks_tip_bh, &tip_block_ch, &tip_block_bh
+                "Stacks tip changed prior to commit: {cur_stacks_tip_ch}/{cur_stacks_tip_bh} != {tip_block_ch}/{tip_block_bh}"
             );
             return Err(NakamotoNodeError::StacksTipChanged);
         }
@@ -1050,16 +1041,12 @@ impl RelayerThread {
             &StacksBlockId::new(&tip_block_ch, &tip_block_bh),
         )
         .map_err(|e| {
-            warn!(
-                "Relayer: failed to load tip {}/{}: {:?}",
-                &tip_block_ch, &tip_block_bh, &e
-            );
+            warn!("Relayer: failed to load tip {tip_block_ch}/{tip_block_bh}: {e:?}");
             NakamotoNodeError::ParentNotFound
         })?
         .map(|header| header.stacks_block_height) else {
             warn!(
-                "Relayer: failed to load height for tip {}/{} (got None)",
-                &tip_block_ch, &tip_block_bh
+                "Relayer: failed to load height for tip {tip_block_ch}/{tip_block_bh} (got None)"
             );
             return Err(NakamotoNodeError::ParentNotFound);
         };
@@ -1067,7 +1054,7 @@ impl RelayerThread {
         // sign and broadcast
         let mut op_signer = self.keychain.generate_op_signer();
         let res = self.bitcoin_controller.submit_operation(
-            last_committed.get_epoch_id().clone(),
+            *last_committed.get_epoch_id(),
             BlockstackOperationType::LeaderBlockCommit(last_committed.get_block_commit().clone()),
             &mut op_signer,
             1,
@@ -1131,7 +1118,7 @@ impl RelayerThread {
         // load up canonical sortition and stacks tips
         let Ok(sort_tip) =
             SortitionDB::get_canonical_burn_chain_tip(self.sortdb.conn()).map_err(|e| {
-                error!("Failed to load canonical sortition tip: {:?}", &e);
+                error!("Failed to load canonical sortition tip: {e:?}");
                 e
             })
         else {
@@ -1141,7 +1128,7 @@ impl RelayerThread {
         // NOTE: this may be an epoch2x tip
         let Ok((stacks_tip_ch, stacks_tip_bh)) =
             SortitionDB::get_canonical_stacks_chain_tip_hash(self.sortdb.conn()).map_err(|e| {
-                error!("Failed to load canonical stacks tip: {:?}", &e);
+                error!("Failed to load canonical stacks tip: {e:?}");
                 e
             })
         else {
@@ -1246,25 +1233,19 @@ impl RelayerThread {
         let mut f = match fs::File::open(path) {
             Ok(f) => f,
             Err(e) => {
-                warn!("Could not open {}: {:?}", &path, &e);
+                warn!("Could not open {path}: {e:?}");
                 return None;
             }
         };
         let mut registered_key_bytes = vec![];
         if let Err(e) = f.read_to_end(&mut registered_key_bytes) {
-            warn!(
-                "Failed to read registered key bytes from {}: {:?}",
-                path, &e
-            );
+            warn!("Failed to read registered key bytes from {path}: {e:?}");
             return None;
         }
 
         let Ok(registered_key) = serde_json::from_slice::<RegisteredKey>(&registered_key_bytes)
         else {
-            warn!(
-                "Did not load registered key from {}: could not decode JSON",
-                &path
-            );
+            warn!("Did not load registered key from {path}: could not decode JSON");
             return None;
         };
 
@@ -1274,7 +1255,7 @@ impl RelayerThread {
             return None;
         }
 
-        info!("Loaded registered key from {}", &path);
+        info!("Loaded registered key from {path}");
         Some(registered_key)
     }
 
@@ -1299,7 +1280,7 @@ impl RelayerThread {
                 let mut saved_key_opt = None;
                 if let Some(path) = self.config.miner.activated_vrf_key_path.as_ref() {
                     saved_key_opt =
-                        Self::load_saved_vrf_key(&path, &self.keychain.get_nakamoto_pkh());
+                        Self::load_saved_vrf_key(path, &self.keychain.get_nakamoto_pkh());
                 }
                 if let Some(saved_key) = saved_key_opt {
                     debug!("Relayer: resuming VRF key");
@@ -1371,9 +1352,9 @@ pub mod test {
         let pubkey_hash = Hash160::from_node_public_key(&pk);
 
         let path = "/tmp/does_not_exist.json";
-        _ = std::fs::remove_file(&path);
+        _ = std::fs::remove_file(path);
 
-        let res = RelayerThread::load_saved_vrf_key(&path, &pubkey_hash);
+        let res = RelayerThread::load_saved_vrf_key(path, &pubkey_hash);
         assert!(res.is_none());
     }
 
@@ -1384,13 +1365,13 @@ pub mod test {
         let pubkey_hash = Hash160::from_node_public_key(&pk);
 
         let path = "/tmp/empty.json";
-        File::create(&path).expect("Failed to create test file");
-        assert!(Path::new(&path).exists());
+        File::create(path).expect("Failed to create test file");
+        assert!(Path::new(path).exists());
 
-        let res = RelayerThread::load_saved_vrf_key(&path, &pubkey_hash);
+        let res = RelayerThread::load_saved_vrf_key(path, &pubkey_hash);
         assert!(res.is_none());
 
-        std::fs::remove_file(&path).expect("Failed to delete test file");
+        std::fs::remove_file(path).expect("Failed to delete test file");
     }
 
     #[test]
@@ -1403,15 +1384,15 @@ pub mod test {
         let json_content = r#"{ "hello": "world" }"#;
 
         // Write the JSON content to the file
-        let mut file = File::create(&path).expect("Failed to create test file");
+        let mut file = File::create(path).expect("Failed to create test file");
         file.write_all(json_content.as_bytes())
             .expect("Failed to write to test file");
-        assert!(Path::new(&path).exists());
+        assert!(Path::new(path).exists());
 
-        let res = RelayerThread::load_saved_vrf_key(&path, &pubkey_hash);
+        let res = RelayerThread::load_saved_vrf_key(path, &pubkey_hash);
         assert!(res.is_none());
 
-        std::fs::remove_file(&path).expect("Failed to delete test file");
+        std::fs::remove_file(path).expect("Failed to delete test file");
     }
 
     #[test]
@@ -1432,10 +1413,10 @@ pub mod test {
         let path = "/tmp/vrf_key.json";
         save_activated_vrf_key(path, &key);
 
-        let res = RelayerThread::load_saved_vrf_key(&path, &pubkey_hash);
+        let res = RelayerThread::load_saved_vrf_key(path, &pubkey_hash);
         assert!(res.is_some());
 
-        std::fs::remove_file(&path).expect("Failed to delete test file");
+        std::fs::remove_file(path).expect("Failed to delete test file");
     }
 
     #[test]
@@ -1460,9 +1441,9 @@ pub mod test {
         let pk = Secp256k1PublicKey::from_private(keychain.get_nakamoto_sk());
         let pubkey_hash = Hash160::from_node_public_key(&pk);
 
-        let res = RelayerThread::load_saved_vrf_key(&path, &pubkey_hash);
+        let res = RelayerThread::load_saved_vrf_key(path, &pubkey_hash);
         assert!(res.is_none());
 
-        std::fs::remove_file(&path).expect("Failed to delete test file");
+        std::fs::remove_file(path).expect("Failed to delete test file");
     }
 }

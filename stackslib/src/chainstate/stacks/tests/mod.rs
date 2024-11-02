@@ -81,7 +81,7 @@ pub fn path_join(dir: &str, path: &str) -> String {
 
 // copy src to dest
 pub fn copy_dir(src_dir: &str, dest_dir: &str) -> Result<(), io::Error> {
-    eprintln!("Copy directory {} to {}", src_dir, dest_dir);
+    eprintln!("Copy directory {src_dir} to {dest_dir}");
 
     let mut dir_queue = VecDeque::new();
     dir_queue.push_back("/".to_string());
@@ -91,7 +91,7 @@ pub fn copy_dir(src_dir: &str, dest_dir: &str) -> Result<(), io::Error> {
         let next_src_dir = path_join(&src_dir, &next_dir);
         let next_dest_dir = path_join(&dest_dir, &next_dir);
 
-        eprintln!("mkdir {}", &next_dest_dir);
+        eprintln!("mkdir {next_dest_dir}");
         fs::create_dir_all(&next_dest_dir)?;
 
         for dirent_res in fs::read_dir(&next_src_dir)? {
@@ -100,11 +100,11 @@ pub fn copy_dir(src_dir: &str, dest_dir: &str) -> Result<(), io::Error> {
             let md = fs::metadata(&path)?;
             if md.is_dir() {
                 let frontier = path_join(&next_dir, &dirent.file_name().to_str().unwrap());
-                eprintln!("push {}", &frontier);
+                eprintln!("push {frontier}");
                 dir_queue.push_back(frontier);
             } else {
                 let dest_path = path_join(&next_dest_dir, &dirent.file_name().to_str().unwrap());
-                eprintln!("copy {} to {}", &path.to_str().unwrap(), &dest_path);
+                eprintln!("copy {} to {dest_path}", &path.to_str().unwrap());
                 fs::copy(path, dest_path)?;
             }
         }
@@ -475,14 +475,14 @@ impl TestStacksNode {
             };
 
             if StacksChainState::has_stored_block(
-                &self.chainstate.db(),
+                self.chainstate.db(),
                 &self.chainstate.blocks_path,
                 &consensus_hash,
                 &bc.block_header_hash,
             )
             .unwrap()
                 && !StacksChainState::is_block_orphaned(
-                    &self.chainstate.db(),
+                    self.chainstate.db(),
                     &consensus_hash,
                     &bc.block_header_hash,
                 )
@@ -583,11 +583,10 @@ impl TestStacksNode {
         );
 
         test_debug!(
-            "Miner {}: Block commit transaction builds on {},{} (parent snapshot is {:?})",
+            "Miner {}: Block commit transaction builds on {},{} (parent snapshot is {parent_block_snapshot_opt:?})",
             miner.id,
             block_commit_op.parent_block_ptr,
-            block_commit_op.parent_vtxindex,
-            &parent_block_snapshot_opt
+            block_commit_op.parent_vtxindex
         );
         self.commit_ops.insert(
             block_commit_op.block_header_hash.clone(),
@@ -767,16 +766,15 @@ pub fn preprocess_stacks_block_data(
     {
         Some(sn) => sn,
         None => {
-            test_debug!("Block commit did not win sorition: {:?}", block_commit_op);
+            test_debug!("Block commit did not win sorition: {block_commit_op:?}");
             return None;
         }
     };
 
     // "discover" this stacks block
     test_debug!(
-        "\n\nPreprocess Stacks block {}/{} ({})",
+        "\n\nPreprocess Stacks block {}/{block_hash} ({})",
         &commit_snapshot.consensus_hash,
-        &block_hash,
         StacksBlockHeader::make_index_block_hash(&commit_snapshot.consensus_hash, &block_hash)
     );
     let block_res = node
@@ -793,8 +791,7 @@ pub fn preprocess_stacks_block_data(
     // "discover" this stacks microblock stream
     for mblock in stacks_microblocks.iter() {
         test_debug!(
-            "Preprocess Stacks microblock {}-{} (seq {})",
-            &block_hash,
+            "Preprocess Stacks microblock {block_hash}-{} (seq {})",
             mblock.block_hash(),
             mblock.header.sequence
         );
@@ -828,11 +825,9 @@ pub fn check_block_state_index_root(
         .read_block_root_hash(&index_block_hash)
         .unwrap();
     test_debug!(
-        "checking {}/{} state root: expecting {}, got {}",
-        consensus_hash,
+        "checking {consensus_hash}/{} state root: expecting {}, got {state_root}",
         &stacks_header.block_hash(),
-        &stacks_header.state_index_root,
-        &state_root
+        &stacks_header.state_index_root
     );
     state_root == stacks_header.state_index_root
 }
@@ -888,9 +883,8 @@ pub fn check_mining_reward(
 
     let mut total: u128 = 10_000_000_000 - spent_total;
     test_debug!(
-        "Miner {} has spent {} in total so far",
-        &miner.origin_address().unwrap(),
-        spent_total
+        "Miner {} has spent {spent_total} in total so far",
+        &miner.origin_address().unwrap()
     );
 
     if block_height >= MINER_REWARD_MATURITY {
@@ -908,13 +902,10 @@ pub fn check_mining_reward(
                     let reward = recipient.coinbase + anchored + (3 * streamed / 5);
 
                     test_debug!(
-                        "Miner {} received a reward {} = {} + {} + {} at block {}",
+                        "Miner {} received a reward {reward} = {} + {anchored} + {} at block {i}",
                         &recipient.address.to_string(),
-                        reward,
                         recipient.coinbase,
-                        anchored,
                         (3 * streamed / 5),
-                        i
                     );
                     total += reward;
                     found = true;
@@ -922,9 +913,8 @@ pub fn check_mining_reward(
             }
             if !found {
                 test_debug!(
-                    "Miner {} received no reward at block {}",
-                    miner.origin_address().unwrap(),
-                    i
+                    "Miner {} received no reward at block {i}",
+                    miner.origin_address().unwrap()
                 );
             }
         }
@@ -945,11 +935,9 @@ pub fn check_mining_reward(
                         &parent_reward.block_hash,
                     );
                     test_debug!(
-                        "Miner {} received a produced-stream reward {} from {} confirmed at {}",
+                        "Miner {} received a produced-stream reward {parent_streamed} from {} confirmed at {confirmed_block_height}",
                         miner.origin_address().unwrap().to_string(),
-                        parent_streamed,
-                        heights.get(&parent_ibh).unwrap(),
-                        confirmed_block_height
+                        heights.get(&parent_ibh).unwrap()
                     );
                     total += parent_streamed;
                 }
@@ -967,7 +955,7 @@ pub fn check_mining_reward(
         return total == 0;
     } else {
         if amount != total {
-            test_debug!("Amount {} != {}", amount, total);
+            test_debug!("Amount {amount} != {total}");
             return false;
         }
         return true;
@@ -1091,16 +1079,14 @@ pub fn make_smart_contract_with_version(
       (begin (var-set bar (/ x y)) (ok (var-get bar))))";
 
     test_debug!(
-        "Make smart contract block at hello-world-{}-{}",
-        burnchain_height,
-        stacks_block_height
+        "Make smart contract block at hello-world-{burnchain_height}-{stacks_block_height}"
     );
 
     let mut tx_contract = StacksTransaction::new(
         TransactionVersion::Testnet,
         miner.as_transaction_auth().unwrap(),
         TransactionPayload::new_smart_contract(
-            &format!("hello-world-{}-{}", burnchain_height, stacks_block_height),
+            &format!("hello-world-{burnchain_height}-{stacks_block_height}"),
             &contract.to_string(),
             version,
         )
@@ -1140,7 +1126,7 @@ pub fn make_contract_call(
         miner.as_transaction_auth().unwrap(),
         TransactionPayload::new_contract_call(
             addr.clone(),
-            &format!("hello-world-{}-{}", burnchain_height, stacks_block_height),
+            &format!("hello-world-{burnchain_height}-{stacks_block_height}"),
             "set-bar",
             vec![Value::Int(arg1), Value::Int(arg2)],
         )

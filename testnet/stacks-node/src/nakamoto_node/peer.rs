@@ -227,6 +227,7 @@ impl PeerThread {
 
     /// Run one pass of the p2p/http state machine
     /// Return true if we should continue running passes; false if not
+    #[allow(clippy::borrowed_box)]
     pub(crate) fn run_one_pass<B: BurnchainHeaderReader>(
         &mut self,
         indexer: &B,
@@ -238,12 +239,11 @@ impl PeerThread {
     ) -> bool {
         // initial block download?
         let ibd = self.globals.sync_comms.get_ibd();
-        let download_backpressure = self.results_with_data.len() > 0;
+        let download_backpressure = !self.results_with_data.is_empty();
         let poll_ms = if !download_backpressure && self.net.has_more_downloads() {
             // keep getting those blocks -- drive the downloader state-machine
             debug!(
-                "P2P: backpressure: {}, more downloads: {}",
-                download_backpressure,
+                "P2P: backpressure: {download_backpressure}, more downloads: {}",
                 self.net.has_more_downloads()
             );
             1
@@ -258,7 +258,7 @@ impl PeerThread {
             // NOTE: handler_args must be created such that it outlives the inner net.run() call and
             // doesn't ref anything within p2p_thread.
             let handler_args = RPCHandlerArgs {
-                exit_at_block_height: self.config.burnchain.process_exit_at_block_height.clone(),
+                exit_at_block_height: self.config.burnchain.process_exit_at_block_height,
                 genesis_chainstate_hash: Sha256Sum::from_hex(stx_genesis::GENESIS_CHAINSTATE_HASH)
                     .unwrap(),
                 event_observer: Some(event_dispatcher),
@@ -266,7 +266,6 @@ impl PeerThread {
                 cost_metric: Some(cost_metric.as_ref()),
                 fee_estimator: fee_estimator.map(|boxed_estimator| boxed_estimator.as_ref()),
                 coord_comms: Some(&self.globals.coord_comms),
-                ..RPCHandlerArgs::default()
             };
             self.net.run(
                 indexer,
@@ -321,7 +320,7 @@ impl PeerThread {
             Err(e) => {
                 // this is only reachable if the network is not instantiated correctly --
                 // i.e. you didn't connect it
-                panic!("P2P: Failed to process network dispatch: {:?}", &e);
+                panic!("P2P: Failed to process network dispatch: {e:?}");
             }
         };
 

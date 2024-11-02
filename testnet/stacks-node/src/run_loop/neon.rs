@@ -342,7 +342,7 @@ impl RunLoop {
                 }
             }
             _ => {
-                let msg = format!("Graceful termination request received (signal `{}`), will complete the ongoing runloop cycles and terminate\n", sig_id);
+                let msg = format!("Graceful termination request received (signal `{sig_id}`), will complete the ongoing runloop cycles and terminate\n");
                 async_safe_write_stderr(&msg);
                 keep_running_writer.store(false, Ordering::SeqCst);
             }
@@ -353,7 +353,7 @@ impl RunLoop {
             if cfg!(test) || allow_err {
                 info!("Error setting up signal handler, may have already been set");
             } else {
-                panic!("FATAL: error setting termination handler - {}", e);
+                panic!("FATAL: error setting termination handler - {e}");
             }
         }
     }
@@ -369,9 +369,8 @@ impl RunLoop {
         if self.config.node.miner {
             let keychain = Keychain::default(self.config.node.seed.clone());
             let mut op_signer = keychain.generate_op_signer();
-            match burnchain.create_wallet_if_dne() {
-                Err(e) => warn!("Error when creating wallet: {:?}", e),
-                _ => {}
+            if let Err(e) = burnchain.create_wallet_if_dne() {
+                warn!("Error when creating wallet: {e:?}");
             }
             let mut btc_addrs = vec![(
                 StacksEpochId::Epoch2_05,
@@ -462,7 +461,7 @@ impl RunLoop {
                 panic!();
             }
             Err(e) => {
-                panic!("FATAL: unable to query filesystem or databases: {:?}", &e);
+                panic!("FATAL: unable to query filesystem or databases: {e:?}");
             }
         }
 
@@ -476,13 +475,13 @@ impl RunLoop {
             Some(burnchain_tip) => {
                 // database exists already, and has blocks -- just sync to its tip.
                 let target_height = burnchain_tip.block_height + 1;
-                debug!("Burnchain DB exists and has blocks up to {}; synchronizing from where it left off up to {}", burnchain_tip.block_height, target_height);
+                debug!("Burnchain DB exists and has blocks up to {}; synchronizing from where it left off up to {target_height}", burnchain_tip.block_height);
                 target_height
             }
             None => {
                 // database does not exist yet
                 let target_height = 1.max(burnchain_config.first_block_height + 1);
-                debug!("Burnchain DB does not exist or does not have blocks; synchronizing to first burnchain block height {}", target_height);
+                debug!("Burnchain DB does not exist or does not have blocks; synchronizing to first burnchain block height {target_height}");
                 target_height
             }
         };
@@ -490,22 +489,19 @@ impl RunLoop {
         burnchain_controller
             .start(Some(target_burnchain_block_height))
             .map_err(|e| {
-                match e {
-                    Error::CoordinatorClosed => {
-                        if !should_keep_running.load(Ordering::SeqCst) {
-                            info!("Shutdown initiated during burnchain initialization: {}", e);
-                            return burnchain_error::ShutdownInitiated;
-                        }
-                    }
-                    _ => {}
+                if matches!(e, Error::CoordinatorClosed)
+                    && !should_keep_running.load(Ordering::SeqCst)
+                {
+                    info!("Shutdown initiated during burnchain initialization: {e}");
+                    return burnchain_error::ShutdownInitiated;
                 }
-                error!("Burnchain controller stopped: {}", e);
+                error!("Burnchain controller stopped: {e}");
                 panic!();
             })?;
 
         // if the chainstate DBs don't exist, this will instantiate them
         if let Err(e) = burnchain_controller.connect_dbs() {
-            error!("Failed to connect to burnchain databases: {}", e);
+            error!("Failed to connect to burnchain databases: {e}");
             panic!();
         };
 
@@ -581,7 +577,6 @@ impl RunLoop {
         let mut atlas_config = AtlasConfig::new(self.config.is_mainnet());
         let genesis_attachments = GenesisData::new(use_test_genesis_data)
             .read_name_zonefiles()
-            .into_iter()
             .map(|z| Attachment::new(z.zonefile_content.as_bytes().to_vec()))
             .collect();
         atlas_config.genesis_attachments = Some(genesis_attachments);
@@ -592,7 +587,7 @@ impl RunLoop {
         let moved_atlas_config = self.config.atlas.clone();
         let moved_config = self.config.clone();
         let moved_burnchain_config = burnchain_config.clone();
-        let mut coordinator_dispatcher = self.event_dispatcher.clone();
+        let coordinator_dispatcher = self.event_dispatcher.clone();
         let atlas_db = AtlasDB::connect(
             moved_atlas_config.clone(),
             &self.config.get_atlas_db_file_path(),
@@ -621,13 +616,12 @@ impl RunLoop {
                     require_affirmed_anchor_blocks: moved_config
                         .node
                         .require_affirmed_anchor_blocks,
-                    ..ChainsCoordinatorConfig::new()
                 };
                 ChainsCoordinator::run(
                     coord_config,
                     chain_state_db,
                     moved_burnchain_config,
-                    &mut coordinator_dispatcher,
+                    &coordinator_dispatcher,
                     coordinator_receivers,
                     moved_atlas_config,
                     cost_estimator.as_deref_mut(),
@@ -685,7 +679,7 @@ impl RunLoop {
             Some(sn) => sn,
             None => {
                 debug!("No canonical stacks chain tip hash present");
-                let sn = SortitionDB::get_first_block_snapshot(&sortdb.conn())
+                let sn = SortitionDB::get_first_block_snapshot(sortdb.conn())
                     .expect("BUG: failed to get first-ever block snapshot");
                 sn
             }
@@ -737,7 +731,7 @@ impl RunLoop {
         let indexer = make_bitcoin_indexer(config, Some(globals.should_keep_running.clone()));
 
         let heaviest_affirmation_map = match static_get_heaviest_affirmation_map(
-            &burnchain,
+            burnchain,
             &indexer,
             &burnchain_db,
             sortdb,
@@ -745,7 +739,7 @@ impl RunLoop {
         ) {
             Ok(am) => am,
             Err(e) => {
-                warn!("Failed to find heaviest affirmation map: {:?}", &e);
+                warn!("Failed to find heaviest affirmation map: {e:?}");
                 return;
             }
         };
@@ -761,7 +755,7 @@ impl RunLoop {
             match SortitionDB::find_sortition_tip_affirmation_map(sortdb, &sn.sortition_id) {
                 Ok(am) => am,
                 Err(e) => {
-                    warn!("Failed to find sortition affirmation map: {:?}", &e);
+                    warn!("Failed to find sortition affirmation map: {e:?}");
                     return;
                 }
             };
@@ -787,26 +781,24 @@ impl RunLoop {
                     .find_divergence(&heaviest_affirmation_map)
                     .is_some()
             {
-                debug!("Drive burn block processing: possible PoX reorg (sortition tip: {}, heaviest: {})", &sortition_tip_affirmation_map, &heaviest_affirmation_map);
+                debug!("Drive burn block processing: possible PoX reorg (sortition tip: {sortition_tip_affirmation_map}, heaviest: {heaviest_affirmation_map})");
                 globals.coord().announce_new_burn_block();
             } else if highest_sn.block_height == sn.block_height
                 && sn.block_height == canonical_burnchain_tip.block_height
             {
                 // need to force an affirmation reorg because there will be no more burn block
                 // announcements.
-                debug!("Drive burn block processing: possible PoX reorg (sortition tip: {}, heaviest: {}, burn height {})", &sortition_tip_affirmation_map, &heaviest_affirmation_map, sn.block_height);
+                debug!("Drive burn block processing: possible PoX reorg (sortition tip: {sortition_tip_affirmation_map}, heaviest: {heaviest_affirmation_map}, burn height {})", sn.block_height);
                 globals.coord().announce_new_burn_block();
             }
 
             debug!(
-                "Drive stacks block processing: possible PoX reorg (stacks tip: {}, heaviest: {})",
-                &stacks_tip_affirmation_map, &heaviest_affirmation_map
+                "Drive stacks block processing: possible PoX reorg (stacks tip: {stacks_tip_affirmation_map}, heaviest: {heaviest_affirmation_map})"
             );
             globals.coord().announce_new_stacks_block();
         } else {
             debug!(
-                "Drive stacks block processing: no need (stacks tip: {}, heaviest: {})",
-                &stacks_tip_affirmation_map, &heaviest_affirmation_map
+                "Drive stacks block processing: no need (stacks tip: {stacks_tip_affirmation_map}, heaviest: {heaviest_affirmation_map})"
             );
 
             // announce a new stacks block to force the chains coordinator
@@ -877,7 +869,7 @@ impl RunLoop {
             match SortitionDB::find_sortition_tip_affirmation_map(sortdb, &sn.sortition_id) {
                 Ok(am) => am,
                 Err(e) => {
-                    warn!("Failed to find sortition affirmation map: {:?}", &e);
+                    warn!("Failed to find sortition affirmation map: {e:?}");
                     return;
                 }
             };
@@ -885,7 +877,7 @@ impl RunLoop {
         let indexer = make_bitcoin_indexer(config, Some(globals.should_keep_running.clone()));
 
         let heaviest_affirmation_map = match static_get_heaviest_affirmation_map(
-            &burnchain,
+            burnchain,
             &indexer,
             &burnchain_db,
             sortdb,
@@ -893,22 +885,22 @@ impl RunLoop {
         ) {
             Ok(am) => am,
             Err(e) => {
-                warn!("Failed to find heaviest affirmation map: {:?}", &e);
+                warn!("Failed to find heaviest affirmation map: {e:?}");
                 return;
             }
         };
 
         let canonical_affirmation_map = match static_get_canonical_affirmation_map(
-            &burnchain,
+            burnchain,
             &indexer,
             &burnchain_db,
             sortdb,
-            &chain_state_db,
+            chain_state_db,
             &sn.sortition_id,
         ) {
             Ok(am) => am,
             Err(e) => {
-                warn!("Failed to find canonical affirmation map: {:?}", &e);
+                warn!("Failed to find canonical affirmation map: {e:?}");
                 return;
             }
         };
@@ -919,7 +911,7 @@ impl RunLoop {
                 .is_some()
             || sn.block_height < highest_sn.block_height
         {
-            debug!("Drive burn block processing: possible PoX reorg (sortition tip: {}, heaviest: {}, {} <? {})", &sortition_tip_affirmation_map, &heaviest_affirmation_map, sn.block_height, highest_sn.block_height);
+            debug!("Drive burn block processing: possible PoX reorg (sortition tip: {sortition_tip_affirmation_map}, heaviest: {heaviest_affirmation_map}, {} <? {})", sn.block_height, highest_sn.block_height);
             globals.coord().announce_new_burn_block();
             globals.coord().announce_new_stacks_block();
             *last_announce_time = get_epoch_time_secs().into();
@@ -931,7 +923,7 @@ impl RunLoop {
             {
                 if divergence_rc + 1 >= (heaviest_affirmation_map.len() as u64) {
                     // we have unaffirmed PoX anchor blocks that are not yet processed in the sortition history
-                    debug!("Drive burnchain processing: possible PoX reorg from unprocessed anchor block(s) (sortition tip: {}, heaviest: {}, canonical: {})", &sortition_tip_affirmation_map, &heaviest_affirmation_map, &canonical_affirmation_map);
+                    debug!("Drive burnchain processing: possible PoX reorg from unprocessed anchor block(s) (sortition tip: {sortition_tip_affirmation_map}, heaviest: {heaviest_affirmation_map}, canonical: {canonical_affirmation_map})");
                     globals.coord().announce_new_burn_block();
                     globals.coord().announce_new_stacks_block();
                     *last_announce_time = get_epoch_time_secs().into();
@@ -939,9 +931,7 @@ impl RunLoop {
             }
         } else {
             debug!(
-                "Drive burn block processing: no need (sortition tip: {}, heaviest: {}, {} </ {})",
-                &sortition_tip_affirmation_map,
-                &heaviest_affirmation_map,
+                "Drive burn block processing: no need (sortition tip: {sortition_tip_affirmation_map}, heaviest: {heaviest_affirmation_map}, {} </ {})",
                 sn.block_height,
                 highest_sn.block_height
             );
@@ -1018,15 +1008,13 @@ impl RunLoop {
         )
         .unwrap();
 
-        let liveness_thread_handle = thread::Builder::new()
+        thread::Builder::new()
             .name(format!("chain-liveness-{}", config.node.rpc_bind))
             .stack_size(BLOCK_PROCESSOR_STACK_SIZE)
             .spawn(move || {
                 Self::drive_chain_liveness(globals, config, burnchain, sortdb, chain_state_db)
             })
-            .expect("FATAL: failed to spawn chain liveness thread");
-
-        liveness_thread_handle
+            .expect("FATAL: failed to spawn chain liveness thread")
     }
 
     /// Starts the node runloop.
@@ -1063,7 +1051,7 @@ impl RunLoop {
                 return None;
             }
             Err(e) => {
-                error!("Error initializing burnchain: {}", e);
+                error!("Error initializing burnchain: {e}");
                 info!("Exiting stacks-node");
                 return None;
             }
@@ -1109,7 +1097,7 @@ impl RunLoop {
         // Make sure at least one sortition has happened, and make sure it's globally available
         let sortdb = burnchain.sortdb_mut();
         let (rc_aligned_height, sn) =
-            RunLoop::get_reward_cycle_sortition_db_height(&sortdb, &burnchain_config);
+            RunLoop::get_reward_cycle_sortition_db_height(sortdb, &burnchain_config);
 
         let burnchain_tip_snapshot = if sn.block_height == burnchain_config.first_block_height {
             // need at least one sortition to happen.
@@ -1137,7 +1125,7 @@ impl RunLoop {
                 .tx_begin()
                 .expect("FATAL: failed to begin burnchain DB tx");
             for (reward_cycle, affirmation) in self.config.burnchain.affirmation_overrides.iter() {
-                tx.set_override_affirmation_map(*reward_cycle, affirmation.clone()).expect(&format!("FATAL: failed to set affirmation override ({affirmation}) for reward cycle {reward_cycle}"));
+                tx.set_override_affirmation_map(*reward_cycle, affirmation.clone()).unwrap_or_else(|_| panic!("FATAL: failed to set affirmation override ({affirmation}) for reward cycle {reward_cycle}"));
             }
             tx.commit()
                 .expect("FATAL: failed to commit burnchain DB tx");
@@ -1168,10 +1156,7 @@ impl RunLoop {
             burnchain.get_headers_height() - 1,
         );
 
-        debug!(
-            "Runloop: Begin main runloop starting a burnchain block {}",
-            sortition_db_height
-        );
+        debug!("Runloop: Begin main runloop starting a burnchain block {sortition_db_height}");
 
         let mut last_tenure_sortition_height = 0;
 
@@ -1210,7 +1195,7 @@ impl RunLoop {
             ) {
                 Ok(ibd) => ibd,
                 Err(e) => {
-                    debug!("Runloop: PoX sync wait routine aborted: {:?}", e);
+                    debug!("Runloop: PoX sync wait routine aborted: {e:?}");
                     continue;
                 }
             };
@@ -1231,11 +1216,10 @@ impl RunLoop {
             // runloop will cause the PoX sync watchdog to wait until it believes that the node has
             // obtained all the Stacks blocks it can.
             debug!(
-                "Runloop: Download burnchain blocks up to reward cycle #{} (height {})",
+                "Runloop: Download burnchain blocks up to reward cycle #{} (height {target_burnchain_block_height})",
                 burnchain_config
                     .block_height_to_reward_cycle(target_burnchain_block_height)
-                    .expect("FATAL: target burnchain block height does not have a reward cycle"),
-                target_burnchain_block_height;
+                    .expect("FATAL: target burnchain block height does not have a reward cycle");
                 "total_burn_sync_percent" => %percent,
                 "local_burn_height" => burnchain_tip.block_snapshot.block_height,
                 "remote_tip_height" => remote_chain_height
@@ -1250,7 +1234,7 @@ impl RunLoop {
                     match burnchain.sync(Some(target_burnchain_block_height)) {
                         Ok(x) => x,
                         Err(e) => {
-                            warn!("Runloop: Burnchain controller stopped: {}", e);
+                            warn!("Runloop: Burnchain controller stopped: {e}");
                             continue;
                         }
                     };
@@ -1264,15 +1248,13 @@ impl RunLoop {
 
                 if next_sortition_height != last_tenure_sortition_height {
                     info!(
-                        "Runloop: Downloaded burnchain blocks up to height {}; target height is {}; remote_chain_height = {} next_sortition_height = {}, sortition_db_height = {}",
-                        burnchain_height, target_burnchain_block_height, remote_chain_height, next_sortition_height, sortition_db_height
+                        "Runloop: Downloaded burnchain blocks up to height {burnchain_height}; target height is {target_burnchain_block_height}; remote_chain_height = {remote_chain_height} next_sortition_height = {next_sortition_height}, sortition_db_height = {sortition_db_height}"
                     );
                 }
 
                 if next_sortition_height > sortition_db_height {
                     debug!(
-                        "Runloop: New burnchain block height {} > {}",
-                        next_sortition_height, sortition_db_height
+                        "Runloop: New burnchain block height {next_sortition_height} > {sortition_db_height}"
                     );
 
                     let mut sort_count = 0;
@@ -1345,8 +1327,7 @@ impl RunLoop {
 
                     num_sortitions_in_last_cycle = sort_count;
                     debug!(
-                        "Runloop: Synchronized sortitions up to block height {} from {} (chain tip height is {}); {} sortitions",
-                        next_sortition_height, sortition_db_height, burnchain_height, num_sortitions_in_last_cycle;
+                        "Runloop: Synchronized sortitions up to block height {next_sortition_height} from {sortition_db_height} (chain tip height is {burnchain_height}); {num_sortitions_in_last_cycle} sortitions"
                     );
 
                     sortition_db_height = next_sortition_height;
@@ -1378,7 +1359,7 @@ impl RunLoop {
                 remote_chain_height,
             );
 
-            debug!("Runloop: Advance target burnchain block height from {} to {} (sortition height {})", target_burnchain_block_height, next_target_burnchain_block_height, sortition_db_height);
+            debug!("Runloop: Advance target burnchain block height from {target_burnchain_block_height} to {next_target_burnchain_block_height} (sortition height {sortition_db_height})");
             target_burnchain_block_height = next_target_burnchain_block_height;
 
             if sortition_db_height >= burnchain_height && !ibd {
@@ -1388,9 +1369,7 @@ impl RunLoop {
                         .unwrap_or(0);
                 if canonical_stacks_tip_height < mine_start {
                     info!(
-                        "Runloop: Synchronized full burnchain, but stacks tip height is {}, and we are trying to boot to {}, not mining until reaching chain tip",
-                        canonical_stacks_tip_height,
-                        mine_start
+                        "Runloop: Synchronized full burnchain, but stacks tip height is {canonical_stacks_tip_height}, and we are trying to boot to {mine_start}, not mining until reaching chain tip"
                     );
                 } else {
                     // once we've synced to the chain tip once, don't apply this check again.
@@ -1401,8 +1380,7 @@ impl RunLoop {
                     // at tip, and not downloading. proceed to mine.
                     if last_tenure_sortition_height != sortition_db_height {
                         info!(
-                            "Runloop: Synchronized full burnchain up to height {}. Proceeding to mine blocks",
-                            sortition_db_height
+                            "Runloop: Synchronized full burnchain up to height {sortition_db_height}. Proceeding to mine blocks"
                         );
                         last_tenure_sortition_height = sortition_db_height;
                     }
