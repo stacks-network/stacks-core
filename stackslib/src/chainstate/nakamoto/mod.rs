@@ -290,10 +290,12 @@ lazy_static! {
     "#,
     ];
 
-    pub static ref NAKAMOTO_CHAINSTATE_SCHEMA_5: [&'static str; 1] = [
+    pub static ref NAKAMOTO_CHAINSTATE_SCHEMA_5: [&'static str; 2] = [
     r#"
         UPDATE db_config SET version = "8";
-    "#
+    "#,
+    // Add an index for index block hash in nakamoto block headers
+    "CREATE INDEX IF NOT EXISTS index_block_hash ON nakamoto_block_headers(index_block_hash);",
     ];
 }
 
