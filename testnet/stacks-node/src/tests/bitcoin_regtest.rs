@@ -17,19 +17,12 @@ use crate::helium::RunLoop;
 use crate::tests::to_addr;
 use crate::Config;
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum BitcoinCoreError {
+    #[error("bitcoind spawn failed: {0}")]
     SpawnFailed(String),
+    #[error("bitcoind stop failed: {0}")]
     StopFailed(String),
-}
-
-impl std::fmt::Display for BitcoinCoreError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::SpawnFailed(msg) => write!(f, "bitcoind spawn failed: {msg}"),
-            Self::StopFailed(msg) => write!(f, "bitcoind stop failed: {msg}"),
-        }
-    }
 }
 
 type BitcoinResult<T> = Result<T, BitcoinCoreError>;
