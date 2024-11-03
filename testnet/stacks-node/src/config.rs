@@ -89,6 +89,7 @@ const INV_REWARD_CYCLES_TESTNET: u64 = 6;
 const DEFAULT_MIN_TIME_BETWEEN_BLOCKS_MS: u64 = 1_000;
 const DEFAULT_FIRST_REJECTION_PAUSE_MS: u64 = 5_000;
 const DEFAULT_SUBSEQUENT_REJECTION_PAUSE_MS: u64 = 10_000;
+const DEFAULT_BLOCK_COMMIT_DELAY_MS: u64 = 20_000;
 
 #[derive(Clone, Deserialize, Default, Debug)]
 #[serde(deny_unknown_fields)]
@@ -2189,6 +2190,8 @@ pub struct MinerConfig {
     pub first_rejection_pause_ms: u64,
     /// Time in milliseconds to pause after receiving subsequent threshold rejections, before proposing a new block.
     pub subsequent_rejection_pause_ms: u64,
+    /// Duration to wait for a Nakamoto block after seeing a burnchain block before submitting a block commit.
+    pub block_commit_delay: Duration,
 }
 
 impl Default for MinerConfig {
@@ -2221,6 +2224,7 @@ impl Default for MinerConfig {
             min_time_between_blocks_ms: DEFAULT_MIN_TIME_BETWEEN_BLOCKS_MS,
             first_rejection_pause_ms: DEFAULT_FIRST_REJECTION_PAUSE_MS,
             subsequent_rejection_pause_ms: DEFAULT_SUBSEQUENT_REJECTION_PAUSE_MS,
+            block_commit_delay: Duration::from_millis(DEFAULT_BLOCK_COMMIT_DELAY_MS),
         }
     }
 }
@@ -2585,6 +2589,7 @@ pub struct MinerConfigFile {
     pub min_time_between_blocks_ms: Option<u64>,
     pub first_rejection_pause_ms: Option<u64>,
     pub subsequent_rejection_pause_ms: Option<u64>,
+    pub block_commit_delay_ms: Option<u64>,
 }
 
 impl MinerConfigFile {
@@ -2700,6 +2705,7 @@ impl MinerConfigFile {
             }).unwrap_or(miner_default_config.min_time_between_blocks_ms),
             first_rejection_pause_ms: self.first_rejection_pause_ms.unwrap_or(miner_default_config.first_rejection_pause_ms),
             subsequent_rejection_pause_ms: self.subsequent_rejection_pause_ms.unwrap_or(miner_default_config.subsequent_rejection_pause_ms),
+            block_commit_delay: self.block_commit_delay_ms.map(Duration::from_millis).unwrap_or(miner_default_config.block_commit_delay),
         })
     }
 }

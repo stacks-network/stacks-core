@@ -235,6 +235,8 @@ pub struct RelayerThread {
     /// Information about the last-sent block commit, and the relayer's view of the chain at the
     /// time it was sent.
     last_committed: Option<LastCommit>,
+    /// Timeout for waiting for the first block in a tenure before submitting a block commit
+    new_tenure_timeout: Option<Instant>,
 }
 
 impl RelayerThread {
@@ -292,6 +294,7 @@ impl RelayerThread {
             is_miner,
             next_initiative: Instant::now() + Duration::from_millis(next_initiative_delay),
             last_committed: None,
+            new_tenure_timeout: None,
         }
     }
 
@@ -1177,6 +1180,32 @@ impl RelayerThread {
         if !burnchain_changed && !highest_tenure_changed {
             // nothing to do
             return None;
+        }
+
+        if !highest_tenure_changed {
+            debug!("Relayer: burnchain view changed, but highest tenure did not");
+            // The burnchain view changed, but the highest tenure did not, so
+            // wait a bit for the first block in the new tenure to arrive. This
+            // is to avoid submitting a block commit that will be immediately
+            // RBFed when the first block arrives.
+            if let Some(new_tenure_timeout) = self.new_tenure_timeout {
+                debug!(
+                    "Relayer: {}s elapsed since burn block arrival",
+                    new_tenure_timeout.elapsed().as_secs(),
+                );
+                if new_tenure_timeout.elapsed() < self.config.miner.block_commit_delay {
+                    return None;
+                }
+            } else {
+                info!(
+                    "Relayer: starting new tenure timeout for {}s",
+                    self.config.miner.block_commit_delay.as_secs()
+                );
+                let timeout = Instant::now() + self.config.miner.block_commit_delay;
+                self.new_tenure_timeout = Some(Instant::now());
+                self.next_initiative = timeout;
+                return None;
+            }
         }
 
         // burnchain view or highest-tenure view changed, so we need to send (or RBF) a commit

@@ -72,8 +72,8 @@ use crate::neon::Counters;
 use crate::run_loop::boot_nakamoto;
 use crate::tests::nakamoto_integrations::{
     boot_to_epoch_25, boot_to_epoch_3_reward_set, next_block_and, next_block_and_controller,
-    setup_epoch_3_reward_set, wait_for, POX_4_DEFAULT_STACKER_BALANCE,
-    POX_4_DEFAULT_STACKER_STX_AMT,
+    next_block_and_process_new_stacks_block, setup_epoch_3_reward_set, wait_for,
+    POX_4_DEFAULT_STACKER_BALANCE, POX_4_DEFAULT_STACKER_STX_AMT,
 };
 use crate::tests::neon_integrations::{
     get_account, get_chain_info, get_chain_info_opt, next_block_and_wait,
@@ -5605,5 +5605,117 @@ fn multiple_miners_with_custom_chain_id() {
         .stop_chains_coordinator();
     run_loop_stopper_2.store(false, Ordering::SeqCst);
     run_loop_2_thread.join().unwrap();
+    signer_test.shutdown();
+}
+
+#[test]
+#[ignore]
+/// This test checks the behavior of the `block_commit_delay_ms` configuration option.
+fn block_commit_delay() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(EnvFilter::from_default_env())
+        .init();
+
+    info!("------------------------- Test Setup -------------------------");
+    let num_signers = 5;
+    let block_proposal_timeout = Duration::from_secs(20);
+    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
+        num_signers,
+        vec![],
+        |config| {
+            // make the duration long enough that the miner will be marked as malicious
+            config.block_proposal_timeout = block_proposal_timeout;
+        },
+        |config| {
+            // Set the block commit delay to 10 minutes to ensure no block commit is sent
+            config.miner.block_commit_delay = Duration::from_secs(600);
+        },
+        None,
+        None,
+    );
+
+    signer_test.boot_to_epoch_3();
+
+    next_block_and_process_new_stacks_block(
+        &mut signer_test.running_nodes.btc_regtest_controller,
+        60,
+        &signer_test.running_nodes.coord_channel,
+    )
+    .expect("Failed to mine first block");
+
+    // Prevent a block from being mined by making signers reject it.
+    let all_signers = signer_test
+        .signer_stacks_private_keys
+        .iter()
+        .map(StacksPublicKey::from_private)
+        .collect::<Vec<_>>();
+    TEST_REJECT_ALL_BLOCK_PROPOSAL
+        .lock()
+        .unwrap()
+        .replace(all_signers);
+
+    info!("------------------------- Test Mine Burn Block  -------------------------");
+    let burn_height_before = get_chain_info(&signer_test.running_nodes.conf).burn_block_height;
+    let commits_before = signer_test
+        .running_nodes
+        .commits_submitted
+        .load(Ordering::SeqCst);
+
+    // Mine a burn block and wait for it to be processed.
+    next_block_and(
+        &mut signer_test.running_nodes.btc_regtest_controller,
+        60,
+        || {
+            let burn_height = get_chain_info(&signer_test.running_nodes.conf).burn_block_height;
+            Ok(burn_height > burn_height_before)
+        },
+    )
+    .unwrap();
+
+    // Sleep an extra minute to ensure no block commits are sent
+    sleep_ms(60_000);
+
+    let commits = signer_test
+        .running_nodes
+        .commits_submitted
+        .load(Ordering::SeqCst);
+    assert_eq!(commits, commits_before);
+
+    let blocks_before = signer_test
+        .running_nodes
+        .nakamoto_blocks_mined
+        .load(Ordering::SeqCst);
+
+    info!("------------------------- Resume Signing -------------------------");
+    TEST_REJECT_ALL_BLOCK_PROPOSAL
+        .lock()
+        .unwrap()
+        .replace(Vec::new());
+
+    // Wait for a block to be mined
+    wait_for(60, || {
+        let blocks = signer_test
+            .running_nodes
+            .nakamoto_blocks_mined
+            .load(Ordering::SeqCst);
+        Ok(blocks > blocks_before)
+    })
+    .expect("Timed out waiting for block to be mined");
+
+    // Wait for a block commit to be sent
+    wait_for(60, || {
+        let commits = signer_test
+            .running_nodes
+            .commits_submitted
+            .load(Ordering::SeqCst);
+        Ok(commits > commits_before)
+    })
+    .expect("Timed out waiting for block commit after new Stacks block");
+
     signer_test.shutdown();
 }
