@@ -3169,10 +3169,13 @@ pub mod test {
             let stackerdb_contracts: Vec<_> =
                 stacker_db_syncs.keys().map(|cid| cid.clone()).collect();
 
+            let burnchain_db = config.burnchain.open_burnchain_db(false).unwrap();
+
             let mut peer_network = PeerNetwork::new(
                 peerdb,
                 atlasdb,
                 p2p_stacker_dbs,
+                burnchain_db,
                 local_peer,
                 config.peer_version,
                 config.burnchain.clone(),
