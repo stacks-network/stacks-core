@@ -3314,12 +3314,14 @@ mod test {
         let atlasdb = AtlasDB::connect(atlas_config, &atlasdb_path, true).unwrap();
         let stackerdbs = StackerDBs::connect(&stackerdb_path, true).unwrap();
         let peerdb = PeerDB::open(&peerdb_path, true).unwrap();
+        let burnchain_db = burnchain.open_burnchain_db(false).unwrap();
 
         let local_peer = PeerDB::get_local_peer(peerdb.conn()).unwrap();
         let network = PeerNetwork::new(
             peerdb,
             atlasdb,
             stackerdbs,
+            burnchain_db,
             local_peer,
             peer_version,
             burnchain.clone(),
