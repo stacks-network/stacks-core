@@ -1208,7 +1208,6 @@ impl RelayerThread {
             };
 
             let directive = if let Some(directive) = initiative_directive.take() {
-                debug!("Relayer: initiative from directive");
                 directive
             } else {
                 // channel was drained, so do a time-bound recv
@@ -1217,7 +1216,6 @@ impl RelayerThread {
                 )) {
                     Ok(directive) => {
                         // only do this once, so we can call .initiative() again
-                        debug!("Relayer: initiative from recv_timeout");
                         directive
                     }
                     Err(RecvTimeoutError::Timeout) => {

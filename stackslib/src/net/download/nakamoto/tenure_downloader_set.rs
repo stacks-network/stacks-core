@@ -94,7 +94,7 @@ impl From<&mut NakamotoTenureDownloader> for CompletedTenure {
     }
 }
 
-pub const PEER_DEPRIORITIZATION_TIME: u64 = 60;
+pub const PEER_DEPRIORITIZATION_TIME_SECS: u64 = 60;
 
 /// A set of confirmed downloader state machines assigned to one or more neighbors.  The block
 /// downloader runs tenure-downloaders in parallel, since the downloader for the N+1'st tenure
@@ -152,7 +152,7 @@ impl NakamotoTenureDownloaderSet {
     ) {
         deprioritized_peers.insert(
             peer.clone(),
-            get_epoch_time_secs() + PEER_DEPRIORITIZATION_TIME,
+            get_epoch_time_secs() + PEER_DEPRIORITIZATION_TIME_SECS,
         );
     }
 
@@ -482,20 +482,11 @@ impl NakamotoTenureDownloaderSet {
                 continue;
             };
 
-            let attempt_count = if let Some(attempt_count) = self.attempted_tenures.get(&ch) {
-                *attempt_count
-            } else {
-                0
-            };
+            let attempt_count = *self.attempted_tenures.get(&ch).unwrap_or(&0);
             self.attempted_tenures
                 .insert(ch.clone(), attempt_count.saturating_add(1));
 
-            let attempt_failed_count =
-                if let Some(attempt_failed_count) = self.attempt_failed_tenures.get(&ch) {
-                    *attempt_failed_count
-                } else {
-                    0
-                };
+            let attempt_failed_count = *self.attempt_failed_tenures.get(&ch).unwrap_or(&0);
 
             info!("Download tenure {}", &ch;
                 "peer" => %naddr,
@@ -511,15 +502,6 @@ impl NakamotoTenureDownloaderSet {
                 "tenure_end_reward_cycle" => tenure_info.end_reward_cycle,
                 "tenure_burn_height" => tenure_info.tenure_id_burn_block_height);
 
-            debug!(
-                "Download tenure {} (start={}, end={}) (rc {},{}) burn_height {}",
-                &ch,
-                &tenure_info.start_block_id,
-                &tenure_info.end_block_id,
-                tenure_info.start_reward_cycle,
-                tenure_info.end_reward_cycle,
-                tenure_info.tenure_id_burn_block_height,
-            );
             let tenure_download = NakamotoTenureDownloader::new(
                 ch.clone(),
                 tenure_info.start_block_id.clone(),
