@@ -6367,6 +6367,7 @@ fn signer_chainstate() {
         let proposal_conf = ProposalEvalConfig {
             first_proposal_burn_block_timing: Duration::from_secs(0),
             block_proposal_timeout: Duration::from_secs(100),
+            tenure_last_block_proposal_timeout: Duration::from_secs(30),
         };
         let mut sortitions_view =
             SortitionsView::fetch_view(proposal_conf, &signer_client).unwrap();
@@ -6505,6 +6506,7 @@ fn signer_chainstate() {
         let proposal_conf = ProposalEvalConfig {
             first_proposal_burn_block_timing: Duration::from_secs(0),
             block_proposal_timeout: Duration::from_secs(100),
+            tenure_last_block_proposal_timeout: Duration::from_secs(30),
         };
         let burn_block_height = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
             .unwrap()
@@ -6582,6 +6584,7 @@ fn signer_chainstate() {
     let proposal_conf = ProposalEvalConfig {
         first_proposal_burn_block_timing: Duration::from_secs(0),
         block_proposal_timeout: Duration::from_secs(100),
+        tenure_last_block_proposal_timeout: Duration::from_secs(30),
     };
     let mut sortitions_view = SortitionsView::fetch_view(proposal_conf, &signer_client).unwrap();
     let burn_block_height = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())

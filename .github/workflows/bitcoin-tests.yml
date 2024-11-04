@@ -114,6 +114,7 @@ jobs:
           - tests::signer::v0::locally_accepted_blocks_overriden_by_global_rejection
           - tests::signer::v0::locally_rejected_blocks_overriden_by_global_acceptance
           - tests::signer::v0::reorg_locally_accepted_blocks_across_tenures_succeeds
+          - tests::signer::v0::reorg_locally_accepted_blocks_across_tenures_fails
           - tests::signer::v0::miner_recovers_when_broadcast_block_delay_across_tenures_occurs
           - tests::signer::v0::multiple_miners_with_nakamoto_blocks
           - tests::signer::v0::partial_tenure_fork
