@@ -4908,6 +4908,9 @@ impl StacksNode {
             stackerdb_machines.insert(contract_id, (stackerdb_config, stacker_db_sync));
         }
         let peerdb = Self::setup_peer_db(config, &burnchain, &stackerdb_contract_ids);
+        let burnchain_db = burnchain
+            .open_burnchain_db(false)
+            .expect("Failed to open burnchain DB");
 
         let local_peer = match PeerDB::get_local_peer(peerdb.conn()) {
             Ok(local_peer) => local_peer,
@@ -4918,6 +4921,7 @@ impl StacksNode {
             peerdb,
             atlasdb,
             stackerdbs,
+            burnchain_db,
             local_peer,
             config.burnchain.peer_version,
             burnchain,
