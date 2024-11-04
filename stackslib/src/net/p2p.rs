@@ -243,11 +243,18 @@ impl CurrentRewardSet {
 /// Cached stacks chain tip info, consumed by RPC endpoints
 #[derive(Clone, Debug, PartialEq)]
 pub struct StacksTipInfo {
+    /// consensus hash of the highest processed stacks block
     pub consensus_hash: ConsensusHash,
+    /// block hash of the highest processed stacks block
     pub block_hash: BlockHeaderHash,
+    /// height of the highest processed stacks block
     pub height: u64,
+    /// coinbase height of the highest processed tenure
     pub coinbase_height: u64,
+    /// whether or not the system has transitioned to Nakamoto
     pub is_nakamoto: bool,
+    /// highest burnchain block discovered
+    pub burnchain_height: u64,
 }
 
 impl StacksTipInfo {
@@ -258,6 +265,7 @@ impl StacksTipInfo {
             height: 0,
             coinbase_height: 0,
             is_nakamoto: false,
+            burnchain_height: 0,
         }
     }
 
@@ -305,6 +313,9 @@ pub struct PeerNetwork {
     // handles to p2p databases
     pub peerdb: PeerDB,
     pub atlasdb: AtlasDB,
+
+    // handle to burnchain DB
+    pub burnchain_db: BurnchainDB,
 
     // ongoing p2p conversations (either they reached out to us, or we to them)
     pub peers: PeerMap,
@@ -444,6 +455,7 @@ impl PeerNetwork {
         peerdb: PeerDB,
         atlasdb: AtlasDB,
         stackerdbs: StackerDBs,
+        burnchain_db: BurnchainDB,
         mut local_peer: LocalPeer,
         peer_version: u32,
         burnchain: Burnchain,
@@ -508,6 +520,8 @@ impl PeerNetwork {
 
             peerdb,
             atlasdb,
+
+            burnchain_db,
 
             peers: PeerMap::new(),
             sockets: HashMap::new(),
@@ -4257,6 +4271,7 @@ impl PeerNetwork {
                 .anchored_header
                 .as_stacks_nakamoto()
                 .is_some(),
+            burnchain_height: self.stacks_tip.burnchain_height,
         };
         debug!(
             "{:?}: Parent Stacks tip off of {} is {:?}",
@@ -4387,6 +4402,7 @@ impl PeerNetwork {
         let (stacks_tip_ch, stacks_tip_bhh, stacks_tip_height) =
             SortitionDB::get_canonical_stacks_chain_tip_hash_and_height(sortdb.conn())?;
 
+        let new_burnchain_tip = self.burnchain_db.get_canonical_chain_tip()?;
         let burnchain_tip_changed = canonical_sn.block_height != self.chain_view.burn_block_height
             || self.num_state_machine_passes == 0
             || canonical_sn.sortition_id != self.burnchain_tip.sortition_id;
@@ -4465,6 +4481,7 @@ impl PeerNetwork {
                         height: 0,
                         coinbase_height: 0,
                         is_nakamoto: false,
+                        burnchain_height: 0,
                     }
                 }
                 Err(e) => return Err(e),
@@ -4536,12 +4553,10 @@ impl PeerNetwork {
 
             if self.get_current_epoch().epoch_id < StacksEpochId::Epoch30 {
                 // update heaviest affirmation map view
-                let burnchain_db = self.burnchain.open_burnchain_db(false)?;
-
                 self.heaviest_affirmation_map = static_get_heaviest_affirmation_map(
                     &self.burnchain,
                     indexer,
-                    &burnchain_db,
+                    &self.burnchain_db,
                     sortdb,
                     &canonical_sn.sortition_id,
                 )
@@ -4552,7 +4567,7 @@ impl PeerNetwork {
                 self.tentative_best_affirmation_map = static_get_canonical_affirmation_map(
                     &self.burnchain,
                     indexer,
-                    &burnchain_db,
+                    &self.burnchain_db,
                     sortdb,
                     chainstate,
                     &canonical_sn.sortition_id,
@@ -4593,9 +4608,8 @@ impl PeerNetwork {
         if stacks_tip_changed && self.get_current_epoch().epoch_id < StacksEpochId::Epoch30 {
             // update stacks tip affirmation map view
             // (NOTE: this check has to happen _after_ self.chain_view gets updated!)
-            let burnchain_db = self.burnchain.open_burnchain_db(false)?;
             self.stacks_tip_affirmation_map = static_get_stacks_tip_affirmation_map(
-                &burnchain_db,
+                &self.burnchain_db,
                 sortdb,
                 &canonical_sn.sortition_id,
                 &canonical_sn.canonical_stacks_tip_consensus_hash,
@@ -4661,8 +4675,10 @@ impl PeerNetwork {
                 height: stacks_tip_height,
                 coinbase_height,
                 is_nakamoto: stacks_tip_is_nakamoto,
+                burnchain_height: new_burnchain_tip.block_height,
             };
             self.parent_stacks_tip = parent_stacks_tip;
+            self.parent_stacks_tip.burnchain_height = new_burnchain_tip.block_height;
 
             debug!(
                 "{:?}: canonical Stacks tip is now {:?}",
@@ -5299,12 +5315,14 @@ mod test {
         let atlas_config = AtlasConfig::new(false);
         let atlasdb = AtlasDB::connect_memory(atlas_config).unwrap();
         let stacker_db = StackerDBs::connect_memory();
+        let burnchain_db = burnchain.open_burnchain_db(false).unwrap();
 
         let local_peer = PeerDB::get_local_peer(db.conn()).unwrap();
         let p2p = PeerNetwork::new(
             db,
             atlasdb,
             stacker_db,
+            burnchain_db,
             local_peer,
             0x12345678,
             burnchain,
