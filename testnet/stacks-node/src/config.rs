@@ -1940,7 +1940,7 @@ impl Default for NodeConfig {
             max_microblocks: u16::MAX as u64,
             wait_time_for_microblocks: 30_000,
             wait_time_for_blocks: 30_000,
-            next_initiative_delay: 1_000,
+            next_initiative_delay: 10_000,
             prometheus_bind: None,
             marf_cache_strategy: None,
             marf_defer_hashing: true,
