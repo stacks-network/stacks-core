@@ -96,10 +96,7 @@ impl HttpRequest for RPCGetAttachmentsInvRequestHandler {
             if key == "index_block_hash" {
                 index_block_hash = StacksBlockId::from_hex(&value).ok();
             } else if key == "pages_indexes" {
-                #[allow(clippy::expect_used)]
-                let pages_indexes_value = value
-                    .parse::<String>()
-                    .expect("parse from Cow<str> is always safe");
+                let pages_indexes_value = value.to_string();
                 for entry in pages_indexes_value.split(',') {
                     if let Ok(page_index) = entry.parse::<u32>() {
                         page_indexes.insert(page_index);
