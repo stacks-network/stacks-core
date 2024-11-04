@@ -2936,13 +2936,9 @@ impl RelayerThread {
 
     /// have we waited for the right conditions under which to start mining a block off of our
     /// chain tip?
-    #[allow(clippy::nonminimal_bool)]
-    #[allow(clippy::eq_op)]
     pub fn has_waited_for_latest_blocks(&self) -> bool {
         // a network download pass took place
-        (self.min_network_download_passes <= self.last_network_download_passes
-        // a network inv pass took place
-        && self.min_network_download_passes <= self.last_network_download_passes)
+        self.min_network_download_passes <= self.last_network_download_passes
         // we waited long enough for a download pass, but timed out waiting
         || self.last_network_block_height_ts + (self.config.node.wait_time_for_blocks as u128) < get_epoch_time_ms()
         // we're not supposed to wait at all
