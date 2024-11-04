@@ -537,7 +537,7 @@ impl NakamotoBootPlan {
             })
             .collect();
 
-        let old_tip = peer.network.stacks_tip.clone();
+        let mut old_tip = peer.network.stacks_tip.clone();
         let mut stacks_block = peer.tenure_with_txs(&stack_txs, &mut peer_nonce);
 
         let (stacks_tip_ch, stacks_tip_bh) =
@@ -545,13 +545,14 @@ impl NakamotoBootPlan {
         let stacks_tip = StacksBlockId::new(&stacks_tip_ch, &stacks_tip_bh);
         assert_eq!(peer.network.stacks_tip.block_id(), stacks_tip);
         if old_tip.block_id() != stacks_tip {
+            old_tip.burnchain_height = peer.network.parent_stacks_tip.burnchain_height;
             assert_eq!(old_tip, peer.network.parent_stacks_tip);
         }
 
         for (other_peer, other_peer_nonce) in
             other_peers.iter_mut().zip(other_peer_nonces.iter_mut())
         {
-            let old_tip = other_peer.network.stacks_tip.clone();
+            let mut old_tip = other_peer.network.stacks_tip.clone();
             other_peer.tenure_with_txs(&stack_txs, other_peer_nonce);
 
             let (stacks_tip_ch, stacks_tip_bh) =
@@ -560,6 +561,7 @@ impl NakamotoBootPlan {
             let stacks_tip = StacksBlockId::new(&stacks_tip_ch, &stacks_tip_bh);
             assert_eq!(other_peer.network.stacks_tip.block_id(), stacks_tip);
             if old_tip.block_id() != stacks_tip {
+                old_tip.burnchain_height = other_peer.network.parent_stacks_tip.burnchain_height;
                 assert_eq!(old_tip, other_peer.network.parent_stacks_tip);
             }
         }
@@ -572,7 +574,7 @@ impl NakamotoBootPlan {
             .burnchain
             .is_in_prepare_phase(sortition_height.into())
         {
-            let old_tip = peer.network.stacks_tip.clone();
+            let mut old_tip = peer.network.stacks_tip.clone();
             stacks_block = peer.tenure_with_txs(&[], &mut peer_nonce);
 
             let (stacks_tip_ch, stacks_tip_bh) =
@@ -580,13 +582,14 @@ impl NakamotoBootPlan {
             let stacks_tip = StacksBlockId::new(&stacks_tip_ch, &stacks_tip_bh);
             assert_eq!(peer.network.stacks_tip.block_id(), stacks_tip);
             if old_tip.block_id() != stacks_tip {
+                old_tip.burnchain_height = peer.network.parent_stacks_tip.burnchain_height;
                 assert_eq!(old_tip, peer.network.parent_stacks_tip);
             }
             other_peers
                 .iter_mut()
                 .zip(other_peer_nonces.iter_mut())
                 .for_each(|(peer, nonce)| {
-                    let old_tip = peer.network.stacks_tip.clone();
+                    let mut old_tip = peer.network.stacks_tip.clone();
                     peer.tenure_with_txs(&[], nonce);
 
                     let (stacks_tip_ch, stacks_tip_bh) =
@@ -595,6 +598,7 @@ impl NakamotoBootPlan {
                     let stacks_tip = StacksBlockId::new(&stacks_tip_ch, &stacks_tip_bh);
                     assert_eq!(peer.network.stacks_tip.block_id(), stacks_tip);
                     if old_tip.block_id() != stacks_tip {
+                        old_tip.burnchain_height = peer.network.parent_stacks_tip.burnchain_height;
                         assert_eq!(old_tip, peer.network.parent_stacks_tip);
                     }
                 });
@@ -607,7 +611,7 @@ impl NakamotoBootPlan {
 
         // advance to the start of epoch 3.0
         while sortition_height < epoch_30_height - 1 {
-            let old_tip = peer.network.stacks_tip.clone();
+            let mut old_tip = peer.network.stacks_tip.clone();
             peer.tenure_with_txs(&vec![], &mut peer_nonce);
 
             let (stacks_tip_ch, stacks_tip_bh) =
@@ -615,13 +619,14 @@ impl NakamotoBootPlan {
             let stacks_tip = StacksBlockId::new(&stacks_tip_ch, &stacks_tip_bh);
             assert_eq!(peer.network.stacks_tip.block_id(), stacks_tip);
             if old_tip.block_id() != stacks_tip {
+                old_tip.burnchain_height = peer.network.parent_stacks_tip.burnchain_height;
                 assert_eq!(old_tip, peer.network.parent_stacks_tip);
             }
 
             for (other_peer, other_peer_nonce) in
                 other_peers.iter_mut().zip(other_peer_nonces.iter_mut())
             {
-                let old_tip = peer.network.stacks_tip.clone();
+                let mut old_tip = peer.network.stacks_tip.clone();
                 other_peer.tenure_with_txs(&vec![], other_peer_nonce);
 
                 let (stacks_tip_ch, stacks_tip_bh) =
@@ -630,6 +635,8 @@ impl NakamotoBootPlan {
                 let stacks_tip = StacksBlockId::new(&stacks_tip_ch, &stacks_tip_bh);
                 assert_eq!(other_peer.network.stacks_tip.block_id(), stacks_tip);
                 if old_tip.block_id() != stacks_tip {
+                    old_tip.burnchain_height =
+                        other_peer.network.parent_stacks_tip.burnchain_height;
                     assert_eq!(old_tip, other_peer.network.parent_stacks_tip);
                 }
             }
