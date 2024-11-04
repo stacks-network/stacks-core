@@ -9,6 +9,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ### Changed
 - Add index for StacksBlockId to nakamoto block headers table (improves node performance)
+- Remove the panic for reporting DB deadlocks (just error and continue waiting)
 - Add `block_commit_delay_ms` to the config file to control the time to wait after seeing a new burn block, before submitting a block commit, to allow time for the first Nakamoto block of the new tenure to be mined, allowing this miner to avoid the need to RBF the block commit.
 
 ## [3.0.0.0.0]
