@@ -9,6 +9,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ### Changed
 - Add index for StacksBlockId to nakamoto block headers table (improves node performance)
+- Remove the panic for reporting DB deadlocks (just error and continue waiting)
 
 ## [3.0.0.0.0]
 
