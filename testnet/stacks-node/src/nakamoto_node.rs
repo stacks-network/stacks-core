@@ -148,7 +148,7 @@ impl StacksNode {
         let burnchain = runloop.get_burnchain();
         let atlas_config = config.atlas.clone();
         let mut keychain = Keychain::default(config.node.seed.clone());
-        if let Some(mining_key) = config.miner.mining_key.clone() {
+        if let Some(mining_key) = config.miner.mining_key {
             keychain.set_nakamoto_sk(mining_key);
         }
 
@@ -195,7 +195,7 @@ impl StacksNode {
             match &data_from_neon.leader_key_registration_state {
                 LeaderKeyRegistrationState::Active(registered_key) => {
                     let pubkey_hash = keychain.get_nakamoto_pkh();
-                    if pubkey_hash.as_ref() == &registered_key.memo {
+                    if pubkey_hash.as_ref() == registered_key.memo {
                         data_from_neon.leader_key_registration_state
                     } else {
                         LeaderKeyRegistrationState::Inactive
@@ -366,7 +366,7 @@ pub(crate) fn save_activated_vrf_key(path: &str, activated_key: &RegisteredKey) 
         return;
     };
 
-    let mut f = match fs::File::create(&path) {
+    let mut f = match fs::File::create(path) {
         Ok(f) => f,
         Err(e) => {
             warn!("Failed to create {}: {:?}", &path, &e);
@@ -374,7 +374,7 @@ pub(crate) fn save_activated_vrf_key(path: &str, activated_key: &RegisteredKey) 
         }
     };
 
-    if let Err(e) = f.write_all(key_json.as_str().as_bytes()) {
+    if let Err(e) = f.write_all(key_json.as_bytes()) {
         warn!("Failed to write activated VRF key to {}: {:?}", &path, &e);
         return;
     }
