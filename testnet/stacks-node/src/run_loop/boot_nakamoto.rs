@@ -26,6 +26,7 @@ use stacks::core::StacksEpochExtension;
 use stacks::net::p2p::PeerNetwork;
 use stacks_common::types::{StacksEpoch, StacksEpochId};
 
+use crate::event_dispatcher::EventDispatcher;
 use crate::globals::NeonGlobals;
 use crate::neon::Counters;
 use crate::neon_node::LeaderKeyRegistrationState;
@@ -124,12 +125,20 @@ impl BootRunLoop {
         }
     }
 
+    /// Get the event dispatcher
+    pub fn get_event_dispatcher(&self) -> EventDispatcher {
+        match &self.active_loop {
+            InnerLoops::Epoch2(x) => x.get_event_dispatcher(),
+            InnerLoops::Epoch3(x) => x.get_event_dispatcher(),
+        }
+    }
+
     /// The main entry point for the run loop. This starts either a 2.x-neon or 3.x-nakamoto
     /// node depending on the current burnchain height.
     pub fn start(&mut self, burnchain_opt: Option<Burnchain>, mine_start: u64) {
         match self.active_loop {
-            InnerLoops::Epoch2(_) => return self.start_from_neon(burnchain_opt, mine_start),
-            InnerLoops::Epoch3(_) => return self.start_from_naka(burnchain_opt, mine_start),
+            InnerLoops::Epoch2(_) => self.start_from_neon(burnchain_opt, mine_start),
+            InnerLoops::Epoch3(_) => self.start_from_naka(burnchain_opt, mine_start),
         }
     }
 
@@ -140,6 +149,10 @@ impl BootRunLoop {
         naka_loop.start(burnchain_opt, mine_start, None)
     }
 
+    // configuring mutants::skip -- this function is covered through integration tests (this function
+    //  is pretty definitionally an integration, so thats unavoidable), and the integration tests
+    //  do not get counted in mutants coverage.
+    #[cfg_attr(test, mutants::skip)]
     fn start_from_neon(&mut self, burnchain_opt: Option<Burnchain>, mine_start: u64) {
         let InnerLoops::Epoch2(ref mut neon_loop) = self.active_loop else {
             panic!("FATAL: unexpectedly invoked start_from_neon when active loop wasn't neon");
@@ -160,7 +173,12 @@ impl BootRunLoop {
             info!("Shutting down epoch-2/3 transition thread");
             return;
         }
-        info!("Reached Epoch-3.0 boundary, starting nakamoto node");
+
+        info!(
+            "Reached Epoch-3.0 boundary, starting nakamoto node";
+            "with_neon_data" => data_to_naka.is_some(),
+            "with_p2p_stack" => data_to_naka.as_ref().map(|x| x.peer_network.is_some()).unwrap_or(false)
+        );
         termination_switch.store(true, Ordering::SeqCst);
         let naka = NakaRunLoop::new(
             self.config.clone(),
@@ -209,7 +227,7 @@ impl BootRunLoop {
                 // if loop exited, do the transition
                 info!("Epoch-3.0 boundary reached, stopping Epoch-2.x run loop");
                 neon_term_switch.store(false, Ordering::SeqCst);
-                return true
+                true
             })
     }
 

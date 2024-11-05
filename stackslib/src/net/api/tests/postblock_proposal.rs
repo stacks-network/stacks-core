@@ -69,7 +69,7 @@ fn test_try_parse_request() {
     let mut request = StacksHttpRequest::new_for_peer(
         addr.into(),
         "POST".into(),
-        "/v2/block_proposal".into(),
+        "/v3/block_proposal".into(),
         HttpRequestContents::new().payload_json(serde_json::to_value(proposal).unwrap()),
     )
     .expect("failed to construct request");
@@ -229,16 +229,21 @@ fn test_try_make_response() {
     let tip =
         SortitionDB::get_canonical_burn_chain_tip(&rpc_test.peer_1.sortdb.as_ref().unwrap().conn())
             .unwrap();
+
+    let (stacks_tip_ch, stacks_tip_bhh) = SortitionDB::get_canonical_stacks_chain_tip_hash(
+        rpc_test.peer_1.sortdb.as_ref().unwrap().conn(),
+    )
+    .unwrap();
+    let stacks_tip = StacksBlockId::new(&stacks_tip_ch, &stacks_tip_bhh);
+
     let miner_privk = &rpc_test.peer_1.miner.nakamoto_miner_key();
 
     let mut block = {
         let chainstate = rpc_test.peer_1.chainstate();
-        let parent_stacks_header = NakamotoChainState::get_block_header(
-            chainstate.db(),
-            &tip.get_canonical_stacks_block_id(),
-        )
-        .unwrap()
-        .unwrap();
+        let parent_stacks_header =
+            NakamotoChainState::get_block_header(chainstate.db(), &stacks_tip)
+                .unwrap()
+                .unwrap();
 
         let proof_bytes = hex_bytes("9275df67a68c8745c0ff97b48201ee6db447f7c93b23ae24cdc2400f52fdb08a1a6ac7ec71bf9c9c76e96ee4675ebff60625af28718501047bfd87b810c2d2139b73c23bd69de66360953a642c2a330a").unwrap();
         let proof = VRFProof::from_bytes(&proof_bytes[..].to_vec()).unwrap();
@@ -262,7 +267,7 @@ fn test_try_make_response() {
         let addr = auth.origin().address_testnet();
         let mut tx = StacksTransaction::new(TransactionVersion::Testnet, auth, payload);
         tx.chain_id = 0x80000000;
-        tx.auth.set_origin_nonce(34);
+        tx.auth.set_origin_nonce(36);
         tx.set_post_condition_mode(TransactionPostConditionMode::Allow);
         tx.set_tx_fee(300);
         let mut tx_signer = StacksTransactionSigner::new(&tx);
@@ -271,8 +276,8 @@ fn test_try_make_response() {
 
         let mut builder = NakamotoBlockBuilder::new(
             &parent_stacks_header,
-            &tip.consensus_hash,
-            25000,
+            &parent_stacks_header.consensus_hash,
+            26000,
             None,
             None,
             8,
@@ -320,7 +325,7 @@ fn test_try_make_response() {
     let mut request = StacksHttpRequest::new_for_peer(
         rpc_test.peer_1.to_peer_host(),
         "POST".into(),
-        "/v2/block_proposal".into(),
+        "/v3/block_proposal".into(),
         HttpRequestContents::new().payload_json(serde_json::to_value(proposal).unwrap()),
     )
     .expect("failed to construct request");
@@ -340,7 +345,7 @@ fn test_try_make_response() {
     let mut request = StacksHttpRequest::new_for_peer(
         rpc_test.peer_1.to_peer_host(),
         "POST".into(),
-        "/v2/block_proposal".into(),
+        "/v3/block_proposal".into(),
         HttpRequestContents::new().payload_json(serde_json::to_value(proposal).unwrap()),
     )
     .expect("failed to construct request");
@@ -360,7 +365,7 @@ fn test_try_make_response() {
     let mut request = StacksHttpRequest::new_for_peer(
         rpc_test.peer_1.to_peer_host(),
         "POST".into(),
-        "/v2/block_proposal".into(),
+        "/v3/block_proposal".into(),
         HttpRequestContents::new().payload_json(serde_json::to_value(proposal).unwrap()),
     )
     .expect("failed to construct request");

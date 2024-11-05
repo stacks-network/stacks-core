@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-#![allow(unused_imports)]
 #![allow(dead_code)]
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
@@ -23,10 +22,9 @@
 #[macro_use]
 extern crate stacks_common;
 
-#[macro_use(o, slog_log, slog_trace, slog_debug, slog_info, slog_warn, slog_error)]
+#[macro_use(slog_debug, slog_info, slog_warn)]
 extern crate slog;
 
-use stacks_common::types::MempoolCollectionBehavior;
 #[cfg(not(any(target_os = "macos", target_os = "windows", target_arch = "arm")))]
 use tikv_jemallocator::Jemalloc;
 
@@ -35,30 +33,26 @@ use tikv_jemallocator::Jemalloc;
 static GLOBAL: Jemalloc = Jemalloc;
 
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::fs::{File, OpenOptions};
+use std::fs::File;
 use std::io::prelude::*;
 use std::io::BufReader;
-use std::time::Instant;
+use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
+use std::time::Duration;
 use std::{env, fs, io, process, thread};
 
-use blockstack_lib::burnchains::bitcoin::indexer::{
-    BitcoinIndexer, BitcoinIndexerConfig, BitcoinIndexerRuntime,
-};
 use blockstack_lib::burnchains::bitcoin::{spv, BitcoinNetworkType};
 use blockstack_lib::burnchains::db::{BurnchainBlockData, BurnchainDB};
-use blockstack_lib::burnchains::{
-    Address, Burnchain, PoxConstants, Txid, BLOCKSTACK_MAGIC_MAINNET,
-};
+use blockstack_lib::burnchains::{Address, Burnchain, PoxConstants};
 use blockstack_lib::chainstate::burn::db::sortdb::{
     get_block_commit_by_txid, SortitionDB, SortitionHandle,
 };
 use blockstack_lib::chainstate::burn::operations::BlockstackOperationType;
 use blockstack_lib::chainstate::burn::{BlockSnapshot, ConsensusHash};
 use blockstack_lib::chainstate::coordinator::{get_reward_cycle_info, OnChainRewardSetProvider};
-use blockstack_lib::chainstate::nakamoto::NakamotoChainState;
+use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use blockstack_lib::chainstate::stacks::db::blocks::{DummyEventDispatcher, StagingBlock};
 use blockstack_lib::chainstate::stacks::db::{
-    ChainStateBootData, StacksBlockHeaderTypes, StacksChainState, StacksHeaderInfo,
+    ChainStateBootData, StacksBlockHeaderTypes, StacksChainState,
 };
 use blockstack_lib::chainstate::stacks::index::marf::{MARFOpenOpts, MarfConnection, MARF};
 use blockstack_lib::chainstate::stacks::index::ClarityMarfTrieId;
@@ -67,32 +61,191 @@ use blockstack_lib::chainstate::stacks::{StacksBlockHeader, *};
 use blockstack_lib::clarity::vm::costs::ExecutionCost;
 use blockstack_lib::clarity::vm::types::StacksAddressExtensions;
 use blockstack_lib::clarity::vm::ClarityVersion;
-use blockstack_lib::clarity_cli::vm_execute;
 use blockstack_lib::core::{MemPoolDB, *};
 use blockstack_lib::cost_estimates::metrics::UnitMetric;
 use blockstack_lib::cost_estimates::UnitEstimator;
+use blockstack_lib::net::api::getinfo::RPCPeerInfoData;
 use blockstack_lib::net::db::LocalPeer;
+use blockstack_lib::net::httpcore::{send_http_request, StacksHttpRequest};
 use blockstack_lib::net::p2p::PeerNetwork;
 use blockstack_lib::net::relay::Relayer;
-use blockstack_lib::net::StacksMessage;
+use blockstack_lib::net::{GetNakamotoInvData, HandshakeData, StacksMessage, StacksMessageType};
 use blockstack_lib::util_lib::db::sqlite_open;
 use blockstack_lib::util_lib::strings::UrlString;
-use blockstack_lib::{clarity_cli, util_lib};
+use blockstack_lib::{clarity_cli, cli};
 use libstackerdb::StackerDBChunkData;
-use rusqlite::types::ToSql;
 use rusqlite::{params, Connection, Error as SqliteError, OpenFlags};
 use serde_json::{json, Value};
 use stacks_common::codec::{read_next, StacksMessageCodec};
 use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, PoxId, StacksAddress, StacksBlockId,
+    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId,
 };
-use stacks_common::types::net::PeerAddress;
+use stacks_common::types::net::{PeerAddress, PeerHost};
 use stacks_common::types::sqlite::NO_PARAMS;
+use stacks_common::types::MempoolCollectionBehavior;
 use stacks_common::util::hash::{hex_bytes, to_hex, Hash160};
 use stacks_common::util::retry::LogReader;
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 use stacks_common::util::vrf::VRFProof;
-use stacks_common::util::{get_epoch_time_ms, log, sleep_ms};
+use stacks_common::util::{get_epoch_time_ms, sleep_ms};
+
+struct P2PSession {
+    pub local_peer: LocalPeer,
+    peer_info: RPCPeerInfoData,
+    burn_block_hash: BurnchainHeaderHash,
+    stable_burn_block_hash: BurnchainHeaderHash,
+    tcp_socket: TcpStream,
+    seq: u32,
+}
+
+impl P2PSession {
+    /// Make a StacksMessage.  Sign it and set a sequence number.
+    fn make_peer_message(&mut self, payload: StacksMessageType) -> Result<StacksMessage, String> {
+        let mut msg = StacksMessage::new(
+            self.peer_info.peer_version,
+            self.peer_info.network_id,
+            self.peer_info.burn_block_height,
+            &self.burn_block_hash,
+            self.peer_info.stable_burn_block_height,
+            &self.stable_burn_block_hash,
+            payload,
+        );
+
+        msg.sign(self.seq, &self.local_peer.private_key)
+            .map_err(|e| format!("Failed to sign message {:?}: {:?}", &msg, &e))?;
+        self.seq = self.seq.wrapping_add(1);
+
+        Ok(msg)
+    }
+
+    /// Send a p2p message.
+    /// Returns error text on failure.
+    fn send_peer_message(&mut self, msg: StacksMessage) -> Result<(), String> {
+        msg.consensus_serialize(&mut self.tcp_socket)
+            .map_err(|e| format!("Failed to send message {:?}: {:?}", &msg, &e))
+    }
+
+    /// Receive a p2p message.
+    /// Returns error text on failure.
+    fn recv_peer_message(&mut self) -> Result<StacksMessage, String> {
+        let msg: StacksMessage = read_next(&mut self.tcp_socket)
+            .map_err(|e| format!("Failed to receive message: {:?}", &e))?;
+        Ok(msg)
+    }
+
+    /// Begin a p2p session.
+    /// Synthesizes a LocalPeer from the remote peer's responses to /v2/info and /v2/pox.
+    /// Performs the initial handshake for you.
+    ///
+    /// Returns the session handle on success.
+    /// Returns error text on failure.
+    pub fn begin(peer_addr: SocketAddr, data_port: u16) -> Result<Self, String> {
+        let mut data_addr = peer_addr.clone();
+        data_addr.set_port(data_port);
+
+        // get /v2/info
+        let peer_info = send_http_request(
+            &format!("{}", data_addr.ip()),
+            data_addr.port(),
+            StacksHttpRequest::new_getinfo(PeerHost::from(data_addr.clone()), None)
+                .with_header("Connection".to_string(), "close".to_string()),
+            Duration::from_secs(60),
+        )
+        .map_err(|e| format!("Failed to query /v2/info: {:?}", &e))?
+        .decode_peer_info()
+        .map_err(|e| format!("Failed to decode response from /v2/info: {:?}", &e))?;
+
+        // convert `pox_consensus` and `stable_pox_consensus` into their respective burn block
+        // hashes
+        let sort_info = send_http_request(
+            &format!("{}", data_addr.ip()),
+            data_addr.port(),
+            StacksHttpRequest::new_get_sortition_consensus(
+                PeerHost::from(data_addr.clone()),
+                &peer_info.pox_consensus,
+            )
+            .with_header("Connection".to_string(), "close".to_string()),
+            Duration::from_secs(60),
+        )
+        .map_err(|e| format!("Failed to query /v3/sortitions: {:?}", &e))?
+        .decode_sortition_info()
+        .map_err(|e| format!("Failed to decode response from /v3/sortitions: {:?}", &e))?
+        .pop()
+        .ok_or_else(|| format!("No sortition returned for {}", &peer_info.pox_consensus))?;
+
+        let stable_sort_info = send_http_request(
+            &format!("{}", data_addr.ip()),
+            data_addr.port(),
+            StacksHttpRequest::new_get_sortition_consensus(
+                PeerHost::from(data_addr.clone()),
+                &peer_info.stable_pox_consensus,
+            )
+            .with_header("Connection".to_string(), "close".to_string()),
+            Duration::from_secs(60),
+        )
+        .map_err(|e| format!("Failed to query stable /v3/sortitions: {:?}", &e))?
+        .decode_sortition_info()
+        .map_err(|e| {
+            format!(
+                "Failed to decode response from stable /v3/sortitions: {:?}",
+                &e
+            )
+        })?
+        .pop()
+        .ok_or_else(|| {
+            format!(
+                "No sortition returned for {}",
+                &peer_info.stable_pox_consensus
+            )
+        })?;
+
+        let burn_block_hash = sort_info.burn_block_hash;
+        let stable_burn_block_hash = stable_sort_info.burn_block_hash;
+
+        let local_peer = LocalPeer::new(
+            peer_info.network_id,
+            peer_info.parent_network_id,
+            PeerAddress::from_socketaddr(&peer_addr),
+            peer_addr.port(),
+            Some(StacksPrivateKey::new()),
+            u64::MAX,
+            UrlString::try_from(format!("http://127.0.0.1:{}", data_port).as_str()).unwrap(),
+            vec![],
+        );
+
+        let tcp_socket = TcpStream::connect(&peer_addr)
+            .map_err(|e| format!("Failed to open {:?}: {:?}", &peer_addr, &e))?;
+
+        let mut session = Self {
+            local_peer,
+            peer_info,
+            burn_block_hash,
+            stable_burn_block_hash,
+            tcp_socket,
+            seq: 0,
+        };
+
+        // perform the handshake
+        let handshake_data =
+            StacksMessageType::Handshake(HandshakeData::from_local_peer(&session.local_peer));
+        let handshake = session.make_peer_message(handshake_data)?;
+        session.send_peer_message(handshake)?;
+
+        let resp = session.recv_peer_message()?;
+        match resp.payload {
+            StacksMessageType::HandshakeAccept(..)
+            | StacksMessageType::StackerDBHandshakeAccept(..) => {}
+            x => {
+                return Err(format!(
+                    "Peer returned unexpected message (expected HandshakeAccept variant): {:?}",
+                    &x
+                ));
+            }
+        }
+
+        Ok(session)
+    }
+}
 
 #[cfg_attr(test, mutants::skip)]
 fn main() {
@@ -233,6 +386,25 @@ fn main() {
             fs::read(block_path).unwrap_or_else(|_| panic!("Failed to open {block_path}"));
 
         let block = StacksBlock::consensus_deserialize(&mut io::Cursor::new(&block_data))
+            .map_err(|_e| {
+                eprintln!("Failed to decode block");
+                process::exit(1);
+            })
+            .unwrap();
+
+        println!("{:#?}", &block);
+        process::exit(0);
+    }
+
+    if argv[1] == "decode-nakamoto-block" {
+        if argv.len() < 3 {
+            eprintln!("Usage: {} decode-nakamoto-block BLOCK_HEX", argv[0]);
+            process::exit(1);
+        }
+
+        let block_hex = &argv[2];
+        let block_data = hex_bytes(block_hex).unwrap_or_else(|_| panic!("Failed to decode hex"));
+        let block = NakamotoBlock::consensus_deserialize(&mut io::Cursor::new(&block_data))
             .map_err(|_e| {
                 eprintln!("Failed to decode block");
                 process::exit(1);
@@ -876,83 +1048,6 @@ simulating a miner.
         return;
     }
 
-    if argv[1] == "replay-block" {
-        let print_help_and_exit = || -> ! {
-            let n = &argv[0];
-            eprintln!("Usage:");
-            eprintln!("  {n} <chainstate_path>");
-            eprintln!("  {n} <chainstate_path> prefix <index-block-hash-prefix>");
-            eprintln!("  {n} <chainstate_path> index-range <start_block> <end_block>");
-            eprintln!("  {n} <chainstate_path> range <start_block> <end_block>");
-            eprintln!("  {n} <chainstate_path> <first|last> <block_count>");
-            process::exit(1);
-        };
-        if argv.len() < 2 {
-            print_help_and_exit();
-        }
-        let start = Instant::now();
-        let stacks_path = &argv[2];
-        let mode = argv.get(3).map(String::as_str);
-        let staging_blocks_db_path = format!("{stacks_path}/mainnet/chainstate/vm/index.sqlite");
-        let conn =
-            Connection::open_with_flags(&staging_blocks_db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
-                .unwrap();
-
-        let query = match mode {
-            Some("prefix") => format!(
-                "SELECT index_block_hash FROM staging_blocks WHERE orphaned = 0 AND index_block_hash LIKE \"{}%\"",
-                argv[4]
-            ),
-            Some("first") => format!(
-                "SELECT index_block_hash FROM staging_blocks WHERE orphaned = 0 ORDER BY height ASC LIMIT {}",
-                argv[4]
-            ),
-            Some("range") => {
-                let arg4 = argv[4]
-                    .parse::<u64>()
-                    .expect("<start_block> not a valid u64");
-                let arg5 = argv[5].parse::<u64>().expect("<end_block> not a valid u64");
-                let start = arg4.saturating_sub(1);
-                let blocks = arg5.saturating_sub(arg4);
-                format!("SELECT index_block_hash FROM staging_blocks WHERE orphaned = 0 ORDER BY height ASC LIMIT {start}, {blocks}")
-            }
-            Some("index-range") => {
-                let start = argv[4]
-                    .parse::<u64>()
-                    .expect("<start_block> not a valid u64");
-                let end = argv[5].parse::<u64>().expect("<end_block> not a valid u64");
-                let blocks = end.saturating_sub(start);
-                format!("SELECT index_block_hash FROM staging_blocks WHERE orphaned = 0 ORDER BY index_block_hash ASC LIMIT {start}, {blocks}")
-            }
-            Some("last") => format!(
-                "SELECT index_block_hash FROM staging_blocks WHERE orphaned = 0 ORDER BY height DESC LIMIT {}",
-                argv[4]
-            ),
-            Some(_) => print_help_and_exit(),
-            // Default to ALL blocks
-            None => "SELECT index_block_hash FROM staging_blocks WHERE orphaned = 0".into(),
-        };
-
-        let mut stmt = conn.prepare(&query).unwrap();
-        let mut hashes_set = stmt.query(NO_PARAMS).unwrap();
-
-        let mut index_block_hashes: Vec<String> = vec![];
-        while let Ok(Some(row)) = hashes_set.next() {
-            index_block_hashes.push(row.get(0).unwrap());
-        }
-
-        let total = index_block_hashes.len();
-        println!("Will check {total} blocks");
-        for (i, index_block_hash) in index_block_hashes.iter().enumerate() {
-            if i % 100 == 0 {
-                println!("Checked {i}...");
-            }
-            replay_block(stacks_path, index_block_hash);
-        }
-        println!("Finished. run_time_seconds = {}", start.elapsed().as_secs());
-        process::exit(0);
-    }
-
     if argv[1] == "deserialize-db" {
         if argv.len() < 4 {
             eprintln!("Usage: {} clarity_sqlite_db [byte-prefix]", &argv[0]);
@@ -1039,6 +1134,36 @@ simulating a miner.
         analyze_sortition_mev(argv);
         // should be unreachable
         process::exit(1);
+    }
+
+    if argv[1] == "getnakamotoinv" {
+        if argv.len() < 5 {
+            eprintln!(
+                "Usage: {} getnakamotoinv HOST:PORT DATA_PORT CONSENSUS_HASH",
+                &argv[0]
+            );
+            process::exit(1);
+        }
+
+        let peer_addr: SocketAddr = argv[2].to_socket_addrs().unwrap().next().unwrap();
+        let data_port: u16 = argv[3].parse().unwrap();
+        let ch = ConsensusHash::from_hex(&argv[4]).unwrap();
+
+        let mut session = P2PSession::begin(peer_addr, data_port).unwrap();
+
+        // send getnakamotoinv
+        let get_nakamoto_inv =
+            StacksMessageType::GetNakamotoInv(GetNakamotoInvData { consensus_hash: ch });
+
+        let msg = session.make_peer_message(get_nakamoto_inv).unwrap();
+        session.send_peer_message(msg).unwrap();
+        let resp = session.recv_peer_message().unwrap();
+
+        let StacksMessageType::NakamotoInv(inv) = &resp.payload else {
+            panic!("Got spurious message: {:?}", &resp);
+        };
+
+        println!("{:?}", inv);
     }
 
     if argv[1] == "replay-chainstate" {
@@ -1340,6 +1465,16 @@ simulating a miner.
         return;
     }
 
+    if argv[1] == "replay-block" {
+        cli::command_replay_block(&argv[1..], None);
+        process::exit(0);
+    }
+
+    if argv[1] == "replay-mock-mining" {
+        cli::command_replay_mock_mining(&argv[1..], None);
+        process::exit(0);
+    }
+
     if argv.len() < 4 {
         eprintln!("Usage: {} blockchain network working_dir", argv[0]);
         process::exit(1);
@@ -1347,7 +1482,7 @@ simulating a miner.
 }
 
 #[cfg_attr(test, mutants::skip)]
-fn tip_mine() {
+pub fn tip_mine() {
     let argv: Vec<String> = env::args().collect();
     if argv.len() < 6 {
         eprintln!(
@@ -1581,179 +1716,6 @@ simulating a miner.
     }
 
     process::exit(0);
-}
-
-fn replay_block(stacks_path: &str, index_block_hash_hex: &str) {
-    let index_block_hash = StacksBlockId::from_hex(index_block_hash_hex).unwrap();
-    let chain_state_path = format!("{stacks_path}/mainnet/chainstate/");
-    let sort_db_path = format!("{stacks_path}/mainnet/burnchain/sortition");
-    let burn_db_path = format!("{stacks_path}/mainnet/burnchain/burnchain.sqlite");
-    let burnchain_blocks_db = BurnchainDB::open(&burn_db_path, false).unwrap();
-
-    let (mut chainstate, _) =
-        StacksChainState::open(true, CHAIN_ID_MAINNET, &chain_state_path, None).unwrap();
-
-    let mut sortdb = SortitionDB::connect(
-        &sort_db_path,
-        BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT,
-        &BurnchainHeaderHash::from_hex(BITCOIN_MAINNET_FIRST_BLOCK_HASH).unwrap(),
-        BITCOIN_MAINNET_FIRST_BLOCK_TIMESTAMP.into(),
-        STACKS_EPOCHS_MAINNET.as_ref(),
-        PoxConstants::mainnet_default(),
-        None,
-        true,
-    )
-    .unwrap();
-    let mut sort_tx = sortdb.tx_begin_at_tip();
-
-    let blocks_path = chainstate.blocks_path.clone();
-    let (mut chainstate_tx, clarity_instance) = chainstate
-        .chainstate_tx_begin()
-        .expect("Failed to start chainstate tx");
-    let mut next_staging_block =
-        StacksChainState::load_staging_block_info(&chainstate_tx.tx, &index_block_hash)
-            .expect("Failed to load staging block data")
-            .expect("No such index block hash in block database");
-
-    next_staging_block.block_data = StacksChainState::load_block_bytes(
-        &blocks_path,
-        &next_staging_block.consensus_hash,
-        &next_staging_block.anchored_block_hash,
-    )
-    .unwrap()
-    .unwrap_or_default();
-
-    let Some(next_microblocks) =
-        StacksChainState::find_parent_microblock_stream(&chainstate_tx.tx, &next_staging_block)
-            .unwrap()
-    else {
-        println!("No microblock stream found for {index_block_hash_hex}");
-        return;
-    };
-
-    let (burn_header_hash, burn_header_height, burn_header_timestamp, _winning_block_txid) =
-        match SortitionDB::get_block_snapshot_consensus(
-            &sort_tx,
-            &next_staging_block.consensus_hash,
-        )
-        .unwrap()
-        {
-            Some(sn) => (
-                sn.burn_header_hash,
-                sn.block_height as u32,
-                sn.burn_header_timestamp,
-                sn.winning_block_txid,
-            ),
-            None => {
-                // shouldn't happen
-                panic!(
-                    "CORRUPTION: staging block {}/{} does not correspond to a burn block",
-                    &next_staging_block.consensus_hash, &next_staging_block.anchored_block_hash
-                );
-            }
-        };
-
-    info!(
-        "Process block {}/{} = {} in burn block {}, parent microblock {}",
-        next_staging_block.consensus_hash,
-        next_staging_block.anchored_block_hash,
-        &index_block_hash,
-        &burn_header_hash,
-        &next_staging_block.parent_microblock_hash,
-    );
-
-    let Some(parent_header_info) =
-        StacksChainState::get_parent_header_info(&mut chainstate_tx, &next_staging_block).unwrap()
-    else {
-        println!("Failed to load parent head info for block: {index_block_hash_hex}");
-        return;
-    };
-
-    let block =
-        StacksChainState::extract_stacks_block(&next_staging_block).expect("Failed to get block");
-    let block_size = next_staging_block.block_data.len() as u64;
-
-    let parent_block_header = match &parent_header_info.anchored_header {
-        StacksBlockHeaderTypes::Epoch2(bh) => bh,
-        StacksBlockHeaderTypes::Nakamoto(_) => panic!("Nakamoto blocks not supported yet"),
-    };
-
-    if !StacksChainState::check_block_attachment(&parent_block_header, &block.header) {
-        let msg = format!(
-            "Invalid stacks block {}/{} -- does not attach to parent {}/{}",
-            &next_staging_block.consensus_hash,
-            block.block_hash(),
-            parent_block_header.block_hash(),
-            &parent_header_info.consensus_hash
-        );
-        println!("{msg}");
-        return;
-    }
-
-    // validation check -- validate parent microblocks and find the ones that connect the
-    // block's parent to this block.
-    let next_microblocks = StacksChainState::extract_connecting_microblocks(
-        &parent_header_info,
-        &next_staging_block,
-        &block,
-        next_microblocks,
-    )
-    .unwrap();
-    let (last_microblock_hash, last_microblock_seq) = match next_microblocks.len() {
-        0 => (EMPTY_MICROBLOCK_PARENT_HASH.clone(), 0),
-        _ => {
-            let l = next_microblocks.len();
-            (
-                next_microblocks[l - 1].block_hash(),
-                next_microblocks[l - 1].header.sequence,
-            )
-        }
-    };
-    assert_eq!(
-        next_staging_block.parent_microblock_hash,
-        last_microblock_hash
-    );
-    assert_eq!(
-        next_staging_block.parent_microblock_seq,
-        last_microblock_seq
-    );
-
-    let block_am = StacksChainState::find_stacks_tip_affirmation_map(
-        &burnchain_blocks_db,
-        sort_tx.tx(),
-        &next_staging_block.consensus_hash,
-        &next_staging_block.anchored_block_hash,
-    )
-    .unwrap();
-
-    let pox_constants = sort_tx.context.pox_constants.clone();
-
-    match StacksChainState::append_block(
-        &mut chainstate_tx,
-        clarity_instance,
-        &mut sort_tx,
-        &pox_constants,
-        &parent_header_info,
-        &next_staging_block.consensus_hash,
-        &burn_header_hash,
-        burn_header_height,
-        burn_header_timestamp,
-        &block,
-        block_size,
-        &next_microblocks,
-        next_staging_block.commit_burn,
-        next_staging_block.sortition_burn,
-        block_am.weight(),
-        true,
-    ) {
-        Ok((_receipt, _, _)) => {
-            info!("Block processed successfully! block = {index_block_hash}");
-        }
-        Err(e) => {
-            println!("Failed processing block! block = {index_block_hash}, error = {e:?}");
-            process::exit(1);
-        }
-    };
 }
 
 /// Perform an analysis of the anti-MEV algorithm in epoch 3.0, vis-a-vis the status quo.

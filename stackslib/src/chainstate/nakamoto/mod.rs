@@ -14,13 +14,12 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::ops::{Deref, DerefMut, Range};
 use std::path::PathBuf;
 
-use clarity::types::PublicKey;
-use clarity::util::secp256k1::{secp256k1_recover, Secp256k1PublicKey};
+use clarity::util::secp256k1::Secp256k1PublicKey;
 use clarity::vm::ast::ASTRules;
 use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::database::{BurnStateDB, ClarityDatabase};
@@ -31,6 +30,7 @@ use lazy_static::{__Deref, lazy_static};
 use rusqlite::blob::Blob;
 use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput};
 use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
+use sha2::digest::typenum::Integer;
 use sha2::{Digest as Sha2Digest, Sha512_256};
 use stacks_common::bitvec::BitVec;
 use stacks_common::codec::{
@@ -53,7 +53,6 @@ use stacks_common::util::retry::BoundReader;
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::util::vrf::{VRFProof, VRFPublicKey, VRF};
 use stacks_common::util::{get_epoch_time_secs, sleep_ms};
-use wsts::curve::point::Point;
 
 use self::signer_set::SignerCalculation;
 use super::burn::db::sortdb::{
@@ -74,7 +73,7 @@ use super::stacks::db::{
 use super::stacks::events::{StacksTransactionReceipt, TransactionOrigin};
 use super::stacks::{
     Error as ChainstateError, StacksBlock, StacksBlockHeader, StacksMicroblock, StacksTransaction,
-    TenureChangeError, TenureChangePayload, ThresholdSignature, TransactionPayload,
+    TenureChangeError, TenureChangePayload, TransactionPayload,
 };
 use crate::burnchains::{Burnchain, PoxConstants, Txid};
 use crate::chainstate::burn::db::sortdb::SortitionDB;
@@ -104,14 +103,16 @@ use crate::clarity_vm::clarity::{
     ClarityInstance, ClarityTransactionConnection, Error as ClarityError, PreCommitClarityBlock,
 };
 use crate::clarity_vm::database::SortitionDBRef;
-use crate::core::{BOOT_BLOCK_HASH, NAKAMOTO_SIGNER_BLOCK_APPROVAL_THRESHOLD};
+use crate::core::{
+    BOOT_BLOCK_HASH, BURNCHAIN_TX_SEARCH_WINDOW, NAKAMOTO_SIGNER_BLOCK_APPROVAL_THRESHOLD,
+};
 use crate::net::stackerdb::{StackerDBConfig, MINER_SLOT_COUNT};
 use crate::net::Error as net_error;
 use crate::util_lib::boot;
 use crate::util_lib::boot::boot_code_id;
 use crate::util_lib::db::{
-    query_int, query_row, query_row_panic, query_rows, sqlite_open, tx_begin_immediate, u64_to_sql,
-    DBConn, Error as DBError, FromRow,
+    query_int, query_row, query_row_columns, query_row_panic, query_rows, sqlite_open,
+    tx_begin_immediate, u64_to_sql, DBConn, Error as DBError, FromRow,
 };
 use crate::{chainstate, monitoring};
 
@@ -268,12 +269,71 @@ lazy_static! {
     ADD COLUMN height_in_tenure;
     "#.into(),
     ];
+
+    pub static ref NAKAMOTO_CHAINSTATE_SCHEMA_4: [&'static str; 2] = [
+    r#"
+        UPDATE db_config SET version = "7";
+    "#,
+    // Add a `signer_stats` table to keep track of how many blocks have been signed by each signer
+    r#"
+        -- Table for signer stats
+        CREATE TABLE signer_stats (
+            -- Signers public key
+            public_key TEXT NOT NULL,
+            -- Stacking rewards cycle ID
+            reward_cycle INTEGER NOT NULL,
+            -- Number of blocks signed during reward cycle
+            blocks_signed INTEGER DEFAULT 1 NOT NULL,
+
+            PRIMARY KEY(public_key,reward_cycle)
+        );
+    "#,
+    ];
+
+    pub static ref NAKAMOTO_CHAINSTATE_SCHEMA_5: [&'static str; 2] = [
+    r#"
+        UPDATE db_config SET version = "8";
+    "#,
+    // Add an index for index block hash in nakamoto block headers
+    "CREATE INDEX IF NOT EXISTS index_block_hash ON nakamoto_block_headers(index_block_hash);",
+    ];
+}
+
+#[cfg(test)]
+mod fault_injection {
+    static PROCESS_BLOCK_STALL: std::sync::Mutex<bool> = std::sync::Mutex::new(false);
+
+    pub fn stall_block_processing() {
+        if *PROCESS_BLOCK_STALL.lock().unwrap() {
+            // Do an extra check just so we don't log EVERY time.
+            warn!("Block processing is stalled due to testing directive.");
+            while *PROCESS_BLOCK_STALL.lock().unwrap() {
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            info!("Block processing is no longer stalled due to testing directive.");
+        }
+    }
+
+    pub fn enable_process_block_stall() {
+        *PROCESS_BLOCK_STALL.lock().unwrap() = true;
+    }
+
+    pub fn disable_process_block_stall() {
+        *PROCESS_BLOCK_STALL.lock().unwrap() = false;
+    }
 }
 
 /// Trait for common MARF getters between StacksDBConn and StacksDBTx
 pub trait StacksDBIndexed {
     fn get(&mut self, tip: &StacksBlockId, key: &str) -> Result<Option<String>, DBError>;
     fn sqlite(&self) -> &Connection;
+
+    /// Get the ancestor block hash given a height
+    fn get_ancestor_block_id(
+        &mut self,
+        coinbase_height: u64,
+        tip_index_hash: &StacksBlockId,
+    ) -> Result<Option<StacksBlockId>, DBError>;
 
     /// Get the block ID for a specific coinbase height in the fork identified by `tip`
     fn get_nakamoto_block_id_at_coinbase_height(
@@ -377,6 +437,10 @@ pub trait StacksDBIndexed {
             .is_none()
         {
             // tenure not started
+            debug!(
+                "No tenure-start block for {} off of {}",
+                tenure_id_consensus_hash, tip
+            );
             return Ok(None);
         }
         if self
@@ -387,6 +451,10 @@ pub trait StacksDBIndexed {
             .is_none()
         {
             // tenure has started, but is not done yet
+            debug!(
+                "Tenure {} not finished off of {}",
+                tenure_id_consensus_hash, tip
+            );
             return Ok(Some(false));
         }
 
@@ -419,6 +487,14 @@ impl StacksDBIndexed for StacksDBConn<'_> {
     fn sqlite(&self) -> &Connection {
         self.conn()
     }
+
+    fn get_ancestor_block_id(
+        &mut self,
+        coinbase_height: u64,
+        tip_index_hash: &StacksBlockId,
+    ) -> Result<Option<StacksBlockId>, DBError> {
+        self.get_ancestor_block_hash(coinbase_height, tip_index_hash)
+    }
 }
 
 impl StacksDBIndexed for StacksDBTx<'_> {
@@ -428,6 +504,14 @@ impl StacksDBIndexed for StacksDBTx<'_> {
 
     fn sqlite(&self) -> &Connection {
         self.tx().deref()
+    }
+
+    fn get_ancestor_block_id(
+        &mut self,
+        coinbase_height: u64,
+        tip_index_hash: &StacksBlockId,
+    ) -> Result<Option<StacksBlockId>, DBError> {
+        self.get_ancestor_block_hash(coinbase_height, tip_index_hash)
     }
 }
 
@@ -452,6 +536,38 @@ impl MaturedMinerPaymentSchedules {
             latest_miners: vec![],
             parent_miner: MinerPaymentSchedule::genesis(mainnet),
         }
+    }
+}
+
+/// Struct containing information about the miners assigned in the
+/// .miners stackerdb config
+pub struct MinersDBInformation {
+    signer_0_sortition: ConsensusHash,
+    signer_1_sortition: ConsensusHash,
+    latest_winner: u16,
+}
+
+impl MinersDBInformation {
+    /// What index in the `.miners` stackerdb is the miner who won
+    /// `sortition`?
+    pub fn get_signer_index(&self, sortition: &ConsensusHash) -> Option<u16> {
+        if sortition == &self.signer_0_sortition {
+            Some(0)
+        } else if sortition == &self.signer_1_sortition {
+            Some(1)
+        } else {
+            None
+        }
+    }
+
+    /// Get all of the sortitions whose winners are included in .miners
+    pub fn get_sortitions(&self) -> [&ConsensusHash; 2] {
+        [&self.signer_0_sortition, &self.signer_1_sortition]
+    }
+
+    /// Get the index of the latest sortition winner in .miners
+    pub fn get_latest_winner_index(&self) -> u16 {
+        self.latest_winner
     }
 }
 
@@ -525,7 +641,7 @@ pub struct NakamotoBlockHeader {
     /// A Unix time timestamp of when this block was mined, according to the miner.
     /// For the signers to consider a block valid, this timestamp must be:
     ///  * Greater than the timestamp of its parent block
-    ///  * Less than 15 seconds into the future
+    ///  * At most 15 seconds into the future
     pub timestamp: u64,
     /// Recoverable ECDSA signature from the tenure's miner.
     pub miner_signature: MessageSignature,
@@ -573,33 +689,6 @@ impl FromRow<NakamotoBlockHeader> for NakamotoBlockHeader {
             signer_signature,
             miner_signature,
             pox_treatment: signer_bitvec,
-        })
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-/// A vote across the signer set for a block
-pub struct NakamotoBlockVote {
-    pub signer_signature_hash: Sha512Trunc256Sum,
-    pub rejected: bool,
-}
-
-impl StacksMessageCodec for NakamotoBlockVote {
-    fn consensus_serialize<W: std::io::Write>(&self, fd: &mut W) -> Result<(), CodecError> {
-        write_next(fd, &self.signer_signature_hash)?;
-        if self.rejected {
-            write_next(fd, &1u8)?;
-        }
-        Ok(())
-    }
-
-    fn consensus_deserialize<R: std::io::Read>(fd: &mut R) -> Result<Self, CodecError> {
-        let signer_signature_hash = read_next(fd)?;
-        let rejected_byte: Option<u8> = read_next(fd).ok();
-        let rejected = rejected_byte.is_some();
-        Ok(Self {
-            signer_signature_hash,
-            rejected,
         })
     }
 }
@@ -674,6 +763,7 @@ impl NakamotoBlockHeader {
         write_next(fd, &self.tx_merkle_root)?;
         write_next(fd, &self.state_index_root)?;
         write_next(fd, &self.timestamp)?;
+        write_next(fd, &self.pox_treatment)?;
         Ok(Sha512Trunc256Sum::from_hasher(hasher))
     }
 
@@ -778,6 +868,12 @@ impl NakamotoBlockHeader {
             public_key_bytes.copy_from_slice(&public_key.to_bytes_compressed()[..]);
 
             let (signer, signer_index) = signers_by_pk.get(&public_key_bytes).ok_or_else(|| {
+                warn!(
+                    "Found an invalid public key. Reward set has {} signers. Chain length {}. Signatures length {}",
+                    signers.len(),
+                    self.chain_length,
+                    self.signer_signature.len(),
+                );
                 ChainstateError::InvalidStacksBlock(format!(
                     "Public key {} not found in the reward set",
                     public_key.to_hex()
@@ -1690,6 +1786,9 @@ impl NakamotoChainState {
         canonical_sortition_tip: &SortitionId,
         dispatcher_opt: Option<&'a T>,
     ) -> Result<Option<StacksEpochReceipt>, ChainstateError> {
+        #[cfg(test)]
+        fault_injection::stall_block_processing();
+
         let nakamoto_blocks_db = stacks_chain_state.nakamoto_blocks_db();
         let Some((next_ready_block, block_size)) =
             nakamoto_blocks_db.next_ready_nakamoto_block(stacks_chain_state.db())?
@@ -1807,7 +1906,7 @@ impl NakamotoChainState {
                         "stacks_block_id" => %next_ready_block.header.block_id(),
                         "parent_block_id" => %next_ready_block.header.parent_block_id
                     );
-                    ChainstateError::InvalidStacksBlock("Failed to load burn view of parent block ID".into())                    
+                    ChainstateError::InvalidStacksBlock("Failed to load burn view of parent block ID".into())
                 })?;
                 let handle = sort_db.index_handle_at_ch(&tenure_change.burn_view_consensus_hash)?;
                 let connected_sort_id = get_ancestor_sort_id(&handle, parent_burn_view_sn.block_height, &handle.context.chain_tip)?
@@ -1819,7 +1918,7 @@ impl NakamotoChainState {
                             "stacks_block_id" => %next_ready_block.header.block_id(),
                             "parent_block_id" => %next_ready_block.header.parent_block_id
                         );
-                        ChainstateError::InvalidStacksBlock("Failed to load burn view of parent block ID".into())                    
+                        ChainstateError::InvalidStacksBlock("Failed to load burn view of parent block ID".into())
                     })?;
                 if connected_sort_id != parent_burn_view_sn.sortition_id {
                     warn!(
@@ -1960,22 +2059,14 @@ impl NakamotoChainState {
             next_ready_block.header.consensus_hash
         );
 
-        // set stacks block accepted
-        let mut sort_tx = sort_db.tx_handle_begin(canonical_sortition_tip)?;
-        sort_tx.set_stacks_block_accepted(
-            &next_ready_block.header.consensus_hash,
-            &next_ready_block.header.block_hash(),
-            next_ready_block.header.chain_length,
-        )?;
-
         // this will panic if the Clarity commit fails.
         clarity_commit.commit();
         chainstate_tx.commit()
-            .unwrap_or_else(|e| {
-                error!("Failed to commit chainstate transaction after committing Clarity block. The chainstate database is now corrupted.";
-                       "error" => ?e);
-                panic!()
-            });
+        .unwrap_or_else(|e| {
+            error!("Failed to commit chainstate transaction after committing Clarity block. The chainstate database is now corrupted.";
+            "error" => ?e);
+            panic!()
+        });
 
         // as a separate transaction, mark this block as processed.
         // This is done separately so that the staging blocks DB, which receives writes
@@ -1986,6 +2077,30 @@ impl NakamotoChainState {
         Self::infallible_set_block_processed(stacks_chain_state, &block_id);
 
         let signer_bitvec = (&next_ready_block).header.pox_treatment.clone();
+
+        let block_timestamp = next_ready_block.header.timestamp;
+
+        // set stacks block accepted
+        let mut sort_tx = sort_db.tx_handle_begin(canonical_sortition_tip)?;
+        sort_tx.set_stacks_block_accepted(
+            &next_ready_block.header.consensus_hash,
+            &next_ready_block.header.block_hash(),
+            next_ready_block.header.chain_length,
+        )?;
+
+        sort_tx
+            .commit()
+            .unwrap_or_else(|e| {
+                error!("Failed to commit sortition db transaction after committing chainstate and clarity block. The chainstate database is now corrupted.";
+                       "error" => ?e);
+                panic!()
+            });
+
+        info!(
+            "Advanced to new tip! {}/{}",
+            &receipt.header.consensus_hash,
+            &receipt.header.anchored_header.block_hash()
+        );
 
         // announce the block, if we're connected to an event dispatcher
         if let Some(dispatcher) = dispatcher_opt {
@@ -2010,16 +2125,10 @@ impl NakamotoChainState {
                 &pox_constants,
                 &reward_set_data,
                 &Some(signer_bitvec),
+                Some(block_timestamp),
+                receipt.coinbase_height,
             );
         }
-
-        sort_tx
-            .commit()
-            .unwrap_or_else(|e| {
-                error!("Failed to commit sortition db transaction after committing chainstate and clarity block. The chainstate database is now corrupted.";
-                       "error" => ?e);
-                panic!()
-            });
 
         Ok(Some(receipt))
     }
@@ -2227,7 +2336,14 @@ impl NakamotoChainState {
                    "signing_weight" => signing_weight);
             true
         } else {
-            debug!("Will not store alternative copy of block {} ({}) with block hash {}, since it has less signing power", &block_id, &block.header.consensus_hash, &block_hash);
+            if existing_signing_weight > signing_weight {
+                debug!("Will not store alternative copy of block {} ({}) with block hash {}, since it has less signing power", &block_id, &block.header.consensus_hash, &block_hash);
+            } else {
+                debug!(
+                    "Will not store duplicate copy of block {} ({}) with block hash {}",
+                    &block_id, &block.header.consensus_hash, &block_hash
+                );
+            }
             false
         };
 
@@ -2359,22 +2475,22 @@ impl NakamotoChainState {
     /// Return a Nakamoto StacksHeaderInfo at a given coinbase height in the fork identified by `tip_index_hash`.
     /// * For Stacks 2.x, this is the Stacks block's header
     /// * For Stacks 3.x (Nakamoto), this is the first block in the miner's tenure.
-    pub fn get_header_by_coinbase_height(
-        tx: &mut StacksDBTx,
+    pub fn get_header_by_coinbase_height<SDBI: StacksDBIndexed>(
+        conn: &mut SDBI,
         tip_index_hash: &StacksBlockId,
         coinbase_height: u64,
     ) -> Result<Option<StacksHeaderInfo>, ChainstateError> {
         // nakamoto block?
         if let Some(block_id) =
-            tx.get_nakamoto_block_id_at_coinbase_height(tip_index_hash, coinbase_height)?
+            conn.get_nakamoto_block_id_at_coinbase_height(tip_index_hash, coinbase_height)?
         {
-            return Self::get_block_header_nakamoto(tx.sqlite(), &block_id);
+            return Self::get_block_header_nakamoto(conn.sqlite(), &block_id);
         }
 
         // epcoh2 block?
-        let Some(ancestor_at_height) = tx
-            .get_ancestor_block_hash(coinbase_height, tip_index_hash)?
-            .map(|ancestor| Self::get_block_header(tx.tx(), &ancestor))
+        let Some(ancestor_at_height) = conn
+            .get_ancestor_block_id(coinbase_height, tip_index_hash)?
+            .map(|ancestor| Self::get_block_header(conn.sqlite(), &ancestor))
             .transpose()?
             .flatten()
         else {
@@ -2394,12 +2510,44 @@ impl NakamotoChainState {
         Ok(None)
     }
 
+    /// Load the parent block ID of a Nakamoto block
+    pub fn get_nakamoto_parent_block_id(
+        chainstate_conn: &Connection,
+        index_block_hash: &StacksBlockId,
+    ) -> Result<Option<StacksBlockId>, ChainstateError> {
+        let sql = "SELECT parent_block_id FROM nakamoto_block_headers WHERE index_block_hash = ?1";
+        let mut result = query_row_columns(
+            chainstate_conn,
+            sql,
+            &[&index_block_hash],
+            "parent_block_id",
+        )?;
+        if result.len() > 1 {
+            // even though `(consensus_hash,block_hash)` is the primary key, these are hashed to
+            // produce `index_block_hash`.  So, `index_block_hash` is also unique w.h.p.
+            unreachable!("FATAL: multiple instances of index_block_hash");
+        }
+        Ok(result.pop())
+    }
+
     /// Load a Nakamoto header
     pub fn get_block_header_nakamoto(
         chainstate_conn: &Connection,
         index_block_hash: &StacksBlockId,
     ) -> Result<Option<StacksHeaderInfo>, ChainstateError> {
         let sql = "SELECT * FROM nakamoto_block_headers WHERE index_block_hash = ?1";
+        let result = query_row_panic(chainstate_conn, sql, &[&index_block_hash], || {
+            "FATAL: multiple rows for the same block hash".to_string()
+        })?;
+        Ok(result)
+    }
+
+    /// Load a consensus hash for a Nakamoto header
+    pub fn get_block_header_nakamoto_tenure_id(
+        chainstate_conn: &Connection,
+        index_block_hash: &StacksBlockId,
+    ) -> Result<Option<ConsensusHash>, ChainstateError> {
+        let sql = "SELECT consensus_hash FROM nakamoto_block_headers WHERE index_block_hash = ?1";
         let result = query_row_panic(chainstate_conn, sql, &[&index_block_hash], || {
             "FATAL: multiple rows for the same block hash".to_string()
         })?;
@@ -2475,8 +2623,10 @@ impl NakamotoChainState {
         Ok(result.is_some())
     }
 
+    /// DO NOT CALL IN CONSENSUS CODE, such as during Stacks block processing
+    /// (including during Clarity VM evaluation). This function returns the latest data
+    /// known to the node, which may not have been at the time of original block assembly.
     /// Load the canonical Stacks block header (either epoch-2 rules or Nakamoto)
-    /// DO NOT CALL during Stacks block processing (including during Clarity VM evaluation). This function returns the latest data known to the node, which may not have been at the time of original block assembly.
     pub fn get_canonical_block_header(
         chainstate_conn: &Connection,
         sortdb: &SortitionDB,
@@ -2532,7 +2682,7 @@ impl NakamotoChainState {
         Self::get_block_header_nakamoto(chainstate_conn.sqlite(), &block_id)
     }
 
-    /// Get the highest block in the given tenure.
+    /// Get the highest block in the given tenure on a given fork.
     /// Only works on Nakamoto blocks.
     /// TODO: unit test
     pub fn get_highest_block_header_in_tenure<SDBI: StacksDBIndexed>(
@@ -2546,6 +2696,29 @@ impl NakamotoChainState {
             return Ok(None);
         };
         Self::get_block_header_nakamoto(chainstate_conn.sqlite(), &block_id)
+    }
+
+    /// DO NOT USE IN CONSENSUS CODE.  Different nodes can have different blocks for the same
+    /// tenure.
+    ///
+    /// Get the highest block in a given tenure (identified by its consensus hash).
+    /// Ties will be broken by timestamp.
+    ///
+    /// Used to verify that a signer-submitted block proposal builds atop the highest known block
+    /// in the given tenure, regardless of which fork it's on.
+    pub fn get_highest_known_block_header_in_tenure(
+        db: &Connection,
+        consensus_hash: &ConsensusHash,
+    ) -> Result<Option<StacksHeaderInfo>, ChainstateError> {
+        // see if we have a nakamoto block in this tenure
+        let qry = "SELECT * FROM nakamoto_block_headers WHERE consensus_hash = ?1 ORDER BY block_height DESC, timestamp DESC LIMIT 1";
+        let args = params![consensus_hash];
+        if let Some(header) = query_row(db, qry, args)? {
+            return Ok(Some(header));
+        }
+
+        // see if this is an epoch2 header. If it exists, then there will only be one.
+        Ok(StacksChainState::get_stacks_block_header_info_by_consensus_hash(db, consensus_hash)?)
     }
 
     /// Get the VRF proof for a Stacks block.
@@ -2953,7 +3126,6 @@ impl NakamotoChainState {
         );
 
         let parent_hash = new_tip.parent_block_id.clone();
-        let new_block_hash = new_tip.block_hash();
         let index_block_hash = new_tip.block_id();
 
         let mut marf_keys = vec![];
@@ -3101,14 +3273,18 @@ impl NakamotoChainState {
         if let Some(block_reward) = block_reward {
             StacksChainState::insert_miner_payment_schedule(headers_tx.deref_mut(), block_reward)?;
         }
-        StacksChainState::store_burnchain_txids(
-            headers_tx.deref(),
-            &index_block_hash,
-            burn_stack_stx_ops,
-            burn_transfer_stx_ops,
-            burn_delegate_stx_ops,
-            burn_vote_for_aggregate_key_ops,
-        )?;
+
+        // NOTE: this is a no-op if the block isn't a tenure-start block
+        if new_tenure {
+            StacksChainState::store_burnchain_txids(
+                headers_tx.deref(),
+                &index_block_hash,
+                burn_stack_stx_ops,
+                burn_transfer_stx_ops,
+                burn_delegate_stx_ops,
+                burn_vote_for_aggregate_key_ops,
+            )?;
+        }
 
         if let Some(matured_miner_payouts) = mature_miner_payouts_opt {
             let rewarded_miner_block_id = StacksBlockId::new(
@@ -3145,10 +3321,6 @@ impl NakamotoChainState {
             headers_tx.deref_mut().execute(sql, args)?;
         }
 
-        debug!(
-            "Advanced to new tip! {}/{}",
-            &new_tip.consensus_hash, new_block_hash,
-        );
         Ok(new_tip_info)
     }
 
@@ -3177,6 +3349,180 @@ impl NakamotoChainState {
             })
             .optional()
             .map_err(ChainstateError::from)
+    }
+
+    /// Keep track of how many blocks each signer is signing
+    fn record_block_signers(
+        tx: &mut ChainstateTx,
+        block: &NakamotoBlock,
+        reward_cycle: u64,
+    ) -> Result<(), ChainstateError> {
+        let signer_sighash = block.header.signer_signature_hash();
+        for signer_signature in &block.header.signer_signature {
+            let signer_pubkey =
+                StacksPublicKey::recover_to_pubkey(signer_sighash.bits(), &signer_signature)
+                    .map_err(|e| ChainstateError::InvalidStacksBlock(e.to_string()))?;
+            let sql = "INSERT INTO signer_stats(public_key,reward_cycle) VALUES(?1,?2) ON CONFLICT(public_key,reward_cycle) DO UPDATE SET blocks_signed=blocks_signed+1";
+            let params = params![signer_pubkey.to_hex(), reward_cycle];
+            tx.execute(sql, params)?;
+        }
+        Ok(())
+    }
+
+    /// Fetch number of blocks signed for a given signer and reward cycle
+    /// This is the data tracked by `record_block_signers()`
+    pub fn get_signer_block_count(
+        chainstate_db: &Connection,
+        signer_pubkey: &Secp256k1PublicKey,
+        reward_cycle: u64,
+    ) -> Result<u64, ChainstateError> {
+        let sql =
+            "SELECT blocks_signed FROM signer_stats WHERE public_key = ?1 AND reward_cycle = ?2";
+        let params = params![signer_pubkey.to_hex(), reward_cycle];
+        chainstate_db
+            .query_row(sql, params, |row| row.get("blocks_signed"))
+            .optional()
+            .map(Option::unwrap_or_default) // It's fine to map `NONE` to `0`, because it's impossible to have `Some(0)`
+            .map_err(ChainstateError::from)
+    }
+
+    /// Find all of the TXIDs of Stacks-on-burnchain operations processed in the given Stacks fork.
+    /// In Nakamoto, we index these TXIDs by the tenure-start block ID
+    pub(crate) fn get_burnchain_txids_in_ancestor_tenures<SDBI: StacksDBIndexed>(
+        conn: &mut SDBI,
+        tip_consensus_hash: &ConsensusHash,
+        tip_block_hash: &BlockHeaderHash,
+        search_window: u64,
+    ) -> Result<HashSet<Txid>, ChainstateError> {
+        let tip = StacksBlockId::new(tip_consensus_hash, tip_block_hash);
+        let mut cursor = tip_consensus_hash.clone();
+        let mut ret = HashSet::new();
+        for _ in 0..search_window {
+            let Some(tenure_start_block_id) = conn.get_tenure_start_block_id(&tip, &cursor)? else {
+                break;
+            };
+            let txids = StacksChainState::get_burnchain_txids_for_block(
+                conn.sqlite(),
+                &tenure_start_block_id,
+            )?;
+            ret.extend(txids.into_iter());
+
+            let Some(parent_tenure_id) = conn.get_parent_tenure_consensus_hash(&tip, &cursor)?
+            else {
+                break;
+            };
+
+            cursor = parent_tenure_id;
+        }
+        Ok(ret)
+    }
+
+    /// Get all Stacks-on-burnchain operations that we haven't processed yet
+    pub(crate) fn get_stacks_on_burnchain_operations<SDBI: StacksDBIndexed>(
+        conn: &mut SDBI,
+        parent_consensus_hash: &ConsensusHash,
+        parent_block_hash: &BlockHeaderHash,
+        sortdb_conn: &Connection,
+        burn_tip: &BurnchainHeaderHash,
+        burn_tip_height: u64,
+    ) -> Result<
+        (
+            Vec<StackStxOp>,
+            Vec<TransferStxOp>,
+            Vec<DelegateStxOp>,
+            Vec<VoteForAggregateKeyOp>,
+        ),
+        ChainstateError,
+    > {
+        let cur_epoch = SortitionDB::get_stacks_epoch(sortdb_conn, burn_tip_height)?
+            .expect("FATAL: no epoch defined for current burnchain tip height");
+
+        // only consider transactions in Stacks 3.0
+        if cur_epoch.epoch_id < StacksEpochId::Epoch30 {
+            return Ok((vec![], vec![], vec![], vec![]));
+        }
+
+        let epoch_start_height = cur_epoch.start_height;
+
+        let search_window: u8 =
+            if epoch_start_height + u64::from(BURNCHAIN_TX_SEARCH_WINDOW) > burn_tip_height {
+                burn_tip_height
+                    .saturating_sub(epoch_start_height)
+                    .try_into()
+                    .expect("FATAL: search window exceeds u8")
+            } else {
+                BURNCHAIN_TX_SEARCH_WINDOW
+            };
+
+        debug!(
+            "Search the last {} sortitions for burnchain-hosted stacks operations before {} ({})",
+            search_window, burn_tip, burn_tip_height
+        );
+        let ancestor_burnchain_header_hashes = SortitionDB::get_ancestor_burnchain_header_hashes(
+            sortdb_conn,
+            burn_tip,
+            search_window.into(),
+        )?;
+        let processed_burnchain_txids =
+            NakamotoChainState::get_burnchain_txids_in_ancestor_tenures(
+                conn,
+                parent_consensus_hash,
+                parent_block_hash,
+                search_window.into(),
+            )?;
+
+        // Find the *new* transactions -- the ones that we *haven't* seen in this Stacks
+        // fork yet.  Note that we search for the ones that we have seen by searching back
+        // `BURNCHAIN_TX_SEARCH_WINDOW` tenures, whose sortitions may span more
+        // than `BURNCHAIN_TX_SEARCH_WINDOW` burnchain blocks.  The inclusion of txids for
+        // burnchain transactions in the latter query is not a problem, because these txids
+        // are used to *exclude* transactions from the last `BURNCHAIN_TX_SEARCH_WINDOW`
+        // burnchain blocks.  These excluded txids, if they were mined outside of this
+        // window, are *already* excluded.
+
+        let mut all_stacking_burn_ops = vec![];
+        let mut all_transfer_burn_ops = vec![];
+        let mut all_delegate_burn_ops = vec![];
+        let mut all_vote_for_aggregate_key_ops = vec![];
+
+        // go from oldest burn header hash to newest
+        for ancestor_bhh in ancestor_burnchain_header_hashes.iter().rev() {
+            let stacking_ops = SortitionDB::get_stack_stx_ops(sortdb_conn, ancestor_bhh)?;
+            let transfer_ops = SortitionDB::get_transfer_stx_ops(sortdb_conn, ancestor_bhh)?;
+            let delegate_ops = SortitionDB::get_delegate_stx_ops(sortdb_conn, ancestor_bhh)?;
+            let vote_for_aggregate_key_ops =
+                SortitionDB::get_vote_for_aggregate_key_ops(sortdb_conn, ancestor_bhh)?;
+
+            for stacking_op in stacking_ops.into_iter() {
+                if !processed_burnchain_txids.contains(&stacking_op.txid) {
+                    all_stacking_burn_ops.push(stacking_op);
+                }
+            }
+
+            for transfer_op in transfer_ops.into_iter() {
+                if !processed_burnchain_txids.contains(&transfer_op.txid) {
+                    all_transfer_burn_ops.push(transfer_op);
+                }
+            }
+
+            for delegate_op in delegate_ops.into_iter() {
+                if !processed_burnchain_txids.contains(&delegate_op.txid) {
+                    all_delegate_burn_ops.push(delegate_op);
+                }
+            }
+
+            for vote_op in vote_for_aggregate_key_ops.into_iter() {
+                if !processed_burnchain_txids.contains(&vote_op.txid) {
+                    all_vote_for_aggregate_key_ops.push(vote_op);
+                }
+            }
+        }
+        Ok((
+            all_stacking_burn_ops,
+            all_transfer_burn_ops,
+            all_delegate_burn_ops,
+            all_vote_for_aggregate_key_ops,
+        ))
     }
 
     /// Begin block-processing and return all of the pre-processed state within a
@@ -3251,10 +3597,11 @@ impl NakamotoChainState {
         };
 
         let (stacking_burn_ops, transfer_burn_ops, delegate_burn_ops, vote_for_agg_key_ops) =
-            if new_tenure || tenure_extend {
-                StacksChainState::get_stacking_and_transfer_and_delegate_burn_ops(
-                    chainstate_tx,
-                    &parent_index_hash,
+            if new_tenure {
+                NakamotoChainState::get_stacks_on_burnchain_operations(
+                    chainstate_tx.as_tx(),
+                    &parent_consensus_hash,
+                    &parent_header_hash,
                     sortition_dbconn.sqlite_conn(),
                     &burn_header_hash,
                     burn_header_height.into(),
@@ -3472,6 +3819,15 @@ impl NakamotoChainState {
         active_reward_set: &RewardSet,
     ) -> Result<(), ChainstateError> {
         if !tenure_block_commit.treatment.is_empty() {
+            let address_to_indeces: HashMap<_, Vec<_>> = active_reward_set
+                .rewarded_addresses
+                .iter()
+                .enumerate()
+                .fold(HashMap::new(), |mut map, (ix, addr)| {
+                    map.entry(addr).or_insert_with(Vec::new).push(ix);
+                    map
+                });
+
             // our block commit issued a punishment, check the reward set and bitvector
             //  to ensure that this was valid.
             for treated_addr in tenure_block_commit.treatment.iter() {
@@ -3482,28 +3838,23 @@ impl NakamotoChainState {
                 }
                 // otherwise, we need to find the indices in the rewarded_addresses
                 //  corresponding to this address.
-                let address_indices = active_reward_set
-                    .rewarded_addresses
-                    .iter()
-                    .enumerate()
-                    .filter_map(|(ix, addr)| {
-                        if addr == treated_addr.deref() {
-                            Some(ix)
-                        } else {
-                            None
-                        }
-                    });
+                let empty_vec = vec![];
+                let address_indices = address_to_indeces
+                    .get(treated_addr.deref())
+                    .unwrap_or(&empty_vec);
+
                 // if any of them are 0, punishment is okay.
                 // if all of them are 1, punishment is not okay.
                 // if all of them are 0, *must* have punished
                 let bitvec_values: Result<Vec<_>, ChainstateError> = address_indices
+                    .iter()
                     .map(
                         |ix| {
-                            let ix = u16::try_from(ix)
+                            let ix = u16::try_from(*ix)
                                 .map_err(|_| ChainstateError::InvalidStacksBlock("Reward set index outside of u16".into()))?;
                             let bitvec_value = block_bitvec.get(ix)
                                 .unwrap_or_else(|| {
-                                    info!("Block header's bitvec is smaller than the reward set, defaulting higher indexes to 1");
+                                    warn!("Block header's bitvec is smaller than the reward set, defaulting higher indexes to 1");
                                     true
                                 });
                             Ok(bitvec_value)
@@ -3544,7 +3895,7 @@ impl NakamotoChainState {
 
     /// Append a Nakamoto Stacks block to the Stacks chain state.
     /// NOTE: This does _not_ set the block as processed!  The caller must do this.
-    fn append_block<'a>(
+    pub(crate) fn append_block<'a>(
         chainstate_tx: &mut ChainstateTx,
         clarity_instance: &'a mut ClarityInstance,
         burn_dbconn: &mut SortitionHandleConn,
@@ -3962,6 +4313,11 @@ impl NakamotoChainState {
         let new_block_id = new_tip.index_block_hash();
         chainstate_tx.log_transactions_processed(&new_block_id, &tx_receipts);
 
+        let reward_cycle = pox_constants.block_height_to_reward_cycle(
+            first_block_height.into(),
+            chain_tip_burn_header_height.into(),
+        );
+
         // store the reward set calculated during this block if it happened
         // NOTE: miner and proposal evaluation should not invoke this because
         //  it depends on knowing the StacksBlockId.
@@ -3990,6 +4346,12 @@ impl NakamotoChainState {
                     cycle,
                 ));
             }
+        }
+
+        if let Some(reward_cycle) = reward_cycle {
+            Self::record_block_signers(chainstate_tx, block, reward_cycle)?;
+        } else {
+            warn!("No reward cycle found, skipping record_block_signers()");
         }
 
         monitoring::set_last_block_transaction_count(u64::try_from(block.txs.len()).unwrap());
@@ -4029,6 +4391,7 @@ impl NakamotoChainState {
             evaluated_epoch,
             epoch_transition: applied_epoch_transition,
             signers_updated,
+            coinbase_height,
         };
 
         Ok((epoch_receipt, clarity_commit, reward_set_data))
@@ -4039,7 +4402,7 @@ impl NakamotoChainState {
     pub fn make_miners_stackerdb_config(
         sortdb: &SortitionDB,
         tip: &BlockSnapshot,
-    ) -> Result<StackerDBConfig, ChainstateError> {
+    ) -> Result<(StackerDBConfig, MinersDBInformation), ChainstateError> {
         let ih = sortdb.index_handle(&tip.sortition_id);
         let last_winner_snapshot = ih.get_last_snapshot_with_sortition(tip.block_height)?;
         let parent_winner_snapshot = ih.get_last_snapshot_with_sortition(
@@ -4051,13 +4414,13 @@ impl NakamotoChainState {
         // go get their corresponding leader keys, but preserve the miner's relative position in
         // the stackerdb signer list -- if a miner was in slot 0, then it should stay in slot 0
         // after a sortition (and vice versa for 1)
-        let sns = if last_winner_snapshot.num_sortitions % 2 == 0 {
-            [last_winner_snapshot, parent_winner_snapshot]
+        let (latest_winner_idx, sns) = if last_winner_snapshot.num_sortitions % 2 == 0 {
+            (0, [last_winner_snapshot, parent_winner_snapshot])
         } else {
-            [parent_winner_snapshot, last_winner_snapshot]
+            (1, [parent_winner_snapshot, last_winner_snapshot])
         };
 
-        for sn in sns {
+        for sn in sns.iter() {
             // find the commit
             let Some(block_commit) =
                 ih.get_block_commit_by_txid(&sn.sortition_id, &sn.winning_block_txid)?
@@ -4088,6 +4451,12 @@ impl NakamotoChainState {
             );
         }
 
+        let miners_db_info = MinersDBInformation {
+            signer_0_sortition: sns[0].consensus_hash,
+            signer_1_sortition: sns[1].consensus_hash,
+            latest_winner: latest_winner_idx,
+        };
+
         let signers = miner_key_hash160s
             .into_iter()
             .map(|hash160|
@@ -4101,14 +4470,17 @@ impl NakamotoChainState {
                 ))
             .collect();
 
-        Ok(StackerDBConfig {
-            chunk_size: MAX_PAYLOAD_LEN.into(),
-            signers,
-            write_freq: 5,
-            max_writes: u32::MAX,  // no limit on number of writes
-            max_neighbors: 200, // TODO: const -- just has to be equal to or greater than the number of signers
-            hint_replicas: vec![], // TODO: is there a way to get the IP addresses of stackers' preferred nodes?
-        })
+        Ok((
+            StackerDBConfig {
+                chunk_size: MAX_PAYLOAD_LEN.into(),
+                signers,
+                write_freq: 0,
+                max_writes: u32::MAX,  // no limit on number of writes
+                max_neighbors: 200, // TODO: const -- just has to be equal to or greater than the number of signers
+                hint_replicas: vec![], // TODO: is there a way to get the IP addresses of stackers' preferred nodes?
+            },
+            miners_db_info,
+        ))
     }
 
     /// Get the slot range for the given miner's public key.
@@ -4119,42 +4491,41 @@ impl NakamotoChainState {
     pub fn get_miner_slot(
         sortdb: &SortitionDB,
         tip: &BlockSnapshot,
-        miner_pubkey: &StacksPublicKey,
+        election_sortition: &ConsensusHash,
     ) -> Result<Option<Range<u32>>, ChainstateError> {
-        let miner_hash160 = Hash160::from_node_public_key(&miner_pubkey);
-        let stackerdb_config = Self::make_miners_stackerdb_config(sortdb, &tip)?;
+        let (stackerdb_config, miners_info) = Self::make_miners_stackerdb_config(sortdb, &tip)?;
 
         // find out which slot we're in
-        let mut slot_index = 0;
-        let mut slot_id_result = None;
-        for (addr, slot_count) in stackerdb_config.signers.iter() {
-            if addr.bytes == miner_hash160 {
-                slot_id_result = Some(Range {
-                    start: slot_index,
-                    end: slot_index + slot_count,
-                });
-                break;
-            }
-            slot_index += slot_count;
-        }
-
-        let Some(slot_id_range) = slot_id_result else {
-            // miner key does not match any slot
+        let Some(signer_ix) = miners_info
+            .get_signer_index(election_sortition)
+            .map(usize::from)
+        else {
             warn!("Miner is not in the miners StackerDB config";
-                  "miner" => %miner_hash160,
-                  "stackerdb_slots" => format!("{:?}", &stackerdb_config.signers));
-
+                  "stackerdb_slots" => ?stackerdb_config.signers,
+                  "queried_sortition" => %election_sortition,
+                  "sortition_hashes" => ?miners_info.get_sortitions());
             return Ok(None);
         };
+        let mut signer_ranges = stackerdb_config.signer_ranges();
+        if signer_ix >= signer_ranges.len() {
+            // should be unreachable, but always good to be careful
+            warn!("Miner is not in the miners StackerDB config";
+                  "stackerdb_slots" => ?stackerdb_config.signers,
+                  "queried_sortition" => %election_sortition,
+                  "sortition_hashes" => ?miners_info.get_sortitions());
+            return Ok(None);
+        }
+        let slot_id_range = signer_ranges.swap_remove(signer_ix);
+
         Ok(Some(slot_id_range))
     }
 
+    /// DO NOT USE IN MAINNET
     /// Boot code instantiation for the aggregate public key.
     /// TODO: This should be removed once it's possible for stackers to vote on the aggregate
     /// public key
-    /// DO NOT USE IN MAINNET
-    pub fn aggregate_public_key_bootcode(clarity_tx: &mut ClarityTx, apk: &Point) {
-        let agg_pub_key = to_hex(&apk.compress().data);
+    pub fn aggregate_public_key_bootcode(clarity_tx: &mut ClarityTx, apk: Vec<u8>) {
+        let agg_pub_key = to_hex(&apk);
         let contract_content = format!(
             "(define-read-only ({}) 0x{})",
             BOOT_TEST_POX_4_AGG_KEY_FNAME, agg_pub_key

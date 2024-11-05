@@ -29,8 +29,8 @@ use stacks_common::address::public_keys_to_address_hash;
 use stacks_common::codec::MAX_PAYLOAD_LEN;
 use stacks_common::types::chainstate::{BurnchainHeaderHash, PoxId, SortitionId, StacksBlockId};
 use stacks_common::types::{MempoolCollectionBehavior, StacksEpochId};
-use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::Sha512Trunc256Sum;
+use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs};
 
 use crate::burnchains::{Burnchain, BurnchainView};
 use crate::chainstate::burn::db::sortdb::{
@@ -70,6 +70,51 @@ pub const MAX_RECENT_MESSAGES: usize = 256;
 pub const MAX_RECENT_MESSAGE_AGE: usize = 600; // seconds; equal to the expected epoch length
 pub const RELAY_DUPLICATE_INFERENCE_WARMUP: usize = 128;
 
+#[cfg(any(test, feature = "testing"))]
+pub mod fault_injection {
+    use std::path::Path;
+
+    static IGNORE_BLOCK: std::sync::Mutex<Option<(u64, String)>> = std::sync::Mutex::new(None);
+
+    pub fn ignore_block(height: u64, working_dir: &str) -> bool {
+        if let Some((ignore_height, ignore_dir)) = &*IGNORE_BLOCK.lock().unwrap() {
+            let working_dir_path = Path::new(working_dir);
+            let ignore_dir_path = Path::new(ignore_dir);
+
+            let ignore = *ignore_height == height && working_dir_path.starts_with(ignore_dir_path);
+            if ignore {
+                warn!("Fault injection: ignore block at height {}", height);
+            }
+            return ignore;
+        }
+        false
+    }
+
+    pub fn set_ignore_block(height: u64, working_dir: &str) {
+        warn!(
+            "Fault injection: set ignore block at height {} for working directory {}",
+            height, working_dir
+        );
+        *IGNORE_BLOCK.lock().unwrap() = Some((height, working_dir.to_string()));
+    }
+
+    pub fn clear_ignore_block() {
+        warn!("Fault injection: clear ignore block");
+        *IGNORE_BLOCK.lock().unwrap() = None;
+    }
+}
+
+#[cfg(not(any(test, feature = "testing")))]
+pub mod fault_injection {
+    pub fn ignore_block(_height: u64, _working_dir: &str) -> bool {
+        false
+    }
+
+    pub fn set_ignore_block(_height: u64, _working_dir: &str) {}
+
+    pub fn clear_ignore_block() {}
+}
+
 pub struct Relayer {
     /// Connection to the p2p thread
     p2p: NetworkHandle,
@@ -77,6 +122,10 @@ pub struct Relayer {
     connection_opts: ConnectionOptions,
     /// StackerDB connection
     stacker_dbs: StackerDBs,
+    /// Recently-sent Nakamoto blocks, so we don't keep re-sending them.
+    /// Maps to tenure ID and timestamp, so we can garbage-collect.
+    /// Timestamp is in milliseconds
+    recently_sent_nakamoto_blocks: HashMap<StacksBlockId, (ConsensusHash, u128)>,
 }
 
 #[derive(Debug)]
@@ -196,6 +245,20 @@ impl RelayPayload for StacksTransaction {
     }
     fn get_id(&self) -> String {
         format!("Transaction({})", self.txid())
+    }
+}
+
+impl RelayPayload for StackerDBPushChunkData {
+    fn get_digest(&self) -> Sha512Trunc256Sum {
+        self.chunk_data.data_hash()
+    }
+    fn get_id(&self) -> String {
+        format!(
+            "StackerDBPushChunk(id={},ver={},data_hash={})",
+            &self.chunk_data.slot_id,
+            self.chunk_data.slot_version,
+            &self.chunk_data.data_hash()
+        )
     }
 }
 
@@ -499,6 +562,24 @@ pub struct AcceptedNakamotoBlocks {
     pub blocks: Vec<NakamotoBlock>,
 }
 
+/// Block processed result
+#[derive(Debug, Clone, PartialEq)]
+pub enum BlockAcceptResponse {
+    /// block was accepted to the staging DB
+    Accepted,
+    /// we already had this block
+    AlreadyStored,
+    /// block was rejected for some reason
+    Rejected(String),
+}
+
+impl BlockAcceptResponse {
+    /// Does this response indicate that the block was accepted to the staging DB
+    pub fn is_accepted(&self) -> bool {
+        matches!(self, Self::Accepted)
+    }
+}
+
 impl Relayer {
     pub fn new(
         handle: NetworkHandle,
@@ -509,6 +590,7 @@ impl Relayer {
             p2p: handle,
             connection_opts,
             stacker_dbs,
+            recently_sent_nakamoto_blocks: HashMap::new(),
         }
     }
 
@@ -599,7 +681,7 @@ impl Relayer {
 
             // is the block signed by the active reward set?
             let sn_rc = burnchain
-                .pox_reward_cycle(sn.block_height)
+                .block_height_to_reward_cycle(sn.block_height)
                 .expect("FATAL: sortition has no reward cycle");
             let reward_cycle_info = if let Some(rc_info) = loaded_reward_sets.get(&sn_rc) {
                 rc_info
@@ -716,8 +798,8 @@ impl Relayer {
         consensus_hash: &ConsensusHash,
         block: &StacksBlock,
         download_time: u64,
-    ) -> Result<bool, chainstate_error> {
-        debug!(
+    ) -> Result<BlockAcceptResponse, chainstate_error> {
+        info!(
             "Handle incoming block {}/{}",
             consensus_hash,
             &block.block_hash()
@@ -729,7 +811,9 @@ impl Relayer {
         if chainstate.fault_injection.hide_blocks
             && Self::fault_injection_is_block_hidden(&block.header, block_sn.block_height)
         {
-            return Ok(false);
+            return Ok(BlockAcceptResponse::Rejected(
+                "Fault injection: block is hidden".into(),
+            ));
         }
 
         // find the snapshot of the parent of this block
@@ -739,7 +823,9 @@ impl Relayer {
             Some(sn) => sn,
             None => {
                 // doesn't correspond to a PoX-valid sortition
-                return Ok(false);
+                return Ok(BlockAcceptResponse::Rejected(
+                    "Block does not correspond to a known sortition".into(),
+                ));
             }
         };
 
@@ -771,7 +857,7 @@ impl Relayer {
                 "sortition_height" => block_sn.block_height,
                 "ast_rules" => ?ast_rules,
             );
-            return Ok(false);
+            return Ok(BlockAcceptResponse::Rejected("Block is problematic".into()));
         }
 
         let res = chainstate.preprocess_anchored_block(
@@ -787,13 +873,13 @@ impl Relayer {
                 consensus_hash,
                 &block.block_hash()
             );
+            return Ok(BlockAcceptResponse::Accepted);
+        } else {
+            return Ok(BlockAcceptResponse::AlreadyStored);
         }
-        Ok(res)
     }
 
-    /// Insert a staging Nakamoto block that got relayed to us somehow -- e.g. uploaded via http,
-    /// downloaded by us, or pushed via p2p.
-    /// Return Ok(true) if we stored it, Ok(false) if we didn't
+    /// Wrapper around inner_process_new_nakamoto_block
     pub fn process_new_nakamoto_block(
         burnchain: &Burnchain,
         sortdb: &SortitionDB,
@@ -803,12 +889,56 @@ impl Relayer {
         block: &NakamotoBlock,
         coord_comms: Option<&CoordinatorChannels>,
         obtained_method: NakamotoBlockObtainMethod,
-    ) -> Result<bool, chainstate_error> {
-        debug!(
-            "Handle incoming Nakamoto block {}/{}",
+    ) -> Result<BlockAcceptResponse, chainstate_error> {
+        Self::process_new_nakamoto_block_ext(
+            burnchain,
+            sortdb,
+            sort_handle,
+            chainstate,
+            stacks_tip,
+            block,
+            coord_comms,
+            obtained_method,
+            false,
+        )
+    }
+
+    /// Insert a staging Nakamoto block that got relayed to us somehow -- e.g. uploaded via http,
+    /// downloaded by us, or pushed via p2p.
+    /// Return Ok(true) if we should broadcast the block.  If force_broadcast is true, then this
+    /// function will return Ok(true) even if we already have the block.
+    /// Return Ok(false) if we should not broadcast it (e.g. we already have it, it was invalid,
+    /// etc.)
+    /// Return Err(..) in the following cases, beyond DB errors:
+    /// * If the block is from a tenure we don't recognize
+    /// * If we're not in the Nakamoto epoch
+    /// * If the reward cycle info could not be determined
+    /// * If there was an unrecognized signer
+    /// * If the coordinator is closed, and `coord_comms` is Some(..)
+    pub fn process_new_nakamoto_block_ext(
+        burnchain: &Burnchain,
+        sortdb: &SortitionDB,
+        sort_handle: &mut SortitionHandleConn,
+        chainstate: &mut StacksChainState,
+        stacks_tip: &StacksBlockId,
+        block: &NakamotoBlock,
+        coord_comms: Option<&CoordinatorChannels>,
+        obtained_method: NakamotoBlockObtainMethod,
+        force_broadcast: bool,
+    ) -> Result<BlockAcceptResponse, chainstate_error> {
+        info!(
+            "Handle incoming Nakamoto block {}/{} obtained via {}",
             &block.header.consensus_hash,
-            &block.header.block_hash()
+            &block.header.block_hash(),
+            &obtained_method;
+            "block_id" => %block.header.block_id(),
         );
+
+        if fault_injection::ignore_block(block.header.chain_length, &burnchain.working_dir) {
+            return Ok(BlockAcceptResponse::Rejected(
+                "Fault injection: ignoring block".into(),
+            ));
+        }
 
         // do we have this block?  don't lock the DB needlessly if so.
         if chainstate
@@ -824,8 +954,18 @@ impl Relayer {
                 e
             })?
         {
-            debug!("Already have Nakamoto block {}", &block.header.block_id());
-            return Ok(false);
+            if force_broadcast {
+                // it's possible that the signer sent this block to us, in which case, we should
+                // broadcast it
+                debug!(
+                    "Already have Nakamoto block {}, but treating a new anyway so we can broadcast it",
+                    &block.header.block_id()
+                );
+                return Ok(BlockAcceptResponse::Accepted);
+            } else {
+                debug!("Already have Nakamoto block {}", &block.header.block_id());
+                return Ok(BlockAcceptResponse::AlreadyStored);
+            }
         }
 
         let block_sn =
@@ -840,6 +980,7 @@ impl Relayer {
 
         // NOTE: it's `+ 1` because the first Nakamoto block is built atop the last epoch 2.x
         // tenure, right after the last 2.x sortition
+        // TODO: is this true?
         let epoch_id = SortitionDB::get_stacks_epoch(sort_handle, block_sn.block_height + 1)?
             .expect("FATAL: no epoch defined")
             .epoch_id;
@@ -866,7 +1007,9 @@ impl Relayer {
                 "burn_height" => block.header.chain_length,
                 "sortition_height" => block_sn.block_height,
             );
-            return Ok(false);
+            return Ok(BlockAcceptResponse::Rejected(
+                "Nakamoto block is problematic".into(),
+            ));
         }
 
         let accept_msg = format!(
@@ -885,7 +1028,7 @@ impl Relayer {
 
         let reward_info = match load_nakamoto_reward_set(
             burnchain
-                .pox_reward_cycle(block_sn.block_height)
+                .block_height_to_reward_cycle(block_sn.block_height)
                 .expect("FATAL: block snapshot has no reward cycle"),
             &tip,
             burnchain,
@@ -935,17 +1078,17 @@ impl Relayer {
         staging_db_tx.commit()?;
 
         if accepted {
-            debug!("{}", &accept_msg);
+            info!("{}", &accept_msg);
             if let Some(coord_comms) = coord_comms {
                 if !coord_comms.announce_new_stacks_block() {
                     return Err(chainstate_error::NetError(net_error::CoordinatorClosed));
                 }
             }
+            return Ok(BlockAcceptResponse::Accepted);
         } else {
-            debug!("{}", &reject_msg);
+            info!("{}", &reject_msg);
+            return Ok(BlockAcceptResponse::AlreadyStored);
         }
-
-        Ok(accepted)
     }
 
     #[cfg_attr(test, mutants::skip)]
@@ -965,7 +1108,7 @@ impl Relayer {
         let mut sort_handle = sortdb.index_handle(&tip.sortition_id);
         for block in blocks {
             let block_id = block.block_id();
-            if let Err(e) = Self::process_new_nakamoto_block(
+            let accept = match Self::process_new_nakamoto_block(
                 burnchain,
                 sortdb,
                 &mut sort_handle,
@@ -975,8 +1118,13 @@ impl Relayer {
                 coord_comms,
                 NakamotoBlockObtainMethod::Downloaded,
             ) {
-                warn!("Failed to process Nakamoto block {}: {:?}", &block_id, &e);
-            } else {
+                Ok(x) => x,
+                Err(e) => {
+                    warn!("Failed to process Nakamoto block {}: {:?}", &block_id, &e);
+                    continue;
+                }
+            };
+            if BlockAcceptResponse::Accepted == accept {
                 accepted.push(block);
             }
         }
@@ -1093,8 +1241,8 @@ impl Relayer {
                 block,
                 *download_time,
             ) {
-                Ok(accepted) => {
-                    if accepted {
+                Ok(accept_response) => {
+                    if BlockAcceptResponse::Accepted == accept_response {
                         debug!(
                             "Accepted downloaded block {}/{}",
                             consensus_hash,
@@ -1103,9 +1251,10 @@ impl Relayer {
                         new_blocks.insert((*consensus_hash).clone(), block.clone());
                     } else {
                         debug!(
-                            "Rejected downloaded block {}/{}",
+                            "Rejected downloaded block {}/{}: {:?}",
                             consensus_hash,
-                            &block.block_hash()
+                            &block.block_hash(),
+                            &accept_response
                         );
                     }
                 }
@@ -1232,8 +1381,8 @@ impl Relayer {
                         block,
                         0,
                     ) {
-                        Ok(accepted) => {
-                            if accepted {
+                        Ok(accept_response) => {
+                            if BlockAcceptResponse::Accepted == accept_response {
                                 debug!(
                                     "Accepted block {}/{} from {}",
                                     &consensus_hash, &bhh, &neighbor_key
@@ -1241,8 +1390,8 @@ impl Relayer {
                                 new_blocks.insert(consensus_hash.clone(), block.clone());
                             } else {
                                 debug!(
-                                    "Rejected block {}/{} from {}",
-                                    &consensus_hash, &bhh, &neighbor_key
+                                    "Rejected block {}/{} from {}: {:?}",
+                                    &consensus_hash, &bhh, &neighbor_key, &accept_response
                                 );
                             }
                         }
@@ -1577,9 +1726,6 @@ impl Relayer {
                         "Failed to validate Nakamoto blocks pushed from {:?}: {:?}",
                         neighbor_key, &e
                     );
-
-                    // punish this peer
-                    bad_neighbors.push((*neighbor_key).clone());
                     break;
                 }
 
@@ -1600,20 +1746,30 @@ impl Relayer {
                         coord_comms,
                         NakamotoBlockObtainMethod::Pushed,
                     ) {
-                        Ok(accepted) => {
-                            if accepted {
+                        Ok(accept_response) => match accept_response {
+                            BlockAcceptResponse::Accepted => {
                                 debug!(
                                     "Accepted Nakamoto block {} ({}) from {}",
                                     &block_id, &nakamoto_block.header.consensus_hash, neighbor_key
                                 );
                                 accepted_blocks.push(nakamoto_block);
-                            } else {
-                                warn!(
-                                    "Rejected Nakamoto block {} ({}) from {}",
+                            }
+                            BlockAcceptResponse::AlreadyStored => {
+                                debug!(
+                                    "Rejected Nakamoto block {} ({}) from {}: already stored",
                                     &block_id, &nakamoto_block.header.consensus_hash, &neighbor_key,
                                 );
                             }
-                        }
+                            BlockAcceptResponse::Rejected(msg) => {
+                                warn!(
+                                    "Rejected Nakamoto block {} ({}) from {}: {:?}",
+                                    &block_id,
+                                    &nakamoto_block.header.consensus_hash,
+                                    &neighbor_key,
+                                    &msg
+                                );
+                            }
+                        },
                         Err(chainstate_error::InvalidStacksBlock(msg)) => {
                             warn!("Invalid pushed Nakamoto block {}: {}", &block_id, msg);
                             bad_neighbors.push((*neighbor_key).clone());
@@ -2269,8 +2425,12 @@ impl Relayer {
     }
 
     /// Process HTTP-uploaded stackerdb chunks.
-    /// They're already stored by the RPC handler, so just forward events for them.
+    /// They're already stored by the RPC handler, so all we have to do
+    /// is forward events for them and rebroadcast them (i.e. the fact that we stored them and got
+    /// this far at all means that they were novel, and thus potentially novel to our neighbors).
     pub fn process_uploaded_stackerdb_chunks(
+        &mut self,
+        rc_consensus_hash: &ConsensusHash,
         uploaded_chunks: Vec<StackerDBPushChunkData>,
         event_observer: Option<&dyn StackerDBEventDispatcher>,
     ) {
@@ -2278,11 +2438,28 @@ impl Relayer {
             let mut all_events: HashMap<QualifiedContractIdentifier, Vec<StackerDBChunkData>> =
                 HashMap::new();
             for chunk in uploaded_chunks.into_iter() {
-                debug!("Got uploaded StackerDB chunk"; "stackerdb_contract_id" => &format!("{}", &chunk.contract_id), "slot_id" => chunk.chunk_data.slot_id, "slot_version" => chunk.chunk_data.slot_version);
                 if let Some(events) = all_events.get_mut(&chunk.contract_id) {
-                    events.push(chunk.chunk_data);
+                    events.push(chunk.chunk_data.clone());
                 } else {
-                    all_events.insert(chunk.contract_id.clone(), vec![chunk.chunk_data]);
+                    all_events.insert(chunk.contract_id.clone(), vec![chunk.chunk_data.clone()]);
+                }
+
+                // forward if not stale
+                if chunk.rc_consensus_hash != *rc_consensus_hash {
+                    debug!("Drop stale uploaded StackerDB chunk";
+                           "stackerdb_contract_id" => &format!("{}", &chunk.contract_id),
+                           "slot_id" => chunk.chunk_data.slot_id,
+                           "slot_version" => chunk.chunk_data.slot_version,
+                           "chunk.rc_consensus_hash" => %chunk.rc_consensus_hash,
+                           "network.rc_consensus_hash" => %rc_consensus_hash);
+                    continue;
+                }
+
+                debug!("Got uploaded StackerDB chunk"; "stackerdb_contract_id" => &format!("{}", &chunk.contract_id), "slot_id" => chunk.chunk_data.slot_id, "slot_version" => chunk.chunk_data.slot_version);
+
+                let msg = StacksMessageType::StackerDBPushChunk(chunk);
+                if let Err(e) = self.p2p.broadcast_message(vec![], msg) {
+                    warn!("Failed to broadcast Nakamoto blocks: {:?}", &e);
                 }
             }
             for (contract_id, new_chunks) in all_events.into_iter() {
@@ -2292,8 +2469,11 @@ impl Relayer {
     }
 
     /// Process newly-arrived chunks obtained from a peer stackerdb replica.
+    /// Chunks that we store will be broadcast, since successful storage implies that they were new
+    /// to us (and thus might be new to our neighbors)
     pub fn process_stacker_db_chunks(
-        stackerdbs: &mut StackerDBs,
+        &mut self,
+        rc_consensus_hash: &ConsensusHash,
         stackerdb_configs: &HashMap<QualifiedContractIdentifier, StackerDBConfig>,
         sync_results: Vec<StackerDBSyncResult>,
         event_observer: Option<&dyn StackerDBEventDispatcher>,
@@ -2302,11 +2482,10 @@ impl Relayer {
         let mut sync_results_map: HashMap<QualifiedContractIdentifier, Vec<StackerDBSyncResult>> =
             HashMap::new();
         for sync_result in sync_results.into_iter() {
-            let sc = sync_result.contract_id.clone();
-            if let Some(result_list) = sync_results_map.get_mut(&sc) {
+            if let Some(result_list) = sync_results_map.get_mut(&sync_result.contract_id) {
                 result_list.push(sync_result);
             } else {
-                sync_results_map.insert(sc, vec![sync_result]);
+                sync_results_map.insert(sync_result.contract_id.clone(), vec![sync_result]);
             }
         }
 
@@ -2315,27 +2494,49 @@ impl Relayer {
 
         for (sc, sync_results) in sync_results_map.into_iter() {
             if let Some(config) = stackerdb_configs.get(&sc) {
-                let tx = stackerdbs.tx_begin(config.clone())?;
+                let tx = self.stacker_dbs.tx_begin(config.clone())?;
                 for sync_result in sync_results.into_iter() {
                     for chunk in sync_result.chunks_to_store.into_iter() {
                         let md = chunk.get_slot_metadata();
                         if let Err(e) = tx.try_replace_chunk(&sc, &md, &chunk.data) {
-                            warn!(
-                                "Failed to store chunk for StackerDB";
-                                "stackerdb_contract_id" => &format!("{}", &sync_result.contract_id),
-                                "slot_id" => md.slot_id,
-                                "slot_version" => md.slot_version,
-                                "num_bytes" => chunk.data.len(),
-                                "error" => %e
-                            );
+                            if matches!(e, Error::StaleChunk { .. }) {
+                                // This is a common and expected message, so log it as a debug and with a sep message
+                                // to distinguish it from other message types.
+                                debug!(
+                                    "Dropping stale StackerDB chunk";
+                                    "stackerdb_contract_id" => &format!("{}", &sync_result.contract_id),
+                                    "slot_id" => md.slot_id,
+                                    "slot_version" => md.slot_version,
+                                    "num_bytes" => chunk.data.len(),
+                                    "error" => %e
+                                );
+                            } else {
+                                warn!(
+                                    "Failed to store chunk for StackerDB";
+                                    "stackerdb_contract_id" => &format!("{}", &sync_result.contract_id),
+                                    "slot_id" => md.slot_id,
+                                    "slot_version" => md.slot_version,
+                                    "num_bytes" => chunk.data.len(),
+                                    "error" => %e
+                                );
+                            }
+                            continue;
                         } else {
                             debug!("Stored chunk"; "stackerdb_contract_id" => &format!("{}", &sync_result.contract_id), "slot_id" => md.slot_id, "slot_version" => md.slot_version);
                         }
 
                         if let Some(event_list) = all_events.get_mut(&sync_result.contract_id) {
-                            event_list.push(chunk);
+                            event_list.push(chunk.clone());
                         } else {
-                            all_events.insert(sync_result.contract_id.clone(), vec![chunk]);
+                            all_events.insert(sync_result.contract_id.clone(), vec![chunk.clone()]);
+                        }
+                        let msg = StacksMessageType::StackerDBPushChunk(StackerDBPushChunkData {
+                            contract_id: sc.clone(),
+                            rc_consensus_hash: rc_consensus_hash.clone(),
+                            chunk_data: chunk,
+                        });
+                        if let Err(e) = self.p2p.broadcast_message(vec![], msg) {
+                            warn!("Failed to broadcast StackerDB chunk: {:?}", &e);
                         }
                     }
                 }
@@ -2356,27 +2557,24 @@ impl Relayer {
     /// Process StackerDB chunks pushed to us.
     /// extract all StackerDBPushChunk messages from `unhandled_messages`
     pub fn process_pushed_stacker_db_chunks(
-        stackerdbs: &mut StackerDBs,
+        &mut self,
+        rc_consensus_hash: &ConsensusHash,
         stackerdb_configs: &HashMap<QualifiedContractIdentifier, StackerDBConfig>,
-        unhandled_messages: &mut HashMap<NeighborKey, Vec<StacksMessage>>,
+        stackerdb_chunks: Vec<StackerDBPushChunkData>,
         event_observer: Option<&dyn StackerDBEventDispatcher>,
     ) -> Result<(), Error> {
         // synthesize StackerDBSyncResults from each chunk
-        let mut sync_results = vec![];
-        for (_nk, msgs) in unhandled_messages.iter_mut() {
-            msgs.retain(|msg| {
-                if let StacksMessageType::StackerDBPushChunk(data) = &msg.payload {
-                    let sync_result = StackerDBSyncResult::from_pushed_chunk(data.clone());
-                    sync_results.push(sync_result);
-                    false
-                } else {
-                    true
-                }
-            });
-        }
+        let sync_results = stackerdb_chunks
+            .into_iter()
+            .map(|chunk_data| {
+                debug!("Received pushed StackerDB chunk {:?}", &chunk_data);
+                let sync_result = StackerDBSyncResult::from_pushed_chunk(chunk_data);
+                sync_result
+            })
+            .collect();
 
-        Relayer::process_stacker_db_chunks(
-            stackerdbs,
+        self.process_stacker_db_chunks(
+            rc_consensus_hash,
             stackerdb_configs,
             sync_results,
             event_observer,
@@ -2536,9 +2734,7 @@ impl Relayer {
         &mut self,
         _local_peer: &LocalPeer,
         sortdb: &SortitionDB,
-        chainstate: &StacksChainState,
         accepted_blocks: Vec<AcceptedNakamotoBlocks>,
-        force_send: bool,
     ) {
         debug!(
             "{:?}: relay {} sets of Nakamoto blocks",
@@ -2566,8 +2762,11 @@ impl Relayer {
 
         for blocks_and_relayers in accepted_blocks.into_iter() {
             let AcceptedNakamotoBlocks { relayers, blocks } = blocks_and_relayers;
+            if blocks.len() == 0 {
+                continue;
+            }
 
-            let relay_blocks: Vec<_> = blocks
+            let relay_blocks_set: HashMap<_, _> = blocks
                 .into_iter()
                 .filter(|blk| {
                     // don't relay blocks for non-recent tenures
@@ -2579,20 +2778,23 @@ impl Relayer {
                         );
                         return false;
                     }
-                    // don't relay blocks we already have.
-                    // If we have a DB error in figuring this out, then don't relay by
-                    // default (lest a faulty DB cause the node to spam the network).
-                    if !force_send
-                        && chainstate
-                            .nakamoto_blocks_db()
-                            .has_nakamoto_block_with_index_hash(&blk.block_id())
-                            .unwrap_or(true)
+                    // don't relay blocks we've recently sent
+                    if let Some((_ch, ts)) = self.recently_sent_nakamoto_blocks.get(&blk.block_id())
                     {
-                        return false;
+                        if ts + self.connection_opts.nakamoto_push_interval_ms
+                            >= get_epoch_time_ms()
+                        {
+                            // too soon
+                            test_debug!("Sent {} too recently; will not relay", &blk.block_id());
+                            return false;
+                        }
                     }
                     true
                 })
+                .map(|blk| (blk.block_id(), blk))
                 .collect();
+
+            let relay_blocks: Vec<_> = relay_blocks_set.into_values().collect();
 
             debug!(
                 "{:?}: Forward {} Nakamoto blocks from {:?}",
@@ -2605,12 +2807,16 @@ impl Relayer {
                 continue;
             }
 
-            for _block in relay_blocks.iter() {
-                test_debug!(
+            for block in relay_blocks.iter() {
+                debug!(
                     "{:?}: Forward Nakamoto block {}/{}",
                     _local_peer,
-                    &_block.header.consensus_hash,
-                    &_block.header.block_hash()
+                    &block.header.consensus_hash,
+                    &block.header.block_hash()
+                );
+                self.recently_sent_nakamoto_blocks.insert(
+                    block.block_id(),
+                    (block.header.consensus_hash.clone(), get_epoch_time_ms()),
                 );
             }
 
@@ -2621,6 +2827,10 @@ impl Relayer {
                 warn!("Failed to broadcast Nakamoto blocks: {:?}", &e);
             }
         }
+
+        // garbage-collect
+        self.recently_sent_nakamoto_blocks
+            .retain(|_blk_id, (ch, _ts)| relay_tenures.contains(ch));
     }
 
     #[cfg_attr(test, mutants::skip)]
@@ -2667,7 +2877,7 @@ impl Relayer {
 
         // relay if not IBD
         if !ibd && accepted_blocks.len() > 0 {
-            self.relay_epoch3_blocks(local_peer, sortdb, chainstate, accepted_blocks, false);
+            self.relay_epoch3_blocks(local_peer, sortdb, accepted_blocks);
         }
         num_new_nakamoto_blocks
     }
@@ -2790,24 +3000,25 @@ impl Relayer {
         };
 
         // push events for HTTP-uploaded stacker DB chunks
-        Relayer::process_uploaded_stackerdb_chunks(
+        self.process_uploaded_stackerdb_chunks(
+            &network_result.rc_consensus_hash,
             mem::replace(&mut network_result.uploaded_stackerdb_chunks, vec![]),
             event_observer.map(|obs| obs.as_stackerdb_event_dispatcher()),
         );
 
         // store downloaded stacker DB chunks
-        Relayer::process_stacker_db_chunks(
-            &mut self.stacker_dbs,
+        self.process_stacker_db_chunks(
+            &network_result.rc_consensus_hash,
             &network_result.stacker_db_configs,
             mem::replace(&mut network_result.stacker_db_sync_results, vec![]),
             event_observer.map(|obs| obs.as_stackerdb_event_dispatcher()),
         )?;
 
         // store pushed stacker DB chunks
-        Relayer::process_pushed_stacker_db_chunks(
-            &mut self.stacker_dbs,
+        self.process_pushed_stacker_db_chunks(
+            &network_result.rc_consensus_hash,
             &network_result.stacker_db_configs,
-            &mut network_result.unhandled_messages,
+            mem::replace(&mut network_result.pushed_stackerdb_chunks, vec![]),
             event_observer.map(|obs| obs.as_stackerdb_event_dispatcher()),
         )?;
 

@@ -190,6 +190,8 @@ impl BlockEventDispatcher for DummyEventDispatcher {
         _pox_constants: &PoxConstants,
         _reward_set_data: &Option<RewardSetData>,
         _signer_bitvec: &Option<BitVec<4000>>,
+        _block_timestamp: Option<u64>,
+        _coinbase_height: u64,
     ) {
         assert!(
             false,
@@ -3716,9 +3718,26 @@ impl StacksChainState {
         blocks_conn: &DBConn,
         staging_block: &StagingBlock,
     ) -> Result<Option<Vec<StacksMicroblock>>, Error> {
-        if staging_block.parent_microblock_hash == EMPTY_MICROBLOCK_PARENT_HASH
-            && staging_block.parent_microblock_seq == 0
-        {
+        Self::inner_find_parent_microblock_stream(
+            blocks_conn,
+            &staging_block.anchored_block_hash,
+            &staging_block.parent_anchored_block_hash,
+            &staging_block.parent_consensus_hash,
+            &staging_block.parent_microblock_hash,
+            staging_block.parent_microblock_seq,
+        )
+    }
+
+    /// Allow `find_parent_microblock_stream()` to be called without `StagingBlock`
+    pub fn inner_find_parent_microblock_stream(
+        blocks_conn: &DBConn,
+        anchored_block_hash: &BlockHeaderHash,
+        parent_anchored_block_hash: &BlockHeaderHash,
+        parent_consensus_hash: &ConsensusHash,
+        parent_microblock_hash: &BlockHeaderHash,
+        parent_microblock_seq: u16,
+    ) -> Result<Option<Vec<StacksMicroblock>>, Error> {
+        if *parent_microblock_hash == EMPTY_MICROBLOCK_PARENT_HASH && parent_microblock_seq == 0 {
             // no parent microblocks, ever
             return Ok(Some(vec![]));
         }
@@ -3726,9 +3745,9 @@ impl StacksChainState {
         // find the microblock stream fork that this block confirms
         match StacksChainState::load_microblock_stream_fork(
             blocks_conn,
-            &staging_block.parent_consensus_hash,
-            &staging_block.parent_anchored_block_hash,
-            &staging_block.parent_microblock_hash,
+            parent_consensus_hash,
+            parent_anchored_block_hash,
+            parent_microblock_hash,
         )? {
             Some(microblocks) => {
                 return Ok(Some(microblocks));
@@ -3736,10 +3755,7 @@ impl StacksChainState {
             None => {
                 // parent microblocks haven't arrived yet, or there are none
                 debug!(
-                    "No parent microblock stream for {}: expected a stream with tail {},{}",
-                    staging_block.anchored_block_hash,
-                    staging_block.parent_microblock_hash,
-                    staging_block.parent_microblock_seq
+                    "No parent microblock stream for {anchored_block_hash}: expected a stream with tail {parent_microblock_hash},{parent_microblock_seq}",
                 );
                 return Ok(None);
             }
@@ -4952,7 +4968,7 @@ impl StacksChainState {
         chain_tip_burn_header_height: u32,
         parent_sortition_id: &SortitionId,
     ) -> Result<Vec<StacksTransactionEvent>, Error> {
-        let pox_reward_cycle = Burnchain::static_block_height_to_reward_cycle(
+        let pox_reward_cycle = PoxConstants::static_block_height_to_reward_cycle(
             burn_tip_height,
             burn_dbconn.get_burn_start_height().into(),
             burn_dbconn.get_pox_reward_cycle_length().into(),
@@ -5794,8 +5810,10 @@ impl StacksChainState {
             .map(|(_, _, _, info)| info.clone());
 
         if do_not_advance {
+            let regtest_genesis_header = StacksHeaderInfo::regtest_genesis();
+            let coinbase_height = regtest_genesis_header.stacks_block_height;
             let epoch_receipt = StacksEpochReceipt {
-                header: StacksHeaderInfo::regtest_genesis(),
+                header: regtest_genesis_header,
                 tx_receipts,
                 matured_rewards,
                 matured_rewards_info,
@@ -5807,6 +5825,7 @@ impl StacksChainState {
                 evaluated_epoch,
                 epoch_transition: applied_epoch_transition,
                 signers_updated: false,
+                coinbase_height,
             };
 
             return Ok((epoch_receipt, clarity_commit, None));
@@ -5883,6 +5902,9 @@ impl StacksChainState {
         );
         set_last_execution_cost_observed(&block_execution_cost, &block_limit);
 
+        // // The coinbase height is the same as the stacks block height in epoch 2.x
+        let coinbase_height = new_tip.stacks_block_height;
+
         let epoch_receipt = StacksEpochReceipt {
             header: new_tip,
             tx_receipts,
@@ -5896,6 +5918,7 @@ impl StacksChainState {
             evaluated_epoch,
             epoch_transition: applied_epoch_transition,
             signers_updated,
+            coinbase_height,
         };
 
         Ok((epoch_receipt, clarity_commit, reward_set_data))
@@ -5997,13 +6020,14 @@ impl StacksChainState {
     /// the given block.
     pub fn extract_connecting_microblocks(
         parent_block_header_info: &StacksHeaderInfo,
-        next_staging_block: &StagingBlock,
+        next_block_consensus_hash: &ConsensusHash,
+        next_block_hash: &BlockHeaderHash,
         block: &StacksBlock,
         mut next_microblocks: Vec<StacksMicroblock>,
     ) -> Result<Vec<StacksMicroblock>, Error> {
         // NOTE: since we got the microblocks from staging, where their signatures were already
         // validated, we don't need to validate them again.
-        let microblock_terminus = match StacksChainState::validate_parent_microblock_stream(
+        let Some((microblock_terminus, _)) = StacksChainState::validate_parent_microblock_stream(
             parent_block_header_info
                 .anchored_header
                 .as_stacks_epoch2()
@@ -6011,15 +6035,11 @@ impl StacksChainState {
             &block.header,
             &next_microblocks,
             false,
-        ) {
-            Some((terminus, _)) => terminus,
-            None => {
-                debug!(
-                    "Stopping at block {}/{} -- discontiguous header stream",
-                    next_staging_block.consensus_hash, next_staging_block.anchored_block_hash,
-                );
-                return Ok(vec![]);
-            }
+        ) else {
+            debug!(
+                "Stopping at block {next_block_consensus_hash}/{next_block_hash} -- discontiguous header stream"
+            );
+            return Ok(vec![]);
         };
 
         // do not consider trailing microblocks that this anchored block does _not_ confirm
@@ -6214,7 +6234,8 @@ impl StacksChainState {
         // block's parent to this block.
         let next_microblocks = StacksChainState::extract_connecting_microblocks(
             &parent_header_info,
-            &next_staging_block,
+            &parent_header_info.consensus_hash,
+            &next_staging_block.anchored_block_hash,
             &block,
             next_microblocks,
         )?;
@@ -6397,6 +6418,8 @@ impl StacksChainState {
                 &pox_constants,
                 &reward_set_data,
                 &None,
+                None,
+                next_staging_block.height,
             );
         }
 

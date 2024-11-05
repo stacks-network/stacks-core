@@ -21,6 +21,7 @@ on:
           - Atlas Tests
           - Bitcoin Tests
           - Epoch Tests
+          - P2P Tests
           - Slow Tests
           - Stacks-Core Tests
           - SBTC Tests
@@ -68,6 +69,23 @@ jobs:
     needs:
       - create-cache
     uses: ./.github/workflows/bitcoin-tests.yml
+
+  ## Runs when:
+  ##   either or of the following:
+  ##     - workflow is 'Release Tests'
+  ##     - workflow is 'CI Tests'
+  ##     - workflow is 'P2P Tests'
+  p2p-tests:
+    if: |
+      (
+        inputs.workflow == 'Release Tests' ||
+        inputs.workflow == 'CI Tests' ||
+        inputs.workflow == 'P2P Tests'
+      )
+    name: P2P Tests
+    needs:
+      - create-cache
+    uses: ./.github/workflows/p2p-tests.yml
 
   #####################################################
   ## Runs when:

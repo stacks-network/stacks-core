@@ -82,6 +82,17 @@ impl std::ops::Deref for RunLoopCounter {
     }
 }
 
+#[cfg(test)]
+#[derive(Clone)]
+pub struct TestFlag(pub Arc<std::sync::Mutex<Option<bool>>>);
+
+#[cfg(test)]
+impl Default for TestFlag {
+    fn default() -> Self {
+        Self(Arc::new(std::sync::Mutex::new(None)))
+    }
+}
+
 #[derive(Clone, Default)]
 pub struct Counters {
     pub blocks_processed: RunLoopCounter,
@@ -93,8 +104,13 @@ pub struct Counters {
     pub naka_submitted_vrfs: RunLoopCounter,
     pub naka_submitted_commits: RunLoopCounter,
     pub naka_mined_blocks: RunLoopCounter,
+    pub naka_rejected_blocks: RunLoopCounter,
     pub naka_proposed_blocks: RunLoopCounter,
     pub naka_mined_tenures: RunLoopCounter,
+    pub naka_signer_pushed_blocks: RunLoopCounter,
+
+    #[cfg(test)]
+    pub naka_skip_commit_op: TestFlag,
 }
 
 impl Counters {
@@ -152,6 +168,14 @@ impl Counters {
 
     pub fn bump_naka_proposed_blocks(&self) {
         Counters::inc(&self.naka_proposed_blocks);
+    }
+
+    pub fn bump_naka_rejected_blocks(&self) {
+        Counters::inc(&self.naka_rejected_blocks);
+    }
+
+    pub fn bump_naka_signer_pushed_blocks(&self) {
+        Counters::inc(&self.naka_signer_pushed_blocks);
     }
 
     pub fn bump_naka_mined_tenures(&self) {
@@ -212,7 +236,7 @@ impl RunLoop {
 
         let mut event_dispatcher = EventDispatcher::new();
         for observer in config.events_observers.iter() {
-            event_dispatcher.register_observer(observer);
+            event_dispatcher.register_observer(observer, config.get_working_dir());
         }
 
         Self {
@@ -334,15 +358,19 @@ impl RunLoop {
         }
     }
 
+    /// Seconds to wait before retrying UTXO check during startup
+    const UTXO_RETRY_INTERVAL: u64 = 10;
+    /// Number of times to retry UTXO check during startup
+    const UTXO_RETRY_COUNT: u64 = 6;
+
     /// Determine if we're the miner.
     /// If there's a network error, then assume that we're not a miner.
     fn check_is_miner(&mut self, burnchain: &mut BitcoinRegtestController) -> bool {
         if self.config.node.miner {
             let keychain = Keychain::default(self.config.node.seed.clone());
             let mut op_signer = keychain.generate_op_signer();
-            match burnchain.create_wallet_if_dne() {
-                Err(e) => warn!("Error when creating wallet: {:?}", e),
-                _ => {}
+            if let Err(e) = burnchain.create_wallet_if_dne() {
+                warn!("Error when creating wallet: {:?}", e);
             }
             let mut btc_addrs = vec![(
                 StacksEpochId::Epoch2_05,
@@ -366,22 +394,26 @@ impl RunLoop {
                 ));
             }
 
-            for (epoch_id, btc_addr) in btc_addrs.into_iter() {
-                info!("Miner node: checking UTXOs at address: {}", &btc_addr);
-                let utxos = burnchain.get_utxos(epoch_id, &op_signer.get_public_key(), 1, None, 0);
-                if utxos.is_none() {
-                    warn!("UTXOs not found for {}. If this is unexpected, please ensure that your bitcoind instance is indexing transactions for the address {} (importaddress)", btc_addr, btc_addr);
-                } else {
-                    info!("UTXOs found - will run as a Miner node");
+            // retry UTXO check a few times, in case bitcoind is still starting up
+            for _ in 0..Self::UTXO_RETRY_COUNT {
+                for (epoch_id, btc_addr) in &btc_addrs {
+                    info!("Miner node: checking UTXOs at address: {btc_addr}");
+                    let utxos =
+                        burnchain.get_utxos(*epoch_id, &op_signer.get_public_key(), 1, None, 0);
+                    if utxos.is_none() {
+                        warn!("UTXOs not found for {btc_addr}. If this is unexpected, please ensure that your bitcoind instance is indexing transactions for the address {btc_addr} (importaddress)");
+                    } else {
+                        info!("UTXOs found - will run as a Miner node");
+                        return true;
+                    }
+                }
+                if self.config.get_node_config(false).mock_mining {
+                    info!("No UTXOs found, but configured to mock mine");
                     return true;
                 }
+                thread::sleep(std::time::Duration::from_secs(Self::UTXO_RETRY_INTERVAL));
             }
-            if self.config.get_node_config(false).mock_mining {
-                info!("No UTXOs found, but configured to mock mine");
-                return true;
-            } else {
-                return false;
-            }
+            panic!("No UTXOs found, exiting");
         } else {
             info!("Will run as a Follower node");
             false
@@ -457,14 +489,11 @@ impl RunLoop {
         burnchain_controller
             .start(Some(target_burnchain_block_height))
             .map_err(|e| {
-                match e {
-                    Error::CoordinatorClosed => {
-                        if !should_keep_running.load(Ordering::SeqCst) {
-                            info!("Shutdown initiated during burnchain initialization: {}", e);
-                            return burnchain_error::ShutdownInitiated;
-                        }
-                    }
-                    Error::IndexerError(_) => {}
+                if matches!(e, Error::CoordinatorClosed)
+                    && !should_keep_running.load(Ordering::SeqCst)
+                {
+                    info!("Shutdown initiated during burnchain initialization: {}", e);
+                    return burnchain_error::ShutdownInitiated;
                 }
                 error!("Burnchain controller stopped: {}", e);
                 panic!();
@@ -548,7 +577,6 @@ impl RunLoop {
         let mut atlas_config = AtlasConfig::new(self.config.is_mainnet());
         let genesis_attachments = GenesisData::new(use_test_genesis_data)
             .read_name_zonefiles()
-            .into_iter()
             .map(|z| Attachment::new(z.zonefile_content.as_bytes().to_vec()))
             .collect();
         atlas_config.genesis_attachments = Some(genesis_attachments);
@@ -559,7 +587,7 @@ impl RunLoop {
         let moved_atlas_config = self.config.atlas.clone();
         let moved_config = self.config.clone();
         let moved_burnchain_config = burnchain_config.clone();
-        let mut coordinator_dispatcher = self.event_dispatcher.clone();
+        let coordinator_dispatcher = self.event_dispatcher.clone();
         let atlas_db = AtlasDB::connect(
             moved_atlas_config.clone(),
             &self.config.get_atlas_db_file_path(),
@@ -588,13 +616,12 @@ impl RunLoop {
                     require_affirmed_anchor_blocks: moved_config
                         .node
                         .require_affirmed_anchor_blocks,
-                    ..ChainsCoordinatorConfig::new()
                 };
                 ChainsCoordinator::run(
                     coord_config,
                     chain_state_db,
                     moved_burnchain_config,
-                    &mut coordinator_dispatcher,
+                    &coordinator_dispatcher,
                     coordinator_receivers,
                     moved_atlas_config,
                     cost_estimator.as_deref_mut(),
@@ -652,7 +679,7 @@ impl RunLoop {
             Some(sn) => sn,
             None => {
                 debug!("No canonical stacks chain tip hash present");
-                let sn = SortitionDB::get_first_block_snapshot(&sortdb.conn())
+                let sn = SortitionDB::get_first_block_snapshot(sortdb.conn())
                     .expect("BUG: failed to get first-ever block snapshot");
                 sn
             }
@@ -704,7 +731,7 @@ impl RunLoop {
         let indexer = make_bitcoin_indexer(config, Some(globals.should_keep_running.clone()));
 
         let heaviest_affirmation_map = match static_get_heaviest_affirmation_map(
-            &burnchain,
+            burnchain,
             &indexer,
             &burnchain_db,
             sortdb,
@@ -852,7 +879,7 @@ impl RunLoop {
         let indexer = make_bitcoin_indexer(config, Some(globals.should_keep_running.clone()));
 
         let heaviest_affirmation_map = match static_get_heaviest_affirmation_map(
-            &burnchain,
+            burnchain,
             &indexer,
             &burnchain_db,
             sortdb,
@@ -866,11 +893,11 @@ impl RunLoop {
         };
 
         let canonical_affirmation_map = match static_get_canonical_affirmation_map(
-            &burnchain,
+            burnchain,
             &indexer,
             &burnchain_db,
             sortdb,
-            &chain_state_db,
+            chain_state_db,
             &sn.sortition_id,
         ) {
             Ok(am) => am,
@@ -985,15 +1012,13 @@ impl RunLoop {
         )
         .unwrap();
 
-        let liveness_thread_handle = thread::Builder::new()
+        thread::Builder::new()
             .name(format!("chain-liveness-{}", config.node.rpc_bind))
             .stack_size(BLOCK_PROCESSOR_STACK_SIZE)
             .spawn(move || {
                 Self::drive_chain_liveness(globals, config, burnchain, sortdb, chain_state_db)
             })
-            .expect("FATAL: failed to spawn chain liveness thread");
-
-        liveness_thread_handle
+            .expect("FATAL: failed to spawn chain liveness thread")
     }
 
     /// Starts the node runloop.
@@ -1076,7 +1101,7 @@ impl RunLoop {
         // Make sure at least one sortition has happened, and make sure it's globally available
         let sortdb = burnchain.sortdb_mut();
         let (rc_aligned_height, sn) =
-            RunLoop::get_reward_cycle_sortition_db_height(&sortdb, &burnchain_config);
+            RunLoop::get_reward_cycle_sortition_db_height(sortdb, &burnchain_config);
 
         let burnchain_tip_snapshot = if sn.block_height == burnchain_config.first_block_height {
             // need at least one sortition to happen.
@@ -1104,7 +1129,7 @@ impl RunLoop {
                 .tx_begin()
                 .expect("FATAL: failed to begin burnchain DB tx");
             for (reward_cycle, affirmation) in self.config.burnchain.affirmation_overrides.iter() {
-                tx.set_override_affirmation_map(*reward_cycle, affirmation.clone()).expect(&format!("FATAL: failed to set affirmation override ({affirmation}) for reward cycle {reward_cycle}"));
+                tx.set_override_affirmation_map(*reward_cycle, affirmation.clone()).unwrap_or_else(|_| panic!("FATAL: failed to set affirmation override ({affirmation}) for reward cycle {reward_cycle}"));
             }
             tx.commit()
                 .expect("FATAL: failed to commit burnchain DB tx");
@@ -1281,6 +1306,26 @@ impl RunLoop {
                         //
                         // _this will block if the relayer's buffer is full_
                         if !node.relayer_sortition_notify() {
+                            // First check if we were supposed to cleanly exit
+                            if !globals.keep_running() {
+                                // The p2p thread relies on the same atomic_bool, it will
+                                // discontinue its execution after completing its ongoing runloop epoch.
+                                info!("Terminating p2p process");
+                                info!("Terminating relayer");
+                                info!("Terminating chains-coordinator");
+
+                                globals.coord().stop_chains_coordinator();
+                                coordinator_thread_handle.join().unwrap();
+                                let peer_network = node.join();
+                                liveness_thread.join().unwrap();
+
+                                // Data that will be passed to Nakamoto run loop
+                                // Only gets transfered on clean shutdown of neon run loop
+                                let data_to_naka = Neon2NakaData::new(globals, peer_network);
+
+                                info!("Exiting stacks-node");
+                                return Some(data_to_naka);
+                            }
                             // relayer hung up, exit.
                             error!("Runloop: Block relayer and miner hung up, exiting.");
                             return None;
@@ -1355,6 +1400,26 @@ impl RunLoop {
                     }
 
                     if !node.relayer_issue_tenure(ibd) {
+                        // First check if we were supposed to cleanly exit
+                        if !globals.keep_running() {
+                            // The p2p thread relies on the same atomic_bool, it will
+                            // discontinue its execution after completing its ongoing runloop epoch.
+                            info!("Terminating p2p process");
+                            info!("Terminating relayer");
+                            info!("Terminating chains-coordinator");
+
+                            globals.coord().stop_chains_coordinator();
+                            coordinator_thread_handle.join().unwrap();
+                            let peer_network = node.join();
+                            liveness_thread.join().unwrap();
+
+                            // Data that will be passed to Nakamoto run loop
+                            // Only gets transfered on clean shutdown of neon run loop
+                            let data_to_naka = Neon2NakaData::new(globals, peer_network);
+
+                            info!("Exiting stacks-node");
+                            return Some(data_to_naka);
+                        }
                         // relayer hung up, exit.
                         error!("Runloop: Block relayer and miner hung up, exiting.");
                         break None;

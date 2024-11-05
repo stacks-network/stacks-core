@@ -57,6 +57,7 @@ pub mod getmicroblocks_indexed;
 pub mod getmicroblocks_unconfirmed;
 pub mod getneighbors;
 pub mod getpoxinfo;
+pub mod getsigner;
 pub mod getsortition;
 pub mod getstackerdbchunk;
 pub mod getstackerdbmetadata;
@@ -64,6 +65,7 @@ pub mod getstackers;
 pub mod getstxtransfercost;
 pub mod gettenure;
 pub mod gettenureinfo;
+pub mod gettenuretip;
 pub mod gettransaction_unconfirmed;
 pub mod liststackerdbreplicas;
 pub mod postblock;
@@ -124,18 +126,22 @@ impl StacksHttp {
         self.register_rpc_endpoint(getsortition::GetSortitionHandler::new());
         self.register_rpc_endpoint(gettenure::RPCNakamotoTenureRequestHandler::new());
         self.register_rpc_endpoint(gettenureinfo::RPCNakamotoTenureInfoRequestHandler::new());
+        self.register_rpc_endpoint(gettenuretip::RPCNakamotoTenureTipRequestHandler::new());
         self.register_rpc_endpoint(get_tenures_fork_info::GetTenuresForkInfo::default());
         self.register_rpc_endpoint(
             gettransaction_unconfirmed::RPCGetTransactionUnconfirmedRequestHandler::new(),
         );
+        self.register_rpc_endpoint(getsigner::GetSignerRequestHandler::default());
         self.register_rpc_endpoint(
             liststackerdbreplicas::RPCListStackerDBReplicasRequestHandler::new(),
         );
         self.register_rpc_endpoint(postblock::RPCPostBlockRequestHandler::new());
         self.register_rpc_endpoint(postblock_proposal::RPCBlockProposalRequestHandler::new(
-            self.block_proposal_token.clone(),
+            self.auth_token.clone(),
         ));
-        self.register_rpc_endpoint(postblock_v3::RPCPostBlockRequestHandler::default());
+        self.register_rpc_endpoint(postblock_v3::RPCPostBlockRequestHandler::new(
+            self.auth_token.clone(),
+        ));
         self.register_rpc_endpoint(postfeerate::RPCPostFeeRateRequestHandler::new());
         self.register_rpc_endpoint(postmempoolquery::RPCMempoolQueryRequestHandler::new());
         self.register_rpc_endpoint(postmicroblock::RPCPostMicroblockRequestHandler::new());

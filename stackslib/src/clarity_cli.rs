@@ -106,7 +106,6 @@ macro_rules! panic_test {
     };
 }
 
-#[cfg_attr(tarpaulin, skip)]
 fn print_usage(invoked_by: &str) {
     eprintln!(
         "Usage: {} [command]
@@ -129,7 +128,6 @@ where command is one of:
     panic_test!()
 }
 
-#[cfg_attr(tarpaulin, skip)]
 fn friendly_expect<A, B: std::fmt::Display>(input: Result<A, B>, msg: &str) -> A {
     input.unwrap_or_else(|e| {
         eprintln!("{}\nCaused by: {}", msg, e);
@@ -137,7 +135,6 @@ fn friendly_expect<A, B: std::fmt::Display>(input: Result<A, B>, msg: &str) -> A
     })
 }
 
-#[cfg_attr(tarpaulin, skip)]
 fn friendly_expect_opt<A>(input: Option<A>, msg: &str) -> A {
     input.unwrap_or_else(|| {
         eprintln!("{}", msg);
@@ -768,6 +765,14 @@ impl HeadersDB for CLIHeadersDB {
     ) -> Option<u128> {
         // if the block is defined at all, then return a constant
         get_cli_block_height(&self.conn(), id_bhh).map(|_| 3000)
+    }
+
+    fn get_stacks_height_for_tenure_height(
+        &self,
+        _tip: &StacksBlockId,
+        tenure_height: u32,
+    ) -> Option<u32> {
+        Some(tenure_height)
     }
 }
 

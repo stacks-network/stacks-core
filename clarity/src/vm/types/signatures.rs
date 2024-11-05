@@ -1656,7 +1656,9 @@ impl TypeSignature {
         clarity_version: ClarityVersion,
     ) -> Result<BTreeMap<ClarityName, FunctionSignature>> {
         let mut trait_signature: BTreeMap<ClarityName, FunctionSignature> = BTreeMap::new();
-        let functions_types = type_args[0]
+        let functions_types = type_args
+            .get(0)
+            .ok_or_else(|| CheckErrors::InvalidTypeDescription)?
             .match_list()
             .ok_or(CheckErrors::DefineTraitBadSignature)?;
 

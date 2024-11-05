@@ -582,7 +582,7 @@ impl StacksMessageCodec for HttpResponsePreamble {
                     ));
                 }
 
-                if content_type.is_none() || (content_length.is_none() && !chunked_encoding) {
+                if content_length.is_none() && !chunked_encoding {
                     return Err(CodecError::DeserializeError(
                         "Invalid HTTP response: missing Content-Type, Content-Length".to_string(),
                     ));
@@ -593,7 +593,7 @@ impl StacksMessageCodec for HttpResponsePreamble {
                     status_code: status_code,
                     reason: reason,
                     keep_alive: keep_alive,
-                    content_type: content_type.unwrap(),
+                    content_type: content_type.unwrap_or(HttpContentType::Bytes), // per the RFC
                     content_length: content_length,
                     headers: headers,
                 })

@@ -51,6 +51,38 @@ pub struct GetStackersResponse {
     pub stacker_set: RewardSet,
 }
 
+pub enum GetStackersErrors {
+    NotAvailableYet(crate::chainstate::coordinator::Error),
+    Other(String),
+}
+
+impl GetStackersErrors {
+    pub const NOT_AVAILABLE_ERR_TYPE: &'static str = "not_available_try_again";
+    pub const OTHER_ERR_TYPE: &'static str = "other";
+
+    pub fn error_type_string(&self) -> &'static str {
+        match self {
+            Self::NotAvailableYet(_) => Self::NOT_AVAILABLE_ERR_TYPE,
+            Self::Other(_) => Self::OTHER_ERR_TYPE,
+        }
+    }
+}
+
+impl From<&str> for GetStackersErrors {
+    fn from(value: &str) -> Self {
+        GetStackersErrors::Other(value.into())
+    }
+}
+
+impl std::fmt::Display for GetStackersErrors {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            GetStackersErrors::NotAvailableYet(e) => write!(f, "Could not read reward set. Prepare phase may not have started for this cycle yet. Err = {e:?}"),
+            GetStackersErrors::Other(msg) => write!(f, "{msg}")
+        }
+    }
+}
+
 impl GetStackersResponse {
     pub fn load(
         sortdb: &SortitionDB,
@@ -58,9 +90,8 @@ impl GetStackersResponse {
         tip: &StacksBlockId,
         burnchain: &Burnchain,
         cycle_number: u64,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, GetStackersErrors> {
         let cycle_start_height = burnchain.reward_cycle_to_block_height(cycle_number);
-
         let pox_contract_name = burnchain
             .pox_constants
             .active_pox_contract(cycle_start_height);
@@ -74,16 +105,9 @@ impl GetStackersResponse {
         }
 
         let provider = OnChainRewardSetProvider::new();
-        let stacker_set = provider.read_reward_set_nakamoto(
-            cycle_start_height,
-            chainstate,
-            burnchain,
-            sortdb,
-            tip,
-            true,
-        ).map_err(
-            |e| format!("Could not read reward set. Prepare phase may not have started for this cycle yet. Cycle = {cycle_number}, Err = {e:?}")
-        )?;
+        let stacker_set = provider
+            .read_reward_set_nakamoto(chainstate, cycle_number, sortdb, tip, true)
+            .map_err(GetStackersErrors::NotAvailableYet)?;
 
         Ok(Self { stacker_set })
     }
@@ -96,11 +120,11 @@ impl HttpRequest for GetStackersRequestHandler {
     }
 
     fn path_regex(&self) -> Regex {
-        Regex::new(r#"^/v2/stacker_set/(?P<cycle_num>[0-9]{1,20})$"#).unwrap()
+        Regex::new(r#"^/v3/stacker_set/(?P<cycle_num>[0-9]{1,10})$"#).unwrap()
     }
 
     fn metrics_identifier(&self) -> &str {
-        "/v2/stacker_set/:cycle_num"
+        "/v3/stacker_set/:cycle_num"
     }
 
     /// Try to decode this request.
@@ -173,10 +197,13 @@ impl RPCRequestHandler for GetStackersRequestHandler {
 
         let response = match stacker_response {
             Ok(response) => response,
-            Err(err_str) => {
+            Err(error) => {
                 return StacksHttpResponse::new_error(
                     &preamble,
-                    &HttpBadRequest::new_json(json!({"response": "error", "err_msg": err_str})),
+                    &HttpBadRequest::new_json(json!({
+                        "response": "error",
+                        "err_type": error.error_type_string(),
+                        "err_msg": error.to_string()})),
                 )
                 .try_into_contents()
                 .map_err(NetError::from)
@@ -211,7 +238,7 @@ impl StacksHttpRequest {
         StacksHttpRequest::new_for_peer(
             host,
             "GET".into(),
-            format!("/v2/stacker_set/{cycle_num}"),
+            format!("/v3/stacker_set/{cycle_num}"),
             HttpRequestContents::new().for_tip(tip_req),
         )
         .expect("FATAL: failed to construct request from infallible data")
@@ -225,5 +252,33 @@ impl StacksHttpResponse {
         let response: GetStackersResponse = serde_json::from_value(response_json)
             .map_err(|_e| Error::DecodeError("Failed to decode JSON".to_string()))?;
         Ok(response)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::GetStackersErrors;
+
+    #[test]
+    // Test the formatting and error type strings of GetStackersErrors
+    fn get_stackers_errors() {
+        let not_available_err = GetStackersErrors::NotAvailableYet(
+            crate::chainstate::coordinator::Error::PoXNotProcessedYet,
+        );
+        let other_err = GetStackersErrors::Other("foo".into());
+
+        assert_eq!(
+            not_available_err.error_type_string(),
+            GetStackersErrors::NOT_AVAILABLE_ERR_TYPE
+        );
+        assert_eq!(
+            other_err.error_type_string(),
+            GetStackersErrors::OTHER_ERR_TYPE
+        );
+
+        assert!(not_available_err
+            .to_string()
+            .starts_with("Could not read reward set"));
+        assert_eq!(other_err.to_string(), "foo".to_string());
     }
 }

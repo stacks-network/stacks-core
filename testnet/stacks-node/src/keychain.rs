@@ -123,10 +123,7 @@ impl Keychain {
         let proof = VRF::prove(&sk, bytes.as_ref());
 
         // Ensure that the proof is valid by verifying
-        let is_valid = match VRF::verify(&pk, &proof, bytes.as_ref()) {
-            Ok(v) => v,
-            Err(_) => false,
-        };
+        let is_valid = VRF::verify(&pk, &proof, bytes.as_ref()).unwrap_or(false);
         assert!(is_valid);
         proof
     }
@@ -178,7 +175,7 @@ impl Keychain {
     }
 
     /// Sign a transaction as if we were the origin
-    pub fn sign_as_origin(&self, tx_signer: &mut StacksTransactionSigner) -> () {
+    pub fn sign_as_origin(&self, tx_signer: &mut StacksTransactionSigner) {
         let sk = self.get_secret_key();
         tx_signer
             .sign_origin(&sk)
@@ -206,7 +203,6 @@ impl Keychain {
     }
 
     /// Create a BurnchainOpSigner representation of this keychain
-    /// (this is going to be removed in 2.1)
     pub fn generate_op_signer(&self) -> BurnchainOpSigner {
         BurnchainOpSigner::new(self.get_secret_key(), false)
     }
@@ -334,7 +330,7 @@ mod tests {
                 }
             };
             sk.set_compress_public(true);
-            self.microblocks_secret_keys.push(sk.clone());
+            self.microblocks_secret_keys.push(sk);
 
             debug!("Microblock keypair rotated";
                    "burn_block_height" => %burn_block_height,
@@ -347,7 +343,7 @@ mod tests {
             self.microblocks_secret_keys.last().cloned()
         }
 
-        pub fn sign_as_origin(&self, tx_signer: &mut StacksTransactionSigner) -> () {
+        pub fn sign_as_origin(&self, tx_signer: &mut StacksTransactionSigner) {
             let num_keys = if self.secret_keys.len() < self.threshold as usize {
                 self.secret_keys.len()
             } else {
@@ -371,12 +367,9 @@ mod tests {
             };
 
             // Generate the proof
-            let proof = VRF::prove(&vrf_sk, bytes.as_ref());
+            let proof = VRF::prove(vrf_sk, bytes.as_ref());
             // Ensure that the proof is valid by verifying
-            let is_valid = match VRF::verify(vrf_pk, &proof, bytes.as_ref()) {
-                Ok(v) => v,
-                Err(_) => false,
-            };
+            let is_valid = VRF::verify(vrf_pk, &proof, bytes.as_ref()).unwrap_or(false);
             assert!(is_valid);
             Some(proof)
         }
@@ -386,7 +379,7 @@ mod tests {
             let public_keys = self
                 .secret_keys
                 .iter()
-                .map(|ref pk| StacksPublicKey::from_private(pk))
+                .map(StacksPublicKey::from_private)
                 .collect();
             let version = if is_mainnet {
                 self.hash_mode.to_version_mainnet()
@@ -519,7 +512,7 @@ mod tests {
                 TransactionVersion::Testnet,
                 k1.get_transaction_auth().unwrap(),
                 TransactionPayload::TokenTransfer(
-                    recv_addr.clone().into(),
+                    recv_addr.into(),
                     123,
                     TokenTransferMemo([0u8; 34]),
                 ),
@@ -528,7 +521,7 @@ mod tests {
                 TransactionVersion::Testnet,
                 k2.get_transaction_auth().unwrap(),
                 TransactionPayload::TokenTransfer(
-                    recv_addr.clone().into(),
+                    recv_addr.into(),
                     123,
                     TokenTransferMemo([0u8; 34]),
                 ),

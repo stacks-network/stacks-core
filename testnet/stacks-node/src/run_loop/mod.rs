@@ -37,12 +37,19 @@ macro_rules! info_green {
     })
 }
 
+#[allow(clippy::type_complexity)]
 pub struct RunLoopCallbacks {
     on_burn_chain_initialized: Option<fn(&mut Box<dyn BurnchainController>)>,
     on_new_burn_chain_state: Option<fn(u64, &BurnchainTip, &ChainTip)>,
     on_new_stacks_chain_state:
         Option<fn(u64, &BurnchainTip, &ChainTip, &mut StacksChainState, &dyn BurnStateDB)>,
     on_new_tenure: Option<fn(u64, &BurnchainTip, &ChainTip, &mut Tenure)>,
+}
+
+impl Default for RunLoopCallbacks {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl RunLoopCallbacks {
@@ -167,7 +174,7 @@ pub fn announce_boot_receipts(
     event_dispatcher: &mut EventDispatcher,
     chainstate: &StacksChainState,
     pox_constants: &PoxConstants,
-    boot_receipts: &Vec<StacksTransactionReceipt>,
+    boot_receipts: &[StacksTransactionReceipt],
 ) {
     let block_header_0 = StacksChainState::get_genesis_header_info(chainstate.db())
         .expect("FATAL: genesis block header not stored");
@@ -189,7 +196,7 @@ pub fn announce_boot_receipts(
         Txid([0x00; 32]),
         &[],
         None,
-        block_header_0.burn_header_hash.clone(),
+        block_header_0.burn_header_hash,
         block_header_0.burn_header_height,
         block_header_0.burn_header_timestamp,
         &ExecutionCost::zero(),
@@ -197,5 +204,7 @@ pub fn announce_boot_receipts(
         pox_constants,
         &None,
         &None,
+        None,
+        0,
     );
 }

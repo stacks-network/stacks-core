@@ -33,6 +33,7 @@ use stacks_common::types::StacksEpochId;
 
 use super::{Config, EventDispatcher, Keychain};
 use crate::burnchains::bitcoin_regtest_controller::addr2str;
+use crate::burnchains::Error as BurnchainsError;
 use crate::neon_node::{LeaderKeyRegistrationState, StacksNode as NeonNode};
 use crate::run_loop::boot_nakamoto::Neon2NakaData;
 use crate::run_loop::nakamoto::{Globals, RunLoop};
@@ -76,6 +77,10 @@ pub enum Error {
     SnapshotNotFoundForChainTip,
     /// The burnchain tip changed while this operation was in progress
     BurnchainTipChanged,
+    /// The Stacks tip changed while this operation was in progress
+    StacksTipChanged,
+    /// Signers rejected a block
+    SignersRejected,
     /// Error while spawning a subordinate thread
     SpawnError(std::io::Error),
     /// Injected testing errors
@@ -89,7 +94,7 @@ pub enum Error {
     /// Something unexpected happened (e.g., hash mismatches)
     UnexpectedChainState,
     /// A burnchain operation failed when submitting it to the burnchain
-    BurnchainSubmissionFailed,
+    BurnchainSubmissionFailed(BurnchainsError),
     /// A new parent has been discovered since mining started
     NewParentDiscovered,
     /// A failure occurred while constructing a VRF Proof
@@ -143,7 +148,7 @@ impl StacksNode {
         let burnchain = runloop.get_burnchain();
         let atlas_config = config.atlas.clone();
         let mut keychain = Keychain::default(config.node.seed.clone());
-        if let Some(mining_key) = config.miner.mining_key.clone() {
+        if let Some(mining_key) = config.miner.mining_key {
             keychain.set_nakamoto_sk(mining_key);
         }
 
@@ -190,7 +195,7 @@ impl StacksNode {
             match &data_from_neon.leader_key_registration_state {
                 LeaderKeyRegistrationState::Active(registered_key) => {
                     let pubkey_hash = keychain.get_nakamoto_pkh();
-                    if pubkey_hash.as_ref() == &registered_key.memo {
+                    if pubkey_hash.as_ref() == registered_key.memo {
                         data_from_neon.leader_key_registration_state
                     } else {
                         LeaderKeyRegistrationState::Inactive
@@ -269,7 +274,9 @@ impl StacksNode {
                 snapshot.parent_burn_header_hash,
                 snapshot.winning_stacks_block_hash,
             ))
-            .map_err(|_| Error::ChannelClosed)
+            .map_err(|_| Error::ChannelClosed)?;
+
+        Ok(())
     }
 
     /// Process a state coming from the burnchain, by extracting the validated KeyRegisterOp
@@ -359,7 +366,7 @@ pub(crate) fn save_activated_vrf_key(path: &str, activated_key: &RegisteredKey) 
         return;
     };
 
-    let mut f = match fs::File::create(&path) {
+    let mut f = match fs::File::create(path) {
         Ok(f) => f,
         Err(e) => {
             warn!("Failed to create {}: {:?}", &path, &e);
@@ -367,7 +374,7 @@ pub(crate) fn save_activated_vrf_key(path: &str, activated_key: &RegisteredKey) 
         }
     };
 
-    if let Err(e) = f.write_all(key_json.as_str().as_bytes()) {
+    if let Err(e) = f.write_all(key_json.as_bytes()) {
         warn!("Failed to write activated VRF key to {}: {:?}", &path, &e);
         return;
     }

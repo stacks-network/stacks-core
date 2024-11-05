@@ -19,10 +19,14 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use stacks_common::types::chainstate::{BurnchainHeaderHash, ConsensusHash};
 use stacks_common::types::net::PeerHost;
 
-use crate::net::api::getsortition::{GetSortitionHandler, QuerySpecifier};
+use crate::net::api::getsortition::{GetSortitionHandler, QuerySpecifier, SortitionInfo};
+use crate::net::api::tests::test_rpc;
 use crate::net::connection::ConnectionOptions;
-use crate::net::http::{Error as HttpError, HttpRequestPreamble, HttpVersion};
-use crate::net::httpcore::{RPCRequestHandler, StacksHttp, StacksHttpPreamble};
+use crate::net::http::{
+    Error as HttpError, HttpRequestContents, HttpRequestPreamble, HttpResponse,
+    HttpResponsePayload, HttpVersion,
+};
+use crate::net::httpcore::{RPCRequestHandler, StacksHttp, StacksHttpPreamble, StacksHttpRequest};
 use crate::net::Error as NetError;
 
 fn make_preamble(query: &str) -> HttpRequestPreamble {
@@ -98,4 +102,66 @@ fn test_parse_request() {
             }
         }
     }
+}
+
+#[test]
+fn response() {
+    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 33333);
+
+    let request = StacksHttpRequest::new_for_peer(
+        addr.into(),
+        "GET".into(),
+        "/v3/sortitions".into(),
+        HttpRequestContents::new(),
+    )
+    .expect("FATAL: failed to construct request from infallible data");
+    let mut responses = test_rpc(function_name!(), vec![request]);
+    let HttpResponsePayload::JSON(response) =
+        responses.pop().unwrap().get_http_payload_ok().unwrap()
+    else {
+        panic!("Expected JSON response");
+    };
+
+    info!("Response:\n{:#?}\n", response);
+
+    let info_array = response.as_array().expect("Response should be array");
+    assert_eq!(
+        info_array.len(),
+        1,
+        "/v3/sortitions should return a single entry"
+    );
+
+    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 33333);
+    let request = StacksHttpRequest::new_for_peer(
+        addr.into(),
+        "GET".into(),
+        "/v3/sortitions/latest_and_last".into(),
+        HttpRequestContents::new(),
+    )
+    .expect("FATAL: failed to construct request from infallible data");
+    let mut responses = test_rpc(function_name!(), vec![request]);
+    let HttpResponsePayload::JSON(response) =
+        responses.pop().unwrap().get_http_payload_ok().unwrap()
+    else {
+        panic!("Expected JSON response");
+    };
+
+    info!("Response:\n{:#?}\n", response);
+
+    let info_array = response.as_array().expect("Response should be array");
+    assert_eq!(
+        info_array.len(),
+        2,
+        "/v3/sortitions/latest_and_last should return 2 entries"
+    );
+    let first_entry: SortitionInfo = serde_json::from_value(info_array[0].clone())
+        .expect("Response array elements should parse to SortitionInfo");
+    let second_entry: SortitionInfo = serde_json::from_value(info_array[1].clone())
+        .expect("Response array elements should parse to SortitionInfo");
+    assert!(first_entry.was_sortition);
+    assert!(second_entry.was_sortition);
+    assert_eq!(
+        first_entry.last_sortition_ch.as_ref().unwrap(),
+        &second_entry.consensus_hash,
+    );
 }

@@ -1381,7 +1381,7 @@ fn mempool_do_not_replace_tx() {
     .unwrap_err();
     assert!(match err_resp {
         MemPoolRejection::ConflictingNonceInMempool => true,
-        _ => false,
+        e => panic!("Failed: {e:?}"),
     });
 
     assert!(MemPoolDB::db_has_tx(&mempool_tx, &prior_txid).unwrap());
@@ -1392,8 +1392,9 @@ fn mempool_do_not_replace_tx() {
 #[case(MempoolCollectionBehavior::ByStacksHeight)]
 #[case(MempoolCollectionBehavior::ByReceiveTime)]
 fn mempool_db_load_store_replace_tx(#[case] behavior: MempoolCollectionBehavior) {
-    let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
-    let chainstate_path = chainstate_path(function_name!());
+    let path_name = format!("{}::{:?}", function_name!(), behavior);
+    let mut chainstate = instantiate_chainstate(false, 0x80000000, &path_name);
+    let chainstate_path = chainstate_path(&path_name);
     let mut mempool = MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
 
     let mut txs = codec_all_transactions(

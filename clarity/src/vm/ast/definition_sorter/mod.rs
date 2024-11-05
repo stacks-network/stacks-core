@@ -173,7 +173,7 @@ impl DefinitionSorter {
                                     return Ok(());
                                 }
                                 DefineFunctions::Map => {
-                                    // Args: [name, key, value]: with key value being potentialy tuples
+                                    // Args: [name, key, value]: with key value being potentially tuples
                                     if function_args.len() == 3 {
                                         self.probe_for_dependencies(
                                             function_args[1],

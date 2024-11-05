@@ -119,6 +119,7 @@ pub mod db;
 pub mod sync;
 
 use std::collections::{HashMap, HashSet};
+use std::ops::Range;
 
 use clarity::vm::types::QualifiedContractIdentifier;
 use libstackerdb::{SlotMetadata, STACKERDB_MAX_CHUNK_SIZE};
@@ -205,6 +206,22 @@ impl StackerDBConfig {
     pub fn num_slots(&self) -> u32 {
         self.signers.iter().fold(0, |acc, s| acc + s.1)
     }
+
+    /// What are the slot index ranges for each signer?
+    /// Returns the ranges in the same ordering as `self.signers`
+    pub fn signer_ranges(&self) -> Vec<Range<u32>> {
+        let mut slot_index = 0;
+        let mut result = Vec::with_capacity(self.signers.len());
+        for (_, slot_count) in self.signers.iter() {
+            let end = slot_index + *slot_count;
+            result.push(Range {
+                start: slot_index,
+                end,
+            });
+            slot_index = end;
+        }
+        result
+    }
 }
 
 /// This is the set of replicated chunks in all stacker DBs that this node subscribes to.
@@ -280,14 +297,16 @@ impl StackerDBs {
                 == boot_code_id(MINERS_NAME, chainstate.mainnet)
             {
                 // .miners contract -- directly generate the config
-                NakamotoChainState::make_miners_stackerdb_config(sortdb, &tip).unwrap_or_else(|e| {
-                    warn!(
-                        "Failed to generate .miners StackerDB config";
-                        "contract" => %stackerdb_contract_id,
-                        "err" => ?e,
-                    );
-                    StackerDBConfig::noop()
-                })
+                NakamotoChainState::make_miners_stackerdb_config(sortdb, &tip)
+                    .map(|(config, _)| config)
+                    .unwrap_or_else(|e| {
+                        warn!(
+                            "Failed to generate .miners StackerDB config";
+                            "contract" => %stackerdb_contract_id,
+                            "err" => ?e,
+                        );
+                        StackerDBConfig::noop()
+                    })
             } else {
                 // attempt to load the config from the contract itself
                 StackerDBConfig::from_smart_contract(
@@ -297,11 +316,20 @@ impl StackerDBs {
                     num_neighbors,
                 )
                 .unwrap_or_else(|e| {
-                    warn!(
-                        "Failed to load StackerDB config";
-                        "contract" => %stackerdb_contract_id,
-                        "err" => ?e,
-                    );
+                    if matches!(e, net_error::NoSuchStackerDB(_)) && stackerdb_contract_id.is_boot()
+                    {
+                        debug!(
+                            "Failed to load StackerDB config";
+                            "contract" => %stackerdb_contract_id,
+                            "err" => ?e,
+                        );
+                    } else {
+                        warn!(
+                            "Failed to load StackerDB config";
+                            "contract" => %stackerdb_contract_id,
+                            "err" => ?e,
+                        );
+                    }
                     StackerDBConfig::noop()
                 })
             };
@@ -313,8 +341,14 @@ impl StackerDBs {
                         &e
                     );
                 }
-            } else if new_config != stackerdb_config && new_config.signers.len() > 0 {
+            } else if (new_config != stackerdb_config && new_config.signers.len() > 0)
+                || (new_config == stackerdb_config
+                    && new_config.signers.len()
+                        != self.get_slot_versions(&stackerdb_contract_id)?.len())
+            {
                 // only reconfigure if the config has changed
+                // (that second check on the length is needed in case the node is a victim of
+                // #5142, which was a bug whereby a stackerdb could never shrink)
                 if let Err(e) = self.reconfigure_stackerdb(&stackerdb_contract_id, &new_config) {
                     warn!(
                         "Failed to create or reconfigure StackerDB {stackerdb_contract_id}: DB error {:?}",
@@ -352,6 +386,8 @@ pub enum StackerDBSyncState {
 pub struct StackerDBSync<NC: NeighborComms> {
     /// what state are we in?
     state: StackerDBSyncState,
+    /// What was the rc consensus hash at the start of sync?
+    pub rc_consensus_hash: Option<ConsensusHash>,
     /// which contract this is a replica for
     pub smart_contract_id: QualifiedContractIdentifier,
     /// number of chunks in this DB
@@ -395,12 +431,20 @@ pub struct StackerDBSync<NC: NeighborComms> {
     /// whether or not we should immediately re-fetch chunks because we learned about new chunks
     /// from our peers when they replied to our chunk-pushes with new inventory state
     need_resync: bool,
+    /// whether or not the fetched inventory was determined to be stale
+    stale_inv: bool,
     /// Track stale neighbors
     pub(crate) stale_neighbors: HashSet<NeighborAddress>,
     /// How many attempted connections have been made in the last pass (gets reset)
     num_attempted_connections: u64,
     /// How many connections have been made in the last pass (gets reset)
     num_connections: u64,
+    /// Number of state machine passes
+    rounds: u128,
+    /// Round when we last pushed
+    push_round: u128,
+    /// time we last deliberately evicted a peer
+    last_eviction_time: u64,
 }
 
 impl StackerDBSyncResult {
@@ -463,17 +507,25 @@ impl PeerNetwork {
         Ok(results)
     }
 
-    /// Create a StackerDBChunksInv, or a Nack if the requested DB isn't replicated here
+    /// Create a StackerDBChunksInv, or a Nack if the requested DB isn't replicated here.
+    /// Runs in response to a received StackerDBGetChunksInv or a StackerDBPushChunk
     pub fn make_StackerDBChunksInv_or_Nack(
         &self,
+        naddr: NeighborAddress,
+        chainstate: &mut StacksChainState,
         contract_id: &QualifiedContractIdentifier,
+        rc_consensus_hash: &ConsensusHash,
     ) -> StacksMessageType {
+        // N.B. check that the DB exists first, since we want to report StaleView only if the DB
+        // exists
         let slot_versions = match self.stackerdbs.get_slot_versions(contract_id) {
             Ok(versions) => versions,
             Err(e) => {
                 debug!(
                     "{:?}: failed to get chunk versions for {}: {:?}",
-                    self.local_peer, contract_id, &e
+                    self.get_local_peer(),
+                    contract_id,
+                    &e
                 );
 
                 // most likely indicates that this DB doesn't exist
@@ -481,7 +533,32 @@ impl PeerNetwork {
             }
         };
 
+        // this DB exists, but is the view of this message recent?
+        if &self.get_chain_view().rc_consensus_hash != rc_consensus_hash {
+            // is there a Stacks block (or tenure) with this consensus hash?
+            let tip_block_id = self.stacks_tip.block_id();
+            if let Ok(Some(_)) = NakamotoChainState::get_tenure_start_block_header(
+                &mut chainstate.index_conn(),
+                &tip_block_id,
+                &rc_consensus_hash,
+            ) {
+                debug!("{:?}: NACK StackerDBGetChunksInv / StackerDBPushChunk from {} since {} != {} (remote is stale)", self.get_local_peer(), &naddr, &self.get_chain_view().rc_consensus_hash, rc_consensus_hash);
+                return StacksMessageType::Nack(NackData::new(NackErrorCodes::StaleView));
+            } else {
+                debug!("{:?}: NACK StackerDBGetChunksInv / StackerDBPushChunk from {} since {} != {} (local is potentially stale)", self.get_local_peer(), &naddr, &self.get_chain_view().rc_consensus_hash, rc_consensus_hash);
+                return StacksMessageType::Nack(NackData::new(NackErrorCodes::FutureView));
+            }
+        }
+
         let num_outbound_replicas = self.count_outbound_stackerdb_replicas(contract_id) as u32;
+
+        debug!(
+            "{:?}: inventory for {} has {} outbound replicas; versions are {:?}",
+            self.get_local_peer(),
+            contract_id,
+            num_outbound_replicas,
+            &slot_versions
+        );
         StacksMessageType::StackerDBChunkInv(StackerDBChunkInvData {
             slot_versions,
             num_outbound_replicas,
@@ -554,8 +631,11 @@ impl PeerNetwork {
     }
 
     /// Handle unsolicited StackerDBPushChunk messages.
-    /// Generate a reply handle for a StackerDBChunksInv to be sent to the remote peer, in which
-    /// the inventory vector is updated with this chunk's data.
+    /// Check to see that the message can be stored or buffered.
+    ///
+    /// Optionally, make a reply handle for a StackerDBChunksInv to be sent to the remote peer, in which
+    /// the inventory vector is updated with this chunk's data.  Or, send a NACK if the chunk
+    /// cannot be buffered or stored.
     ///
     /// Note that this can happen *during* a StackerDB sync's execution, so be very careful about
     /// modifying a state machine's contents!  The only modification possible here is to wakeup
@@ -565,17 +645,42 @@ impl PeerNetwork {
     /// which this chunk arrived will have already bandwidth-throttled the remote peer, and because
     /// messages can be arbitrarily delayed (and bunched up) by the network anyway.
     ///
-    /// Return Ok(true) if we should store the chunk
-    /// Return Ok(false) if we should drop it.
+    /// Returns (true, x) if we should buffer the message and try processing it again later.
+    /// Returns (false, x) if we should *not* buffer this message, because it either *won't* be valid
+    /// later, or if it can be stored right now.
+    ///
+    /// Returns (x, true) if we should forward the message to the relayer, so it can be processed.
+    /// Returns (x, false) if we should *not* forward the message to the relayer, because it will
+    /// *not* be processed.
     pub fn handle_unsolicited_StackerDBPushChunk(
         &mut self,
+        chainstate: &mut StacksChainState,
         event_id: usize,
         preamble: &Preamble,
         chunk_data: &StackerDBPushChunkData,
-    ) -> Result<bool, net_error> {
-        let mut payload = self.make_StackerDBChunksInv_or_Nack(&chunk_data.contract_id);
+        send_reply: bool,
+    ) -> Result<(bool, bool), net_error> {
+        let Some(naddr) = self
+            .get_p2p_convo(event_id)
+            .map(|convo| convo.to_neighbor_address())
+        else {
+            debug!(
+                "Drop unsolicited StackerDBPushChunk: event ID {} is not connected",
+                event_id
+            );
+            return Ok((false, false));
+        };
+
+        let mut payload = self.make_StackerDBChunksInv_or_Nack(
+            naddr,
+            chainstate,
+            &chunk_data.contract_id,
+            &chunk_data.rc_consensus_hash,
+        );
         match payload {
             StacksMessageType::StackerDBChunkInv(ref mut data) => {
+                // this message corresponds to an existing DB, and comes from the same view of the
+                // stacks chain tip
                 let stackerdb_config = if let Some(config) =
                     self.get_stacker_db_configs().get(&chunk_data.contract_id)
                 {
@@ -586,7 +691,7 @@ impl PeerNetwork {
                         "StackerDBChunk for {} ID {} is not available locally",
                         &chunk_data.contract_id, chunk_data.chunk_data.slot_id
                     );
-                    return Ok(false);
+                    return Ok((false, false));
                 };
 
                 // sanity check
@@ -596,7 +701,7 @@ impl PeerNetwork {
                     &chunk_data.chunk_data,
                     &data.slot_versions,
                 )? {
-                    return Ok(false);
+                    return Ok((false, false));
                 }
 
                 // patch inventory -- we'll accept this chunk
@@ -610,10 +715,28 @@ impl PeerNetwork {
                     }
                 }
             }
-            _ => {}
+            StacksMessageType::Nack(ref nack_data) => {
+                if nack_data.error_code == NackErrorCodes::FutureView {
+                    // chunk corresponds to a known DB but the view of the sender is potentially in
+                    // the future.
+                    // We should buffer this in case it becomes storable, but don't
+                    // store it yet.
+                    return Ok((true, false));
+                } else {
+                    return Ok((false, false));
+                }
+            }
+            _ => {
+                // don't recognize the message, so don't buffer
+                return Ok((false, false));
+            }
         }
 
-        // this is a reply to the pushed chunk
+        if !send_reply {
+            return Ok((false, true));
+        }
+
+        // this is a reply to the pushed chunk, and we can store it right now (so don't buffer it)
         let resp = self.sign_for_p2p_reply(event_id, preamble.seq, payload)?;
         let handle = self.send_p2p_message(
             event_id,
@@ -621,6 +744,6 @@ impl PeerNetwork {
             self.connection_opts.neighbor_request_timeout,
         )?;
         self.add_relay_handle(event_id, handle);
-        Ok(true)
+        Ok((false, true))
     }
 }

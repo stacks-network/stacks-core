@@ -44,7 +44,7 @@ fn parse_request() {
     let bytes = request.try_serialize().unwrap();
 
     let (parsed_preamble, offset) = http.read_preamble(&bytes).unwrap();
-    let mut handler = postblock_v3::RPCPostBlockRequestHandler::default();
+    let mut handler = postblock_v3::RPCPostBlockRequestHandler::new(Some("12345".to_string()));
     let mut parsed_request = http
         .handle_try_parse_request(
             &mut handler,
@@ -60,9 +60,36 @@ fn parse_request() {
     let (preamble, _contents) = parsed_request.destruct();
 
     assert_eq!(&preamble, request.preamble());
+    assert_eq!(handler.broadcast, Some(false));
 
     handler.restart();
     assert!(handler.block.is_none());
+    assert!(handler.broadcast.is_none());
+
+    // try to authenticate
+    let block = make_codec_test_nakamoto_block(StacksEpochId::Epoch30, &miner_sk);
+    let request = StacksHttpRequest::new_post_block_v3_broadcast(addr.into(), &block, "12345");
+    let bytes = request.try_serialize().unwrap();
+
+    let (parsed_preamble, offset) = http.read_preamble(&bytes).unwrap();
+    let mut parsed_request = http
+        .handle_try_parse_request(
+            &mut handler,
+            &parsed_preamble.expect_request(),
+            &bytes[offset..],
+        )
+        .unwrap();
+
+    parsed_request.clear_headers();
+    parsed_request.add_header("authorization".into(), "12345".into());
+    let (preamble, _contents) = parsed_request.destruct();
+
+    assert_eq!(&preamble, request.preamble());
+    assert_eq!(handler.broadcast, Some(true));
+
+    handler.restart();
+    assert!(handler.block.is_none());
+    assert!(handler.broadcast.is_none());
 
     // try to deal with an invalid block
     let mut bad_block = block.clone();
@@ -72,7 +99,6 @@ fn parse_request() {
     let request = StacksHttpRequest::new_post_block_v3(addr.into(), &bad_block);
     let bytes = request.try_serialize().unwrap();
     let (parsed_preamble, offset) = http.read_preamble(&bytes).unwrap();
-    let mut handler = postblock_v3::RPCPostBlockRequestHandler::default();
     match http.handle_try_parse_request(
         &mut handler,
         &parsed_preamble.expect_request(),
@@ -81,6 +107,58 @@ fn parse_request() {
         Err(NetError::Http(Error::DecodeError(..))) => {}
         _ => {
             panic!("worked with bad block");
+        }
+    }
+
+    handler.restart();
+    assert!(handler.block.is_none());
+    assert!(handler.broadcast.is_none());
+
+    // deal with bad authentication
+    let request =
+        StacksHttpRequest::new_post_block_v3_broadcast(addr.into(), &block, "wrong password");
+    let bytes = request.try_serialize().unwrap();
+    let (parsed_preamble, offset) = http.read_preamble(&bytes).unwrap();
+    let bad_response = http.handle_try_parse_request(
+        &mut handler,
+        &parsed_preamble.expect_request(),
+        &bytes[offset..],
+    );
+    match bad_response {
+        Err(crate::net::Error::Http(crate::net::http::Error::Http(err_code, message))) => {
+            assert_eq!(err_code, 401);
+            assert_eq!(message, "Unauthorized");
+        }
+        x => {
+            error!("Expected HTTP 401, got {:?}", &x);
+            panic!("expected error");
+        }
+    }
+
+    handler.restart();
+    assert!(handler.block.is_none());
+    assert!(handler.broadcast.is_none());
+
+    // deal with missing authorization
+    let mut request = StacksHttpRequest::new_post_block_v3(addr.into(), &block);
+    let path = request.request_path();
+    request.preamble_mut().path_and_query_str = format!("{}?broadcast=1", &path);
+
+    let bytes = request.try_serialize().unwrap();
+    let (parsed_preamble, offset) = http.read_preamble(&bytes).unwrap();
+    let bad_response = http.handle_try_parse_request(
+        &mut handler,
+        &parsed_preamble.expect_request(),
+        &bytes[offset..],
+    );
+    match bad_response {
+        Err(crate::net::Error::Http(crate::net::http::Error::Http(err_code, message))) => {
+            assert_eq!(err_code, 401);
+            assert_eq!(message, "Unauthorized");
+        }
+        x => {
+            error!("Expected HTTP 401, got {:?}", &x);
+            panic!("expected error");
         }
     }
 }

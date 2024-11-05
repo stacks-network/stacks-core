@@ -44,12 +44,11 @@ use stacks_common::types::{Address, PrivateKey};
 use stacks_common::util::hash::{hex_bytes, to_hex, Sha256Sum, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 use stdext::num::integer::Integer;
-use wsts::curve::point::{Compressed, Point};
 
 use super::test::*;
 use super::RawRewardSetEntry;
 use crate::burnchains::{Burnchain, PoxConstants};
-use crate::chainstate::burn::db::sortdb::SortitionDB;
+use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandle};
 use crate::chainstate::burn::operations::*;
 use crate::chainstate::burn::{BlockSnapshot, ConsensusHash};
 use crate::chainstate::coordinator::tests::pox_addr_from;
@@ -81,6 +80,7 @@ use crate::clarity_vm::database::marf::{MarfedKV, WritableMarfStore};
 use crate::clarity_vm::database::HeadersDBConn;
 use crate::core::*;
 use crate::net::test::{TestEventObserver, TestEventObserverBlock, TestPeer, TestPeerConfig};
+use crate::net::tests::NakamotoBootPlan;
 use crate::util_lib::boot::boot_code_id;
 use crate::util_lib::db::{DBConn, FromRow};
 use crate::util_lib::signed_structured_data::pox4::Pox4SignatureTopic;
@@ -95,6 +95,14 @@ const ERR_REUSED_SIGNER_KEY: i128 = 33;
 pub fn get_tip(sortdb: Option<&SortitionDB>) -> BlockSnapshot {
     SortitionDB::get_canonical_burn_chain_tip(&sortdb.unwrap().conn()).unwrap()
 }
+
+/// Helper rstest template for running tests in both 2.5
+/// and 3.0 epochs.
+#[template]
+#[rstest]
+#[case::epoch_30(true)]
+#[case::epoch_25(false)]
+fn nakamoto_cases(#[case] use_nakamoto: bool) {}
 
 fn make_simple_pox_4_lock(
     key: &StacksPrivateKey,
@@ -138,7 +146,7 @@ fn make_simple_pox_4_lock(
     )
 }
 
-pub fn make_test_epochs_pox() -> (Vec<StacksEpoch>, PoxConstants) {
+pub fn make_test_epochs_pox(use_nakamoto: bool) -> (Vec<StacksEpoch>, PoxConstants) {
     let EMPTY_SORTITIONS = 25;
     let EPOCH_2_1_HEIGHT = EMPTY_SORTITIONS + 11; // 36
     let EPOCH_2_2_HEIGHT = EPOCH_2_1_HEIGHT + 14; // 50
@@ -147,8 +155,9 @@ pub fn make_test_epochs_pox() -> (Vec<StacksEpoch>, PoxConstants) {
                                                  //  this means that cycle 11 should also be treated like a "burn"
     let EPOCH_2_4_HEIGHT = EPOCH_2_3_HEIGHT + 4; // 56
     let EPOCH_2_5_HEIGHT = EPOCH_2_4_HEIGHT + 44; // 100
+    let EPOCH_3_0_HEIGHT = EPOCH_2_5_HEIGHT + 23; // 123
 
-    let epochs = vec![
+    let mut epochs = vec![
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch10,
             start_height: 0,
@@ -201,11 +210,27 @@ pub fn make_test_epochs_pox() -> (Vec<StacksEpoch>, PoxConstants) {
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch25,
             start_height: EPOCH_2_5_HEIGHT,
-            end_height: STACKS_EPOCH_MAX,
+            end_height: {
+                if use_nakamoto {
+                    EPOCH_3_0_HEIGHT
+                } else {
+                    STACKS_EPOCH_MAX
+                }
+            },
             block_limit: ExecutionCost::max_value(),
             network_epoch: PEER_VERSION_EPOCH_2_5,
         },
     ];
+
+    if use_nakamoto {
+        epochs.push(StacksEpoch {
+            epoch_id: StacksEpochId::Epoch30,
+            start_height: EPOCH_3_0_HEIGHT,
+            end_height: STACKS_EPOCH_MAX,
+            block_limit: ExecutionCost::max_value(),
+            network_epoch: PEER_VERSION_EPOCH_3_0,
+        });
+    }
 
     let mut pox_constants = PoxConstants::mainnet_default();
     pox_constants.reward_cycle_length = 5;
@@ -230,7 +255,7 @@ fn pox_extend_transition() {
     //  tenures start being tracked.
     let EMPTY_SORTITIONS = 25;
 
-    let (epochs, pox_constants) = make_test_epochs_pox();
+    let (epochs, pox_constants) = make_test_epochs_pox(false);
 
     let mut burnchain = Burnchain::default_unittest(
         0,
@@ -890,7 +915,7 @@ fn pox_lock_unlock() {
     // Config for this test
     // We are going to try locking for 2 reward cycles (10 blocks)
     let lock_period = 2;
-    let (epochs, pox_constants) = make_test_epochs_pox();
+    let (epochs, pox_constants) = make_test_epochs_pox(false);
 
     let mut burnchain = Burnchain::default_unittest(
         0,
@@ -1064,7 +1089,7 @@ fn pox_3_defunct() {
     // Config for this test
     // We are going to try locking for 2 reward cycles (10 blocks)
     let lock_period = 2;
-    let (epochs, pox_constants) = make_test_epochs_pox();
+    let (epochs, pox_constants) = make_test_epochs_pox(false);
 
     let mut burnchain = Burnchain::default_unittest(
         0,
@@ -1199,7 +1224,7 @@ fn pox_3_unlocks() {
     // Config for this test
     // We are going to try locking for 4 reward cycles (20 blocks)
     let lock_period = 4;
-    let (epochs, pox_constants) = make_test_epochs_pox();
+    let (epochs, pox_constants) = make_test_epochs_pox(false);
 
     let mut burnchain = Burnchain::default_unittest(
         0,
@@ -1350,7 +1375,7 @@ fn pox_3_unlocks() {
 #[test]
 fn pox_4_check_cycle_id_range_in_print_events_pool() {
     // Config for this test
-    let (epochs, pox_constants) = make_test_epochs_pox();
+    let (epochs, pox_constants) = make_test_epochs_pox(false);
 
     let mut burnchain = Burnchain::default_unittest(
         0,
@@ -1739,7 +1764,7 @@ fn pox_4_check_cycle_id_range_in_print_events_pool() {
 #[test]
 fn pox_4_check_cycle_id_range_in_print_events_pool_in_prepare_phase() {
     // Config for this test
-    let (epochs, pox_constants) = make_test_epochs_pox();
+    let (epochs, pox_constants) = make_test_epochs_pox(false);
 
     let mut burnchain = Burnchain::default_unittest(
         0,
@@ -2166,7 +2191,7 @@ fn pox_4_check_cycle_id_range_in_print_events_pool_in_prepare_phase() {
 #[test]
 fn pox_4_check_cycle_id_range_in_print_events_pool_in_prepare_phase_skip_cycle() {
     // Config for this test
-    let (epochs, pox_constants) = make_test_epochs_pox();
+    let (epochs, pox_constants) = make_test_epochs_pox(false);
 
     let mut burnchain = Burnchain::default_unittest(
         0,
@@ -2398,7 +2423,7 @@ fn pox_4_check_cycle_id_range_in_print_events_pool_in_prepare_phase_skip_cycle()
 #[test]
 fn pox_4_check_cycle_id_range_in_print_events_before_prepare_phase() {
     // Config for this test
-    let (epochs, pox_constants) = make_test_epochs_pox();
+    let (epochs, pox_constants) = make_test_epochs_pox(false);
 
     let mut burnchain = Burnchain::default_unittest(
         0,
@@ -2436,7 +2461,7 @@ fn pox_4_check_cycle_id_range_in_print_events_before_prepare_phase() {
     while get_tip(peer.sortdb.as_ref()).block_height < u64::from(target_height) {
         latest_block = Some(peer.tenure_with_txs(&[], &mut coinbase_nonce));
     }
-    // produce blocks until the we're 1 before the prepare phase (first block of prepare-phase not yet mined)
+    // produce blocks until the we're 1 before the prepare phase (first block of prepare-phase not yet mined, whatever txs we create now won't be included in the reward set)
     while !burnchain.is_in_prepare_phase(get_tip(peer.sortdb.as_ref()).block_height + 1) {
         latest_block = Some(peer.tenure_with_txs(&[], &mut coinbase_nonce));
     }
@@ -2493,7 +2518,7 @@ fn pox_4_check_cycle_id_range_in_print_events_before_prepare_phase() {
     let steph_stacking_receipt = txs.get(&steph_stacking.txid()).unwrap().clone();
     assert_eq!(steph_stacking_receipt.events.len(), 2);
     let steph_stacking_op_data = HashMap::from([
-        ("start-cycle-id", Value::UInt(next_cycle)),
+        ("start-cycle-id", Value::UInt(next_cycle + 1)), // +1 because steph stacked in the block before the prepare phase (too late)
         (
             "end-cycle-id",
             Value::some(Value::UInt(next_cycle + steph_lock_period)).unwrap(),
@@ -2519,7 +2544,7 @@ fn pox_4_check_cycle_id_range_in_print_events_before_prepare_phase() {
 #[test]
 fn pox_4_check_cycle_id_range_in_print_events_in_prepare_phase() {
     // Config for this test
-    let (epochs, pox_constants) = make_test_epochs_pox();
+    let (epochs, pox_constants) = make_test_epochs_pox(false);
 
     let mut burnchain = Burnchain::default_unittest(
         0,
@@ -2638,7 +2663,7 @@ fn pox_4_check_cycle_id_range_in_print_events_in_prepare_phase() {
 #[test]
 fn pox_4_delegate_stack_increase_events() {
     // Config for this test
-    let (epochs, pox_constants) = make_test_epochs_pox();
+    let (epochs, pox_constants) = make_test_epochs_pox(false);
 
     let mut burnchain = Burnchain::default_unittest(
         0,
@@ -2744,7 +2769,7 @@ fn pox_4_delegate_stack_increase_events() {
 #[test]
 fn pox_4_revoke_delegate_stx_events() {
     // Config for this test
-    let (epochs, pox_constants) = make_test_epochs_pox();
+    let (epochs, pox_constants) = make_test_epochs_pox(false);
 
     let mut burnchain = Burnchain::default_unittest(
         0,
@@ -2982,7 +3007,7 @@ fn verify_signer_key_sig(
 
 #[test]
 fn verify_signer_key_signatures() {
-    let (epochs, pox_constants) = make_test_epochs_pox();
+    let (epochs, pox_constants) = make_test_epochs_pox(false);
 
     let mut burnchain = Burnchain::default_unittest(
         0,
@@ -3274,12 +3299,12 @@ fn verify_signer_key_signatures() {
     assert_eq!(result, Value::okay_true());
 }
 
-#[test]
-fn stack_stx_verify_signer_sig() {
+#[apply(nakamoto_cases)]
+fn stack_stx_verify_signer_sig(use_nakamoto: bool) {
     let lock_period = 2;
     let observer = TestEventObserver::new();
-    let (burnchain, mut peer, keys, latest_block, block_height, coinbase_nonce) =
-        prepare_pox4_test(function_name!(), Some(&observer));
+    let (burnchain, mut peer, keys, latest_block, block_height, coinbase_nonce, mut test_signers) =
+        prepare_pox4_test(function_name!(), Some(&observer), use_nakamoto);
 
     let mut coinbase_nonce = coinbase_nonce;
 
@@ -3538,7 +3563,7 @@ fn stack_stx_verify_signer_sig() {
         valid_tx,
     ];
 
-    let latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
+    let latest_block = tenure_with_txs(&mut peer, &txs, &mut coinbase_nonce, &mut test_signers);
 
     let stacker_txs = get_last_block_sender_transactions(&observer, stacker_addr);
     let expected_error = Value::error(Value::Int(35)).unwrap();
@@ -3598,8 +3623,8 @@ fn stack_stx_verify_signer_sig() {
 fn stack_extend_verify_sig() {
     let lock_period = 2;
     let observer = TestEventObserver::new();
-    let (burnchain, mut peer, keys, latest_block, block_height, coinbase_nonce) =
-        prepare_pox4_test(function_name!(), Some(&observer));
+    let (burnchain, mut peer, keys, latest_block, block_height, coinbase_nonce, test_signers) =
+        prepare_pox4_test(function_name!(), Some(&observer), false);
 
     let mut coinbase_nonce = coinbase_nonce;
 
@@ -3851,8 +3876,8 @@ fn stack_extend_verify_sig() {
 fn stack_agg_commit_verify_sig() {
     let lock_period = 2;
     let observer = TestEventObserver::new();
-    let (burnchain, mut peer, keys, latest_block, block_height, coinbase_nonce) =
-        prepare_pox4_test(function_name!(), Some(&observer));
+    let (burnchain, mut peer, keys, latest_block, block_height, coinbase_nonce, test_signers) =
+        prepare_pox4_test(function_name!(), Some(&observer), false);
 
     let mut coinbase_nonce = coinbase_nonce;
 
@@ -4218,12 +4243,23 @@ fn advance_to_block_height(
     txs: &[StacksTransaction],
     peer_nonce: &mut usize,
     target_height: u64,
-) -> (StacksBlockId, TestEventObserverBlock) {
+    test_signers: &mut Option<TestSigners>,
+) -> (
+    StacksBlockId,
+    TestEventObserverBlock,
+    Vec<StacksTransactionReceipt>,
+) {
     let mut tx_block = None;
     let mut latest_block = None;
     let mut passed_txs = txs;
     while peer.get_burn_block_height() < target_height {
-        latest_block = Some(peer.tenure_with_txs(&passed_txs, peer_nonce));
+        info!(
+            "Advancing to block height: {} from {} with {} txs",
+            target_height,
+            peer.get_burn_block_height(),
+            passed_txs.len()
+        );
+        latest_block = Some(tenure_with_txs(peer, &passed_txs, peer_nonce, test_signers));
         passed_txs = &[];
         if tx_block.is_none() {
             tx_block = Some(observer.get_blocks().last().unwrap().clone());
@@ -4231,7 +4267,12 @@ fn advance_to_block_height(
     }
     let latest_block = latest_block.expect("Failed to get tip");
     let tx_block = tx_block.expect("Failed to get tx block");
-    (latest_block, tx_block)
+    let tx_block_receipts = if test_signers.is_some() {
+        tx_block.receipts[1..].to_vec() // remove TenureChange
+    } else {
+        tx_block.receipts.clone()
+    };
+    (latest_block, tx_block, tx_block_receipts)
 }
 
 #[test]
@@ -4430,12 +4471,13 @@ fn stack_agg_increase() {
 
     // Advance to next block in order to collect aggregate commit reward index
     target_height += 1;
-    let (latest_block, tx_block) = advance_to_block_height(
+    let (latest_block, tx_block, _receipts) = advance_to_block_height(
         &mut peer,
         &observer,
         &txs,
         &mut peer_nonce,
         target_height.into(),
+        &mut None,
     );
 
     // Get Bob's aggregate commit reward index
@@ -4576,12 +4618,13 @@ fn stack_agg_increase() {
 
     // Advance to next block in order to attempt aggregate increase
     target_height += 1;
-    let (latest_block, tx_block) = advance_to_block_height(
+    let (latest_block, tx_block, _receipts) = advance_to_block_height(
         &mut peer,
         &observer,
         &txs,
         &mut peer_nonce,
         target_height.into(),
+        &mut None,
     );
 
     // Fetch the error aggregate increase result & check that the err is ERR_INVALID_SIGNER_KEY
@@ -4658,12 +4701,12 @@ fn stack_agg_increase() {
     assert_eq!(bob_aggregate_commit_reward_index, &Value::UInt(1));
 }
 
-#[test]
-fn stack_increase_verify_signer_key() {
+#[apply(nakamoto_cases)]
+fn stack_increase_verify_signer_key(use_nakamoto: bool) {
     let lock_period = 1;
     let observer = TestEventObserver::new();
-    let (burnchain, mut peer, keys, latest_block, block_height, coinbase_nonce) =
-        prepare_pox4_test(function_name!(), Some(&observer));
+    let (burnchain, mut peer, keys, latest_block, block_height, coinbase_nonce, mut test_signers) =
+        prepare_pox4_test(function_name!(), Some(&observer), use_nakamoto);
 
     let mut coinbase_nonce = coinbase_nonce;
 
@@ -4901,7 +4944,8 @@ fn stack_increase_verify_signer_key() {
         1,
     );
 
-    let latest_block = peer.tenure_with_txs(
+    let latest_block = tenure_with_txs(
+        &mut peer,
         &[
             stack_tx,
             invalid_cycle_tx,
@@ -4915,6 +4959,7 @@ fn stack_increase_verify_signer_key() {
             stack_increase,
         ],
         &mut coinbase_nonce,
+        &mut test_signers,
     );
 
     let txs = get_last_block_sender_transactions(&observer, stacker_addr);
@@ -4943,15 +4988,15 @@ fn stack_increase_verify_signer_key() {
         .expect("Expected ok result from tx");
 }
 
-#[test]
+#[apply(nakamoto_cases)]
 /// Verify that when calling `stack-increase`, the function
 /// fails if the signer key for each cycle being updated is not the same
 /// as the provided `signer-key` argument
-fn stack_increase_different_signer_keys() {
+fn stack_increase_different_signer_keys(use_nakamoto: bool) {
     let lock_period = 1;
     let observer = TestEventObserver::new();
-    let (burnchain, mut peer, keys, latest_block, block_height, coinbase_nonce) =
-        prepare_pox4_test(function_name!(), Some(&observer));
+    let (burnchain, mut peer, keys, latest_block, block_height, coinbase_nonce, mut test_signers) =
+        prepare_pox4_test(function_name!(), Some(&observer), use_nakamoto);
 
     let mut coinbase_nonce = coinbase_nonce;
 
@@ -5036,8 +5081,12 @@ fn stack_increase_different_signer_keys() {
         1,
     );
 
-    let latest_block =
-        peer.tenure_with_txs(&[stack_tx, extend_tx, stack_increase], &mut coinbase_nonce);
+    let latest_block = tenure_with_txs(
+        &mut peer,
+        &[stack_tx, extend_tx, stack_increase],
+        &mut coinbase_nonce,
+        &mut test_signers,
+    );
 
     let txs = get_last_block_sender_transactions(&observer, stacker_addr.clone());
 
@@ -5133,11 +5182,18 @@ fn balances_from_keys(
         .collect()
 }
 
-#[test]
-fn stack_stx_signer_key() {
+#[apply(nakamoto_cases)]
+fn stack_stx_signer_key(use_nakamoto: bool) {
     let observer = TestEventObserver::new();
-    let (burnchain, mut peer, keys, latest_block, block_height, mut coinbase_nonce) =
-        prepare_pox4_test(function_name!(), Some(&observer));
+    let (
+        burnchain,
+        mut peer,
+        keys,
+        latest_block,
+        block_height,
+        mut coinbase_nonce,
+        mut test_signers,
+    ) = prepare_pox4_test(function_name!(), Some(&observer), use_nakamoto);
 
     let stacker_nonce = 0;
     let stacker_key = &keys[0];
@@ -5181,7 +5237,7 @@ fn stack_stx_signer_key() {
         ],
     )];
 
-    let latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
+    let latest_block = tenure_with_txs(&mut peer, &txs, &mut coinbase_nonce, &mut test_signers);
     let stacking_state = get_stacking_state_pox_4(
         &mut peer,
         &latest_block,
@@ -5209,25 +5265,39 @@ fn stack_stx_signer_key() {
         .block_height_to_reward_cycle(block_height)
         .unwrap();
     let reward_cycle_ht = burnchain.reward_cycle_to_block_height(next_reward_cycle);
-    let mut reward_set = get_reward_set_entries_at(&mut peer, &latest_block, reward_cycle_ht);
-    assert_eq!(reward_set.len(), 1);
-    let reward_entry = reward_set.pop().unwrap();
-    assert_eq!(
-        PoxAddress::try_from_pox_tuple(false, &pox_addr_val).unwrap(),
-        reward_entry.reward_address
-    );
+    let reward_set = get_reward_set_entries_at(&mut peer, &latest_block, reward_cycle_ht);
+    assert_eq!(reward_set.len(), {
+        if use_nakamoto {
+            2
+        } else {
+            1
+        }
+    });
+    let reward_entry = reward_set
+        .iter()
+        .find(|entry| {
+            entry.reward_address == PoxAddress::try_from_pox_tuple(false, &pox_addr_val).unwrap()
+        })
+        .expect("No reward entry found");
     assert_eq!(
         &reward_entry.signer.unwrap(),
         &signer_public_key.to_bytes_compressed().as_slice(),
     );
 }
 
-#[test]
+#[apply(nakamoto_cases)]
 /// Test `stack-stx` using signer key authorization
-fn stack_stx_signer_auth() {
+fn stack_stx_signer_auth(use_nakamoto: bool) {
     let observer = TestEventObserver::new();
-    let (burnchain, mut peer, keys, latest_block, block_height, mut coinbase_nonce) =
-        prepare_pox4_test(function_name!(), Some(&observer));
+    let (
+        burnchain,
+        mut peer,
+        keys,
+        latest_block,
+        block_height,
+        mut coinbase_nonce,
+        mut test_signers,
+    ) = prepare_pox4_test(function_name!(), Some(&observer), use_nakamoto);
 
     let mut stacker_nonce = 0;
     let stacker_key = &keys[0];
@@ -5291,7 +5361,7 @@ fn stack_stx_signer_auth() {
 
     let txs = vec![failed_stack_tx, enable_auth_tx, valid_stack_tx];
 
-    let latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
+    let latest_block = tenure_with_txs(&mut peer, &txs, &mut coinbase_nonce, &mut test_signers);
     let stacking_state = get_stacking_state_pox_4(
         &mut peer,
         &latest_block,
@@ -5329,13 +5399,13 @@ fn stack_stx_signer_auth() {
     assert_eq!(enable_tx_result, Value::okay_true());
 }
 
-#[test]
+#[apply(nakamoto_cases)]
 /// Test `stack-aggregation-commit` using signer key authorization
-fn stack_agg_commit_signer_auth() {
+fn stack_agg_commit_signer_auth(use_nakamoto: bool) {
     let lock_period = 2;
     let observer = TestEventObserver::new();
-    let (burnchain, mut peer, keys, latest_block, block_height, coinbase_nonce) =
-        prepare_pox4_test(function_name!(), Some(&observer));
+    let (burnchain, mut peer, keys, latest_block, block_height, coinbase_nonce, mut test_signers) =
+        prepare_pox4_test(function_name!(), Some(&observer), use_nakamoto);
 
     let mut coinbase_nonce = coinbase_nonce;
 
@@ -5434,7 +5504,7 @@ fn stack_agg_commit_signer_auth() {
         valid_agg_tx,
     ];
 
-    let latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
+    let latest_block = tenure_with_txs(&mut peer, &txs, &mut coinbase_nonce, &mut test_signers);
 
     let delegate_txs = get_last_block_sender_transactions(&observer, delegate_addr);
 
@@ -5449,14 +5519,14 @@ fn stack_agg_commit_signer_auth() {
         .expect("Expected ok result from stack-agg-commit tx");
 }
 
-#[test]
+#[apply(nakamoto_cases)]
 /// Test `stack-extend` using signer key authorization
 /// instead of signatures
-fn stack_extend_signer_auth() {
+fn stack_extend_signer_auth(use_nakamoto: bool) {
     let lock_period = 2;
     let observer = TestEventObserver::new();
-    let (burnchain, mut peer, keys, latest_block, block_height, coinbase_nonce) =
-        prepare_pox4_test(function_name!(), Some(&observer));
+    let (burnchain, mut peer, keys, latest_block, block_height, coinbase_nonce, mut test_signers) =
+        prepare_pox4_test(function_name!(), Some(&observer), use_nakamoto);
 
     let mut coinbase_nonce = coinbase_nonce;
 
@@ -5540,7 +5610,7 @@ fn stack_extend_signer_auth() {
 
     let txs = vec![stack_tx, invalid_cycle_tx, enable_auth_tx, valid_tx];
 
-    let latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
+    let latest_block = tenure_with_txs(&mut peer, &txs, &mut coinbase_nonce, &mut test_signers);
 
     let stacker_txs = get_last_block_sender_transactions(&observer, stacker_addr);
 
@@ -5556,13 +5626,13 @@ fn stack_extend_signer_auth() {
         .expect("Expected ok result from stack-extend tx");
 }
 
-#[test]
+#[apply(nakamoto_cases)]
 /// Test `set-signer-key-authorization` function
-fn test_set_signer_key_auth() {
+fn test_set_signer_key_auth(use_nakamoto: bool) {
     let lock_period = 2;
     let observer = TestEventObserver::new();
-    let (burnchain, mut peer, keys, latest_block, block_height, coinbase_nonce) =
-        prepare_pox4_test(function_name!(), Some(&observer));
+    let (burnchain, mut peer, keys, latest_block, block_height, coinbase_nonce, mut test_signers) =
+        prepare_pox4_test(function_name!(), Some(&observer), use_nakamoto);
 
     let mut coinbase_nonce = coinbase_nonce;
 
@@ -5639,7 +5709,8 @@ fn test_set_signer_key_auth() {
         1,
     );
 
-    let latest_block = peer.tenure_with_txs(
+    let latest_block = tenure_with_txs(
+        &mut peer,
         &[
             invalid_enable_tx,
             invalid_tx_period,
@@ -5647,6 +5718,7 @@ fn test_set_signer_key_auth() {
             disable_auth_tx,
         ],
         &mut coinbase_nonce,
+        &mut test_signers,
     );
 
     let alice_txs = get_last_block_sender_transactions(&observer, alice_addr);
@@ -5716,7 +5788,12 @@ fn test_set_signer_key_auth() {
         1,
     );
 
-    let latest_block = peer.tenure_with_txs(&[enable_auth_tx], &mut coinbase_nonce);
+    let latest_block = tenure_with_txs(
+        &mut peer,
+        &[enable_auth_tx],
+        &mut coinbase_nonce,
+        &mut test_signers,
+    );
 
     let signer_key_enabled = get_signer_key_authorization_pox_4(
         &mut peer,
@@ -5748,7 +5825,12 @@ fn test_set_signer_key_auth() {
         1,
     );
 
-    let latest_block = peer.tenure_with_txs(&[disable_auth_tx], &mut coinbase_nonce);
+    let latest_block = tenure_with_txs(
+        &mut peer,
+        &[disable_auth_tx],
+        &mut coinbase_nonce,
+        &mut test_signers,
+    );
 
     let signer_key_enabled = get_signer_key_authorization_pox_4(
         &mut peer,
@@ -5765,11 +5847,18 @@ fn test_set_signer_key_auth() {
     assert_eq!(signer_key_enabled.unwrap(), false);
 }
 
-#[test]
-fn stack_extend_signer_key() {
+#[apply(nakamoto_cases)]
+fn stack_extend_signer_key(use_nakamoto: bool) {
     let lock_period = 2;
-    let (burnchain, mut peer, keys, latest_block, block_height, mut coinbase_nonce) =
-        prepare_pox4_test(function_name!(), None);
+    let (
+        burnchain,
+        mut peer,
+        keys,
+        latest_block,
+        block_height,
+        mut coinbase_nonce,
+        mut test_signers,
+    ) = prepare_pox4_test(function_name!(), None, use_nakamoto);
 
     let mut stacker_nonce = 0;
     let stacker_key = &keys[0];
@@ -5819,7 +5908,7 @@ fn stack_extend_signer_key() {
 
     stacker_nonce += 1;
 
-    let mut latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
+    let mut latest_block = tenure_with_txs(&mut peer, &txs, &mut coinbase_nonce, &mut test_signers);
 
     let signature = make_signer_key_signature(
         &pox_addr,
@@ -5842,7 +5931,12 @@ fn stack_extend_signer_key() {
         1,
     )];
 
-    latest_block = peer.tenure_with_txs(&update_txs, &mut coinbase_nonce);
+    latest_block = tenure_with_txs(
+        &mut peer,
+        &update_txs,
+        &mut coinbase_nonce,
+        &mut test_signers,
+    );
     let new_stacking_state = get_stacking_state_pox_4(
         &mut peer,
         &latest_block,
@@ -5855,21 +5949,35 @@ fn stack_extend_signer_key() {
     let reward_cycle_ht = burnchain.reward_cycle_to_block_height(next_reward_cycle);
     let extend_cycle_ht = burnchain.reward_cycle_to_block_height(extend_reward_cycle);
 
-    let mut reward_set = get_reward_set_entries_at(&mut peer, &latest_block, reward_cycle_ht);
-    assert_eq!(reward_set.len(), 1);
-    let reward_entry = reward_set.pop().unwrap();
-    assert_eq!(
-        PoxAddress::try_from_pox_tuple(false, &pox_addr_val).unwrap(),
-        reward_entry.reward_address
-    );
+    let reward_set = get_reward_set_entries_at(&mut peer, &latest_block, reward_cycle_ht);
+    assert_eq!(reward_set.len(), {
+        if use_nakamoto {
+            2
+        } else {
+            1
+        }
+    });
+    let reward_entry = reward_set
+        .iter()
+        .find(|entry| entry.reward_address == pox_addr)
+        .expect("No reward entry found");
     assert_eq!(&reward_entry.signer.unwrap(), signer_bytes.as_slice(),);
 
-    let mut reward_set = get_reward_set_entries_at(&mut peer, &latest_block, extend_cycle_ht);
-    assert_eq!(reward_set.len(), 1);
-    let reward_entry = reward_set.pop().unwrap();
+    let reward_set = get_reward_set_entries_at(&mut peer, &latest_block, extend_cycle_ht);
+    assert_eq!(reward_set.len(), {
+        if use_nakamoto {
+            2
+        } else {
+            1
+        }
+    });
+    let reward_entry = reward_set
+        .iter()
+        .find(|entry| entry.reward_address == pox_addr)
+        .expect("No reward entry found");
     assert_eq!(
-        PoxAddress::try_from_pox_tuple(false, &pox_addr_val).unwrap(),
-        reward_entry.reward_address
+        &reward_entry.signer.unwrap(),
+        signer_extend_bytes.as_slice(),
     );
     assert_eq!(
         &reward_entry.signer.unwrap(),
@@ -5877,11 +5985,18 @@ fn stack_extend_signer_key() {
     );
 }
 
-#[test]
-fn delegate_stack_stx_signer_key() {
+#[apply(nakamoto_cases)]
+fn delegate_stack_stx_signer_key(use_nakamoto: bool) {
     let lock_period = 2;
-    let (burnchain, mut peer, keys, latest_block, block_height, mut coinbase_nonce) =
-        prepare_pox4_test(function_name!(), None);
+    let (
+        burnchain,
+        mut peer,
+        keys,
+        latest_block,
+        block_height,
+        mut coinbase_nonce,
+        mut test_signers,
+    ) = prepare_pox4_test(function_name!(), None, use_nakamoto);
 
     let stacker_nonce = 0;
     let stacker_key = &keys[0];
@@ -5955,7 +6070,7 @@ fn delegate_stack_stx_signer_key() {
         ),
     ];
 
-    let latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
+    let latest_block = tenure_with_txs(&mut peer, &txs, &mut coinbase_nonce, &mut test_signers);
 
     let delegation_state = get_delegation_state_pox_4(
         &mut peer,
@@ -5974,13 +6089,18 @@ fn delegate_stack_stx_signer_key() {
     .expect_tuple();
 
     let reward_cycle_ht = burnchain.reward_cycle_to_block_height(next_reward_cycle);
-    let mut reward_set = get_reward_set_entries_at(&mut peer, &latest_block, reward_cycle_ht);
-    assert_eq!(reward_set.len(), 1);
-    let reward_entry = reward_set.pop().unwrap();
-    assert_eq!(
-        PoxAddress::try_from_pox_tuple(false, &pox_addr_val).unwrap(),
-        reward_entry.reward_address
-    );
+    let reward_set = get_reward_set_entries_at(&mut peer, &latest_block, reward_cycle_ht);
+    assert_eq!(reward_set.len(), {
+        if use_nakamoto {
+            2
+        } else {
+            1
+        }
+    });
+    let reward_entry = reward_set
+        .iter()
+        .find(|entry| entry.reward_address == pox_addr)
+        .expect("No reward entry found");
     assert_eq!(
         &reward_entry.signer.unwrap(),
         signer_key.to_bytes_compressed().as_slice()
@@ -5994,11 +6114,18 @@ fn delegate_stack_stx_signer_key() {
 //
 // This test asserts that the signing key in Alice's stacking state
 //  is equal to Bob's 'new' signer key.
-#[test]
-fn delegate_stack_stx_extend_signer_key() {
+#[apply(nakamoto_cases)]
+fn delegate_stack_stx_extend_signer_key(use_nakamoto: bool) {
     let lock_period: u128 = 2;
-    let (burnchain, mut peer, keys, latest_block, block_height, mut coinbase_nonce) =
-        prepare_pox4_test(function_name!(), None);
+    let (
+        burnchain,
+        mut peer,
+        keys,
+        latest_block,
+        block_height,
+        mut coinbase_nonce,
+        mut test_signers,
+    ) = prepare_pox4_test(function_name!(), None, use_nakamoto);
 
     let alice_nonce = 0;
     let alice_stacker_key = &keys[0];
@@ -6049,7 +6176,7 @@ fn delegate_stack_stx_extend_signer_key() {
     // Both are pox_4 helpers found in mod.rs
     let txs = vec![delegate_stx, delegate_stack_stx];
 
-    let latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
+    let latest_block = tenure_with_txs(&mut peer, &txs, &mut coinbase_nonce, &mut test_signers);
 
     let delegation_state = get_delegation_state_pox_4(
         &mut peer,
@@ -6154,7 +6281,7 @@ fn delegate_stack_stx_extend_signer_key() {
     // Next tx arr calls a delegate_stack_extend pox_4 helper found in mod.rs
     let txs = vec![delegate_stack_extend, agg_tx_0, agg_tx_1];
 
-    let latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
+    let latest_block = tenure_with_txs(&mut peer, &txs, &mut coinbase_nonce, &mut test_signers);
     let new_stacking_state = get_stacking_state_pox_4(&mut peer, &latest_block, &alice_principal)
         .unwrap()
         .expect_tuple();
@@ -6162,16 +6289,32 @@ fn delegate_stack_stx_extend_signer_key() {
     let reward_cycle_ht = burnchain.reward_cycle_to_block_height(next_reward_cycle);
     let extend_cycle_ht = burnchain.reward_cycle_to_block_height(extend_cycle);
 
-    let mut reward_set = get_reward_set_entries_at(&mut peer, &latest_block, reward_cycle_ht);
-    assert_eq!(reward_set.len(), 1);
-    let reward_entry = reward_set.pop().unwrap();
-    assert_eq!(pox_addr, reward_entry.reward_address);
+    let reward_set = get_reward_set_entries_at(&mut peer, &latest_block, reward_cycle_ht);
+    assert_eq!(reward_set.len(), {
+        if use_nakamoto {
+            2
+        } else {
+            1
+        }
+    });
+    let reward_entry = reward_set
+        .iter()
+        .find(|entry| entry.reward_address == pox_addr)
+        .expect("No reward entry found");
     assert_eq!(&reward_entry.signer.unwrap(), signer_bytes.as_slice(),);
 
-    let mut reward_set = get_reward_set_entries_at(&mut peer, &latest_block, extend_cycle_ht);
-    assert_eq!(reward_set.len(), 1);
-    let reward_entry = reward_set.pop().unwrap();
-    assert_eq!(pox_addr, reward_entry.reward_address);
+    let reward_set = get_reward_set_entries_at(&mut peer, &latest_block, extend_cycle_ht);
+    assert_eq!(reward_set.len(), {
+        if use_nakamoto {
+            2
+        } else {
+            1
+        }
+    });
+    let reward_entry = reward_set
+        .iter()
+        .find(|entry| entry.reward_address == pox_addr)
+        .expect("No reward entry found");
     assert_eq!(
         &reward_entry.signer.unwrap(),
         signer_extend_bytes.as_slice(),
@@ -6185,12 +6328,19 @@ fn delegate_stack_stx_extend_signer_key() {
 //
 // This test asserts that Alice's total-locked is equal to
 //  twice the stacking minimum after calling stack-increase.
-#[test]
-fn stack_increase() {
+#[apply(nakamoto_cases)]
+fn stack_increase(use_nakamoto: bool) {
     let lock_period = 2;
     let observer = TestEventObserver::new();
-    let (burnchain, mut peer, keys, latest_block, block_height, mut coinbase_nonce) =
-        prepare_pox4_test(function_name!(), Some(&observer));
+    let (
+        burnchain,
+        mut peer,
+        keys,
+        latest_block,
+        block_height,
+        mut coinbase_nonce,
+        mut test_signers,
+    ) = prepare_pox4_test(function_name!(), Some(&observer), use_nakamoto);
 
     let mut alice_nonce = 0;
     let alice_stacking_private_key = &keys[0];
@@ -6198,6 +6348,7 @@ fn stack_increase() {
     let signing_sk = StacksPrivateKey::from_seed(&[1]);
     let signing_pk = StacksPublicKey::from_private(&signing_sk);
     let signing_bytes = signing_pk.to_bytes_compressed();
+    let alice_balance = get_balance(&mut peer, &alice_address.into());
 
     let min_ustx = get_stacking_minimum(&mut peer, &latest_block);
     let pox_addr = PoxAddress::from_legacy(
@@ -6233,7 +6384,7 @@ fn stack_increase() {
     // Initial tx arr includes a stack_stx pox_4 helper found in mod.rs
     let txs = vec![stack_stx];
 
-    let latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
+    let latest_block = tenure_with_txs(&mut peer, &txs, &mut coinbase_nonce, &mut test_signers);
     let stacking_state = get_stacking_state_pox_4(
         &mut peer,
         &latest_block,
@@ -6265,7 +6416,7 @@ fn stack_increase() {
     );
     // Next tx arr includes a stack_increase pox_4 helper found in mod.rs
     let txs = vec![stack_increase];
-    let latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
+    let latest_block = tenure_with_txs(&mut peer, &txs, &mut coinbase_nonce, &mut test_signers);
     let stacker_transactions = get_last_block_sender_transactions(&observer, alice_address);
 
     let actual_result = stacker_transactions.first().cloned().unwrap().result;
@@ -6297,12 +6448,29 @@ fn stack_increase() {
         ("auth-id", Value::UInt(1)),
     ]);
 
+    let alice_expected_balance = alice_balance - min_ustx;
+
+    // Compute the expected unlock height because the 3.0 and 2.5 cases
+    // have different PoX constants
+    let cycle_len = burnchain.pox_constants.reward_cycle_length as u128;
+    let unlock_cycle = burnchain
+        .pox_constants
+        .block_height_to_reward_cycle(
+            0,
+            ((block_height as u128) + ((lock_period + 1) * cycle_len))
+                .try_into()
+                .unwrap(),
+        )
+        .unwrap();
+    let expected_unlock_height =
+        unlock_cycle * (burnchain.pox_constants.reward_cycle_length as u64);
+
     let common_data = PoxPrintFields {
         op_name: "stack-increase".to_string(),
         stacker: Value::Principal(PrincipalData::from(alice_address.clone())),
-        balance: Value::UInt(10234866375000),
-        locked: Value::UInt(5133625000),
-        burnchain_unlock_height: Value::UInt(125),
+        balance: Value::UInt(alice_expected_balance),
+        locked: Value::UInt(min_ustx),
+        burnchain_unlock_height: Value::UInt(expected_unlock_height as u128),
     };
 
     check_pox_print_event(&increase_event, common_data, increase_op_data);
@@ -6315,10 +6483,18 @@ fn stack_increase() {
         .block_height_to_reward_cycle(block_height)
         .unwrap();
     let reward_cycle_ht = burnchain.reward_cycle_to_block_height(next_reward_cycle);
-    let mut reward_set = get_reward_set_entries_at(&mut peer, &latest_block, reward_cycle_ht);
-    assert_eq!(reward_set.len(), 1);
-    let reward_entry = reward_set.pop().unwrap();
-    assert_eq!(pox_addr, reward_entry.reward_address);
+    let reward_set = get_reward_set_entries_at(&mut peer, &latest_block, reward_cycle_ht);
+    assert_eq!(reward_set.len(), {
+        if use_nakamoto {
+            2
+        } else {
+            1
+        }
+    });
+    let reward_entry = reward_set
+        .iter()
+        .find(|entry| entry.reward_address == pox_addr)
+        .expect("No reward entry found");
     assert_eq!(&reward_entry.signer.unwrap(), &signing_bytes.as_slice());
 }
 
@@ -6328,12 +6504,19 @@ fn stack_increase() {
 //
 // This test asserts that Alice's total-locked is equal to
 //  twice the stacking minimum after calling delegate-stack-increase.
-#[test]
-fn delegate_stack_increase() {
+#[apply(nakamoto_cases)]
+fn delegate_stack_increase(use_nakamoto: bool) {
     let lock_period: u128 = 2;
     let observer = TestEventObserver::new();
-    let (burnchain, mut peer, keys, latest_block, block_height, mut coinbase_nonce) =
-        prepare_pox4_test(function_name!(), Some(&observer));
+    let (
+        burnchain,
+        mut peer,
+        keys,
+        latest_block,
+        block_height,
+        mut coinbase_nonce,
+        mut test_signers,
+    ) = prepare_pox4_test(function_name!(), Some(&observer), use_nakamoto);
 
     let alice_nonce = 0;
     let alice_key = &keys[0];
@@ -6380,7 +6563,7 @@ fn delegate_stack_increase() {
     // Initial tx arr includes a delegate_stx & delegate_stack_stx pox_4 helper found in mod.rs
     let txs = vec![delegate_stx, delegate_stack_stx];
 
-    let latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
+    let latest_block = tenure_with_txs(&mut peer, &txs, &mut coinbase_nonce, &mut test_signers);
 
     bob_nonce += 1;
 
@@ -6419,7 +6602,7 @@ fn delegate_stack_increase() {
     // Next tx arr includes a delegate_increase pox_4 helper found in mod.rs
     let txs = vec![delegate_increase, agg_tx];
 
-    let latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
+    let latest_block = tenure_with_txs(&mut peer, &txs, &mut coinbase_nonce, &mut test_signers);
 
     let delegate_transactions =
         get_last_block_sender_transactions(&observer, key_to_stacks_addr(bob_delegate_key));
@@ -6444,9 +6627,18 @@ fn delegate_stack_increase() {
 
     // test that the reward set contains the increased amount and the expected key
     let reward_cycle_ht = burnchain.reward_cycle_to_block_height(next_reward_cycle);
-    let mut reward_set = get_reward_set_entries_at(&mut peer, &latest_block, reward_cycle_ht);
-    assert_eq!(reward_set.len(), 1);
-    let reward_entry = reward_set.pop().unwrap();
+    let reward_set = get_reward_set_entries_at(&mut peer, &latest_block, reward_cycle_ht);
+    assert_eq!(reward_set.len(), {
+        if use_nakamoto {
+            2
+        } else {
+            1
+        }
+    });
+    let reward_entry = reward_set
+        .iter()
+        .find(|entry| entry.reward_address == pox_addr)
+        .expect("No reward entry found");
     assert_eq!(pox_addr, reward_entry.reward_address);
     assert_eq!(min_ustx * 2, reward_entry.amount_stacked);
     assert_eq!(&reward_entry.signer.unwrap(), signer_pk_bytes.as_slice());
@@ -6456,6 +6648,7 @@ pub fn pox_4_scenario_test_setup<'a>(
     test_name: &str,
     observer: &'a TestEventObserver,
     initial_balances: Vec<(PrincipalData, u64)>,
+    use_nakamoto: bool,
 ) -> (
     TestPeer<'a>,
     usize,
@@ -6463,9 +6656,12 @@ pub fn pox_4_scenario_test_setup<'a>(
     u128,
     u128,
     u128,
-    u128,
     TestPeerConfig,
+    Option<TestSigners>,
 ) {
+    if use_nakamoto {
+        return pox_4_scenario_test_setup_nakamoto(test_name, observer, initial_balances);
+    }
     // Setup code extracted from your original test
     let test_signers = TestSigners::new(vec![]);
     let aggregate_public_key = test_signers.aggregate_public_key.clone();
@@ -6522,20 +6718,118 @@ pub fn pox_4_scenario_test_setup<'a>(
         peer,
         peer_nonce,
         burn_block_height,
-        target_height as u128,
         reward_cycle as u128,
         next_reward_cycle as u128,
         min_ustx as u128,
         peer_config.clone(),
+        None,
     )
 }
 
+pub fn pox_4_scenario_test_setup_nakamoto<'a>(
+    test_name: &str,
+    observer: &'a TestEventObserver,
+    initial_balances: Vec<(PrincipalData, u64)>,
+) -> (
+    TestPeer<'a>,
+    usize,
+    u64,
+    u128,
+    u128,
+    u128,
+    TestPeerConfig,
+    Option<TestSigners>,
+) {
+    let (epochs, pox_constants) = make_test_epochs_pox(true);
+
+    let mut burnchain = Burnchain::default_unittest(
+        0,
+        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+    );
+    burnchain.pox_constants = pox_constants.clone();
+
+    let (peer, keys) = instantiate_pox_peer_with_epoch(
+        &burnchain,
+        test_name,
+        Some(epochs.clone()),
+        Some(observer),
+    );
+
+    let test_key = keys[3].clone();
+    let test_keys = vec![test_key.clone()];
+    let test_addr = key_to_stacks_addr(&test_key);
+    let test_signers = TestSigners::new(vec![test_key.clone()]);
+    let aggregate_public_key = test_signers.aggregate_public_key.clone();
+
+    let private_key = StacksPrivateKey::from_seed(&[2]);
+    let test_signers = TestSigners::new(test_keys.clone());
+    let addrs: Vec<StacksAddress> = test_keys.iter().map(|pk| key_to_stacks_addr(pk)).collect();
+    let initial_stacker_balance = initial_balances
+        .get(0)
+        .expect("Expected at least 1 initial balance")
+        .1;
+    let test_stackers = vec![TestStacker {
+        signer_private_key: test_key.clone(),
+        stacker_private_key: test_key.clone(),
+        amount: initial_stacker_balance as u128,
+        pox_addr: Some(pox_addr_from(&test_key)),
+        max_amount: None,
+    }];
+    let mut peer_config = TestPeerConfig::default();
+    peer_config.aggregate_public_key = Some(aggregate_public_key.clone());
+    let mut pox_constants = peer_config.clone().burnchain.pox_constants;
+    pox_constants.reward_cycle_length = 10;
+    pox_constants.v2_unlock_height = 21;
+    pox_constants.pox_3_activation_height = 26;
+    pox_constants.v3_unlock_height = 27;
+    pox_constants.pox_4_activation_height = 41;
+    pox_constants.prepare_length = 5;
+    let mut boot_plan = NakamotoBootPlan::new(test_name)
+        .with_test_stackers(test_stackers)
+        .with_test_signers(test_signers.clone())
+        .with_private_key(private_key);
+    boot_plan.add_default_balance = false;
+
+    boot_plan.initial_balances = initial_balances;
+    boot_plan.pox_constants = pox_constants.clone();
+    burnchain.pox_constants = pox_constants.clone();
+    peer_config.burnchain = burnchain.clone();
+    peer_config.test_signers = Some(test_signers.clone());
+
+    info!("---- Booting into Nakamoto Peer ----");
+    let mut peer = boot_plan.boot_into_nakamoto_peer(vec![], Some(observer));
+    let sort_db = peer.sortdb.as_ref().unwrap();
+    let latest_block = sort_db
+        .index_handle_at_tip()
+        .get_nakamoto_tip_block_id()
+        .unwrap()
+        .unwrap();
+    let coinbase_nonce = 0;
+
+    let burn_block_height = get_tip(peer.sortdb.as_ref()).block_height;
+    let reward_cycle = burnchain
+        .block_height_to_reward_cycle(burn_block_height)
+        .unwrap() as u128;
+    let min_ustx = get_stacking_minimum(&mut peer, &latest_block);
+
+    (
+        peer,
+        coinbase_nonce,
+        burn_block_height,
+        reward_cycle as u128,
+        reward_cycle.wrapping_add(1),
+        min_ustx as u128,
+        peer_config.clone(),
+        Some(test_signers),
+    )
+}
+
+#[apply(nakamoto_cases)]
 // In this test two solo stacker-signers Alice & Bob sign & stack
 //  for two reward cycles. Alice provides a signature, Bob uses
 //  'set-signer-key-authorizations' to authorize. Two cycles later,
 //  when no longer stacked, they both try replaying their auths.
-#[test]
-fn test_scenario_one() {
+fn test_scenario_one(use_nakamoto: bool) {
     // Alice solo stacker-signer setup
     let mut alice = StackerSignerInfo::new();
     // Bob solo stacker-signer setup
@@ -6551,12 +6845,24 @@ fn test_scenario_one() {
         mut peer,
         mut peer_nonce,
         burn_block_height,
-        target_height,
         reward_cycle,
         next_reward_cycle,
         min_ustx,
         peer_config,
-    ) = pox_4_scenario_test_setup("test_scenario_one", &observer, initial_balances);
+        mut test_signers,
+    ) = pox_4_scenario_test_setup(
+        "test_scenario_one",
+        &observer,
+        initial_balances,
+        use_nakamoto,
+    );
+
+    // Add alice and bob to test_signers
+    if let Some(ref mut test_signers) = test_signers.as_mut() {
+        test_signers
+            .signer_keys
+            .extend(vec![alice.private_key.clone(), bob.private_key.clone()]);
+    }
 
     // Alice Signatures
     let amount = (default_initial_balances / 2).wrapping_sub(1000) as u128;
@@ -6683,8 +6989,14 @@ fn test_scenario_one() {
         .reward_cycle_to_block_height(next_reward_cycle as u64)
         .saturating_sub(peer.config.burnchain.pox_constants.prepare_length as u64)
         .wrapping_add(2);
-    let (latest_block, tx_block) =
-        advance_to_block_height(&mut peer, &observer, &txs, &mut peer_nonce, target_height);
+    let (latest_block, tx_block, receipts) = advance_to_block_height(
+        &mut peer,
+        &observer,
+        &txs,
+        &mut peer_nonce,
+        target_height,
+        &mut test_signers,
+    );
 
     // Verify Alice stacked
     let (pox_address, first_reward_cycle, lock_period, _indices) =
@@ -6701,8 +7013,7 @@ fn test_scenario_one() {
     assert_eq!(pox_address, bob.pox_address);
 
     // 1. Check bob's low authorization transaction
-    let bob_tx_result_low = tx_block
-        .receipts
+    let bob_tx_result_low = receipts
         .get(1)
         .unwrap()
         .result
@@ -6712,8 +7023,7 @@ fn test_scenario_one() {
     assert_eq!(bob_tx_result_low, Value::Bool(true));
 
     // 2. Check bob's expected authorization transaction
-    let bob_tx_result_ok = tx_block
-        .receipts
+    let bob_tx_result_ok = receipts
         .get(2)
         .unwrap()
         .result
@@ -6723,8 +7033,7 @@ fn test_scenario_one() {
     assert_eq!(bob_tx_result_ok, Value::Bool(true));
 
     // 3. Check alice's low stack transaction
-    let alice_tx_result_err = tx_block
-        .receipts
+    let alice_tx_result_err = receipts
         .get(3)
         .unwrap()
         .result
@@ -6734,8 +7043,7 @@ fn test_scenario_one() {
     assert_eq!(alice_tx_result_err, Value::Int(38));
 
     // Get alice's expected stack transaction
-    let alice_tx_result_ok = tx_block
-        .receipts
+    let alice_tx_result_ok = receipts
         .get(4)
         .unwrap()
         .result
@@ -6778,8 +7086,7 @@ fn test_scenario_one() {
     assert_eq!(unlock_height_expected, unlock_height_actual);
 
     // 5. Check bob's error stack transaction
-    let bob_tx_result_err = tx_block
-        .receipts
+    let bob_tx_result_err = receipts
         .get(5)
         .unwrap()
         .result
@@ -6789,8 +7096,7 @@ fn test_scenario_one() {
     assert_eq!(bob_tx_result_err, Value::Int(38));
 
     // Get bob's expected stack transaction
-    let bob_tx_result_ok = tx_block
-        .receipts
+    let bob_tx_result_ok = receipts
         .get(6)
         .unwrap()
         .result
@@ -6847,7 +7153,7 @@ fn test_scenario_one() {
         &alice.private_key,
         alice.nonce,
         alice_index,
-        &peer_config.aggregate_public_key.unwrap(),
+        peer_config.aggregate_public_key.clone().unwrap(),
         1,
         next_reward_cycle,
     );
@@ -6857,21 +7163,52 @@ fn test_scenario_one() {
         &bob.private_key,
         bob.nonce,
         bob_index,
-        &peer_config.aggregate_public_key.unwrap(),
+        peer_config.aggregate_public_key.clone().unwrap(),
         1,
         next_reward_cycle,
     );
     bob.nonce += 1;
-    let txs = vec![alice_vote, bob_vote];
+    let mut txs = vec![alice_vote, bob_vote];
 
-    let target_reward_cycle = 8;
+    // Also vote for aggregate key with default test signer if in Nakamoto:
+    if let Some(test_signers) = test_signers.clone() {
+        let tester_key = test_signers.signer_keys[0];
+        let tester_addr = key_to_stacks_addr(&tester_key);
+        let tester_index = get_signer_index(
+            &mut peer,
+            latest_block,
+            tester_addr.clone(),
+            next_reward_cycle,
+        );
+        let tester_vote = make_signers_vote_for_aggregate_public_key(
+            &tester_key,
+            1, // only tx is a stack-stx
+            tester_index,
+            peer_config.aggregate_public_key.unwrap(),
+            1,
+            next_reward_cycle,
+        );
+        txs.push(tester_vote);
+    }
+
+    let target_reward_cycle = next_reward_cycle + 1;
     // Commit vote txs & advance to the first burn block of reward cycle 8 (block 161)
     let mut target_height = peer
         .config
         .burnchain
         .reward_cycle_to_block_height(target_reward_cycle as u64);
-    let (latest_block, tx_block) =
-        advance_to_block_height(&mut peer, &observer, &txs, &mut peer_nonce, target_height);
+    info!(
+        "Submitting block with vote transactions and advancing to reward cycle {} at block {}",
+        target_reward_cycle, target_height
+    );
+    let (latest_block, tx_block, _receipts) = advance_to_block_height(
+        &mut peer,
+        &observer,
+        &txs,
+        &mut peer_nonce,
+        target_height,
+        &mut test_signers,
+    );
 
     let approved_key = get_approved_aggregate_key(&mut peer, latest_block, next_reward_cycle)
         .expect("No approved key found");
@@ -6886,7 +7223,7 @@ fn test_scenario_one() {
         &alice.pox_address,
         lock_period,
         &alice.public_key,
-        161,
+        target_height,
         Some(alice_signature.clone()),
         u128::MAX,
         1,
@@ -6900,7 +7237,7 @@ fn test_scenario_one() {
         &bob.pox_address,
         lock_period,
         &bob.public_key,
-        161,
+        target_height,
         None,
         u128::MAX,
         3,
@@ -6909,12 +7246,17 @@ fn test_scenario_one() {
 
     // Commit replay txs & advance to the second burn block of reward cycle 8 (block 162)
     target_height += 1;
-    let (latest_block, tx_block) =
-        advance_to_block_height(&mut peer, &observer, &txs, &mut peer_nonce, target_height);
+    let (latest_block, tx_block, receipts) = advance_to_block_height(
+        &mut peer,
+        &observer,
+        &txs,
+        &mut peer_nonce,
+        target_height,
+        &mut test_signers,
+    );
 
     // Check Alice replay, expect (err 35) - ERR_INVALID_SIGNATURE_PUBKEY
-    let alice_replay_result = tx_block
-        .receipts
+    let alice_replay_result = receipts
         .get(1)
         .unwrap()
         .result
@@ -6924,8 +7266,7 @@ fn test_scenario_one() {
     assert_eq!(alice_replay_result, Value::Int(35));
 
     // Check Bob replay, expect (err 19) - ERR_SIGNER_AUTH_USED
-    let bob_tx_result = tx_block
-        .receipts
+    let bob_tx_result = receipts
         .get(2)
         .unwrap()
         .result
@@ -6938,8 +7279,8 @@ fn test_scenario_one() {
 // In this test two solo service signers, Alice & Bob, provide auth
 //  for Carl & Dave, solo stackers. Alice provides a signature for Carl,
 //  Bob uses 'set-signer-key...' for Dave.
-#[test]
-fn test_scenario_two() {
+#[apply(nakamoto_cases)]
+fn test_scenario_two(use_nakamoto: bool) {
     // Alice service signer setup
     let mut alice = StackerSignerInfo::new();
     // Bob service signer setup
@@ -6961,12 +7302,24 @@ fn test_scenario_two() {
         mut peer,
         mut peer_nonce,
         burn_block_height,
-        target_height,
         reward_cycle,
         next_reward_cycle,
         min_ustx,
         peer_config,
-    ) = pox_4_scenario_test_setup("test_scenario_two", &observer, initial_balances);
+        mut test_signers,
+    ) = pox_4_scenario_test_setup(
+        "test_scenario_two",
+        &observer,
+        initial_balances,
+        use_nakamoto,
+    );
+
+    // Add to test signers
+    if let Some(ref mut test_signers) = test_signers.as_mut() {
+        test_signers
+            .signer_keys
+            .extend(vec![alice.private_key.clone(), bob.private_key.clone()]);
+    }
 
     // Alice Signature For Carl
     let amount = (default_initial_balances / 2).wrapping_sub(1000) as u128;
@@ -7070,8 +7423,14 @@ fn test_scenario_two() {
         .reward_cycle_to_block_height(next_reward_cycle as u64)
         .saturating_sub(peer_config.burnchain.pox_constants.prepare_length as u64)
         .wrapping_add(2);
-    let (latest_block, tx_block) =
-        advance_to_block_height(&mut peer, &observer, &txs, &mut peer_nonce, target_height);
+    let (latest_block, tx_block, receipts) = advance_to_block_height(
+        &mut peer,
+        &observer,
+        &txs,
+        &mut peer_nonce,
+        target_height,
+        &mut test_signers,
+    );
 
     // Verify Carl Stacked
     let (pox_address, first_reward_cycle, lock_period, _indices) =
@@ -7086,8 +7445,7 @@ fn test_scenario_two() {
     assert_eq!(pox_address, dave.pox_address);
 
     // Check Carl's malformed signature stack transaction (err 35 - INVALID_SIGNATURE_PUBKEY)
-    let carl_tx_result_err = tx_block
-        .receipts
+    let carl_tx_result_err = receipts
         .get(2)
         .unwrap()
         .result
@@ -7097,8 +7455,7 @@ fn test_scenario_two() {
     assert_eq!(carl_tx_result_err, Value::Int(35));
 
     // Check Carl's expected stack transaction
-    let carl_tx_result_ok = tx_block
-        .receipts
+    let carl_tx_result_ok = receipts
         .get(3)
         .unwrap()
         .result
@@ -7127,8 +7484,7 @@ fn test_scenario_two() {
     assert_eq!(signer_key_expected, signer_key_actual);
 
     // Check Dave's malformed pox stack transaction (err 19 - INVALID_SIGNER_AUTH)
-    let dave_tx_result_err = tx_block
-        .receipts
+    let dave_tx_result_err = receipts
         .get(4)
         .unwrap()
         .result
@@ -7138,8 +7494,7 @@ fn test_scenario_two() {
     assert_eq!(dave_tx_result_err, Value::Int(19));
 
     // Check Dave's expected stack transaction
-    let dave_tx_result_ok = tx_block
-        .receipts
+    let dave_tx_result_ok = receipts
         .get(5)
         .unwrap()
         .result
@@ -7186,7 +7541,7 @@ fn test_scenario_two() {
         &alice.private_key,
         alice.nonce,
         alice_index,
-        &peer_config.aggregate_public_key.unwrap(),
+        peer_config.aggregate_public_key.clone().unwrap(),
         1,
         next_reward_cycle,
     );
@@ -7196,7 +7551,7 @@ fn test_scenario_two() {
         &alice.private_key,
         alice.nonce,
         alice_index,
-        &peer_config.aggregate_public_key.unwrap(),
+        peer_config.aggregate_public_key.clone().unwrap(),
         1,
         next_reward_cycle,
     );
@@ -7206,7 +7561,7 @@ fn test_scenario_two() {
         &bob.private_key,
         bob.nonce,
         bob_index,
-        &peer_config.aggregate_public_key.unwrap(),
+        peer_config.aggregate_public_key.clone().unwrap(),
         3,
         next_reward_cycle,
     );
@@ -7216,7 +7571,7 @@ fn test_scenario_two() {
         &bob.private_key,
         bob.nonce,
         bob_index,
-        &peer_config.aggregate_public_key.unwrap(),
+        peer_config.aggregate_public_key.unwrap(),
         1,
         next_reward_cycle,
     );
@@ -7228,18 +7583,23 @@ fn test_scenario_two() {
         bob_vote_expected,
     ];
 
-    let target_reward_cycle = 8;
+    let target_reward_cycle = next_reward_cycle;
     // Commit vote txs & advance to the first burn block of reward cycle 8 (block 161)
     let target_height = peer
         .config
         .burnchain
         .reward_cycle_to_block_height(target_reward_cycle as u64);
-    let (latest_block, tx_block) =
-        advance_to_block_height(&mut peer, &observer, &txs, &mut peer_nonce, target_height);
+    let (latest_block, tx_block, receipts) = advance_to_block_height(
+        &mut peer,
+        &observer,
+        &txs,
+        &mut peer_nonce,
+        target_height,
+        &mut test_signers,
+    );
 
     // Check Alice's expected vote
-    let alice_expected_vote = tx_block
-        .receipts
+    let alice_expected_vote = receipts
         .get(1)
         .unwrap()
         .result
@@ -7249,8 +7609,7 @@ fn test_scenario_two() {
     assert_eq!(alice_expected_vote, Value::Bool(true));
 
     // Check Alice's duplicate vote (err 15 - DUPLICATE_ROUND)
-    let alice_duplicate_vote = tx_block
-        .receipts
+    let alice_duplicate_vote = receipts
         .get(2)
         .unwrap()
         .result
@@ -7260,8 +7619,7 @@ fn test_scenario_two() {
     assert_eq!(alice_duplicate_vote, Value::UInt(15));
 
     // Check Bob's round err vote (err 17 - INVALID_ROUND)
-    let bob_round_err_vote = tx_block
-        .receipts
+    let bob_round_err_vote = receipts
         .get(3)
         .unwrap()
         .result
@@ -7271,8 +7629,7 @@ fn test_scenario_two() {
     assert_eq!(bob_round_err_vote, Value::UInt(17));
 
     // Check Bob's expected vote
-    let bob_expected_vote = tx_block
-        .receipts
+    let bob_expected_vote = receipts
         .get(4)
         .unwrap()
         .result
@@ -7282,10 +7639,10 @@ fn test_scenario_two() {
     assert_eq!(bob_expected_vote, Value::Bool(true));
 }
 
+#[apply(nakamoto_cases)]
 // In this scenario, two solo stacker-signers (Alice, Bob), one service signer (Carl),
 //  one stacking pool operator (Dave), & three pool stackers (Eve, Frank, Grace).
-#[test]
-fn test_scenario_three() {
+fn test_scenario_three(use_nakamoto: bool) {
     // Alice stacker signer setup
     let mut alice = StackerSignerInfo::new();
     // Bob stacker signer setup
@@ -7316,12 +7673,26 @@ fn test_scenario_three() {
         mut peer,
         mut peer_nonce,
         burn_block_height,
-        target_height,
         reward_cycle,
         next_reward_cycle,
         min_ustx,
         peer_config,
-    ) = pox_4_scenario_test_setup("test_scenario_three", &observer, initial_balances);
+        mut test_signers,
+    ) = pox_4_scenario_test_setup(
+        "test_scenario_three",
+        &observer,
+        initial_balances,
+        use_nakamoto,
+    );
+
+    // Add to test signers
+    if let Some(ref mut test_signers) = test_signers.as_mut() {
+        test_signers.signer_keys.extend(vec![
+            alice.private_key.clone(),
+            bob.private_key.clone(),
+            carl.private_key.clone(),
+        ]);
+    }
 
     let lock_period = 2;
     let amount = (default_initial_balances / 2).wrapping_sub(1000) as u128;
@@ -7563,13 +7934,18 @@ fn test_scenario_three() {
         .reward_cycle_to_block_height(next_reward_cycle as u64)
         .saturating_sub(peer_config.burnchain.pox_constants.prepare_length as u64)
         .wrapping_add(2);
-    let (latest_block, tx_block) =
-        advance_to_block_height(&mut peer, &observer, &txs, &mut peer_nonce, target_height);
+    let (latest_block, tx_block, receipts) = advance_to_block_height(
+        &mut peer,
+        &observer,
+        &txs,
+        &mut peer_nonce,
+        target_height,
+        &mut test_signers,
+    );
 
     // Start of test checks
     // 1. Check that Alice can't stack with an lock_period different than signature
-    let alice_stack_tx_err = tx_block
-        .receipts
+    let alice_stack_tx_err = receipts
         .get(1)
         .unwrap()
         .result
@@ -7579,8 +7955,7 @@ fn test_scenario_three() {
     assert_eq!(alice_stack_tx_err, Value::Int(35));
 
     // 2. Check that Alice can solo stack-sign
-    let alice_stack_tx_ok = tx_block
-        .receipts
+    let alice_stack_tx_ok = receipts
         .get(2)
         .unwrap()
         .result
@@ -7609,8 +7984,7 @@ fn test_scenario_three() {
     assert_eq!(signer_key_expected, signer_key_actual);
 
     // 3. Check that Bob can't stack with a signature that points to a reward cycle in the past
-    let bob_stack_tx_err = tx_block
-        .receipts
+    let bob_stack_tx_err = receipts
         .get(3)
         .unwrap()
         .result
@@ -7620,8 +7994,7 @@ fn test_scenario_three() {
     assert_eq!(bob_stack_tx_err, Value::Int(35));
 
     // 4. Check that Bob can solo stack-sign
-    let bob_stack_tx_ok = tx_block
-        .receipts
+    let bob_stack_tx_ok = receipts
         .get(4)
         .unwrap()
         .result
@@ -7642,8 +8015,7 @@ fn test_scenario_three() {
     assert_eq!(signer_key_actual, signer_key_actual);
 
     // 5. Check that David can't delegate-stack-stx Eve if delegation expires during lock period
-    let eve_delegate_stx_to_david_err = tx_block
-        .receipts
+    let eve_delegate_stx_to_david_err = receipts
         .get(9)
         .unwrap()
         .result
@@ -7653,8 +8025,7 @@ fn test_scenario_three() {
     assert_eq!(eve_delegate_stx_to_david_err, Value::Int(21));
 
     // 6. Check that Frank is correctly delegated to David
-    let frank_delegate_stx_to_david_tx = tx_block
-        .receipts
+    let frank_delegate_stx_to_david_tx = receipts
         .get(10)
         .unwrap()
         .result
@@ -7683,8 +8054,7 @@ fn test_scenario_three() {
     assert_eq!(stacker_expected, stacker_actual);
 
     // 7. Check that Grace is correctly delegated to David
-    let grace_delegate_stx_to_david_tx = tx_block
-        .receipts
+    let grace_delegate_stx_to_david_tx = receipts
         .get(11)
         .unwrap()
         .result
@@ -7713,8 +8083,7 @@ fn test_scenario_three() {
     assert_eq!(stacker_expected, stacker_actual);
 
     // 8. Check that Alice can't delegate-stack if already stacking
-    let alice_delegate_stx_to_david_err = tx_block
-        .receipts
+    let alice_delegate_stx_to_david_err = receipts
         .get(12)
         .unwrap()
         .result
@@ -7724,8 +8093,7 @@ fn test_scenario_three() {
     assert_eq!(alice_delegate_stx_to_david_err, Value::Int(3));
 
     // 9. Check that David can't aggregate-commit-indexed if pointing to a reward cycle in the future
-    let david_aggregate_commit_indexed_err = tx_block
-        .receipts
+    let david_aggregate_commit_indexed_err = receipts
         .get(13)
         .unwrap()
         .result
@@ -7735,8 +8103,7 @@ fn test_scenario_three() {
     assert_eq!(david_aggregate_commit_indexed_err, Value::Int(35));
 
     // 10. Check that David can aggregate-commit-indexed if using the incorrect signature topic
-    let david_aggregate_commit_indexed_err = tx_block
-        .receipts
+    let david_aggregate_commit_indexed_err = receipts
         .get(14)
         .unwrap()
         .result
@@ -7745,23 +8112,24 @@ fn test_scenario_three() {
         .unwrap();
     assert_eq!(david_aggregate_commit_indexed_err, Value::Int(35));
 
+    let david_index = if use_nakamoto { 3 } else { 2 };
+
     // 11. Check that David can aggregate-commit-indexed successfully, checking stacking index = 2
-    let david_aggregate_commit_indexed_ok = tx_block
-        .receipts
+    let david_aggregate_commit_indexed_ok = receipts
         .get(15)
         .unwrap()
         .result
         .clone()
         .expect_result_ok()
         .unwrap();
-    assert_eq!(david_aggregate_commit_indexed_ok, Value::UInt(2));
+    assert_eq!(david_aggregate_commit_indexed_ok, Value::UInt(david_index));
 }
 
+#[apply(nakamoto_cases)]
 // In this test scenario two solo stacker-signers (Alice & Bob),
 //  test out the updated stack-extend & stack-increase functions
 //  across multiple cycles.
-#[test]
-fn test_scenario_four() {
+fn test_scenario_four(use_nakamoto: bool) {
     // Alice service signer setup
     let mut alice = StackerSignerInfo::new();
     // Bob service signer setup
@@ -7777,12 +8145,24 @@ fn test_scenario_four() {
         mut peer,
         mut peer_nonce,
         burn_block_height,
-        target_height,
         reward_cycle,
         next_reward_cycle,
         min_ustx,
         peer_config,
-    ) = pox_4_scenario_test_setup("test_scenario_four", &observer, initial_balances);
+        mut test_signers,
+    ) = pox_4_scenario_test_setup(
+        "test_scenario_four",
+        &observer,
+        initial_balances,
+        use_nakamoto,
+    );
+
+    // Add to test signers
+    if let Some(ref mut test_signers) = test_signers.as_mut() {
+        test_signers
+            .signer_keys
+            .extend(vec![alice.private_key.clone(), bob.private_key.clone()]);
+    }
 
     // Initial Alice Signature
     let amount = (default_initial_balances / 2).wrapping_sub(1000) as u128;
@@ -7800,17 +8180,21 @@ fn test_scenario_four() {
     let alice_signature_extend_err = make_signer_key_signature(
         &bob.pox_address,
         &bob.private_key,
-        next_reward_cycle.wrapping_add(1),
+        next_reward_cycle,
         &Pox4SignatureTopic::StackExtend,
         lock_period,
         u128::MAX,
         1,
     );
+    info!(
+        "Generating stack-extend signature for cycle {}",
+        next_reward_cycle
+    );
     // Extend Alice Signature Expected
     let alice_signature_extend = make_signer_key_signature(
         &alice.pox_address,
         &alice.private_key,
-        next_reward_cycle.wrapping_add(1),
+        next_reward_cycle,
         &Pox4SignatureTopic::StackExtend,
         lock_period,
         u128::MAX,
@@ -7864,8 +8248,14 @@ fn test_scenario_four() {
         .reward_cycle_to_block_height(next_reward_cycle as u64)
         .saturating_sub(peer_config.burnchain.pox_constants.prepare_length as u64)
         .wrapping_add(2);
-    let (latest_block, tx_block) =
-        advance_to_block_height(&mut peer, &observer, &txs, &mut peer_nonce, target_height);
+    let (latest_block, tx_block, _receipts) = advance_to_block_height(
+        &mut peer,
+        &observer,
+        &txs,
+        &mut peer_nonce,
+        target_height,
+        &mut test_signers,
+    );
 
     // Verify Alice Stacked
     let (pox_address, first_reward_cycle, lock_period, _indices) =
@@ -7898,7 +8288,7 @@ fn test_scenario_four() {
         &alice.private_key,
         alice.nonce,
         bob_index,
-        &peer_config.aggregate_public_key.unwrap(),
+        peer_config.aggregate_public_key.clone().unwrap(),
         1,
         next_reward_cycle,
     );
@@ -7908,7 +8298,7 @@ fn test_scenario_four() {
         &alice.private_key,
         alice.nonce,
         alice_index,
-        &peer_config.aggregate_public_key.unwrap(),
+        peer_config.aggregate_public_key.clone().unwrap(),
         1,
         next_reward_cycle,
     );
@@ -7918,29 +8308,55 @@ fn test_scenario_four() {
         &bob.private_key,
         bob.nonce,
         bob_index,
-        &peer_config.aggregate_public_key.unwrap(),
+        peer_config.aggregate_public_key.clone().unwrap(),
         1,
         next_reward_cycle,
     );
     bob.nonce += 1;
-    let txs = vec![
+    let mut txs = vec![
         alice_vote_err.clone(),
         alice_vote_expected.clone(),
         bob_vote_expected.clone(),
     ];
 
+    // Also vote for aggregate key with default test signer if in Nakamoto:
+    if let Some(test_signers) = test_signers.clone() {
+        let tester_key = test_signers.signer_keys[0];
+        let tester_addr = key_to_stacks_addr(&tester_key);
+        let tester_index = get_signer_index(
+            &mut peer,
+            latest_block,
+            tester_addr.clone(),
+            next_reward_cycle,
+        );
+        let tester_vote = make_signers_vote_for_aggregate_public_key(
+            &tester_key,
+            1, // only tx is a stack-stx
+            tester_index,
+            peer_config.aggregate_public_key.clone().unwrap(),
+            1,
+            next_reward_cycle,
+        );
+        txs.push(tester_vote);
+    }
+
     // Commit vote txs & move to the prepare phase of reward cycle 7 (block 155)
     let target_height = peer
         .config
         .burnchain
-        .reward_cycle_to_block_height(7 as u64)
-        .wrapping_add(15);
-    let (latest_block, tx_block) =
-        advance_to_block_height(&mut peer, &observer, &txs, &mut peer_nonce, target_height);
+        .reward_cycle_to_block_height(next_reward_cycle as u64 + 1)
+        .saturating_sub(peer_config.burnchain.pox_constants.prepare_length as u64);
+    let (latest_block, tx_block, receipts) = advance_to_block_height(
+        &mut peer,
+        &observer,
+        &txs,
+        &mut peer_nonce,
+        target_height,
+        &mut test_signers,
+    );
 
     // Check Alice's err vote (err 10 - INVALID_SIGNER_INDEX)
-    let alice_err_vote = tx_block
-        .receipts
+    let alice_err_vote = receipts
         .get(1)
         .unwrap()
         .result
@@ -7950,8 +8366,7 @@ fn test_scenario_four() {
     assert_eq!(alice_err_vote, Value::UInt(10));
 
     // Check Alice's expected vote
-    let alice_expected_vote = tx_block
-        .receipts
+    let alice_expected_vote = receipts
         .get(2)
         .unwrap()
         .result
@@ -7961,8 +8376,7 @@ fn test_scenario_four() {
     assert_eq!(alice_expected_vote, Value::Bool(true));
 
     // Check Bob's expected vote
-    let bob_expected_vote = tx_block
-        .receipts
+    let bob_expected_vote = receipts
         .get(3)
         .unwrap()
         .result
@@ -7973,7 +8387,10 @@ fn test_scenario_four() {
 
     let approved_key = get_approved_aggregate_key(&mut peer, latest_block, next_reward_cycle)
         .expect("No approved key found");
-    assert_eq!(approved_key, peer_config.aggregate_public_key.unwrap());
+    assert_eq!(
+        approved_key,
+        peer_config.aggregate_public_key.clone().unwrap()
+    );
 
     // Alice stack-extend err tx
     let alice_extend_err = make_pox_4_extend(
@@ -8007,7 +8424,7 @@ fn test_scenario_four() {
         &alice.private_key,
         alice.nonce,
         alice_index,
-        &peer_config.aggregate_public_key.unwrap(),
+        peer_config.aggregate_public_key.clone().unwrap(),
         1,
         7,
     );
@@ -8019,12 +8436,17 @@ fn test_scenario_four() {
         alice_vote_expected_err.clone(),
     ];
     let target_height = target_height.wrapping_add(1);
-    let (latest_block, tx_block) =
-        advance_to_block_height(&mut peer, &observer, &txs, &mut peer_nonce, target_height);
+    let (latest_block, tx_block, receipts) = advance_to_block_height(
+        &mut peer,
+        &observer,
+        &txs,
+        &mut peer_nonce,
+        target_height,
+        &mut test_signers,
+    );
 
     // Check Alice's err stack-extend tx (err 35 - INVALID_SIGNATURE_PUBKEY)
-    let alice_err_extend = tx_block
-        .receipts
+    let alice_err_extend = receipts
         .get(1)
         .unwrap()
         .result
@@ -8034,8 +8456,7 @@ fn test_scenario_four() {
     assert_eq!(alice_err_extend, Value::Int(35));
 
     // Check Alice's stack-extend tx
-    let alice_extend_receipt = tx_block
-        .receipts
+    let alice_extend_receipt = receipts
         .get(2)
         .unwrap()
         .result
@@ -8044,8 +8465,7 @@ fn test_scenario_four() {
         .unwrap();
 
     // Check Alice's expected err vote (err 14 - DUPLICATE_AGGREGATE_PUBLIC_KEY)
-    let alice_expected_vote_err = tx_block
-        .receipts
+    let alice_expected_vote_err = receipts
         .get(3)
         .unwrap()
         .result
@@ -8062,12 +8482,19 @@ fn test_scenario_four() {
 // In this test case, Alice delegates twice the stacking minimum to Bob.
 //  Bob stacks Alice's funds, and then immediately tries to stacks-aggregation-increase.
 //  This should return a clarity user error.
-#[test]
-fn delegate_stack_increase_err() {
+#[apply(nakamoto_cases)]
+fn delegate_stack_increase_err(use_nakamoto: bool) {
     let lock_period: u128 = 2;
     let observer = TestEventObserver::new();
-    let (burnchain, mut peer, keys, latest_block, block_height, mut coinbase_nonce) =
-        prepare_pox4_test(function_name!(), Some(&observer));
+    let (
+        burnchain,
+        mut peer,
+        keys,
+        latest_block,
+        block_height,
+        mut coinbase_nonce,
+        mut test_signers,
+    ) = prepare_pox4_test(function_name!(), Some(&observer), use_nakamoto);
 
     let alice_nonce = 0;
     let alice_key = &keys[0];
@@ -8113,7 +8540,7 @@ fn delegate_stack_increase_err() {
 
     let txs = vec![delegate_stx, delegate_stack_stx];
 
-    let latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
+    let latest_block = tenure_with_txs(&mut peer, &txs, &mut coinbase_nonce, &mut test_signers);
 
     bob_nonce += 1;
 
@@ -8127,13 +8554,15 @@ fn delegate_stack_increase_err() {
         1,
     );
 
+    let slot_idx = if use_nakamoto { 1 } else { 0 };
+
     // Bob's Aggregate Increase
     let bobs_aggregate_increase = make_pox_4_aggregation_increase(
         &bob_delegate_key,
         bob_nonce,
         &pox_addr,
         next_reward_cycle.into(),
-        0,
+        slot_idx,
         Some(signature),
         &signer_pk,
         u128::MAX,
@@ -8142,7 +8571,7 @@ fn delegate_stack_increase_err() {
 
     let txs = vec![bobs_aggregate_increase];
 
-    let latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
+    let latest_block = tenure_with_txs(&mut peer, &txs, &mut coinbase_nonce, &mut test_signers);
 
     let delegate_transactions =
         get_last_block_sender_transactions(&observer, key_to_stacks_addr(bob_delegate_key));
@@ -8157,7 +8586,11 @@ fn delegate_stack_increase_err() {
     // test that the reward set is empty
     let reward_cycle_ht = burnchain.reward_cycle_to_block_height(next_reward_cycle);
     let reward_set = get_reward_set_entries_at(&mut peer, &latest_block, reward_cycle_ht);
-    assert!(reward_set.is_empty());
+    if use_nakamoto {
+        assert_eq!(reward_set.len(), 1);
+    } else {
+        assert!(reward_set.is_empty());
+    }
 }
 
 pub fn get_stacking_state_pox_4(
@@ -8358,6 +8791,7 @@ pub fn get_stacking_minimum(peer: &mut TestPeer, latest_block: &StacksBlockId) -
 pub fn prepare_pox4_test<'a>(
     test_name: &str,
     observer: Option<&'a TestEventObserver>,
+    use_nakamoto: bool,
 ) -> (
     Burnchain,
     TestPeer<'a>,
@@ -8365,8 +8799,9 @@ pub fn prepare_pox4_test<'a>(
     StacksBlockId,
     u64,
     usize,
+    Option<TestSigners>,
 ) {
-    let (epochs, pox_constants) = make_test_epochs_pox();
+    let (epochs, pox_constants) = make_test_epochs_pox(use_nakamoto);
 
     let mut burnchain = Burnchain::default_unittest(
         0,
@@ -8377,33 +8812,144 @@ pub fn prepare_pox4_test<'a>(
     let (mut peer, keys) =
         instantiate_pox_peer_with_epoch(&burnchain, test_name, Some(epochs.clone()), observer);
 
-    assert_eq!(burnchain.pox_constants.reward_slots(), 6);
-    let mut coinbase_nonce = 0;
+    if use_nakamoto {
+        let test_key = keys[3].clone();
+        let test_keys = vec![test_key.clone()];
 
-    // Advance into pox4
-    let target_height = burnchain.pox_constants.pox_4_activation_height;
-    let mut latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
-    while get_tip(peer.sortdb.as_ref()).block_height < u64::from(target_height) {
-        latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
-        // if we reach epoch 2.1, perform the check
-        if get_tip(peer.sortdb.as_ref()).block_height > epochs[3].start_height {
-            assert_latest_was_burn(&mut peer);
+        let private_key = StacksPrivateKey::from_seed(&[2]);
+        let test_signers = TestSigners::new(test_keys.clone());
+        let test_stackers = test_keys
+            .iter()
+            .map(|key| TestStacker {
+                signer_private_key: key.clone(),
+                stacker_private_key: key.clone(),
+                amount: 1024 * POX_THRESHOLD_STEPS_USTX,
+                pox_addr: Some(pox_addr_from(&key)),
+                max_amount: None,
+            })
+            .collect::<Vec<_>>();
+        let mut pox_constants = TestPeerConfig::default().burnchain.pox_constants;
+        pox_constants.reward_cycle_length = 10;
+        pox_constants.v2_unlock_height = 21;
+        pox_constants.pox_3_activation_height = 26;
+        pox_constants.v3_unlock_height = 27;
+        pox_constants.pox_4_activation_height = 41;
+        pox_constants.prepare_length = 5;
+        let mut boot_plan = NakamotoBootPlan::new(test_name)
+            .with_test_stackers(test_stackers)
+            .with_test_signers(test_signers.clone())
+            .with_private_key(private_key);
+        boot_plan.add_default_balance = false;
+        let addrs: Vec<StacksAddress> = keys.iter().map(|pk| key_to_stacks_addr(pk)).collect();
+
+        let balances: Vec<(PrincipalData, u64)> = addrs
+            .clone()
+            .into_iter()
+            .map(|addr| (addr.into(), (1024 * POX_THRESHOLD_STEPS_USTX) as u64))
+            .collect();
+        boot_plan.initial_balances = balances;
+        boot_plan.pox_constants = pox_constants.clone();
+        burnchain.pox_constants = pox_constants.clone();
+
+        info!("---- Booting into Nakamoto Peer ----");
+        let peer = boot_plan.boot_into_nakamoto_peer(vec![], observer);
+        let sort_db = peer.sortdb.as_ref().unwrap();
+        let latest_block = sort_db
+            .index_handle_at_tip()
+            .get_nakamoto_tip_block_id()
+            .unwrap()
+            .unwrap();
+        let coinbase_nonce = 0;
+
+        let block_height = get_tip(peer.sortdb.as_ref()).block_height;
+
+        info!("Block height: {}", block_height);
+
+        (
+            burnchain,
+            peer,
+            keys,
+            latest_block,
+            block_height,
+            coinbase_nonce,
+            Some(test_signers),
+        )
+    } else {
+        // Advance into pox4
+        let target_height = burnchain.pox_constants.pox_4_activation_height;
+        let mut coinbase_nonce = 0;
+        let mut latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
+        while get_tip(peer.sortdb.as_ref()).block_height < u64::from(target_height) {
+            latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
+            // if we reach epoch 2.1, perform the check
+            if get_tip(peer.sortdb.as_ref()).block_height > epochs[3].start_height {
+                assert_latest_was_burn(&mut peer);
+            }
         }
+        let block_height = get_tip(peer.sortdb.as_ref()).block_height;
+        (
+            burnchain,
+            peer,
+            keys,
+            latest_block,
+            block_height,
+            coinbase_nonce,
+            None,
+        )
     }
-
-    let block_height = get_tip(peer.sortdb.as_ref()).block_height;
-
-    info!("Block height: {}", block_height);
-
-    (
-        burnchain,
-        peer,
-        keys,
-        latest_block,
-        block_height,
-        coinbase_nonce,
-    )
 }
+
+pub fn tenure_with_txs(
+    peer: &mut TestPeer,
+    txs: &[StacksTransaction],
+    coinbase_nonce: &mut usize,
+    test_signers: &mut Option<TestSigners>,
+) -> StacksBlockId {
+    if let Some(test_signers) = test_signers {
+        let (burn_ops, mut tenure_change, miner_key) =
+            peer.begin_nakamoto_tenure(TenureChangeCause::BlockFound);
+        let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
+        let vrf_proof = peer.make_nakamoto_vrf_proof(miner_key);
+
+        tenure_change.tenure_consensus_hash = consensus_hash.clone();
+        tenure_change.burn_view_consensus_hash = consensus_hash.clone();
+
+        let tenure_change_tx = peer
+            .miner
+            .make_nakamoto_tenure_change(tenure_change.clone());
+        let coinbase_tx = peer.miner.make_nakamoto_coinbase(None, vrf_proof);
+
+        let blocks_and_sizes = peer.make_nakamoto_tenure(
+            tenure_change_tx,
+            coinbase_tx,
+            test_signers,
+            |_miner, _chainstate, _sort_dbconn, _blocks| {
+                info!("Building nakamoto block. Blocks len {}", _blocks.len());
+                if _blocks.len() == 0 {
+                    txs.to_vec()
+                } else {
+                    vec![]
+                }
+            },
+        );
+        let blocks: Vec<_> = blocks_and_sizes
+            .into_iter()
+            .map(|(block, _, _)| block)
+            .collect();
+
+        let chainstate = &mut peer.stacks_node.as_mut().unwrap().chainstate;
+        let sort_db = peer.sortdb.as_mut().unwrap();
+        let latest_block = sort_db
+            .index_handle_at_tip()
+            .get_nakamoto_tip_block_id()
+            .unwrap()
+            .unwrap();
+        latest_block
+    } else {
+        peer.tenure_with_txs(txs, coinbase_nonce)
+    }
+}
+
 pub fn get_last_block_sender_transactions(
     observer: &TestEventObserver,
     address: StacksAddress,
@@ -8434,7 +8980,7 @@ fn missed_slots_no_unlock() {
     //  tenures start being tracked.
     let EMPTY_SORTITIONS = 25;
 
-    let (epochs, mut pox_constants) = make_test_epochs_pox();
+    let (epochs, mut pox_constants) = make_test_epochs_pox(false);
     pox_constants.pox_4_activation_height = u32::try_from(epochs[7].start_height).unwrap() + 1;
 
     let mut burnchain = Burnchain::default_unittest(
@@ -8685,7 +9231,7 @@ fn no_lockups_2_5() {
     //  tenures start being tracked.
     let EMPTY_SORTITIONS = 25;
 
-    let (epochs, mut pox_constants) = make_test_epochs_pox();
+    let (epochs, mut pox_constants) = make_test_epochs_pox(false);
     pox_constants.pox_4_activation_height = u32::try_from(epochs[7].start_height).unwrap() + 1;
 
     let mut burnchain = Burnchain::default_unittest(
@@ -8783,8 +9329,8 @@ fn no_lockups_2_5() {
 // 5. Carl stx-stacks & self-signs for 3 reward cycle
 // 6. In Carl's second reward cycle, he calls stx-extend for 3 more reward cycles
 // 7. In Carl's third reward cycle, he calls stx-increase and should fail as he is straddling 2 keys
-#[test]
-fn test_scenario_five() {
+#[apply(nakamoto_cases)]
+fn test_scenario_five(use_nakamoto: bool) {
     // Alice service signer setup
     let mut alice = StackerSignerInfo::new();
     // Bob service signer setup
@@ -8827,12 +9373,28 @@ fn test_scenario_five() {
         mut peer,
         mut peer_nonce,
         burn_block_height,
-        target_height,
         reward_cycle,
         next_reward_cycle,
         min_ustx,
         mut peer_config,
-    ) = pox_4_scenario_test_setup("test_scenario_five", &observer, initial_balances);
+        mut test_signers,
+    ) = pox_4_scenario_test_setup(
+        "test_scenario_five",
+        &observer,
+        initial_balances,
+        use_nakamoto,
+    );
+
+    // Add to test signers
+    if let Some(ref mut test_signers) = test_signers.as_mut() {
+        test_signers.signer_keys.extend(vec![
+            alice.private_key.clone(),
+            bob.private_key.clone(),
+            carl.private_key.clone(),
+            david.private_key.clone(),
+            eve.private_key.clone(),
+        ]);
+    }
 
     // Lock periods for each stacker
     let carl_lock_period = 3;
@@ -9091,8 +9653,20 @@ fn test_scenario_five() {
         .reward_cycle_to_block_height(next_reward_cycle as u64)
         .saturating_sub(peer_config.burnchain.pox_constants.prepare_length as u64)
         .wrapping_add(2);
-    let (latest_block, tx_block) =
-        advance_to_block_height(&mut peer, &observer, &txs, &mut peer_nonce, target_height);
+    info!(
+        "Scenario five: submitting stacking txs.";
+        "target_height" => target_height,
+        "next_reward_cycle" => next_reward_cycle,
+        "prepare_length" => peer_config.burnchain.pox_constants.prepare_length,
+    );
+    let (latest_block, tx_block, _receipts) = advance_to_block_height(
+        &mut peer,
+        &observer,
+        &txs,
+        &mut peer_nonce,
+        target_height,
+        &mut test_signers,
+    );
 
     // Check that all of David's stackers have been added to the reward set
     for (stacker, stacker_lock_period) in davids_stackers {
@@ -9142,7 +9716,7 @@ fn test_scenario_five() {
         &alice.private_key,
         alice.nonce,
         alice_index,
-        &peer_config.aggregate_public_key.unwrap(),
+        peer_config.aggregate_public_key.clone().unwrap(),
         1,
         next_reward_cycle,
     );
@@ -9150,7 +9724,7 @@ fn test_scenario_five() {
         &bob.private_key,
         bob.nonce,
         bob_index,
-        &peer_config.aggregate_public_key.unwrap(),
+        peer_config.aggregate_public_key.clone().unwrap(),
         1,
         next_reward_cycle,
     );
@@ -9158,7 +9732,7 @@ fn test_scenario_five() {
         &carl.private_key,
         carl.nonce,
         carl_index,
-        &peer_config.aggregate_public_key.unwrap(),
+        peer_config.aggregate_public_key.clone().unwrap(),
         1,
         next_reward_cycle,
     );
@@ -9166,18 +9740,22 @@ fn test_scenario_five() {
     alice.nonce += 1;
     bob.nonce += 1;
     carl.nonce += 1;
-
     // Mine vote txs & advance to the reward set calculation of the next reward cycle
     let target_height = peer
         .config
         .burnchain
         .reward_cycle_to_block_height(next_reward_cycle as u64);
-    let (latest_block, tx_block) = advance_to_block_height(
+    info!(
+        "Scenario five: submitting votes. Target height: {}",
+        target_height
+    );
+    let (latest_block, tx_block, _receipts) = advance_to_block_height(
         &mut peer,
         &observer,
         &vote_txs,
         &mut peer_nonce,
         target_height,
+        &mut test_signers,
     );
 
     let mut observed_txs = HashSet::new();
@@ -9278,21 +9856,33 @@ fn test_scenario_five() {
         .reward_cycle_to_block_height(next_reward_cycle as u64)
         .saturating_sub(peer_config.burnchain.pox_constants.prepare_length as u64)
         .wrapping_add(2);
-    let (latest_block, tx_block) =
-        advance_to_block_height(&mut peer, &observer, &txs, &mut peer_nonce, target_height);
+    info!(
+        "Scenario five: submitting extend and aggregate commit txs. Target height: {}",
+        target_height
+    );
+    let (latest_block, tx_block, receipts) = advance_to_block_height(
+        &mut peer,
+        &observer,
+        &txs,
+        &mut peer_nonce,
+        target_height,
+        &mut test_signers,
+    );
 
     // Check that all of David's stackers are stacked
-    for (stacker, stacker_lock_period) in davids_stackers {
+    for (idx, (stacker, stacker_lock_period)) in davids_stackers.iter().enumerate() {
         let (pox_address, first_reward_cycle, lock_period, _indices) =
-            get_stacker_info_pox_4(&mut peer, &stacker.principal).expect("Failed to find stacker");
+            get_stacker_info_pox_4(&mut peer, &stacker.principal)
+                .expect(format!("Failed to find stacker {}", idx).as_str());
         assert_eq!(first_reward_cycle, reward_cycle);
         assert_eq!(pox_address, david.pox_address);
         assert_eq!(lock_period, *stacker_lock_period);
     }
     // Check that all of Eve's stackers are stacked
-    for (stacker, stacker_lock_period) in eves_stackers {
+    for (idx, (stacker, stacker_lock_period)) in eves_stackers.iter().enumerate() {
         let (pox_address, first_reward_cycle, lock_period, _indices) =
-            get_stacker_info_pox_4(&mut peer, &stacker.principal).expect("Failed to find stacker");
+            get_stacker_info_pox_4(&mut peer, &stacker.principal)
+                .expect(format!("Failed to find stacker {}", idx).as_str());
         assert_eq!(first_reward_cycle, reward_cycle);
         assert_eq!(pox_address, eve.pox_address);
         assert_eq!(lock_period, *stacker_lock_period);
@@ -9334,7 +9924,7 @@ fn test_scenario_five() {
         &alice.private_key,
         alice.nonce,
         alice_index,
-        &peer_config.aggregate_public_key.unwrap(),
+        peer_config.aggregate_public_key.clone().unwrap(),
         1,
         next_reward_cycle,
     );
@@ -9342,7 +9932,7 @@ fn test_scenario_five() {
         &bob.private_key,
         bob.nonce,
         bob_index,
-        &peer_config.aggregate_public_key.unwrap(),
+        peer_config.aggregate_public_key.clone().unwrap(),
         1,
         next_reward_cycle,
     );
@@ -9350,7 +9940,7 @@ fn test_scenario_five() {
         &carl.private_key,
         carl.nonce,
         carl_index,
-        &peer_config.aggregate_public_key.unwrap(),
+        peer_config.aggregate_public_key.clone().unwrap(),
         1,
         next_reward_cycle,
     );
@@ -9364,12 +9954,17 @@ fn test_scenario_five() {
         .burnchain
         .reward_cycle_to_block_height(next_reward_cycle as u64);
     // Submit vote transactions
-    let (latest_block, tx_block) = advance_to_block_height(
+    info!(
+        "Scenario five: submitting votes. Target height: {}",
+        target_height
+    );
+    let (latest_block, tx_block, _receipts) = advance_to_block_height(
         &mut peer,
         &observer,
         &vote_txs,
         &mut peer_nonce,
         target_height,
+        &mut test_signers,
     );
 
     let mut observed_txs = HashSet::new();
@@ -9478,8 +10073,15 @@ fn test_scenario_five() {
         (heidi.clone(), heidi_lock_period),
     ];
 
-    let (latest_block, tx_block) =
-        advance_to_block_height(&mut peer, &observer, &txs, &mut peer_nonce, target_height);
+    info!("Scenario five: submitting increase and aggregate-commit txs");
+    let (latest_block, tx_block, receipts) = advance_to_block_height(
+        &mut peer,
+        &observer,
+        &txs,
+        &mut peer_nonce,
+        target_height,
+        &mut test_signers,
+    );
 
     for (stacker, _) in davids_stackers {
         let (pox_address, first_reward_cycle, _lock_period, _indices) =
@@ -9503,6 +10105,6 @@ fn test_scenario_five() {
     assert_eq!(pox_address, carl.pox_address);
 
     // Assert that carl's error is err(40)
-    let carl_increase_err = tx_block.receipts[1].clone().result;
+    let carl_increase_err = receipts[1].clone().result;
     assert_eq!(carl_increase_err, Value::error(Value::Int(40)).unwrap());
 }

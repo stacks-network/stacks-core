@@ -62,94 +62,105 @@
 /// [11] Notifies about new transaction attachment events
 /// [12] Signals VRF key registration
 ///
-/// When the node is running, there are 4-5 active threads at once.  They are:
+/// When the node is running, there are 4-5 active threads at once. They are:
 ///
-/// * **RunLoop Thread**:  This is the main thread, whose code body lives in src/run_loop/neon.rs.
-/// This thread is responsible for:
-///    * Bootup
-///    * Running the burnchain indexer
-///    * Notifying the ChainsCoordinator thread when there are new burnchain blocks to process
+/// * **RunLoop Thread**:
+///     This is the main thread, whose code body lives in `src/run_loop/neon.rs`.
+///     This thread is responsible for:
+///       * Bootup
+///       * Running the burnchain indexer
+///       * Notifying the ChainsCoordinator thread when there are new burnchain blocks to process
 ///
-/// * **Relayer Thread**:  This is the thread that stores and relays blocks and microblocks.  Both
-/// it and the ChainsCoordinator thread are very I/O-heavy threads, and care has been taken to
-/// ensure that neither one attempts to acquire a write-lock in the underlying databases.
-/// Specifically, this thread directs the ChainsCoordinator thread when to process new Stacks
-/// blocks, and it directs the miner thread (if running) to stop when either it or the
-/// ChainsCoordinator thread needs to acquire the write-lock.
-/// This thread is responsible for:
-///    * Receiving new blocks and microblocks from the P2P thread via a shared channel
-///    * (Sychronously) requesting the CoordinatorThread to process newly-stored Stacks blocks and
-///    microblocks
-///    * Building up the node's unconfirmed microblock stream state, and sharing it with the P2P
-///    thread so it can answer queries about the unconfirmed microblock chain
-///    * Pushing newly-discovered blocks and microblocks to the P2P thread for broadcast
-///    * Registering the VRF public key for the miner
-///    * Spawning the block and microblock miner threads, and stopping them if their continued
-///    execution would inhibit block or microblock storage or processing.
-///    * Submitting the burnchain operation to commit to a freshly-mined block
+/// * **Relayer Thread**:
+///     This is the thread that stores and relays blocks and microblocks. Both
+///     it and the ChainsCoordinator thread are very I/O-heavy threads, and care has been taken to
+///     ensure that neither one attempts to acquire a write-lock in the underlying databases.
+///     Specifically, this thread directs the ChainsCoordinator thread when to process new Stacks
+///     blocks, and it directs the miner thread (if running) to stop when either it or the
+///     ChainsCoordinator thread needs to acquire the write-lock.
+///     This thread is responsible for:
+///       * Receiving new blocks and microblocks from the P2P thread via a shared channel
+///       * (Synchronously) requesting the CoordinatorThread to process newly-stored Stacks blocks
+///         and microblocks
+///       * Building up the node's unconfirmed microblock stream state, and sharing it with the P2P
+///         thread so it can answer queries about the unconfirmed microblock chain
+///       * Pushing newly-discovered blocks and microblocks to the P2P thread for broadcast
+///       * Registering the VRF public key for the miner
+///       * Spawning the block and microblock miner threads, and stopping them if their continued
+///         execution would inhibit block or microblock storage or processing.
+///       * Submitting the burnchain operation to commit to a freshly-mined block
 ///
-/// * **Miner thread**:  This is the thread that actually produces new blocks and microblocks.  It
-/// is spawned only by the Relayer thread to carry out mining activity when the underlying
-/// chainstate is not needed by either the Relayer or ChainsCoordinator threeads.
-/// This thread does the following:
-///    * Walk the mempool DB to build a new block or microblock
-///    * Return the block or microblock to the Relayer thread
+/// * **Miner Thread**:
+///     This is the thread that actually produces new blocks and microblocks. It
+///     is spawned only by the Relayer thread to carry out mining activity when the underlying
+///     chainstate is not needed by either the Relayer or ChainsCoordinator threads.
+///     This thread does the following:
+///       * Walk the mempool DB to build a new block or microblock
+///       * Return the block or microblock to the Relayer thread
 ///
-/// * **P2P Thread**:  This is the thread that communicates with the rest of the p2p network, and
-/// handles RPC requests.  It is meant to do as little storage-write I/O as possible to avoid lock
-/// contention with the Miner, Relayer, and ChainsCoordinator threads.  In particular, it forwards
-/// data it receives from the p2p thread to the Relayer thread for I/O-bound processing.  At the
-/// time of this writing, it still requires holding a write-lock to handle some RPC request, but
-/// future work will remove this so that this thread's execution will not interfere with the
-/// others.  This is the only thread that does socket I/O.
-/// This thread runs the PeerNetwork state machines, which include the following:
-///    * Learning the node's public IP address
-///    * Discovering neighbor nodes
-///    * Forwarding newly-discovered blocks, microblocks, and transactions from the Relayer thread to
-///    other neighbors
-///    * Synchronizing block and microblock inventory state with other neighbors
-///    * Downloading blocks and microblocks, and passing them to the Relayer for storage and processing
-///    * Downloading transaction attachments as their hashes are discovered during block processing
-///    * Synchronizing the local mempool database with other neighbors
-///    (notifications for new attachments come from a shared channel in the ChainsCoordinator thread)
-///    * Handling HTTP requests
+/// * **P2P Thread**:
+///     This is the thread that communicates with the rest of the P2P network, and
+///     handles RPC requests. It is meant to do as little storage-write I/O as possible to avoid lock
+///     contention with the Miner, Relayer, and ChainsCoordinator threads. In particular, it forwards
+///     data it receives from the P2P thread to the Relayer thread for I/O-bound processing. At the
+///     time of this writing, it still requires holding a write-lock to handle some RPC requests, but
+///     future work will remove this so that this thread's execution will not interfere with the
+///     others. This is the only thread that does socket I/O.
+///     This thread runs the PeerNetwork state machines, which include the following:
+///       * Learning the node's public IP address
+///       * Discovering neighbor nodes
+///       * Forwarding newly-discovered blocks, microblocks, and transactions from the Relayer thread
+///         to other neighbors
+///       * Synchronizing block and microblock inventory state with other neighbors
+///       * Downloading blocks and microblocks, and passing them to the Relayer for storage and
+///         processing
+///       * Downloading transaction attachments as their hashes are discovered during block processing
+///       * Synchronizing the local mempool database with other neighbors
+///         (notifications for new attachments come from a shared channel in the ChainsCoordinator thread)
+///       * Handling HTTP requests
 ///
-/// * **ChainsCoordinator Thread**:  This thread process sortitions and Stacks blocks and
-/// microblocks, and handles PoX reorgs should they occur (this mainly happens in boot-up).  It,
-/// like the Relayer thread, is a very I/O-heavy thread, and it will hold a write-lock on the
-/// chainstate DBs while it works.  Its actions are controlled by a CoordinatorComms structure in
-/// the Globals shared state, which the Relayer thread and RunLoop thread both drive (the former
-/// drives Stacks blocks processing, the latter sortitions).
-/// This thread is responsible for:
-///    * Responding to requests from other threads to process sortitions
-///    * Responding to requests from other threads to process Stacks blocks and microblocks
-///    * Processing PoX chain reorgs, should they ever happen
-///    * Detecting attachment creation events, and informing the P2P thread of them so it can go
-///    and download them
+/// * **ChainsCoordinator Thread**:
+///     This thread processes sortitions and Stacks blocks and
+///     microblocks, and handles PoX reorgs should they occur (this mainly happens in boot-up). It,
+///     like the Relayer thread, is a very I/O-heavy thread, and it will hold a write-lock on the
+///     chainstate DBs while it works. Its actions are controlled by a CoordinatorComms structure in
+///     the Globals shared state, which the Relayer thread and RunLoop thread both drive (the former
+///     drives Stacks blocks processing, the latter sortitions).
+///     This thread is responsible for:
+///       * Responding to requests from other threads to process sortitions
+///       * Responding to requests from other threads to process Stacks blocks and microblocks
+///       * Processing PoX chain reorgs, should they ever happen
+///       * Detecting attachment creation events, and informing the P2P thread of them so it can go
+///         and download them
 ///
 /// In addition to the mempool and chainstate databases, these threads share access to a Globals
-/// singleton that contains soft state shared between threads.  Mainly, the Globals struct is meant
-/// to store inter-thread shared singleton communication media all in one convenient struct.  Each
-/// thread has a handle to the struct's shared state handles.  Global state includes:
-///    * The global flag as to whether or not the miner thread can be running
-///    * The global shutdown flag that, when set, causes all threads to terminate
-///    * Sender channel endpoints that can be shared between threads
-///    * Metrics about the node's behavior (e.g. number of blocks processed, etc.)
+/// singleton that contains soft state shared between threads. Mainly, the Globals struct is meant
+/// to store inter-thread shared singleton communication media all in one convenient struct. Each
+/// thread has a handle to the struct's shared state handles. Global state includes:
+///       * The global flag as to whether or not the miner thread can be running
+///       * The global shutdown flag that, when set, causes all threads to terminate
+///       * Sender channel endpoints that can be shared between threads
+///       * Metrics about the node's behavior (e.g. number of blocks processed, etc.)
 ///
 /// This file may be refactored in the future into a full-fledged module.
 use std::cmp;
 use std::cmp::Ordering as CmpOrdering;
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
-use std::io::{Read, Write};
+use std::io::{ErrorKind, Read, Write};
 use std::net::SocketAddr;
 use std::sync::mpsc::{Receiver, TrySendError};
 use std::thread::JoinHandle;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use std::{fs, mem, thread};
 
+use clarity::boot_util::boot_code_id;
 use clarity::vm::ast::ASTRules;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
+use libsigner::v0::messages::{
+    MessageSlotID, MinerSlotID, MockBlock, MockProposal, MockSignature, PeerInfo, SignerMessage,
+};
+use libsigner::{SignerSession, StackerDBSession};
 use stacks::burnchains::bitcoin::address::{BitcoinAddress, LegacyBitcoinAddressType};
 use stacks::burnchains::db::BurnchainHeaderReader;
 use stacks::burnchains::{Burnchain, BurnchainSigner, PoxConstants, Txid};
@@ -164,10 +175,12 @@ use stacks::chainstate::burn::{BlockSnapshot, ConsensusHash};
 use stacks::chainstate::coordinator::{get_next_recipients, OnChainRewardSetProvider};
 use stacks::chainstate::nakamoto::NakamotoChainState;
 use stacks::chainstate::stacks::address::PoxAddress;
+use stacks::chainstate::stacks::boot::MINERS_NAME;
 use stacks::chainstate::stacks::db::blocks::StagingBlock;
 use stacks::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo, MINER_REWARD_MATURITY};
 use stacks::chainstate::stacks::miner::{
-    signal_mining_blocked, signal_mining_ready, BlockBuilderSettings, StacksMicroblockBuilder,
+    signal_mining_blocked, signal_mining_ready, AssembledAnchorBlock, BlockBuilderSettings,
+    StacksMicroblockBuilder,
 };
 use stacks::chainstate::stacks::{
     CoinbasePayload, Error as ChainstateError, StacksBlock, StacksBlockBuilder, StacksBlockHeader,
@@ -178,18 +191,18 @@ use stacks::core::mempool::MemPoolDB;
 use stacks::core::{FIRST_BURNCHAIN_CONSENSUS_HASH, STACKS_EPOCH_3_0_MARKER};
 use stacks::cost_estimates::metrics::{CostMetric, UnitMetric};
 use stacks::cost_estimates::{CostEstimator, FeeEstimator, UnitEstimator};
-use stacks::monitoring;
 use stacks::monitoring::{increment_stx_blocks_mined_counter, update_active_miners_count_gauge};
 use stacks::net::atlas::{AtlasConfig, AtlasDB};
 use stacks::net::db::{LocalPeer, PeerDB};
 use stacks::net::dns::{DNSClient, DNSResolver};
 use stacks::net::p2p::PeerNetwork;
 use stacks::net::relay::Relayer;
-use stacks::net::stackerdb::{StackerDBConfig, StackerDBSync, StackerDBs};
+use stacks::net::stackerdb::{StackerDBConfig, StackerDBSync, StackerDBs, MINER_SLOT_COUNT};
 use stacks::net::{
     Error as NetError, NetworkResult, PeerNetworkComms, RPCHandlerArgs, ServiceFlags,
 };
 use stacks::util_lib::strings::{UrlString, VecDisplay};
+use stacks::{monitoring, version_string};
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockId,
@@ -206,10 +219,11 @@ use super::{BurnchainController, Config, EventDispatcher, Keychain};
 use crate::burnchains::bitcoin_regtest_controller::{
     addr2str, burnchain_params_from_config, BitcoinRegtestController, OngoingBlockCommit,
 };
-use crate::burnchains::make_bitcoin_indexer;
+use crate::burnchains::{make_bitcoin_indexer, Error as BurnchainControllerError};
 use crate::chain_data::MinerStats;
 use crate::config::NodeConfig;
 use crate::globals::{NeonGlobals as Globals, RelayerDirective};
+use crate::nakamoto_node::sign_coordinator::SignCoordinator;
 use crate::run_loop::neon::RunLoop;
 use crate::run_loop::RegisteredKey;
 use crate::ChainTip;
@@ -222,6 +236,7 @@ pub const BLOCK_PROCESSOR_STACK_SIZE: usize = 32 * 1024 * 1024; // 32 MB
 type MinedBlocks = HashMap<BlockHeaderHash, (AssembledAnchorBlock, Secp256k1PrivateKey)>;
 
 /// Result of running the miner thread.  It could produce a Stacks block or a microblock.
+#[allow(clippy::large_enum_variant)]
 pub(crate) enum MinerThreadResult {
     Block(
         AssembledAnchorBlock,
@@ -232,27 +247,6 @@ pub(crate) enum MinerThreadResult {
         Result<Option<(StacksMicroblock, ExecutionCost)>, NetError>,
         MinerTip,
     ),
-}
-
-/// Fully-assembled Stacks anchored, block as well as some extra metadata pertaining to how it was
-/// linked to the burnchain and what view(s) the miner had of the burnchain before and after
-/// completing the block.
-#[derive(Clone)]
-pub struct AssembledAnchorBlock {
-    /// Consensus hash of the parent Stacks block
-    parent_consensus_hash: ConsensusHash,
-    /// Burnchain tip's block hash when we finished mining
-    my_burn_hash: BurnchainHeaderHash,
-    /// Burnchain tip's block height when we finished mining
-    my_block_height: u64,
-    /// Burnchain tip's block hash when we started mining (could be different)
-    orig_burn_hash: BurnchainHeaderHash,
-    /// The block we produced
-    anchored_block: StacksBlock,
-    /// The attempt count of this block (multiple blocks will be attempted per burnchain block)
-    attempt: u64,
-    /// Epoch timestamp in milliseconds when we started producing the block.
-    tenure_begin: u128,
 }
 
 /// Miner chain tip, on top of which to build microblocks
@@ -659,8 +653,8 @@ impl MicroblockMinerThread {
                     sortdb: Some(sortdb),
                     mempool: Some(mempool),
                     event_dispatcher: relayer_thread.event_dispatcher.clone(),
-                    parent_consensus_hash: ch.clone(),
-                    parent_block_hash: bhh.clone(),
+                    parent_consensus_hash: ch,
+                    parent_block_hash: bhh,
                     miner_key,
                     frequency,
                     last_mined: 0,
@@ -756,7 +750,7 @@ impl MicroblockMinerThread {
 
         let mint_result = {
             let ic = sortdb.index_handle_at_block(
-                &chainstate,
+                chainstate,
                 &block_snapshot.get_canonical_stacks_block_id(),
             )?;
             let mut microblock_miner = match StacksMicroblockBuilder::resume_unconfirmed(
@@ -818,12 +812,12 @@ impl MicroblockMinerThread {
                 &mined_microblock.block_hash()
             );
 
-            #[cfg(any(test, feature = "testing"))]
+            #[cfg(test)]
             {
                 use std::path::Path;
                 if let Ok(path) = std::env::var("STACKS_BAD_BLOCKS_DIR") {
                     // record this microblock somewhere
-                    if !fs::metadata(&path).is_ok() {
+                    if fs::metadata(&path).is_err() {
                         fs::create_dir_all(&path)
                             .unwrap_or_else(|_| panic!("FATAL: could not create '{}'", &path));
                     }
@@ -840,7 +834,7 @@ impl MicroblockMinerThread {
                         r#"{{"microblock":"{}","parent_consensus":"{}","parent_block":"{}"}}"#,
                         &mblock_bits_hex, &self.parent_consensus_hash, &self.parent_block_hash
                     );
-                    file.write_all(&mblock_json.as_bytes()).unwrap_or_else(|_| {
+                    file.write_all(mblock_json.as_bytes()).unwrap_or_else(|_| {
                         panic!("FATAL: failed to write microblock bits to '{:?}'", &path)
                     });
                     info!(
@@ -886,7 +880,7 @@ impl MicroblockMinerThread {
         // update unconfirmed state cost
         self.cost_so_far = new_cost;
         self.quantity += 1;
-        return Ok(mined_microblock);
+        Ok(mined_microblock)
     }
 
     /// Can this microblock miner mine off of this given tip?
@@ -1099,6 +1093,7 @@ impl BlockMinerThread {
     }
 
     /// Constructs and returns a LeaderBlockCommitOp out of the provided params.
+    #[allow(clippy::too_many_arguments)]
     fn inner_generate_block_commit_op(
         &self,
         block_header_hash: BlockHeaderHash,
@@ -1143,7 +1138,7 @@ impl BlockMinerThread {
     ) -> Vec<&AssembledAnchorBlock> {
         let mut ret = vec![];
         for (_, (assembled_block, _)) in last_mined_blocks.iter() {
-            if assembled_block.my_block_height >= burn_height {
+            if assembled_block.burn_block_height >= burn_height {
                 ret.push(assembled_block);
             }
         }
@@ -1215,7 +1210,7 @@ impl BlockMinerThread {
                 .expect("FATAL: could not query chain tips")
         };
 
-        if stacks_tips.len() == 0 {
+        if stacks_tips.is_empty() {
             return vec![];
         }
 
@@ -1226,7 +1221,7 @@ impl BlockMinerThread {
             .filter(|candidate| Self::is_on_canonical_burnchain_fork(candidate, &sortdb_tip_handle))
             .collect();
 
-        if stacks_tips.len() == 0 {
+        if stacks_tips.is_empty() {
             return vec![];
         }
 
@@ -1282,7 +1277,7 @@ impl BlockMinerThread {
     pub(crate) fn sort_and_populate_candidates(
         mut candidates: Vec<TipCandidate>,
     ) -> Vec<TipCandidate> {
-        if candidates.len() == 0 {
+        if candidates.is_empty() {
             return candidates;
         }
         candidates.sort_by(|tip1, tip2| {
@@ -1386,7 +1381,7 @@ impl BlockMinerThread {
         // identify leaf tips -- i.e. blocks with no children
         let parent_consensus_hashes: HashSet<_> = stacks_tips
             .iter()
-            .map(|x| x.parent_consensus_hash.clone())
+            .map(|x| x.parent_consensus_hash)
             .collect();
 
         let mut leaf_tips: Vec<_> = stacks_tips
@@ -1394,7 +1389,7 @@ impl BlockMinerThread {
             .filter(|x| !parent_consensus_hashes.contains(&x.consensus_hash))
             .collect();
 
-        if leaf_tips.len() == 0 {
+        if leaf_tips.is_empty() {
             return None;
         }
 
@@ -1515,7 +1510,7 @@ impl BlockMinerThread {
             }
         }
 
-        if scores.len() == 0 {
+        if scores.is_empty() {
             // revert to prior tie-breaking scheme
             return None;
         }
@@ -1589,14 +1584,14 @@ impl BlockMinerThread {
 
             let chain_tip = ChainTip::genesis(
                 &burnchain_params.first_block_hash,
-                burnchain_params.first_block_height.into(),
+                burnchain_params.first_block_height,
                 burnchain_params.first_block_timestamp.into(),
             );
 
             (
                 Some(ParentStacksBlockInfo {
                     stacks_parent_header: chain_tip.metadata,
-                    parent_consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
+                    parent_consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH,
                     parent_block_burn_height: 0,
                     parent_block_total_burn: 0,
                     parent_winning_vtxindex: 0,
@@ -1653,7 +1648,7 @@ impl BlockMinerThread {
                     &prev_block.anchored_block.block_hash(),
                     &prev_block.parent_consensus_hash,
                     &prev_block.anchored_block.header.parent_block,
-                    &prev_block.my_burn_hash,
+                    &prev_block.burn_hash,
                     &prev_block.anchored_block.txs.len()
                 );
                 max_txs = cmp::max(max_txs, prev_block.anchored_block.txs.len());
@@ -1665,7 +1660,7 @@ impl BlockMinerThread {
                     continue;
                 }
                 if prev_block.parent_consensus_hash == *parent_consensus_hash
-                    && prev_block.my_burn_hash == self.burn_block.burn_header_hash
+                    && prev_block.burn_hash == self.burn_block.burn_header_hash
                     && prev_block.anchored_block.header.parent_block
                         == stacks_parent_header.anchored_header.block_hash()
                 {
@@ -1684,7 +1679,7 @@ impl BlockMinerThread {
                     {
                         if (prev_block.anchored_block.header.parent_microblock
                             == BlockHeaderHash([0u8; 32])
-                            && stream.len() == 0)
+                            && stream.is_empty())
                             || (prev_block.anchored_block.header.parent_microblock
                                 != BlockHeaderHash([0u8; 32])
                                 && stream.len()
@@ -1697,7 +1692,7 @@ impl BlockMinerThread {
                                 // already have.
                                 info!("Relayer: Stacks tip is unchanged since we last tried to mine a block off of {}/{} at height {} with {} txs, in {} at burn height {}, and no new microblocks ({} <= {} + 1)",
                                        &prev_block.parent_consensus_hash, &prev_block.anchored_block.header.parent_block, prev_block.anchored_block.header.total_work.work,
-                                       prev_block.anchored_block.txs.len(), prev_block.my_burn_hash, parent_block_burn_height, stream.len(), prev_block.anchored_block.header.parent_microblock_sequence);
+                                       prev_block.anchored_block.txs.len(), prev_block.burn_hash, parent_block_burn_height, stream.len(), prev_block.anchored_block.header.parent_microblock_sequence);
 
                                 return None;
                             }
@@ -1708,30 +1703,30 @@ impl BlockMinerThread {
                             // fee minus the old BTC fee
                             info!("Relayer: Stacks tip is unchanged since we last tried to mine a block off of {}/{} at height {} with {} txs, in {} at burn height {}, but there are new microblocks ({} > {} + 1)",
                                    &prev_block.parent_consensus_hash, &prev_block.anchored_block.header.parent_block, prev_block.anchored_block.header.total_work.work,
-                                   prev_block.anchored_block.txs.len(), prev_block.my_burn_hash, parent_block_burn_height, stream.len(), prev_block.anchored_block.header.parent_microblock_sequence);
+                                   prev_block.anchored_block.txs.len(), prev_block.burn_hash, parent_block_burn_height, stream.len(), prev_block.anchored_block.header.parent_microblock_sequence);
 
                             best_attempt = cmp::max(best_attempt, prev_block.attempt);
                         }
-                    } else {
-                        if !force {
-                            // no microblock stream to confirm, and the stacks tip hasn't changed
-                            info!("Relayer: Stacks tip is unchanged since we last tried to mine a block off of {}/{} at height {} with {} txs, in {} at burn height {}, and no microblocks present",
-                                   &prev_block.parent_consensus_hash, &prev_block.anchored_block.header.parent_block, prev_block.anchored_block.header.total_work.work,
-                                   prev_block.anchored_block.txs.len(), prev_block.my_burn_hash, parent_block_burn_height);
+                    } else if !force {
+                        // no microblock stream to confirm, and the stacks tip hasn't changed
+                        info!("Relayer: Stacks tip is unchanged since we last tried to mine a block off of {}/{} at height {} with {} txs, in {} at burn height {}, and no microblocks present",
+                                &prev_block.parent_consensus_hash, &prev_block.anchored_block.header.parent_block, prev_block.anchored_block.header.total_work.work,
+                                prev_block.anchored_block.txs.len(), prev_block.burn_hash, parent_block_burn_height);
 
-                            return None;
-                        }
+                        return None;
                     }
+                } else if self.burn_block.burn_header_hash == prev_block.burn_hash {
+                    // only try and re-mine if there was no sortition since the last chain tip
+                    info!("Relayer: Stacks tip has changed to {}/{} since we last tried to mine a block in {} at burn height {}; attempt was {} (for Stacks tip {}/{})",
+                               parent_consensus_hash, stacks_parent_header.anchored_header.block_hash(), prev_block.burn_hash, parent_block_burn_height, prev_block.attempt, &prev_block.parent_consensus_hash, &prev_block.anchored_block.header.parent_block);
+                    best_attempt = cmp::max(best_attempt, prev_block.attempt);
+                    // Since the chain tip has changed, we should try to mine a new block, even
+                    // if it has less transactions than the previous block we mined, since that
+                    // previous block would now be a reorg.
+                    max_txs = 0;
                 } else {
-                    if self.burn_block.burn_header_hash == prev_block.my_burn_hash {
-                        // only try and re-mine if there was no sortition since the last chain tip
-                        info!("Relayer: Stacks tip has changed to {}/{} since we last tried to mine a block in {} at burn height {}; attempt was {} (for Stacks tip {}/{})",
-                               parent_consensus_hash, stacks_parent_header.anchored_header.block_hash(), prev_block.my_burn_hash, parent_block_burn_height, prev_block.attempt, &prev_block.parent_consensus_hash, &prev_block.anchored_block.header.parent_block);
-                        best_attempt = cmp::max(best_attempt, prev_block.attempt);
-                    } else {
-                        info!("Relayer: Burn tip has changed to {} ({}) since we last tried to mine a block in {}",
-                               &self.burn_block.burn_header_hash, self.burn_block.block_height, &prev_block.my_burn_hash);
-                    }
+                    info!("Relayer: Burn tip has changed to {} ({}) since we last tried to mine a block in {}",
+                           &self.burn_block.burn_header_hash, self.burn_block.block_height, &prev_block.burn_hash);
                 }
             }
             (best_attempt + 1, max_txs)
@@ -1773,7 +1768,7 @@ impl BlockMinerThread {
     ///
     /// In testing, we ignore the parent stacks block hash because we don't have an easy way to
     /// reproduce it in integration tests.
-    #[cfg(not(any(test, feature = "testing")))]
+    #[cfg(not(test))]
     fn make_microblock_private_key(
         &mut self,
         parent_stacks_hash: &StacksBlockId,
@@ -1786,7 +1781,7 @@ impl BlockMinerThread {
 
     /// Get the microblock private key we'll be using for this tenure, should we win.
     /// Return the private key on success
-    #[cfg(any(test, feature = "testing"))]
+    #[cfg(test)]
     fn make_microblock_private_key(
         &mut self,
         _parent_stacks_hash: &StacksBlockId,
@@ -1847,7 +1842,7 @@ impl BlockMinerThread {
             };
 
         if let Some((ref microblocks, ref poison_opt)) = &microblock_info_opt {
-            if let Some(ref tail) = microblocks.last() {
+            if let Some(tail) = microblocks.last() {
                 debug!(
                     "Confirm microblock stream tailed at {} (seq {})",
                     &tail.block_hash(),
@@ -1857,8 +1852,7 @@ impl BlockMinerThread {
 
             // try and confirm as many microblocks as we can (but note that the stream itself may
             // be too long; we'll try again if that happens).
-            stacks_parent_header.microblock_tail =
-                microblocks.last().clone().map(|blk| blk.header.clone());
+            stacks_parent_header.microblock_tail = microblocks.last().map(|blk| blk.header.clone());
 
             if let Some(poison_payload) = poison_opt {
                 debug!("Detected poisoned microblock fork: {:?}", &poison_payload);
@@ -1877,7 +1871,7 @@ impl BlockMinerThread {
                     if let Err(e) = mem_pool.miner_submit(
                         chain_state,
                         sortdb,
-                        &parent_consensus_hash,
+                        parent_consensus_hash,
                         &stacks_parent_header.anchored_header.block_hash(),
                         &poison_microblock_tx,
                         Some(&self.event_dispatcher),
@@ -1929,6 +1923,7 @@ impl BlockMinerThread {
     }
 
     /// Obtain the target burn fee cap, when considering how well this miner is performing.
+    #[allow(clippy::too_many_arguments)]
     pub fn get_mining_spend_amount<F, G>(
         config: &Config,
         keychain: &Keychain,
@@ -1983,7 +1978,7 @@ impl BlockMinerThread {
         else {
             return config_file_burn_fee_cap;
         };
-        if active_miners_and_commits.len() == 0 {
+        if active_miners_and_commits.is_empty() {
             warn!("No active miners detected; using config file burn_fee_cap");
             return config_file_burn_fee_cap;
         }
@@ -2018,16 +2013,15 @@ impl BlockMinerThread {
         let (spend_dist, _total_spend) = MinerStats::get_spend_distribution(
             &active_miners_and_commits,
             &unconfirmed_block_commits,
-            &recipients,
+            recipients,
         );
         let win_probs = if miner_config.fast_rampup {
             // look at spends 6+ blocks in the future
-            let win_probs = MinerStats::get_future_win_distribution(
+            MinerStats::get_future_win_distribution(
                 &active_miners_and_commits,
                 &unconfirmed_block_commits,
-                &recipients,
-            );
-            win_probs
+                recipients,
+            )
         } else {
             // look at the current spends
             let Ok(unconfirmed_burn_dist) = miner_stats
@@ -2047,8 +2041,7 @@ impl BlockMinerThread {
                 return config_file_burn_fee_cap;
             };
 
-            let win_probs = MinerStats::burn_dist_to_prob_dist(&unconfirmed_burn_dist);
-            win_probs
+            MinerStats::burn_dist_to_prob_dist(&unconfirmed_burn_dist)
         };
 
         info!("Unconfirmed spend distribution: {:?}", &spend_dist);
@@ -2111,6 +2104,7 @@ impl BlockMinerThread {
     /// Produce the block-commit for this anchored block, if we can.
     /// Returns the op on success
     /// Returns None if we fail somehow.
+    #[allow(clippy::too_many_arguments)]
     pub fn make_block_commit(
         &self,
         burn_db: &mut SortitionDB,
@@ -2236,12 +2230,10 @@ impl BlockMinerThread {
                     if let Some(highest_unprocessed_block_sn) = highest_unprocessed_block_sn_opt {
                         if stacks_tip.anchored_header.height()
                             + u64::from(burnchain.pox_constants.prepare_length)
-                            - 1
-                            >= highest_unprocessed.height
+                            > highest_unprocessed.height
                             && highest_unprocessed_block_sn.block_height
                                 + u64::from(burnchain.pox_constants.prepare_length)
-                                - 1
-                                >= sort_tip.block_height
+                                > sort_tip.block_height
                         {
                             // we're close enough to the chain tip that it's a bad idea for us to mine
                             // -- we'll likely create an orphan
@@ -2252,7 +2244,206 @@ impl BlockMinerThread {
             }
         }
         // we can mine
-        return false;
+        false
+    }
+
+    /// Only used in mock signing to generate a peer info view
+    fn generate_peer_info(&self) -> PeerInfo {
+        // Create a peer info view of the current state
+        let server_version = version_string(
+            "stacks-node",
+            option_env!("STACKS_NODE_VERSION")
+                .or(option_env!("CARGO_PKG_VERSION"))
+                .unwrap_or("0.0.0.0"),
+        );
+        let stacks_tip_height = self.burn_block.canonical_stacks_tip_height;
+        let stacks_tip = self.burn_block.canonical_stacks_tip_hash;
+        let stacks_tip_consensus_hash = self.burn_block.canonical_stacks_tip_consensus_hash;
+        let pox_consensus = self.burn_block.consensus_hash;
+        let burn_block_height = self.burn_block.block_height;
+
+        PeerInfo {
+            burn_block_height,
+            stacks_tip_consensus_hash,
+            stacks_tip,
+            stacks_tip_height,
+            pox_consensus,
+            server_version,
+            network_id: self.config.get_burnchain_config().chain_id,
+        }
+    }
+
+    /// Only used in mock signing to retrieve the mock signatures for the given mock proposal
+    fn wait_for_mock_signatures(
+        &self,
+        mock_proposal: &MockProposal,
+        stackerdbs: &StackerDBs,
+        timeout: Duration,
+    ) -> Result<Vec<MockSignature>, ChainstateError> {
+        let reward_cycle = self
+            .burnchain
+            .block_height_to_reward_cycle(self.burn_block.block_height)
+            .expect("BUG: block commit exists before first block height");
+        let signers_contract_id = MessageSlotID::BlockResponse
+            .stacker_db_contract(self.config.is_mainnet(), reward_cycle);
+        let slot_ids: Vec<_> = stackerdbs
+            .get_signers(&signers_contract_id)
+            .expect("FATAL: could not get signers from stacker DB")
+            .into_iter()
+            .enumerate()
+            .map(|(slot_id, _)| {
+                u32::try_from(slot_id).expect("FATAL: too many signers to fit into u32 range")
+            })
+            .collect();
+        let mock_poll_start = Instant::now();
+        let mut mock_signatures = vec![];
+        // Because we don't care really if all signers reach quorum and this is just for testing purposes,
+        // we don't need to wait for ALL signers to sign the mock proposal and should not slow down mining too much
+        // Just wait a min amount of time for the mock signatures to come in
+        while mock_signatures.len() < slot_ids.len() && mock_poll_start.elapsed() < timeout {
+            let chunks = stackerdbs.get_latest_chunks(&signers_contract_id, &slot_ids)?;
+            for chunk in chunks.into_iter().flatten() {
+                if let Ok(SignerMessage::MockSignature(mock_signature)) =
+                    SignerMessage::consensus_deserialize(&mut chunk.as_slice())
+                {
+                    if mock_signature.mock_proposal == *mock_proposal
+                        && !mock_signatures.contains(&mock_signature)
+                    {
+                        mock_signatures.push(mock_signature);
+                    }
+                }
+            }
+        }
+        Ok(mock_signatures)
+    }
+
+    /// Only used in mock signing to determine if the peer info view was already signed across
+    fn mock_block_exists(&self, peer_info: &PeerInfo) -> bool {
+        let miner_contract_id = boot_code_id(MINERS_NAME, self.config.is_mainnet());
+        let mut miners_stackerdb =
+            StackerDBSession::new(&self.config.node.rpc_bind, miner_contract_id);
+        let miner_slot_ids: Vec<_> = (0..MINER_SLOT_COUNT * 2).collect();
+        if let Ok(messages) = miners_stackerdb.get_latest_chunks(&miner_slot_ids) {
+            for message in messages.into_iter().flatten() {
+                if message.is_empty() {
+                    continue;
+                }
+                let Ok(SignerMessage::MockBlock(mock_block)) =
+                    SignerMessage::consensus_deserialize(&mut message.as_slice())
+                else {
+                    continue;
+                };
+                if mock_block.mock_proposal.peer_info == *peer_info {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// Read any mock signatures from stackerdb and respond to them
+    pub fn send_mock_miner_messages(&mut self) -> Result<(), String> {
+        let burn_db_path = self.config.get_burn_db_file_path();
+        let burn_db = SortitionDB::open(&burn_db_path, false, self.burnchain.pox_constants.clone())
+            .expect("FATAL: could not open sortition DB");
+        let epoch_id = SortitionDB::get_stacks_epoch(burn_db.conn(), self.burn_block.block_height)
+            .map_err(|e| e.to_string())?
+            .expect("FATAL: no epoch defined")
+            .epoch_id;
+        if epoch_id != StacksEpochId::Epoch25 {
+            debug!("Mock miner messaging is disabled for non-epoch 2.5 blocks.";
+                "epoch_id" => epoch_id.to_string()
+            );
+            return Ok(());
+        }
+
+        let miner_config = self.config.get_miner_config();
+        if !miner_config.pre_nakamoto_mock_signing {
+            debug!("Pre-Nakamoto mock signing is disabled");
+            return Ok(());
+        }
+
+        let mining_key = miner_config
+            .mining_key
+            .expect("Cannot mock sign without mining key");
+
+        // Create a peer info view of the current state
+        let peer_info = self.generate_peer_info();
+        if self.mock_block_exists(&peer_info) {
+            debug!(
+                "Already sent mock miner block proposal for current peer info view. Not sending another mock proposal."
+            );
+            return Ok(());
+        }
+
+        // find out which slot we're in. If we are not the latest sortition winner, we should not be sending anymore messages anyway
+        let ih = burn_db.index_handle(&self.burn_block.sortition_id);
+        let last_winner_snapshot = ih
+            .get_last_snapshot_with_sortition(self.burn_block.block_height)
+            .map_err(|e| e.to_string())?;
+
+        if last_winner_snapshot.miner_pk_hash
+            != Some(Hash160::from_node_public_key(
+                &StacksPublicKey::from_private(&mining_key),
+            ))
+        {
+            return Ok(());
+        }
+        let election_sortition = last_winner_snapshot.consensus_hash;
+        let mock_proposal = MockProposal::new(peer_info, &mining_key);
+
+        info!("Sending mock proposal to stackerdb: {mock_proposal:?}");
+
+        let stackerdbs = StackerDBs::connect(&self.config.get_stacker_db_file_path(), false)
+            .map_err(|e| e.to_string())?;
+        let miner_contract_id = boot_code_id(MINERS_NAME, self.config.is_mainnet());
+        let mut miners_stackerdb =
+            StackerDBSession::new(&self.config.node.rpc_bind, miner_contract_id);
+
+        SignCoordinator::send_miners_message(
+            &mining_key,
+            &burn_db,
+            &self.burn_block,
+            &stackerdbs,
+            SignerMessage::MockProposal(mock_proposal.clone()),
+            MinerSlotID::BlockProposal, // There is no specific slot for mock miner messages so we use BlockProposal for MockProposal as well.
+            self.config.is_mainnet(),
+            &mut miners_stackerdb,
+            &election_sortition,
+        )
+        .map_err(|e| {
+            warn!("Failed to write mock proposal to stackerdb.");
+            e
+        })?;
+
+        // Retrieve any MockSignatures from stackerdb
+        info!("Waiting for mock signatures...");
+        let mock_signatures = self
+            .wait_for_mock_signatures(&mock_proposal, &stackerdbs, Duration::from_secs(10))
+            .map_err(|e| e.to_string())?;
+
+        let mock_block = MockBlock {
+            mock_proposal,
+            mock_signatures,
+        };
+
+        info!("Sending mock block to stackerdb: {mock_block:?}");
+        SignCoordinator::send_miners_message(
+            &mining_key,
+            &burn_db,
+            &self.burn_block,
+            &stackerdbs,
+            SignerMessage::MockBlock(mock_block.clone()),
+            MinerSlotID::BlockPushed, // There is no specific slot for mock miner messages. Let's use BlockPushed for MockBlock since MockProposal uses BlockProposal.
+            self.config.is_mainnet(),
+            &mut miners_stackerdb,
+            &election_sortition,
+        )
+        .map_err(|e| {
+            warn!("Failed to write mock block to stackerdb.");
+            e
+        })?;
+        Ok(())
     }
 
     // TODO: add tests from mutation testing results #4871
@@ -2567,28 +2758,66 @@ impl BlockMinerThread {
             "attempt" => attempt
         );
 
+        let NodeConfig {
+            mock_mining,
+            mock_mining_output_dir,
+            ..
+        } = self.config.get_node_config(false);
+
         let res = bitcoin_controller.submit_operation(target_epoch_id, op, &mut op_signer, attempt);
-        if res.is_none() {
-            self.failed_to_submit_last_attempt = true;
-            if !self.config.get_node_config(false).mock_mining {
-                warn!("Relayer: Failed to submit Bitcoin transaction");
+        match res {
+            Ok(_) => self.failed_to_submit_last_attempt = false,
+            Err(_) if mock_mining => {
+                debug!("Relayer: Mock-mining enabled; not sending Bitcoin transaction");
+                self.failed_to_submit_last_attempt = true;
+            }
+            Err(BurnchainControllerError::IdenticalOperation) => {
+                info!("Relayer: Block-commit already submitted");
+                self.failed_to_submit_last_attempt = true;
                 return None;
             }
-            debug!("Relayer: Mock-mining enabled; not sending Bitcoin transaction");
-        } else {
-            self.failed_to_submit_last_attempt = false;
+            Err(e) => {
+                warn!("Relayer: Failed to submit Bitcoin transaction: {:?}", e);
+                self.failed_to_submit_last_attempt = true;
+                return None;
+            }
+        };
+
+        let assembled_block = AssembledAnchorBlock {
+            parent_consensus_hash: parent_block_info.parent_consensus_hash,
+            consensus_hash: cur_burn_chain_tip.consensus_hash,
+            burn_hash: cur_burn_chain_tip.burn_header_hash,
+            burn_block_height: cur_burn_chain_tip.block_height,
+            orig_burn_hash: self.burn_block.burn_header_hash,
+            anchored_block,
+            attempt,
+            tenure_begin,
+        };
+
+        if mock_mining {
+            let stacks_block_height = assembled_block.anchored_block.header.total_work.work;
+            info!("Mock mined Stacks block {stacks_block_height}");
+            if let Some(dir) = mock_mining_output_dir {
+                info!("Writing mock mined Stacks block {stacks_block_height} to file");
+                fs::create_dir_all(&dir).unwrap_or_else(|e| match e.kind() {
+                    ErrorKind::AlreadyExists => { /* This is fine */ }
+                    _ => error!("Failed to create directory '{dir:?}': {e}"),
+                });
+                let filename = format!("{stacks_block_height}.json");
+                let filepath = dir.join(filename);
+                assembled_block
+                    .serialize_to_file(&filepath)
+                    .unwrap_or_else(|e| match e.kind() {
+                        ErrorKind::AlreadyExists => {
+                            error!("Failed to overwrite file '{filepath:?}'")
+                        }
+                        _ => error!("Failed to write to file '{filepath:?}': {e}"),
+                    });
+            }
         }
 
         Some(MinerThreadResult::Block(
-            AssembledAnchorBlock {
-                parent_consensus_hash: parent_block_info.parent_consensus_hash,
-                my_burn_hash: cur_burn_chain_tip.burn_header_hash,
-                my_block_height: cur_burn_chain_tip.block_height,
-                orig_burn_hash: self.burn_block.burn_header_hash,
-                anchored_block,
-                attempt,
-                tenure_begin,
-            },
+            assembled_block,
             microblock_private_key,
             bitcoin_controller.get_ongoing_commit(),
         ))
@@ -2709,9 +2938,7 @@ impl RelayerThread {
     /// chain tip?
     pub fn has_waited_for_latest_blocks(&self) -> bool {
         // a network download pass took place
-        (self.min_network_download_passes <= self.last_network_download_passes
-        // a network inv pass took place
-        && self.min_network_download_passes <= self.last_network_download_passes)
+        self.min_network_download_passes <= self.last_network_download_passes
         // we waited long enough for a download pass, but timed out waiting
         || self.last_network_block_height_ts + (self.config.node.wait_time_for_blocks as u128) < get_epoch_time_ms()
         // we're not supposed to wait at all
@@ -2790,7 +3017,7 @@ impl RelayerThread {
             net_receipts.processed_unconfirmed_state.receipts.len();
         if num_unconfirmed_microblock_tx_receipts > 0 {
             if let Some(unconfirmed_state) = self.chainstate_ref().unconfirmed_state.as_ref() {
-                let canonical_tip = unconfirmed_state.confirmed_chain_tip.clone();
+                let canonical_tip = unconfirmed_state.confirmed_chain_tip;
                 self.event_dispatcher.process_new_microblocks(
                     canonical_tip,
                     net_receipts.processed_unconfirmed_state,
@@ -2862,7 +3089,7 @@ impl RelayerThread {
         if !Relayer::static_check_problematic_relayed_block(
             self.chainstate_ref().mainnet,
             epoch_id,
-            &anchored_block,
+            anchored_block,
             ASTRules::PrecheckSize,
         ) {
             // nope!
@@ -2875,7 +3102,7 @@ impl RelayerThread {
                 use std::path::Path;
                 if let Ok(path) = std::env::var("STACKS_BAD_BLOCKS_DIR") {
                     // record this block somewhere
-                    if !fs::metadata(&path).is_ok() {
+                    if fs::metadata(&path).is_err() {
                         fs::create_dir_all(&path)
                             .unwrap_or_else(|_| panic!("FATAL: could not create '{}'", &path));
                     }
@@ -2891,7 +3118,7 @@ impl RelayerThread {
                         r#"{{"block":"{}","consensus":"{}"}}"#,
                         &block_bits_hex, &consensus_hash
                     );
-                    file.write_all(&block_json.as_bytes()).unwrap_or_else(|_| {
+                    file.write_all(block_json.as_bytes()).unwrap_or_else(|_| {
                         panic!("FATAL: failed to write block bits to '{:?}'", &path)
                     });
                     info!(
@@ -2922,8 +3149,8 @@ impl RelayerThread {
             chainstate.preprocess_anchored_block(
                 &ic,
                 consensus_hash,
-                &anchored_block,
-                &parent_consensus_hash,
+                anchored_block,
+                parent_consensus_hash,
                 0,
             )
         })?;
@@ -3013,7 +3240,7 @@ impl RelayerThread {
             let AssembledAnchorBlock {
                 parent_consensus_hash,
                 anchored_block: mined_block,
-                my_burn_hash: mined_burn_hash,
+                burn_hash: mined_burn_hash,
                 attempt: _,
                 ..
             } = last_mined_block_data;
@@ -3051,15 +3278,13 @@ impl RelayerThread {
             };
 
             // advertize _and_ push blocks for now
-            let blocks_available = Relayer::load_blocks_available_data(
-                self.sortdb_ref(),
-                vec![consensus_hash.clone()],
-            )
-            .expect("Failed to obtain block information for a block we mined.");
+            let blocks_available =
+                Relayer::load_blocks_available_data(self.sortdb_ref(), vec![consensus_hash])
+                    .expect("Failed to obtain block information for a block we mined.");
 
             let block_data = {
                 let mut bd = HashMap::new();
-                bd.insert(consensus_hash.clone(), mined_block.clone());
+                bd.insert(consensus_hash, mined_block.clone());
                 bd
             };
 
@@ -3082,7 +3307,7 @@ impl RelayerThread {
                 );
                 miner_tip = Self::pick_higher_tip(miner_tip, None);
             } else {
-                let ch = snapshot.consensus_hash.clone();
+                let ch = snapshot.consensus_hash;
                 let bh = mined_block.block_hash();
                 let height = mined_block.header.total_work.work;
 
@@ -3159,7 +3384,7 @@ impl RelayerThread {
         let tenures = if let Some(last_ch) = self.last_tenure_consensus_hash.as_ref() {
             let mut tenures = vec![];
             let last_sn =
-                SortitionDB::get_block_snapshot_consensus(self.sortdb_ref().conn(), &last_ch)
+                SortitionDB::get_block_snapshot_consensus(self.sortdb_ref().conn(), last_ch)
                     .expect("FATAL: failed to query sortition DB")
                     .expect("FATAL: unknown prior consensus hash");
 
@@ -3238,8 +3463,7 @@ impl RelayerThread {
             .expect("FATAL: failed to query sortition DB")
             .expect("FATAL: no snapshot for consensus hash");
 
-            let old_last_mined_blocks =
-                mem::replace(&mut self.last_mined_blocks, MinedBlocks::new());
+            let old_last_mined_blocks = mem::take(&mut self.last_mined_blocks);
             self.last_mined_blocks =
                 Self::clear_stale_mined_blocks(this_burn_tip.block_height, old_last_mined_blocks);
 
@@ -3321,7 +3545,7 @@ impl RelayerThread {
     /// cost since we won't be mining it anymore.
     fn setup_microblock_mining_state(&mut self, new_miner_tip: Option<MinerTip>) {
         // update state
-        let my_miner_tip = std::mem::replace(&mut self.miner_tip, None);
+        let my_miner_tip = std::mem::take(&mut self.miner_tip);
         let best_tip = Self::pick_higher_tip(my_miner_tip.clone(), new_miner_tip.clone());
         if best_tip == new_miner_tip && best_tip != my_miner_tip {
             // tip has changed
@@ -3365,7 +3589,7 @@ impl RelayerThread {
         BlockstackOperationType::LeaderKeyRegister(LeaderKeyRegisterOp {
             public_key: vrf_public_key,
             memo,
-            consensus_hash: consensus_hash.clone(),
+            consensus_hash: *consensus_hash,
             vtxindex: 0,
             txid: Txid([0u8; 32]),
             block_height: 0,
@@ -3410,7 +3634,7 @@ impl RelayerThread {
         );
 
         let mut one_off_signer = self.keychain.generate_op_signer();
-        if let Some(txid) =
+        if let Ok(txid) =
             self.bitcoin_controller
                 .submit_operation(cur_epoch, op, &mut one_off_signer, 1)
         {
@@ -3426,16 +3650,16 @@ impl RelayerThread {
     fn clear_stale_mined_blocks(burn_height: u64, last_mined_blocks: MinedBlocks) -> MinedBlocks {
         let mut ret = HashMap::new();
         for (stacks_bhh, (assembled_block, microblock_privkey)) in last_mined_blocks.into_iter() {
-            if assembled_block.my_block_height < burn_height {
+            if assembled_block.burn_block_height < burn_height {
                 debug!(
                     "Stale mined block: {} (as of {},{})",
-                    &stacks_bhh, &assembled_block.my_burn_hash, assembled_block.my_block_height
+                    &stacks_bhh, &assembled_block.burn_hash, assembled_block.burn_block_height
                 );
                 continue;
             }
             debug!(
                 "Mined block in-flight: {} (as of {},{})",
-                &stacks_bhh, &assembled_block.my_burn_hash, assembled_block.my_block_height
+                &stacks_bhh, &assembled_block.burn_hash, assembled_block.burn_block_height
             );
             ret.insert(stacks_bhh, (assembled_block, microblock_privkey));
         }
@@ -3444,14 +3668,14 @@ impl RelayerThread {
 
     /// Create the block miner thread state.
     /// Only proceeds if all of the following are true:
-    /// * the miner is not blocked
-    /// * last_burn_block corresponds to the canonical sortition DB's chain tip
-    /// * the time of issuance is sufficiently recent
-    /// * there are no unprocessed stacks blocks in the staging DB
-    /// * the relayer has already tried a download scan that included this sortition (which, if a
-    /// block was found, would have placed it into the staging DB and marked it as
-    /// unprocessed)
-    /// * a miner thread is not running already
+    ///   * The miner is not blocked
+    ///   * `last_burn_block` corresponds to the canonical sortition DB's chain tip
+    ///   * The time of issuance is sufficiently recent
+    ///   * There are no unprocessed stacks blocks in the staging DB
+    ///   * The relayer has already tried a download scan that included this sortition (which, if a
+    ///     block was found, would have placed it into the staging DB and marked it as
+    ///     unprocessed)
+    ///   * A miner thread is not running already
     fn create_block_miner(
         &mut self,
         registered_key: RegisteredKey,
@@ -3492,11 +3716,11 @@ impl RelayerThread {
             }
         }
 
-        let burn_header_hash = last_burn_block.burn_header_hash.clone();
+        let burn_header_hash = last_burn_block.burn_header_hash;
         let burn_chain_sn = SortitionDB::get_canonical_burn_chain_tip(self.sortdb_ref().conn())
             .expect("FATAL: failed to query sortition DB for canonical burn chain tip");
 
-        let burn_chain_tip = burn_chain_sn.burn_header_hash.clone();
+        let burn_chain_tip = burn_chain_sn.burn_header_hash;
 
         if burn_chain_tip != burn_header_hash {
             debug!(
@@ -3565,6 +3789,7 @@ impl RelayerThread {
 
     /// Try to start up a block miner thread with this given VRF key and current burnchain tip.
     /// Returns true if the thread was started; false if it was not (for any reason)
+    #[allow(clippy::incompatible_msrv)]
     pub fn block_miner_thread_try_start(
         &mut self,
         registered_key: RegisteredKey,
@@ -3584,22 +3809,22 @@ impl RelayerThread {
             }
         }
 
-        let mut miner_thread_state =
-            match self.create_block_miner(registered_key, last_burn_block, issue_timestamp_ms) {
-                Some(state) => state,
-                None => {
-                    return false;
-                }
-            };
+        let Some(mut miner_thread_state) =
+            self.create_block_miner(registered_key, last_burn_block.clone(), issue_timestamp_ms)
+        else {
+            return false;
+        };
 
         if let Ok(miner_handle) = thread::Builder::new()
             .name(format!("miner-block-{}", self.local_peer.data_url))
             .stack_size(BLOCK_PROCESSOR_STACK_SIZE)
-            .spawn(move || miner_thread_state.run_tenure())
-            .map_err(|e| {
-                error!("Relayer: Failed to start tenure thread: {:?}", &e);
-                e
+            .spawn(move || {
+                if let Err(e) = miner_thread_state.send_mock_miner_messages() {
+                    warn!("Failed to send mock miner messages: {}", e);
+                }
+                miner_thread_state.run_tenure()
             })
+            .inspect_err(|e| error!("Relayer: Failed to start tenure thread: {e:?}"))
         {
             self.miner_thread = Some(miner_handle);
         }
@@ -3666,11 +3891,13 @@ impl RelayerThread {
         true
     }
 
-    /// Start up a microblock miner thread if we can:
-    /// * no miner thread must be running already
-    /// * the miner must not be blocked
-    /// * we must have won the sortition on the stacks chain tip
-    /// Returns true if the thread was started; false if not.
+    /// Start up a microblock miner thread if possible:
+    ///   * No miner thread must be running already
+    ///   * The miner must not be blocked
+    ///   * We must have won the sortition on the Stacks chain tip
+    ///
+    /// Returns `true` if the thread was started; `false` if not.
+    #[allow(clippy::incompatible_msrv)]
     pub fn microblock_miner_thread_try_start(&mut self) -> bool {
         let miner_tip = match self.miner_tip.as_ref() {
             Some(tip) => tip.clone(),
@@ -3721,11 +3948,9 @@ impl RelayerThread {
             parent_consensus_hash, parent_block_hash
         );
 
-        let mut microblock_thread_state = match MicroblockMinerThread::from_relayer_thread(self) {
-            Some(ts) => ts,
-            None => {
-                return false;
-            }
+        let Some(mut microblock_thread_state) = MicroblockMinerThread::from_relayer_thread(self)
+        else {
+            return false;
         };
 
         if let Ok(miner_handle) = thread::Builder::new()
@@ -3737,10 +3962,7 @@ impl RelayerThread {
                     miner_tip,
                 ))
             })
-            .map_err(|e| {
-                error!("Relayer: Failed to start tenure thread: {:?}", &e);
-                e
-            })
+            .inspect_err(|e| error!("Relayer: Failed to start tenure thread: {e:?}"))
         {
             // thread started!
             self.miner_thread = Some(miner_handle);
@@ -3773,16 +3995,15 @@ impl RelayerThread {
                 ) => {
                     // finished mining a block
                     if BlockMinerThread::find_inflight_mined_blocks(
-                        last_mined_block.my_block_height,
+                        last_mined_block.burn_block_height,
                         &self.last_mined_blocks,
                     )
-                    .len()
-                        == 0
+                    .is_empty()
                     {
                         // first time we've mined a block in this burnchain block
                         debug!(
                             "Bump block processed for burnchain block {}",
-                            &last_mined_block.my_block_height
+                            &last_mined_block.burn_block_height
                         );
                         self.globals.counters.bump_blocks_processed();
                     }
@@ -3792,8 +4013,8 @@ impl RelayerThread {
                         &last_mined_block.anchored_block.block_hash()
                     );
 
-                    let bhh = last_mined_block.my_burn_hash.clone();
-                    let orig_bhh = last_mined_block.orig_burn_hash.clone();
+                    let bhh = last_mined_block.burn_hash;
+                    let orig_bhh = last_mined_block.orig_burn_hash;
                     let tenure_begin = last_mined_block.tenure_begin;
 
                     self.last_mined_blocks.insert(
@@ -3831,7 +4052,7 @@ impl RelayerThread {
                                     let num_mblocks = chainstate
                                         .unconfirmed_state
                                         .as_ref()
-                                        .map(|ref unconfirmed| unconfirmed.num_microblocks())
+                                        .map(|unconfirmed| unconfirmed.num_microblocks())
                                         .unwrap_or(0);
 
                                     (processed_unconfirmed_state, num_mblocks)
@@ -3907,14 +4128,16 @@ impl RelayerThread {
         None
     }
 
-    /// Try to join with the miner thread.  If we succeed, join the thread and return true.
-    /// Otherwise, if the thread is still running, return false;
+    /// Try to join with the miner thread. If successful, join the thread and return `true`.
+    /// Otherwise, if the thread is still running, return `false`.
+    ///
     /// Updates internal state gleaned from the miner, such as:
-    /// * new stacks block data
-    /// * new keychain state
-    /// * new metrics
-    /// * new unconfirmed state
-    /// Returns true if joined; false if not.
+    ///   * New Stacks block data
+    ///   * New keychain state
+    ///   * New metrics
+    ///   * New unconfirmed state
+    ///
+    /// Returns `true` if joined; `false` if not.
     pub fn miner_thread_try_join(&mut self) -> bool {
         if let Some(thread_handle) = self.miner_thread.take() {
             let new_thread_handle = self.inner_miner_thread_try_join(thread_handle);
@@ -3966,7 +4189,7 @@ impl RelayerThread {
             RelayerDirective::RegisterKey(last_burn_block) => {
                 let mut saved_key_opt = None;
                 if let Some(path) = self.config.miner.activated_vrf_key_path.as_ref() {
-                    saved_key_opt = Self::load_saved_vrf_key(&path);
+                    saved_key_opt = Self::load_saved_vrf_key(path);
                 }
                 if let Some(saved_key) = saved_key_opt {
                     self.globals.resume_leader_key(saved_key);
@@ -3985,6 +4208,17 @@ impl RelayerThread {
             }
             RelayerDirective::RunTenure(registered_key, last_burn_block, issue_timestamp_ms) => {
                 debug!("Relayer: directive Run tenure");
+                let Ok(Some(next_block_epoch)) = SortitionDB::get_stacks_epoch(
+                    self.sortdb_ref().conn(),
+                    last_burn_block.block_height.saturating_add(1),
+                ) else {
+                    warn!("Failed to load Stacks Epoch for next burn block, skipping RunTenure directive");
+                    return true;
+                };
+                if next_block_epoch.epoch_id.uses_nakamoto_blocks() {
+                    info!("Next burn block is in Nakamoto epoch, skipping RunTenure directive for 2.x node");
+                    return true;
+                }
                 self.block_miner_thread_try_start(
                     registered_key,
                     last_burn_block,
@@ -4028,8 +4262,8 @@ impl ParentStacksBlockInfo {
     ) -> Result<ParentStacksBlockInfo, Error> {
         let stacks_tip_header = StacksChainState::get_anchored_block_header_info(
             chain_state.db(),
-            &mine_tip_ch,
-            &mine_tip_bh,
+            mine_tip_ch,
+            mine_tip_bh,
         )
         .unwrap()
         .ok_or_else(|| {
@@ -4120,9 +4354,9 @@ impl ParentStacksBlockInfo {
 
         Ok(ParentStacksBlockInfo {
             stacks_parent_header: stacks_tip_header,
-            parent_consensus_hash: mine_tip_ch.clone(),
+            parent_consensus_hash: *mine_tip_ch,
             parent_block_burn_height: parent_block_height,
-            parent_block_total_burn: parent_block_total_burn,
+            parent_block_total_burn,
             parent_winning_vtxindex,
             coinbase_nonce,
         })
@@ -4174,16 +4408,14 @@ impl PeerThread {
             .make_cost_metric()
             .unwrap_or_else(|| Box::new(UnitMetric));
 
-        let mempool = MemPoolDB::open(
+        MemPoolDB::open(
             config.is_mainnet(),
             config.burnchain.chain_id,
             &config.get_chainstate_path_str(),
             cost_estimator,
             metric,
         )
-        .expect("Database failure opening mempool");
-
-        mempool
+        .expect("Database failure opening mempool")
     }
 
     /// Instantiate the p2p thread.
@@ -4293,6 +4525,7 @@ impl PeerThread {
 
     /// Run one pass of the p2p/http state machine
     /// Return true if we should continue running passes; false if not
+    #[allow(clippy::borrowed_box)]
     pub fn run_one_pass<B: BurnchainHeaderReader>(
         &mut self,
         indexer: &B,
@@ -4304,7 +4537,7 @@ impl PeerThread {
     ) -> bool {
         // initial block download?
         let ibd = self.globals.sync_comms.get_ibd();
-        let download_backpressure = self.results_with_data.len() > 0;
+        let download_backpressure = !self.results_with_data.is_empty();
         let poll_ms = if !download_backpressure && self.get_network().has_more_downloads() {
             // keep getting those blocks -- drive the downloader state-machine
             debug!(
@@ -4328,11 +4561,7 @@ impl PeerThread {
             // NOTE: handler_args must be created such that it outlives the inner net.run() call and
             // doesn't ref anything within p2p_thread.
             let handler_args = RPCHandlerArgs {
-                exit_at_block_height: p2p_thread
-                    .config
-                    .burnchain
-                    .process_exit_at_block_height
-                    .clone(),
+                exit_at_block_height: p2p_thread.config.burnchain.process_exit_at_block_height,
                 genesis_chainstate_hash: Sha256Sum::from_hex(stx_genesis::GENESIS_CHAINSTATE_HASH)
                     .unwrap(),
                 event_observer: Some(event_dispatcher),
@@ -4488,32 +4717,32 @@ impl StacksNode {
             .make_cost_metric()
             .unwrap_or_else(|| Box::new(UnitMetric));
 
-        let mempool = MemPoolDB::open(
+        MemPoolDB::open(
             config.is_mainnet(),
             config.burnchain.chain_id,
             &config.get_chainstate_path_str(),
             cost_estimator,
             metric,
         )
-        .expect("BUG: failed to instantiate mempool");
-
-        mempool
+        .expect("BUG: failed to instantiate mempool")
     }
 
-    /// Set up the Peer DB and update any soft state from the config file.  This includes:
-    /// * blacklisted/whitelisted nodes
-    /// * node keys
-    /// * bootstrap nodes
-    /// Returns the instantiated PeerDB
+    /// Set up the Peer DB and update any soft state from the config file. This includes:
+    ///   * Blacklisted/whitelisted nodes
+    ///   * Node keys
+    ///   * Bootstrap nodes
+    ///
+    /// Returns the instantiated `PeerDB`.
+    ///
     /// Panics on failure.
     fn setup_peer_db(
         config: &Config,
         burnchain: &Burnchain,
         stackerdb_contract_ids: &[QualifiedContractIdentifier],
     ) -> PeerDB {
-        let data_url = UrlString::try_from(format!("{}", &config.node.data_url)).unwrap();
+        let data_url = UrlString::try_from(config.node.data_url.to_string()).unwrap();
         let initial_neighbors = config.node.bootstrap_node.clone();
-        if initial_neighbors.len() > 0 {
+        if !initial_neighbors.is_empty() {
             info!(
                 "Will bootstrap from peers {}",
                 VecDisplay(&initial_neighbors)
@@ -4540,7 +4769,7 @@ impl StacksNode {
             config.burnchain.chain_id,
             burnchain.network_id,
             Some(node_privkey),
-            config.connection_options.private_key_lifetime.clone(),
+            config.connection_options.private_key_lifetime,
             PeerAddress::from_socketaddr(&p2p_addr),
             p2p_sock.port(),
             data_url,
@@ -4560,12 +4789,12 @@ impl StacksNode {
 
         // allow all bootstrap nodes
         {
-            let mut tx = peerdb.tx_begin().unwrap();
+            let tx = peerdb.tx_begin().unwrap();
             for initial_neighbor in initial_neighbors.iter() {
                 // update peer in case public key changed
-                PeerDB::update_peer(&mut tx, &initial_neighbor).unwrap();
+                PeerDB::update_peer(&tx, initial_neighbor).unwrap();
                 PeerDB::set_allow_peer(
-                    &mut tx,
+                    &tx,
                     initial_neighbor.addr.network_id,
                     &initial_neighbor.addr.addrbytes,
                     initial_neighbor.addr.port,
@@ -4582,10 +4811,10 @@ impl StacksNode {
 
         // deny all config-denied peers
         {
-            let mut tx = peerdb.tx_begin().unwrap();
+            let tx = peerdb.tx_begin().unwrap();
             for denied in config.node.deny_nodes.iter() {
                 PeerDB::set_deny_peer(
-                    &mut tx,
+                    &tx,
                     denied.addr.network_id,
                     &denied.addr.addrbytes,
                     denied.addr.port,
@@ -4598,9 +4827,9 @@ impl StacksNode {
 
         // update services to indicate we can support mempool sync and stackerdb
         {
-            let mut tx = peerdb.tx_begin().unwrap();
+            let tx = peerdb.tx_begin().unwrap();
             PeerDB::set_local_services(
-                &mut tx,
+                &tx,
                 (ServiceFlags::RPC as u16)
                     | (ServiceFlags::RELAY as u16)
                     | (ServiceFlags::STACKERDB as u16),
@@ -4629,7 +4858,7 @@ impl StacksNode {
             .expect("Error while loading stacks epochs");
 
         let view = {
-            let sortition_tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn())
+            let sortition_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
                 .expect("Failed to get sortition tip");
             SortitionDB::get_burnchain_view(&sortdb.index_conn(), &burnchain, &sortition_tip)
                 .unwrap()
@@ -4676,7 +4905,7 @@ impl StacksNode {
             _ => panic!("Unable to retrieve local peer"),
         };
 
-        let p2p_net = PeerNetwork::new(
+        PeerNetwork::new(
             peerdb,
             atlasdb,
             stackerdbs,
@@ -4687,9 +4916,7 @@ impl StacksNode {
             config.connection_options.clone(),
             stackerdb_machines,
             epochs,
-        );
-
-        p2p_net
+        )
     }
 
     /// Main loop of the relayer.
@@ -4985,9 +5212,9 @@ impl StacksNode {
                     .globals
                     .relay_send
                     .send(RelayerDirective::ProcessTenure(
-                        snapshot.consensus_hash.clone(),
-                        snapshot.parent_burn_header_hash.clone(),
-                        snapshot.winning_stacks_block_hash.clone(),
+                        snapshot.consensus_hash,
+                        snapshot.parent_burn_header_hash,
+                        snapshot.winning_stacks_block_hash,
                     ))
                     .is_ok();
             }
@@ -5032,13 +5259,11 @@ impl StacksNode {
                     block_height, op.apparent_sender, &op.block_header_hash
                 );
                 last_sortitioned_block = Some((block_snapshot.clone(), op.vtxindex));
-            } else {
-                if self.is_miner {
-                    info!(
-                        "Received burnchain block #{} including block_commit_op - {} ({})",
-                        block_height, op.apparent_sender, &op.block_header_hash
-                    );
-                }
+            } else if self.is_miner {
+                info!(
+                    "Received burnchain block #{} including block_commit_op - {} ({})",
+                    block_height, op.apparent_sender, &op.block_header_hash
+                );
             }
         }
 
@@ -5075,7 +5300,7 @@ impl StacksNode {
             return ret;
         };
 
-        let mut f = match fs::File::create(&path) {
+        let mut f = match fs::File::create(path) {
             Ok(f) => f,
             Err(e) => {
                 warn!("Failed to create {}: {:?}", &path, &e);
@@ -5083,13 +5308,13 @@ impl StacksNode {
             }
         };
 
-        if let Err(e) = f.write_all(key_json.as_str().as_bytes()) {
+        if let Err(e) = f.write_all(key_json.as_bytes()) {
             warn!("Failed to write activated VRF key to {}: {:?}", &path, &e);
             return ret;
         }
 
         info!("Saved activated VRF key to {}", &path);
-        return ret;
+        ret
     }
 
     /// Join all inner threads

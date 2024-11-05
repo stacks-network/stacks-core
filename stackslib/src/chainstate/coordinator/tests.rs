@@ -430,6 +430,8 @@ impl BlockEventDispatcher for NullEventDispatcher {
         _pox_constants: &PoxConstants,
         _reward_set_data: &Option<RewardSetData>,
         _signer_bitvec: &Option<BitVec<4000>>,
+        _block_timestamp: Option<u64>,
+        _coinbase_height: u64,
     ) {
         assert!(
             false,
@@ -520,9 +522,8 @@ impl RewardSetProvider for StubbedRewardSetProvider {
 
     fn get_reward_set_nakamoto(
         &self,
-        cycle_start_burn_height: u64,
         chainstate: &mut StacksChainState,
-        burnchain: &Burnchain,
+        cycle: u64,
         sortdb: &SortitionDB,
         block_id: &StacksBlockId,
     ) -> Result<RewardSet, CoordError> {

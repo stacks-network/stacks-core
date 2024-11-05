@@ -7,7 +7,16 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ## [Unreleased]
 
-- Added support for Clarity 3
+### Changed
+- Add index for StacksBlockId to nakamoto block headers table (improves node performance)
+- Remove the panic for reporting DB deadlocks (just error and continue waiting)
+
+## [3.0.0.0.0]
+
+### Added
+
+- **Nakamoto consensus rules, activating in epoch 3.0 at block 867,867** (see [SIP-021](https://github.com/stacksgov/sips/blob/main/sips/sip-021/sip-021-nakamoto.md) for details)
+- Clarity 3, activating with epoch 3.0
   - Keywords / variable
     - `tenure-height` added
     - `stacks-block-height` added
@@ -16,6 +25,51 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
     - `get-stacks-block-info?` added
     - `get-tenure-info?` added
     - `get-block-info?` removed
+- New RPC endpoints
+  - `/v3/blocks/:block_id`
+  - `/v3/blocks/upload/`
+  - `/v3/signer/:signer_pubkey/:cycle_num`
+  - `/v3/sortitions`
+  - `/v3/stacker_set/:cycle_num`
+  - `/v3/tenures/:block_id`
+  - `/v3/tenures/fork_info/:start/:stop`
+  - `/v3/tenures/info`
+  - `/v3/tenures/tip/:consensus_hash`
+- Re-send events to event observers across restarts
+- Support custom chain-ids for testing
+- Add `replay-block` command to CLI
+
+### Changed
+
+- Strict config file validation (unknown fields will cause the node to fail to start)
+- Add optional `timeout_ms` to `events_observer` configuration
+- Modified RPC endpoints
+  - Include `tenure_height` in `/v2/info` endpoint
+  - Include `block_time` and `tenure_height` in `/new/block` event payload
+- Various improvements to logging, reducing log spam and improving log messages
+- Various improvements and bugfixes
+
+## [2.5.0.0.7]
+
+### Added
+
+- Add warn logs for block validate rejections (#5079)
+- Neon mock miner replay (#5060)
+
+### Changed
+
+- Revert BurnchainHeaderHash serialization change (#5094)
+- boot_to_epoch_3 in SignerTest should wait for a new commit (#5087)
+- Fix block proposal rejection test (#5084)
+- Mock signing revamp (#5070)
+- Multi miner fixes jude (#5040)
+- Remove spurious deadlock condition whenever the sortition DB is opened
+
+## [2.5.0.0.6]
+
+### Changed
+
+- If there is a getchunk/putchunk that fails due to a stale (or future) version NACK, the StackerDB sync state machine should immediately retry sync (#5066)
 
 ## [2.5.0.0.5]
 

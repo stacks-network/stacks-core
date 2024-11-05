@@ -23,6 +23,7 @@ use crate::TipCandidate;
 pub type NeonGlobals = Globals<RelayerDirective>;
 
 /// Command types for the relayer thread, issued to it by other threads
+#[allow(clippy::large_enum_variant)]
 pub enum RelayerDirective {
     /// Handle some new data that arrived on the network (such as blocks, transactions, and
     HandleNetResult(NetworkResult),
@@ -69,6 +70,9 @@ pub struct Globals<T> {
     /// previously-selected best tips
     /// maps stacks height to tip candidate
     previous_best_tips: Arc<Mutex<BTreeMap<u64, TipCandidate>>>,
+    /// Initiative flag.
+    /// Raised when the main loop should wake up and do something.
+    initiative: Arc<Mutex<Option<String>>>,
 }
 
 // Need to manually implement Clone, because [derive(Clone)] requires
@@ -90,11 +94,13 @@ impl<T> Clone for Globals<T> {
             start_mining_height: self.start_mining_height.clone(),
             estimated_winning_probs: self.estimated_winning_probs.clone(),
             previous_best_tips: self.previous_best_tips.clone(),
+            initiative: self.initiative.clone(),
         }
     }
 }
 
 impl<T> Globals<T> {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         coord_comms: CoordinatorChannels,
         miner_status: Arc<Mutex<MinerStatus>>,
@@ -119,6 +125,7 @@ impl<T> Globals<T> {
             start_mining_height: Arc::new(Mutex::new(start_mining_height)),
             estimated_winning_probs: Arc::new(Mutex::new(HashMap::new())),
             previous_best_tips: Arc::new(Mutex::new(BTreeMap::new())),
+            initiative: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -284,8 +291,8 @@ impl<T> Globals<T> {
                             let active_key = RegisteredKey {
                                 target_block_height,
                                 vrf_public_key: op.public_key,
-                                block_height: op.block_height as u64,
-                                op_vtxindex: op.vtxindex as u32,
+                                block_height: op.block_height,
+                                op_vtxindex: op.vtxindex,
                                 memo: op.memo,
                             };
 
@@ -424,6 +431,30 @@ impl<T> Globals<T> {
             Ok(tips) => tips.get(&stacks_height).cloned(),
             Err(_e) => {
                 error!("FATAL: failed to lock previous_best_tips");
+                panic!();
+            }
+        }
+    }
+
+    /// Raise the initiative flag
+    pub fn raise_initiative(&self, raiser: String) {
+        match self.initiative.lock() {
+            Ok(mut initiative) => {
+                *initiative = Some(raiser);
+            }
+            Err(_e) => {
+                error!("FATAL: failed to lock initiative");
+                panic!();
+            }
+        }
+    }
+
+    /// Clear the initiative flag and return its value
+    pub fn take_initiative(&self) -> Option<String> {
+        match self.initiative.lock() {
+            Ok(mut initiative) => (*initiative).take(),
+            Err(_e) => {
+                error!("FATAL: failed to lock initiative");
                 panic!();
             }
         }

@@ -30,7 +30,7 @@
 //! has more details.
 //!
 #![cfg_attr(
-    feature = "std",
+    feature = "bech32_std",
     doc = "
 # Examples
 ```
@@ -54,20 +54,20 @@ assert_eq!(variant, Variant::Bech32);
 #![deny(non_camel_case_types)]
 #![deny(non_snake_case)]
 #![deny(unused_mut)]
-#![cfg_attr(feature = "strict", deny(warnings))]
+#![cfg_attr(feature = "bech32_strict", deny(warnings))]
 
-#[cfg(all(not(feature = "std"), not(test)))]
+#[cfg(all(not(feature = "bech32_std"), not(test)))]
 extern crate alloc;
 
-#[cfg(any(test, feature = "std"))]
+#[cfg(any(test, feature = "bech32_std"))]
 extern crate core;
 
-#[cfg(all(not(feature = "std"), not(test)))]
+#[cfg(all(not(feature = "bech32_std"), not(test)))]
 use alloc::borrow::Cow;
-#[cfg(all(not(feature = "std"), not(test)))]
+#[cfg(all(not(feature = "bech32_std"), not(test)))]
 use alloc::{string::String, vec::Vec};
 use core::{fmt, mem};
-#[cfg(any(feature = "std", test))]
+#[cfg(any(feature = "bech32_std", test))]
 use std::borrow::Cow;
 
 /// Integer in the range `0..32`
@@ -690,7 +690,7 @@ impl fmt::Display for Error {
     }
 }
 
-#[cfg(any(feature = "std", test))]
+#[cfg(any(feature = "bech32_std", test))]
 impl std::error::Error for Error {
     fn description(&self) -> &str {
         match *self {

@@ -14,8 +14,10 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::borrow::Borrow;
-use std::collections::{HashMap, HashSet};
+#[warn(unused_imports)]
+use std::collections::HashMap;
+#[cfg(any(test, feature = "testing"))]
+use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
 use std::io::prelude::*;
 use std::io::{Read, Write};
@@ -64,6 +66,7 @@ use crate::burnchains::affirmation::AffirmationMap;
 use crate::burnchains::{Error as burnchain_error, Txid};
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::{ConsensusHash, Opcodes};
+use crate::chainstate::coordinator::comm::CoordinatorChannels;
 use crate::chainstate::coordinator::Error as coordinator_error;
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use crate::chainstate::stacks::boot::{
@@ -90,7 +93,7 @@ use crate::net::http::{
 use crate::net::httpcore::{
     HttpRequestContentsExtensions, StacksHttp, StacksHttpRequest, StacksHttpResponse, TipRequest,
 };
-use crate::net::p2p::PeerNetwork;
+use crate::net::p2p::{PeerNetwork, PendingMessages};
 use crate::util_lib::bloom::{BloomFilter, BloomNodeHasher};
 use crate::util_lib::boot::boot_code_tx_auth;
 use crate::util_lib::db::{DBConn, Error as db_error};
@@ -109,7 +112,7 @@ pub mod atlas;
 /// Other functionality includes (but is not limited to):
 ///     * set up & tear down of sessions
 ///     * dealing with and responding to invalid messages
-///     * rate limiting messages  
+///     * rate limiting messages
 pub mod chat;
 /// Implements serialization and deserialization for `StacksMessage` types.
 /// Also has functionality to sign, verify, and ensure well-formedness of messages.
@@ -117,7 +120,7 @@ pub mod codec;
 pub mod connection;
 pub mod db;
 /// Implements `DNSResolver`, a simple DNS resolver state machine. Also implements `DNSClient`,
-/// which serves as an API for `DNSResolver`.  
+/// which serves as an API for `DNSResolver`.
 pub mod dns;
 pub mod download;
 pub mod http;
@@ -631,6 +634,8 @@ pub struct RPCHandlerArgs<'a> {
     pub fee_estimator: Option<&'a dyn FeeEstimator>,
     /// tx runtime cost metric
     pub cost_metric: Option<&'a dyn CostMetric>,
+    /// coordinator channels
+    pub coord_comms: Option<&'a CoordinatorChannels>,
 }
 
 impl<'a> RPCHandlerArgs<'a> {
@@ -1036,14 +1041,27 @@ pub struct NackData {
     pub error_code: u32,
 }
 pub mod NackErrorCodes {
+    /// A handshake has not yet been completed with the requester
+    /// and it is required before the protocol can proceed
     pub const HandshakeRequired: u32 = 1;
+    /// The request depends on a burnchain block that this peer does not recognize
     pub const NoSuchBurnchainBlock: u32 = 2;
+    /// The remote peer has exceeded local per-peer bandwidth limits
     pub const Throttled: u32 = 3;
+    /// The request depends on a PoX fork that this peer does not recognize as canonical
     pub const InvalidPoxFork: u32 = 4;
+    /// The message received is not appropriate for the ongoing step in the protocol being executed
     pub const InvalidMessage: u32 = 5;
+    /// The StackerDB requested is not known or configured on this node
     pub const NoSuchDB: u32 = 6;
+    /// The StackerDB chunk request referred to an older copy of the chunk than this node has
     pub const StaleVersion: u32 = 7;
+    /// The remote peer's view of the burnchain is too out-of-date for the protocol to continue
     pub const StaleView: u32 = 8;
+    /// The StackerDB chunk request referred to a newer copy of the chunk that this node has
+    pub const FutureVersion: u32 = 9;
+    /// The referenced StackerDB state view is stale locally relative to the requested version
+    pub const FutureView: u32 = 10;
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1480,6 +1498,8 @@ pub struct NetworkResult {
     pub uploaded_microblocks: Vec<MicroblocksData>,
     /// chunks we received from the HTTP server
     pub uploaded_stackerdb_chunks: Vec<StackerDBPushChunkData>,
+    /// chunks we received from p2p push
+    pub pushed_stackerdb_chunks: Vec<StackerDBPushChunkData>,
     /// Atlas attachments we obtained
     pub attachments: Vec<(AttachmentInstance, Attachment)>,
     /// transactions we downloaded via a mempool sync
@@ -1496,7 +1516,7 @@ pub struct NetworkResult {
     pub num_connected_peers: usize,
     /// The observed burnchain height
     pub burn_height: u64,
-    /// The consensus hash of the burnchain tip (prefixed `rc_` for historical reasons)
+    /// The consensus hash of the stacks tip (prefixed `rc_` for historical reasons)
     pub rc_consensus_hash: ConsensusHash,
     /// The current StackerDB configs
     pub stacker_db_configs: HashMap<QualifiedContractIdentifier, StackerDBConfig>,
@@ -1529,6 +1549,7 @@ impl NetworkResult {
             uploaded_blocks: vec![],
             uploaded_microblocks: vec![],
             uploaded_stackerdb_chunks: vec![],
+            pushed_stackerdb_chunks: vec![],
             attachments: vec![],
             synced_transactions: vec![],
             stacker_db_sync_results: vec![],
@@ -1553,7 +1574,9 @@ impl NetworkResult {
     }
 
     pub fn has_nakamoto_blocks(&self) -> bool {
-        self.nakamoto_blocks.len() > 0 || self.pushed_nakamoto_blocks.len() > 0
+        self.nakamoto_blocks.len() > 0
+            || self.pushed_nakamoto_blocks.len() > 0
+            || self.uploaded_nakamoto_blocks.len() > 0
     }
 
     pub fn has_transactions(&self) -> bool {
@@ -1572,6 +1595,7 @@ impl NetworkResult {
             .fold(0, |acc, x| acc + x.chunks_to_store.len())
             > 0
             || self.uploaded_stackerdb_chunks.len() > 0
+            || self.pushed_stackerdb_chunks.len() > 0
     }
 
     pub fn transactions(&self) -> Vec<StacksTransaction> {
@@ -1592,11 +1616,8 @@ impl NetworkResult {
             || self.has_stackerdb_chunks()
     }
 
-    pub fn consume_unsolicited(
-        &mut self,
-        unhandled_messages: HashMap<NeighborKey, Vec<StacksMessage>>,
-    ) {
-        for (neighbor_key, messages) in unhandled_messages.into_iter() {
+    pub fn consume_unsolicited(&mut self, unhandled_messages: PendingMessages) {
+        for ((_event_id, neighbor_key), messages) in unhandled_messages.into_iter() {
             for message in messages.into_iter() {
                 match message.payload {
                     StacksMessageType::Blocks(block_data) => {
@@ -1634,6 +1655,9 @@ impl NetworkResult {
                             self.pushed_nakamoto_blocks
                                 .insert(neighbor_key.clone(), vec![(message.relayers, block_data)]);
                         }
+                    }
+                    StacksMessageType::StackerDBPushChunk(chunk_data) => {
+                        self.pushed_stackerdb_chunks.push(chunk_data)
                     }
                     _ => {
                         // forward along
@@ -1726,7 +1750,6 @@ pub mod test {
     use stacks_common::util::secp256k1::*;
     use stacks_common::util::uint::*;
     use stacks_common::util::vrf::*;
-    use wsts::curve::point::Point;
     use {mio, rand};
 
     use self::nakamoto::test_signers::TestSigners;
@@ -2013,6 +2036,8 @@ pub mod test {
             pox_constants: &PoxConstants,
             reward_set_data: &Option<RewardSetData>,
             _signer_bitvec: &Option<BitVec<4000>>,
+            _block_timestamp: Option<u64>,
+            _coinbase_height: u64,
         ) {
             self.blocks.lock().unwrap().push(TestEventObserverBlock {
                 block: block.clone(),
@@ -2075,7 +2100,7 @@ pub mod test {
         pub services: u16,
         /// aggregate public key to use
         /// (NOTE: will be used post-Nakamoto)
-        pub aggregate_public_key: Option<Point>,
+        pub aggregate_public_key: Option<Vec<u8>>,
         pub test_stackers: Option<Vec<TestStacker>>,
         pub test_signers: Option<TestSigners>,
     }
@@ -2253,6 +2278,10 @@ pub mod test {
         >,
         /// list of malleablized blocks produced when mining.
         pub malleablized_blocks: Vec<NakamotoBlock>,
+        pub mine_malleablized_blocks: bool,
+        /// tenure-start block of tenure to mine on.
+        /// gets consumed on the call to begin_nakamoto_tenure
+        pub nakamoto_parent_tenure_opt: Option<Vec<NakamotoBlock>>,
     }
 
     impl<'a> TestPeer<'a> {
@@ -2351,6 +2380,7 @@ pub mod test {
         ) -> TestPeer<'a> {
             let test_path = TestPeer::make_test_path(&config);
             let mut miner_factory = TestMinerFactory::new();
+            miner_factory.chain_id = config.network_id;
             let mut miner =
                 miner_factory.next_miner(&config.burnchain, 1, 1, AddressHashMode::SerializeP2PKH);
             // manually set fees
@@ -2429,11 +2459,8 @@ pub mod test {
                 let mut receipts = vec![];
 
                 if let Some(agg_pub_key) = agg_pub_key_opt {
-                    debug!(
-                        "Setting aggregate public key to {}",
-                        &to_hex(&agg_pub_key.compress().data)
-                    );
-                    NakamotoChainState::aggregate_public_key_bootcode(clarity_tx, &agg_pub_key);
+                    debug!("Setting aggregate public key to {}", &to_hex(&agg_pub_key));
+                    NakamotoChainState::aggregate_public_key_bootcode(clarity_tx, agg_pub_key);
                 } else {
                     debug!("Not setting aggregate public key");
                 }
@@ -2667,6 +2694,8 @@ pub mod test {
                 coord: coord,
                 indexer: Some(indexer),
                 malleablized_blocks: vec![],
+                mine_malleablized_blocks: true,
+                nakamoto_parent_tenure_opt: None,
             }
         }
 
@@ -2905,6 +2934,20 @@ pub mod test {
                 ret.push(res);
             }
             ret
+        }
+
+        pub fn get_burnchain_db(&self, readwrite: bool) -> BurnchainDB {
+            let burnchain_db =
+                BurnchainDB::open(&self.config.burnchain.get_burnchaindb_path(), readwrite)
+                    .unwrap();
+            burnchain_db
+        }
+
+        pub fn get_sortition_at_height(&self, height: u64) -> Option<BlockSnapshot> {
+            let sortdb = self.sortdb.as_ref().unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+            let sort_handle = sortdb.index_handle(&tip.sortition_id);
+            sort_handle.get_block_snapshot_by_height(height).unwrap()
         }
 
         pub fn get_burnchain_block_ops(
@@ -3471,6 +3514,10 @@ pub mod test {
 
         pub fn sortdb(&mut self) -> &mut SortitionDB {
             self.sortdb.as_mut().unwrap()
+        }
+
+        pub fn sortdb_ref(&mut self) -> &SortitionDB {
+            self.sortdb.as_ref().unwrap()
         }
 
         pub fn with_db_state<F, R>(&mut self, f: F) -> Result<R, net_error>
@@ -4161,6 +4208,43 @@ pub mod test {
                     assert!(!orphaned);
                 }
             }
+        }
+
+        /// Set the nakamoto tenure to mine on
+        pub fn mine_nakamoto_on(&mut self, parent_tenure: Vec<NakamotoBlock>) {
+            self.nakamoto_parent_tenure_opt = Some(parent_tenure);
+        }
+
+        /// Clear the tenure to mine on. This causes the miner to build on the canonical tip
+        pub fn mine_nakamoto_on_canonical_tip(&mut self) {
+            self.nakamoto_parent_tenure_opt = None;
+        }
+
+        /// Get an account off of a tip
+        pub fn get_account(
+            &mut self,
+            tip: &StacksBlockId,
+            account: &PrincipalData,
+        ) -> StacksAccount {
+            let sortdb = self.sortdb.take().expect("FATAL: sortdb not restored");
+            let mut node = self
+                .stacks_node
+                .take()
+                .expect("FATAL: chainstate not restored");
+
+            let acct = node
+                .chainstate
+                .maybe_read_only_clarity_tx(
+                    &sortdb.index_handle_at_block(&node.chainstate, tip).unwrap(),
+                    tip,
+                    |clarity_tx| StacksChainState::get_account(clarity_tx, account),
+                )
+                .unwrap()
+                .unwrap();
+
+            self.sortdb = Some(sortdb);
+            self.stacks_node = Some(node);
+            acct
         }
     }
 

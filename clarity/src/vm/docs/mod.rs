@@ -1775,17 +1775,17 @@ this value is less than or equal to the value for `miner-spend-total` at the sam
 const GET_BURN_BLOCK_INFO_API: SpecialAPI = SpecialAPI {
     input_type: "BurnBlockInfoPropertyName, uint",
     output_type: "(optional buff) | (optional (tuple (addrs (list 2 (tuple (hashbytes (buff 32)) (version (buff 1))))) (payout uint)))",
-    snippet: "get-burn-block-info? ${1:prop} ${2:block-height}",
-    signature: "(get-burn-block-info? prop-name block-height)",
+    snippet: "get-burn-block-info? ${1:prop} ${2:burn-block-height}",
+    signature: "(get-burn-block-info? prop-name burn-block-height)",
     description: "The `get-burn-block-info?` function fetches data for a block of the given *burnchain* block height. The
-value and type returned are determined by the specified `BlockInfoPropertyName`.  Valid values for `block-height` only
+value and type returned are determined by the specified `BlockInfoPropertyName`.  Valid values for `burn-block-height` only
 include heights between the burnchain height at the time the Stacks chain was launched, and the last-processed burnchain
-block.  If the `block-height` argument falls outside of this range, then `none` shall be returned.
+block.  If the `burn-block-height` argument falls outside of this range, then `none` shall be returned.
 
 The following `BlockInfoPropertyName` values are defined:
 
 * The `header-hash` property returns a 32-byte buffer representing the header hash of the burnchain block at
-burnchain height `block-height`.
+burnchain height `burn-block-height`.
 
 * The `pox-addrs` property returns a tuple with two items: a list of up to two PoX addresses that received a PoX payout at that block height, and the amount of burnchain
 tokens paid to each address (note that per the blockchain consensus rules, each PoX payout will be the same for each address in the block-commit transaction).
@@ -1811,11 +1811,11 @@ The `addrs` list contains the same PoX address values passed into the PoX smart 
 
 const GET_STACKS_BLOCK_INFO_API: SpecialAPI = SpecialAPI {
     input_type: "StacksBlockInfoPropertyName, uint",
-    snippet: "get-stacks-block-info? ${1:prop} ${2:block-height}",
+    snippet: "get-stacks-block-info? ${1:prop} ${2:stacks-block-height}",
     output_type: "(optional buff) | (optional uint)",
-    signature: "(get-stacks-block-info? prop-name block-height)",
+    signature: "(get-stacks-block-info? prop-name stacks-block-height)",
     description: "The `get-stacks-block-info?` function fetches data for a block of the given *Stacks* block height. The
-value and type returned are determined by the specified `StacksBlockInfoPropertyName`. If the provided `block-height` does
+value and type returned are determined by the specified `StacksBlockInfoPropertyName`. If the provided `stacks-block-height` does
 not correspond to an existing block prior to the current block, the function returns `none`. The currently available property names
 are as follows:
 
@@ -1831,7 +1831,7 @@ and block times are accurate only to within two hours. See [BIP113](https://gith
 For a block mined after epoch 3.0, this timestamp comes from the Stacks block header. **Note**: this is the time, according to the miner, when
 the mining of this block started, but is not guaranteed to be accurate. This time will be validated by the signers to be:
   - Greater than the timestamp of the previous block
-  - Less than 15 seconds into the future (according to their own local clocks)
+  - At most 15 seconds into the future (according to their own local clocks)
 ",
     example: "(get-stacks-block-info? time u0) ;; Returns (some u1557860301)
 (get-stacks-block-info? header-hash u0) ;; Returns (some 0x374708fff7719dd5979ec875d56cd2286f6d3cf7ec317a3b25632aab28ec37bb)
@@ -1840,11 +1840,11 @@ the mining of this block started, but is not guaranteed to be accurate. This tim
 
 const GET_TENURE_INFO_API: SpecialAPI = SpecialAPI {
     input_type: "TenureInfoPropertyName, uint",
-    snippet: "get-tenure-info? ${1:prop} ${2:block-height}",
+    snippet: "get-tenure-info? ${1:prop} ${2:stacks-block-height}",
     output_type: "(optional buff) | (optional uint)",
-    signature: "(get-tenure-info? prop-name block-height)",
+    signature: "(get-tenure-info? prop-name stacks-block-height)",
     description: "The `get-tenure-info?` function fetches data for the tenure at the given block height. The
-value and type returned are determined by the specified `TenureInfoPropertyName`. If the provided `block-height` does
+value and type returned are determined by the specified `TenureInfoPropertyName`. If the provided `stacks-block-height` does
 not correspond to an existing block prior to the current block, the function returns `none`. The currently available property names
 are as follows:
 
@@ -2862,6 +2862,14 @@ mod test {
             _epoch: &StacksEpochId,
         ) -> Option<u128> {
             Some(12000)
+        }
+
+        fn get_stacks_height_for_tenure_height(
+            &self,
+            _tip: &StacksBlockId,
+            tenure_height: u32,
+        ) -> Option<u32> {
+            Some(tenure_height)
         }
     }
 

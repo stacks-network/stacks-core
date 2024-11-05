@@ -18,6 +18,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::ThreadId;
+use std::time::Instant;
 use std::{cmp, fs, mem};
 
 use clarity::vm::analysis::{CheckError, CheckErrors};
@@ -65,6 +66,30 @@ use crate::monitoring::{
 };
 use crate::net::relay::Relayer;
 use crate::net::Error as net_error;
+
+/// Fully-assembled Stacks anchored, block as well as some extra metadata pertaining to how it was
+/// linked to the burnchain and what view(s) the miner had of the burnchain before and after
+/// completing the block.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AssembledAnchorBlock {
+    /// Consensus hash of the parent Stacks block
+    pub parent_consensus_hash: ConsensusHash,
+    /// Consensus hash this Stacks block
+    pub consensus_hash: ConsensusHash,
+    /// Burnchain tip's block hash when we finished mining
+    pub burn_hash: BurnchainHeaderHash,
+    /// Burnchain tip's block height when we finished mining
+    pub burn_block_height: u64,
+    /// Burnchain tip's block hash when we started mining (could be different)
+    pub orig_burn_hash: BurnchainHeaderHash,
+    /// The block we produced
+    pub anchored_block: StacksBlock,
+    /// The attempt count of this block (multiple blocks will be attempted per burnchain block)
+    pub attempt: u64,
+    /// Epoch timestamp in milliseconds when we started producing the block.
+    pub tenure_begin: u128,
+}
+impl_file_io_serde_json!(AssembledAnchorBlock);
 
 /// System status for mining.
 /// The miner can be Ready, in which case a miner is allowed to run
@@ -297,7 +322,7 @@ pub struct TransactionSuccessEvent {
 }
 
 /// Represents an event for a failed transaction. Something went wrong when processing this transaction.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TransactionErrorEvent {
     #[serde(deserialize_with = "hex_deserialize", serialize_with = "hex_serialize")]
     pub txid: Txid,
@@ -354,7 +379,7 @@ pub enum TransactionResult {
 
 /// This struct is used to transmit data about transaction results through either the `mined_block`
 /// or `mined_microblock` event.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum TransactionEvent {
     /// Transaction has already succeeded.
     Success(TransactionSuccessEvent),
@@ -1015,9 +1040,18 @@ impl<'a> StacksMicroblockBuilder<'a> {
                                     100 - TX_BLOCK_LIMIT_PROPORTION_HEURISTIC,
                                     &total_budget
                                 );
+                                let mut measured_cost = cost_after.clone();
+                                let measured_cost = if measured_cost.sub(cost_before).is_ok() {
+                                    Some(measured_cost)
+                                } else {
+                                    warn!(
+                                        "Failed to compute measured cost of a too big transaction"
+                                    );
+                                    None
+                                };
                                 return Ok(TransactionResult::error(
                                     &tx,
-                                    Error::TransactionTooBigError,
+                                    Error::TransactionTooBigError(measured_cost),
                                 ));
                             } else {
                                 warn!(
@@ -1298,7 +1332,22 @@ impl<'a> StacksMicroblockBuilder<'a> {
                                                     return Ok(None);
                                                 }
                                             }
-                                            Error::TransactionTooBigError => {
+                                            Error::TransactionTooBigError(measured_cost) => {
+                                                if update_estimator {
+                                                    if let Some(measured_cost) = measured_cost {
+                                                        if let Err(e) = estimator.notify_event(
+                                                            &mempool_tx.tx.payload,
+                                                            &measured_cost,
+                                                            &block_limit,
+                                                            &stacks_epoch_id,
+                                                        ) {
+                                                            warn!("Error updating estimator";
+                                                                  "txid" => %mempool_tx.metadata.txid,
+                                                                  "error" => ?e);
+                                                        }
+                                                    }
+                                                }
+
                                                 invalidated_txs.push(mempool_tx.metadata.txid);
                                             }
                                             _ => {}
@@ -2187,6 +2236,15 @@ impl StacksBlockBuilder {
             );
         }
 
+        // nakamoto miner tenure start heuristic:
+        //  mine an empty block so you can start your tenure quickly!
+        if let Some(tx) = initial_txs.first() {
+            if matches!(&tx.payload, TransactionPayload::TenureChange(_)) {
+                info!("Nakamoto miner heuristic: during tenure change blocks, produce a fast short block to begin tenure");
+                return Ok((false, tx_events));
+            }
+        }
+
         mempool.reset_nonce_cache()?;
         mempool.estimate_tx_rates(100, &block_limit, &stacks_epoch_id)?;
 
@@ -2197,6 +2255,7 @@ impl StacksBlockBuilder {
 
         let mut invalidated_txs = vec![];
         let mut to_drop_and_blacklist = vec![];
+        let mut update_timings = vec![];
 
         let deadline = ts_start + u128::from(max_miner_time_ms);
         let mut num_txs = 0;
@@ -2204,10 +2263,10 @@ impl StacksBlockBuilder {
 
         debug!("Block transaction selection begins (parent height = {tip_height})");
         let result = {
-            let mut intermediate_result: Result<_, Error> = Ok(0);
+            let mut loop_result = Ok(());
             while block_limit_hit != BlockLimitFunction::LIMIT_REACHED {
                 let mut num_considered = 0;
-                intermediate_result = mempool.iterate_candidates(
+                let intermediate_result = mempool.iterate_candidates(
                     epoch_tx,
                     &mut tx_events,
                     mempool_settings.clone(),
@@ -2226,9 +2285,26 @@ impl StacksBlockBuilder {
                         if block_limit_hit == BlockLimitFunction::LIMIT_REACHED {
                             return Ok(None);
                         }
-                        if get_epoch_time_ms() >= deadline {
+                        let time_now = get_epoch_time_ms();
+                        if time_now >= deadline {
                             debug!("Miner mining time exceeded ({} ms)", max_miner_time_ms);
                             return Ok(None);
+                        }
+                        if let Some(time_estimate) = txinfo.metadata.time_estimate_ms {
+                            if time_now.saturating_add(time_estimate.into()) > deadline {
+                                debug!("Mining tx would cause us to exceed our deadline, skipping";
+                                       "txid" => %txinfo.tx.txid(),
+                                       "deadline" => deadline,
+                                       "now" => time_now,
+                                       "estimate" => time_estimate);
+                                return Ok(Some(
+                                    TransactionResult::skipped(
+                                        &txinfo.tx,
+                                        "Transaction would exceed deadline.".into(),
+                                    )
+                                    .convert_to_event(),
+                                ));
+                            }
                         }
 
                         // skip transactions early if we can
@@ -2279,6 +2355,7 @@ impl StacksBlockBuilder {
                         considered.insert(txinfo.tx.txid());
                         num_considered += 1;
 
+                        let tx_start = Instant::now();
                         let tx_result = builder.try_mine_tx_with_len(
                             epoch_tx,
                             &txinfo.tx,
@@ -2290,6 +2367,21 @@ impl StacksBlockBuilder {
                         let result_event = tx_result.convert_to_event();
                         match tx_result {
                             TransactionResult::Success(TransactionSuccess { receipt, .. }) => {
+                                if txinfo.metadata.time_estimate_ms.is_none() {
+                                    // use i64 to avoid running into issues when storing in
+                                    //  rusqlite.
+                                    let time_estimate_ms: i64 = tx_start
+                                        .elapsed()
+                                        .as_millis()
+                                        .try_into()
+                                        .unwrap_or_else(|_| i64::MAX);
+                                    let time_estimate_ms: u64 = time_estimate_ms
+                                        .try_into()
+                                        // should be unreachable
+                                        .unwrap_or_else(|_| 0);
+                                    update_timings.push((txinfo.tx.txid(), time_estimate_ms));
+                                }
+
                                 num_txs += 1;
                                 if update_estimator {
                                     if let Err(e) = estimator.notify_event(
@@ -2337,7 +2429,22 @@ impl StacksBlockBuilder {
                                             return Ok(None);
                                         }
                                     }
-                                    Error::TransactionTooBigError => {
+                                    Error::TransactionTooBigError(measured_cost) => {
+                                        if update_estimator {
+                                            if let Some(measured_cost) = measured_cost {
+                                                if let Err(e) = estimator.notify_event(
+                                                    &txinfo.tx.payload,
+                                                    &measured_cost,
+                                                    &block_limit,
+                                                    &stacks_epoch_id,
+                                                ) {
+                                                    warn!("Error updating estimator";
+                                                                  "txid" => %txinfo.metadata.txid,
+                                                                  "error" => ?e);
+                                                }
+                                            }
+                                        }
+
                                         invalidated_txs.push(txinfo.metadata.txid);
                                     }
                                     Error::InvalidStacksTransaction(_, true) => {
@@ -2362,12 +2469,29 @@ impl StacksBlockBuilder {
                     },
                 );
 
+                if !update_timings.is_empty() {
+                    if let Err(e) = mempool.update_tx_time_estimates(&update_timings) {
+                        warn!("Error while updating time estimates for mempool"; "err" => ?e);
+                    }
+                }
+
                 if to_drop_and_blacklist.len() > 0 {
                     let _ = mempool.drop_and_blacklist_txs(&to_drop_and_blacklist);
                 }
 
-                if intermediate_result.is_err() {
-                    break;
+                match intermediate_result {
+                    Err(e) => {
+                        loop_result = Err(e);
+                        break;
+                    }
+                    Ok((_txs_considered, stop_reason)) => {
+                        match stop_reason {
+                            MempoolIterationStopReason::NoMoreCandidates => break,
+                            MempoolIterationStopReason::DeadlineReached => break,
+                            // if the iterator function exited, let the loop tick: it checks the block limits
+                            MempoolIterationStopReason::IteratorExited => {}
+                        }
+                    }
                 }
 
                 if num_considered == 0 {
@@ -2375,7 +2499,7 @@ impl StacksBlockBuilder {
                 }
             }
             debug!("Block transaction selection finished (parent height {}): {} transactions selected ({} considered)", &tip_height, num_txs, considered.len());
-            intermediate_result
+            loop_result
         };
 
         mempool.drop_txs(&invalidated_txs)?;
@@ -2629,9 +2753,18 @@ impl BlockBuilder for StacksBlockBuilder {
                                             100 - TX_BLOCK_LIMIT_PROPORTION_HEURISTIC,
                                             &total_budget
                                         );
+                                    let mut measured_cost = cost_after;
+                                    let measured_cost = if measured_cost.sub(&cost_before).is_ok() {
+                                        Some(measured_cost)
+                                    } else {
+                                        warn!(
+                                        "Failed to compute measured cost of a too big transaction"
+                                    );
+                                        None
+                                    };
                                     return TransactionResult::error(
                                         &tx,
-                                        Error::TransactionTooBigError,
+                                        Error::TransactionTooBigError(measured_cost),
                                     );
                                 } else {
                                     warn!(
@@ -2710,9 +2843,19 @@ impl BlockBuilder for StacksBlockBuilder {
                                         100 - TX_BLOCK_LIMIT_PROPORTION_HEURISTIC,
                                         &total_budget
                                     );
+                                    let mut measured_cost = cost_after;
+                                    let measured_cost = if measured_cost.sub(&cost_before).is_ok() {
+                                        Some(measured_cost)
+                                    } else {
+                                        warn!(
+                                        "Failed to compute measured cost of a too big transaction"
+                                    );
+                                        None
+                                    };
+
                                     return TransactionResult::error(
                                         &tx,
-                                        Error::TransactionTooBigError,
+                                        Error::TransactionTooBigError(measured_cost),
                                     );
                                 } else {
                                     warn!(

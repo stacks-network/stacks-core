@@ -1,4 +1,4 @@
-//! # stacks-signer: Stacks signer binary for executing DKG rounds, signing transactions and blocks, and more.
+//! # stacks-signer: Stacks signer binary for signing block proposals, interacting with stackerdb, and more.
 //!
 //! Usage documentation can be found in the [README]("https://github.com/blockstack/stacks-blockchain/stacks-signer/README.md).
 //!
@@ -31,28 +31,24 @@ use std::io::{self, Write};
 use blockstack_lib::util_lib::signed_structured_data::pox4::make_pox_4_signer_key_signature;
 use clap::Parser;
 use clarity::types::chainstate::StacksPublicKey;
-use clarity::vm::types::QualifiedContractIdentifier;
-use libsigner::{SignerSession, StackerDBSession};
+use clarity::util::sleep_ms;
+use libsigner::{SignerSession, VERSION_STRING};
 use libstackerdb::StackerDBChunkData;
-use slog::slog_debug;
-use stacks_common::debug;
+use slog::{slog_debug, slog_error};
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::secp256k1::MessageSignature;
+use stacks_common::{debug, error};
 use stacks_signer::cli::{
     Cli, Command, GenerateStackingSignatureArgs, GenerateVoteArgs, GetChunkArgs,
-    GetLatestChunkArgs, PutChunkArgs, RunSignerArgs, StackerDBArgs, VerifyVoteArgs,
+    GetLatestChunkArgs, MonitorSignersArgs, PutChunkArgs, RunSignerArgs, StackerDBArgs,
+    VerifyVoteArgs,
 };
 use stacks_signer::config::GlobalConfig;
+use stacks_signer::monitor_signers::SignerMonitor;
+use stacks_signer::utils::stackerdb_session;
 use stacks_signer::v0::SpawnedSigner;
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{fmt, EnvFilter};
-
-/// Create a new stacker db session
-fn stackerdb_session(host: &str, contract: QualifiedContractIdentifier) -> StackerDBSession {
-    let mut session = StackerDBSession::new(host, contract.clone());
-    session.connect(host.to_string(), contract).unwrap();
-    session
-}
 
 /// Write the chunk to stdout
 fn write_chunk_to_stdout(chunk_opt: Option<Vec<u8>>) {
@@ -125,7 +121,7 @@ fn handle_generate_stacking_signature(
         &private_key, //
         args.reward_cycle.into(),
         args.method.topic(),
-        config.network.to_chain_id(),
+        config.to_chain_id(),
         args.period.into(),
         args.max_amount,
         args.auth_id,
@@ -161,7 +157,7 @@ fn handle_generate_stacking_signature(
 
 fn handle_check_config(args: RunSignerArgs) {
     let config = GlobalConfig::try_from(&args.config).unwrap();
-    println!("Config: {}", config);
+    println!("Signer version: {}\nConfig: \n{}", *VERSION_STRING, config);
 }
 
 fn handle_generate_vote(args: GenerateVoteArgs, do_print: bool) -> MessageSignature {
@@ -186,6 +182,20 @@ fn handle_verify_vote(args: VerifyVoteArgs, do_print: bool) -> bool {
         }
     }
     valid_vote
+}
+
+fn handle_monitor_signers(args: MonitorSignersArgs) {
+    // Verify that the host is a valid URL
+    let mut signer_monitor = SignerMonitor::new(args);
+    loop {
+        if let Err(e) = signer_monitor.start() {
+            error!(
+                "Error occurred monitoring signers: {:?}. Waiting and trying again.",
+                e
+            );
+            sleep_ms(1000);
+        }
+    }
 }
 
 fn main() {
@@ -223,6 +233,9 @@ fn main() {
         }
         Command::VerifyVote(args) => {
             handle_verify_vote(args, true);
+        }
+        Command::MonitorSigners(args) => {
+            handle_monitor_signers(args);
         }
     }
 }

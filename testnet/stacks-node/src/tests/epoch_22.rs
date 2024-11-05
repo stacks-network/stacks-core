@@ -58,7 +58,7 @@ fn disable_pox() {
     let epoch_2_2 = 255; // two blocks before next prepare phase.
 
     let stacked = 100_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
-    let increase_by = 1_000_0000 * (core::MICROSTACKS_PER_STACKS as u64);
+    let increase_by = 10_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
 
     let spender_sk = StacksPrivateKey::new();
     let spender_addr: PrincipalData = to_addr(&spender_sk).into();
@@ -92,31 +92,19 @@ fn disable_pox() {
         "02f006a09b59979e2cb8449f58076152af6b124aa29b948a3714b8d5f15aa94ede",
     )
     .unwrap();
-    let pox_pubkey_hash_1 = bytes_to_hex(
-        &Hash160::from_node_public_key(&pox_pubkey_1)
-            .to_bytes()
-            .to_vec(),
-    );
+    let pox_pubkey_hash_1 = bytes_to_hex(&Hash160::from_node_public_key(&pox_pubkey_1).to_bytes());
 
     let pox_pubkey_2 = Secp256k1PublicKey::from_hex(
         "03cd91307e16c10428dd0120d0a4d37f14d4e0097b3b2ea1651d7bd0fb109cd44b",
     )
     .unwrap();
-    let pox_pubkey_hash_2 = bytes_to_hex(
-        &Hash160::from_node_public_key(&pox_pubkey_2)
-            .to_bytes()
-            .to_vec(),
-    );
+    let pox_pubkey_hash_2 = bytes_to_hex(&Hash160::from_node_public_key(&pox_pubkey_2).to_bytes());
 
     let pox_pubkey_3 = Secp256k1PublicKey::from_hex(
         "0317782e663c77fb02ebf46a3720f41a70f5678ad185974a456d35848e275fe56b",
     )
     .unwrap();
-    let pox_pubkey_hash_3 = bytes_to_hex(
-        &Hash160::from_node_public_key(&pox_pubkey_3)
-            .to_bytes()
-            .to_vec(),
-    );
+    let pox_pubkey_hash_3 = bytes_to_hex(&Hash160::from_node_public_key(&pox_pubkey_3).to_bytes());
 
     let (mut conf, _) = neon_integration_test_conf();
 
@@ -134,11 +122,7 @@ fn disable_pox() {
     conf.miner.subsequent_attempt_time_ms = i64::MAX as u64;
 
     test_observer::spawn();
-
-    conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
-        events_keys: vec![EventKeyType::AnyEvent],
-    });
+    test_observer::register_any(&mut conf);
     conf.initial_balances.append(&mut initial_balances);
 
     let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
@@ -231,6 +215,7 @@ fn disable_pox() {
         &spender_sk,
         0,
         3000,
+        conf.burnchain.chain_id,
         &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
         "pox",
         "stack-stx",
@@ -279,6 +264,7 @@ fn disable_pox() {
         &spender_sk,
         1,
         3000,
+        conf.burnchain.chain_id,
         &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
         "pox-2",
         "stack-stx",
@@ -297,6 +283,7 @@ fn disable_pox() {
         &spender_2_sk,
         0,
         3000,
+        conf.burnchain.chain_id,
         &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
         "pox-2",
         "stack-stx",
@@ -328,6 +315,7 @@ fn disable_pox() {
         &spender_sk,
         2,
         3000,
+        conf.burnchain.chain_id,
         &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
         "pox-2",
         "stack-increase",
@@ -354,6 +342,7 @@ fn disable_pox() {
         &spender_sk,
         aborted_increase_nonce,
         3000,
+        conf.burnchain.chain_id,
         &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
         "pox-2",
         "stack-increase",
@@ -396,9 +385,9 @@ fn disable_pox() {
             .block_height_to_reward_cycle(burnchain_config.first_block_height, height)
             .unwrap();
 
-        if !reward_cycle_pox_addrs.contains_key(&reward_cycle) {
-            reward_cycle_pox_addrs.insert(reward_cycle, HashMap::new());
-        }
+        reward_cycle_pox_addrs
+            .entry(reward_cycle)
+            .or_insert_with(HashMap::new);
 
         let iconn = sortdb.index_handle_at_block(&chainstate, &tip).unwrap();
         let pox_addrs = chainstate
@@ -419,37 +408,35 @@ fn disable_pox() {
             .unwrap();
 
         debug!("Test burnchain height {}", height);
-        if !burnchain_config.is_in_prepare_phase(height) {
-            if pox_addrs.len() > 0 {
-                assert_eq!(pox_addrs.len(), 2);
-                let pox_addr_0 = PoxAddress::try_from_pox_tuple(false, &pox_addrs[0]).unwrap();
-                let pox_addr_1 = PoxAddress::try_from_pox_tuple(false, &pox_addrs[1]).unwrap();
+        if !burnchain_config.is_in_prepare_phase(height) && !pox_addrs.is_empty() {
+            assert_eq!(pox_addrs.len(), 2);
+            let pox_addr_0 = PoxAddress::try_from_pox_tuple(false, &pox_addrs[0]).unwrap();
+            let pox_addr_1 = PoxAddress::try_from_pox_tuple(false, &pox_addrs[1]).unwrap();
 
-                if let Some(pox_slot_count) = reward_cycle_pox_addrs
+            if let Some(pox_slot_count) = reward_cycle_pox_addrs
+                .get_mut(&reward_cycle)
+                .unwrap()
+                .get_mut(&pox_addr_0)
+            {
+                *pox_slot_count += 1;
+            } else {
+                reward_cycle_pox_addrs
                     .get_mut(&reward_cycle)
                     .unwrap()
-                    .get_mut(&pox_addr_0)
-                {
-                    *pox_slot_count += 1;
-                } else {
-                    reward_cycle_pox_addrs
-                        .get_mut(&reward_cycle)
-                        .unwrap()
-                        .insert(pox_addr_0, 1);
-                }
+                    .insert(pox_addr_0, 1);
+            }
 
-                if let Some(pox_slot_count) = reward_cycle_pox_addrs
+            if let Some(pox_slot_count) = reward_cycle_pox_addrs
+                .get_mut(&reward_cycle)
+                .unwrap()
+                .get_mut(&pox_addr_1)
+            {
+                *pox_slot_count += 1;
+            } else {
+                reward_cycle_pox_addrs
                     .get_mut(&reward_cycle)
                     .unwrap()
-                    .get_mut(&pox_addr_1)
-                {
-                    *pox_slot_count += 1;
-                } else {
-                    reward_cycle_pox_addrs
-                        .get_mut(&reward_cycle)
-                        .unwrap()
-                        .insert(pox_addr_1, 1);
-                }
+                    .insert(pox_addr_1, 1);
             }
         }
     }
@@ -521,7 +508,7 @@ fn disable_pox() {
         for (pox_addr, slots) in cycle_counts.iter() {
             assert_eq!(
                 *slots,
-                expected_slots[&reward_cycle][&pox_addr],
+                expected_slots[&reward_cycle][pox_addr],
                 "The number of expected slots for PoX address {} in reward cycle {} is mismatched with the actual count.",
                 &pox_addr,
                 reward_cycle,
@@ -543,8 +530,7 @@ fn disable_pox() {
             let parsed =
                 StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
             let tx_sender = PrincipalData::from(parsed.auth.origin().address_testnet());
-            if &tx_sender == &spender_addr
-                && parsed.auth.get_origin_nonce() == aborted_increase_nonce
+            if tx_sender == spender_addr && parsed.auth.get_origin_nonce() == aborted_increase_nonce
             {
                 let contract_call = match &parsed.payload {
                     TransactionPayload::ContractCall(cc) => cc,
@@ -625,31 +611,19 @@ fn pox_2_unlock_all() {
         "02f006a09b59979e2cb8449f58076152af6b124aa29b948a3714b8d5f15aa94ede",
     )
     .unwrap();
-    let pox_pubkey_hash_1 = bytes_to_hex(
-        &Hash160::from_node_public_key(&pox_pubkey_1)
-            .to_bytes()
-            .to_vec(),
-    );
+    let pox_pubkey_hash_1 = bytes_to_hex(&Hash160::from_node_public_key(&pox_pubkey_1).to_bytes());
 
     let pox_pubkey_2 = Secp256k1PublicKey::from_hex(
         "03cd91307e16c10428dd0120d0a4d37f14d4e0097b3b2ea1651d7bd0fb109cd44b",
     )
     .unwrap();
-    let pox_pubkey_hash_2 = bytes_to_hex(
-        &Hash160::from_node_public_key(&pox_pubkey_2)
-            .to_bytes()
-            .to_vec(),
-    );
+    let pox_pubkey_hash_2 = bytes_to_hex(&Hash160::from_node_public_key(&pox_pubkey_2).to_bytes());
 
     let pox_pubkey_3 = Secp256k1PublicKey::from_hex(
         "0317782e663c77fb02ebf46a3720f41a70f5678ad185974a456d35848e275fe56b",
     )
     .unwrap();
-    let pox_pubkey_hash_3 = bytes_to_hex(
-        &Hash160::from_node_public_key(&pox_pubkey_3)
-            .to_bytes()
-            .to_vec(),
-    );
+    let pox_pubkey_hash_3 = bytes_to_hex(&Hash160::from_node_public_key(&pox_pubkey_3).to_bytes());
 
     let (mut conf, _) = neon_integration_test_conf();
 
@@ -671,6 +645,7 @@ fn pox_2_unlock_all() {
     conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
+        timeout_ms: 1000,
     });
     conf.initial_balances.append(&mut initial_balances);
 
@@ -764,6 +739,7 @@ fn pox_2_unlock_all() {
         &spender_sk,
         0,
         tx_fee,
+        conf.burnchain.chain_id,
         &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
         "pox",
         "stack-stx",
@@ -814,6 +790,7 @@ fn pox_2_unlock_all() {
         &spender_sk,
         1,
         tx_fee,
+        conf.burnchain.chain_id,
         "unlock-height",
         "(define-public (unlock-height (x principal)) (ok (get unlock-height (stx-account x))))",
     );
@@ -823,6 +800,7 @@ fn pox_2_unlock_all() {
         &spender_sk,
         2,
         tx_fee,
+        conf.burnchain.chain_id,
         &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
         "pox-2",
         "stack-stx",
@@ -842,6 +820,7 @@ fn pox_2_unlock_all() {
         &spender_2_sk,
         0,
         tx_fee,
+        conf.burnchain.chain_id,
         &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
         "pox-2",
         "stack-stx",
@@ -872,6 +851,7 @@ fn pox_2_unlock_all() {
         &spender_sk,
         3,
         tx_fee,
+        conf.burnchain.chain_id,
         &to_addr(&spender_sk),
         "unlock-height",
         "unlock-height",
@@ -885,12 +865,13 @@ fn pox_2_unlock_all() {
     //  in bitcoin block epoch_2_2 - 1, so `nonce_of_2_1_unlock_ht_call`
     //  will be included in that bitcoin block.
     // this will build the last block before 2.2 activates
-    next_block_and_wait(&mut &mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     let tx = make_contract_call(
         &spender_sk,
         4,
         tx_fee,
+        conf.burnchain.chain_id,
         &to_addr(&spender_sk),
         "unlock-height",
         "unlock-height",
@@ -905,19 +886,19 @@ fn pox_2_unlock_all() {
     //  in bitcoin block epoch_2_2, so `nonce_of_2_2_unlock_ht_call`
     //  will be included in that bitcoin block.
     // this block activates 2.2
-    next_block_and_wait(&mut &mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     // this *burn block* is when the unlock occurs
-    next_block_and_wait(&mut &mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     // and this will mine the first block whose parent is the unlock block
-    next_block_and_wait(&mut &mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     let spender_1_account = get_account(&http_origin, &spender_addr);
     let spender_2_account = get_account(&http_origin, &spender_2_addr);
 
-    info!("spender_1_account = {:?}", spender_1_account);
-    info!("spender_2_account = {:?}", spender_1_account);
+    info!("spender_1_account = {spender_1_account:?}");
+    info!("spender_2_account = {spender_2_account:?}");
 
     assert_eq!(
         spender_1_account.balance as u64,
@@ -935,7 +916,7 @@ fn pox_2_unlock_all() {
 
     assert_eq!(
         spender_2_account.balance as u64,
-        spender_2_initial_balance - stacked - (1 * tx_fee),
+        spender_2_initial_balance - stacked - tx_fee,
         "Spender 2 should still be locked"
     );
     assert_eq!(
@@ -949,13 +930,13 @@ fn pox_2_unlock_all() {
 
     // and this will mice the bitcoin block containing the first block whose parent has >= unlock burn block
     //  (which is the criterion for the unlock)
-    next_block_and_wait(&mut &mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     let spender_1_account = get_account(&http_origin, &spender_addr);
     let spender_2_account = get_account(&http_origin, &spender_2_addr);
 
-    info!("spender_1_account = {:?}", spender_1_account);
-    info!("spender_2_account = {:?}", spender_1_account);
+    info!("spender_1_account = {spender_1_account:?}");
+    info!("spender_2_account = {spender_2_account:?}");
 
     assert_eq!(
         spender_1_account.balance,
@@ -970,7 +951,7 @@ fn pox_2_unlock_all() {
 
     assert_eq!(
         spender_2_account.balance,
-        spender_2_initial_balance as u128 - (1 * tx_fee as u128),
+        spender_2_initial_balance as u128 - tx_fee as u128,
         "Spender 2 should be unlocked"
     );
     assert_eq!(spender_2_account.locked, 0, "Spender 2 should be unlocked");
@@ -980,22 +961,29 @@ fn pox_2_unlock_all() {
     );
 
     // perform a transfer
-    let tx = make_stacks_transfer(&spender_sk, 5, tx_fee, &spender_3_addr, 1_000_000);
+    let tx = make_stacks_transfer(
+        &spender_sk,
+        5,
+        tx_fee,
+        conf.burnchain.chain_id,
+        &spender_3_addr,
+        1_000_000,
+    );
 
     info!("Submit stack transfer tx to {:?}", &http_origin);
     submit_tx(&http_origin, &tx);
 
     // this wakes up the node to mine the transaction
-    next_block_and_wait(&mut &mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     // this block selects the previously mined block
-    next_block_and_wait(&mut &mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     let spender_1_account = get_account(&http_origin, &spender_addr);
     let spender_2_account = get_account(&http_origin, &spender_2_addr);
     let spender_3_account = get_account(&http_origin, &spender_3_addr);
 
-    info!("spender_1_account = {:?}", spender_1_account);
-    info!("spender_2_account = {:?}", spender_1_account);
+    info!("spender_1_account = {spender_1_account:?}");
+    info!("spender_2_account = {spender_2_account:?}");
 
     assert_eq!(
         spender_3_account.balance, 1_000_000,
@@ -1023,7 +1011,7 @@ fn pox_2_unlock_all() {
 
     assert_eq!(
         spender_2_account.balance,
-        spender_2_initial_balance as u128 - (1 * tx_fee as u128),
+        spender_2_initial_balance as u128 - tx_fee as u128,
         "Spender 2 should be unlocked"
     );
     assert_eq!(spender_2_account.locked, 0, "Spender 2 should be unlocked");
@@ -1065,9 +1053,9 @@ fn pox_2_unlock_all() {
             .block_height_to_reward_cycle(burnchain_config.first_block_height, height)
             .unwrap();
 
-        if !reward_cycle_pox_addrs.contains_key(&reward_cycle) {
-            reward_cycle_pox_addrs.insert(reward_cycle, HashMap::new());
-        }
+        reward_cycle_pox_addrs
+            .entry(reward_cycle)
+            .or_insert_with(HashMap::new);
 
         let iconn = sortdb.index_handle_at_block(&chainstate, &tip).unwrap();
         let pox_addrs = chainstate
@@ -1088,37 +1076,35 @@ fn pox_2_unlock_all() {
             .unwrap();
 
         debug!("Test burnchain height {}", height);
-        if !burnchain_config.is_in_prepare_phase(height) {
-            if pox_addrs.len() > 0 {
-                assert_eq!(pox_addrs.len(), 2);
-                let pox_addr_0 = PoxAddress::try_from_pox_tuple(false, &pox_addrs[0]).unwrap();
-                let pox_addr_1 = PoxAddress::try_from_pox_tuple(false, &pox_addrs[1]).unwrap();
+        if !burnchain_config.is_in_prepare_phase(height) && !pox_addrs.is_empty() {
+            assert_eq!(pox_addrs.len(), 2);
+            let pox_addr_0 = PoxAddress::try_from_pox_tuple(false, &pox_addrs[0]).unwrap();
+            let pox_addr_1 = PoxAddress::try_from_pox_tuple(false, &pox_addrs[1]).unwrap();
 
-                if let Some(pox_slot_count) = reward_cycle_pox_addrs
+            if let Some(pox_slot_count) = reward_cycle_pox_addrs
+                .get_mut(&reward_cycle)
+                .unwrap()
+                .get_mut(&pox_addr_0)
+            {
+                *pox_slot_count += 1;
+            } else {
+                reward_cycle_pox_addrs
                     .get_mut(&reward_cycle)
                     .unwrap()
-                    .get_mut(&pox_addr_0)
-                {
-                    *pox_slot_count += 1;
-                } else {
-                    reward_cycle_pox_addrs
-                        .get_mut(&reward_cycle)
-                        .unwrap()
-                        .insert(pox_addr_0, 1);
-                }
+                    .insert(pox_addr_0, 1);
+            }
 
-                if let Some(pox_slot_count) = reward_cycle_pox_addrs
+            if let Some(pox_slot_count) = reward_cycle_pox_addrs
+                .get_mut(&reward_cycle)
+                .unwrap()
+                .get_mut(&pox_addr_1)
+            {
+                *pox_slot_count += 1;
+            } else {
+                reward_cycle_pox_addrs
                     .get_mut(&reward_cycle)
                     .unwrap()
-                    .get_mut(&pox_addr_1)
-                {
-                    *pox_slot_count += 1;
-                } else {
-                    reward_cycle_pox_addrs
-                        .get_mut(&reward_cycle)
-                        .unwrap()
-                        .insert(pox_addr_1, 1);
-                }
+                    .insert(pox_addr_1, 1);
             }
         }
     }
@@ -1176,7 +1162,7 @@ fn pox_2_unlock_all() {
         for (pox_addr, slots) in cycle_counts.iter() {
             assert_eq!(
                 *slots,
-                expected_slots[&reward_cycle][&pox_addr],
+                expected_slots[&reward_cycle][pox_addr],
                 "The number of expected slots for PoX address {} in reward cycle {} is mismatched with the actual count.",
                 &pox_addr,
                 reward_cycle,
@@ -1200,7 +1186,7 @@ fn pox_2_unlock_all() {
             let parsed =
                 StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
             let tx_sender = PrincipalData::from(parsed.auth.origin().address_testnet());
-            if &tx_sender == &spender_addr
+            if tx_sender == spender_addr
                 && parsed.auth.get_origin_nonce() == nonce_of_2_2_unlock_ht_call
             {
                 let contract_call = match &parsed.payload {
@@ -1216,7 +1202,7 @@ fn pox_2_unlock_all() {
                 assert_eq!(result.to_string(), format!("(ok u{})", epoch_2_2 + 1));
                 unlock_ht_22_tested = true;
             }
-            if &tx_sender == &spender_addr
+            if tx_sender == spender_addr
                 && parsed.auth.get_origin_nonce() == nonce_of_2_1_unlock_ht_call
             {
                 let contract_call = match &parsed.payload {
@@ -1288,15 +1274,9 @@ fn test_pox_reorg_one_flap() {
     epochs.truncate(5);
     conf_template.burnchain.epochs = Some(epochs);
 
-    let privks: Vec<_> = (0..5)
-        .into_iter()
-        .map(|_| StacksPrivateKey::new())
-        .collect();
+    let privks: Vec<_> = (0..5).map(|_| StacksPrivateKey::new()).collect();
 
-    let stack_privks: Vec<_> = (0..5)
-        .into_iter()
-        .map(|_| StacksPrivateKey::new())
-        .collect();
+    let stack_privks: Vec<_> = (0..5).map(|_| StacksPrivateKey::new()).collect();
 
     let balances: Vec<_> = privks
         .iter()
@@ -1343,7 +1323,7 @@ fn test_pox_reorg_one_flap() {
         conf.node.wait_time_for_blocks = conf_template.node.wait_time_for_blocks;
         conf.burnchain.max_rbf = conf_template.burnchain.max_rbf;
         conf.burnchain.epochs = conf_template.burnchain.epochs.clone();
-        conf.burnchain.pox_2_activation = conf_template.burnchain.pox_2_activation.clone();
+        conf.burnchain.pox_2_activation = conf_template.burnchain.pox_2_activation;
         conf.node.require_affirmed_anchor_blocks =
             conf_template.node.require_affirmed_anchor_blocks;
 
@@ -1364,12 +1344,11 @@ fn test_pox_reorg_one_flap() {
 
     let node_privkey_1 =
         StacksNode::make_node_private_key_from_seed(&confs[0].node.local_peer_seed);
-    for i in 1..num_miners {
-        let chain_id = confs[0].burnchain.chain_id;
-        let peer_version = confs[0].burnchain.peer_version;
-        let p2p_bind = confs[0].node.p2p_bind.clone();
-
-        confs[i].node.set_bootstrap_nodes(
+    let chain_id = confs[0].burnchain.chain_id;
+    let peer_version = confs[0].burnchain.peer_version;
+    let p2p_bind = confs[0].node.p2p_bind.clone();
+    for conf in confs.iter_mut().skip(1) {
+        conf.node.set_bootstrap_nodes(
             format!(
                 "{}@{}",
                 &StacksPublicKey::from_private(&node_privkey_1).to_hex(),
@@ -1381,8 +1360,8 @@ fn test_pox_reorg_one_flap() {
     }
 
     // use short reward cycles
-    for i in 0..num_miners {
-        let mut burnchain_config = Burnchain::regtest(&confs[i].get_burn_db_path());
+    for conf in &confs {
+        let mut burnchain_config = Burnchain::regtest(&conf.get_burn_db_path());
         let pox_constants = PoxConstants::new(
             reward_cycle_len,
             prepare_phase_len,
@@ -1417,10 +1396,10 @@ fn test_pox_reorg_one_flap() {
     btc_regtest_controller.bootstrap_chain(1);
 
     // make sure all miners have BTC
-    for i in 1..num_miners {
+    for conf in confs.iter().skip(1) {
         let old_mining_pubkey = btc_regtest_controller.get_mining_pubkey().unwrap();
         btc_regtest_controller
-            .set_mining_pubkey(confs[i].burnchain.local_mining_public_key.clone().unwrap());
+            .set_mining_pubkey(conf.burnchain.local_mining_public_key.clone().unwrap());
         btc_regtest_controller.bootstrap_chain(1);
         btc_regtest_controller.set_mining_pubkey(old_mining_pubkey);
     }
@@ -1445,8 +1424,8 @@ fn test_pox_reorg_one_flap() {
     let http_origin = format!("http://{}", &confs[0].node.rpc_bind);
 
     // give the run loops some time to start up!
-    for i in 0..num_miners {
-        wait_for_runloop(&blocks_processed[i as usize]);
+    for bp in &blocks_processed {
+        wait_for_runloop(bp);
     }
 
     // activate miners
@@ -1468,10 +1447,10 @@ fn test_pox_reorg_one_flap() {
         );
     }
 
-    for i in 1..num_miners {
+    for (i, conf) in confs.iter().enumerate().skip(1) {
         eprintln!("\n\nBoot miner {}\n\n", i);
         loop {
-            let tip_info_opt = get_chain_info_opt(&confs[i]);
+            let tip_info_opt = get_chain_info_opt(conf);
             if let Some(tip_info) = tip_info_opt {
                 eprintln!("\n\nMiner {}: {:?}\n\n", i, &tip_info);
                 if tip_info.stacks_tip_height > 0 {
@@ -1480,11 +1459,7 @@ fn test_pox_reorg_one_flap() {
             } else {
                 eprintln!("\n\nWaiting for miner {}...\n\n", i);
             }
-            next_block_and_iterate(
-                &mut btc_regtest_controller,
-                &blocks_processed[i as usize],
-                5_000,
-            );
+            next_block_and_iterate(&mut btc_regtest_controller, &blocks_processed[i], 5_000);
         }
     }
 
@@ -1494,30 +1469,26 @@ fn test_pox_reorg_one_flap() {
         "02f006a09b59979e2cb8449f58076152af6b124aa29b948a3714b8d5f15aa94ede",
     )
     .unwrap();
-    let pox_pubkey_hash = bytes_to_hex(
-        &Hash160::from_node_public_key(&pox_pubkey)
-            .to_bytes()
-            .to_vec(),
-    );
+    let pox_pubkey_hash = bytes_to_hex(&Hash160::from_node_public_key(&pox_pubkey).to_bytes());
 
     let sort_height = channels[0].get_sortitions_processed();
 
     // make everyone stack
     let stacking_txs: Vec<_> = stack_privks
         .iter()
-        .enumerate()
-        .map(|(_i, pk)| {
+        .map(|pk| {
             make_contract_call(
                 pk,
                 0,
                 1360,
+                conf_template.burnchain.chain_id,
                 &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
                 "pox-2",
                 "stack-stx",
                 &[
                     Value::UInt(2_000_000_000_000_000 - 30_000_000),
                     execute(
-                        &format!("{{ hashbytes: 0x{}, version: 0x00 }}", pox_pubkey_hash),
+                        &format!("{{ hashbytes: 0x{pox_pubkey_hash}, version: 0x00 }}"),
                         ClarityVersion::Clarity1,
                     )
                     .unwrap()
@@ -1534,15 +1505,15 @@ fn test_pox_reorg_one_flap() {
     let all_txs: Vec<_> = privks
         .iter()
         .enumerate()
-        .map(|(i, pk)| make_random_tx_chain(pk, (25 * i) as u64, false))
+        .map(|(i, pk)| {
+            make_random_tx_chain(pk, (25 * i) as u64, conf_template.burnchain.chain_id, false)
+        })
         .collect();
 
     // everyone locks up
-    let mut cnt = 0;
-    for tx in stacking_txs {
-        eprintln!("\n\nSubmit stacking tx {}\n\n", &cnt);
-        submit_tx(&http_origin, &tx);
-        cnt += 1;
+    for (cnt, tx) in stacking_txs.iter().enumerate() {
+        eprintln!("\n\nSubmit stacking tx {cnt}\n\n");
+        submit_tx(&http_origin, tx);
     }
 
     // run a reward cycle
@@ -1552,7 +1523,7 @@ fn test_pox_reorg_one_flap() {
         sleep_ms(block_time_ms);
 
         for (i, c) in confs.iter().enumerate() {
-            let tip_info = get_chain_info(&c);
+            let tip_info = get_chain_info(c);
             info!("Tip for miner {}: {:?}", i, &tip_info);
             if tip_info.burn_block_height == 220 {
                 at_220 = true;
@@ -1571,7 +1542,7 @@ fn test_pox_reorg_one_flap() {
     }
 
     for (i, c) in confs.iter().enumerate() {
-        let tip_info = get_chain_info(&c);
+        let tip_info = get_chain_info(c);
         info!("Tip for miner {}: {:?}", i, &tip_info);
         assert!(tip_info.burn_block_height <= 220);
     }
@@ -1580,7 +1551,7 @@ fn test_pox_reorg_one_flap() {
 
     info!("####################### end of cycle ##############################");
     for (i, c) in confs.iter().enumerate() {
-        let tip_info = get_chain_info(&c);
+        let tip_info = get_chain_info(c);
         info!("Tip for miner {}: {:?}", i, &tip_info);
     }
     info!("####################### end of cycle ##############################");
@@ -1599,7 +1570,7 @@ fn test_pox_reorg_one_flap() {
         sleep_ms(block_time_ms);
 
         for (i, c) in confs.iter().enumerate() {
-            let tip_info = get_chain_info(&c);
+            let tip_info = get_chain_info(c);
             info!("Tip for miner {}: {:?}", i, &tip_info);
         }
 
@@ -1611,7 +1582,7 @@ fn test_pox_reorg_one_flap() {
 
     info!("####################### end of cycle ##############################");
     for (i, c) in confs.iter().enumerate() {
-        let tip_info = get_chain_info(&c);
+        let tip_info = get_chain_info(c);
         info!("Tip for miner {}: {:?}", i, &tip_info);
     }
     info!("####################### end of cycle ##############################");
@@ -1624,7 +1595,7 @@ fn test_pox_reorg_one_flap() {
         sleep_ms(block_time_ms);
 
         for (i, c) in confs.iter().enumerate() {
-            let tip_info = get_chain_info(&c);
+            let tip_info = get_chain_info(c);
             info!("Tip for miner {}: {:?}", i, &tip_info);
         }
 
@@ -1637,7 +1608,7 @@ fn test_pox_reorg_one_flap() {
     info!("####################### end of cycle ##############################");
     let mut max_stacks_tip = 0;
     for (i, c) in confs.iter().enumerate() {
-        let tip_info = get_chain_info(&c);
+        let tip_info = get_chain_info(c);
         info!("Tip for miner {}: {:?}", i, &tip_info);
 
         // miner 1's history overtakes miner 0's.
@@ -1653,7 +1624,7 @@ fn test_pox_reorg_one_flap() {
     sleep_ms(block_time_ms);
 
     for (i, c) in confs.iter().enumerate() {
-        let tip_info = get_chain_info(&c);
+        let tip_info = get_chain_info(c);
         info!("Tip for miner {}: {:?}", i, &tip_info);
     }
 
@@ -1669,7 +1640,7 @@ fn test_pox_reorg_one_flap() {
 
     // nodes now agree on stacks affirmation map
     for (i, c) in confs.iter().enumerate() {
-        let tip_info = get_chain_info(&c);
+        let tip_info = get_chain_info(c);
         info!("Final tip for miner {}: {:?}", i, &tip_info);
     }
 }

@@ -75,12 +75,14 @@ mod getmicroblocks_indexed;
 mod getmicroblocks_unconfirmed;
 mod getneighbors;
 mod getpoxinfo;
+mod getsigner;
 mod getsortition;
 mod getstackerdbchunk;
 mod getstackerdbmetadata;
 mod getstxtransfercost;
 mod gettenure;
 mod gettenureinfo;
+mod gettenuretip;
 mod gettransaction_unconfirmed;
 mod liststackerdbreplicas;
 mod postblock;
@@ -267,7 +269,7 @@ impl<'a> TestRPC<'a> {
             runtime: 2000000,
         };
         peer_1_config.connection_opts.maximum_call_argument_size = 4096;
-        peer_1_config.connection_opts.block_proposal_token = Some("password".to_string());
+        peer_1_config.connection_opts.auth_token = Some("password".to_string());
 
         peer_2_config.connection_opts.read_only_call_limit = ExecutionCost {
             write_length: 0,
@@ -277,7 +279,7 @@ impl<'a> TestRPC<'a> {
             runtime: 2000000,
         };
         peer_2_config.connection_opts.maximum_call_argument_size = 4096;
-        peer_2_config.connection_opts.block_proposal_token = Some("password".to_string());
+        peer_2_config.connection_opts.auth_token = Some("password".to_string());
 
         // stacker DBs get initialized thru reconfiguration when the above block gets processed
         peer_1_config.add_stacker_db(

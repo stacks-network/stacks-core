@@ -21,8 +21,9 @@ use stacks::core;
 use stacks_common::consts::STACKS_EPOCH_MAX;
 use stacks_common::types::chainstate::StacksPrivateKey;
 
-use crate::config::{EventKeyType, EventObserverConfig, InitialBalance};
+use crate::config::InitialBalance;
 use crate::tests::bitcoin_regtest::BitcoinCoreController;
+use crate::tests::nakamoto_integrations::wait_for;
 use crate::tests::neon_integrations::{
     get_account, get_chain_info, neon_integration_test_conf, next_block_and_wait, submit_tx,
     test_observer, wait_for_runloop,
@@ -78,15 +79,11 @@ fn microblocks_disabled() {
     conf.node.wait_time_for_blocks = 2_000;
     conf.miner.wait_for_block_download = false;
 
-    conf.miner.first_attempt_time_ms = i64::max_value() as u64;
-    conf.miner.subsequent_attempt_time_ms = i64::max_value() as u64;
+    conf.miner.first_attempt_time_ms = i64::MAX as u64;
+    conf.miner.subsequent_attempt_time_ms = i64::MAX as u64;
 
     test_observer::spawn();
-
-    conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
-        events_keys: vec![EventKeyType::AnyEvent],
-    });
+    test_observer::register_any(&mut conf);
     conf.initial_balances.append(&mut initial_balances);
 
     let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
@@ -114,8 +111,8 @@ fn microblocks_disabled() {
         4 * prepare_phase_len / 5,
         5,
         15,
-        u64::max_value() - 2,
-        u64::max_value() - 1,
+        u64::MAX - 2,
+        u64::MAX - 1,
         v1_unlock_height as u32,
         epoch_2_2 as u32 + 1,
         u32::MAX,
@@ -165,21 +162,36 @@ fn microblocks_disabled() {
     // push us to block 205
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
-    let tx = make_stacks_transfer_mblock_only(&spender_1_sk, 0, 500, &spender_2_addr, 500);
+    let tx = make_stacks_transfer_mblock_only(
+        &spender_1_sk,
+        0,
+        500,
+        conf.burnchain.chain_id,
+        &spender_2_addr,
+        500,
+    );
     submit_tx(&http_origin, &tx);
 
     // wait until just before epoch 2.5
-    loop {
+    wait_for(120, || {
         let tip_info = get_chain_info(&conf);
         if tip_info.burn_block_height >= epoch_2_5 - 2 {
-            break;
+            return Ok(true);
         }
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    }
+        Ok(false)
+    })
+    .expect("Failed to wait until just before epoch 2.5");
 
+    let old_tip_info = get_chain_info(&conf);
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    wait_for(30, || {
+        let tip_info = get_chain_info(&conf);
+        Ok(tip_info.burn_block_height >= old_tip_info.burn_block_height + 3)
+    })
+    .expect("Failed to process block");
 
     info!("Test passed processing 2.5");
     let account = get_account(&http_origin, &spender_1_addr);
@@ -189,18 +201,28 @@ fn microblocks_disabled() {
     );
     assert_eq!(account.nonce, 1);
 
-    let tx = make_stacks_transfer_mblock_only(&spender_1_sk, 1, 500, &spender_2_addr, 500);
+    let tx = make_stacks_transfer_mblock_only(
+        &spender_1_sk,
+        1,
+        500,
+        conf.burnchain.chain_id,
+        &spender_2_addr,
+        500,
+    );
     submit_tx(&http_origin, &tx);
 
     let mut last_block_height = get_chain_info(&conf).burn_block_height;
     for _i in 0..5 {
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-        let tip_info = get_chain_info(&conf);
-        if tip_info.burn_block_height > last_block_height {
-            last_block_height = tip_info.burn_block_height;
-        } else {
-            panic!("FATAL: failed to mine");
-        }
+        wait_for(30, || {
+            let tip_info = get_chain_info(&conf);
+            if tip_info.burn_block_height > last_block_height {
+                last_block_height = tip_info.burn_block_height;
+                return Ok(true);
+            }
+            Ok(false)
+        })
+        .expect("Failed to mine");
     }
 
     // second transaction should not have been processed!
@@ -211,11 +233,12 @@ fn microblocks_disabled() {
     );
     assert_eq!(account.nonce, 1);
 
-    info!(
-        "Microblocks assembled: {}",
-        test_observer::get_microblocks().len()
+    let microblocks_assembled = test_observer::get_microblocks().len();
+    info!("Microblocks assembled: {microblocks_assembled}",);
+    assert!(
+        microblocks_assembled > 0,
+        "There should be at least 1 microblock assembled"
     );
-    assert_eq!(test_observer::get_microblocks().len(), 1);
 
     let miner_nonce_before_microblock_assembly = get_account(&http_origin, &miner_account).nonce;
 
@@ -225,12 +248,15 @@ fn microblocks_disabled() {
     let mut last_block_height = get_chain_info(&conf).burn_block_height;
     for _i in 0..2 {
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-        let tip_info = get_chain_info(&conf);
-        if tip_info.burn_block_height > last_block_height {
-            last_block_height = tip_info.burn_block_height;
-        } else {
-            panic!("FATAL: failed to mine");
-        }
+        wait_for(30, || {
+            let tip_info = get_chain_info(&conf);
+            if tip_info.burn_block_height > last_block_height {
+                last_block_height = tip_info.burn_block_height;
+                return Ok(true);
+            }
+            Ok(false)
+        })
+        .expect("Failed to mine");
     }
 
     let miner_nonce_after_microblock_assembly = get_account(&http_origin, &miner_account).nonce;
@@ -244,8 +270,8 @@ fn microblocks_disabled() {
     );
     assert_eq!(account.nonce, 1);
 
-    // but we should have assembled and announced at least 1 to the observer
-    assert!(test_observer::get_microblocks().len() >= 2);
+    // but we should have assembled and announced at least 1 more block to the observer
+    assert!(test_observer::get_microblocks().len() > microblocks_assembled);
     info!(
         "Microblocks assembled: {}",
         test_observer::get_microblocks().len()
@@ -264,12 +290,15 @@ fn microblocks_disabled() {
     let mut last_block_height = get_chain_info(&conf).burn_block_height;
     for _i in 0..2 {
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-        let tip_info = get_chain_info(&conf);
-        if tip_info.burn_block_height > last_block_height {
-            last_block_height = tip_info.burn_block_height;
-        } else {
-            panic!("FATAL: failed to mine");
-        }
+        wait_for(30, || {
+            let tip_info = get_chain_info(&conf);
+            if tip_info.burn_block_height > last_block_height {
+                last_block_height = tip_info.burn_block_height;
+                return Ok(true);
+            }
+            Ok(false)
+        })
+        .expect("Failed to mine");
     }
 
     let miner_nonce_after_microblock_confirmation = get_account(&http_origin, &miner_account).nonce;

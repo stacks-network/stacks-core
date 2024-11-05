@@ -87,7 +87,6 @@ use stacks_common::util::hash::{to_hex, Hash160, MerkleHashFunc, MerkleTree, Sha
 use stacks_common::util::retry::BoundReader;
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::util::vrf::{VRFProof, VRFPublicKey, VRF};
-use wsts::curve::point::Point;
 
 use crate::burnchains::{PoxConstants, Txid};
 use crate::chainstate::burn::db::sortdb::{
@@ -108,8 +107,8 @@ use crate::chainstate::stacks::db::{
 use crate::chainstate::stacks::events::StacksTransactionReceipt;
 use crate::chainstate::stacks::{
     Error as ChainstateError, StacksBlock, StacksBlockHeader, StacksMicroblock, StacksTransaction,
-    TenureChangeCause, TenureChangeError, TenureChangePayload, ThresholdSignature,
-    TransactionPayload, MINER_BLOCK_CONSENSUS_HASH, MINER_BLOCK_HEADER_HASH,
+    TenureChangeCause, TenureChangeError, TenureChangePayload, TransactionPayload,
+    MINER_BLOCK_CONSENSUS_HASH, MINER_BLOCK_HEADER_HASH,
 };
 use crate::clarity_vm::clarity::{ClarityInstance, PreCommitClarityBlock};
 use crate::clarity_vm::database::SortitionDBRef;
@@ -132,7 +131,7 @@ pub static NAKAMOTO_TENURES_SCHEMA_1: &'static str = r#"
         burn_view_consensus_hash TEXT NOT NULL,
         -- whether or not this tenure was triggered by a sortition (as opposed to a tenure-extension).
         -- this is equal to the `cause` field in a TenureChange
-        cause INETGER NOT NULL,
+        cause INTEGER NOT NULL,
         -- block hash of start-tenure block
         block_hash TEXT NOT NULL,
         -- block ID of this start block (this is the StacksBlockId of the above tenure_id_consensus_hash and block_hash)
@@ -372,7 +371,7 @@ impl NakamotoChainState {
 
         let matured_coinbase_height = coinbase_height - MINER_REWARD_MATURITY;
         let matured_tenure_block_header = Self::get_header_by_coinbase_height(
-            chainstate_tx,
+            chainstate_tx.deref_mut(),
             &tip_index_hash,
             matured_coinbase_height,
         )?
@@ -964,7 +963,7 @@ impl NakamotoChainState {
 
         let total_coinbase = coinbase_at_block.saturating_add(accumulated_rewards);
         let parent_tenure_start_header: StacksHeaderInfo = Self::get_header_by_coinbase_height(
-            chainstate_tx,
+            chainstate_tx.deref_mut(),
             &block.header.parent_block_id,
             parent_coinbase_height,
         )?

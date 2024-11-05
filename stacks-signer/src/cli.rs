@@ -29,6 +29,7 @@ use clarity::util::hash::Sha256Sum;
 use clarity::util::secp256k1::MessageSignature;
 use clarity::vm::types::{QualifiedContractIdentifier, TupleData};
 use clarity::vm::Value;
+use libsigner::VERSION_STRING;
 use serde::{Deserialize, Serialize};
 use stacks_common::address::{
     b58, AddressHashMode, C32_ADDRESS_VERSION_MAINNET_MULTISIG,
@@ -42,6 +43,8 @@ extern crate alloc;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about)]
+#[command(long_version = VERSION_STRING.as_str())]
+
 /// The CLI arguments for the stacks signer
 pub struct Cli {
     /// Subcommand action to take
@@ -70,6 +73,8 @@ pub enum Command {
     GenerateVote(GenerateVoteArgs),
     /// Verify the vote for a specified SIP against a public key and vote info
     VerifyVote(VerifyVoteArgs),
+    /// Verify signer signatures by checking stackerdb slots contain the correct data
+    MonitorSigners(MonitorSignersArgs),
 }
 
 /// Basic arguments for all cyrptographic and stacker-db functionality
@@ -229,6 +234,20 @@ impl TryFrom<u8> for Vote {
     fn try_from(input: u8) -> Result<Vote, Self::Error> {
         Vote::from_u8(input).ok_or_else(|| format!("Invalid vote: {}. Must be 0 or 1.", input))
     }
+}
+
+#[derive(Parser, Debug, Clone)]
+/// Arguments for the MonitorSigners command
+pub struct MonitorSignersArgs {
+    /// The Stacks node to connect to
+    #[arg(long)]
+    pub host: String,
+    /// Set the polling interval in seconds.
+    #[arg(long, short, default_value = "60")]
+    pub interval: u64,
+    /// Max age in seconds before a signer message is considered stale.
+    #[arg(long, short, default_value = "1200")]
+    pub max_age: u64,
 }
 
 #[derive(Clone, Debug, PartialEq)]

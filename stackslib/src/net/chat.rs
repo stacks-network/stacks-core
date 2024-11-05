@@ -609,6 +609,10 @@ impl ConversationP2P {
         }
     }
 
+    pub fn age(&self) -> u64 {
+        get_epoch_time_secs().saturating_sub(self.instantiated)
+    }
+
     pub fn set_public_key(&mut self, pubkey_opt: Option<Secp256k1PublicKey>) -> () {
         self.connection.set_public_key(pubkey_opt);
     }
@@ -735,10 +739,9 @@ impl ConversationP2P {
             }
         };
         if bhh != their_burn_header_hash {
-            test_debug!(
+            debug!(
                 "Burn header hash mismatch in preamble: {} != {}",
-                bhh,
-                their_burn_header_hash
+                bhh, their_burn_header_hash
             );
             return true;
         }
@@ -764,18 +767,16 @@ impl ConversationP2P {
 
         if my_epoch <= remote_epoch {
             // remote node supports same epochs we do
-            test_debug!(
-                "Remote peer has epoch {}, which is newer than our epoch {}",
-                remote_epoch,
-                my_epoch
+            debug!(
+                "Remote peer has epoch {}, which is at least as new as our epoch {}",
+                remote_epoch, my_epoch
             );
             return true;
         }
 
-        test_debug!(
+        debug!(
             "Remote peer has old network version {} (epoch {})",
-            remote_peer_version,
-            remote_epoch
+            remote_peer_version, remote_epoch
         );
 
         // what epoch are we in?
@@ -786,10 +787,9 @@ impl ConversationP2P {
 
         if cur_epoch <= remote_epoch {
             // epoch shift hasn't happened yet, and this peer supports the current epoch
-            test_debug!(
+            debug!(
                 "Remote peer has epoch {} and current epoch is {}, so still valid",
-                remote_epoch,
-                cur_epoch
+                remote_epoch, cur_epoch
             );
             return true;
         }
@@ -828,11 +828,9 @@ impl ConversationP2P {
         }
         if (msg.preamble.peer_version & 0xff000000) != (self.version & 0xff000000) {
             // major version mismatch
-            test_debug!(
+            debug!(
                 "{:?}: Preamble invalid: wrong peer version: {:x} != {:x}",
-                &self,
-                msg.preamble.peer_version,
-                self.version
+                &self, msg.preamble.peer_version, self.version
             );
             return Err(net_error::InvalidMessage);
         }
@@ -1366,11 +1364,6 @@ impl ConversationP2P {
             };
 
         if let Some(stackerdb_accept) = stackerdb_accept {
-            test_debug!(
-                "{} =?= {}",
-                &stackerdb_accept.rc_consensus_hash,
-                &burnchain_view.rc_consensus_hash
-            );
             if stackerdb_accept.rc_consensus_hash == burnchain_view.rc_consensus_hash {
                 // remote peer is in the same reward cycle as us.
                 self.update_from_stacker_db_handshake_data(stackerdb_accept);
@@ -1444,6 +1437,8 @@ impl ConversationP2P {
 
         // get neighbors at random as long as they're fresh, and as long as they're compatible with
         // the current system epoch.
+        // Alternate at random between serving public-only and public/private-mixed IPs, since for
+        // the time being, the remote peer has no way of asking for a particular subset.
         let mut neighbors = PeerDB::get_fresh_random_neighbors(
             peer_dbconn,
             self.network_id,
@@ -1452,12 +1447,13 @@ impl ConversationP2P {
             MAX_NEIGHBORS_DATA_LEN,
             chain_view.burn_block_height,
             false,
+            thread_rng().gen(),
         )
         .map_err(net_error::DBError)?;
 
         if cfg!(test) && self.connection.options.disable_chat_neighbors {
             // never report neighbors if this is disabled by a test
-            test_debug!(
+            debug!(
                 "{:?}: Neighbor crawl is disabled; reporting 0 neighbors",
                 &local_peer
             );
@@ -1694,7 +1690,7 @@ impl ConversationP2P {
 
             if self.connection.options.disable_inv_chat {
                 // never reply that we have blocks
-                test_debug!(
+                debug!(
                     "{:?}: Disable inv chat -- pretend like we have nothing",
                     network.get_local_peer()
                 );
@@ -1748,7 +1744,8 @@ impl ConversationP2P {
             &tip,
             sortdb,
             chainstate,
-            &network.stacks_tip.block_id(),
+            &network.stacks_tip.consensus_hash,
+            &network.stacks_tip.block_hash,
             reward_cycle,
         )?;
         let nakamoto_inv = NakamotoInvData::try_from(&bitvec_bools).map_err(|e| {
@@ -1759,11 +1756,9 @@ impl ConversationP2P {
             e
         })?;
 
-        test_debug!(
+        debug!(
             "Reply NakamotoInv for {} (rc {}): {:?}",
-            &get_nakamoto_inv.consensus_hash,
-            reward_cycle,
-            &nakamoto_inv
+            &get_nakamoto_inv.consensus_hash, reward_cycle, &nakamoto_inv
         );
 
         Ok(StacksMessageType::NakamotoInv(nakamoto_inv))
@@ -1798,7 +1793,7 @@ impl ConversationP2P {
 
             if self.connection.options.disable_inv_chat {
                 // never reply that we have blocks
-                test_debug!(
+                debug!(
                     "{:?}: Disable inv chat -- pretend like we have nothing",
                     network.get_local_peer()
                 );
@@ -1837,10 +1832,9 @@ impl ConversationP2P {
             Ok(Some(sn)) => {
                 if !sn.pox_valid {
                     // invalid consensus hash
-                    test_debug!(
+                    debug!(
                         "{:?}: Snapshot {:?} is not on a valid PoX fork",
-                        local_peer,
-                        sn.burn_header_hash
+                        local_peer, sn.burn_header_hash
                     );
                     return Ok(StacksMessageType::Nack(NackData::new(
                         NackErrorCodes::InvalidPoxFork,
@@ -1852,7 +1846,7 @@ impl ConversationP2P {
                     % (burnchain.pox_constants.reward_cycle_length as u64)
                     != 1
                 {
-                    test_debug!(
+                    debug!(
                         "{:?}: block height ({} - {}) % {} != 1",
                         local_peer,
                         sn.block_height,
@@ -1896,10 +1890,9 @@ impl ConversationP2P {
                 }
             }
             Ok(None) | Err(db_error::NotFoundError) => {
-                test_debug!(
+                debug!(
                     "{:?}: snapshot for consensus hash {} not found",
-                    local_peer,
-                    getpoxinv.consensus_hash
+                    local_peer, getpoxinv.consensus_hash
                 );
                 Ok(StacksMessageType::Nack(NackData::new(
                     NackErrorCodes::InvalidPoxFork,
@@ -1932,25 +1925,16 @@ impl ConversationP2P {
     /// Generates a Nack if we don't have this DB, or if the request's consensus hash is invalid.
     fn make_stacker_db_getchunkinv_response(
         network: &PeerNetwork,
+        naddr: NeighborAddress,
+        chainstate: &mut StacksChainState,
         getchunkinv: &StackerDBGetChunkInvData,
     ) -> Result<StacksMessageType, net_error> {
-        let local_peer = network.get_local_peer();
-        let burnchain_view = network.get_chain_view();
-
-        // remote peer's Stacks chain tip is different from ours, meaning it might have a different
-        // stackerdb configuration view (and we won't be able to authenticate their chunks, and
-        // vice versa)
-        if burnchain_view.rc_consensus_hash != getchunkinv.rc_consensus_hash {
-            debug!(
-                "{:?}: NACK StackerDBGetChunkInv; {} != {}",
-                local_peer, &burnchain_view.rc_consensus_hash, &getchunkinv.rc_consensus_hash
-            );
-            return Ok(StacksMessageType::Nack(NackData::new(
-                NackErrorCodes::StaleView,
-            )));
-        }
-
-        Ok(network.make_StackerDBChunksInv_or_Nack(&getchunkinv.contract_id))
+        Ok(network.make_StackerDBChunksInv_or_Nack(
+            naddr,
+            chainstate,
+            &getchunkinv.contract_id,
+            &getchunkinv.rc_consensus_hash,
+        ))
     }
 
     /// Handle an inbound StackerDBGetChunkInv request.
@@ -1958,10 +1942,16 @@ impl ConversationP2P {
     fn handle_stacker_db_getchunkinv(
         &mut self,
         network: &PeerNetwork,
+        chainstate: &mut StacksChainState,
         preamble: &Preamble,
         getchunkinv: &StackerDBGetChunkInvData,
     ) -> Result<ReplyHandleP2P, net_error> {
-        let response = ConversationP2P::make_stacker_db_getchunkinv_response(network, getchunkinv)?;
+        let response = ConversationP2P::make_stacker_db_getchunkinv_response(
+            network,
+            self.to_neighbor_address(),
+            chainstate,
+            getchunkinv,
+        )?;
         self.sign_and_reply(
             network.get_local_peer(),
             network.get_chain_view(),
@@ -1999,9 +1989,29 @@ impl ConversationP2P {
         ) {
             Ok(Some(chunk)) => chunk,
             Ok(None) => {
-                // request for a stale chunk
+                // TODO: this is racey
+                if let Ok(Some(actual_version)) =
+                    stacker_dbs.get_slot_version(&getchunk.contract_id, getchunk.slot_id)
+                {
+                    // request for a stale chunk
+                    debug!("{:?}: NACK StackerDBGetChunk; version mismatch for requested slot {}.{} for {}. Expected {}", local_peer, getchunk.slot_id, getchunk.slot_version, &getchunk.contract_id, actual_version);
+                    if actual_version > getchunk.slot_version {
+                        return Ok(StacksMessageType::Nack(NackData::new(
+                            NackErrorCodes::StaleVersion,
+                        )));
+                    } else {
+                        return Ok(StacksMessageType::Nack(NackData::new(
+                            NackErrorCodes::FutureVersion,
+                        )));
+                    }
+                }
+                // if we hit a DB error, just treat it as if the DB doesn't exist
+                debug!(
+                    "{:?}: NACK StackerDBGetChunk; unloadable slot {}.{} for {}",
+                    local_peer, getchunk.slot_id, getchunk.slot_version, &getchunk.contract_id
+                );
                 return Ok(StacksMessageType::Nack(NackData::new(
-                    NackErrorCodes::StaleVersion,
+                    NackErrorCodes::NoSuchDB,
                 )));
             }
             Err(e) => {
@@ -2121,7 +2131,8 @@ impl ConversationP2P {
                 > (self.connection.options.max_block_push_bandwidth as f64)
         {
             debug!(
-                "Neighbor {:?} exceeded max block-push bandwidth of {} bytes/sec (currently at {})",
+                "{:?}: Neighbor {:?} exceeded max block-push bandwidth of {} bytes/sec (currently at {})",
+                &self,
                 &self.to_neighbor_key(),
                 self.connection.options.max_block_push_bandwidth,
                 self.stats.get_block_push_bandwidth()
@@ -2163,7 +2174,7 @@ impl ConversationP2P {
             && self.stats.get_microblocks_push_bandwidth()
                 > (self.connection.options.max_microblocks_push_bandwidth as f64)
         {
-            debug!("Neighbor {:?} exceeded max microblocks-push bandwidth of {} bytes/sec (currently at {})", &self.to_neighbor_key(), self.connection.options.max_microblocks_push_bandwidth, self.stats.get_microblocks_push_bandwidth());
+            debug!("{:?}: Neighbor {:?} exceeded max microblocks-push bandwidth of {} bytes/sec (currently at {})", self, &self.to_neighbor_key(), self.connection.options.max_microblocks_push_bandwidth, self.stats.get_microblocks_push_bandwidth());
             return self
                 .reply_nack(local_peer, chain_view, preamble, NackErrorCodes::Throttled)
                 .and_then(|handle| Ok(Some(handle)));
@@ -2200,7 +2211,7 @@ impl ConversationP2P {
             && self.stats.get_transaction_push_bandwidth()
                 > (self.connection.options.max_transaction_push_bandwidth as f64)
         {
-            debug!("Neighbor {:?} exceeded max transaction-push bandwidth of {} bytes/sec (currently at {})", &self.to_neighbor_key(), self.connection.options.max_transaction_push_bandwidth, self.stats.get_transaction_push_bandwidth());
+            debug!("{:?}: Neighbor {:?} exceeded max transaction-push bandwidth of {} bytes/sec (currently at {})", self, &self.to_neighbor_key(), self.connection.options.max_transaction_push_bandwidth, self.stats.get_transaction_push_bandwidth());
             return self
                 .reply_nack(local_peer, chain_view, preamble, NackErrorCodes::Throttled)
                 .and_then(|handle| Ok(Some(handle)));
@@ -2238,7 +2249,7 @@ impl ConversationP2P {
             && self.stats.get_stackerdb_push_bandwidth()
                 > (self.connection.options.max_stackerdb_push_bandwidth as f64)
         {
-            debug!("Neighbor {:?} exceeded max stackerdb-push bandwidth of {} bytes/sec (currently at {})", &self.to_neighbor_key(), self.connection.options.max_stackerdb_push_bandwidth, self.stats.get_stackerdb_push_bandwidth());
+            debug!("{:?}: Neighbor {:?} exceeded max stackerdb-push bandwidth of {} bytes/sec (currently at {})", self, &self.to_neighbor_key(), self.connection.options.max_stackerdb_push_bandwidth, self.stats.get_stackerdb_push_bandwidth());
             return self
                 .reply_nack(local_peer, chain_view, preamble, NackErrorCodes::Throttled)
                 .and_then(|handle| Ok(Some(handle)));
@@ -2277,7 +2288,7 @@ impl ConversationP2P {
             && self.stats.get_nakamoto_block_push_bandwidth()
                 > (self.connection.options.max_nakamoto_block_push_bandwidth as f64)
         {
-            debug!("Neighbor {:?} exceeded max Nakamoto block push bandwidth of {} bytes/sec (currently at {})", &self.to_neighbor_key(), self.connection.options.max_nakamoto_block_push_bandwidth, self.stats.get_nakamoto_block_push_bandwidth());
+            debug!("{:?}: Neighbor {:?} exceeded max Nakamoto block push bandwidth of {} bytes/sec (currently at {})", self, &self.to_neighbor_key(), self.connection.options.max_nakamoto_block_push_bandwidth, self.stats.get_nakamoto_block_push_bandwidth());
             return self
                 .reply_nack(local_peer, chain_view, preamble, NackErrorCodes::Throttled)
                 .and_then(|handle| Ok(Some(handle)));
@@ -2358,7 +2369,7 @@ impl ConversationP2P {
                 }
             }
             StacksMessageType::StackerDBGetChunkInv(ref getchunkinv) => {
-                self.handle_stacker_db_getchunkinv(network, &msg.preamble, getchunkinv)
+                self.handle_stacker_db_getchunkinv(network, chainstate, &msg.preamble, getchunkinv)
             }
             StacksMessageType::StackerDBGetChunk(ref getchunk) => {
                 self.handle_stacker_db_getchunk(network, &msg.preamble, getchunk)
@@ -2416,14 +2427,16 @@ impl ConversationP2P {
                 Ok(num_recved) => {
                     total_recved += num_recved;
                     if num_recved > 0 {
+                        debug!("{:?}: received {} bytes", self, num_recved);
                         self.stats.last_recv_time = get_epoch_time_secs();
                         self.stats.bytes_rx += num_recved as u64;
                     } else {
+                        debug!("{:?}: received {} bytes, stopping", self, num_recved);
                         break;
                     }
                 }
                 Err(net_error::PermanentlyDrained) => {
-                    trace!(
+                    debug!(
                         "{:?}: failed to recv on P2P conversation: PermanentlyDrained",
                         self
                     );
@@ -2435,7 +2448,7 @@ impl ConversationP2P {
                 }
             }
         }
-        test_debug!("{:?}: received {} bytes", self, total_recved);
+        debug!("{:?}: received {} bytes", self, total_recved);
         Ok(total_recved)
     }
 
@@ -2463,7 +2476,7 @@ impl ConversationP2P {
                 }
             }
         }
-        test_debug!("{:?}: sent {} bytes", self, total_sent);
+        debug!("{:?}: sent {} bytes", self, total_sent);
         Ok(total_sent)
     }
 
@@ -2554,12 +2567,12 @@ impl ConversationP2P {
                 Ok(handshake_opt)
             }
             StacksMessageType::HandshakeAccept(ref data) => {
-                test_debug!("{:?}: Got HandshakeAccept", &self);
+                debug!("{:?}: Got HandshakeAccept", &self);
                 self.handle_handshake_accept(network.get_chain_view(), &msg.preamble, data, None)
                     .and_then(|_| Ok(None))
             }
             StacksMessageType::StackerDBHandshakeAccept(ref data, ref db_data) => {
-                test_debug!("{:?}: Got StackerDBHandshakeAccept", &self);
+                debug!("{:?}: Got StackerDBHandshakeAccept", &self);
                 self.handle_handshake_accept(
                     network.get_chain_view(),
                     &msg.preamble,
@@ -2569,21 +2582,21 @@ impl ConversationP2P {
                 .and_then(|_| Ok(None))
             }
             StacksMessageType::Ping(_) => {
-                test_debug!("{:?}: Got Ping", &self);
+                debug!("{:?}: Got Ping", &self);
 
                 // consume here if unsolicited
                 consume = true;
                 self.handle_ping(network.get_chain_view(), msg)
             }
             StacksMessageType::Pong(_) => {
-                test_debug!("{:?}: Got Pong", &self);
+                debug!("{:?}: Got Pong", &self);
                 Ok(None)
             }
             StacksMessageType::NatPunchRequest(ref nonce) => {
                 if cfg!(test) && self.connection.options.disable_natpunch {
                     return Err(net_error::InvalidMessage);
                 }
-                test_debug!("{:?}: Got NatPunchRequest({})", &self, nonce);
+                debug!("{:?}: Got NatPunchRequest({})", &self, nonce);
 
                 consume = true;
                 let msg = self.handle_natpunch_request(network.get_chain_view(), *nonce);
@@ -2593,11 +2606,11 @@ impl ConversationP2P {
                 if cfg!(test) && self.connection.options.disable_natpunch {
                     return Err(net_error::InvalidMessage);
                 }
-                test_debug!("{:?}: Got NatPunchReply({})", &self, _m.nonce);
+                debug!("{:?}: Got NatPunchReply({})", &self, _m.nonce);
                 Ok(None)
             }
             _ => {
-                test_debug!(
+                debug!(
                     "{:?}: Got a data-plane message (type {})",
                     &self,
                     msg.payload.get_message_name()
@@ -2626,14 +2639,14 @@ impl ConversationP2P {
         let reply_opt = match msg.payload {
             StacksMessageType::Handshake(_) => {
                 monitoring::increment_msg_counter("p2p_unauthenticated_handshake".to_string());
-                test_debug!("{:?}: Got unauthenticated Handshake", &self);
+                debug!("{:?}: Got unauthenticated Handshake", &self);
                 let (reply_opt, handled) = self.handle_handshake(network, msg, false, ibd)?;
                 consume = handled;
                 Ok(reply_opt)
             }
             StacksMessageType::HandshakeAccept(ref data) => {
                 if solicited {
-                    test_debug!("{:?}: Got unauthenticated HandshakeAccept", &self);
+                    debug!("{:?}: Got unauthenticated HandshakeAccept", &self);
                     self.handle_handshake_accept(
                         network.get_chain_view(),
                         &msg.preamble,
@@ -2642,7 +2655,7 @@ impl ConversationP2P {
                     )
                     .and_then(|_| Ok(None))
                 } else {
-                    test_debug!("{:?}: Unsolicited unauthenticated HandshakeAccept", &self);
+                    debug!("{:?}: Unsolicited unauthenticated HandshakeAccept", &self);
 
                     // don't update stats or state, and don't pass back
                     consume = true;
@@ -2651,7 +2664,7 @@ impl ConversationP2P {
             }
             StacksMessageType::StackerDBHandshakeAccept(ref data, ref db_data) => {
                 if solicited {
-                    test_debug!("{:?}: Got unauthenticated StackerDBHandshakeAccept", &self);
+                    debug!("{:?}: Got unauthenticated StackerDBHandshakeAccept", &self);
                     self.handle_handshake_accept(
                         network.get_chain_view(),
                         &msg.preamble,
@@ -2660,7 +2673,7 @@ impl ConversationP2P {
                     )
                     .and_then(|_| Ok(None))
                 } else {
-                    test_debug!(
+                    debug!(
                         "{:?}: Unsolicited unauthenticated StackerDBHandshakeAccept",
                         &self
                     );
@@ -2671,14 +2684,14 @@ impl ConversationP2P {
                 }
             }
             StacksMessageType::HandshakeReject => {
-                test_debug!("{:?}: Got unauthenticated HandshakeReject", &self);
+                debug!("{:?}: Got unauthenticated HandshakeReject", &self);
 
                 // don't NACK this back just because we were rejected.
                 // But, it's okay to forward this back (i.e. don't consume).
                 Ok(None)
             }
             StacksMessageType::Nack(_) => {
-                test_debug!("{:?}: Got unauthenticated Nack", &self);
+                debug!("{:?}: Got unauthenticated Nack", &self);
 
                 // don't NACK back.
                 // But, it's okay to forward this back (i.e. don't consume).
@@ -2688,10 +2701,9 @@ impl ConversationP2P {
                 if cfg!(test) && self.connection.options.disable_natpunch {
                     return Err(net_error::InvalidMessage);
                 }
-                test_debug!(
+                debug!(
                     "{:?}: Got unauthenticated NatPunchRequest({})",
-                    &self,
-                    *nonce
+                    &self, *nonce
                 );
                 consume = true;
                 let msg = self.handle_natpunch_request(network.get_chain_view(), *nonce);
@@ -2701,10 +2713,9 @@ impl ConversationP2P {
                 if cfg!(test) && self.connection.options.disable_natpunch {
                     return Err(net_error::InvalidMessage);
                 }
-                test_debug!(
+                debug!(
                     "{:?}: Got unauthenticated NatPunchReply({})",
-                    &self,
-                    _m.nonce
+                    &self, _m.nonce
                 );
 
                 // it's okay to forward this back (i.e. don't consume)
@@ -2939,7 +2950,7 @@ impl ConversationP2P {
         ibd: bool,
     ) -> Result<Vec<StacksMessage>, net_error> {
         let num_inbound = self.connection.inbox_len();
-        test_debug!("{:?}: {} messages pending", &self, num_inbound);
+        debug!("{:?}: {} messages pending", &self, num_inbound);
 
         let mut unsolicited = vec![];
         for _ in 0..num_inbound {
@@ -2972,7 +2983,7 @@ impl ConversationP2P {
             if let Some(mut reply) = reply_opt.take() {
                 // handler generated a reply.
                 // send back this message to the remote peer.
-                test_debug!(
+                debug!(
                     "{:?}: Send control-plane reply type {}",
                     &self,
                     reply.payload.get_message_name()
@@ -2988,11 +2999,9 @@ impl ConversationP2P {
             let _relayers = format!("{:?}", &msg.relayers);
             let _seq = msg.request_id();
 
-            test_debug!(
+            debug!(
                 "{:?}: Received message {}, relayed by {}",
-                &self,
-                &_msgtype,
-                &_relayers
+                &self, &_msgtype, &_relayers
             );
 
             // Is there someone else waiting for this message?  If so, pass it along.
@@ -3004,33 +3013,27 @@ impl ConversationP2P {
                         &self, _msgtype, _seq
                     );
                 } else {
-                    test_debug!(
+                    debug!(
                         "{:?}: Try handling message (type {} seq {})",
-                        &self,
-                        _msgtype,
-                        _seq
+                        &self, _msgtype, _seq
                     );
                     if let Some(msg) = self.handle_data_message(network, sortdb, chainstate, msg)? {
                         // this message was unsolicited
-                        test_debug!(
+                        debug!(
                             "{:?}: Did not handle message (type {} seq {}); passing upstream",
-                            &self,
-                            _msgtype,
-                            _seq
+                            &self, _msgtype, _seq
                         );
                         unsolicited.push(msg);
                     } else {
                         // expected and handled the message
-                        test_debug!("{:?}: Handled message {} seq {}", &self, _msgtype, _seq);
+                        debug!("{:?}: Handled message {} seq {}", &self, _msgtype, _seq);
                     }
                 }
             } else {
-                // no one was waiting for this reply, so just drop it
-                test_debug!(
+                // message was passed to the relevant message handle
+                debug!(
                     "{:?}: Fulfilled pending message request (type {} seq {})",
-                    &self,
-                    _msgtype,
-                    _seq
+                    &self, _msgtype, _seq
                 );
             }
         }

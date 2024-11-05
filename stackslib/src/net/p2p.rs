@@ -105,7 +105,7 @@ struct NetworkHandleServer {
 
 impl NetworkHandle {
     pub fn new(chan_in: SyncSender<NetworkRequest>) -> NetworkHandle {
-        NetworkHandle { chan_in: chan_in }
+        NetworkHandle { chan_in }
     }
 
     /// Send out a command to the p2p thread.  Do not bother waiting for the response.
@@ -175,7 +175,7 @@ impl NetworkHandle {
 
 impl NetworkHandleServer {
     pub fn new(chan_in: Receiver<NetworkRequest>) -> NetworkHandleServer {
-        NetworkHandleServer { chan_in: chan_in }
+        NetworkHandleServer { chan_in }
     }
 
     pub fn pair(bufsz: usize) -> (NetworkHandleServer, NetworkHandle) {
@@ -196,7 +196,7 @@ pub enum PeerNetworkWorkState {
 }
 
 pub type PeerMap = HashMap<usize, ConversationP2P>;
-pub type PendingMessages = HashMap<usize, Vec<StacksMessage>>;
+pub type PendingMessages = HashMap<(usize, NeighborKey), Vec<StacksMessage>>;
 
 pub struct ConnectingPeer {
     socket: mio_net::TcpStream,
@@ -246,6 +246,7 @@ pub struct StacksTipInfo {
     pub consensus_hash: ConsensusHash,
     pub block_hash: BlockHeaderHash,
     pub height: u64,
+    pub coinbase_height: u64,
     pub is_nakamoto: bool,
 }
 
@@ -255,6 +256,7 @@ impl StacksTipInfo {
             consensus_hash: ConsensusHash([0u8; 20]),
             block_hash: BlockHeaderHash([0u8; 32]),
             height: 0,
+            coinbase_height: 0,
             is_nakamoto: false,
         }
     }
@@ -348,6 +350,9 @@ pub struct PeerNetwork {
     pub walk_pingbacks: HashMap<NeighborAddress, NeighborPingback>, // inbound peers for us to try to ping back and add to our frontier, mapped to (peer_version, network_id, timeout, pubkey)
     pub walk_result: NeighborWalkResult, // last successful neighbor walk result
 
+    /// last time we logged neigbhors
+    last_neighbor_log: u128,
+
     /// Epoch 2.x inventory state
     pub inv_state: Option<InvState>,
     /// Epoch 3.x inventory state
@@ -416,8 +421,12 @@ pub struct PeerNetwork {
 
     /// Pending messages (BlocksAvailable, MicroblocksAvailable, BlocksData, Microblocks,
     /// NakamotoBlocks) that we can't process yet, but might be able to process on a subsequent
-    /// chain view update.
+    /// burnchain view update.
     pub pending_messages: PendingMessages,
+
+    /// Pending messages (StackerDBPushChunk) that we can't process yet, but might be able
+    /// to process on a subsequent Stacks view update
+    pub pending_stacks_messages: PendingMessages,
 
     // fault injection -- force disconnects
     fault_last_disconnect: u64,
@@ -474,11 +483,11 @@ impl PeerNetwork {
         }
 
         let mut network = PeerNetwork {
-            peer_version: peer_version,
-            epochs: epochs,
+            peer_version,
+            epochs,
 
-            local_peer: local_peer,
-            chain_view: chain_view,
+            local_peer,
+            chain_view,
             chain_view_stable_consensus_hash: ConsensusHash([0u8; 20]),
             ast_rules: ASTRules::Typical,
             heaviest_affirmation_map: AffirmationMap::empty(),
@@ -497,8 +506,8 @@ impl PeerNetwork {
             tenure_start_block_id: StacksBlockId([0x00; 32]),
             current_reward_sets: BTreeMap::new(),
 
-            peerdb: peerdb,
-            atlasdb: atlasdb,
+            peerdb,
+            atlasdb,
 
             peers: PeerMap::new(),
             sockets: HashMap::new(),
@@ -514,8 +523,8 @@ impl PeerNetwork {
             p2p_network_handle: 0,
             http_network_handle: 0,
 
-            burnchain: burnchain,
-            connection_opts: connection_opts,
+            burnchain,
+            connection_opts,
 
             work_state: PeerNetworkWorkState::GetPublicIP,
             nakamoto_work_state: PeerNetworkWorkState::GetPublicIP,
@@ -533,6 +542,8 @@ impl PeerNetwork {
             walk_pingbacks: HashMap::new(),
             walk_result: NeighborWalkResult::new(),
 
+            last_neighbor_log: 0,
+
             inv_state: None,
             inv_state_nakamoto: None,
             pox_id: PoxId::initial(),
@@ -544,8 +555,8 @@ impl PeerNetwork {
             attachments_downloader: None,
 
             stacker_db_syncs: Some(stacker_db_sync_map),
-            stacker_db_configs: stacker_db_configs,
-            stackerdbs: stackerdbs,
+            stacker_db_configs,
+            stackerdbs,
 
             prune_outbound_counts: HashMap::new(),
             prune_inbound_counts: HashMap::new(),
@@ -575,6 +586,7 @@ impl PeerNetwork {
             antientropy_start_reward_cycle: 0,
 
             pending_messages: PendingMessages::new(),
+            pending_stacks_messages: PendingMessages::new(),
 
             fault_last_disconnect: 0,
 
@@ -659,11 +671,9 @@ impl PeerNetwork {
         let (p2p_handle, bound_p2p_addr) = net.bind(my_addr)?;
         let (http_handle, bound_http_addr) = net.bind(http_addr)?;
 
-        test_debug!(
+        debug!(
             "{:?}: bound on p2p {:?}, http {:?}",
-            &self.local_peer,
-            bound_p2p_addr,
-            bound_http_addr
+            &self.local_peer, bound_p2p_addr, bound_http_addr
         );
 
         self.network = Some(net);
@@ -913,6 +923,12 @@ impl PeerNetwork {
                     return Err(e);
                 }
                 Ok(sz) => {
+                    if sz > 0 {
+                        debug!(
+                            "Sent {} bytes on p2p socket {:?} for conversation {:?}",
+                            sz, client_sock, convo
+                        );
+                    }
                     total_sent += sz;
                     if sz == 0 {
                         break;
@@ -1036,6 +1052,9 @@ impl PeerNetwork {
             if let Some(event_id) = self.events.get(&nk) {
                 let event_id = *event_id;
                 if let Some(convo) = self.peers.get_mut(&event_id) {
+                    if !convo.is_authenticated() {
+                        continue;
+                    }
                     // safety check -- don't send to someone who has already been a relayer
                     let mut do_relay = true;
                     if let Some(pubkey) = convo.ref_public_key() {
@@ -1202,7 +1221,7 @@ impl PeerNetwork {
 
         let next_event_id = match self.network {
             None => {
-                test_debug!("{:?}: network not connected", &self.local_peer);
+                debug!("{:?}: network not connected", &self.local_peer);
                 return Err(net_error::NotConnected);
             }
             Some(ref mut network) => {
@@ -1416,6 +1435,9 @@ impl PeerNetwork {
                         }
                         Ok(all_neighbors.into_iter().collect())
                     }
+                    StacksMessageType::StackerDBPushChunk(ref data) => {
+                        Ok(self.sample_broadcast_peers(&relay_hints, data)?)
+                    }
                     StacksMessageType::Transaction(ref data) => {
                         self.sample_broadcast_peers(&relay_hints, data)
                     }
@@ -1510,7 +1532,7 @@ impl PeerNetwork {
                         (convo.to_neighbor_key(), Some(neighbor))
                     }
                     None => {
-                        test_debug!(
+                        debug!(
                             "No such neighbor in peer DB, but will ban nevertheless: {:?}",
                             convo.to_neighbor_key()
                         );
@@ -1674,11 +1696,9 @@ impl PeerNetwork {
 
         // already connected?
         if let Some(event_id) = self.get_event_id(&neighbor_key) {
-            test_debug!(
+            debug!(
                 "{:?}: already connected to {:?} on event {}",
-                &self.local_peer,
-                &neighbor_key,
-                event_id
+                &self.local_peer, &neighbor_key, event_id
             );
             return Err(net_error::AlreadyConnected(event_id, neighbor_key.clone()));
         }
@@ -1897,8 +1917,10 @@ impl PeerNetwork {
                     "{:?}: Remove inventory state for Nakamoto {:?}",
                     &self.local_peer, &nk
                 );
-                inv_state.del_peer(&NeighborAddress::from_neighbor_key(nk, pubkh));
+                inv_state.del_peer(&NeighborAddress::from_neighbor_key(nk.clone(), pubkh));
             }
+            self.pending_messages.remove(&(event_id, nk.clone()));
+            self.pending_stacks_messages.remove(&(event_id, nk.clone()));
         }
 
         match self.network {
@@ -1917,7 +1939,6 @@ impl PeerNetwork {
 
         self.relay_handles.remove(&event_id);
         self.peers.remove(&event_id);
-        self.pending_messages.remove(&event_id);
     }
 
     /// Deregister by neighbor key
@@ -1956,7 +1977,7 @@ impl PeerNetwork {
         match self.events.get(&peer_key) {
             None => {
                 // not connected
-                test_debug!("Could not sign for peer {:?}: not connected", peer_key);
+                debug!("Could not sign for peer {:?}: not connected", peer_key);
                 Err(net_error::PeerNotConnected)
             }
             Some(event_id) => self.sign_for_p2p(*event_id, message_payload),
@@ -1976,7 +1997,7 @@ impl PeerNetwork {
                 message_payload,
             );
         }
-        test_debug!("Could not sign for peer {}: not connected", event_id);
+        debug!("Could not sign for peer {}: not connected", event_id);
         Err(net_error::PeerNotConnected)
     }
 
@@ -1997,7 +2018,7 @@ impl PeerNetwork {
                 message_payload,
             );
         }
-        test_debug!("Could not sign for peer {}: not connected", event_id);
+        debug!("Could not sign for peer {}: not connected", event_id);
         Err(net_error::PeerNotConnected)
     }
 
@@ -2071,7 +2092,7 @@ impl PeerNetwork {
             match (self.peers.remove(&event_id), self.sockets.remove(&event_id)) {
                 (Some(convo), Some(sock)) => (convo, sock),
                 (Some(convo), None) => {
-                    test_debug!("{:?}: Rogue socket event {}", &self.local_peer, event_id);
+                    debug!("{:?}: Rogue socket event {}", &self.local_peer, event_id);
                     self.peers.insert(event_id, convo);
                     return Err(net_error::PeerNotConnected);
                 }
@@ -2084,7 +2105,7 @@ impl PeerNetwork {
                     return Err(net_error::PeerNotConnected);
                 }
                 (None, None) => {
-                    test_debug!("{:?}: Rogue socket event {}", &self.local_peer, event_id);
+                    debug!("{:?}: Rogue socket event {}", &self.local_peer, event_id);
                     return Err(net_error::PeerNotConnected);
                 }
             };
@@ -2213,7 +2234,7 @@ impl PeerNetwork {
             ) {
                 Ok((convo_unhandled, alive)) => (convo_unhandled, alive),
                 Err(_e) => {
-                    test_debug!(
+                    debug!(
                         "{:?}: Connection to {:?} failed: {:?}",
                         &self.local_peer,
                         self.get_p2p_convo(*event_id),
@@ -2225,7 +2246,7 @@ impl PeerNetwork {
             };
 
             if !alive {
-                test_debug!(
+                debug!(
                     "{:?}: Connection to {:?} is no longer alive",
                     &self.local_peer,
                     self.get_p2p_convo(*event_id),
@@ -2383,7 +2404,7 @@ impl PeerNetwork {
     }
 
     /// Prune inbound and outbound connections if we can
-    fn prune_connections(&mut self) -> () {
+    pub(crate) fn prune_connections(&mut self) -> () {
         if cfg!(test) && self.connection_opts.disable_network_prune {
             return;
         }
@@ -2412,11 +2433,9 @@ impl PeerNetwork {
                 }
             };
             if neighbor.allowed < 0 || (neighbor.allowed as u64) > now {
-                test_debug!(
+                debug!(
                     "{:?}: event {} is allowed: {:?}",
-                    &self.local_peer,
-                    event_id,
-                    &nk
+                    &self.local_peer, event_id, &nk
                 );
                 safe.insert(*event_id);
             }
@@ -2425,6 +2444,22 @@ impl PeerNetwork {
             // (yet)
             if let Some(walk) = self.walk.as_ref() {
                 if walk.get_pinned_connections().contains(event_id) {
+                    safe.insert(*event_id);
+                }
+            }
+
+            // if we're in the middle of epoch2 inv sync, then don't prune any connections it
+            // established
+            if let Some(inv_state) = self.inv_state.as_ref() {
+                if inv_state.get_pinned_connections().contains(event_id) {
+                    safe.insert(*event_id);
+                }
+            }
+
+            // if we're in the middle of nakamoto inv sync, then don't prune any connections it
+            // established
+            if let Some(nakamoto_inv) = self.inv_state_nakamoto.as_ref() {
+                if nakamoto_inv.get_pinned_connections().contains(event_id) {
                     safe.insert(*event_id);
                 }
             }
@@ -2440,6 +2475,7 @@ impl PeerNetwork {
             }
         }
 
+        debug!("Pinned connections: {:?}", &safe);
         self.prune_frontier(&safe);
     }
 
@@ -2503,17 +2539,19 @@ impl PeerNetwork {
         let mut relay_handles = std::mem::replace(&mut self.relay_handles, HashMap::new());
         for (event_id, handle_list) in relay_handles.iter_mut() {
             if handle_list.len() == 0 {
+                debug!("No handles for event {}", event_id);
                 drained.push(*event_id);
                 continue;
             }
 
-            test_debug!(
+            debug!(
                 "Flush {} relay handles to event {}",
                 handle_list.len(),
                 event_id
             );
 
             while handle_list.len() > 0 {
+                debug!("Flush {} relay handles", handle_list.len());
                 let res = self.with_p2p_convo(*event_id, |_network, convo, client_sock| {
                     if let Some(handle) = handle_list.front_mut() {
                         let (num_sent, flushed) =
@@ -2525,12 +2563,9 @@ impl PeerNetwork {
                                 }
                             };
 
-                        test_debug!(
+                        debug!(
                             "Flushed relay handle to {:?} ({:?}): sent={}, flushed={}",
-                            client_sock,
-                            convo,
-                            num_sent,
-                            flushed
+                            client_sock, convo, num_sent, flushed
                         );
                         return Ok((num_sent, flushed));
                     }
@@ -2541,6 +2576,7 @@ impl PeerNetwork {
                     Ok(Ok(x)) => x,
                     Ok(Err(_)) | Err(_) => {
                         // connection broken; next list
+                        debug!("Relay handle broken to event {}", event_id);
                         broken.push(*event_id);
                         break;
                     }
@@ -2548,7 +2584,7 @@ impl PeerNetwork {
 
                 if !flushed && num_sent == 0 {
                     // blocked on this peer's socket
-                    test_debug!("Relay handle to event {} is blocked", event_id);
+                    debug!("Relay handle to event {} is blocked", event_id);
                     break;
                 }
 
@@ -2582,7 +2618,7 @@ impl PeerNetwork {
     /// Return true if we finish, and true if we're throttled
     fn do_network_neighbor_walk(&mut self, ibd: bool) -> bool {
         if cfg!(test) && self.connection_opts.disable_neighbor_walk {
-            test_debug!("neighbor walk is disabled");
+            debug!("neighbor walk is disabled");
             return true;
         }
 
@@ -2780,7 +2816,7 @@ impl PeerNetwork {
     fn need_public_ip(&mut self) -> bool {
         if !self.public_ip_learned {
             // IP was given, not learned.  nothing to do
-            test_debug!("{:?}: IP address was given to us", &self.local_peer);
+            debug!("{:?}: IP address was given to us", &self.local_peer);
             return false;
         }
         if self.local_peer.public_ip_address.is_some()
@@ -2788,7 +2824,7 @@ impl PeerNetwork {
                 >= get_epoch_time_secs()
         {
             // still fresh
-            test_debug!("{:?}: learned IP address is still fresh", &self.local_peer);
+            debug!("{:?}: learned IP address is still fresh", &self.local_peer);
             return false;
         }
         let throttle_timeout = if self.local_peer.public_ip_address.is_none() {
@@ -2851,7 +2887,7 @@ impl PeerNetwork {
         match self.do_learn_public_ip() {
             Ok(b) => {
                 if !b {
-                    test_debug!("{:?}: try do_learn_public_ip again", &self.local_peer);
+                    debug!("{:?}: try do_learn_public_ip again", &self.local_peer);
                     return false;
                 }
             }
@@ -2938,7 +2974,7 @@ impl PeerNetwork {
 
             for (_, block, _) in network_result.blocks.iter() {
                 if block_set.contains(&block.block_hash()) {
-                    test_debug!("Duplicate block {}", block.block_hash());
+                    debug!("Duplicate block {}", block.block_hash());
                 }
                 block_set.insert(block.block_hash());
             }
@@ -2946,7 +2982,7 @@ impl PeerNetwork {
             for (_, mblocks, _) in network_result.confirmed_microblocks.iter() {
                 for mblock in mblocks.iter() {
                     if microblock_set.contains(&mblock.block_hash()) {
-                        test_debug!("Duplicate microblock {}", mblock.block_hash());
+                        debug!("Duplicate microblock {}", mblock.block_hash());
                     }
                     microblock_set.insert(mblock.block_hash());
                 }
@@ -3457,7 +3493,7 @@ impl PeerNetwork {
                     }
                     let microblocks_data = MicroblocksData {
                         index_anchor_block: anchor_block_id.clone(),
-                        microblocks: microblocks,
+                        microblocks,
                     };
 
                     debug!(
@@ -3546,8 +3582,8 @@ impl PeerNetwork {
         let prune = if cur_epoch.epoch_id >= StacksEpochId::Epoch30 {
             debug!("{:?}: run Nakamoto work loop", self.get_local_peer());
 
-            // in Nakamoto epoch, so do Nakamoto things
-            let prune = self.do_network_work_nakamoto(
+            // in Nakamoto epoch, so we can always prune
+            self.do_network_work_nakamoto(
                 burnchain_height,
                 sortdb,
                 chainstate,
@@ -3579,9 +3615,10 @@ impl PeerNetwork {
                     "{:?}: ran Epoch 2.x work loop in Nakamoto epoch",
                     self.get_local_peer()
                 );
-                prune || epoch2_prune
+                epoch2_prune
             } else {
-                prune
+                // we can always prune in Nakamoto, since all state machines pin their connections
+                true
             }
         } else {
             // in epoch 2.x, so do epoch 2.x things
@@ -3609,89 +3646,41 @@ impl PeerNetwork {
         chainstate: &mut StacksChainState,
         ibd: bool,
         network_result: &mut NetworkResult,
-    ) -> bool {
-        // do some Actual Work(tm)
-        let mut do_prune = false;
-        let mut did_cycle = false;
+    ) {
+        // always do an inv sync
+        let learned = self.do_network_inv_sync_nakamoto(sortdb, ibd);
+        debug!(
+            "{:?}: network work state is {:?}",
+            self.get_local_peer(),
+            &self.nakamoto_work_state;
+            "learned_new_blocks?" => learned
+        );
 
-        while !did_cycle {
-            // always do an inv sync
-            let learned = self.do_network_inv_sync_nakamoto(sortdb, ibd);
-            debug!(
-                "{:?}: network work state is {:?}",
-                self.get_local_peer(),
-                &self.nakamoto_work_state;
-                "learned_new_blocks?" => learned
-            );
+        // always do block download
+        let new_blocks = self
+            .do_network_block_sync_nakamoto(burnchain_height, sortdb, chainstate, ibd)
+            .map_err(|e| {
+                warn!(
+                    "{:?}: Failed to perform Nakamoto block sync: {:?}",
+                    &self.get_local_peer(),
+                    &e
+                );
+                e
+            })
+            .unwrap_or(HashMap::new());
 
-            // always do block download
-            let new_blocks = self
-                .do_network_block_sync_nakamoto(burnchain_height, sortdb, chainstate, ibd)
-                .map_err(|e| {
-                    warn!(
-                        "{:?}: Failed to perform Nakamoto block sync: {:?}",
-                        &self.get_local_peer(),
-                        &e
-                    );
-                    e
-                })
-                .unwrap_or(HashMap::new());
+        network_result.consume_nakamoto_blocks(new_blocks);
 
-            network_result.consume_nakamoto_blocks(new_blocks);
-
-            let cur_state = self.nakamoto_work_state;
-            match self.nakamoto_work_state {
-                PeerNetworkWorkState::GetPublicIP => {
-                    if cfg!(test) && self.connection_opts.disable_natpunch {
-                        self.nakamoto_work_state = PeerNetworkWorkState::BlockDownload;
-                    } else {
-                        // (re)determine our public IP address
-                        let done = self.do_get_public_ip();
-                        if done {
-                            self.nakamoto_work_state = PeerNetworkWorkState::BlockDownload;
-                        }
-                    }
-                }
-                PeerNetworkWorkState::BlockInvSync => {
-                    // this state is useless in Nakamoto since we're always doing inv-syncs
-                    self.nakamoto_work_state = PeerNetworkWorkState::BlockDownload;
-                }
-                PeerNetworkWorkState::BlockDownload => {
-                    // this state is useless in Nakamoto since we're always doing download-syncs
-                    self.nakamoto_work_state = PeerNetworkWorkState::AntiEntropy;
-                }
-                PeerNetworkWorkState::AntiEntropy => {
-                    debug!(
-                        "{:?}: Block anti-entropy for Nakamoto is not yet implemented",
-                        self.get_local_peer()
-                    );
-                    self.nakamoto_work_state = PeerNetworkWorkState::Prune;
-                }
-                PeerNetworkWorkState::Prune => {
-                    // did one pass
-                    did_cycle = true;
-                    do_prune = true;
-
-                    // restart
-                    self.nakamoto_work_state = PeerNetworkWorkState::GetPublicIP;
-                }
-            }
-
-            if self.nakamoto_work_state == cur_state {
-                // only break early if we can't make progress
-                break;
-            }
+        // make sure our public IP is fresh (this self-throttles if we recently learned it).
+        if !self.connection_opts.disable_natpunch {
+            self.do_get_public_ip();
         }
 
-        if did_cycle {
-            self.num_state_machine_passes += 1;
-            debug!(
-                "{:?}: Finished full p2p state-machine pass for Nakamoto ({})",
-                &self.local_peer, self.num_state_machine_passes
-            );
-        }
-
-        do_prune
+        self.num_state_machine_passes += 1;
+        debug!(
+            "{:?}: Finished full p2p state-machine pass for Nakamoto ({})",
+            &self.local_peer, self.num_state_machine_passes
+        );
     }
 
     /// Do the actual work in the state machine.
@@ -3760,7 +3749,7 @@ impl PeerNetwork {
                         }
                         None => {
                             // skip this step -- no DNS client available
-                            test_debug!(
+                            debug!(
                                 "{:?}: no DNS client provided; skipping block download",
                                 &self.local_peer
                             );
@@ -3866,7 +3855,7 @@ impl PeerNetwork {
             }
             None => {
                 // skip this step -- no DNS client available
-                test_debug!(
+                debug!(
                     "{:?}: no DNS client provided; skipping block download",
                     &self.local_peer
                 );
@@ -3915,7 +3904,11 @@ impl PeerNetwork {
                 convo.to_neighbor_key(),
             ),
             None => {
-                test_debug!("No such neighbor event={}", event_id);
+                debug!(
+                    "{:?}: No such neighbor event={}",
+                    self.get_local_peer(),
+                    event_id
+                );
                 return None;
             }
         };
@@ -3924,10 +3917,9 @@ impl PeerNetwork {
             let reciprocal_event_id = match self.find_reciprocal_event(event_id) {
                 Some(re) => re,
                 None => {
-                    test_debug!(
+                    debug!(
                         "{:?}: no reciprocal conversation for {:?}",
-                        &self.local_peer,
-                        &neighbor_key
+                        &self.local_peer, &neighbor_key
                     );
                     return None;
                 }
@@ -3941,32 +3933,26 @@ impl PeerNetwork {
                         convo.to_neighbor_key(),
                     ),
                     None => {
-                        test_debug!(
+                        debug!(
                             "{:?}: No reciprocal conversation for {} (event={})",
-                            &self.local_peer,
-                            &neighbor_key,
-                            event_id
+                            &self.local_peer, &neighbor_key, event_id
                         );
                         return None;
                     }
                 };
 
             if !is_authenticated && !reciprocal_is_authenticated {
-                test_debug!(
+                debug!(
                     "{:?}: {:?} and {:?} are not authenticated",
-                    &self.local_peer,
-                    &neighbor_key,
-                    &reciprocal_neighbor_key
+                    &self.local_peer, &neighbor_key, &reciprocal_neighbor_key
                 );
                 return None;
             }
 
             if !is_outbound && !reciprocal_is_outbound {
-                test_debug!(
+                debug!(
                     "{:?}: {:?} and {:?} are not outbound",
-                    &self.local_peer,
-                    &neighbor_key,
-                    &reciprocal_neighbor_key
+                    &self.local_peer, &neighbor_key, &reciprocal_neighbor_key
                 );
                 return None;
             }
@@ -3994,7 +3980,7 @@ impl PeerNetwork {
     /// for.  Add them to our network pingbacks
     fn schedule_network_pingbacks(&mut self, event_ids: Vec<usize>) {
         if cfg!(test) && self.connection_opts.disable_pingbacks {
-            test_debug!("{:?}: pingbacks are disabled for testing", &self.local_peer);
+            debug!("{:?}: pingbacks are disabled for testing", &self.local_peer);
             return;
         }
 
@@ -4055,7 +4041,7 @@ impl PeerNetwork {
                             peer_version: nk.peer_version,
                             network_id: nk.network_id,
                             ts: get_epoch_time_secs(),
-                            pubkey: pubkey,
+                            pubkey,
                         },
                     );
 
@@ -4076,7 +4062,7 @@ impl PeerNetwork {
             }
         }
 
-        test_debug!(
+        debug!(
             "{:?}: have {} pingbacks scheduled",
             &self.local_peer,
             self.walk_pingbacks.len()
@@ -4234,20 +4220,45 @@ impl PeerNetwork {
 
         let parent_tenure_start_header = NakamotoChainState::get_tenure_start_block_header(&mut chainstate.index_conn(), stacks_tip_block_id, &parent_header.consensus_hash)?
             .ok_or_else(|| {
-                debug!("{:?}: get_parent_stacks_tip: No tenure-start block for parent tenure {} off of child {} (parnet {})", self.get_local_peer(), &parent_header.consensus_hash, stacks_tip_block_id, &parent_block_id);
+                debug!("{:?}: get_parent_stacks_tip: No tenure-start block for parent tenure {} off of child {} (parent {})", self.get_local_peer(), &parent_header.consensus_hash, stacks_tip_block_id, &parent_block_id);
                 net_error::DBError(db_error::NotFoundError)
             })?;
 
+        let parent_stacks_tip_block_hash = parent_tenure_start_header.anchored_header.block_hash();
+        let parent_stacks_tip_block_id = StacksBlockId::new(
+            &parent_tenure_start_header.consensus_hash,
+            &parent_stacks_tip_block_hash,
+        );
+        let parent_coinbase_height = NakamotoChainState::get_coinbase_height(
+            &mut chainstate.index_conn(),
+            &parent_stacks_tip_block_id,
+        )?;
+
+        let coinbase_height = match parent_coinbase_height {
+            Some(cbh) => cbh,
+            None => {
+                if parent_tenure_start_header.is_epoch_2_block() {
+                    // The coinbase height is the same as the stacks block height as
+                    // every block contains a coinbase in epoch 2.x
+                    parent_tenure_start_header.stacks_block_height
+                } else {
+                    debug!("{:?}: get_parent_stacks_tip: No coinbase height found for nakamoto block {parent_stacks_tip_block_id}", self.get_local_peer());
+                    return Err(net_error::DBError(db_error::NotFoundError));
+                }
+            }
+        };
+
         let parent_stacks_tip = StacksTipInfo {
             consensus_hash: parent_tenure_start_header.consensus_hash,
-            block_hash: parent_tenure_start_header.anchored_header.block_hash(),
+            block_hash: parent_stacks_tip_block_hash,
             height: parent_tenure_start_header.anchored_header.height(),
+            coinbase_height,
             is_nakamoto: parent_tenure_start_header
                 .anchored_header
                 .as_stacks_nakamoto()
                 .is_some(),
         };
-        test_debug!(
+        debug!(
             "{:?}: Parent Stacks tip off of {} is {:?}",
             self.get_local_peer(),
             &stacks_tip_block_id,
@@ -4261,7 +4272,7 @@ impl PeerNetwork {
         if self.current_reward_sets.len() > 3 {
             self.current_reward_sets.retain(|old_rc, _| {
                 if (*old_rc).saturating_add(2) < rc {
-                    test_debug!("Drop reward cycle info for cycle {}", old_rc);
+                    debug!("Drop reward cycle info for cycle {}", old_rc);
                     return false;
                 }
                 true
@@ -4292,7 +4303,8 @@ impl PeerNetwork {
         let ih = sortdb.index_handle(&tip_sn.sortition_id);
 
         for rc in [cur_rc, prev_rc, prev_prev_rc] {
-            let rc_start_height = self.burnchain.reward_cycle_to_block_height(rc);
+            debug!("Refresh reward cycle info for cycle {}", rc);
+            let rc_start_height = self.burnchain.nakamoto_first_block_of_cycle(rc);
             let Some(ancestor_sort_id) =
                 get_ancestor_sort_id(&ih, rc_start_height, &tip_sn.sortition_id)?
             else {
@@ -4316,6 +4328,7 @@ impl PeerNetwork {
                 }
             }
 
+            debug!("Load reward cycle info for cycle {}", rc);
             let Some((reward_set_info, anchor_block_header)) = load_nakamoto_reward_set(
                 rc,
                 &tip_sn.sortition_id,
@@ -4343,10 +4356,9 @@ impl PeerNetwork {
                 anchor_block_hash: anchor_block_header.anchored_header.block_hash(),
             };
 
-            test_debug!(
+            debug!(
                 "Store cached reward set for reward cycle {} anchor block {}",
-                rc,
-                &rc_info.anchor_block_hash
+                rc, &rc_info.anchor_block_hash
             );
             self.current_reward_sets.insert(rc, rc_info);
         }
@@ -4367,7 +4379,7 @@ impl PeerNetwork {
         sortdb: &SortitionDB,
         chainstate: &mut StacksChainState,
         ibd: bool,
-    ) -> Result<HashMap<NeighborKey, Vec<StacksMessage>>, net_error> {
+    ) -> Result<PendingMessages, net_error> {
         // update burnchain snapshot if we need to (careful -- it's expensive)
         let canonical_sn = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())?;
         let (stacks_tip_ch, stacks_tip_bhh, stacks_tip_height) =
@@ -4392,6 +4404,25 @@ impl PeerNetwork {
             self.stacks_tip.is_nakamoto
         };
 
+        let stacks_tip_cbh = NakamotoChainState::get_coinbase_height(
+            &mut chainstate.index_conn(),
+            &new_stacks_tip_block_id,
+        )?;
+
+        let coinbase_height = match stacks_tip_cbh {
+            Some(cbh) => cbh,
+            None => {
+                if !stacks_tip_is_nakamoto {
+                    // The coinbase height is the same as the stacks block height as
+                    // every block contains a coinbase in epoch 2.x
+                    stacks_tip_height
+                } else {
+                    debug!("{:?}: No coinbase height found for nakamoto block {new_stacks_tip_block_id}", self.get_local_peer());
+                    return Err(net_error::DBError(db_error::NotFoundError));
+                }
+            }
+        };
+
         let need_stackerdb_refresh = canonical_sn.canonical_stacks_tip_consensus_hash
             != self.burnchain_tip.canonical_stacks_tip_consensus_hash
             || burnchain_tip_changed
@@ -4405,8 +4436,6 @@ impl PeerNetwork {
                 &new_stacks_tip_block_id,
             )?;
         }
-
-        let mut ret: HashMap<NeighborKey, Vec<StacksMessage>> = HashMap::new();
 
         let (parent_stacks_tip, tenure_start_block_id) = if stacks_tip_changed {
             let tenure_start_block_id = if let Some(header) =
@@ -4432,6 +4461,7 @@ impl PeerNetwork {
                         consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
                         block_hash: FIRST_STACKS_BLOCK_HASH.clone(),
                         height: 0,
+                        coinbase_height: 0,
                         is_nakamoto: false,
                     }
                 }
@@ -4469,6 +4499,13 @@ impl PeerNetwork {
             };
 
             // update cached burnchain view for /v2/info
+            debug!(
+                "{:?}: chain view for burn block {} has stacks tip consensus {}",
+                &self.local_peer,
+                new_chain_view.burn_block_height,
+                &new_chain_view.rc_consensus_hash
+            );
+
             self.chain_view = new_chain_view;
             self.chain_view_stable_consensus_hash = new_chain_view_stable_consensus_hash;
         }
@@ -4538,7 +4575,7 @@ impl PeerNetwork {
                 .get_last_selected_anchor_block_txid()?
                 .unwrap_or(Txid([0x00; 32]));
 
-            test_debug!(
+            debug!(
                 "{:?}: chain view is {:?}",
                 &self.get_local_peer(),
                 &self.chain_view
@@ -4568,12 +4605,48 @@ impl PeerNetwork {
         }
 
         // can't fail after this point
-
+        let mut ret = PendingMessages::new();
         if burnchain_tip_changed {
             // try processing previously-buffered messages (best-effort)
+            debug!(
+                "{:?}: handle unsolicited stacks messages: burnchain changed {} != {}, {} buffered",
+                self.get_local_peer(),
+                &self.burnchain_tip.consensus_hash,
+                &canonical_sn.consensus_hash,
+                self.pending_messages
+                    .iter()
+                    .fold(0, |acc, (_, msgs)| acc + msgs.len())
+            );
             let buffered_messages = mem::replace(&mut self.pending_messages, HashMap::new());
-            ret =
-                self.handle_unsolicited_messages(sortdb, chainstate, buffered_messages, ibd, false);
+            let unhandled = self.handle_unsolicited_sortition_messages(
+                sortdb,
+                chainstate,
+                buffered_messages,
+                ibd,
+                false,
+            );
+            ret.extend(unhandled);
+        }
+
+        if self.stacks_tip.consensus_hash != stacks_tip_ch {
+            // try processing previously-buffered messages (best-effort)
+            debug!(
+                "{:?}: handle unsolicited stacks messages: tenure changed {} != {}, {} buffered",
+                self.get_local_peer(),
+                &self.burnchain_tip.consensus_hash,
+                &canonical_sn.consensus_hash,
+                self.pending_stacks_messages
+                    .iter()
+                    .fold(0, |acc, (_, msgs)| acc + msgs.len())
+            );
+            let buffered_stacks_messages =
+                mem::replace(&mut self.pending_stacks_messages, HashMap::new());
+            let unhandled = self.handle_unsolicited_stacks_messages(
+                chainstate,
+                buffered_stacks_messages,
+                false,
+            );
+            ret.extend(unhandled);
         }
 
         // update cached stacks chain view for /v2/info and /v3/tenures/info
@@ -4584,16 +4657,17 @@ impl PeerNetwork {
                 consensus_hash: stacks_tip_ch,
                 block_hash: stacks_tip_bhh,
                 height: stacks_tip_height,
+                coinbase_height,
                 is_nakamoto: stacks_tip_is_nakamoto,
             };
             self.parent_stacks_tip = parent_stacks_tip;
 
-            test_debug!(
+            debug!(
                 "{:?}: canonical Stacks tip is now {:?}",
                 self.get_local_peer(),
                 &self.stacks_tip
             );
-            test_debug!(
+            debug!(
                 "{:?}: parent canonical Stacks tip is now {:?}",
                 self.get_local_peer(),
                 &self.parent_stacks_tip
@@ -4649,8 +4723,20 @@ impl PeerNetwork {
             );
             self.deregister_peer(error_event);
         }
+
+        // filter out unsolicited messages and buffer up ones that might become processable
+        let unhandled_messages = self.authenticate_unsolicited_messages(unsolicited_messages);
+        let unhandled_messages = self.handle_unsolicited_sortition_messages(
+            sortdb,
+            chainstate,
+            unhandled_messages,
+            ibd,
+            true,
+        );
+
         let unhandled_messages =
-            self.handle_unsolicited_messages(sortdb, chainstate, unsolicited_messages, ibd, true);
+            self.handle_unsolicited_stacks_messages(chainstate, unhandled_messages, true);
+
         network_result.consume_unsolicited(unhandled_messages);
 
         // schedule now-authenticated inbound convos for pingback
@@ -4957,6 +5043,33 @@ impl PeerNetwork {
         false
     }
 
+    /// Log our neighbors.
+    /// Used for testing and debuggin
+    fn log_neighbors(&mut self) {
+        if !cfg!(test) && self.get_connection_opts().log_neighbors_freq == 0 {
+            return;
+        }
+
+        let now = get_epoch_time_ms();
+        if self.last_neighbor_log + u128::from(self.get_connection_opts().log_neighbors_freq) >= now
+        {
+            return;
+        }
+
+        let convo_strs: Vec<_> = self
+            .peers
+            .values()
+            .map(|convo| format!("{:?}", &convo))
+            .collect();
+
+        debug!(
+            "{:?}: current neighbors are {:?}",
+            self.get_local_peer(),
+            &convo_strs
+        );
+        self.last_neighbor_log = now;
+    }
+
     /// Top-level main-loop circuit to take.
     /// -- polls the peer network and http network server sockets to get new sockets and detect ready sockets
     /// -- carries out network conversations
@@ -5070,6 +5183,7 @@ impl PeerNetwork {
             p2p_poll_state,
         );
 
+        self.log_neighbors();
         debug!("<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< End Network Dispatch <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<");
         Ok(network_result)
     }
@@ -5118,7 +5232,7 @@ mod test {
                     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0x7f,
                     0x00, 0x00, 0x01,
                 ]),
-                port: port,
+                port,
             },
             public_key: Secp256k1PublicKey::from_hex(
                 "02fa66b66f8971a8cd4d20ffded09674e030f0f33883f337f34b95ad4935bac0e3",

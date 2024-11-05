@@ -25,7 +25,7 @@ use {reqwest, serde_json};
 
 use super::bitcoin_regtest::BitcoinCoreController;
 use crate::burnchains::BurnchainController;
-use crate::config::{EventKeyType, EventObserverConfig, InitialBalance};
+use crate::config::{EventKeyType, InitialBalance};
 use crate::tests::neon_integrations::{
     neon_integration_test_conf, next_block_and_wait, submit_tx, test_observer, wait_for_runloop,
 };
@@ -41,14 +41,13 @@ fn post_stackerdb_chunk(
     slot_version: u32,
 ) -> StackerDBChunkAckData {
     let mut chunk = StackerDBChunkData::new(slot_id, slot_version, data);
-    chunk.sign(&signer).unwrap();
+    chunk.sign(signer).unwrap();
 
     let chunk_body = serde_json::to_string(&chunk).unwrap();
 
     let client = reqwest::blocking::Client::new();
     let path = format!(
-        "{}/v2/stackerdb/{}/{}/chunks",
-        http_origin,
+        "{http_origin}/v2/stackerdb/{}/{}/chunks",
         &StacksAddress::from(stackerdb_contract_id.issuer.clone()),
         stackerdb_contract_id.name
     );
@@ -60,8 +59,8 @@ fn post_stackerdb_chunk(
         .unwrap();
     if res.status().is_success() {
         let ack: StackerDBChunkAckData = res.json().unwrap();
-        info!("Got stackerdb ack: {:?}", &ack);
-        return ack;
+        info!("Got stackerdb ack: {ack:?}");
+        ack
     } else {
         eprintln!("StackerDB post error: {}", res.text().unwrap());
         panic!("");
@@ -76,20 +75,15 @@ fn get_stackerdb_chunk(
 ) -> Vec<u8> {
     let path = if let Some(version) = slot_version {
         format!(
-            "{}/v2/stackerdb/{}/{}/{}/{}",
-            http_origin,
+            "{http_origin}/v2/stackerdb/{}/{}/{slot_id}/{version}",
             StacksAddress::from(stackerdb_contract_id.issuer.clone()),
             stackerdb_contract_id.name,
-            slot_id,
-            version
         )
     } else {
         format!(
-            "{}/v2/stackerdb/{}/{}/{}",
-            http_origin,
+            "{http_origin}/v2/stackerdb/{}/{}/{slot_id}",
             StacksAddress::from(stackerdb_contract_id.issuer.clone()),
-            stackerdb_contract_id.name,
-            slot_id
+            stackerdb_contract_id.name
         )
     };
 
@@ -97,8 +91,7 @@ fn get_stackerdb_chunk(
     let res = client.get(&path).send().unwrap();
 
     if res.status().is_success() {
-        let chunk_data: Vec<u8> = res.bytes().unwrap().to_vec();
-        return chunk_data;
+        res.bytes().unwrap().to_vec()
     } else {
         eprintln!("Get chunk error: {}", res.text().unwrap());
         panic!("");
@@ -113,12 +106,9 @@ fn test_stackerdb_load_store() {
     }
 
     let (mut conf, _) = neon_integration_test_conf();
-    conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
-        events_keys: vec![EventKeyType::AnyEvent],
-    });
+    test_observer::register_any(&mut conf);
 
-    let privks = vec![
+    let privks = [
         // ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R
         StacksPrivateKey::from_hex(
             "9f1f85a512a96a244e4c0d762788500687feb97481639572e3bffbd6860e6ab001",
@@ -209,7 +199,14 @@ fn test_stackerdb_load_store() {
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
     eprintln!("Send contract-publish...");
-    let tx = make_contract_publish(&privks[0], 0, 10_000, "hello-world", stackerdb_contract);
+    let tx = make_contract_publish(
+        &privks[0],
+        0,
+        10_000,
+        conf.burnchain.chain_id,
+        "hello-world",
+        stackerdb_contract,
+    );
     submit_tx(&http_origin, &tx);
 
     // mine it
@@ -219,18 +216,18 @@ fn test_stackerdb_load_store() {
 
     // write some chunks and read them back
     for i in 0..3 {
-        let chunk_str = format!("Hello chunks {}", &i);
+        let chunk_str = format!("Hello chunks {i}");
         let ack = post_stackerdb_chunk(
             &http_origin,
             &contract_id,
             chunk_str.as_bytes().to_vec(),
             &privks[0],
             0,
-            (i + 1) as u32,
+            i + 1,
         );
-        debug!("ACK: {:?}", &ack);
+        debug!("ACK: {ack:?}");
 
-        let data = get_stackerdb_chunk(&http_origin, &contract_id, 0, Some((i + 1) as u32));
+        let data = get_stackerdb_chunk(&http_origin, &contract_id, 0, Some(i + 1));
         assert_eq!(data, chunk_str.as_bytes().to_vec());
 
         let data = get_stackerdb_chunk(&http_origin, &contract_id, 0, None);
@@ -246,12 +243,9 @@ fn test_stackerdb_event_observer() {
     }
 
     let (mut conf, _) = neon_integration_test_conf();
-    conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
-        events_keys: vec![EventKeyType::StackerDBChunks],
-    });
+    test_observer::register(&mut conf, &[EventKeyType::StackerDBChunks]);
 
-    let privks = vec![
+    let privks = [
         // ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R
         StacksPrivateKey::from_hex(
             "9f1f85a512a96a244e4c0d762788500687feb97481639572e3bffbd6860e6ab001",
@@ -342,7 +336,14 @@ fn test_stackerdb_event_observer() {
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
     eprintln!("Send contract-publish...");
-    let tx = make_contract_publish(&privks[0], 0, 10_000, "hello-world", stackerdb_contract);
+    let tx = make_contract_publish(
+        &privks[0],
+        0,
+        10_000,
+        conf.burnchain.chain_id,
+        "hello-world",
+        stackerdb_contract,
+    );
     submit_tx(&http_origin, &tx);
 
     // mine it
@@ -375,11 +376,10 @@ fn test_stackerdb_event_observer() {
     // get events, verifying that they're all for the same contract (i.e. this one)
     let stackerdb_events: Vec<_> = test_observer::get_stackerdb_chunks()
         .into_iter()
-        .map(|stackerdb_event| {
+        .flat_map(|stackerdb_event| {
             assert_eq!(stackerdb_event.contract_id, contract_id);
             stackerdb_event.modified_slots
         })
-        .flatten()
         .collect();
 
     assert_eq!(stackerdb_events.len(), 6);
@@ -388,7 +388,7 @@ fn test_stackerdb_event_observer() {
         assert_eq!(i as u32, event.slot_id);
         assert_eq!(event.slot_version, 1);
 
-        let expected_data = format!("Hello chunks {}", &i);
+        let expected_data = format!("Hello chunks {i}");
         let expected_hash = Sha512Trunc256Sum::from_data(expected_data.as_bytes());
 
         assert_eq!(event.data, expected_data.as_bytes().to_vec());

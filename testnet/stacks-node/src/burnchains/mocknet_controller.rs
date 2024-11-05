@@ -44,8 +44,8 @@ impl MocknetController {
         let burnchain = config.get_burnchain();
 
         Self {
-            config: config,
-            burnchain: burnchain,
+            config,
+            burnchain,
             db: None,
             queued_operations: VecDeque::new(),
             chain_tip: None,
@@ -54,7 +54,7 @@ impl MocknetController {
 
     fn build_next_block_header(current_block: &BlockSnapshot) -> BurnchainBlockHeader {
         let curr_hash = &current_block.burn_header_hash.to_bytes()[..];
-        let next_hash = Sha256Sum::from_data(&curr_hash);
+        let next_hash = Sha256Sum::from_data(curr_hash);
 
         let block = BurnchainBlock::Bitcoin(BitcoinBlock::new(
             current_block.block_height + 1,
@@ -168,10 +168,10 @@ impl BurnchainController for MocknetController {
         operation: BlockstackOperationType,
         _op_signer: &mut BurnchainOpSigner,
         _attempt: u64,
-    ) -> Option<Txid> {
+    ) -> Result<Txid, BurnchainControllerError> {
         let txid = operation.txid();
         self.queued_operations.push_back(operation);
-        Some(txid)
+        Ok(txid)
     }
 
     fn sync(

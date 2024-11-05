@@ -18,7 +18,7 @@ use std::backtrace::Backtrace;
 use std::io::Error as IOError;
 use std::ops::{Deref, DerefMut};
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 use std::{error, fmt, fs, io};
 
 use clarity::vm::types::QualifiedContractIdentifier;
@@ -32,6 +32,7 @@ use serde_json::Error as serde_error;
 use stacks_common::types::chainstate::{SortitionId, StacksAddress, StacksBlockId, TrieHash};
 use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::types::Address;
+use stacks_common::util::db::update_lock_table;
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 use stacks_common::util::sleep_ms;
@@ -655,32 +656,9 @@ impl<'a, C: Clone, T: MarfTrieId> DerefMut for IndexDBTx<'a, C, T> {
     }
 }
 
+/// Called by `rusqlite` if we are waiting too long on a database lock
 pub fn tx_busy_handler(run_count: i32) -> bool {
-    let mut sleep_count = 2;
-    if run_count > 0 {
-        sleep_count = 2u64.saturating_pow(run_count as u32);
-    }
-    sleep_count = sleep_count.saturating_add(thread_rng().gen::<u64>() % sleep_count);
-
-    if sleep_count > 100 {
-        let jitter = thread_rng().gen::<u64>() % 20;
-        sleep_count = 100 - jitter;
-    }
-
-    debug!(
-        "Database is locked; sleeping {}ms and trying again",
-        &sleep_count;
-        "backtrace" => ?{
-            if run_count > 10 && run_count % 10 == 0 {
-                Some(Backtrace::capture())
-            } else {
-                None
-            }
-        },
-    );
-
-    sleep_ms(sleep_count);
-    true
+    stacks_common::util::db::tx_busy_handler(run_count)
 }
 
 /// Begin an immediate-mode transaction, and handle busy errors with exponential backoff.
@@ -697,6 +675,7 @@ pub fn tx_begin_immediate<'a>(conn: &'a mut Connection) -> Result<DBTx<'a>, Erro
 pub fn tx_begin_immediate_sqlite<'a>(conn: &'a mut Connection) -> Result<DBTx<'a>, sqlite_error> {
     conn.busy_handler(Some(tx_busy_handler))?;
     let tx = Transaction::new(conn, TransactionBehavior::Immediate)?;
+    update_lock_table(tx.deref());
     Ok(tx)
 }
 

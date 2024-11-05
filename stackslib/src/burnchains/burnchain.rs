@@ -549,45 +549,41 @@ impl Burnchain {
             .expect("Overflowed u64 in calculating expected sunset_burn")
     }
 
+    /// Is this the first block to receive rewards in its cycle?
+    /// This is the mod 1 block. Note: in nakamoto, the signer set for cycle N signs
+    ///  the mod 0 block.
     pub fn is_reward_cycle_start(&self, burn_height: u64) -> bool {
         self.pox_constants
             .is_reward_cycle_start(self.first_block_height, burn_height)
     }
 
+    /// Is this the first block to be signed by the signer set in cycle N?
+    /// This is the mod 0 block.
+    pub fn is_naka_signing_cycle_start(&self, burn_height: u64) -> bool {
+        self.pox_constants
+            .is_naka_signing_cycle_start(self.first_block_height, burn_height)
+    }
+
+    /// return the first burn block which receives reward in `reward_cycle`.
+    /// this is the modulo 1 block
     pub fn reward_cycle_to_block_height(&self, reward_cycle: u64) -> u64 {
         self.pox_constants
             .reward_cycle_to_block_height(self.first_block_height, reward_cycle)
     }
 
-    /// Compute the reward cycle ID of the PoX reward set which is active as of this burn_height.
-    /// The reward set is calculated at reward cycle index 1, so if this block height is at or after
-    /// reward cycle index 1, then this behaves like `block_height_to_reward_cycle()`.  However,
-    /// if it's reward cycle index is 0, then it belongs to the previous reward cycle.
-    pub fn pox_reward_cycle(&self, block_height: u64) -> Option<u64> {
-        let cycle = self.block_height_to_reward_cycle(block_height)?;
-        let effective_height = block_height.checked_sub(self.first_block_height)?;
-        if effective_height % u64::from(self.pox_constants.reward_cycle_length) == 0 {
-            Some(cycle.saturating_sub(1))
-        } else {
-            Some(cycle)
-        }
+    /// the first burn block that must be *signed* by the signer set of `reward_cycle`.
+    /// this is the modulo 0 block
+    pub fn nakamoto_first_block_of_cycle(&self, reward_cycle: u64) -> u64 {
+        self.pox_constants
+            .nakamoto_first_block_of_cycle(self.first_block_height, reward_cycle)
     }
 
+    /// What is the reward cycle for this block height?
+    /// This considers the modulo 0 block to be in reward cycle `n`, even though
+    ///  rewards for cycle `n` do not begin until modulo 1.
     pub fn block_height_to_reward_cycle(&self, block_height: u64) -> Option<u64> {
         self.pox_constants
             .block_height_to_reward_cycle(self.first_block_height, block_height)
-    }
-
-    pub fn static_block_height_to_reward_cycle(
-        block_height: u64,
-        first_block_height: u64,
-        reward_cycle_length: u64,
-    ) -> Option<u64> {
-        PoxConstants::static_block_height_to_reward_cycle(
-            block_height,
-            first_block_height,
-            reward_cycle_length,
-        )
     }
 
     /// Is this block either the first block in a reward cycle or
@@ -607,27 +603,19 @@ impl Burnchain {
         (effective_height % reward_cycle_length) <= 1
     }
 
-    pub fn static_is_in_prepare_phase(
-        first_block_height: u64,
-        reward_cycle_length: u64,
-        prepare_length: u64,
-        block_height: u64,
-    ) -> bool {
-        PoxConstants::static_is_in_prepare_phase(
-            first_block_height,
-            reward_cycle_length,
-            prepare_length,
-            block_height,
-        )
+    /// Does this block include reward slots?
+    /// This is either in the last prepare_phase_length blocks of the cycle
+    ///  or the modulo 0 block
+    pub fn is_in_prepare_phase(&self, block_height: u64) -> bool {
+        self.pox_constants
+            .is_in_prepare_phase(self.first_block_height, block_height)
     }
 
-    pub fn is_in_prepare_phase(&self, block_height: u64) -> bool {
-        Self::static_is_in_prepare_phase(
-            self.first_block_height,
-            self.pox_constants.reward_cycle_length as u64,
-            self.pox_constants.prepare_length.into(),
-            block_height,
-        )
+    /// The prepare phase is the last prepare_phase_length blocks of the cycle
+    /// This cannot include the 0 block for nakamoto
+    pub fn is_in_naka_prepare_phase(&self, block_height: u64) -> bool {
+        self.pox_constants
+            .is_in_naka_prepare_phase(self.first_block_height, block_height)
     }
 
     pub fn regtest(working_dir: &str) -> Burnchain {

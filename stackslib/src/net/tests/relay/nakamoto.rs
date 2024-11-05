@@ -54,7 +54,6 @@ use crate::chainstate::stacks::tests::{
 use crate::chainstate::stacks::{Error as ChainstateError, *};
 use crate::clarity_vm::clarity::ClarityConnection;
 use crate::core::*;
-use crate::net::api::getinfo::RPCPeerInfoData;
 use crate::net::asn::*;
 use crate::net::chat::*;
 use crate::net::codec::*;
@@ -302,12 +301,10 @@ impl SeedNode {
             peer.relayer.relay_epoch3_blocks(
                 &local_peer,
                 &sortdb,
-                &stacks_node.chainstate,
                 vec![AcceptedNakamotoBlocks {
                     relayers: vec![],
                     blocks: blocks.clone(),
                 }],
-                true,
             );
 
             peer.sortdb = Some(sortdb);
@@ -390,6 +387,7 @@ fn test_buffer_data_message() {
     let (mut peer, _followers) =
         make_nakamoto_peers_from_invs(function_name!(), &observer, 10, 5, bitvecs.clone(), 1);
 
+    let peer_nk = peer.to_neighbor().addr;
     let nakamoto_block = NakamotoBlock {
         header: NakamotoBlockHeader {
             version: 1,
@@ -474,43 +472,89 @@ fn test_buffer_data_message() {
             blocks: vec![nakamoto_block],
         }),
     );
+    let stackerdb_chunk = StacksMessage::new(
+        1,
+        1,
+        1,
+        &BurnchainHeaderHash([0x01; 32]),
+        7,
+        &BurnchainHeaderHash([0x07; 32]),
+        StacksMessageType::StackerDBPushChunk(StackerDBPushChunkData {
+            contract_id: QualifiedContractIdentifier::parse(
+                "ST000000000000000000002AMW42H.signers-1-4",
+            )
+            .unwrap(),
+            rc_consensus_hash: ConsensusHash([0x01; 20]),
+            chunk_data: StackerDBChunkData {
+                slot_id: 0,
+                slot_version: 1,
+                sig: MessageSignature::empty(),
+                data: vec![1, 2, 3, 4, 5],
+            },
+        }),
+    );
 
     for _ in 0..peer.network.connection_opts.max_buffered_blocks_available {
         assert!(peer
             .network
-            .buffer_data_message(0, blocks_available.clone()));
+            .buffer_sortition_data_message(0, &peer_nk, blocks_available.clone()));
     }
     assert!(!peer
         .network
-        .buffer_data_message(0, blocks_available.clone()));
+        .buffer_sortition_data_message(0, &peer_nk, blocks_available.clone()));
 
     for _ in 0..peer
         .network
         .connection_opts
         .max_buffered_microblocks_available
     {
+        assert!(peer.network.buffer_sortition_data_message(
+            0,
+            &peer_nk,
+            microblocks_available.clone()
+        ));
+    }
+    assert!(!peer.network.buffer_sortition_data_message(
+        0,
+        &peer_nk,
+        microblocks_available.clone()
+    ));
+
+    for _ in 0..peer.network.connection_opts.max_buffered_blocks {
         assert!(peer
             .network
-            .buffer_data_message(0, microblocks_available.clone()));
+            .buffer_sortition_data_message(0, &peer_nk, block.clone()));
     }
     assert!(!peer
         .network
-        .buffer_data_message(0, microblocks_available.clone()));
-
-    for _ in 0..peer.network.connection_opts.max_buffered_blocks {
-        assert!(peer.network.buffer_data_message(0, block.clone()));
-    }
-    assert!(!peer.network.buffer_data_message(0, block.clone()));
+        .buffer_sortition_data_message(0, &peer_nk, block.clone()));
 
     for _ in 0..peer.network.connection_opts.max_buffered_microblocks {
-        assert!(peer.network.buffer_data_message(0, microblocks.clone()));
+        assert!(peer
+            .network
+            .buffer_sortition_data_message(0, &peer_nk, microblocks.clone()));
     }
-    assert!(!peer.network.buffer_data_message(0, microblocks.clone()));
+    assert!(!peer
+        .network
+        .buffer_sortition_data_message(0, &peer_nk, microblocks.clone()));
 
     for _ in 0..peer.network.connection_opts.max_buffered_nakamoto_blocks {
-        assert!(peer.network.buffer_data_message(0, nakamoto_block.clone()));
+        assert!(peer
+            .network
+            .buffer_sortition_data_message(0, &peer_nk, nakamoto_block.clone()));
     }
-    assert!(!peer.network.buffer_data_message(0, nakamoto_block.clone()));
+    assert!(!peer
+        .network
+        .buffer_sortition_data_message(0, &peer_nk, nakamoto_block.clone()));
+
+    for _ in 0..peer.network.connection_opts.max_buffered_stackerdb_chunks {
+        assert!(peer
+            .network
+            .buffer_stacks_data_message(0, &peer_nk, stackerdb_chunk.clone()));
+    }
+    assert!(!peer
+        .network
+        .buffer_stacks_data_message(0, &peer_nk, stackerdb_chunk.clone()));
 }
 
 /// Verify that Nakmaoto blocks whose sortitions are known will *not* be buffered, but instead
@@ -618,7 +662,7 @@ fn test_no_buffer_ready_nakamoto_blocks() {
                                     follower
                                         .network
                                         .burnchain
-                                        .pox_reward_cycle(block_sn.block_height)
+                                        .block_height_to_reward_cycle(block_sn.block_height)
                                         .unwrap()
                                 ),
                                 true
@@ -642,7 +686,7 @@ fn test_no_buffer_ready_nakamoto_blocks() {
                                     follower
                                         .network
                                         .burnchain
-                                        .pox_reward_cycle(
+                                        .block_height_to_reward_cycle(
                                             follower.network.burnchain_tip.block_height
                                         )
                                         .unwrap()
@@ -670,7 +714,7 @@ fn test_no_buffer_ready_nakamoto_blocks() {
                                     follower
                                         .network
                                         .burnchain
-                                        .pox_reward_cycle(ancestor_sn.block_height)
+                                        .block_height_to_reward_cycle(ancestor_sn.block_height)
                                         .unwrap()
                                 ),
                                 true
@@ -688,7 +732,7 @@ fn test_no_buffer_ready_nakamoto_blocks() {
                             blocks: blocks.clone(),
                         }),
                     );
-                    unsolicited.insert(peer_nk.clone(), vec![msg]);
+                    unsolicited.insert((1, peer_nk.clone()), vec![msg]);
 
                     if let Some(mut network_result) = network_result.take() {
                         network_result.consume_unsolicited(unsolicited);
@@ -816,9 +860,12 @@ fn test_buffer_nonready_nakamoto_blocks() {
     let mut all_blocks = vec![];
 
     thread::scope(|s| {
-        s.spawn(|| {
-            SeedNode::main(peer, rc_len, seed_comms);
-        });
+        thread::Builder::new()
+            .name("seed".into())
+            .spawn_scoped(s, || {
+                SeedNode::main(peer, rc_len, seed_comms);
+            })
+            .unwrap();
 
         let mut seed_exited = false;
         let mut exited_peer = None;
@@ -881,7 +928,8 @@ fn test_buffer_nonready_nakamoto_blocks() {
 
                     // pass this and other blocks to the p2p network's unsolicited message handler,
                     // so they can be buffered up and processed.
-                    let mut unsolicited_msgs: HashMap<usize, Vec<StacksMessage>> = HashMap::new();
+                    let mut unsolicited_msgs: HashMap<(usize, NeighborKey), Vec<StacksMessage>> =
+                        HashMap::new();
                     for (event_id, convo) in follower.network.peers.iter() {
                         for blks in all_blocks.iter() {
                             let msg = StacksMessage::from_chain_view(
@@ -892,16 +940,17 @@ fn test_buffer_nonready_nakamoto_blocks() {
                                     blocks: blks.clone(),
                                 }),
                             );
-
-                            if let Some(msgs) = unsolicited_msgs.get_mut(event_id) {
+                            let nk = convo.to_neighbor_key();
+                            if let Some(msgs) = unsolicited_msgs.get_mut(&(*event_id, nk)) {
                                 msgs.push(msg);
                             } else {
-                                unsolicited_msgs.insert(*event_id, vec![msg]);
+                                unsolicited_msgs
+                                    .insert((*event_id, convo.to_neighbor_key()), vec![msg]);
                             }
                         }
                     }
 
-                    follower.network.handle_unsolicited_messages(
+                    follower.network.handle_unsolicited_sortition_messages(
                         &sortdb,
                         &node.chainstate,
                         unsolicited_msgs,
