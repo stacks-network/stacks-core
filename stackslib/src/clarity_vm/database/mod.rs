@@ -1,5 +1,6 @@
 use std::ops::{Deref, DerefMut};
 
+use clarity::types::chainstate::TrieHash;
 use clarity::util::hash::Sha512Trunc256Sum;
 use clarity::vm::analysis::AnalysisDatabase;
 use clarity::vm::database::sqlite::{
@@ -1135,6 +1136,14 @@ impl ClarityBackingStore for MemoryBackingStore {
     }
 
     fn get_data_with_proof(&mut self, key: &str) -> InterpreterResult<Option<(String, Vec<u8>)>> {
+        Ok(SqliteConnection::get(self.get_side_store(), key)?.map(|x| (x, vec![])))
+    }
+
+    fn get_data_with_proof_from_path(
+        &mut self,
+        key: &TrieHash,
+    ) -> InterpreterResult<Option<(String, Vec<u8>)>> {
+        // Ok(SqliteConnection::get(self.get_side_store(), )?.map(|x| (x, vec![])))
         Ok(SqliteConnection::get(self.get_side_store(), key)?.map(|x| (x, vec![])))
     }
 

@@ -18,7 +18,7 @@ use std::path::PathBuf;
 
 #[cfg(feature = "canonical")]
 use rusqlite::Connection;
-use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId, VRFSeed};
+use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId, TrieHash, VRFSeed};
 use stacks_common::util::hash::{hex_bytes, to_hex, Hash160, Sha512Trunc256Sum};
 
 use crate::vm::analysis::AnalysisDatabase;
@@ -67,6 +67,10 @@ pub trait ClarityBackingStore {
     /// fetch K-V out of the committed datastore, along with the byte representation
     ///  of the Merkle proof for that key-value pair
     fn get_data_with_proof(&mut self, key: &str) -> Result<Option<(String, Vec<u8>)>>;
+    fn get_data_with_proof_from_path(
+        &mut self,
+        hash: &TrieHash,
+    ) -> Result<Option<(String, Vec<u8>)>>;
     fn has_entry(&mut self, key: &str) -> Result<bool> {
         Ok(self.get_data(key)?.is_some())
     }
@@ -210,6 +214,13 @@ impl ClarityBackingStore for NullBackingStore {
     }
 
     fn get_data_with_proof(&mut self, _key: &str) -> Result<Option<(String, Vec<u8>)>> {
+        panic!("NullBackingStore can't retrieve data")
+    }
+
+    fn get_data_with_proof_from_path(
+        &mut self,
+        _hash: &TrieHash,
+    ) -> Result<Option<(String, Vec<u8>)>> {
         panic!("NullBackingStore can't retrieve data")
     }
 

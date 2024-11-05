@@ -142,6 +142,22 @@ pub trait MarfConnection<T: MarfTrieId> {
         })
     }
 
+    fn get_with_proof_from_hash(
+        &mut self,
+        block_hash: &T,
+        hash: &TrieHash,
+    ) -> Result<Option<(MARFValue, TrieMerkleProof<T>)>, Error> {
+        self.with_conn(|conn| {
+            let path = TriePath::from_bytes(hash.as_bytes()).ok_or(Error::BadSeekValue)?;
+            let marf_value = match MARF::get_by_path(conn, block_hash, &path)? {
+                None => return Ok(None),
+                Some(x) => x,
+            };
+            let proof = TrieMerkleProof::from_path(conn, &path, &marf_value, block_hash)?;
+            Ok(Some((marf_value, proof)))
+        })
+    }
+
     fn get_block_at_height(&mut self, height: u32, tip: &T) -> Result<Option<T>, Error> {
         self.with_conn(|c| MARF::get_block_at_height(c, height, tip))
     }
@@ -1123,6 +1139,33 @@ impl<T: MarfTrieId> MARF<T> {
         Ok(MARF::from_storage(file_storage))
     }
 
+    pub fn get_by_path(
+        storage: &mut TrieStorageConnection<T>,
+        block_hash: &T,
+        path: &TriePath,
+    ) -> Result<Option<MARFValue>, Error> {
+        let (cur_block_hash, cur_block_id) = storage.get_cur_block_and_id();
+
+        let result = MARF::get_path(storage, block_hash, &path).or_else(|e| match e {
+            Error::NotFoundError => Ok(None),
+            _ => Err(e),
+        });
+
+        // restore
+        storage
+            .open_block_maybe_id(&cur_block_hash, cur_block_id)
+            .map_err(|e| {
+                warn!(
+                    "Failed to re-open {} {:?}: {:?}",
+                    &cur_block_hash, cur_block_id, &e
+                );
+                warn!("Result of failed path lookup '{}': {:?}", path, &result);
+                e
+            })?;
+
+        result.map(|option_result| option_result.map(|leaf| leaf.data))
+    }
+
     pub fn get_by_key(
         storage: &mut TrieStorageConnection<T>,
         block_hash: &T,
@@ -1317,6 +1360,21 @@ impl<T: MarfTrieId> MARF<T> {
             Some(x) => x,
         };
         let proof = TrieMerkleProof::from_raw_entry(&mut conn, key, &marf_value, block_hash)?;
+        Ok(Some((marf_value, proof)))
+    }
+
+    pub fn get_with_proof_from_hash(
+        &mut self,
+        block_hash: &T,
+        hash: &TrieHash,
+    ) -> Result<Option<(MARFValue, TrieMerkleProof<T>)>, Error> {
+        let mut conn = self.storage.connection();
+        let path = TriePath::from_bytes(hash.as_bytes()).ok_or(Error::BadSeekValue)?;
+        let marf_value = match MARF::get_by_path(&mut conn, block_hash, &path)? {
+            None => return Ok(None),
+            Some(x) => x,
+        };
+        let proof = TrieMerkleProof::from_path(&mut conn, &path, &marf_value, block_hash)?;
         Ok(Some((marf_value, proof)))
     }
 
