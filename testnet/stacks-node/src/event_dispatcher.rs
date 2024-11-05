@@ -181,6 +181,12 @@ impl InnerStackerDBChannel {
     }
 }
 
+impl Default for StackerDBChannel {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl StackerDBChannel {
     pub const fn new() -> Self {
         Self {
@@ -256,7 +262,7 @@ where
     serializer.serialize_str(&value.to_string())
 }
 
-fn serialize_pox_addresses<S>(value: &Vec<PoxAddress>, serializer: S) -> Result<S::Ok, S::Error>
+fn serialize_pox_addresses<S>(value: &[PoxAddress], serializer: S) -> Result<S::Ok, S::Error>
 where
     S: serde::Serializer,
 {
@@ -402,8 +408,8 @@ impl EventObserver {
                 let id: i64 = row.get(0)?;
                 let url: String = row.get(1)?;
                 let payload_text: String = row.get(2)?;
-                let payload: serde_json::Value = serde_json::from_str(&payload_text)
-                    .map_err(|e| db_error::SerializationError(e))?;
+                let payload: serde_json::Value =
+                    serde_json::from_str(&payload_text).map_err(db_error::SerializationError)?;
                 let timeout_ms: u64 = row.get(3)?;
                 Ok((id, url, payload, timeout_ms))
             },
@@ -642,7 +648,7 @@ impl EventObserver {
             TransactionOrigin::Burn(op) => (
                 op.txid().to_string(),
                 "00".to_string(),
-                BlockstackOperationType::blockstack_op_to_json(&op),
+                BlockstackOperationType::blockstack_op_to_json(op),
             ),
             TransactionOrigin::Stacks(ref tx) => {
                 let txid = tx.txid().to_string();
@@ -776,6 +782,7 @@ impl EventObserver {
         self.send_payload(payload, PATH_BURN_BLOCK_SUBMIT);
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn make_new_block_processed_payload(
         &self,
         filtered_events: Vec<(usize, &(bool, Txid, &StacksTransactionEvent))>,
@@ -806,12 +813,15 @@ impl EventObserver {
             })
             .collect();
 
-        let mut tx_index: u32 = 0;
         let mut serialized_txs = vec![];
-        for receipt in receipts.iter() {
-            let payload = EventObserver::make_new_block_txs_payload(receipt, tx_index);
+        for (tx_index, receipt) in receipts.iter().enumerate() {
+            let payload = EventObserver::make_new_block_txs_payload(
+                receipt,
+                tx_index
+                    .try_into()
+                    .expect("BUG: more receipts than U32::MAX"),
+            );
             serialized_txs.push(payload);
-            tx_index += 1;
         }
 
         let signer_bitvec_value = signer_bitvec_opt
@@ -821,7 +831,7 @@ impl EventObserver {
 
         let (reward_set_value, cycle_number_value) = match &reward_set_data {
             Some(data) => (
-                serde_json::to_value(&RewardSetEventPayload::from_reward_set(&data.reward_set))
+                serde_json::to_value(RewardSetEventPayload::from_reward_set(&data.reward_set))
                     .unwrap_or_default(),
                 serde_json::to_value(data.cycle_number).unwrap_or_default(),
             ),
@@ -1097,6 +1107,12 @@ impl BlockEventDispatcher for EventDispatcher {
     }
 }
 
+impl Default for EventDispatcher {
+    fn default() -> Self {
+        EventDispatcher::new()
+    }
+}
+
 impl EventDispatcher {
     pub fn new() -> EventDispatcher {
         EventDispatcher {
@@ -1125,7 +1141,7 @@ impl EventDispatcher {
     ) {
         // lazily assemble payload only if we have observers
         let interested_observers = self.filter_observers(&self.burn_block_observers_lookup, true);
-        if interested_observers.len() < 1 {
+        if interested_observers.is_empty() {
             return;
         }
 
@@ -1149,6 +1165,7 @@ impl EventDispatcher {
     /// - dispatch_matrix: a vector where each index corresponds to the hashset of event indexes
     ///     that each respective event observer is subscribed to
     /// - events: a vector of all events from all the tx receipts
+    #[allow(clippy::type_complexity)]
     fn create_dispatch_matrix_and_event_vector<'a>(
         &self,
         receipts: &'a Vec<StacksTransactionReceipt>,
@@ -1241,6 +1258,7 @@ impl EventDispatcher {
         (dispatch_matrix, events)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn process_chain_tip(
         &self,
         block: &StacksBlockEventData,
@@ -1264,7 +1282,7 @@ impl EventDispatcher {
         let all_receipts = receipts.to_owned();
         let (dispatch_matrix, events) = self.create_dispatch_matrix_and_event_vector(&all_receipts);
 
-        if dispatch_matrix.len() > 0 {
+        if !dispatch_matrix.is_empty() {
             let mature_rewards_vec = if let Some(rewards_info) = mature_rewards_info {
                 mature_rewards
                     .iter()
@@ -1297,7 +1315,7 @@ impl EventDispatcher {
                 let payload = self.registered_observers[observer_id]
                     .make_new_block_processed_payload(
                         filtered_events,
-                        &block,
+                        block,
                         metadata,
                         receipts,
                         parent_index_hash,
@@ -1342,7 +1360,7 @@ impl EventDispatcher {
                     )
             })
             .collect();
-        if interested_observers.len() < 1 {
+        if interested_observers.is_empty() {
             return;
         }
         let flattened_receipts = processed_unconfirmed_state
@@ -1390,12 +1408,12 @@ impl EventDispatcher {
             .enumerate()
             .filter_map(|(obs_id, observer)| {
                 let lookup_ix = u16::try_from(obs_id).expect("FATAL: more than 2^16 observers");
-                if lookup.contains(&lookup_ix) {
-                    return Some(observer);
-                } else if include_any && self.any_event_observers_lookup.contains(&lookup_ix) {
-                    return Some(observer);
+                if lookup.contains(&lookup_ix)
+                    || (include_any && self.any_event_observers_lookup.contains(&lookup_ix))
+                {
+                    Some(observer)
                 } else {
-                    return None;
+                    None
                 }
             })
             .collect()
@@ -1405,7 +1423,7 @@ impl EventDispatcher {
         // lazily assemble payload only if we have observers
         let interested_observers = self.filter_observers(&self.mempool_observers_lookup, true);
 
-        if interested_observers.len() < 1 {
+        if interested_observers.is_empty() {
             return;
         }
 
@@ -1427,7 +1445,7 @@ impl EventDispatcher {
     ) {
         let interested_observers = self.filter_observers(&self.miner_observers_lookup, false);
 
-        if interested_observers.len() < 1 {
+        if interested_observers.is_empty() {
             return;
         }
 
@@ -1456,7 +1474,7 @@ impl EventDispatcher {
     ) {
         let interested_observers =
             self.filter_observers(&self.mined_microblocks_observers_lookup, false);
-        if interested_observers.len() < 1 {
+        if interested_observers.is_empty() {
             return;
         }
 
@@ -1483,7 +1501,7 @@ impl EventDispatcher {
         tx_events: Vec<TransactionEvent>,
     ) {
         let interested_observers = self.filter_observers(&self.miner_observers_lookup, false);
-        if interested_observers.len() < 1 {
+        if interested_observers.is_empty() {
             return;
         }
 
@@ -1502,7 +1520,7 @@ impl EventDispatcher {
             block_size: block_size_bytes,
             cost: consumed.clone(),
             tx_events,
-            miner_signature: block.header.miner_signature.clone(),
+            miner_signature: block.header.miner_signature,
             signer_signature_hash: block.header.signer_signature_hash(),
             signer_signature: block.header.signer_signature.clone(),
             signer_bitvec,
@@ -1558,7 +1576,7 @@ impl EventDispatcher {
         // lazily assemble payload only if we have observers
         let interested_observers = self.filter_observers(&self.mempool_observers_lookup, true);
 
-        if interested_observers.len() < 1 {
+        if interested_observers.is_empty() {
             return;
         }
 
@@ -1577,9 +1595,9 @@ impl EventDispatcher {
         }
     }
 
-    pub fn process_new_attachments(&self, attachments: &Vec<(AttachmentInstance, Attachment)>) {
+    pub fn process_new_attachments(&self, attachments: &[(AttachmentInstance, Attachment)]) {
         let interested_observers: Vec<_> = self.registered_observers.iter().enumerate().collect();
-        if interested_observers.len() < 1 {
+        if interested_observers.is_empty() {
             return;
         }
 
@@ -1598,7 +1616,7 @@ impl EventDispatcher {
         &self,
         asset_identifier: &AssetIdentifier,
         event_index: usize,
-        dispatch_matrix: &mut Vec<HashSet<usize>>,
+        dispatch_matrix: &mut [HashSet<usize>],
     ) {
         if let Some(observer_indexes) = self.assets_observers_lookup.get(asset_identifier) {
             for o_i in observer_indexes {

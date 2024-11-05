@@ -31,13 +31,13 @@ use super::{
 use crate::helium::RunLoop;
 use crate::Keychain;
 
-const FOO_CONTRACT: &'static str = "(define-public (foo) (ok 1))
+const FOO_CONTRACT: &str = "(define-public (foo) (ok 1))
                                     (define-public (bar (x uint)) (ok x))";
-const TRAIT_CONTRACT: &'static str = "(define-trait tr ((value () (response uint uint))))";
-const USE_TRAIT_CONTRACT: &'static str = "(use-trait tr-trait .trait-contract.tr)
+const TRAIT_CONTRACT: &str = "(define-trait tr ((value () (response uint uint))))";
+const USE_TRAIT_CONTRACT: &str = "(use-trait tr-trait .trait-contract.tr)
                                          (define-public (baz (abc <tr-trait>)) (ok (contract-of abc)))";
-const IMPLEMENT_TRAIT_CONTRACT: &'static str = "(define-public (value) (ok u1))";
-const BAD_TRAIT_CONTRACT: &'static str = "(define-public (foo-bar) (ok u1))";
+const IMPLEMENT_TRAIT_CONTRACT: &str = "(define-public (value) (ok u1))";
+const BAD_TRAIT_CONTRACT: &str = "(define-public (foo-bar) (ok u1))";
 
 pub fn make_bad_stacks_transfer(
     sender: &StacksPrivateKey,
@@ -318,17 +318,13 @@ fn mempool_setup_chainstate() {
                         tx_bytes.len() as u64,
                     )
                     .unwrap_err();
-                eprintln!("Err: {:?}", e);
-                assert!(
-                    if let MemPoolRejection::FailedToValidate(ChainstateError::NetError(
-                        NetError::VerifyingError(_),
-                    )) = e
-                    {
-                        true
-                    } else {
-                        false
-                    }
-                );
+                eprintln!("Err: {e:?}");
+                assert!(matches!(
+                    e,
+                    MemPoolRejection::FailedToValidate(ChainstateError::NetError(
+                        NetError::VerifyingError(_)
+                    ))
+                ));
 
                 // mismatched network on contract-call!
                 let bad_addr = StacksAddress::from_public_keys(
@@ -337,8 +333,7 @@ fn mempool_setup_chainstate() {
                     1,
                     &vec![StacksPublicKey::from_private(&other_sk)],
                 )
-                .unwrap()
-                .into();
+                .unwrap();
 
                 let tx_bytes = make_contract_call(
                     &contract_sk,
@@ -362,11 +357,7 @@ fn mempool_setup_chainstate() {
                     )
                     .unwrap_err();
 
-                assert!(if let MemPoolRejection::BadAddressVersionByte = e {
-                    true
-                } else {
-                    false
-                });
+                assert!(matches!(e, MemPoolRejection::BadAddressVersionByte));
 
                 // mismatched network on transfer!
                 let bad_addr = StacksAddress::from_public_keys(
@@ -391,11 +382,7 @@ fn mempool_setup_chainstate() {
                         tx_bytes.len() as u64,
                     )
                     .unwrap_err();
-                assert!(if let MemPoolRejection::BadAddressVersionByte = e {
-                    true
-                } else {
-                    false
-                });
+                assert!(matches!(e, MemPoolRejection::BadAddressVersionByte));
 
                 // bad fees
                 let tx_bytes =
@@ -411,12 +398,8 @@ fn mempool_setup_chainstate() {
                         tx_bytes.len() as u64,
                     )
                     .unwrap_err();
-                eprintln!("Err: {:?}", e);
-                assert!(if let MemPoolRejection::FeeTooLow(0, _) = e {
-                    true
-                } else {
-                    false
-                });
+                eprintln!("Err: {e:?}");
+                assert!(matches!(e, MemPoolRejection::FeeTooLow(0, _)));
 
                 // bad nonce
                 let tx_bytes =
@@ -432,12 +415,8 @@ fn mempool_setup_chainstate() {
                         tx_bytes.len() as u64,
                     )
                     .unwrap_err();
-                eprintln!("Err: {:?}", e);
-                assert!(if let MemPoolRejection::BadNonces(_) = e {
-                    true
-                } else {
-                    false
-                });
+                eprintln!("Err: {e:?}");
+                assert!(matches!(e, MemPoolRejection::BadNonces(_)));
 
                 // not enough funds
                 let tx_bytes = make_stacks_transfer(
@@ -459,15 +438,11 @@ fn mempool_setup_chainstate() {
                         tx_bytes.len() as u64,
                     )
                     .unwrap_err();
-                eprintln!("Err: {:?}", e);
-                assert!(if let MemPoolRejection::NotEnoughFunds(111000, 99500) = e {
-                    true
-                } else {
-                    false
-                });
+                eprintln!("Err: {e:?}");
+                assert!(matches!(e, MemPoolRejection::NotEnoughFunds(111000, 99500)));
 
                 // sender == recipient
-                let contract_princ = PrincipalData::from(contract_addr.clone());
+                let contract_princ = PrincipalData::from(contract_addr);
                 let tx_bytes = make_stacks_transfer(
                     &contract_sk,
                     5,
@@ -487,7 +462,7 @@ fn mempool_setup_chainstate() {
                         tx_bytes.len() as u64,
                     )
                     .unwrap_err();
-                eprintln!("Err: {:?}", e);
+                eprintln!("Err: {e:?}");
                 assert!(if let MemPoolRejection::TransferRecipientIsSender(r) = e {
                     r == contract_princ
                 } else {
@@ -517,15 +492,11 @@ fn mempool_setup_chainstate() {
                         tx_bytes.len() as u64,
                     )
                     .unwrap_err();
-                eprintln!("Err: {:?}", e);
-                assert!(if let MemPoolRejection::BadAddressVersionByte = e {
-                    true
-                } else {
-                    false
-                });
+                eprintln!("Err: {e:?}");
+                assert!(matches!(e, MemPoolRejection::BadAddressVersionByte));
 
                 // tx version must be testnet
-                let contract_princ = PrincipalData::from(contract_addr.clone());
+                let contract_princ = PrincipalData::from(contract_addr);
                 let payload = TransactionPayload::TokenTransfer(
                     contract_princ.clone(),
                     1000,
@@ -551,12 +522,8 @@ fn mempool_setup_chainstate() {
                         tx_bytes.len() as u64,
                     )
                     .unwrap_err();
-                eprintln!("Err: {:?}", e);
-                assert!(if let MemPoolRejection::BadTransactionVersion = e {
-                    true
-                } else {
-                    false
-                });
+                eprintln!("Err: {e:?}");
+                assert!(matches!(e, MemPoolRejection::BadTransactionVersion));
 
                 // send amount must be positive
                 let tx_bytes =
@@ -572,12 +539,8 @@ fn mempool_setup_chainstate() {
                         tx_bytes.len() as u64,
                     )
                     .unwrap_err();
-                eprintln!("Err: {:?}", e);
-                assert!(if let MemPoolRejection::TransferAmountMustBePositive = e {
-                    true
-                } else {
-                    false
-                });
+                eprintln!("Err: {e:?}");
+                assert!(matches!(e, MemPoolRejection::TransferAmountMustBePositive));
 
                 // not enough funds
                 let tx_bytes = make_stacks_transfer(
@@ -599,12 +562,8 @@ fn mempool_setup_chainstate() {
                         tx_bytes.len() as u64,
                     )
                     .unwrap_err();
-                eprintln!("Err: {:?}", e);
-                assert!(if let MemPoolRejection::NotEnoughFunds(111000, 99500) = e {
-                    true
-                } else {
-                    false
-                });
+                eprintln!("Err: {e:?}");
+                assert!(matches!(e, MemPoolRejection::NotEnoughFunds(111000, 99500)));
 
                 let tx_bytes = make_stacks_transfer(
                     &contract_sk,
@@ -625,12 +584,8 @@ fn mempool_setup_chainstate() {
                         tx_bytes.len() as u64,
                     )
                     .unwrap_err();
-                eprintln!("Err: {:?}", e);
-                assert!(if let MemPoolRejection::NotEnoughFunds(100700, 99500) = e {
-                    true
-                } else {
-                    false
-                });
+                eprintln!("Err: {e:?}");
+                assert!(matches!(e, MemPoolRejection::NotEnoughFunds(100700, 99500)));
 
                 let tx_bytes = make_contract_call(
                     &contract_sk,
@@ -653,12 +608,8 @@ fn mempool_setup_chainstate() {
                         tx_bytes.len() as u64,
                     )
                     .unwrap_err();
-                eprintln!("Err: {:?}", e);
-                assert!(if let MemPoolRejection::NoSuchContract = e {
-                    true
-                } else {
-                    false
-                });
+                eprintln!("Err: {e:?}");
+                assert!(matches!(e, MemPoolRejection::NoSuchContract));
 
                 let tx_bytes = make_contract_call(
                     &contract_sk,
@@ -681,12 +632,8 @@ fn mempool_setup_chainstate() {
                         tx_bytes.len() as u64,
                     )
                     .unwrap_err();
-                eprintln!("Err: {:?}", e);
-                assert!(if let MemPoolRejection::NoSuchPublicFunction = e {
-                    true
-                } else {
-                    false
-                });
+                eprintln!("Err: {e:?}");
+                assert!(matches!(e, MemPoolRejection::NoSuchPublicFunction));
 
                 let tx_bytes = make_contract_call(
                     &contract_sk,
@@ -709,12 +656,8 @@ fn mempool_setup_chainstate() {
                         tx_bytes.len() as u64,
                     )
                     .unwrap_err();
-                eprintln!("Err: {:?}", e);
-                assert!(if let MemPoolRejection::BadFunctionArgument(_) = e {
-                    true
-                } else {
-                    false
-                });
+                eprintln!("Err: {e:?}");
+                assert!(matches!(e, MemPoolRejection::BadFunctionArgument(_)));
 
                 let tx_bytes = make_contract_publish(
                     &contract_sk,
@@ -735,12 +678,8 @@ fn mempool_setup_chainstate() {
                         tx_bytes.len() as u64,
                     )
                     .unwrap_err();
-                eprintln!("Err: {:?}", e);
-                assert!(if let MemPoolRejection::ContractAlreadyExists(_) = e {
-                    true
-                } else {
-                    false
-                });
+                eprintln!("Err: {e:?}");
+                assert!(matches!(e, MemPoolRejection::ContractAlreadyExists(_)));
 
                 let microblock_1 = StacksMicroblockHeader {
                     version: 0,
@@ -777,13 +716,13 @@ fn mempool_setup_chainstate() {
                         tx_bytes.len() as u64,
                     )
                     .unwrap_err();
-                eprintln!("Err: {:?}", e);
+                eprintln!("Err: {e:?}");
                 assert!(matches!(e, MemPoolRejection::Other(_)));
 
                 let microblock_1 = StacksMicroblockHeader {
                     version: 0,
                     sequence: 0,
-                    prev_block: block_hash.clone(),
+                    prev_block: *block_hash,
                     tx_merkle_root: Sha512Trunc256Sum::from_data(&[]),
                     signature: MessageSignature([0; 65]),
                 };
@@ -791,7 +730,7 @@ fn mempool_setup_chainstate() {
                 let microblock_2 = StacksMicroblockHeader {
                     version: 0,
                     sequence: 0,
-                    prev_block: block_hash.clone(),
+                    prev_block: *block_hash,
                     tx_merkle_root: Sha512Trunc256Sum::from_data(&[1, 2, 3]),
                     signature: MessageSignature([0; 65]),
                 };
@@ -815,7 +754,7 @@ fn mempool_setup_chainstate() {
                         tx_bytes.len() as u64,
                     )
                     .unwrap_err();
-                eprintln!("Err: {:?}", e);
+                eprintln!("Err: {e:?}");
                 assert!(matches!(e, MemPoolRejection::Other(_)));
 
                 let mut microblock_1 = StacksMicroblockHeader {
@@ -856,7 +795,7 @@ fn mempool_setup_chainstate() {
                         tx_bytes.len() as u64,
                     )
                     .unwrap_err();
-                eprintln!("Err: {:?}", e);
+                eprintln!("Err: {e:?}");
                 assert!(matches!(e, MemPoolRejection::Other(_)));
 
                 let tx_bytes = make_coinbase(&contract_sk, 5, 1000, CHAIN_ID_TESTNET);
@@ -871,12 +810,8 @@ fn mempool_setup_chainstate() {
                         tx_bytes.len() as u64,
                     )
                     .unwrap_err();
-                eprintln!("Err: {:?}", e);
-                assert!(if let MemPoolRejection::NoCoinbaseViaMempool = e {
-                    true
-                } else {
-                    false
-                });
+                eprintln!("Err: {e:?}");
+                assert!(matches!(e, MemPoolRejection::NoCoinbaseViaMempool));
 
                 // find the correct priv-key
                 let mut secret_key = None;
@@ -936,12 +871,12 @@ fn mempool_setup_chainstate() {
                         tx_bytes.len() as u64,
                     )
                     .unwrap_err();
-                eprintln!("Err: {:?}", e);
+                eprintln!("Err: {e:?}");
                 assert!(matches!(e, MemPoolRejection::Other(_)));
 
                 let contract_id = QualifiedContractIdentifier::new(
-                    StandardPrincipalData::from(contract_addr.clone()),
-                    ContractName::try_from("implement-trait-contract").unwrap(),
+                    StandardPrincipalData::from(contract_addr),
+                    ContractName::from("implement-trait-contract"),
                 );
                 let contract_principal = PrincipalData::Contract(contract_id.clone());
 
@@ -968,8 +903,8 @@ fn mempool_setup_chainstate() {
                     .unwrap();
 
                 let contract_id = QualifiedContractIdentifier::new(
-                    StandardPrincipalData::from(contract_addr.clone()),
-                    ContractName::try_from("bad-trait-contract").unwrap(),
+                    StandardPrincipalData::from(contract_addr),
+                    ContractName::from("bad-trait-contract"),
                 );
                 let contract_principal = PrincipalData::Contract(contract_id.clone());
 
@@ -994,11 +929,7 @@ fn mempool_setup_chainstate() {
                         tx_bytes.len() as u64,
                     )
                     .unwrap_err();
-                assert!(if let MemPoolRejection::BadFunctionArgument(_) = e {
-                    true
-                } else {
-                    false
-                });
+                assert!(matches!(e, MemPoolRejection::BadFunctionArgument(_)));
             }
         },
     );
