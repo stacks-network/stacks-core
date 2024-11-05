@@ -68,6 +68,9 @@ use crate::net::server::HttpPeer;
 use crate::net::{Error as NetError, Neighbor, NeighborAddress, NeighborKey};
 use crate::util_lib::db::{DBConn, Error as DBError};
 
+/// How often to check for unconfirmed tenures
+const CHECK_UNCONFIRMED_TENURES_MS: u128 = 1_000;
+
 /// The overall downloader can operate in one of two states:
 /// * it's doing IBD, in which case it's downloading tenures using neighbor inventories and
 /// the start/end block ID hashes obtained from block-commits.  This works up until the last two
@@ -118,6 +121,10 @@ pub struct NakamotoDownloadStateMachine {
     pub(super) neighbor_rpc: NeighborRPC,
     /// Nakamoto chain tip
     nakamoto_tip: StacksBlockId,
+    /// do we need to fetch unconfirmed tenures?
+    fetch_unconfirmed_tenures: bool,
+    /// last time an unconfirmed tenures was checked
+    last_unconfirmed_download_check_ms: u128,
     /// last time an unconfirmed downloader was run
     last_unconfirmed_download_run_ms: u128,
 }
@@ -139,6 +146,8 @@ impl NakamotoDownloadStateMachine {
             unconfirmed_tenure_downloads: HashMap::new(),
             neighbor_rpc: NeighborRPC::new(),
             nakamoto_tip,
+            fetch_unconfirmed_tenures: false,
+            last_unconfirmed_download_check_ms: 0,
             last_unconfirmed_download_run_ms: 0,
         }
     }
@@ -1218,6 +1227,7 @@ impl NakamotoDownloadStateMachine {
             ) {
                 Ok(blocks_opt) => blocks_opt,
                 Err(NetError::StaleView) => {
+                    neighbor_rpc.add_dead(network, &naddr);
                     continue;
                 }
                 Err(e) => {
@@ -1426,14 +1436,30 @@ impl NakamotoDownloadStateMachine {
         );
 
         // check this now, since we mutate self.available
-        let need_unconfirmed_tenures = Self::need_unconfirmed_tenures(
-            burnchain_height,
-            &network.burnchain_tip,
-            &self.wanted_tenures,
-            self.prev_wanted_tenures.as_ref().unwrap_or(&vec![]),
-            &self.tenure_block_ids,
-            &self.available_tenures,
-        );
+        self.fetch_unconfirmed_tenures = if self
+            .last_unconfirmed_download_check_ms
+            .saturating_add(CHECK_UNCONFIRMED_TENURES_MS)
+            > get_epoch_time_ms()
+        {
+            debug!(
+                "Throttle checking for unconfirmed tenures until {}",
+                self.last_unconfirmed_download_check_ms
+                    .saturating_add(CHECK_UNCONFIRMED_TENURES_MS)
+                    / 1000
+            );
+            false
+        } else {
+            let do_fetch = Self::need_unconfirmed_tenures(
+                burnchain_height,
+                &network.burnchain_tip,
+                &self.wanted_tenures,
+                self.prev_wanted_tenures.as_ref().unwrap_or(&vec![]),
+                &self.tenure_block_ids,
+                &self.available_tenures,
+            );
+            self.last_unconfirmed_download_check_ms = get_epoch_time_ms();
+            do_fetch
+        };
 
         match self.state {
             NakamotoDownloadState::Confirmed => {
@@ -1443,7 +1469,7 @@ impl NakamotoDownloadStateMachine {
                         .expect("FATAL: max_inflight_blocks exceeds usize::MAX"),
                 );
 
-                if self.tenure_downloads.is_empty() && need_unconfirmed_tenures {
+                if self.tenure_downloads.is_empty() && self.fetch_unconfirmed_tenures {
                     debug!(
                         "Transition from {} to {}",
                         &self.state,
@@ -1488,7 +1514,7 @@ impl NakamotoDownloadStateMachine {
                 } else if self.unconfirmed_tenure_downloads.is_empty()
                     && self.unconfirmed_tenure_download_schedule.is_empty()
                 {
-                    if need_unconfirmed_tenures {
+                    if self.fetch_unconfirmed_tenures {
                         // do this again
                         self.unconfirmed_tenure_download_schedule =
                             Self::make_unconfirmed_tenure_download_schedule(
