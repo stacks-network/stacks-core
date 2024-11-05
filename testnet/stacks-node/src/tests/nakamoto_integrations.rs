@@ -6543,10 +6543,10 @@ fn signer_chainstate() {
                 valid: Some(true),
                 signed_over: true,
                 proposed_time: get_epoch_time_secs(),
-                signed_self: None,
-                signed_group: None,
+                signed_self: Some(get_epoch_time_secs()),
+                signed_group: Some(get_epoch_time_secs()),
                 ext: ExtraBlockInfo::None,
-                state: BlockState::Unprocessed,
+                state: BlockState::GloballyAccepted,
             })
             .unwrap();
 

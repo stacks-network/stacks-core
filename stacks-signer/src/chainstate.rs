@@ -482,11 +482,12 @@ impl SortitionsView {
                 if signed_over_time + tenure_last_block_proposal_timeout.as_secs()
                     > get_epoch_time_secs()
                 {
+                    // The last locally accepted block is not timed out, return it
                     return Ok(Some(local_info));
                 }
             }
         }
-
+        // The last locally accepted block is timed out, get the last globally accepted block
         signer_db
             .get_last_globally_accepted_block(consensus_hash)
             .map_err(|e| ClientError::InvalidResponse(e.to_string()))
