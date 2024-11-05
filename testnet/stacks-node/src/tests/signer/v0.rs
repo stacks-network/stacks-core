@@ -5044,7 +5044,7 @@ fn continue_after_fast_block_no_sortition() {
     let send_fee = 180;
     let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new(
         num_signers,
-        vec![(sender_addr.clone(), (send_amt + send_fee) * 5)],
+        vec![(sender_addr, (send_amt + send_fee) * 5)],
     );
     let timeout = Duration::from_secs(200);
     let _coord_channel = signer_test.running_nodes.coord_channel.clone();
@@ -5056,7 +5056,7 @@ fn continue_after_fast_block_no_sortition() {
     let sortdb = burnchain.open_sortition_db(true).unwrap();
 
     let get_burn_height = || {
-        SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn())
+        SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
             .unwrap()
             .block_height
     };
@@ -5093,7 +5093,7 @@ fn continue_after_fast_block_no_sortition() {
     .expect("Timed out waiting for a new block commit");
 
     // Make all signers ignore block proposals
-    let ignoring_signers: Vec<_> = all_signers.iter().cloned().collect();
+    let ignoring_signers = all_signers.to_vec();
     TEST_REJECT_ALL_BLOCK_PROPOSAL
         .lock()
         .unwrap()
@@ -5126,7 +5126,7 @@ fn continue_after_fast_block_no_sortition() {
     .unwrap();
 
     // assure we have a sortition
-    let tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn()).unwrap();
+    let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
     assert!(tip.sortition);
 
     let burn_height_before = signer_test
