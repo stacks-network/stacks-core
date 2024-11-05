@@ -1418,16 +1418,19 @@ impl NakamotoDownloadStateMachine {
         chainstate: &StacksChainState,
         ibd: bool,
     ) -> HashMap<ConsensusHash, Vec<NakamotoBlock>> {
-        debug!("NakamotoDownloadStateMachine in state {}", &self.state);
-        let Some(invs) = network.inv_state_nakamoto.as_ref() else {
-            // nothing to do
-            debug!("No network inventories");
-            return HashMap::new();
-        };
         debug!(
             "run_downloads: burnchain_height={}, network.burnchain_tip.block_height={}, state={}",
-            burnchain_height, network.burnchain_tip.block_height, &self.state
+            burnchain_height, network.burnchain_tip.block_height, &self.state;
+            "has_network_inventories" => network.inv_state_nakamoto.is_some(),
+            "next_unconfirmed_check" => self.last_unconfirmed_download_check_ms.saturating_add(CHECK_UNCONFIRMED_TENURES_MS) / 1000,
+            "timestamp_ms" => get_epoch_time_ms(),
         );
+
+        let Some(invs) = network.inv_state_nakamoto.as_ref() else {
+            // nothing to do
+            return HashMap::new();
+        };
+
         self.update_available_tenures(
             &invs.inventories,
             &sortdb.pox_constants,
@@ -1441,12 +1444,6 @@ impl NakamotoDownloadStateMachine {
             .saturating_add(CHECK_UNCONFIRMED_TENURES_MS)
             > get_epoch_time_ms()
         {
-            debug!(
-                "Throttle checking for unconfirmed tenures until {}",
-                self.last_unconfirmed_download_check_ms
-                    .saturating_add(CHECK_UNCONFIRMED_TENURES_MS)
-                    / 1000
-            );
             false
         } else {
             let do_fetch = Self::need_unconfirmed_tenures(

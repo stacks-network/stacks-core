@@ -5284,7 +5284,7 @@ mod test {
             network_id: 0x9abcdef0,
             chain_name: "bitcoin".to_string(),
             network_name: "testnet".to_string(),
-            working_dir: "/nope".to_string(),
+            working_dir: ":memory:".to_string(),
             consensus_hash_lifetime: 24,
             stable_confirmations: 7,
             initial_reward_start_block: 50,
@@ -5315,7 +5315,7 @@ mod test {
         let atlas_config = AtlasConfig::new(false);
         let atlasdb = AtlasDB::connect_memory(atlas_config).unwrap();
         let stacker_db = StackerDBs::connect_memory();
-        let burnchain_db = burnchain.open_burnchain_db(false).unwrap();
+        let burnchain_db = BurnchainDB::connect(":memory:", &burnchain, true).unwrap();
 
         let local_peer = PeerDB::get_local_peer(db.conn()).unwrap();
         let p2p = PeerNetwork::new(
