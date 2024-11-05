@@ -1585,16 +1585,10 @@ impl NetworkResult {
                             })
                             .collect::<HashSet<_>>()
                     })
-                    .collect::<Vec<HashSet<_>>>()
+                    .flatten()
             })
-            .collect::<Vec<Vec<HashSet<_>>>>()
-            .into_iter()
             .flatten()
-            .into_iter()
-            .fold(HashSet::new(), |mut acc, next| {
-                acc.extend(next.into_iter());
-                acc
-            });
+            .collect();
 
         let uploaded_blocks: HashSet<_> = self
             .uploaded_blocks
@@ -1604,14 +1598,9 @@ impl NetworkResult {
                     .blocks
                     .iter()
                     .map(|blk| StacksBlockId::new(&blk.0, &blk.1.block_hash()))
-                    .collect::<HashSet<_>>()
             })
-            .collect::<Vec<HashSet<_>>>()
-            .into_iter()
-            .fold(HashSet::new(), |mut acc, next| {
-                acc.extend(next.into_iter());
-                acc
-            });
+            .flatten()
+            .collect();
 
         blocks.extend(pushed_blocks.into_iter());
         blocks.extend(uploaded_blocks.into_iter());
@@ -1623,18 +1612,9 @@ impl NetworkResult {
         let mut mblocks: HashSet<_> = self
             .confirmed_microblocks
             .iter()
-            .map(|(_, mblocks, _)| {
-                mblocks
-                    .iter()
-                    .map(|mblk| mblk.block_hash())
-                    .collect::<HashSet<_>>()
-            })
-            .collect::<Vec<HashSet<_>>>()
-            .into_iter()
-            .fold(HashSet::new(), |mut acc, next| {
-                acc.extend(next.into_iter());
-                acc
-            });
+            .map(|(_, mblocks, _)| mblocks.iter().map(|mblk| mblk.block_hash()))
+            .flatten()
+            .collect();
 
         let pushed_microblocks: HashSet<_> = self
             .pushed_microblocks
@@ -1647,35 +1627,18 @@ impl NetworkResult {
                             .microblocks
                             .iter()
                             .map(|mblock| mblock.block_hash())
-                            .collect::<HashSet<_>>()
                     })
-                    .collect::<Vec<HashSet<_>>>()
+                    .flatten()
             })
-            .collect::<Vec<Vec<HashSet<_>>>>()
-            .into_iter()
             .flatten()
-            .into_iter()
-            .fold(HashSet::new(), |mut acc, next| {
-                acc.extend(next.into_iter());
-                acc
-            });
+            .collect();
 
         let uploaded_microblocks: HashSet<_> = self
             .uploaded_microblocks
             .iter()
-            .map(|mblk_data| {
-                mblk_data
-                    .microblocks
-                    .iter()
-                    .map(|mblk| mblk.block_hash())
-                    .collect::<HashSet<_>>()
-            })
-            .collect::<Vec<HashSet<_>>>()
-            .into_iter()
-            .fold(HashSet::new(), |mut acc, next| {
-                acc.extend(next.into_iter());
-                acc
-            });
+            .map(|mblk_data| mblk_data.microblocks.iter().map(|mblk| mblk.block_hash()))
+            .flatten()
+            .collect();
 
         mblocks.extend(pushed_microblocks.into_iter());
         mblocks.extend(uploaded_microblocks.into_iter());
