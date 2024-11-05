@@ -19,10 +19,9 @@ use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
 use blockstack_lib::chainstate::stacks::TenureChangePayload;
 use blockstack_lib::net::api::getsortition::SortitionInfo;
 use blockstack_lib::util_lib::db::Error as DBError;
-use clarity::types::chainstate::BurnchainHeaderHash;
-use clarity::util::get_epoch_time_secs;
 use slog::{slog_info, slog_warn};
-use stacks_common::types::chainstate::{ConsensusHash, StacksPublicKey};
+use stacks_common::types::chainstate::{BurnchainHeaderHash, ConsensusHash, StacksPublicKey};
+use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::Hash160;
 use stacks_common::{info, warn};
 
