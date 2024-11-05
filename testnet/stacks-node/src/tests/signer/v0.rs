@@ -5023,7 +5023,9 @@ fn miner_recovers_when_broadcast_block_delay_across_tenures_occurs() {
 /// Miner 1 wins the first Nakamoto tenure A. Miner 1 mines a regular stacks block N.
 /// Miner 2 wins the second Nakamoto tenure B and proposes block N+1, but it is rejected by the signers.
 /// An empty burn block is mined
-/// Miner 2 wins the third Nakamoto tenure C. Miner 2 proposes a block N+1' which all signers accept.
+/// TODO: which behaviour do we want to enforce? Should we allow both? If so, we should force both explicitly
+/// Miner 1 should issue a tenure extend and propose block N+1' which is accepted by the signers OR
+/// Miner 2 should issue a new TenureChangePayload followed by a TenureExtend.
 /// Asserts:
 /// - The stacks tip advances to N+1'
 #[test]
@@ -5034,11 +5036,13 @@ fn continue_after_fast_block_no_sortition() {
     }
 
     let num_signers = 5;
+    let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let sender_sk = Secp256k1PrivateKey::new();
     let sender_addr = tests::to_addr(&sender_sk);
     let send_amt = 100;
     let send_fee = 180;
-    let num_txs = 5;
+    let num_txs = 1;
+    let sender_nonce = 0;
 
     let btc_miner_1_seed = vec![1, 1, 1, 1];
     let btc_miner_2_seed = vec![2, 2, 2, 2];
@@ -5129,6 +5133,7 @@ fn continue_after_fast_block_no_sortition() {
         conf.burnchain.chain_id,
         conf.burnchain.peer_version,
     );
+    let http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
 
     let mut run_loop_2 = boot_nakamoto::BootRunLoop::new(conf_node_2.clone()).unwrap();
     let run_loop_stopper_2 = run_loop_2.get_termination_switch();
@@ -5145,6 +5150,7 @@ fn continue_after_fast_block_no_sortition() {
 
     info!("------------------------- Pause Miner 2's Block Commits -------------------------");
 
+    // Make sure Miner 2 cannot win a sortition at first.
     rl2_skip_commit_op.set(true);
     let run_loop_2_thread = thread::Builder::new()
         .name("run_loop_2".into())
@@ -5185,15 +5191,22 @@ fn continue_after_fast_block_no_sortition() {
 
     info!("------------------------- Miner 1 Mines a Normal Tenure A -------------------------");
     let blocks_processed_before_1 = blocks_mined1.load(Ordering::SeqCst);
-    let commits_before_1 = rl1_commits.load(Ordering::SeqCst);
+    info!("------------------------- Pause Miner 1's Block Commit -------------------------");
+    // Make sure miner 1 doesn't submit a block commit for the next tenure BEFORE mining the bitcoin block
+    signer_test
+        .running_nodes
+        .nakamoto_test_skip_commit_op
+        .set(true);
 
-    next_block_and(
-        &mut signer_test.running_nodes.btc_regtest_controller,
-        60,
-        || Ok(rl1_commits.load(Ordering::SeqCst) > commits_before_1),
-    )
-    .unwrap();
+    signer_test
+        .running_nodes
+        .btc_regtest_controller
+        .build_next_block(1);
     btc_blocks_mined += 1;
+
+    // assure we have a sortition
+    let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+    assert!(tip.sortition);
 
     // wait for the new block to be processed
     wait_for(60, || {
@@ -5212,6 +5225,7 @@ fn continue_after_fast_block_no_sortition() {
         .expect("Failed to get peer info")
         .stacks_tip_height;
 
+    info!("------------------------- Make Signers Reject All Subsequent Proposals -------------------------");
     // Make all signers ignore block proposals
     let ignoring_signers = all_signers.to_vec();
     TEST_REJECT_ALL_BLOCK_PROPOSAL
@@ -5219,21 +5233,27 @@ fn continue_after_fast_block_no_sortition() {
         .unwrap()
         .replace(ignoring_signers.clone());
 
-    // Make sure miner 1 doesn't submit a block commit for the next tenure
-    signer_test
-        .running_nodes
-        .nakamoto_test_skip_commit_op
-        .set(true);
-
+    info!("------------------------- Unpause Miner 2's Block Commits -------------------------");
     let rejections_before = signer_test
         .running_nodes
         .nakamoto_blocks_rejected
         .load(Ordering::SeqCst);
 
+    let rl2_commits_before = rl2_commits.load(Ordering::SeqCst);
     // Unpause miner 2's block commits
     rl2_skip_commit_op.set(false);
 
-    // Mine a new burn block
+    info!("------------------------- Wait for Miner 2's Block Commit Submission -------------------------");
+    // Ensure the miner 2 submits a block commit before mining the bitcoin block
+    wait_for(30, || {
+        Ok(rl2_commits.load(Ordering::SeqCst) > rl2_commits_before)
+    })
+    .unwrap();
+
+    // Make miner 2 also fail to submit any FURTHER block commits
+    info!("------------------------- Pause Miner 2's Block Commits -------------------------");
+    rl2_skip_commit_op.set(true);
+
     let burn_height_before = get_burn_height();
     info!("------------------------- Miner 2 Mines an Empty Tenure B -------------------------";
         "burn_height_before" => burn_height_before,
@@ -5253,20 +5273,29 @@ fn continue_after_fast_block_no_sortition() {
     assert!(tip.sortition);
 
     info!("----- Waiting for block rejections -----");
-    let min_rejections = (num_signers as u64) * 4 / 10;
+    let min_rejections = num_signers * 4 / 10;
     // Wait until we have some block rejections
     wait_for(30, || {
-        let rejections = signer_test
-            .running_nodes
-            .nakamoto_blocks_rejected
-            .load(Ordering::SeqCst);
-        let rejections_diff = rejections - rejections_before;
-        Ok(rejections_diff >= min_rejections)
+        std::thread::sleep(Duration::from_secs(1));
+        let chunks = test_observer::get_stackerdb_chunks();
+        let rejections: Vec<_> = chunks
+            .into_iter()
+            .flat_map(|chunk| chunk.modified_slots)
+            .filter(|chunk| {
+                let Ok(message) = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
+                else {
+                    return false;
+                };
+                matches!(
+                    message,
+                    SignerMessage::BlockResponse(BlockResponse::Rejected(_))
+                )
+            })
+            .collect();
+        Ok(rejections.len() >= min_rejections)
     })
     .expect("Timed out waiting for block rejections");
 
-    // Make miner 2 also fail to submit commits
-    rl2_skip_commit_op.set(true);
     // Miner another block and ensure there is _no_ sortition
     info!("------------------------- Mine Burn Block with No Sortition -------------------------");
     let blocks_processed_before_1 = blocks_mined1.load(Ordering::SeqCst);
@@ -5294,6 +5323,10 @@ fn continue_after_fast_block_no_sortition() {
         blocks_processed_before_2
     );
 
+    // assure we have NO sortition
+    let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+    assert!(!tip.sortition);
+
     // Verify that no Stacks blocks have been mined (signers are ignoring) and no commits have been submitted by either miner
     let stacks_height = signer_test
         .stacks_client
@@ -5303,56 +5336,32 @@ fn continue_after_fast_block_no_sortition() {
     assert_eq!(stacks_height, stacks_height_before);
     let stacks_height_before = stacks_height;
 
-    info!(
-        "------------------------- Miner 2 Attempts to Mine a Tenure C -------------------------"
-    );
-
     let blocks_processed_before_2 = blocks_mined2.load(Ordering::SeqCst);
-    let burn_height_before = get_burn_height();
-    let commits_before_2 = rl2_commits.load(Ordering::SeqCst);
-
     info!("----- Enabling signers to approve proposals -----";
         "stacks_height" => stacks_height_before,
     );
+
+    let nmb_old_blocks = test_observer::get_blocks().len();
     // Allow signers to respond to proposals again
     TEST_REJECT_ALL_BLOCK_PROPOSAL
         .lock()
         .unwrap()
         .replace(Vec::new());
 
-    // Unpause miner 2's block commits
-    rl2_skip_commit_op.set(false);
+    // submit a tx so that the miner will mine an extra block just in case due to timing constraints, the first block with the tenure extend was
+    // rejected already by the signers
+    let transfer_tx = make_stacks_transfer(
+        &sender_sk,
+        sender_nonce,
+        send_fee,
+        signer_test.running_nodes.conf.burnchain.chain_id,
+        &recipient,
+        send_amt,
+    );
+    submit_tx(&http_origin, &transfer_tx);
 
-    // TODO: can combine the following three wait_for and also the next_block_and once fixed
-    next_block_and(
-        &mut signer_test.running_nodes.btc_regtest_controller,
-        60,
-        || Ok(rl2_commits.load(Ordering::SeqCst) > commits_before_2),
-    )
-    .unwrap();
-    btc_blocks_mined += 1;
-
-    wait_for(30, || Ok(get_burn_height() > burn_height_before)).unwrap();
-
-    // TODO DELETE THIS
-    let blocks = test_observer::get_blocks();
-    // Debug the last 4 blocks
-    let blocks = blocks.iter().rev().take(4).rev().collect::<Vec<_>>();
-    for block in blocks {
-        println!("\n\n");
-        info!("Block: {}", serde_json::to_string_pretty(&block).unwrap());
-        let transactions = block.get("transactions").unwrap().as_array().unwrap();
-        for tx in transactions.iter().rev() {
-            let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
-            if raw_tx != "0x00" {
-                let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
-                let parsed =
-                    StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
-                info!("Tx: {}", serde_json::to_string_pretty(&parsed).unwrap());
-            }
-        }
-    }
-
+    // TODO: combine these wait fors once fixed code
+    // wait for the new block to be processed
     wait_for(30, || {
         Ok(blocks_mined2.load(Ordering::SeqCst) > blocks_processed_before_2)
     })
@@ -5368,14 +5377,37 @@ fn continue_after_fast_block_no_sortition() {
     })
     .expect("Expected a new Stacks block to be mined");
 
+    wait_for(
+        30,
+        || Ok(test_observer::get_blocks().len() > nmb_old_blocks),
+    )
+    .expect("Timed out waiting for test observer to see new block");
+
+    let blocks = test_observer::get_blocks();
+    let tenure_extend_block = if nmb_old_blocks + 1 == test_observer::get_blocks().len() {
+        blocks.last().unwrap()
+    } else {
+        &blocks[blocks.len() - 2]
+    };
+    let transactions = tenure_extend_block["transactions"].as_array().unwrap();
+    let tx = transactions.first().expect("No transactions in block");
+    let raw_tx = tx["raw_tx"].as_str().unwrap();
+    let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
+    let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
+    match &parsed.payload {
+        TransactionPayload::TenureChange(payload)
+            if payload.cause == TenureChangeCause::Extended => {}
+        _ => panic!("Expected tenure extend transaction, got {parsed:?}"),
+    };
+
     let peer_info = signer_test
         .stacks_client
         .get_peer_info()
         .expect("Failed to get peer info");
 
     assert_eq!(get_burn_height(), starting_burn_height + btc_blocks_mined);
-    // We only successfully mine 2 stacks block in this test
-    assert_eq!(peer_info.stacks_tip_height, starting_peer_height + 2);
+    // We successfully mine at least 2 stacks block in this test
+    assert!(peer_info.stacks_tip_height >= starting_peer_height + 2);
     rl2_coord_channels
         .lock()
         .expect("Mutex poisoned")
