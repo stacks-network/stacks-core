@@ -5019,10 +5019,13 @@ fn miner_recovers_when_broadcast_block_delay_across_tenures_occurs() {
 }
 
 /// Test a scenario where:
-/// We have one miner. During block A, there is a sortition and a TenureChange.
-/// Block B is mined, but it does not contain a TenureChange (ie because a
-/// new burn block was mined too quickly).
-/// Then block C occurs, which does not have a sortition.
+/// Two miners boot to Nakamoto.
+/// Miner 1 wins the first Nakamoto tenure A. Miner 1 mines a regular stacks block N.
+/// Miner 2 wins the second Nakamoto tenure B and proposes block N+1, but it is rejected by the signers.
+/// An empty burn block is mined
+/// Miner 2 wins the third Nakamoto tenure C. Miner 2 proposes a block N+1' which all signers accept.
+/// Asserts:
+/// - The stacks tip advances to N+1'
 #[test]
 #[ignore]
 fn continue_after_fast_block_no_sortition() {
