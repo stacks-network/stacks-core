@@ -65,7 +65,7 @@ impl StacksChainConfig {
                 .unwrap(),
             first_burn_header_timestamp: BITCOIN_MAINNET_FIRST_BLOCK_TIMESTAMP.into(),
             pox_constants: PoxConstants::mainnet_default(),
-            epochs: EpochList::new(&*STACKS_EPOCHS_MAINNET),
+            epochs: (*STACKS_EPOCHS_MAINNET).clone(),
         }
     }
 }

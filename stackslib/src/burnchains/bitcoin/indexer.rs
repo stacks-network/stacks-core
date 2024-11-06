@@ -92,11 +92,11 @@ impl TryFrom<u32> for BitcoinNetworkType {
 /// Should *not* be used except by the BitcoinIndexer when no epochs vector
 /// was specified.
 pub fn get_bitcoin_stacks_epochs(network_id: BitcoinNetworkType) -> EpochList {
-    EpochList::new(match network_id {
-        BitcoinNetworkType::Mainnet => &*STACKS_EPOCHS_MAINNET,
-        BitcoinNetworkType::Testnet => &*STACKS_EPOCHS_TESTNET,
-        BitcoinNetworkType::Regtest => &*STACKS_EPOCHS_REGTEST,
-    })
+    match network_id {
+        BitcoinNetworkType::Mainnet => (*STACKS_EPOCHS_MAINNET).clone(),
+        BitcoinNetworkType::Testnet => (*STACKS_EPOCHS_TESTNET).clone(),
+        BitcoinNetworkType::Regtest => (*STACKS_EPOCHS_REGTEST).clone(),
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

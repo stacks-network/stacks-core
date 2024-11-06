@@ -10931,10 +10931,9 @@ pub mod tests {
 
         fs::create_dir_all(path_root).unwrap();
 
-        let mut bad_epochs = STACKS_EPOCHS_MAINNET.to_vec();
-        let idx = bad_epochs.len() - 2;
-        bad_epochs[idx].end_height += 1;
-        bad_epochs[idx + 1].start_height += 1;
+        let mut bad_epochs = (*STACKS_EPOCHS_MAINNET).clone();
+        bad_epochs[StacksEpochId::Epoch25].end_height += 1;
+        bad_epochs[StacksEpochId::Epoch30].start_height += 1;
 
         let sortdb = SortitionDB::connect(
             &format!("{}/sortdb.sqlite", &path_root),
@@ -10949,14 +10948,14 @@ pub mod tests {
         .unwrap();
 
         let db_epochs = SortitionDB::get_stacks_epochs(sortdb.conn()).unwrap();
-        assert_eq!(db_epochs, bad_epochs);
+        assert_eq!(db_epochs, bad_epochs.to_vec());
 
         let fixed_sortdb = SortitionDB::connect(
             &format!("{}/sortdb.sqlite", &path_root),
             0,
             &BurnchainHeaderHash([0x00; 32]),
             0,
-            &STACKS_EPOCHS_MAINNET.to_vec(),
+            &STACKS_EPOCHS_MAINNET,
             PoxConstants::mainnet_default(),
             None,
             true,

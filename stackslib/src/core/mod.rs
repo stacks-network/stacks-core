@@ -238,7 +238,7 @@ pub fn check_fault_injection(fault_name: &str) -> bool {
 }
 
 lazy_static! {
-    pub static ref STACKS_EPOCHS_MAINNET: [StacksEpoch; 9] = [
+    pub static ref STACKS_EPOCHS_MAINNET: EpochList = EpochList::new(&[
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch10,
             start_height: 0,
@@ -302,11 +302,11 @@ lazy_static! {
             block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
             network_epoch: PEER_VERSION_EPOCH_3_0
         },
-    ];
+    ]);
 }
 
 lazy_static! {
-    pub static ref STACKS_EPOCHS_TESTNET: [StacksEpoch; 9] = [
+    pub static ref STACKS_EPOCHS_TESTNET: EpochList = EpochList::new(&[
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch10,
             start_height: 0,
@@ -370,11 +370,11 @@ lazy_static! {
             block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
             network_epoch: PEER_VERSION_EPOCH_3_0
         },
-    ];
+    ]);
 }
 
 lazy_static! {
-    pub static ref STACKS_EPOCHS_REGTEST: [StacksEpoch; 9] = [
+    pub static ref STACKS_EPOCHS_REGTEST: EpochList = EpochList::new(&[
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch10,
             start_height: 0,
@@ -438,7 +438,7 @@ lazy_static! {
             block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
             network_epoch: PEER_VERSION_EPOCH_3_0
         },
-    ];
+    ]);
 }
 
 /// Stacks 2.05 epoch marker.  All block-commits in 2.05 must have a memo bitfield with this value
@@ -471,51 +471,183 @@ pub static STACKS_EPOCH_3_0_MARKER: u8 = 0x0b;
 
 #[test]
 fn test_ord_for_stacks_epoch() {
-    let epochs = STACKS_EPOCHS_MAINNET.clone();
-    assert_eq!(epochs[0].cmp(&epochs[1]), Ordering::Less);
-    assert_eq!(epochs[1].cmp(&epochs[2]), Ordering::Less);
-    assert_eq!(epochs[0].cmp(&epochs[2]), Ordering::Less);
-    assert_eq!(epochs[0].cmp(&epochs[0]), Ordering::Equal);
-    assert_eq!(epochs[1].cmp(&epochs[1]), Ordering::Equal);
-    assert_eq!(epochs[2].cmp(&epochs[2]), Ordering::Equal);
-    assert_eq!(epochs[3].cmp(&epochs[3]), Ordering::Equal);
-    assert_eq!(epochs[4].cmp(&epochs[4]), Ordering::Equal);
-    assert_eq!(epochs[2].cmp(&epochs[0]), Ordering::Greater);
-    assert_eq!(epochs[2].cmp(&epochs[1]), Ordering::Greater);
-    assert_eq!(epochs[1].cmp(&epochs[0]), Ordering::Greater);
-    assert_eq!(epochs[3].cmp(&epochs[0]), Ordering::Greater);
-    assert_eq!(epochs[3].cmp(&epochs[1]), Ordering::Greater);
-    assert_eq!(epochs[3].cmp(&epochs[2]), Ordering::Greater);
-    assert_eq!(epochs[4].cmp(&epochs[0]), Ordering::Greater);
-    assert_eq!(epochs[4].cmp(&epochs[1]), Ordering::Greater);
-    assert_eq!(epochs[4].cmp(&epochs[2]), Ordering::Greater);
-    assert_eq!(epochs[4].cmp(&epochs[3]), Ordering::Greater);
-    assert_eq!(epochs[5].cmp(&epochs[0]), Ordering::Greater);
-    assert_eq!(epochs[5].cmp(&epochs[1]), Ordering::Greater);
-    assert_eq!(epochs[5].cmp(&epochs[2]), Ordering::Greater);
-    assert_eq!(epochs[5].cmp(&epochs[3]), Ordering::Greater);
-    assert_eq!(epochs[5].cmp(&epochs[4]), Ordering::Greater);
-    assert_eq!(epochs[6].cmp(&epochs[0]), Ordering::Greater);
-    assert_eq!(epochs[6].cmp(&epochs[1]), Ordering::Greater);
-    assert_eq!(epochs[6].cmp(&epochs[2]), Ordering::Greater);
-    assert_eq!(epochs[6].cmp(&epochs[3]), Ordering::Greater);
-    assert_eq!(epochs[6].cmp(&epochs[4]), Ordering::Greater);
-    assert_eq!(epochs[6].cmp(&epochs[5]), Ordering::Greater);
-    assert_eq!(epochs[7].cmp(&epochs[0]), Ordering::Greater);
-    assert_eq!(epochs[7].cmp(&epochs[1]), Ordering::Greater);
-    assert_eq!(epochs[7].cmp(&epochs[2]), Ordering::Greater);
-    assert_eq!(epochs[7].cmp(&epochs[3]), Ordering::Greater);
-    assert_eq!(epochs[7].cmp(&epochs[4]), Ordering::Greater);
-    assert_eq!(epochs[7].cmp(&epochs[5]), Ordering::Greater);
-    assert_eq!(epochs[7].cmp(&epochs[6]), Ordering::Greater);
-    assert_eq!(epochs[8].cmp(&epochs[0]), Ordering::Greater);
-    assert_eq!(epochs[8].cmp(&epochs[1]), Ordering::Greater);
-    assert_eq!(epochs[8].cmp(&epochs[2]), Ordering::Greater);
-    assert_eq!(epochs[8].cmp(&epochs[3]), Ordering::Greater);
-    assert_eq!(epochs[8].cmp(&epochs[4]), Ordering::Greater);
-    assert_eq!(epochs[8].cmp(&epochs[5]), Ordering::Greater);
-    assert_eq!(epochs[8].cmp(&epochs[6]), Ordering::Greater);
-    assert_eq!(epochs[8].cmp(&epochs[7]), Ordering::Greater);
+    let epochs = &*STACKS_EPOCHS_MAINNET;
+    assert_eq!(
+        epochs[StacksEpochId::Epoch10].cmp(&epochs[StacksEpochId::Epoch20]),
+        Ordering::Less
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch20].cmp(&epochs[StacksEpochId::Epoch2_05]),
+        Ordering::Less
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch10].cmp(&epochs[StacksEpochId::Epoch2_05]),
+        Ordering::Less
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch10].cmp(&epochs[StacksEpochId::Epoch10]),
+        Ordering::Equal
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch20].cmp(&epochs[StacksEpochId::Epoch20]),
+        Ordering::Equal
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch2_05].cmp(&epochs[StacksEpochId::Epoch2_05]),
+        Ordering::Equal
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch21].cmp(&epochs[StacksEpochId::Epoch21]),
+        Ordering::Equal
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch22].cmp(&epochs[StacksEpochId::Epoch22]),
+        Ordering::Equal
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch2_05].cmp(&epochs[StacksEpochId::Epoch10]),
+        Ordering::Greater
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch2_05].cmp(&epochs[StacksEpochId::Epoch20]),
+        Ordering::Greater
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch20].cmp(&epochs[StacksEpochId::Epoch10]),
+        Ordering::Greater
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch21].cmp(&epochs[StacksEpochId::Epoch10]),
+        Ordering::Greater
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch21].cmp(&epochs[StacksEpochId::Epoch20]),
+        Ordering::Greater
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch21].cmp(&epochs[StacksEpochId::Epoch2_05]),
+        Ordering::Greater
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch22].cmp(&epochs[StacksEpochId::Epoch10]),
+        Ordering::Greater
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch22].cmp(&epochs[StacksEpochId::Epoch20]),
+        Ordering::Greater
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch22].cmp(&epochs[StacksEpochId::Epoch2_05]),
+        Ordering::Greater
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch22].cmp(&epochs[StacksEpochId::Epoch21]),
+        Ordering::Greater
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch23].cmp(&epochs[StacksEpochId::Epoch10]),
+        Ordering::Greater
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch23].cmp(&epochs[StacksEpochId::Epoch20]),
+        Ordering::Greater
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch23].cmp(&epochs[StacksEpochId::Epoch2_05]),
+        Ordering::Greater
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch23].cmp(&epochs[StacksEpochId::Epoch21]),
+        Ordering::Greater
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch23].cmp(&epochs[StacksEpochId::Epoch22]),
+        Ordering::Greater
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch24].cmp(&epochs[StacksEpochId::Epoch10]),
+        Ordering::Greater
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch24].cmp(&epochs[StacksEpochId::Epoch20]),
+        Ordering::Greater
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch24].cmp(&epochs[StacksEpochId::Epoch2_05]),
+        Ordering::Greater
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch24].cmp(&epochs[StacksEpochId::Epoch21]),
+        Ordering::Greater
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch24].cmp(&epochs[StacksEpochId::Epoch22]),
+        Ordering::Greater
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch24].cmp(&epochs[StacksEpochId::Epoch23]),
+        Ordering::Greater
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch25].cmp(&epochs[StacksEpochId::Epoch10]),
+        Ordering::Greater
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch25].cmp(&epochs[StacksEpochId::Epoch20]),
+        Ordering::Greater
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch25].cmp(&epochs[StacksEpochId::Epoch2_05]),
+        Ordering::Greater
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch25].cmp(&epochs[StacksEpochId::Epoch21]),
+        Ordering::Greater
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch25].cmp(&epochs[StacksEpochId::Epoch22]),
+        Ordering::Greater
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch25].cmp(&epochs[StacksEpochId::Epoch23]),
+        Ordering::Greater
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch25].cmp(&epochs[StacksEpochId::Epoch24]),
+        Ordering::Greater
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch30].cmp(&epochs[StacksEpochId::Epoch10]),
+        Ordering::Greater
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch30].cmp(&epochs[StacksEpochId::Epoch20]),
+        Ordering::Greater
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch30].cmp(&epochs[StacksEpochId::Epoch2_05]),
+        Ordering::Greater
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch30].cmp(&epochs[StacksEpochId::Epoch21]),
+        Ordering::Greater
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch30].cmp(&epochs[StacksEpochId::Epoch22]),
+        Ordering::Greater
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch30].cmp(&epochs[StacksEpochId::Epoch23]),
+        Ordering::Greater
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch30].cmp(&epochs[StacksEpochId::Epoch24]),
+        Ordering::Greater
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch30].cmp(&epochs[StacksEpochId::Epoch25]),
+        Ordering::Greater
+    );
 }
 
 #[test]

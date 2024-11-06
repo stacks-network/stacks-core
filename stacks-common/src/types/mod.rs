@@ -489,22 +489,12 @@ impl<L: Clone> EpochList<L> {
 
     /// Determine which epoch, if any, a given burnchain height falls into.
     pub fn epoch_id_at_height(&self, height: u64) -> Option<StacksEpochId> {
-        for epoch in self.0.iter() {
-            if epoch.start_height <= height && height < epoch.end_height {
-                return Some(epoch.epoch_id);
-            }
-        }
-        None
+        StacksEpoch::find_epoch(self, height).map(|idx| self.0[idx].epoch_id)
     }
 
     /// Determine which epoch, if any, a given burnchain height falls into.
     pub fn epoch_at_height(&self, height: u64) -> Option<StacksEpoch<L>> {
-        for epoch in self.0.iter() {
-            if epoch.start_height <= height && height < epoch.end_height {
-                return Some(epoch.clone());
-            }
-        }
-        None
+        StacksEpoch::find_epoch(self, height).map(|idx| self.0[idx].clone())
     }
 
     /// Pushes a new `StacksEpoch` to the end of the list
@@ -516,6 +506,10 @@ impl<L: Clone> EpochList<L> {
             );
         }
         self.0.push(epoch);
+    }
+
+    pub fn to_vec(&self) -> Vec<StacksEpoch<L>> {
+        self.0.clone()
     }
 }
 
