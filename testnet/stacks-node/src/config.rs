@@ -87,7 +87,9 @@ pub const OP_TX_ANY_ESTIM_SIZE: u64 = fmax!(
 const DEFAULT_MAX_RBF_RATE: u64 = 150; // 1.5x
 const DEFAULT_RBF_FEE_RATE_INCREMENT: u64 = 5;
 const INV_REWARD_CYCLES_TESTNET: u64 = 6;
-const DEFAULT_MIN_TIME_BETWEEN_BLOCKS_MS: u64 = 1000;
+const DEFAULT_MIN_TIME_BETWEEN_BLOCKS_MS: u64 = 1_000;
+const DEFAULT_FIRST_REJECTION_PAUSE_MS: u64 = 5_000;
+const DEFAULT_SUBSEQUENT_REJECTION_PAUSE_MS: u64 = 10_000;
 
 #[derive(Clone, Deserialize, Default, Debug)]
 #[serde(deny_unknown_fields)]
@@ -113,6 +115,7 @@ impl ConfigFile {
         Ok(f)
     }
 
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(content: &str) -> Result<ConfigFile, String> {
         let mut config: ConfigFile =
             toml::from_str(content).map_err(|e| format!("Invalid toml: {}", e))?;
@@ -366,7 +369,7 @@ impl Config {
         let Ok(config) = Config::from_config_file(config_file, false) else {
             return self.miner.clone();
         };
-        return config.miner;
+        config.miner
     }
 
     pub fn get_node_config(&self, resolve_bootstrap_nodes: bool) -> NodeConfig {
@@ -379,7 +382,7 @@ impl Config {
         let Ok(config) = Config::from_config_file(config_file, resolve_bootstrap_nodes) else {
             return self.node.clone();
         };
-        return config.node;
+        config.node
     }
 
     /// Apply any test settings to this burnchain config struct
@@ -410,7 +413,7 @@ impl Config {
                 "Override first_burn_block_hash from {} to {}",
                 burnchain.first_block_hash, first_burn_block_hash
             );
-            burnchain.first_block_hash = BurnchainHeaderHash::from_hex(&first_burn_block_hash)
+            burnchain.first_block_hash = BurnchainHeaderHash::from_hex(first_burn_block_hash)
                 .expect("Invalid first_burn_block_hash");
         }
 
@@ -506,7 +509,7 @@ impl Config {
         }
 
         // check if the Epoch 3.0 burnchain settings as configured are going to be valid.
-        self.check_nakamoto_config(&burnchain);
+        self.check_nakamoto_config(burnchain);
     }
 
     fn check_nakamoto_config(&self, burnchain: &Burnchain) {
@@ -591,7 +594,7 @@ impl Config {
         let _ = StacksEpoch::validate_epochs(epochs);
 
         // sanity check: v1_unlock_height must happen after pox-2 instantiation
-        let epoch21_index = StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch21)
+        let epoch21_index = StacksEpoch::find_epoch_by_id(epochs, StacksEpochId::Epoch21)
             .expect("FATAL: no epoch 2.1 defined");
         let epoch21 = &epochs[epoch21_index];
         let v1_unlock_height = burnchain.pox_constants.v1_unlock_height as u64;
@@ -788,7 +791,7 @@ impl Config {
         }
 
         if burnchain.mode == "helium" && burnchain.local_mining_public_key.is_none() {
-            return Err(format!("Config is missing the setting `burnchain.local_mining_public_key` (mandatory for helium)"));
+            return Err("Config is missing the setting `burnchain.local_mining_public_key` (mandatory for helium)".into());
         }
 
         let is_mainnet = burnchain.mode == "mainnet";
@@ -812,27 +815,17 @@ impl Config {
                     burnchain.peer_version,
                 );
             }
-        } else {
-            if is_mainnet && resolve_bootstrap_nodes {
-                let bootstrap_node = ConfigFile::mainnet().node.unwrap().bootstrap_node.unwrap();
-                node.set_bootstrap_nodes(
-                    bootstrap_node,
-                    burnchain.chain_id,
-                    burnchain.peer_version,
-                );
-            }
+        } else if is_mainnet && resolve_bootstrap_nodes {
+            let bootstrap_node = ConfigFile::mainnet().node.unwrap().bootstrap_node.unwrap();
+            node.set_bootstrap_nodes(bootstrap_node, burnchain.chain_id, burnchain.peer_version);
         }
         if let Some(deny_nodes) = deny_nodes {
             node.set_deny_nodes(deny_nodes, burnchain.chain_id, burnchain.peer_version);
         }
 
         // Validate the node config
-        if is_mainnet {
-            if node.use_test_genesis_chainstate == Some(true) {
-                return Err(format!(
-                    "Attempted to run mainnet node with `use_test_genesis_chainstate`"
-                ));
-            }
+        if is_mainnet && node.use_test_genesis_chainstate == Some(true) {
+            return Err("Attempted to run mainnet node with `use_test_genesis_chainstate`".into());
         }
 
         if node.stacker || node.miner {
@@ -847,10 +840,10 @@ impl Config {
 
         let initial_balances: Vec<InitialBalance> = match config_file.ustx_balance {
             Some(balances) => {
-                if is_mainnet && balances.len() > 0 {
-                    return Err(format!(
-                        "Attempted to run mainnet node with specified `initial_balances`"
-                    ));
+                if is_mainnet && !balances.is_empty() {
+                    return Err(
+                        "Attempted to run mainnet node with specified `initial_balances`".into(),
+                    );
                 }
                 balances
                     .iter()
@@ -891,16 +884,12 @@ impl Config {
         };
 
         // check for observer config in env vars
-        match std::env::var("STACKS_EVENT_OBSERVER") {
-            Ok(val) => {
-                events_observers.insert(EventObserverConfig {
-                    endpoint: val,
-                    events_keys: vec![EventKeyType::AnyEvent],
-                    timeout_ms: 1_000,
-                });
-                ()
-            }
-            _ => (),
+        if let Ok(val) = std::env::var("STACKS_EVENT_OBSERVER") {
+            events_observers.insert(EventObserverConfig {
+                endpoint: val,
+                events_keys: vec![EventKeyType::AnyEvent],
+                timeout_ms: 1_000,
+            });
         };
 
         let connection_options = match config_file.connection_options {
@@ -1048,14 +1037,11 @@ impl Config {
     }
 
     pub fn is_mainnet(&self) -> bool {
-        match self.burnchain.mode.as_str() {
-            "mainnet" => true,
-            _ => false,
-        }
+        matches!(self.burnchain.mode.as_str(), "mainnet")
     }
 
     pub fn is_node_event_driven(&self) -> bool {
-        self.events_observers.len() > 0
+        !self.events_observers.is_empty()
     }
 
     pub fn make_nakamoto_block_builder_settings(
@@ -1135,12 +1121,11 @@ impl Config {
     /// part dependent on the state machine getting block data back to the miner quickly, and thus
     /// the poll time is dependent on the first attempt time.
     pub fn get_poll_time(&self) -> u64 {
-        let poll_timeout = if self.node.miner {
+        if self.node.miner {
             cmp::min(1000, self.miner.first_attempt_time_ms / 2)
         } else {
             1000
-        };
-        poll_timeout
+        }
     }
 }
 
@@ -1231,7 +1216,7 @@ impl BurnchainConfig {
             username: None,
             password: None,
             timeout: 60,
-            magic_bytes: BLOCKSTACK_MAGIC_MAINNET.clone(),
+            magic_bytes: BLOCKSTACK_MAGIC_MAINNET,
             local_mining_public_key: None,
             process_exit_at_block_height: None,
             poll_time_secs: 10, // TODO: this is a testnet specific value.
@@ -1276,8 +1261,7 @@ impl BurnchainConfig {
         let mut addrs_iter = format!("{}:{}", self.peer_host, self.rpc_port)
             .to_socket_addrs()
             .unwrap();
-        let sock_addr = addrs_iter.next().unwrap();
-        sock_addr
+        addrs_iter.next().unwrap()
     }
 
     pub fn get_bitcoin_network(&self) -> (String, BitcoinNetworkType) {
@@ -1298,15 +1282,15 @@ pub struct StacksEpochConfigFile {
     start_height: i64,
 }
 
-pub const EPOCH_CONFIG_1_0_0: &'static str = "1.0";
-pub const EPOCH_CONFIG_2_0_0: &'static str = "2.0";
-pub const EPOCH_CONFIG_2_0_5: &'static str = "2.05";
-pub const EPOCH_CONFIG_2_1_0: &'static str = "2.1";
-pub const EPOCH_CONFIG_2_2_0: &'static str = "2.2";
-pub const EPOCH_CONFIG_2_3_0: &'static str = "2.3";
-pub const EPOCH_CONFIG_2_4_0: &'static str = "2.4";
-pub const EPOCH_CONFIG_2_5_0: &'static str = "2.5";
-pub const EPOCH_CONFIG_3_0_0: &'static str = "3.0";
+pub const EPOCH_CONFIG_1_0_0: &str = "1.0";
+pub const EPOCH_CONFIG_2_0_0: &str = "2.0";
+pub const EPOCH_CONFIG_2_0_5: &str = "2.05";
+pub const EPOCH_CONFIG_2_1_0: &str = "2.1";
+pub const EPOCH_CONFIG_2_2_0: &str = "2.2";
+pub const EPOCH_CONFIG_2_3_0: &str = "2.3";
+pub const EPOCH_CONFIG_2_4_0: &str = "2.4";
+pub const EPOCH_CONFIG_2_5_0: &str = "2.5";
+pub const EPOCH_CONFIG_3_0_0: &str = "3.0";
 
 #[derive(Clone, Deserialize, Default, Debug)]
 pub struct AffirmationOverride {
@@ -1956,9 +1940,8 @@ impl NodeConfig {
     /// Get a SocketAddr for this node's RPC endpoint which uses the loopback address
     pub fn get_rpc_loopback(&self) -> Option<SocketAddr> {
         let rpc_port = SocketAddr::from_str(&self.rpc_bind)
-            .or_else(|e| {
+            .map_err(|e| {
                 error!("Could not parse node.rpc_bind configuration setting as SocketAddr: {e}");
-                Err(())
             })
             .ok()?
             .port();
@@ -2068,8 +2051,8 @@ impl NodeConfig {
         peer_version: u32,
     ) {
         for part in bootstrap_nodes.split(',') {
-            if part.len() > 0 {
-                self.add_bootstrap_node(&part, chain_id, peer_version);
+            if !part.is_empty() {
+                self.add_bootstrap_node(part, chain_id, peer_version);
             }
         }
     }
@@ -2087,8 +2070,8 @@ impl NodeConfig {
 
     pub fn set_deny_nodes(&mut self, deny_nodes: String, chain_id: u32, peer_version: u32) {
         for part in deny_nodes.split(',') {
-            if part.len() > 0 {
-                self.add_deny_node(&part, chain_id, peer_version);
+            if !part.is_empty() {
+                self.add_deny_node(part, chain_id, peer_version);
             }
         }
     }
@@ -2102,10 +2085,7 @@ impl NodeConfig {
 
         MARFOpenOpts::new(
             hash_mode,
-            &self
-                .marf_cache_strategy
-                .as_ref()
-                .unwrap_or(&"noop".to_string()),
+            self.marf_cache_strategy.as_deref().unwrap_or("noop"),
             false,
         )
     }
@@ -2163,6 +2143,10 @@ pub struct MinerConfig {
     /// The minimum time to wait between mining blocks in milliseconds. The value must be greater than or equal to 1000 ms because if a block is mined
     /// within the same second as its parent, it will be rejected by the signers.
     pub min_time_between_blocks_ms: u64,
+    /// Time in milliseconds to pause after receiving the first threshold rejection, before proposing a new block.
+    pub first_rejection_pause_ms: u64,
+    /// Time in milliseconds to pause after receiving subsequent threshold rejections, before proposing a new block.
+    pub subsequent_rejection_pause_ms: u64,
 }
 
 impl Default for MinerConfig {
@@ -2193,6 +2177,8 @@ impl Default for MinerConfig {
             max_reorg_depth: 3,
             pre_nakamoto_mock_signing: false, // Should only default true if mining key is set
             min_time_between_blocks_ms: DEFAULT_MIN_TIME_BETWEEN_BLOCKS_MS,
+            first_rejection_pause_ms: DEFAULT_FIRST_REJECTION_PAUSE_MS,
+            subsequent_rejection_pause_ms: DEFAULT_SUBSEQUENT_REJECTION_PAUSE_MS,
         }
     }
 }
@@ -2260,21 +2246,21 @@ impl ConnectionOptionsFile {
         let mut read_only_call_limit = HELIUM_DEFAULT_CONNECTION_OPTIONS
             .read_only_call_limit
             .clone();
-        self.read_only_call_limit_write_length.map(|x| {
+        if let Some(x) = self.read_only_call_limit_write_length {
             read_only_call_limit.write_length = x;
-        });
-        self.read_only_call_limit_write_count.map(|x| {
+        }
+        if let Some(x) = self.read_only_call_limit_write_count {
             read_only_call_limit.write_count = x;
-        });
-        self.read_only_call_limit_read_length.map(|x| {
+        }
+        if let Some(x) = self.read_only_call_limit_read_length {
             read_only_call_limit.read_length = x;
-        });
-        self.read_only_call_limit_read_count.map(|x| {
+        }
+        if let Some(x) = self.read_only_call_limit_read_count {
             read_only_call_limit.read_count = x;
-        });
-        self.read_only_call_limit_runtime.map(|x| {
+        }
+        if let Some(x) = self.read_only_call_limit_runtime {
             read_only_call_limit.runtime = x;
-        });
+        };
         let default = ConnectionOptions::default();
         Ok(ConnectionOptions {
             read_only_call_limit,
@@ -2325,7 +2311,7 @@ impl ConnectionOptionsFile {
                 .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.soft_max_clients_per_host),
             walk_interval: self
                 .walk_interval
-                .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.walk_interval.clone()),
+                .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.walk_interval),
             walk_seed_probability: self
                 .walk_seed_probability
                 .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.walk_seed_probability),
@@ -2347,7 +2333,7 @@ impl ConnectionOptionsFile {
                 .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.maximum_call_argument_size),
             download_interval: self
                 .download_interval
-                .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.download_interval.clone()),
+                .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.download_interval),
             inv_sync_interval: self
                 .inv_sync_interval
                 .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.inv_sync_interval),
@@ -2368,7 +2354,7 @@ impl ConnectionOptionsFile {
             force_disconnect_interval: self.force_disconnect_interval,
             max_http_clients: self
                 .max_http_clients
-                .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.max_http_clients.clone()),
+                .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.max_http_clients),
             connect_timeout: self.connect_timeout.unwrap_or(10),
             handshake_timeout: self.handshake_timeout.unwrap_or(5),
             max_sockets: self.max_sockets.unwrap_or(800) as usize,
@@ -2429,7 +2415,7 @@ impl NodeConfigFile {
             name: self.name.unwrap_or(default_node_config.name),
             seed: match self.seed {
                 Some(seed) => hex_bytes(&seed)
-                    .map_err(|_e| format!("node.seed should be a hex encoded string"))?,
+                    .map_err(|_e| "node.seed should be a hex encoded string".to_string())?,
                 None => default_node_config.seed,
             },
             working_dir: std::env::var("STACKS_WORKING_DIR")
@@ -2443,8 +2429,9 @@ impl NodeConfigFile {
                 .data_url
                 .unwrap_or_else(|| format!("http://{rpc_bind}")),
             local_peer_seed: match self.local_peer_seed {
-                Some(seed) => hex_bytes(&seed)
-                    .map_err(|_e| format!("node.local_peer_seed should be a hex encoded string"))?,
+                Some(seed) => hex_bytes(&seed).map_err(|_e| {
+                    "node.local_peer_seed should be a hex encoded string".to_string()
+                })?,
                 None => default_node_config.local_peer_seed,
             },
             miner,
@@ -2499,7 +2486,7 @@ impl NodeConfigFile {
                 .unwrap_or(default_node_config.chain_liveness_poll_time_secs),
             stacker_dbs: self
                 .stacker_dbs
-                .unwrap_or(vec![])
+                .unwrap_or_default()
                 .iter()
                 .filter_map(|contract_id| QualifiedContractIdentifier::parse(contract_id).ok())
                 .collect(),
@@ -2555,6 +2542,8 @@ pub struct MinerConfigFile {
     pub max_reorg_depth: Option<u64>,
     pub pre_nakamoto_mock_signing: Option<bool>,
     pub min_time_between_blocks_ms: Option<u64>,
+    pub first_rejection_pause_ms: Option<u64>,
+    pub subsequent_rejection_pause_ms: Option<u64>,
 }
 
 impl MinerConfigFile {
@@ -2668,6 +2657,8 @@ impl MinerConfigFile {
             } else {
                 ms
             }).unwrap_or(miner_default_config.min_time_between_blocks_ms),
+            first_rejection_pause_ms: self.first_rejection_pause_ms.unwrap_or(miner_default_config.first_rejection_pause_ms),
+            subsequent_rejection_pause_ms: self.subsequent_rejection_pause_ms.unwrap_or(miner_default_config.subsequent_rejection_pause_ms),
         })
     }
 }
@@ -2682,6 +2673,7 @@ pub struct AtlasConfigFile {
 
 impl AtlasConfigFile {
     // Can't inplement `Into` trait because this takes a parameter
+    #[allow(clippy::wrong_self_convention)]
     fn into_config(&self, mainnet: bool) -> AtlasConfig {
         let mut conf = AtlasConfig::new(mainnet);
         if let Some(val) = self.attachments_max_size {

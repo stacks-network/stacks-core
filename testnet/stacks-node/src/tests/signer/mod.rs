@@ -122,10 +122,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         )
     }
 
-    fn new_with_config_modifications<
-        F: FnMut(&mut SignerConfig) -> (),
-        G: FnMut(&mut NeonConfig) -> (),
-    >(
+    fn new_with_config_modifications<F: FnMut(&mut SignerConfig), G: FnMut(&mut NeonConfig)>(
         num_signers: usize,
         initial_balances: Vec<(StacksAddress, u64)>,
         mut signer_config_modifier: F,
@@ -150,8 +147,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
 
         // Add initial balances to the config
         for (address, amount) in initial_balances.iter() {
-            naka_conf
-                .add_initial_balance(PrincipalData::from(address.clone()).to_string(), *amount);
+            naka_conf.add_initial_balance(PrincipalData::from(*address).to_string(), *amount);
         }
 
         // So the combination is... one, two, three, four, five? That's the stupidest combination I've ever heard in my life!
@@ -275,7 +271,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
                 if reward_cycle_info.reward_cycle == reward_cycle {
                     finished_signers.insert(ix);
                 } else {
-                    warn!("Signer #{ix} returned state = {:?}, will try to wait for a cycle = {} state from them.", state, reward_cycle);
+                    warn!("Signer #{ix} returned state = {state:?}, will try to wait for a cycle = {reward_cycle} state from them.");
                 }
             }
             info!("Finished signers: {:?}", finished_signers.iter().collect::<Vec<_>>());
@@ -329,10 +325,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         })
         .unwrap();
         let mined_block_elapsed_time = mined_block_time.elapsed();
-        info!(
-            "Nakamoto block mine time elapsed: {:?}",
-            mined_block_elapsed_time
-        );
+        info!("Nakamoto block mine time elapsed: {mined_block_elapsed_time:?}");
     }
 
     fn mine_block_wait_on_processing(
@@ -359,10 +352,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
             thread::sleep(Duration::from_secs(1));
         }
         let mined_block_elapsed_time = mined_block_time.elapsed();
-        info!(
-            "Nakamoto block mine time elapsed: {:?}",
-            mined_block_elapsed_time
-        );
+        info!("Nakamoto block mine time elapsed: {mined_block_elapsed_time:?}");
     }
 
     /// Wait for a confirmed block and return a list of individual
@@ -403,7 +393,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
                     .get("signer_signature_hash")?
                     .as_str()
                     .unwrap();
-                if sighash != &format!("0x{block_signer_sighash}") {
+                if *sighash != format!("0x{block_signer_sighash}") {
                     return None;
                 }
                 Some(block_obj.clone())
@@ -530,17 +520,15 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         #[cfg(feature = "monitoring_prom")]
         {
             let client = reqwest::blocking::Client::new();
-            let res = client
+            client
                 .get("http://localhost:9000/metrics")
                 .send()
                 .unwrap()
                 .text()
-                .unwrap();
-
-            return res;
+                .unwrap()
         }
         #[cfg(not(feature = "monitoring_prom"))]
-        return String::new();
+        String::new()
     }
 
     pub fn shutdown(self) {
@@ -632,7 +620,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
     }
 }
 
-fn setup_stx_btc_node<G: FnMut(&mut NeonConfig) -> ()>(
+fn setup_stx_btc_node<G: FnMut(&mut NeonConfig)>(
     mut naka_conf: NeonConfig,
     signer_stacks_private_keys: &[StacksPrivateKey],
     signer_configs: &[SignerConfig],

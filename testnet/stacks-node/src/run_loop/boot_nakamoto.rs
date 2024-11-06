@@ -137,8 +137,8 @@ impl BootRunLoop {
     /// node depending on the current burnchain height.
     pub fn start(&mut self, burnchain_opt: Option<Burnchain>, mine_start: u64) {
         match self.active_loop {
-            InnerLoops::Epoch2(_) => return self.start_from_neon(burnchain_opt, mine_start),
-            InnerLoops::Epoch3(_) => return self.start_from_naka(burnchain_opt, mine_start),
+            InnerLoops::Epoch2(_) => self.start_from_neon(burnchain_opt, mine_start),
+            InnerLoops::Epoch3(_) => self.start_from_naka(burnchain_opt, mine_start),
         }
     }
 
@@ -227,7 +227,7 @@ impl BootRunLoop {
                 // if loop exited, do the transition
                 info!("Epoch-3.0 boundary reached, stopping Epoch-2.x run loop");
                 neon_term_switch.store(false, Ordering::SeqCst);
-                return true
+                true
             })
     }
 
