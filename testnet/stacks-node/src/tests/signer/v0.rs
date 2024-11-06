@@ -5176,8 +5176,12 @@ fn continue_after_fast_block_no_sortition() {
     })
     .expect("Timed out waiting for boostrapped node to catch up to the miner");
 
-    let mining_pkh_1 = Hash160::from_node_public_key(&StacksPublicKey::from_private(&conf.miner.mining_key.unwrap()));
-    let mining_pkh_2 = Hash160::from_node_public_key(&StacksPublicKey::from_private(&conf_node_2.miner.mining_key.unwrap()));
+    let mining_pkh_1 = Hash160::from_node_public_key(&StacksPublicKey::from_private(
+        &conf.miner.mining_key.unwrap(),
+    ));
+    let mining_pkh_2 = Hash160::from_node_public_key(&StacksPublicKey::from_private(
+        &conf_node_2.miner.mining_key.unwrap(),
+    ));
     debug!("The miner key for miner 1 is {mining_pkh_1}");
     debug!("The miner key for miner 2 is {mining_pkh_2}");
 
@@ -5233,7 +5237,10 @@ fn continue_after_fast_block_no_sortition() {
             .get_peer_info()
             .expect("Failed to get peer info")
             .stacks_tip_height;
-        Ok(blocks_mined1.load(Ordering::SeqCst) > blocks_processed_before_1 && stacks_height > stacks_height_before)
+        Ok(
+            blocks_mined1.load(Ordering::SeqCst) > blocks_processed_before_1
+                && stacks_height > stacks_height_before,
+        )
     })
     .unwrap();
 
