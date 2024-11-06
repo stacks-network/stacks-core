@@ -47,6 +47,7 @@ use crate::vm::representations::{depth_traverse, ClarityName, SymbolicExpression
 use crate::vm::types::signatures::{
     CallableSubtype, FunctionArgSignature, FunctionReturnsSignature, FunctionSignature, BUFF_20,
 };
+use crate::vm::types::vecmap::VecMap;
 use crate::vm::types::{
     parse_name_type_pairs, CallableData, FixedFunction, FunctionArg, FunctionType, ListData,
     ListTypeData, OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData,
@@ -518,7 +519,7 @@ impl FunctionType {
                 type_signature: _,
                 data_map,
             }) => {
-                let mut type_map = BTreeMap::new();
+                let mut type_map = VecMap::with_capacity(data_map.len());
                 for (name, field_value) in data_map {
                     type_map.insert(
                         name.clone(),

@@ -18,6 +18,7 @@
 pub mod serialization;
 #[allow(clippy::result_large_err)]
 pub mod signatures;
+pub mod vecmap;
 
 use std::collections::btree_map::Entry;
 use std::collections::BTreeMap;
@@ -29,6 +30,7 @@ use stacks_common::address::c32;
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash;
+use vecmap::VecMap;
 
 use crate::vm::errors::{
     CheckErrors, IncomparableError, InterpreterError, InterpreterResult as Result, RuntimeErrorType,
@@ -56,7 +58,7 @@ pub const WRAPPER_VALUE_SIZE: u32 = 1;
 pub struct TupleData {
     // todo: remove type_signature
     pub type_signature: TupleTypeSignature,
-    pub data_map: BTreeMap<ClarityName, Value>,
+    pub data_map: VecMap<ClarityName, Value>,
 }
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1534,7 +1536,7 @@ impl From<ContractName> for ASCIIData {
 impl TupleData {
     fn new(
         type_signature: TupleTypeSignature,
-        data_map: BTreeMap<ClarityName, Value>,
+        data_map: VecMap<ClarityName, Value>,
     ) -> Result<TupleData> {
         let t = TupleData {
             type_signature,
@@ -1556,18 +1558,15 @@ impl TupleData {
     // TODO: add tests from mutation testing results #4833
     #[cfg_attr(test, mutants::skip)]
     pub fn from_data(data: Vec<(ClarityName, Value)>) -> Result<TupleData> {
-        let mut type_map = BTreeMap::new();
-        let mut data_map = BTreeMap::new();
-        for (name, value) in data.into_iter() {
-            let type_info = TypeSignature::type_of(&value)?;
-            let entry = type_map.entry(name.clone());
-            match entry {
-                Entry::Vacant(e) => e.insert(type_info),
-                Entry::Occupied(_) => return Err(CheckErrors::NameAlreadyUsed(name.into()).into()),
-            };
-            data_map.insert(name, value);
+        let mut type_map = VecMap::with_capacity(data.len());
+        for (name, value) in data.iter() {
+            let type_info = TypeSignature::type_of(value)?;
+            if type_map.insert(name.clone(), type_info).is_some() {
+                return Err(CheckErrors::NameAlreadyUsed(name.to_string()).into());
+            }
         }
-
+        let data_map =
+            VecMap::checked_from_vec(data).map_err(|e| CheckErrors::NameAlreadyUsed(e.into()))?;
         Self::new(TupleTypeSignature::try_from(type_map)?, data_map)
     }
 
@@ -1578,16 +1577,15 @@ impl TupleData {
         data: Vec<(ClarityName, Value)>,
         expected: &TupleTypeSignature,
     ) -> Result<TupleData> {
-        let mut data_map = BTreeMap::new();
-        for (name, value) in data.into_iter() {
+        for (name, value) in data.iter() {
             let expected_type = expected
                 .field_type(&name)
                 .ok_or(InterpreterError::FailureConstructingTupleWithType)?;
             if !expected_type.admits(epoch, &value)? {
                 return Err(InterpreterError::FailureConstructingTupleWithType.into());
             }
-            data_map.insert(name, value);
         }
+        let data_map = VecMap::from(data);
         Self::new(expected.clone(), data_map)
     }
 
@@ -1597,8 +1595,8 @@ impl TupleData {
         })
     }
 
-    pub fn get_owned(mut self, name: &str) -> Result<Value> {
-        self.data_map.remove(name).ok_or_else(|| {
+    pub fn get_owned(self, name: &str) -> Result<Value> {
+        self.data_map.destructive_remove(name).ok_or_else(|| {
             CheckErrors::NoSuchTupleField(name.to_string(), self.type_signature.clone()).into()
         })
     }
@@ -1606,12 +1604,12 @@ impl TupleData {
     pub fn shallow_merge(mut base: TupleData, updates: TupleData) -> Result<TupleData> {
         let TupleData {
             data_map,
-            mut type_signature,
+            type_signature,
         } = updates;
         for (name, value) in data_map.into_iter() {
             base.data_map.insert(name, value);
         }
-        base.type_signature.shallow_merge(&mut type_signature);
+        base.type_signature.shallow_merge(type_signature);
         Ok(base)
     }
 }

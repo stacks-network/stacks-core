@@ -22,6 +22,7 @@ use stacks_common::types::StacksEpochId;
 use super::costs::{CostErrors, CostOverflowingMath};
 use super::errors::InterpreterError;
 use super::types::signatures::CallableSubtype;
+use super::types::vecmap::VecMap;
 use super::ClarityVersion;
 use crate::vm::analysis::errors::CheckErrors;
 use crate::vm::contexts::ContractContext;
@@ -464,7 +465,7 @@ fn clarity2_implicit_cast(type_sig: &TypeSignature, value: &Value) -> Result<Val
                 data_map,
             }),
         ) => {
-            let mut cast_data_map = BTreeMap::new();
+            let mut cast_data_map = VecMap::new();
             for (name, field_value) in data_map {
                 let to_type = match tuple_type.get_type_map().get(name) {
                     Some(ty) => ty,
@@ -603,7 +604,7 @@ mod test {
             TupleTypeSignature::try_from(vec![(a_name.clone(), TypeSignature::PrincipalType)])
                 .unwrap(),
         );
-        let mut data_map = BTreeMap::new();
+        let mut data_map = VecMap::new();
         data_map.insert(a_name.clone(), contract.clone());
         let tuple_contract = Value::Tuple(TupleData {
             type_signature: TupleTypeSignature::try_from(vec![(

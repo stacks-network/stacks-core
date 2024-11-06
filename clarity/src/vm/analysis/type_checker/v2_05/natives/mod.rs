@@ -165,7 +165,7 @@ fn check_special_merge(
     }?;
 
     let res = checker.type_check(&args[1], context)?;
-    let mut update = match res {
+    let update = match res {
         TypeSignature::TupleType(tuple_sig) => Ok(tuple_sig),
         _ => Err(CheckErrors::ExpectedTuple(res.clone())),
     }?;
@@ -175,7 +175,7 @@ fn check_special_merge(
         update.len(),
     )?;
 
-    base.shallow_merge(&mut update);
+    base.shallow_merge(update);
     Ok(TypeSignature::TupleType(base))
 }
 

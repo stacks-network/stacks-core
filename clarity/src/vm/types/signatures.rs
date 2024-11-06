@@ -79,21 +79,21 @@ impl AssetIdentifier {
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TupleTypeSignature {
     #[serde(with = "tuple_type_map_serde")]
-    type_map: Arc<BTreeMap<ClarityName, TypeSignature>>,
+    type_map: Arc<VecMap<ClarityName, TypeSignature>>,
 }
 
 mod tuple_type_map_serde {
-    use std::collections::BTreeMap;
     use std::ops::Deref;
     use std::sync::Arc;
 
     use serde::{Deserializer, Serializer};
 
     use super::TypeSignature;
+    use crate::vm::types::vecmap::VecMap;
     use crate::vm::ClarityName;
 
     pub fn serialize<S: Serializer>(
-        map: &Arc<BTreeMap<ClarityName, TypeSignature>>,
+        map: &Arc<VecMap<ClarityName, TypeSignature>>,
         ser: S,
     ) -> Result<S::Ok, S::Error> {
         serde::Serialize::serialize(map.deref(), ser)
@@ -101,7 +101,7 @@ mod tuple_type_map_serde {
 
     pub fn deserialize<'de, D>(
         deser: D,
-    ) -> Result<Arc<BTreeMap<ClarityName, TypeSignature>>, D::Error>
+    ) -> Result<Arc<VecMap<ClarityName, TypeSignature>>, D::Error>
     where
         D: Deserializer<'de>,
     {
@@ -818,7 +818,8 @@ impl TypeSignature {
                 inner_type.1.canonicalize_v2_1(),
             ))),
             TupleType(ref tuple_sig) => {
-                let mut canonicalized_fields = BTreeMap::new();
+                let mut canonicalized_fields =
+                    VecMap::with_capacity(tuple_sig.get_type_map().len());
                 for (field_name, field_type) in tuple_sig.get_type_map() {
                     canonicalized_fields.insert(field_name.clone(), field_type.canonicalize_v2_1());
                 }
@@ -882,11 +883,9 @@ impl TryFrom<Vec<(ClarityName, TypeSignature)>> for TupleTypeSignature {
             return Err(CheckErrors::EmptyTuplesNotAllowed);
         }
 
-        let mut type_map = BTreeMap::new();
+        let mut type_map = VecMap::new();
         for (name, type_info) in type_data.into_iter() {
-            if let Entry::Vacant(e) = type_map.entry(name.clone()) {
-                e.insert(type_info);
-            } else {
+            if type_map.insert(name.clone(), type_info).is_some() {
                 return Err(CheckErrors::NameAlreadyUsed(name.into()));
             }
         }
@@ -894,18 +893,18 @@ impl TryFrom<Vec<(ClarityName, TypeSignature)>> for TupleTypeSignature {
     }
 }
 
-impl TryFrom<BTreeMap<ClarityName, TypeSignature>> for TupleTypeSignature {
+impl TryFrom<VecMap<ClarityName, TypeSignature>> for TupleTypeSignature {
     type Error = CheckErrors;
-    fn try_from(type_map: BTreeMap<ClarityName, TypeSignature>) -> Result<TupleTypeSignature> {
+    fn try_from(type_map: VecMap<ClarityName, TypeSignature>) -> Result<TupleTypeSignature> {
         if type_map.is_empty() {
             return Err(CheckErrors::EmptyTuplesNotAllowed);
         }
-        for child_sig in type_map.values() {
+        for (_, child_sig) in type_map.iter() {
             if (1 + child_sig.depth()) > MAX_TYPE_DEPTH {
                 return Err(CheckErrors::TypeSignatureTooDeep);
             }
         }
-        let type_map = Arc::new(type_map.into_iter().collect());
+        let type_map = Arc::new(type_map);
         let result = TupleTypeSignature { type_map };
         let would_be_size = result
             .inner_size()?
@@ -933,7 +932,7 @@ impl TupleTypeSignature {
         self.type_map.get(field)
     }
 
-    pub fn get_type_map(&self) -> &BTreeMap<ClarityName, TypeSignature> {
+    pub fn get_type_map(&self) -> &VecMap<ClarityName, TypeSignature> {
         &self.type_map
     }
 
@@ -968,8 +967,11 @@ impl TupleTypeSignature {
         }
     }
 
-    pub fn shallow_merge(&mut self, update: &mut TupleTypeSignature) {
-        Arc::make_mut(&mut self.type_map).append(Arc::make_mut(&mut update.type_map));
+    pub fn shallow_merge(&mut self, update: TupleTypeSignature) {
+        let mutable_self = Arc::make_mut(&mut self.type_map);
+        for (key, value) in Arc::unwrap_or_clone(update.type_map).into_iter() {
+            mutable_self.insert(key, value);
+        }
     }
 }
 
@@ -1171,7 +1173,7 @@ impl TypeSignature {
                 TupleType(TupleTypeSignature { type_map: types_a }),
                 TupleType(TupleTypeSignature { type_map: types_b }),
             ) => {
-                let mut type_map_out = BTreeMap::new();
+                let mut type_map_out = VecMap::with_capacity(types_a.len());
                 for (name, entry_a) in types_a.iter() {
                     let entry_b = types_b
                         .get(name)
@@ -1273,7 +1275,7 @@ impl TypeSignature {
                 TupleType(TupleTypeSignature { type_map: types_a }),
                 TupleType(TupleTypeSignature { type_map: types_b }),
             ) => {
-                let mut type_map_out = BTreeMap::new();
+                let mut type_map_out = VecMap::with_capacity(types_a.len());
                 for (name, entry_a) in types_a.iter() {
                     let entry_b = types_b
                         .get(name)
@@ -1929,6 +1931,7 @@ impl TupleTypeSignature {
     }
 }
 
+use super::vecmap::VecMap;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::CostTracker;
 use crate::vm::ClarityVersion;
