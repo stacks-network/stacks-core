@@ -6876,12 +6876,7 @@ pub mod test {
                 mode,
                 origin,
                 &ft_transfer_2,
-                Txid(
-                    "1232121232121232121232121232121232121232121232121232121232121232"
-                        .as_bytes()
-                        .try_into()
-                        .unwrap(),
-                ),
+                Txid([0; 32]),
             )
             .unwrap();
             if result != expected_result {
@@ -7235,12 +7230,7 @@ pub mod test {
                 mode,
                 origin,
                 &nft_transfer_2,
-                Txid(
-                    "1232121232121232121232121232121232121232121232121232121232121232"
-                        .as_bytes()
-                        .try_into()
-                        .unwrap(),
-                ),
+                Txid([0; 32]),
             )
             .unwrap();
             if result != expected_result {
@@ -8058,12 +8048,7 @@ pub mod test {
                     post_condition_mode,
                     origin_account,
                     asset_map,
-                    Txid(
-                        "1232121232121232121232121232121232121232121232121232121232121232"
-                            .as_bytes()
-                            .try_into()
-                            .unwrap(),
-                    ),
+                    Txid([0; 32]),
                 )
                 .unwrap();
                 if result != expected_result {
