@@ -880,23 +880,14 @@ impl RelayerThread {
             SortitionDB::get_canonical_stacks_chain_tip_hash(self.sortdb.conn()).unwrap();
         let canonical_stacks_tip =
             StacksBlockId::new(&canonical_stacks_tip_ch, &canonical_stacks_tip_bh);
-        let block_election_snapshot =
-            SortitionDB::get_block_snapshot_consensus(self.sortdb.conn(), &canonical_stacks_tip_ch)
-                .map_err(|e| {
-                    error!("Relayer: failed to get block snapshot for canonical tip: {e:?}");
-                    NakamotoNodeError::SnapshotNotFoundForChainTip
-                })?
-                .ok_or_else(|| {
-                    error!("Relayer: failed to get block snapshot for canonical tip");
-                    NakamotoNodeError::SnapshotNotFoundForChainTip
-                })?;
 
         let Some(ref mining_key) = self.config.miner.mining_key else {
             return Ok(());
         };
         let mining_pkh = Hash160::from_node_public_key(&StacksPublicKey::from_private(mining_key));
 
-        let last_winner_snapshot = {
+        // If we won the last sortition, then we should start a new tenure off of it.
+        let block_election_snapshot = {
             let ih = self.sortdb.index_handle(&burn_tip.sortition_id);
             ih.get_last_snapshot_with_sortition(burn_tip.block_height)
                 .map_err(|e| {
@@ -905,15 +896,14 @@ impl RelayerThread {
                 })?
         };
 
-        let won_last_sortition = last_winner_snapshot.miner_pk_hash == Some(mining_pkh);
+        let won_last_sortition = block_election_snapshot.miner_pk_hash == Some(mining_pkh);
         debug!(
             "Relayer: Current burn block had no sortition. Checking for tenure continuation.";
             "won_last_sortition" => won_last_sortition,
             "current_mining_pkh" => %mining_pkh,
-            "last_winner_snapshot.miner_pk_hash" => ?last_winner_snapshot.miner_pk_hash,
+            "block_election_snapshot.miner_pk_hash" => ?block_election_snapshot.miner_pk_hash,
             "canonical_stacks_tip_id" => %canonical_stacks_tip,
             "canonical_stacks_tip_ch" => %canonical_stacks_tip_ch,
-            "block_election_ch" => %block_election_snapshot.consensus_hash,
             "burn_view_ch" => %new_burn_view,
         );
 
