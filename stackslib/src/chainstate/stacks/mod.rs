@@ -1101,13 +1101,12 @@ pub const MAX_MICROBLOCK_SIZE: u32 = 65536;
 
 #[cfg(test)]
 pub mod test {
-    use clarity::util::get_epoch_time_secs;
     use clarity::vm::representations::{ClarityName, ContractName};
     use clarity::vm::ClarityVersion;
     use stacks_common::bitvec::BitVec;
     use stacks_common::util::hash::*;
-    use stacks_common::util::log;
     use stacks_common::util::secp256k1::Secp256k1PrivateKey;
+    use stacks_common::util::{get_epoch_time_secs, log};
 
     use super::*;
     use crate::chainstate::burn::BlockSnapshot;
