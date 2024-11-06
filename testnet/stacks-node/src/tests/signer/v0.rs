@@ -43,7 +43,7 @@ use stacks::net::api::postblock_proposal::{ValidateRejectCode, TEST_VALIDATE_STA
 use stacks::net::relay::fault_injection::set_ignore_block;
 use stacks::types::chainstate::{StacksAddress, StacksBlockId, StacksPrivateKey, StacksPublicKey};
 use stacks::types::PublicKey;
-use stacks::util::hash::{hex_bytes, MerkleHashFunc};
+use stacks::util::hash::{hex_bytes, Hash160, MerkleHashFunc};
 use stacks::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 use stacks::util_lib::boot::boot_code_id;
 use stacks::util_lib::signed_structured_data::pox4::{
@@ -5023,11 +5023,14 @@ fn miner_recovers_when_broadcast_block_delay_across_tenures_occurs() {
 /// Miner 1 wins the first Nakamoto tenure A. Miner 1 mines a regular stacks block N.
 /// Miner 2 wins the second Nakamoto tenure B and proposes block N+1, but it is rejected by the signers.
 /// An empty burn block is mined
-/// TODO: which behaviour do we want to enforce? Should we allow both? If so, we should force both explicitly
-/// Miner 1 should issue a tenure extend and propose block N+1' which is accepted by the signers OR
-/// Miner 2 should issue a new TenureChangePayload followed by a TenureExtend.
+/// Miner 2 issue a new TenureChangePayload in block N+1'
+/// Signers accept the new TenureChangePayload and the stacks tip should advance to N+1'
+/// Miner 2 issue a TenureExtend in block proposal N+2'
+/// Signers accept the TenureExtend and the stacks tip should advance to N+2'
 /// Asserts:
-/// - The stacks tip advances to N+1'
+/// - Block N+1' contains the TenureChangePayload
+/// - Block N+2 contains the TenureExtend
+/// - The stacks tip advances to N+2'
 #[test]
 #[ignore]
 fn continue_after_fast_block_no_sortition() {
@@ -5152,6 +5155,9 @@ fn continue_after_fast_block_no_sortition() {
 
     // Make sure Miner 2 cannot win a sortition at first.
     rl2_skip_commit_op.set(true);
+
+    info!("------------------------- Boot to Epoch 3.0 -------------------------");
+
     let run_loop_2_thread = thread::Builder::new()
         .name("run_loop_2".into())
         .spawn(move || run_loop_2.start(None, 0))
@@ -5169,6 +5175,11 @@ fn continue_after_fast_block_no_sortition() {
         Ok(node_1_info.stacks_tip_height == node_2_info.stacks_tip_height)
     })
     .expect("Timed out waiting for boostrapped node to catch up to the miner");
+
+    let mining_pkh_1 = Hash160::from_node_public_key(&StacksPublicKey::from_private(&conf.miner.mining_key.unwrap()));
+    let mining_pkh_2 = Hash160::from_node_public_key(&StacksPublicKey::from_private(&conf_node_2.miner.mining_key.unwrap()));
+    debug!("The miner key for miner 1 is {mining_pkh_1}");
+    debug!("The miner key for miner 2 is {mining_pkh_2}");
 
     info!("------------------------- Reached Epoch 3.0 -------------------------");
 
@@ -5189,14 +5200,21 @@ fn continue_after_fast_block_no_sortition() {
     let starting_burn_height = get_burn_height();
     let mut btc_blocks_mined = 0;
 
-    info!("------------------------- Miner 1 Mines a Normal Tenure A -------------------------");
-    let blocks_processed_before_1 = blocks_mined1.load(Ordering::SeqCst);
     info!("------------------------- Pause Miner 1's Block Commit -------------------------");
-    // Make sure miner 1 doesn't submit a block commit for the next tenure BEFORE mining the bitcoin block
+    // Make sure miner 1 doesn't submit any further block commits for the next tenure BEFORE mining the bitcoin block
     signer_test
         .running_nodes
         .nakamoto_test_skip_commit_op
         .set(true);
+
+    info!("------------------------- Miner 1 Mines a Normal Tenure A -------------------------");
+    let blocks_processed_before_1 = blocks_mined1.load(Ordering::SeqCst);
+
+    let stacks_height_before = signer_test
+        .stacks_client
+        .get_peer_info()
+        .expect("Failed to get peer info")
+        .stacks_tip_height;
 
     signer_test
         .running_nodes
@@ -5210,7 +5228,12 @@ fn continue_after_fast_block_no_sortition() {
 
     // wait for the new block to be processed
     wait_for(60, || {
-        Ok(blocks_mined1.load(Ordering::SeqCst) > blocks_processed_before_1)
+        let stacks_height = signer_test
+            .stacks_client
+            .get_peer_info()
+            .expect("Failed to get peer info")
+            .stacks_tip_height;
+        Ok(blocks_mined1.load(Ordering::SeqCst) > blocks_processed_before_1 && stacks_height > stacks_height_before)
     })
     .unwrap();
 
@@ -5219,13 +5242,14 @@ fn continue_after_fast_block_no_sortition() {
         blocks_mined1.load(Ordering::SeqCst)
     );
 
+    info!("------------------------- Make Signers Reject All Subsequent Proposals -------------------------");
+
     let stacks_height_before = signer_test
         .stacks_client
         .get_peer_info()
         .expect("Failed to get peer info")
         .stacks_tip_height;
 
-    info!("------------------------- Make Signers Reject All Subsequent Proposals -------------------------");
     // Make all signers ignore block proposals
     let ignoring_signers = all_signers.to_vec();
     TEST_REJECT_ALL_BLOCK_PROPOSAL
@@ -5233,7 +5257,7 @@ fn continue_after_fast_block_no_sortition() {
         .unwrap()
         .replace(ignoring_signers.clone());
 
-    info!("------------------------- Unpause Miner 2's Block Commits -------------------------");
+    info!("------------------------- Submit Miner 2 Block Commit -------------------------");
     let rejections_before = signer_test
         .running_nodes
         .nakamoto_blocks_rejected
@@ -5243,7 +5267,6 @@ fn continue_after_fast_block_no_sortition() {
     // Unpause miner 2's block commits
     rl2_skip_commit_op.set(false);
 
-    info!("------------------------- Wait for Miner 2's Block Commit Submission -------------------------");
     // Ensure the miner 2 submits a block commit before mining the bitcoin block
     wait_for(30, || {
         Ok(rl2_commits.load(Ordering::SeqCst) > rl2_commits_before)
@@ -5337,7 +5360,7 @@ fn continue_after_fast_block_no_sortition() {
     let stacks_height_before = stacks_height;
 
     let blocks_processed_before_2 = blocks_mined2.load(Ordering::SeqCst);
-    info!("----- Enabling signers to approve proposals -----";
+    info!("------------------------- Enabling signers to approve proposals -------------------------";
         "stacks_height" => stacks_height_before,
     );
 
@@ -5348,6 +5371,7 @@ fn continue_after_fast_block_no_sortition() {
         .unwrap()
         .replace(Vec::new());
 
+    info!("------------------------- Mining Interim Block -------------------------");
     // submit a tx so that the miner will mine an extra block just in case due to timing constraints, the first block with the tenure extend was
     // rejected already by the signers
     let transfer_tx = make_stacks_transfer(
@@ -5382,6 +5406,10 @@ fn continue_after_fast_block_no_sortition() {
         || Ok(test_observer::get_blocks().len() > nmb_old_blocks),
     )
     .expect("Timed out waiting for test observer to see new block");
+
+    info!(
+        "------------------------- Verify Tenure Extend Tx from Miner B -------------------------"
+    );
 
     let blocks = test_observer::get_blocks();
     let tenure_extend_block = if nmb_old_blocks + 1 == test_observer::get_blocks().len() {
