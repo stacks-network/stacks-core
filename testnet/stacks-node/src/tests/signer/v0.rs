@@ -4835,7 +4835,7 @@ fn locally_rejected_blocks_overriden_by_global_acceptance() {
 
 #[test]
 #[ignore]
-/// Test that signers that have accepedt a locally signed block N+1 built in tenure A can sign a block proposed during a
+/// Test that signers that have accepted a locally signed block N+1 built in tenure A can sign a block proposed during a
 /// new tenure B built upon the last globally accepted block N if the timeout is exceeded, i.e. a reorg can occur at a tenure boundary.
 ///
 /// Test Setup:
