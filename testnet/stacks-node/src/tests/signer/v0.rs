@@ -1806,8 +1806,8 @@ fn miner_forking() {
 
     let mut run_loop_2 = boot_nakamoto::BootRunLoop::new(conf_node_2.clone()).unwrap();
     let Counters {
-        naka_skip_commit_op,
-        naka_submitted_commits: second_miner_commits_submitted,
+        naka_skip_commit_op: skip_commit_op_rl2,
+        naka_submitted_commits: commits_submitted_rl2,
         ..
     } = run_loop_2.counters();
     let _run_loop_2_thread = thread::Builder::new()
@@ -1828,149 +1828,256 @@ fn miner_forking() {
     })
     .expect("Timed out waiting for boostrapped node to catch up to the miner");
 
+    let commits_submitted_rl1 = signer_test.running_nodes.commits_submitted.clone();
+    let skip_commit_op_rl1 = signer_test
+        .running_nodes
+        .nakamoto_test_skip_commit_op
+        .clone();
+
     let pre_nakamoto_peer_1_height = get_chain_info(&conf).stacks_tip_height;
 
-    naka_skip_commit_op.set(true);
+    let mining_pk_1 = StacksPublicKey::from_private(&conf.miner.mining_key.unwrap());
+    let mining_pk_2 = StacksPublicKey::from_private(&conf_node_2.miner.mining_key.unwrap());
+    let mining_pkh_1 = Hash160::from_node_public_key(&mining_pk_1);
+    let mining_pkh_2 = Hash160::from_node_public_key(&mining_pk_2);
+    debug!("The mining key for miner 1 is {mining_pkh_1}");
+    debug!("The mining key for miner 2 is {mining_pkh_2}");
+
+    let sortdb = conf.get_burnchain().open_sortition_db(true).unwrap();
+    let get_burn_height = || {
+        SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
+            .unwrap()
+            .block_height
+    };
     info!("------------------------- Reached Epoch 3.0 -------------------------");
 
-    let mut sortitions_seen = Vec::new();
-    let run_sortition = || {
-        info!("Pausing stacks block proposal to force an empty tenure commit from RL2");
-        TEST_BROADCAST_STALL.lock().unwrap().replace(true);
+    info!("Pausing both miners' block commit submissions");
+    skip_commit_op_rl1.set(true);
+    skip_commit_op_rl2.set(true);
 
-        let rl2_commits_before = second_miner_commits_submitted.load(Ordering::SeqCst);
-        let rl1_commits_before = signer_test
-            .running_nodes
-            .commits_submitted
-            .load(Ordering::SeqCst);
+    info!("Flushing any pending commits to enable custom winner selection");
+    let burn_height_before = get_burn_height();
+    next_block_and(
+        &mut signer_test.running_nodes.btc_regtest_controller,
+        30,
+        || Ok(get_burn_height() > burn_height_before),
+    )
+    .unwrap();
 
-        signer_test
-            .running_nodes
-            .btc_regtest_controller
-            .build_next_block(1);
-        naka_skip_commit_op.set(false);
+    info!("------------------------- RL1 Wins Sortition -------------------------");
+    info!("Pausing stacks block proposal to force an empty tenure commit from RL2");
+    TEST_BROADCAST_STALL.lock().unwrap().replace(true);
+    let rl1_commits_before = commits_submitted_rl1.load(Ordering::SeqCst);
 
-        // wait until a commit is submitted by run_loop_2
-        wait_for(60, || {
-            let commits_count = second_miner_commits_submitted.load(Ordering::SeqCst);
-            Ok(commits_count > rl2_commits_before)
-        })
+    info!("Unpausing commits from RL1");
+    skip_commit_op_rl1.set(false);
+
+    info!("Waiting for commits from RL1");
+    wait_for(30, || {
+        Ok(commits_submitted_rl1.load(Ordering::SeqCst) > rl1_commits_before)
+    })
+    .expect("Timed out waiting for miner 1 to submit a commit op");
+
+    info!("Pausing commits from RL1");
+    skip_commit_op_rl1.set(true);
+
+    let burn_height_before = get_burn_height();
+    info!("Mine RL1 Tenure");
+    next_block_and(
+        &mut signer_test.running_nodes.btc_regtest_controller,
+        30,
+        || Ok(get_burn_height() > burn_height_before),
+    )
+    .unwrap();
+
+    // fetch the current sortition info
+    let sortdb = conf.get_burnchain().open_sortition_db(true).unwrap();
+    let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+    // make sure the tenure was won by RL1
+    assert!(tip.sortition, "No sortition was won");
+    assert_eq!(
+        tip.miner_pk_hash.unwrap(),
+        mining_pkh_1,
+        "RL1 did not win the sortition"
+    );
+
+    info!(
+        "------------------------- RL2 Wins Sortition With Outdated View -------------------------"
+    );
+    let rl2_commits_before = commits_submitted_rl2.load(Ordering::SeqCst);
+
+    info!("Unpausing commits from RL2");
+    skip_commit_op_rl2.set(false);
+
+    info!("Waiting for commits from RL2");
+    wait_for(30, || {
+        Ok(commits_submitted_rl2.load(Ordering::SeqCst) > rl2_commits_before)
+    })
+    .expect("Timed out waiting for miner 1 to submit a commit op");
+
+    info!("Pausing commits from RL2");
+    skip_commit_op_rl2.set(true);
+
+    // unblock block mining
+    let blocks_len = test_observer::get_blocks().len();
+    TEST_BROADCAST_STALL.lock().unwrap().replace(false);
+
+    // Wait for the block to be broadcasted and processed
+    wait_for(30, || Ok(test_observer::get_blocks().len() > blocks_len))
+        .expect("Timed out waiting for a block to be processed");
+
+    // sleep for 2*first_proposal_burn_block_timing to prevent the block timing from allowing a fork by the signer set
+    thread::sleep(Duration::from_secs(first_proposal_burn_block_timing * 2));
+
+    let nakamoto_headers: HashMap<_, _> = get_nakamoto_headers(&conf)
+    .into_iter()
+    .map(|header| {
+        info!("Nakamoto block"; "height" => header.stacks_block_height, "consensus_hash" => %header.consensus_hash, "last_sortition_hash" => %tip.consensus_hash);
+        (header.consensus_hash, header)
+    })
+    .collect();
+
+    let header_info = nakamoto_headers.get(&tip.consensus_hash).unwrap();
+    let header = header_info
+        .anchored_header
+        .as_stacks_nakamoto()
+        .unwrap()
+        .clone();
+
+    mining_pk_1
+        .verify(
+            header.miner_signature_hash().as_bytes(),
+            &header.miner_signature,
+        )
         .unwrap();
-        // wait until a commit is submitted by run_loop_1
-        wait_for(60, || {
-            let commits_count = signer_test
-                .running_nodes
-                .commits_submitted
-                .load(Ordering::SeqCst);
-            Ok(commits_count > rl1_commits_before)
+
+    let blocks_len = test_observer::get_blocks().len();
+    let burn_height_before = get_burn_height();
+    info!("Mine RL2 Tenure");
+    next_block_and(
+        &mut signer_test.running_nodes.btc_regtest_controller,
+        30,
+        || Ok(get_burn_height() > burn_height_before),
+    )
+    .unwrap();
+
+    // Ensure that RL2 doesn't produce a valid block
+    assert!(
+        wait_for(60, || Ok(test_observer::get_blocks().len() > blocks_len)).is_err(),
+        "RL2 produced a block"
+    );
+
+    // fetch the current sortition info
+    let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+    // make sure the tenure was won by RL2
+    assert!(tip.sortition, "No sortition was won");
+    assert_eq!(
+        tip.miner_pk_hash.unwrap(),
+        mining_pkh_2,
+        "RL2 did not win the sortition"
+    );
+
+    let nakamoto_headers: HashMap<_, _> = get_nakamoto_headers(&conf)
+        .into_iter()
+        .map(|header| {
+            info!("Nakamoto block"; "height" => header.stacks_block_height, "consensus_hash" => %header.consensus_hash, "last_sortition_hash" => %tip.consensus_hash);
+            (header.consensus_hash, header)
         })
+        .collect();
+    assert!(!nakamoto_headers.contains_key(&tip.consensus_hash));
+
+    info!("------------------------- RL1 RBFs its Own Commit -------------------------");
+    info!("Pausing stacks block proposal to test RBF capability");
+    TEST_BROADCAST_STALL.lock().unwrap().replace(true);
+    let rl1_commits_before = commits_submitted_rl1.load(Ordering::SeqCst);
+
+    info!("Unpausing commits from RL1");
+    skip_commit_op_rl1.set(false);
+
+    info!("Waiting for commits from RL1");
+    wait_for(30, || {
+        Ok(commits_submitted_rl1.load(Ordering::SeqCst) > rl1_commits_before)
+    })
+    .expect("Timed out waiting for miner 1 to submit a commit op");
+
+    info!("Pausing commits from RL1");
+    skip_commit_op_rl1.set(true);
+
+    let burn_height_before = get_burn_height();
+    info!("Mine RL1 Tenure");
+    next_block_and(
+        &mut signer_test.running_nodes.btc_regtest_controller,
+        30,
+        || Ok(get_burn_height() > burn_height_before),
+    )
+    .unwrap();
+
+    let rl1_commits_before = commits_submitted_rl1.load(Ordering::SeqCst);
+
+    info!("Unpausing commits from RL1");
+    skip_commit_op_rl1.set(false);
+
+    info!("Waiting for commits from RL1");
+    wait_for(30, || {
+        Ok(commits_submitted_rl1.load(Ordering::SeqCst) > rl1_commits_before)
+    })
+    .expect("Timed out waiting for miner 1 to submit a commit op");
+
+    let rl1_commits_before = commits_submitted_rl1.load(Ordering::SeqCst);
+    // unblock block mining
+    let blocks_len = test_observer::get_blocks().len();
+    TEST_BROADCAST_STALL.lock().unwrap().replace(false);
+
+    // Wait for the block to be broadcasted and processed
+    wait_for(30, || Ok(test_observer::get_blocks().len() > blocks_len))
+        .expect("Timed out waiting for a block to be processed");
+
+    info!("Ensure that RL1 performs an RBF after unblocking block broadcast");
+    wait_for(30, || {
+        Ok(commits_submitted_rl1.load(Ordering::SeqCst) > rl1_commits_before)
+    })
+    .expect("Timed out waiting for miner 1 to RBF its old commit op");
+
+    info!("Mine RL1 Tenure");
+    signer_test
+        .running_nodes
+        .btc_regtest_controller
+        .build_next_block(1);
+
+    // fetch the current sortition info
+    let sortdb = conf.get_burnchain().open_sortition_db(true).unwrap();
+    let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+    // make sure the tenure was won by RL1
+    assert!(tip.sortition, "No sortition was won");
+    assert_eq!(
+        tip.miner_pk_hash.unwrap(),
+        mining_pkh_1,
+        "RL1 did not win the sortition"
+    );
+
+    let nakamoto_headers: HashMap<_, _> = get_nakamoto_headers(&conf)
+        .into_iter()
+        .map(|header| {
+            info!("Nakamoto block"; "height" => header.stacks_block_height, "consensus_hash" => %header.consensus_hash, "last_sortition_hash" => %tip.consensus_hash);
+            (header.consensus_hash, header)
+        })
+        .collect();
+
+    let header_info = nakamoto_headers.get(&tip.consensus_hash).unwrap();
+    let header = header_info
+        .anchored_header
+        .as_stacks_nakamoto()
+        .unwrap()
+        .clone();
+
+    mining_pk_1
+        .verify(
+            header.miner_signature_hash().as_bytes(),
+            &header.miner_signature,
+        )
         .unwrap();
 
-        // fetch the current sortition info
-        let sortdb = conf.get_burnchain().open_sortition_db(true).unwrap();
-        let sort_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
-
-        // block commits from RL2 -- this will block until the start of the next iteration
-        //  in this loop.
-        naka_skip_commit_op.set(true);
-        // ensure RL1 performs an RBF after unblock block broadcast
-        let rl1_commits_before = signer_test
-            .running_nodes
-            .commits_submitted
-            .load(Ordering::SeqCst);
-
-        // unblock block mining
-        let blocks_len = test_observer::get_blocks().len();
-        TEST_BROADCAST_STALL.lock().unwrap().replace(false);
-
-        // wait for a block to be processed (or timeout!)
-        if wait_for(60, || Ok(test_observer::get_blocks().len() > blocks_len)).is_err() {
-            info!("Timeout waiting for a block process: assuming this is because RL2 attempted to fork-- will check at end of test");
-            return (sort_tip, false);
-        }
-
-        info!("Nakamoto block processed, waiting for commit from RL1");
-
-        // wait for a commit from RL1
-        wait_for(60, || {
-            let commits_count = signer_test
-                .running_nodes
-                .commits_submitted
-                .load(Ordering::SeqCst);
-            Ok(commits_count > rl1_commits_before)
-        })
-        .unwrap();
-
-        // sleep for 2*first_proposal_burn_block_timing to prevent the block timing from allowing a fork by the signer set
-        thread::sleep(Duration::from_secs(first_proposal_burn_block_timing * 2));
-        (sort_tip, true)
-    };
-
-    let mut won_by_miner_2_but_no_tenure = false;
-    let mut won_by_miner_1_after_tenureless_miner_2 = false;
-    let miner_1_pk = StacksPublicKey::from_private(conf.miner.mining_key.as_ref().unwrap());
-    // miner 2 is expected to be valid iff:
-    // (a) its the first nakamoto tenure
-    // (b) the prior sortition didn't have a tenure (because by this time RL2 will have up-to-date block processing)
-    let mut expects_miner_2_to_be_valid = true;
-    // due to the random nature of mining sortitions, the way this test is structured
-    //  is that keeps track of two scenarios that we want to cover, and once enough sortitions
-    //  have been produced to cover those scenarios, it stops and checks the results at the end.
-    while !(won_by_miner_2_but_no_tenure && won_by_miner_1_after_tenureless_miner_2) {
-        let nmb_sortitions_seen = sortitions_seen.len();
-        assert!(max_sortitions >= nmb_sortitions_seen, "Produced {nmb_sortitions_seen} sortitions, but didn't cover the test scenarios, aborting");
-        let (sortition_data, had_tenure) = run_sortition();
-        sortitions_seen.push((sortition_data.clone(), had_tenure));
-
-        let nakamoto_headers: HashMap<_, _> = get_nakamoto_headers(&conf)
-            .into_iter()
-            .map(|header| {
-                info!("Nakamoto block"; "height" => header.stacks_block_height, "consensus_hash" => %header.consensus_hash, "last_sortition_hash" => %sortition_data.consensus_hash);
-                (header.consensus_hash, header)
-            })
-            .collect();
-
-        if had_tenure {
-            let header_info = nakamoto_headers
-                .get(&sortition_data.consensus_hash)
-                .unwrap();
-            let header = header_info
-                .anchored_header
-                .as_stacks_nakamoto()
-                .unwrap()
-                .clone();
-            let mined_by_miner_1 = miner_1_pk
-                .verify(
-                    header.miner_signature_hash().as_bytes(),
-                    &header.miner_signature,
-                )
-                .unwrap();
-
-            info!("Block check";
-                  "height" => header.chain_length,
-                  "consensus_hash" => %header.consensus_hash,
-                  "block_hash" => %header.block_hash(),
-                  "stacks_block_id" => %header.block_id(),
-                  "mined_by_miner_1?" => mined_by_miner_1,
-                  "expects_miner_2_to_be_valid?" => expects_miner_2_to_be_valid);
-            if !mined_by_miner_1 {
-                assert!(expects_miner_2_to_be_valid, "If a block was produced by miner 2, we should have expected miner 2 to be valid");
-            } else if won_by_miner_2_but_no_tenure {
-                // the tenure was won by miner 1, they produced a block, and this follows a tenure that miner 2 won but couldn't
-                //  mine during because they tried to fork.
-                won_by_miner_1_after_tenureless_miner_2 = true;
-            }
-
-            // even if it was mined by miner 2, their next block commit should be invalid!
-            expects_miner_2_to_be_valid = false;
-        } else {
-            info!("Sortition without tenure"; "expects_miner_2_to_be_valid?" => expects_miner_2_to_be_valid);
-            assert!(!nakamoto_headers.contains_key(&sortition_data.consensus_hash));
-            assert!(!expects_miner_2_to_be_valid, "If no blocks were produced in the tenure, it should be because miner 2 committed to a fork");
-            won_by_miner_2_but_no_tenure = true;
-            expects_miner_2_to_be_valid = true;
-        }
-    }
+    info!("------------------------- Verify Peer Data -------------------------");
 
     let peer_1_height = get_chain_info(&conf).stacks_tip_height;
     let peer_2_height = get_chain_info(&conf_node_2).stacks_tip_height;
