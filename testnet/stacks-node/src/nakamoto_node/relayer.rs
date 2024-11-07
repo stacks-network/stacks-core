@@ -930,7 +930,7 @@ impl RelayerThread {
             if !won_last_non_empty_sortition_snapshot {
                 debug!("Relayer: Failed to issue a tenure change payload in our last tenure. Issue a new tenure change payload.");
                 (
-                    canonical_stacks_tip, // TODO: what should this be? is this correct?
+                    canonical_stacks_tip,
                     last_block_election_snapshot,
                     MinerReason::EmptyTenure,
                 )
