@@ -5159,6 +5159,37 @@ fn continue_after_fast_block_no_sortition() {
     let rl1_commits = signer_test.running_nodes.commits_submitted.clone();
     let blocks_mined1 = signer_test.running_nodes.nakamoto_blocks_mined.clone();
 
+    // Some helper functions for verifying the blocks contain their expected transactions
+    let verify_last_block_contains_tenure_change_tx = |cause: TenureChangeCause| {
+        let blocks = test_observer::get_blocks();
+        let tenure_change_tx = &blocks.last().unwrap();
+        let transactions = tenure_change_tx["transactions"].as_array().unwrap();
+        let tx = transactions.first().expect("No transactions in block");
+        let raw_tx = tx["raw_tx"].as_str().unwrap();
+        let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
+        let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
+        match &parsed.payload {
+            TransactionPayload::TenureChange(payload) => {
+                assert_eq!(payload.cause, cause);
+            }
+            _ => panic!("Expected tenure change transaction, got {parsed:?}"),
+        };
+    };
+
+    let verify_last_block_contains_transfer_tx = || {
+        let blocks = test_observer::get_blocks();
+        let tenure_change_tx = &blocks.last().unwrap();
+        let transactions = tenure_change_tx["transactions"].as_array().unwrap();
+        let tx = transactions.first().expect("No transactions in block");
+        let raw_tx = tx["raw_tx"].as_str().unwrap();
+        let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
+        let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
+        assert!(
+            matches!(parsed.payload, TransactionPayload::TokenTransfer(_, _, _)),
+            "Expected token transfer transaction, got {parsed:?}"
+        );
+    };
+
     info!("------------------------- Pause Miner 2's Block Commits -------------------------");
 
     // Make sure Miner 2 cannot win a sortition at first.
@@ -5254,19 +5285,7 @@ fn continue_after_fast_block_no_sortition() {
     })
     .unwrap();
 
-    let blocks = test_observer::get_blocks();
-    let tenure_change_tx = &blocks.last().unwrap();
-    let transactions = tenure_change_tx["transactions"].as_array().unwrap();
-    let tx = transactions.first().expect("No transactions in block");
-    let raw_tx = tx["raw_tx"].as_str().unwrap();
-    let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
-    let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
-    match &parsed.payload {
-        TransactionPayload::TenureChange(payload) => {
-            assert_eq!(payload.cause, TenureChangeCause::BlockFound);
-        }
-        _ => panic!("Expected tenure change transaction, got {parsed:?}"),
-    };
+    verify_last_block_contains_tenure_change_tx(TenureChangeCause::BlockFound);
 
     info!("------------------------- Make Signers Reject All Subsequent Proposals -------------------------");
 
@@ -5303,6 +5322,7 @@ fn continue_after_fast_block_no_sortition() {
     rl2_skip_commit_op.set(true);
 
     let burn_height_before = get_burn_height();
+
     info!("------------------------- Miner 2 Mines an Empty Tenure B -------------------------";
         "burn_height_before" => burn_height_before,
         "rejections_before" => rejections_before,
@@ -5418,25 +5438,11 @@ fn continue_after_fast_block_no_sortition() {
     info!(
         "------------------------- Verify Tenure Change Tx in Miner B's Block N -------------------------"
     );
-
-    let blocks = test_observer::get_blocks();
-    assert_eq!(blocks.len(), nmb_old_blocks + 1,);
-    let tenure_change_block = &blocks.last().unwrap();
-    let transactions = tenure_change_block["transactions"].as_array().unwrap();
-    let tx = transactions.first().expect("No transactions in block");
-    let raw_tx = tx["raw_tx"].as_str().unwrap();
-    let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
-    let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
-    match &parsed.payload {
-        TransactionPayload::TenureChange(payload) => {
-            assert_eq!(payload.cause, TenureChangeCause::BlockFound);
-        }
-        _ => panic!("Expected tenure change transaction, got {parsed:?}"),
-    };
+    verify_last_block_contains_tenure_change_tx(TenureChangeCause::BlockFound);
 
     info!("------------------------- Wait for Miner B's Block N+1 -------------------------");
 
-    let nmb_old_blocks = blocks.len();
+    let nmb_old_blocks = test_observer::get_blocks().len();
     let blocks_processed_before_2 = blocks_mined2.load(Ordering::SeqCst);
     let stacks_height_before = signer_test
         .stacks_client
@@ -5472,22 +5478,10 @@ fn continue_after_fast_block_no_sortition() {
 
     info!("------------------------- Verify Miner B's Block N+1 -------------------------");
 
-    let blocks = test_observer::get_blocks();
-    assert_eq!(blocks.len(), nmb_old_blocks + 1,);
-    let tenure_extend_block = blocks.last().unwrap();
-    let transactions = tenure_extend_block["transactions"].as_array().unwrap();
-    let tx = transactions.first().expect("No transactions in block");
-    let raw_tx = tx["raw_tx"].as_str().unwrap();
-    let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
-    let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
-    assert!(
-        matches!(parsed.payload, TransactionPayload::TokenTransfer(_, _, _)),
-        "Expected Token Transfer Transaction. Got {:?}",
-        parsed.payload
-    );
+    verify_last_block_contains_transfer_tx();
 
     info!("------------------------- Mine An Empty Sortition -------------------------");
-    let nmb_old_blocks = blocks.len();
+    let nmb_old_blocks = test_observer::get_blocks().len();
     next_block_and(
         &mut signer_test.running_nodes.btc_regtest_controller,
         60,
@@ -5500,20 +5494,7 @@ fn continue_after_fast_block_no_sortition() {
     btc_blocks_mined += 1;
 
     info!("------------------------- Verify Miner B's Issues a Tenure Change Extend in Block N+2 -------------------------");
-    let blocks = test_observer::get_blocks();
-    assert_eq!(blocks.len(), nmb_old_blocks + 1,);
-    let tenure_extend_block = &blocks.last().unwrap();
-    let transactions = tenure_extend_block["transactions"].as_array().unwrap();
-    let tx = transactions.first().expect("No transactions in block");
-    let raw_tx = tx["raw_tx"].as_str().unwrap();
-    let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
-    let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
-    match &parsed.payload {
-        TransactionPayload::TenureChange(payload) => {
-            assert_eq!(payload.cause, TenureChangeCause::Extended);
-        }
-        _ => panic!("Expected tenure change transaction, got {parsed:?}"),
-    };
+    verify_last_block_contains_tenure_change_tx(TenureChangeCause::Extended);
 
     info!("------------------------- Unpause Miner A's Block Commits -------------------------");
     let commits_before_1 = rl1_commits.load(Ordering::SeqCst);
@@ -5527,7 +5508,7 @@ fn continue_after_fast_block_no_sortition() {
     .unwrap();
 
     info!("------------------------- Run Miner A's Tenure -------------------------");
-    let nmb_old_blocks = blocks.len();
+    let nmb_old_blocks = test_observer::get_blocks().len();
     let burn_height_before = get_burn_height();
     let blocks_processed_before_1 = blocks_mined1.load(Ordering::SeqCst);
     next_block_and(
@@ -5548,19 +5529,7 @@ fn continue_after_fast_block_no_sortition() {
     assert_eq!(tip.miner_pk_hash.unwrap(), mining_pkh_1);
 
     info!("------------------------- Verify Miner A's Issued a Tenure Change in Block N+4 -------------------------");
-    let blocks = test_observer::get_blocks();
-    let tenure_change_tx = &blocks.last().unwrap();
-    let transactions = tenure_change_tx["transactions"].as_array().unwrap();
-    let tx = transactions.first().expect("No transactions in block");
-    let raw_tx = tx["raw_tx"].as_str().unwrap();
-    let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
-    let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
-    match &parsed.payload {
-        TransactionPayload::TenureChange(payload) => {
-            assert_eq!(payload.cause, TenureChangeCause::BlockFound);
-        }
-        _ => panic!("Expected tenure change transaction, got {parsed:?}"),
-    };
+    verify_last_block_contains_tenure_change_tx(TenureChangeCause::BlockFound);
 
     info!(
         "------------------------- Confirm Burn and Stacks Block Heights -------------------------"
