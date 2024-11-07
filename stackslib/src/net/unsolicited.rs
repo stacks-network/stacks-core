@@ -1221,13 +1221,14 @@ impl PeerNetwork {
                     )
                 {
                     // unable to store this due to quota being exceeded
+                    debug!("{:?}: drop message to quota being exceeded: {:?}", self.get_local_peer(), &message.payload.get_message_description());
                     return false;
                 }
 
                 if !buffer {
                     debug!(
                         "{:?}: Re-try handling buffered sortition-bound message {} from {:?}",
-                        &self.get_local_peer(),
+                        self.get_local_peer(),
                         &message.payload.get_message_description(),
                         &neighbor_key
                     );
