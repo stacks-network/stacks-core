@@ -6154,12 +6154,27 @@ fn block_commit_delay() {
 
     signer_test.boot_to_epoch_3();
 
+    let commits_before = signer_test
+        .running_nodes
+        .commits_submitted
+        .load(Ordering::SeqCst);
+
     next_block_and_process_new_stacks_block(
         &mut signer_test.running_nodes.btc_regtest_controller,
         60,
         &signer_test.running_nodes.coord_channel,
     )
     .expect("Failed to mine first block");
+
+    // Ensure that the block commit has been sent before continuing
+    wait_for(60, || {
+        let commits = signer_test
+            .running_nodes
+            .commits_submitted
+            .load(Ordering::SeqCst);
+        Ok(commits > commits_before)
+    })
+    .expect("Timed out waiting for block commit after new Stacks block");
 
     // Prevent a block from being mined by making signers reject it.
     let all_signers = signer_test
