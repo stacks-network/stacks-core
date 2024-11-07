@@ -4323,9 +4323,6 @@ impl PeerNetwork {
                     tip_height,
                     chainstate,
                 );
-            if reorg {
-                info!("Burnchain or Stacks reorg detected; will invalidate cached reward set for cycle {rc}");
-            }
             return Ok(reorg);
         } else {
             // epoch 2
