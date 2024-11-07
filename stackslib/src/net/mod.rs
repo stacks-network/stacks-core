@@ -1515,6 +1515,10 @@ pub struct NetworkResult {
     pub num_connected_peers: usize,
     /// The observed burnchain height
     pub burn_height: u64,
+    /// The observed stacks coinbase height
+    pub coinbase_height: u64,
+    /// The observed stacks tip height (different in Nakamoto from coinbase height)
+    pub stacks_tip_height: u64,
     /// The consensus hash of the stacks tip (prefixed `rc_` for historical reasons)
     pub rc_consensus_hash: ConsensusHash,
     /// The current StackerDB configs
@@ -1529,6 +1533,8 @@ impl NetworkResult {
         num_download_passes: u64,
         num_connected_peers: usize,
         burn_height: u64,
+        coinbase_height: u64,
+        stacks_tip_height: u64,
         rc_consensus_hash: ConsensusHash,
         stacker_db_configs: HashMap<QualifiedContractIdentifier, StackerDBConfig>,
     ) -> NetworkResult {
@@ -1557,6 +1563,8 @@ impl NetworkResult {
             num_download_passes: num_download_passes,
             num_connected_peers,
             burn_height,
+            coinbase_height,
+            stacks_tip_height,
             rc_consensus_hash,
             stacker_db_configs,
         }
@@ -3416,10 +3424,30 @@ pub mod test {
             let mut stacks_node = self.stacks_node.take().unwrap();
             let indexer = BitcoinIndexer::new_unit_test(&self.config.burnchain.working_dir);
 
-            let old_tip = self.network.stacks_tip.clone();
-
             self.network
                 .refresh_burnchain_view(&indexer, &sortdb, &mut stacks_node.chainstate, false)
+                .unwrap();
+
+            self.sortdb = Some(sortdb);
+            self.stacks_node = Some(stacks_node);
+        }
+
+        pub fn refresh_reward_cycles(&mut self) {
+            let sortdb = self.sortdb.take().unwrap();
+            let mut stacks_node = self.stacks_node.take().unwrap();
+
+            let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+            let tip_block_id = self.network.stacks_tip.block_id();
+            let tip_height = self.network.stacks_tip.height;
+
+            self.network
+                .refresh_reward_cycles(
+                    &sortdb,
+                    &mut stacks_node.chainstate,
+                    &tip,
+                    &tip_block_id,
+                    tip_height,
+                )
                 .unwrap();
 
             self.sortdb = Some(sortdb);

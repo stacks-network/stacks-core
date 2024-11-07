@@ -2322,8 +2322,6 @@ impl Relayer {
             event_observer,
         )?;
 
-        update_stacks_tip_height(chain_height as i64);
-
         Ok(ret)
     }
 
@@ -3033,6 +3031,10 @@ impl Relayer {
             mem::replace(&mut network_result.pushed_stackerdb_chunks, vec![]),
             event_observer.map(|obs| obs.as_stackerdb_event_dispatcher()),
         )?;
+
+        update_stacks_tip_height(
+            i64::try_from(network_result.stacks_tip_height).unwrap_or(i64::MAX),
+        );
 
         let receipts = ProcessedNetReceipts {
             mempool_txs_added,
