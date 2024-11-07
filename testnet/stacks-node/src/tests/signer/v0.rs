@@ -5236,14 +5236,12 @@ fn reorg_locally_accepted_blocks_across_tenures_fails() {
         .stacks_client
         .get_peer_info()
         .expect("Failed to get peer info");
-    let commits_submitted = signer_test.running_nodes.commits_submitted.clone();
-    let commits_before = commits_submitted.load(Ordering::SeqCst);
     next_block_and(
         &mut signer_test.running_nodes.btc_regtest_controller,
         60,
         || {
-            let commits_count = commits_submitted.load(Ordering::SeqCst);
-            Ok(commits_count > commits_before)
+            let info = signer_test.stacks_client.get_peer_info().unwrap();
+            Ok(info.burn_block_height > info_before.burn_block_height)
         },
     )
     .unwrap();
