@@ -1154,12 +1154,16 @@ fn test_network_result_update() {
         1,
         1,
         1,
+        1,
+        1,
         ConsensusHash([0x11; 20]),
         HashMap::new(),
     );
 
     let mut network_result_2 = NetworkResult::new(
         StacksBlockId([0x22; 32]),
+        2,
+        2,
         2,
         2,
         2,
@@ -1600,6 +1604,8 @@ fn test_network_result_update() {
         10,
         10,
         10,
+        10,
+        10,
         ConsensusHash([0xaa; 20]),
         HashMap::new(),
     );
@@ -1652,6 +1658,8 @@ fn test_network_result_update() {
     // stackerdb pushed chunks get consolidated correctly
     let mut old = NetworkResult::new(
         StacksBlockId([0xaa; 32]),
+        10,
+        10,
         10,
         10,
         10,
@@ -1714,6 +1722,8 @@ fn test_network_result_update() {
         11,
         11,
         11,
+        11,
+        11,
         ConsensusHash([0xbb; 20]),
         HashMap::new(),
     );
@@ -1731,6 +1741,8 @@ fn test_network_result_update() {
 
     let new = NetworkResult::new(
         StacksBlockId([0xbb; 32]),
+        11,
+        11,
         11,
         11,
         11,
