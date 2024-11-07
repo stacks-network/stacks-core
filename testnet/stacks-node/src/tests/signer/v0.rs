@@ -5177,6 +5177,11 @@ fn reorg_locally_accepted_blocks_across_tenures_fails() {
     // Clear the stackerdb chunks
     test_observer::clear();
 
+    let blocks_before = mined_blocks.load(Ordering::SeqCst);
+    let info_before = signer_test
+        .stacks_client
+        .get_peer_info()
+        .expect("Failed to get peer info");
     // submit a tx so that the miner will ATTEMPT to mine a stacks block N+1
     let transfer_tx = make_stacks_transfer(
         &sender_sk,
@@ -5189,11 +5194,6 @@ fn reorg_locally_accepted_blocks_across_tenures_fails() {
     let tx = submit_tx(&http_origin, &transfer_tx);
 
     info!("Submitted tx {tx} in to attempt to mine block N+1");
-    let blocks_before = mined_blocks.load(Ordering::SeqCst);
-    let info_before = signer_test
-        .stacks_client
-        .get_peer_info()
-        .expect("Failed to get peer info");
     wait_for(short_timeout, || {
         let accepted_signers = test_observer::get_stackerdb_chunks()
             .into_iter()
@@ -5231,6 +5231,11 @@ fn reorg_locally_accepted_blocks_across_tenures_fails() {
 
     info!("------------------------- Starting Tenure B -------------------------");
     // Start a new tenure and ensure the miner can propose a new block N+1' that is accepted by all signers
+    let blocks_before = mined_blocks.load(Ordering::SeqCst);
+    let info_before = signer_test
+        .stacks_client
+        .get_peer_info()
+        .expect("Failed to get peer info");
     let commits_submitted = signer_test.running_nodes.commits_submitted.clone();
     let commits_before = commits_submitted.load(Ordering::SeqCst);
     next_block_and(
@@ -5246,11 +5251,6 @@ fn reorg_locally_accepted_blocks_across_tenures_fails() {
     info!(
         "------------------------- Attempt to mine Nakamoto Block N+1' in Tenure B -------------------------"
     );
-    let blocks_before = mined_blocks.load(Ordering::SeqCst);
-    let info_before = signer_test
-        .stacks_client
-        .get_peer_info()
-        .expect("Failed to get peer info");
     // The miner's proposed block should get rejected by all the signers that PREVIOUSLY accepted the block
     wait_for(short_timeout, || {
         let rejected_signers = test_observer::get_stackerdb_chunks()
