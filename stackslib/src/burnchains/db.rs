@@ -1000,33 +1000,38 @@ impl BurnchainDB {
         readwrite: bool,
     ) -> Result<BurnchainDB, BurnchainError> {
         let mut create_flag = false;
-        let open_flags = match fs::metadata(path) {
-            Err(e) => {
-                if e.kind() == io::ErrorKind::NotFound {
-                    // need to create
-                    if readwrite {
-                        create_flag = true;
-                        let ppath = Path::new(path);
-                        let pparent_path = ppath
-                            .parent()
-                            .unwrap_or_else(|| panic!("BUG: no parent of '{}'", path));
-                        fs::create_dir_all(&pparent_path)
-                            .map_err(|e| BurnchainError::from(DBError::IOError(e)))?;
+        let open_flags = if path == ":memory:" {
+            create_flag = true;
+            OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE
+        } else {
+            match fs::metadata(path) {
+                Err(e) => {
+                    if e.kind() == io::ErrorKind::NotFound {
+                        // need to create
+                        if readwrite {
+                            create_flag = true;
+                            let ppath = Path::new(path);
+                            let pparent_path = ppath
+                                .parent()
+                                .unwrap_or_else(|| panic!("BUG: no parent of '{}'", path));
+                            fs::create_dir_all(&pparent_path)
+                                .map_err(|e| BurnchainError::from(DBError::IOError(e)))?;
 
-                        OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE
+                            OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE
+                        } else {
+                            return Err(BurnchainError::from(DBError::NoDBError));
+                        }
                     } else {
-                        return Err(BurnchainError::from(DBError::NoDBError));
+                        return Err(BurnchainError::from(DBError::IOError(e)));
                     }
-                } else {
-                    return Err(BurnchainError::from(DBError::IOError(e)));
                 }
-            }
-            Ok(_md) => {
-                // can just open
-                if readwrite {
-                    OpenFlags::SQLITE_OPEN_READ_WRITE
-                } else {
-                    OpenFlags::SQLITE_OPEN_READ_ONLY
+                Ok(_md) => {
+                    // can just open
+                    if readwrite {
+                        OpenFlags::SQLITE_OPEN_READ_WRITE
+                    } else {
+                        OpenFlags::SQLITE_OPEN_READ_ONLY
+                    }
                 }
             }
         };
@@ -1089,7 +1094,7 @@ impl BurnchainDB {
         let conn = sqlite_open(path, open_flags, true)?;
         let mut db = BurnchainDB { conn };
 
-        if readwrite {
+        if readwrite || path == ":memory:" {
             db.add_indexes()?;
         }
         Ok(db)

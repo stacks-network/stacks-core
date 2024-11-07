@@ -243,11 +243,18 @@ impl CurrentRewardSet {
 /// Cached stacks chain tip info, consumed by RPC endpoints
 #[derive(Clone, Debug, PartialEq)]
 pub struct StacksTipInfo {
+    /// consensus hash of the highest processed stacks block
     pub consensus_hash: ConsensusHash,
+    /// block hash of the highest processed stacks block
     pub block_hash: BlockHeaderHash,
+    /// height of the highest processed stacks block
     pub height: u64,
+    /// coinbase height of the highest processed tenure
     pub coinbase_height: u64,
+    /// whether or not the system has transitioned to Nakamoto
     pub is_nakamoto: bool,
+    /// highest burnchain block discovered
+    pub burnchain_height: u64,
 }
 
 impl StacksTipInfo {
@@ -258,6 +265,7 @@ impl StacksTipInfo {
             height: 0,
             coinbase_height: 0,
             is_nakamoto: false,
+            burnchain_height: 0,
         }
     }
 
@@ -305,6 +313,9 @@ pub struct PeerNetwork {
     // handles to p2p databases
     pub peerdb: PeerDB,
     pub atlasdb: AtlasDB,
+
+    // handle to burnchain DB
+    pub burnchain_db: BurnchainDB,
 
     // ongoing p2p conversations (either they reached out to us, or we to them)
     pub peers: PeerMap,
@@ -444,6 +455,7 @@ impl PeerNetwork {
         peerdb: PeerDB,
         atlasdb: AtlasDB,
         stackerdbs: StackerDBs,
+        burnchain_db: BurnchainDB,
         mut local_peer: LocalPeer,
         peer_version: u32,
         burnchain: Burnchain,
@@ -508,6 +520,8 @@ impl PeerNetwork {
 
             peerdb,
             atlasdb,
+
+            burnchain_db,
 
             peers: PeerMap::new(),
             sockets: HashMap::new(),
@@ -4257,6 +4271,7 @@ impl PeerNetwork {
                 .anchored_header
                 .as_stacks_nakamoto()
                 .is_some(),
+            burnchain_height: self.stacks_tip.burnchain_height,
         };
         debug!(
             "{:?}: Parent Stacks tip off of {} is {:?}",
@@ -4280,36 +4295,52 @@ impl PeerNetwork {
         }
     }
 
-    /// Refresh our view of the last three reward cycles
-    /// This ensures that the PeerNetwork has cached copies of the reward cycle data (including the
-    /// signing set) for the current, previous, and previous-previous reward cycles.  This data is
-    /// in turn consumed by the Nakamoto block downloader, which must validate blocks signed from
-    /// any of these reward cycles.
-    #[cfg_attr(test, mutants::skip)]
-    fn refresh_reward_cycles(
-        &mut self,
+    /// Determine if we need to invalidate a given cached reward set.
+    ///
+    /// In Epoch 2, this requires checking the first sortition in the start of the reward set's
+    /// reward phase.
+    ///
+    /// In Nakamoto, this requires checking the anchor block in the prepare phase for the upcoming
+    /// reward phase.
+    fn check_reload_cached_reward_set(
+        &self,
         sortdb: &SortitionDB,
-        chainstate: &mut StacksChainState,
+        chainstate: &StacksChainState,
+        rc: u64,
         tip_sn: &BlockSnapshot,
         tip_block_id: &StacksBlockId,
-    ) -> Result<(), net_error> {
-        let cur_rc = self
-            .burnchain
-            .block_height_to_reward_cycle(tip_sn.block_height)
-            .expect("FATAL: sortition from before system start");
-
-        let prev_rc = cur_rc.saturating_sub(1);
-        let prev_prev_rc = prev_rc.saturating_sub(1);
-        let ih = sortdb.index_handle(&tip_sn.sortition_id);
-
-        for rc in [cur_rc, prev_rc, prev_prev_rc] {
-            debug!("Refresh reward cycle info for cycle {}", rc);
-            let rc_start_height = self.burnchain.nakamoto_first_block_of_cycle(rc);
+        tip_height: u64,
+    ) -> Result<bool, net_error> {
+        let epoch = self.get_epoch_at_burn_height(tip_sn.block_height);
+        if epoch.epoch_id >= StacksEpochId::Epoch30 {
+            // epoch 3, where there are no forks except from bugs or burnchain reorgs.
+            // invalidate reward cycles on burnchain or stacks reorg, should they ever happen
+            let reorg = Self::is_reorg(Some(&self.burnchain_tip), tip_sn, sortdb)
+                || Self::is_nakamoto_reorg(
+                    &self.stacks_tip.block_id(),
+                    self.stacks_tip.height,
+                    tip_block_id,
+                    tip_height,
+                    chainstate,
+                );
+            return Ok(reorg);
+        } else {
+            // epoch 2
+            // NOTE: + 1 needed because the sortition db indexes anchor blocks at index height 1,
+            // not 0
+            let ih = sortdb.index_handle(&tip_sn.sortition_id);
+            let rc_start_height = self.burnchain.nakamoto_first_block_of_cycle(rc) + 1;
             let Some(ancestor_sort_id) =
                 get_ancestor_sort_id(&ih, rc_start_height, &tip_sn.sortition_id)?
             else {
-                // reward cycle is too far back for there to be an ancestor
-                continue;
+                // reward cycle is too far back for there to be an ancestor, so no need to
+                // reload
+                test_debug!(
+                    "No ancestor sortition ID off of {} (height {}) at {rc_start_height})",
+                    &tip_sn.sortition_id,
+                    tip_sn.block_height
+                );
+                return Ok(false);
             };
             let ancestor_ih = sortdb.index_handle(&ancestor_sort_id);
             let anchor_hash_opt = ancestor_ih.get_last_anchor_block_hash()?;
@@ -4323,12 +4354,53 @@ impl PeerNetwork {
                         || cached_rc_info.anchor_block_hash == *anchor_hash
                     {
                         // cached reward set data is still valid
-                        continue;
+                        test_debug!("Cached reward cycle {rc} is still valid");
+                        return Ok(false);
                     }
                 }
             }
+        }
 
-            debug!("Load reward cycle info for cycle {}", rc);
+        Ok(true)
+    }
+
+    /// Refresh our view of the last three reward cycles
+    /// This ensures that the PeerNetwork has cached copies of the reward cycle data (including the
+    /// signing set) for the current, previous, and previous-previous reward cycles.  This data is
+    /// in turn consumed by the Nakamoto block downloader, which must validate blocks signed from
+    /// any of these reward cycles.
+    #[cfg_attr(test, mutants::skip)]
+    pub fn refresh_reward_cycles(
+        &mut self,
+        sortdb: &SortitionDB,
+        chainstate: &mut StacksChainState,
+        tip_sn: &BlockSnapshot,
+        tip_block_id: &StacksBlockId,
+        tip_height: u64,
+    ) -> Result<(), net_error> {
+        let cur_rc = self
+            .burnchain
+            .block_height_to_reward_cycle(tip_sn.block_height)
+            .expect("FATAL: sortition from before system start");
+
+        let prev_rc = cur_rc.saturating_sub(1);
+        let prev_prev_rc = prev_rc.saturating_sub(1);
+
+        for rc in [cur_rc, prev_rc, prev_prev_rc] {
+            debug!("Refresh reward cycle info for cycle {}", rc);
+            if self.current_reward_sets.contains_key(&rc)
+                && !self.check_reload_cached_reward_set(
+                    sortdb,
+                    chainstate,
+                    rc,
+                    tip_sn,
+                    tip_block_id,
+                    tip_height,
+                )?
+            {
+                continue;
+            }
+            debug!("Refresh reward cycle info for cycle {rc}");
             let Some((reward_set_info, anchor_block_header)) = load_nakamoto_reward_set(
                 rc,
                 &tip_sn.sortition_id,
@@ -4385,6 +4457,7 @@ impl PeerNetwork {
         let (stacks_tip_ch, stacks_tip_bhh, stacks_tip_height) =
             SortitionDB::get_canonical_stacks_chain_tip_hash_and_height(sortdb.conn())?;
 
+        let new_burnchain_tip = self.burnchain_db.get_canonical_chain_tip()?;
         let burnchain_tip_changed = canonical_sn.block_height != self.chain_view.burn_block_height
             || self.num_state_machine_passes == 0
             || canonical_sn.sortition_id != self.burnchain_tip.sortition_id;
@@ -4434,6 +4507,7 @@ impl PeerNetwork {
                 chainstate,
                 &canonical_sn,
                 &new_stacks_tip_block_id,
+                stacks_tip_height,
             )?;
         }
 
@@ -4463,6 +4537,7 @@ impl PeerNetwork {
                         height: 0,
                         coinbase_height: 0,
                         is_nakamoto: false,
+                        burnchain_height: 0,
                     }
                 }
                 Err(e) => return Err(e),
@@ -4534,12 +4609,10 @@ impl PeerNetwork {
 
             if self.get_current_epoch().epoch_id < StacksEpochId::Epoch30 {
                 // update heaviest affirmation map view
-                let burnchain_db = self.burnchain.open_burnchain_db(false)?;
-
                 self.heaviest_affirmation_map = static_get_heaviest_affirmation_map(
                     &self.burnchain,
                     indexer,
-                    &burnchain_db,
+                    &self.burnchain_db,
                     sortdb,
                     &canonical_sn.sortition_id,
                 )
@@ -4550,7 +4623,7 @@ impl PeerNetwork {
                 self.tentative_best_affirmation_map = static_get_canonical_affirmation_map(
                     &self.burnchain,
                     indexer,
-                    &burnchain_db,
+                    &self.burnchain_db,
                     sortdb,
                     chainstate,
                     &canonical_sn.sortition_id,
@@ -4591,9 +4664,8 @@ impl PeerNetwork {
         if stacks_tip_changed && self.get_current_epoch().epoch_id < StacksEpochId::Epoch30 {
             // update stacks tip affirmation map view
             // (NOTE: this check has to happen _after_ self.chain_view gets updated!)
-            let burnchain_db = self.burnchain.open_burnchain_db(false)?;
             self.stacks_tip_affirmation_map = static_get_stacks_tip_affirmation_map(
-                &burnchain_db,
+                &self.burnchain_db,
                 sortdb,
                 &canonical_sn.sortition_id,
                 &canonical_sn.canonical_stacks_tip_consensus_hash,
@@ -4633,7 +4705,7 @@ impl PeerNetwork {
             debug!(
                 "{:?}: handle unsolicited stacks messages: tenure changed {} != {}, {} buffered",
                 self.get_local_peer(),
-                &self.burnchain_tip.consensus_hash,
+                &self.stacks_tip.consensus_hash,
                 &canonical_sn.consensus_hash,
                 self.pending_stacks_messages
                     .iter()
@@ -4659,8 +4731,10 @@ impl PeerNetwork {
                 height: stacks_tip_height,
                 coinbase_height,
                 is_nakamoto: stacks_tip_is_nakamoto,
+                burnchain_height: new_burnchain_tip.block_height,
             };
             self.parent_stacks_tip = parent_stacks_tip;
+            self.parent_stacks_tip.burnchain_height = new_burnchain_tip.block_height;
 
             debug!(
                 "{:?}: canonical Stacks tip is now {:?}",
@@ -4733,7 +4807,6 @@ impl PeerNetwork {
             ibd,
             true,
         );
-
         let unhandled_messages =
             self.handle_unsolicited_stacks_messages(chainstate, unhandled_messages, true);
 
@@ -4980,7 +5053,7 @@ impl PeerNetwork {
         Ok(())
     }
 
-    /// Static helper to check to see if there has been a reorg
+    /// Static helper to check to see if there has been a burnchain reorg
     pub fn is_reorg(
         last_sort_tip: Option<&BlockSnapshot>,
         sort_tip: &BlockSnapshot,
@@ -5003,15 +5076,15 @@ impl PeerNetwork {
         {
             // current and previous sortition tips are at the same height, but represent different
             // blocks.
-            debug!(
-                "Reorg detected at burn height {}: {} != {}",
+            info!(
+                "Burnchain reorg detected at burn height {}: {} != {}",
                 sort_tip.block_height, &last_sort_tip.consensus_hash, &sort_tip.consensus_hash
             );
             return true;
         }
 
         // It will never be the case that the last and current tip have different heights, but the
-        // smae consensus hash.  If they have the same height, then we would have already returned
+        // same consensus hash.  If they have the same height, then we would have already returned
         // since we've handled both the == and != cases for their consensus hashes.  So if we reach
         // this point, the heights and consensus hashes are not equal.  We only need to check that
         // last_sort_tip is an ancestor of sort_tip
@@ -5041,6 +5114,60 @@ impl PeerNetwork {
 
         // ancestor has expected consensus hash, so no rerog
         false
+    }
+
+    /// Static helper to check to see if there has been a Nakamoto reorg.
+    /// Return true if there's a Nakamoto reorg
+    /// Return false otherwise.
+    pub fn is_nakamoto_reorg(
+        last_stacks_tip: &StacksBlockId,
+        last_stacks_tip_height: u64,
+        stacks_tip: &StacksBlockId,
+        stacks_tip_height: u64,
+        chainstate: &StacksChainState,
+    ) -> bool {
+        if last_stacks_tip == stacks_tip {
+            // same tip
+            return false;
+        }
+
+        if last_stacks_tip_height == stacks_tip_height && last_stacks_tip != stacks_tip {
+            // last block is a sibling
+            info!(
+                "Stacks reorg detected at stacks height {last_stacks_tip_height}: {last_stacks_tip} != {stacks_tip}",
+            );
+            return true;
+        }
+
+        if stacks_tip_height < last_stacks_tip_height {
+            info!(
+                "Stacks reorg (chain shrink) detected at stacks height {last_stacks_tip_height}: {last_stacks_tip} != {stacks_tip}",
+            );
+            return true;
+        }
+
+        // It will never be the case that the last and current tip have different heights, but the
+        // same block ID.  If they have the same height, then we would have already returned
+        // since we've handled both the == and != cases for their block IDs.  So if we reach
+        // this point, the heights and block IDs are not equal.  We only need to check that
+        // last_stacks_tip is an ancestor of stacks_tip
+
+        let mut cursor = stacks_tip.clone();
+        for _ in last_stacks_tip_height..stacks_tip_height {
+            let Ok(Some(parent_id)) =
+                NakamotoChainState::get_nakamoto_parent_block_id(chainstate.db(), &cursor)
+            else {
+                error!("Failed to load parent id of {cursor}");
+                return true;
+            };
+            cursor = parent_id;
+        }
+
+        debug!("is_nakamoto_reorg check";
+               "parent_id" => %cursor,
+               "last_stacks_tip" => %last_stacks_tip);
+
+        cursor != *last_stacks_tip
     }
 
     /// Log our neighbors.
@@ -5125,6 +5252,10 @@ impl PeerNetwork {
                 }
             };
 
+        test_debug!(
+            "unsolicited_buffered_messages = {:?}",
+            &unsolicited_buffered_messages
+        );
         let mut network_result = NetworkResult::new(
             self.stacks_tip.block_id(),
             self.num_state_machine_passes,
@@ -5132,6 +5263,8 @@ impl PeerNetwork {
             self.num_downloader_passes,
             self.peers.len(),
             self.chain_view.burn_block_height,
+            self.stacks_tip.coinbase_height,
+            self.stacks_tip.height,
             self.chain_view.rc_consensus_hash.clone(),
             self.get_stacker_db_configs_owned(),
         );
@@ -5266,7 +5399,7 @@ mod test {
             network_id: 0x9abcdef0,
             chain_name: "bitcoin".to_string(),
             network_name: "testnet".to_string(),
-            working_dir: "/nope".to_string(),
+            working_dir: ":memory:".to_string(),
             consensus_hash_lifetime: 24,
             stable_confirmations: 7,
             initial_reward_start_block: 50,
@@ -5297,12 +5430,14 @@ mod test {
         let atlas_config = AtlasConfig::new(false);
         let atlasdb = AtlasDB::connect_memory(atlas_config).unwrap();
         let stacker_db = StackerDBs::connect_memory();
+        let burnchain_db = BurnchainDB::connect(":memory:", &burnchain, true).unwrap();
 
         let local_peer = PeerDB::get_local_peer(db.conn()).unwrap();
         let p2p = PeerNetwork::new(
             db,
             atlasdb,
             stacker_db,
+            burnchain_db,
             local_peer,
             0x12345678,
             burnchain,
