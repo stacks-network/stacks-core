@@ -24,7 +24,6 @@ use blockstack_lib::util_lib::db::{
     Error as DBError,
 };
 use clarity::types::chainstate::{BurnchainHeaderHash, StacksAddress};
-use clarity::util::get_epoch_time_secs;
 use libsigner::BlockProposal;
 use rusqlite::{
     params, Connection, Error as SqliteError, OpenFlags, OptionalExtension, Transaction,
@@ -33,6 +32,7 @@ use serde::{Deserialize, Serialize};
 use slog::{slog_debug, slog_error};
 use stacks_common::codec::{read_next, write_next, Error as CodecError, StacksMessageCodec};
 use stacks_common::types::chainstate::ConsensusHash;
+use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::{debug, define_u8_enum, error};
