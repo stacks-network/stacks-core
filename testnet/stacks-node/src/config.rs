@@ -2254,6 +2254,7 @@ pub struct ConnectionOptionsFile {
     pub private_neighbors: Option<bool>,
     pub auth_token: Option<String>,
     pub antientropy_retry: Option<u64>,
+    pub reject_blocks_pushed: Option<bool>,
 }
 
 impl ConnectionOptionsFile {
@@ -2386,6 +2387,9 @@ impl ConnectionOptionsFile {
             private_neighbors: self.private_neighbors.unwrap_or(true),
             auth_token: self.auth_token,
             antientropy_retry: self.antientropy_retry.unwrap_or(default.antientropy_retry),
+            reject_blocks_pushed: self
+                .reject_blocks_pushed
+                .unwrap_or(default.reject_blocks_pushed),
             ..default
         })
     }
