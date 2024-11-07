@@ -109,6 +109,8 @@ pub enum MinerReason {
         /// sortition.
         burn_view_consensus_hash: ConsensusHash,
     },
+    /// The miner thread was spawned to initialize a prior empty tenure
+    EmptyTenure,
 }
 
 impl std::fmt::Display for MinerReason {
@@ -121,6 +123,7 @@ impl std::fmt::Display for MinerReason {
                 f,
                 "Extended: burn_view_consensus_hash = {burn_view_consensus_hash:?}",
             ),
+            MinerReason::EmptyTenure => write!(f, "EmptyTenure"),
         }
     }
 }
@@ -919,22 +922,25 @@ impl BlockMinerThread {
     fn make_vrf_proof(&mut self) -> Option<VRFProof> {
         // if we're a mock miner, then make sure that the keychain has a keypair for the mocked VRF
         // key
+        let sortition_hash = if matches!(self.reason, MinerReason::EmptyTenure) {
+            self.burn_election_block.sortition_hash
+        } else {
+            self.burn_block.sortition_hash
+        };
         let vrf_proof = if self.config.get_node_config(false).mock_mining {
-            self.keychain.generate_proof(
-                VRF_MOCK_MINER_KEY,
-                self.burn_block.sortition_hash.as_bytes(),
-            )
+            self.keychain
+                .generate_proof(VRF_MOCK_MINER_KEY, sortition_hash.as_bytes())
         } else {
             self.keychain.generate_proof(
                 self.registered_key.target_block_height,
-                self.burn_block.sortition_hash.as_bytes(),
+                sortition_hash.as_bytes(),
             )
         };
 
         debug!(
             "Generated VRF Proof: {} over {} ({},{}) with key {}",
             vrf_proof.to_hex(),
-            &self.burn_block.sortition_hash,
+            &sortition_hash,
             &self.burn_block.block_height,
             &self.burn_block.burn_header_hash,
             &self.registered_key.vrf_public_key.to_hex()
@@ -1155,7 +1161,7 @@ impl BlockMinerThread {
         };
 
         let (tenure_change_tx, coinbase_tx) = match &self.reason {
-            MinerReason::BlockFound => {
+            MinerReason::BlockFound | MinerReason::EmptyTenure => {
                 let tenure_change_tx =
                     self.generate_tenure_change_tx(current_miner_nonce, payload)?;
                 let coinbase_tx =

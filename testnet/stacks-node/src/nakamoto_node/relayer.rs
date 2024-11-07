@@ -901,6 +901,7 @@ impl RelayerThread {
             "Relayer: Current burn block had no sortition. Checking for tenure continuation.";
             "won_last_sortition" => won_last_sortition,
             "current_mining_pkh" => %mining_pkh,
+            "block_election_snapshot.consensus_hash" => %block_election_snapshot.consensus_hash,
             "block_election_snapshot.miner_pk_hash" => ?block_election_snapshot.miner_pk_hash,
             "canonical_stacks_tip_id" => %canonical_stacks_tip,
             "canonical_stacks_tip_ch" => %canonical_stacks_tip_ch,
@@ -911,13 +912,45 @@ impl RelayerThread {
             return Ok(());
         }
 
+        let tip_info =
+            NakamotoChainState::get_canonical_block_header(self.chainstate.db(), &self.sortdb)
+                .map_err(|e| {
+                    error!("Relayer: failed to get canonical block header: {e:?}");
+                    NakamotoNodeError::SnapshotNotFoundForChainTip
+                })?
+                .ok_or_else(|| {
+                    error!("Relayer: failed to get canonical block header");
+                    NakamotoNodeError::SnapshotNotFoundForChainTip
+                })?;
+
+        let last_non_empty_sortition_snapshot =
+            SortitionDB::get_block_snapshot_consensus(self.sortdb.conn(), &tip_info.consensus_hash)
+                .map_err(|e| {
+                    error!("Relayer: failed to get last non-empty sortition snapshot: {e:?}");
+                    NakamotoNodeError::SnapshotNotFoundForChainTip
+                })?
+                .ok_or_else(|| {
+                    error!("Relayer: failed to get last non-empty sortition snapshot");
+                    NakamotoNodeError::SnapshotNotFoundForChainTip
+                })?;
+
+        let won_last_non_empty_sortition_snapshot =
+            last_non_empty_sortition_snapshot.miner_pk_hash == Some(mining_pkh);
+
+        let reason = if !won_last_non_empty_sortition_snapshot {
+            debug!("Relayer: Failed to issue a tenure change payload in our last tenure. Issue a tenure change payload again.");
+            MinerReason::EmptyTenure
+        } else {
+            debug!("Relayer: Successfully issued a tenure change payload in our last tenure. Issue a continue extend.");
+            MinerReason::Extended {
+                burn_view_consensus_hash: new_burn_view,
+            }
+        };
         match self.start_new_tenure(
             canonical_stacks_tip, // For tenure extend, we should be extending off the canonical tip
             block_election_snapshot,
             burn_tip,
-            MinerReason::Extended {
-                burn_view_consensus_hash: new_burn_view,
-            },
+            reason,
         ) {
             Ok(()) => {
                 debug!("Relayer: successfully started new tenure.");
