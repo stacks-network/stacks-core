@@ -12,6 +12,21 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 - Remove the panic for reporting DB deadlocks (just error and continue waiting)
 - Add `block_commit_delay_ms` to the config file to control the time to wait after seeing a new burn block, before submitting a block commit, to allow time for the first Nakamoto block of the new tenure to be mined, allowing this miner to avoid the need to RBF the block commit.
 
+## [3.0.0.0.1]
+
+### Changed
+- Add index for StacksBlockId to nakamoto block headers table (improves node performance)
+- Remove the panic for reporting DB deadlocks (just error and continue waiting)
+- Various test fixes for CI (5353, 5368, 5372, 5371, 5380, 5378, 5387, 5396, 5390, 5394)
+- Various log fixes: 
+    - don't say proceeding to mine blocks if not a miner
+    - misc. warns downgraded to debugs
+- 5391: Update default block proposal timeout to 10 minutes
+- 5406: After block rejection, miner pauses
+- Docs fixes
+    - Fix signer docs link
+    - Specify burn block in clarity docs
+
 ## [3.0.0.0.0]
 
 ### Added
