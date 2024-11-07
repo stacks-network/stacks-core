@@ -5230,47 +5230,41 @@ fn reorg_locally_accepted_blocks_across_tenures_fails() {
     assert_ne!(info_after.stacks_tip.to_string(), block_n_1.block_hash);
 
     info!("------------------------- Starting Tenure B -------------------------");
-    // Start a new tenure and ensure the miner can propose a new block N+1' that is accepted by all signers
     let blocks_before = mined_blocks.load(Ordering::SeqCst);
     let info_before = signer_test
         .stacks_client
         .get_peer_info()
         .expect("Failed to get peer info");
+
+    // Clear the test observer so any old rejections are not counted
+    test_observer::clear();
+
+    // Start a new tenure and ensure the we see the expected rejections
     next_block_and(
         &mut signer_test.running_nodes.btc_regtest_controller,
         60,
         || {
-            let info = signer_test.stacks_client.get_peer_info().unwrap();
-            Ok(info.burn_block_height > info_before.burn_block_height)
+            let rejected_signers = test_observer::get_stackerdb_chunks()
+                .into_iter()
+                .flat_map(|chunk| chunk.modified_slots)
+                .filter_map(|chunk| {
+                    let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
+                        .expect("Failed to deserialize SignerMessage");
+                    match message {
+                        SignerMessage::BlockResponse(BlockResponse::Rejected(BlockRejection {
+                            signature,
+                            signer_signature_hash,
+                            ..
+                        })) => non_ignoring_signers.iter().find(|key| {
+                            key.verify(signer_signature_hash.bits(), &signature).is_ok()
+                        }),
+                        _ => None,
+                    }
+                })
+                .collect::<Vec<_>>();
+            Ok(rejected_signers.len() + ignoring_signers.len() == num_signers)
         },
     )
-    .unwrap();
-
-    info!(
-        "------------------------- Attempt to mine Nakamoto Block N+1' in Tenure B -------------------------"
-    );
-    // The miner's proposed block should get rejected by all the signers that PREVIOUSLY accepted the block
-    wait_for(short_timeout, || {
-        let rejected_signers = test_observer::get_stackerdb_chunks()
-            .into_iter()
-            .flat_map(|chunk| chunk.modified_slots)
-            .filter_map(|chunk| {
-                let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
-                    .expect("Failed to deserialize SignerMessage");
-                match message {
-                    SignerMessage::BlockResponse(BlockResponse::Rejected(BlockRejection {
-                        signature,
-                        signer_signature_hash,
-                        ..
-                    })) => non_ignoring_signers
-                        .iter()
-                        .find(|key| key.verify(signer_signature_hash.bits(), &signature).is_ok()),
-                    _ => None,
-                }
-            })
-            .collect::<Vec<_>>();
-        Ok(rejected_signers.len() + ignoring_signers.len() == num_signers)
-    })
     .expect("FAIL: Timed out waiting for block proposal rejections");
 
     let blocks_after = mined_blocks.load(Ordering::SeqCst);
@@ -5279,7 +5273,7 @@ fn reorg_locally_accepted_blocks_across_tenures_fails() {
         .get_peer_info()
         .expect("Failed to get peer info");
     assert_eq!(blocks_after, blocks_before);
-    assert_eq!(info_after, info_before);
+    assert_eq!(info_after.stacks_tip, info_before.stacks_tip);
     // Ensure that the block was NOT accepted globally so the stacks tip has NOT advanced to N+1'
     let nakamoto_blocks = test_observer::get_mined_nakamoto_blocks();
     let block_n_1_prime = nakamoto_blocks.last().unwrap();
