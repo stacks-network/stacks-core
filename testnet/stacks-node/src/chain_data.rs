@@ -114,8 +114,7 @@ impl MinerStats {
         } else {
             // PoX reward-phase is not active
             debug!(
-                "Block {} is in a prepare phase or post-PoX sunset, so no windowing will take place",
-                burn_block_height;
+                "Block {burn_block_height} is in a prepare phase or post-PoX sunset, so no windowing will take place"
             );
 
             assert_eq!(windowed_block_commits.len(), 1);
@@ -196,19 +195,19 @@ impl MinerStats {
             .stderr(Stdio::piped())
             .args(args);
 
-        debug!("Run: `{:?}`", &cmd);
+        debug!("Run: `{cmd:?}`");
 
         let output = cmd
             .spawn()
-            .map_err(|e| format!("Failed to run `{}`: {:?}", &full_args, &e))?
+            .map_err(|e| format!("Failed to run `{full_args}`: {e:?}"))?
             .wait_with_output()
-            .map_err(|ioe| format!("Failed to run `{}`: {:?}", &full_args, &ioe))?;
+            .map_err(|ioe| format!("Failed to run `{full_args}`: {ioe:?}"))?;
 
         let exit_code = match output.status.code() {
             Some(code) => code,
             None => {
                 // failed due to signal
-                return Err(format!("Failed to run `{}`: killed by signal", &full_args));
+                return Err(format!("Failed to run `{full_args}`: killed by signal"));
             }
         };
 
@@ -225,8 +224,8 @@ impl MinerStats {
             Self::run_subprocess(&self.unconfirmed_commits_helper, all_miners)?;
         if exit_code != 0 {
             return Err(format!(
-                "Failed to run `{}`: exit code {}",
-                &self.unconfirmed_commits_helper, exit_code
+                "Failed to run `{}`: exit code {exit_code}",
+                &self.unconfirmed_commits_helper
             ));
         }
 
@@ -234,9 +233,8 @@ impl MinerStats {
         let unconfirmed_commits: Vec<UnconfirmedBlockCommit> = serde_json::from_slice(&stdout)
             .map_err(|e| {
                 format!(
-                    "Failed to decode output from `{}`: {:?}. Output was `{}`",
+                    "Failed to decode output from `{}`: {e:?}. Output was `{}`",
                     &self.unconfirmed_commits_helper,
-                    &e,
                     String::from_utf8_lossy(&stdout)
                 )
             })?;
@@ -255,21 +253,20 @@ impl MinerStats {
             let mut decoded_pox_addrs = vec![];
             for pox_addr_hex in unconfirmed_commit.pox_addrs.iter() {
                 let Ok(pox_addr_bytes) = hex_bytes(pox_addr_hex) else {
-                    return Err(format!("Not a hex string: `{}`", &pox_addr_hex));
+                    return Err(format!("Not a hex string: `{pox_addr_hex}`"));
                 };
                 let Some(bitcoin_addr) =
                     BitcoinAddress::from_scriptpubkey(BitcoinNetworkType::Mainnet, &pox_addr_bytes)
                 else {
                     return Err(format!(
-                        "Not a recognized Bitcoin scriptpubkey: {}",
-                        &pox_addr_hex
+                        "Not a recognized Bitcoin scriptpubkey: {pox_addr_hex}"
                     ));
                 };
                 let Some(pox_addr) = PoxAddress::try_from_bitcoin_output(&BitcoinTxOutput {
                     address: bitcoin_addr.clone(),
                     units: 1,
                 }) else {
-                    return Err(format!("Not a recognized PoX address: {}", &bitcoin_addr));
+                    return Err(format!("Not a recognized PoX address: {bitcoin_addr}"));
                 };
                 decoded_pox_addrs.push(pox_addr);
             }
@@ -1042,7 +1039,7 @@ EOF
         ] {
             let spend = *spend_dist
                 .get(miner)
-                .unwrap_or_else(|| panic!("no spend for {}", &miner));
+                .unwrap_or_else(|| panic!("no spend for {miner}"));
             match miner.as_str() {
                 "miner-1" => {
                     assert_eq!(spend, 2);
@@ -1057,7 +1054,7 @@ EOF
                     assert_eq!(spend, 10);
                 }
                 _ => {
-                    panic!("unknown miner {}", &miner);
+                    panic!("unknown miner {miner}");
                 }
             }
         }
@@ -1075,7 +1072,7 @@ EOF
         ] {
             let prob = *win_probs
                 .get(miner)
-                .unwrap_or_else(|| panic!("no probability for {}", &miner));
+                .unwrap_or_else(|| panic!("no probability for {miner}"));
             match miner.as_str() {
                 "miner-1" => {
                     assert!((prob - (2.0 / 25.0)).abs() < 0.00001);
@@ -1090,7 +1087,7 @@ EOF
                     assert!((prob - (10.0 / 25.0)).abs() < 0.00001);
                 }
                 _ => {
-                    panic!("unknown miner {}", &miner);
+                    panic!("unknown miner {miner}");
                 }
             }
         }

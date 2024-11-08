@@ -1523,7 +1523,7 @@ fn multiple_miners() {
     let node_1_sk = Secp256k1PrivateKey::from_seed(&conf.node.local_peer_seed);
     let node_1_pk = StacksPublicKey::from_private(&node_1_sk);
 
-    conf_node_2.node.working_dir = format!("{}-{}", conf_node_2.node.working_dir, "1");
+    conf_node_2.node.working_dir = format!("{}-1", conf_node_2.node.working_dir);
 
     conf_node_2.node.set_bootstrap_nodes(
         format!("{}@{}", &node_1_pk.to_hex(), conf.node.p2p_bind),
@@ -3862,7 +3862,7 @@ fn multiple_miners_with_nakamoto_blocks() {
     let node_1_sk = Secp256k1PrivateKey::from_seed(&conf.node.local_peer_seed);
     let node_1_pk = StacksPublicKey::from_private(&node_1_sk);
 
-    conf_node_2.node.working_dir = format!("{}-{}", conf_node_2.node.working_dir, "1");
+    conf_node_2.node.working_dir = format!("{}-1", conf_node_2.node.working_dir);
 
     conf_node_2.node.set_bootstrap_nodes(
         format!("{}@{}", &node_1_pk.to_hex(), conf.node.p2p_bind),
