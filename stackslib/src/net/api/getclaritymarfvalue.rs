@@ -19,6 +19,7 @@ use clarity::vm::representations::CONTRACT_PRINCIPAL_REGEX_STRING;
 use lazy_static::lazy_static;
 use regex::{Captures, Regex};
 use stacks_common::types::net::PeerHost;
+use stacks_common::types::chainstate::TrieHash;
 use stacks_common::util::hash::to_hex;
 
 use crate::net::http::{
@@ -31,17 +32,6 @@ use crate::net::httpcore::{
 };
 use crate::net::{Error as NetError, StacksNodeState, TipRequest};
 
-lazy_static! {
-    static ref CLARITY_NAME_NO_BOUNDARIES_REGEX_STRING: String =
-        "[a-zA-Z]([a-zA-Z0-9]|[-_!?+<>=/*])*|[-+=/*]|[<>]=?".into();
-    static ref MARF_KEY_FOR_TRIP_REGEX_STRING: String = format!(
-        r"vm::{}::\d+::({})",
-        *CONTRACT_PRINCIPAL_REGEX_STRING, *CLARITY_NAME_NO_BOUNDARIES_REGEX_STRING,
-    );
-    static ref MARF_KEY_FOR_QUAD_REGEX_STRING: String =
-        format!(r"{}::[0-9a-fA-F]+", *MARF_KEY_FOR_TRIP_REGEX_STRING,);
-}
-
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ClarityMarfResponse {
     pub data: String,
@@ -53,12 +43,12 @@ pub struct ClarityMarfResponse {
 
 #[derive(Clone)]
 pub struct RPCGetClarityMarfRequestHandler {
-    pub clarity_marf_key: Option<String>,
+    pub marf_key_hash: Option<TrieHash>,
 }
 impl RPCGetClarityMarfRequestHandler {
     pub fn new() -> Self {
         Self {
-            clarity_marf_key: None,
+            marf_key_hash: None,
         }
     }
 }
@@ -70,15 +60,11 @@ impl HttpRequest for RPCGetClarityMarfRequestHandler {
     }
 
     fn path_regex(&self) -> Regex {
-        Regex::new(&format!(
-            r"^/v2/clarity/marf/(?P<clarity_marf_key>(vm-epoch::epoch-version)|({})|({}))$",
-            *MARF_KEY_FOR_TRIP_REGEX_STRING, *MARF_KEY_FOR_QUAD_REGEX_STRING
-        ))
-        .unwrap()
+        Regex::new(r#"^/v2/clarity/marf/(?P<marf_key_hash>[0-9a-f]{64})$"#).unwrap()
     }
 
     fn metrics_identifier(&self) -> &str {
-        "/v2/clarity/marf/:clarity_marf_key"
+        "/v2/clarity/marf/:marf_key_hash"
     }
 
     /// Try to decode this request.
@@ -96,13 +82,14 @@ impl HttpRequest for RPCGetClarityMarfRequestHandler {
             ));
         }
 
-        let marf_key = if let Some(key_str) = captures.name("clarity_marf_key") {
-            key_str.as_str().to_string()
+        let marf_key = if let Some(key_str) = captures.name("marf_key_hash") {
+            TrieHash::from_hex(key_str.as_str())
+                .map_err(|e| Error::Http(400, format!("Invalid hash string: {e:?}")))?
         } else {
-            return Err(Error::Http(404, "Missing `clarity_marf_key`".to_string()));
+            return Err(Error::Http(404, "Missing `marf_key_hash`".to_string()));
         };
 
-        self.clarity_marf_key = Some(marf_key);
+        self.marf_key_hash = Some(marf_key);
 
         let contents = HttpRequestContents::new().query_string(query);
         Ok(contents)
@@ -113,7 +100,7 @@ impl HttpRequest for RPCGetClarityMarfRequestHandler {
 impl RPCRequestHandler for RPCGetClarityMarfRequestHandler {
     /// Reset internal state
     fn restart(&mut self) {
-        self.clarity_marf_key = None;
+        self.marf_key_hash = None;
     }
 
     /// Make the response
@@ -123,8 +110,8 @@ impl RPCRequestHandler for RPCGetClarityMarfRequestHandler {
         contents: HttpRequestContents,
         node: &mut StacksNodeState,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
-        let clarity_marf_key = self.clarity_marf_key.take().ok_or(NetError::SendError(
-            "`clarity_marf_key` not set".to_string(),
+        let marf_key_hash = self.marf_key_hash.take().ok_or(NetError::SendError(
+            "`marf_key_hash` not set".to_string(),
         ))?;
 
         let tip = match node.load_stacks_chain_tip(&preamble, &contents) {
@@ -144,13 +131,13 @@ impl RPCRequestHandler for RPCGetClarityMarfRequestHandler {
                     clarity_tx.with_clarity_db_readonly(|clarity_db| {
                         let (value_hex, marf_proof): (String, _) = if with_proof {
                             clarity_db
-                                .get_data_with_proof(&clarity_marf_key)
+                                .get_data_with_proof_by_hash(&marf_key_hash)
                                 .ok()
                                 .flatten()
                                 .map(|(a, b)| (a, Some(format!("0x{}", to_hex(&b)))))?
                         } else {
                             clarity_db
-                                .get_data(&clarity_marf_key)
+                                .get_data_by_hash(&marf_key_hash)
                                 .ok()
                                 .flatten()
                                 .map(|a| (a, None))?
@@ -168,7 +155,7 @@ impl RPCRequestHandler for RPCGetClarityMarfRequestHandler {
             Ok(Some(None)) => {
                 return StacksHttpResponse::new_error(
                     &preamble,
-                    &HttpNotFound::new("Marf key not found".to_string()),
+                    &HttpNotFound::new("Marf key hash not found".to_string()),
                 )
                 .try_into_contents()
                 .map_err(NetError::from);
@@ -205,14 +192,14 @@ impl HttpResponse for RPCGetClarityMarfRequestHandler {
 impl StacksHttpRequest {
     pub fn new_getclaritymarf(
         host: PeerHost,
-        clarity_marf_key: String,
+        marf_key_hash: TrieHash,
         tip_req: TipRequest,
         with_proof: bool,
     ) -> StacksHttpRequest {
         StacksHttpRequest::new_for_peer(
             host,
             "GET".into(),
-            format!("/v2/clarity/marf/{}", &clarity_marf_key),
+            format!("/v2/clarity/marf/{}", &marf_key_hash),
             HttpRequestContents::new()
                 .for_tip(tip_req)
                 .query_arg("proof".into(), if with_proof { "1" } else { "0" }.into()),

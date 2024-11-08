@@ -20,6 +20,7 @@ use clarity::vm::types::{QualifiedContractIdentifier, StacksAddressExtensions};
 use clarity::vm::{ClarityName, ContractName};
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::StacksAddress;
+use stacks_common::types::chainstate::TrieHash;
 use stacks_common::types::net::PeerHost;
 use stacks_common::types::Address;
 
@@ -37,15 +38,15 @@ fn test_try_parse_request() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
     let mut http = StacksHttp::new(addr.clone(), &ConnectionOptions::default());
 
-    let vm_key_epoch = "vm-epoch::epoch-version";
-    let vm_key_trip = "vm::ST1SJ3DTE5DN7X54YDH5D64R3BCB6A2AG2ZQ8YPD5.counter::1::count";
-    let vm_key_quad = "vm::ST1SJ3DTE5DN7X54YDH5D64R3BCB6A2AG2ZQ8YPD5.counter::0::data::1234";
+    let vm_key_epoch = TrieHash::from_key("vm-epoch::epoch-version");
+    let vm_key_trip = TrieHash::from_key("vm::ST1SJ3DTE5DN7X54YDH5D64R3BCB6A2AG2ZQ8YPD5.counter::1::count");
+    let vm_key_quad = TrieHash::from_key("vm::ST1SJ3DTE5DN7X54YDH5D64R3BCB6A2AG2ZQ8YPD5.counter::0::data::1234");
     let valid_keys = [vm_key_epoch, vm_key_trip, vm_key_quad];
 
     for key in valid_keys {
         let request = StacksHttpRequest::new_getclaritymarf(
             addr.into(),
-            key.to_string(),
+            key,
             TipRequest::SpecificTip(StacksBlockId([0x22; 32])),
             true,
         );
@@ -72,12 +73,12 @@ fn test_try_parse_request() {
         let (preamble, contents) = parsed_request.destruct();
 
         // consumed path args
-        assert_eq!(handler.clarity_marf_key, Some(key.to_string()));
+        assert_eq!(handler.marf_key_hash, Some(key.clone()));
 
         assert_eq!(&preamble, request.preamble());
 
         handler.restart();
-        assert!(handler.clarity_marf_key.is_none());
+        assert!(handler.marf_key_hash.is_none());
     }
 }
 
@@ -90,7 +91,7 @@ fn test_try_make_response() {
     // query existing
     let request = StacksHttpRequest::new_getclaritymarf(
         addr.into(),
-        "vm::ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.hello-world::1::bar".to_string(),
+        TrieHash::from_key("vm::ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.hello-world::1::bar"),
         TipRequest::UseLatestAnchoredTip,
         true,
     );
@@ -99,8 +100,7 @@ fn test_try_make_response() {
     // query existing unconfirmed
     let request = StacksHttpRequest::new_getclaritymarf(
         addr.into(),
-        "vm::ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.hello-world-unconfirmed::1::bar-unconfirmed"
-            .to_string(),
+        TrieHash::from_key("vm::ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.hello-world-unconfirmed::1::bar-unconfirmed"),
         TipRequest::UseLatestUnconfirmedTip,
         true,
     );
@@ -109,7 +109,7 @@ fn test_try_make_response() {
     // query non-existant var
     let request = StacksHttpRequest::new_getclaritymarf(
         addr.into(),
-        "vm::ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.hello-world::1::does-not-exist".to_string(),
+        TrieHash::from_key("vm::ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.hello-world::1::does-not-exist"),
         TipRequest::UseLatestAnchoredTip,
         true,
     );
@@ -118,7 +118,7 @@ fn test_try_make_response() {
     // query non-existant contract
     let request = StacksHttpRequest::new_getclaritymarf(
         addr.into(),
-        "vm::ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.does-not-exist::1::bar".to_string(),
+        TrieHash::from_key("vm::ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.does-not-exist::1::bar"),
         TipRequest::UseLatestAnchoredTip,
         true,
     );
