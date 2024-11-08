@@ -93,6 +93,19 @@ impl Default for TestFlag {
     }
 }
 
+#[cfg(test)]
+impl TestFlag {
+    /// Set the test flag to the given value
+    pub fn set(&self, value: bool) {
+        *self.0.lock().unwrap() = Some(value);
+    }
+
+    /// Get the test flag value. Defaults to false if the flag is not set.
+    pub fn get(&self) -> bool {
+        self.0.lock().unwrap().unwrap_or(false)
+    }
+}
+
 #[derive(Clone, Default)]
 pub struct Counters {
     pub blocks_processed: RunLoopCounter,
@@ -1022,7 +1035,7 @@ impl RunLoop {
     /// This function will block by looping infinitely.
     /// It will start the burnchain (separate thread), set-up a channel in
     /// charge of coordinating the new blocks coming from the burnchain and
-    /// the nodes, taking turns on tenures.  
+    /// the nodes, taking turns on tenures.
     ///
     /// Returns `Option<NeonGlobals>` so that data can be passed to `NakamotoNode`
     pub fn start(
