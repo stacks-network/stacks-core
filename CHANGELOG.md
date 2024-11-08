@@ -8,8 +8,15 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 ## [Unreleased]
 
 ### Changed
-- Add index for StacksBlockId to nakamoto block headers table (improves node performance)
-- Remove the panic for reporting DB deadlocks (just error and continue waiting)
+
+## [3.0.0.0.2]
+
+### Added
+
+### Changed
+- Fixes  a few bugs in the relayer and networking stack
+  - detects and deprioritizes unhealthy replicas
+  - fixes an issue in the p2p stack which was preventing it from caching the reward set.
 
 ## [3.0.0.0.1]
 
