@@ -93,18 +93,18 @@ fn cli_pick_best_tip(config_path: &str, at_stacks_height: Option<u64>) -> TipCan
         at_stacks_height,
     );
 
-    let best_tip = BlockMinerThread::inner_pick_best_tip(stacks_tips, HashMap::new()).unwrap();
-    best_tip
+    BlockMinerThread::inner_pick_best_tip(stacks_tips, HashMap::new()).unwrap()
 }
 
 /// Implementation of `get_miner_spend` CLI option
+#[allow(clippy::incompatible_msrv)]
 fn cli_get_miner_spend(
     config_path: &str,
     mine_start: Option<u64>,
     at_burnchain_height: Option<u64>,
 ) -> u64 {
     info!("Loading config at path {}", config_path);
-    let config = match ConfigFile::from_path(&config_path) {
+    let config = match ConfigFile::from_path(config_path) {
         Ok(config_file) => Config::from_config_file(config_file, true).unwrap(),
         Err(e) => {
             warn!("Invalid config file: {}", e);
@@ -155,7 +155,7 @@ fn cli_get_miner_spend(
         &config,
         &keychain,
         &burnchain,
-        &mut sortdb,
+        &sortdb,
         &commit_outs,
         mine_start.unwrap_or(tip.block_height),
         at_burnchain_height,
@@ -171,7 +171,7 @@ fn cli_get_miner_spend(
             else {
                 return 0.0;
             };
-            if active_miners_and_commits.len() == 0 {
+            if active_miners_and_commits.is_empty() {
                 warn!("No active miners detected; using config file burn_fee_cap");
                 return 0.0;
             }
@@ -207,12 +207,11 @@ fn cli_get_miner_spend(
             );
             let win_probs = if config.miner.fast_rampup {
                 // look at spends 6+ blocks in the future
-                let win_probs = MinerStats::get_future_win_distribution(
+                MinerStats::get_future_win_distribution(
                     &active_miners_and_commits,
                     &unconfirmed_block_commits,
                     &commit_outs,
-                );
-                win_probs
+                )
             } else {
                 // look at the current spends
                 let Ok(unconfirmed_burn_dist) = miner_stats
@@ -229,8 +228,7 @@ fn cli_get_miner_spend(
                     return 0.0;
                 };
 
-                let win_probs = MinerStats::burn_dist_to_prob_dist(&unconfirmed_burn_dist);
-                win_probs
+                MinerStats::burn_dist_to_prob_dist(&unconfirmed_burn_dist)
             };
 
             info!("Unconfirmed spend distribution: {:?}", &spend_dist);
@@ -428,7 +426,6 @@ fn main() {
         let mut run_loop = helium::RunLoop::new(conf);
         if let Err(e) = run_loop.start(num_round) {
             warn!("Helium runloop exited: {}", e);
-            return;
         }
     } else if conf.burnchain.mode == "neon"
         || conf.burnchain.mode == "nakamoto-neon"
