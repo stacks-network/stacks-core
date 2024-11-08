@@ -97,8 +97,7 @@ pub fn update_signer_nonce(nonce: u64) {
 #[allow(dead_code)]
 /// Remove the origin from the full path to avoid duplicate metrics for different origins
 fn remove_origin_from_path(full_path: &str, origin: &str) -> String {
-    let path = full_path.replace(origin, "");
-    path
+    full_path.replace(origin, "")
 }
 
 /// Start a new RPC call timer.

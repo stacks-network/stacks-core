@@ -55,9 +55,9 @@ pub fn get_reward_set_entries_at_block(
 ) -> Result<Vec<RawRewardSetEntry>, Error> {
     state
         .get_reward_addresses(burnchain, sortdb, burn_block_height, block_id)
-        .and_then(|mut addrs| {
+        .map(|mut addrs| {
             addrs.sort_by_key(|k| k.reward_address.bytes());
-            Ok(addrs)
+            addrs
         })
 }
 
@@ -86,7 +86,7 @@ fn fix_to_pox_contract() {
     let pox_3_activation_height = epoch_2_4;
 
     let stacked = 100_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
-    let increase_by = 1_000_0000 * (core::MICROSTACKS_PER_STACKS as u64);
+    let increase_by = 10_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
 
     let spender_sk = StacksPrivateKey::new();
     let spender_addr: PrincipalData = to_addr(&spender_sk).into();
@@ -110,31 +110,19 @@ fn fix_to_pox_contract() {
         "02f006a09b59979e2cb8449f58076152af6b124aa29b948a3714b8d5f15aa94ede",
     )
     .unwrap();
-    let pox_pubkey_hash_1 = bytes_to_hex(
-        &Hash160::from_node_public_key(&pox_pubkey_1)
-            .to_bytes()
-            .to_vec(),
-    );
+    let pox_pubkey_hash_1 = bytes_to_hex(&Hash160::from_node_public_key(&pox_pubkey_1).to_bytes());
 
     let pox_pubkey_2 = Secp256k1PublicKey::from_hex(
         "03cd91307e16c10428dd0120d0a4d37f14d4e0097b3b2ea1651d7bd0fb109cd44b",
     )
     .unwrap();
-    let pox_pubkey_hash_2 = bytes_to_hex(
-        &Hash160::from_node_public_key(&pox_pubkey_2)
-            .to_bytes()
-            .to_vec(),
-    );
+    let pox_pubkey_hash_2 = bytes_to_hex(&Hash160::from_node_public_key(&pox_pubkey_2).to_bytes());
 
     let pox_pubkey_3 = Secp256k1PublicKey::from_hex(
         "0317782e663c77fb02ebf46a3720f41a70f5678ad185974a456d35848e275fe56b",
     )
     .unwrap();
-    let pox_pubkey_hash_3 = bytes_to_hex(
-        &Hash160::from_node_public_key(&pox_pubkey_3)
-            .to_bytes()
-            .to_vec(),
-    );
+    let pox_pubkey_hash_3 = bytes_to_hex(&Hash160::from_node_public_key(&pox_pubkey_3).to_bytes());
 
     let (mut conf, _) = neon_integration_test_conf();
 
@@ -341,13 +329,13 @@ fn fix_to_pox_contract() {
         &[Value::UInt(5000)],
     );
 
-    info!("Submit 2.2 stack-increase tx to {:?}", &http_origin);
+    info!("Submit 2.2 stack-increase tx to {http_origin:?}");
     submit_tx(&http_origin, &tx);
 
     // transition to epoch 2.3
     loop {
         let tip_info = get_chain_info(&conf);
-        if tip_info.burn_block_height >= epoch_2_3 + 1 {
+        if tip_info.burn_block_height > epoch_2_3 {
             break;
         }
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
@@ -367,7 +355,7 @@ fn fix_to_pox_contract() {
         &[Value::UInt(5000)],
     );
 
-    info!("Submit 2.3 stack-increase tx to {:?}", &http_origin);
+    info!("Submit 2.3 stack-increase tx to {http_origin:?}");
     submit_tx(&http_origin, &tx);
 
     // transition to 2 blocks before epoch 2.4
@@ -411,7 +399,7 @@ fn fix_to_pox_contract() {
         ],
     );
 
-    info!("Submit 2.4 stacking tx to {:?}", &http_origin);
+    info!("Submit 2.4 stacking tx to {http_origin:?}");
     sleep_ms(5_000);
     submit_tx(&http_origin, &tx);
 
@@ -431,7 +419,7 @@ fn fix_to_pox_contract() {
         ],
     );
 
-    info!("Submit second 2.4 stacking tx to {:?}", &http_origin);
+    info!("Submit second 2.4 stacking tx to {http_origin:?}");
     submit_tx(&http_origin, &tx);
 
     // that it can mine _at all_ is a success criterion
@@ -458,7 +446,7 @@ fn fix_to_pox_contract() {
         &[Value::UInt(increase_by.into())],
     );
 
-    info!("Submit 2.4 stack-increase tx to {:?}", &http_origin);
+    info!("Submit 2.4 stack-increase tx to {http_origin:?}");
     submit_tx(&http_origin, &tx);
 
     for _i in 0..19 {
@@ -492,9 +480,9 @@ fn fix_to_pox_contract() {
             .block_height_to_reward_cycle(burnchain_config.first_block_height, height)
             .unwrap();
 
-        if !reward_cycle_pox_addrs.contains_key(&reward_cycle) {
-            reward_cycle_pox_addrs.insert(reward_cycle, HashMap::new());
-        }
+        reward_cycle_pox_addrs
+            .entry(reward_cycle)
+            .or_insert_with(HashMap::new);
 
         let iconn = sortdb.index_handle_at_block(&chainstate, &tip).unwrap();
         let pox_addrs = chainstate
@@ -502,7 +490,7 @@ fn fix_to_pox_contract() {
                 &iconn,
                 &tip,
                 &boot_code_id("pox-2", false),
-                &format!("(get-burn-block-info? pox-addrs u{})", height),
+                &format!("(get-burn-block-info? pox-addrs u{height})"),
             )
             .expect_optional()
             .unwrap()
@@ -514,38 +502,36 @@ fn fix_to_pox_contract() {
             .expect_list()
             .unwrap();
 
-        debug!("Test burnchain height {}", height);
-        if !burnchain_config.is_in_prepare_phase(height) {
-            if pox_addrs.len() > 0 {
-                assert_eq!(pox_addrs.len(), 2);
-                let pox_addr_0 = PoxAddress::try_from_pox_tuple(false, &pox_addrs[0]).unwrap();
-                let pox_addr_1 = PoxAddress::try_from_pox_tuple(false, &pox_addrs[1]).unwrap();
+        debug!("Test burnchain height {height}");
+        if !burnchain_config.is_in_prepare_phase(height) && !pox_addrs.is_empty() {
+            assert_eq!(pox_addrs.len(), 2);
+            let pox_addr_0 = PoxAddress::try_from_pox_tuple(false, &pox_addrs[0]).unwrap();
+            let pox_addr_1 = PoxAddress::try_from_pox_tuple(false, &pox_addrs[1]).unwrap();
 
-                if let Some(pox_slot_count) = reward_cycle_pox_addrs
+            if let Some(pox_slot_count) = reward_cycle_pox_addrs
+                .get_mut(&reward_cycle)
+                .unwrap()
+                .get_mut(&pox_addr_0)
+            {
+                *pox_slot_count += 1;
+            } else {
+                reward_cycle_pox_addrs
                     .get_mut(&reward_cycle)
                     .unwrap()
-                    .get_mut(&pox_addr_0)
-                {
-                    *pox_slot_count += 1;
-                } else {
-                    reward_cycle_pox_addrs
-                        .get_mut(&reward_cycle)
-                        .unwrap()
-                        .insert(pox_addr_0, 1);
-                }
+                    .insert(pox_addr_0, 1);
+            }
 
-                if let Some(pox_slot_count) = reward_cycle_pox_addrs
+            if let Some(pox_slot_count) = reward_cycle_pox_addrs
+                .get_mut(&reward_cycle)
+                .unwrap()
+                .get_mut(&pox_addr_1)
+            {
+                *pox_slot_count += 1;
+            } else {
+                reward_cycle_pox_addrs
                     .get_mut(&reward_cycle)
                     .unwrap()
-                    .get_mut(&pox_addr_1)
-                {
-                    *pox_slot_count += 1;
-                } else {
-                    reward_cycle_pox_addrs
-                        .get_mut(&reward_cycle)
-                        .unwrap()
-                        .insert(pox_addr_1, 1);
-                }
+                    .insert(pox_addr_1, 1);
             }
         }
     }
@@ -624,14 +610,12 @@ fn fix_to_pox_contract() {
 
     for reward_cycle in reward_cycle_min..(reward_cycle_max + 1) {
         let cycle_counts = &reward_cycle_pox_addrs[&reward_cycle];
-        assert_eq!(cycle_counts.len(), expected_slots[&reward_cycle].len(), "The number of expected PoX addresses in reward cycle {} is mismatched with the actual count.", reward_cycle);
+        assert_eq!(cycle_counts.len(), expected_slots[&reward_cycle].len(), "The number of expected PoX addresses in reward cycle {reward_cycle} is mismatched with the actual count.");
         for (pox_addr, slots) in cycle_counts.iter() {
             assert_eq!(
                 *slots,
-                expected_slots[&reward_cycle][&pox_addr],
-                "The number of expected slots for PoX address {} in reward cycle {} is mismatched with the actual count.",
-                &pox_addr,
-                reward_cycle,
+                expected_slots[&reward_cycle][pox_addr],
+                "The number of expected slots for PoX address {pox_addr} in reward cycle {reward_cycle} is mismatched with the actual count."
             );
             info!("PoX payment received"; "cycle" => reward_cycle, "pox_addr" => %pox_addr, "slots" => slots);
         }
@@ -651,7 +635,7 @@ fn fix_to_pox_contract() {
             let parsed =
                 StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
             let tx_sender = PrincipalData::from(parsed.auth.origin().address_testnet());
-            if &tx_sender == &spender_addr
+            if tx_sender == spender_addr
                 && (parsed.auth.get_origin_nonce() == aborted_increase_nonce_2_2
                     || parsed.auth.get_origin_nonce() == aborted_increase_nonce_2_3)
             {
@@ -738,21 +722,13 @@ fn verify_auto_unlock_behavior() {
         "02f006a09b59979e2cb8449f58076152af6b124aa29b948a3714b8d5f15aa94ede",
     )
     .unwrap();
-    let pox_pubkey_hash_1 = bytes_to_hex(
-        &Hash160::from_node_public_key(&pox_pubkey_1)
-            .to_bytes()
-            .to_vec(),
-    );
+    let pox_pubkey_hash_1 = bytes_to_hex(&Hash160::from_node_public_key(&pox_pubkey_1).to_bytes());
 
     let pox_pubkey_2 = Secp256k1PublicKey::from_hex(
         "03cd91307e16c10428dd0120d0a4d37f14d4e0097b3b2ea1651d7bd0fb109cd44b",
     )
     .unwrap();
-    let pox_pubkey_hash_2 = bytes_to_hex(
-        &Hash160::from_node_public_key(&pox_pubkey_2)
-            .to_bytes()
-            .to_vec(),
-    );
+    let pox_pubkey_hash_2 = bytes_to_hex(&Hash160::from_node_public_key(&pox_pubkey_2).to_bytes());
     let pox_pubkey_2_stx_addr = StacksAddress::from_public_keys(
         C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
         &AddressHashMode::SerializeP2PKH,
@@ -765,11 +741,7 @@ fn verify_auto_unlock_behavior() {
         "0317782e663c77fb02ebf46a3720f41a70f5678ad185974a456d35848e275fe56b",
     )
     .unwrap();
-    let pox_pubkey_hash_3 = bytes_to_hex(
-        &Hash160::from_node_public_key(&pox_pubkey_3)
-            .to_bytes()
-            .to_vec(),
-    );
+    let pox_pubkey_hash_3 = bytes_to_hex(&Hash160::from_node_public_key(&pox_pubkey_3).to_bytes());
     let pox_pubkey_3_stx_addr = StacksAddress::from_public_keys(
         C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
         &AddressHashMode::SerializeP2PKH,
@@ -879,14 +851,14 @@ fn verify_auto_unlock_behavior() {
     // stack right away
     let sort_height = channel.get_sortitions_processed();
     let pox_addr_tuple_1 = execute(
-        &format!("{{ hashbytes: 0x{}, version: 0x00 }}", pox_pubkey_hash_1,),
+        &format!("{{ hashbytes: 0x{pox_pubkey_hash_1}, version: 0x00 }}"),
         ClarityVersion::Clarity2,
     )
     .unwrap()
     .unwrap();
 
     let pox_addr_tuple_3 = execute(
-        &format!("{{ hashbytes: 0x{}, version: 0x00 }}", pox_pubkey_hash_3,),
+        &format!("{{ hashbytes: 0x{pox_pubkey_hash_3}, version: 0x00 }}"),
         ClarityVersion::Clarity2,
     )
     .unwrap()
@@ -908,7 +880,7 @@ fn verify_auto_unlock_behavior() {
         ],
     );
 
-    info!("Submit 2.05 stacking tx to {:?}", &http_origin);
+    info!("Submit 2.05 stacking tx to {http_origin:?}");
     submit_tx(&http_origin, &tx);
 
     // wait until just before epoch 2.1
@@ -937,7 +909,7 @@ fn verify_auto_unlock_behavior() {
 
     let sort_height = channel.get_sortitions_processed();
     let pox_addr_tuple_2 = execute(
-        &format!("{{ hashbytes: 0x{}, version: 0x00 }}", pox_pubkey_hash_2,),
+        &format!("{{ hashbytes: 0x{pox_pubkey_hash_2}, version: 0x00 }}"),
         ClarityVersion::Clarity2,
     )
     .unwrap()
@@ -958,7 +930,7 @@ fn verify_auto_unlock_behavior() {
         ],
     );
 
-    info!("Submit 2.1 stacking tx to {:?}", &http_origin);
+    info!("Submit 2.1 stacking tx to {http_origin:?}");
     sleep_ms(5_000);
     submit_tx(&http_origin, &tx);
 
@@ -979,7 +951,7 @@ fn verify_auto_unlock_behavior() {
     // transition to epoch 2.3
     loop {
         let tip_info = get_chain_info(&conf);
-        if tip_info.burn_block_height >= epoch_2_3 + 1 {
+        if tip_info.burn_block_height > epoch_2_3 {
             break;
         }
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
@@ -1044,7 +1016,7 @@ fn verify_auto_unlock_behavior() {
         ],
     );
 
-    info!("Submit 2.4 stacking tx to {:?}", &http_origin);
+    info!("Submit 2.4 stacking tx to {http_origin:?}");
     sleep_ms(5_000);
     submit_tx(&http_origin, &tx);
 
@@ -1064,7 +1036,7 @@ fn verify_auto_unlock_behavior() {
         ],
     );
 
-    info!("Submit second 2.4 stacking tx to {:?}", &http_origin);
+    info!("Submit second 2.4 stacking tx to {http_origin:?}");
     submit_tx(&http_origin, &tx);
 
     // that it can mine _at all_ is a success criterion
@@ -1113,7 +1085,7 @@ fn verify_auto_unlock_behavior() {
         .unwrap();
 
         assert_eq!(reward_set_entries.len(), 2);
-        info!("reward set entries: {:?}", reward_set_entries);
+        info!("reward set entries: {reward_set_entries:?}");
         assert_eq!(
             reward_set_entries[0].reward_address.bytes(),
             pox_pubkey_2_stx_addr.bytes.0.to_vec()
@@ -1141,7 +1113,7 @@ fn verify_auto_unlock_behavior() {
         &[Value::UInt(first_stacked_incr.into())],
     );
 
-    info!("Submit 2.4 stack-increase tx to {:?}", &http_origin);
+    info!("Submit 2.4 stack-increase tx to {http_origin:?}");
     submit_tx(&http_origin, &tx);
 
     for _i in 0..19 {
@@ -1213,9 +1185,9 @@ fn verify_auto_unlock_behavior() {
             .block_height_to_reward_cycle(burnchain_config.first_block_height, height)
             .unwrap();
 
-        if !reward_cycle_pox_addrs.contains_key(&reward_cycle) {
-            reward_cycle_pox_addrs.insert(reward_cycle, HashMap::new());
-        }
+        reward_cycle_pox_addrs
+            .entry(reward_cycle)
+            .or_insert_with(HashMap::new);
 
         let iconn = sortdb.index_handle_at_block(&chainstate, &tip).unwrap();
         let pox_addrs = chainstate
@@ -1223,7 +1195,7 @@ fn verify_auto_unlock_behavior() {
                 &iconn,
                 &tip,
                 &boot_code_id("pox-2", false),
-                &format!("(get-burn-block-info? pox-addrs u{})", height),
+                &format!("(get-burn-block-info? pox-addrs u{height})"),
             )
             .expect_optional()
             .unwrap()
@@ -1235,37 +1207,35 @@ fn verify_auto_unlock_behavior() {
             .expect_list()
             .unwrap();
 
-        if !burnchain_config.is_in_prepare_phase(height) {
-            if pox_addrs.len() > 0 {
-                assert_eq!(pox_addrs.len(), 2);
-                let pox_addr_0 = PoxAddress::try_from_pox_tuple(false, &pox_addrs[0]).unwrap();
-                let pox_addr_1 = PoxAddress::try_from_pox_tuple(false, &pox_addrs[1]).unwrap();
+        if !burnchain_config.is_in_prepare_phase(height) && !pox_addrs.is_empty() {
+            assert_eq!(pox_addrs.len(), 2);
+            let pox_addr_0 = PoxAddress::try_from_pox_tuple(false, &pox_addrs[0]).unwrap();
+            let pox_addr_1 = PoxAddress::try_from_pox_tuple(false, &pox_addrs[1]).unwrap();
 
-                if let Some(pox_slot_count) = reward_cycle_pox_addrs
+            if let Some(pox_slot_count) = reward_cycle_pox_addrs
+                .get_mut(&reward_cycle)
+                .unwrap()
+                .get_mut(&pox_addr_0)
+            {
+                *pox_slot_count += 1;
+            } else {
+                reward_cycle_pox_addrs
                     .get_mut(&reward_cycle)
                     .unwrap()
-                    .get_mut(&pox_addr_0)
-                {
-                    *pox_slot_count += 1;
-                } else {
-                    reward_cycle_pox_addrs
-                        .get_mut(&reward_cycle)
-                        .unwrap()
-                        .insert(pox_addr_0, 1);
-                }
+                    .insert(pox_addr_0, 1);
+            }
 
-                if let Some(pox_slot_count) = reward_cycle_pox_addrs
+            if let Some(pox_slot_count) = reward_cycle_pox_addrs
+                .get_mut(&reward_cycle)
+                .unwrap()
+                .get_mut(&pox_addr_1)
+            {
+                *pox_slot_count += 1;
+            } else {
+                reward_cycle_pox_addrs
                     .get_mut(&reward_cycle)
                     .unwrap()
-                    .get_mut(&pox_addr_1)
-                {
-                    *pox_slot_count += 1;
-                } else {
-                    reward_cycle_pox_addrs
-                        .get_mut(&reward_cycle)
-                        .unwrap()
-                        .insert(pox_addr_1, 1);
-                }
+                    .insert(pox_addr_1, 1);
             }
         }
     }
@@ -1340,14 +1310,12 @@ fn verify_auto_unlock_behavior() {
 
     for reward_cycle in reward_cycle_min..(reward_cycle_max + 1) {
         let cycle_counts = &reward_cycle_pox_addrs[&reward_cycle];
-        assert_eq!(cycle_counts.len(), expected_slots[&reward_cycle].len(), "The number of expected PoX addresses in reward cycle {} is mismatched with the actual count.", reward_cycle);
+        assert_eq!(cycle_counts.len(), expected_slots[&reward_cycle].len(), "The number of expected PoX addresses in reward cycle {reward_cycle} is mismatched with the actual count.");
         for (pox_addr, slots) in cycle_counts.iter() {
             assert_eq!(
                 *slots,
-                expected_slots[&reward_cycle][&pox_addr],
-                "The number of expected slots for PoX address {} in reward cycle {} is mismatched with the actual count.",
-                &pox_addr,
-                reward_cycle,
+                expected_slots[&reward_cycle][pox_addr],
+                "The number of expected slots for PoX address {pox_addr} in reward cycle {reward_cycle} is mismatched with the actual count."
             );
             info!("PoX payment received"; "cycle" => reward_cycle, "pox_addr" => %pox_addr, "slots" => slots);
         }
