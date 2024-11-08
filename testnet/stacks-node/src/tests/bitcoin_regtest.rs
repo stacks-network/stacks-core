@@ -118,8 +118,7 @@ impl BitcoinCoreController {
                 }
             } else {
                 return Err(BitcoinCoreError::StopFailed(format!(
-                    "Invalid response: {:?}",
-                    res
+                    "Invalid response: {res:?}"
                 )));
             }
         }

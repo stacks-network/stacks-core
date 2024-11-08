@@ -43,7 +43,7 @@ impl BurnchainOpSigner {
         let signature = match self.secret_key.sign(hash) {
             Ok(r) => r,
             Err(e) => {
-                debug!("Secret key error: {:?}", &e);
+                debug!("Secret key error: {e:?}");
                 return None;
             }
         };

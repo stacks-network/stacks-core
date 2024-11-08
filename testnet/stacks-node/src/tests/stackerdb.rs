@@ -355,7 +355,7 @@ fn test_stackerdb_event_observer() {
     for i in 0..6 {
         let slot_id = i as u32;
         let privk = &privks[i / 3];
-        let chunk_str = format!("Hello chunks {}", &i);
+        let chunk_str = format!("Hello chunks {i}");
         let ack = post_stackerdb_chunk(
             &http_origin,
             &contract_id,
@@ -364,7 +364,7 @@ fn test_stackerdb_event_observer() {
             slot_id,
             1,
         );
-        debug!("ACK: {:?}", &ack);
+        debug!("ACK: {ack:?}");
 
         let data = get_stackerdb_chunk(&http_origin, &contract_id, slot_id, Some(1));
         assert_eq!(data, chunk_str.as_bytes().to_vec());

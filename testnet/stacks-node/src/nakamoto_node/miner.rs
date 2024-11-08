@@ -356,7 +356,7 @@ impl BlockMinerThread {
 
                         // try again, in case a new sortition is pending
                         self.globals
-                            .raise_initiative(format!("MiningFailure: {:?}", &e));
+                            .raise_initiative(format!("MiningFailure: {e:?}"));
                         return Err(NakamotoNodeError::MiningFailure(
                             ChainstateError::MinerAborted,
                         ));
@@ -648,14 +648,14 @@ impl BlockMinerThread {
         }
 
         let block_id = block.block_id();
-        debug!("Broadcasting block {}", &block_id);
+        debug!("Broadcasting block {block_id}");
         if let Err(e) = self.p2p_handle.broadcast_message(
             vec![],
             StacksMessageType::NakamotoBlocks(NakamotoBlocksData {
                 blocks: vec![block.clone()],
             }),
         ) {
-            warn!("Failed to broadcast block {}: {:?}", &block_id, &e);
+            warn!("Failed to broadcast block {block_id}: {e:?}");
         }
         Ok(())
     }
@@ -801,7 +801,7 @@ impl BlockMinerThread {
         // load up stacks chain tip
         let (stacks_tip_ch, stacks_tip_bh) =
             SortitionDB::get_canonical_stacks_chain_tip_hash(burn_db.conn()).map_err(|e| {
-                error!("Failed to load canonical Stacks tip: {:?}", &e);
+                error!("Failed to load canonical Stacks tip: {e:?}");
                 NakamotoNodeError::ParentNotFound
             })?;
 
@@ -813,8 +813,8 @@ impl BlockMinerThread {
         )
         .map_err(|e| {
             error!(
-                "Could not query header info for tenure tip {} off of {}: {:?}",
-                &self.burn_election_block.consensus_hash, &stacks_tip_block_id, &e
+                "Could not query header info for tenure tip {} off of {stacks_tip_block_id}: {e:?}",
+                &self.burn_election_block.consensus_hash
             );
             NakamotoNodeError::ParentNotFound
         })?;
@@ -842,8 +842,8 @@ impl BlockMinerThread {
                 NakamotoChainState::get_block_header(chain_state.db(), &self.parent_tenure_id)
                     .map_err(|e| {
                         error!(
-                            "Could not query header for parent tenure ID {}: {:?}",
-                            &self.parent_tenure_id, &e
+                            "Could not query header for parent tenure ID {}: {e:?}",
+                            &self.parent_tenure_id
                         );
                         NakamotoNodeError::ParentNotFound
                     })?
@@ -858,7 +858,7 @@ impl BlockMinerThread {
                 &parent_tenure_header.consensus_hash,
             )
             .map_err(|e| {
-                error!("Could not query parent tenure finish block: {:?}", &e);
+                error!("Could not query parent tenure finish block: {e:?}");
                 NakamotoNodeError::ParentNotFound
             })?;
             if let Some(header) = header_opt {
@@ -872,8 +872,8 @@ impl BlockMinerThread {
                 NakamotoChainState::get_block_header(chain_state.db(), &self.parent_tenure_id)
                     .map_err(|e| {
                         error!(
-                            "Could not query header info for epoch2x tenure block ID {}: {:?}",
-                            &self.parent_tenure_id, &e
+                            "Could not query header info for epoch2x tenure block ID {}: {e:?}",
+                            &self.parent_tenure_id
                         );
                         NakamotoNodeError::ParentNotFound
                     })?
@@ -888,9 +888,8 @@ impl BlockMinerThread {
         };
 
         debug!(
-            "Miner: stacks tip parent header is {} {:?}",
-            &stacks_tip_header.index_block_hash(),
-            &stacks_tip_header
+            "Miner: stacks tip parent header is {} {stacks_tip_header:?}",
+            &stacks_tip_header.index_block_hash()
         );
         let miner_address = self
             .keychain
@@ -974,8 +973,8 @@ impl BlockMinerThread {
             NakamotoChainState::get_block_header(chain_state.db(), &x.header.parent_block_id)
                 .map_err(|e| {
                     error!(
-                        "Could not query header info for parent block ID {}: {:?}",
-                        &x.header.parent_block_id, &e
+                        "Could not query header info for parent block ID {}: {e:?}",
+                        &x.header.parent_block_id
                     );
                     NakamotoNodeError::ParentNotFound
                 })?

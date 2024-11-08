@@ -872,7 +872,7 @@ fn integration_test_get_info() {
                 // explicit trait compliance
                 let path = format!("{http_origin}/v2/traits/{contract_addr}/impl-trait-contract/{contract_addr}/get-info/trait-1");
                 let res = client.get(&path).send().unwrap().json::<GetIsTraitImplementedResponse>().unwrap();
-                eprintln!("Test: GET {}", path);
+                eprintln!("Test: GET {path}");
                 assert!(res.is_implemented);
 
                 // No trait found

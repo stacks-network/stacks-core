@@ -220,14 +220,14 @@ fn fix_to_pox_contract() {
     // stack right away
     let sort_height = channel.get_sortitions_processed();
     let pox_addr_tuple_1 = execute(
-        &format!("{{ hashbytes: 0x{}, version: 0x00 }}", pox_pubkey_hash_1,),
+        &format!("{{ hashbytes: 0x{pox_pubkey_hash_1}, version: 0x00 }}"),
         ClarityVersion::Clarity2,
     )
     .unwrap()
     .unwrap();
 
     let pox_addr_tuple_3 = execute(
-        &format!("{{ hashbytes: 0x{}, version: 0x00 }}", pox_pubkey_hash_3,),
+        &format!("{{ hashbytes: 0x{pox_pubkey_hash_3}, version: 0x00 }}"),
         ClarityVersion::Clarity2,
     )
     .unwrap()
@@ -249,7 +249,7 @@ fn fix_to_pox_contract() {
         ],
     );
 
-    info!("Submit 2.05 stacking tx to {:?}", &http_origin);
+    info!("Submit 2.05 stacking tx to {http_origin:?}");
     submit_tx(&http_origin, &tx);
 
     // wait until just before epoch 2.1
@@ -278,7 +278,7 @@ fn fix_to_pox_contract() {
 
     let sort_height = channel.get_sortitions_processed();
     let pox_addr_tuple_2 = execute(
-        &format!("{{ hashbytes: 0x{}, version: 0x00 }}", pox_pubkey_hash_2,),
+        &format!("{{ hashbytes: 0x{pox_pubkey_hash_2}, version: 0x00 }}"),
         ClarityVersion::Clarity2,
     )
     .unwrap()
@@ -299,7 +299,7 @@ fn fix_to_pox_contract() {
         ],
     );
 
-    info!("Submit 2.1 stacking tx to {:?}", &http_origin);
+    info!("Submit 2.1 stacking tx to {http_origin:?}");
     sleep_ms(5_000);
     submit_tx(&http_origin, &tx);
 

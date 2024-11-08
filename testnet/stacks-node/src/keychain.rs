@@ -361,7 +361,7 @@ mod tests {
             let vrf_sk = match self.vrf_map.get(vrf_pk) {
                 Some(vrf_pk) => vrf_pk,
                 None => {
-                    warn!("No VRF secret key on file for {:?}", vrf_pk);
+                    warn!("No VRF secret key on file for {vrf_pk:?}");
                     return None;
                 }
             };
