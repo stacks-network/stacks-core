@@ -161,7 +161,7 @@ pub struct GlobalConfig {
     pub block_proposal_timeout: Duration,
     /// An optional custom Chain ID
     pub chain_id: Option<u32>,
-    /// How long to wait in for a response from a block proposal validation response from the node
+    /// How long to wait for a response from a block proposal validation response from the node
     /// before marking that block as invalid and rejecting it
     pub block_proposal_validation_timeout: Duration,
 }
@@ -186,14 +186,14 @@ struct RawConfigFile {
     pub db_path: String,
     /// Metrics endpoint
     pub metrics_endpoint: Option<String>,
-    /// How much time must pass between the first block proposal in a tenure and the next bitcoin block
-    ///  before a subsequent miner isn't allowed to reorg the tenure
+    /// How much time (in secs) must pass between the first block proposal in a tenure and the next bitcoin block
+    /// before a subsequent miner isn't allowed to reorg the tenure
     pub first_proposal_burn_block_timing_secs: Option<u64>,
-    /// How much time to wait for a miner to propose a block following a sortition in milliseconds
+    /// How much time (in millisecs) to wait for a miner to propose a block following a sortition
     pub block_proposal_timeout_ms: Option<u64>,
     /// An optional custom Chain ID
     pub chain_id: Option<u32>,
-    /// How long to wait n milliseconds for a response from a block proposal validation response from the node
+    /// How long to wait (in millisecs) for a response from a block proposal validation response from the node
     /// before marking that block as invalid and rejecting it
     pub block_proposal_validation_timeout_ms: Option<u64>,
 }
