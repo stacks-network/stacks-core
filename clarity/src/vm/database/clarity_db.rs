@@ -26,6 +26,7 @@ use stacks_common::types::chainstate::{
     VRFSeed,
 };
 use stacks_common::types::{Address, StacksEpoch as GenericStacksEpoch, StacksEpochId};
+use stacks_common::types::chainstate::TrieHash;
 use stacks_common::util::hash::{to_hex, Hash160, Sha256Sum, Sha512Trunc256Sum};
 
 use super::clarity_store::SpecialCaseHandler;
@@ -464,6 +465,13 @@ impl<'a> ClarityDatabase<'a> {
     {
         self.store.get_data::<T>(key)
     }
+    
+    pub fn get_data_by_hash<T>(&mut self, hash: &TrieHash) -> Result<Option<T>>
+    where
+        T: ClarityDeserializable<T>,
+    {
+        self.store.get_data_by_hash::<T>(hash)
+    }
 
     pub fn put_value(&mut self, key: &str, value: Value, epoch: &StacksEpochId) -> Result<()> {
         self.put_value_with_size(key, value, epoch)?;
@@ -520,6 +528,13 @@ impl<'a> ClarityDatabase<'a> {
         T: ClarityDeserializable<T>,
     {
         self.store.get_data_with_proof(key)
+    }
+    
+    pub fn get_data_with_proof_by_hash<T>(&mut self, hash: &TrieHash) -> Result<Option<(T, Vec<u8>)>>
+    where
+        T: ClarityDeserializable<T>,
+    {
+        self.store.get_data_with_proof_by_hash(hash)
     }
 
     pub fn make_key_for_trip(

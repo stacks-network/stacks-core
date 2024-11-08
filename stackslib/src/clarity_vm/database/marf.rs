@@ -20,7 +20,6 @@ use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId, TrieHash};
 
 use crate::chainstate::stacks::index::marf::{MARFOpenOpts, MarfConnection, MarfTransaction, MARF};
-use crate::chainstate::stacks::index::node::TriePath;
 use crate::chainstate::stacks::index::{
     ClarityMarfTrieId, Error, MARFValue, MarfTrieId, TrieMerkleProof,
 };
@@ -477,6 +476,36 @@ impl<'a> ClarityBackingStore for ReadOnlyMarfStore<'a> {
             })
             .transpose()
     }
+    
+    fn get_data_from_path(&mut self, hash: &TrieHash) -> InterpreterResult<Option<String>> {
+        trace!("MarfedKV get_from_hash: {:?} tip={}", hash, &self.chain_tip);
+        self.marf
+            .get_from_hash(&self.chain_tip, hash)
+            .or_else(|e| match e {
+                Error::NotFoundError => {
+                    trace!(
+                        "MarfedKV get {:?} off of {:?}: not found",
+                        hash,
+                        &self.chain_tip
+                    );
+                    Ok(None)
+                }
+                _ => Err(e),
+            })
+            .map_err(|_| InterpreterError::Expect("ERROR: Unexpected MARF Failure on GET".into()))?
+            .map(|marf_value| {
+                let side_key = marf_value.to_hex();
+                trace!("MarfedKV get side-key for {:?}: {:?}", hash, &side_key);
+                SqliteConnection::get(self.get_side_store(), &side_key)?.ok_or_else(|| {
+                    InterpreterError::Expect(format!(
+                        "ERROR: MARF contained value_hash not found in side storage: {}",
+                        side_key
+                    ))
+                    .into()
+                })
+            })
+            .transpose()
+    }
 
     fn put_all_data(&mut self, _items: Vec<(String, String)>) -> InterpreterResult<()> {
         error!("Attempted to commit changes to read-only MARF");
@@ -646,6 +675,36 @@ impl<'a> ClarityBackingStore for WritableMarfStore<'a> {
             .map(|marf_value| {
                 let side_key = marf_value.to_hex();
                 trace!("MarfedKV get side-key for {:?}: {:?}", key, &side_key);
+                SqliteConnection::get(self.marf.sqlite_tx(), &side_key)?.ok_or_else(|| {
+                    InterpreterError::Expect(format!(
+                        "ERROR: MARF contained value_hash not found in side storage: {}",
+                        side_key
+                    ))
+                    .into()
+                })
+            })
+            .transpose()
+    }
+    
+    fn get_data_from_path(&mut self, hash: &TrieHash) -> InterpreterResult<Option<String>> {
+        trace!("MarfedKV get_from_hash: {:?} tip={}", hash, &self.chain_tip);
+        self.marf
+            .get_from_hash(&self.chain_tip, hash)
+            .or_else(|e| match e {
+                Error::NotFoundError => {
+                    trace!(
+                        "MarfedKV get {:?} off of {:?}: not found",
+                        hash,
+                        &self.chain_tip
+                    );
+                    Ok(None)
+                }
+                _ => Err(e),
+            })
+            .map_err(|_| InterpreterError::Expect("ERROR: Unexpected MARF Failure on GET".into()))?
+            .map(|marf_value| {
+                let side_key = marf_value.to_hex();
+                trace!("MarfedKV get side-key for {:?}: {:?}", hash, &side_key);
                 SqliteConnection::get(self.marf.sqlite_tx(), &side_key)?.ok_or_else(|| {
                     InterpreterError::Expect(format!(
                         "ERROR: MARF contained value_hash not found in side storage: {}",

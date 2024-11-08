@@ -64,6 +64,8 @@ pub trait ClarityBackingStore {
     fn put_all_data(&mut self, items: Vec<(String, String)>) -> Result<()>;
     /// fetch K-V out of the committed datastore
     fn get_data(&mut self, key: &str) -> Result<Option<String>>;
+    /// fetch Hash(K)-V out of the commmitted datastore
+    fn get_data_from_path(&mut self, hash: &TrieHash) -> Result<Option<String>>;
     /// fetch K-V out of the committed datastore, along with the byte representation
     ///  of the Merkle proof for that key-value pair
     fn get_data_with_proof(&mut self, key: &str) -> Result<Option<(String, Vec<u8>)>>;
@@ -210,6 +212,10 @@ impl ClarityBackingStore for NullBackingStore {
     }
 
     fn get_data(&mut self, _key: &str) -> Result<Option<String>> {
+        panic!("NullBackingStore can't retrieve data")
+    }
+    
+    fn get_data_from_path(&mut self, _hash: &TrieHash) -> Result<Option<String>> {
         panic!("NullBackingStore can't retrieve data")
     }
 
