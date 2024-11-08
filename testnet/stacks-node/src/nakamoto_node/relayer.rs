@@ -67,6 +67,7 @@ use crate::run_loop::RegisteredKey;
 use crate::BitcoinRegtestController;
 
 /// Command types for the Nakamoto relayer thread, issued to it by other threads
+#[allow(clippy::large_enum_variant)]
 pub enum RelayerDirective {
     /// Handle some new data that arrived on the network (such as blocks, transactions, and
     HandleNetResult(NetworkResult),
@@ -142,7 +143,7 @@ impl LastCommit {
 
     /// What's the parent tenure's tenure-start block hash?
     pub fn parent_tenure_id(&self) -> StacksBlockId {
-        StacksBlockId(self.block_commit.block_header_hash.clone().0)
+        StacksBlockId(self.block_commit.block_header_hash.0)
     }
 
     /// What's the stacks tip at the time of commit?
@@ -167,7 +168,7 @@ impl LastCommit {
 
     /// Set our txid
     pub fn set_txid(&mut self, txid: &Txid) {
-        self.txid = Some(txid.clone());
+        self.txid = Some(*txid);
     }
 }
 
@@ -304,9 +305,7 @@ impl RelayerThread {
     /// chain tip?
     fn has_waited_for_latest_blocks(&self) -> bool {
         // a network download pass took place
-        (self.min_network_download_passes <= self.last_network_download_passes
-        // a network inv pass took place
-        && self.min_network_download_passes <= self.last_network_download_passes)
+        self.min_network_download_passes <= self.last_network_download_passes
         // we waited long enough for a download pass, but timed out waiting
         || self.last_network_block_height_ts + (self.config.node.wait_time_for_blocks as u128) < get_epoch_time_ms()
         // we're not supposed to wait at all
@@ -497,7 +496,7 @@ impl RelayerThread {
         BlockstackOperationType::LeaderKeyRegister(LeaderKeyRegisterOp {
             public_key: vrf_public_key,
             memo: miner_pkh.as_bytes().to_vec(),
-            consensus_hash: consensus_hash.clone(),
+            consensus_hash: *consensus_hash,
             vtxindex: 0,
             txid: Txid([0u8; 32]),
             block_height: 0,
@@ -564,7 +563,7 @@ impl RelayerThread {
         let highest_tenure_start_block_header = NakamotoChainState::get_tenure_start_block_header(
             &mut self.chainstate.index_conn(),
             &stacks_tip,
-            &tip_block_ch,
+            tip_block_ch,
         )
         .map_err(|e| {
             error!(
@@ -730,9 +729,7 @@ impl RelayerThread {
     /// * last_burn_block corresponds to the canonical sortition DB's chain tip
     /// * the time of issuance is sufficiently recent
     /// * there are no unprocessed stacks blocks in the staging DB
-    /// * the relayer has already tried a download scan that included this sortition (which, if a
-    /// block was found, would have placed it into the staging DB and marked it as
-    /// unprocessed)
+    /// * the relayer has already tried a download scan that included this sortition (which, if a block was found, would have placed it into the staging DB and marked it as unprocessed)
     /// * a miner thread is not running already
     fn create_block_miner(
         &mut self,
@@ -750,11 +747,11 @@ impl RelayerThread {
             return Err(NakamotoNodeError::FaultInjection);
         }
 
-        let burn_header_hash = burn_tip.burn_header_hash.clone();
+        let burn_header_hash = burn_tip.burn_header_hash;
         let burn_chain_sn = SortitionDB::get_canonical_burn_chain_tip(self.sortdb.conn())
             .expect("FATAL: failed to query sortition DB for canonical burn chain tip");
 
-        let burn_chain_tip = burn_chain_sn.burn_header_hash.clone();
+        let burn_chain_tip = burn_chain_sn.burn_header_hash;
 
         if burn_chain_tip != burn_header_hash {
             debug!(
@@ -1067,7 +1064,7 @@ impl RelayerThread {
         // sign and broadcast
         let mut op_signer = self.keychain.generate_op_signer();
         let res = self.bitcoin_controller.submit_operation(
-            last_committed.get_epoch_id().clone(),
+            *last_committed.get_epoch_id(),
             BlockstackOperationType::LeaderBlockCommit(last_committed.get_block_commit().clone()),
             &mut op_signer,
             1,
@@ -1198,7 +1195,7 @@ impl RelayerThread {
         while self.globals.keep_running() {
             let raised_initiative = self.globals.take_initiative();
             let timed_out = Instant::now() >= self.next_initiative;
-            let directive = if raised_initiative.is_some() || timed_out {
+            let mut initiative_directive = if raised_initiative.is_some() || timed_out {
                 self.next_initiative =
                     Instant::now() + Duration::from_millis(self.config.node.next_initiative_delay);
                 self.initiative()
@@ -1206,13 +1203,17 @@ impl RelayerThread {
                 None
             };
 
-            let directive = if let Some(directive) = directive {
+            let directive = if let Some(directive) = initiative_directive.take() {
                 directive
             } else {
+                // channel was drained, so do a time-bound recv
                 match relay_rcv.recv_timeout(Duration::from_millis(
                     self.config.node.next_initiative_delay,
                 )) {
-                    Ok(directive) => directive,
+                    Ok(directive) => {
+                        // only do this once, so we can call .initiative() again
+                        directive
+                    }
                     Err(RecvTimeoutError::Timeout) => {
                         continue;
                     }
@@ -1224,7 +1225,7 @@ impl RelayerThread {
 
             debug!("Relayer: main loop directive";
                    "directive" => %directive,
-                   "raised_initiative" => %raised_initiative.unwrap_or("relay_rcv".to_string()),
+                   "raised_initiative" => ?raised_initiative,
                    "timed_out" => %timed_out);
 
             if !self.handle_directive(directive) {
@@ -1299,7 +1300,7 @@ impl RelayerThread {
                 let mut saved_key_opt = None;
                 if let Some(path) = self.config.miner.activated_vrf_key_path.as_ref() {
                     saved_key_opt =
-                        Self::load_saved_vrf_key(&path, &self.keychain.get_nakamoto_pkh());
+                        Self::load_saved_vrf_key(path, &self.keychain.get_nakamoto_pkh());
                 }
                 if let Some(saved_key) = saved_key_opt {
                     debug!("Relayer: resuming VRF key");
@@ -1371,9 +1372,9 @@ pub mod test {
         let pubkey_hash = Hash160::from_node_public_key(&pk);
 
         let path = "/tmp/does_not_exist.json";
-        _ = std::fs::remove_file(&path);
+        _ = std::fs::remove_file(path);
 
-        let res = RelayerThread::load_saved_vrf_key(&path, &pubkey_hash);
+        let res = RelayerThread::load_saved_vrf_key(path, &pubkey_hash);
         assert!(res.is_none());
     }
 
@@ -1384,13 +1385,13 @@ pub mod test {
         let pubkey_hash = Hash160::from_node_public_key(&pk);
 
         let path = "/tmp/empty.json";
-        File::create(&path).expect("Failed to create test file");
-        assert!(Path::new(&path).exists());
+        File::create(path).expect("Failed to create test file");
+        assert!(Path::new(path).exists());
 
-        let res = RelayerThread::load_saved_vrf_key(&path, &pubkey_hash);
+        let res = RelayerThread::load_saved_vrf_key(path, &pubkey_hash);
         assert!(res.is_none());
 
-        std::fs::remove_file(&path).expect("Failed to delete test file");
+        std::fs::remove_file(path).expect("Failed to delete test file");
     }
 
     #[test]
@@ -1403,15 +1404,15 @@ pub mod test {
         let json_content = r#"{ "hello": "world" }"#;
 
         // Write the JSON content to the file
-        let mut file = File::create(&path).expect("Failed to create test file");
+        let mut file = File::create(path).expect("Failed to create test file");
         file.write_all(json_content.as_bytes())
             .expect("Failed to write to test file");
-        assert!(Path::new(&path).exists());
+        assert!(Path::new(path).exists());
 
-        let res = RelayerThread::load_saved_vrf_key(&path, &pubkey_hash);
+        let res = RelayerThread::load_saved_vrf_key(path, &pubkey_hash);
         assert!(res.is_none());
 
-        std::fs::remove_file(&path).expect("Failed to delete test file");
+        std::fs::remove_file(path).expect("Failed to delete test file");
     }
 
     #[test]
@@ -1432,10 +1433,10 @@ pub mod test {
         let path = "/tmp/vrf_key.json";
         save_activated_vrf_key(path, &key);
 
-        let res = RelayerThread::load_saved_vrf_key(&path, &pubkey_hash);
+        let res = RelayerThread::load_saved_vrf_key(path, &pubkey_hash);
         assert!(res.is_some());
 
-        std::fs::remove_file(&path).expect("Failed to delete test file");
+        std::fs::remove_file(path).expect("Failed to delete test file");
     }
 
     #[test]
@@ -1460,9 +1461,9 @@ pub mod test {
         let pk = Secp256k1PublicKey::from_private(keychain.get_nakamoto_sk());
         let pubkey_hash = Hash160::from_node_public_key(&pk);
 
-        let res = RelayerThread::load_saved_vrf_key(&path, &pubkey_hash);
+        let res = RelayerThread::load_saved_vrf_key(path, &pubkey_hash);
         assert!(res.is_none());
 
-        std::fs::remove_file(&path).expect("Failed to delete test file");
+        std::fs::remove_file(path).expect("Failed to delete test file");
     }
 }

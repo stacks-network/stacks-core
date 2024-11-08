@@ -411,6 +411,7 @@ pub(crate) mod tests {
             db_path: config.db_path.clone(),
             first_proposal_burn_block_timing: config.first_proposal_burn_block_timing,
             block_proposal_timeout: config.block_proposal_timeout,
+            tenure_last_block_proposal_timeout: config.tenure_last_block_proposal_timeout,
         }
     }
 

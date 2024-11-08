@@ -92,7 +92,7 @@ fn handle_connection(mut stream: TcpStream) {
             contents
         );
 
-        stream.write(response.as_bytes()).unwrap();
+        let _nmb_bytes = stream.write(response.as_bytes()).unwrap();
         stream.flush().unwrap();
     }
 }

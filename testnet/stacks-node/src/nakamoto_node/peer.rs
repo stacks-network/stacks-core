@@ -13,7 +13,6 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-use std::collections::VecDeque;
 use std::net::SocketAddr;
 use std::sync::mpsc::TrySendError;
 use std::thread;
@@ -54,11 +53,9 @@ pub struct PeerThread {
     chainstate: StacksChainState,
     /// handle to the mempool DB
     mempool: MemPoolDB,
-    /// buffer of relayer commands with block data that couldn't be sent to the relayer just yet
-    /// (i.e. due to backpressure).  We track this separately, instead of just using a bigger
-    /// channel, because we need to know when backpressure occurs in order to throttle the p2p
-    /// thread's downloader.
-    results_with_data: VecDeque<RelayerDirective>,
+    /// Buffered network result relayer command.
+    /// P2P network results are consolidated into a single directive.
+    results_with_data: Option<RelayerDirective>,
     /// total number of p2p state-machine passes so far. Used to signal when to download the next
     /// reward cycle of blocks
     num_p2p_state_machine_passes: u64,
@@ -199,7 +196,7 @@ impl PeerThread {
             sortdb,
             chainstate,
             mempool,
-            results_with_data: VecDeque::new(),
+            results_with_data: None,
             num_p2p_state_machine_passes: 0,
             num_inv_sync_passes: 0,
             num_download_passes: 0,
@@ -227,6 +224,7 @@ impl PeerThread {
 
     /// Run one pass of the p2p/http state machine
     /// Return true if we should continue running passes; false if not
+    #[allow(clippy::borrowed_box)]
     pub(crate) fn run_one_pass<B: BurnchainHeaderReader>(
         &mut self,
         indexer: &B,
@@ -238,7 +236,18 @@ impl PeerThread {
     ) -> bool {
         // initial block download?
         let ibd = self.globals.sync_comms.get_ibd();
-        let download_backpressure = self.results_with_data.len() > 0;
+        let download_backpressure = self
+            .results_with_data
+            .as_ref()
+            .map(|res| {
+                if let RelayerDirective::HandleNetResult(netres) = &res {
+                    netres.has_block_data_to_store()
+                } else {
+                    false
+                }
+            })
+            .unwrap_or(false);
+
         let poll_ms = if !download_backpressure && self.net.has_more_downloads() {
             // keep getting those blocks -- drive the downloader state-machine
             debug!(
@@ -258,7 +267,7 @@ impl PeerThread {
             // NOTE: handler_args must be created such that it outlives the inner net.run() call and
             // doesn't ref anything within p2p_thread.
             let handler_args = RPCHandlerArgs {
-                exit_at_block_height: self.config.burnchain.process_exit_at_block_height.clone(),
+                exit_at_block_height: self.config.burnchain.process_exit_at_block_height,
                 genesis_chainstate_hash: Sha256Sum::from_hex(stx_genesis::GENESIS_CHAINSTATE_HASH)
                     .unwrap(),
                 event_observer: Some(event_dispatcher),
@@ -266,7 +275,6 @@ impl PeerThread {
                 cost_metric: Some(cost_metric.as_ref()),
                 fee_estimator: fee_estimator.map(|boxed_estimator| boxed_estimator.as_ref()),
                 coord_comms: Some(&self.globals.coord_comms),
-                ..RPCHandlerArgs::default()
             };
             self.net.run(
                 indexer,
@@ -282,7 +290,6 @@ impl PeerThread {
         };
         match p2p_res {
             Ok(network_result) => {
-                let mut have_update = false;
                 if self.num_p2p_state_machine_passes < network_result.num_state_machine_passes {
                     // p2p state-machine did a full pass. Notify anyone listening.
                     self.globals.sync_comms.notify_p2p_state_pass();
@@ -293,30 +300,28 @@ impl PeerThread {
                     // inv-sync state-machine did a full pass. Notify anyone listening.
                     self.globals.sync_comms.notify_inv_sync_pass();
                     self.num_inv_sync_passes = network_result.num_inv_sync_passes;
-
-                    // the relayer cares about the number of inventory passes, so pass this along
-                    have_update = true;
                 }
 
                 if self.num_download_passes < network_result.num_download_passes {
                     // download state-machine did a full pass.  Notify anyone listening.
                     self.globals.sync_comms.notify_download_pass();
                     self.num_download_passes = network_result.num_download_passes;
-
-                    // the relayer cares about the number of download passes, so pass this along
-                    have_update = true;
                 }
 
-                if network_result.has_data_to_store()
-                    || self.last_burn_block_height != network_result.burn_height
-                    || have_update
-                {
-                    // pass along if we have blocks, microblocks, or transactions, or a status
-                    // update on the network's view of the burnchain
-                    self.last_burn_block_height = network_result.burn_height;
-                    self.results_with_data
-                        .push_back(RelayerDirective::HandleNetResult(network_result));
+                self.last_burn_block_height = network_result.burn_height;
+                if let Some(res) = self.results_with_data.take() {
+                    if let RelayerDirective::HandleNetResult(netres) = res {
+                        let new_res = netres.update(network_result);
+                        self.results_with_data = Some(RelayerDirective::HandleNetResult(new_res));
+                    }
+                } else {
+                    self.results_with_data =
+                        Some(RelayerDirective::HandleNetResult(network_result));
                 }
+
+                self.globals.raise_initiative(
+                    "PeerThread::run_one_pass() with data-bearing network result".to_string(),
+                );
             }
             Err(e) => {
                 // this is only reachable if the network is not instantiated correctly --
@@ -325,20 +330,21 @@ impl PeerThread {
             }
         };
 
-        while let Some(next_result) = self.results_with_data.pop_front() {
+        if let Some(next_result) = self.results_with_data.take() {
             // have blocks, microblocks, and/or transactions (don't care about anything else),
             // or a directive to mine microblocks
+            self.globals.raise_initiative(
+                "PeerThread::run_one_pass() with backlogged network results".to_string(),
+            );
             if let Err(e) = self.globals.relay_send.try_send(next_result) {
                 debug!(
-                    "P2P: {:?}: download backpressure detected (bufferred {})",
+                    "P2P: {:?}: download backpressure detected",
                     &self.net.local_peer,
-                    self.results_with_data.len()
                 );
                 match e {
                     TrySendError::Full(directive) => {
                         // don't lose this data -- just try it again
-                        self.results_with_data.push_front(directive);
-                        break;
+                        self.results_with_data = Some(directive);
                     }
                     TrySendError::Disconnected(_) => {
                         info!("P2P: Relayer hang up with p2p channel");
@@ -347,13 +353,7 @@ impl PeerThread {
                     }
                 }
             } else {
-                debug!(
-                    "P2P: Dispatched result to Relayer! {} results remaining",
-                    self.results_with_data.len()
-                );
-                self.globals.raise_initiative(
-                    "PeerThread::run_one_pass() with data-bearing network result".to_string(),
-                );
+                debug!("P2P: Dispatched result to Relayer!",);
             }
         }
 
