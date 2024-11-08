@@ -284,8 +284,7 @@ impl<T> Globals<T> {
                         **leader_key_registration_state
                     {
                         info!(
-                            "Received burnchain block #{} including key_register_op - {}",
-                            burn_block_height, txid
+                            "Received burnchain block #{burn_block_height} including key_register_op - {txid}"
                         );
                         if txid == op.txid {
                             let active_key = RegisteredKey {
@@ -302,8 +301,8 @@ impl<T> Globals<T> {
                             activated_key = Some(active_key);
                         } else {
                             debug!(
-                                "key_register_op {} does not match our pending op {}",
-                                txid, &op.txid
+                                "key_register_op {txid} does not match our pending op {}",
+                                &op.txid
                             );
                         }
                     }
