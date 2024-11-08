@@ -579,10 +579,10 @@ impl NakamotoTenureInv {
 
     /// Reset synchronization state for this peer.  Don't remove inventory data; just make it so we
     /// can talk to the peer again
-    pub fn try_reset_comms(&mut self, inv_sync_interval: u64, start_rc: u64, cur_rc: u64) {
+    pub fn try_reset_comms(&mut self, inv_sync_interval: u64, start_rc: u64, max_rc: u64) {
         let now = get_epoch_time_secs();
         if self.start_sync_time + inv_sync_interval <= now
-            && (self.cur_reward_cycle >= cur_rc || !self.online)
+            && (self.cur_reward_cycle >= max_rc || !self.online)
         {
             self.reset_comms(start_rc);
         }
@@ -618,20 +618,20 @@ impl NakamotoTenureInv {
     pub fn getnakamotoinv_begin(
         &mut self,
         network: &mut PeerNetwork,
-        current_reward_cycle: u64,
+        max_reward_cycle: u64,
     ) -> bool {
         debug!(
             "{:?}: Begin Nakamoto inventory sync for {} in cycle {}",
             network.get_local_peer(),
             self.neighbor_address,
-            current_reward_cycle,
+            max_reward_cycle,
         );
 
         // possibly reset communications with this peer, if it's time to do so.
         self.try_reset_comms(
             network.get_connection_opts().inv_sync_interval,
-            current_reward_cycle.saturating_sub(network.get_connection_opts().inv_reward_cycles),
-            current_reward_cycle,
+            max_reward_cycle.saturating_sub(network.get_connection_opts().inv_reward_cycles),
+            max_reward_cycle,
         );
         if !self.is_online() {
             // don't talk to this peer for now
@@ -643,7 +643,7 @@ impl NakamotoTenureInv {
             return false;
         }
 
-        if self.reward_cycle() > current_reward_cycle {
+        if self.reward_cycle() > max_reward_cycle {
             // we've fully sync'ed with this peer
             debug!(
                 "{:?}: fully sync'ed: {}",
@@ -910,10 +910,24 @@ impl<NC: NeighborComms> NakamotoInvStateMachine<NC> {
                 )
             });
 
-            // try to get all of the reward cycles we know about, plus the next one. We try to get
-            // the next one as well in case we're at a reward cycle boundary, but we're not at the
-            // chain tip -- the block downloader still needs that next inventory to proceed.
-            let proceed = inv.getnakamotoinv_begin(network, current_reward_cycle.saturating_add(1));
+            let burnchain_tip_reward_cycle = sortdb
+                .pox_constants
+                .block_height_to_reward_cycle(
+                    sortdb.first_block_height,
+                    network.stacks_tip.burnchain_height,
+                )
+                .ok_or(NetError::ChainstateError(
+                    "block height comes before system start".into(),
+                ))?;
+
+            let max_reward_cycle = if burnchain_tip_reward_cycle > current_reward_cycle {
+                // try to sync up to the next reward cycle
+                current_reward_cycle.saturating_add(1)
+            } else {
+                current_reward_cycle
+            };
+
+            let proceed = inv.getnakamotoinv_begin(network, max_reward_cycle);
             let inv_rc = inv.reward_cycle();
             new_inventories.insert(naddr.clone(), inv);
 
@@ -948,6 +962,7 @@ impl<NC: NeighborComms> NakamotoInvStateMachine<NC> {
                       "peer" => ?naddr,
                       "error" => ?e
                 );
+                continue;
             }
         }
 

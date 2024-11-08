@@ -102,6 +102,8 @@ pub struct TenureStartEnd {
     pub start_block_snapshot_consensus_hash: ConsensusHash,
     /// Consensus hash that identifies the snapshot with the end block ID
     pub end_block_snapshot_consensus_hash: ConsensusHash,
+    /// Burnchain block height of tenure ID consensus hash
+    pub tenure_id_burn_block_height: u64,
     /// Tenure-start block ID
     pub start_block_id: StacksBlockId,
     /// Last block ID
@@ -123,6 +125,7 @@ pub type AvailableTenures = HashMap<ConsensusHash, TenureStartEnd>;
 impl TenureStartEnd {
     pub fn new(
         tenure_id_consensus_hash: ConsensusHash,
+        tenure_id_burn_block_height: u64,
         start_block_snapshot_consensus_hash: ConsensusHash,
         start_block_id: StacksBlockId,
         end_block_snapshot_consensus_hash: ConsensusHash,
@@ -133,6 +136,7 @@ impl TenureStartEnd {
     ) -> Self {
         Self {
             tenure_id_consensus_hash,
+            tenure_id_burn_block_height,
             start_block_snapshot_consensus_hash,
             start_block_id,
             end_block_snapshot_consensus_hash,
@@ -222,6 +226,7 @@ impl TenureStartEnd {
 
             let tenure_start_end = TenureStartEnd::new(
                 wt.tenure_id_consensus_hash.clone(),
+                wt.burn_height,
                 wt_start.tenure_id_consensus_hash.clone(),
                 wt_start.winning_block_id.clone(),
                 wt_end.tenure_id_consensus_hash.clone(),
@@ -332,6 +337,7 @@ impl TenureStartEnd {
 
             let mut tenure_start_end = TenureStartEnd::new(
                 wt.tenure_id_consensus_hash.clone(),
+                wt.burn_height,
                 wt_start.tenure_id_consensus_hash.clone(),
                 wt_start.winning_block_id.clone(),
                 wt_end.tenure_id_consensus_hash.clone(),
