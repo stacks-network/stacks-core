@@ -122,8 +122,31 @@ pub trait MarfConnection<T: MarfTrieId> {
 
     fn sqlite_conn(&self) -> &Connection;
 
+    /// Get and check a value against get_from_hash
+    /// (test only)
+    #[cfg(test)]
+    fn get_and_check_with_hash(&mut self, block_hash: &T, key: &str) {
+        let res = self.with_conn(|c| MARF::get_by_key(c, block_hash, key));
+        let res_with_hash =
+            self.with_conn(|c| MARF::get_by_hash(c, block_hash, &TrieHash::from_key(key)));
+        match (res, res_with_hash) {
+            (Ok(Some(x)), Ok(Some(y))) => {
+                assert_eq!(x, y);
+            }
+            (Ok(None), Ok(None)) => {}
+            (Err(_), Err(_)) => {}
+            (x, y) => {
+                panic!("Inconsistency: {x:?} != {y:?}");
+            }
+        }
+    }
+
+    #[cfg(not(test))]
+    fn get_and_check_with_hash(&mut self, _block_hash: &T, _key: &str) {}
+
     /// Resolve a key from the MARF to a MARFValue with respect to the given block height.
     fn get(&mut self, block_hash: &T, key: &str) -> Result<Option<MARFValue>, Error> {
+        self.get_and_check_with_hash(block_hash, key);
         self.with_conn(|c| MARF::get_by_key(c, block_hash, key))
     }
 
