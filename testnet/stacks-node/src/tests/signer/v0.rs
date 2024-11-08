@@ -431,7 +431,8 @@ impl SignerTest<SpawnedSigner> {
 /// The stacks node is advanced to epoch 3.0 reward set calculation to ensure the signer set is determined.
 /// An invalid block proposal is forcibly written to the miner's slot to simulate the miner proposing a block.
 /// The signers process the invalid block by first verifying it against the stacks node block proposal endpoint.
-/// The signers then broadcast a rejection of the miner's proposed block back to the respective .signers-XXX-YYY contract.
+/// The signer that submitted the initial block validation request, should issue a  broadcast a rejection of the
+/// miner's proposed block back to the respective .signers-XXX-YYY contract.
 ///
 /// Test Assertion:
 /// Each signer successfully rejects the invalid block proposal.
@@ -6240,8 +6241,9 @@ fn block_commit_delay() {
     signer_test.shutdown();
 }
 
-// Ensures that a signer will issue ConnectivityIssues rejections if a block submission
-// times out. Also ensures that no other proposal gets submitted for validation if we
+// Ensures that a signer that successfully submits a block to the node for validation
+// will issue ConnectivityIssues rejections if a block submission times out.
+// Also ensures that no other proposal gets submitted for validation if we
 // are already waiting for a block submission response.
 #[test]
 #[ignore]
@@ -6344,11 +6346,8 @@ fn block_validation_response_timeout() {
     std::thread::sleep(timeout.saturating_sub(elapsed));
 
     info!("------------------------- Wait for Block Rejection Due to Timeout -------------------------");
-    // Verify the signers rejected the first block due to timeout
-    let mut rejected_signers = vec![];
-    let start = Instant::now();
-    while rejected_signers.len() < num_signers {
-        std::thread::sleep(Duration::from_secs(1));
+    // Verify that the signer that submits the block to the node will issue a ConnectivityIssues rejection
+    wait_for(30, || {
         let chunks = test_observer::get_stackerdb_chunks();
         for chunk in chunks.into_iter().flat_map(|chunk| chunk.modified_slots) {
             let Ok(message) = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
@@ -6359,7 +6358,6 @@ fn block_validation_response_timeout() {
                 reason: _reason,
                 reason_code,
                 signer_signature_hash,
-                signature,
                 ..
             })) = message
             else {
@@ -6372,27 +6370,43 @@ fn block_validation_response_timeout() {
                 "Received a rejection for the wrong block"
             );
             if matches!(reason_code, RejectCode::ConnectivityIssues) {
-                rejected_signers.push(signature);
+                return Ok(true);
             }
         }
-        assert!(
-            start.elapsed() <= timeout,
-            "Timed out after waiting for ConenctivityIssues block rejection"
-        );
-    }
+        Ok(false)
+    })
+    .expect("Timed out waiting for block proposal rejections");
     // Make sure our chain has still not advanced
     let info_after = get_chain_info(&signer_test.running_nodes.conf);
     assert_eq!(info_before, info_after);
-
+    let info_before = info_after;
     info!("Unpausing block validation");
-    // Disable the stall and wait for the block to be processed
+    // Disable the stall and wait for the block to be processed successfully
     TEST_VALIDATE_STALL.lock().unwrap().replace(false);
+    wait_for(30, || {
+        let info = get_chain_info(&signer_test.running_nodes.conf);
+        Ok(info.stacks_tip_height > info_before.stacks_tip_height)
+    })
+    .expect("Timed out waiting for block to be processed");
 
+    let info_after = get_chain_info(&signer_test.running_nodes.conf);
+    assert_eq!(
+        info_after.stacks_tip_height,
+        info_before.stacks_tip_height + 1,
+    );
     info!("------------------------- Test Mine and Verify Confirmed Nakamoto Block -------------------------");
+    let info_before = info_after;
     signer_test.mine_and_verify_confirmed_naka_block(timeout, num_signers);
 
+    wait_for(30, || {
+        let info = get_chain_info(&signer_test.running_nodes.conf);
+        Ok(info.stacks_tip_height > info_before.stacks_tip_height)
+    })
+    .unwrap();
+
+    let info_after = get_chain_info(&signer_test.running_nodes.conf);
     assert_eq!(
-        get_chain_info(&signer_test.running_nodes.conf).stacks_tip_height,
+        info_after.stacks_tip_height,
         info_before.stacks_tip_height + 1,
     );
 }
