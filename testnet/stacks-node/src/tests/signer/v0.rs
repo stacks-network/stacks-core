@@ -6195,6 +6195,7 @@ fn block_validation_response_timeout() {
     info!("------------------------- Propose Another Block Before Hitting the Timeout -------------------------");
     let proposal_conf = ProposalEvalConfig {
         first_proposal_burn_block_timing: Duration::from_secs(0),
+        tenure_last_block_proposal_timeout: Duration::from_secs(30),
         block_proposal_timeout: Duration::from_secs(100),
     };
     let mut block = NakamotoBlock {

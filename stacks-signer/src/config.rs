@@ -291,12 +291,6 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
                 .unwrap_or(DEFAULT_TENURE_LAST_BLOCK_PROPOSAL_TIMEOUT_SECS),
         );
 
-        let tenure_last_block_proposal_timeout = Duration::from_secs(
-            raw_data
-                .tenure_last_block_proposal_timeout_secs
-                .unwrap_or(DEFAULT_TENURE_LAST_BLOCK_PROPOSAL_TIMEOUT_SECS),
-        );
-
         let block_proposal_validation_timeout = Duration::from_millis(
             raw_data
                 .block_proposal_validation_timeout_ms
