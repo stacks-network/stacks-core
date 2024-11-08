@@ -191,7 +191,7 @@ impl SignerTrait<SignerMessage> for Signer {
                                 "block_height" => b.header.chain_length,
                                 "signer_sighash" => %b.header.signer_signature_hash(),
                             );
-                            stacks_client.post_block_until_ok(self, &b);
+                            stacks_client.post_block_until_ok(self, b);
                         }
                         SignerMessage::MockProposal(mock_proposal) => {
                             let epoch = match stacks_client.get_node_epoch() {
@@ -348,7 +348,7 @@ impl Signer {
                     crate::monitoring::increment_block_responses_sent(accepted);
                 }
                 Err(e) => {
-                    warn!("{self}: Failed to send block rejection to stacker-db: {e:?}",);
+                    warn!("{self}: Failed to send block response to stacker-db: {e:?}",);
                 }
             }
             return;

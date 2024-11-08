@@ -31,8 +31,7 @@ impl BurnchainOpSigner {
     }
 
     pub fn get_public_key(&mut self) -> Secp256k1PublicKey {
-        let public_key = Secp256k1PublicKey::from_private(&self.secret_key);
-        public_key
+        Secp256k1PublicKey::from_private(&self.secret_key)
     }
 
     pub fn sign_message(&mut self, hash: &[u8]) -> Option<MessageSignature> {
@@ -44,7 +43,7 @@ impl BurnchainOpSigner {
         let signature = match self.secret_key.sign(hash) {
             Ok(r) => r,
             Err(e) => {
-                debug!("Secret key error: {:?}", &e);
+                debug!("Secret key error: {e:?}");
                 return None;
             }
         };

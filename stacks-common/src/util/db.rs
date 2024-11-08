@@ -51,26 +51,25 @@ pub fn update_lock_table(conn: &Connection) {
 /// Called by `rusqlite` if we are waiting too long on a database lock
 /// If called too many times, will assume a deadlock and panic
 pub fn tx_busy_handler(run_count: i32) -> bool {
-    const TIMEOUT: Duration = Duration::from_secs(300);
     const AVG_SLEEP_TIME_MS: u64 = 100;
+
+    // Every ~5min, report an error with a backtrace
+    //   5min * 60s/min * 1_000ms/s / 100ms
+    const ERROR_COUNT: u32 = 3_000;
 
     // First, check if this is taking unreasonably long. If so, it's probably a deadlock
     let run_count = run_count.unsigned_abs();
-    let approx_time_elapsed =
-        Duration::from_millis(AVG_SLEEP_TIME_MS.saturating_mul(u64::from(run_count)));
-    if approx_time_elapsed > TIMEOUT {
-        error!("Deadlock detected. Waited {} seconds (estimated) for database lock. Giving up", approx_time_elapsed.as_secs();
+    if run_count > 0 && run_count % ERROR_COUNT == 0 {
+        error!("Deadlock detected. Waited 5 minutes (estimated) for database lock.";
             "run_count" => run_count,
             "backtrace" => ?Backtrace::capture()
         );
         for (k, v) in LOCK_TABLE.lock().unwrap().iter() {
             error!("Database '{k}' last locked by {v}");
         }
-        panic!("Deadlock in thread {:?}", thread::current().name());
     }
 
     let mut sleep_time_ms = 2u64.saturating_pow(run_count);
-
     sleep_time_ms = sleep_time_ms.saturating_add(thread_rng().gen_range(0..sleep_time_ms));
 
     if sleep_time_ms > AVG_SLEEP_TIME_MS {

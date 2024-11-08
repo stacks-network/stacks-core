@@ -248,6 +248,12 @@ impl SqliteConnection {
         )
         .map_err(|x| InterpreterError::SqliteError(IncomparableError { err: x }))?;
 
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS md_blockhashes ON metadata_table(blockhash)",
+            NO_PARAMS,
+        )
+        .map_err(|x| InterpreterError::SqliteError(IncomparableError { err: x }))?;
+
         Self::check_schema(conn)?;
 
         Ok(())
