@@ -328,7 +328,7 @@ pub trait StacksDBIndexed {
     fn get(&mut self, tip: &StacksBlockId, key: &str) -> Result<Option<String>, DBError>;
     fn sqlite(&self) -> &Connection;
 
-    /// Get the ancestor block hash given a height
+    /// Get the ancestor block hash given a coinbase height
     fn get_ancestor_block_id(
         &mut self,
         coinbase_height: u64,

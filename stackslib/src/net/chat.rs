@@ -3069,6 +3069,7 @@ mod test {
     use std::io::prelude::*;
     use std::io::{Read, Write};
     use std::net::{SocketAddr, SocketAddrV4};
+    use std::path::PathBuf;
 
     use clarity::vm::costs::ExecutionCost;
     use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, SortitionId};
@@ -3080,6 +3081,7 @@ mod test {
     use super::*;
     use crate::burnchains::bitcoin::keys::BitcoinPublicKey;
     use crate::burnchains::burnchain::*;
+    use crate::burnchains::db::BurnchainDB;
     use crate::burnchains::*;
     use crate::chainstate::burn::db::sortdb::*;
     use crate::chainstate::burn::*;
@@ -3123,6 +3125,8 @@ mod test {
         let peerdb_path = format!("{}/peers.sqlite", &test_path);
         let stackerdb_path = format!("{}/stackerdb.sqlite", &test_path);
         let chainstate_path = format!("{}/chainstate", &test_path);
+        let burnchain_db =
+            BurnchainDB::connect(&burnchain.get_burnchaindb_path(), burnchain, true).unwrap();
 
         let mut peerdb = PeerDB::connect(
             &peerdb_path,
@@ -3314,12 +3318,14 @@ mod test {
         let atlasdb = AtlasDB::connect(atlas_config, &atlasdb_path, true).unwrap();
         let stackerdbs = StackerDBs::connect(&stackerdb_path, true).unwrap();
         let peerdb = PeerDB::open(&peerdb_path, true).unwrap();
+        let burnchain_db = burnchain.open_burnchain_db(false).unwrap();
 
         let local_peer = PeerDB::get_local_peer(peerdb.conn()).unwrap();
         let network = PeerNetwork::new(
             peerdb,
             atlasdb,
             stackerdbs,
+            burnchain_db,
             local_peer,
             peer_version,
             burnchain.clone(),
@@ -3331,7 +3337,7 @@ mod test {
         network
     }
 
-    fn testing_burnchain_config() -> Burnchain {
+    fn testing_burnchain_config(test_name: &str) -> Burnchain {
         let first_burn_hash = BurnchainHeaderHash::from_hex(
             "0000000000000000000000000000000000000000000000000000000000000000",
         )
@@ -3342,7 +3348,7 @@ mod test {
             network_id: 0,
             chain_name: "bitcoin".to_string(),
             network_name: "testnet".to_string(),
-            working_dir: "/nope".to_string(),
+            working_dir: format!("/tmp/stacks-test-databases-{}", test_name),
             consensus_hash_lifetime: 24,
             stable_confirmations: 7,
             first_block_height: 12300,
@@ -3365,8 +3371,6 @@ mod test {
 
             let socketaddr_1 = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080);
             let socketaddr_2 = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)), 8081);
-
-            let burnchain = testing_burnchain_config();
 
             let mut chain_view_1 = BurnchainView {
                 burn_block_height: 12348,
@@ -3397,10 +3401,13 @@ mod test {
                 &peer_2_rc_consensus_hash
             );
 
+            let burnchain_1 = testing_burnchain_config(&test_name_1);
+            let burnchain_2 = testing_burnchain_config(&test_name_2);
+
             let (mut peerdb_1, mut sortdb_1, stackerdbs_1, pox_id_1, mut chainstate_1) =
                 make_test_chain_dbs(
                     &test_name_1,
-                    &burnchain,
+                    &burnchain_1,
                     0x9abcdef0,
                     12350,
                     "http://peer1.com".into(),
@@ -3411,7 +3418,7 @@ mod test {
             let (mut peerdb_2, mut sortdb_2, stackerdbs_2, pox_id_2, mut chainstate_2) =
                 make_test_chain_dbs(
                     &test_name_2,
-                    &burnchain,
+                    &burnchain_2,
                     0x9abcdef0,
                     12351,
                     "http://peer2.com".into(),
@@ -3422,7 +3429,7 @@ mod test {
 
             let mut net_1 = db_setup(
                 &test_name_1,
-                &burnchain,
+                &burnchain_1,
                 0x9abcdef0,
                 &mut peerdb_1,
                 &mut sortdb_1,
@@ -3431,7 +3438,7 @@ mod test {
             );
             let mut net_2 = db_setup(
                 &test_name_2,
-                &burnchain,
+                &burnchain_2,
                 0x9abcdef0,
                 &mut peerdb_2,
                 &mut sortdb_2,
@@ -3445,7 +3452,7 @@ mod test {
             peerdb_1
                 .update_local_peer(
                     0x9abcdef0,
-                    burnchain.network_id,
+                    burnchain_1.network_id,
                     local_peer_1.data_url,
                     local_peer_1.port,
                     &[
@@ -3458,7 +3465,7 @@ mod test {
             peerdb_2
                 .update_local_peer(
                     0x9abcdef0,
-                    burnchain.network_id,
+                    burnchain_2.network_id,
                     local_peer_2.data_url,
                     local_peer_2.port,
                     &[
@@ -3490,7 +3497,7 @@ mod test {
             let mut convo_1 = ConversationP2P::new(
                 123,
                 456,
-                &burnchain,
+                &burnchain_1,
                 &socketaddr_2,
                 &conn_opts,
                 true,
@@ -3500,7 +3507,7 @@ mod test {
             let mut convo_2 = ConversationP2P::new(
                 123,
                 456,
-                &burnchain,
+                &burnchain_2,
                 &socketaddr_1,
                 &conn_opts,
                 true,
@@ -3708,8 +3715,6 @@ mod test {
             let socketaddr_1 = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080);
             let socketaddr_2 = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)), 8081);
 
-            let burnchain = testing_burnchain_config();
-
             let mut chain_view = BurnchainView {
                 burn_block_height: 12348,
                 burn_block_hash: BurnchainHeaderHash([0x11; 32]),
@@ -3723,10 +3728,13 @@ mod test {
             let test_name_1 = "convo_handshake_accept_1";
             let test_name_2 = "convo_handshake_accept_2";
 
+            let burnchain_1 = testing_burnchain_config(test_name_1);
+            let burnchain_2 = testing_burnchain_config(test_name_2);
+
             let (mut peerdb_1, mut sortdb_1, stackerdbs_1, pox_id_1, mut chainstate_1) =
                 make_test_chain_dbs(
                     test_name_1,
-                    &burnchain,
+                    &burnchain_1,
                     0x9abcdef0,
                     12350,
                     "http://peer1.com".into(),
@@ -3737,7 +3745,7 @@ mod test {
             let (mut peerdb_2, mut sortdb_2, stackerdbs_2, pox_id_2, mut chainstate_2) =
                 make_test_chain_dbs(
                     test_name_2,
-                    &burnchain,
+                    &burnchain_2,
                     0x9abcdef0,
                     12351,
                     "http://peer2.com".into(),
@@ -3748,7 +3756,7 @@ mod test {
 
             let mut net_1 = db_setup(
                 &test_name_1,
-                &burnchain,
+                &burnchain_1,
                 0x9abcdef0,
                 &mut peerdb_1,
                 &mut sortdb_1,
@@ -3757,7 +3765,7 @@ mod test {
             );
             let mut net_2 = db_setup(
                 &test_name_2,
-                &burnchain,
+                &burnchain_2,
                 0x9abcdef0,
                 &mut peerdb_2,
                 &mut sortdb_2,
@@ -3771,7 +3779,7 @@ mod test {
             let mut convo_1 = ConversationP2P::new(
                 123,
                 456,
-                &burnchain,
+                &burnchain_1,
                 &socketaddr_2,
                 &conn_opts,
                 true,
@@ -3781,7 +3789,7 @@ mod test {
             let mut convo_2 = ConversationP2P::new(
                 123,
                 456,
-                &burnchain,
+                &burnchain_2,
                 &socketaddr_1,
                 &conn_opts,
                 true,
@@ -3887,8 +3895,6 @@ mod test {
         )
         .unwrap();
 
-        let burnchain = testing_burnchain_config();
-
         let mut chain_view = BurnchainView {
             burn_block_height: 12348,
             burn_block_hash: BurnchainHeaderHash([0x11; 32]),
@@ -3902,10 +3908,13 @@ mod test {
         let test_name_1 = "convo_handshake_reject_1";
         let test_name_2 = "convo_handshake_reject_2";
 
+        let burnchain_1 = testing_burnchain_config(test_name_1);
+        let burnchain_2 = testing_burnchain_config(test_name_2);
+
         let (mut peerdb_1, mut sortdb_1, stackerdbs_1, pox_id_1, mut chainstate_1) =
             make_test_chain_dbs(
                 test_name_1,
-                &burnchain,
+                &burnchain_1,
                 0x9abcdef0,
                 12350,
                 "http://peer1.com".into(),
@@ -3916,7 +3925,7 @@ mod test {
         let (mut peerdb_2, mut sortdb_2, stackerdbs_2, pox_id_2, mut chainstate_2) =
             make_test_chain_dbs(
                 test_name_2,
-                &burnchain,
+                &burnchain_2,
                 0x9abcdef0,
                 12351,
                 "http://peer2.com".into(),
@@ -3927,7 +3936,7 @@ mod test {
 
         let mut net_1 = db_setup(
             &test_name_1,
-            &burnchain,
+            &burnchain_1,
             0x9abcdef0,
             &mut peerdb_1,
             &mut sortdb_1,
@@ -3936,7 +3945,7 @@ mod test {
         );
         let mut net_2 = db_setup(
             &test_name_2,
-            &burnchain,
+            &burnchain_2,
             0x9abcdef0,
             &mut peerdb_2,
             &mut sortdb_2,
@@ -3950,7 +3959,7 @@ mod test {
         let mut convo_1 = ConversationP2P::new(
             123,
             456,
-            &burnchain,
+            &burnchain_1,
             &socketaddr_2,
             &conn_opts,
             true,
@@ -3960,7 +3969,7 @@ mod test {
         let mut convo_2 = ConversationP2P::new(
             123,
             456,
-            &burnchain,
+            &burnchain_2,
             &socketaddr_1,
             &conn_opts,
             true,
@@ -4026,8 +4035,6 @@ mod test {
         )
         .unwrap();
 
-        let burnchain = testing_burnchain_config();
-
         let mut chain_view = BurnchainView {
             burn_block_height: 12348,
             burn_block_hash: BurnchainHeaderHash([0x11; 32]),
@@ -4046,10 +4053,13 @@ mod test {
         let test_name_1 = "convo_handshake_badsignature_1";
         let test_name_2 = "convo_handshake_badsignature_2";
 
+        let burnchain_1 = testing_burnchain_config(test_name_1);
+        let burnchain_2 = testing_burnchain_config(test_name_2);
+
         let (mut peerdb_1, mut sortdb_1, stackerdbs_1, pox_id_1, mut chainstate_1) =
             make_test_chain_dbs(
                 test_name_1,
-                &burnchain,
+                &burnchain_1,
                 0x9abcdef0,
                 12350,
                 "http://peer1.com".into(),
@@ -4060,7 +4070,7 @@ mod test {
         let (mut peerdb_2, mut sortdb_2, stackerdbs_2, pox_id_2, mut chainstate_2) =
             make_test_chain_dbs(
                 test_name_2,
-                &burnchain,
+                &burnchain_2,
                 0x9abcdef0,
                 12351,
                 "http://peer2.com".into(),
@@ -4071,7 +4081,7 @@ mod test {
 
         let mut net_1 = db_setup(
             &test_name_1,
-            &burnchain,
+            &burnchain_1,
             0x9abcdef0,
             &mut peerdb_1,
             &mut sortdb_1,
@@ -4080,7 +4090,7 @@ mod test {
         );
         let mut net_2 = db_setup(
             &test_name_2,
-            &burnchain,
+            &burnchain_2,
             0x9abcdef0,
             &mut peerdb_2,
             &mut sortdb_2,
@@ -4094,7 +4104,7 @@ mod test {
         let mut convo_1 = ConversationP2P::new(
             123,
             456,
-            &burnchain,
+            &burnchain_1,
             &socketaddr_2,
             &conn_opts,
             true,
@@ -4104,7 +4114,7 @@ mod test {
         let mut convo_2 = ConversationP2P::new(
             123,
             456,
-            &burnchain,
+            &burnchain_2,
             &socketaddr_1,
             &conn_opts,
             true,
@@ -4169,8 +4179,6 @@ mod test {
         )
         .unwrap();
 
-        let burnchain = testing_burnchain_config();
-
         let mut chain_view = BurnchainView {
             burn_block_height: 12348,
             burn_block_hash: BurnchainHeaderHash([0x11; 32]),
@@ -4189,10 +4197,13 @@ mod test {
         let test_name_1 = "convo_handshake_badpeeraddress_1";
         let test_name_2 = "convo_handshake_badpeeraddress_2";
 
+        let burnchain_1 = testing_burnchain_config(test_name_1);
+        let burnchain_2 = testing_burnchain_config(test_name_2);
+
         let (mut peerdb_1, mut sortdb_1, stackerdbs_1, pox_id_1, mut chainstate_1) =
             make_test_chain_dbs(
                 test_name_1,
-                &burnchain,
+                &burnchain_1,
                 0x9abcdef0,
                 12350,
                 "http://peer1.com".into(),
@@ -4203,7 +4214,7 @@ mod test {
         let (mut peerdb_2, mut sortdb_2, stackerdbs_2, pox_id_2, mut chainstate_2) =
             make_test_chain_dbs(
                 test_name_2,
-                &burnchain,
+                &burnchain_2,
                 0x9abcdef0,
                 12351,
                 "http://peer2.com".into(),
@@ -4214,7 +4225,7 @@ mod test {
 
         let mut net_1 = db_setup(
             &test_name_1,
-            &burnchain,
+            &burnchain_1,
             0x9abcdef0,
             &mut peerdb_1,
             &mut sortdb_1,
@@ -4223,7 +4234,7 @@ mod test {
         );
         let mut net_2 = db_setup(
             &test_name_2,
-            &burnchain,
+            &burnchain_2,
             0x9abcdef0,
             &mut peerdb_2,
             &mut sortdb_2,
@@ -4237,7 +4248,7 @@ mod test {
         let mut convo_1 = ConversationP2P::new(
             123,
             456,
-            &burnchain,
+            &burnchain_1,
             &socketaddr_2,
             &conn_opts,
             true,
@@ -4247,7 +4258,7 @@ mod test {
         let mut convo_2 = ConversationP2P::new(
             123,
             456,
-            &burnchain,
+            &burnchain_2,
             &socketaddr_1,
             &conn_opts,
             true,
@@ -4330,8 +4341,6 @@ mod test {
         )
         .unwrap();
 
-        let burnchain = testing_burnchain_config();
-
         let mut chain_view = BurnchainView {
             burn_block_height: 12348,
             burn_block_hash: BurnchainHeaderHash([0x11; 32]),
@@ -4345,10 +4354,13 @@ mod test {
         let test_name_1 = "convo_handshake_update_key_1";
         let test_name_2 = "convo_handshake_update_key_2";
 
+        let burnchain_1 = testing_burnchain_config(test_name_1);
+        let burnchain_2 = testing_burnchain_config(test_name_2);
+
         let (mut peerdb_1, mut sortdb_1, stackerdbs_1, pox_id_1, mut chainstate_1) =
             make_test_chain_dbs(
                 test_name_1,
-                &burnchain,
+                &burnchain_1,
                 0x9abcdef0,
                 12350,
                 "http://peer1.com".into(),
@@ -4359,7 +4371,7 @@ mod test {
         let (mut peerdb_2, mut sortdb_2, stackerdbs_2, pox_id_2, mut chainstate_2) =
             make_test_chain_dbs(
                 test_name_2,
-                &burnchain,
+                &burnchain_2,
                 0x9abcdef0,
                 12351,
                 "http://peer2.com".into(),
@@ -4370,7 +4382,7 @@ mod test {
 
         let mut net_1 = db_setup(
             &test_name_1,
-            &burnchain,
+            &burnchain_1,
             0x9abcdef0,
             &mut peerdb_1,
             &mut sortdb_1,
@@ -4379,7 +4391,7 @@ mod test {
         );
         let mut net_2 = db_setup(
             &test_name_2,
-            &burnchain,
+            &burnchain_2,
             0x9abcdef0,
             &mut peerdb_2,
             &mut sortdb_2,
@@ -4393,7 +4405,7 @@ mod test {
         let mut convo_1 = ConversationP2P::new(
             123,
             456,
-            &burnchain,
+            &burnchain_1,
             &socketaddr_2,
             &conn_opts,
             true,
@@ -4403,7 +4415,7 @@ mod test {
         let mut convo_2 = ConversationP2P::new(
             123,
             456,
-            &burnchain,
+            &burnchain_2,
             &socketaddr_1,
             &conn_opts,
             true,
@@ -4523,8 +4535,6 @@ mod test {
         )
         .unwrap();
 
-        let burnchain = testing_burnchain_config();
-
         let mut chain_view = BurnchainView {
             burn_block_height: 12348,
             burn_block_hash: BurnchainHeaderHash([0x11; 32]),
@@ -4543,10 +4553,13 @@ mod test {
         let test_name_1 = "convo_handshake_self_1";
         let test_name_2 = "convo_handshake_self_2";
 
+        let burnchain_1 = testing_burnchain_config(test_name_1);
+        let burnchain_2 = testing_burnchain_config(test_name_2);
+
         let (mut peerdb_1, mut sortdb_1, stackerdbs_1, pox_id_1, mut chainstate_1) =
             make_test_chain_dbs(
                 test_name_1,
-                &burnchain,
+                &burnchain_1,
                 0x9abcdef0,
                 12350,
                 "http://peer1.com".into(),
@@ -4557,7 +4570,7 @@ mod test {
         let (mut peerdb_2, mut sortdb_2, stackerdbs_2, pox_id_2, mut chainstate_2) =
             make_test_chain_dbs(
                 test_name_2,
-                &burnchain,
+                &burnchain_2,
                 0x9abcdef0,
                 12351,
                 "http://peer2.com".into(),
@@ -4568,7 +4581,7 @@ mod test {
 
         let mut net_1 = db_setup(
             &test_name_1,
-            &burnchain,
+            &burnchain_1,
             0x9abcdef0,
             &mut peerdb_1,
             &mut sortdb_1,
@@ -4577,7 +4590,7 @@ mod test {
         );
         let mut net_2 = db_setup(
             &test_name_2,
-            &burnchain,
+            &burnchain_2,
             0x9abcdef0,
             &mut peerdb_2,
             &mut sortdb_2,
@@ -4591,7 +4604,7 @@ mod test {
         let mut convo_1 = ConversationP2P::new(
             123,
             456,
-            &burnchain,
+            &burnchain_1,
             &socketaddr_2,
             &conn_opts,
             true,
@@ -4601,7 +4614,7 @@ mod test {
         let mut convo_2 = ConversationP2P::new(
             123,
             456,
-            &burnchain,
+            &burnchain_2,
             &socketaddr_1,
             &conn_opts,
             true,
@@ -4666,8 +4679,6 @@ mod test {
         )
         .unwrap();
 
-        let burnchain = testing_burnchain_config();
-
         let mut chain_view = BurnchainView {
             burn_block_height: 12348,
             burn_block_hash: BurnchainHeaderHash([0x11; 32]),
@@ -4686,10 +4697,13 @@ mod test {
         let test_name_1 = "convo_ping_1";
         let test_name_2 = "convo_ping_2";
 
+        let burnchain_1 = testing_burnchain_config(test_name_1);
+        let burnchain_2 = testing_burnchain_config(test_name_2);
+
         let (mut peerdb_1, mut sortdb_1, stackerdbs_1, pox_id_1, mut chainstate_1) =
             make_test_chain_dbs(
                 test_name_1,
-                &burnchain,
+                &burnchain_1,
                 0x9abcdef0,
                 12350,
                 "http://peer1.com".into(),
@@ -4700,7 +4714,7 @@ mod test {
         let (mut peerdb_2, mut sortdb_2, stackerdbs_2, pox_id_2, mut chainstate_2) =
             make_test_chain_dbs(
                 test_name_2,
-                &burnchain,
+                &burnchain_2,
                 0x9abcdef0,
                 12351,
                 "http://peer2.com".into(),
@@ -4711,7 +4725,7 @@ mod test {
 
         let mut net_1 = db_setup(
             &test_name_1,
-            &burnchain,
+            &burnchain_1,
             0x9abcdef0,
             &mut peerdb_1,
             &mut sortdb_1,
@@ -4720,7 +4734,7 @@ mod test {
         );
         let mut net_2 = db_setup(
             &test_name_2,
-            &burnchain,
+            &burnchain_2,
             0x9abcdef0,
             &mut peerdb_2,
             &mut sortdb_2,
@@ -4734,7 +4748,7 @@ mod test {
         let mut convo_1 = ConversationP2P::new(
             123,
             456,
-            &burnchain,
+            &burnchain_1,
             &socketaddr_2,
             &conn_opts,
             true,
@@ -4744,7 +4758,7 @@ mod test {
         let mut convo_2 = ConversationP2P::new(
             123,
             456,
-            &burnchain,
+            &burnchain_2,
             &socketaddr_1,
             &conn_opts,
             true,
@@ -4841,8 +4855,6 @@ mod test {
         )
         .unwrap();
 
-        let burnchain = testing_burnchain_config();
-
         let mut chain_view = BurnchainView {
             burn_block_height: 12348,
             burn_block_hash: BurnchainHeaderHash([0x11; 32]),
@@ -4861,10 +4873,13 @@ mod test {
         let test_name_1 = "convo_handshake_ping_loop_1";
         let test_name_2 = "convo_handshake_ping_loop_2";
 
+        let burnchain_1 = testing_burnchain_config(test_name_1);
+        let burnchain_2 = testing_burnchain_config(test_name_2);
+
         let (mut peerdb_1, mut sortdb_1, stackerdbs_1, pox_id_1, mut chainstate_1) =
             make_test_chain_dbs(
                 test_name_1,
-                &burnchain,
+                &burnchain_1,
                 0x9abcdef0,
                 12350,
                 "http://peer1.com".into(),
@@ -4875,7 +4890,7 @@ mod test {
         let (mut peerdb_2, mut sortdb_2, stackerdbs_2, pox_id_2, mut chainstate_2) =
             make_test_chain_dbs(
                 test_name_2,
-                &burnchain,
+                &burnchain_2,
                 0x9abcdef0,
                 12351,
                 "http://peer2.com".into(),
@@ -4886,7 +4901,7 @@ mod test {
 
         let mut net_1 = db_setup(
             &test_name_1,
-            &burnchain,
+            &burnchain_1,
             0x9abcdef0,
             &mut peerdb_1,
             &mut sortdb_1,
@@ -4895,7 +4910,7 @@ mod test {
         );
         let mut net_2 = db_setup(
             &test_name_2,
-            &burnchain,
+            &burnchain_2,
             0x9abcdef0,
             &mut peerdb_2,
             &mut sortdb_2,
@@ -4909,7 +4924,7 @@ mod test {
         let mut convo_1 = ConversationP2P::new(
             123,
             456,
-            &burnchain,
+            &burnchain_1,
             &socketaddr_2,
             &conn_opts,
             true,
@@ -4919,7 +4934,7 @@ mod test {
         let mut convo_2 = ConversationP2P::new(
             123,
             456,
-            &burnchain,
+            &burnchain_2,
             &socketaddr_1,
             &conn_opts,
             true,
@@ -5067,8 +5082,6 @@ mod test {
         )
         .unwrap();
 
-        let burnchain = testing_burnchain_config();
-
         let mut chain_view = BurnchainView {
             burn_block_height: 12348,
             burn_block_hash: BurnchainHeaderHash([0x11; 32]),
@@ -5087,10 +5100,13 @@ mod test {
         let test_name_1 = "convo_nack_unsolicited_1";
         let test_name_2 = "convo_nack_unsolicited_2";
 
+        let burnchain_1 = testing_burnchain_config(test_name_1);
+        let burnchain_2 = testing_burnchain_config(test_name_2);
+
         let (mut peerdb_1, mut sortdb_1, stackerdbs_1, pox_id_1, mut chainstate_1) =
             make_test_chain_dbs(
                 test_name_1,
-                &burnchain,
+                &burnchain_1,
                 0x9abcdef0,
                 12350,
                 "http://peer1.com".into(),
@@ -5101,7 +5117,7 @@ mod test {
         let (mut peerdb_2, mut sortdb_2, stackerdbs_2, pox_id_2, mut chainstate_2) =
             make_test_chain_dbs(
                 test_name_2,
-                &burnchain,
+                &burnchain_2,
                 0x9abcdef0,
                 12351,
                 "http://peer2.com".into(),
@@ -5112,7 +5128,7 @@ mod test {
 
         let mut net_1 = db_setup(
             &test_name_1,
-            &burnchain,
+            &burnchain_1,
             0x9abcdef0,
             &mut peerdb_1,
             &mut sortdb_1,
@@ -5121,7 +5137,7 @@ mod test {
         );
         let mut net_2 = db_setup(
             &test_name_2,
-            &burnchain,
+            &burnchain_2,
             0x9abcdef0,
             &mut peerdb_2,
             &mut sortdb_2,
@@ -5135,7 +5151,7 @@ mod test {
         let mut convo_1 = ConversationP2P::new(
             123,
             456,
-            &burnchain,
+            &burnchain_1,
             &socketaddr_2,
             &conn_opts,
             true,
@@ -5145,7 +5161,7 @@ mod test {
         let mut convo_2 = ConversationP2P::new(
             123,
             456,
-            &burnchain,
+            &burnchain_2,
             &socketaddr_1,
             &conn_opts,
             true,
@@ -5216,8 +5232,6 @@ mod test {
         )
         .unwrap();
 
-        let burnchain = testing_burnchain_config();
-
         let mut chain_view = BurnchainView {
             burn_block_height: 12348,
             burn_block_hash: BurnchainHeaderHash([0x11; 32]),
@@ -5235,10 +5249,14 @@ mod test {
 
         let test_name_1 = "convo_ignore_unsolicited_handshake_1";
         let test_name_2 = "convo_ignore_unsolicited_handshake_2";
+
+        let burnchain_1 = testing_burnchain_config(test_name_1);
+        let burnchain_2 = testing_burnchain_config(test_name_2);
+
         let (mut peerdb_1, mut sortdb_1, stackerdbs_1, pox_id_1, mut chainstate_1) =
             make_test_chain_dbs(
                 test_name_1,
-                &burnchain,
+                &burnchain_1,
                 0x9abcdef0,
                 12350,
                 "http://peer1.com".into(),
@@ -5249,7 +5267,7 @@ mod test {
         let (mut peerdb_2, mut sortdb_2, stackerdbs_2, pox_id_2, mut chainstate_2) =
             make_test_chain_dbs(
                 test_name_2,
-                &burnchain,
+                &burnchain_2,
                 0x9abcdef0,
                 12351,
                 "http://peer2.com".into(),
@@ -5260,7 +5278,7 @@ mod test {
 
         let mut net_1 = db_setup(
             &test_name_1,
-            &burnchain,
+            &burnchain_1,
             0x9abcdef0,
             &mut peerdb_1,
             &mut sortdb_1,
@@ -5269,7 +5287,7 @@ mod test {
         );
         let mut net_2 = db_setup(
             &test_name_2,
-            &burnchain,
+            &burnchain_2,
             0x9abcdef0,
             &mut peerdb_2,
             &mut sortdb_2,
@@ -5283,7 +5301,7 @@ mod test {
         let mut convo_1 = ConversationP2P::new(
             123,
             456,
-            &burnchain,
+            &burnchain_1,
             &socketaddr_2,
             &conn_opts,
             true,
@@ -5293,7 +5311,7 @@ mod test {
         let mut convo_2 = ConversationP2P::new(
             123,
             456,
-            &burnchain,
+            &burnchain_2,
             &socketaddr_1,
             &conn_opts,
             true,
@@ -5390,8 +5408,6 @@ mod test {
             )
             .unwrap();
 
-            let burnchain = testing_burnchain_config();
-
             let mut chain_view = BurnchainView {
                 burn_block_height: 12331,
                 burn_block_hash: BurnchainHeaderHash([0x11; 32]),
@@ -5404,10 +5420,14 @@ mod test {
 
             let test_name_1 = "convo_handshake_getblocksinv_1";
             let test_name_2 = "convo_handshake_getblocksinv_2";
+
+            let burnchain_1 = testing_burnchain_config(test_name_1);
+            let burnchain_2 = testing_burnchain_config(test_name_2);
+
             let (mut peerdb_1, mut sortdb_1, stackerdbs_1, pox_id_1, mut chainstate_1) =
                 make_test_chain_dbs(
                     test_name_1,
-                    &burnchain,
+                    &burnchain_1,
                     0x9abcdef0,
                     12350,
                     "http://peer1.com".into(),
@@ -5418,7 +5438,7 @@ mod test {
             let (mut peerdb_2, mut sortdb_2, stackerdbs_2, pox_id_2, mut chainstate_2) =
                 make_test_chain_dbs(
                     test_name_2,
-                    &burnchain,
+                    &burnchain_2,
                     0x9abcdef0,
                     12351,
                     "http://peer2.com".into(),
@@ -5429,7 +5449,7 @@ mod test {
 
             let mut net_1 = db_setup(
                 &test_name_1,
-                &burnchain,
+                &burnchain_1,
                 0x9abcdef0,
                 &mut peerdb_1,
                 &mut sortdb_1,
@@ -5438,7 +5458,7 @@ mod test {
             );
             let mut net_2 = db_setup(
                 &test_name_2,
-                &burnchain,
+                &burnchain_2,
                 0x9abcdef0,
                 &mut peerdb_2,
                 &mut sortdb_2,
@@ -5452,7 +5472,7 @@ mod test {
             let mut convo_1 = ConversationP2P::new(
                 123,
                 456,
-                &burnchain,
+                &burnchain_1,
                 &socketaddr_2,
                 &conn_opts,
                 true,
@@ -5462,7 +5482,7 @@ mod test {
             let mut convo_2 = ConversationP2P::new(
                 123,
                 456,
-                &burnchain,
+                &burnchain_2,
                 &socketaddr_1,
                 &conn_opts,
                 true,
@@ -5667,8 +5687,6 @@ mod test {
             )
             .unwrap();
 
-            let burnchain = testing_burnchain_config();
-
             let mut chain_view = BurnchainView {
                 burn_block_height: 12331,
                 burn_block_hash: BurnchainHeaderHash([0x11; 32]),
@@ -5681,10 +5699,14 @@ mod test {
 
             let test_name_1 = "convo_handshake_getnakamotoinv_1";
             let test_name_2 = "convo_handshake_getnakamotoinv_2";
+
+            let burnchain_1 = testing_burnchain_config(test_name_1);
+            let burnchain_2 = testing_burnchain_config(test_name_2);
+
             let (mut peerdb_1, mut sortdb_1, stackerdbs_1, pox_id_1, mut chainstate_1) =
                 make_test_chain_dbs(
                     test_name_1,
-                    &burnchain,
+                    &burnchain_1,
                     0x9abcdef0,
                     12350,
                     "http://peer1.com".into(),
@@ -5695,7 +5717,7 @@ mod test {
             let (mut peerdb_2, mut sortdb_2, stackerdbs_2, pox_id_2, mut chainstate_2) =
                 make_test_chain_dbs(
                     test_name_2,
-                    &burnchain,
+                    &burnchain_2,
                     0x9abcdef0,
                     12351,
                     "http://peer2.com".into(),
@@ -5706,7 +5728,7 @@ mod test {
 
             let mut net_1 = db_setup(
                 &test_name_1,
-                &burnchain,
+                &burnchain_1,
                 0x9abcdef0,
                 &mut peerdb_1,
                 &mut sortdb_1,
@@ -5715,7 +5737,7 @@ mod test {
             );
             let mut net_2 = db_setup(
                 &test_name_2,
-                &burnchain,
+                &burnchain_2,
                 0x9abcdef0,
                 &mut peerdb_2,
                 &mut sortdb_2,
@@ -5729,7 +5751,7 @@ mod test {
             let mut convo_1 = ConversationP2P::new(
                 123,
                 456,
-                &burnchain,
+                &burnchain_1,
                 &socketaddr_2,
                 &conn_opts,
                 true,
@@ -5739,7 +5761,7 @@ mod test {
             let mut convo_2 = ConversationP2P::new(
                 123,
                 456,
-                &burnchain,
+                &burnchain_2,
                 &socketaddr_1,
                 &conn_opts,
                 true,
@@ -5940,8 +5962,6 @@ mod test {
         )
         .unwrap();
 
-        let burnchain = testing_burnchain_config();
-
         let mut chain_view = BurnchainView {
             burn_block_height: 12348,
             burn_block_hash: BurnchainHeaderHash([0x11; 32]),
@@ -5959,10 +5979,14 @@ mod test {
 
         let test_name_1 = "convo_natpunch_1";
         let test_name_2 = "convo_natpunch_2";
+
+        let burnchain_1 = testing_burnchain_config(test_name_1);
+        let burnchain_2 = testing_burnchain_config(test_name_2);
+
         let (mut peerdb_1, mut sortdb_1, stackerdbs_1, pox_id_1, mut chainstate_1) =
             make_test_chain_dbs(
                 test_name_1,
-                &burnchain,
+                &burnchain_1,
                 0x9abcdef0,
                 12352,
                 "http://peer1.com".into(),
@@ -5973,7 +5997,7 @@ mod test {
         let (mut peerdb_2, mut sortdb_2, stackerdbs_2, pox_id_2, mut chainstate_2) =
             make_test_chain_dbs(
                 test_name_2,
-                &burnchain,
+                &burnchain_2,
                 0x9abcdef0,
                 12353,
                 "http://peer2.com".into(),
@@ -5984,7 +6008,7 @@ mod test {
 
         let mut net_1 = db_setup(
             &test_name_1,
-            &burnchain,
+            &burnchain_1,
             0x9abcdef0,
             &mut peerdb_1,
             &mut sortdb_1,
@@ -5993,7 +6017,7 @@ mod test {
         );
         let mut net_2 = db_setup(
             &test_name_2,
-            &burnchain,
+            &burnchain_2,
             0x9abcdef0,
             &mut peerdb_2,
             &mut sortdb_2,
@@ -6007,7 +6031,7 @@ mod test {
         let mut convo_1 = ConversationP2P::new(
             123,
             456,
-            &burnchain,
+            &burnchain_1,
             &socketaddr_2,
             &conn_opts,
             true,
@@ -6017,7 +6041,7 @@ mod test {
         let mut convo_2 = ConversationP2P::new(
             123,
             456,
-            &burnchain,
+            &burnchain_2,
             &socketaddr_1,
             &conn_opts,
             true,
@@ -6081,8 +6105,6 @@ mod test {
         )
         .unwrap();
 
-        let burnchain = testing_burnchain_config();
-
         let mut chain_view = BurnchainView {
             burn_block_height: 12348,
             burn_block_hash: BurnchainHeaderHash([0x11; 32]),
@@ -6094,6 +6116,8 @@ mod test {
         chain_view.make_test_data();
 
         let test_name_1 = "convo_is_preamble_valid";
+        let burnchain = testing_burnchain_config(test_name_1);
+
         let (mut peerdb_1, mut sortdb_1, stackerdbs_1, pox_id_1, chainstate_1) =
             make_test_chain_dbs(
                 test_name_1,
@@ -6362,7 +6386,7 @@ mod test {
         )
         .unwrap();
 
-        let burnchain = testing_burnchain_config();
+        let burnchain = testing_burnchain_config("unused");
 
         let mut chain_view = BurnchainView {
             burn_block_height: 12348,
@@ -6748,8 +6772,6 @@ mod test {
         )
         .unwrap();
 
-        let burnchain = testing_burnchain_config();
-
         let mut chain_view = BurnchainView {
             burn_block_height: 12348,
             burn_block_hash: BurnchainHeaderHash([0x11; 32]),
@@ -6761,6 +6783,8 @@ mod test {
         chain_view.make_test_data();
 
         let test_name_1 = "sign_relay_forward_message_1";
+        let burnchain = testing_burnchain_config(test_name_1);
+
         let (mut peerdb_1, mut sortdb_1, stackerdbs_1, pox_id_1, _) = make_test_chain_dbs(
             test_name_1,
             &burnchain,
@@ -6866,8 +6890,6 @@ mod test {
         )
         .unwrap();
 
-        let burnchain = testing_burnchain_config();
-
         let mut chain_view = BurnchainView {
             burn_block_height: 12348,
             burn_block_hash: BurnchainHeaderHash([0x11; 32]),
@@ -6879,6 +6901,8 @@ mod test {
         chain_view.make_test_data();
 
         let test_name_1 = "sign_and_forward_1";
+        let burnchain = testing_burnchain_config(test_name_1);
+
         let (mut peerdb_1, mut sortdb_1, stackerdbs_1, pox_id_1, _) = make_test_chain_dbs(
             test_name_1,
             &burnchain,
@@ -6933,8 +6957,6 @@ mod test {
         )
         .unwrap();
 
-        let burnchain = testing_burnchain_config();
-
         let mut chain_view = BurnchainView {
             burn_block_height: 12348,
             burn_block_hash: BurnchainHeaderHash([0x11; 32]),
@@ -6946,6 +6968,8 @@ mod test {
         chain_view.make_test_data();
 
         let test_name_1 = "validate_block_push_1";
+        let burnchain = testing_burnchain_config(test_name_1);
+
         let (mut peerdb_1, mut sortdb_1, stackerdbs_1, pox_id_1, _) = make_test_chain_dbs(
             test_name_1,
             &burnchain,
@@ -7067,8 +7091,6 @@ mod test {
         )
         .unwrap();
 
-        let burnchain = testing_burnchain_config();
-
         let mut chain_view = BurnchainView {
             burn_block_height: 12348,
             burn_block_hash: BurnchainHeaderHash([0x11; 32]),
@@ -7080,6 +7102,8 @@ mod test {
         chain_view.make_test_data();
 
         let test_name_1 = "validate_transaction_push_1";
+        let burnchain = testing_burnchain_config(test_name_1);
+
         let (mut peerdb_1, mut sortdb_1, stackerdbs_1, pox_id_1, _) = make_test_chain_dbs(
             test_name_1,
             &burnchain,
@@ -7201,8 +7225,6 @@ mod test {
         )
         .unwrap();
 
-        let burnchain = testing_burnchain_config();
-
         let mut chain_view = BurnchainView {
             burn_block_height: 12348,
             burn_block_hash: BurnchainHeaderHash([0x11; 32]),
@@ -7214,6 +7236,8 @@ mod test {
         chain_view.make_test_data();
 
         let test_name_1 = "validate_microblocks_push_1";
+        let burnchain = testing_burnchain_config(test_name_1);
+
         let (mut peerdb_1, mut sortdb_1, stackerdbs_1, pox_id_1, _) = make_test_chain_dbs(
             test_name_1,
             &burnchain,
@@ -7335,8 +7359,6 @@ mod test {
         )
         .unwrap();
 
-        let burnchain = testing_burnchain_config();
-
         let mut chain_view = BurnchainView {
             burn_block_height: 12348,
             burn_block_hash: BurnchainHeaderHash([0x11; 32]),
@@ -7348,6 +7370,8 @@ mod test {
         chain_view.make_test_data();
 
         let test_name_1 = "validate_stackerdb_push_1";
+        let burnchain = testing_burnchain_config(test_name_1);
+
         let (mut peerdb_1, mut sortdb_1, stackerdbs_1, pox_id_1, _) = make_test_chain_dbs(
             test_name_1,
             &burnchain,

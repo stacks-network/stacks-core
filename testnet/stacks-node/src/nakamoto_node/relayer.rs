@@ -236,6 +236,8 @@ pub struct RelayerThread {
     /// Information about the last-sent block commit, and the relayer's view of the chain at the
     /// time it was sent.
     last_committed: Option<LastCommit>,
+    /// Timeout for waiting for the first block in a tenure before submitting a block commit
+    new_tenure_timeout: Option<Instant>,
 }
 
 impl RelayerThread {
@@ -293,6 +295,7 @@ impl RelayerThread {
             is_miner,
             next_initiative: Instant::now() + Duration::from_millis(next_initiative_delay),
             last_committed: None,
+            new_tenure_timeout: None,
         }
     }
 
@@ -1176,6 +1179,32 @@ impl RelayerThread {
             return None;
         }
 
+        if !highest_tenure_changed {
+            debug!("Relayer: burnchain view changed, but highest tenure did not");
+            // The burnchain view changed, but the highest tenure did not, so
+            // wait a bit for the first block in the new tenure to arrive. This
+            // is to avoid submitting a block commit that will be immediately
+            // RBFed when the first block arrives.
+            if let Some(new_tenure_timeout) = self.new_tenure_timeout {
+                debug!(
+                    "Relayer: {}s elapsed since burn block arrival",
+                    new_tenure_timeout.elapsed().as_secs(),
+                );
+                if new_tenure_timeout.elapsed() < self.config.miner.block_commit_delay {
+                    return None;
+                }
+            } else {
+                info!(
+                    "Relayer: starting new tenure timeout for {}s",
+                    self.config.miner.block_commit_delay.as_secs()
+                );
+                let timeout = Instant::now() + self.config.miner.block_commit_delay;
+                self.new_tenure_timeout = Some(Instant::now());
+                self.next_initiative = timeout;
+                return None;
+            }
+        }
+
         // burnchain view or highest-tenure view changed, so we need to send (or RBF) a commit
         Some(RelayerDirective::IssueBlockCommit(
             stacks_tip_ch,
@@ -1195,7 +1224,7 @@ impl RelayerThread {
         while self.globals.keep_running() {
             let raised_initiative = self.globals.take_initiative();
             let timed_out = Instant::now() >= self.next_initiative;
-            let directive = if raised_initiative.is_some() || timed_out {
+            let mut initiative_directive = if raised_initiative.is_some() || timed_out {
                 self.next_initiative =
                     Instant::now() + Duration::from_millis(self.config.node.next_initiative_delay);
                 self.initiative()
@@ -1203,13 +1232,17 @@ impl RelayerThread {
                 None
             };
 
-            let directive = if let Some(directive) = directive {
+            let directive = if let Some(directive) = initiative_directive.take() {
                 directive
             } else {
+                // channel was drained, so do a time-bound recv
                 match relay_rcv.recv_timeout(Duration::from_millis(
                     self.config.node.next_initiative_delay,
                 )) {
-                    Ok(directive) => directive,
+                    Ok(directive) => {
+                        // only do this once, so we can call .initiative() again
+                        directive
+                    }
                     Err(RecvTimeoutError::Timeout) => {
                         continue;
                     }
@@ -1221,7 +1254,7 @@ impl RelayerThread {
 
             debug!("Relayer: main loop directive";
                    "directive" => %directive,
-                   "raised_initiative" => %raised_initiative.unwrap_or("relay_rcv".to_string()),
+                   "raised_initiative" => ?raised_initiative,
                    "timed_out" => %timed_out);
 
             if !self.handle_directive(directive) {
