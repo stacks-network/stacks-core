@@ -34,8 +34,9 @@ use stacks_common::util::hash::Hash160;
 use crate::client::SignerSlotID;
 
 const EVENT_TIMEOUT_MS: u64 = 5000;
-const BLOCK_PROPOSAL_TIMEOUT_MS: u64 = 45_000;
+const BLOCK_PROPOSAL_TIMEOUT_MS: u64 = 600_000;
 const DEFAULT_FIRST_PROPOSAL_BURN_BLOCK_TIMING_SECS: u64 = 60;
+const DEFAULT_TENURE_LAST_BLOCK_PROPOSAL_TIMEOUT_SECS: u64 = 30;
 
 #[derive(thiserror::Error, Debug)]
 /// An error occurred parsing the provided configuration
@@ -128,6 +129,9 @@ pub struct SignerConfig {
     pub first_proposal_burn_block_timing: Duration,
     /// How much time to wait for a miner to propose a block following a sortition
     pub block_proposal_timeout: Duration,
+    /// Time to wait for the last block of a tenure to be globally accepted or rejected
+    /// before considering a new miner's block at the same height as potentially valid.
+    pub tenure_last_block_proposal_timeout: Duration,
 }
 
 /// The parsed configuration for the signer
@@ -158,6 +162,9 @@ pub struct GlobalConfig {
     pub block_proposal_timeout: Duration,
     /// An optional custom Chain ID
     pub chain_id: Option<u32>,
+    /// Time to wait for the last block of a tenure to be globally accepted or rejected
+    /// before considering a new miner's block at the same height as potentially valid.
+    pub tenure_last_block_proposal_timeout: Duration,
 }
 
 /// Internal struct for loading up the config file
@@ -180,13 +187,16 @@ struct RawConfigFile {
     pub db_path: String,
     /// Metrics endpoint
     pub metrics_endpoint: Option<String>,
-    /// How much time must pass between the first block proposal in a tenure and the next bitcoin block
+    /// How much time must pass in seconds between the first block proposal in a tenure and the next bitcoin block
     ///  before a subsequent miner isn't allowed to reorg the tenure
     pub first_proposal_burn_block_timing_secs: Option<u64>,
     /// How much time to wait for a miner to propose a block following a sortition in milliseconds
     pub block_proposal_timeout_ms: Option<u64>,
     /// An optional custom Chain ID
     pub chain_id: Option<u32>,
+    /// Time in seconds to wait for the last block of a tenure to be globally accepted or rejected
+    /// before considering a new miner's block at the same height as potentially valid.
+    pub tenure_last_block_proposal_timeout_secs: Option<u64>,
 }
 
 impl RawConfigFile {
@@ -266,6 +276,12 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
                 .unwrap_or(BLOCK_PROPOSAL_TIMEOUT_MS),
         );
 
+        let tenure_last_block_proposal_timeout = Duration::from_secs(
+            raw_data
+                .tenure_last_block_proposal_timeout_secs
+                .unwrap_or(DEFAULT_TENURE_LAST_BLOCK_PROPOSAL_TIMEOUT_SECS),
+        );
+
         Ok(Self {
             node_host: raw_data.node_host,
             endpoint,
@@ -279,6 +295,7 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
             first_proposal_burn_block_timing,
             block_proposal_timeout,
             chain_id: raw_data.chain_id,
+            tenure_last_block_proposal_timeout,
         })
     }
 }
@@ -335,7 +352,7 @@ Metrics endpoint: {metrics_endpoint}
 
     /// Get the chain ID for the network
     pub fn to_chain_id(&self) -> u32 {
-        self.chain_id.unwrap_or_else(|| match self.network {
+        self.chain_id.unwrap_or(match self.network {
             Network::Mainnet => CHAIN_ID_MAINNET,
             Network::Testnet | Network::Mocknet => CHAIN_ID_TESTNET,
         })

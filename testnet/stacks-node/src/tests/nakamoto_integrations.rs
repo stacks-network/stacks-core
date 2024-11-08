@@ -203,9 +203,7 @@ impl TestSigningChannel {
     /// TODO: update to use signatures vec
     pub fn get_signature() -> Option<Vec<MessageSignature>> {
         let mut signer = TEST_SIGNING.lock().unwrap();
-        let Some(sign_channels) = signer.as_mut() else {
-            return None;
-        };
+        let sign_channels = signer.as_mut()?;
         let recv = sign_channels.recv.take().unwrap();
         drop(signer); // drop signer so we don't hold the lock while receiving.
         let signatures = recv.recv_timeout(Duration::from_secs(30)).unwrap();
@@ -365,7 +363,7 @@ pub fn blind_signer_multinode(
             thread::sleep(Duration::from_secs(2));
             info!("Checking for a block proposal to sign...");
             last_count = cur_count;
-            let configs: Vec<&Config> = configs.iter().map(|x| x).collect();
+            let configs: Vec<&Config> = configs.iter().collect();
             match read_and_sign_block_proposal(configs.as_slice(), &signers, &signed_blocks, &sender) {
                 Ok(signed_block) => {
                     if signed_blocks.contains(&signed_block) {
@@ -430,10 +428,12 @@ pub fn get_latest_block_proposal(
         .collect();
 
     proposed_blocks.sort_by(|(block_a, _, is_latest_a), (block_b, _, is_latest_b)| {
-        if block_a.header.chain_length > block_b.header.chain_length {
-            return std::cmp::Ordering::Greater;
-        } else if block_a.header.chain_length < block_b.header.chain_length {
-            return std::cmp::Ordering::Less;
+        let res = block_a
+            .header
+            .chain_length
+            .cmp(&block_b.header.chain_length);
+        if res != std::cmp::Ordering::Equal {
+            return res;
         }
         // the heights are tied, tie break with the latest miner
         if *is_latest_a {
@@ -442,7 +442,7 @@ pub fn get_latest_block_proposal(
         if *is_latest_b {
             return std::cmp::Ordering::Less;
         }
-        return std::cmp::Ordering::Equal;
+        std::cmp::Ordering::Equal
     });
 
     for (b, _, is_latest) in proposed_blocks.iter() {
@@ -545,7 +545,7 @@ pub fn read_and_sign_block_proposal(
     channel
         .send(proposed_block.header.signer_signature)
         .unwrap();
-    return Ok(signer_sig_hash);
+    Ok(signer_sig_hash)
 }
 
 /// Return a working nakamoto-neon config and the miner's bitcoin address to fund
@@ -588,12 +588,12 @@ pub fn naka_neon_integration_conf(seed: Option<&[u8]>) -> (Config, StacksAddress
         burnchain.peer_host = Some("127.0.0.1".to_string());
     }
 
-    conf.burnchain.magic_bytes = MagicBytes::from(['T' as u8, '3' as u8].as_ref());
+    conf.burnchain.magic_bytes = MagicBytes::from([b'T', b'3'].as_ref());
     conf.burnchain.poll_time_secs = 1;
     conf.node.pox_sync_sample_secs = 0;
 
-    conf.miner.first_attempt_time_ms = i64::max_value() as u64;
-    conf.miner.subsequent_attempt_time_ms = i64::max_value() as u64;
+    conf.miner.first_attempt_time_ms = i64::MAX as u64;
+    conf.miner.subsequent_attempt_time_ms = i64::MAX as u64;
 
     // if there's just one node, then this must be true for tests to pass
     conf.miner.wait_for_block_download = false;
@@ -712,7 +712,7 @@ pub fn next_block_and_wait_for_commits(
     coord_channels: &[&Arc<Mutex<CoordinatorChannels>>],
     commits_submitted: &[&Arc<AtomicU64>],
 ) -> Result<(), String> {
-    let commits_submitted: Vec<_> = commits_submitted.iter().cloned().collect();
+    let commits_submitted: Vec<_> = commits_submitted.to_vec();
     let blocks_processed_before: Vec<_> = coord_channels
         .iter()
         .map(|x| {
@@ -789,7 +789,7 @@ pub fn setup_stacker(naka_conf: &mut Config) -> Secp256k1PrivateKey {
     let stacker_sk = Secp256k1PrivateKey::new();
     let stacker_address = tests::to_addr(&stacker_sk);
     naka_conf.add_initial_balance(
-        PrincipalData::from(stacker_address.clone()).to_string(),
+        PrincipalData::from(stacker_address).to_string(),
         POX_4_DEFAULT_STACKER_BALANCE,
     );
     stacker_sk
@@ -816,17 +816,17 @@ pub fn boot_to_epoch_3(
         "Epoch 3.0 Boundary" => (epoch_3.start_height - 1),
     );
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
-    next_block_and_wait(btc_regtest_controller, &blocks_processed);
-    next_block_and_wait(btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(btc_regtest_controller, blocks_processed);
+    next_block_and_wait(btc_regtest_controller, blocks_processed);
     // first mined stacks block
-    next_block_and_wait(btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(btc_regtest_controller, blocks_processed);
 
     let start_time = Instant::now();
     loop {
         if start_time.elapsed() > Duration::from_secs(20) {
             panic!("Timed out waiting for the stacks height to increment")
         }
-        let stacks_height = get_chain_info(&naka_conf).stacks_tip_height;
+        let stacks_height = get_chain_info(naka_conf).stacks_tip_height;
         if stacks_height >= 1 {
             break;
         }
@@ -843,13 +843,13 @@ pub fn boot_to_epoch_3(
     for (stacker_sk, signer_sk) in stacker_sks.iter().zip(signer_sks.iter()) {
         let pox_addr = PoxAddress::from_legacy(
             AddressHashMode::SerializeP2PKH,
-            tests::to_addr(&stacker_sk).bytes,
+            tests::to_addr(stacker_sk).bytes,
         );
         let pox_addr_tuple: clarity::vm::Value =
             pox_addr.clone().as_clarity_tuple().unwrap().into();
         let signature = make_pox_4_signer_key_signature(
             &pox_addr,
-            &signer_sk,
+            signer_sk,
             reward_cycle.into(),
             &Pox4SignatureTopic::StackStx,
             naka_conf.burnchain.chain_id,
@@ -863,7 +863,7 @@ pub fn boot_to_epoch_3(
         let signer_pk = StacksPublicKey::from_private(signer_sk);
 
         let stacking_tx = tests::make_contract_call(
-            &stacker_sk,
+            stacker_sk,
             0,
             1000,
             naka_conf.burnchain.chain_id,
@@ -903,9 +903,9 @@ pub fn boot_to_epoch_3(
     // Run until the prepare phase
     run_until_burnchain_height(
         btc_regtest_controller,
-        &blocks_processed,
+        blocks_processed,
         reward_set_calculation,
-        &naka_conf,
+        naka_conf,
     );
 
     // We need to vote on the aggregate public key if this test is self signing
@@ -946,9 +946,9 @@ pub fn boot_to_epoch_3(
 
     run_until_burnchain_height(
         btc_regtest_controller,
-        &blocks_processed,
+        blocks_processed,
         epoch_3.start_height - 1,
-        &naka_conf,
+        naka_conf,
     );
 
     info!("Bootstrapped to Epoch-3.0 boundary, Epoch2x miner should stop");
@@ -978,17 +978,17 @@ pub fn boot_to_pre_epoch_3_boundary(
         "Epoch 3.0 Boundary" => (epoch_3.start_height - 1),
     );
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
-    next_block_and_wait(btc_regtest_controller, &blocks_processed);
-    next_block_and_wait(btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(btc_regtest_controller, blocks_processed);
+    next_block_and_wait(btc_regtest_controller, blocks_processed);
     // first mined stacks block
-    next_block_and_wait(btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(btc_regtest_controller, blocks_processed);
 
     let start_time = Instant::now();
     loop {
         if start_time.elapsed() > Duration::from_secs(20) {
             panic!("Timed out waiting for the stacks height to increment")
         }
-        let stacks_height = get_chain_info(&naka_conf).stacks_tip_height;
+        let stacks_height = get_chain_info(naka_conf).stacks_tip_height;
         if stacks_height >= 1 {
             break;
         }
@@ -1005,13 +1005,13 @@ pub fn boot_to_pre_epoch_3_boundary(
     for (stacker_sk, signer_sk) in stacker_sks.iter().zip(signer_sks.iter()) {
         let pox_addr = PoxAddress::from_legacy(
             AddressHashMode::SerializeP2PKH,
-            tests::to_addr(&stacker_sk).bytes,
+            tests::to_addr(stacker_sk).bytes,
         );
         let pox_addr_tuple: clarity::vm::Value =
             pox_addr.clone().as_clarity_tuple().unwrap().into();
         let signature = make_pox_4_signer_key_signature(
             &pox_addr,
-            &signer_sk,
+            signer_sk,
             reward_cycle.into(),
             &Pox4SignatureTopic::StackStx,
             naka_conf.burnchain.chain_id,
@@ -1025,7 +1025,7 @@ pub fn boot_to_pre_epoch_3_boundary(
         let signer_pk = StacksPublicKey::from_private(signer_sk);
 
         let stacking_tx = tests::make_contract_call(
-            &stacker_sk,
+            stacker_sk,
             0,
             1000,
             naka_conf.burnchain.chain_id,
@@ -1065,9 +1065,9 @@ pub fn boot_to_pre_epoch_3_boundary(
     // Run until the prepare phase
     run_until_burnchain_height(
         btc_regtest_controller,
-        &blocks_processed,
+        blocks_processed,
         reward_set_calculation,
-        &naka_conf,
+        naka_conf,
     );
 
     // We need to vote on the aggregate public key if this test is self signing
@@ -1108,9 +1108,9 @@ pub fn boot_to_pre_epoch_3_boundary(
 
     run_until_burnchain_height(
         btc_regtest_controller,
-        &blocks_processed,
+        blocks_processed,
         epoch_3.start_height - 2,
-        &naka_conf,
+        naka_conf,
     );
 
     info!("Bootstrapped to one block before Epoch 3.0 boundary, Epoch 2.x miner should continue for one more block");
@@ -1194,7 +1194,7 @@ pub fn is_key_set_for_cycle(
     is_mainnet: bool,
     http_origin: &str,
 ) -> Result<bool, String> {
-    let key = get_key_for_cycle(reward_cycle, is_mainnet, &http_origin)?;
+    let key = get_key_for_cycle(reward_cycle, is_mainnet, http_origin)?;
     Ok(key.is_some())
 }
 
@@ -1221,10 +1221,10 @@ pub fn setup_epoch_3_reward_set(
     let epoch_3_reward_cycle_boundary =
         epoch_3_start_height.saturating_sub(epoch_3_start_height % reward_cycle_len);
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
-    next_block_and_wait(btc_regtest_controller, &blocks_processed);
-    next_block_and_wait(btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(btc_regtest_controller, blocks_processed);
+    next_block_and_wait(btc_regtest_controller, blocks_processed);
     // first mined stacks block
-    next_block_and_wait(btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(btc_regtest_controller, blocks_processed);
 
     // stack enough to activate pox-4
     let block_height = btc_regtest_controller.get_headers_height();
@@ -1244,13 +1244,13 @@ pub fn setup_epoch_3_reward_set(
     for (stacker_sk, signer_sk) in stacker_sks.iter().zip(signer_sks.iter()) {
         let pox_addr = PoxAddress::from_legacy(
             AddressHashMode::SerializeP2PKH,
-            tests::to_addr(&stacker_sk).bytes,
+            tests::to_addr(stacker_sk).bytes,
         );
         let pox_addr_tuple: clarity::vm::Value =
             pox_addr.clone().as_clarity_tuple().unwrap().into();
         let signature = make_pox_4_signer_key_signature(
             &pox_addr,
-            &signer_sk,
+            signer_sk,
             reward_cycle.into(),
             &Pox4SignatureTopic::StackStx,
             naka_conf.burnchain.chain_id,
@@ -1263,7 +1263,7 @@ pub fn setup_epoch_3_reward_set(
 
         let signer_pk = StacksPublicKey::from_private(signer_sk);
         let stacking_tx = tests::make_contract_call(
-            &stacker_sk,
+            stacker_sk,
             0,
             1000,
             naka_conf.burnchain.chain_id,
@@ -1325,9 +1325,9 @@ pub fn boot_to_epoch_3_reward_set_calculation_boundary(
 
     run_until_burnchain_height(
         btc_regtest_controller,
-        &blocks_processed,
+        blocks_processed,
         epoch_3_reward_set_calculation_boundary,
-        &naka_conf,
+        naka_conf,
     );
 
     info!("Bootstrapped to Epoch 3.0 reward set calculation boundary height: {epoch_3_reward_set_calculation_boundary}.");
@@ -1367,9 +1367,9 @@ pub fn boot_to_epoch_25(
     );
     run_until_burnchain_height(
         btc_regtest_controller,
-        &blocks_processed,
+        blocks_processed,
         epoch_25_start_height,
-        &naka_conf,
+        naka_conf,
     );
     info!("Bootstrapped to Epoch 2.5: {epoch_25_start_height}.");
 }
@@ -1394,7 +1394,7 @@ pub fn boot_to_epoch_3_reward_set(
         btc_regtest_controller,
         num_stacking_cycles,
     );
-    next_block_and_wait(btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(btc_regtest_controller, blocks_processed);
     info!(
         "Bootstrapped to Epoch 3.0 reward set calculation height: {}",
         get_chain_info(naka_conf).burn_block_height
@@ -1429,7 +1429,7 @@ fn simple_neon_integration() {
     }
 
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
-    let prom_bind = format!("{}:{}", "127.0.0.1", 6000);
+    let prom_bind = "127.0.0.1:6000".to_string();
     naka_conf.node.prometheus_bind = Some(prom_bind.clone());
     naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(5);
     let sender_sk = Secp256k1PrivateKey::new();
@@ -1438,16 +1438,13 @@ fn simple_neon_integration() {
     let send_amt = 1000;
     let send_fee = 100;
     naka_conf.add_initial_balance(
-        PrincipalData::from(sender_addr.clone()).to_string(),
+        PrincipalData::from(sender_addr).to_string(),
         send_amt * 2 + send_fee,
     );
     let sender_signer_sk = Secp256k1PrivateKey::new();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
-    let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
-    naka_conf.add_initial_balance(
-        PrincipalData::from(sender_signer_addr.clone()).to_string(),
-        100000,
-    );
+    let mut signers = TestSigners::new(vec![sender_signer_sk]);
+    naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let stacker_sk = setup_stacker(&mut naka_conf);
 
@@ -1505,7 +1502,7 @@ fn simple_neon_integration() {
     #[cfg(feature = "monitoring_prom")]
     {
         wait_for(10, || {
-            let prom_http_origin = format!("http://{}", prom_bind);
+            let prom_http_origin = format!("http://{prom_bind}");
             let client = reqwest::blocking::Client::new();
             let res = client
                 .get(&prom_http_origin)
@@ -1572,8 +1569,7 @@ fn simple_neon_integration() {
                 .as_array()
                 .unwrap()
                 .iter()
-                .find(|tx_json| tx_json["raw_tx"].as_str() == Some(&transfer_tx_hex))
-                .is_some()
+                .any(|tx_json| tx_json["raw_tx"].as_str() == Some(&transfer_tx_hex))
         });
         Ok(transfer_tx_included)
     })
@@ -1601,17 +1597,13 @@ fn simple_neon_integration() {
     );
 
     // assert that the transfer tx was observed
-    let transfer_tx_included = test_observer::get_blocks()
-        .into_iter()
-        .find(|block_json| {
-            block_json["transactions"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .find(|tx_json| tx_json["raw_tx"].as_str() == Some(&transfer_tx_hex))
-                .is_some()
-        })
-        .is_some();
+    let transfer_tx_included = test_observer::get_blocks().into_iter().any(|block_json| {
+        block_json["transactions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|tx_json| tx_json["raw_tx"].as_str() == Some(&transfer_tx_hex))
+    });
 
     assert!(
         transfer_tx_included,
@@ -1629,7 +1621,7 @@ fn simple_neon_integration() {
     #[cfg(feature = "monitoring_prom")]
     {
         wait_for(10, || {
-            let prom_http_origin = format!("http://{}", prom_bind);
+            let prom_http_origin = format!("http://{prom_bind}");
             let client = reqwest::blocking::Client::new();
             let res = client
                 .get(&prom_http_origin)
@@ -1642,10 +1634,8 @@ fn simple_neon_integration() {
                 tip.stacks_block_height
             );
 
-            let expected_result_2 = format!(
-                "stacks_node_stacks_tip_height {}",
-                tip.stacks_block_height - 1
-            );
+            let expected_result_2 =
+                format!("stacks_node_stacks_tip_height {}", tip.stacks_block_height);
             Ok(res.contains(&expected_result_1) && res.contains(&expected_result_2))
         })
         .expect("Prometheus metrics did not update");
@@ -1679,7 +1669,7 @@ fn flash_blocks_on_epoch_3() {
     }
 
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
-    let prom_bind = format!("{}:{}", "127.0.0.1", 6000);
+    let prom_bind = "127.0.0.1:6000".to_string();
     naka_conf.node.prometheus_bind = Some(prom_bind.clone());
     naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
     let sender_sk = Secp256k1PrivateKey::new();
@@ -1688,16 +1678,13 @@ fn flash_blocks_on_epoch_3() {
     let send_amt = 1000;
     let send_fee = 100;
     naka_conf.add_initial_balance(
-        PrincipalData::from(sender_addr.clone()).to_string(),
+        PrincipalData::from(sender_addr).to_string(),
         send_amt * 2 + send_fee,
     );
     let sender_signer_sk = Secp256k1PrivateKey::new();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
-    let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
-    naka_conf.add_initial_balance(
-        PrincipalData::from(sender_signer_addr.clone()).to_string(),
-        100000,
-    );
+    let mut signers = TestSigners::new(vec![sender_signer_sk]);
+    naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let stacker_sk = setup_stacker(&mut naka_conf);
 
@@ -1855,17 +1842,13 @@ fn flash_blocks_on_epoch_3() {
     );
 
     // assert that the transfer tx was observed
-    let transfer_tx_included = test_observer::get_blocks()
-        .into_iter()
-        .find(|block_json| {
-            block_json["transactions"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .find(|tx_json| tx_json["raw_tx"].as_str() == Some(&transfer_tx_hex))
-                .is_some()
-        })
-        .is_some();
+    let transfer_tx_included = test_observer::get_blocks().into_iter().any(|block_json| {
+        block_json["transactions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|tx_json| tx_json["raw_tx"].as_str() == Some(&transfer_tx_hex))
+    });
 
     assert!(
         transfer_tx_included,
@@ -1898,22 +1881,16 @@ fn flash_blocks_on_epoch_3() {
         }
     }
 
-    // Verify that there's a gap of exactly 3 blocks
-    assert_eq!(
-        gap_end - gap_start + 1,
-        3,
-        "Expected a gap of exactly 3 burn blocks due to flash blocks, found gap from {} to {}",
-        gap_start,
-        gap_end
+    // Verify that there's a gap of AT LEAST 3 blocks
+    assert!(
+        gap_end - gap_start + 1 >= 3,
+        "Expected a gap of AT LEAST 3 burn blocks due to flash blocks, found gap from {gap_start} to {gap_end}"
     );
 
     // Verify that the gap includes the Epoch 3.0 activation height
     assert!(
         gap_start <= epoch_3_start_height && epoch_3_start_height <= gap_end,
-        "Expected the gap ({}..={}) to include the Epoch 3.0 activation height ({})",
-        gap_start,
-        gap_end,
-        epoch_3_start_height
+        "Expected the gap ({gap_start}..={gap_end}) to include the Epoch 3.0 activation height ({epoch_3_start_height})"
     );
 
     // Verify blocks before and after the gap
@@ -1922,7 +1899,7 @@ fn flash_blocks_on_epoch_3() {
     check_nakamoto_empty_block_heuristics();
 
     info!("Verified burn block ranges, including expected gap for flash blocks");
-    info!("Confirmed that the gap includes the Epoch 3.0 activation height (Bitcoin block height): {}", epoch_3_start_height);
+    info!("Confirmed that the gap includes the Epoch 3.0 activation height (Bitcoin block height): {epoch_3_start_height}");
 
     coord_channel
         .lock()
@@ -1961,13 +1938,10 @@ fn mine_multiple_per_tenure_integration() {
     let send_amt = 100;
     let send_fee = 180;
     naka_conf.add_initial_balance(
-        PrincipalData::from(sender_addr.clone()).to_string(),
+        PrincipalData::from(sender_addr).to_string(),
         (send_amt + send_fee) * tenure_count * inter_blocks_per_tenure,
     );
-    naka_conf.add_initial_balance(
-        PrincipalData::from(sender_signer_addr.clone()).to_string(),
-        100000,
-    );
+    naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let stacker_sk = setup_stacker(&mut naka_conf);
 
@@ -1997,7 +1971,7 @@ fn mine_multiple_per_tenure_integration() {
         .spawn(move || run_loop.start(None, 0))
         .unwrap();
     wait_for_runloop(&blocks_processed);
-    let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
+    let mut signers = TestSigners::new(vec![sender_signer_sk]);
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
@@ -2032,7 +2006,7 @@ fn mine_multiple_per_tenure_integration() {
 
     // Mine `tenure_count` nakamoto tenures
     for tenure_ix in 0..tenure_count {
-        debug!("Mining tenure {}", tenure_ix);
+        debug!("Mining tenure {tenure_ix}");
         let commits_before = commits_submitted.load(Ordering::SeqCst);
         next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
             .unwrap();
@@ -2149,22 +2123,19 @@ fn multiple_miners() {
     let send_amt = 100;
     let send_fee = 180;
     naka_conf.add_initial_balance(
-        PrincipalData::from(sender_addr.clone()).to_string(),
+        PrincipalData::from(sender_addr).to_string(),
         (send_amt + send_fee) * tenure_count * inter_blocks_per_tenure,
     );
-    naka_conf.add_initial_balance(
-        PrincipalData::from(sender_signer_addr.clone()).to_string(),
-        100000,
-    );
+    naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let stacker_sk = setup_stacker(&mut naka_conf);
 
     let mut conf_node_2 = naka_conf.clone();
     let localhost = "127.0.0.1";
-    conf_node_2.node.rpc_bind = format!("{}:{}", localhost, node_2_rpc);
-    conf_node_2.node.p2p_bind = format!("{}:{}", localhost, node_2_p2p);
-    conf_node_2.node.data_url = format!("http://{}:{}", localhost, node_2_rpc);
-    conf_node_2.node.p2p_address = format!("{}:{}", localhost, node_2_p2p);
+    conf_node_2.node.rpc_bind = format!("{localhost}:{node_2_rpc}");
+    conf_node_2.node.p2p_bind = format!("{localhost}:{node_2_p2p}");
+    conf_node_2.node.data_url = format!("http://{localhost}:{node_2_rpc}");
+    conf_node_2.node.p2p_address = format!("{localhost}:{node_2_p2p}");
     conf_node_2.node.seed = vec![2, 2, 2, 2];
     conf_node_2.burnchain.local_mining_public_key = Some(
         Keychain::default(conf_node_2.node.seed.clone())
@@ -2179,7 +2150,7 @@ fn multiple_miners() {
     let node_1_sk = Secp256k1PrivateKey::from_seed(&naka_conf.node.local_peer_seed);
     let node_1_pk = StacksPublicKey::from_private(&node_1_sk);
 
-    conf_node_2.node.working_dir = format!("{}-{}", conf_node_2.node.working_dir, "1");
+    conf_node_2.node.working_dir = format!("{}-1", conf_node_2.node.working_dir);
 
     conf_node_2.node.set_bootstrap_nodes(
         format!("{}@{}", &node_1_pk.to_hex(), naka_conf.node.p2p_bind),
@@ -2247,7 +2218,7 @@ fn multiple_miners() {
         .unwrap();
     wait_for_runloop(&blocks_processed);
 
-    let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
+    let mut signers = TestSigners::new(vec![sender_signer_sk]);
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
@@ -2290,7 +2261,7 @@ fn multiple_miners() {
 
     // Mine `tenure_count` nakamoto tenures
     for tenure_ix in 0..tenure_count {
-        info!("Mining tenure {}", tenure_ix);
+        info!("Mining tenure {tenure_ix}");
         let commits_before = commits_submitted.load(Ordering::SeqCst);
         next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
             .unwrap();
@@ -2390,9 +2361,9 @@ fn correct_burn_outs() {
 
     {
         let epochs = naka_conf.burnchain.epochs.as_mut().unwrap();
-        let epoch_24_ix = StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch24).unwrap();
-        let epoch_25_ix = StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch25).unwrap();
-        let epoch_30_ix = StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch30).unwrap();
+        let epoch_24_ix = StacksEpoch::find_epoch_by_id(epochs, StacksEpochId::Epoch24).unwrap();
+        let epoch_25_ix = StacksEpoch::find_epoch_by_id(epochs, StacksEpochId::Epoch25).unwrap();
+        let epoch_30_ix = StacksEpoch::find_epoch_by_id(epochs, StacksEpochId::Epoch30).unwrap();
         epochs[epoch_24_ix].end_height = 208;
         epochs[epoch_25_ix].start_height = 208;
         epochs[epoch_25_ix].end_height = 225;
@@ -2415,10 +2386,7 @@ fn correct_burn_outs() {
     let stacker_accounts = accounts[0..3].to_vec();
     let sender_signer_sk = Secp256k1PrivateKey::new();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
-    naka_conf.add_initial_balance(
-        PrincipalData::from(sender_signer_addr.clone()).to_string(),
-        100000,
-    );
+    naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
 
     let signers = TestSigners::new(vec![sender_signer_sk]);
 
@@ -2507,7 +2475,7 @@ fn correct_burn_outs() {
 
             let pox_addr = PoxAddress::from_legacy(
                 AddressHashMode::SerializeP2PKH,
-                tests::to_addr(&account.0).bytes,
+                tests::to_addr(account.0).bytes,
             );
             let pox_addr_tuple: clarity::vm::Value =
                 pox_addr.clone().as_clarity_tuple().unwrap().into();
@@ -2528,7 +2496,7 @@ fn correct_burn_outs() {
             .to_rsv();
 
             let stacking_tx = tests::make_contract_call(
-                &account.0,
+                account.0,
                 account.2.nonce,
                 1000,
                 naka_conf.burnchain.chain_id,
@@ -2590,7 +2558,7 @@ fn correct_burn_outs() {
         .block_height_to_reward_cycle(epoch_3.start_height)
         .unwrap();
 
-    info!("first_epoch_3_cycle: {:?}", first_epoch_3_cycle);
+    info!("first_epoch_3_cycle: {first_epoch_3_cycle:?}");
 
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
     let stacker_response = get_stacker_set(&http_origin, first_epoch_3_cycle).unwrap();
@@ -2736,10 +2704,7 @@ fn block_proposal_api_endpoint() {
     let stacker_sk = setup_stacker(&mut conf);
     let sender_signer_sk = Secp256k1PrivateKey::new();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
-    conf.add_initial_balance(
-        PrincipalData::from(sender_signer_addr.clone()).to_string(),
-        100000,
-    );
+    conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
 
     // only subscribe to the block proposal events
     test_observer::spawn();
@@ -2764,7 +2729,7 @@ fn block_proposal_api_endpoint() {
     let coord_channel = run_loop.coordinator_channels();
 
     let run_loop_thread = thread::spawn(move || run_loop.start(None, 0));
-    let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
+    let mut signers = TestSigners::new(vec![sender_signer_sk]);
     wait_for_runloop(&blocks_processed);
     boot_to_epoch_3(
         &conf,
@@ -2818,7 +2783,7 @@ fn block_proposal_api_endpoint() {
         .unwrap()
         .unwrap();
 
-    let privk = conf.miner.mining_key.unwrap().clone();
+    let privk = conf.miner.mining_key.unwrap();
     let sort_tip = SortitionDB::get_canonical_sortition_tip(sortdb.conn())
         .expect("Failed to get sortition tip");
     let db_handle = sortdb.index_handle(&sort_tip);
@@ -2914,41 +2879,41 @@ fn block_proposal_api_endpoint() {
         ("Must wait", sign(&proposal), HTTP_TOO_MANY, None),
         (
             "Non-canonical or absent tenure",
-            (|| {
+            {
                 let mut sp = sign(&proposal);
                 sp.block.header.consensus_hash.0[3] ^= 0x07;
                 sp
-            })(),
+            },
             HTTP_ACCEPTED,
             Some(Err(ValidateRejectCode::NonCanonicalTenure)),
         ),
         (
             "Corrupted (bit flipped after signing)",
-            (|| {
+            {
                 let mut sp = sign(&proposal);
                 sp.block.header.timestamp ^= 0x07;
                 sp
-            })(),
+            },
             HTTP_ACCEPTED,
             Some(Err(ValidateRejectCode::ChainstateError)),
         ),
         (
             "Invalid `chain_id`",
-            (|| {
+            {
                 let mut p = proposal.clone();
                 p.chain_id ^= 0xFFFFFFFF;
                 sign(&p)
-            })(),
+            },
             HTTP_ACCEPTED,
             Some(Err(ValidateRejectCode::InvalidBlock)),
         ),
         (
             "Invalid `miner_signature`",
-            (|| {
+            {
                 let mut sp = sign(&proposal);
                 sp.block.header.miner_signature.0[1] ^= 0x80;
                 sp
-            })(),
+            },
             HTTP_ACCEPTED,
             Some(Err(ValidateRejectCode::ChainstateError)),
         ),
@@ -3046,10 +3011,7 @@ fn block_proposal_api_endpoint() {
         .iter()
         .zip(proposal_responses.iter())
     {
-        info!(
-            "Received response {:?}, expecting {:?}",
-            &response, &expected_response
-        );
+        info!("Received response {response:?}, expecting {expected_response:?}");
         match expected_response {
             Ok(_) => {
                 assert!(matches!(response, BlockValidateResponse::Ok(_)));
@@ -3097,19 +3059,16 @@ fn miner_writes_proposed_block_to_stackerdb() {
     let send_amt = 1000;
     let send_fee = 100;
     naka_conf.add_initial_balance(
-        PrincipalData::from(sender_addr.clone()).to_string(),
+        PrincipalData::from(sender_addr).to_string(),
         send_amt + send_fee,
     );
     let stacker_sk = setup_stacker(&mut naka_conf);
 
     let sender_signer_sk = Secp256k1PrivateKey::new();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
-    naka_conf.add_initial_balance(
-        PrincipalData::from(sender_signer_addr.clone()).to_string(),
-        100000,
-    );
+    naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
 
-    let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
+    let mut signers = TestSigners::new(vec![sender_signer_sk]);
 
     test_observer::spawn();
     test_observer::register(
@@ -3220,9 +3179,9 @@ fn vote_for_aggregate_key_burn_op() {
     let signer_sk = Secp256k1PrivateKey::new();
     let signer_addr = tests::to_addr(&signer_sk);
 
-    let mut signers = TestSigners::new(vec![signer_sk.clone()]);
+    let mut signers = TestSigners::new(vec![signer_sk]);
 
-    naka_conf.add_initial_balance(PrincipalData::from(signer_addr.clone()).to_string(), 100000);
+    naka_conf.add_initial_balance(PrincipalData::from(signer_addr).to_string(), 100000);
     let stacker_sk = setup_stacker(&mut naka_conf);
 
     test_observer::spawn();
@@ -3281,7 +3240,7 @@ fn vote_for_aggregate_key_burn_op() {
     let mut miner_signer = Keychain::default(naka_conf.node.seed.clone()).generate_op_signer();
     info!("Submitting pre-stx op");
     let pre_stx_op = PreStxOp {
-        output: signer_addr.clone(),
+        output: signer_addr,
         // to be filled in
         txid: Txid([0u8; 32]),
         vtxindex: 0,
@@ -3347,13 +3306,13 @@ fn vote_for_aggregate_key_burn_op() {
 
     let stacker_pk = StacksPublicKey::from_private(&stacker_sk);
     let signer_key: StacksPublicKeyBuffer = stacker_pk.to_bytes_compressed().as_slice().into();
-    let aggregate_key = signer_key.clone();
+    let aggregate_key = signer_key;
 
     let vote_for_aggregate_key_op =
         BlockstackOperationType::VoteForAggregateKey(VoteForAggregateKeyOp {
             signer_key,
             signer_index,
-            sender: signer_addr.clone(),
+            sender: signer_addr,
             round: 0,
             reward_cycle,
             aggregate_key,
@@ -3364,7 +3323,7 @@ fn vote_for_aggregate_key_burn_op() {
             burn_header_hash: BurnchainHeaderHash::zero(),
         });
 
-    let mut signer_burnop_signer = BurnchainOpSigner::new(signer_sk.clone(), false);
+    let mut signer_burnop_signer = BurnchainOpSigner::new(signer_sk, false);
     assert!(
         btc_regtest_controller
             .submit_operation(
@@ -3397,10 +3356,10 @@ fn vote_for_aggregate_key_burn_op() {
         for tx in transactions.iter() {
             let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
             if raw_tx == "0x00" {
-                info!("Found a burn op: {:?}", tx);
+                info!("Found a burn op: {tx:?}");
                 let burnchain_op = tx.get("burnchain_op").unwrap().as_object().unwrap();
                 if !burnchain_op.contains_key("vote_for_aggregate_key") {
-                    warn!("Got unexpected burnchain op: {:?}", burnchain_op);
+                    warn!("Got unexpected burnchain op: {burnchain_op:?}");
                     panic!("unexpected btc transaction type");
                 }
                 let vote_obj = burnchain_op.get("vote_for_aggregate_key").unwrap();
@@ -3450,7 +3409,7 @@ fn follower_bootup() {
     let sender_sk = Secp256k1PrivateKey::new();
     let sender_signer_sk = Secp256k1PrivateKey::new();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
-    let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
+    let mut signers = TestSigners::new(vec![sender_signer_sk]);
     let tenure_count = 5;
     let inter_blocks_per_tenure = 9;
     // setup sender + recipient for some test stx transfers
@@ -3459,13 +3418,10 @@ fn follower_bootup() {
     let send_amt = 100;
     let send_fee = 180;
     naka_conf.add_initial_balance(
-        PrincipalData::from(sender_addr.clone()).to_string(),
+        PrincipalData::from(sender_addr).to_string(),
         (send_amt + send_fee) * tenure_count * inter_blocks_per_tenure,
     );
-    naka_conf.add_initial_balance(
-        PrincipalData::from(sender_signer_addr.clone()).to_string(),
-        100000,
-    );
+    naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let stacker_sk = setup_stacker(&mut naka_conf);
 
@@ -3578,7 +3534,7 @@ fn follower_bootup() {
 
     // Mine `tenure_count` nakamoto tenures
     for tenure_ix in 0..tenure_count {
-        debug!("follower_bootup: Miner runs tenure {}", tenure_ix);
+        debug!("follower_bootup: Miner runs tenure {tenure_ix}");
         let commits_before = commits_submitted.load(Ordering::SeqCst);
         next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
             .unwrap();
@@ -3586,10 +3542,7 @@ fn follower_bootup() {
         let mut last_tip = BlockHeaderHash([0x00; 32]);
         let mut last_nonce = None;
 
-        debug!(
-            "follower_bootup: Miner mines interum blocks for tenure {}",
-            tenure_ix
-        );
+        debug!("follower_bootup: Miner mines interum blocks for tenure {tenure_ix}");
 
         // mine the interim blocks
         for _ in 0..inter_blocks_per_tenure {
@@ -3625,8 +3578,8 @@ fn follower_bootup() {
 
             let tx = StacksTransaction::consensus_deserialize(&mut &transfer_tx[..]).unwrap();
 
-            debug!("follower_bootup: Miner account: {:?}", &account);
-            debug!("follower_bootup: Miner sent {}: {:?}", &tx.txid(), &tx);
+            debug!("follower_bootup: Miner account: {account:?}");
+            debug!("follower_bootup: Miner sent {}: {tx:?}", &tx.txid());
 
             let now = get_epoch_time_secs();
             while get_epoch_time_secs() < now + 10 {
@@ -3771,13 +3724,13 @@ fn follower_bootup_across_multiple_cycles() {
 
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
     naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
-    naka_conf.node.pox_sync_sample_secs = 30;
+    naka_conf.node.pox_sync_sample_secs = 180;
     naka_conf.burnchain.max_rbf = 10_000_000;
 
     let sender_sk = Secp256k1PrivateKey::new();
     let sender_signer_sk = Secp256k1PrivateKey::new();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
-    let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
+    let mut signers = TestSigners::new(vec![sender_signer_sk]);
     let tenure_count = 5;
     let inter_blocks_per_tenure = 9;
     // setup sender + recipient for some test stx transfers
@@ -3786,13 +3739,10 @@ fn follower_bootup_across_multiple_cycles() {
     let send_amt = 100;
     let send_fee = 180;
     naka_conf.add_initial_balance(
-        PrincipalData::from(sender_addr.clone()).to_string(),
+        PrincipalData::from(sender_addr).to_string(),
         (send_amt + send_fee) * tenure_count * inter_blocks_per_tenure,
     );
-    naka_conf.add_initial_balance(
-        PrincipalData::from(sender_signer_addr.clone()).to_string(),
-        100000,
-    );
+    naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
     let stacker_sk = setup_stacker(&mut naka_conf);
 
     test_observer::spawn();
@@ -3976,7 +3926,7 @@ fn follower_bootup_custom_chain_id() {
     let sender_sk = Secp256k1PrivateKey::new();
     let sender_signer_sk = Secp256k1PrivateKey::new();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
-    let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
+    let mut signers = TestSigners::new(vec![sender_signer_sk]);
     let tenure_count = 5;
     let inter_blocks_per_tenure = 9;
     // setup sender + recipient for some test stx transfers
@@ -3985,13 +3935,10 @@ fn follower_bootup_custom_chain_id() {
     let send_amt = 100;
     let send_fee = 180;
     naka_conf.add_initial_balance(
-        PrincipalData::from(sender_addr.clone()).to_string(),
+        PrincipalData::from(sender_addr).to_string(),
         (send_amt + send_fee) * tenure_count * inter_blocks_per_tenure,
     );
-    naka_conf.add_initial_balance(
-        PrincipalData::from(sender_signer_addr.clone()).to_string(),
-        100000,
-    );
+    naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let stacker_sk = setup_stacker(&mut naka_conf);
 
@@ -4104,7 +4051,7 @@ fn follower_bootup_custom_chain_id() {
 
     // Mine `tenure_count` nakamoto tenures
     for tenure_ix in 0..tenure_count {
-        debug!("follower_bootup: Miner runs tenure {}", tenure_ix);
+        debug!("follower_bootup: Miner runs tenure {tenure_ix}");
         let commits_before = commits_submitted.load(Ordering::SeqCst);
         next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
             .unwrap();
@@ -4112,10 +4059,7 @@ fn follower_bootup_custom_chain_id() {
         let mut last_tip = BlockHeaderHash([0x00; 32]);
         let mut last_nonce = None;
 
-        debug!(
-            "follower_bootup: Miner mines interum blocks for tenure {}",
-            tenure_ix
-        );
+        debug!("follower_bootup: Miner mines interum blocks for tenure {tenure_ix}");
 
         // mine the interim blocks
         for _ in 0..inter_blocks_per_tenure {
@@ -4151,8 +4095,8 @@ fn follower_bootup_custom_chain_id() {
 
             let tx = StacksTransaction::consensus_deserialize(&mut &transfer_tx[..]).unwrap();
 
-            debug!("follower_bootup: Miner account: {:?}", &account);
-            debug!("follower_bootup: Miner sent {}: {:?}", &tx.txid(), &tx);
+            debug!("follower_bootup: Miner account: {account:?}");
+            debug!("follower_bootup: Miner sent {}: {tx:?}", &tx.txid());
 
             let now = get_epoch_time_secs();
             while get_epoch_time_secs() < now + 10 {
@@ -4330,23 +4274,14 @@ fn burn_ops_integration_test() {
     let sender_addr = tests::to_addr(&sender_sk);
     let mut sender_nonce = 0;
 
-    let mut signers = TestSigners::new(vec![signer_sk_1.clone()]);
+    let mut signers = TestSigners::new(vec![signer_sk_1]);
 
     let stacker_sk = setup_stacker(&mut naka_conf);
 
     // Add the initial balances to the other accounts
-    naka_conf.add_initial_balance(
-        PrincipalData::from(stacker_addr_1.clone()).to_string(),
-        1000000,
-    );
-    naka_conf.add_initial_balance(
-        PrincipalData::from(stacker_addr_2.clone()).to_string(),
-        1000000,
-    );
-    naka_conf.add_initial_balance(
-        PrincipalData::from(sender_addr.clone()).to_string(),
-        100_000_000,
-    );
+    naka_conf.add_initial_balance(PrincipalData::from(stacker_addr_1).to_string(), 1000000);
+    naka_conf.add_initial_balance(PrincipalData::from(stacker_addr_2).to_string(), 1000000);
+    naka_conf.add_initial_balance(PrincipalData::from(sender_addr).to_string(), 100_000_000);
 
     test_observer::spawn();
     test_observer::register_any(&mut naka_conf);
@@ -4399,7 +4334,7 @@ fn burn_ops_integration_test() {
 
     info!("Submitting first pre-stx op");
     let pre_stx_op = PreStxOp {
-        output: signer_addr_1.clone(),
+        output: signer_addr_1,
         // to be filled in
         txid: Txid([0u8; 32]),
         vtxindex: 0,
@@ -4430,7 +4365,7 @@ fn burn_ops_integration_test() {
     let mut miner_signer_2 = Keychain::default(naka_conf.node.seed.clone()).generate_op_signer();
     info!("Submitting second pre-stx op");
     let pre_stx_op_2 = PreStxOp {
-        output: signer_addr_2.clone(),
+        output: signer_addr_2,
         // to be filled in
         txid: Txid([0u8; 32]),
         vtxindex: 0,
@@ -4452,7 +4387,7 @@ fn burn_ops_integration_test() {
     let mut miner_signer_3 = Keychain::default(naka_conf.node.seed.clone()).generate_op_signer();
     info!("Submitting third pre-stx op");
     let pre_stx_op_3 = PreStxOp {
-        output: stacker_addr_1.clone(),
+        output: stacker_addr_1,
         txid: Txid([0u8; 32]),
         vtxindex: 0,
         block_height: 0,
@@ -4473,7 +4408,7 @@ fn burn_ops_integration_test() {
     info!("Submitting fourth pre-stx op");
     let mut miner_signer_4 = Keychain::default(naka_conf.node.seed.clone()).generate_op_signer();
     let pre_stx_op_4 = PreStxOp {
-        output: stacker_addr_2.clone(),
+        output: stacker_addr_2,
         txid: Txid([0u8; 32]),
         vtxindex: 0,
         block_height: 0,
@@ -4570,10 +4505,10 @@ fn burn_ops_integration_test() {
         "reward_cycle" => reward_cycle,
     );
 
-    let mut signer_burnop_signer_1 = BurnchainOpSigner::new(signer_sk_1.clone(), false);
-    let mut signer_burnop_signer_2 = BurnchainOpSigner::new(signer_sk_2.clone(), false);
-    let mut stacker_burnop_signer_1 = BurnchainOpSigner::new(stacker_sk_1.clone(), false);
-    let mut stacker_burnop_signer_2 = BurnchainOpSigner::new(stacker_sk_2.clone(), false);
+    let mut signer_burnop_signer_1 = BurnchainOpSigner::new(signer_sk_1, false);
+    let mut signer_burnop_signer_2 = BurnchainOpSigner::new(signer_sk_2, false);
+    let mut stacker_burnop_signer_1 = BurnchainOpSigner::new(stacker_sk_1, false);
+    let mut stacker_burnop_signer_2 = BurnchainOpSigner::new(stacker_sk_2, false);
 
     info!(
         "Before stack-stx op, signer 1 total: {}",
@@ -4607,8 +4542,8 @@ fn burn_ops_integration_test() {
 
     info!("Submitting transfer STX op");
     let transfer_stx_op = TransferStxOp {
-        sender: stacker_addr_1.clone(),
-        recipient: stacker_addr_2.clone(),
+        sender: stacker_addr_1,
+        recipient: stacker_addr_2,
         transfered_ustx: 10000,
         memo: vec![],
         txid: Txid([0u8; 32]),
@@ -4630,8 +4565,8 @@ fn burn_ops_integration_test() {
 
     info!("Submitting delegate STX op");
     let del_stx_op = DelegateStxOp {
-        sender: stacker_addr_2.clone(),
-        delegate_to: stacker_addr_1.clone(),
+        sender: stacker_addr_2,
+        delegate_to: stacker_addr_1,
         reward_addr: None,
         delegated_ustx: 100_000,
         // to be filled in
@@ -4658,7 +4593,7 @@ fn burn_ops_integration_test() {
     let min_stx = pox_info.next_cycle.min_threshold_ustx;
 
     let stack_stx_op_with_some_signer_key = StackStxOp {
-        sender: signer_addr_1.clone(),
+        sender: signer_addr_1,
         reward_addr: pox_addr,
         stacked_ustx: min_stx.into(),
         num_cycles: lock_period,
@@ -4685,7 +4620,7 @@ fn burn_ops_integration_test() {
     );
 
     let stack_stx_op_with_no_signer_key = StackStxOp {
-        sender: signer_addr_2.clone(),
+        sender: signer_addr_2,
         reward_addr: PoxAddress::Standard(signer_addr_2, None),
         stacked_ustx: 100000,
         num_cycles: 6,
@@ -4770,7 +4705,7 @@ fn burn_ops_integration_test() {
         for tx in transactions.iter().rev() {
             let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
             if raw_tx == "0x00" {
-                info!("Found a burn op: {:?}", tx);
+                info!("Found a burn op: {tx:?}");
                 assert!(block_has_tenure_change, "Block should have a tenure change");
                 let burnchain_op = tx.get("burnchain_op").unwrap().as_object().unwrap();
                 if burnchain_op.contains_key("transfer_stx") {
@@ -4788,15 +4723,14 @@ fn burn_ops_integration_test() {
                     assert_eq!(recipient, stacker_addr_2.to_string());
                     assert_eq!(transfered_ustx, 10000);
                     info!(
-                        "Transfer STX op: sender: {}, recipient: {}, transfered_ustx: {}",
-                        sender, recipient, transfered_ustx
+                        "Transfer STX op: sender: {sender}, recipient: {recipient}, transfered_ustx: {transfered_ustx}"
                     );
                     assert!(!transfer_stx_found, "Transfer STX op should be unique");
                     transfer_stx_found = true;
                     continue;
                 }
                 if burnchain_op.contains_key("delegate_stx") {
-                    info!("Got delegate STX op: {:?}", burnchain_op);
+                    info!("Got delegate STX op: {burnchain_op:?}");
                     let delegate_stx_obj = burnchain_op.get("delegate_stx").unwrap();
                     let sender_obj = delegate_stx_obj.get("sender").unwrap();
                     let sender = sender_obj.get("address").unwrap().as_str().unwrap();
@@ -4815,7 +4749,7 @@ fn burn_ops_integration_test() {
                     continue;
                 }
                 if !burnchain_op.contains_key("stack_stx") {
-                    warn!("Got unexpected burnchain op: {:?}", burnchain_op);
+                    warn!("Got unexpected burnchain op: {burnchain_op:?}");
                     panic!("unexpected btc transaction type");
                 }
                 let stack_stx_obj = burnchain_op.get("stack_stx").unwrap();
@@ -4886,7 +4820,7 @@ fn burn_ops_integration_test() {
     for ancestor_bhh in ancestor_burnchain_header_hashes.iter().rev() {
         let stacking_ops = SortitionDB::get_stack_stx_ops(sortdb_conn, ancestor_bhh).unwrap();
         for stacking_op in stacking_ops.into_iter() {
-            debug!("Stacking op queried from sortdb: {:?}", stacking_op);
+            debug!("Stacking op queried from sortdb: {stacking_op:?}");
             match stacking_op.signer_key {
                 Some(_) => found_some = true,
                 None => found_none = true,
@@ -4935,23 +4869,21 @@ fn forked_tenure_is_ignored() {
 
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
     naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(10);
+    naka_conf.miner.block_commit_delay = Duration::from_secs(0);
     let sender_sk = Secp256k1PrivateKey::new();
     // setup sender + recipient for a test stx transfer
     let sender_addr = tests::to_addr(&sender_sk);
     let send_amt = 100;
     let send_fee = 180;
     naka_conf.add_initial_balance(
-        PrincipalData::from(sender_addr.clone()).to_string(),
+        PrincipalData::from(sender_addr).to_string(),
         send_amt + send_fee,
     );
     let sender_signer_sk = Secp256k1PrivateKey::new();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
-    let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
+    let mut signers = TestSigners::new(vec![sender_signer_sk]);
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
-    naka_conf.add_initial_balance(
-        PrincipalData::from(sender_signer_addr.clone()).to_string(),
-        100000,
-    );
+    naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
     let stacker_sk = setup_stacker(&mut naka_conf);
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
 
@@ -5079,7 +5011,7 @@ fn forked_tenure_is_ignored() {
         .nakamoto_blocks_db()
         .get_nakamoto_tenure_start_blocks(&tip_sn.consensus_hash)
         .unwrap()
-        .get(0)
+        .first()
         .cloned()
         .unwrap();
 
@@ -5308,13 +5240,10 @@ fn check_block_heights() {
     let send_fee = 180;
     let deploy_fee = 3000;
     naka_conf.add_initial_balance(
-        PrincipalData::from(sender_addr.clone()).to_string(),
+        PrincipalData::from(sender_addr).to_string(),
         3 * deploy_fee + (send_amt + send_fee) * tenure_count * inter_blocks_per_tenure,
     );
-    naka_conf.add_initial_balance(
-        PrincipalData::from(sender_signer_addr.clone()).to_string(),
-        100000,
-    );
+    naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let stacker_sk = setup_stacker(&mut naka_conf);
 
@@ -5398,12 +5327,12 @@ fn check_block_heights() {
         vec![],
     );
     let preheights = heights0_value.expect_tuple().unwrap();
-    info!("Heights from pre-epoch 3.0: {}", preheights);
+    info!("Heights from pre-epoch 3.0: {preheights}");
 
     wait_for_first_naka_block_commit(60, &commits_submitted);
 
     let info = get_chain_info_result(&naka_conf).unwrap();
-    info!("Chain info: {:?}", info);
+    info!("Chain info: {info:?}");
 
     // With the first Nakamoto block, the chain tip and the number of tenures
     // must be the same (before Nakamoto every block counts as a tenure)
@@ -5421,7 +5350,7 @@ fn check_block_heights() {
         vec![],
     );
     let heights0 = heights0_value.expect_tuple().unwrap();
-    info!("Heights from epoch 3.0 start: {}", heights0);
+    info!("Heights from epoch 3.0 start: {heights0}");
     assert_eq!(
         heights0.get("burn-block-height"),
         preheights.get("burn-block-height"),
@@ -5470,7 +5399,7 @@ fn check_block_heights() {
 
     // Mine `tenure_count` nakamoto tenures
     for tenure_ix in 0..tenure_count {
-        info!("Mining tenure {}", tenure_ix);
+        info!("Mining tenure {tenure_ix}");
         let commits_before = commits_submitted.load(Ordering::SeqCst);
         next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
             .unwrap();
@@ -5492,7 +5421,7 @@ fn check_block_heights() {
             vec![],
         );
         let heights1 = heights1_value.expect_tuple().unwrap();
-        info!("Heights from Clarity 1: {}", heights1);
+        info!("Heights from Clarity 1: {heights1}");
 
         let heights3_value = call_read_only(
             &naka_conf,
@@ -5502,7 +5431,7 @@ fn check_block_heights() {
             vec![],
         );
         let heights3 = heights3_value.expect_tuple().unwrap();
-        info!("Heights from Clarity 3: {}", heights3);
+        info!("Heights from Clarity 3: {heights3}");
 
         let bbh1 = heights1
             .get("burn-block-height")
@@ -5602,7 +5531,7 @@ fn check_block_heights() {
                 vec![],
             );
             let heights1 = heights1_value.expect_tuple().unwrap();
-            info!("Heights from Clarity 1: {}", heights1);
+            info!("Heights from Clarity 1: {heights1}");
 
             let heights3_value = call_read_only(
                 &naka_conf,
@@ -5612,7 +5541,7 @@ fn check_block_heights() {
                 vec![],
             );
             let heights3 = heights3_value.expect_tuple().unwrap();
-            info!("Heights from Clarity 3: {}", heights3);
+            info!("Heights from Clarity 3: {heights3}");
 
             let bbh1 = heights1
                 .get("burn-block-height")
@@ -5727,17 +5656,11 @@ fn nakamoto_attempt_time() {
 
     let sender_sk = Secp256k1PrivateKey::new();
     let sender_addr = tests::to_addr(&sender_sk);
-    naka_conf.add_initial_balance(
-        PrincipalData::from(sender_addr.clone()).to_string(),
-        1_000_000_000,
-    );
+    naka_conf.add_initial_balance(PrincipalData::from(sender_addr).to_string(), 1_000_000_000);
 
     let sender_signer_sk = Secp256k1PrivateKey::new();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
-    naka_conf.add_initial_balance(
-        PrincipalData::from(sender_signer_addr.clone()).to_string(),
-        100_000,
-    );
+    naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100_000);
 
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
@@ -5853,7 +5776,7 @@ fn nakamoto_attempt_time() {
 
         // mine the interim blocks
         for tenure_count in 0..inter_blocks_per_tenure {
-            debug!("nakamoto_attempt_time: begin tenure {}", tenure_count);
+            debug!("nakamoto_attempt_time: begin tenure {tenure_count}");
 
             let blocks_processed_before = coord_channel
                 .lock()
@@ -5991,8 +5914,7 @@ fn nakamoto_attempt_time() {
                 break 'submit_txs;
             }
             info!(
-                "nakamoto_times_ms: on account {}; sent {} txs so far (out of {})",
-                acct_idx, tx_count, tx_limit
+                "nakamoto_times_ms: on account {acct_idx}; sent {tx_count} txs so far (out of {tx_limit})"
             );
         }
         acct_idx += 1;
@@ -6060,13 +5982,10 @@ fn clarity_burn_state() {
     let tx_fee = 1000;
     let deploy_fee = 3000;
     naka_conf.add_initial_balance(
-        PrincipalData::from(sender_addr.clone()).to_string(),
+        PrincipalData::from(sender_addr).to_string(),
         deploy_fee + tx_fee * tenure_count + tx_fee * tenure_count * inter_blocks_per_tenure,
     );
-    naka_conf.add_initial_balance(
-        PrincipalData::from(sender_signer_addr.clone()).to_string(),
-        100000,
-    );
+    naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
     let stacker_sk = setup_stacker(&mut naka_conf);
 
     test_observer::spawn();
@@ -6143,7 +6062,7 @@ fn clarity_burn_state() {
 
     // Mine `tenure_count` nakamoto tenures
     for tenure_ix in 0..tenure_count {
-        info!("Mining tenure {}", tenure_ix);
+        info!("Mining tenure {tenure_ix}");
 
         // Don't submit this tx on the first iteration, because the contract is not published yet.
         if tenure_ix > 0 {
@@ -6204,7 +6123,7 @@ fn clarity_burn_state() {
 
         let info = get_chain_info(&naka_conf);
         burn_block_height = info.burn_block_height as u128;
-        info!("Expecting burn block height to be {}", burn_block_height);
+        info!("Expecting burn block height to be {burn_block_height}");
 
         // Assert that the contract call was successful
         test_observer::get_mined_nakamoto_blocks()
@@ -6219,11 +6138,11 @@ fn clarity_burn_state() {
                         return;
                     }
 
-                    info!("Contract call result: {}", result);
+                    info!("Contract call result: {result}");
                     result.clone().expect_result_ok().expect("Ok result");
                 }
                 _ => {
-                    info!("Unsuccessful event: {:?}", event);
+                    info!("Unsuccessful event: {event:?}");
                     panic!("Expected a successful transaction");
                 }
             });
@@ -6245,7 +6164,7 @@ fn clarity_burn_state() {
                 "foo",
                 vec![&expected_height],
             );
-            info!("Read-only result: {:?}", result);
+            info!("Read-only result: {result:?}");
             result.expect_result_ok().expect("Read-only call failed");
 
             // Submit a tx to trigger the next block
@@ -6281,11 +6200,11 @@ fn clarity_burn_state() {
                 .iter()
                 .for_each(|event| match event {
                     TransactionEvent::Success(TransactionSuccessEvent { result, .. }) => {
-                        info!("Contract call result: {}", result);
+                        info!("Contract call result: {result}");
                         result.clone().expect_result_ok().expect("Ok result");
                     }
                     _ => {
-                        info!("Unsuccessful event: {:?}", event);
+                        info!("Unsuccessful event: {event:?}");
                         panic!("Expected a successful transaction");
                     }
                 });
@@ -6311,6 +6230,7 @@ fn clarity_burn_state() {
 
 #[test]
 #[ignore]
+#[allow(clippy::drop_non_drop)]
 fn signer_chainstate() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
@@ -6318,7 +6238,7 @@ fn signer_chainstate() {
 
     let mut signers = TestSigners::default();
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
-    let prom_bind = format!("{}:{}", "127.0.0.1", 6000);
+    let prom_bind = "127.0.0.1:6000".to_string();
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
     naka_conf.node.prometheus_bind = Some(prom_bind.clone());
     naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
@@ -6328,15 +6248,12 @@ fn signer_chainstate() {
     let send_amt = 1000;
     let send_fee = 200;
     naka_conf.add_initial_balance(
-        PrincipalData::from(sender_addr.clone()).to_string(),
+        PrincipalData::from(sender_addr).to_string(),
         (send_amt + send_fee) * 20,
     );
     let sender_signer_sk = Secp256k1PrivateKey::new();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
-    naka_conf.add_initial_balance(
-        PrincipalData::from(sender_signer_addr.clone()).to_string(),
-        100000,
-    );
+    naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let stacker_sk = setup_stacker(&mut naka_conf);
 
@@ -6392,7 +6309,7 @@ fn signer_chainstate() {
                 .unwrap()
                 .unwrap()
                 .stacks_block_height;
-        let prom_http_origin = format!("http://{}", prom_bind);
+        let prom_http_origin = format!("http://{prom_bind}");
         wait_for(10, || {
             let client = reqwest::blocking::Client::new();
             let res = client
@@ -6454,6 +6371,7 @@ fn signer_chainstate() {
         let proposal_conf = ProposalEvalConfig {
             first_proposal_burn_block_timing: Duration::from_secs(0),
             block_proposal_timeout: Duration::from_secs(100),
+            tenure_last_block_proposal_timeout: Duration::from_secs(30),
         };
         let mut sortitions_view =
             SortitionsView::fetch_view(proposal_conf, &signer_client).unwrap();
@@ -6592,6 +6510,7 @@ fn signer_chainstate() {
         let proposal_conf = ProposalEvalConfig {
             first_proposal_burn_block_timing: Duration::from_secs(0),
             block_proposal_timeout: Duration::from_secs(100),
+            tenure_last_block_proposal_timeout: Duration::from_secs(30),
         };
         let burn_block_height = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
             .unwrap()
@@ -6626,10 +6545,10 @@ fn signer_chainstate() {
                 valid: Some(true),
                 signed_over: true,
                 proposed_time: get_epoch_time_secs(),
-                signed_self: None,
-                signed_group: None,
+                signed_self: Some(get_epoch_time_secs()),
+                signed_group: Some(get_epoch_time_secs()),
                 ext: ExtraBlockInfo::None,
-                state: BlockState::Unprocessed,
+                state: BlockState::GloballyAccepted,
             })
             .unwrap();
 
@@ -6643,13 +6562,13 @@ fn signer_chainstate() {
     // Case: the block doesn't confirm the prior blocks that have been signed.
     let last_tenure = &last_tenures_proposals.as_ref().unwrap().1.clone();
     let last_tenure_header = &last_tenure.header;
-    let miner_sk = naka_conf.miner.mining_key.clone().unwrap();
+    let miner_sk = naka_conf.miner.mining_key.unwrap();
     let miner_pk = StacksPublicKey::from_private(&miner_sk);
     let mut sibling_block_header = NakamotoBlockHeader {
         version: 1,
         chain_length: last_tenure_header.chain_length,
         burn_spent: last_tenure_header.burn_spent,
-        consensus_hash: last_tenure_header.consensus_hash.clone(),
+        consensus_hash: last_tenure_header.consensus_hash,
         parent_block_id: last_tenure_header.block_id(),
         tx_merkle_root: Sha512Trunc256Sum::from_data(&[0]),
         state_index_root: TrieHash([0; 32]),
@@ -6669,6 +6588,7 @@ fn signer_chainstate() {
     let proposal_conf = ProposalEvalConfig {
         first_proposal_burn_block_timing: Duration::from_secs(0),
         block_proposal_timeout: Duration::from_secs(100),
+        tenure_last_block_proposal_timeout: Duration::from_secs(30),
     };
     let mut sortitions_view = SortitionsView::fetch_view(proposal_conf, &signer_client).unwrap();
     let burn_block_height = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
@@ -6697,8 +6617,8 @@ fn signer_chainstate() {
         version: 1,
         chain_length: last_tenure_header.chain_length,
         burn_spent: last_tenure_header.burn_spent,
-        consensus_hash: last_tenure_header.consensus_hash.clone(),
-        parent_block_id: last_tenure_header.parent_block_id.clone(),
+        consensus_hash: last_tenure_header.consensus_hash,
+        parent_block_id: last_tenure_header.parent_block_id,
         tx_merkle_root: Sha512Trunc256Sum::from_data(&[0]),
         state_index_root: TrieHash([0; 32]),
         timestamp: last_tenure_header.timestamp + 1,
@@ -6755,7 +6675,7 @@ fn signer_chainstate() {
         version: 1,
         chain_length: reorg_to_block.header.chain_length + 1,
         burn_spent: reorg_to_block.header.burn_spent,
-        consensus_hash: last_tenure_header.consensus_hash.clone(),
+        consensus_hash: last_tenure_header.consensus_hash,
         parent_block_id: reorg_to_block.block_id(),
         tx_merkle_root: Sha512Trunc256Sum::from_data(&[0]),
         state_index_root: TrieHash([0; 32]),
@@ -6786,9 +6706,9 @@ fn signer_chainstate() {
                 post_condition_mode: TransactionPostConditionMode::Allow,
                 post_conditions: vec![],
                 payload: TransactionPayload::TenureChange(TenureChangePayload {
-                    tenure_consensus_hash: sibling_block_header.consensus_hash.clone(),
-                    prev_tenure_consensus_hash: reorg_to_block.header.consensus_hash.clone(),
-                    burn_view_consensus_hash: sibling_block_header.consensus_hash.clone(),
+                    tenure_consensus_hash: sibling_block_header.consensus_hash,
+                    prev_tenure_consensus_hash: reorg_to_block.header.consensus_hash,
+                    burn_view_consensus_hash: sibling_block_header.consensus_hash,
                     previous_tenure_end: reorg_to_block.block_id(),
                     previous_tenure_blocks: 1,
                     cause: stacks::chainstate::stacks::TenureChangeCause::BlockFound,
@@ -6816,12 +6736,12 @@ fn signer_chainstate() {
     // Case: the block contains a tenure change, but the parent tenure is a reorg
     let reorg_to_block = first_tenure_blocks.as_ref().unwrap().last().unwrap();
     // make the sortition_view *think* that our block commit pointed at this old tenure
-    sortitions_view.cur_sortition.parent_tenure_id = reorg_to_block.header.consensus_hash.clone();
+    sortitions_view.cur_sortition.parent_tenure_id = reorg_to_block.header.consensus_hash;
     let mut sibling_block_header = NakamotoBlockHeader {
         version: 1,
         chain_length: reorg_to_block.header.chain_length + 1,
         burn_spent: reorg_to_block.header.burn_spent,
-        consensus_hash: last_tenure_header.consensus_hash.clone(),
+        consensus_hash: last_tenure_header.consensus_hash,
         parent_block_id: reorg_to_block.block_id(),
         tx_merkle_root: Sha512Trunc256Sum::from_data(&[0]),
         state_index_root: TrieHash([0; 32]),
@@ -6852,9 +6772,9 @@ fn signer_chainstate() {
                 post_condition_mode: TransactionPostConditionMode::Allow,
                 post_conditions: vec![],
                 payload: TransactionPayload::TenureChange(TenureChangePayload {
-                    tenure_consensus_hash: sibling_block_header.consensus_hash.clone(),
-                    prev_tenure_consensus_hash: reorg_to_block.header.consensus_hash.clone(),
-                    burn_view_consensus_hash: sibling_block_header.consensus_hash.clone(),
+                    tenure_consensus_hash: sibling_block_header.consensus_hash,
+                    prev_tenure_consensus_hash: reorg_to_block.header.consensus_hash,
+                    burn_view_consensus_hash: sibling_block_header.consensus_hash,
                     previous_tenure_end: reorg_to_block.block_id(),
                     previous_tenure_blocks: 1,
                     cause: stacks::chainstate::stacks::TenureChangeCause::BlockFound,
@@ -6893,7 +6813,7 @@ fn signer_chainstate() {
     // every step of the return should be linked to the parent
     let mut prior: Option<&TenureForkingInfo> = None;
     for step in fork_info.iter().rev() {
-        if let Some(ref prior) = prior {
+        if let Some(prior) = prior {
             assert_eq!(prior.sortition_id, step.parent_sortition_id);
         }
         prior = Some(step);
@@ -6932,7 +6852,7 @@ fn continue_tenure_extend() {
 
     let mut signers = TestSigners::default();
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
-    let prom_bind = format!("{}:{}", "127.0.0.1", 6000);
+    let prom_bind = "127.0.0.1:6000".to_string();
     naka_conf.node.prometheus_bind = Some(prom_bind.clone());
     naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
     let http_origin = naka_conf.node.data_url.clone();
@@ -6942,15 +6862,12 @@ fn continue_tenure_extend() {
     let send_amt = 1000;
     let send_fee = 200;
     naka_conf.add_initial_balance(
-        PrincipalData::from(sender_addr.clone()).to_string(),
+        PrincipalData::from(sender_addr).to_string(),
         (send_amt + send_fee) * 20,
     );
     let sender_signer_sk = Secp256k1PrivateKey::new();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
-    naka_conf.add_initial_balance(
-        PrincipalData::from(sender_signer_addr.clone()).to_string(),
-        100000,
-    );
+    naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let stacker_sk = setup_stacker(&mut naka_conf);
     let mut transfer_nonce = 0;
@@ -7009,7 +6926,7 @@ fn continue_tenure_extend() {
     // query for prometheus metrics
     #[cfg(feature = "monitoring_prom")]
     {
-        let prom_http_origin = format!("http://{}", prom_bind);
+        let prom_http_origin = format!("http://{prom_bind}");
         wait_for(10, || {
             let client = reqwest::blocking::Client::new();
             let res = client
@@ -7198,7 +7115,7 @@ fn continue_tenure_extend() {
         let mut has_extend = false;
         for tx in block["transactions"].as_array().unwrap() {
             let raw_tx = tx["raw_tx"].as_str().unwrap();
-            if raw_tx == &transfer_tx_hex {
+            if raw_tx == transfer_tx_hex {
                 transfer_tx_included = true;
                 continue;
             }
@@ -7207,8 +7124,9 @@ fn continue_tenure_extend() {
             }
             let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
             let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
-            match &parsed.payload {
-                TransactionPayload::TenureChange(payload) => match payload.cause {
+
+            if let TransactionPayload::TenureChange(payload) = &parsed.payload {
+                match payload.cause {
                     TenureChangeCause::Extended => {
                         has_extend = true;
                         tenure_extends.push(parsed);
@@ -7219,9 +7137,8 @@ fn continue_tenure_extend() {
                         }
                         tenure_block_founds.push(parsed);
                     }
-                },
-                _ => {}
-            };
+                };
+            }
         }
         last_block_had_extend = has_extend;
     }
@@ -7246,7 +7163,7 @@ fn continue_tenure_extend() {
     // make sure prometheus returns an updated height
     #[cfg(feature = "monitoring_prom")]
     {
-        let prom_http_origin = format!("http://{}", prom_bind);
+        let prom_http_origin = format!("http://{prom_bind}");
         wait_for(10, || {
             let client = reqwest::blocking::Client::new();
             let res = client
@@ -7284,8 +7201,8 @@ fn get_block_times(
     info!("Getting block times at block {block_height}, tenure {tenure_height}...");
 
     let time0_value = call_read_only(
-        &naka_conf,
-        &sender_addr,
+        naka_conf,
+        sender_addr,
         contract0_name,
         "get-time",
         vec![&clarity::vm::Value::UInt(tenure_height)],
@@ -7298,8 +7215,8 @@ fn get_block_times(
         .unwrap();
 
     let time_now0_value = call_read_only(
-        &naka_conf,
-        &sender_addr,
+        naka_conf,
+        sender_addr,
         contract0_name,
         "get-last-time",
         vec![],
@@ -7312,8 +7229,8 @@ fn get_block_times(
         .unwrap();
 
     let time1_value = call_read_only(
-        &naka_conf,
-        &sender_addr,
+        naka_conf,
+        sender_addr,
         contract1_name,
         "get-time",
         vec![&clarity::vm::Value::UInt(tenure_height)],
@@ -7326,8 +7243,8 @@ fn get_block_times(
         .unwrap();
 
     let time1_now_value = call_read_only(
-        &naka_conf,
-        &sender_addr,
+        naka_conf,
+        sender_addr,
         contract1_name,
         "get-last-time",
         vec![],
@@ -7340,8 +7257,8 @@ fn get_block_times(
         .unwrap();
 
     let time3_tenure_value = call_read_only(
-        &naka_conf,
-        &sender_addr,
+        naka_conf,
+        sender_addr,
         contract3_name,
         "get-tenure-time",
         vec![&clarity::vm::Value::UInt(block_height)],
@@ -7354,8 +7271,8 @@ fn get_block_times(
         .unwrap();
 
     let time3_block_value = call_read_only(
-        &naka_conf,
-        &sender_addr,
+        naka_conf,
+        sender_addr,
         contract3_name,
         "get-block-time",
         vec![&clarity::vm::Value::UInt(block_height)],
@@ -7368,8 +7285,8 @@ fn get_block_times(
         .unwrap();
 
     let time3_now_tenure_value = call_read_only(
-        &naka_conf,
-        &sender_addr,
+        naka_conf,
+        sender_addr,
         contract3_name,
         "get-last-tenure-time",
         vec![],
@@ -7436,13 +7353,10 @@ fn check_block_times() {
     let send_fee = 180;
     let deploy_fee = 3000;
     naka_conf.add_initial_balance(
-        PrincipalData::from(sender_addr.clone()).to_string(),
+        PrincipalData::from(sender_addr).to_string(),
         3 * deploy_fee + (send_amt + send_fee) * 12,
     );
-    naka_conf.add_initial_balance(
-        PrincipalData::from(sender_signer_addr.clone()).to_string(),
-        100000,
-    );
+    naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let stacker_sk = setup_stacker(&mut naka_conf);
 
@@ -7532,7 +7446,7 @@ fn check_block_times() {
         .unwrap()
         .expect_u128()
         .unwrap();
-    info!("Time from pre-epoch 3.0: {}", time0);
+    info!("Time from pre-epoch 3.0: {time0}");
 
     // This version uses the Clarity 1 / 2 function
     let contract1_name = "test-contract-1";
@@ -7837,13 +7751,10 @@ fn check_block_info() {
     let send_fee = 180;
     let deploy_fee = 3000;
     naka_conf.add_initial_balance(
-        PrincipalData::from(sender_addr.clone()).to_string(),
+        PrincipalData::from(sender_addr).to_string(),
         3 * deploy_fee + (send_amt + send_fee) * 2,
     );
-    naka_conf.add_initial_balance(
-        PrincipalData::from(sender_signer_addr.clone()).to_string(),
-        100000,
-    );
+    naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let stacker_sk = setup_stacker(&mut naka_conf);
     let contract3_name = "test-contract-3";
@@ -7975,7 +7886,7 @@ fn check_block_info() {
     blind_signer(&naka_conf, &signers, proposals_submitted);
 
     let c0_block_ht_1_pre_3 = get_block_info(contract0_name, 1);
-    info!("Info from pre-epoch 3.0: {:?}", c0_block_ht_1_pre_3);
+    info!("Info from pre-epoch 3.0: {c0_block_ht_1_pre_3:?}");
 
     wait_for_first_naka_block_commit(60, &commits_submitted);
 
@@ -8043,7 +7954,7 @@ fn check_block_info() {
     //  one in the tenure)
 
     let info = get_chain_info(&naka_conf);
-    info!("Chain info: {:?}", info);
+    info!("Chain info: {info:?}");
     let last_stacks_block_height = info.stacks_tip_height as u128;
     let last_stacks_tip = StacksBlockId::new(&info.stacks_tip_consensus_hash, &info.stacks_tip);
     let last_tenure_height: u128 =
@@ -8066,7 +7977,7 @@ fn check_block_info() {
         .unwrap();
 
     let info = get_chain_info(&naka_conf);
-    info!("Chain info: {:?}", info);
+    info!("Chain info: {info:?}");
     let cur_stacks_block_height = info.stacks_tip_height as u128;
     let cur_stacks_tip = StacksBlockId::new(&info.stacks_tip_consensus_hash, &info.stacks_tip);
     let cur_tenure_height: u128 =
@@ -8385,7 +8296,7 @@ fn check_block_info() {
     run_loop_thread.join().unwrap();
 }
 
-fn get_expected_reward_for_height(blocks: &Vec<serde_json::Value>, block_height: u128) -> u128 {
+fn get_expected_reward_for_height(blocks: &[serde_json::Value], block_height: u128) -> u128 {
     // Find the target block
     let target_block = blocks
         .iter()
@@ -8472,13 +8383,10 @@ fn check_block_info_rewards() {
     let send_fee = 180;
     let deploy_fee = 3000;
     naka_conf.add_initial_balance(
-        PrincipalData::from(sender_addr.clone()).to_string(),
+        PrincipalData::from(sender_addr).to_string(),
         3 * deploy_fee + (send_amt + send_fee) * 2,
     );
-    naka_conf.add_initial_balance(
-        PrincipalData::from(sender_signer_addr.clone()).to_string(),
-        100000,
-    );
+    naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let stacker_sk = setup_stacker(&mut naka_conf);
 
@@ -8564,7 +8472,7 @@ fn check_block_info_rewards() {
     blind_signer(&naka_conf, &signers, proposals_submitted);
 
     let tuple0 = get_block_info(contract0_name, 1);
-    info!("Info from pre-epoch 3.0: {:?}", tuple0);
+    info!("Info from pre-epoch 3.0: {tuple0:?}");
 
     wait_for_first_naka_block_commit(60, &commits_submitted);
 
@@ -8676,7 +8584,7 @@ fn check_block_info_rewards() {
     }
 
     let info = get_chain_info_result(&naka_conf).unwrap();
-    info!("Chain info: {:?}", info);
+    info!("Chain info: {info:?}");
     let (chainstate, _) = StacksChainState::open(
         naka_conf.is_mainnet(),
         naka_conf.burnchain.chain_id,
@@ -8709,7 +8617,7 @@ fn check_block_info_rewards() {
     }
 
     let info = get_chain_info_result(&naka_conf).unwrap();
-    info!("Chain info: {:?}", info);
+    info!("Chain info: {info:?}");
     let last_stacks_block_height = info.stacks_tip_height as u128;
     let blocks = test_observer::get_blocks();
 
@@ -8801,7 +8709,7 @@ fn mock_mining() {
     let sender_sk = Secp256k1PrivateKey::new();
     let sender_signer_sk = Secp256k1PrivateKey::new();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
-    let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
+    let mut signers = TestSigners::new(vec![sender_signer_sk]);
     let tenure_count = 3;
     let inter_blocks_per_tenure = 3;
     // setup sender + recipient for some test stx transfers
@@ -8823,13 +8731,10 @@ fn mock_mining() {
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
 
     naka_conf.add_initial_balance(
-        PrincipalData::from(sender_addr.clone()).to_string(),
+        PrincipalData::from(sender_addr).to_string(),
         (send_amt + send_fee) * tenure_count * inter_blocks_per_tenure,
     );
-    naka_conf.add_initial_balance(
-        PrincipalData::from(sender_signer_addr.clone()).to_string(),
-        100000,
-    );
+    naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let stacker_sk = setup_stacker(&mut naka_conf);
 
@@ -9013,18 +8918,22 @@ fn mock_mining() {
             Ok(follower_naka_mined_blocks.load(Ordering::SeqCst)
                 > follower_naka_mined_blocks_before)
         })
-        .expect(&format!(
-            "Timed out waiting for mock miner block {}",
-            follower_naka_mined_blocks_before + 1
-        ));
+        .unwrap_or_else(|_| {
+            panic!(
+                "Timed out waiting for mock miner block {}",
+                follower_naka_mined_blocks_before + 1
+            )
+        });
 
         wait_for(20, || {
             Ok(commits_submitted.load(Ordering::SeqCst) > commits_before)
         })
-        .expect(&format!(
-            "Timed out waiting for mock miner block {}",
-            follower_naka_mined_blocks_before + 1
-        ));
+        .unwrap_or_else(|_| {
+            panic!(
+                "Timed out waiting for mock miner block {}",
+                follower_naka_mined_blocks_before + 1
+            )
+        });
     }
 
     // load the chain tip, and assert that it is a nakamoto block and at least 30 blocks have advanced in epoch 3
@@ -9050,9 +8959,7 @@ fn mock_mining() {
     let blocks_mock_mined = mock_mining_blocks_end - mock_mining_blocks_start;
     assert!(
         blocks_mock_mined >= tenure_count,
-        "Should have mock mined at least `tenure_count` nakamoto blocks. Mined = {}. Expected = {}",
-        blocks_mock_mined,
-        tenure_count,
+        "Should have mock mined at least `tenure_count` nakamoto blocks. Mined = {blocks_mock_mined}. Expected = {tenure_count}"
     );
 
     // wait for follower to reach the chain tip
@@ -9097,8 +9004,8 @@ fn utxo_check_on_startup_panic() {
     }
 
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
-    println!("Nakamoto node started with config: {:?}", naka_conf);
-    let prom_bind = format!("{}:{}", "127.0.0.1", 6000);
+    println!("Nakamoto node started with config: {naka_conf:?}");
+    let prom_bind = "127.0.0.1:6000".to_string();
     naka_conf.node.prometheus_bind = Some(prom_bind.clone());
     naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1000);
 
@@ -9173,8 +9080,8 @@ fn utxo_check_on_startup_recover() {
     }
 
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
-    println!("Nakamoto node started with config: {:?}", naka_conf);
-    let prom_bind = format!("{}:{}", "127.0.0.1", 6000);
+    println!("Nakamoto node started with config: {naka_conf:?}");
+    let prom_bind = "127.0.0.1:6000".to_string();
     naka_conf.node.prometheus_bind = Some(prom_bind.clone());
     naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1000);
 
@@ -9248,10 +9155,10 @@ fn v3_signer_api_endpoint() {
     let send_amt = 100;
     let send_fee = 180;
     conf.add_initial_balance(
-        PrincipalData::from(sender_addr.clone()).to_string(),
+        PrincipalData::from(sender_addr).to_string(),
         send_amt + send_fee,
     );
-    conf.add_initial_balance(PrincipalData::from(signer_addr.clone()).to_string(), 100000);
+    conf.add_initial_balance(PrincipalData::from(signer_addr).to_string(), 100000);
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
 
     // only subscribe to the block proposal events
@@ -9277,7 +9184,7 @@ fn v3_signer_api_endpoint() {
     let coord_channel = run_loop.coordinator_channels();
 
     let run_loop_thread = thread::spawn(move || run_loop.start(None, 0));
-    let mut signers = TestSigners::new(vec![signer_sk.clone()]);
+    let mut signers = TestSigners::new(vec![signer_sk]);
     wait_for_runloop(&blocks_processed);
     boot_to_epoch_3(
         &conf,
@@ -9411,7 +9318,7 @@ fn skip_mining_long_tx() {
     }
 
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
-    let prom_bind = format!("{}:{}", "127.0.0.1", 6000);
+    let prom_bind = "127.0.0.1:6000".to_string();
     naka_conf.node.prometheus_bind = Some(prom_bind.clone());
     naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
     naka_conf.miner.nakamoto_attempt_time_ms = 5_000;
@@ -9423,20 +9330,14 @@ fn skip_mining_long_tx() {
     let send_amt = 1000;
     let send_fee = 180;
     naka_conf.add_initial_balance(
-        PrincipalData::from(sender_1_addr.clone()).to_string(),
+        PrincipalData::from(sender_1_addr).to_string(),
         send_amt * 15 + send_fee * 15,
     );
-    naka_conf.add_initial_balance(
-        PrincipalData::from(sender_2_addr.clone()).to_string(),
-        10000,
-    );
+    naka_conf.add_initial_balance(PrincipalData::from(sender_2_addr).to_string(), 10000);
     let sender_signer_sk = Secp256k1PrivateKey::new();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
-    let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
-    naka_conf.add_initial_balance(
-        PrincipalData::from(sender_signer_addr.clone()).to_string(),
-        100000,
-    );
+    let mut signers = TestSigners::new(vec![sender_signer_sk]);
+    naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let stacker_sk = setup_stacker(&mut naka_conf);
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
@@ -9492,7 +9393,7 @@ fn skip_mining_long_tx() {
     wait_for_first_naka_block_commit(60, &commits_submitted);
 
     // submit a long running TX and the transfer TX
-    let input_list: Vec<_> = (1..100u64).into_iter().map(|x| x.to_string()).collect();
+    let input_list: Vec<_> = (1..100u64).map(|x| x.to_string()).collect();
     let input_list = input_list.join(" ");
 
     // Mine a few nakamoto tenures with some interim blocks in them

@@ -151,6 +151,7 @@ pub fn get_names(use_test_chainstate_data: bool) -> Box<dyn Iterator<Item = Chai
 }
 
 // This function is called for helium and mocknet.
+#[allow(clippy::too_many_arguments)]
 fn spawn_peer(
     is_mainnet: bool,
     chain_id: u32,
@@ -178,7 +179,7 @@ fn spawn_peer(
         let fee_estimator = config.make_fee_estimator();
 
         let handler_args = RPCHandlerArgs {
-            exit_at_block_height: exit_at_block_height.clone(),
+            exit_at_block_height,
             cost_estimator: Some(cost_estimator.as_ref()),
             cost_metric: Some(metric.as_ref()),
             fee_estimator: fee_estimator.as_ref().map(|x| x.as_ref()),
@@ -190,7 +191,7 @@ fn spawn_peer(
             let sortdb = match SortitionDB::open(&burn_db_path, false, pox_consts.clone()) {
                 Ok(x) => x,
                 Err(e) => {
-                    warn!("Error while connecting burnchain db in peer loop: {}", e);
+                    warn!("Error while connecting burnchain db in peer loop: {e}");
                     thread::sleep(time::Duration::from_secs(1));
                     continue;
                 }
@@ -203,7 +204,7 @@ fn spawn_peer(
             ) {
                 Ok(x) => x,
                 Err(e) => {
-                    warn!("Error while connecting chainstate db in peer loop: {}", e);
+                    warn!("Error while connecting chainstate db in peer loop: {e}");
                     thread::sleep(time::Duration::from_secs(1));
                     continue;
                 }
@@ -221,7 +222,7 @@ fn spawn_peer(
             ) {
                 Ok(x) => x,
                 Err(e) => {
-                    warn!("Error while connecting to mempool db in peer loop: {}", e);
+                    warn!("Error while connecting to mempool db in peer loop: {e}");
                     thread::sleep(time::Duration::from_secs(1));
                     continue;
                 }
@@ -268,7 +269,7 @@ pub fn use_test_genesis_chainstate(config: &Config) -> bool {
 
 impl Node {
     /// Instantiate and initialize a new node, given a config
-    pub fn new(config: Config, boot_block_exec: Box<dyn FnOnce(&mut ClarityTx) -> ()>) -> Self {
+    pub fn new(config: Config, boot_block_exec: Box<dyn FnOnce(&mut ClarityTx)>) -> Self {
         let use_test_genesis_data = if config.burnchain.mode == "mocknet" {
             use_test_genesis_chainstate(&config)
         } else {
@@ -318,9 +319,8 @@ impl Node {
         let (chain_state, receipts) = match chain_state_result {
             Ok(res) => res,
             Err(err) => panic!(
-                "Error while opening chain state at path {}: {:?}",
-                config.get_chainstate_path_str(),
-                err
+                "Error while opening chain state at path {}: {err:?}",
+                config.get_chainstate_path_str()
             ),
         };
 
@@ -407,18 +407,18 @@ impl Node {
         Config::assert_valid_epoch_settings(&burnchain, &epochs);
 
         let view = {
-            let sortition_tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn())
+            let sortition_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
                 .expect("Failed to get sortition tip");
             SortitionDB::get_burnchain_view(&sortdb.index_conn(), &burnchain, &sortition_tip)
                 .unwrap()
         };
 
         // create a new peerdb
-        let data_url = UrlString::try_from(format!("{}", self.config.node.data_url)).unwrap();
+        let data_url = UrlString::try_from(self.config.node.data_url.to_string()).unwrap();
 
         let initial_neighbors = self.config.node.bootstrap_node.clone();
 
-        println!("BOOTSTRAP WITH {:?}", initial_neighbors);
+        println!("BOOTSTRAP WITH {initial_neighbors:?}");
 
         let rpc_sock: SocketAddr =
             self.config.node.rpc_bind.parse().unwrap_or_else(|_| {
@@ -452,7 +452,7 @@ impl Node {
             self.config.burnchain.chain_id,
             burnchain.network_id,
             Some(node_privkey),
-            self.config.connection_options.private_key_lifetime.clone(),
+            self.config.connection_options.private_key_lifetime,
             PeerAddress::from_socketaddr(&p2p_addr),
             p2p_sock.port(),
             data_url,
@@ -464,10 +464,10 @@ impl Node {
 
         println!("DENY NEIGHBORS {:?}", &self.config.node.deny_nodes);
         {
-            let mut tx = peerdb.tx_begin().unwrap();
+            let tx = peerdb.tx_begin().unwrap();
             for denied in self.config.node.deny_nodes.iter() {
                 PeerDB::set_deny_peer(
-                    &mut tx,
+                    &tx,
                     denied.addr.network_id,
                     &denied.addr.addrbytes,
                     denied.addr.port,
@@ -488,12 +488,16 @@ impl Node {
         };
 
         let event_dispatcher = self.event_dispatcher.clone();
-        let exit_at_block_height = self.config.burnchain.process_exit_at_block_height.clone();
+        let exit_at_block_height = self.config.burnchain.process_exit_at_block_height;
+        let burnchain_db = burnchain
+            .open_burnchain_db(false)
+            .expect("Failed to open burnchain DB");
 
         let p2p_net = PeerNetwork::new(
             peerdb,
             atlasdb,
             stackerdbs,
+            burnchain_db,
             local_peer,
             self.config.burnchain.peer_version,
             burnchain.clone(),
@@ -577,9 +581,9 @@ impl Node {
                         // Registered key has been mined
                         new_key = Some(RegisteredKey {
                             vrf_public_key: op.public_key.clone(),
-                            block_height: op.block_height as u64,
-                            op_vtxindex: op.vtxindex as u32,
-                            target_block_height: (op.block_height as u64) - 1,
+                            block_height: op.block_height,
+                            op_vtxindex: op.vtxindex,
+                            target_block_height: op.block_height - 1,
                             memo: op.memo.clone(),
                         });
                     }
@@ -649,7 +653,7 @@ impl Node {
             burnchain.pox_constants,
         )
         .expect("Error while opening sortition db");
-        let tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn())
+        let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
             .expect("FATAL: failed to query canonical burn chain tip");
 
         // Generates a proof out of the sortition hash provided in the params.
@@ -734,7 +738,7 @@ impl Node {
                 anchored_block_from_ongoing_tenure.header.block_hash(),
                 burn_fee,
                 &registered_key,
-                &burnchain_tip,
+                burnchain_tip,
                 VRFSeed::from_proof(&vrf_proof),
             );
 
@@ -784,15 +788,13 @@ impl Node {
             )
             .unwrap_or_else(|_| {
                 panic!(
-                    "BUG: could not query chainstate to find parent consensus hash of {}/{}",
-                    consensus_hash,
+                    "BUG: could not query chainstate to find parent consensus hash of {consensus_hash}/{}",
                     &anchored_block.block_hash()
                 )
             })
             .unwrap_or_else(|| {
                 panic!(
-                    "BUG: no such parent of block {}/{}",
-                    consensus_hash,
+                    "BUG: no such parent of block {consensus_hash}/{}",
                     &anchored_block.block_hash()
                 )
             });
@@ -802,7 +804,7 @@ impl Node {
                 .preprocess_anchored_block(
                     &ic,
                     consensus_hash,
-                    &anchored_block,
+                    anchored_block,
                     &parent_consensus_hash,
                     0,
                 )
@@ -813,7 +815,7 @@ impl Node {
                 let res = self
                     .chain_state
                     .preprocess_streamed_microblock(
-                        &consensus_hash,
+                        consensus_hash,
                         &anchored_block.block_hash(),
                         microblock,
                     )
@@ -847,33 +849,30 @@ impl Node {
                 )
             };
             match process_blocks_at_tip {
-                Err(e) => panic!("Error while processing block - {:?}", e),
+                Err(e) => panic!("Error while processing block - {e:?}"),
                 Ok(ref mut blocks) => {
-                    if blocks.len() == 0 {
+                    if blocks.is_empty() {
                         break;
                     } else {
                         for block in blocks.iter() {
-                            match block {
-                                (Some(epoch_receipt), _) => {
-                                    let attachments_instances =
-                                        self.get_attachment_instances(epoch_receipt, &atlas_config);
-                                    if !attachments_instances.is_empty() {
-                                        for new_attachment in attachments_instances.into_iter() {
-                                            if let Err(e) =
-                                                atlas_db.queue_attachment_instance(&new_attachment)
-                                            {
-                                                warn!(
-                                                    "Atlas: Error writing attachment instance to DB";
-                                                    "err" => ?e,
-                                                    "index_block_hash" => %new_attachment.index_block_hash,
-                                                    "contract_id" => %new_attachment.contract_id,
-                                                    "attachment_index" => %new_attachment.attachment_index,
-                                                );
-                                            }
+                            if let (Some(epoch_receipt), _) = block {
+                                let attachments_instances =
+                                    self.get_attachment_instances(epoch_receipt, &atlas_config);
+                                if !attachments_instances.is_empty() {
+                                    for new_attachment in attachments_instances.into_iter() {
+                                        if let Err(e) =
+                                            atlas_db.queue_attachment_instance(&new_attachment)
+                                        {
+                                            warn!(
+                                                "Atlas: Error writing attachment instance to DB";
+                                                "err" => ?e,
+                                                "index_block_hash" => %new_attachment.index_block_hash,
+                                                "contract_id" => %new_attachment.contract_id,
+                                                "attachment_index" => %new_attachment.attachment_index,
+                                            );
                                         }
                                     }
                                 }
-                                _ => {}
                             }
                         }
 
@@ -990,7 +989,7 @@ impl Node {
         BlockstackOperationType::LeaderKeyRegister(LeaderKeyRegisterOp {
             public_key: vrf_public_key,
             memo: vec![],
-            consensus_hash: consensus_hash.clone(),
+            consensus_hash: *consensus_hash,
             vtxindex: 1,
             txid,
             block_height: 0,

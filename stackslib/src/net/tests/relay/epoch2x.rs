@@ -3097,6 +3097,8 @@ fn process_new_blocks_rejects_problematic_asts() {
         0,
         0,
         0,
+        0,
+        0,
         ConsensusHash([0x01; 20]),
         HashMap::new(),
     );
