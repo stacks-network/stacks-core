@@ -912,7 +912,7 @@ impl RelayerThread {
             return Ok(());
         }
 
-        let last_non_empty_sortition_snapshot =
+        let canonical_block_snapshot =
             SortitionDB::get_block_snapshot_consensus(self.sortdb.conn(), &canonical_stacks_tip_ch)
                 .map_err(|e| {
                     error!("Relayer: failed to get block snapshot for canonical tip: {e:?}");
@@ -923,22 +923,22 @@ impl RelayerThread {
                     NakamotoNodeError::SnapshotNotFoundForChainTip
                 })?;
 
-        let won_last_non_empty_sortition_snapshot =
-            last_non_empty_sortition_snapshot.miner_pk_hash == Some(mining_pkh);
+        let won_canonical_block_snapshot =
+            canonical_block_snapshot.miner_pk_hash == Some(mining_pkh);
 
         let (parent_tenure_start, block_election_snapshot, reason) =
-            if !won_last_non_empty_sortition_snapshot {
+            if !won_canonical_block_snapshot {
                 debug!("Relayer: Failed to issue a tenure change payload in our last tenure. Issue a new tenure change payload.");
                 (
-                    canonical_stacks_tip,
+                    StacksBlockId(last_block_election_snapshot.winning_stacks_block_hash.0),
                     last_block_election_snapshot,
                     MinerReason::EmptyTenure,
                 )
             } else {
                 debug!("Relayer: Successfully issued a tenure change payload in its tenure. Issue a continue extend from the chain tip.");
                 (
-                    canonical_stacks_tip, //For tenure extend, we sould be extending off the canonical tip
-                    last_non_empty_sortition_snapshot,
+                    canonical_stacks_tip, //For tenure extend, we should be extending off the canonical tip
+                    canonical_block_snapshot,
                     MinerReason::Extended {
                         burn_view_consensus_hash: new_burn_view,
                     },
