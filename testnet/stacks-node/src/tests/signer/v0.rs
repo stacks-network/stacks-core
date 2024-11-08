@@ -2595,7 +2595,7 @@ fn empty_sortition_before_approval() {
     let block_proposal_timeout = Duration::from_secs(20);
     let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
-        vec![(sender_addr.clone(), send_amt + send_fee)],
+        vec![(sender_addr, send_amt + send_fee)],
         |config| {
             // make the duration long enough that the miner will be marked as malicious
             config.block_proposal_timeout = block_proposal_timeout;
@@ -2696,15 +2696,14 @@ fn empty_sortition_before_approval() {
             }
             let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
             let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
-            match &parsed.payload {
-                TransactionPayload::TenureChange(payload) => match payload.cause {
+            if let TransactionPayload::TenureChange(payload) = &parsed.payload {
+                match payload.cause {
                     TenureChangeCause::Extended => {
                         info!("Found tenure extend block");
                         return Ok(true);
                     }
                     TenureChangeCause::BlockFound => {}
-                },
-                _ => {}
+                }
             };
         }
         Ok(false)
@@ -2769,7 +2768,7 @@ fn empty_sortition_before_proposal() {
     let block_proposal_timeout = Duration::from_secs(20);
     let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
-        vec![(sender_addr.clone(), send_amt + send_fee)],
+        vec![(sender_addr, send_amt + send_fee)],
         |config| {
             // make the duration long enough that the miner will be marked as malicious
             config.block_proposal_timeout = block_proposal_timeout;
@@ -2854,15 +2853,14 @@ fn empty_sortition_before_proposal() {
             }
             let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
             let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
-            match &parsed.payload {
-                TransactionPayload::TenureChange(payload) => match payload.cause {
+            if let TransactionPayload::TenureChange(payload) = &parsed.payload {
+                match payload.cause {
                     TenureChangeCause::Extended => {
                         info!("Found tenure extend block");
                         return Ok(true);
                     }
                     TenureChangeCause::BlockFound => {}
-                },
-                _ => {}
+                }
             };
         }
         Ok(false)
@@ -6268,7 +6266,7 @@ fn block_validation_response_timeout() {
 
     let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
-        vec![(sender_addr.clone(), send_amt + send_fee)],
+        vec![(sender_addr, send_amt + send_fee)],
         |config| {
             config.block_proposal_validation_timeout = timeout;
         },
