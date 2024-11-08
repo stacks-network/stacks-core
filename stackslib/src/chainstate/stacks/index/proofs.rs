@@ -35,14 +35,14 @@ use crate::chainstate::stacks::index::bits::{
 use crate::chainstate::stacks::index::marf::MARF;
 use crate::chainstate::stacks::index::node::{
     clear_backptr, is_backptr, set_backptr, ConsensusSerializable, CursorError, TrieCursor,
-    TrieNode, TrieNode16, TrieNode256, TrieNode4, TrieNode48, TrieNodeID, TrieNodeType, TriePath,
+    TrieNode, TrieNode16, TrieNode256, TrieNode4, TrieNode48, TrieNodeID, TrieNodeType,
     TriePtr,
 };
 use crate::chainstate::stacks::index::storage::{TrieFileStorage, TrieStorageConnection};
 use crate::chainstate::stacks::index::trie::Trie;
 use crate::chainstate::stacks::index::{
     BlockMap, ClarityMarfTrieId, Error, MARFValue, MarfTrieId, ProofTrieNode, ProofTriePtr,
-    TrieHashExtension, TrieLeaf, TrieMerkleProof, TrieMerkleProofType,
+    TrieLeaf, TrieMerkleProof, TrieMerkleProofType,
 };
 
 impl<T: MarfTrieId> ConsensusSerializable<()> for ProofTrieNode<T> {
@@ -1004,7 +1004,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
     /// * segment proof i+1 must be a prefix of segment proof i
     /// * segment proof 0 must end in a leaf
     /// * all segment proofs must end in a Node256 (a root)
-    fn is_proof_well_formed(proof: &Vec<TrieMerkleProofType<T>>, expected_path: &TriePath) -> bool {
+    fn is_proof_well_formed(proof: &Vec<TrieMerkleProofType<T>>, expected_path: &TrieHash) -> bool {
         if proof.len() == 0 {
             trace!("Proof is empty");
             return false;
@@ -1048,7 +1048,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
                     }
                 };
 
-                // first path bytes must be the expected TriePath
+                // first path bytes must be the expected TrieHash
                 if expected_path.as_bytes().to_vec() != path_bytes {
                     trace!(
                         "Invalid proof -- path bytes {:?} differs from the expected path {:?}",
@@ -1121,7 +1121,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
     /// NOTE: Trie root hashes are globally unique by design, even if they represent the same contents, so the root_to_block map is bijective with high probability.
     pub fn verify_proof(
         proof: &Vec<TrieMerkleProofType<T>>,
-        path: &TriePath,
+        path: &TrieHash,
         value: &MARFValue,
         root_hash: &TrieHash,
         root_to_block: &HashMap<TrieHash, T>,
@@ -1351,7 +1351,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
     /// Verify this proof
     pub fn verify(
         &self,
-        path: &TriePath,
+        path: &TrieHash,
         marf_value: &MARFValue,
         root_hash: &TrieHash,
         root_to_block: &HashMap<TrieHash, T>,
@@ -1362,7 +1362,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
     /// Walk down the trie pointed to by s until we reach a backptr or a leaf
     fn walk_to_leaf_or_backptr(
         storage: &mut TrieStorageConnection<T>,
-        path: &TriePath,
+        path: &TrieHash,
     ) -> Result<(TrieCursor<T>, TrieNodeType, TriePtr), Error> {
         trace!(
             "Walk path {:?} from {:?} to the first backptr",
@@ -1438,7 +1438,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
     /// If the path doesn't resolve, return an error (NotFoundError)
     pub fn from_path(
         storage: &mut TrieStorageConnection<T>,
-        path: &TriePath,
+        path: &TrieHash,
         expected_value: &MARFValue,
         root_block_header: &T,
     ) -> Result<TrieMerkleProof<T>, Error> {
@@ -1562,7 +1562,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
         root_block_header: &T,
     ) -> Result<TrieMerkleProof<T>, Error> {
         let marf_value = MARFValue::from_value(value);
-        let path = TriePath::from_key(key);
+        let path = TrieHash::from_key(key);
         TrieMerkleProof::from_path(storage, &path, &marf_value, root_block_header)
     }
 
@@ -1572,7 +1572,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
         value: &MARFValue,
         root_block_header: &T,
     ) -> Result<TrieMerkleProof<T>, Error> {
-        let path = TriePath::from_key(key);
+        let path = TrieHash::from_key(key);
         TrieMerkleProof::from_path(storage, &path, value, root_block_header)
     }
 }

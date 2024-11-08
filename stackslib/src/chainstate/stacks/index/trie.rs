@@ -40,7 +40,7 @@ use crate::chainstate::stacks::index::storage::{
     TrieFileStorage, TrieHashCalculationMode, TrieStorageConnection,
 };
 use crate::chainstate::stacks::index::{
-    Error, MarfTrieId, TrieHashExtension, TrieHasher, TrieLeaf,
+    Error, MarfTrieId, TrieHasher, TrieLeaf,
 };
 
 /// We don't actually instantiate a Trie, but we still need to pass a type parameter for the

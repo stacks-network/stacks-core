@@ -32,7 +32,7 @@ use crate::chainstate::stacks::index::bits::{
     get_path_byte_len, get_ptrs_byte_len, path_from_bytes, ptrs_from_bytes, write_path_to_bytes,
 };
 use crate::chainstate::stacks::index::{
-    BlockMap, ClarityMarfTrieId, Error, MARFValue, MarfTrieId, TrieHashExtension, TrieHasher,
+    BlockMap, ClarityMarfTrieId, Error, MARFValue, MarfTrieId, TrieHasher,
     TrieLeaf, MARF_VALUE_ENCODED_SIZE,
 };
 
@@ -104,23 +104,6 @@ fn ptrs_consensus_hash<W: Write, M: BlockMap>(
         ptr.write_consensus_bytes(map, w)?;
     }
     Ok(())
-}
-
-/// A path in the Trie is the SHA2-512/256 hash of its key.
-pub struct TriePath([u8; 32]);
-impl_array_newtype!(TriePath, u8, 32);
-impl_array_hexstring_fmt!(TriePath);
-impl_byte_array_newtype!(TriePath, u8, 32);
-
-pub const TRIEPATH_MAX_LEN: usize = 32;
-
-impl TriePath {
-    pub fn from_key(k: &str) -> TriePath {
-        let h = TrieHash::from_data(k.as_bytes());
-        let mut hb = [0u8; TRIEPATH_MAX_LEN];
-        hb.copy_from_slice(h.as_bytes());
-        TriePath(hb)
-    }
 }
 
 /// All Trie nodes implement the following methods:
@@ -339,7 +322,7 @@ impl TriePtr {
 /// nodes to visit when updating the root node hash.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TrieCursor<T: MarfTrieId> {
-    pub path: TriePath,                  // the path to walk
+    pub path: TrieHash,                  // the path to walk
     pub index: usize,                    // index into the path
     pub node_path_index: usize,          // index into the currently-visited node's compressed path
     pub nodes: Vec<TrieNodeType>,        // list of nodes this cursor visits
@@ -349,7 +332,7 @@ pub struct TrieCursor<T: MarfTrieId> {
 }
 
 impl<T: MarfTrieId> TrieCursor<T> {
-    pub fn new(path: &TriePath, root_ptr: TriePtr) -> TrieCursor<T> {
+    pub fn new(path: &TrieHash, root_ptr: TriePtr) -> TrieCursor<T> {
         TrieCursor {
             path: path.clone(),
             index: 0,

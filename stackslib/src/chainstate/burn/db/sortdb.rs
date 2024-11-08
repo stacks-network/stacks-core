@@ -6594,7 +6594,6 @@ pub mod tests {
         BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
     };
     use crate::chainstate::burn::ConsensusHash;
-    use crate::chainstate::stacks::index::TrieHashExtension;
     use crate::chainstate::stacks::StacksPublicKey;
     use crate::core::{StacksEpochExtension, *};
     use crate::util_lib::db::Error as db_error;
