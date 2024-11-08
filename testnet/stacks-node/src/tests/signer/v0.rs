@@ -1765,6 +1765,7 @@ fn miner_forking() {
             config.miner.mining_key = Some(Secp256k1PrivateKey::from_seed(&[1]));
             config.node.pox_sync_sample_secs = 30;
             config.burnchain.pox_reward_length = Some(max_sortitions as u32);
+            config.miner.block_commit_delay = Duration::from_secs(0);
 
             config.events_observers.retain(|listener| {
                 let Ok(addr) = std::net::SocketAddr::from_str(&listener.endpoint) else {
@@ -4873,7 +4874,9 @@ fn reorg_locally_accepted_blocks_across_tenures_succeeds() {
             // Just accept all reorg attempts
             config.tenure_last_block_proposal_timeout = Duration::from_secs(0);
         },
-        |_| {},
+        |config| {
+            config.miner.block_commit_delay = Duration::from_secs(0);
+        },
         None,
         None,
     );
@@ -4947,6 +4950,12 @@ fn reorg_locally_accepted_blocks_across_tenures_succeeds() {
     // Clear the stackerdb chunks
     test_observer::clear();
 
+    let blocks_before = mined_blocks.load(Ordering::SeqCst);
+    let info_before = signer_test
+        .stacks_client
+        .get_peer_info()
+        .expect("Failed to get peer info");
+
     // submit a tx so that the miner will ATTEMPT to mine a stacks block N+1
     let transfer_tx = make_stacks_transfer(
         &sender_sk,
@@ -4959,11 +4968,6 @@ fn reorg_locally_accepted_blocks_across_tenures_succeeds() {
     let tx = submit_tx(&http_origin, &transfer_tx);
 
     info!("Submitted tx {tx} in to attempt to mine block N+1");
-    let blocks_before = mined_blocks.load(Ordering::SeqCst);
-    let info_before = signer_test
-        .stacks_client
-        .get_peer_info()
-        .expect("Failed to get peer info");
     wait_for(short_timeout, || {
         let accepted_signers = test_observer::get_stackerdb_chunks()
             .into_iter()
@@ -5173,6 +5177,11 @@ fn reorg_locally_accepted_blocks_across_tenures_fails() {
     // Clear the stackerdb chunks
     test_observer::clear();
 
+    let blocks_before = mined_blocks.load(Ordering::SeqCst);
+    let info_before = signer_test
+        .stacks_client
+        .get_peer_info()
+        .expect("Failed to get peer info");
     // submit a tx so that the miner will ATTEMPT to mine a stacks block N+1
     let transfer_tx = make_stacks_transfer(
         &sender_sk,
@@ -5185,11 +5194,6 @@ fn reorg_locally_accepted_blocks_across_tenures_fails() {
     let tx = submit_tx(&http_origin, &transfer_tx);
 
     info!("Submitted tx {tx} in to attempt to mine block N+1");
-    let blocks_before = mined_blocks.load(Ordering::SeqCst);
-    let info_before = signer_test
-        .stacks_client
-        .get_peer_info()
-        .expect("Failed to get peer info");
     wait_for(short_timeout, || {
         let accepted_signers = test_observer::get_stackerdb_chunks()
             .into_iter()
@@ -5226,49 +5230,41 @@ fn reorg_locally_accepted_blocks_across_tenures_fails() {
     assert_ne!(info_after.stacks_tip.to_string(), block_n_1.block_hash);
 
     info!("------------------------- Starting Tenure B -------------------------");
-    // Start a new tenure and ensure the miner can propose a new block N+1' that is accepted by all signers
-    let commits_submitted = signer_test.running_nodes.commits_submitted.clone();
-    let commits_before = commits_submitted.load(Ordering::SeqCst);
-    next_block_and(
-        &mut signer_test.running_nodes.btc_regtest_controller,
-        60,
-        || {
-            let commits_count = commits_submitted.load(Ordering::SeqCst);
-            Ok(commits_count > commits_before)
-        },
-    )
-    .unwrap();
-
-    info!(
-        "------------------------- Attempt to mine Nakamoto Block N+1' in Tenure B -------------------------"
-    );
     let blocks_before = mined_blocks.load(Ordering::SeqCst);
     let info_before = signer_test
         .stacks_client
         .get_peer_info()
         .expect("Failed to get peer info");
-    // The miner's proposed block should get rejected by all the signers that PREVIOUSLY accepted the block
-    wait_for(short_timeout, || {
-        let rejected_signers = test_observer::get_stackerdb_chunks()
-            .into_iter()
-            .flat_map(|chunk| chunk.modified_slots)
-            .filter_map(|chunk| {
-                let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
-                    .expect("Failed to deserialize SignerMessage");
-                match message {
-                    SignerMessage::BlockResponse(BlockResponse::Rejected(BlockRejection {
-                        signature,
-                        signer_signature_hash,
-                        ..
-                    })) => non_ignoring_signers
-                        .iter()
-                        .find(|key| key.verify(signer_signature_hash.bits(), &signature).is_ok()),
-                    _ => None,
-                }
-            })
-            .collect::<Vec<_>>();
-        Ok(rejected_signers.len() + ignoring_signers.len() == num_signers)
-    })
+
+    // Clear the test observer so any old rejections are not counted
+    test_observer::clear();
+
+    // Start a new tenure and ensure the we see the expected rejections
+    next_block_and(
+        &mut signer_test.running_nodes.btc_regtest_controller,
+        60,
+        || {
+            let rejected_signers = test_observer::get_stackerdb_chunks()
+                .into_iter()
+                .flat_map(|chunk| chunk.modified_slots)
+                .filter_map(|chunk| {
+                    let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
+                        .expect("Failed to deserialize SignerMessage");
+                    match message {
+                        SignerMessage::BlockResponse(BlockResponse::Rejected(BlockRejection {
+                            signature,
+                            signer_signature_hash,
+                            ..
+                        })) => non_ignoring_signers.iter().find(|key| {
+                            key.verify(signer_signature_hash.bits(), &signature).is_ok()
+                        }),
+                        _ => None,
+                    }
+                })
+                .collect::<Vec<_>>();
+            Ok(rejected_signers.len() + ignoring_signers.len() == num_signers)
+        },
+    )
     .expect("FAIL: Timed out waiting for block proposal rejections");
 
     let blocks_after = mined_blocks.load(Ordering::SeqCst);
@@ -5277,7 +5273,7 @@ fn reorg_locally_accepted_blocks_across_tenures_fails() {
         .get_peer_info()
         .expect("Failed to get peer info");
     assert_eq!(blocks_after, blocks_before);
-    assert_eq!(info_after, info_before);
+    assert_eq!(info_after.stacks_tip, info_before.stacks_tip);
     // Ensure that the block was NOT accepted globally so the stacks tip has NOT advanced to N+1'
     let nakamoto_blocks = test_observer::get_mined_nakamoto_blocks();
     let block_n_1_prime = nakamoto_blocks.last().unwrap();
@@ -6114,5 +6110,132 @@ fn multiple_miners_with_custom_chain_id() {
         .stop_chains_coordinator();
     run_loop_stopper_2.store(false, Ordering::SeqCst);
     run_loop_2_thread.join().unwrap();
+    signer_test.shutdown();
+}
+
+#[test]
+#[ignore]
+/// This test checks the behavior of the `block_commit_delay_ms` configuration option.
+fn block_commit_delay() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(EnvFilter::from_default_env())
+        .init();
+
+    info!("------------------------- Test Setup -------------------------");
+    let num_signers = 5;
+    let block_proposal_timeout = Duration::from_secs(20);
+    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
+        num_signers,
+        vec![],
+        |config| {
+            // make the duration long enough that the miner will be marked as malicious
+            config.block_proposal_timeout = block_proposal_timeout;
+        },
+        |config| {
+            // Set the block commit delay to 10 minutes to ensure no block commit is sent
+            config.miner.block_commit_delay = Duration::from_secs(600);
+        },
+        None,
+        None,
+    );
+
+    signer_test.boot_to_epoch_3();
+
+    let commits_before = signer_test
+        .running_nodes
+        .commits_submitted
+        .load(Ordering::SeqCst);
+
+    next_block_and_process_new_stacks_block(
+        &mut signer_test.running_nodes.btc_regtest_controller,
+        60,
+        &signer_test.running_nodes.coord_channel,
+    )
+    .expect("Failed to mine first block");
+
+    // Ensure that the block commit has been sent before continuing
+    wait_for(60, || {
+        let commits = signer_test
+            .running_nodes
+            .commits_submitted
+            .load(Ordering::SeqCst);
+        Ok(commits > commits_before)
+    })
+    .expect("Timed out waiting for block commit after new Stacks block");
+
+    // Prevent a block from being mined by making signers reject it.
+    let all_signers = signer_test
+        .signer_stacks_private_keys
+        .iter()
+        .map(StacksPublicKey::from_private)
+        .collect::<Vec<_>>();
+    TEST_REJECT_ALL_BLOCK_PROPOSAL
+        .lock()
+        .unwrap()
+        .replace(all_signers);
+
+    info!("------------------------- Test Mine Burn Block  -------------------------");
+    let burn_height_before = get_chain_info(&signer_test.running_nodes.conf).burn_block_height;
+    let commits_before = signer_test
+        .running_nodes
+        .commits_submitted
+        .load(Ordering::SeqCst);
+
+    // Mine a burn block and wait for it to be processed.
+    next_block_and(
+        &mut signer_test.running_nodes.btc_regtest_controller,
+        60,
+        || {
+            let burn_height = get_chain_info(&signer_test.running_nodes.conf).burn_block_height;
+            Ok(burn_height > burn_height_before)
+        },
+    )
+    .unwrap();
+
+    // Sleep an extra minute to ensure no block commits are sent
+    sleep_ms(60_000);
+
+    let commits = signer_test
+        .running_nodes
+        .commits_submitted
+        .load(Ordering::SeqCst);
+    assert_eq!(commits, commits_before);
+
+    let blocks_before = signer_test
+        .running_nodes
+        .nakamoto_blocks_mined
+        .load(Ordering::SeqCst);
+
+    info!("------------------------- Resume Signing -------------------------");
+    TEST_REJECT_ALL_BLOCK_PROPOSAL
+        .lock()
+        .unwrap()
+        .replace(Vec::new());
+
+    // Wait for a block to be mined
+    wait_for(60, || {
+        let blocks = signer_test
+            .running_nodes
+            .nakamoto_blocks_mined
+            .load(Ordering::SeqCst);
+        Ok(blocks > blocks_before)
+    })
+    .expect("Timed out waiting for block to be mined");
+
+    // Wait for a block commit to be sent
+    wait_for(60, || {
+        let commits = signer_test
+            .running_nodes
+            .commits_submitted
+            .load(Ordering::SeqCst);
+        Ok(commits > commits_before)
+    })
+    .expect("Timed out waiting for block commit after new Stacks block");
+
     signer_test.shutdown();
 }
