@@ -490,11 +490,15 @@ impl Node {
 
         let event_dispatcher = self.event_dispatcher.clone();
         let exit_at_block_height = self.config.burnchain.process_exit_at_block_height;
+        let burnchain_db = burnchain
+            .open_burnchain_db(false)
+            .expect("Failed to open burnchain DB");
 
         let p2p_net = PeerNetwork::new(
             peerdb,
             atlasdb,
             stackerdbs,
+            burnchain_db,
             local_peer,
             self.config.burnchain.peer_version,
             burnchain.clone(),

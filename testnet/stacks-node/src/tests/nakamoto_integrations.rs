@@ -1631,10 +1631,8 @@ fn simple_neon_integration() {
                 tip.stacks_block_height
             );
 
-            let expected_result_2 = format!(
-                "stacks_node_stacks_tip_height {}",
-                tip.stacks_block_height - 1
-            );
+            let expected_result_2 =
+                format!("stacks_node_stacks_tip_height {}", tip.stacks_block_height);
             Ok(res.contains(&expected_result_1) && res.contains(&expected_result_2))
         })
         .expect("Prometheus metrics did not update");
