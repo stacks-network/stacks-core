@@ -5952,13 +5952,13 @@ fn continue_after_fast_block_no_sortition() {
         let commits_before_1 = rl1_commits.load(Ordering::SeqCst);
         let commits_before_2 = rl2_commits.load(Ordering::SeqCst);
 
-        signer_test
-            .running_nodes
-            .btc_regtest_controller
-            .build_next_block(1);
+        next_block_and(
+            &mut signer_test.running_nodes.btc_regtest_controller,
+            30,
+            || Ok(get_burn_height() > burn_height_before),
+        )
+        .unwrap();
         btc_blocks_mined += 1;
-
-        wait_for(30, || Ok(get_burn_height() > burn_height_before)).unwrap();
 
         assert_eq!(rl1_commits.load(Ordering::SeqCst), commits_before_1);
         assert_eq!(rl2_commits.load(Ordering::SeqCst), commits_before_2);
