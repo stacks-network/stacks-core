@@ -51,8 +51,7 @@ use crate::chainstate::stacks::index::node::{
 use crate::chainstate::stacks::index::profile::TrieBenchmark;
 use crate::chainstate::stacks::index::trie::Trie;
 use crate::chainstate::stacks::index::{
-    trie_sql, BlockMap, ClarityMarfTrieId, Error, MarfTrieId, TrieHasher,
-    TrieLeaf,
+    trie_sql, BlockMap, ClarityMarfTrieId, Error, MarfTrieId, TrieHasher, TrieLeaf,
 };
 use crate::util_lib::db::{
     sql_pragma, sqlite_open, tx_begin_immediate, tx_busy_handler, Error as db_error,

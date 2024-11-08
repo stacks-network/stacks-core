@@ -19,8 +19,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use clarity::vm::types::{QualifiedContractIdentifier, StacksAddressExtensions};
 use clarity::vm::{ClarityName, ContractName};
 use stacks_common::codec::StacksMessageCodec;
-use stacks_common::types::chainstate::StacksAddress;
-use stacks_common::types::chainstate::TrieHash;
+use stacks_common::types::chainstate::{StacksAddress, TrieHash};
 use stacks_common::types::net::PeerHost;
 use stacks_common::types::Address;
 
@@ -39,8 +38,10 @@ fn test_try_parse_request() {
     let mut http = StacksHttp::new(addr.clone(), &ConnectionOptions::default());
 
     let vm_key_epoch = TrieHash::from_key("vm-epoch::epoch-version");
-    let vm_key_trip = TrieHash::from_key("vm::ST1SJ3DTE5DN7X54YDH5D64R3BCB6A2AG2ZQ8YPD5.counter::1::count");
-    let vm_key_quad = TrieHash::from_key("vm::ST1SJ3DTE5DN7X54YDH5D64R3BCB6A2AG2ZQ8YPD5.counter::0::data::1234");
+    let vm_key_trip =
+        TrieHash::from_key("vm::ST1SJ3DTE5DN7X54YDH5D64R3BCB6A2AG2ZQ8YPD5.counter::1::count");
+    let vm_key_quad =
+        TrieHash::from_key("vm::ST1SJ3DTE5DN7X54YDH5D64R3BCB6A2AG2ZQ8YPD5.counter::0::data::1234");
     let valid_keys = [vm_key_epoch, vm_key_trip, vm_key_quad];
 
     for key in valid_keys {
@@ -109,7 +110,9 @@ fn test_try_make_response() {
     // query non-existant var
     let request = StacksHttpRequest::new_getclaritymarf(
         addr.into(),
-        TrieHash::from_key("vm::ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.hello-world::1::does-not-exist"),
+        TrieHash::from_key(
+            "vm::ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.hello-world::1::does-not-exist",
+        ),
         TipRequest::UseLatestAnchoredTip,
         true,
     );

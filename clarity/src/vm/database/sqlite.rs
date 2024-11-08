@@ -326,7 +326,7 @@ impl ClarityBackingStore for MemoryBackingStore {
 
     fn get_data_from_path(&mut self, hash: &TrieHash) -> Result<Option<String>> {
         SqliteConnection::get(self.get_side_store(), hash.to_string().as_str())
-    }    
+    }
 
     fn get_data_with_proof(&mut self, key: &str) -> Result<Option<(String, Vec<u8>)>> {
         Ok(SqliteConnection::get(self.get_side_store(), key)?.map(|x| (x, vec![])))

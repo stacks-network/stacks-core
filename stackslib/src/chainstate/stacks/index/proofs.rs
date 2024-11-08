@@ -35,8 +35,7 @@ use crate::chainstate::stacks::index::bits::{
 use crate::chainstate::stacks::index::marf::MARF;
 use crate::chainstate::stacks::index::node::{
     clear_backptr, is_backptr, set_backptr, ConsensusSerializable, CursorError, TrieCursor,
-    TrieNode, TrieNode16, TrieNode256, TrieNode4, TrieNode48, TrieNodeID, TrieNodeType,
-    TriePtr,
+    TrieNode, TrieNode16, TrieNode256, TrieNode4, TrieNode48, TrieNodeID, TrieNodeType, TriePtr,
 };
 use crate::chainstate::stacks::index::storage::{TrieFileStorage, TrieStorageConnection};
 use crate::chainstate::stacks::index::trie::Trie;

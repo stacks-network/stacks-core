@@ -32,8 +32,8 @@ use crate::chainstate::stacks::index::bits::{
     get_path_byte_len, get_ptrs_byte_len, path_from_bytes, ptrs_from_bytes, write_path_to_bytes,
 };
 use crate::chainstate::stacks::index::{
-    BlockMap, ClarityMarfTrieId, Error, MARFValue, MarfTrieId, TrieHasher,
-    TrieLeaf, MARF_VALUE_ENCODED_SIZE,
+    BlockMap, ClarityMarfTrieId, Error, MARFValue, MarfTrieId, TrieHasher, TrieLeaf,
+    MARF_VALUE_ENCODED_SIZE,
 };
 
 #[derive(Debug, Clone, PartialEq)]

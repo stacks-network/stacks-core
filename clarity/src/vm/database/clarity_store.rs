@@ -214,7 +214,7 @@ impl ClarityBackingStore for NullBackingStore {
     fn get_data(&mut self, _key: &str) -> Result<Option<String>> {
         panic!("NullBackingStore can't retrieve data")
     }
-    
+
     fn get_data_from_path(&mut self, _hash: &TrieHash) -> Result<Option<String>> {
         panic!("NullBackingStore can't retrieve data")
     }

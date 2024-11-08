@@ -126,7 +126,7 @@ pub trait MarfConnection<T: MarfTrieId> {
     fn get(&mut self, block_hash: &T, key: &str) -> Result<Option<MARFValue>, Error> {
         self.with_conn(|c| MARF::get_by_key(c, block_hash, key))
     }
-    
+
     /// Resolve a TrieHash from the MARF to a MARFValue with respect to the given block height.
     fn get_from_hash(&mut self, block_hash: &T, th: &TrieHash) -> Result<Option<MARFValue>, Error> {
         self.with_conn(|c| MARF::get_by_hash(c, block_hash, th))
@@ -1397,7 +1397,7 @@ impl<T: MarfTrieId> MARF<T> {
         let proof = TrieMerkleProof::from_raw_entry(&mut conn, key, &marf_value, block_hash)?;
         Ok(Some((marf_value, proof)))
     }
-    
+
     pub fn get_with_proof_from_hash(
         &mut self,
         block_hash: &T,

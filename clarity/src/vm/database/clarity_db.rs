@@ -23,10 +23,9 @@ use stacks_common::consts::{
 };
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, SortitionId, StacksAddress, StacksBlockId,
-    VRFSeed,
+    TrieHash, VRFSeed,
 };
 use stacks_common::types::{Address, StacksEpoch as GenericStacksEpoch, StacksEpochId};
-use stacks_common::types::chainstate::TrieHash;
 use stacks_common::util::hash::{to_hex, Hash160, Sha256Sum, Sha512Trunc256Sum};
 
 use super::clarity_store::SpecialCaseHandler;
@@ -465,7 +464,7 @@ impl<'a> ClarityDatabase<'a> {
     {
         self.store.get_data::<T>(key)
     }
-    
+
     pub fn get_data_by_hash<T>(&mut self, hash: &TrieHash) -> Result<Option<T>>
     where
         T: ClarityDeserializable<T>,
@@ -529,8 +528,11 @@ impl<'a> ClarityDatabase<'a> {
     {
         self.store.get_data_with_proof(key)
     }
-    
-    pub fn get_data_with_proof_by_hash<T>(&mut self, hash: &TrieHash) -> Result<Option<(T, Vec<u8>)>>
+
+    pub fn get_data_with_proof_by_hash<T>(
+        &mut self,
+        hash: &TrieHash,
+    ) -> Result<Option<(T, Vec<u8>)>>
     where
         T: ClarityDeserializable<T>,
     {

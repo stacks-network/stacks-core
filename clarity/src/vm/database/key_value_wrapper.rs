@@ -17,8 +17,7 @@
 use std::hash::Hash;
 
 use hashbrown::HashMap;
-use stacks_common::types::chainstate::StacksBlockId;
-use stacks_common::types::chainstate::TrieHash;
+use stacks_common::types::chainstate::{StacksBlockId, TrieHash};
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 
@@ -369,10 +368,13 @@ impl<'a> RollbackWrapper<'a> {
             .map(|(value, proof)| Ok((T::deserialize(&value)?, proof)))
             .transpose()
     }
-    
+
     /// this function will only return commitment proofs for values _already_ materialized
     ///  in the underlying store. otherwise it returns None.
-    pub fn get_data_with_proof_by_hash<T>(&mut self, hash: &TrieHash) -> InterpreterResult<Option<(T, Vec<u8>)>>
+    pub fn get_data_with_proof_by_hash<T>(
+        &mut self,
+        hash: &TrieHash,
+    ) -> InterpreterResult<Option<(T, Vec<u8>)>>
     where
         T: ClarityDeserializable<T>,
     {
@@ -404,7 +406,7 @@ impl<'a> RollbackWrapper<'a> {
             .map(|x| T::deserialize(&x))
             .transpose()
     }
-    
+
     /// DO NOT USE IN CONSENSUS CODE.
     ///
     /// Load data directly from the underlying store, given its trie hash.  The lookup map will not

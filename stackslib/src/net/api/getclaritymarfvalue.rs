@@ -18,8 +18,8 @@ use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::representations::CONTRACT_PRINCIPAL_REGEX_STRING;
 use lazy_static::lazy_static;
 use regex::{Captures, Regex};
-use stacks_common::types::net::PeerHost;
 use stacks_common::types::chainstate::TrieHash;
+use stacks_common::types::net::PeerHost;
 use stacks_common::util::hash::to_hex;
 
 use crate::net::http::{
@@ -110,9 +110,10 @@ impl RPCRequestHandler for RPCGetClarityMarfRequestHandler {
         contents: HttpRequestContents,
         node: &mut StacksNodeState,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
-        let marf_key_hash = self.marf_key_hash.take().ok_or(NetError::SendError(
-            "`marf_key_hash` not set".to_string(),
-        ))?;
+        let marf_key_hash = self
+            .marf_key_hash
+            .take()
+            .ok_or(NetError::SendError("`marf_key_hash` not set".to_string()))?;
 
         let tip = match node.load_stacks_chain_tip(&preamble, &contents) {
             Ok(tip) => tip,

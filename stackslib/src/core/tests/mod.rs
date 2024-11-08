@@ -48,7 +48,7 @@ use crate::chainstate::stacks::db::test::{
 };
 use crate::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
 use crate::chainstate::stacks::events::StacksTransactionReceipt;
-use crate::chainstate::stacks::index::{MarfTrieId};
+use crate::chainstate::stacks::index::MarfTrieId;
 use crate::chainstate::stacks::miner::TransactionResult;
 use crate::chainstate::stacks::test::codec_all_transactions;
 use crate::chainstate::stacks::{

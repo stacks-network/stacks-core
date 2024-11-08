@@ -476,7 +476,7 @@ impl<'a> ClarityBackingStore for ReadOnlyMarfStore<'a> {
             })
             .transpose()
     }
-    
+
     fn get_data_from_path(&mut self, hash: &TrieHash) -> InterpreterResult<Option<String>> {
         trace!("MarfedKV get_from_hash: {:?} tip={}", hash, &self.chain_tip);
         self.marf
@@ -685,7 +685,7 @@ impl<'a> ClarityBackingStore for WritableMarfStore<'a> {
             })
             .transpose()
     }
-    
+
     fn get_data_from_path(&mut self, hash: &TrieHash) -> InterpreterResult<Option<String>> {
         trace!("MarfedKV get_from_hash: {:?} tip={}", hash, &self.chain_tip);
         self.marf
