@@ -1703,6 +1703,7 @@ impl Relayer {
         sortdb: &mut SortitionDB,
         chainstate: &mut StacksChainState,
         coord_comms: Option<&CoordinatorChannels>,
+        reject_blocks_pushed: bool,
     ) -> Result<(Vec<AcceptedNakamotoBlocks>, Vec<NeighborKey>), net_error> {
         let mut pushed_blocks = vec![];
         let mut bad_neighbors = vec![];
@@ -1731,6 +1732,14 @@ impl Relayer {
 
                 for nakamoto_block in nakamoto_blocks_data.blocks.drain(..) {
                     let block_id = nakamoto_block.block_id();
+                    if reject_blocks_pushed {
+                        debug!(
+                            "Received pushed Nakamoto block {} from {}, but configured to reject it.",
+                            block_id, neighbor_key
+                        );
+                        continue;
+                    }
+
                     debug!(
                         "Received pushed Nakamoto block {} from {}",
                         block_id, neighbor_key
@@ -2092,6 +2101,7 @@ impl Relayer {
     /// Returns the list of Nakamoto blocks we stored, as well as the list of bad neighbors that
     /// sent us invalid blocks.
     pub fn process_new_nakamoto_blocks(
+        connection_opts: &ConnectionOptions,
         network_result: &mut NetworkResult,
         burnchain: &Burnchain,
         sortdb: &mut SortitionDB,
@@ -2128,6 +2138,7 @@ impl Relayer {
             sortdb,
             chainstate,
             coord_comms,
+            connection_opts.reject_blocks_pushed,
         ) {
             Ok(x) => x,
             Err(e) => {
@@ -2310,8 +2321,6 @@ impl Relayer {
             &epoch_id.mempool_garbage_behavior(),
             event_observer,
         )?;
-
-        update_stacks_tip_height(chain_height as i64);
 
         Ok(ret)
     }
@@ -2848,6 +2857,7 @@ impl Relayer {
         coord_comms: Option<&CoordinatorChannels>,
     ) -> u64 {
         let (accepted_blocks, bad_neighbors) = match Self::process_new_nakamoto_blocks(
+            &self.connection_opts,
             network_result,
             burnchain,
             sortdb,
@@ -3021,6 +3031,10 @@ impl Relayer {
             mem::replace(&mut network_result.pushed_stackerdb_chunks, vec![]),
             event_observer.map(|obs| obs.as_stackerdb_event_dispatcher()),
         )?;
+
+        update_stacks_tip_height(
+            i64::try_from(network_result.stacks_tip_height).unwrap_or(i64::MAX),
+        );
 
         let receipts = ProcessedNetReceipts {
             mempool_txs_added,

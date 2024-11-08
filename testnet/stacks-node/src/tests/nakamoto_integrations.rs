@@ -1631,10 +1631,8 @@ fn simple_neon_integration() {
                 tip.stacks_block_height
             );
 
-            let expected_result_2 = format!(
-                "stacks_node_stacks_tip_height {}",
-                tip.stacks_block_height - 1
-            );
+            let expected_result_2 =
+                format!("stacks_node_stacks_tip_height {}", tip.stacks_block_height);
             Ok(res.contains(&expected_result_1) && res.contains(&expected_result_2))
         })
         .expect("Prometheus metrics did not update");
@@ -6369,6 +6367,7 @@ fn signer_chainstate() {
         let proposal_conf = ProposalEvalConfig {
             first_proposal_burn_block_timing: Duration::from_secs(0),
             block_proposal_timeout: Duration::from_secs(100),
+            tenure_last_block_proposal_timeout: Duration::from_secs(30),
         };
         let mut sortitions_view =
             SortitionsView::fetch_view(proposal_conf, &signer_client).unwrap();
@@ -6507,6 +6506,7 @@ fn signer_chainstate() {
         let proposal_conf = ProposalEvalConfig {
             first_proposal_burn_block_timing: Duration::from_secs(0),
             block_proposal_timeout: Duration::from_secs(100),
+            tenure_last_block_proposal_timeout: Duration::from_secs(30),
         };
         let burn_block_height = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
             .unwrap()
@@ -6541,10 +6541,10 @@ fn signer_chainstate() {
                 valid: Some(true),
                 signed_over: true,
                 proposed_time: get_epoch_time_secs(),
-                signed_self: None,
-                signed_group: None,
+                signed_self: Some(get_epoch_time_secs()),
+                signed_group: Some(get_epoch_time_secs()),
                 ext: ExtraBlockInfo::None,
-                state: BlockState::Unprocessed,
+                state: BlockState::GloballyAccepted,
             })
             .unwrap();
 
@@ -6584,6 +6584,7 @@ fn signer_chainstate() {
     let proposal_conf = ProposalEvalConfig {
         first_proposal_burn_block_timing: Duration::from_secs(0),
         block_proposal_timeout: Duration::from_secs(100),
+        tenure_last_block_proposal_timeout: Duration::from_secs(30),
     };
     let mut sortitions_view = SortitionsView::fetch_view(proposal_conf, &signer_client).unwrap();
     let burn_block_height = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())

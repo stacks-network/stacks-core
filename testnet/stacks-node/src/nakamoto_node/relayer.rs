@@ -1181,7 +1181,7 @@ impl RelayerThread {
         while self.globals.keep_running() {
             let raised_initiative = self.globals.take_initiative();
             let timed_out = Instant::now() >= self.next_initiative;
-            let directive = if raised_initiative.is_some() || timed_out {
+            let mut initiative_directive = if raised_initiative.is_some() || timed_out {
                 self.next_initiative =
                     Instant::now() + Duration::from_millis(self.config.node.next_initiative_delay);
                 self.initiative()
@@ -1189,13 +1189,17 @@ impl RelayerThread {
                 None
             };
 
-            let directive = if let Some(directive) = directive {
+            let directive = if let Some(directive) = initiative_directive.take() {
                 directive
             } else {
+                // channel was drained, so do a time-bound recv
                 match relay_rcv.recv_timeout(Duration::from_millis(
                     self.config.node.next_initiative_delay,
                 )) {
-                    Ok(directive) => directive,
+                    Ok(directive) => {
+                        // only do this once, so we can call .initiative() again
+                        directive
+                    }
                     Err(RecvTimeoutError::Timeout) => {
                         continue;
                     }
@@ -1207,7 +1211,7 @@ impl RelayerThread {
 
             debug!("Relayer: main loop directive";
                    "directive" => %directive,
-                   "raised_initiative" => %raised_initiative.unwrap_or("relay_rcv".to_string()),
+                   "raised_initiative" => ?raised_initiative,
                    "timed_out" => %timed_out);
 
             if !self.handle_directive(directive) {

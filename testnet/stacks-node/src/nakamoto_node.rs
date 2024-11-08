@@ -47,7 +47,7 @@ pub mod sign_coordinator;
 use self::peer::PeerThread;
 use self::relayer::{RelayerDirective, RelayerThread};
 
-pub const RELAYER_MAX_BUFFER: usize = 100;
+pub const RELAYER_MAX_BUFFER: usize = 1;
 const VRF_MOCK_MINER_KEY: u64 = 1;
 
 pub const BLOCK_PROCESSOR_STACK_SIZE: usize = 32 * 1024 * 1024; // 32 MB
