@@ -380,7 +380,7 @@ impl EventObserver {
                 }
                 Err(err) => {
                     // Log the error, then retry after a delay
-                    warn!("Failed to insert payload into event observer database: {:?}", err;
+                    warn!("Failed to insert payload into event observer database: {err:?}";
                         "backoff" => ?backoff,
                         "attempts" => attempts
                     );
@@ -463,7 +463,7 @@ impl EventObserver {
         );
 
         let url = Url::parse(full_url)
-            .unwrap_or_else(|_| panic!("Event dispatcher: unable to parse {} as a URL", full_url));
+            .unwrap_or_else(|_| panic!("Event dispatcher: unable to parse {full_url} as a URL"));
 
         let host = url.host_str().expect("Invalid URL: missing host");
         let port = url.port_or_known_default().unwrap_or(80);
@@ -500,8 +500,7 @@ impl EventObserver {
                 }
                 Err(err) => {
                     warn!(
-                        "Event dispatcher: connection or request failed to {}:{} - {:?}",
-                        &host, &port, err;
+                        "Event dispatcher: connection or request failed to {host}:{port} - {err:?}";
                         "backoff" => ?backoff,
                         "attempts" => attempts
                     );
@@ -555,11 +554,11 @@ impl EventObserver {
     pub fn send_payload(&self, payload: &serde_json::Value, path: &str) {
         // Construct the full URL
         let url_str = if path.starts_with('/') {
-            format!("{}{}", &self.endpoint, path)
+            format!("{}{path}", &self.endpoint)
         } else {
-            format!("{}/{}", &self.endpoint, path)
+            format!("{}/{path}", &self.endpoint)
         };
-        let full_url = format!("http://{}", url_str);
+        let full_url = format!("http://{url_str}");
 
         if let Some(db_path) = &self.db_path {
             let conn =
@@ -610,7 +609,7 @@ impl EventObserver {
             .collect();
 
         json!({
-            "burn_block_hash": format!("0x{}", burn_block),
+            "burn_block_hash": format!("0x{burn_block}"),
             "burn_block_height": burn_block_height,
             "reward_recipients": serde_json::Value::Array(reward_recipients),
             "reward_slot_holders": serde_json::Value::Array(reward_slot_holders),
@@ -747,10 +746,10 @@ impl EventObserver {
             .collect();
 
         let payload = json!({
-            "parent_index_block_hash": format!("0x{}", parent_index_block_hash),
+            "parent_index_block_hash": format!("0x{parent_index_block_hash}"),
             "events": serialized_events,
             "transactions": serialized_txs,
-            "burn_block_hash": format!("0x{}", burn_block_hash),
+            "burn_block_hash": format!("0x{burn_block_hash}"),
             "burn_block_height": burn_block_height,
             "burn_block_timestamp": burn_block_timestamp,
         });
@@ -845,17 +844,17 @@ impl EventObserver {
             "block_time": block_timestamp,
             "burn_block_hash": format!("0x{}", metadata.burn_header_hash),
             "burn_block_height": metadata.burn_header_height,
-            "miner_txid": format!("0x{}", winner_txid),
+            "miner_txid": format!("0x{winner_txid}"),
             "burn_block_time": metadata.burn_header_timestamp,
             "index_block_hash": format!("0x{}", metadata.index_block_hash()),
             "parent_block_hash": format!("0x{}", block.parent_block_hash),
-            "parent_index_block_hash": format!("0x{}", parent_index_hash),
+            "parent_index_block_hash": format!("0x{parent_index_hash}"),
             "parent_microblock": format!("0x{}", block.parent_microblock_hash),
             "parent_microblock_sequence": block.parent_microblock_sequence,
             "matured_miner_rewards": mature_rewards.clone(),
             "events": serialized_events,
             "transactions": serialized_txs,
-            "parent_burn_block_hash":  format!("0x{}", parent_burn_block_hash),
+            "parent_burn_block_hash":  format!("0x{parent_burn_block_hash}"),
             "parent_burn_block_height": parent_burn_block_height,
             "parent_burn_block_timestamp": parent_burn_block_timestamp,
             "anchored_cost": anchored_consumed,
@@ -1540,8 +1539,7 @@ impl EventDispatcher {
         modified_slots: Vec<StackerDBChunkData>,
     ) {
         debug!(
-            "event_dispatcher: New StackerDB chunk events for {}: {:?}",
-            contract_id, modified_slots
+            "event_dispatcher: New StackerDB chunk events for {contract_id}: {modified_slots:?}"
         );
 
         let interested_observers = self.filter_observers(&self.stackerdb_observers_lookup, false);
@@ -1582,7 +1580,7 @@ impl EventDispatcher {
 
         let dropped_txids: Vec<_> = txs
             .into_iter()
-            .map(|tx| serde_json::Value::String(format!("0x{}", &tx)))
+            .map(|tx| serde_json::Value::String(format!("0x{tx}")))
             .collect();
 
         let payload = json!({
@@ -1875,8 +1873,7 @@ mod test {
         // Assert that the connection attempt timed out
         assert!(
             result.is_err(),
-            "Expected a timeout error, but got {:?}",
-            result
+            "Expected a timeout error, but got {result:?}"
         );
         assert_eq!(
             result.unwrap_err().kind(),
@@ -2134,7 +2131,7 @@ mod test {
         let (tx, rx) = channel();
 
         // Start a mock server in a separate thread
-        let server = Server::http(format!("127.0.0.1:{}", port)).unwrap();
+        let server = Server::http(format!("127.0.0.1:{port}")).unwrap();
         thread::spawn(move || {
             let request = server.recv().unwrap();
             assert_eq!(request.url(), "/test");
@@ -2149,7 +2146,7 @@ mod test {
         });
 
         let observer =
-            EventObserver::new(None, format!("127.0.0.1:{}", port), Duration::from_secs(3));
+            EventObserver::new(None, format!("127.0.0.1:{port}"), Duration::from_secs(3));
 
         let payload = json!({"key": "value"});
 
@@ -2168,7 +2165,7 @@ mod test {
         let (tx, rx) = channel();
 
         // Start a mock server in a separate thread
-        let server = Server::http(format!("127.0.0.1:{}", port)).unwrap();
+        let server = Server::http(format!("127.0.0.1:{port}")).unwrap();
         thread::spawn(move || {
             let mut attempt = 0;
             while let Ok(request) = server.recv() {
@@ -2198,7 +2195,7 @@ mod test {
         });
 
         let observer =
-            EventObserver::new(None, format!("127.0.0.1:{}", port), Duration::from_secs(3));
+            EventObserver::new(None, format!("127.0.0.1:{port}"), Duration::from_secs(3));
 
         let payload = json!({"key": "value"});
 
@@ -2218,7 +2215,7 @@ mod test {
         let (tx, rx) = channel();
 
         // Start a mock server in a separate thread
-        let server = Server::http(format!("127.0.0.1:{}", port)).unwrap();
+        let server = Server::http(format!("127.0.0.1:{port}")).unwrap();
         thread::spawn(move || {
             let mut attempt = 0;
             let mut _request_holder = None;
@@ -2242,7 +2239,7 @@ mod test {
             }
         });
 
-        let observer = EventObserver::new(None, format!("127.0.0.1:{}", port), timeout);
+        let observer = EventObserver::new(None, format!("127.0.0.1:{port}"), timeout);
 
         let payload = json!({"key": "value"});
 
@@ -2255,7 +2252,7 @@ mod test {
         // Record the time after the function returns
         let elapsed_time = start_time.elapsed();
 
-        println!("Elapsed time: {:?}", elapsed_time);
+        println!("Elapsed time: {elapsed_time:?}");
         assert!(
             elapsed_time >= timeout,
             "Expected a timeout, but the function returned too quickly"
@@ -2281,9 +2278,9 @@ mod test {
         // Set up a channel to notify when the server has processed the request
         let (tx, rx) = channel();
 
-        info!("Starting mock server on port {}", port);
+        info!("Starting mock server on port {port}");
         // Start a mock server in a separate thread
-        let server = Server::http(format!("127.0.0.1:{}", port)).unwrap();
+        let server = Server::http(format!("127.0.0.1:{port}")).unwrap();
         thread::spawn(move || {
             let mut attempt = 0;
             let mut _request_holder = None;
@@ -2334,7 +2331,7 @@ mod test {
 
         let observer = EventObserver::new(
             Some(working_dir.clone()),
-            format!("127.0.0.1:{}", port),
+            format!("127.0.0.1:{port}"),
             timeout,
         );
 

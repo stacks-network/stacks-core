@@ -227,9 +227,8 @@ fn trait_invocation_behavior() {
     submit_tx(&http_origin, &publish_invoke);
 
     info!(
-        "At height = {}, epoch-2.1 = {}",
-        get_chain_info(&conf).burn_block_height,
-        epoch_2_1
+        "At height = {}, epoch-2.1 = {epoch_2_1}",
+        get_chain_info(&conf).burn_block_height
     );
     // wait until just before epoch 2.1
     loop {
@@ -509,7 +508,7 @@ fn trait_invocation_behavior() {
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
-    info!("Total spender txs = {}", spender_nonce);
+    info!("Total spender txs = {spender_nonce}");
 
     let blocks = test_observer::get_blocks();
 
@@ -630,7 +629,7 @@ fn trait_invocation_behavior() {
     }
 
     for (key, value) in transaction_receipts.iter() {
-        eprintln!("{} => {} of {}", key, value.0, value.1);
+        eprintln!("{key} => {} of {}", value.0, value.1);
     }
 
     test_observer::clear();
