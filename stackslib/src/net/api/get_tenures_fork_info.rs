@@ -233,7 +233,6 @@ impl RPCRequestHandler for GetTenuresForkInfo {
             )?);
             let mut depth = 0;
             while depth < DEPTH_LIMIT && cursor.consensus_hash != recurse_end {
-                depth += 1;
                 if height_bound >= cursor.block_height {
                     return Err(ChainError::NotInSameFork);
                 }
@@ -251,6 +250,11 @@ impl RPCRequestHandler for GetTenuresForkInfo {
                         chainstate,
                         &network.stacks_tip.block_id(),
                     )?);
+                }
+                if cursor.sortition {
+                    // don't count shadow blocks towards the depth, since there can be a large
+                    // swath of them.
+                    depth += 1;
                 }
             }
 
