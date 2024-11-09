@@ -710,8 +710,8 @@ impl Config {
         for (i, (epoch_id, start_height)) in matched_epochs.iter().enumerate() {
             if epoch_id != &out_epochs[i].epoch_id {
                 return Err(
-                                format!("Unmatched epochs in configuration and node implementation. Implemented = {epoch_id}, Configured = {}",
-                                   &out_epochs[i].epoch_id));
+                    format!("Unmatched epochs in configuration and node implementation. Implemented = {epoch_id}, Configured = {}",
+                            &out_epochs[i].epoch_id));
             }
             // end_height = next epoch's start height || i64::max if last epoch
             let end_height = if i + 1 < matched_epochs.len() {
