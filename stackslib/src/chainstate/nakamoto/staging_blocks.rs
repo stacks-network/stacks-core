@@ -282,6 +282,17 @@ impl<'a> NakamotoStagingBlocksConnRef<'a> {
         Ok(res)
     }
 
+    /// Get the rowid of a staging Nakamoto block by block_hash
+    pub fn get_nakamoto_block_by_hash_rowid(
+        &self,
+        block_hash: &StacksBlockId,
+    ) -> Result<Option<i64>, ChainstateError> {
+        let sql = "SELECT rowid FROM nakamoto_staging_blocks WHERE block_hash = ?1";
+        let args = params![block_hash];
+        let res: Option<i64> = query_row(self, sql, args)?;
+        Ok(res)
+    }
+
     /// Get the tenure and parent block ID of a staging block.
     /// Used for downloads
     pub fn get_tenure_and_parent_block_id(
@@ -298,6 +309,44 @@ impl<'a> NakamotoStagingBlocksConnRef<'a> {
                 let parent_id: StacksBlockId = row.get(1)?;
 
                 Ok((ch, parent_id))
+            })
+            .optional()?)
+    }
+
+    /// Get the block ID of a staging block from block hash.
+    /// Used for downloads
+    pub fn get_block_id_by_block_hash(
+        &self,
+        block_hash: &BlockHeaderHash,
+    ) -> Result<Option<StacksBlockId>, ChainstateError> {
+        let sql = "SELECT index_block_hash FROM nakamoto_staging_blocks WHERE block_hash = ?1";
+        let args = params![block_hash];
+
+        let mut stmt = self.deref().prepare(sql)?;
+        Ok(stmt
+            .query_row(args, |row| {
+                let block_id: StacksBlockId = row.get(0)?;
+
+                Ok(block_id)
+            })
+            .optional()?)
+    }
+
+    /// Get the block ID of a staging block from block height.
+    /// Used for downloads
+    pub fn get_block_id_by_block_height(
+        &self,
+        block_height: u64,
+    ) -> Result<Option<StacksBlockId>, ChainstateError> {
+        let sql = "SELECT index_block_hash FROM nakamoto_staging_blocks WHERE height = ?1";
+        let args = params![block_height];
+
+        let mut stmt = self.deref().prepare(sql)?;
+        Ok(stmt
+            .query_row(args, |row| {
+                let block_id: StacksBlockId = row.get(0)?;
+
+                Ok(block_id)
             })
             .optional()?)
     }
