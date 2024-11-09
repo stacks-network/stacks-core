@@ -197,14 +197,14 @@ fn disable_pox() {
     // stack right away
     let sort_height = channel.get_sortitions_processed();
     let pox_addr_tuple_1 = execute(
-        &format!("{{ hashbytes: 0x{}, version: 0x00 }}", pox_pubkey_hash_1,),
+        &format!("{{ hashbytes: 0x{pox_pubkey_hash_1}, version: 0x00 }}"),
         ClarityVersion::Clarity2,
     )
     .unwrap()
     .unwrap();
 
     let pox_addr_tuple_3 = execute(
-        &format!("{{ hashbytes: 0x{}, version: 0x00 }}", pox_pubkey_hash_3,),
+        &format!("{{ hashbytes: 0x{pox_pubkey_hash_3}, version: 0x00 }}"),
         ClarityVersion::Clarity2,
     )
     .unwrap()
@@ -226,7 +226,7 @@ fn disable_pox() {
         ],
     );
 
-    info!("Submit 2.05 stacking tx to {:?}", &http_origin);
+    info!("Submit 2.05 stacking tx to {http_origin:?}");
     submit_tx(&http_origin, &tx);
 
     // wait until just before epoch 2.1
@@ -254,7 +254,7 @@ fn disable_pox() {
 
     let sort_height = channel.get_sortitions_processed();
     let pox_addr_tuple_2 = execute(
-        &format!("{{ hashbytes: 0x{}, version: 0x00 }}", pox_pubkey_hash_2,),
+        &format!("{{ hashbytes: 0x{pox_pubkey_hash_2}, version: 0x00 }}"),
         ClarityVersion::Clarity2,
     )
     .unwrap()
@@ -275,7 +275,7 @@ fn disable_pox() {
         ],
     );
 
-    info!("Submit 2.1 stacking tx to {:?}", &http_origin);
+    info!("Submit 2.1 stacking tx to {http_origin:?}");
     submit_tx(&http_origin, &tx);
 
     let tx = make_contract_call(
@@ -294,7 +294,7 @@ fn disable_pox() {
         ],
     );
 
-    info!("Submit 2.1 stacking tx to {:?}", &http_origin);
+    info!("Submit 2.1 stacking tx to {http_origin:?}");
     submit_tx(&http_origin, &tx);
 
     // that it can mine _at all_ is a success criterion
@@ -321,7 +321,7 @@ fn disable_pox() {
         &[Value::UInt(increase_by.into())],
     );
 
-    info!("Submit 2.1 stack-increase tx to {:?}", &http_origin);
+    info!("Submit 2.1 stack-increase tx to {http_origin:?}");
     submit_tx(&http_origin, &tx);
 
     for _i in 0..15 {
@@ -348,7 +348,7 @@ fn disable_pox() {
         &[Value::UInt(5000)],
     );
 
-    info!("Submit 2.1 stack-increase tx to {:?}", &http_origin);
+    info!("Submit 2.1 stack-increase tx to {http_origin:?}");
     submit_tx(&http_origin, &tx);
 
     // finish the cycle after the 2.2 transition,
@@ -394,7 +394,7 @@ fn disable_pox() {
                 &iconn,
                 &tip,
                 &boot_code_id("pox-2", false),
-                &format!("(get-burn-block-info? pox-addrs u{})", height),
+                &format!("(get-burn-block-info? pox-addrs u{height})"),
             )
             .expect_optional()
             .unwrap()
@@ -406,7 +406,7 @@ fn disable_pox() {
             .expect_list()
             .unwrap();
 
-        debug!("Test burnchain height {}", height);
+        debug!("Test burnchain height {height}");
         if !burnchain_config.is_in_prepare_phase(height) && !pox_addrs.is_empty() {
             assert_eq!(pox_addrs.len(), 2);
             let pox_addr_0 = PoxAddress::try_from_pox_tuple(false, &pox_addrs[0]).unwrap();
@@ -503,14 +503,12 @@ fn disable_pox() {
 
     for reward_cycle in reward_cycle_min..(reward_cycle_max + 1) {
         let cycle_counts = &reward_cycle_pox_addrs[&reward_cycle];
-        assert_eq!(cycle_counts.len(), expected_slots[&reward_cycle].len(), "The number of expected PoX addresses in reward cycle {} is mismatched with the actual count.", reward_cycle);
+        assert_eq!(cycle_counts.len(), expected_slots[&reward_cycle].len(), "The number of expected PoX addresses in reward cycle {reward_cycle} is mismatched with the actual count.");
         for (pox_addr, slots) in cycle_counts.iter() {
             assert_eq!(
                 *slots,
                 expected_slots[&reward_cycle][pox_addr],
-                "The number of expected slots for PoX address {} in reward cycle {} is mismatched with the actual count.",
-                &pox_addr,
-                reward_cycle,
+                "The number of expected slots for PoX address {pox_addr} in reward cycle {reward_cycle} is mismatched with the actual count."
             );
             info!("PoX payment received"; "cycle" => reward_cycle, "pox_addr" => %pox_addr, "slots" => slots);
         }
@@ -721,14 +719,14 @@ fn pox_2_unlock_all() {
     // stack right away
     let sort_height = channel.get_sortitions_processed();
     let pox_addr_tuple_1 = execute(
-        &format!("{{ hashbytes: 0x{}, version: 0x00 }}", pox_pubkey_hash_1,),
+        &format!("{{ hashbytes: 0x{pox_pubkey_hash_1}, version: 0x00 }}"),
         ClarityVersion::Clarity2,
     )
     .unwrap()
     .unwrap();
 
     let pox_addr_tuple_3 = execute(
-        &format!("{{ hashbytes: 0x{}, version: 0x00 }}", pox_pubkey_hash_3,),
+        &format!("{{ hashbytes: 0x{pox_pubkey_hash_3}, version: 0x00 }}"),
         ClarityVersion::Clarity2,
     )
     .unwrap()
@@ -750,7 +748,7 @@ fn pox_2_unlock_all() {
         ],
     );
 
-    info!("Submit 2.05 stacking tx to {:?}", &http_origin);
+    info!("Submit 2.05 stacking tx to {http_origin:?}");
     submit_tx(&http_origin, &tx);
 
     // wait until just before epoch 2.1
@@ -779,7 +777,7 @@ fn pox_2_unlock_all() {
 
     let sort_height = channel.get_sortitions_processed();
     let pox_addr_tuple_2 = execute(
-        &format!("{{ hashbytes: 0x{}, version: 0x00 }}", pox_pubkey_hash_2,),
+        &format!("{{ hashbytes: 0x{pox_pubkey_hash_2}, version: 0x00 }}"),
         ClarityVersion::Clarity2,
     )
     .unwrap()
@@ -811,7 +809,7 @@ fn pox_2_unlock_all() {
         ],
     );
 
-    info!("Submit 2.1 stacking tx to {:?}", &http_origin);
+    info!("Submit 2.1 stacking tx to {http_origin:?}");
     sleep_ms(5_000);
     submit_tx(&http_origin, &tx);
 
@@ -831,7 +829,7 @@ fn pox_2_unlock_all() {
         ],
     );
 
-    info!("Submit 2.1 stacking tx to {:?}", &http_origin);
+    info!("Submit 2.1 stacking tx to {http_origin:?}");
     submit_tx(&http_origin, &tx);
 
     // that it can mine _at all_ is a success criterion
@@ -969,7 +967,7 @@ fn pox_2_unlock_all() {
         1_000_000,
     );
 
-    info!("Submit stack transfer tx to {:?}", &http_origin);
+    info!("Submit stack transfer tx to {http_origin:?}");
     submit_tx(&http_origin, &tx);
 
     // this wakes up the node to mine the transaction
@@ -1062,7 +1060,7 @@ fn pox_2_unlock_all() {
                 &iconn,
                 &tip,
                 &boot_code_id("pox-2", false),
-                &format!("(get-burn-block-info? pox-addrs u{})", height),
+                &format!("(get-burn-block-info? pox-addrs u{height})"),
             )
             .expect_optional()
             .unwrap()
@@ -1074,7 +1072,7 @@ fn pox_2_unlock_all() {
             .expect_list()
             .unwrap();
 
-        debug!("Test burnchain height {}", height);
+        debug!("Test burnchain height {height}");
         if !burnchain_config.is_in_prepare_phase(height) && !pox_addrs.is_empty() {
             assert_eq!(pox_addrs.len(), 2);
             let pox_addr_0 = PoxAddress::try_from_pox_tuple(false, &pox_addrs[0]).unwrap();
@@ -1153,18 +1151,16 @@ fn pox_2_unlock_all() {
         let cycle_counts = match reward_cycle_pox_addrs.get(&reward_cycle) {
             Some(x) => x,
             None => {
-                info!("No reward cycle entry = {}", reward_cycle);
+                info!("No reward cycle entry = {reward_cycle}");
                 continue;
             }
         };
-        assert_eq!(cycle_counts.len(), expected_slots[&reward_cycle].len(), "The number of expected PoX addresses in reward cycle {} is mismatched with the actual count.", reward_cycle);
+        assert_eq!(cycle_counts.len(), expected_slots[&reward_cycle].len(), "The number of expected PoX addresses in reward cycle {reward_cycle} is mismatched with the actual count.");
         for (pox_addr, slots) in cycle_counts.iter() {
             assert_eq!(
                 *slots,
                 expected_slots[&reward_cycle][pox_addr],
-                "The number of expected slots for PoX address {} in reward cycle {} is mismatched with the actual count.",
-                &pox_addr,
-                reward_cycle,
+                "The number of expected slots for PoX address {pox_addr} in reward cycle {reward_cycle} is mismatched with the actual count."
             );
             info!("PoX payment received"; "cycle" => reward_cycle, "pox_addr" => %pox_addr, "slots" => slots);
         }
@@ -1334,9 +1330,9 @@ fn test_pox_reorg_one_flap() {
 
         let rpc_port = 41063 + 10 * i;
         let p2p_port = 41063 + 10 * i + 1;
-        conf.node.rpc_bind = format!("127.0.0.1:{}", rpc_port);
-        conf.node.data_url = format!("http://127.0.0.1:{}", rpc_port);
-        conf.node.p2p_bind = format!("127.0.0.1:{}", p2p_port);
+        conf.node.rpc_bind = format!("127.0.0.1:{rpc_port}");
+        conf.node.data_url = format!("http://127.0.0.1:{rpc_port}");
+        conf.node.p2p_bind = format!("127.0.0.1:{p2p_port}");
 
         confs.push(conf);
     }
@@ -1349,9 +1345,8 @@ fn test_pox_reorg_one_flap() {
     for conf in confs.iter_mut().skip(1) {
         conf.node.set_bootstrap_nodes(
             format!(
-                "{}@{}",
-                &StacksPublicKey::from_private(&node_privkey_1).to_hex(),
-                p2p_bind
+                "{}@{p2p_bind}",
+                &StacksPublicKey::from_private(&node_privkey_1).to_hex()
             ),
             chain_id,
             peer_version,
@@ -1432,7 +1427,7 @@ fn test_pox_reorg_one_flap() {
     loop {
         let tip_info_opt = get_chain_info_opt(&confs[0]);
         if let Some(tip_info) = tip_info_opt {
-            eprintln!("\n\nMiner 0: {:?}\n\n", &tip_info);
+            eprintln!("\n\nMiner 0: {tip_info:?}\n\n");
             if tip_info.stacks_tip_height > 0 {
                 break;
             }
@@ -1447,16 +1442,16 @@ fn test_pox_reorg_one_flap() {
     }
 
     for (i, conf) in confs.iter().enumerate().skip(1) {
-        eprintln!("\n\nBoot miner {}\n\n", i);
+        eprintln!("\n\nBoot miner {i}\n\n");
         loop {
             let tip_info_opt = get_chain_info_opt(conf);
             if let Some(tip_info) = tip_info_opt {
-                eprintln!("\n\nMiner {}: {:?}\n\n", i, &tip_info);
+                eprintln!("\n\nMiner {i}: {tip_info:?}\n\n");
                 if tip_info.stacks_tip_height > 0 {
                     break;
                 }
             } else {
-                eprintln!("\n\nWaiting for miner {}...\n\n", i);
+                eprintln!("\n\nWaiting for miner {i}...\n\n");
             }
             next_block_and_iterate(&mut btc_regtest_controller, &blocks_processed[i], 5_000);
         }
@@ -1523,7 +1518,7 @@ fn test_pox_reorg_one_flap() {
 
         for (i, c) in confs.iter().enumerate() {
             let tip_info = get_chain_info(c);
-            info!("Tip for miner {}: {:?}", i, &tip_info);
+            info!("Tip for miner {i}: {tip_info:?}");
             if tip_info.burn_block_height == 220 {
                 at_220 = true;
             }
@@ -1534,7 +1529,7 @@ fn test_pox_reorg_one_flap() {
     let mut cnt = 0;
     for tx_chain in all_txs {
         for tx in tx_chain {
-            eprintln!("\n\nSubmit tx {}\n\n", &cnt);
+            eprintln!("\n\nSubmit tx {cnt}\n\n");
             submit_tx(&http_origin, &tx);
             cnt += 1;
         }
@@ -1542,7 +1537,7 @@ fn test_pox_reorg_one_flap() {
 
     for (i, c) in confs.iter().enumerate() {
         let tip_info = get_chain_info(c);
-        info!("Tip for miner {}: {:?}", i, &tip_info);
+        info!("Tip for miner {i}: {tip_info:?}");
         assert!(tip_info.burn_block_height <= 220);
     }
 
@@ -1551,7 +1546,7 @@ fn test_pox_reorg_one_flap() {
     info!("####################### end of cycle ##############################");
     for (i, c) in confs.iter().enumerate() {
         let tip_info = get_chain_info(c);
-        info!("Tip for miner {}: {:?}", i, &tip_info);
+        info!("Tip for miner {i}: {tip_info:?}");
     }
     info!("####################### end of cycle ##############################");
 
@@ -1564,13 +1559,13 @@ fn test_pox_reorg_one_flap() {
     // miner 0 mines a prepare phase and confirms a hidden anchor block.
     // miner 1 is disabled for these prepare phases
     for i in 0..10 {
-        eprintln!("\n\nBuild block {}\n\n", i);
+        eprintln!("\n\nBuild block {i}\n\n");
         btc_regtest_controller.build_next_block(1);
         sleep_ms(block_time_ms);
 
         for (i, c) in confs.iter().enumerate() {
             let tip_info = get_chain_info(c);
-            info!("Tip for miner {}: {:?}", i, &tip_info);
+            info!("Tip for miner {i}: {tip_info:?}");
         }
 
         if i >= reward_cycle_len - prepare_phase_len - 2 {
@@ -1582,20 +1577,20 @@ fn test_pox_reorg_one_flap() {
     info!("####################### end of cycle ##############################");
     for (i, c) in confs.iter().enumerate() {
         let tip_info = get_chain_info(c);
-        info!("Tip for miner {}: {:?}", i, &tip_info);
+        info!("Tip for miner {i}: {tip_info:?}");
     }
     info!("####################### end of cycle ##############################");
 
     // miner 1 mines a prepare phase and confirms a hidden anchor block.
     // miner 0 is disabled for this prepare phase
     for i in 0..10 {
-        eprintln!("\n\nBuild block {}\n\n", i);
+        eprintln!("\n\nBuild block {i}\n\n");
         btc_regtest_controller.build_next_block(1);
         sleep_ms(block_time_ms);
 
         for (i, c) in confs.iter().enumerate() {
             let tip_info = get_chain_info(c);
-            info!("Tip for miner {}: {:?}", i, &tip_info);
+            info!("Tip for miner {i}: {tip_info:?}");
         }
 
         if i >= reward_cycle_len - prepare_phase_len - 2 {
@@ -1608,7 +1603,7 @@ fn test_pox_reorg_one_flap() {
     let mut max_stacks_tip = 0;
     for (i, c) in confs.iter().enumerate() {
         let tip_info = get_chain_info(c);
-        info!("Tip for miner {}: {:?}", i, &tip_info);
+        info!("Tip for miner {i}: {tip_info:?}");
 
         // miner 1's history overtakes miner 0's.
         // Miner 1 didn't see cycle 22's anchor block, but it just mined an anchor block for cycle
@@ -1624,22 +1619,19 @@ fn test_pox_reorg_one_flap() {
 
     for (i, c) in confs.iter().enumerate() {
         let tip_info = get_chain_info(c);
-        info!("Tip for miner {}: {:?}", i, &tip_info);
+        info!("Tip for miner {i}: {tip_info:?}");
     }
 
     // resume block propagation
     env::set_var("STACKS_HIDE_BLOCKS_AT_HEIGHT", "[]");
 
     // wait for all blocks to propagate
-    eprintln!(
-        "Wait for all blocks to propagate; stacks tip height is {}",
-        max_stacks_tip
-    );
+    eprintln!("Wait for all blocks to propagate; stacks tip height is {max_stacks_tip}");
     wait_pox_stragglers(&confs, max_stacks_tip, block_time_ms);
 
     // nodes now agree on stacks affirmation map
     for (i, c) in confs.iter().enumerate() {
         let tip_info = get_chain_info(c);
-        info!("Final tip for miner {}: {:?}", i, &tip_info);
+        info!("Final tip for miner {i}: {tip_info:?}");
     }
 }

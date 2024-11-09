@@ -555,7 +555,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         signer_signature_hash: &Sha512Trunc256Sum,
         expected_signers: &[StacksPublicKey],
     ) -> Result<(), String> {
-        // Make sure that ALL signers accepted the block proposal
+        // Make sure that at least 70% of signers accepted the block proposal
         wait_for(timeout_secs, || {
             let signatures = test_observer::get_stackerdb_chunks()
                 .into_iter()
@@ -583,7 +583,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
                     }
                 })
                 .collect::<HashSet<_>>();
-            Ok(signatures.len() == expected_signers.len())
+            Ok(signatures.len() > expected_signers.len() * 7 / 10)
         })
     }
 

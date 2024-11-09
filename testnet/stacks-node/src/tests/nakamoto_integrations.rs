@@ -1631,10 +1631,8 @@ fn simple_neon_integration() {
                 tip.stacks_block_height
             );
 
-            let expected_result_2 = format!(
-                "stacks_node_stacks_tip_height {}",
-                tip.stacks_block_height - 1
-            );
+            let expected_result_2 =
+                format!("stacks_node_stacks_tip_height {}", tip.stacks_block_height);
             Ok(res.contains(&expected_result_1) && res.contains(&expected_result_2))
         })
         .expect("Prometheus metrics did not update");
@@ -3720,7 +3718,7 @@ fn follower_bootup_across_multiple_cycles() {
 
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
     naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
-    naka_conf.node.pox_sync_sample_secs = 30;
+    naka_conf.node.pox_sync_sample_secs = 180;
     naka_conf.burnchain.max_rbf = 10_000_000;
 
     let sender_sk = Secp256k1PrivateKey::new();
@@ -4865,6 +4863,7 @@ fn forked_tenure_is_ignored() {
 
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
     naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(10);
+    naka_conf.miner.block_commit_delay = Duration::from_secs(0);
     let sender_sk = Secp256k1PrivateKey::new();
     // setup sender + recipient for a test stx transfer
     let sender_addr = tests::to_addr(&sender_sk);
@@ -4982,7 +4981,7 @@ fn forked_tenure_is_ignored() {
 
     // Unpause the broadcast of Tenure B's block, do not submit commits, and do not allow blocks to
     // be processed
-    test_skip_commit_op.0.lock().unwrap().replace(true);
+    test_skip_commit_op.set(true);
     TEST_BROADCAST_STALL.lock().unwrap().replace(false);
 
     // Wait for a stacks block to be broadcasted.
@@ -5035,7 +5034,7 @@ fn forked_tenure_is_ignored() {
         .expect("Mutex poisoned")
         .get_stacks_blocks_processed();
     next_block_and(&mut btc_regtest_controller, 60, || {
-        test_skip_commit_op.0.lock().unwrap().replace(false);
+        test_skip_commit_op.set(false);
         TEST_BLOCK_ANNOUNCE_STALL.lock().unwrap().replace(false);
         let commits_count = commits_submitted.load(Ordering::SeqCst);
         let blocks_count = mined_blocks.load(Ordering::SeqCst);
@@ -6366,6 +6365,7 @@ fn signer_chainstate() {
         let proposal_conf = ProposalEvalConfig {
             first_proposal_burn_block_timing: Duration::from_secs(0),
             block_proposal_timeout: Duration::from_secs(100),
+            tenure_last_block_proposal_timeout: Duration::from_secs(30),
         };
         let mut sortitions_view =
             SortitionsView::fetch_view(proposal_conf, &signer_client).unwrap();
@@ -6504,6 +6504,7 @@ fn signer_chainstate() {
         let proposal_conf = ProposalEvalConfig {
             first_proposal_burn_block_timing: Duration::from_secs(0),
             block_proposal_timeout: Duration::from_secs(100),
+            tenure_last_block_proposal_timeout: Duration::from_secs(30),
         };
         let burn_block_height = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
             .unwrap()
@@ -6538,10 +6539,10 @@ fn signer_chainstate() {
                 valid: Some(true),
                 signed_over: true,
                 proposed_time: get_epoch_time_secs(),
-                signed_self: None,
-                signed_group: None,
+                signed_self: Some(get_epoch_time_secs()),
+                signed_group: Some(get_epoch_time_secs()),
                 ext: ExtraBlockInfo::None,
-                state: BlockState::Unprocessed,
+                state: BlockState::GloballyAccepted,
             })
             .unwrap();
 
@@ -6581,6 +6582,7 @@ fn signer_chainstate() {
     let proposal_conf = ProposalEvalConfig {
         first_proposal_burn_block_timing: Duration::from_secs(0),
         block_proposal_timeout: Duration::from_secs(100),
+        tenure_last_block_proposal_timeout: Duration::from_secs(30),
     };
     let mut sortitions_view = SortitionsView::fetch_view(proposal_conf, &signer_client).unwrap();
     let burn_block_height = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
@@ -6967,7 +6969,7 @@ fn continue_tenure_extend() {
         .get_stacks_blocks_processed();
 
     info!("Pausing commit ops to trigger a tenure extend.");
-    test_skip_commit_op.0.lock().unwrap().replace(true);
+    test_skip_commit_op.set(true);
 
     next_block_and(&mut btc_regtest_controller, 60, || Ok(true)).unwrap();
 
@@ -7066,7 +7068,7 @@ fn continue_tenure_extend() {
     }
 
     info!("Resuming commit ops to mine regular tenures.");
-    test_skip_commit_op.0.lock().unwrap().replace(false);
+    test_skip_commit_op.set(false);
 
     // Mine 15 more regular nakamoto tenures
     for _i in 0..15 {

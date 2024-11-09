@@ -703,6 +703,10 @@ impl Burnchain {
     }
 
     pub fn get_burnchaindb_path(&self) -> String {
+        if self.working_dir.as_str() == ":memory:" {
+            return ":memory:".to_string();
+        }
+
         let chainstate_dir = Burnchain::get_chainstate_path_str(&self.working_dir);
         let mut db_pathbuf = PathBuf::from(&chainstate_dir);
         db_pathbuf.push("burnchain.sqlite");
@@ -744,12 +748,14 @@ impl Burnchain {
     /// Open just the burnchain database
     pub fn open_burnchain_db(&self, readwrite: bool) -> Result<BurnchainDB, burnchain_error> {
         let burnchain_db_path = self.get_burnchaindb_path();
-        if let Err(e) = fs::metadata(&burnchain_db_path) {
-            warn!(
-                "Failed to stat burnchain DB path '{}': {:?}",
-                &burnchain_db_path, &e
-            );
-            return Err(burnchain_error::DBError(db_error::NoDBError));
+        if burnchain_db_path != ":memory:" {
+            if let Err(e) = fs::metadata(&burnchain_db_path) {
+                warn!(
+                    "Failed to stat burnchain DB path '{}': {:?}",
+                    &burnchain_db_path, &e
+                );
+                return Err(burnchain_error::DBError(db_error::NoDBError));
+            }
         }
         test_debug!(
             "Open burnchain DB at {} (rw? {})",
