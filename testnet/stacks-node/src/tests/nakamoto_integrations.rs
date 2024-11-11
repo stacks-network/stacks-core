@@ -2820,6 +2820,7 @@ fn block_proposal_api_endpoint() {
             tenure_change,
             coinbase,
             1,
+            None,
         )
         .expect("Failed to build Nakamoto block");
 

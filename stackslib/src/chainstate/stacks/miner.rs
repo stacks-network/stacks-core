@@ -2222,21 +2222,9 @@ impl StacksBlockBuilder {
         let mempool_settings = settings.mempool_settings.clone();
         let ts_start = get_epoch_time_ms();
         let stacks_epoch_id = epoch_tx.get_epoch();
-        let remaining_limit = epoch_tx
+        let block_limit = epoch_tx
             .block_limit()
             .expect("Failed to obtain block limit from miner's block connection");
-
-        // Attempt to spread the cost limit across the tenure by always using only 25% of the remaining budget
-        // until the remaining budget is less than 100
-        let mut target_limit = remaining_limit.clone();
-        let block_limit = if target_limit.divide(100).is_ok() {
-            target_limit.multiply(25).expect(
-                "BUG: Successfully divided by 100, but failed to multiply block limit by 25",
-            );
-            target_limit
-        } else {
-            remaining_limit
-        };
 
         let mut tx_events = Vec::new();
 

@@ -124,6 +124,8 @@ pub struct NakamotoBlockBuilder {
     txs: Vec<StacksTransaction>,
     /// header we're filling in
     pub header: NakamotoBlockHeader,
+    /// The cost limit percentage to use when processing transactions
+    cost_limit_percentage: Option<u8>,
 }
 
 pub struct MinerTenureInfo<'a> {
@@ -159,6 +161,7 @@ impl NakamotoBlockBuilder {
             bytes_so_far: 0,
             txs: vec![],
             header: NakamotoBlockHeader::genesis(),
+            cost_limit_percentage: None,
         }
     }
 
@@ -176,6 +179,11 @@ impl NakamotoBlockBuilder {
     ///
     /// * `coinbase` - the coinbase tx if this is going to start a new tenure
     ///
+    /// * `bitvec_len` - the length of the bitvec of reward addresses that should be punished or not in this block.
+    ///
+    /// * `cost_limit_percentage` - the percentage of the remaining tenure cost limit to use when
+    /// processing transactions. Will use 100% if None.
+    ///
     pub fn new(
         parent_stacks_header: &StacksHeaderInfo,
         tenure_id_consensus_hash: &ConsensusHash,
@@ -183,6 +191,7 @@ impl NakamotoBlockBuilder {
         tenure_change: Option<&StacksTransaction>,
         coinbase: Option<&StacksTransaction>,
         bitvec_len: u16,
+        cost_limit_percentage: Option<u8>,
     ) -> Result<NakamotoBlockBuilder, Error> {
         let next_height = parent_stacks_header
             .anchored_header
@@ -222,6 +231,7 @@ impl NakamotoBlockBuilder {
                     .map(|b| b.timestamp)
                     .unwrap_or(0),
             ),
+            cost_limit_percentage,
         })
     }
 
@@ -509,6 +519,9 @@ impl NakamotoBlockBuilder {
             tenure_info.tenure_change_tx(),
             tenure_info.coinbase_tx(),
             signer_bitvec_len,
+            settings
+                .mempool_settings
+                .tenure_cost_limit_per_block_percentage,
         )?;
 
         let ts_start = get_epoch_time_ms();
@@ -653,59 +666,31 @@ impl BlockBuilder for NakamotoBlockBuilder {
                 );
                 return TransactionResult::problematic(&tx, Error::NetError(e));
             }
-            let (fee, receipt) = match StacksChainState::process_transaction(
-                clarity_tx, tx, quiet, ast_rules,
-            ) {
-                Ok((fee, receipt)) => (fee, receipt),
-                Err(e) => {
-                    let (is_problematic, e) =
-                        TransactionResult::is_problematic(&tx, e, clarity_tx.get_epoch());
-                    if is_problematic {
-                        return TransactionResult::problematic(&tx, e);
-                    } else {
-                        match e {
-                            Error::CostOverflowError(cost_before, cost_after, total_budget) => {
-                                clarity_tx.reset_cost(cost_before.clone());
-                                if total_budget.proportion_largest_dimension(&cost_before)
-                                    < TX_BLOCK_LIMIT_PROPORTION_HEURISTIC
-                                {
-                                    warn!(
-                                            "Transaction {} consumed over {}% of block budget, marking as invalid; budget was {}",
-                                            tx.txid(),
-                                            100 - TX_BLOCK_LIMIT_PROPORTION_HEURISTIC,
-                                            &total_budget
-                                    );
-                                    let mut measured_cost = cost_after;
-                                    let measured_cost = if measured_cost.sub(&cost_before).is_ok() {
-                                        Some(measured_cost)
-                                    } else {
-                                        warn!(
-                                            "Failed to compute measured cost of a too big transaction"
-                                        );
-                                        None
-                                    };
-                                    return TransactionResult::error(
-                                        &tx,
-                                        Error::TransactionTooBigError(measured_cost),
-                                    );
-                                } else {
-                                    warn!(
-                                        "Transaction {} reached block cost {}; budget was {}",
-                                        tx.txid(),
-                                        &cost_after,
-                                        &total_budget
-                                    );
-                                    return TransactionResult::skipped_due_to_error(
-                                        &tx,
-                                        Error::BlockTooBigError,
-                                    );
-                                }
-                            }
-                            _ => return TransactionResult::error(&tx, e),
-                        }
+            if let Some(percentage) = self.cost_limit_percentage {
+                if percentage < 100 {
+                    let remaining_limit = clarity_tx
+                        .block_limit()
+                        .expect("Failed to obtain block limit from miner's block connection");
+                    let mut block_limit = remaining_limit.clone();
+                    // Attempt to spread the cost limit across the tenure by always using only 25% of the remaining budget
+                    // until the remaining budget is less than 100 in which case we just use 100% of the remaining budget
+                    if block_limit.divide(100).is_ok() {
+                        block_limit.multiply(25).expect(
+                            "BUG: Successfully divided by 100, but failed to multiply block limit by 25",
+                        );
+                        clarity_tx.reset_cost(block_limit);
                     }
                 }
-            };
+            }
+
+            let (fee, receipt) =
+                match StacksChainState::process_transaction(clarity_tx, tx, quiet, ast_rules) {
+                    Ok(x) => x,
+                    Err(e) => {
+                        return parse_process_transaction_error(clarity_tx, tx, e);
+                    }
+                };
+
             info!("Include tx";
                   "tx" => %tx.txid(),
                   "payload" => tx.payload.name(),
@@ -718,5 +703,49 @@ impl BlockBuilder for NakamotoBlockBuilder {
 
         self.bytes_so_far += tx_len;
         result
+    }
+}
+
+fn parse_process_transaction_error(
+    clarity_tx: &mut ClarityTx,
+    tx: &StacksTransaction,
+    e: Error,
+) -> TransactionResult {
+    let (is_problematic, e) = TransactionResult::is_problematic(&tx, e, clarity_tx.get_epoch());
+    if is_problematic {
+        TransactionResult::problematic(&tx, e)
+    } else {
+        match e {
+            Error::CostOverflowError(cost_before, cost_after, total_budget) => {
+                clarity_tx.reset_cost(cost_before.clone());
+                if total_budget.proportion_largest_dimension(&cost_before)
+                    < TX_BLOCK_LIMIT_PROPORTION_HEURISTIC
+                {
+                    warn!(
+                            "Transaction {} consumed over {}% of block budget, marking as invalid; budget was {}",
+                            tx.txid(),
+                            100 - TX_BLOCK_LIMIT_PROPORTION_HEURISTIC,
+                            &total_budget
+                    );
+                    let mut measured_cost = cost_after;
+                    let measured_cost = if measured_cost.sub(&cost_before).is_ok() {
+                        Some(measured_cost)
+                    } else {
+                        warn!("Failed to compute measured cost of a too big transaction");
+                        None
+                    };
+                    TransactionResult::error(&tx, Error::TransactionTooBigError(measured_cost))
+                } else {
+                    warn!(
+                        "Transaction {} reached block cost {}; budget was {}",
+                        tx.txid(),
+                        &cost_after,
+                        &total_budget
+                    );
+                    TransactionResult::skipped_due_to_error(&tx, Error::BlockTooBigError)
+                }
+            }
+            _ => TransactionResult::error(&tx, e),
+        }
     }
 }

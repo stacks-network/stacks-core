@@ -90,6 +90,7 @@ const DEFAULT_MIN_TIME_BETWEEN_BLOCKS_MS: u64 = 1_000;
 const DEFAULT_FIRST_REJECTION_PAUSE_MS: u64 = 5_000;
 const DEFAULT_SUBSEQUENT_REJECTION_PAUSE_MS: u64 = 10_000;
 const DEFAULT_BLOCK_COMMIT_DELAY_MS: u64 = 20_000;
+const DEFAULT_TENURE_COST_LIMIT_PER_BLOCK_PERCENTAGE: u8 = 25;
 
 #[derive(Clone, Deserialize, Default, Debug)]
 #[serde(deny_unknown_fields)]
@@ -1076,6 +1077,8 @@ impl Config {
                 candidate_retry_cache_size: miner_config.candidate_retry_cache_size,
                 txs_to_consider: miner_config.txs_to_consider,
                 filter_origins: miner_config.filter_origins,
+                tenure_cost_limit_per_block_percentage: miner_config
+                    .tenure_cost_limit_per_block_percentage,
             },
             miner_status,
             confirm_microblocks: false,
@@ -1116,6 +1119,8 @@ impl Config {
                 candidate_retry_cache_size: miner_config.candidate_retry_cache_size,
                 txs_to_consider: miner_config.txs_to_consider,
                 filter_origins: miner_config.filter_origins,
+                tenure_cost_limit_per_block_percentage: miner_config
+                    .tenure_cost_limit_per_block_percentage,
             },
             miner_status,
             confirm_microblocks: true,
@@ -2148,6 +2153,8 @@ pub struct MinerConfig {
     pub subsequent_rejection_pause_ms: u64,
     /// Duration to wait for a Nakamoto block after seeing a burnchain block before submitting a block commit.
     pub block_commit_delay: Duration,
+    /// The percentage of the remaining tenure cost limit to consume each block. Defaults to 25%.
+    pub tenure_cost_limit_per_block_percentage: Option<u8>,
 }
 
 impl Default for MinerConfig {
@@ -2181,6 +2188,9 @@ impl Default for MinerConfig {
             first_rejection_pause_ms: DEFAULT_FIRST_REJECTION_PAUSE_MS,
             subsequent_rejection_pause_ms: DEFAULT_SUBSEQUENT_REJECTION_PAUSE_MS,
             block_commit_delay: Duration::from_millis(DEFAULT_BLOCK_COMMIT_DELAY_MS),
+            tenure_cost_limit_per_block_percentage: Some(
+                DEFAULT_TENURE_COST_LIMIT_PER_BLOCK_PERCENTAGE,
+            ),
         }
     }
 }
@@ -2551,6 +2561,7 @@ pub struct MinerConfigFile {
     pub first_rejection_pause_ms: Option<u64>,
     pub subsequent_rejection_pause_ms: Option<u64>,
     pub block_commit_delay_ms: Option<u64>,
+    pub tenure_cost_limit_per_block_percentage: Option<u8>,
 }
 
 impl MinerConfigFile {
@@ -2561,6 +2572,16 @@ impl MinerConfigFile {
             .map(|x| Secp256k1PrivateKey::from_hex(x))
             .transpose()?;
         let pre_nakamoto_mock_signing = mining_key.is_some();
+        let valid_tenure_cost_limit = self
+            .tenure_cost_limit_per_block_percentage
+            .map(|p| p < 100 && p > 0)
+            .unwrap_or(true);
+        if !valid_tenure_cost_limit {
+            return Err(
+                "miner.tenure_cost_limit_per_block_percentage must be between 1 and 100"
+                    .to_string(),
+            );
+        };
         Ok(MinerConfig {
             first_attempt_time_ms: self
                 .first_attempt_time_ms
@@ -2667,6 +2688,7 @@ impl MinerConfigFile {
             first_rejection_pause_ms: self.first_rejection_pause_ms.unwrap_or(miner_default_config.first_rejection_pause_ms),
             subsequent_rejection_pause_ms: self.subsequent_rejection_pause_ms.unwrap_or(miner_default_config.subsequent_rejection_pause_ms),
             block_commit_delay: self.block_commit_delay_ms.map(Duration::from_millis).unwrap_or(miner_default_config.block_commit_delay),
+            tenure_cost_limit_per_block_percentage: self.tenure_cost_limit_per_block_percentage,
         })
     }
 }
