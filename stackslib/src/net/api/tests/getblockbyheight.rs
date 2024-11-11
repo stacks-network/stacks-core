@@ -94,10 +94,8 @@ fn test_try_make_response() {
     let mut requests = vec![];
 
     // query existing block
-    let request = StacksHttpRequest::new_get_nakamoto_block_by_height(
-        addr.into(),
-        nakamoto_chain_tip_height,
-    );
+    let request =
+        StacksHttpRequest::new_get_nakamoto_block_by_height(addr.into(), nakamoto_chain_tip_height);
     requests.push(request);
 
     // query non-existant block (with biggest positive i64 value - 1)
@@ -119,4 +117,3 @@ fn test_try_make_response() {
 
     assert_eq!(preamble.status_code, 404);
 }
-

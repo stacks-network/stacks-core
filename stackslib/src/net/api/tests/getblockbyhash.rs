@@ -93,8 +93,10 @@ fn test_try_make_response() {
     let mut requests = vec![];
 
     // query existing block
-    let request =
-        StacksHttpRequest::new_get_nakamoto_block_by_hash(addr.into(), nakamoto_chain_tip_hash.clone());
+    let request = StacksHttpRequest::new_get_nakamoto_block_by_hash(
+        addr.into(),
+        nakamoto_chain_tip_hash.clone(),
+    );
     requests.push(request);
 
     // query non-existant block
@@ -108,10 +110,7 @@ fn test_try_make_response() {
     let response = responses.remove(0);
     let resp = response.decode_nakamoto_block().unwrap();
 
-    assert_eq!(
-        resp.header.block_hash(),
-        nakamoto_chain_tip_hash
-    );
+    assert_eq!(resp.header.block_hash(), nakamoto_chain_tip_hash);
 
     assert_eq!(resp.header.consensus_hash, consensus_hash);
 
