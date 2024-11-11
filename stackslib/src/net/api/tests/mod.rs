@@ -824,7 +824,7 @@ impl<'a> TestRPC<'a> {
             32,
         );
 
-        let tip_height : u64 = 1;
+        let tip_height: u64 = 1;
 
         TestRPC {
             privk1,
