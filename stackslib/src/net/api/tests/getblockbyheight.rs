@@ -51,6 +51,7 @@ fn test_try_parse_request() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
     let mut http = StacksHttp::new(addr.clone(), &ConnectionOptions::default());
 
+    // NOTE: sqlite stores the height as a signed 64bit integer, so we are using the biggest positive value - 1
     let request =
         StacksHttpRequest::new_get_nakamoto_block_by_height(addr.into(), 0x7ffffffffffffffe);
     let bytes = request.try_serialize().unwrap();
@@ -99,7 +100,7 @@ fn test_try_make_response() {
     );
     requests.push(request);
 
-    // query non-existant block
+    // query non-existant block (with biggest positive i64 value - 1)
     let request =
         StacksHttpRequest::new_get_nakamoto_block_by_height(addr.into(), 0x7ffffffffffffffe);
     requests.push(request);
