@@ -503,6 +503,20 @@ data.
 
 This will return 404 if the block does not exist.
 
+### GET /v3/blockbyhash/[Block Hash]
+
+Fetch a Nakamoto block given its block hash.  This returns the raw block
+data.
+
+This will return 404 if the block does not exist.
+
+### GET /v3/blockbyheight/[Block Height]
+
+Fetch a Nakamoto block given its block height.  This returns the raw block
+data.
+
+This will return 404 if the block does not exist.
+
 ### GET /v3/tenures/[Block ID]
 
 Fetch a Nakamoto block and all of its ancestors in the same tenure, given its
