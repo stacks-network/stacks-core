@@ -9396,19 +9396,21 @@ fn v3_blockbyhash_api_endpoint() {
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
     let get_v3_block_by_hash = |block_hash: &str| {
-        let url = &format!(
-            "{http_origin}/v3/blockbyhash/{block_hash}"
-        );
+        let url = &format!("{http_origin}/v3/blockbyhash/{block_hash}");
         info!("Send request: GET {url}");
-        reqwest::blocking::get(url)
-            .unwrap_or_else(|e| panic!("GET request failed: {e}"))
+        reqwest::blocking::get(url).unwrap_or_else(|e| panic!("GET request failed: {e}"))
     };
 
     let tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
         .unwrap()
         .unwrap();
-   
-    let block_hash = tip.anchored_header.as_stacks_nakamoto().unwrap().block_hash().to_string();
+
+    let block_hash = tip
+        .anchored_header
+        .as_stacks_nakamoto()
+        .unwrap()
+        .block_hash()
+        .to_string();
     let block_data = get_v3_block_by_hash(&block_hash);
     assert!(block_data.status().is_success());
     assert!(block_data.bytes().unwrap().len() > 0);
@@ -9423,7 +9425,6 @@ fn v3_blockbyhash_api_endpoint() {
 
     run_loop_thread.join().unwrap();
 }
-
 
 /// Test `/v3/blockbyheight` API endpoint
 ///
@@ -9518,18 +9519,15 @@ fn v3_blockbyheight_api_endpoint() {
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
     let get_v3_block_by_height = |height: u64| {
-        let url = &format!(
-            "{http_origin}/v3/blockbyheight/{height}"
-        );
+        let url = &format!("{http_origin}/v3/blockbyheight/{height}");
         info!("Send request: GET {url}");
-        reqwest::blocking::get(url)
-            .unwrap_or_else(|e| panic!("GET request failed: {e}"))
+        reqwest::blocking::get(url).unwrap_or_else(|e| panic!("GET request failed: {e}"))
     };
 
     let tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
         .unwrap()
         .unwrap();
-   
+
     let block_height = tip.stacks_block_height;
     let block_data = get_v3_block_by_height(block_height);
     assert!(block_data.status().is_success());
