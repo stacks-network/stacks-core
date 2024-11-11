@@ -282,17 +282,6 @@ impl<'a> NakamotoStagingBlocksConnRef<'a> {
         Ok(res)
     }
 
-    /// Get the rowid of a staging Nakamoto block by block_hash
-    pub fn get_nakamoto_block_by_hash_rowid(
-        &self,
-        block_hash: &StacksBlockId,
-    ) -> Result<Option<i64>, ChainstateError> {
-        let sql = "SELECT rowid FROM nakamoto_staging_blocks WHERE block_hash = ?1";
-        let args = params![block_hash];
-        let res: Option<i64> = query_row(self, sql, args)?;
-        Ok(res)
-    }
-
     /// Get the tenure and parent block ID of a staging block.
     /// Used for downloads
     pub fn get_tenure_and_parent_block_id(
