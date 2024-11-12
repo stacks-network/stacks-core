@@ -124,8 +124,8 @@ pub struct NakamotoBlockBuilder {
     txs: Vec<StacksTransaction>,
     /// header we're filling in
     pub header: NakamotoBlockHeader,
-    /// The cost limit percentage to use when processing transactions
-    cost_limit_percentage: Option<u8>,
+    /// The execution cost for the block
+    soft_limit: Option<ExecutionCost>,
 }
 
 pub struct MinerTenureInfo<'a> {
@@ -161,7 +161,7 @@ impl NakamotoBlockBuilder {
             bytes_so_far: 0,
             txs: vec![],
             header: NakamotoBlockHeader::genesis(),
-            cost_limit_percentage: None,
+            soft_limit: None,
         }
     }
 
@@ -191,7 +191,7 @@ impl NakamotoBlockBuilder {
         tenure_change: Option<&StacksTransaction>,
         coinbase: Option<&StacksTransaction>,
         bitvec_len: u16,
-        cost_limit_percentage: Option<u8>,
+        soft_limit: Option<ExecutionCost>,
     ) -> Result<NakamotoBlockBuilder, Error> {
         let next_height = parent_stacks_header
             .anchored_header
@@ -231,7 +231,7 @@ impl NakamotoBlockBuilder {
                     .map(|b| b.timestamp)
                     .unwrap_or(0),
             ),
-            cost_limit_percentage,
+            soft_limit,
         })
     }
 
@@ -519,9 +519,7 @@ impl NakamotoBlockBuilder {
             tenure_info.tenure_change_tx(),
             tenure_info.coinbase_tx(),
             signer_bitvec_len,
-            settings
-                .mempool_settings
-                .tenure_cost_limit_per_block_percentage,
+            None,
         )?;
 
         let ts_start = get_epoch_time_ms();
@@ -533,6 +531,24 @@ impl NakamotoBlockBuilder {
         let block_limit = tenure_tx
             .block_limit()
             .expect("Failed to obtain block limit from miner's block connection");
+
+        let mut soft_limit = None;
+        if let Some(percentage) = settings
+            .mempool_settings
+            .tenure_cost_limit_per_block_percentage
+        {
+            if percentage < 100 {
+                let mut limit = block_limit.clone();
+                if limit.divide(100).is_ok() {
+                    limit.multiply(percentage.into()).expect(
+                        "BUG: failed to multiply by {percentage} when previously divided by 100",
+                    );
+                    soft_limit = Some(limit);
+                }
+            }
+        }
+
+        builder.soft_limit = soft_limit;
 
         let initial_txs: Vec<_> = [
             tenure_info.tenure_change_tx.clone(),
@@ -660,9 +676,6 @@ impl BlockBuilder for NakamotoBlockBuilder {
                 return TransactionResult::problematic(&tx, Error::NetError(e));
             }
 
-            let block_limit_before = clarity_tx
-                .block_limit()
-                .expect("Failed to obtain block limit from miner's block connection");
             let (fee, receipt) =
                 match StacksChainState::process_transaction(clarity_tx, tx, quiet, ast_rules) {
                     Ok(x) => x,
@@ -671,31 +684,19 @@ impl BlockBuilder for NakamotoBlockBuilder {
                     }
                 };
 
+            let block_limit_before = clarity_tx
+                .block_limit()
+                .expect("Failed to obtain block limit from miner's block connection");
             let mut soft_limit_reached = false;
             // We only attempt to apply the soft limit to non-boot code contract calls.
             if non_boot_code_contract_call {
-                if let Some(percentage) = self.cost_limit_percentage {
-                    if percentage < 100 {
-                        let remaining_limit = clarity_tx
-                            .block_limit()
-                            .expect("Failed to obtain block limit from miner's block connection");
-                        let mut block_limit = block_limit_before.clone();
-                        // Attempt to spread the cost limit across the tenure by always using only 25% of the remaining budget
-                        // until the remaining budget is less than 100 in which case we just use 100% of the remaining budget
-                        if block_limit.divide(100).is_ok() {
-                            block_limit.multiply(25).expect(
-                                "BUG: Successfully divided by 100, but failed to multiply block limit by 25",
-                            );
-                            clarity_tx.reset_cost(block_limit);
-                            soft_limit_reached = matches!(
-                                StacksChainState::process_transaction(
-                                    clarity_tx, tx, quiet, ast_rules
-                                ),
-                                Err(Error::CostOverflowError(_, _, _))
-                            );
-                            clarity_tx.reset_cost(remaining_limit);
-                        }
-                    }
+                if let Some(soft_limit) = self.soft_limit.clone() {
+                    clarity_tx.reset_cost(soft_limit);
+                    soft_limit_reached = matches!(
+                        StacksChainState::process_transaction(clarity_tx, tx, quiet, ast_rules),
+                        Err(Error::CostOverflowError(_, _, _))
+                    );
+                    clarity_tx.reset_cost(block_limit_before);
                 }
             }
 
