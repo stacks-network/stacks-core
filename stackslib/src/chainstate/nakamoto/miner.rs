@@ -707,7 +707,7 @@ impl BlockBuilder for NakamotoBlockBuilder {
 
             // save
             self.txs.push(tx.clone());
-            TransactionResult::success(&tx, fee, receipt, soft_limit_reached)
+            TransactionResult::success_with_soft_limit(&tx, fee, receipt, soft_limit_reached)
         };
 
         self.bytes_so_far += tx_len;
