@@ -660,6 +660,9 @@ impl BlockBuilder for NakamotoBlockBuilder {
                 return TransactionResult::problematic(&tx, Error::NetError(e));
             }
 
+            let block_limit_before = clarity_tx
+                .block_limit()
+                .expect("Failed to obtain block limit from miner's block connection");
             let (fee, receipt) =
                 match StacksChainState::process_transaction(clarity_tx, tx, quiet, ast_rules) {
                     Ok(x) => x,
@@ -676,7 +679,7 @@ impl BlockBuilder for NakamotoBlockBuilder {
                         let remaining_limit = clarity_tx
                             .block_limit()
                             .expect("Failed to obtain block limit from miner's block connection");
-                        let mut block_limit = remaining_limit.clone();
+                        let mut block_limit = block_limit_before.clone();
                         // Attempt to spread the cost limit across the tenure by always using only 25% of the remaining budget
                         // until the remaining budget is less than 100 in which case we just use 100% of the remaining budget
                         if block_limit.divide(100).is_ok() {
