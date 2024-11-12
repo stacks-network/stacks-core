@@ -25,7 +25,9 @@ use stacks_common::types::chainstate::{ConsensusHash, StacksBlockId};
 use stacks_common::types::net::PeerHost;
 use {serde, serde_json};
 
-use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState, NakamotoStagingBlocksConn};
+use crate::chainstate::nakamoto::{
+    NakamotoBlock, NakamotoChainState, NakamotoStagingBlocksConn, StacksDBIndexed,
+};
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::Error as ChainError;
 use crate::net::api::getblock_v3::{NakamotoBlockStream, RPCNakamotoBlockRequestHandler};
@@ -107,7 +109,7 @@ impl RPCRequestHandler for RPCNakamotoBlockByHeightRequestHandler {
     fn try_handle_request(
         &mut self,
         preamble: HttpRequestPreamble,
-        _contents: HttpRequestContents,
+        contents: HttpRequestContents,
         node: &mut StacksNodeState,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let block_height = self
@@ -115,11 +117,18 @@ impl RPCRequestHandler for RPCNakamotoBlockByHeightRequestHandler {
             .take()
             .ok_or(NetError::SendError("Missing `block_height`".into()))?;
 
+        let tip = match node.load_stacks_chain_tip(&preamble, &contents) {
+            Ok(tip) => tip,
+            Err(error_resp) => {
+                return error_resp.try_into_contents().map_err(NetError::from);
+            }
+        };
+
         let index_block_hash_res =
             node.with_node_state(|_network, _sortdb, chainstate, _mempool, _rpc_args| {
                 chainstate
-                    .nakamoto_blocks_db()
-                    .get_block_id_by_block_height(block_height)
+                    .index_conn()
+                    .get_ancestor_block_hash(block_height, &tip)
             });
 
         let block_id = match index_block_hash_res {
@@ -198,12 +207,13 @@ impl StacksHttpRequest {
     pub fn new_get_nakamoto_block_by_height(
         host: PeerHost,
         block_height: u64,
+        tip: TipRequest,
     ) -> StacksHttpRequest {
         StacksHttpRequest::new_for_peer(
             host,
             "GET".into(),
             format!("/v3/blockbyheight/{}", block_height),
-            HttpRequestContents::new(),
+            HttpRequestContents::new().for_tip(tip),
         )
         .expect("FATAL: failed to construct request from infallible data")
     }

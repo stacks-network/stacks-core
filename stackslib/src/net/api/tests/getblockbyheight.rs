@@ -51,9 +51,12 @@ fn test_try_parse_request() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
     let mut http = StacksHttp::new(addr.clone(), &ConnectionOptions::default());
 
-    // NOTE: sqlite stores the height as a signed 64bit integer, so we are using the biggest positive value - 1
-    let request =
-        StacksHttpRequest::new_get_nakamoto_block_by_height(addr.into(), 0x7ffffffffffffffe);
+    // NOTE: MARF enforces the height to be a u32 value
+    let request = StacksHttpRequest::new_get_nakamoto_block_by_height(
+        addr.into(),
+        0xfffffffe,
+        TipRequest::UseLatestAnchoredTip,
+    );
     let bytes = request.try_serialize().unwrap();
 
     debug!("Request:\n{}\n", std::str::from_utf8(&bytes).unwrap());
@@ -73,7 +76,7 @@ fn test_try_parse_request() {
     let (preamble, contents) = parsed_request.destruct();
 
     // consumed path args
-    assert_eq!(handler.block_height, Some(0x7ffffffffffffffe));
+    assert_eq!(handler.block_height, Some(0xfffffffe));
 
     assert_eq!(&preamble, request.preamble());
 
@@ -93,14 +96,47 @@ fn test_try_make_response() {
 
     let mut requests = vec![];
 
-    // query existing block
-    let request =
-        StacksHttpRequest::new_get_nakamoto_block_by_height(addr.into(), nakamoto_chain_tip_height);
+    // query existing block (empty tip)
+    let request = StacksHttpRequest::new_get_nakamoto_block_by_height(
+        addr.into(),
+        nakamoto_chain_tip_height,
+        TipRequest::UseLatestAnchoredTip,
+    );
     requests.push(request);
 
-    // query non-existant block (with biggest positive i64 value - 1)
-    let request =
-        StacksHttpRequest::new_get_nakamoto_block_by_height(addr.into(), 0x7ffffffffffffffe);
+    // query non-existant block (with biggest positive u32 value - 1 as MARF enforces it)
+    let request = StacksHttpRequest::new_get_nakamoto_block_by_height(
+        addr.into(),
+        0xfffffffe,
+        TipRequest::UseLatestAnchoredTip,
+    );
+    requests.push(request);
+
+    // query existing block using the canonical_tip
+    let request = StacksHttpRequest::new_get_nakamoto_block_by_height(
+        addr.into(),
+        nakamoto_chain_tip_height,
+        TipRequest::SpecificTip(rpc_test.canonical_tip),
+    );
+    requests.push(request);
+
+    // query existing block using the unconfirmed tip
+    let request = StacksHttpRequest::new_get_nakamoto_block_by_height(
+        addr.into(),
+        nakamoto_chain_tip_height,
+        TipRequest::UseLatestUnconfirmedTip,
+    );
+    requests.push(request);
+
+    // dummy hack for generating an invalid tip
+    let mut dummy_tip = rpc_test.canonical_tip.clone();
+    dummy_tip.0[0] = dummy_tip.0[0].wrapping_add(1);
+
+    let request = StacksHttpRequest::new_get_nakamoto_block_by_height(
+        addr.into(),
+        nakamoto_chain_tip_height,
+        TipRequest::SpecificTip(dummy_tip),
+    );
     requests.push(request);
 
     let mut responses = rpc_test.run(requests);
@@ -112,6 +148,24 @@ fn test_try_make_response() {
     assert_eq!(resp.header.consensus_hash, consensus_hash);
 
     // no block
+    let response = responses.remove(0);
+    let (preamble, body) = response.destruct();
+
+    assert_eq!(preamble.status_code, 404);
+
+    // got the block from the tip
+    let response = responses.remove(0);
+    let resp = response.decode_nakamoto_block().unwrap();
+
+    assert_eq!(resp.header.consensus_hash, consensus_hash);
+
+    // got the block from the tip (unconfirmed)
+    let response = responses.remove(0);
+    let resp = response.decode_nakamoto_block().unwrap();
+
+    assert_eq!(resp.header.consensus_hash, consensus_hash);
+
+    // no block for dummy tip
     let response = responses.remove(0);
     let (preamble, body) = response.destruct();
 
