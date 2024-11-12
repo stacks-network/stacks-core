@@ -57,6 +57,12 @@ fn test_try_parse_request() {
         0xfffffffe,
         TipRequest::UseLatestAnchoredTip,
     );
+    // NOTE: MARF enforces the height to be a u32 value
+    let request = StacksHttpRequest::new_get_nakamoto_block_by_height(
+        addr.into(),
+        0xfffffffe,
+        TipRequest::UseLatestAnchoredTip,
+    );
     let bytes = request.try_serialize().unwrap();
 
     debug!("Request:\n{}\n", std::str::from_utf8(&bytes).unwrap());
@@ -129,6 +135,15 @@ fn test_try_make_response() {
     );
     requests.push(request);
 
+    // dummy hack for generating an invalid tip
+    let mut dummy_tip = rpc_test.canonical_tip.clone();
+    dummy_tip.0[0] = dummy_tip.0[0].wrapping_add(1);
+
+    let request = StacksHttpRequest::new_get_nakamoto_block_by_height(
+        addr.into(),
+        nakamoto_chain_tip_height,
+        TipRequest::SpecificTip(dummy_tip),
+    );
     // dummy hack for generating an invalid tip
     let mut dummy_tip = rpc_test.canonical_tip.clone();
     dummy_tip.0[0] = dummy_tip.0[0].wrapping_add(1);

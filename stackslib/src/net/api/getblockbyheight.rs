@@ -28,6 +28,9 @@ use {serde, serde_json};
 use crate::chainstate::nakamoto::{
     NakamotoBlock, NakamotoChainState, NakamotoStagingBlocksConn, StacksDBIndexed,
 };
+use crate::chainstate::nakamoto::{
+    NakamotoBlock, NakamotoChainState, NakamotoStagingBlocksConn, StacksDBIndexed,
+};
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::Error as ChainError;
 use crate::net::api::getblock_v3::{NakamotoBlockStream, RPCNakamotoBlockRequestHandler};
@@ -116,6 +119,13 @@ impl RPCRequestHandler for RPCNakamotoBlockByHeightRequestHandler {
             .block_height
             .take()
             .ok_or(NetError::SendError("Missing `block_height`".into()))?;
+
+        let tip = match node.load_stacks_chain_tip(&preamble, &contents) {
+            Ok(tip) => tip,
+            Err(error_resp) => {
+                return error_resp.try_into_contents().map_err(NetError::from);
+            }
+        };
 
         let tip = match node.load_stacks_chain_tip(&preamble, &contents) {
             Ok(tip) => tip,
