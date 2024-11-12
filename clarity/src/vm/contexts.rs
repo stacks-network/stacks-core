@@ -24,10 +24,11 @@ use serde_json::json;
 use stacks_common::consts::CHAIN_ID_TESTNET;
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::StacksEpochId;
+use wasmtime::{Engine, Linker};
 
 use super::analysis::{self, ContractAnalysis};
 #[cfg(feature = "clarity-wasm")]
-use super::clarity_wasm::call_function;
+use super::clarity_wasm::{call_function, ClarityWasmContext};
 use super::EvalHook;
 use crate::vm::ast::{ASTRules, ContractAST};
 use crate::vm::callables::{DefinedFunction, FunctionIdentifier};
@@ -206,6 +207,7 @@ pub struct GlobalContext<'a> {
     /// This is the chain ID of the transaction
     pub chain_id: u32,
     pub eval_hooks: Option<Vec<&'a mut dyn EvalHook>>,
+    pub engine: Engine,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -1653,6 +1655,8 @@ impl<'a> GlobalContext<'a> {
         cost_track: LimitedCostTracker,
         epoch_id: StacksEpochId,
     ) -> GlobalContext {
+        let engine = Engine::default();
+
         GlobalContext {
             database,
             cost_track,
@@ -1663,6 +1667,7 @@ impl<'a> GlobalContext<'a> {
             epoch_id,
             chain_id,
             eval_hooks: None,
+            engine,
         }
     }
 

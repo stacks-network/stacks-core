@@ -399,6 +399,7 @@ pub fn initialize_contract(
     let mut call_stack = CallStack::new();
     let epoch = global_context.epoch_id;
     let clarity_version = *contract_context.get_clarity_version();
+    let engine = global_context.engine.clone();
     let init_context = ClarityWasmContext::new_init(
         global_context,
         contract_context,
@@ -408,7 +409,6 @@ pub fn initialize_contract(
         sponsor.clone(),
         Some(contract_analysis),
     );
-    let engine = Engine::default();
     let module = init_context
         .contract_context()
         .with_wasm_module(|wasm_module| {
@@ -485,6 +485,7 @@ pub fn call_function<'a>(
 ) -> Result<Value, Error> {
     let epoch = global_context.epoch_id;
     let clarity_version = *contract_context.get_clarity_version();
+    let engine = global_context.engine.clone();
     let context = ClarityWasmContext::new_run(
         global_context,
         contract_context,
@@ -499,7 +500,6 @@ pub fn call_function<'a>(
         .contract_context()
         .lookup_function(function_name)
         .ok_or(CheckErrors::UndefinedFunction(function_name.to_string()))?;
-    let engine = Engine::default();
     let module = context
         .contract_context()
         .with_wasm_module(|wasm_module| unsafe {
