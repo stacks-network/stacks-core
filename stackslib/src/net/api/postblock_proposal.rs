@@ -79,6 +79,8 @@ define_u8_enum![ValidateRejectCode {
     NoSuchTenure = 6
 }];
 
+pub static TOO_MANY_REQUESTS_STATUS: u16 = 429;
+
 impl TryFrom<u8> for ValidateRejectCode {
     type Error = CodecError;
     fn try_from(value: u8) -> Result<Self, Self::Error> {
@@ -687,7 +689,7 @@ impl RPCRequestHandler for RPCBlockProposalRequestHandler {
         let res = node.with_node_state(|network, sortdb, chainstate, _mempool, rpc_args| {
             if network.is_proposal_thread_running() {
                 return Err((
-                    429,
+                    TOO_MANY_REQUESTS_STATUS,
                     NetError::SendError("Proposal currently being evaluated".into()),
                 ));
             }
@@ -708,7 +710,7 @@ impl RPCRequestHandler for RPCBlockProposalRequestHandler {
                 .spawn_validation_thread(sortdb, chainstate, receiver)
                 .map_err(|_e| {
                     (
-                        429,
+                        TOO_MANY_REQUESTS_STATUS,
                         NetError::SendError(
                             "IO error while spawning proposal callback thread".into(),
                         ),

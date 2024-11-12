@@ -308,6 +308,10 @@ static CREATE_INDEXES_3: &str = r#"
 CREATE INDEX IF NOT EXISTS block_rejection_signer_addrs_on_block_signature_hash ON block_rejection_signer_addrs(signer_signature_hash);
 "#;
 
+static CREATE_INDEXES_4: &str = r#"
+CREATE INDEX IF NOT EXISTS block_validations_pending_on_added_time ON block_validations_pending(added_time);
+"#;
+
 static CREATE_SIGNER_STATE_TABLE: &str = "
 CREATE TABLE IF NOT EXISTS signer_states (
     reward_cycle INTEGER PRIMARY KEY,
@@ -369,6 +373,14 @@ CREATE TABLE IF NOT EXISTS block_rejection_signer_addrs (
     PRIMARY KEY (signer_addr)
 ) STRICT;"#;
 
+static CREATE_BLOCK_VALIDATION_PENDING_TABLE: &str = r#"
+CREATE TABLE IF NOT EXISTS block_validations_pending (
+    signer_signature_hash TEXT NOT NULL,
+    -- the time at which the block was added to the pending table
+    added_time INTEGER NOT NULL,
+    PRIMARY KEY (signer_signature_hash)
+) STRICT;"#;
+
 static SCHEMA_1: &[&str] = &[
     DROP_SCHEMA_0,
     CREATE_DB_CONFIG,
@@ -405,9 +417,15 @@ static SCHEMA_3: &[&str] = &[
     "INSERT INTO db_config (version) VALUES (3);",
 ];
 
+static SCHEMA_4: &[&str] = &[
+    CREATE_BLOCK_VALIDATION_PENDING_TABLE,
+    CREATE_INDEXES_4,
+    "INSERT OR REPLACE INTO db_config (version) VALUES (4);",
+];
+
 impl SignerDb {
     /// The current schema version used in this build of the signer binary.
-    pub const SCHEMA_VERSION: u32 = 3;
+    pub const SCHEMA_VERSION: u32 = 4;
 
     /// Create a new `SignerState` instance.
     /// This will create a new SQLite database at the given path
@@ -427,7 +445,7 @@ impl SignerDb {
             return Ok(0);
         }
         let result = conn
-            .query_row("SELECT version FROM db_config LIMIT 1", [], |row| {
+            .query_row("SELECT MAX(version) FROM db_config LIMIT 1", [], |row| {
                 row.get(0)
             })
             .optional();
@@ -479,6 +497,20 @@ impl SignerDb {
         Ok(())
     }
 
+    /// Migrate from schema 3 to schema 4
+    fn schema_4_migration(tx: &Transaction) -> Result<(), DBError> {
+        if Self::get_schema_version(tx)? >= 4 {
+            // no migration necessary
+            return Ok(());
+        }
+
+        for statement in SCHEMA_4.iter() {
+            tx.execute_batch(statement)?;
+        }
+
+        Ok(())
+    }
+
     /// Either instantiate a new database, or migrate an existing one
     /// If the detected version of the existing database is 0 (i.e., a pre-migration
     /// logic DB, the DB will be dropped).
@@ -490,7 +522,8 @@ impl SignerDb {
                 0 => Self::schema_1_migration(&sql_tx)?,
                 1 => Self::schema_2_migration(&sql_tx)?,
                 2 => Self::schema_3_migration(&sql_tx)?,
-                3 => break,
+                3 => Self::schema_4_migration(&sql_tx)?,
+                4 => break,
                 x => return Err(DBError::Other(format!(
                     "Database schema is newer than supported by this binary. Expected version = {}, Database version = {x}",
                     Self::SCHEMA_VERSION,
@@ -808,6 +841,45 @@ impl SignerDb {
         Ok(Some(
             BlockState::try_from(state.as_str()).map_err(|_| DBError::Corruption)?,
         ))
+    }
+
+    /// Get a pending block validation, sorted by the time at which it was added to the pending table.
+    /// If found, remove it from the pending table.
+    pub fn get_pending_block_validation(&self) -> Result<Option<Sha512Trunc256Sum>, DBError> {
+        let qry =
+            "SELECT signer_signature_hash FROM block_validations_pending ORDER BY added_time ASC";
+        let sighash_opt: Option<String> = query_row(&self.db, qry, params![])?;
+        if let Some(sighash) = sighash_opt {
+            let sighash = Sha512Trunc256Sum::from_hex(&sighash).map_err(|_| DBError::Corruption)?;
+            self.remove_pending_block_validation(&sighash)?;
+            return Ok(Some(sighash));
+        }
+        Ok(None)
+    }
+
+    /// Remove a pending block validation
+    pub fn remove_pending_block_validation(
+        &self,
+        sighash: &Sha512Trunc256Sum,
+    ) -> Result<(), DBError> {
+        self.db.execute(
+            "DELETE FROM block_validations_pending WHERE signer_signature_hash = ?1",
+            params![sighash.to_string()],
+        )?;
+        Ok(())
+    }
+
+    /// Insert a pending block validation
+    pub fn insert_pending_block_validation(
+        &self,
+        sighash: &Sha512Trunc256Sum,
+        ts: u64,
+    ) -> Result<(), DBError> {
+        self.db.execute(
+            "INSERT INTO block_validations_pending (signer_signature_hash, added_time) VALUES (?1, ?2)",
+            params![sighash.to_string(), u64_to_sql(ts)?],
+        )?;
+        Ok(())
     }
 }
 
