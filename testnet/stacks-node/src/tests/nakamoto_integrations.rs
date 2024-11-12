@@ -5242,6 +5242,7 @@ fn check_block_heights() {
         3 * deploy_fee + (send_amt + send_fee) * tenure_count * inter_blocks_per_tenure,
     );
     naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
+    naka_conf.miner.tenure_cost_limit_per_block_percentage = None;
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let stacker_sk = setup_stacker(&mut naka_conf);
 
@@ -5984,6 +5985,7 @@ fn clarity_burn_state() {
         deploy_fee + tx_fee * tenure_count + tx_fee * tenure_count * inter_blocks_per_tenure,
     );
     naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
+    naka_conf.miner.tenure_cost_limit_per_block_percentage = None;
     let stacker_sk = setup_stacker(&mut naka_conf);
 
     test_observer::spawn();
@@ -7738,6 +7740,7 @@ fn check_block_info() {
     naka_conf.burnchain.chain_id = CHAIN_ID_TESTNET + 1;
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
     naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
+    naka_conf.miner.tenure_cost_limit_per_block_percentage = None;
     let sender_sk = Secp256k1PrivateKey::new();
     let sender_signer_sk = Secp256k1PrivateKey::new();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
