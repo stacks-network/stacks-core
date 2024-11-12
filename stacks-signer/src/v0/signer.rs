@@ -478,7 +478,7 @@ impl Signer {
                     "burn_height" => block_proposal.burn_height,
                 );
 
-                self.submit_block_for_validation(stacks_client, block_proposal.block.clone());
+                self.submit_block_for_validation(stacks_client, &block_proposal.block);
             } else {
                 // Still store the block but log we can't submit it for validation. We may receive enough signatures/rejections
                 // from other signers to push the proposed block into a global rejection/acceptance regardless of our participation.
@@ -503,11 +503,9 @@ impl Signer {
         match block_response {
             BlockResponse::Accepted(accepted) => {
                 self.handle_block_signature(stacks_client, accepted);
-                accepted.signer_signature_hash
             }
             BlockResponse::Rejected(block_rejection) => {
                 self.handle_block_rejection(block_rejection);
-                block_rejection.signer_signature_hash
             }
         };
 
@@ -517,6 +515,7 @@ impl Signer {
             .remove_pending_block_validation(&signer_sig_hash)
             .unwrap_or_else(|e| warn!("{self}: Failed to remove pending block validation: {e:?}"));
 
+        // Check if there is a pending block validation that we need to submit to the node
         match self.signer_db.get_pending_block_validation() {
             Ok(Some(signer_sig_hash)) => {
                 info!("{self}: Found a pending block validation: {signer_sig_hash:?}");
@@ -525,7 +524,7 @@ impl Signer {
                     .block_lookup(self.reward_cycle, &signer_sig_hash)
                 {
                     Ok(Some(block_info)) => {
-                        self.submit_block_for_validation(stacks_client, block_info.block);
+                        self.submit_block_for_validation(stacks_client, &block_info.block);
                     }
                     Ok(None) => {
                         // This should never happen
@@ -1066,7 +1065,8 @@ impl Signer {
     }
 
     /// Submit a block for validation, and mark it as pending if the node
-    fn submit_block_for_validation(&mut self, stacks_client: &StacksClient, block: NakamotoBlock) {
+    /// is busy with a previous request.
+    fn submit_block_for_validation(&mut self, stacks_client: &StacksClient, block: &NakamotoBlock) {
         let signer_signature_hash = block.header.signer_signature_hash();
         match stacks_client.submit_block_for_validation(block.clone()) {
             Ok(_) => {
@@ -1074,7 +1074,7 @@ impl Signer {
             }
             Err(ClientError::RequestFailure(status)) => {
                 if status.as_u16() == TOO_MANY_REQUESTS_STATUS {
-                    info!("{self}: Received 429 from stacks node. Inserting pending block validation...";
+                    info!("{self}: Received 429 from stacks node for block validation request. Inserting pending block validation...";
                         "signer_signature_hash" => %signer_signature_hash,
                     );
                     self.signer_db
