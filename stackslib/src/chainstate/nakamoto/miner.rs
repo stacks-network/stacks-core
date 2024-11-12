@@ -620,26 +620,19 @@ impl BlockBuilder for NakamotoBlockBuilder {
             return TransactionResult::skipped_due_to_error(&tx, Error::BlockTooBigError);
         }
 
+        let non_boot_code_contract_call = match &tx.payload {
+            TransactionPayload::ContractCall(cc) => !cc.address.is_boot_code_addr(),
+            TransactionPayload::SmartContract(..) => true,
+            _ => false,
+        };
+
         match limit_behavior {
             BlockLimitFunction::CONTRACT_LIMIT_HIT => {
-                match &tx.payload {
-                    TransactionPayload::ContractCall(cc) => {
-                        // once we've hit the runtime limit once, allow boot code contract calls, but do not try to eval
-                        //   other contract calls
-                        if !cc.address.is_boot_code_addr() {
-                            return TransactionResult::skipped(
-                                &tx,
-                                "BlockLimitFunction::CONTRACT_LIMIT_HIT".to_string(),
-                            );
-                        }
-                    }
-                    TransactionPayload::SmartContract(..) => {
-                        return TransactionResult::skipped(
-                            &tx,
-                            "BlockLimitFunction::CONTRACT_LIMIT_HIT".to_string(),
-                        );
-                    }
-                    _ => {}
+                if non_boot_code_contract_call {
+                    return TransactionResult::skipped(
+                        &tx,
+                        "BlockLimitFunction::CONTRACT_LIMIT_HIT".to_string(),
+                    );
                 }
             }
             BlockLimitFunction::LIMIT_REACHED => {
@@ -666,22 +659,6 @@ impl BlockBuilder for NakamotoBlockBuilder {
                 );
                 return TransactionResult::problematic(&tx, Error::NetError(e));
             }
-            if let Some(percentage) = self.cost_limit_percentage {
-                if percentage < 100 {
-                    let remaining_limit = clarity_tx
-                        .block_limit()
-                        .expect("Failed to obtain block limit from miner's block connection");
-                    let mut block_limit = remaining_limit.clone();
-                    // Attempt to spread the cost limit across the tenure by always using only 25% of the remaining budget
-                    // until the remaining budget is less than 100 in which case we just use 100% of the remaining budget
-                    if block_limit.divide(100).is_ok() {
-                        block_limit.multiply(25).expect(
-                            "BUG: Successfully divided by 100, but failed to multiply block limit by 25",
-                        );
-                        clarity_tx.reset_cost(block_limit);
-                    }
-                }
-            }
 
             let (fee, receipt) =
                 match StacksChainState::process_transaction(clarity_tx, tx, quiet, ast_rules) {
@@ -691,6 +668,34 @@ impl BlockBuilder for NakamotoBlockBuilder {
                     }
                 };
 
+            let mut soft_limit_reached = false;
+            // We only attempt to apply the soft limit to non-boot code contract calls.
+            if non_boot_code_contract_call {
+                if let Some(percentage) = self.cost_limit_percentage {
+                    if percentage < 100 {
+                        let remaining_limit = clarity_tx
+                            .block_limit()
+                            .expect("Failed to obtain block limit from miner's block connection");
+                        let mut block_limit = remaining_limit.clone();
+                        // Attempt to spread the cost limit across the tenure by always using only 25% of the remaining budget
+                        // until the remaining budget is less than 100 in which case we just use 100% of the remaining budget
+                        if block_limit.divide(100).is_ok() {
+                            block_limit.multiply(25).expect(
+                                "BUG: Successfully divided by 100, but failed to multiply block limit by 25",
+                            );
+                            clarity_tx.reset_cost(block_limit);
+                            soft_limit_reached = matches!(
+                                StacksChainState::process_transaction(
+                                    clarity_tx, tx, quiet, ast_rules
+                                ),
+                                Err(Error::CostOverflowError(_, _, _))
+                            );
+                            clarity_tx.reset_cost(remaining_limit);
+                        }
+                    }
+                }
+            }
+
             info!("Include tx";
                   "tx" => %tx.txid(),
                   "payload" => tx.payload.name(),
@@ -698,7 +703,7 @@ impl BlockBuilder for NakamotoBlockBuilder {
 
             // save
             self.txs.push(tx.clone());
-            TransactionResult::success(&tx, fee, receipt)
+            TransactionResult::success(&tx, fee, receipt, soft_limit_reached)
         };
 
         self.bytes_so_far += tx_len;
