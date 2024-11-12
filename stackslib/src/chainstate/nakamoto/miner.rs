@@ -181,8 +181,7 @@ impl NakamotoBlockBuilder {
     ///
     /// * `bitvec_len` - the length of the bitvec of reward addresses that should be punished or not in this block.
     ///
-    /// * `cost_limit_percentage` - the percentage of the remaining tenure cost limit to use when
-    /// processing transactions. Will use 100% if None.
+    /// * `soft_limit` - an optional soft limit for the block's clarity cost for this block
     ///
     pub fn new(
         parent_stacks_header: &StacksHeaderInfo,
