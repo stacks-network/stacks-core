@@ -321,25 +321,6 @@ impl<'a> NakamotoStagingBlocksConnRef<'a> {
             .optional()?)
     }
 
-    /// Get the block ID of a staging block from block height.
-    /// Used for downloads
-    pub fn get_block_id_by_block_height(
-        &self,
-        block_height: u64,
-    ) -> Result<Option<StacksBlockId>, ChainstateError> {
-        let sql = "SELECT index_block_hash FROM nakamoto_staging_blocks WHERE height = ?1";
-        let args = params![block_height];
-
-        let mut stmt = self.deref().prepare(sql)?;
-        Ok(stmt
-            .query_row(args, |row| {
-                let block_id: StacksBlockId = row.get(0)?;
-
-                Ok(block_id)
-            })
-            .optional()?)
-    }
-
     /// Get a Nakamoto block by index block hash, as well as its size.
     /// Verifies its integrity.
     /// Returns Ok(Some(block, size)) if the block was present
