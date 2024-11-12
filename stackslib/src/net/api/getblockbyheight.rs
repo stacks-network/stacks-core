@@ -61,11 +61,11 @@ impl HttpRequest for RPCNakamotoBlockByHeightRequestHandler {
     }
 
     fn path_regex(&self) -> Regex {
-        Regex::new(r#"^/v3/blockbyheight/(?P<block_height>[0-9]{1,20})$"#).unwrap()
+        Regex::new(r#"^/v3/blocks/height/(?P<block_height>[0-9]{1,20})$"#).unwrap()
     }
 
     fn metrics_identifier(&self) -> &str {
-        "/v3/blockbyheight/:block_height"
+        "/v3/blocks/height/:block_height"
     }
 
     /// Try to decode this request.
@@ -212,7 +212,7 @@ impl StacksHttpRequest {
         StacksHttpRequest::new_for_peer(
             host,
             "GET".into(),
-            format!("/v3/blockbyheight/{}", block_height),
+            format!("/v3/blocks/height/{}", block_height),
             HttpRequestContents::new().for_tip(tip),
         )
         .expect("FATAL: failed to construct request from infallible data")

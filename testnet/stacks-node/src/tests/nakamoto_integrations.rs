@@ -9426,7 +9426,7 @@ fn v3_blockbyhash_api_endpoint() {
     run_loop_thread.join().unwrap();
 }
 
-/// Test `/v3/blockbyheight` API endpoint
+/// Test `/v3/blocks/height` API endpoint
 ///
 /// This endpoint returns the block blob given a height
 #[test]
@@ -9519,7 +9519,7 @@ fn v3_blockbyheight_api_endpoint() {
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
     let get_v3_block_by_height = |height: u64| {
-        let url = &format!("{http_origin}/v3/blockbyheight/{height}");
+        let url = &format!("{http_origin}/v3/blocks/height/{height}");
         info!("Send request: GET {url}");
         reqwest::blocking::get(url).unwrap_or_else(|e| panic!("GET request failed: {e}"))
     };
