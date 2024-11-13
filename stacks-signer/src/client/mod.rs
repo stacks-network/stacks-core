@@ -412,6 +412,7 @@ pub(crate) mod tests {
             first_proposal_burn_block_timing: config.first_proposal_burn_block_timing,
             block_proposal_timeout: config.block_proposal_timeout,
             tenure_last_block_proposal_timeout: config.tenure_last_block_proposal_timeout,
+            block_proposal_validation_timeout: config.block_proposal_validation_timeout,
         }
     }
 
