@@ -600,6 +600,15 @@ impl SignerDb {
         try_deserialize(result)
     }
 
+    /// Return the canonical tip -- the last globally accepted block.
+    pub fn get_canonical_tip(&self) -> Result<Option<BlockInfo>, DBError> {
+        let query = "SELECT block_info FROM blocks WHERE json_extract(block_info, '$.state') = ?1 ORDER BY stacks_height DESC LIMIT 1";
+        let args = params![&BlockState::GloballyAccepted.to_string()];
+        let result: Option<String> = query_row(&self.db, query, args)?;
+
+        try_deserialize(result)
+    }
+
     /// Insert or replace a burn block into the database
     pub fn insert_burn_block(
         &mut self,

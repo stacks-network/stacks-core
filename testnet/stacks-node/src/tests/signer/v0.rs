@@ -6886,8 +6886,8 @@ fn tenure_extend_after_failed_miner() {
     let sender_addr = tests::to_addr(&sender_sk);
     let send_amt = 100;
     let send_fee = 180;
-    let num_txs = 1;
-    let sender_nonce = 0;
+    let num_txs = 2;
+    let mut sender_nonce = 0;
 
     let btc_miner_1_seed = vec![1, 1, 1, 1];
     let btc_miner_2_seed = vec![2, 2, 2, 2];
@@ -7100,6 +7100,7 @@ fn tenure_extend_after_failed_miner() {
         send_amt,
     );
     submit_tx(&http_origin, &transfer_tx);
+    sender_nonce += 1;
 
     // wait for the new block to be processed
     wait_for(30, || {
@@ -7278,8 +7279,8 @@ fn tenure_extend_after_bad_commit() {
     let sender_addr = tests::to_addr(&sender_sk);
     let send_amt = 100;
     let send_fee = 180;
-    let num_txs = 1;
-    let sender_nonce = 0;
+    let num_txs = 2;
+    let mut sender_nonce = 0;
 
     let btc_miner_1_seed = vec![1, 1, 1, 1];
     let btc_miner_2_seed = vec![2, 2, 2, 2];
@@ -7496,6 +7497,7 @@ fn tenure_extend_after_bad_commit() {
         send_amt,
     );
     submit_tx(&http_origin, &transfer_tx);
+    sender_nonce += 1;
 
     // wait for the new block to be processed
     wait_for(30, || {
@@ -7654,17 +7656,17 @@ fn tenure_extend_after_bad_commit() {
     })
     .expect("Timed out waiting for block to be mined and processed");
 
+    info!("------------------------- Miner 2 Mines the Next Tenure -------------------------");
+
     // Re-enable block commits for miner 2
     let rl2_commits_before = rl2_commits.load(Ordering::SeqCst);
-    rl2_skip_commit_op.set(true);
+    rl2_skip_commit_op.set(false);
 
     // Wait for block commit from miner 2
     wait_for(30, || {
         Ok(rl2_commits.load(Ordering::SeqCst) > rl2_commits_before)
     })
     .expect("Timed out waiting for block commit from miner 2");
-
-    info!("------------------------- Miner 2 Mines the Next Tenure -------------------------");
 
     let stacks_height_before = signer_test
         .stacks_client
