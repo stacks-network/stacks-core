@@ -153,8 +153,19 @@ impl RPCRequestHandler for RPCNakamotoBlockByHeightRequestHandler {
             }
         };
 
+        let stream_res =
+            node.with_node_state(|_network, _sortdb, chainstate, _mempool, _rpc_args| {
+                let Some((tenure_id, parent_block_id)) = chainstate
+                    .nakamoto_blocks_db()
+                    .get_tenure_and_parent_block_id(&block_id)?
+                else {
+                    return Err(ChainError::NoSuchBlockError);
+                };
+                NakamotoBlockStream::new(chainstate, block_id.clone(), tenure_id, parent_block_id)
+            });
+
         // start loading up the block
-        let stream = match RPCNakamotoBlockRequestHandler::get_stream_by_node(&block_id, node) {
+        let stream = match stream_res {
             Ok(stream) => stream,
             Err(ChainError::NoSuchBlockError) => {
                 return StacksHttpResponse::new_error(

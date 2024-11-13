@@ -46,6 +46,12 @@ pub struct RPCNakamotoBlockRequestHandler {
     pub block_id: Option<StacksBlockId>,
 }
 
+impl RPCNakamotoBlockRequestHandler {
+    pub fn new() -> Self {
+        Self { block_id: None }
+    }
+}
+
 pub struct NakamotoBlockStream {
     /// index block hash of the block to download
     pub index_block_hash: StacksBlockId,
@@ -61,27 +67,6 @@ pub struct NakamotoBlockStream {
     pub staging_db_conn: NakamotoStagingBlocksConn,
     /// rowid of the block
     pub rowid: i64,
-}
-
-impl RPCNakamotoBlockRequestHandler {
-    pub fn new() -> Self {
-        Self { block_id: None }
-    }
-
-    pub fn get_stream_by_node(
-        block_id: &StacksBlockId,
-        node: &mut StacksNodeState,
-    ) -> Result<NakamotoBlockStream, ChainError> {
-        node.with_node_state(|_network, _sortdb, chainstate, _mempool, _rpc_args| {
-            let Some((tenure_id, parent_block_id)) = chainstate
-                .nakamoto_blocks_db()
-                .get_tenure_and_parent_block_id(&block_id)?
-            else {
-                return Err(ChainError::NoSuchBlockError);
-            };
-            NakamotoBlockStream::new(chainstate, block_id.clone(), tenure_id, parent_block_id)
-        })
-    }
 }
 
 impl NakamotoBlockStream {
@@ -194,8 +179,19 @@ impl RPCRequestHandler for RPCNakamotoBlockRequestHandler {
             .take()
             .ok_or(NetError::SendError("Missing `block_id`".into()))?;
 
+        let stream_res =
+            node.with_node_state(|_network, _sortdb, chainstate, _mempool, _rpc_args| {
+                let Some((tenure_id, parent_block_id)) = chainstate
+                    .nakamoto_blocks_db()
+                    .get_tenure_and_parent_block_id(&block_id)?
+                else {
+                    return Err(ChainError::NoSuchBlockError);
+                };
+                NakamotoBlockStream::new(chainstate, block_id.clone(), tenure_id, parent_block_id)
+            });
+
         // start loading up the block
-        let stream = match Self::get_stream_by_node(&block_id, node) {
+        let stream = match stream_res {
             Ok(stream) => stream,
             Err(ChainError::NoSuchBlockError) => {
                 return StacksHttpResponse::new_error(
