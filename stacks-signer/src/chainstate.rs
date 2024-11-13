@@ -203,7 +203,22 @@ impl SortitionsView {
                 "current_sortition_consensus_hash" => ?self.cur_sortition.consensus_hash,
             );
             self.cur_sortition.miner_status = SortitionMinerStatus::InvalidatedBeforeFirstBlock;
+        } else if let Some(tip) = signer_db.get_canonical_tip()? {
+            // If this is a tenure change block, then the current sortition's parent tenure must be
+            // the canonical tip's tenure. If it's not, then the current tip may already be in this
+            // tenure.
+            if self.cur_sortition.parent_tenure_id != tip.block.header.consensus_hash
+                && self.cur_sortition.consensus_hash != tip.block.header.consensus_hash
+            {
+                warn!(
+                    "Current sortition does not build off of canonical tip tenure, marking as invalid";
+                    "current_sortition_parent" => ?self.cur_sortition.parent_tenure_id,
+                    "tip_consensus_hash" => ?tip.block.header.consensus_hash,
+                );
+                self.cur_sortition.miner_status = SortitionMinerStatus::InvalidatedBeforeFirstBlock;
+            }
         }
+
         if let Some(last_sortition) = self.last_sortition.as_mut() {
             if last_sortition.is_timed_out(self.config.block_proposal_timeout, signer_db)? {
                 info!(
