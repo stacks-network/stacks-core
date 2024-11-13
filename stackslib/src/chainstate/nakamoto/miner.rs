@@ -542,6 +542,7 @@ impl NakamotoBlockBuilder {
                     limit.multiply(percentage.into()).expect(
                         "BUG: failed to multiply by {percentage} when previously divided by 100",
                     );
+                    debug!("Setting soft limit for clarity cost to {percentage}% of block limit ({block_limit}): {limit}");
                     soft_limit = Some(limit);
                 }
             }

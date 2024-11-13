@@ -9499,3 +9499,207 @@ fn skip_mining_long_tx() {
 
     run_loop_thread.join().unwrap();
 }
+
+#[test]
+#[ignore]
+/// This test is testing that the clarity cost spend down works as expected,
+/// spreading clarity contract calls across the tenure instead of including them all in
+/// the first few blocks. It also asserts that this limit resets at the start of each tenure.
+fn clarity_cost_spend_down() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let mut signers = TestSigners::default();
+    let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
+    let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
+    naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
+    let sender_sks: Vec<_> = (0..5).map(|_| Secp256k1PrivateKey::new()).collect();
+    let sender_signer_sks: Vec<_> = (0..5).map(|_| Secp256k1PrivateKey::new()).collect();
+    let sender_signer_addrs: Vec<_> = sender_signer_sks.iter().map(tests::to_addr).collect();
+    let sender_addrs: Vec<_> = sender_sks.iter().map(tests::to_addr).collect();
+    let tenure_count = 5;
+    let inter_blocks_per_tenure = 30;
+    let nmb_txs = 25;
+    // setup sender + recipient for some test stx transfers
+    // these are necessary for the interim blocks to get mined at all
+    let tx_fee = 1000;
+    let deploy_fee = 580000;
+    let amount = deploy_fee
+        + tx_fee * tenure_count
+        + tx_fee * tenure_count * inter_blocks_per_tenure * nmb_txs;
+    for sender_addr in sender_addrs {
+        naka_conf.add_initial_balance(PrincipalData::from(sender_addr).to_string(), amount);
+    }
+    for sender_signer_addr in sender_signer_addrs {
+        naka_conf.add_initial_balance(
+            PrincipalData::from(sender_signer_addr).to_string(),
+            amount * 2,
+        );
+    }
+    naka_conf.miner.tenure_cost_limit_per_block_percentage = Some(1);
+    let stacker_sks: Vec<_> = (0..5).map(|_| setup_stacker(&mut naka_conf)).collect();
+
+    test_observer::spawn();
+    test_observer::register(&mut naka_conf, &[EventKeyType::MinedBlocks]);
+
+    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .expect("Failed starting bitcoind");
+    let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
+    btc_regtest_controller.bootstrap_chain(201);
+
+    let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
+    let run_loop_stopper = run_loop.get_termination_switch();
+    let Counters {
+        blocks_processed,
+        naka_submitted_commits: commits_submitted,
+        naka_proposed_blocks: proposals_submitted,
+        naka_mined_blocks: mined_blocks,
+        ..
+    } = run_loop.counters();
+
+    let coord_channel = run_loop.coordinator_channels();
+
+    let run_loop_thread = thread::Builder::new()
+        .name("run_loop".into())
+        .spawn(move || run_loop.start(None, 0))
+        .unwrap();
+    wait_for_runloop(&blocks_processed);
+
+    boot_to_epoch_3(
+        &naka_conf,
+        &blocks_processed,
+        &stacker_sks,
+        &sender_signer_sks,
+        &mut Some(&mut signers),
+        &mut btc_regtest_controller,
+    );
+
+    info!("Bootstrapped to Epoch-3.0 boundary, starting nakamoto miner");
+
+    info!("Nakamoto miner started...");
+    blind_signer(&naka_conf, &signers, proposals_submitted);
+
+    wait_for_first_naka_block_commit(60, &commits_submitted);
+
+    let mut sender_nonce = 0;
+
+    // Create an expensive contract that will be republished multiple times
+    let contract = format!(
+        "(define-public (f) (begin {} (ok 1))) (begin (f))",
+        (0..3000)
+            .map(|_| format!(
+                "(unwrap! (contract-call? '{} submit-proposal '{} \"cost-old\" '{} \"cost-new\") (err 1))",
+                boot_code_id("cost-voting", false),
+                boot_code_id("costs", false),
+                boot_code_id("costs", false),
+            ))
+            .collect::<Vec<String>>()
+            .join(" ")
+    );
+
+    // Mine `tenure_count` nakamoto tenures
+    for tenure_ix in 0..tenure_count {
+        info!("Mining tenure {tenure_ix}");
+        // Wait for the tenure change payload to be mined
+        let blocks_before = mined_blocks.load(Ordering::SeqCst);
+        let blocks_processed_before = coord_channel
+            .lock()
+            .expect("Mutex poisoned")
+            .get_stacks_blocks_processed();
+        next_block_and(&mut btc_regtest_controller, 60, || {
+            let blocks_count = mined_blocks.load(Ordering::SeqCst);
+            let blocks_processed = coord_channel
+                .lock()
+                .expect("Mutex poisoned")
+                .get_stacks_blocks_processed();
+            Ok(blocks_count > blocks_before && blocks_processed > blocks_processed_before)
+        })
+        .unwrap();
+        // mine the interim blocks
+        for interim_block_ix in 0..inter_blocks_per_tenure {
+            info!("Mining interim block {interim_block_ix}");
+            let mined_before = test_observer::get_mined_nakamoto_blocks();
+            let blocks_processed_before = coord_channel
+                .lock()
+                .expect("Mutex poisoned")
+                .get_stacks_blocks_processed();
+
+            // Pause mining so we can add all our transactions to the mempool at once.
+            TEST_MINE_STALL.lock().unwrap().replace(true);
+            let mut submitted_txs = vec![];
+            for nmb_tx in 0..nmb_txs {
+                for sender_sk in sender_sks.iter() {
+                    // Just keep redeploying large contracts
+                    let contract_tx = make_contract_publish(
+                        &sender_sk,
+                        sender_nonce,
+                        deploy_fee,
+                        naka_conf.burnchain.chain_id,
+                        &format!("expensive-contract-{sender_nonce}-{nmb_tx}"),
+                        &contract,
+                    );
+                    let txid = submit_tx(&http_origin, &contract_tx);
+                    submitted_txs.push(txid);
+                }
+                sender_nonce += 1;
+            }
+            TEST_MINE_STALL.lock().unwrap().replace(false);
+            wait_for(120, || {
+                let blocks_processed = coord_channel
+                    .lock()
+                    .expect("Mutex poisoned")
+                    .get_stacks_blocks_processed();
+                let total_nmb_mined_txs = test_observer::get_mined_nakamoto_blocks()
+                    .iter()
+                    .map(|b| b.tx_events.len())
+                    .sum::<usize>();
+                Ok(blocks_processed > blocks_processed_before
+                    && test_observer::get_mined_nakamoto_blocks().len() > mined_before.len()
+                    && total_nmb_mined_txs > nmb_txs as usize)
+            })
+            .expect("Timed out waiting for interim blocks to be mined");
+
+            let mined_after = test_observer::get_mined_nakamoto_blocks();
+            let mined_blocks = mined_after[mined_before.len()..].to_vec();
+            assert!(
+                mined_blocks.len() > 1,
+                "Expected at least 2 blocks to be mined in the interim period"
+            );
+            let soft_limit_reached = mined_blocks
+                .into_iter()
+                .map(|block| block.tx_events)
+                .flatten()
+                .any(|event| match event {
+                    TransactionEvent::Success(TransactionSuccessEvent {
+                        txid: _,
+                        fee: _,
+                        execution_cost: _,
+                        result,
+                        soft_limit_reached,
+                    }) => {
+                        info!("Contract call result: {result}");
+                        soft_limit_reached
+                    }
+                    _ => {
+                        info!("Unsuccessful event: {event:?}");
+                        false
+                    }
+                });
+            assert!(
+                soft_limit_reached,
+                "Expected at least one block to have a soft limit reached event"
+            );
+        }
+    }
+
+    coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .stop_chains_coordinator();
+    run_loop_stopper.store(false, Ordering::SeqCst);
+
+    run_loop_thread.join().unwrap();
+}
