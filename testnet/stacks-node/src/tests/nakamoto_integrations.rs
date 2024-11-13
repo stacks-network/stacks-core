@@ -9529,8 +9529,8 @@ fn clarity_cost_spend_down() {
     // setup sender + recipient for some test stx transfers
     // these are necessary for the interim blocks to get mined at all
     let tx_fee = 1000;
-    let small_deploy_fee = 3000;
-    let large_deploy_fee = 190200;
+    let small_deploy_fee = 190200;
+    let large_deploy_fee = 570200;
     let amount = (large_deploy_fee + small_deploy_fee) * nmb_txs + tx_fee * tenure_count;
     for sender_addr in sender_addrs {
         naka_conf.add_initial_balance(PrincipalData::from(sender_addr).to_string(), amount);
@@ -9541,7 +9541,7 @@ fn clarity_cost_spend_down() {
             amount * 2,
         );
     }
-    naka_conf.miner.tenure_cost_limit_per_block_percentage = Some(25);
+    naka_conf.miner.tenure_cost_limit_per_block_percentage = Some(1);
     let stacker_sks: Vec<_> = (0..num_signers)
         .map(|_| setup_stacker(&mut naka_conf))
         .collect();
@@ -9594,7 +9594,7 @@ fn clarity_cost_spend_down() {
 
     let small_contract = format!(
         "(define-public (f) (begin {} (ok 1))) (begin (f))",
-        (0..2)
+        (0..1000)
             .map(|_| format!(
                 "(unwrap! (contract-call? '{} submit-proposal '{} \"cost-old\" '{} \"cost-new\") (err 1))",
                 boot_code_id("cost-voting", false),
@@ -9607,7 +9607,7 @@ fn clarity_cost_spend_down() {
     // Create an expensive contract that will be republished multiple times
     let large_contract = format!(
         "(define-public (f) (begin {} (ok 1))) (begin (f))",
-        (0..1000)
+        (0..3000)
             .map(|_| format!(
                 "(unwrap! (contract-call? '{} submit-proposal '{} \"cost-old\" '{} \"cost-new\") (err 1))",
                 boot_code_id("cost-voting", false),
@@ -9648,12 +9648,23 @@ fn clarity_cost_spend_down() {
             // Pause mining so we can add all our transactions to the mempool at once.
             TEST_MINE_STALL.lock().unwrap().replace(true);
             let mut submitted_txs = vec![];
-            for nmb_tx in 0..nmb_txs/2 {
+            for nmb_tx in 0..nmb_txs / 2 {
                 for sender_sk in sender_sks.iter() {
                     // Just keep redeploying large contracts
                     let contract_tx = make_contract_publish(
                         &sender_sk,
                         sender_nonce,
+                        small_deploy_fee,
+                        naka_conf.burnchain.chain_id,
+                        &format!("cheap-contract-{sender_nonce}-{nmb_tx}-{tenure_ix}"),
+                        &small_contract,
+                    );
+                    let txid = submit_tx(&http_origin, &contract_tx);
+                    submitted_txs.push(txid);
+
+                    let contract_tx = make_contract_publish(
+                        &sender_sk,
+                        sender_nonce + 1,
                         large_deploy_fee,
                         naka_conf.burnchain.chain_id,
                         &format!("expensive-contract-{sender_nonce}-{nmb_tx}-{tenure_ix}"),
@@ -9662,16 +9673,6 @@ fn clarity_cost_spend_down() {
                     let txid = submit_tx(&http_origin, &contract_tx);
                     submitted_txs.push(txid);
                     // Just keep redeploying large contracts
-                    let contract_tx = make_contract_publish(
-                        &sender_sk,
-                        sender_nonce + 1,
-                        small_deploy_fee,
-                        naka_conf.burnchain.chain_id,
-                        &format!("cheap-contract-{sender_nonce}-{nmb_tx}-{tenure_ix}"),
-                        &small_contract,
-                    );
-                    let txid = submit_tx(&http_origin, &contract_tx);
-                    submitted_txs.push(txid);
                 }
                 sender_nonce += 2;
             }

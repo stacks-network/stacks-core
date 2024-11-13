@@ -896,6 +896,19 @@ impl LimitedCostTracker {
             Self::Free => ExecutionCost::max_value(),
         }
     }
+    // Set the limit on the Limited tracker, or do nothing if its free.
+    // Returns the previous limit if it was set.
+    pub fn set_limit(&mut self, limit: ExecutionCost) -> Option<ExecutionCost> {
+        match self {
+            Self::Limited(ref mut data) => {
+                let old_limit = data.limit.clone();
+                data.limit = limit;
+                Some(old_limit)
+            }
+            Self::Free => None,
+        }
+    }
+
     pub fn get_memory(&self) -> u64 {
         match self {
             Self::Limited(TrackerData { memory, .. }) => *memory,

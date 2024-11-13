@@ -226,6 +226,15 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
             None => None,
         }
     }
+
+    /// Sets the block limit for the block being created.
+    /// Returns the old block limit if there is one.
+    pub fn set_block_limit(&mut self, limit: ExecutionCost) -> Option<ExecutionCost> {
+        match self.cost_track {
+            Some(ref mut track) => track.set_limit(limit),
+            None => None,
+        }
+    }
 }
 
 impl ClarityInstance {

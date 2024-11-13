@@ -524,6 +524,12 @@ impl<'a, 'b> ClarityTx<'a, 'b> {
         self.block.block_limit()
     }
 
+    /// Sets the block limit for the block being created.
+    /// Returns the replaced block limit if there is one.
+    pub fn set_block_limit(&mut self, block_limit: ExecutionCost) -> Option<ExecutionCost> {
+        self.block.set_block_limit(block_limit)
+    }
+
     /// Run `todo` in this ClarityTx with `new_tracker`.
     /// Returns the result of `todo` and the `new_tracker`
     pub fn with_temporary_cost_tracker<F, R>(

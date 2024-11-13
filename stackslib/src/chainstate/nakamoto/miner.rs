@@ -25,7 +25,7 @@ use clarity::vm::analysis::{CheckError, CheckErrors};
 use clarity::vm::ast::errors::ParseErrors;
 use clarity::vm::ast::ASTRules;
 use clarity::vm::clarity::TransactionConnection;
-use clarity::vm::costs::ExecutionCost;
+use clarity::vm::costs::{ExecutionCost, LimitedCostTracker, TrackerData};
 use clarity::vm::database::BurnStateDB;
 use clarity::vm::errors::Error as InterpreterError;
 use clarity::vm::types::{QualifiedContractIdentifier, TypeSignature};
@@ -679,6 +679,7 @@ impl BlockBuilder for NakamotoBlockBuilder {
                 return TransactionResult::problematic(&tx, Error::NetError(e));
             }
 
+            let cost_before = clarity_tx.cost_so_far();
             let (fee, receipt) =
                 match StacksChainState::process_transaction(clarity_tx, tx, quiet, ast_rules) {
                     Ok(x) => x,
@@ -686,27 +687,30 @@ impl BlockBuilder for NakamotoBlockBuilder {
                         return parse_process_transaction_error(clarity_tx, tx, e);
                     }
                 };
-
-            let block_limit_before = clarity_tx
-                .block_limit()
-                .expect("Failed to obtain block limit from miner's block connection");
+            let cost_after = clarity_tx.cost_so_far();
             let mut soft_limit_reached = false;
             // We only attempt to apply the soft limit to non-boot code contract calls.
             if non_boot_code_contract_call {
                 if let Some(soft_limit) = self.soft_limit.clone() {
-                    clarity_tx.reset_cost(soft_limit);
+                    let old_limit = clarity_tx
+                        .set_block_limit(soft_limit)
+                        .expect("BUG: No old block limit set.");
+                    clarity_tx.reset_cost(cost_before);
                     soft_limit_reached = matches!(
                         StacksChainState::process_transaction(clarity_tx, tx, quiet, ast_rules),
                         Err(Error::CostOverflowError(_, _, _))
                     );
-                    clarity_tx.reset_cost(block_limit_before);
+                    clarity_tx.set_block_limit(old_limit);
+                    clarity_tx.reset_cost(cost_after);
                 }
             }
 
             info!("Include tx";
                   "tx" => %tx.txid(),
                   "payload" => tx.payload.name(),
-                  "origin" => %tx.origin_address());
+                  "origin" => %tx.origin_address(),
+                  "soft_limit_reached" => soft_limit_reached
+            );
 
             // save
             self.txs.push(tx.clone());
