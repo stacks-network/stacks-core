@@ -9510,17 +9510,22 @@ fn clarity_cost_spend_down() {
         return;
     }
 
-    let mut signers = TestSigners::default();
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
+    let num_signers = 30;
     naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
-    let sender_sks: Vec<_> = (0..5).map(|_| Secp256k1PrivateKey::new()).collect();
-    let sender_signer_sks: Vec<_> = (0..5).map(|_| Secp256k1PrivateKey::new()).collect();
+    let sender_sks: Vec<_> = (0..num_signers)
+        .map(|_| Secp256k1PrivateKey::new())
+        .collect();
+    let sender_signer_sks: Vec<_> = (0..num_signers)
+        .map(|_| Secp256k1PrivateKey::new())
+        .collect();
     let sender_signer_addrs: Vec<_> = sender_signer_sks.iter().map(tests::to_addr).collect();
     let sender_addrs: Vec<_> = sender_sks.iter().map(tests::to_addr).collect();
     let tenure_count = 5;
     let inter_blocks_per_tenure = 30;
     let nmb_txs = 25;
+    let mut signers = TestSigners::new(sender_signer_sks.clone());
     // setup sender + recipient for some test stx transfers
     // these are necessary for the interim blocks to get mined at all
     let tx_fee = 1000;
@@ -9538,7 +9543,9 @@ fn clarity_cost_spend_down() {
         );
     }
     naka_conf.miner.tenure_cost_limit_per_block_percentage = Some(1);
-    let stacker_sks: Vec<_> = (0..5).map(|_| setup_stacker(&mut naka_conf)).collect();
+    let stacker_sks: Vec<_> = (0..num_signers)
+        .map(|_| setup_stacker(&mut naka_conf))
+        .collect();
 
     test_observer::spawn();
     test_observer::register(&mut naka_conf, &[EventKeyType::MinedBlocks]);
