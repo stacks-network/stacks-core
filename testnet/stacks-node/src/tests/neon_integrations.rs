@@ -371,8 +371,10 @@ pub mod test_observer {
                     inner_obj
                 } else if let Some(inner_obj) = txevent_obj.get("Skipped") {
                     inner_obj
+                } else if let Some(inner_obj) = txevent_obj.get("Problematic") {
+                    inner_obj
                 } else {
-                    panic!("TransactionEvent object should have one of Success, ProcessingError, or Skipped")
+                    panic!("TransactionEvent object should have one of Success, ProcessingError, Skipped, or Problematic. Had keys: {:?}", txevent_obj.keys().map(|x| x.to_string()).collect::<Vec<_>>());
                 };
                 inner_obj
                     .as_object()

@@ -9529,7 +9529,7 @@ fn clarity_cost_spend_down() {
     // setup sender + recipient for some test stx transfers
     // these are necessary for the interim blocks to get mined at all
     let tx_fee = 1000;
-    let deploy_fee = 580000;
+    let deploy_fee = 650000;
     let amount = deploy_fee
         + tx_fee * tenure_count
         + tx_fee * tenure_count * inter_blocks_per_tenure * nmb_txs;
@@ -9542,7 +9542,7 @@ fn clarity_cost_spend_down() {
             amount * 2,
         );
     }
-    naka_conf.miner.tenure_cost_limit_per_block_percentage = Some(1);
+    naka_conf.miner.tenure_cost_limit_per_block_percentage = Some(100);
     let stacker_sks: Vec<_> = (0..num_signers)
         .map(|_| setup_stacker(&mut naka_conf))
         .collect();
@@ -9596,7 +9596,7 @@ fn clarity_cost_spend_down() {
     // Create an expensive contract that will be republished multiple times
     let contract = format!(
         "(define-public (f) (begin {} (ok 1))) (begin (f))",
-        (0..3000)
+        (0..500)
             .map(|_| format!(
                 "(unwrap! (contract-call? '{} submit-proposal '{} \"cost-old\" '{} \"cost-new\") (err 1))",
                 boot_code_id("cost-voting", false),
@@ -9645,7 +9645,7 @@ fn clarity_cost_spend_down() {
                         sender_nonce,
                         deploy_fee,
                         naka_conf.burnchain.chain_id,
-                        &format!("expensive-contract-{sender_nonce}-{nmb_tx}"),
+                        &format!("expensive-contract-{sender_nonce}-{nmb_tx}-{tenure_ix}"),
                         &contract,
                     );
                     let txid = submit_tx(&http_origin, &contract_tx);
