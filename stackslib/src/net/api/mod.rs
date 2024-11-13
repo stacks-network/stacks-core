@@ -42,7 +42,6 @@ pub mod getattachment;
 pub mod getattachmentsinv;
 pub mod getblock;
 pub mod getblock_v3;
-pub mod getblockbyhash;
 pub mod getblockbyheight;
 pub mod getconstantval;
 pub mod getcontractabi;
@@ -94,7 +93,6 @@ impl StacksHttp {
         self.register_rpc_endpoint(getattachmentsinv::RPCGetAttachmentsInvRequestHandler::new());
         self.register_rpc_endpoint(getblock::RPCBlocksRequestHandler::new());
         self.register_rpc_endpoint(getblock_v3::RPCNakamotoBlockRequestHandler::new());
-        self.register_rpc_endpoint(getblockbyhash::RPCNakamotoBlockByHashRequestHandler::new());
         self.register_rpc_endpoint(getblockbyheight::RPCNakamotoBlockByHeightRequestHandler::new());
         self.register_rpc_endpoint(getconstantval::RPCGetConstantValRequestHandler::new());
         self.register_rpc_endpoint(getcontractabi::RPCGetContractAbiRequestHandler::new());

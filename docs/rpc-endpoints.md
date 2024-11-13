@@ -503,19 +503,15 @@ data.
 
 This will return 404 if the block does not exist.
 
-### GET /v3/blockbyhash/[Block Hash]
-
-Fetch a Nakamoto block given its block hash.  This returns the raw block
-data.
-
-This will return 404 if the block does not exist.
-
-### GET /v3/blockbyheight/[Block Height]
+### GET /v3/blocks/height/[Block Height]
 
 Fetch a Nakamoto block given its block height.  This returns the raw block
 data.
 
 This will return 404 if the block does not exist.
+
+This endpoint also accepts a querystring parameter `?tip=` which when supplied will return the
+block relative to the specified tip.
 
 ### GET /v3/tenures/[Block ID]
 
