@@ -35,6 +35,7 @@ use crate::client::SignerSlotID;
 
 const EVENT_TIMEOUT_MS: u64 = 5000;
 const BLOCK_PROPOSAL_TIMEOUT_MS: u64 = 600_000;
+const BLOCK_PROPOSAL_VALIDATION_TIMEOUT_MS: u64 = 120_000;
 const DEFAULT_FIRST_PROPOSAL_BURN_BLOCK_TIMING_SECS: u64 = 60;
 const DEFAULT_TENURE_LAST_BLOCK_PROPOSAL_TIMEOUT_SECS: u64 = 30;
 
@@ -132,6 +133,8 @@ pub struct SignerConfig {
     /// Time to wait for the last block of a tenure to be globally accepted or rejected
     /// before considering a new miner's block at the same height as potentially valid.
     pub tenure_last_block_proposal_timeout: Duration,
+    /// How much time to wait for a block proposal validation response before marking the block invalid
+    pub block_proposal_validation_timeout: Duration,
 }
 
 /// The parsed configuration for the signer
@@ -165,6 +168,9 @@ pub struct GlobalConfig {
     /// Time to wait for the last block of a tenure to be globally accepted or rejected
     /// before considering a new miner's block at the same height as potentially valid.
     pub tenure_last_block_proposal_timeout: Duration,
+    /// How long to wait for a response from a block proposal validation response from the node
+    /// before marking that block as invalid and rejecting it
+    pub block_proposal_validation_timeout: Duration,
 }
 
 /// Internal struct for loading up the config file
@@ -187,16 +193,19 @@ struct RawConfigFile {
     pub db_path: String,
     /// Metrics endpoint
     pub metrics_endpoint: Option<String>,
-    /// How much time must pass in seconds between the first block proposal in a tenure and the next bitcoin block
-    ///  before a subsequent miner isn't allowed to reorg the tenure
+    /// How much time (in secs) must pass between the first block proposal in a tenure and the next bitcoin block
+    /// before a subsequent miner isn't allowed to reorg the tenure
     pub first_proposal_burn_block_timing_secs: Option<u64>,
-    /// How much time to wait for a miner to propose a block following a sortition in milliseconds
+    /// How much time (in millisecs) to wait for a miner to propose a block following a sortition
     pub block_proposal_timeout_ms: Option<u64>,
     /// An optional custom Chain ID
     pub chain_id: Option<u32>,
     /// Time in seconds to wait for the last block of a tenure to be globally accepted or rejected
     /// before considering a new miner's block at the same height as potentially valid.
     pub tenure_last_block_proposal_timeout_secs: Option<u64>,
+    /// How long to wait (in millisecs) for a response from a block proposal validation response from the node
+    /// before marking that block as invalid and rejecting it
+    pub block_proposal_validation_timeout_ms: Option<u64>,
 }
 
 impl RawConfigFile {
@@ -282,6 +291,12 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
                 .unwrap_or(DEFAULT_TENURE_LAST_BLOCK_PROPOSAL_TIMEOUT_SECS),
         );
 
+        let block_proposal_validation_timeout = Duration::from_millis(
+            raw_data
+                .block_proposal_validation_timeout_ms
+                .unwrap_or(BLOCK_PROPOSAL_VALIDATION_TIMEOUT_MS),
+        );
+
         Ok(Self {
             node_host: raw_data.node_host,
             endpoint,
@@ -296,6 +311,7 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
             block_proposal_timeout,
             chain_id: raw_data.chain_id,
             tenure_last_block_proposal_timeout,
+            block_proposal_validation_timeout,
         })
     }
 }
