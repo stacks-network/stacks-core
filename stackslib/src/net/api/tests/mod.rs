@@ -60,7 +60,6 @@ mod getattachment;
 mod getattachmentsinv;
 mod getblock;
 mod getblock_v3;
-mod getblockbyhash;
 mod getblockbyheight;
 mod getconstantval;
 mod getcontractabi;
