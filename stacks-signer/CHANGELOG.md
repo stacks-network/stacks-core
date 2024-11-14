@@ -11,6 +11,8 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ### Changed
 
+- Allow a miner to extend their tenure immediately if the winner of the next tenure has committed to the wrong parent tenure (#5361)
+
 ## [3.0.0.0.1.0]
 
 ### Changed
