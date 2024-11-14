@@ -463,7 +463,6 @@ impl TransactionResult {
         receipt: StacksTransactionReceipt,
         soft_limit_reached: bool,
     ) -> TransactionResult {
-        debug!("SOFT LIMIT IS REACHED: {soft_limit_reached}");
         Self::log_transaction_success(transaction);
         Self::Success(TransactionSuccess {
             tx: transaction.clone(),
