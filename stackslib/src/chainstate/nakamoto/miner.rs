@@ -692,16 +692,22 @@ impl BlockBuilder for NakamotoBlockBuilder {
             // We only attempt to apply the soft limit to non-boot code contract calls.
             if non_boot_code_contract_call {
                 if let Some(soft_limit) = self.soft_limit.clone() {
-                    let old_limit = clarity_tx
-                        .set_block_limit(soft_limit)
-                        .expect("BUG: No old block limit set.");
-                    clarity_tx.reset_cost(cost_before);
-                    soft_limit_reached = matches!(
-                        StacksChainState::process_transaction(clarity_tx, tx, quiet, ast_rules),
-                        Err(Error::CostOverflowError(_, _, _))
-                    );
-                    clarity_tx.set_block_limit(old_limit);
-                    clarity_tx.reset_cost(cost_after);
+                    let tx_cost = receipt.clone().execution_cost;
+                    let mut cost_after = cost_before.clone();
+                    cost_after.add(&tx_cost).expect("Cost overflow");
+                    if cost_after.exceeds(&soft_limit) {
+                        soft_limit_reached = true;
+                    }
+                    // let old_limit = clarity_tx
+                    //     .set_block_limit(soft_limit)
+                    //     .expect("BUG: No old block limit set.");
+                    // clarity_tx.reset_cost(cost_before.clone());
+                    // soft_limit_reached = matches!(
+                    //     StacksChainState::process_transaction(clarity_tx, tx, quiet, ast_rules),
+                    //     Err(Error::CostOverflowError(_, _, _))
+                    // );
+                    // clarity_tx.set_block_limit(old_limit);
+                    // clarity_tx.reset_cost(cost_after.clone());
                 }
             }
 
@@ -709,7 +715,9 @@ impl BlockBuilder for NakamotoBlockBuilder {
                   "tx" => %tx.txid(),
                   "payload" => tx.payload.name(),
                   "origin" => %tx.origin_address(),
-                  "soft_limit_reached" => soft_limit_reached
+                  "soft_limit_reached" => soft_limit_reached,
+                  "cost_after" => %cost_after,
+                  "cost_before" => %cost_before,
             );
 
             // save
