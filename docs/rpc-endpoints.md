@@ -510,8 +510,9 @@ data.
 
 This will return 404 if the block does not exist.
 
-This endpoint also accepts a querystring parameter `?tip=` which when supplied will return the
-block relative to the specified tip.
+This endpoint also accepts a querystring parameter `?tip=` which when supplied 
+will return the block relative to the specified tip allowing the querying of 
+sibling blocks (same height, different tip) too.
 
 ### GET /v3/tenures/[Block ID]
 
