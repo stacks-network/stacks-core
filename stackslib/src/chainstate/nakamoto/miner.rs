@@ -536,7 +536,7 @@ impl NakamotoBlockBuilder {
             .mempool_settings
             .tenure_cost_limit_per_block_percentage
         {
-            if percentage < 100 {
+            if (1..100).contains(&percentage) {
                 let mut remaining_limit = block_limit.clone();
                 let cost_so_far = tenure_tx.cost_so_far();
                 if remaining_limit.sub(&cost_so_far).is_ok() {
