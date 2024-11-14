@@ -89,6 +89,7 @@ fn setup_test_environment(
         config: ProposalEvalConfig {
             first_proposal_burn_block_timing: Duration::from_secs(30),
             block_proposal_timeout: Duration::from_secs(5),
+            tenure_last_block_proposal_timeout: Duration::from_secs(30),
         },
     };
 
