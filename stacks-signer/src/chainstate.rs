@@ -204,11 +204,13 @@ impl SortitionsView {
             );
             self.cur_sortition.miner_status = SortitionMinerStatus::InvalidatedBeforeFirstBlock;
         } else if let Some(tip) = signer_db.get_canonical_tip()? {
-            // If this is a tenure change block, then the current sortition's parent tenure must be
-            // the canonical tip's tenure. If it's not, then the current tip may already be in this
-            // tenure.
-            if self.cur_sortition.parent_tenure_id != tip.block.header.consensus_hash
-                && self.cur_sortition.consensus_hash != tip.block.header.consensus_hash
+            // Check if the current sortition is aligned with the expected tenure:
+            // - If the tip is in the current tenure, we are in the process of mining this tenure.
+            // - If the tip is not in the current tenure, then we’re starting a new tenure,
+            //   and the current sortition's parent tenure must match the tenure of the tip.
+            // - Else the miner of the current sortition has committed to an incorrect parent tenure.
+            if self.cur_sortition.consensus_hash != tip.block.header.consensus_hash
+                && self.cur_sortition.parent_tenure_id != tip.block.header.consensus_hash
             {
                 warn!(
                     "Current sortition does not build off of canonical tip tenure, marking as invalid";
