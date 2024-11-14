@@ -928,11 +928,6 @@ impl RelayerThread {
         // If we won the last good sortition, then we should extend off of it.
         let last_good_block_election_snapshot = {
             let ih = self.sortdb.index_handle(&burn_tip.sortition_id);
-            info!(
-                "Relayer: Getting last snapshot with sortition for {}",
-                burn_tip.block_height
-            );
-
             let sn = ih
                 .get_last_snapshot_with_sortition(burn_tip.block_height)
                 .map_err(|e| {
