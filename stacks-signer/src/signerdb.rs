@@ -416,18 +416,8 @@ static SCHEMA_3: &[&str] = &[
 ];
 
 static SCHEMA_4: &[&str] = &[
-    DROP_SCHEMA_3,
-    CREATE_DB_CONFIG,
-    CREATE_BURN_STATE_TABLE,
-    CREATE_BLOCKS_TABLE_2,
-    CREATE_SIGNER_STATE_TABLE,
-    CREATE_BLOCK_SIGNATURES_TABLE,
-    CREATE_BLOCK_REJECTION_SIGNER_ADDRS_TABLE,
-    CREATE_INDEXES_1,
-    CREATE_INDEXES_2,
-    CREATE_INDEXES_3,
     CREATE_INDEXES_4,
-    "INSERT INTO db_config (version) VALUES (4);",
+    "INSERT OR REPLACE INTO db_config (version) VALUES (4);",
 ];
 
 impl SignerDb {
@@ -452,7 +442,7 @@ impl SignerDb {
             return Ok(0);
         }
         let result = conn
-            .query_row("SELECT version FROM db_config LIMIT 1", [], |row| {
+            .query_row("SELECT MAX(version) FROM db_config LIMIT 1", [], |row| {
                 row.get(0)
             })
             .optional();
