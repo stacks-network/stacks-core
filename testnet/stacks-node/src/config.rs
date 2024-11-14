@@ -2574,7 +2574,7 @@ impl MinerConfigFile {
         let pre_nakamoto_mock_signing = mining_key.is_some();
         let valid_tenure_cost_limit = self
             .tenure_cost_limit_per_block_percentage
-            .map(|p| p < 100 && p > 0)
+            .map(|p| p <= 100 && p > 0)
             .unwrap_or(true);
         if !valid_tenure_cost_limit {
             return Err(
