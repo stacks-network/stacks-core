@@ -1275,4 +1275,45 @@ mod tests {
         assert!(!block.check_state(BlockState::GloballyAccepted));
         assert!(block.check_state(BlockState::GloballyRejected));
     }
+
+    #[test]
+    fn test_get_canonical_tip() {
+        let db_path = tmp_db_path();
+        let mut db = SignerDb::new(db_path).expect("Failed to create signer db");
+
+        let (mut block_info_1, _block_proposal_1) = create_block_override(|b| {
+            b.block.header.miner_signature = MessageSignature([0x01; 65]);
+            b.block.header.chain_length = 1;
+            b.burn_height = 1;
+        });
+
+        let (mut block_info_2, _block_proposal_2) = create_block_override(|b| {
+            b.block.header.miner_signature = MessageSignature([0x02; 65]);
+            b.block.header.chain_length = 2;
+            b.burn_height = 2;
+        });
+
+        db.insert_block(&block_info_1)
+            .expect("Unable to insert block into db");
+        db.insert_block(&block_info_2)
+            .expect("Unable to insert block into db");
+
+        assert!(db.get_canonical_tip().unwrap().is_none());
+
+        block_info_1
+            .mark_globally_accepted()
+            .expect("Failed to mark block as globally accepted");
+        db.insert_block(&block_info_1)
+            .expect("Unable to insert block into db");
+
+        assert_eq!(db.get_canonical_tip().unwrap().unwrap(), block_info_1);
+
+        block_info_2
+            .mark_globally_accepted()
+            .expect("Failed to mark block as globally accepted");
+        db.insert_block(&block_info_2)
+            .expect("Unable to insert block into db");
+
+        assert_eq!(db.get_canonical_tip().unwrap().unwrap(), block_info_2);
+    }
 }
