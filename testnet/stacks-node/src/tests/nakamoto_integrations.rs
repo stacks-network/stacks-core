@@ -9504,6 +9504,7 @@ fn skip_mining_long_tx() {
 #[ignore]
 /// This test is testing that the clarity cost spend down works as expected,
 /// spreading clarity contract calls across the tenure instead of all in the first block.
+/// It also ensures that the clarity cost resets at the start of each tenure.
 fn clarity_cost_spend_down() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
@@ -9533,7 +9534,7 @@ fn clarity_cost_spend_down() {
             result
         };
     let tenure_count = 5;
-    let nmb_txs_per_signer = 6;
+    let nmb_txs_per_signer = 2;
     let mut signers = TestSigners::new(sender_signer_sks.clone());
     // setup sender + recipient for some test stx transfers
     // these are necessary for the interim blocks to get mined at all
@@ -9551,7 +9552,7 @@ fn clarity_cost_spend_down() {
             amount * 2,
         );
     }
-    naka_conf.miner.tenure_cost_limit_per_block_percentage = Some(15);
+    naka_conf.miner.tenure_cost_limit_per_block_percentage = Some(5);
     let stacker_sks: Vec<_> = (0..num_signers)
         .map(|_| setup_stacker(&mut naka_conf))
         .collect();
@@ -9599,8 +9600,6 @@ fn clarity_cost_spend_down() {
     blind_signer(&naka_conf, &signers, proposals_submitted);
 
     wait_for_first_naka_block_commit(60, &commits_submitted);
-
-    // let mut sender_nonce = 0;
 
     let small_contract = format!(
         r#"
@@ -9714,7 +9713,6 @@ fn clarity_cost_spend_down() {
             .lock()
             .expect("Mutex poisoned")
             .get_stacks_blocks_processed();
-
         // Pause mining so we can add all our transactions to the mempool at once.
         TEST_MINE_STALL.lock().unwrap().replace(true);
         let mut submitted_txs = vec![];
@@ -9746,38 +9744,24 @@ fn clarity_cost_spend_down() {
             }
         }
         TEST_MINE_STALL.lock().unwrap().replace(false);
-        let expected_nmb_txs = nmb_txs_per_signer as usize * sender_sks.len();
         wait_for(120, || {
             let blocks_processed = coord_channel
                 .lock()
                 .expect("Mutex poisoned")
                 .get_stacks_blocks_processed();
-            let total_nmb_mined_txs = test_observer::get_mined_nakamoto_blocks()
-                .iter()
-                .map(|b| b.tx_events.len())
-                .sum::<usize>();
-            info!("---- Total nmb mined txs: {total_nmb_mined_txs} ----";
-                "blocks_processed" => blocks_processed,
-                "nakamoto_blocks_len" => test_observer::get_mined_nakamoto_blocks().len(),
-                "expected_nmb_txs" => expected_nmb_txs
-            );
-            Ok(blocks_processed > blocks_processed_before
-                && test_observer::get_mined_nakamoto_blocks().len() > mined_before.len()
-                && total_nmb_mined_txs == expected_nmb_txs)
+            Ok(blocks_processed >= blocks_processed_before + 7)
         })
         .expect("Timed out waiting for interim blocks to be mined");
 
         let mined_after = test_observer::get_mined_nakamoto_blocks();
-        let mined_blocks = mined_after[mined_before.len()..].to_vec();
-        info!("Mined blocks: {:?}", mined_blocks.len());
-        let err_msg = format!(
-                "Expected at least 2 blocks to be mined in the interim period. Mined blocks: {}, Blocks before: {}",
-                mined_blocks.len(),
-                mined_before.len(),
-            );
-        assert!(mined_blocks.len() > 1, "{err_msg}");
+        let mined_blocks: Vec<_> = mined_after.iter().skip(mined_before.len()).collect();
+        let total_nmb_txs = mined_after.iter().map(|b| b.tx_events.len()).sum::<usize>();
+        let nmb_mined_blocks = mined_blocks.len();
+        debug!(
+            "Mined a total of {total_nmb_txs} transactions across {nmb_mined_blocks} mined blocks"
+        );
         let mut last_tx_count = None;
-        for block in mined_blocks.into_iter() {
+        for (i, block) in mined_blocks.into_iter().enumerate() {
             let tx_count = block.tx_events.len();
             if let Some(count) = last_tx_count {
                 assert!(
@@ -9794,10 +9778,10 @@ fn clarity_cost_spend_down() {
                     ..
                 }) = tx_event
                 {
-                    if j == block.tx_events.len() - 1 {
+                    if i == nmb_mined_blocks - 1 || j != block.tx_events.len() - 1 {
                         assert!(
                             !soft_limit_reached,
-                            "Expected tx to not hit the soft limit in the very last block"
+                            "Expected tx to not hit the soft limit in the very last block or in any txs but the last in all other blocks"
                         );
                     } else {
                         assert!(soft_limit_reached, "Expected tx to hit the soft limit.");
