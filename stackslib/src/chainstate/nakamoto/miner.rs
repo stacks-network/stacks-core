@@ -693,21 +693,11 @@ impl BlockBuilder for NakamotoBlockBuilder {
             if non_boot_code_contract_call {
                 if let Some(soft_limit) = self.soft_limit.clone() {
                     let tx_cost = receipt.clone().execution_cost;
-                    let mut cost_after = cost_before.clone();
-                    cost_after.add(&tx_cost).expect("Cost overflow");
-                    if cost_after.exceeds(&soft_limit) {
-                        soft_limit_reached = true;
-                    }
-                    // let old_limit = clarity_tx
-                    //     .set_block_limit(soft_limit)
-                    //     .expect("BUG: No old block limit set.");
-                    // clarity_tx.reset_cost(cost_before.clone());
-                    // soft_limit_reached = matches!(
-                    //     StacksChainState::process_transaction(clarity_tx, tx, quiet, ast_rules),
-                    //     Err(Error::CostOverflowError(_, _, _))
-                    // );
-                    // clarity_tx.set_block_limit(old_limit);
-                    // clarity_tx.reset_cost(cost_after.clone());
+                    let mut soft_cost = cost_before.clone();
+                    soft_cost.add(&tx_cost).expect(
+                        "BUG: Cost overflow was already checked in the process_transaction call.",
+                    );
+                    soft_limit_reached = soft_cost.exceeds(&soft_limit);
                 }
             }
 
