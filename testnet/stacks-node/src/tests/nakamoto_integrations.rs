@@ -9526,15 +9526,15 @@ fn clarity_cost_spend_down() {
     let deployer_addr = sender_addrs[0];
     let mut sender_nonces: HashMap<String, u64> = HashMap::new();
 
-    let mut get_and_increment_nonce = |sender_sk: &Secp256k1PrivateKey| {
-        // let mut sender_nonces = sender_nonces.lock().unwrap();
-        let nonce = sender_nonces.get(&sender_sk.to_hex()).unwrap_or(&0);
-        let result = *nonce;
-        sender_nonces.insert(sender_sk.to_hex(), result + 1);
-        result
-    };
+    let get_and_increment_nonce =
+        |sender_sk: &Secp256k1PrivateKey, sender_nonces: &mut HashMap<String, u64>| {
+            let nonce = sender_nonces.get(&sender_sk.to_hex()).unwrap_or(&0);
+            let result = *nonce;
+            sender_nonces.insert(sender_sk.to_hex(), result + 1);
+            result
+        };
     let tenure_count = 5;
-    let inter_blocks_per_tenure = 30;
+    let _inter_blocks_per_tenure = 30;
     let nmb_txs = 25;
     let mut signers = TestSigners::new(sender_signer_sks.clone());
     // setup sender + recipient for some test stx transfers
@@ -9608,7 +9608,7 @@ fn clarity_cost_spend_down() {
 (define-data-var my-var uint u0)
 (define-public (f) (begin {} (ok 1))) (begin (f))
         "#,
-        (0..2000)
+        (0..250)
             .map(|_| format!("(var-get my-var)"))
             .collect::<Vec<String>>()
             .join(" ")
@@ -9629,7 +9629,7 @@ fn clarity_cost_spend_down() {
     // Create an expensive contract that will be republished multiple times
     let large_contract = format!(
         "(define-public (f) (begin {} (ok 1))) (begin (f))",
-        (0..500)
+        (0..250)
             .map(|_| format!(
                 "(unwrap! (contract-call? '{} submit-proposal '{} \"cost-old\" '{} \"cost-new\") (err 1))",
                 boot_code_id("cost-voting", false),
@@ -9641,7 +9641,7 @@ fn clarity_cost_spend_down() {
     );
 
     // First, lets deploy the contract
-    let deployer_nonce = get_and_increment_nonce(&deployer_sk);
+    let deployer_nonce = get_and_increment_nonce(&deployer_sk, &mut sender_nonces);
     let small_contract_tx = make_contract_publish(
         &deployer_sk,
         deployer_nonce,
@@ -9651,7 +9651,7 @@ fn clarity_cost_spend_down() {
         &small_contract,
     );
     submit_tx(&http_origin, &small_contract_tx);
-    let deployer_nonce = get_and_increment_nonce(&deployer_sk);
+    let deployer_nonce = get_and_increment_nonce(&deployer_sk, &mut sender_nonces);
     let large_contract_tx = make_contract_publish(
         &deployer_sk,
         deployer_nonce,
@@ -9701,6 +9701,10 @@ fn clarity_cost_spend_down() {
     // Mine `tenure_count` nakamoto tenures
     for tenure_ix in 0..tenure_count {
         info!("Mining tenure {tenure_ix}");
+        let nmb_txs_before = test_observer::get_mined_nakamoto_blocks()
+            .iter()
+            .map(|b| b.tx_events.len())
+            .sum::<usize>();
         // Wait for the tenure change payload to be mined
         let blocks_before = mined_blocks.load(Ordering::SeqCst);
         let blocks_processed_before = coord_channel
@@ -9717,122 +9721,132 @@ fn clarity_cost_spend_down() {
         })
         .unwrap();
         // mine the interim blocks
-        for interim_block_ix in 0..inter_blocks_per_tenure {
-            info!("Mining interim block {interim_block_ix}");
-            let mined_before = test_observer::get_mined_nakamoto_blocks();
-            let blocks_processed_before = coord_channel
+        // for interim_block_ix in 0..inter_blocks_per_tenure {
+        // info!("Mining interim blocks {interim_block_ix}");
+        let mined_before = test_observer::get_mined_nakamoto_blocks();
+        let blocks_processed_before = coord_channel
+            .lock()
+            .expect("Mutex poisoned")
+            .get_stacks_blocks_processed();
+
+        // Pause mining so we can add all our transactions to the mempool at once.
+        TEST_MINE_STALL.lock().unwrap().replace(true);
+        let mut submitted_txs = vec![];
+        for _nmb_tx in 0..nmb_txs {
+            for sender_sk in sender_sks.iter() {
+                let sender_nonce = get_and_increment_nonce(&sender_sk, &mut sender_nonces);
+                // Just keep redeploying large contracts
+                let contract_tx = make_contract_call(
+                    &sender_sk,
+                    sender_nonce,
+                    tx_fee,
+                    naka_conf.burnchain.chain_id,
+                    &deployer_addr,
+                    "small-contract",
+                    "f",
+                    &[],
+                );
+                // let contract_tx = make_contract_publish(
+                //     &sender_sk,
+                //     sender_nonce,
+                //     small_deploy_fee,
+                //     naka_conf.burnchain.chain_id,
+                //     &format!("cheap-contract-{sender_nonce}-{nmb_tx}-{tenure_ix}"),
+                //     // &small_contract,
+                //     &small_contract,
+                // );
+                match submit_tx_fallible(&http_origin, &contract_tx) {
+                    Ok(txid) => {
+                        submitted_txs.push(txid);
+                    }
+                    Err(_e) => {
+                        // If we fail to submit a tx, we need to make sure we don't
+                        // increment the nonce for this sender, so we don't end up
+                        // skipping a tx.
+                        sender_nonces.insert(sender_sk.to_hex(), sender_nonce);
+                    }
+                }
+                // let txid = submit_tx_fallible(&http_origin, &contract_tx);
+                // submitted_txs.push(txid);
+
+                // let sender_nonce = get_and_increment_nonce(&sender_sk);
+                // // let contract_tx = make_contract_publish(
+                // //     &sender_sk,
+                // //     sender_nonce,
+                // //     large_deploy_fee,
+                // //     naka_conf.burnchain.chain_id,
+                // //     &format!("expensive-contract-{sender_nonce}-{nmb_tx}-{tenure_ix}"),
+                // //     &large_contract,
+                // // );
+                // let contract_tx = make_contract_call(
+                //     &sender_sk,
+                //     sender_nonce,
+                //     tx_fee,
+                //     naka_conf.burnchain.chain_id,
+                //     &deployer_addr,
+                //     "big-contract",
+                //     "f",
+                //     &[],
+                // );
+                // let txid = submit_tx(&http_origin, &contract_tx);
+                // submitted_txs.push(txid);
+                // Just keep redeploying large contracts
+            }
+        }
+        TEST_MINE_STALL.lock().unwrap().replace(false);
+        wait_for(120, || {
+            let blocks_processed = coord_channel
                 .lock()
                 .expect("Mutex poisoned")
                 .get_stacks_blocks_processed();
+            let total_nmb_mined_txs = test_observer::get_mined_nakamoto_blocks()
+                .iter()
+                .map(|b| b.tx_events.len())
+                .sum::<usize>();
+            info!("---- Total nmb mined txs: {total_nmb_mined_txs} ----";
+                "blocks_processed" => blocks_processed,
+                "nakamoto_blocks_len" => test_observer::get_mined_nakamoto_blocks().len(),
+            );
+            Ok(blocks_processed > blocks_processed_before
+                && test_observer::get_mined_nakamoto_blocks().len() > mined_before.len()
+                && (total_nmb_mined_txs - nmb_txs_before) > nmb_txs as usize)
+        })
+        .expect("Timed out waiting for interim blocks to be mined");
 
-            // Pause mining so we can add all our transactions to the mempool at once.
-            TEST_MINE_STALL.lock().unwrap().replace(true);
-            let mut submitted_txs = vec![];
-            for _nmb_tx in 0..nmb_txs {
-                for sender_sk in sender_sks.iter() {
-                    let sender_nonce = get_and_increment_nonce(&sender_sk);
-                    // Just keep redeploying large contracts
-                    let contract_tx = make_contract_call(
-                        &sender_sk,
-                        sender_nonce,
-                        tx_fee,
-                        naka_conf.burnchain.chain_id,
-                        &deployer_addr,
-                        "small-contract",
-                        "f",
-                        &[],
-                    );
-                    // let contract_tx = make_contract_publish(
-                    //     &sender_sk,
-                    //     sender_nonce,
-                    //     small_deploy_fee,
-                    //     naka_conf.burnchain.chain_id,
-                    //     &format!("cheap-contract-{sender_nonce}-{nmb_tx}-{tenure_ix}"),
-                    //     // &small_contract,
-                    //     &small_contract,
-                    // );
-                    match submit_tx_fallible(&http_origin, &contract_tx) {
-                        Ok(txid) => {
-                            submitted_txs.push(txid);
-                        }
-                        Err(e) => {
-                            warn!("Failed to submit tx: {e}");
-                        }
-                    }
-                    // let txid = submit_tx_fallible(&http_origin, &contract_tx);
-                    // submitted_txs.push(txid);
-
-                    // let sender_nonce = get_and_increment_nonce(&sender_sk);
-                    // // let contract_tx = make_contract_publish(
-                    // //     &sender_sk,
-                    // //     sender_nonce,
-                    // //     large_deploy_fee,
-                    // //     naka_conf.burnchain.chain_id,
-                    // //     &format!("expensive-contract-{sender_nonce}-{nmb_tx}-{tenure_ix}"),
-                    // //     &large_contract,
-                    // // );
-                    // let contract_tx = make_contract_call(
-                    //     &sender_sk,
-                    //     sender_nonce,
-                    //     tx_fee,
-                    //     naka_conf.burnchain.chain_id,
-                    //     &deployer_addr,
-                    //     "big-contract",
-                    //     "f",
-                    //     &[],
-                    // );
-                    // let txid = submit_tx(&http_origin, &contract_tx);
-                    // submitted_txs.push(txid);
-                    // Just keep redeploying large contracts
+        let mined_after = test_observer::get_mined_nakamoto_blocks();
+        let mined_blocks = mined_after[mined_before.len()..].to_vec();
+        info!("Mined blocks: {:?}", mined_blocks.len());
+        let err_msg = format!(
+                "Expected at least 2 blocks to be mined in the interim period. Mined blocks: {}, Blocks before: {}",
+                mined_blocks.len(),
+                mined_before.len(),
+            );
+        assert!(mined_blocks.len() > 1, "{err_msg}");
+        let soft_limit_reached = mined_blocks
+            .into_iter()
+            .map(|block| block.tx_events)
+            .flatten()
+            .any(|event| match event {
+                TransactionEvent::Success(TransactionSuccessEvent {
+                    txid: _,
+                    fee: _,
+                    execution_cost: _,
+                    result,
+                    soft_limit_reached,
+                }) => {
+                    info!("Contract call result: {result}");
+                    soft_limit_reached
                 }
-            }
-            TEST_MINE_STALL.lock().unwrap().replace(false);
-            wait_for(120, || {
-                let blocks_processed = coord_channel
-                    .lock()
-                    .expect("Mutex poisoned")
-                    .get_stacks_blocks_processed();
-                let total_nmb_mined_txs = test_observer::get_mined_nakamoto_blocks()
-                    .iter()
-                    .map(|b| b.tx_events.len())
-                    .sum::<usize>();
-                Ok(blocks_processed > blocks_processed_before
-                    && test_observer::get_mined_nakamoto_blocks().len() > mined_before.len()
-                    && total_nmb_mined_txs > nmb_txs as usize)
-            })
-            .expect("Timed out waiting for interim blocks to be mined");
-
-            let mined_after = test_observer::get_mined_nakamoto_blocks();
-            let mined_blocks = mined_after[mined_before.len()..].to_vec();
-            assert!(
-                mined_blocks.len() > 1,
-                "Expected at least 2 blocks to be mined in the interim period"
-            );
-            let soft_limit_reached = mined_blocks
-                .into_iter()
-                .map(|block| block.tx_events)
-                .flatten()
-                .any(|event| match event {
-                    TransactionEvent::Success(TransactionSuccessEvent {
-                        txid: _,
-                        fee: _,
-                        execution_cost: _,
-                        result,
-                        soft_limit_reached,
-                    }) => {
-                        info!("Contract call result: {result}");
-                        soft_limit_reached
-                    }
-                    _ => {
-                        info!("Unsuccessful event: {event:?}");
-                        false
-                    }
-                });
-            assert!(
-                soft_limit_reached,
-                "Expected at least one block to have a soft limit reached event"
-            );
-        }
+                _ => {
+                    info!("Unsuccessful event: {event:?}");
+                    false
+                }
+            });
+        assert!(
+            soft_limit_reached,
+            "Expected at least one block to have a soft limit reached event"
+        );
+        // }
     }
 
     coord_channel

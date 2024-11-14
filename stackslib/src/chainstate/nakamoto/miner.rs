@@ -544,7 +544,14 @@ impl NakamotoBlockBuilder {
                         remaining_limit.multiply(percentage.into()).expect(
                                 "BUG: failed to multiply by {percentage} when previously divided by 100",
                             );
-                        debug!("Setting soft limit for clarity cost to {percentage}% of remaining block limit: {remaining_limit}");
+                        remaining_limit.add(&cost_so_far).expect("BUG: unexpected overflow when adding cost_so_far, which was previously checked");
+                        // TODO: change to debug
+                        info!(
+                            "Setting soft limit for clarity cost to {percentage}% of remaining block limit: {remaining_limit}";
+                            "remaining_limit" => %remaining_limit,
+                            "cost_so_far" => %cost_so_far,
+                            "block_limit" => %block_limit,
+                        );
                         soft_limit = Some(remaining_limit);
                     }
                 };
