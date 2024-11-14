@@ -697,13 +697,8 @@ impl BlockBuilder for NakamotoBlockBuilder {
             let mut soft_limit_reached = false;
             // We only attempt to apply the soft limit to non-boot code contract calls.
             if non_boot_code_contract_call {
-                if let Some(soft_limit) = self.soft_limit.clone() {
-                    let tx_cost = receipt.clone().execution_cost;
-                    let mut soft_cost = cost_before.clone();
-                    soft_cost.add(&tx_cost).expect(
-                        "BUG: Cost overflow was already checked in the process_transaction call.",
-                    );
-                    soft_limit_reached = soft_cost.exceeds(&soft_limit);
+                if let Some(soft_limit) = self.soft_limit.as_ref() {
+                    soft_limit_reached = cost_after.exceeds(soft_limit);
                 }
             }
 
