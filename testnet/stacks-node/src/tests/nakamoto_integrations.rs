@@ -9407,8 +9407,16 @@ fn v3_blockbyheight_api_endpoint() {
 
     let block_height = tip.stacks_block_height;
     let block_data = get_v3_block_by_height(block_height);
+
     assert!(block_data.status().is_success());
-    assert!(block_data.bytes().unwrap().len() > 0);
+    let block_bytes_vec = block_data.bytes().unwrap().to_vec();
+    assert!(block_bytes_vec.len() > 0);
+
+    // does the block id of the returned blob matches ?
+    let block_id = NakamotoBlockHeader::consensus_deserialize(&mut block_bytes_vec.as_slice())
+        .unwrap()
+        .block_id();
+    assert_eq!(block_id, tip.index_block_hash());
 
     info!("------------------------- Test finished, clean up -------------------------");
 
