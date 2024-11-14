@@ -557,6 +557,7 @@ impl BlockMinerThread {
             miner_privkey,
             &self.config,
             self.globals.should_keep_running.clone(),
+            self.event_dispatcher.stackerdb_channel.clone(),
         )
         .map_err(|e| {
             NakamotoNodeError::SigningCoordinatorFailure(format!(
