@@ -1086,6 +1086,10 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
 
         if new {
             // neighbor was new
+            info!(
+                "New neighbor added: public key: {:?} address: {:?}",
+                naddr.public_key_hash, naddr.addrbytes
+            );
             self.new_frontier
                 .insert(neighbor.addr.clone(), neighbor.clone());
         } else {
@@ -1801,6 +1805,11 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
                 }
                 StacksMessageType::Nack(ref data) => {
                     // evict
+                    info!(
+                        "Dropping neighbor {:?} Reason: will Evict message: {:?}",
+                        nkey.public_key_hash,
+                        message.get_message_name()
+                    );
                     debug!(
                         "{:?}: Neighbor {:?} NACK'ed Handshake with code {:?}; will evict",
                         network.get_local_peer(),
@@ -1812,6 +1821,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
                 }
                 _ => {
                     // unexpected reply -- this peer is misbehaving and should be replaced
+                    info!("Dropping neighbor {:?} Reason: unexpected reply {:?} this peer is misbehaving and should be replaced", nkey.public_key_hash, message.get_message_name());
                     debug!("{:?}: Neighbor {:?} replied an out-of-sequence message (type {}); will replace", network.get_local_peer(), &nkey, message.get_message_name());
                     self.comms.add_broken(network, &nkey);
                     continue;
