@@ -9323,6 +9323,7 @@ fn skip_mining_long_tx() {
     naka_conf.node.prometheus_bind = Some(prom_bind.clone());
     naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
     naka_conf.miner.nakamoto_attempt_time_ms = 5_000;
+    naka_conf.miner.tenure_cost_limit_per_block_percentage = Some(100);
     let sender_1_sk = Secp256k1PrivateKey::from_seed(&[30]);
     let sender_2_sk = Secp256k1PrivateKey::from_seed(&[31]);
     // setup sender + recipient for a test stx transfer
