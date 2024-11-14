@@ -161,7 +161,7 @@ impl RPCRequestHandler for RPCNakamotoBlockByHeightRequestHandler {
                 else {
                     return Err(ChainError::NoSuchBlockError);
                 };
-                NakamotoBlockStream::new(chainstate, block_id.clone(), tenure_id, parent_block_id)
+                NakamotoBlockStream::new(chainstate, block_id, tenure_id, parent_block_id)
             });
 
         // start loading up the block
