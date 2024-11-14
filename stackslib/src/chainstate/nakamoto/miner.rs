@@ -124,7 +124,7 @@ pub struct NakamotoBlockBuilder {
     txs: Vec<StacksTransaction>,
     /// header we're filling in
     pub header: NakamotoBlockHeader,
-    /// The execution cost for the block
+    /// Optional soft limit for this block's budget usage
     soft_limit: Option<ExecutionCost>,
 }
 
