@@ -2468,7 +2468,6 @@ impl StacksBlockBuilder {
                                         }
                                     }
                                     Error::TransactionTooBigError(measured_cost) => {
-                                        debug!("TRANSACTION TOO BIG: {}", &txinfo.tx.txid());
                                         if update_estimator {
                                             if let Some(measured_cost) = measured_cost {
                                                 if let Err(e) = estimator.notify_event(
