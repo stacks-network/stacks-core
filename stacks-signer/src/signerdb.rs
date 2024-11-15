@@ -349,12 +349,6 @@ static DROP_SCHEMA_2: &str = "
     DROP TABLE IF EXISTS blocks;
     DROP TABLE IF EXISTS db_config;";
 
-static DROP_SCHEMA_3: &str = "
-    DROP TABLE IF EXISTS burn_blocks;
-    DROP TABLE IF EXISTS signer_states;
-    DROP TABLE IF EXISTS blocks;
-    DROP TABLE IF EXISTS db_config;";
-
 static CREATE_BLOCK_SIGNATURES_TABLE: &str = r#"
 CREATE TABLE IF NOT EXISTS block_signatures (
     -- The block sighash commits to all of the stacks and burnchain state as of its parent,
