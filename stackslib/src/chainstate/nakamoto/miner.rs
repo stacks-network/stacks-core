@@ -28,7 +28,10 @@ use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::database::BurnStateDB;
 use clarity::vm::errors::Error as InterpreterError;
-use clarity::vm::types::{QualifiedContractIdentifier, TypeSignature};
+use clarity::vm::types::{
+    QualifiedContractIdentifier, StacksAddressExtensions as ClarityStacksAddressExtensions,
+    TypeSignature,
+};
 use libstackerdb::StackerDBChunkData;
 use serde::Deserialize;
 use stacks_common::codec::{read_next, write_next, Error as CodecError, StacksMessageCodec};
@@ -37,8 +40,9 @@ use stacks_common::types::chainstate::{
 };
 use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::get_epoch_time_ms;
-use stacks_common::util::hash::{Hash160, MerkleTree, Sha512Trunc256Sum};
+use stacks_common::util::hash::{hex_bytes, Hash160, MerkleTree, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PrivateKey};
+use stacks_common::util::vrf::VRFProof;
 
 use crate::burnchains::{PrivateKey, PublicKey};
 use crate::chainstate::burn::db::sortdb::{
@@ -58,8 +62,8 @@ use crate::chainstate::stacks::db::transactions::{
     handle_clarity_runtime_error, ClarityRuntimeTxError,
 };
 use crate::chainstate::stacks::db::{
-    ChainstateTx, ClarityTx, MinerRewardInfo, StacksBlockHeaderTypes, StacksChainState,
-    StacksHeaderInfo, MINER_REWARD_MATURITY,
+    ChainstateTx, ClarityTx, MinerRewardInfo, StacksAccount, StacksBlockHeaderTypes,
+    StacksChainState, StacksHeaderInfo, MINER_REWARD_MATURITY,
 };
 use crate::chainstate::stacks::events::{StacksTransactionEvent, StacksTransactionReceipt};
 use crate::chainstate::stacks::miner::{
@@ -117,7 +121,7 @@ pub struct NakamotoBlockBuilder {
     /// Total burn this block represents
     total_burn: u64,
     /// Matured miner rewards to process, if any.
-    matured_miner_rewards_opt: Option<MaturedMinerRewards>,
+    pub(crate) matured_miner_rewards_opt: Option<MaturedMinerRewards>,
     /// bytes of space consumed so far
     pub bytes_so_far: u64,
     /// transactions selected
@@ -141,7 +145,7 @@ pub struct MinerTenureInfo<'a> {
     pub coinbase_height: u64,
     pub cause: Option<TenureChangeCause>,
     pub active_reward_set: boot::RewardSet,
-    pub tenure_block_commit: LeaderBlockCommitOp,
+    pub tenure_block_commit_opt: Option<LeaderBlockCommitOp>,
 }
 
 impl NakamotoBlockBuilder {
@@ -235,7 +239,21 @@ impl NakamotoBlockBuilder {
         burn_dbconn: &'a SortitionHandleConn,
         cause: Option<TenureChangeCause>,
     ) -> Result<MinerTenureInfo<'a>, Error> {
-        debug!("Nakamoto miner tenure begin");
+        self.inner_load_tenure_info(chainstate, burn_dbconn, cause, false)
+    }
+
+    /// This function should be called before `tenure_begin`.
+    /// It creates a MinerTenureInfo struct which owns connections to the chainstate and sortition
+    /// DBs, so that block-processing is guaranteed to terminate before the lives of these handles
+    /// expire.
+    pub(crate) fn inner_load_tenure_info<'a>(
+        &self,
+        chainstate: &'a mut StacksChainState,
+        burn_dbconn: &'a SortitionHandleConn,
+        cause: Option<TenureChangeCause>,
+        shadow_block: bool,
+    ) -> Result<MinerTenureInfo<'a>, Error> {
+        debug!("Nakamoto miner tenure begin"; "shadow" => shadow_block, "tenure_change" => ?cause);
 
         let Some(tenure_election_sn) =
             SortitionDB::get_block_snapshot_consensus(&burn_dbconn, &self.header.consensus_hash)?
@@ -247,19 +265,25 @@ impl NakamotoBlockBuilder {
             );
             return Err(Error::NoSuchBlockError);
         };
-        let Some(tenure_block_commit) = SortitionDB::get_block_commit(
-            &burn_dbconn,
-            &tenure_election_sn.winning_block_txid,
-            &tenure_election_sn.sortition_id,
-        )?
-        else {
-            warn!("Could not find winning block commit for burn block that elected the miner";
-                "consensus_hash" => %self.header.consensus_hash,
-                "stacks_block_hash" => %self.header.block_hash(),
-                "stacks_block_id" => %self.header.block_id(),
-                "winning_txid" => %tenure_election_sn.winning_block_txid
-            );
-            return Err(Error::NoSuchBlockError);
+
+        let tenure_block_commit_opt = if shadow_block {
+            None
+        } else {
+            let Some(tenure_block_commit) = SortitionDB::get_block_commit(
+                &burn_dbconn,
+                &tenure_election_sn.winning_block_txid,
+                &tenure_election_sn.sortition_id,
+            )?
+            else {
+                warn!("Could not find winning block commit for burn block that elected the miner";
+                    "consensus_hash" => %self.header.consensus_hash,
+                    "stacks_block_hash" => %self.header.block_hash(),
+                    "stacks_block_id" => %self.header.block_id(),
+                    "winning_txid" => %tenure_election_sn.winning_block_txid
+                );
+                return Err(Error::NoSuchBlockError);
+            };
+            Some(tenure_block_commit)
         };
 
         let elected_height = tenure_election_sn.block_height;
@@ -363,11 +387,11 @@ impl NakamotoBlockBuilder {
             cause,
             coinbase_height,
             active_reward_set,
-            tenure_block_commit,
+            tenure_block_commit_opt,
         })
     }
 
-    /// Begin/resume mining a tenure's transactions.
+    /// Begin/resume mining a (normal) tenure's transactions.
     /// Returns an open ClarityTx for mining the block.
     /// NOTE: even though we don't yet know the block hash, the Clarity VM ensures that a
     /// transaction can't query information about the _current_ block (i.e. information that is not
@@ -377,6 +401,12 @@ impl NakamotoBlockBuilder {
         burn_dbconn: &'a SortitionHandleConn,
         info: &'b mut MinerTenureInfo<'a>,
     ) -> Result<ClarityTx<'b, 'b>, Error> {
+        let Some(block_commit) = info.tenure_block_commit_opt.as_ref() else {
+            return Err(Error::InvalidStacksBlock(
+                "Block-commit is required; cannot mine a shadow block".into(),
+            ));
+        };
+
         let SetupBlockResult {
             clarity_tx,
             matured_miner_rewards_opt,
@@ -389,7 +419,6 @@ impl NakamotoBlockBuilder {
             &burn_dbconn.context.pox_constants,
             info.parent_consensus_hash,
             info.parent_header_hash,
-            info.parent_stacks_block_height,
             info.parent_burn_block_height,
             info.burn_tip,
             info.burn_tip_height,
@@ -397,7 +426,7 @@ impl NakamotoBlockBuilder {
             info.coinbase_height,
             info.cause == Some(TenureChangeCause::Extended),
             &self.header.pox_treatment,
-            &info.tenure_block_commit,
+            block_commit,
             &info.active_reward_set,
         )?;
         self.matured_miner_rewards_opt = matured_miner_rewards_opt;
