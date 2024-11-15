@@ -879,11 +879,12 @@ impl RelayerThread {
         Ok(())
     }
 
-    fn get_burn_tip_snapshot(
+    /// Get a snapshot for an existing burn chain block given its consensus hash.
+    fn get_block_snapshot_consensus(
         &self,
-        new_burn_view: &ConsensusHash,
+        ch: &ConsensusHash,
     ) -> Result<BlockSnapshot, NakamotoNodeError> {
-        SortitionDB::get_block_snapshot_consensus(self.sortdb.conn(), new_burn_view)
+        SortitionDB::get_block_snapshot_consensus(self.sortdb.conn(), ch)
             .map_err(|e| {
                 error!(
                     "Relayer: failed to get block snapshot for new burn view: {:?}",
@@ -897,12 +898,14 @@ impl RelayerThread {
             })
     }
 
+    /// Get the Stacks block ID for the canonical tip.
     fn get_canonical_stacks_tip(&self) -> StacksBlockId {
         let (ch, bh) =
             SortitionDB::get_canonical_stacks_chain_tip_hash(self.sortdb.conn()).unwrap();
         StacksBlockId::new(&ch, &bh)
     }
 
+    /// Get the public key hash for the mining key.
     fn get_mining_key_pkh(&self) -> Option<Hash160> {
         let Some(ref mining_key) = self.config.miner.mining_key else {
             return None;
@@ -912,15 +915,22 @@ impl RelayerThread {
         ))
     }
 
-    fn get_highest_tenure_bhh(
+    /// Get the tenure-start block header hash of a given consensus hash.
+    /// For Nakamoto blocks, this is the first block in the tenure identified by the consensus
+    /// hash.
+    /// For epoch2 blocks, this is simply the block whose winning sortition happened in the
+    /// sortition identified by the consensus hash.
+    ///
+    /// `tip_block_id` is the chain tip from which to perform the query.
+    fn get_tenure_bhh(
         &self,
         tip_block_id: &StacksBlockId,
-        tip_ch: &ConsensusHash,
+        ch: &ConsensusHash,
     ) -> Result<BlockHeaderHash, NakamotoNodeError> {
         let highest_tenure_start_block_header = NakamotoChainState::get_tenure_start_block_header(
             &mut self.chainstate.index_conn(),
             tip_block_id,
-            &tip_ch,
+            &ch,
         )
         .map_err(|e| {
             error!(
@@ -939,6 +949,8 @@ impl RelayerThread {
         ))
     }
 
+    /// Determine the type of tenure change to issue based on whether this
+    /// miner successfully issued a tenure change in the last tenure.
     fn determine_tenure_type(
         &self,
         canonical_snapshot: BlockSnapshot,
@@ -965,6 +977,9 @@ impl RelayerThread {
         }
     }
 
+    /// Get the block snapshot of the most recent sortition that committed to
+    /// the canonical tip. If the latest sortition did not commit to the
+    /// canonical tip, then the tip's tenure is the last good sortition.
     fn get_last_good_block_snapshot(
         &self,
         burn_tip: &BlockSnapshot,
@@ -1011,6 +1026,13 @@ impl RelayerThread {
             })
     }
 
+    /// Attempt to continue a miner's tenure into the next burn block.
+    /// This is allowed if the miner won the last good sortition and one of the
+    /// following conditions is met:
+    /// - There was no sortition in the latest burn block
+    /// - The winner of the latest sortition did not commit to the canonical tip
+    /// - The winner of the latest sortition did not mine any blocks within the
+    ///   timeout period (not yet implemented)
     fn continue_tenure(&mut self, new_burn_view: ConsensusHash) -> Result<(), NakamotoNodeError> {
         if let Err(e) = self.stop_tenure() {
             error!("Relayer: Failed to stop tenure: {e:?}");
@@ -1025,7 +1047,7 @@ impl RelayerThread {
         }
 
         // Get the necessary snapshots and state
-        let burn_tip = self.get_burn_tip_snapshot(&new_burn_view)?;
+        let burn_tip = self.get_block_snapshot_consensus(&new_burn_view)?;
         let (canonical_stacks_tip_ch, canonical_stacks_tip_bh) =
             SortitionDB::get_canonical_stacks_chain_tip_hash(self.sortdb.conn()).unwrap();
         let canonical_stacks_tip =
@@ -1034,7 +1056,7 @@ impl RelayerThread {
             return Ok(());
         };
         let highest_tenure_bhh =
-            self.get_highest_tenure_bhh(&canonical_stacks_tip, &canonical_stacks_tip_ch)?;
+            self.get_tenure_bhh(&canonical_stacks_tip, &canonical_stacks_tip_ch)?;
         let last_good_block_election_snapshot = self.get_last_good_block_snapshot(
             &burn_tip,
             &highest_tenure_bhh,
