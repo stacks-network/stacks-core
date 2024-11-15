@@ -67,7 +67,7 @@ The timing of the next Stacking cycle can be found [here](https://stx.eco/dao/to
 
    - Create a chore branch from `release/signer-X.Y.Z.A.n.x`, ex: `chore/signer-X.Y.Z.A.n.x-changelog`.
    - Add summaries of all Pull Requests to the `Added`, `Changed` and `Fixed` sections.
-   - Update the `SIGNER_VERSION` string in [libsigner/src/libsigner.rs](../libsigner/src/libsigner.rs) to match this release.
+   - Update the `stacks_signer_version` string in [versions.toml](../versions.toml) to match this release.
 
      - Pull requests merged into `develop` can be found [here](https://github.com/stacks-network/stacks-core/pulls?q=is%3Apr+is%3Aclosed+base%3Adevelop+sort%3Aupdated-desc).
 
