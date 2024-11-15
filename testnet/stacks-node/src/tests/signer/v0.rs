@@ -7702,7 +7702,7 @@ fn tenure_extend_after_bad_commit() {
     )
     .unwrap();
 
-    // assure we have a successful sortition that miner B won
+    // assure we have a successful sortition that miner 1 won
     let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
     assert!(tip.sortition);
     assert_eq!(tip.miner_pk_hash.unwrap(), mining_pkh_1);
@@ -7755,6 +7755,11 @@ fn tenure_extend_after_bad_commit() {
         || Ok(get_burn_height() > burn_height_before),
     )
     .expect("Timed out waiting for burn block to be processed");
+
+    // assure we have a successful sortition that miner 2 won
+    let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+    assert!(tip.sortition);
+    assert_eq!(tip.miner_pk_hash.unwrap(), mining_pkh_2);
 
     info!("------------------------- Miner 1 Extends Tenure B -------------------------");
 
@@ -7843,6 +7848,12 @@ fn tenure_extend_after_bad_commit() {
         },
     )
     .expect("Timed out waiting for final block to be mined and processed");
+
+    // assure we have a successful sortition that miner 2 won and it had a block found tenure change
+    let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+    assert!(tip.sortition);
+    assert_eq!(tip.miner_pk_hash.unwrap(), mining_pkh_2);
+    verify_last_block_contains_tenure_change_tx(TenureChangeCause::BlockFound);
 
     info!("------------------------- Shutdown -------------------------");
     rl2_coord_channels
