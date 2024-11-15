@@ -75,8 +75,6 @@ pub enum Command {
     VerifyVote(VerifyVoteArgs),
     /// Verify signer signatures by checking stackerdb slots contain the correct data
     MonitorSigners(MonitorSignersArgs),
-    /// Show custom version string
-    Version(VersionArgs),
 }
 
 /// Basic arguments for all cyrptographic and stacker-db functionality

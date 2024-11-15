@@ -204,6 +204,7 @@ fn handle_monitor_signers(args: MonitorSignersArgs) {
 }
 
 fn main() {
+
     let cli = Cli::parse();
 
     tracing_subscriber::registry()
@@ -241,9 +242,6 @@ fn main() {
         }
         Command::MonitorSigners(args) => {
             handle_monitor_signers(args);
-        }
-        Command::Version(args) => {
-            println!("stacks-signer {}", get_build_version("stacks-signer"));
         }
     }
 }
