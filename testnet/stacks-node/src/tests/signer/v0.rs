@@ -920,7 +920,9 @@ fn forked_tenure_testing(
             // need)
             TEST_SKIP_BLOCK_BROADCAST.lock().unwrap().replace(true);
         },
-        |_| {},
+        |config| {
+            config.miner.tenure_cost_limit_per_block_percentage = None;
+        },
         None,
         None,
     );

@@ -2153,7 +2153,7 @@ pub struct MinerConfig {
     pub subsequent_rejection_pause_ms: u64,
     /// Duration to wait for a Nakamoto block after seeing a burnchain block before submitting a block commit.
     pub block_commit_delay: Duration,
-    /// The percentage of the remaining tenure cost limit to consume each block. Defaults to 25%.
+    /// The percentage of the remaining tenure cost limit to consume each block.
     pub tenure_cost_limit_per_block_percentage: Option<u8>,
 }
 
