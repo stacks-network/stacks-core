@@ -420,20 +420,25 @@ impl SignerTest<SpawnedSigner> {
     }
 }
 
-fn verify_last_block_contains_tenure_change_tx(cause: TenureChangeCause) {
+fn last_block_contains_tenure_change_tx(cause: TenureChangeCause) -> bool {
     let blocks = test_observer::get_blocks();
-    let tenure_change_tx = &blocks.last().unwrap();
-    let transactions = tenure_change_tx["transactions"].as_array().unwrap();
+    let last_block = &blocks.last().unwrap();
+    let transactions = last_block["transactions"].as_array().unwrap();
     let tx = transactions.first().expect("No transactions in block");
     let raw_tx = tx["raw_tx"].as_str().unwrap();
     let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
     let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
     match &parsed.payload {
-        TransactionPayload::TenureChange(payload) => {
-            assert_eq!(payload.cause, cause);
+        TransactionPayload::TenureChange(payload) if payload.cause == cause => {
+            info!("Found tenure change transaction: {parsed:?}");
+            true
         }
-        _ => panic!("Expected tenure change transaction, got {parsed:?}"),
-    };
+        _ => false,
+    }
+}
+
+fn verify_last_block_contains_tenure_change_tx(cause: TenureChangeCause) {
+    assert!(last_block_contains_tenure_change_tx(cause));
 }
 
 #[test]
@@ -2800,27 +2805,9 @@ fn empty_sortition_before_approval() {
 
     // Wait for a block with a tenure extend to be mined
     wait_for(60, || {
-        let blocks = test_observer::get_blocks();
-        let last_block = blocks.last().unwrap();
-        info!("Last block mined: {:?}", last_block);
-        for tx in last_block["transactions"].as_array().unwrap() {
-            let raw_tx = tx["raw_tx"].as_str().unwrap();
-            if raw_tx == "0x00" {
-                continue;
-            }
-            let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
-            let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
-            if let TransactionPayload::TenureChange(payload) = &parsed.payload {
-                match payload.cause {
-                    TenureChangeCause::Extended => {
-                        info!("Found tenure extend block");
-                        return Ok(true);
-                    }
-                    TenureChangeCause::BlockFound => {}
-                }
-            };
-        }
-        Ok(false)
+        Ok(last_block_contains_tenure_change_tx(
+            TenureChangeCause::Extended,
+        ))
     })
     .expect("Timed out waiting for tenure extend");
 
@@ -5858,8 +5845,8 @@ fn continue_after_fast_block_no_sortition() {
     // Some helper functions for verifying the blocks contain their expected transactions
     let verify_last_block_contains_transfer_tx = || {
         let blocks = test_observer::get_blocks();
-        let tenure_change_tx = &blocks.last().unwrap();
-        let transactions = tenure_change_tx["transactions"].as_array().unwrap();
+        let last_block = &blocks.last().unwrap();
+        let transactions = last_block["transactions"].as_array().unwrap();
         let tx = transactions.first().expect("No transactions in block");
         let raw_tx = tx["raw_tx"].as_str().unwrap();
         let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
