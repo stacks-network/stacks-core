@@ -58,7 +58,7 @@ use super::{
     BLOCK_PROCESSOR_STACK_SIZE,
 };
 use crate::burnchains::BurnchainController;
-use crate::nakamoto_node::miner::{BlockMinerThread, MinerDirective};
+use crate::nakamoto_node::miner::{BlockMinerThread, MinerDirective, TEST_NO_TENURE_EXTEND};
 use crate::neon_node::{
     fault_injection_skip_mining, open_chainstate_with_faults, LeaderKeyRegistrationState,
 };
@@ -1015,6 +1015,12 @@ impl RelayerThread {
             return Ok(());
         }
         debug!("Relayer: successfully stopped tenure.");
+
+        #[cfg(test)]
+        if *TEST_NO_TENURE_EXTEND.lock().unwrap() == Some(true) {
+            info!("Relayer: TEST_NO_TENURE_EXTEND is set; skipping tenure extension.");
+            return Ok(());
+        }
 
         // Get the necessary snapshots and state
         let burn_tip = self.get_burn_tip_snapshot(&new_burn_view)?;

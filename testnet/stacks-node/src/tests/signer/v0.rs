@@ -67,7 +67,7 @@ use super::SignerTest;
 use crate::config::{EventKeyType, EventObserverConfig};
 use crate::event_dispatcher::MinedNakamotoBlockEvent;
 use crate::nakamoto_node::miner::{
-    TEST_BLOCK_ANNOUNCE_STALL, TEST_BROADCAST_STALL, TEST_MINE_STALL,
+    TEST_BLOCK_ANNOUNCE_STALL, TEST_BROADCAST_STALL, TEST_MINE_STALL, TEST_NO_TENURE_EXTEND,
 };
 use crate::nakamoto_node::sign_coordinator::TEST_IGNORE_SIGNERS;
 use crate::neon::Counters;
@@ -952,6 +952,10 @@ fn forked_tenure_testing(
     sleep_ms(1000);
     info!("------------------------- Reached Epoch 3.0 -------------------------");
 
+    // Disable tenure extend so that miners will not tenure extend when the
+    // test is checking for fork behavior.
+    TEST_NO_TENURE_EXTEND.lock().unwrap().replace(true);
+
     let naka_conf = signer_test.running_nodes.conf.clone();
     let burnchain = naka_conf.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
@@ -1282,6 +1286,10 @@ fn bitcoind_forking_test() {
     info!("------------------------- Reached Epoch 3.0 -------------------------");
     let pre_epoch_3_nonce = get_account(&http_origin, &miner_address).nonce;
     let pre_fork_tenures = 10;
+
+    // Disable tenure extend so that miners will not tenure extend when the
+    // test is checking for fork behavior.
+    TEST_NO_TENURE_EXTEND.lock().unwrap().replace(true);
 
     for i in 0..pre_fork_tenures {
         info!("Mining pre-fork tenure {} of {pre_fork_tenures}", i + 1);
@@ -1923,6 +1931,10 @@ fn miner_forking() {
         mining_pkh_1,
         "RL1 did not win the sortition"
     );
+
+    // Disable tenure extend so that miners will not tenure extend when the
+    // test is checking for fork behavior.
+    TEST_NO_TENURE_EXTEND.lock().unwrap().replace(true);
 
     info!(
         "------------------------- RL2 Wins Sortition With Outdated View -------------------------"
@@ -4260,6 +4272,10 @@ fn partial_tenure_fork() {
     .expect("Timed out waiting for follower to catch up to the miner");
 
     info!("------------------------- Reached Epoch 3.0 -------------------------");
+
+    // Disable tenure extend so that miners will not tenure extend when the
+    // test is checking for fork behavior.
+    TEST_NO_TENURE_EXTEND.lock().unwrap().replace(true);
 
     // due to the random nature of mining sortitions, the way this test is structured
     //  is that we keep track of how many tenures each miner produced, and once enough sortitions
