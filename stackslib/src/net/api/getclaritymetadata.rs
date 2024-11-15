@@ -15,6 +15,8 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use clarity::vm::clarity::ClarityConnection;
+use clarity::vm::database::clarity_db::ContractDataVarName;
+use clarity::vm::database::StoreType;
 use clarity::vm::representations::{CONTRACT_NAME_REGEX_STRING, STANDARD_PRINCIPAL_REGEX_STRING};
 use clarity::vm::types::QualifiedContractIdentifier;
 use clarity::vm::ContractName;
@@ -37,7 +39,7 @@ lazy_static! {
     static ref CLARITY_NAME_NO_BOUNDARIES_REGEX_STRING: String =
         "[a-zA-Z]([a-zA-Z0-9]|[-_!?+<>=/*])*|[-+=/*]|[<>]=?".into();
     static ref METADATA_KEY_REGEX_STRING: String = format!(
-        r"vm-metadata::\d+::(contract|contract-size|contract-src|contract-data-size|({}))",
+        r"vm-metadata::(?P<data_type>(\d{{1,2}}))::(?P<var_name>(contract|contract-size|contract-src|contract-data-size|({})))",
         *CLARITY_NAME_NO_BOUNDARIES_REGEX_STRING,
     );
 }
@@ -81,8 +83,6 @@ impl HttpRequest for RPCGetClarityMetadataRequestHandler {
         "/v2/clarity/metadata/:principal/:contract_name/:clarity_metadata_key"
     }
 
-    /// Try to decode this request.
-    /// There's nothing to load here, so just make sure the request is well-formed.
     fn try_parse_request(
         &mut self,
         preamble: &HttpRequestPreamble,
@@ -98,13 +98,43 @@ impl HttpRequest for RPCGetClarityMetadataRequestHandler {
 
         let contract_identifier = request::get_contract_address(captures, "address", "contract")?;
 
-        let metadata_key = if let Some(key_str) = captures.name("clarity_metadata_key") {
-            key_str.as_str().to_string()
-        } else {
-            return Err(Error::Http(
-                404,
-                "Missing `clarity_metadata_key`".to_string(),
-            ));
+        // Validate that the metadata key is well-formed. It must be of data type:
+        //   DataMapMeta (5) | VariableMeta (6) | FungibleTokenMeta (7) | NonFungibleTokenMeta (8)
+        //   or Contract (9) followed by a valid contract metadata name
+        match captures
+            .name("data_type")
+            .and_then(|data_type| StoreType::try_from(data_type.as_str()).ok())
+        {
+            Some(data_type) => match data_type {
+                StoreType::DataMapMeta
+                | StoreType::VariableMeta
+                | StoreType::FungibleTokenMeta
+                | StoreType::NonFungibleTokenMeta => {}
+                StoreType::Contract => {
+                    if captures
+                        .name("var_name")
+                        .and_then(|var_name| ContractDataVarName::try_from(var_name.as_str()).ok())
+                        .is_none()
+                    {
+                        return Err(Error::DecodeError("Invalid metadata var name".to_string()));
+                    }
+                }
+                _ => {
+                    return Err(Error::DecodeError("Invalid metadata type".to_string()));
+                }
+            },
+            None => {
+                return Err(Error::DecodeError("Invalid metadata type".to_string()));
+            }
+        }
+
+        let metadata_key = match captures.name("clarity_metadata_key") {
+            Some(key_str) => key_str.as_str().to_string(),
+            None => {
+                return Err(Error::DecodeError(
+                    "Missing `clarity_metadata_key`".to_string(),
+                ));
+            }
         };
 
         self.contract_identifier = Some(contract_identifier);

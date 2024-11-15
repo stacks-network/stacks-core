@@ -76,6 +76,68 @@ pub enum StoreType {
     PoxUnlockHeight = 0x15,
 }
 
+impl TryFrom<&str> for StoreType {
+    type Error = String;
+
+    fn try_from(value: &str) -> core::result::Result<Self, Self::Error> {
+        use self::StoreType::*;
+
+        let hex_value = u8::from_str_radix(value, 10).map_err(|e| e.to_string())?;
+        match hex_value {
+            0x00 => Ok(DataMap),
+            0x01 => Ok(Variable),
+            0x02 => Ok(FungibleToken),
+            0x03 => Ok(CirculatingSupply),
+            0x04 => Ok(NonFungibleToken),
+            0x05 => Ok(DataMapMeta),
+            0x06 => Ok(VariableMeta),
+            0x07 => Ok(FungibleTokenMeta),
+            0x08 => Ok(NonFungibleTokenMeta),
+            0x09 => Ok(Contract),
+            0x10 => Ok(SimmedBlock),
+            0x11 => Ok(SimmedBlockHeight),
+            0x12 => Ok(Nonce),
+            0x13 => Ok(STXBalance),
+            0x14 => Ok(PoxSTXLockup),
+            0x15 => Ok(PoxUnlockHeight),
+            _ => Err("Invalid StoreType".into()),
+        }
+    }
+}
+
+pub enum ContractDataVarName {
+    Contract,
+    ContractSize,
+    ContractSrc,
+    ContractDataSize,
+}
+
+impl ContractDataVarName {
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Contract => "contract",
+            Self::ContractSize => "contract-size",
+            Self::ContractSrc => "contract-src",
+            Self::ContractDataSize => "contract-data-size",
+        }
+    }
+}
+
+impl TryFrom<&str> for ContractDataVarName {
+    type Error = String;
+
+    fn try_from(value: &str) -> core::result::Result<Self, Self::Error> {
+        use self::ContractDataVarName::*;
+        match value {
+            "contract" => Ok(Contract),
+            "contract-size" => Ok(ContractSize),
+            "contract-src" => Ok(ContractSrc),
+            "contract-data-size" => Ok(ContractDataSize),
+            _ => Err("Invalid ContractDataVarName".into()),
+        }
+    }
+}
+
 pub struct ClarityDatabase<'a> {
     pub store: RollbackWrapper<'a>,
     headers_db: &'a dyn HeadersDB,
@@ -576,12 +638,18 @@ impl<'a> ClarityDatabase<'a> {
         self.store
             .prepare_for_contract_metadata(contract_identifier, hash)?;
         // insert contract-size
-        let key = ClarityDatabase::make_metadata_key(StoreType::Contract, "contract-size");
+        let key = ClarityDatabase::make_metadata_key(
+            StoreType::Contract,
+            ContractDataVarName::ContractSize.as_str(),
+        );
         self.insert_metadata(contract_identifier, &key, &(contract_content.len() as u64))?;
 
         // insert contract-src
         if STORE_CONTRACT_SRC_INTERFACE {
-            let key = ClarityDatabase::make_metadata_key(StoreType::Contract, "contract-src");
+            let key = ClarityDatabase::make_metadata_key(
+                StoreType::Contract,
+                ContractDataVarName::ContractSrc.as_str(),
+            );
             self.insert_metadata(contract_identifier, &key, &contract_content.to_string())?;
         }
         Ok(())
@@ -591,7 +659,10 @@ impl<'a> ClarityDatabase<'a> {
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
     ) -> Option<String> {
-        let key = ClarityDatabase::make_metadata_key(StoreType::Contract, "contract-src");
+        let key = ClarityDatabase::make_metadata_key(
+            StoreType::Contract,
+            ContractDataVarName::ContractSrc.as_str(),
+        );
         self.fetch_metadata(contract_identifier, &key)
             .ok()
             .flatten()
@@ -700,7 +771,10 @@ impl<'a> ClarityDatabase<'a> {
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
     ) -> Result<u64> {
-        let key = ClarityDatabase::make_metadata_key(StoreType::Contract, "contract-size");
+        let key = ClarityDatabase::make_metadata_key(
+            StoreType::Contract,
+            ContractDataVarName::ContractSize.as_str(),
+        );
         let contract_size: u64 =
             self.fetch_metadata(contract_identifier, &key)?
                 .ok_or_else(|| {
@@ -708,7 +782,10 @@ impl<'a> ClarityDatabase<'a> {
             "Failed to read non-consensus contract metadata, even though contract exists in MARF."
         .into())
                 })?;
-        let key = ClarityDatabase::make_metadata_key(StoreType::Contract, "contract-data-size");
+        let key = ClarityDatabase::make_metadata_key(
+            StoreType::Contract,
+            ContractDataVarName::ContractDataSize.as_str(),
+        );
         let data_size: u64 = self
             .fetch_metadata(contract_identifier, &key)?
             .ok_or_else(|| {
@@ -727,7 +804,10 @@ impl<'a> ClarityDatabase<'a> {
         contract_identifier: &QualifiedContractIdentifier,
         data_size: u64,
     ) -> Result<()> {
-        let key = ClarityDatabase::make_metadata_key(StoreType::Contract, "contract-size");
+        let key = ClarityDatabase::make_metadata_key(
+            StoreType::Contract,
+            ContractDataVarName::ContractSize.as_str(),
+        );
         let contract_size: u64 =
             self.fetch_metadata(contract_identifier, &key)?
                 .ok_or_else(|| {
@@ -737,7 +817,10 @@ impl<'a> ClarityDatabase<'a> {
                 })?;
         contract_size.cost_overflow_add(data_size)?;
 
-        let key = ClarityDatabase::make_metadata_key(StoreType::Contract, "contract-data-size");
+        let key = ClarityDatabase::make_metadata_key(
+            StoreType::Contract,
+            ContractDataVarName::ContractDataSize.as_str(),
+        );
         self.insert_metadata(contract_identifier, &key, &data_size)?;
         Ok(())
     }
@@ -747,13 +830,19 @@ impl<'a> ClarityDatabase<'a> {
         contract_identifier: &QualifiedContractIdentifier,
         contract: Contract,
     ) -> Result<()> {
-        let key = ClarityDatabase::make_metadata_key(StoreType::Contract, "contract");
+        let key = ClarityDatabase::make_metadata_key(
+            StoreType::Contract,
+            ContractDataVarName::Contract.as_str(),
+        );
         self.insert_metadata(contract_identifier, &key, &contract)?;
         Ok(())
     }
 
     pub fn has_contract(&mut self, contract_identifier: &QualifiedContractIdentifier) -> bool {
-        let key = ClarityDatabase::make_metadata_key(StoreType::Contract, "contract");
+        let key = ClarityDatabase::make_metadata_key(
+            StoreType::Contract,
+            ContractDataVarName::Contract.as_str(),
+        );
         self.store.has_metadata_entry(contract_identifier, &key)
     }
 
@@ -761,7 +850,10 @@ impl<'a> ClarityDatabase<'a> {
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
     ) -> Result<Contract> {
-        let key = ClarityDatabase::make_metadata_key(StoreType::Contract, "contract");
+        let key = ClarityDatabase::make_metadata_key(
+            StoreType::Contract,
+            ContractDataVarName::Contract.as_str(),
+        );
         let mut data: Contract = self.fetch_metadata(contract_identifier, &key)?
             .ok_or_else(|| InterpreterError::Expect(
                 "Failed to read non-consensus contract metadata, even though contract exists in MARF."

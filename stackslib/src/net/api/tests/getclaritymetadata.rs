@@ -26,11 +26,12 @@ use stacks_common::types::Address;
 use super::test_rpc;
 use crate::net::api::*;
 use crate::net::connection::ConnectionOptions;
+use crate::net::http::Error as HttpError;
 use crate::net::httpcore::{
     HttpPreambleExtensions, HttpRequestContentsExtensions, RPCRequestHandler, StacksHttp,
     StacksHttpRequest,
 };
-use crate::net::{ProtocolFamily, TipRequest};
+use crate::net::{Error as NetError, ProtocolFamily, TipRequest};
 
 #[test]
 fn test_try_parse_request() {
@@ -83,6 +84,76 @@ fn test_try_parse_request() {
 
     handler.restart();
     assert!(handler.clarity_metadata_key.is_none());
+}
+
+#[test]
+fn test_try_parse_invalid_store_type() {
+    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
+    let mut http = StacksHttp::new(addr.clone(), &ConnectionOptions::default());
+
+    let request = StacksHttpRequest::new_getclaritymetadata(
+        addr.into(),
+        StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap(),
+        "hello-world".try_into().unwrap(),
+        "vm-metadata::2::contract-size".to_string(),
+        TipRequest::SpecificTip(StacksBlockId([0x22; 32])),
+    );
+    assert_eq!(
+        request.contents().tip_request(),
+        TipRequest::SpecificTip(StacksBlockId([0x22; 32]))
+    );
+    let bytes = request.try_serialize().unwrap();
+
+    let (parsed_preamble, offset) = http.read_preamble(&bytes).unwrap();
+    let mut handler = getclaritymetadata::RPCGetClarityMetadataRequestHandler::new();
+    let parsed_request_err = http
+        .handle_try_parse_request(
+            &mut handler,
+            &parsed_preamble.expect_request(),
+            &bytes[offset..],
+        )
+        .unwrap_err();
+
+    assert_eq!(
+        parsed_request_err,
+        HttpError::DecodeError("Invalid metadata type".to_string()).into()
+    );
+    handler.restart();
+}
+
+#[test]
+fn test_try_parse_invalid_contract_metadata_var_name() {
+    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
+    let mut http = StacksHttp::new(addr.clone(), &ConnectionOptions::default());
+
+    let request = StacksHttpRequest::new_getclaritymetadata(
+        addr.into(),
+        StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap(),
+        "hello-world".try_into().unwrap(),
+        "vm-metadata::9::contract-invalid-key".to_string(),
+        TipRequest::SpecificTip(StacksBlockId([0x22; 32])),
+    );
+    assert_eq!(
+        request.contents().tip_request(),
+        TipRequest::SpecificTip(StacksBlockId([0x22; 32]))
+    );
+    let bytes = request.try_serialize().unwrap();
+
+    let (parsed_preamble, offset) = http.read_preamble(&bytes).unwrap();
+    let mut handler = getclaritymetadata::RPCGetClarityMetadataRequestHandler::new();
+    let parsed_request_err = http
+        .handle_try_parse_request(
+            &mut handler,
+            &parsed_preamble.expect_request(),
+            &bytes[offset..],
+        )
+        .unwrap_err();
+
+    assert_eq!(
+        parsed_request_err,
+        HttpError::DecodeError("Invalid metadata var name".to_string()).into()
+    );
+    handler.restart();
 }
 
 #[test]

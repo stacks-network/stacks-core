@@ -89,7 +89,7 @@ fn test_try_make_response() {
 
     let mut requests = vec![];
 
-    // query existing
+    // query existing marf value
     let request = StacksHttpRequest::new_getclaritymarf(
         addr.into(),
         TrieHash::from_key("vm::ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.hello-world::1::bar"),
