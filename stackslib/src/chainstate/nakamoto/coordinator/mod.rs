@@ -1137,6 +1137,7 @@ impl<
             let (next_snapshot, _) = self
                 .sortition_db
                 .evaluate_sortition(
+                    self.chain_state_db.mainnet,
                     &header,
                     ops,
                     &self.burnchain,

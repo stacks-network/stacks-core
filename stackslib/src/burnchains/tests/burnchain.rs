@@ -478,6 +478,7 @@ fn test_process_block_ops() {
 
         let (sn121, _) = tx
             .process_block_ops(
+                false,
                 &burnchain,
                 &initial_snapshot,
                 &header,
@@ -500,6 +501,7 @@ fn test_process_block_ops() {
 
         let (sn122, _) = tx
             .process_block_ops(
+                false,
                 &burnchain,
                 &block_121_snapshot,
                 &header,
@@ -521,6 +523,7 @@ fn test_process_block_ops() {
         let mut tx = SortitionHandleTx::begin(&mut db, &block_122_snapshot.sortition_id).unwrap();
         let (sn123, _) = tx
             .process_block_ops(
+                false,
                 &burnchain,
                 &block_122_snapshot,
                 &header,
@@ -632,6 +635,7 @@ fn test_process_block_ops() {
                 SortitionHandleTx::begin(&mut db, &block_123_snapshot.sortition_id).unwrap();
             let (sn124, _) = tx
                 .process_block_ops(
+                    false,
                     &burnchain,
                     &block_123_snapshot,
                     &header,
@@ -873,6 +877,7 @@ fn test_burn_snapshot_sequence() {
             let mut tx = SortitionHandleTx::begin(&mut db, &prev_snapshot.sortition_id).unwrap();
             let (sn, _) = tx
                 .process_block_ops(
+                    false,
                     &burnchain,
                     &prev_snapshot,
                     &header,

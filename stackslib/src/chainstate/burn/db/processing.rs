@@ -112,6 +112,7 @@ impl<'a> SortitionHandleTx<'a> {
     /// * return the snapshot (and sortition results)
     fn process_checked_block_ops(
         &mut self,
+        mainnet: bool,
         burnchain: &Burnchain,
         parent_snapshot: &BlockSnapshot,
         block_header: &BurnchainBlockHeader,
@@ -141,6 +142,7 @@ impl<'a> SortitionHandleTx<'a> {
 
         // do the cryptographic sortition and pick the next winning block.
         let mut snapshot = BlockSnapshot::make_snapshot(
+            mainnet,
             self,
             burnchain,
             &next_sortition_id,
@@ -158,6 +160,11 @@ impl<'a> SortitionHandleTx<'a> {
             BurnchainError::DBError(e)
         })?;
 
+        let snapshot_epoch = SortitionDB::get_stacks_epoch(self, snapshot.block_height)?
+            .unwrap_or_else(|| {
+                panic!("FATAL: no epoch defined for snapshot");
+            });
+
         // was this snapshot the first with mining?
         //  compute the initial block rewards.
         let initialize_bonus = if snapshot.sortition && parent_snapshot.total_burn == 0 {
@@ -166,6 +173,8 @@ impl<'a> SortitionHandleTx<'a> {
             let mut total_reward = 0;
             for burn_block_height in burnchain.initial_reward_start_block..snapshot.block_height {
                 total_reward += StacksChainState::get_coinbase_reward(
+                    snapshot_epoch.epoch_id,
+                    mainnet,
                     burn_block_height,
                     self.context.first_block_height,
                 );
@@ -227,6 +236,7 @@ impl<'a> SortitionHandleTx<'a> {
     /// Returns the BlockSnapshot created from this block.
     pub fn process_block_ops(
         &mut self,
+        mainnet: bool,
         burnchain: &Burnchain,
         parent_snapshot: &BlockSnapshot,
         block_header: &BurnchainBlockHeader,
@@ -279,6 +289,7 @@ impl<'a> SortitionHandleTx<'a> {
         // process them
         let res = self
             .process_checked_block_ops(
+                mainnet,
                 burnchain,
                 parent_snapshot,
                 block_header,
@@ -305,6 +316,7 @@ impl<'a> SortitionHandleTx<'a> {
     /// list of blockstack transactions.
     pub fn process_block_txs(
         &mut self,
+        mainnet: bool,
         parent_snapshot: &BlockSnapshot,
         this_block_header: &BurnchainBlockHeader,
         burnchain: &Burnchain,
@@ -324,6 +336,7 @@ impl<'a> SortitionHandleTx<'a> {
         );
 
         let new_snapshot = self.process_block_ops(
+            mainnet,
             burnchain,
             &parent_snapshot,
             &this_block_header,
@@ -432,6 +445,7 @@ mod tests {
 
             let processed = ic
                 .process_block_ops(
+                    false,
                     &burnchain,
                     &snapshot,
                     &next_block_header,

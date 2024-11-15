@@ -571,6 +571,7 @@ impl TestBurnchainBlock {
 
         let new_snapshot = sortition_db_handle
             .process_block_txs(
+                false,
                 &parent_snapshot,
                 &header,
                 burnchain,
