@@ -98,36 +98,6 @@ impl HttpRequest for RPCGetClarityMetadataRequestHandler {
 
         let contract_identifier = request::get_contract_address(captures, "address", "contract")?;
 
-        // Validate that the metadata key is well-formed. It must be of data type:
-        //   DataMapMeta (5) | VariableMeta (6) | FungibleTokenMeta (7) | NonFungibleTokenMeta (8)
-        //   or Contract (9) followed by a valid contract metadata name
-        match captures
-            .name("data_type")
-            .and_then(|data_type| StoreType::try_from(data_type.as_str()).ok())
-        {
-            Some(data_type) => match data_type {
-                StoreType::DataMapMeta
-                | StoreType::VariableMeta
-                | StoreType::FungibleTokenMeta
-                | StoreType::NonFungibleTokenMeta => {}
-                StoreType::Contract => {
-                    if captures
-                        .name("var_name")
-                        .and_then(|var_name| ContractDataVarName::try_from(var_name.as_str()).ok())
-                        .is_none()
-                    {
-                        return Err(Error::DecodeError("Invalid metadata var name".to_string()));
-                    }
-                }
-                _ => {
-                    return Err(Error::DecodeError("Invalid metadata type".to_string()));
-                }
-            },
-            None => {
-                return Err(Error::DecodeError("Invalid metadata type".to_string()));
-            }
-        }
-
         let metadata_key = match captures.name("clarity_metadata_key") {
             Some(key_str) => key_str.as_str().to_string(),
             None => {
@@ -136,6 +106,42 @@ impl HttpRequest for RPCGetClarityMetadataRequestHandler {
                 ));
             }
         };
+
+        if metadata_key != "analysis" {
+            // Validate that the metadata key is well-formed. It must be of data type:
+            //   DataMapMeta (5) | VariableMeta (6) | FungibleTokenMeta (7) | NonFungibleTokenMeta (8)
+            //   or Contract (9) followed by a valid contract metadata name
+            match captures
+                .name("data_type")
+                .and_then(|data_type| StoreType::try_from(data_type.as_str()).ok())
+            {
+                Some(data_type) => match data_type {
+                    StoreType::DataMapMeta
+                    | StoreType::VariableMeta
+                    | StoreType::FungibleTokenMeta
+                    | StoreType::NonFungibleTokenMeta => {}
+                    StoreType::Contract => {
+                        if captures
+                            .name("var_name")
+                            .and_then(|var_name| {
+                                ContractDataVarName::try_from(var_name.as_str()).ok()
+                            })
+                            .is_none()
+                        {
+                            return Err(Error::DecodeError(
+                                "Invalid metadata var name".to_string(),
+                            ));
+                        }
+                    }
+                    _ => {
+                        return Err(Error::DecodeError("Invalid metadata type".to_string()));
+                    }
+                },
+                None => {
+                    return Err(Error::DecodeError("Invalid metadata type".to_string()));
+                }
+            }
+        }
 
         self.contract_identifier = Some(contract_identifier);
         self.clarity_metadata_key = Some(metadata_key);
