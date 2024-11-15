@@ -274,6 +274,7 @@ impl BurnchainController for MocknetController {
                             .unwrap();
                     let new_chain_tip = burn_tx
                         .process_block_ops(
+                            false,
                             &self.burnchain,
                             &chain_tip.block_snapshot,
                             &next_block_header,
