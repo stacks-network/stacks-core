@@ -75,6 +75,8 @@ pub enum Command {
     VerifyVote(VerifyVoteArgs),
     /// Verify signer signatures by checking stackerdb slots contain the correct data
     MonitorSigners(MonitorSignersArgs),
+    /// Show custom version string
+    Version(VersionArgs),
 }
 
 /// Basic arguments for all cyrptographic and stacker-db functionality
@@ -248,6 +250,11 @@ pub struct MonitorSignersArgs {
     /// Max age in seconds before a signer message is considered stale.
     #[arg(long, short, default_value = "1200")]
     pub max_age: u64,
+}
+
+#[derive(Parser, Debug, Clone)]
+/// Arguments for the Version command
+pub struct VersionArgs {
 }
 
 #[derive(Clone, Debug, PartialEq)]
