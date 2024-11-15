@@ -2572,16 +2572,20 @@ impl MinerConfigFile {
             .map(|x| Secp256k1PrivateKey::from_hex(x))
             .transpose()?;
         let pre_nakamoto_mock_signing = mining_key.is_some();
-        let valid_tenure_cost_limit = self
-            .tenure_cost_limit_per_block_percentage
-            .map(|p| (1..=100).contains(&p))
-            .unwrap_or(true);
-        if !valid_tenure_cost_limit {
-            return Err(
-                "miner.tenure_cost_limit_per_block_percentage must be between 1 and 100"
-                    .to_string(),
-            );
-        };
+
+        let tenure_cost_limit_per_block_percentage =
+            if let Some(percentage) = self.tenure_cost_limit_per_block_percentage {
+                if (1..=100).contains(&percentage) {
+                    Some(percentage)
+                } else {
+                    return Err(
+                        "miner.tenure_cost_limit_per_block_percentage must be between 1 and 100"
+                            .to_string(),
+                    );
+                }
+            } else {
+                miner_default_config.tenure_cost_limit_per_block_percentage
+            };
         Ok(MinerConfig {
             first_attempt_time_ms: self
                 .first_attempt_time_ms
@@ -2688,7 +2692,7 @@ impl MinerConfigFile {
             first_rejection_pause_ms: self.first_rejection_pause_ms.unwrap_or(miner_default_config.first_rejection_pause_ms),
             subsequent_rejection_pause_ms: self.subsequent_rejection_pause_ms.unwrap_or(miner_default_config.subsequent_rejection_pause_ms),
             block_commit_delay: self.block_commit_delay_ms.map(Duration::from_millis).unwrap_or(miner_default_config.block_commit_delay),
-            tenure_cost_limit_per_block_percentage: self.tenure_cost_limit_per_block_percentage,
+            tenure_cost_limit_per_block_percentage,
         })
     }
 }
