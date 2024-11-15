@@ -2575,7 +2575,9 @@ impl MinerConfigFile {
 
         let tenure_cost_limit_per_block_percentage =
             if let Some(percentage) = self.tenure_cost_limit_per_block_percentage {
-                if (1..=100).contains(&percentage) {
+                if percentage == 100 {
+                    None
+                } else if percentage > 0 && percentage < 100 {
                     Some(percentage)
                 } else {
                     return Err(
