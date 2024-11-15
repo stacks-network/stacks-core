@@ -486,7 +486,7 @@ paths:
           If tip == "latest", the query will be run from the latest known tip (includes unconfirmed state).
           If the tip is left unspecified, the stacks chain tip will be selected (only includes confirmed state).
 
-  /v2/clarity_marf_value/{clarity_marf_key}:
+  /v2/clarity/marf/{clarity_marf_key}:
     post:
       summary: Get the MARF value for a given key
       tags:
@@ -526,7 +526,7 @@ paths:
           description: The Stacks chain tip to query from. If tip == latest, the query will be run from the latest
             known tip (includes unconfirmed state).
 
-  /v2/clarity_metadata/{contract_address}/{contract_name}/{clarity_metadata_key}:
+  /v2/clarity/metadata/{contract_address}/{contract_name}/{clarity_metadata_key}:
     post:
       summary: Get the contract metadata for the metadata key
       tags:

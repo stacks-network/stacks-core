@@ -172,7 +172,7 @@ Where data is the hex serialization of the variable value.
 This endpoint also accepts a querystring parameter `?proof=` which when supplied `0`, will return the
 JSON object _without_ the `proof` field.
 
-### GET /v2/clarity_marf_value/[Clarity MARF Key]
+### GET /v2/clarity/marf/[Clarity MARF Key]
 Attempt to fetch the value of a MARF key. The key is identified with [Clarity MARF Key].
 
 Returns JSON data in the form:
@@ -186,7 +186,7 @@ Returns JSON data in the form:
 
 Where data is the hex serialization of the value.
 
-### GET /v2/clarity_metadata/[Stacks Address]/[Contract Name]/[Clarity Metadata Key]
+### GET /v2/clarity/metadata/[Stacks Address]/[Contract Name]/[Clarity Metadata Key]
 Attempt to fetch the metadata of a contract.
  The contract is identified with [Stacks Address] and [Contract Name] in the URL path.
  The metadata key is identified with [Clarity Metadata Key].
