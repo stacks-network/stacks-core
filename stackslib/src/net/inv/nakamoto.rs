@@ -407,16 +407,13 @@ impl InvGenerator {
             let cur_sortition_info = self.get_sortition_info(sortdb, &cur_consensus_hash)?;
             let parent_sortition_consensus_hash = cur_sortition_info.parent_consensus_hash;
 
-            debug!("Get sortition and tenure info for height {}. cur_consensus_hash = {}, cur_tenure_info = {:?}, parent_sortition_consensus_hash = {}", cur_height, &cur_consensus_hash, &cur_tenure_opt, &parent_sortition_consensus_hash);
+            trace!("Get sortition and tenure info for height {cur_height}. cur_consensus_hash = {cur_consensus_hash}, cur_tenure_info = {cur_tenure_opt:?}, parent_sortition_consensus_hash = {parent_sortition_consensus_hash}");
 
             if let Some(cur_tenure_info) = cur_tenure_opt.as_ref() {
                 // a tenure was active when this sortition happened...
                 if cur_tenure_info.tenure_id_consensus_hash == cur_consensus_hash {
                     // ...and this tenure started in this sortition
-                    debug!(
-                        "Tenure was started for {} (height {})",
-                        cur_consensus_hash, cur_height
-                    );
+                    trace!("Tenure was started for {cur_consensus_hash} (height {cur_height})");
                     tenure_status.push(true);
                     cur_tenure_opt = self.get_processed_tenure(
                         chainstate,
@@ -426,19 +423,13 @@ impl InvGenerator {
                     )?;
                 } else {
                     // ...but this tenure did not start in this sortition
-                    debug!(
-                        "Tenure was NOT started for {} (bit {})",
-                        cur_consensus_hash, cur_height
-                    );
+                    trace!("Tenure was NOT started for {cur_consensus_hash} (bit {cur_height})");
                     tenure_status.push(false);
                 }
             } else {
                 // no active tenure during this sortition. Check the parent sortition to see if a
                 // tenure begain there.
-                debug!(
-                    "No winning sortition for {} (bit {})",
-                    cur_consensus_hash, cur_height
-                );
+                trace!("No winning sortition for {cur_consensus_hash} (bit {cur_height})");
                 tenure_status.push(false);
                 cur_tenure_opt = self.get_processed_tenure(
                     chainstate,
@@ -457,9 +448,9 @@ impl InvGenerator {
         }
 
         tenure_status.reverse();
-        debug!(
-            "Tenure bits off of {} and {}: {:?}",
-            nakamoto_tip, &tip.consensus_hash, &tenure_status
+        trace!(
+            "Tenure bits off of {nakamoto_tip} and {}: {tenure_status:?}",
+            &tip.consensus_hash
         );
         Ok(tenure_status)
     }

@@ -23,7 +23,7 @@ use stacks_common::types::chainstate::StacksPrivateKey;
 
 use crate::config::InitialBalance;
 use crate::tests::bitcoin_regtest::BitcoinCoreController;
-use crate::tests::nakamoto_integrations::wait_for;
+use crate::tests::nakamoto_integrations::{next_block_and, wait_for};
 use crate::tests::neon_integrations::{
     get_account, get_chain_info, neon_integration_test_conf, next_block_and_wait, submit_tx,
     test_observer, wait_for_runloop,
@@ -162,6 +162,9 @@ fn microblocks_disabled() {
     // push us to block 205
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
+    // Ensure we start off with 0 microblocks
+    assert!(test_observer::get_microblocks().is_empty());
+
     let tx = make_stacks_transfer_mblock_only(
         &spender_1_sk,
         0,
@@ -172,7 +175,11 @@ fn microblocks_disabled() {
     );
     submit_tx(&http_origin, &tx);
 
-    // wait until just before epoch 2.5
+    // Wait for a microblock to be assembled
+    wait_for(60, || Ok(test_observer::get_microblocks().len() == 1))
+        .expect("Failed to wait for microblocks to be assembled");
+
+    // mine Bitcoin blocks up until just before epoch 2.5
     wait_for(120, || {
         let tip_info = get_chain_info(&conf);
         if tip_info.burn_block_height >= epoch_2_5 - 2 {
@@ -182,6 +189,14 @@ fn microblocks_disabled() {
         Ok(false)
     })
     .expect("Failed to wait until just before epoch 2.5");
+
+    // Verify that the microblock was processed
+    let account = get_account(&http_origin, &spender_1_addr);
+    assert_eq!(
+        u64::try_from(account.balance).unwrap(),
+        spender_1_bal - 1_000
+    );
+    assert_eq!(account.nonce, 1);
 
     let old_tip_info = get_chain_info(&conf);
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
@@ -194,13 +209,8 @@ fn microblocks_disabled() {
     .expect("Failed to process block");
 
     info!("Test passed processing 2.5");
-    let account = get_account(&http_origin, &spender_1_addr);
-    assert_eq!(
-        u64::try_from(account.balance).unwrap(),
-        spender_1_bal - 1_000
-    );
-    assert_eq!(account.nonce, 1);
 
+    // Submit another microblock only transaction
     let tx = make_stacks_transfer_mblock_only(
         &spender_1_sk,
         1,
@@ -211,19 +221,12 @@ fn microblocks_disabled() {
     );
     submit_tx(&http_origin, &tx);
 
-    let mut last_block_height = get_chain_info(&conf).burn_block_height;
-    for _i in 0..5 {
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-        wait_for(30, || {
-            let tip_info = get_chain_info(&conf);
-            if tip_info.burn_block_height > last_block_height {
-                last_block_height = tip_info.burn_block_height;
-                return Ok(true);
-            }
-            Ok(false)
-        })
-        .expect("Failed to mine");
-    }
+    // Wait for a microblock to be assembled, but expect none to be assembled
+    wait_for(30, || Ok(test_observer::get_microblocks().len() > 1))
+        .expect_err("Microblocks should not have been assembled");
+
+    // Mine a block to see if the microblock gets processed
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     // second transaction should not have been processed!
     let account = get_account(&http_origin, &spender_1_addr);
@@ -233,31 +236,18 @@ fn microblocks_disabled() {
     );
     assert_eq!(account.nonce, 1);
 
-    let microblocks_assembled = test_observer::get_microblocks().len();
-    info!("Microblocks assembled: {microblocks_assembled}",);
-    assert!(
-        microblocks_assembled > 0,
-        "There should be at least 1 microblock assembled"
-    );
-
     let miner_nonce_before_microblock_assembly = get_account(&http_origin, &miner_account).nonce;
 
     // Now, lets tell the miner to try to mine microblocks, but don't try to confirm them!
+    info!("Setting STACKS_TEST_FORCE_MICROBLOCKS_POST_25");
     env::set_var("STACKS_TEST_FORCE_MICROBLOCKS_POST_25", "1");
 
-    let mut last_block_height = get_chain_info(&conf).burn_block_height;
-    for _i in 0..2 {
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-        wait_for(30, || {
-            let tip_info = get_chain_info(&conf);
-            if tip_info.burn_block_height > last_block_height {
-                last_block_height = tip_info.burn_block_height;
-                return Ok(true);
-            }
-            Ok(false)
-        })
-        .expect("Failed to mine");
-    }
+    // Wait for a second microblock to be assembled
+    wait_for(60, || Ok(test_observer::get_microblocks().len() == 2))
+        .expect("Failed to wait for microblocks to be assembled");
+
+    // Mine a block to see if the microblock gets processed
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     let miner_nonce_after_microblock_assembly = get_account(&http_origin, &miner_account).nonce;
 
@@ -270,44 +260,35 @@ fn microblocks_disabled() {
     );
     assert_eq!(account.nonce, 1);
 
-    // but we should have assembled and announced at least 1 more block to the observer
-    assert!(test_observer::get_microblocks().len() > microblocks_assembled);
     info!(
         "Microblocks assembled: {}",
         test_observer::get_microblocks().len()
     );
 
     // and our miner should have gotten some blocks accepted
-    assert!(
-        miner_nonce_after_microblock_assembly > miner_nonce_before_microblock_assembly,
+    assert_eq!(
+        miner_nonce_after_microblock_assembly, miner_nonce_before_microblock_assembly + 1,
         "Mined before started microblock assembly: {miner_nonce_before_microblock_assembly}, Mined after started microblock assembly: {miner_nonce_after_microblock_assembly}"
     );
 
     // Now, tell the miner to try to confirm microblocks as well.
     //  This should test that the block gets rejected by append block
+    info!("Setting STACKS_TEST_CONFIRM_MICROBLOCKS_POST_25");
     env::set_var("STACKS_TEST_CONFIRM_MICROBLOCKS_POST_25", "1");
 
-    let mut last_block_height = get_chain_info(&conf).burn_block_height;
-    for _i in 0..2 {
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-        wait_for(30, || {
-            let tip_info = get_chain_info(&conf);
-            if tip_info.burn_block_height > last_block_height {
-                last_block_height = tip_info.burn_block_height;
-                return Ok(true);
-            }
-            Ok(false)
-        })
-        .expect("Failed to mine");
-    }
+    // Wait for a third microblock to be assembled
+    wait_for(60, || Ok(test_observer::get_microblocks().len() == 3))
+        .expect("Failed to wait for microblocks to be assembled");
+
+    // Mine a block to see if the microblock gets processed
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     let miner_nonce_after_microblock_confirmation = get_account(&http_origin, &miner_account).nonce;
 
-    // and our miner should have gotten at most one more block accepted
-    //  (because they may have had 1 block confirmation in the bitcoin mempool which didn't confirm a microblock
-    //   before we flipped the flag)
-    assert!(
-        miner_nonce_after_microblock_confirmation <= miner_nonce_after_microblock_assembly + 1,
+    // our miner should not have gotten any more blocks accepted
+    assert_eq!(
+        miner_nonce_after_microblock_confirmation,
+        miner_nonce_after_microblock_assembly + 1,
         "Mined after started microblock confimration: {miner_nonce_after_microblock_confirmation}",
     );
 

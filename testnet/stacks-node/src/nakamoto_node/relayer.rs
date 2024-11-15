@@ -874,7 +874,39 @@ impl RelayerThread {
             SortitionDB::get_canonical_stacks_chain_tip_hash(self.sortdb.conn()).unwrap();
         let canonical_stacks_tip =
             StacksBlockId::new(&canonical_stacks_tip_ch, &canonical_stacks_tip_bh);
-        let block_election_snapshot =
+
+        let Some(ref mining_key) = self.config.miner.mining_key else {
+            return Ok(());
+        };
+        let mining_pkh = Hash160::from_node_public_key(&StacksPublicKey::from_private(mining_key));
+
+        // If we won the last sortition, then we should start a new tenure off of it.
+        let last_block_election_snapshot = {
+            let ih = self.sortdb.index_handle(&burn_tip.sortition_id);
+            ih.get_last_snapshot_with_sortition(burn_tip.block_height)
+                .map_err(|e| {
+                    error!("Relayer: failed to get last snapshot with sortition: {e:?}");
+                    NakamotoNodeError::SnapshotNotFoundForChainTip
+                })?
+        };
+
+        let won_last_sortition = last_block_election_snapshot.miner_pk_hash == Some(mining_pkh);
+        debug!(
+            "Relayer: Current burn block had no sortition. Checking for tenure continuation.";
+            "won_last_sortition" => won_last_sortition,
+            "current_mining_pkh" => %mining_pkh,
+            "last_block_election_snapshot.consensus_hash" => %last_block_election_snapshot.consensus_hash,
+            "last_block_election_snapshot.miner_pk_hash" => ?last_block_election_snapshot.miner_pk_hash,
+            "canonical_stacks_tip_id" => %canonical_stacks_tip,
+            "canonical_stacks_tip_ch" => %canonical_stacks_tip_ch,
+            "burn_view_ch" => %new_burn_view,
+        );
+
+        if !won_last_sortition {
+            return Ok(());
+        }
+
+        let canonical_block_snapshot =
             SortitionDB::get_block_snapshot_consensus(self.sortdb.conn(), &canonical_stacks_tip_ch)
                 .map_err(|e| {
                     error!("Relayer: failed to get block snapshot for canonical tip: {e:?}");
@@ -885,43 +917,32 @@ impl RelayerThread {
                     NakamotoNodeError::SnapshotNotFoundForChainTip
                 })?;
 
-        let Some(ref mining_key) = self.config.miner.mining_key else {
-            return Ok(());
-        };
-        let mining_pkh = Hash160::from_node_public_key(&StacksPublicKey::from_private(mining_key));
+        let won_canonical_block_snapshot =
+            canonical_block_snapshot.miner_pk_hash == Some(mining_pkh);
 
-        let last_winner_snapshot = {
-            let ih = self.sortdb.index_handle(&burn_tip.sortition_id);
-            ih.get_last_snapshot_with_sortition(burn_tip.block_height)
-                .map_err(|e| {
-                    error!("Relayer: failed to get last snapshot with sortition: {e:?}");
-                    NakamotoNodeError::SnapshotNotFoundForChainTip
-                })?
-        };
-
-        let won_last_sortition = last_winner_snapshot.miner_pk_hash == Some(mining_pkh);
-        debug!(
-            "Relayer: Current burn block had no sortition. Checking for tenure continuation.";
-            "won_last_sortition" => won_last_sortition,
-            "current_mining_pkh" => %mining_pkh,
-            "last_winner_snapshot.miner_pk_hash" => ?last_winner_snapshot.miner_pk_hash,
-            "canonical_stacks_tip_id" => %canonical_stacks_tip,
-            "canonical_stacks_tip_ch" => %canonical_stacks_tip_ch,
-            "block_election_ch" => %block_election_snapshot.consensus_hash,
-            "burn_view_ch" => %new_burn_view,
-        );
-
-        if !won_last_sortition {
-            return Ok(());
-        }
-
+        let (parent_tenure_start, block_election_snapshot, reason) =
+            if !won_canonical_block_snapshot {
+                debug!("Relayer: Failed to issue a tenure change payload in our last tenure. Issue a new tenure change payload.");
+                (
+                    StacksBlockId(last_block_election_snapshot.winning_stacks_block_hash.0),
+                    last_block_election_snapshot,
+                    MinerReason::EmptyTenure,
+                )
+            } else {
+                debug!("Relayer: Successfully issued a tenure change payload in its tenure. Issue a continue extend from the chain tip.");
+                (
+                    canonical_stacks_tip, //For tenure extend, we should be extending off the canonical tip
+                    canonical_block_snapshot,
+                    MinerReason::Extended {
+                        burn_view_consensus_hash: new_burn_view,
+                    },
+                )
+            };
         match self.start_new_tenure(
-            canonical_stacks_tip, // For tenure extend, we should be extending off the canonical tip
+            parent_tenure_start,
             block_election_snapshot,
             burn_tip,
-            MinerReason::Extended {
-                burn_view_consensus_hash: new_burn_view,
-            },
+            reason,
         ) {
             Ok(()) => {
                 debug!("Relayer: successfully started new tenure.");
@@ -994,13 +1015,7 @@ impl RelayerThread {
 
     #[cfg(test)]
     fn fault_injection_skip_block_commit(&self) -> bool {
-        self.globals
-            .counters
-            .naka_skip_commit_op
-            .0
-            .lock()
-            .unwrap()
-            .unwrap_or(false)
+        self.globals.counters.naka_skip_commit_op.get()
     }
 
     #[cfg(not(test))]
