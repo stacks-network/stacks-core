@@ -71,7 +71,7 @@ fn test_try_parse_request() {
         )
         .unwrap();
 
-    // parsed request consumes headers that would not be in a constructed reqeuest
+    // parsed request consumes headers that would not be in a constructed request
     parsed_request.clear_headers();
     let (preamble, contents) = parsed_request.destruct();
 
@@ -104,7 +104,7 @@ fn test_try_make_response() {
     );
     requests.push(request);
 
-    // query non-existant block (with biggest positive u32 value - 1 as MARF enforces it)
+    // query non-existent block (with biggest positive u32 value - 1 as MARF enforces it)
     let request = StacksHttpRequest::new_get_nakamoto_block_by_height(
         addr.into(),
         0xfffffffe,
