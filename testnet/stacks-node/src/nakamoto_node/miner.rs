@@ -62,6 +62,8 @@ pub static TEST_BROADCAST_STALL: std::sync::Mutex<Option<bool>> = std::sync::Mut
 pub static TEST_BLOCK_ANNOUNCE_STALL: std::sync::Mutex<Option<bool>> = std::sync::Mutex::new(None);
 #[cfg(test)]
 pub static TEST_SKIP_P2P_BROADCAST: std::sync::Mutex<Option<bool>> = std::sync::Mutex::new(None);
+#[cfg(test)]
+pub static TEST_NO_TENURE_EXTEND: std::sync::Mutex<Option<bool>> = std::sync::Mutex::new(None);
 
 /// If the miner was interrupted while mining a block, how long should the
 ///  miner thread sleep before trying again?
