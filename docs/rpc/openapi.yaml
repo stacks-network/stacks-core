@@ -493,7 +493,7 @@ paths:
         - Smart Contracts
       operationId: get_clarity_marf_value
       description: |
-        Attempt to fetch the value of a MARF key. The key is identified with [Clarity MARF Key].
+        Attempt to fetch the value of a MARF key.
 
         In the response, `data` is the hex serialization of the value.
       responses:
@@ -533,7 +533,7 @@ paths:
         - Smart Contracts
       operationId: get_clarity_metadata_key
       description: |
-        Attempt to fetch the metadata of a contract. The contract is identified with [Stacks Address] and [Contract Name] in the URL path. The metadata key is identified with [Clarity Metadata Key].
+        Attempt to fetch the metadata of a contract. The contract is identified with [Contract Address] and [Contract Name] in the URL path. The metadata key is identified with [Clarity Metadata Key].
 
         In the response, `data` is formatted as JSON.
       responses:
