@@ -9453,6 +9453,11 @@ fn nakamoto_lockup_events() {
             assert_eq!(recipient, unlock_recipient);
             let amount = mint_event.get("amount").unwrap().as_str().unwrap();
             assert_eq!(amount, "12345678");
+            let txid = event.get("txid").unwrap().as_str().unwrap();
+            assert_eq!(
+                txid,
+                "0xcba511741b230bd85cb5b3b10d26e0b92695d4a83f95c260cad82a40cd764235"
+            );
         }
     }
     assert!(found_event);
