@@ -136,6 +136,7 @@ jobs:
           - tests::nakamoto_integrations::mock_mining
           - tests::nakamoto_integrations::multiple_miners
           - tests::nakamoto_integrations::follower_bootup_across_multiple_cycles
+          - tests::nakamoto_integrations::nakamoto_lockup_events
           - tests::nakamoto_integrations::utxo_check_on_startup_panic
           - tests::nakamoto_integrations::utxo_check_on_startup_recover
           - tests::nakamoto_integrations::v3_signer_api_endpoint

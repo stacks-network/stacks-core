@@ -783,7 +783,8 @@ fn replay_block_nakamoto(
         return Err(e);
     };
 
-    let (receipt, _clarity_commit, _reward_set_data) = ok_opt.expect("FATAL: unreachable");
+    let (receipt, _clarity_commit, _reward_set_data, _phantom_events) =
+        ok_opt.expect("FATAL: unreachable");
 
     assert_eq!(
         receipt.header.anchored_header.block_hash(),

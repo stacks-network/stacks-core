@@ -73,7 +73,8 @@ use super::stacks::db::{
 use super::stacks::events::{StacksTransactionReceipt, TransactionOrigin};
 use super::stacks::{
     Error as ChainstateError, StacksBlock, StacksBlockHeader, StacksMicroblock, StacksTransaction,
-    TenureChangeError, TenureChangePayload, TransactionPayload,
+    TenureChangeError, TenureChangePayload, TokenTransferMemo, TransactionPayload,
+    TransactionVersion,
 };
 use crate::burnchains::{Burnchain, PoxConstants, Txid};
 use crate::chainstate::burn::db::sortdb::SortitionDB;
@@ -108,8 +109,7 @@ use crate::core::{
 };
 use crate::net::stackerdb::{StackerDBConfig, MINER_SLOT_COUNT};
 use crate::net::Error as net_error;
-use crate::util_lib::boot;
-use crate::util_lib::boot::boot_code_id;
+use crate::util_lib::boot::{self, boot_code_addr, boot_code_id, boot_code_tx_auth};
 use crate::util_lib::db::{
     query_int, query_row, query_row_columns, query_row_panic, query_rows, sqlite_open,
     tx_begin_immediate, u64_to_sql, DBConn, Error as DBError, FromRow,
@@ -2048,7 +2048,8 @@ impl NakamotoChainState {
             return Err(e);
         };
 
-        let (receipt, clarity_commit, reward_set_data) = ok_opt.expect("FATAL: unreachable");
+        let (receipt, clarity_commit, reward_set_data, phantom_unlock_events) =
+            ok_opt.expect("FATAL: unreachable");
 
         assert_eq!(
             receipt.header.anchored_header.block_hash(),
@@ -2102,6 +2103,19 @@ impl NakamotoChainState {
             &receipt.header.anchored_header.block_hash()
         );
 
+        let mut tx_receipts = receipt.tx_receipts.clone();
+        if let Some(unlock_receipt) =
+            // For the event dispatcher, attach any STXMintEvents that
+            // could not be included in the block (e.g. because the
+            // block didn't have a Coinbase transaction).
+            Self::generate_phantom_unlock_tx(
+                phantom_unlock_events,
+                &stacks_chain_state.config(),
+            )
+        {
+            tx_receipts.push(unlock_receipt);
+        }
+
         // announce the block, if we're connected to an event dispatcher
         if let Some(dispatcher) = dispatcher_opt {
             let block_event = (
@@ -2112,7 +2126,7 @@ impl NakamotoChainState {
             dispatcher.announce_block(
                 &block_event,
                 &receipt.header.clone(),
-                &receipt.tx_receipts,
+                &tx_receipts,
                 &parent_block_id,
                 next_ready_block_snapshot.winning_block_txid,
                 &receipt.matured_rewards,
@@ -3915,6 +3929,7 @@ impl NakamotoChainState {
             StacksEpochReceipt,
             PreCommitClarityBlock<'a>,
             Option<RewardSetData>,
+            Vec<StacksTransactionEvent>,
         ),
         ChainstateError,
     > {
@@ -4215,6 +4230,8 @@ impl NakamotoChainState {
                 Ok(lockup_events) => lockup_events,
             };
 
+        // Track events that we couldn't attach to a coinbase receipt
+        let mut phantom_lockup_events = lockup_events.clone();
         // if any, append lockups events to the coinbase receipt
         if lockup_events.len() > 0 {
             // Receipts are appended in order, so the first receipt should be
@@ -4222,11 +4239,14 @@ impl NakamotoChainState {
             if let Some(receipt) = tx_receipts.get_mut(0) {
                 if receipt.is_coinbase_tx() {
                     receipt.events.append(&mut lockup_events);
+                    phantom_lockup_events.clear();
                 }
-            } else {
-                warn!("Unable to attach lockups events, block's first transaction is not a coinbase transaction")
             }
         }
+        if phantom_lockup_events.len() > 0 {
+            info!("Unable to attach lockup events, block's first transaction is not a coinbase transaction. Will attach as a phantom tx.");
+        }
+
         // if any, append auto unlock events to the coinbase receipt
         if auto_unlock_events.len() > 0 {
             // Receipts are appended in order, so the first receipt should be
@@ -4394,7 +4414,12 @@ impl NakamotoChainState {
             coinbase_height,
         };
 
-        Ok((epoch_receipt, clarity_commit, reward_set_data))
+        Ok((
+            epoch_receipt,
+            clarity_commit,
+            reward_set_data,
+            phantom_lockup_events,
+        ))
     }
 
     /// Create a StackerDB config for the .miners contract.
@@ -4554,6 +4579,42 @@ impl NakamotoChainState {
                 .unwrap();
             clarity.save_analysis(&contract_id, &analysis).unwrap();
         })
+    }
+
+    /// Generate a "phantom" transaction to include STXMintEvents for
+    /// lockups that could not be attached to a Coinbase transaction
+    /// (because the block doesn't have a Coinbase transaction).
+    fn generate_phantom_unlock_tx(
+        events: Vec<StacksTransactionEvent>,
+        config: &ChainstateConfig,
+    ) -> Option<StacksTransactionReceipt> {
+        if events.is_empty() {
+            return None;
+        }
+        info!("Generating phantom unlock tx");
+        let version = if config.mainnet {
+            TransactionVersion::Mainnet
+        } else {
+            TransactionVersion::Testnet
+        };
+        let boot_code_address = boot_code_addr(config.mainnet);
+        let boot_code_auth = boot_code_tx_auth(boot_code_address.clone());
+        let unlock_tx = StacksTransaction::new(
+            version,
+            boot_code_auth,
+            TransactionPayload::TokenTransfer(
+                PrincipalData::Standard(boot_code_address.into()),
+                0,
+                TokenTransferMemo([0u8; 34]),
+            ),
+        );
+        let unlock_receipt = StacksTransactionReceipt::from_stx_transfer(
+            unlock_tx,
+            events,
+            Value::okay_true(),
+            ExecutionCost::zero(),
+        );
+        Some(unlock_receipt)
     }
 }
 
