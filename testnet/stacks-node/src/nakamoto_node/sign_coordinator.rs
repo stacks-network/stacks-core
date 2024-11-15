@@ -91,7 +91,7 @@ impl SignCoordinator {
         let is_mainnet = config.is_mainnet();
         let Some(ref reward_set_signers) = reward_set.signers else {
             error!("Could not initialize signing coordinator for reward set without signer");
-            debug!("reward set: {:?}", &reward_set);
+            debug!("reward set: {reward_set:?}");
             return Err(ChainstateError::NoRegisteredSigners(0));
         };
 
@@ -188,6 +188,7 @@ impl SignCoordinator {
     }
 
     /// Send a message over the miners contract using a `StacksPrivateKey`
+    #[allow(clippy::too_many_arguments)]
     pub fn send_miners_message<M: StacksMessageCodec>(
         miner_sk: &StacksPrivateKey,
         sortdb: &SortitionDB,
@@ -199,7 +200,7 @@ impl SignCoordinator {
         miners_session: &mut StackerDBSession,
         election_sortition: &ConsensusHash,
     ) -> Result<(), String> {
-        let Some(slot_range) = NakamotoChainState::get_miner_slot(sortdb, tip, &election_sortition)
+        let Some(slot_range) = NakamotoChainState::get_miner_slot(sortdb, tip, election_sortition)
             .map_err(|e| format!("Failed to read miner slot information: {e:?}"))?
         else {
             return Err("No slot for miner".into());
@@ -222,7 +223,7 @@ impl SignCoordinator {
             .saturating_add(1);
         let mut chunk = StackerDBChunkData::new(slot_id, slot_version, message.serialize_to_vec());
         chunk
-            .sign(&miner_sk)
+            .sign(miner_sk)
             .map_err(|_| "Failed to sign StackerDB chunk")?;
 
         match miners_session.put_chunk(&chunk) {
@@ -270,13 +271,14 @@ impl SignCoordinator {
     /// to the signers, and then waits for the signers to respond
     /// with their signatures.  It does so in two ways, concurrently:
     /// * It waits for signer StackerDB messages with signatures. If enough signatures can be
-    /// found, then the block can be broadcast.
+    ///   found, then the block can be broadcast.
     /// * It waits for the chainstate to contain the relayed block. If so, then its signatures are
-    /// loaded and returned. This can happen if the node receives the block via a signer who
-    /// fetched all signatures and assembled the signature vector, all before we could.
+    ///   loaded and returned. This can happen if the node receives the block via a signer who
+    ///   fetched all signatures and assembled the signature vector, all before we could.
     // Mutants skip here: this function is covered via integration tests,
     //  which the mutation testing does not see.
     #[cfg_attr(test, mutants::skip)]
+    #[allow(clippy::too_many_arguments)]
     pub fn run_sign_v0(
         &mut self,
         block: &NakamotoBlock,
@@ -306,7 +308,7 @@ impl SignCoordinator {
             &self.message_key,
             sortdb,
             burn_tip,
-            &stackerdbs,
+            stackerdbs,
             block_proposal_message,
             MinerSlotID::BlockProposal,
             self.is_mainnet,
@@ -355,9 +357,8 @@ impl SignCoordinator {
                 .get_nakamoto_block(&block.block_id())
                 .map_err(|e| {
                     warn!(
-                        "Failed to query chainstate for block {}: {:?}",
-                        &block.block_id(),
-                        &e
+                        "Failed to query chainstate for block {}: {e:?}",
+                        &block.block_id()
                     );
                     e
                 })
@@ -367,7 +368,7 @@ impl SignCoordinator {
                 return Ok(stored_block.header.signer_signature);
             }
 
-            if Self::check_burn_tip_changed(&sortdb, &burn_tip) {
+            if Self::check_burn_tip_changed(sortdb, burn_tip) {
                 debug!("SignCoordinator: Exiting due to new burnchain tip");
                 return Err(NakamotoNodeError::BurnchainTipChanged);
             }
@@ -549,8 +550,7 @@ impl SignCoordinator {
                         };
                         responded_signers.insert(rejected_pubkey);
                         debug!(
-                            "Signer {} rejected our block {}/{}",
-                            slot_id,
+                            "Signer {slot_id} rejected our block {}/{}",
                             &block.header.consensus_hash,
                             &block.header.block_hash()
                         );
@@ -562,8 +562,7 @@ impl SignCoordinator {
                             > self.total_weight
                         {
                             debug!(
-                                "{}/{} signers vote to reject our block {}/{}",
-                                total_reject_weight,
+                                "{total_reject_weight}/{} signers vote to reject our block {}/{}",
                                 self.total_weight,
                                 &block.header.consensus_hash,
                                 &block.header.block_hash()

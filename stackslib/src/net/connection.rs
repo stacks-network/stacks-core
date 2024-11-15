@@ -474,6 +474,8 @@ pub struct ConnectionOptions {
     /// the reward cycle in which Nakamoto activates, and thus needs to run both the epoch
     /// 2.x and Nakamoto state machines.
     pub force_nakamoto_epoch_transition: bool,
+    /// Reject blocks that were pushed
+    pub reject_blocks_pushed: bool,
 
     // test facilitation
     /// Do not require that an unsolicited message originate from an authenticated, connected
@@ -583,6 +585,7 @@ impl std::default::Default for ConnectionOptions {
             disable_stackerdb_sync: false,
             force_disconnect_interval: None,
             force_nakamoto_epoch_transition: false,
+            reject_blocks_pushed: false,
 
             // no test facilitations on by default
             test_disable_unsolicited_message_authentication: false,
