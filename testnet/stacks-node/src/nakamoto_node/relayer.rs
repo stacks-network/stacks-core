@@ -58,7 +58,9 @@ use super::{
     BLOCK_PROCESSOR_STACK_SIZE,
 };
 use crate::burnchains::BurnchainController;
-use crate::nakamoto_node::miner::{BlockMinerThread, MinerDirective, TEST_NO_TENURE_EXTEND};
+#[cfg(test)]
+use crate::nakamoto_node::miner::TEST_NO_TENURE_EXTEND;
+use crate::nakamoto_node::miner::{BlockMinerThread, MinerDirective};
 use crate::neon_node::{
     fault_injection_skip_mining, open_chainstate_with_faults, LeaderKeyRegistrationState,
 };
