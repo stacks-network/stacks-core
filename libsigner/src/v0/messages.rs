@@ -638,11 +638,16 @@ impl std::fmt::Display for BlockResponse {
 
 impl BlockResponse {
     /// Create a new accepted BlockResponse for the provided block signer signature hash and signature
-    pub fn accepted(hash: Sha512Trunc256Sum, sig: MessageSignature) -> Self {
+    pub fn accepted(
+        signer_signature_hash: Sha512Trunc256Sum,
+        signature: MessageSignature,
+        tenure_extend_timestamp: u64,
+    ) -> Self {
         Self::Accepted(BlockAccepted {
-            signer_signature_hash: hash,
-            signature: sig,
+            signer_signature_hash,
+            signature,
             metadata: SignerMessageMetadata::default(),
+            tenure_extend_timestamp,
         })
     }
 
@@ -652,8 +657,15 @@ impl BlockResponse {
         reject_code: RejectCode,
         private_key: &StacksPrivateKey,
         mainnet: bool,
+        timestamp: u64,
     ) -> Self {
-        Self::Rejected(BlockRejection::new(hash, reject_code, private_key, mainnet))
+        Self::Rejected(BlockRejection::new(
+            hash,
+            reject_code,
+            private_key,
+            mainnet,
+            timestamp,
+        ))
     }
 }
 
@@ -748,6 +760,8 @@ pub struct BlockAccepted {
     pub signature: MessageSignature,
     /// Signer message metadata
     pub metadata: SignerMessageMetadata,
+    /// The timestamp at which a tenure extend will be accepted by the responding signer
+    pub tenure_extend_timestamp: u64,
 }
 
 impl StacksMessageCodec for BlockAccepted {
@@ -755,6 +769,7 @@ impl StacksMessageCodec for BlockAccepted {
         write_next(fd, &self.signer_signature_hash)?;
         write_next(fd, &self.signature)?;
         write_next(fd, &self.metadata)?;
+        write_next(fd, &self.tenure_extend_timestamp)?;
         Ok(())
     }
 
@@ -762,21 +777,28 @@ impl StacksMessageCodec for BlockAccepted {
         let signer_signature_hash = read_next::<Sha512Trunc256Sum, _>(fd)?;
         let signature = read_next::<MessageSignature, _>(fd)?;
         let metadata = read_next::<SignerMessageMetadata, _>(fd)?;
+        let tenure_extend_timestamp = read_next::<u64, _>(fd).unwrap_or_default();
         Ok(Self {
             signer_signature_hash,
             signature,
             metadata,
+            tenure_extend_timestamp,
         })
     }
 }
 
 impl BlockAccepted {
     /// Create a new BlockAccepted for the provided block signer signature hash and signature
-    pub fn new(signer_signature_hash: Sha512Trunc256Sum, signature: MessageSignature) -> Self {
+    pub fn new(
+        signer_signature_hash: Sha512Trunc256Sum,
+        signature: MessageSignature,
+        tenure_extend_timestamp: u64,
+    ) -> Self {
         Self {
             signer_signature_hash,
             signature,
             metadata: SignerMessageMetadata::default(),
+            tenure_extend_timestamp,
         }
     }
 }
@@ -796,6 +818,8 @@ pub struct BlockRejection {
     pub chain_id: u32,
     /// Signer message metadata
     pub metadata: SignerMessageMetadata,
+    /// The timestamp at which a tenure extend will be accepted by the responding signer
+    pub tenure_extend_timestamp: u64,
 }
 
 impl BlockRejection {
@@ -805,6 +829,7 @@ impl BlockRejection {
         reason_code: RejectCode,
         private_key: &StacksPrivateKey,
         mainnet: bool,
+        timestamp: u64,
     ) -> Self {
         let chain_id = if mainnet {
             CHAIN_ID_MAINNET
@@ -818,6 +843,7 @@ impl BlockRejection {
             signature: MessageSignature::empty(),
             chain_id,
             metadata: SignerMessageMetadata::default(),
+            tenure_extend_timestamp: timestamp,
         };
         rejection
             .sign(private_key)
@@ -830,6 +856,7 @@ impl BlockRejection {
         reject: BlockValidateReject,
         private_key: &StacksPrivateKey,
         mainnet: bool,
+        timestamp: u64,
     ) -> Self {
         let chain_id = if mainnet {
             CHAIN_ID_MAINNET
@@ -843,6 +870,7 @@ impl BlockRejection {
             chain_id,
             signature: MessageSignature::empty(),
             metadata: SignerMessageMetadata::default(),
+            tenure_extend_timestamp: timestamp,
         };
         rejection
             .sign(private_key)
@@ -893,6 +921,7 @@ impl StacksMessageCodec for BlockRejection {
         write_next(fd, &self.chain_id)?;
         write_next(fd, &self.signature)?;
         write_next(fd, &self.metadata)?;
+        write_next(fd, &self.tenure_extend_timestamp)?;
         Ok(())
     }
 
@@ -906,6 +935,7 @@ impl StacksMessageCodec for BlockRejection {
         let chain_id = read_next::<u32, _>(fd)?;
         let signature = read_next::<MessageSignature, _>(fd)?;
         let metadata = read_next::<SignerMessageMetadata, _>(fd)?;
+        let tenure_extend_timestamp = read_next::<u64, _>(fd).unwrap_or_default();
         Ok(Self {
             reason,
             reason_code,
@@ -913,6 +943,7 @@ impl StacksMessageCodec for BlockRejection {
             chain_id,
             signature,
             metadata,
+            tenure_extend_timestamp,
         })
     }
 }
@@ -1046,6 +1077,7 @@ mod test {
             RejectCode::ValidationFailed(ValidateRejectCode::InvalidBlock),
             &StacksPrivateKey::new(),
             thread_rng().gen_bool(0.5),
+            thread_rng().next_u64(),
         );
         let serialized_rejection = rejection.serialize_to_vec();
         let deserialized_rejection = read_next::<BlockRejection, _>(&mut &serialized_rejection[..])
@@ -1057,6 +1089,7 @@ mod test {
             RejectCode::ConnectivityIssues,
             &StacksPrivateKey::new(),
             thread_rng().gen_bool(0.5),
+            thread_rng().next_u64(),
         );
         let serialized_rejection = rejection.serialize_to_vec();
         let deserialized_rejection = read_next::<BlockRejection, _>(&mut &serialized_rejection[..])
@@ -1070,6 +1103,7 @@ mod test {
             signer_signature_hash: Sha512Trunc256Sum([0u8; 32]),
             signature: MessageSignature::empty(),
             metadata: SignerMessageMetadata::default(),
+            tenure_extend_timestamp: thread_rng().next_u64(),
         };
         let response = BlockResponse::Accepted(accepted);
         let serialized_response = response.serialize_to_vec();
@@ -1082,6 +1116,7 @@ mod test {
             RejectCode::ValidationFailed(ValidateRejectCode::InvalidBlock),
             &StacksPrivateKey::new(),
             thread_rng().gen_bool(0.5),
+            thread_rng().next_u64(),
         ));
         let serialized_response = response.serialize_to_vec();
         let deserialized_response = read_next::<BlockResponse, _>(&mut &serialized_response[..])
@@ -1095,6 +1130,7 @@ mod test {
             signer_signature_hash: Sha512Trunc256Sum([2u8; 32]),
             signature: MessageSignature::empty(),
             metadata: SignerMessageMetadata::default(),
+            tenure_extend_timestamp: thread_rng().next_u64(),
         };
         let signer_message = SignerMessage::BlockResponse(BlockResponse::Accepted(accepted));
         let serialized_signer_message = signer_message.serialize_to_vec();
@@ -1258,6 +1294,7 @@ mod test {
                 chain_id: CHAIN_ID_TESTNET,
                 signature: MessageSignature::from_hex("006fb349212e1a1af1a3c712878d5159b5ec14636adb6f70be00a6da4ad4f88a9934d8a9abb229620dd8e0f225d63401e36c64817fb29e6c05591dcbe95c512df3").unwrap(),
                 metadata: SignerMessageMetadata::empty(),
+                tenure_extend_timestamp: 0
             }))
         );
 
@@ -1270,15 +1307,16 @@ mod test {
                 .unwrap(),
                 metadata: SignerMessageMetadata::empty(),
                 signature: MessageSignature::from_hex("001c694f8134c5c90f2f2bcd330e9f423204884f001b5df0050f36a2c4ff79dd93522bb2ae395ea87de4964886447507c18374b7a46ee2e371e9bf332f0706a3e8").unwrap(),
+                tenure_extend_timestamp: 0
             }))
         );
     }
 
     #[test]
     fn test_block_response_metadata() {
-        let block_rejected_hex = "010100000050426c6f636b206973206e6f7420612074656e7572652d737461727420626c6f636b2c20616e642068617320616e20756e7265636f676e697a65642074656e75726520636f6e73656e7375732068617368000691f95f84b7045f7dce7757052caa986ef042cb58f7df5031a3b5b5d0e3dda63e80000000006fb349212e1a1af1a3c712878d5159b5ec14636adb6f70be00a6da4ad4f88a9934d8a9abb229620dd8e0f225d63401e36c64817fb29e6c05591dcbe95c512df30000000b48656c6c6f20776f726c64";
+        let block_rejected_hex = "010100000050426c6f636b206973206e6f7420612074656e7572652d737461727420626c6f636b2c20616e642068617320616e20756e7265636f676e697a65642074656e75726520636f6e73656e7375732068617368000691f95f84b7045f7dce7757052caa986ef042cb58f7df5031a3b5b5d0e3dda63e80000000006fb349212e1a1af1a3c712878d5159b5ec14636adb6f70be00a6da4ad4f88a9934d8a9abb229620dd8e0f225d63401e36c64817fb29e6c05591dcbe95c512df30000000b48656c6c6f20776f726c6400";
         let block_rejected_bytes = hex_bytes(&block_rejected_hex).unwrap();
-        let block_accepted_hex = "010011717149677c2ac97d15ae5954f7a716f10100b9cb81a2bf27551b2f2e54ef19001c694f8134c5c90f2f2bcd330e9f423204884f001b5df0050f36a2c4ff79dd93522bb2ae395ea87de4964886447507c18374b7a46ee2e371e9bf332f0706a3e80000000b48656c6c6f20776f726c64";
+        let block_accepted_hex = "010011717149677c2ac97d15ae5954f7a716f10100b9cb81a2bf27551b2f2e54ef19001c694f8134c5c90f2f2bcd330e9f423204884f001b5df0050f36a2c4ff79dd93522bb2ae395ea87de4964886447507c18374b7a46ee2e371e9bf332f0706a3e80000000b48656c6c6f20776f726c6400";
         let block_accepted_bytes = hex_bytes(&block_accepted_hex).unwrap();
         let block_rejected = read_next::<SignerMessage, _>(&mut &block_rejected_bytes[..])
             .expect("Failed to deserialize BlockRejection");
@@ -1296,6 +1334,7 @@ mod test {
                 metadata: SignerMessageMetadata {
                     server_version: "Hello world".to_string(),
                 },
+                tenure_extend_timestamp: 0,
             }))
         );
 
@@ -1310,6 +1349,7 @@ mod test {
                     server_version: "Hello world".to_string(),
                 },
                 signature: MessageSignature::from_hex("001c694f8134c5c90f2f2bcd330e9f423204884f001b5df0050f36a2c4ff79dd93522bb2ae395ea87de4964886447507c18374b7a46ee2e371e9bf332f0706a3e8").unwrap(),
+                tenure_extend_timestamp: 0
             }))
         );
     }

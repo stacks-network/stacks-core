@@ -11,6 +11,8 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ### Changed
 
+- Add tenure extend timestamp to signer block responses
+
 ## [3.0.0.0.1.0]
 
 ### Changed
