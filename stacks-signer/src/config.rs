@@ -38,6 +38,7 @@ const BLOCK_PROPOSAL_TIMEOUT_MS: u64 = 600_000;
 const BLOCK_PROPOSAL_VALIDATION_TIMEOUT_MS: u64 = 120_000;
 const DEFAULT_FIRST_PROPOSAL_BURN_BLOCK_TIMING_SECS: u64 = 60;
 const DEFAULT_TENURE_LAST_BLOCK_PROPOSAL_TIMEOUT_SECS: u64 = 30;
+const TENURE_IDLE_TIMEOUT_SECS: u64 = 300;
 
 #[derive(thiserror::Error, Debug)]
 /// An error occurred parsing the provided configuration
@@ -135,6 +136,8 @@ pub struct SignerConfig {
     pub tenure_last_block_proposal_timeout: Duration,
     /// How much time to wait for a block proposal validation response before marking the block invalid
     pub block_proposal_validation_timeout: Duration,
+    /// How much idle tie must pass before allowing a tenure extend
+    pub tenure_idle_timeout: Duration,
 }
 
 /// The parsed configuration for the signer
@@ -171,6 +174,8 @@ pub struct GlobalConfig {
     /// How long to wait for a response from a block proposal validation response from the node
     /// before marking that block as invalid and rejecting it
     pub block_proposal_validation_timeout: Duration,
+    /// How much idle time must pass before allowing a tenure extend
+    pub tenure_idle_timeout: Duration,
 }
 
 /// Internal struct for loading up the config file
@@ -206,6 +211,8 @@ struct RawConfigFile {
     /// How long to wait (in millisecs) for a response from a block proposal validation response from the node
     /// before marking that block as invalid and rejecting it
     pub block_proposal_validation_timeout_ms: Option<u64>,
+    /// How much idle time (in seconds) must pass before a tenure extend is allowed
+    pub tenure_idle_timeout_secs: Option<u64>,
 }
 
 impl RawConfigFile {
@@ -297,6 +304,12 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
                 .unwrap_or(BLOCK_PROPOSAL_VALIDATION_TIMEOUT_MS),
         );
 
+        let tenure_idle_timeout = Duration::from_secs(
+            raw_data
+                .tenure_idle_timeout_secs
+                .unwrap_or(TENURE_IDLE_TIMEOUT_SECS),
+        );
+
         Ok(Self {
             node_host: raw_data.node_host,
             endpoint,
@@ -312,6 +325,7 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
             chain_id: raw_data.chain_id,
             tenure_last_block_proposal_timeout,
             block_proposal_validation_timeout,
+            tenure_idle_timeout,
         })
     }
 }

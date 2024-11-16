@@ -133,7 +133,7 @@ impl SignerTrait<SignerMessage> for Signer {
         if event_parity == Some(other_signer_parity) {
             return;
         }
-        self.check_submitted_block_proposal();
+        self.check_submitted_block_proposal(stacks_client, sortition_state);
         debug!("{self}: Processing event: {event:?}");
         let Some(event) = event else {
             // No event. Do nothing.
@@ -143,7 +143,11 @@ impl SignerTrait<SignerMessage> for Signer {
         match event {
             SignerEvent::BlockValidationResponse(block_validate_response) => {
                 debug!("{self}: Received a block proposal result from the stacks node...");
-                self.handle_block_validate_response(stacks_client, block_validate_response)
+                self.handle_block_validate_response(
+                    stacks_client,
+                    block_validate_response,
+                    sortition_state,
+                )
             }
             SignerEvent::SignerMessages(_signer_set, messages) => {
                 debug!(
@@ -291,7 +295,12 @@ impl Signer {
     /// Determine this signers response to a proposed block
     /// Returns a BlockResponse if we have already validated the block
     /// Returns None otherwise
-    fn determine_response(&self, block_info: &BlockInfo) -> Option<BlockResponse> {
+    fn determine_response(
+        &self,
+        block_info: &BlockInfo,
+        stacks_client: &StacksClient,
+        sortition_state: &mut Option<SortitionsView>,
+    ) -> Option<BlockResponse> {
         let valid = block_info.valid?;
         let response = if valid {
             debug!("{self}: Accepting block {}", block_info.block.block_id());
@@ -302,7 +311,7 @@ impl Signer {
             BlockResponse::accepted(
                 block_info.signer_signature_hash(),
                 signature,
-                self.calculate_tenure_extend_timestamp(),
+                self.calculate_tenure_extend_timestamp(stacks_client, sortition_state),
             )
         } else {
             debug!("{self}: Rejecting block {}", block_info.block.block_id());
@@ -311,7 +320,7 @@ impl Signer {
                 RejectCode::RejectedInPriorRound,
                 &self.private_key,
                 self.mainnet,
-                self.calculate_tenure_extend_timestamp(),
+                self.calculate_tenure_extend_timestamp(stacks_client, sortition_state),
             )
         };
         Some(response)
@@ -343,7 +352,9 @@ impl Signer {
             .block_lookup(self.reward_cycle, &signer_signature_hash)
             .expect("Failed to connect to signer DB")
         {
-            let Some(block_response) = self.determine_response(&block_info) else {
+            let Some(block_response) =
+                self.determine_response(&block_info, stacks_client, sortition_state)
+            else {
                 // We are still waiting for a response for this block. Do nothing.
                 debug!("{self}: Received a block proposal for a block we are already validating.";
                     "signer_sighash" => %signer_signature_hash,
@@ -392,6 +403,8 @@ impl Signer {
                     .ok();
         }
 
+        let tenure_extend_timestamp =
+            self.calculate_tenure_extend_timestamp(stacks_client, sortition_state);
         // Check if proposal can be rejected now if not valid against sortition view
         let block_response = if let Some(sortition_state) = sortition_state {
             match sortition_state.check_proposal(
@@ -414,7 +427,7 @@ impl Signer {
                         RejectCode::ConnectivityIssues,
                         &self.private_key,
                         self.mainnet,
-                        self.calculate_tenure_extend_timestamp(),
+                        tenure_extend_timestamp,
                     ))
                 }
                 // Block proposal is bad
@@ -429,7 +442,7 @@ impl Signer {
                         RejectCode::SortitionViewMismatch,
                         &self.private_key,
                         self.mainnet,
-                        self.calculate_tenure_extend_timestamp(),
+                        tenure_extend_timestamp,
                     ))
                 }
                 // Block proposal passed check, still don't know if valid
@@ -446,7 +459,7 @@ impl Signer {
                 RejectCode::NoSortitionView,
                 &self.private_key,
                 self.mainnet,
-                self.calculate_tenure_extend_timestamp(),
+                tenure_extend_timestamp,
             ))
         };
 
@@ -474,7 +487,7 @@ impl Signer {
             }
         } else {
             // Just in case check if the last block validation submission timed out.
-            self.check_submitted_block_proposal();
+            self.check_submitted_block_proposal(stacks_client, sortition_state);
             if self.submitted_block_proposal.is_none() {
                 // We don't know if proposal is valid, submit to stacks-node for further checks and store it locally.
                 info!(
@@ -528,6 +541,7 @@ impl Signer {
         &mut self,
         stacks_client: &StacksClient,
         block_validate_ok: &BlockValidateOk,
+        sortition_state: &mut Option<SortitionsView>,
     ) -> Option<BlockResponse> {
         crate::monitoring::increment_block_validation_responses(true);
         let signer_signature_hash = block_validate_ok.signer_signature_hash;
@@ -580,7 +594,7 @@ impl Signer {
         let accepted = BlockAccepted::new(
             block_info.signer_signature_hash(),
             signature,
-            self.calculate_tenure_extend_timestamp(),
+            self.calculate_tenure_extend_timestamp(stacks_client, sortition_state),
         );
         // have to save the signature _after_ the block info
         self.handle_block_signature(stacks_client, &accepted);
@@ -590,7 +604,9 @@ impl Signer {
     /// Handle the block validate reject response. Returns our block response if we have one
     fn handle_block_validate_reject(
         &mut self,
+        stacks_client: &StacksClient,
         block_validate_reject: &BlockValidateReject,
+        sortition_state: &mut Option<SortitionsView>,
     ) -> Option<BlockResponse> {
         crate::monitoring::increment_block_validation_responses(false);
         let signer_signature_hash = block_validate_reject.signer_signature_hash;
@@ -635,7 +651,7 @@ impl Signer {
             block_validate_reject.clone(),
             &self.private_key,
             self.mainnet,
-            self.calculate_tenure_extend_timestamp(),
+            self.calculate_tenure_extend_timestamp(stacks_client, sortition_state),
         );
         self.signer_db
             .insert_block(&block_info)
@@ -649,15 +665,19 @@ impl Signer {
         &mut self,
         stacks_client: &StacksClient,
         block_validate_response: &BlockValidateResponse,
+        sortition_state: &mut Option<SortitionsView>,
     ) {
         info!("{self}: Received a block validate response: {block_validate_response:?}");
         let block_response = match block_validate_response {
             BlockValidateResponse::Ok(block_validate_ok) => {
-                self.handle_block_validate_ok(stacks_client, block_validate_ok)
+                self.handle_block_validate_ok(stacks_client, block_validate_ok, sortition_state)
             }
-            BlockValidateResponse::Reject(block_validate_reject) => {
-                self.handle_block_validate_reject(block_validate_reject)
-            }
+            BlockValidateResponse::Reject(block_validate_reject) => self
+                .handle_block_validate_reject(
+                    stacks_client,
+                    block_validate_reject,
+                    sortition_state,
+                ),
         };
         let Some(response) = block_response else {
             return;
@@ -682,7 +702,11 @@ impl Signer {
 
     /// Check the current tracked submitted block proposal to see if it has timed out.
     /// Broadcasts a rejection and marks the block locally rejected if it has.
-    fn check_submitted_block_proposal(&mut self) {
+    fn check_submitted_block_proposal(
+        &mut self,
+        stacks_client: &StacksClient,
+        sortition_state: &mut Option<SortitionsView>,
+    ) {
         let Some((block_proposal, block_submission)) = self.submitted_block_proposal.take() else {
             // Nothing to check.
             return;
@@ -733,7 +757,7 @@ impl Signer {
             RejectCode::ConnectivityIssues,
             &self.private_key,
             self.mainnet,
-            self.calculate_tenure_extend_timestamp(),
+            self.calculate_tenure_extend_timestamp(stacks_client, sortition_state),
         );
         if let Err(e) = block_info.mark_locally_rejected() {
             warn!("{self}: Failed to mark block as locally rejected: {e:?}",);
@@ -1116,7 +1140,7 @@ impl Signer {
                 RejectCode::TestingDirective,
                 &self.private_key,
                 self.mainnet,
-                self.calculate_tenure_extend_timestamp(),
+                u64::MAX,
             ))
         } else {
             None
@@ -1136,9 +1160,45 @@ impl Signer {
         }
     }
 
-    /// Calculate the tenure extend timestamp based on the tenure start and already consumed idle time
-    fn calculate_tenure_extend_timestamp(&self) -> u64 {
-        // TODO: udpate this to grab the idle time consumed against the tenure start time
-        get_epoch_time_secs()
+    /// Calculate the tenure extend timestamp based on the tenure start and already consumed idle time.
+    fn calculate_tenure_extend_timestamp(
+        &self,
+        stacks_client: &StacksClient,
+        sortition_state: &mut Option<SortitionsView>,
+    ) -> u64 {
+        if sortition_state.is_none() {
+            *sortition_state =
+                SortitionsView::fetch_view(self.proposal_config.clone(), stacks_client)
+                    .inspect_err(|e| {
+                        warn!(
+                            "{self}: Failed to update sortition view: {e:?}";
+                        )
+                    })
+                    .ok();
+        }
+        if let Some(sortition_state) = sortition_state {
+            let tenure_process_time = self
+                .signer_db
+                .get_globally_accepted_blocks(&sortition_state.cur_sortition.consensus_hash)
+                .unwrap_or_default()
+                .iter()
+                .map(|block| {
+                    if let Some(processed_time) = block.processed_time {
+                        processed_time.saturating_sub(block.proposed_time)
+                    } else {
+                        0
+                    }
+                })
+                .sum::<u64>();
+
+            sortition_state
+                .cur_sortition
+                .burn_header_timestamp
+                .saturating_add(self.proposal_config.tenure_idle_timeout.as_secs())
+                .saturating_add(tenure_process_time)
+        } else {
+            warn!("{self}: Failed to determine tenure extend timestamp. Using default u64::MAX");
+            u64::MAX
+        }
     }
 }

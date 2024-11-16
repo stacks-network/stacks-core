@@ -159,6 +159,8 @@ pub struct BlockInfo {
     pub state: BlockState,
     /// Extra data specific to v0, v1, etc.
     pub ext: ExtraBlockInfo,
+    /// Time at which the proposal was processed (epoch time in seconds)
+    pub processed_time: Option<u64>,
 }
 
 impl From<BlockProposal> for BlockInfo {
@@ -175,6 +177,7 @@ impl From<BlockProposal> for BlockInfo {
             signed_group: None,
             ext: ExtraBlockInfo::default(),
             state: BlockState::Unprocessed,
+            processed_time: None,
         }
     }
 }
@@ -190,6 +193,7 @@ impl BlockInfo {
         } else {
             self.signed_self.get_or_insert(get_epoch_time_secs());
         }
+        self.processed_time = Some(get_epoch_time_secs());
         Ok(())
     }
 
@@ -809,6 +813,20 @@ impl SignerDb {
             BlockState::try_from(state.as_str()).map_err(|_| DBError::Corruption)?,
         ))
     }
+
+    /// Return the all globally accepted block in a tenure (identified by its consensus hash).
+    pub fn get_globally_accepted_blocks(
+        &self,
+        tenure: &ConsensusHash,
+    ) -> Result<Vec<BlockInfo>, DBError> {
+        let query = "SELECT block_info FROM blocks WHERE consensus_hash = ?1 AND json_extract(block_info, '$.state') = ?2";
+        let args = params![tenure, &BlockState::GloballyAccepted.to_string()];
+        let result: Vec<String> = query_rows(&self.db, query, args)?;
+        result
+            .iter()
+            .map(|info| serde_json::from_str(info).map_err(DBError::from))
+            .collect()
+    }
 }
 
 fn try_deserialize<T>(s: Option<String>) -> Result<Option<T>, DBError>
@@ -1185,6 +1203,7 @@ mod tests {
             12345
         );
     }
+
     #[test]
     fn state_machine() {
         let (mut block, _) = create_block();
@@ -1225,5 +1244,140 @@ mod tests {
         assert!(!block.check_state(BlockState::LocallyRejected));
         assert!(!block.check_state(BlockState::GloballyAccepted));
         assert!(block.check_state(BlockState::GloballyRejected));
+    }
+
+    #[test]
+    fn get_accepted_blocks() {
+        let db_path = tmp_db_path();
+        let mut db = SignerDb::new(db_path).expect("Failed to create signer db");
+        let consensus_hash_1 = ConsensusHash([0x01; 20]);
+        let consensus_hash_2 = ConsensusHash([0x02; 20]);
+        let consensus_hash_3 = ConsensusHash([0x03; 20]);
+        let (mut block_info_1, _block_proposal) = create_block_override(|b| {
+            b.block.header.consensus_hash = consensus_hash_1;
+            b.block.header.miner_signature = MessageSignature([0x01; 65]);
+            b.block.header.chain_length = 1;
+            b.burn_height = 1;
+        });
+        let (mut block_info_2, _block_proposal) = create_block_override(|b| {
+            b.block.header.consensus_hash = consensus_hash_1;
+            b.block.header.miner_signature = MessageSignature([0x02; 65]);
+            b.block.header.chain_length = 2;
+            b.burn_height = 2;
+        });
+        let (mut block_info_3, _block_proposal) = create_block_override(|b| {
+            b.block.header.consensus_hash = consensus_hash_1;
+            b.block.header.miner_signature = MessageSignature([0x03; 65]);
+            b.block.header.chain_length = 3;
+            b.burn_height = 3;
+        });
+        let (mut block_info_4, _block_proposal) = create_block_override(|b| {
+            b.block.header.consensus_hash = consensus_hash_2;
+            b.block.header.miner_signature = MessageSignature([0x03; 65]);
+            b.block.header.chain_length = 3;
+            b.burn_height = 4;
+        });
+        block_info_1.mark_globally_accepted().unwrap();
+        block_info_2.mark_locally_accepted(false).unwrap();
+        block_info_3.mark_locally_accepted(false).unwrap();
+        block_info_4.mark_globally_accepted().unwrap();
+
+        db.insert_block(&block_info_1).unwrap();
+        db.insert_block(&block_info_2).unwrap();
+        db.insert_block(&block_info_3).unwrap();
+        db.insert_block(&block_info_4).unwrap();
+
+        // Verify tenure consensus_hash_1
+        let block_info = db
+            .get_last_accepted_block(&consensus_hash_1)
+            .unwrap()
+            .unwrap();
+        assert_eq!(block_info, block_info_3);
+        let block_info = db
+            .get_last_globally_accepted_block(&consensus_hash_1)
+            .unwrap()
+            .unwrap();
+        assert_eq!(block_info, block_info_1);
+
+        // Verify tenure consensus_hash_2
+        let block_info = db
+            .get_last_accepted_block(&consensus_hash_2)
+            .unwrap()
+            .unwrap();
+        assert_eq!(block_info, block_info_4);
+        let block_info = db
+            .get_last_globally_accepted_block(&consensus_hash_2)
+            .unwrap()
+            .unwrap();
+        assert_eq!(block_info, block_info_4);
+
+        // Verify tenure consensus_hash_3
+        assert!(db
+            .get_last_accepted_block(&consensus_hash_3)
+            .unwrap()
+            .is_none());
+        assert!(db
+            .get_last_globally_accepted_block(&consensus_hash_3)
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn get_all_globally_accepted_blocks() {
+        let db_path = tmp_db_path();
+        let mut db = SignerDb::new(db_path).expect("Failed to create signer db");
+        let consensus_hash_1 = ConsensusHash([0x01; 20]);
+        let consensus_hash_2 = ConsensusHash([0x02; 20]);
+        let consensus_hash_3 = ConsensusHash([0x03; 20]);
+        let (mut block_info_1, _block_proposal) = create_block_override(|b| {
+            b.block.header.consensus_hash = consensus_hash_1;
+            b.block.header.miner_signature = MessageSignature([0x01; 65]);
+            b.block.header.chain_length = 1;
+            b.burn_height = 1;
+        });
+        let (mut block_info_2, _block_proposal) = create_block_override(|b| {
+            b.block.header.consensus_hash = consensus_hash_1;
+            b.block.header.miner_signature = MessageSignature([0x02; 65]);
+            b.block.header.chain_length = 2;
+            b.burn_height = 2;
+        });
+        let (mut block_info_3, _block_proposal) = create_block_override(|b| {
+            b.block.header.consensus_hash = consensus_hash_1;
+            b.block.header.miner_signature = MessageSignature([0x03; 65]);
+            b.block.header.chain_length = 3;
+            b.burn_height = 3;
+        });
+        let (mut block_info_4, _block_proposal) = create_block_override(|b| {
+            b.block.header.consensus_hash = consensus_hash_2;
+            b.block.header.miner_signature = MessageSignature([0x03; 65]);
+            b.block.header.chain_length = 3;
+            b.burn_height = 4;
+        });
+        block_info_1.mark_globally_accepted().unwrap();
+        block_info_2.mark_locally_accepted(false).unwrap();
+        block_info_3.mark_globally_accepted().unwrap();
+        block_info_4.mark_globally_accepted().unwrap();
+
+        db.insert_block(&block_info_1).unwrap();
+        db.insert_block(&block_info_2).unwrap();
+        db.insert_block(&block_info_3).unwrap();
+        db.insert_block(&block_info_4).unwrap();
+
+        // Verify tenure consensus_hash_1
+        let block_infos = db.get_globally_accepted_blocks(&consensus_hash_1).unwrap();
+        assert_eq!(block_infos.len(), 2);
+        assert!(block_infos.contains(&block_info_1));
+        assert!(block_infos.contains(&block_info_3));
+
+        // Verify tenure consensus_hash_2
+        let block_infos = db.get_globally_accepted_blocks(&consensus_hash_2).unwrap();
+        assert_eq!(block_infos.len(), 1);
+        assert!(block_infos.contains(&block_info_4));
+
+        // Verify tenure consensus_hash_3
+        assert!(db
+            .get_globally_accepted_blocks(&consensus_hash_3)
+            .unwrap()
+            .is_empty());
     }
 }

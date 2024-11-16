@@ -457,6 +457,7 @@ fn block_proposal_rejection() {
         first_proposal_burn_block_timing: Duration::from_secs(0),
         block_proposal_timeout: Duration::from_secs(100),
         tenure_last_block_proposal_timeout: Duration::from_secs(30),
+        tenure_idle_timeout: Duration::from_secs(300),
     };
     let mut block = NakamotoBlock {
         header: NakamotoBlockHeader::empty(),
@@ -6949,6 +6950,7 @@ fn block_validation_response_timeout() {
         first_proposal_burn_block_timing: Duration::from_secs(0),
         tenure_last_block_proposal_timeout: Duration::from_secs(30),
         block_proposal_timeout: Duration::from_secs(100),
+        tenure_idle_timeout: Duration::from_secs(300),
     };
     let mut block = NakamotoBlock {
         header: NakamotoBlockHeader::empty(),
