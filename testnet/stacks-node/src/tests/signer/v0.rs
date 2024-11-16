@@ -431,7 +431,8 @@ impl SignerTest<SpawnedSigner> {
 /// The stacks node is advanced to epoch 3.0 reward set calculation to ensure the signer set is determined.
 /// An invalid block proposal is forcibly written to the miner's slot to simulate the miner proposing a block.
 /// The signers process the invalid block by first verifying it against the stacks node block proposal endpoint.
-/// The signers then broadcast a rejection of the miner's proposed block back to the respective .signers-XXX-YYY contract.
+/// The signer that submitted the initial block validation request, should issue a  broadcast a rejection of the
+/// miner's proposed block back to the respective .signers-XXX-YYY contract.
 ///
 /// Test Assertion:
 /// Each signer successfully rejects the invalid block proposal.
@@ -2692,7 +2693,7 @@ fn empty_sortition_before_approval() {
     let block_proposal_timeout = Duration::from_secs(20);
     let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
-        vec![(sender_addr.clone(), send_amt + send_fee)],
+        vec![(sender_addr, send_amt + send_fee)],
         |config| {
             // make the duration long enough that the miner will be marked as malicious
             config.block_proposal_timeout = block_proposal_timeout;
@@ -2793,15 +2794,14 @@ fn empty_sortition_before_approval() {
             }
             let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
             let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
-            match &parsed.payload {
-                TransactionPayload::TenureChange(payload) => match payload.cause {
+            if let TransactionPayload::TenureChange(payload) = &parsed.payload {
+                match payload.cause {
                     TenureChangeCause::Extended => {
                         info!("Found tenure extend block");
                         return Ok(true);
                     }
                     TenureChangeCause::BlockFound => {}
-                },
-                _ => {}
+                }
             };
         }
         Ok(false)
@@ -2866,7 +2866,7 @@ fn empty_sortition_before_proposal() {
     let block_proposal_timeout = Duration::from_secs(20);
     let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
-        vec![(sender_addr.clone(), send_amt + send_fee)],
+        vec![(sender_addr, send_amt + send_fee)],
         |config| {
             // make the duration long enough that the miner will be marked as malicious
             config.block_proposal_timeout = block_proposal_timeout;
@@ -2951,15 +2951,14 @@ fn empty_sortition_before_proposal() {
             }
             let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
             let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
-            match &parsed.payload {
-                TransactionPayload::TenureChange(payload) => match payload.cause {
+            if let TransactionPayload::TenureChange(payload) = &parsed.payload {
+                match payload.cause {
                     TenureChangeCause::Extended => {
                         info!("Found tenure extend block");
                         return Ok(true);
                     }
                     TenureChangeCause::BlockFound => {}
-                },
-                _ => {}
+                }
             };
         }
         Ok(false)
@@ -6867,4 +6866,174 @@ fn block_commit_delay() {
     .expect("Timed out waiting for block commit after new Stacks block");
 
     signer_test.shutdown();
+}
+
+// Ensures that a signer that successfully submits a block to the node for validation
+// will issue ConnectivityIssues rejections if a block submission times out.
+// Also ensures that no other proposal gets submitted for validation if we
+// are already waiting for a block submission response.
+#[test]
+#[ignore]
+fn block_validation_response_timeout() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(EnvFilter::from_default_env())
+        .init();
+
+    info!("------------------------- Test Setup -------------------------");
+    let num_signers = 5;
+    let timeout = Duration::from_secs(30);
+    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_addr = tests::to_addr(&sender_sk);
+    let send_amt = 100;
+    let send_fee = 180;
+    let recipient = PrincipalData::from(StacksAddress::burn_address(false));
+
+    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
+        num_signers,
+        vec![(sender_addr, send_amt + send_fee)],
+        |config| {
+            config.block_proposal_validation_timeout = timeout;
+        },
+        |_| {},
+        None,
+        None,
+    );
+    let http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
+    signer_test.boot_to_epoch_3();
+
+    info!("------------------------- Test Mine and Verify Confirmed Nakamoto Block -------------------------");
+    signer_test.mine_and_verify_confirmed_naka_block(timeout, num_signers);
+    info!("------------------------- Test Block Validation Stalled -------------------------");
+    TEST_VALIDATE_STALL.lock().unwrap().replace(true);
+    let validation_stall_start = Instant::now();
+
+    let proposals_before = signer_test
+        .running_nodes
+        .nakamoto_blocks_proposed
+        .load(Ordering::SeqCst);
+
+    // submit a tx so that the miner will attempt to mine an extra block
+    let sender_nonce = 0;
+    let transfer_tx = make_stacks_transfer(
+        &sender_sk,
+        sender_nonce,
+        send_fee,
+        signer_test.running_nodes.conf.burnchain.chain_id,
+        &recipient,
+        send_amt,
+    );
+    submit_tx(&http_origin, &transfer_tx);
+
+    info!("Submitted transfer tx and waiting for block proposal");
+    wait_for(30, || {
+        Ok(signer_test
+            .running_nodes
+            .nakamoto_blocks_proposed
+            .load(Ordering::SeqCst)
+            > proposals_before)
+    })
+    .expect("Timed out waiting for block proposal");
+
+    assert!(
+        validation_stall_start.elapsed() < timeout,
+        "Test was too slow to propose another block before the timeout"
+    );
+
+    info!("------------------------- Propose Another Block Before Hitting the Timeout -------------------------");
+    let proposal_conf = ProposalEvalConfig {
+        first_proposal_burn_block_timing: Duration::from_secs(0),
+        tenure_last_block_proposal_timeout: Duration::from_secs(30),
+        block_proposal_timeout: Duration::from_secs(100),
+    };
+    let mut block = NakamotoBlock {
+        header: NakamotoBlockHeader::empty(),
+        txs: vec![],
+    };
+
+    let info_before = get_chain_info(&signer_test.running_nodes.conf);
+    // Propose a block to the signers that passes initial checks but will not be submitted to the stacks node due to the submission stall
+    let view = SortitionsView::fetch_view(proposal_conf, &signer_test.stacks_client).unwrap();
+    block.header.pox_treatment = BitVec::ones(1).unwrap();
+    block.header.consensus_hash = view.cur_sortition.consensus_hash;
+    block.header.chain_length = info_before.stacks_tip_height + 1;
+
+    let block_signer_signature_hash_1 = block.header.signer_signature_hash();
+    signer_test.propose_block(block, timeout);
+
+    info!("------------------------- Waiting for Timeout -------------------------");
+    // Sleep the necessary timeout to make sure the validation times out.
+    let elapsed = validation_stall_start.elapsed();
+    let wait = timeout.saturating_sub(elapsed);
+    info!("Sleeping for {} ms", wait.as_millis());
+    std::thread::sleep(timeout.saturating_sub(elapsed));
+
+    info!("------------------------- Wait for Block Rejection Due to Timeout -------------------------");
+    // Verify that the signer that submits the block to the node will issue a ConnectivityIssues rejection
+    wait_for(30, || {
+        let chunks = test_observer::get_stackerdb_chunks();
+        for chunk in chunks.into_iter().flat_map(|chunk| chunk.modified_slots) {
+            let Ok(message) = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
+            else {
+                continue;
+            };
+            let SignerMessage::BlockResponse(BlockResponse::Rejected(BlockRejection {
+                reason: _reason,
+                reason_code,
+                signer_signature_hash,
+                ..
+            })) = message
+            else {
+                continue;
+            };
+            // We are waiting for the original block proposal which will have a diff signature to our
+            // second proposed block.
+            assert_ne!(
+                signer_signature_hash, block_signer_signature_hash_1,
+                "Received a rejection for the wrong block"
+            );
+            if matches!(reason_code, RejectCode::ConnectivityIssues) {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    })
+    .expect("Timed out waiting for block proposal rejections");
+    // Make sure our chain has still not advanced
+    let info_after = get_chain_info(&signer_test.running_nodes.conf);
+    assert_eq!(info_before, info_after);
+    let info_before = info_after;
+    info!("Unpausing block validation");
+    // Disable the stall and wait for the block to be processed successfully
+    TEST_VALIDATE_STALL.lock().unwrap().replace(false);
+    wait_for(30, || {
+        let info = get_chain_info(&signer_test.running_nodes.conf);
+        Ok(info.stacks_tip_height > info_before.stacks_tip_height)
+    })
+    .expect("Timed out waiting for block to be processed");
+
+    let info_after = get_chain_info(&signer_test.running_nodes.conf);
+    assert_eq!(
+        info_after.stacks_tip_height,
+        info_before.stacks_tip_height + 1,
+    );
+    info!("------------------------- Test Mine and Verify Confirmed Nakamoto Block -------------------------");
+    let info_before = info_after;
+    signer_test.mine_and_verify_confirmed_naka_block(timeout, num_signers);
+
+    wait_for(30, || {
+        let info = get_chain_info(&signer_test.running_nodes.conf);
+        Ok(info.stacks_tip_height > info_before.stacks_tip_height)
+    })
+    .unwrap();
+
+    let info_after = get_chain_info(&signer_test.running_nodes.conf);
+    assert_eq!(
+        info_after.stacks_tip_height,
+        info_before.stacks_tip_height + 1,
+    );
 }
