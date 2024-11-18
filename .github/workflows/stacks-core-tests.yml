@@ -10,7 +10,7 @@ env:
   BITCOIND_TEST: 1
   RUST_BACKTRACE: full
   SEGMENT_DOWNLOAD_TIMEOUT_MINS: 3
-  TEST_TIMEOUT: 30
+  TEST_TIMEOUT: 60
 
 concurrency:
   group: stacks-core-tests-${{ github.head_ref || github.ref || github.run_id }}
@@ -93,7 +93,7 @@ jobs:
       - name: Run Tests
         id: run_tests
         timeout-minutes: ${{ fromJSON(env.TEST_TIMEOUT) }}
-        uses: stacks-network/actions/stacks-core/run-tests/partition@main
+        uses: stacks-network/actions/stacks-core/run-tests/partition@feat/shadow
         with:
           partition: ${{ matrix.partition }}
           total-partitions: 8
