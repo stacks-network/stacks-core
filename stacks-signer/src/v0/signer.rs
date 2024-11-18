@@ -299,7 +299,11 @@ impl Signer {
                 .private_key
                 .sign(block_info.signer_signature_hash().bits())
                 .expect("Failed to sign block");
-            BlockResponse::accepted(block_info.signer_signature_hash(), signature)
+            BlockResponse::accepted(
+                block_info.signer_signature_hash(),
+                signature,
+                self.calculate_tenure_extend_timestamp(),
+            )
         } else {
             debug!("{self}: Rejecting block {}", block_info.block.block_id());
             BlockResponse::rejected(
@@ -307,6 +311,7 @@ impl Signer {
                 RejectCode::RejectedInPriorRound,
                 &self.private_key,
                 self.mainnet,
+                self.calculate_tenure_extend_timestamp(),
             )
         };
         Some(response)
@@ -409,6 +414,7 @@ impl Signer {
                         RejectCode::ConnectivityIssues,
                         &self.private_key,
                         self.mainnet,
+                        self.calculate_tenure_extend_timestamp(),
                     ))
                 }
                 // Block proposal is bad
@@ -423,6 +429,7 @@ impl Signer {
                         RejectCode::SortitionViewMismatch,
                         &self.private_key,
                         self.mainnet,
+                        self.calculate_tenure_extend_timestamp(),
                     ))
                 }
                 // Block proposal passed check, still don't know if valid
@@ -439,6 +446,7 @@ impl Signer {
                 RejectCode::NoSortitionView,
                 &self.private_key,
                 self.mainnet,
+                self.calculate_tenure_extend_timestamp(),
             ))
         };
 
@@ -569,7 +577,11 @@ impl Signer {
         self.signer_db
             .insert_block(&block_info)
             .unwrap_or_else(|_| panic!("{self}: Failed to insert block in DB"));
-        let accepted = BlockAccepted::new(block_info.signer_signature_hash(), signature);
+        let accepted = BlockAccepted::new(
+            block_info.signer_signature_hash(),
+            signature,
+            self.calculate_tenure_extend_timestamp(),
+        );
         // have to save the signature _after_ the block info
         self.handle_block_signature(stacks_client, &accepted);
         Some(BlockResponse::Accepted(accepted))
@@ -623,6 +635,7 @@ impl Signer {
             block_validate_reject.clone(),
             &self.private_key,
             self.mainnet,
+            self.calculate_tenure_extend_timestamp(),
         );
         self.signer_db
             .insert_block(&block_info)
@@ -720,6 +733,7 @@ impl Signer {
             RejectCode::ConnectivityIssues,
             &self.private_key,
             self.mainnet,
+            self.calculate_tenure_extend_timestamp(),
         );
         if let Err(e) = block_info.mark_locally_rejected() {
             warn!("{self}: Failed to mark block as locally rejected: {e:?}",);
@@ -865,6 +879,7 @@ impl Signer {
             signer_signature_hash: block_hash,
             signature,
             metadata,
+            ..
         } = accepted;
         debug!(
             "{self}: Received a block-accept signature: ({block_hash}, {signature}, {})",
@@ -1101,6 +1116,7 @@ impl Signer {
                 RejectCode::TestingDirective,
                 &self.private_key,
                 self.mainnet,
+                self.calculate_tenure_extend_timestamp(),
             ))
         } else {
             None
@@ -1118,5 +1134,11 @@ impl Signer {
         {
             warn!("{self}: Failed to send mock signature to stacker-db: {e:?}",);
         }
+    }
+
+    /// Calculate the tenure extend timestamp based on the tenure start and already consumed idle time
+    fn calculate_tenure_extend_timestamp(&self) -> u64 {
+        // TODO: udpate this to grab the idle time consumed against the tenure start time
+        get_epoch_time_secs()
     }
 }

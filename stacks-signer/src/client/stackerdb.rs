@@ -286,6 +286,7 @@ mod tests {
             chain_id: thread_rng().next_u32(),
             signature: MessageSignature::empty(),
             metadata: SignerMessageMetadata::empty(),
+            tenure_extend_timestamp: thread_rng().next_u64(),
         };
         let signer_message = SignerMessage::BlockResponse(BlockResponse::Rejected(block_reject));
         let ack = StackerDBChunkAckData {
