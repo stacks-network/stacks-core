@@ -157,7 +157,7 @@ pub struct BlockInfo {
     pub signed_group: Option<u64>,
     /// The block state relative to the signer's view of the stacks blockchain
     pub state: BlockState,
-    /// Amount of validation time in milliseconds
+    /// Consumed processing time in milliseconds to validate this block
     pub validation_time_ms: Option<u64>,
     /// Extra data specific to v0, v1, etc.
     pub ext: ExtraBlockInfo,
