@@ -243,6 +243,26 @@ fn test_try_make_response() {
     );
     requests.push(request);
 
+    // query undeclared var metadata
+    let request = StacksHttpRequest::new_getclaritymetadata(
+        addr.into(),
+        StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap(),
+        "hello-world".try_into().unwrap(),
+        "vm-metadata::6::non-existing-var".to_string(),
+        TipRequest::UseLatestAnchoredTip,
+    );
+    requests.push(request);
+
+    // query invalid metadata key (wrong store type)
+    let request = StacksHttpRequest::new_getclaritymetadata(
+        addr.into(),
+        StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap(),
+        "hello-world".try_into().unwrap(),
+        "vm-metadata::2::bar".to_string(),
+        TipRequest::UseLatestAnchoredTip,
+    );
+    requests.push(request);
+
     let mut responses = test_rpc(function_name!(), requests);
 
     // contract size metadata
@@ -270,4 +290,14 @@ fn test_try_make_response() {
         value_type: TypeSignature::IntType,
     };
     assert_eq!(resp.data, expected.serialize());
+
+    // invalid metadata key
+    let response = responses.remove(0);
+    let (preamble, body) = response.destruct();
+    assert_eq!(preamble.status_code, 404);
+
+    // unknwnon data var
+    let response = responses.remove(0);
+    let (preamble, body) = response.destruct();
+    assert_eq!(preamble.status_code, 400);
 }
