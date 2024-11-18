@@ -136,7 +136,7 @@ pub struct SignerConfig {
     pub tenure_last_block_proposal_timeout: Duration,
     /// How much time to wait for a block proposal validation response before marking the block invalid
     pub block_proposal_validation_timeout: Duration,
-    /// How much idle tie must pass before allowing a tenure extend
+    /// How much idle time must pass before allowing a tenure extend
     pub tenure_idle_timeout: Duration,
 }
 

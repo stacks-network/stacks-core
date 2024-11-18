@@ -18,6 +18,7 @@ use std::sync::mpsc::Sender;
 use std::time::{Duration, Instant};
 
 use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
+use blockstack_lib::chainstate::stacks::TransactionPayload;
 use blockstack_lib::net::api::postblock_proposal::{
     BlockValidateOk, BlockValidateReject, BlockValidateResponse,
 };
@@ -583,6 +584,9 @@ impl Signer {
             warn!("{self}: Failed to mark block as locally accepted: {e:?}",);
             return None;
         }
+        // Record the block validation time
+        block_info.validation_time_ms = Some(block_validate_ok.validation_time_ms);
+
         let signature = self
             .private_key
             .sign(&signer_signature_hash.0)
@@ -1176,29 +1180,43 @@ impl Signer {
                     })
                     .ok();
         }
-        if let Some(sortition_state) = sortition_state {
-            let tenure_process_time = self
-                .signer_db
-                .get_globally_accepted_blocks(&sortition_state.cur_sortition.consensus_hash)
-                .unwrap_or_default()
-                .iter()
-                .map(|block| {
-                    if let Some(processed_time) = block.processed_time {
-                        processed_time.saturating_sub(block.proposed_time)
-                    } else {
-                        0
-                    }
-                })
-                .sum::<u64>();
+        let Some(sortition_state) = sortition_state else {
+            warn!("{self}: No sortition state known. Unable to determine tenure extend timestamp for current tenure.");
+            return get_epoch_time_secs()
+                .saturating_add(self.proposal_config.tenure_idle_timeout.as_secs());
+        };
+        // We do not know our tenure start timestamp until we find the last processed tenure change transaction.
+        // We may not even have it in our database, in which case, we should use the oldest known block in this tenure.
+        // If we have no blocks known for this tenure, we will assume it has only just started and calculate
+        // our tenure extend timestamp based on the epoch time in secs.
+        let mut tenure_start_timestamp = None;
+        let mut tenure_process_time_ms = 0;
+        // Note that the globally accepted blocks are already returned in descending order of stacks height, therefore by newest block to oldest block
+        for block_info in self
+            .signer_db
+            .get_globally_accepted_blocks(&sortition_state.cur_sortition.consensus_hash)
+            .unwrap_or_default()
+            .iter()
+        {
+            // Always use the oldest block as our tenure start timestamp
+            tenure_start_timestamp = Some(block_info.proposed_time);
+            tenure_process_time_ms += block_info.validation_time_ms.unwrap_or(0);
 
-            sortition_state
-                .cur_sortition
-                .burn_header_timestamp
-                .saturating_add(self.proposal_config.tenure_idle_timeout.as_secs())
-                .saturating_add(tenure_process_time)
-        } else {
-            warn!("{self}: Failed to determine tenure extend timestamp. Using default u64::MAX");
-            u64::MAX
+            if block_info
+                .block
+                .txs
+                .first()
+                .map(|tx| matches!(tx.payload, TransactionPayload::TenureChange(_)))
+                .unwrap_or(false)
+            {
+                // Tenure change found. No more blocks should count towards this tenure's processing time.
+                break;
+            }
         }
+
+        tenure_start_timestamp
+            .unwrap_or(get_epoch_time_secs())
+            .saturating_add(self.proposal_config.tenure_idle_timeout.as_secs())
+            .saturating_sub(tenure_process_time_ms / 1000)
     }
 }
