@@ -18,10 +18,11 @@ use std::sync::mpsc::Sender;
 use std::time::{Duration, Instant};
 
 use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
+use blockstack_lib::chainstate::stacks::TransactionPayload;
 use blockstack_lib::net::api::postblock_proposal::{
     BlockValidateOk, BlockValidateReject, BlockValidateResponse,
 };
-use clarity::types::chainstate::StacksPrivateKey;
+use clarity::types::chainstate::{ConsensusHash, StacksPrivateKey};
 use clarity::types::{PrivateKey, StacksEpochId};
 use clarity::util::hash::MerkleHashFunc;
 use clarity::util::secp256k1::Secp256k1PublicKey;
@@ -302,7 +303,7 @@ impl Signer {
             BlockResponse::accepted(
                 block_info.signer_signature_hash(),
                 signature,
-                self.calculate_tenure_extend_timestamp(),
+                self.calculate_tenure_extend_timestamp(&block_info.block.header.consensus_hash),
             )
         } else {
             debug!("{self}: Rejecting block {}", block_info.block.block_id());
@@ -311,7 +312,7 @@ impl Signer {
                 RejectCode::RejectedInPriorRound,
                 &self.private_key,
                 self.mainnet,
-                self.calculate_tenure_extend_timestamp(),
+                self.calculate_tenure_extend_timestamp(&block_info.block.header.consensus_hash),
             )
         };
         Some(response)
@@ -414,7 +415,9 @@ impl Signer {
                         RejectCode::ConnectivityIssues,
                         &self.private_key,
                         self.mainnet,
-                        self.calculate_tenure_extend_timestamp(),
+                        self.calculate_tenure_extend_timestamp(
+                            &block_proposal.block.header.consensus_hash,
+                        ),
                     ))
                 }
                 // Block proposal is bad
@@ -429,7 +432,9 @@ impl Signer {
                         RejectCode::SortitionViewMismatch,
                         &self.private_key,
                         self.mainnet,
-                        self.calculate_tenure_extend_timestamp(),
+                        self.calculate_tenure_extend_timestamp(
+                            &block_proposal.block.header.consensus_hash,
+                        ),
                     ))
                 }
                 // Block proposal passed check, still don't know if valid
@@ -446,7 +451,7 @@ impl Signer {
                 RejectCode::NoSortitionView,
                 &self.private_key,
                 self.mainnet,
-                self.calculate_tenure_extend_timestamp(),
+                self.calculate_tenure_extend_timestamp(&block_proposal.block.header.consensus_hash),
             ))
         };
 
@@ -569,6 +574,9 @@ impl Signer {
             warn!("{self}: Failed to mark block as locally accepted: {e:?}",);
             return None;
         }
+        // Record the block validation time
+        block_info.validation_time_ms = Some(block_validate_ok.validation_time_ms);
+
         let signature = self
             .private_key
             .sign(&signer_signature_hash.0)
@@ -580,7 +588,7 @@ impl Signer {
         let accepted = BlockAccepted::new(
             block_info.signer_signature_hash(),
             signature,
-            self.calculate_tenure_extend_timestamp(),
+            self.calculate_tenure_extend_timestamp(&block_info.block.header.consensus_hash),
         );
         // have to save the signature _after_ the block info
         self.handle_block_signature(stacks_client, &accepted);
@@ -635,7 +643,7 @@ impl Signer {
             block_validate_reject.clone(),
             &self.private_key,
             self.mainnet,
-            self.calculate_tenure_extend_timestamp(),
+            self.calculate_tenure_extend_timestamp(&block_info.block.header.consensus_hash),
         );
         self.signer_db
             .insert_block(&block_info)
@@ -733,7 +741,7 @@ impl Signer {
             RejectCode::ConnectivityIssues,
             &self.private_key,
             self.mainnet,
-            self.calculate_tenure_extend_timestamp(),
+            self.calculate_tenure_extend_timestamp(&block_proposal.block.header.consensus_hash),
         );
         if let Err(e) = block_info.mark_locally_rejected() {
             warn!("{self}: Failed to mark block as locally rejected: {e:?}",);
@@ -1116,7 +1124,7 @@ impl Signer {
                 RejectCode::TestingDirective,
                 &self.private_key,
                 self.mainnet,
-                self.calculate_tenure_extend_timestamp(),
+                self.calculate_tenure_extend_timestamp(&block_proposal.block.header.consensus_hash),
             ))
         } else {
             None
@@ -1136,9 +1144,40 @@ impl Signer {
         }
     }
 
-    /// Calculate the tenure extend timestamp based on the tenure start and already consumed idle time
-    fn calculate_tenure_extend_timestamp(&self) -> u64 {
-        // TODO: udpate this to grab the idle time consumed against the tenure start time
-        get_epoch_time_secs()
+    /// Calculate the tenure extend timestamp based on the tenure start and already consumed idle time.
+    fn calculate_tenure_extend_timestamp(&self, consensus_hash: &ConsensusHash) -> u64 {
+        // We do not know our tenure start timestamp until we find the last processed tenure change transaction for the given consensus hash.
+        // We may not even have it in our database, in which case, we should use the oldest known block in the tenure.
+        // If we have no blocks known for this tenure, we will assume it has only JUST started and calculate
+        // our tenure extend timestamp based on the epoch time in secs.
+        let mut tenure_start_timestamp = None;
+        let mut tenure_process_time_ms = 0;
+        // Note that the globally accepted blocks are already returned in descending order of stacks height, therefore by newest block to oldest block
+        for block_info in self
+            .signer_db
+            .get_globally_accepted_blocks(consensus_hash)
+            .unwrap_or_default()
+            .iter()
+        {
+            // Always use the oldest block as our tenure start timestamp
+            tenure_start_timestamp = Some(block_info.proposed_time);
+            tenure_process_time_ms += block_info.validation_time_ms.unwrap_or(0);
+
+            if block_info
+                .block
+                .txs
+                .first()
+                .map(|tx| matches!(tx.payload, TransactionPayload::TenureChange(_)))
+                .unwrap_or(false)
+            {
+                // Tenure change found. No more blocks should count towards this tenure's processing time.
+                break;
+            }
+        }
+
+        tenure_start_timestamp
+            .unwrap_or(get_epoch_time_secs())
+            .saturating_add(self.proposal_config.tenure_idle_timeout.as_secs())
+            .saturating_sub(tenure_process_time_ms / 1000)
     }
 }

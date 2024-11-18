@@ -457,6 +457,7 @@ fn block_proposal_rejection() {
         first_proposal_burn_block_timing: Duration::from_secs(0),
         block_proposal_timeout: Duration::from_secs(100),
         tenure_last_block_proposal_timeout: Duration::from_secs(30),
+        tenure_idle_timeout: Duration::from_secs(300),
     };
     let mut block = NakamotoBlock {
         header: NakamotoBlockHeader::empty(),
@@ -509,10 +510,16 @@ fn block_proposal_rejection() {
             {
                 if signer_signature_hash == block_signer_signature_hash_1 {
                     found_signer_signature_hash_1 = true;
-                    assert!(matches!(reason_code, RejectCode::SortitionViewMismatch));
+                    assert!(
+                        matches!(reason_code, RejectCode::SortitionViewMismatch),
+                        "Expected sortition view mismatch rejection. Got: {reason_code}"
+                    );
                 } else if signer_signature_hash == block_signer_signature_hash_2 {
                     found_signer_signature_hash_2 = true;
-                    assert!(matches!(reason_code, RejectCode::ValidationFailed(_)));
+                    assert!(
+                        matches!(reason_code, RejectCode::ValidationFailed(_)),
+                        "Expected validation failed rejection. Got: {reason_code}"
+                    );
                 } else {
                     continue;
                 }
@@ -6949,6 +6956,7 @@ fn block_validation_response_timeout() {
         first_proposal_burn_block_timing: Duration::from_secs(0),
         tenure_last_block_proposal_timeout: Duration::from_secs(30),
         block_proposal_timeout: Duration::from_secs(100),
+        tenure_idle_timeout: Duration::from_secs(300),
     };
     let mut block = NakamotoBlock {
         header: NakamotoBlockHeader::empty(),

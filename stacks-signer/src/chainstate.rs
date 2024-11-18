@@ -122,6 +122,8 @@ pub struct ProposalEvalConfig {
     /// Time to wait for the last block of a tenure to be globally accepted or rejected before considering
     /// a new miner's block at the same height as valid.
     pub tenure_last_block_proposal_timeout: Duration,
+    /// How much idle time must pass before allowing a tenure extend
+    pub tenure_idle_timeout: Duration,
 }
 
 impl From<&SignerConfig> for ProposalEvalConfig {
@@ -130,6 +132,7 @@ impl From<&SignerConfig> for ProposalEvalConfig {
             first_proposal_burn_block_timing: value.first_proposal_burn_block_timing,
             block_proposal_timeout: value.block_proposal_timeout,
             tenure_last_block_proposal_timeout: value.tenure_last_block_proposal_timeout,
+            tenure_idle_timeout: value.tenure_idle_timeout,
         }
     }
 }
