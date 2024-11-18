@@ -1030,18 +1030,18 @@ fn should_succeed_handling_malformed_and_valid_txs() {
                     // Transaction #1 should be the coinbase from the leader
                     let coinbase_tx = &chain_tip.block.txs[0];
                     assert!(coinbase_tx.chain_id == CHAIN_ID_TESTNET);
-                    assert!(match coinbase_tx.payload {
-                        TransactionPayload::Coinbase(..) => true,
-                        _ => false,
-                    });
+                    assert!(matches!(
+                        coinbase_tx.payload,
+                        TransactionPayload::Coinbase(..)
+                    ));
 
                     // Transaction #2 should be the smart contract published
                     let contract_tx = &chain_tip.block.txs[1];
                     assert!(contract_tx.chain_id == CHAIN_ID_TESTNET);
-                    assert!(match contract_tx.payload {
-                        TransactionPayload::SmartContract(..) => true,
-                        _ => false,
-                    });
+                    assert!(matches!(
+                        contract_tx.payload,
+                        TransactionPayload::SmartContract(..)
+                    ));
                 }
                 2 => {
                     // Inspecting the chain at round 2.
