@@ -263,6 +263,16 @@ fn test_try_make_response() {
     );
     requests.push(request);
 
+    // query existing contract size metadata
+    let request = StacksHttpRequest::new_getclaritymetadata(
+        addr.into(),
+        StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap(),
+        "hello-world".try_into().unwrap(),
+        "vm-metadata::9::contract-size".to_string(),
+        TipRequest::UseLatestAnchoredTip,
+    );
+    requests.push(request);
+
     let mut responses = test_rpc(function_name!(), requests);
 
     // contract size metadata
