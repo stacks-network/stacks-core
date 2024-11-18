@@ -15,8 +15,10 @@
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
-use clarity::vm::types::{QualifiedContractIdentifier, StacksAddressExtensions};
+use clarity::vm::database::{ClaritySerializable, DataMapMetadata, DataVariableMetadata};
+use clarity::vm::types::{QualifiedContractIdentifier, StacksAddressExtensions, TypeSignature};
 use clarity::vm::{ClarityName, ContractName};
+use serde_json::json;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::net::PeerHost;
@@ -211,7 +213,7 @@ fn test_try_make_response() {
 
     let mut requests = vec![];
 
-    // query existing
+    // query existing contract size metadata
     let request = StacksHttpRequest::new_getclaritymetadata(
         addr.into(),
         StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap(),
@@ -221,16 +223,51 @@ fn test_try_make_response() {
     );
     requests.push(request);
 
+    // query existing data var metadata
+    let request = StacksHttpRequest::new_getclaritymetadata(
+        addr.into(),
+        StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap(),
+        "hello-world".try_into().unwrap(),
+        "vm-metadata::5::test-map".to_string(),
+        TipRequest::UseLatestAnchoredTip,
+    );
+    requests.push(request);
+
+    // query existing data map metadata
+    let request = StacksHttpRequest::new_getclaritymetadata(
+        addr.into(),
+        StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap(),
+        "hello-world".try_into().unwrap(),
+        "vm-metadata::6::bar".to_string(),
+        TipRequest::UseLatestAnchoredTip,
+    );
+    requests.push(request);
+
     let mut responses = test_rpc(function_name!(), requests);
 
-    // latest data
+    // contract size metadata
     let response = responses.remove(0);
-
     assert_eq!(
         response.preamble().get_canonical_stacks_tip_height(),
         Some(1)
     );
-
     let resp = response.decode_clarity_metadata_response().unwrap();
     assert_eq!(resp.data, "1432");
+
+    // data map metadata
+    let response = responses.remove(0);
+    let resp = response.decode_clarity_metadata_response().unwrap();
+    let expected = DataMapMetadata {
+        key_type: TypeSignature::UIntType,
+        value_type: TypeSignature::UIntType,
+    };
+    assert_eq!(resp.data, expected.serialize());
+
+    // data var metadata
+    let response = responses.remove(0);
+    let resp = response.decode_clarity_metadata_response().unwrap();
+    let expected = DataVariableMetadata {
+        value_type: TypeSignature::IntType,
+    };
+    assert_eq!(resp.data, expected.serialize());
 }

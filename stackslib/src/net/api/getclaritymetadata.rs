@@ -16,7 +16,9 @@
 use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::database::clarity_db::ContractDataVarName;
 use clarity::vm::database::StoreType;
-use clarity::vm::representations::{CONTRACT_NAME_REGEX_STRING, STANDARD_PRINCIPAL_REGEX_STRING};
+use clarity::vm::representations::{
+    CONTRACT_NAME_REGEX_STRING, MAX_STRING_LEN, STANDARD_PRINCIPAL_REGEX_STRING,
+};
 use clarity::vm::types::QualifiedContractIdentifier;
 use clarity::vm::ContractName;
 use lazy_static::lazy_static;
@@ -35,10 +37,12 @@ use crate::net::httpcore::{
 use crate::net::{Error as NetError, StacksNodeState, TipRequest};
 
 lazy_static! {
-    static ref CLARITY_NAME_NO_BOUNDARIES_REGEX_STRING: String =
-        "[a-zA-Z]([a-zA-Z0-9]|[-_!?+<>=/*])*|[-+=/*]|[<>]=?".into();
+    static ref CLARITY_NAME_NO_BOUNDARIES_REGEX_STRING: String = format!(
+        "([a-zA-Z]([a-zA-Z0-9]|[-_!?+<>=/*])*|[-+=/*]|[<>]=?){{1,{}}}",
+        MAX_STRING_LEN
+    );
     static ref METADATA_KEY_REGEX_STRING: String = format!(
-        r"vm-metadata::(?P<data_type>(\d{{1,2}}))::(?P<var_name>(contract|contract-size|contract-src|contract-data-size|({})))",
+        r"vm-metadata::(?P<data_type>(\d{{1,2}}))::(?P<var_name>(contract|contract-size|contract-src|contract-data-size|{}))",
         *CLARITY_NAME_NO_BOUNDARIES_REGEX_STRING,
     );
 }
