@@ -145,6 +145,7 @@ pub struct BlockValidateOk {
     pub signer_signature_hash: Sha512Trunc256Sum,
     pub cost: ExecutionCost,
     pub size: u64,
+    pub validation_time_ms: u64,
 }
 
 /// This enum is used for serializing the response to block
@@ -356,7 +357,12 @@ impl NakamotoBlockProposal {
         }
         let ts_start = get_epoch_time_ms();
         // Measure time from start of function
-        let time_elapsed = || get_epoch_time_ms().saturating_sub(ts_start);
+        let time_elapsed = || {
+            get_epoch_time_ms()
+                .saturating_sub(ts_start)
+                .try_into()
+                .unwrap_or(u64::MAX)
+        };
 
         let mainnet = self.chain_id == CHAIN_ID_MAINNET;
         if self.chain_id != chainstate.chain_id || mainnet != chainstate.mainnet {
@@ -544,6 +550,8 @@ impl NakamotoBlockProposal {
             });
         }
 
+        let validation_time_ms = time_elapsed();
+
         info!(
             "Participant: validated anchored block";
             "block_header_hash" => %computed_block_header_hash,
@@ -552,7 +560,7 @@ impl NakamotoBlockProposal {
             "parent_stacks_block_id" => %block.header.parent_block_id,
             "block_size" => size,
             "execution_cost" => %cost,
-            "validation_time_ms" => time_elapsed(),
+            "validation_time_ms" => validation_time_ms,
             "tx_fees_microstacks" => block.txs.iter().fold(0, |agg: u64, tx| {
                 agg.saturating_add(tx.get_tx_fee())
             })
@@ -562,6 +570,7 @@ impl NakamotoBlockProposal {
             signer_signature_hash: block.header.signer_signature_hash(),
             cost,
             size,
+            validation_time_ms,
         })
     }
 }

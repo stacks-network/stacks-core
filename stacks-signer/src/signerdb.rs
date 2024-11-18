@@ -157,10 +157,10 @@ pub struct BlockInfo {
     pub signed_group: Option<u64>,
     /// The block state relative to the signer's view of the stacks blockchain
     pub state: BlockState,
+    /// Consumed processing time in milliseconds to validate this block
+    pub validation_time_ms: Option<u64>,
     /// Extra data specific to v0, v1, etc.
     pub ext: ExtraBlockInfo,
-    /// Time at which the proposal was processed (epoch time in seconds)
-    pub processed_time: Option<u64>,
 }
 
 impl From<BlockProposal> for BlockInfo {
@@ -177,7 +177,7 @@ impl From<BlockProposal> for BlockInfo {
             signed_group: None,
             ext: ExtraBlockInfo::default(),
             state: BlockState::Unprocessed,
-            processed_time: None,
+            validation_time_ms: None,
         }
     }
 }
@@ -193,7 +193,6 @@ impl BlockInfo {
         } else {
             self.signed_self.get_or_insert(get_epoch_time_secs());
         }
-        self.processed_time = Some(get_epoch_time_secs());
         Ok(())
     }
 
@@ -819,7 +818,7 @@ impl SignerDb {
         &self,
         tenure: &ConsensusHash,
     ) -> Result<Vec<BlockInfo>, DBError> {
-        let query = "SELECT block_info FROM blocks WHERE consensus_hash = ?1 AND json_extract(block_info, '$.state') = ?2";
+        let query = "SELECT block_info FROM blocks WHERE consensus_hash = ?1 AND json_extract(block_info, '$.state') = ?2 ORDER BY stacks_height DESC";
         let args = params![tenure, &BlockState::GloballyAccepted.to_string()];
         let result: Vec<String> = query_rows(&self.db, query, args)?;
         result
@@ -1365,14 +1364,12 @@ mod tests {
 
         // Verify tenure consensus_hash_1
         let block_infos = db.get_globally_accepted_blocks(&consensus_hash_1).unwrap();
-        assert_eq!(block_infos.len(), 2);
-        assert!(block_infos.contains(&block_info_1));
-        assert!(block_infos.contains(&block_info_3));
+        assert_eq!(block_infos, vec![block_info_3, block_info_1]);
 
         // Verify tenure consensus_hash_2
         let block_infos = db.get_globally_accepted_blocks(&consensus_hash_2).unwrap();
         assert_eq!(block_infos.len(), 1);
-        assert!(block_infos.contains(&block_info_4));
+        assert_eq!(block_infos, vec![block_info_4]);
 
         // Verify tenure consensus_hash_3
         assert!(db

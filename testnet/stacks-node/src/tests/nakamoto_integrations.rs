@@ -6459,7 +6459,7 @@ fn signer_chainstate() {
                 signed_group: None,
                 ext: ExtraBlockInfo::None,
                 state: BlockState::Unprocessed,
-                processed_time: None,
+                validation_time_ms: None,
             })
             .unwrap();
 
@@ -6549,7 +6549,7 @@ fn signer_chainstate() {
                 signed_group: Some(get_epoch_time_secs()),
                 ext: ExtraBlockInfo::None,
                 state: BlockState::GloballyAccepted,
-                processed_time: Some(get_epoch_time_secs()),
+                validation_time_ms: Some(1000),
             })
             .unwrap();
 
