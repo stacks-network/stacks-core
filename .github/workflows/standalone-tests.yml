@@ -25,6 +25,7 @@ on:
           - Slow Tests
           - Stacks-Core Tests
           - SBTC Tests
+          - Shadow Tests
 
 ## Set the display name to the test being run
 run-name: ${{ inputs.workflow }}
@@ -147,4 +148,16 @@ jobs:
     needs:
       - create-cache
     uses: ./.github/workflows/sbtc-tests.yml
+
+  shadow-tests:
+    if: |
+      (
+        inputs.workflow == 'CI Tests' ||
+        inputs.workflow == 'Release Tests' ||
+        inputs.workflow == 'Shadow Tests'
+      )
+    name: Shadow Test
+    needs:
+      - create-cache
+    uses: ./.github/workflows/shadow-tests.yml
 
