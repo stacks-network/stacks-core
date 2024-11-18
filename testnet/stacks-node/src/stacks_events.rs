@@ -22,10 +22,7 @@ fn main() {
 
     if help {
         println!("Usage: stacks-events [--addr=<addr>]");
-        println!(
-            "  --addr=<addr>  Address to listen on (default: {})",
-            DEFAULT_ADDR
-        );
+        println!("  --addr=<addr>  Address to listen on (default: {DEFAULT_ADDR})",);
         return;
     }
 
@@ -34,7 +31,7 @@ fn main() {
 
 fn serve_for_events(addr: &String) {
     let listener = TcpListener::bind(addr).unwrap();
-    eprintln!("Listening on {}", addr);
+    eprintln!("Listening on {addr}");
     for stream in listener.incoming() {
         let stream = stream.unwrap();
         handle_connection(stream);
@@ -82,17 +79,16 @@ fn handle_connection(mut stream: TcpStream) {
         "path": path.unwrap(),
         "payload": payload_json,
     });
-    println!("{}", record);
+    println!("{record}");
 
     {
         let contents = "Thanks!";
         let response = format!(
-            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n{}",
-            contents.len(),
-            contents
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n{contents}",
+            contents.len()
         );
 
-        stream.write_all(response.as_bytes()).unwrap();
+        let _nmb_bytes = stream.write(response.as_bytes()).unwrap();
         stream.flush().unwrap();
     }
 }

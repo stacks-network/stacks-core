@@ -1,7 +1,6 @@
 pub mod bitcoin_regtest_controller;
 pub mod mocknet_controller;
 
-use std::fmt;
 use std::time::Instant;
 
 use stacks::burnchains;
@@ -16,39 +15,24 @@ pub use self::bitcoin_regtest_controller::{make_bitcoin_indexer, BitcoinRegtestC
 pub use self::mocknet_controller::MocknetController;
 use super::operations::BurnchainOpSigner;
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum Error {
+    #[error("ChainsCoordinator closed")]
     CoordinatorClosed,
-    IndexerError(burnchains::Error),
+    #[error("Indexer error: {0}")]
+    IndexerError(#[from] burnchains::Error),
+    #[error("Burnchain error")]
     BurnchainError,
+    #[error("Max fee rate exceeded")]
     MaxFeeRateExceeded,
+    #[error("Identical operation, not submitting")]
     IdenticalOperation,
+    #[error("No UTXOs available")]
     NoUTXOs,
+    #[error("Transaction submission failed: {0}")]
     TransactionSubmissionFailed(String),
+    #[error("Serializer error: {0}")]
     SerializerError(CodecError),
-}
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Error::CoordinatorClosed => write!(f, "ChainsCoordinator closed"),
-            Error::IndexerError(ref e) => write!(f, "Indexer error: {:?}", e),
-            Error::BurnchainError => write!(f, "Burnchain error"),
-            Error::MaxFeeRateExceeded => write!(f, "Max fee rate exceeded"),
-            Error::IdenticalOperation => write!(f, "Identical operation, not submitting"),
-            Error::NoUTXOs => write!(f, "No UTXOs available"),
-            Error::TransactionSubmissionFailed(e) => {
-                write!(f, "Transaction submission failed: {e}")
-            }
-            Error::SerializerError(e) => write!(f, "Serializer error: {e}"),
-        }
-    }
-}
-
-impl From<burnchains::Error> for Error {
-    fn from(e: burnchains::Error) -> Self {
-        Error::IndexerError(e)
-    }
 }
 
 pub trait BurnchainController {
