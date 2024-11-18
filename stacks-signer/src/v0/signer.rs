@@ -1124,7 +1124,7 @@ impl Signer {
                 RejectCode::TestingDirective,
                 &self.private_key,
                 self.mainnet,
-                u64::MAX,
+                self.calculate_tenure_extend_timestamp(&block_proposal.block.header.consensus_hash),
             ))
         } else {
             None
