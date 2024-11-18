@@ -2969,9 +2969,9 @@ impl SortitionDB {
         db_tx: &Transaction,
         epochs: &[StacksEpoch],
     ) -> Result<(), db_error> {
-        let epochs = StacksEpoch::validate_epochs(epochs);
+        let epochs: &[StacksEpoch] = &StacksEpoch::validate_epochs(epochs);
         let existing_epochs = Self::get_stacks_epochs(db_tx)?;
-        if existing_epochs == epochs {
+        if &existing_epochs == epochs {
             return Ok(());
         }
 
@@ -3482,9 +3482,10 @@ impl SortitionDB {
                         tx.commit()?;
                     } else if version == expected_version {
                         // this transaction is almost never needed
-                        let validated_epochs = StacksEpoch::validate_epochs(epochs);
+                        let validated_epochs: &[StacksEpoch] =
+                            &StacksEpoch::validate_epochs(epochs);
                         let existing_epochs = Self::get_stacks_epochs(self.conn())?;
-                        if existing_epochs == validated_epochs {
+                        if &existing_epochs == validated_epochs {
                             return Ok(());
                         }
 
@@ -6636,7 +6637,7 @@ pub mod tests {
         pub fn connect_test_with_epochs(
             first_block_height: u64,
             first_burn_hash: &BurnchainHeaderHash,
-            epochs: Vec<StacksEpoch>,
+            epochs: EpochList,
         ) -> Result<SortitionDB, db_error> {
             let mut rng = rand::thread_rng();
             let mut buf = [0u8; 32];
@@ -10930,10 +10931,9 @@ pub mod tests {
 
         fs::create_dir_all(path_root).unwrap();
 
-        let mut bad_epochs = STACKS_EPOCHS_MAINNET.to_vec();
-        let idx = bad_epochs.len() - 2;
-        bad_epochs[idx].end_height += 1;
-        bad_epochs[idx + 1].start_height += 1;
+        let mut bad_epochs = (*STACKS_EPOCHS_MAINNET).clone();
+        bad_epochs[StacksEpochId::Epoch25].end_height += 1;
+        bad_epochs[StacksEpochId::Epoch30].start_height += 1;
 
         let sortdb = SortitionDB::connect(
             &format!("{}/sortdb.sqlite", &path_root),
@@ -10948,14 +10948,14 @@ pub mod tests {
         .unwrap();
 
         let db_epochs = SortitionDB::get_stacks_epochs(sortdb.conn()).unwrap();
-        assert_eq!(db_epochs, bad_epochs);
+        assert_eq!(db_epochs, bad_epochs.to_vec());
 
         let fixed_sortdb = SortitionDB::connect(
             &format!("{}/sortdb.sqlite", &path_root),
             0,
             &BurnchainHeaderHash([0x00; 32]),
             0,
-            &STACKS_EPOCHS_MAINNET.to_vec(),
+            &STACKS_EPOCHS_MAINNET,
             PoxConstants::mainnet_default(),
             None,
             true,
