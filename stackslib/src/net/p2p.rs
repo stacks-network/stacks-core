@@ -1822,7 +1822,12 @@ impl PeerNetwork {
         };
 
         match self.can_register_peer(&neighbor_key, outbound) {
-            Ok(_) => {}
+            Ok(_) => {
+                info!(
+                    "Neighbor accepted! public key: {:?} address: {:?}",
+                    pubkey_opt, neighbor_key.addrbytes
+                );
+            }
             Err(e) => {
                 debug!(
                     "{:?}: Could not register peer {:?}: {:?}",
@@ -1917,6 +1922,10 @@ impl PeerNetwork {
         for (nk, pubkh) in nk_remove.into_iter() {
             // remove event state
             self.events.remove(&nk);
+            info!(
+                "Dropping neighbor! event id: {:?} public address: {:?} public key: {:?}",
+                event_id, pubkh, nk.addrbytes
+            );
 
             // remove inventory state
             if let Some(inv_state) = self.inv_state.as_mut() {
