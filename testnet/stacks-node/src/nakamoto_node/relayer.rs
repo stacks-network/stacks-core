@@ -38,7 +38,7 @@ use stacks::chainstate::stacks::miner::{
     get_mining_spend_amount, signal_mining_blocked, signal_mining_ready,
 };
 use stacks::core::mempool::MemPoolDB;
-use stacks::core::STACKS_EPOCH_3_0_MARKER;
+use stacks::core::STACKS_EPOCH_3_1_MARKER;
 use stacks::monitoring::increment_stx_blocks_mined_counter;
 use stacks::net::db::LocalPeer;
 use stacks::net::p2p::NetworkHandle;
@@ -689,7 +689,7 @@ impl RelayerThread {
             key_block_ptr: u32::try_from(key.block_height)
                 .expect("FATAL: burn block height exceeded u32"),
             key_vtxindex: u16::try_from(key.op_vtxindex).expect("FATAL: vtxindex exceeded u16"),
-            memo: vec![STACKS_EPOCH_3_0_MARKER],
+            memo: vec![STACKS_EPOCH_3_1_MARKER],
             new_seed: VRFSeed::from_proof(&tip_vrf_proof),
             parent_block_ptr: u32::try_from(commit_parent_block_burn_height)
                 .expect("FATAL: burn block height exceeded u32"),

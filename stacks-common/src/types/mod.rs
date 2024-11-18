@@ -459,6 +459,7 @@ impl StacksEpochId {
         match COINBASE_INTERVALS_TEST.lock() {
             Ok(schedule_opt) => {
                 if let Some(schedule) = (*schedule_opt).as_ref() {
+                    info!("Use overridden coinbase schedule {:?}", &schedule);
                     return schedule.clone();
                 }
             }
@@ -520,11 +521,18 @@ impl StacksEpochId {
             | StacksEpochId::Epoch30 => {
                 self.coinbase_reward_pre_sip029(first_burnchain_height, current_burnchain_height)
             }
-            StacksEpochId::Epoch31 => self.coinbase_reward_sip029(
-                mainnet,
-                first_burnchain_height,
-                current_burnchain_height,
-            ),
+            StacksEpochId::Epoch31 => {
+                let cb = self.coinbase_reward_sip029(
+                    mainnet,
+                    first_burnchain_height,
+                    current_burnchain_height,
+                );
+                info!(
+                    "Epoch31 coinbase at ({},{}) is {}",
+                    first_burnchain_height, current_burnchain_height, cb
+                );
+                cb
+            }
         }
     }
 }

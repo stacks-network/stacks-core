@@ -3618,7 +3618,7 @@ impl StacksChainState {
         burn_block_height: u64,
         first_burn_block_height: u64,
     ) -> u128 {
-        epoch.coinbase_reward(mainnet, burn_block_height, first_burn_block_height)
+        epoch.coinbase_reward(mainnet, first_burn_block_height, burn_block_height)
     }
 
     /// Create the block reward.
