@@ -145,7 +145,7 @@ pub struct BlockValidateOk {
     pub signer_signature_hash: Sha512Trunc256Sum,
     pub cost: ExecutionCost,
     pub size: u64,
-    pub validation_time_ms: u128,
+    pub validation_time_ms: u64,
 }
 
 /// This enum is used for serializing the response to block
@@ -357,7 +357,12 @@ impl NakamotoBlockProposal {
         }
         let ts_start = get_epoch_time_ms();
         // Measure time from start of function
-        let time_elapsed = || get_epoch_time_ms().saturating_sub(ts_start);
+        let time_elapsed = || {
+            get_epoch_time_ms()
+                .saturating_sub(ts_start)
+                .try_into()
+                .unwrap_or(u64::MAX)
+        };
 
         let mainnet = self.chain_id == CHAIN_ID_MAINNET;
         if self.chain_id != chainstate.chain_id || mainnet != chainstate.mainnet {
