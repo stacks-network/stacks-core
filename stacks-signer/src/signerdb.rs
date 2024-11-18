@@ -814,7 +814,7 @@ impl SignerDb {
         ))
     }
 
-    /// Return the all globally accepted block in a tenure (identified by its consensus hash).
+    /// Return the all globally accepted block in a tenure (identified by its consensus hash) in stacks height descending order
     fn get_globally_accepted_blocks(
         &self,
         tenure: &ConsensusHash,
