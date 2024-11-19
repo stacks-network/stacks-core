@@ -15,6 +15,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 - Add `tenure_cost_limit_per_block_percentage` to the miner config file to control the percentage remaining tenure cost limit to consume per nakamoto block.
 - Add `/v3/blockbyhash` and `/v3/blockbyheight` rpc endpoints
 - Add `/v3/blocks/height/:block_height` rpc endpoint
+- Add `tenure_cost_limit_per_block_percentage` to the miner config file to control the percentage remaining tenure cost limit to consume per nakamoto block.
 
 ## [3.0.0.0.1]
 
