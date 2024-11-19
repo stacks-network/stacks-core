@@ -92,6 +92,7 @@ fn test_try_make_response() {
     let rpc_test = TestRPC::setup_nakamoto(function_name!(), &test_observer);
 
     let nakamoto_chain_tip_height = rpc_test.tip_height.clone();
+    let canonical_tip = rpc_test.canonical_tip.clone();
     let consensus_hash = rpc_test.consensus_hash.clone();
 
     let mut requests = vec![];
@@ -146,6 +147,7 @@ fn test_try_make_response() {
     let resp = response.decode_nakamoto_block().unwrap();
 
     assert_eq!(resp.header.consensus_hash, consensus_hash);
+    assert_eq!(resp.header.block_id(), canonical_tip);
 
     // no block
     let response = responses.remove(0);
@@ -158,12 +160,14 @@ fn test_try_make_response() {
     let resp = response.decode_nakamoto_block().unwrap();
 
     assert_eq!(resp.header.consensus_hash, consensus_hash);
+    assert_eq!(resp.header.block_id(), canonical_tip);
 
     // got the block from the tip (unconfirmed)
     let response = responses.remove(0);
     let resp = response.decode_nakamoto_block().unwrap();
 
     assert_eq!(resp.header.consensus_hash, consensus_hash);
+    assert_eq!(resp.header.block_id(), canonical_tip);
 
     // no block for dummy tip
     let response = responses.remove(0);
