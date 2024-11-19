@@ -61,8 +61,6 @@ mod getattachmentsinv;
 mod getblock;
 mod getblock_v3;
 mod getblockbyheight;
-mod getblockbyhash;
-mod getblockbyheight;
 mod getconstantval;
 mod getcontractabi;
 mod getcontractsrc;
@@ -202,10 +200,6 @@ pub struct TestRPC<'a> {
     pub convo_2: ConversationHttp,
     /// hash of the chain tip
     pub canonical_tip: StacksBlockId,
-    /// block header hash of the chain tip
-    pub tip_hash: BlockHeaderHash,
-    /// block height of the chain tip
-    pub tip_height: u64,
     /// block header hash of the chain tip
     pub tip_hash: BlockHeaderHash,
     /// block height of the chain tip
@@ -925,8 +919,6 @@ impl<'a> TestRPC<'a> {
             convo_2,
             canonical_tip: nakamoto_tip.index_block_hash(),
             consensus_hash: nakamoto_tip.consensus_hash.clone(),
-            tip_hash: nakamoto_tip.anchored_header.block_hash(),
-            tip_height: nakamoto_tip.stacks_block_height,
             tip_hash: nakamoto_tip.anchored_header.block_hash(),
             tip_height: nakamoto_tip.stacks_block_height,
             microblock_tip_hash: BlockHeaderHash([0x00; 32]),
