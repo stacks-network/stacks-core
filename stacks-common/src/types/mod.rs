@@ -1,5 +1,6 @@
 use std::cmp::Ordering;
 use std::fmt;
+use std::ops::{Deref, DerefMut, Index, IndexMut};
 
 #[cfg(feature = "canonical")]
 pub mod sqlite;
@@ -473,5 +474,85 @@ impl<L: PartialEq> PartialOrd for StacksEpoch<L> {
 impl<L: PartialEq + Eq> Ord for StacksEpoch<L> {
     fn cmp(&self, other: &StacksEpoch<L>) -> Ordering {
         self.epoch_id.cmp(&other.epoch_id)
+    }
+}
+
+/// A wrapper for holding a list of Epochs, indexable by StacksEpochId
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq)]
+pub struct EpochList<L: Clone>(Vec<StacksEpoch<L>>);
+
+impl<L: Clone> EpochList<L> {
+    pub fn new(epochs: &[StacksEpoch<L>]) -> EpochList<L> {
+        EpochList(epochs.to_vec())
+    }
+
+    pub fn get(&self, index: StacksEpochId) -> Option<&StacksEpoch<L>> {
+        self.0.get(StacksEpoch::find_epoch_by_id(&self.0, index)?)
+    }
+
+    pub fn get_mut(&mut self, index: StacksEpochId) -> Option<&mut StacksEpoch<L>> {
+        let index = StacksEpoch::find_epoch_by_id(&self.0, index)?;
+        self.0.get_mut(index)
+    }
+
+    /// Truncates the list after the given epoch id
+    pub fn truncate_after(&mut self, epoch_id: StacksEpochId) {
+        if let Some(index) = StacksEpoch::find_epoch_by_id(&self.0, epoch_id) {
+            self.0.truncate(index + 1);
+        }
+    }
+
+    /// Determine which epoch, if any, a given burnchain height falls into.
+    pub fn epoch_id_at_height(&self, height: u64) -> Option<StacksEpochId> {
+        StacksEpoch::find_epoch(self, height).map(|idx| self.0[idx].epoch_id)
+    }
+
+    /// Determine which epoch, if any, a given burnchain height falls into.
+    pub fn epoch_at_height(&self, height: u64) -> Option<StacksEpoch<L>> {
+        StacksEpoch::find_epoch(self, height).map(|idx| self.0[idx].clone())
+    }
+
+    /// Pushes a new `StacksEpoch` to the end of the list
+    pub fn push(&mut self, epoch: StacksEpoch<L>) {
+        if let Some(last) = self.0.last() {
+            assert!(
+                epoch.start_height == last.end_height && epoch.epoch_id > last.epoch_id,
+                "Epochs must be pushed in order"
+            );
+        }
+        self.0.push(epoch);
+    }
+
+    pub fn to_vec(&self) -> Vec<StacksEpoch<L>> {
+        self.0.clone()
+    }
+}
+
+impl<L: Clone> Index<StacksEpochId> for EpochList<L> {
+    type Output = StacksEpoch<L>;
+    fn index(&self, index: StacksEpochId) -> &StacksEpoch<L> {
+        self.get(index)
+            .expect("Invalid StacksEpochId: could not find corresponding epoch")
+    }
+}
+
+impl<L: Clone> IndexMut<StacksEpochId> for EpochList<L> {
+    fn index_mut(&mut self, index: StacksEpochId) -> &mut StacksEpoch<L> {
+        self.get_mut(index)
+            .expect("Invalid StacksEpochId: could not find corresponding epoch")
+    }
+}
+
+impl<L: Clone> Deref for EpochList<L> {
+    type Target = [StacksEpoch<L>];
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<L: Clone> DerefMut for EpochList<L> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
     }
 }

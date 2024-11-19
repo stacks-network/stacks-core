@@ -42,7 +42,6 @@ use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::nakamoto::signer_set::NakamotoSigners;
 use stacks::chainstate::stacks::boot::{NakamotoSignerEntry, SIGNERS_NAME};
 use stacks::chainstate::stacks::StacksPrivateKey;
-use stacks::core::StacksEpoch;
 use stacks::net::api::postblock_proposal::{
     BlockValidateOk, BlockValidateReject, BlockValidateResponse,
 };
@@ -453,8 +452,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
     // Must be called AFTER booting the chainstate
     fn run_until_epoch_3_boundary(&mut self) {
         let epochs = self.running_nodes.conf.burnchain.epochs.clone().unwrap();
-        let epoch_3 =
-            &epochs[StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch30).unwrap()];
+        let epoch_3 = &epochs[StacksEpochId::Epoch30];
 
         let epoch_30_boundary = epoch_3.start_height - 1;
         // advance to epoch 3.0 and trigger a sign round (cannot vote on blocks in pre epoch 3.0)
