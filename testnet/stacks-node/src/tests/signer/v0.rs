@@ -4142,6 +4142,9 @@ fn partial_tenure_fork() {
     let btc_miner_1_pk = Keychain::default(btc_miner_1_seed.clone()).get_pub_key();
     let btc_miner_2_pk = Keychain::default(btc_miner_2_seed.clone()).get_pub_key();
 
+    let mining_pkh_1 = Hash160::from_node_public_key(&btc_miner_1_pk);
+    let _mining_pkh_2 = Hash160::from_node_public_key(&btc_miner_2_pk);
+
     let node_1_rpc = gen_random_port();
     let node_1_p2p = gen_random_port();
     let node_2_rpc = gen_random_port();
@@ -4265,6 +4268,15 @@ fn partial_tenure_fork() {
     let mut miner_1_blocks = 0;
     let mut miner_2_blocks = 0;
     let mut min_miner_2_blocks = 0;
+    let mut last_sortition_winner: Option<u64> = None;
+    let mut miner_2_won_2_in_a_row = false;
+
+    let sortdb = SortitionDB::open(
+        &conf.get_burn_db_file_path(),
+        false,
+        conf.get_burnchain().pox_constants,
+    )
+    .unwrap();
 
     while miner_1_tenures < min_miner_1_tenures || miner_2_tenures < min_miner_2_tenures {
         if btc_blocks_mined >= max_nakamoto_tenures {
@@ -4294,6 +4306,7 @@ fn partial_tenure_fork() {
             "proposed_before_2" => proposed_before_2,
             "mined_before_1" => mined_before_1,
             "mined_before_2" => mined_before_2,
+            "last_sortition_winner" => last_sortition_winner,
         );
 
         next_block_and(
@@ -4337,8 +4350,32 @@ fn partial_tenure_fork() {
         });
         btc_blocks_mined += 1;
 
+        let tip_sn = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+        let sortition_winner = match tip_sn.miner_pk_hash {
+            Some(pk_hash) => {
+                if pk_hash == mining_pkh_1 {
+                    1
+                } else {
+                    2
+                }
+            }
+            // No sortition means miner 2 won (?)
+            None => {
+                panic!("No sortition winner found, assuming miner 2 won");
+                //2
+            }
+        };
+
         let mined_1 = blocks_mined1.load(Ordering::SeqCst);
-        let miner = if mined_1 > mined_before_1 { 1 } else { 2 };
+        let miner: u64 = if mined_1 > mined_before_1 { 1 } else { 2 };
+
+        if let Some(last_sortition_winner) = last_sortition_winner {
+            if last_sortition_winner == sortition_winner && sortition_winner == 2 {
+                miner_2_won_2_in_a_row = true;
+            }
+        }
+
+        last_sortition_winner = Some(sortition_winner);
 
         if miner == 1 && miner_1_tenures == 0 {
             // Setup miner 2 to ignore a block in this tenure
@@ -4380,6 +4417,8 @@ fn partial_tenure_fork() {
                 "mined_before_1" => mined_before_1,
                 "mined_before_2" => mined_before_2,
                 "miner" => miner as u64,
+                "last_sortition_winner" => last_sortition_winner,
+                "miner_2_won_2_in_a_row?" => miner_2_won_2_in_a_row,
             );
 
             // submit a tx so that the miner will mine an extra block
@@ -4403,7 +4442,9 @@ fn partial_tenure_fork() {
 
                         Ok((fork_initiated && proposed_2 > proposed_before_2)
                             || mined_1 > mined_before_1
-                            || mined_2 > mined_before_2)
+                            || mined_2 > mined_before_2
+                            // Special case where neither miner can mine a block:
+                            || miner_2_won_2_in_a_row)
                     })
                     .unwrap_or_else(|_| {
                         let mined_1 = blocks_mined1.load(Ordering::SeqCst);
@@ -4414,7 +4455,7 @@ fn partial_tenure_fork() {
                             .load(Ordering::SeqCst);
                         let proposed_2 = blocks_proposed2.load(Ordering::SeqCst);
                         error!(
-                            "Next tenure failed to tick";
+                            "Next interim block failed to tick";
                             "fork_initiated?" => fork_initiated,
                             "miner_1_tenures" => miner_1_tenures,
                             "miner_2_tenures" => miner_2_tenures,
@@ -4447,12 +4488,18 @@ fn partial_tenure_fork() {
             );
         }
 
-        if miner == 1 {
+        if sortition_winner == 1 {
             miner_1_tenures += 1;
-            miner_1_blocks += blocks;
         } else {
             miner_2_tenures += 1;
-            miner_2_blocks += blocks;
+        }
+
+        if miner == 1 {
+            miner_1_blocks += blocks;
+        } else {
+            // miner_2_blocks += blocks;
+            // Miner 2 should never mine any blocks
+            miner_2_blocks += 0;
         }
 
         let mined_1 = blocks_mined1.load(Ordering::SeqCst);
@@ -4462,14 +4509,11 @@ fn partial_tenure_fork() {
             "----- Miner 1 tenures: {miner_1_tenures}, Miner 2 tenures: {miner_2_tenures}, Miner 1 before: {mined_before_1}, Miner 2 before: {mined_before_2}, Miner 1 blocks: {mined_1}, Miner 2 blocks: {mined_2} -----",
         );
 
-        if miner == 1 {
+        if miner == 1 && !miner_2_won_2_in_a_row {
             assert_eq!(mined_1, mined_before_1 + blocks + 1);
-        } else if miner_2_tenures < min_miner_2_tenures {
-            assert_eq!(mined_2, mined_before_2 + blocks + 1);
-        } else {
-            // Miner 2 should have mined 0 blocks after the fork
-            assert_eq!(mined_2, mined_before_2);
         }
+        // Miner 2 should have mined 0 blocks
+        assert_eq!(mined_2, mined_before_2);
     }
 
     info!(
