@@ -131,31 +131,48 @@ fn test_try_make_response() {
         .get_all_blocks_in_tenure(&consensus_hash, &canonical_tip)
         .unwrap();
 
-    //let nakamoto_block_tip = NakamotoBlock::consensus_deserialize(&mut &block_data[..]).unwrap();
+    let nakamoto_block_genesis = tenure_blocks.first().unwrap();
+    let tx_genesis = &nakamoto_block_genesis.txs[0];
 
     let nakamoto_block_tip = tenure_blocks.last().unwrap();
-
-    let tx = &nakamoto_block_tip.txs[0];
+    let tx_tip = &nakamoto_block_tip.txs[0];
 
     let mut requests = vec![];
 
-    // query the transaction
-    let request = StacksHttpRequest::new_gettransaction(addr.into(), tx.txid());
+    // query the transactions
+    let request = StacksHttpRequest::new_gettransaction(addr.into(), tx_genesis.txid());
+    requests.push(request);
+
+    let request = StacksHttpRequest::new_gettransaction(addr.into(), tx_tip.txid());
+    requests.push(request);
+
+    // fake transaction
+    let request = StacksHttpRequest::new_gettransaction(addr.into(), Txid([0x21; 32]));
     requests.push(request);
 
     let mut responses = rpc_test.run(requests);
 
-    // check txid
+    // check genesis txid
     let response = responses.remove(0);
     let resp = response.decode_gettransaction().unwrap();
 
     let tx_bytes = hex_bytes(&resp.tx).unwrap();
     let stacks_transaction = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
-    assert_eq!(stacks_transaction.txid(), tx.txid());
+    assert_eq!(stacks_transaction.txid(), tx_genesis.txid());
     assert_eq!(stacks_transaction.serialize_to_vec(), tx_bytes);
 
-    // let response = responses.remove(0);
-    //let (preamble, body) = response.destruct();
+    // check tip txid
+    let response = responses.remove(0);
+    let resp = response.decode_gettransaction().unwrap();
 
-    //assert_eq!(preamble.status_code, 404);
+    let tx_bytes = hex_bytes(&resp.tx).unwrap();
+    let stacks_transaction = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
+    assert_eq!(stacks_transaction.txid(), tx_tip.txid());
+    assert_eq!(stacks_transaction.serialize_to_vec(), tx_bytes);
+
+    // invalid tx
+    let response = responses.remove(0);
+    let (preamble, body) = response.destruct();
+
+    assert_eq!(preamble.status_code, 404);
 }

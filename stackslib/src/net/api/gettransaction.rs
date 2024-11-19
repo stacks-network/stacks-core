@@ -123,27 +123,39 @@ impl RPCRequestHandler for RPCGetTransactionRequestHandler {
                     Err(_) => return Err(NetError::NotFoundError),
                 };
 
-                match chainstate
-                    .nakamoto_blocks_db()
-                    .get_nakamoto_block(index_block_hashes.first().unwrap())
-                {
-                    Ok(nakamoto_block) => {
-                        for tx in nakamoto_block.unwrap().0.txs {
-                            if tx.txid() == txid {
-                                return Ok(TransactionResponse {
-                                    block_hash: index_block_hashes[0].to_hex(),
-                                    tx: to_hex(&tx.serialize_to_vec()),
-                                });
+                // search for the first matching tx with valid index_block_hash
+                for index_block_hash in index_block_hashes {
+                    match chainstate
+                        .nakamoto_blocks_db()
+                        .get_nakamoto_block(&index_block_hash)
+                    {
+                        Ok(nakamoto_block) => {
+                            for tx in nakamoto_block.unwrap().0.txs {
+                                if tx.txid() == txid {
+                                    return Ok(TransactionResponse {
+                                        block_hash: index_block_hash.to_hex(),
+                                        tx: to_hex(&tx.serialize_to_vec()),
+                                    });
+                                }
                             }
                         }
-                        return Err(NetError::NotFoundError);
+                        Err(_) => return Err(NetError::NotFoundError),
                     }
-                    Err(_) => return Err(NetError::NotFoundError),
                 }
+
+                return Err(NetError::NotFoundError);
             });
 
-        let mut preamble = HttpResponsePreamble::ok_json(&preamble);
-        //preamble.set_canonical_stacks_tip_height(Some(node.canonical_stacks_tip_height()));
+        if txinfo_res.is_err() {
+            return StacksHttpResponse::new_error(
+                &preamble,
+                &HttpNotFound::new(format!("Transaction {} not found", &txid)),
+            )
+            .try_into_contents()
+            .map_err(NetError::from);
+        }
+
+        let preamble = HttpResponsePreamble::ok_json(&preamble);
         let body = HttpResponseContents::try_from_json(&txinfo_res.ok())?;
         Ok((preamble, body))
     }
