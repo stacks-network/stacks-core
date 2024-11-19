@@ -840,6 +840,7 @@ impl NakamotoChainState {
         handle: &mut SH,
         block: &NakamotoBlock,
         parent_coinbase_height: u64,
+        do_not_advance: bool,
     ) -> Result<u64, ChainstateError> {
         let Some(tenure_payload) = block.get_tenure_tx_payload() else {
             // no new tenure
@@ -867,6 +868,9 @@ impl NakamotoChainState {
             ));
         };
 
+        if do_not_advance {
+            return Ok(coinbase_height);
+        }
         Self::insert_nakamoto_tenure(headers_tx, &block.header, coinbase_height, tenure_payload)?;
         return Ok(coinbase_height);
     }

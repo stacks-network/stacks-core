@@ -540,9 +540,7 @@ impl Signer {
             .block_lookup(self.reward_cycle, &signer_signature_hash)
         {
             Ok(Some(block_info)) => {
-                if block_info.state == BlockState::GloballyRejected
-                    || block_info.state == BlockState::GloballyAccepted
-                {
+                if block_info.is_locally_finalized() {
                     debug!("{self}: Received block validation for a block that is already marked as {}. Ignoring...", block_info.state);
                     return None;
                 }
@@ -559,8 +557,11 @@ impl Signer {
             }
         };
         if let Err(e) = block_info.mark_locally_accepted(false) {
-            warn!("{self}: Failed to mark block as locally accepted: {e:?}",);
-            return None;
+            if !block_info.has_reached_consensus() {
+                warn!("{self}: Failed to mark block as locally accepted: {e:?}",);
+                return None;
+            }
+            block_info.signed_self.get_or_insert(get_epoch_time_secs());
         }
         let signature = self
             .private_key
@@ -598,9 +599,7 @@ impl Signer {
             .block_lookup(self.reward_cycle, &signer_signature_hash)
         {
             Ok(Some(block_info)) => {
-                if block_info.state == BlockState::GloballyRejected
-                    || block_info.state == BlockState::GloballyAccepted
-                {
+                if block_info.is_locally_finalized() {
                     debug!("{self}: Received block validation for a block that is already marked as {}. Ignoring...", block_info.state);
                     return None;
                 }
@@ -617,8 +616,10 @@ impl Signer {
             }
         };
         if let Err(e) = block_info.mark_locally_rejected() {
-            warn!("{self}: Failed to mark block as locally rejected: {e:?}",);
-            return None;
+            if !block_info.has_reached_consensus() {
+                warn!("{self}: Failed to mark block as locally rejected: {e:?}",);
+                return None;
+            }
         }
         let block_rejection = BlockRejection::from_validate_rejection(
             block_validate_reject.clone(),
