@@ -209,15 +209,29 @@ impl SortitionsView {
             // - If the tip is not in the current tenure, then we’re starting a new tenure,
             //   and the current sortition's parent tenure must match the tenure of the tip.
             // - Else the miner of the current sortition has committed to an incorrect parent tenure.
-            if self.cur_sortition.consensus_hash != tip.block.header.consensus_hash
-                && self.cur_sortition.parent_tenure_id != tip.block.header.consensus_hash
-            {
-                warn!(
-                    "Current sortition does not build off of canonical tip tenure, marking as invalid";
-                    "current_sortition_parent" => ?self.cur_sortition.parent_tenure_id,
-                    "tip_consensus_hash" => ?tip.block.header.consensus_hash,
-                );
-                self.cur_sortition.miner_status = SortitionMinerStatus::InvalidatedBeforeFirstBlock;
+            let consensus_hash_match =
+                self.cur_sortition.consensus_hash == tip.block.header.consensus_hash;
+            let parent_tenure_id_match =
+                self.cur_sortition.parent_tenure_id == tip.block.header.consensus_hash;
+            if !consensus_hash_match && !parent_tenure_id_match {
+                // More expensive check, so do it only if we need to.
+                info!("Current sortition does not build off of canonical tip tenure, checking if this is valid behavior");
+                let is_valid_parent_tenure = Self::check_parent_tenure_choice(
+                    &self.cur_sortition,
+                    block,
+                    signer_db,
+                    client,
+                    &self.config.first_proposal_burn_block_timing,
+                )?;
+                if !is_valid_parent_tenure {
+                    warn!(
+                        "Current sortition does not build off of canonical tip tenure, marking as invalid";
+                        "current_sortition_parent" => ?self.cur_sortition.parent_tenure_id,
+                        "tip_consensus_hash" => ?tip.block.header.consensus_hash,
+                    );
+                    self.cur_sortition.miner_status =
+                        SortitionMinerStatus::InvalidatedBeforeFirstBlock;
+                }
             }
         }
 

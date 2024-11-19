@@ -1038,7 +1038,7 @@ fn forked_tenure_testing(
         thread::sleep(Duration::from_secs(1));
     }
 
-    info!("Tenure B broadcasted a block. Wait {post_btc_block_pause:?}, issue the next bitcon block, and un-stall block commits.");
+    info!("Tenure B broadcasted a block. Wait {post_btc_block_pause:?}, issue the next bitcoin block, and un-stall block commits.");
     thread::sleep(post_btc_block_pause);
 
     // the block will be stored, not processed, so load it out of staging
@@ -1094,16 +1094,15 @@ fn forked_tenure_testing(
         proposed_blocks.load(Ordering::SeqCst)
     };
     let rejected_before = rejected_blocks.load(Ordering::SeqCst);
+    signer_test
+        .running_nodes
+        .nakamoto_test_skip_commit_op
+        .set(false);
 
     next_block_and(
         &mut signer_test.running_nodes.btc_regtest_controller,
         60,
         || {
-            signer_test
-                .running_nodes
-                .nakamoto_test_skip_commit_op
-                .set(false);
-
             let commits_count = commits_submitted.load(Ordering::SeqCst);
             if commits_count > commits_before {
                 // now allow block B to process if it hasn't already.
@@ -1130,7 +1129,31 @@ fn forked_tenure_testing(
                 && has_reject_count)
         },
     )
-    .unwrap();
+    .unwrap_or_else(|_| {
+        let commits_count = commits_submitted.load(Ordering::SeqCst);
+        let rejected_count = rejected_blocks.load(Ordering::SeqCst);
+        // see above for comments
+        let (blocks_count, rbf_count, has_reject_count) = if expect_tenure_c {
+            (mined_blocks.load(Ordering::SeqCst), 1, true)
+        } else {
+            (
+                proposed_blocks.load(Ordering::SeqCst),
+                0,
+                rejected_count > rejected_before,
+            )
+        };
+        error!("Tenure C failed to produce a block";
+            "commits_count" => commits_count,
+            "commits_before" => commits_before,
+            "rbf_count" => rbf_count as u64,
+            "blocks_count" => blocks_count,
+            "blocks_before" => blocks_before,
+            "rejected_count" => rejected_count,
+            "rejected_before" => rejected_before,
+            "has_reject_count" => has_reject_count,
+        );
+        panic!();
+    });
 
     // allow blocks B and C to be processed
     sleep_ms(1000);
