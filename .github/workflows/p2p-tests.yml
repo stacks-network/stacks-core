@@ -42,6 +42,7 @@ jobs:
           - net::tests::convergence::test_walk_star_15_pingback
           - net::tests::convergence::test_walk_star_15_org_biased
           - net::tests::convergence::test_walk_inbound_line_15
+          - net::api::tests::postblock_proposal::test_try_make_response
     steps:
       ## Setup test environment
       - name: Setup Test Environment
