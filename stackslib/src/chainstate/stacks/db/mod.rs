@@ -89,6 +89,7 @@ use crate::util_lib::db::{
     query_count, query_row, query_rows, tx_begin_immediate, tx_busy_handler, DBConn, DBTx,
     Error as db_error, FromColumn, FromRow, IndexDBConn, IndexDBTx,
 };
+use std::cell::RefCell;
 
 pub mod accounts;
 pub mod blocks;
@@ -97,9 +98,23 @@ pub mod headers;
 pub mod transactions;
 pub mod unconfirmed;
 
+#[cfg(not(test))]
 lazy_static! {
     pub static ref TRANSACTION_LOG: bool =
         std::env::var("STACKS_TRANSACTION_LOG") == Ok("1".into());
+}
+#[cfg(not(test))]
+fn is_transaction_log_enabled() -> bool {
+    *TRANSACTION_LOG
+}
+
+#[cfg(test)]
+thread_local! {
+    pub static TRANSACTION_LOG: RefCell<bool> = RefCell::new(false);
+}
+#[cfg(test)]
+fn is_transaction_log_enabled() -> bool {
+    TRANSACTION_LOG.with(|v| *v.borrow())
 }
 
 /// Fault injection struct for various kinds of faults we'd like to introduce into the system
@@ -645,7 +660,7 @@ impl<'a> ChainstateTx<'a> {
         block_id: &StacksBlockId,
         events: &[StacksTransactionReceipt],
     ) {
-        if *TRANSACTION_LOG {
+        if is_transaction_log_enabled() {
             let insert =
                 "INSERT INTO transactions (txid, index_block_hash, tx_hex, result) VALUES (?, ?, ?, ?)";
             for tx_event in events.iter() {
@@ -670,12 +685,17 @@ impl<'a> ChainstateTx<'a> {
         &self,
         txid: Txid,
     ) -> Result<Vec<StacksBlockId>, Error> {
-        let args = params![txid];
-        query_rows(
-            self.tx.tx(),
-            "SELECT index_block_hash FROM transactions WHERE txid = ?",
-            args,
-        ).map_err(|e| e.into())
+        if is_transaction_log_enabled() {
+            let args = params![txid];
+            query_rows(
+                self.tx.tx(),
+                "SELECT index_block_hash FROM transactions WHERE txid = ?",
+                args,
+            )
+            .map_err(|e| e.into())
+        } else {
+            Err(Error::NoTransactionLog)
+        }
     }
 }
 

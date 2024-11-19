@@ -167,7 +167,7 @@ impl StacksHttpRequest {
         StacksHttpRequest::new_for_peer(
             host,
             "GET".into(),
-            format!("/v2/transactions/{}", &txid),
+            format!("/v3/transactions/{}", &txid),
             HttpRequestContents::new(),
         )
         .expect("FATAL: failed to construct request from infallible data")
