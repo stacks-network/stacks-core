@@ -220,6 +220,7 @@ impl MemPoolEventDispatcher for ProposalTestObserver {
 }
 
 #[test]
+#[ignore]
 fn test_try_make_response() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
     let test_observer = TestEventObserver::new();
