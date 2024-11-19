@@ -52,6 +52,7 @@ use stacks::net::atlas::AtlasConfig;
 use stacks::net::connection::ConnectionOptions;
 use stacks::net::{Neighbor, NeighborKey};
 use stacks::types::chainstate::BurnchainHeaderHash;
+use stacks::types::EpochList;
 use stacks::util_lib::boot::boot_code_id;
 use stacks::util_lib::db::Error as DBError;
 use stacks_common::consts::SIGNER_SLOTS_PER_USER;
@@ -436,10 +437,7 @@ impl Config {
         }
 
         if let Some(epochs) = &self.burnchain.epochs {
-            if let Some(epoch) = epochs
-                .iter()
-                .find(|epoch| epoch.epoch_id == StacksEpochId::Epoch10)
-            {
+            if let Some(epoch) = epochs.get(StacksEpochId::Epoch10) {
                 // Epoch 1.0 start height can be equal to the first block height iff epoch 2.0
                 // start height is also equal to the first block height.
                 assert!(
@@ -448,20 +446,14 @@ impl Config {
                 );
             }
 
-            if let Some(epoch) = epochs
-                .iter()
-                .find(|epoch| epoch.epoch_id == StacksEpochId::Epoch20)
-            {
+            if let Some(epoch) = epochs.get(StacksEpochId::Epoch20) {
                 assert_eq!(
                     epoch.start_height, burnchain.first_block_height,
                     "FATAL: Epoch 2.0 start height must match the first block height"
                 );
             }
 
-            if let Some(epoch) = epochs
-                .iter()
-                .find(|epoch| epoch.epoch_id == StacksEpochId::Epoch21)
-            {
+            if let Some(epoch) = epochs.get(StacksEpochId::Epoch21) {
                 // Override v1_unlock_height to the start_height of epoch2.1
                 debug!(
                     "Override v2_unlock_height from {} to {}",
@@ -471,10 +463,7 @@ impl Config {
                 burnchain.pox_constants.v1_unlock_height = epoch.start_height as u32 + 1;
             }
 
-            if let Some(epoch) = epochs
-                .iter()
-                .find(|epoch| epoch.epoch_id == StacksEpochId::Epoch22)
-            {
+            if let Some(epoch) = epochs.get(StacksEpochId::Epoch22) {
                 // Override v2_unlock_height to the start_height of epoch2.2
                 debug!(
                     "Override v2_unlock_height from {} to {}",
@@ -484,10 +473,7 @@ impl Config {
                 burnchain.pox_constants.v2_unlock_height = epoch.start_height as u32 + 1;
             }
 
-            if let Some(epoch) = epochs
-                .iter()
-                .find(|epoch| epoch.epoch_id == StacksEpochId::Epoch24)
-            {
+            if let Some(epoch) = epochs.get(StacksEpochId::Epoch24) {
                 // Override pox_3_activation_height to the start_height of epoch2.4
                 debug!(
                     "Override pox_3_activation_height from {} to {}",
@@ -496,10 +482,7 @@ impl Config {
                 burnchain.pox_constants.pox_3_activation_height = epoch.start_height as u32;
             }
 
-            if let Some(epoch) = epochs
-                .iter()
-                .find(|epoch| epoch.epoch_id == StacksEpochId::Epoch25)
-            {
+            if let Some(epoch) = epochs.get(StacksEpochId::Epoch25) {
                 // Override pox_4_activation_height to the start_height of epoch2.5
                 debug!(
                     "Override pox_4_activation_height from {} to {}",
@@ -535,9 +518,7 @@ impl Config {
             self.burnchain.get_bitcoin_network().1,
             self.burnchain.epochs.as_ref(),
         );
-        let Some(epoch_30) = StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch30)
-            .map(|epoch_ix| epochs[epoch_ix].clone())
-        else {
+        let Some(epoch_30) = epochs.get(StacksEpochId::Epoch30) else {
             // no Epoch 3.0, so just return
             return;
         };
@@ -616,7 +597,6 @@ impl Config {
         // sanity check: v1_unlock_height must happen after pox-2 instantiation
         let epoch21_index = StacksEpoch::find_epoch_by_id(epochs, StacksEpochId::Epoch21)
             .expect("FATAL: no epoch 2.1 defined");
-
         let epoch21 = &epochs[epoch21_index];
         let v1_unlock_height = burnchain.pox_constants.v1_unlock_height as u64;
 
@@ -649,7 +629,7 @@ impl Config {
         burn_mode: &str,
         bitcoin_network: BitcoinNetworkType,
         pox_2_activation: Option<u32>,
-    ) -> Result<Vec<StacksEpoch>, String> {
+    ) -> Result<EpochList<ExecutionCost>, String> {
         let default_epochs = match bitcoin_network {
             BitcoinNetworkType::Mainnet => {
                 Err("Cannot configure epochs in mainnet mode".to_string())
@@ -730,8 +710,8 @@ impl Config {
         for (i, (epoch_id, start_height)) in matched_epochs.iter().enumerate() {
             if epoch_id != &out_epochs[i].epoch_id {
                 return Err(
-                                format!("Unmatched epochs in configuration and node implementation. Implemented = {epoch_id}, Configured = {}",
-                                   &out_epochs[i].epoch_id));
+                    format!("Unmatched epochs in configuration and node implementation. Implemented = {epoch_id}, Configured = {}",
+                            &out_epochs[i].epoch_id));
             }
             // end_height = next epoch's start height || i64::max if last epoch
             let end_height = if i + 1 < matched_epochs.len() {
@@ -761,7 +741,7 @@ impl Config {
             }
         }
 
-        Ok(out_epochs)
+        Ok(EpochList::new(&out_epochs))
     }
 
     pub fn from_config_file(
@@ -1200,7 +1180,7 @@ pub struct BurnchainConfig {
     pub first_burn_block_hash: Option<String>,
     /// Custom override for the definitions of the epochs. This will only be applied for testnet and
     /// regtest nodes.
-    pub epochs: Option<Vec<StacksEpoch>>,
+    pub epochs: Option<EpochList<ExecutionCost>>,
     pub pox_2_activation: Option<u32>,
     pub pox_reward_length: Option<u32>,
     pub pox_prepare_length: Option<u32>,

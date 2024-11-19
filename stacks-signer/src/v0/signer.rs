@@ -21,6 +21,7 @@ use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
 use blockstack_lib::net::api::postblock_proposal::{
     BlockValidateOk, BlockValidateReject, BlockValidateResponse,
 };
+use blockstack_lib::util_lib::db::Error as DBError;
 use clarity::types::chainstate::StacksPrivateKey;
 use clarity::types::{PrivateKey, StacksEpochId};
 use clarity::util::hash::MerkleHashFunc;
@@ -496,7 +497,7 @@ impl Signer {
             // Do not store KNOWN invalid blocks as this could DOS the signer. We only store blocks that are valid or unknown.
             self.signer_db
                 .insert_block(&block_info)
-                .unwrap_or_else(|_| panic!("{self}: Failed to insert block in DB"));
+                .unwrap_or_else(|e| self.handle_insert_block_error(e));
         }
     }
 
@@ -569,7 +570,7 @@ impl Signer {
 
         self.signer_db
             .insert_block(&block_info)
-            .unwrap_or_else(|_| panic!("{self}: Failed to insert block in DB"));
+            .unwrap_or_else(|e| self.handle_insert_block_error(e));
         let accepted = BlockAccepted::new(block_info.signer_signature_hash(), signature);
         // have to save the signature _after_ the block info
         self.handle_block_signature(stacks_client, &accepted);
@@ -627,7 +628,7 @@ impl Signer {
         );
         self.signer_db
             .insert_block(&block_info)
-            .unwrap_or_else(|_| panic!("{self}: Failed to insert block in DB"));
+            .unwrap_or_else(|e| self.handle_insert_block_error(e));
         self.handle_block_rejection(&block_rejection);
         Some(BlockResponse::Rejected(block_rejection))
     }
@@ -740,7 +741,7 @@ impl Signer {
         }
         self.signer_db
             .insert_block(&block_info)
-            .unwrap_or_else(|_| panic!("{self}: Failed to insert block in DB"));
+            .unwrap_or_else(|e| self.handle_insert_block_error(e));
     }
 
     /// Compute the signing weight, given a list of signatures
@@ -1096,7 +1097,7 @@ impl Signer {
             // in case this is the first time we saw this block. Safe to do since this is testing case only.
             self.signer_db
                 .insert_block(block_info)
-                .unwrap_or_else(|_| panic!("{self}: Failed to insert block in DB"));
+                .unwrap_or_else(|e| self.handle_insert_block_error(e));
             Some(BlockResponse::rejected(
                 block_proposal.block.header.signer_signature_hash(),
                 RejectCode::TestingDirective,
@@ -1119,5 +1120,11 @@ impl Signer {
         {
             warn!("{self}: Failed to send mock signature to stacker-db: {e:?}",);
         }
+    }
+
+    /// Helper for logging insert_block error
+    fn handle_insert_block_error(&self, e: DBError) {
+        error!("{self}: Failed to insert block into signer-db: {e:?}");
+        panic!("{self} Failed to write block to signerdb: {e}");
     }
 }

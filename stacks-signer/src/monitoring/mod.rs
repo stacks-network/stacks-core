@@ -19,11 +19,11 @@ use ::prometheus::HistogramTimer;
 #[cfg(feature = "monitoring_prom")]
 use slog::slog_error;
 #[cfg(not(feature = "monitoring_prom"))]
-use slog::slog_warn;
+use slog::slog_info;
 #[cfg(feature = "monitoring_prom")]
 use stacks_common::error;
 #[cfg(not(feature = "monitoring_prom"))]
-use stacks_common::warn;
+use stacks_common::info;
 
 use crate::config::GlobalConfig;
 
@@ -143,7 +143,7 @@ pub fn start_serving_monitoring_metrics(config: GlobalConfig) -> Result<(), Stri
     #[cfg(not(feature = "monitoring_prom"))]
     {
         if config.metrics_endpoint.is_some() {
-            warn!("Not starting monitoring metrics server as the monitoring_prom feature is not enabled");
+            info!("`metrics_endpoint` is configured for the signer, but the monitoring_prom feature is not enabled. Not starting monitoring metrics server.");
         }
     }
     Ok(())

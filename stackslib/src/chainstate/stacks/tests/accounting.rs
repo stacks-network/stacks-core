@@ -91,7 +91,7 @@ fn test_bad_microblock_fees_pre_v210() {
         (addr_anchored.to_account_principal(), 1000000000),
     ];
 
-    let epochs = vec![
+    let epochs = EpochList::new(&[
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch10,
             start_height: 0,
@@ -119,7 +119,7 @@ fn test_bad_microblock_fees_pre_v210() {
             },
             network_epoch: PEER_VERSION_EPOCH_2_05,
         },
-    ];
+    ]);
     peer_config.epochs = Some(epochs);
     let burnchain = peer_config.burnchain.clone();
 
@@ -408,7 +408,7 @@ fn test_bad_microblock_fees_fix_transition() {
     ];
     let burnchain = peer_config.burnchain.clone();
 
-    let epochs = vec![
+    let epochs = EpochList::new(&[
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch10,
             start_height: 0,
@@ -443,7 +443,7 @@ fn test_bad_microblock_fees_fix_transition() {
             },
             network_epoch: PEER_VERSION_EPOCH_2_1,
         },
-    ];
+    ]);
     peer_config.epochs = Some(epochs);
 
     let num_blocks = 10;
@@ -765,7 +765,7 @@ fn test_get_block_info_v210() {
     ];
     let burnchain = peer_config.burnchain.clone();
 
-    let epochs = vec![
+    let epochs = EpochList::new(&[
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch10,
             start_height: 0,
@@ -800,7 +800,7 @@ fn test_get_block_info_v210() {
             },
             network_epoch: PEER_VERSION_EPOCH_2_1,
         },
-    ];
+    ]);
     peer_config.epochs = Some(epochs);
 
     let num_blocks = 10;
@@ -1137,7 +1137,7 @@ fn test_get_block_info_v210_no_microblocks() {
     ];
     let burnchain = peer_config.burnchain.clone();
 
-    let epochs = vec![
+    let epochs = EpochList::new(&[
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch10,
             start_height: 0,
@@ -1172,7 +1172,7 @@ fn test_get_block_info_v210_no_microblocks() {
             },
             network_epoch: PEER_VERSION_EPOCH_2_1,
         },
-    ];
+    ]);
     peer_config.epochs = Some(epochs);
 
     let num_blocks = 10;
@@ -1457,7 +1457,7 @@ fn test_coinbase_pay_to_alt_recipient_v210(pay_to_contract: bool) {
         (addr_anchored.to_account_principal(), 1000000000),
     ];
 
-    let epochs = vec![
+    let epochs = EpochList::new(&[
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch10,
             start_height: 0,
@@ -1492,7 +1492,7 @@ fn test_coinbase_pay_to_alt_recipient_v210(pay_to_contract: bool) {
             },
             network_epoch: PEER_VERSION_EPOCH_2_1,
         },
-    ];
+    ]);
     peer_config.epochs = Some(epochs);
     let burnchain = peer_config.burnchain.clone();
 

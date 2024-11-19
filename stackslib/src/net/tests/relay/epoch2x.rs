@@ -2759,7 +2759,7 @@ fn process_new_blocks_rejects_problematic_asts() {
 
     let mut peer_config = TestPeerConfig::new(function_name!(), 32019, 32020);
     peer_config.initial_balances = initial_balances;
-    peer_config.epochs = Some(vec![
+    peer_config.epochs = Some(EpochList::new(&[
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch20,
             start_height: 0,
@@ -2774,7 +2774,7 @@ fn process_new_blocks_rejects_problematic_asts() {
             block_limit: ExecutionCost::max_value(),
             network_epoch: PEER_VERSION_EPOCH_2_05,
         },
-    ]);
+    ]));
     let burnchain = peer_config.burnchain.clone();
 
     // activate new AST rules right away
@@ -3166,7 +3166,7 @@ fn process_new_blocks_rejects_problematic_asts() {
 #[test]
 fn test_block_pay_to_contract_gated_at_v210() {
     let mut peer_config = TestPeerConfig::new(function_name!(), 4246, 4247);
-    let epochs = vec![
+    let epochs = EpochList::new(&[
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch10,
             start_height: 0,
@@ -3195,7 +3195,7 @@ fn test_block_pay_to_contract_gated_at_v210() {
             block_limit: ExecutionCost::max_value(),
             network_epoch: PEER_VERSION_EPOCH_2_1,
         },
-    ];
+    ]);
     peer_config.epochs = Some(epochs);
     let burnchain = peer_config.burnchain.clone();
 
@@ -3340,7 +3340,7 @@ fn test_block_versioned_smart_contract_gated_at_v210() {
         1000000,
     )];
 
-    let epochs = vec![
+    let epochs = EpochList::new(&[
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch10,
             start_height: 0,
@@ -3369,7 +3369,7 @@ fn test_block_versioned_smart_contract_gated_at_v210() {
             block_limit: ExecutionCost::max_value(),
             network_epoch: PEER_VERSION_EPOCH_2_1,
         },
-    ];
+    ]);
 
     peer_config.epochs = Some(epochs);
     peer_config.initial_balances = initial_balances;
@@ -3520,7 +3520,7 @@ fn test_block_versioned_smart_contract_mempool_rejection_until_v210() {
         1000000,
     )];
 
-    let epochs = vec![
+    let epochs = EpochList::new(&[
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch10,
             start_height: 0,
@@ -3549,7 +3549,7 @@ fn test_block_versioned_smart_contract_mempool_rejection_until_v210() {
             block_limit: ExecutionCost::max_value(),
             network_epoch: PEER_VERSION_EPOCH_2_1,
         },
-    ];
+    ]);
 
     peer_config.epochs = Some(epochs);
     peer_config.initial_balances = initial_balances;
