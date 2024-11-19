@@ -4295,7 +4295,7 @@ fn partial_tenure_fork() {
         sleep_ms(1000);
 
         info!(
-            "Next tenure checking";
+            "----- Next tenure checking -----";
             "fork_initiated?" => fork_initiated,
             "miner_1_tenures" => miner_1_tenures,
             "miner_2_tenures" => miner_2_tenures,
@@ -4353,6 +4353,7 @@ fn partial_tenure_fork() {
 
         if miner == 1 && miner_1_tenures == 0 {
             // Setup miner 2 to ignore a block in this tenure
+            info!("----- Setup miner 2 to ignore a block in this tenure -----");
             ignore_block = pre_nakamoto_peer_1_height
                 + (btc_blocks_mined - 1) * (inter_blocks_per_tenure + 1)
                 + 3;
@@ -4378,7 +4379,9 @@ fn partial_tenure_fork() {
             let proposed_before_2 = blocks_proposed2.load(Ordering::SeqCst);
 
             info!(
-                "Mining interim blocks";
+                "----- Mining interim blocks -----";
+                "interim_block_ix" => interim_block_ix,
+                "btc_blocks_mined" => btc_blocks_mined,
                 "fork_initiated?" => fork_initiated,
                 "miner_1_tenures" => miner_1_tenures,
                 "miner_2_tenures" => miner_2_tenures,
@@ -4387,6 +4390,7 @@ fn partial_tenure_fork() {
                 "proposed_before_2" => proposed_before_2,
                 "mined_before_1" => mined_before_1,
                 "mined_before_2" => mined_before_2,
+                "miner" => miner as u64,
             );
 
             // submit a tx so that the miner will mine an extra block
@@ -4449,7 +4453,9 @@ fn partial_tenure_fork() {
                     }
                 }
             }
-            info!("Attempted to mine interim block {btc_blocks_mined}:{interim_block_ix}");
+            info!(
+                "----- Attempted to mine interim block {btc_blocks_mined}:{interim_block_ix} -----"
+            );
         }
 
         if miner == 1 {
@@ -4464,7 +4470,7 @@ fn partial_tenure_fork() {
         let mined_2 = blocks_mined2.load(Ordering::SeqCst);
 
         info!(
-            "Miner 1 tenures: {miner_1_tenures}, Miner 2 tenures: {miner_2_tenures}, Miner 1 before: {mined_before_1}, Miner 2 before: {mined_before_2}, Miner 1 blocks: {mined_1}, Miner 2 blocks: {mined_2}",
+            "----- Miner 1 tenures: {miner_1_tenures}, Miner 2 tenures: {miner_2_tenures}, Miner 1 before: {mined_before_1}, Miner 2 before: {mined_before_2}, Miner 1 blocks: {mined_1}, Miner 2 blocks: {mined_2} -----",
         );
 
         if miner == 1 {
@@ -4478,11 +4484,14 @@ fn partial_tenure_fork() {
     }
 
     info!(
-        "New chain info 1: {:?}",
+        "----- New chain info 1: {:?} -----",
         get_chain_info(&signer_test.running_nodes.conf)
     );
 
-    info!("New chain info 2: {:?}", get_chain_info(&conf_node_2));
+    info!(
+        "----- New chain info 2: {:?} -----",
+        get_chain_info(&conf_node_2)
+    );
 
     let peer_1_height = get_chain_info(&conf).stacks_tip_height;
     let peer_2_height = get_chain_info(&conf_node_2).stacks_tip_height;
