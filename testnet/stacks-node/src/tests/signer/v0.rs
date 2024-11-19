@@ -919,7 +919,9 @@ fn forked_tenure_testing(
             // need)
             TEST_SKIP_BLOCK_BROADCAST.lock().unwrap().replace(true);
         },
-        |_| {},
+        |config| {
+            config.miner.tenure_cost_limit_per_block_percentage = None;
+        },
         None,
         None,
     );
@@ -1759,6 +1761,7 @@ fn miner_forking() {
             config.node.pox_sync_sample_secs = 30;
             config.burnchain.pox_reward_length = Some(max_sortitions as u32);
             config.miner.block_commit_delay = Duration::from_secs(0);
+            config.miner.tenure_cost_limit_per_block_percentage = None;
 
             config.events_observers.retain(|listener| {
                 let Ok(addr) = std::net::SocketAddr::from_str(&listener.endpoint) else {

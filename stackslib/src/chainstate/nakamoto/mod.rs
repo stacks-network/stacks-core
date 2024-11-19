@@ -2051,6 +2051,7 @@ impl NakamotoChainState {
             commit_burn,
             sortition_burn,
             &active_reward_set,
+            false,
         ) {
             Ok(next_chain_tip_info) => (Some(next_chain_tip_info), None),
             Err(e) => (None, Some(e)),
@@ -4167,6 +4168,62 @@ impl NakamotoChainState {
         Ok(())
     }
 
+    pub(crate) fn make_non_advancing_receipt<'a>(
+        clarity_commit: PreCommitClarityBlock<'a>,
+        burn_dbconn: &SortitionHandleConn,
+        parent_ch: &ConsensusHash,
+        evaluated_epoch: StacksEpochId,
+        matured_rewards: Vec<MinerReward>,
+        tx_receipts: Vec<StacksTransactionReceipt>,
+        matured_rewards_info_opt: Option<MinerRewardInfo>,
+        block_execution_cost: ExecutionCost,
+        applied_epoch_transition: bool,
+        signers_updated: bool,
+        coinbase_height: u64,
+    ) -> Result<
+        (
+            StacksEpochReceipt,
+            PreCommitClarityBlock<'a>,
+            Option<RewardSetData>,
+        ),
+        ChainstateError,
+    > {
+        // get burn block stats, for the transaction receipt
+
+        let parent_sn = SortitionDB::get_block_snapshot_consensus(burn_dbconn, &parent_ch)?
+            .ok_or_else(|| {
+                // shouldn't happen
+                warn!(
+                    "CORRUPTION: {} does not correspond to a burn block",
+                    &parent_ch
+                );
+                ChainstateError::InvalidStacksBlock("No parent consensus hash".into())
+            })?;
+        let (parent_burn_block_hash, parent_burn_block_height, parent_burn_block_timestamp) = (
+            parent_sn.burn_header_hash,
+            parent_sn.block_height,
+            parent_sn.burn_header_timestamp,
+        );
+
+        let epoch_receipt = StacksEpochReceipt {
+            header: StacksHeaderInfo::regtest_genesis(),
+            tx_receipts,
+            matured_rewards,
+            matured_rewards_info: matured_rewards_info_opt,
+            parent_microblocks_cost: ExecutionCost::zero(),
+            anchored_block_cost: block_execution_cost,
+            parent_burn_block_hash,
+            parent_burn_block_height: u32::try_from(parent_burn_block_height).unwrap_or(0), // shouldn't be fatal
+            parent_burn_block_timestamp,
+            evaluated_epoch,
+            epoch_transition: applied_epoch_transition,
+            signers_updated,
+            coinbase_height,
+        };
+
+        return Ok((epoch_receipt, clarity_commit, None));
+    }
+
     /// Append a Nakamoto Stacks block to the Stacks chain state.
     /// NOTE: This does _not_ set the block as processed!  The caller must do this.
     pub(crate) fn append_block<'a>(
@@ -4184,6 +4241,7 @@ impl NakamotoChainState {
         burnchain_commit_burn: u64,
         burnchain_sortition_burn: u64,
         active_reward_set: &RewardSet,
+        do_not_advance: bool,
     ) -> Result<
         (
             StacksEpochReceipt,
@@ -4328,6 +4386,7 @@ impl NakamotoChainState {
             burn_dbconn,
             block,
             parent_coinbase_height,
+            do_not_advance,
         )?;
         if new_tenure {
             // tenure height must have advanced
@@ -4523,6 +4582,24 @@ impl NakamotoChainState {
         let matured_rewards_info_opt = matured_miner_rewards_opt
             .as_ref()
             .map(|rewards| rewards.reward_info.clone());
+
+        if do_not_advance {
+            // if we're performing a block replay, and we don't want to advance any
+            //  of the db state, return a fake receipt
+            return Self::make_non_advancing_receipt(
+                clarity_commit,
+                burn_dbconn,
+                &parent_ch,
+                evaluated_epoch,
+                matured_rewards,
+                tx_receipts,
+                matured_rewards_info_opt,
+                block_execution_cost,
+                applied_epoch_transition,
+                signer_set_calc.is_some(),
+                coinbase_height,
+            );
+        }
 
         let new_tip = Self::advance_tip(
             &mut chainstate_tx.tx,

@@ -282,6 +282,7 @@ fn test_try_make_response() {
             None,
             None,
             8,
+            None,
         )
         .unwrap();
 
