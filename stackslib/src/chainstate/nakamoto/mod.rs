@@ -289,6 +289,14 @@ lazy_static! {
         );
     "#,
     ];
+
+    pub static ref NAKAMOTO_CHAINSTATE_SCHEMA_5: [&'static str; 2] = [
+    r#"
+        UPDATE db_config SET version = "8";
+    "#,
+    // Add an index for index block hash in nakamoto block headers
+    "CREATE INDEX IF NOT EXISTS index_block_hash ON nakamoto_block_headers(index_block_hash);",
+    ];
 }
 
 #[cfg(test)]
@@ -320,7 +328,7 @@ pub trait StacksDBIndexed {
     fn get(&mut self, tip: &StacksBlockId, key: &str) -> Result<Option<String>, DBError>;
     fn sqlite(&self) -> &Connection;
 
-    /// Get the ancestor block hash given a height
+    /// Get the ancestor block hash given a coinbase height
     fn get_ancestor_block_id(
         &mut self,
         coinbase_height: u64,

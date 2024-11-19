@@ -343,6 +343,17 @@ impl NakamotoBlockProposal {
         sortdb: &SortitionDB,
         chainstate: &mut StacksChainState, // not directly used; used as a handle to open other chainstates
     ) -> Result<BlockValidateOk, BlockValidateRejectReason> {
+        #[cfg(any(test, feature = "testing"))]
+        {
+            if *TEST_VALIDATE_STALL.lock().unwrap() == Some(true) {
+                // Do an extra check just so we don't log EVERY time.
+                warn!("Block validation is stalled due to testing directive.");
+                while *TEST_VALIDATE_STALL.lock().unwrap() == Some(true) {
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                }
+                info!("Block validation is no longer stalled due to testing directive.");
+            }
+        }
         let ts_start = get_epoch_time_ms();
         // Measure time from start of function
         let time_elapsed = || get_epoch_time_ms().saturating_sub(ts_start);
@@ -531,24 +542,6 @@ impl NakamotoBlockProposal {
                 reason: "Block hash is not as expected".into(),
                 reason_code: ValidateRejectCode::BadBlockHash,
             });
-        }
-
-        #[cfg(any(test, feature = "testing"))]
-        {
-            if *TEST_VALIDATE_STALL.lock().unwrap() == Some(true) {
-                // Do an extra check just so we don't log EVERY time.
-                warn!("Block validation is stalled due to testing directive.";
-                    "block_id" => %block.block_id(),
-                    "height" => block.header.chain_length,
-                );
-                while *TEST_VALIDATE_STALL.lock().unwrap() == Some(true) {
-                    std::thread::sleep(std::time::Duration::from_millis(10));
-                }
-                info!("Block validation is no longer stalled due to testing directive.";
-                    "block_id" => %block.block_id(),
-                    "height" => block.header.chain_length,
-                );
-            }
         }
 
         info!(
