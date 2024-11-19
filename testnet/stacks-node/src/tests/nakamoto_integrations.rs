@@ -3808,8 +3808,13 @@ fn follower_bootup_across_multiple_cycles() {
         .reward_cycle_length
         * 2
     {
+        let commits_before = commits_submitted.load(Ordering::SeqCst);
         next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
             .unwrap();
+        wait_for(20, || {
+            Ok(commits_submitted.load(Ordering::SeqCst) > commits_before)
+        })
+        .unwrap();
     }
 
     info!("Nakamoto miner has advanced two reward cycles");
