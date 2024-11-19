@@ -704,6 +704,7 @@ impl NakamotoBlockBuilder {
             Some(&tenure_change_tx),
             Some(&coinbase_tx),
             1,
+            None,
         )
         .unwrap();
 

@@ -896,6 +896,7 @@ impl LimitedCostTracker {
             Self::Free => ExecutionCost::max_value(),
         }
     }
+
     pub fn get_memory(&self) -> u64 {
         match self {
             Self::Limited(TrackerData { memory, .. }) => *memory,
@@ -1170,6 +1171,7 @@ pub trait CostOverflowingMath<T> {
     fn cost_overflow_mul(self, other: T) -> Result<T>;
     fn cost_overflow_add(self, other: T) -> Result<T>;
     fn cost_overflow_sub(self, other: T) -> Result<T>;
+    fn cost_overflow_div(self, other: T) -> Result<T>;
 }
 
 impl CostOverflowingMath<u64> for u64 {
@@ -1183,6 +1185,10 @@ impl CostOverflowingMath<u64> for u64 {
     }
     fn cost_overflow_sub(self, other: u64) -> Result<u64> {
         self.checked_sub(other)
+            .ok_or_else(|| CostErrors::CostOverflow)
+    }
+    fn cost_overflow_div(self, other: u64) -> Result<u64> {
+        self.checked_div(other)
             .ok_or_else(|| CostErrors::CostOverflow)
     }
 }
@@ -1290,6 +1296,15 @@ impl ExecutionCost {
         self.read_length = self.read_length.cost_overflow_mul(times)?;
         self.write_length = self.write_length.cost_overflow_mul(times)?;
         self.write_count = self.write_count.cost_overflow_mul(times)?;
+        Ok(())
+    }
+
+    pub fn divide(&mut self, divisor: u64) -> Result<()> {
+        self.runtime = self.runtime.cost_overflow_div(divisor)?;
+        self.read_count = self.read_count.cost_overflow_div(divisor)?;
+        self.read_length = self.read_length.cost_overflow_div(divisor)?;
+        self.write_length = self.write_length.cost_overflow_div(divisor)?;
+        self.write_count = self.write_count.cost_overflow_div(divisor)?;
         Ok(())
     }
 
