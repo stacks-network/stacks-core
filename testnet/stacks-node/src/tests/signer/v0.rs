@@ -1975,7 +1975,6 @@ fn miner_forking() {
         )
         .unwrap();
 
-    let blocks_len = test_observer::get_blocks().len();
     let burn_height_before = get_burn_height();
     info!("Mine RL2 Tenure");
     next_block_and(
@@ -1985,11 +1984,12 @@ fn miner_forking() {
     )
     .unwrap();
 
-    // Ensure that RL2 doesn't produce a valid block
-    assert!(
-        wait_for(60, || Ok(test_observer::get_blocks().len() > blocks_len)).is_err(),
-        "RL2 produced a block"
-    );
+    wait_for(60, || {
+        Ok(last_block_contains_tenure_change_tx(
+            TenureChangeCause::Extended,
+        ))
+    })
+    .expect("RL1 did not produce a tenure extend block");
 
     // fetch the current sortition info
     let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
@@ -2001,6 +2001,20 @@ fn miner_forking() {
         "RL2 did not win the sortition"
     );
 
+    let header_info = get_nakamoto_headers(&conf).into_iter().last().unwrap();
+    let header = header_info
+        .anchored_header
+        .as_stacks_nakamoto()
+        .unwrap()
+        .clone();
+
+    mining_pk_1
+        .verify(
+            header.miner_signature_hash().as_bytes(),
+            &header.miner_signature,
+        )
+        .expect("RL1 did not produce our last block");
+
     let nakamoto_headers: HashMap<_, _> = get_nakamoto_headers(&conf)
         .into_iter()
         .map(|header| {
@@ -2008,7 +2022,11 @@ fn miner_forking() {
             (header.consensus_hash, header)
         })
         .collect();
-    assert!(!nakamoto_headers.contains_key(&tip.consensus_hash));
+
+    assert!(
+        !nakamoto_headers.contains_key(&tip.consensus_hash),
+        "RL1 produced a block with the current consensus hash."
+    );
 
     info!("------------------------- RL1 RBFs its Own Commit -------------------------");
     info!("Pausing stacks block proposal to test RBF capability");
@@ -2069,7 +2087,6 @@ fn miner_forking() {
         .build_next_block(1);
 
     // fetch the current sortition info
-    let sortdb = conf.get_burnchain().open_sortition_db(true).unwrap();
     let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
     // make sure the tenure was won by RL1
     assert!(tip.sortition, "No sortition was won");
