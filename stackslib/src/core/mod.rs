@@ -20,8 +20,8 @@ use clarity::vm::costs::ExecutionCost;
 use lazy_static::lazy_static;
 pub use stacks_common::consts::MICROSTACKS_PER_STACKS;
 use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksBlockId};
-use stacks_common::types::StacksEpoch as GenericStacksEpoch;
 pub use stacks_common::types::StacksEpochId;
+use stacks_common::types::{EpochList as GenericEpochList, StacksEpoch as GenericStacksEpoch};
 use stacks_common::util::log;
 
 pub use self::mempool::MemPoolDB;
@@ -36,6 +36,7 @@ pub mod tests;
 
 use std::cmp::Ordering;
 pub type StacksEpoch = GenericStacksEpoch<ExecutionCost>;
+pub type EpochList = GenericEpochList<ExecutionCost>;
 
 // fork set identifier -- to be mixed with the consensus hash (encodes the version)
 pub const SYSTEM_FORK_SET_VERSION: [u8; 4] = [23u8, 0u8, 0u8, 0u8];
@@ -241,7 +242,7 @@ pub fn check_fault_injection(fault_name: &str) -> bool {
 }
 
 lazy_static! {
-    pub static ref STACKS_EPOCHS_MAINNET: [StacksEpoch; 10] = [
+    pub static ref STACKS_EPOCHS_MAINNET: EpochList = EpochList::new(&[
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch10,
             start_height: 0,
@@ -312,11 +313,11 @@ lazy_static! {
             block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
             network_epoch: PEER_VERSION_EPOCH_3_1
         },
-    ];
+    ]);
 }
 
 lazy_static! {
-    pub static ref STACKS_EPOCHS_TESTNET: [StacksEpoch; 10] = [
+    pub static ref STACKS_EPOCHS_TESTNET: EpochList = EpochList::new(&[
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch10,
             start_height: 0,
@@ -387,11 +388,11 @@ lazy_static! {
             block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
             network_epoch: PEER_VERSION_EPOCH_3_1
         },
-    ];
+    ]);
 }
 
 lazy_static! {
-    pub static ref STACKS_EPOCHS_REGTEST: [StacksEpoch; 10] = [
+    pub static ref STACKS_EPOCHS_REGTEST: EpochList = EpochList::new(&[
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch10,
             start_height: 0,
@@ -462,7 +463,7 @@ lazy_static! {
             block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
             network_epoch: PEER_VERSION_EPOCH_3_1
         },
-    ];
+    ]);
 }
 
 /// Stacks 2.05 epoch marker.  All block-commits in 2.05 must have a memo bitfield with this value
@@ -499,60 +500,219 @@ pub static STACKS_EPOCH_3_1_MARKER: u8 = 0x0c;
 
 #[test]
 fn test_ord_for_stacks_epoch() {
-    let epochs = STACKS_EPOCHS_MAINNET.clone();
-    assert_eq!(epochs[0].cmp(&epochs[1]), Ordering::Less);
-    assert_eq!(epochs[1].cmp(&epochs[2]), Ordering::Less);
-    assert_eq!(epochs[0].cmp(&epochs[2]), Ordering::Less);
-    assert_eq!(epochs[0].cmp(&epochs[0]), Ordering::Equal);
-    assert_eq!(epochs[1].cmp(&epochs[1]), Ordering::Equal);
-    assert_eq!(epochs[2].cmp(&epochs[2]), Ordering::Equal);
-    assert_eq!(epochs[3].cmp(&epochs[3]), Ordering::Equal);
-    assert_eq!(epochs[4].cmp(&epochs[4]), Ordering::Equal);
-    assert_eq!(epochs[2].cmp(&epochs[0]), Ordering::Greater);
-    assert_eq!(epochs[2].cmp(&epochs[1]), Ordering::Greater);
-    assert_eq!(epochs[1].cmp(&epochs[0]), Ordering::Greater);
-    assert_eq!(epochs[3].cmp(&epochs[0]), Ordering::Greater);
-    assert_eq!(epochs[3].cmp(&epochs[1]), Ordering::Greater);
-    assert_eq!(epochs[3].cmp(&epochs[2]), Ordering::Greater);
-    assert_eq!(epochs[4].cmp(&epochs[0]), Ordering::Greater);
-    assert_eq!(epochs[4].cmp(&epochs[1]), Ordering::Greater);
-    assert_eq!(epochs[4].cmp(&epochs[2]), Ordering::Greater);
-    assert_eq!(epochs[4].cmp(&epochs[3]), Ordering::Greater);
-    assert_eq!(epochs[5].cmp(&epochs[0]), Ordering::Greater);
-    assert_eq!(epochs[5].cmp(&epochs[1]), Ordering::Greater);
-    assert_eq!(epochs[5].cmp(&epochs[2]), Ordering::Greater);
-    assert_eq!(epochs[5].cmp(&epochs[3]), Ordering::Greater);
-    assert_eq!(epochs[5].cmp(&epochs[4]), Ordering::Greater);
-    assert_eq!(epochs[6].cmp(&epochs[0]), Ordering::Greater);
-    assert_eq!(epochs[6].cmp(&epochs[1]), Ordering::Greater);
-    assert_eq!(epochs[6].cmp(&epochs[2]), Ordering::Greater);
-    assert_eq!(epochs[6].cmp(&epochs[3]), Ordering::Greater);
-    assert_eq!(epochs[6].cmp(&epochs[4]), Ordering::Greater);
-    assert_eq!(epochs[6].cmp(&epochs[5]), Ordering::Greater);
-    assert_eq!(epochs[7].cmp(&epochs[0]), Ordering::Greater);
-    assert_eq!(epochs[7].cmp(&epochs[1]), Ordering::Greater);
-    assert_eq!(epochs[7].cmp(&epochs[2]), Ordering::Greater);
-    assert_eq!(epochs[7].cmp(&epochs[3]), Ordering::Greater);
-    assert_eq!(epochs[7].cmp(&epochs[4]), Ordering::Greater);
-    assert_eq!(epochs[7].cmp(&epochs[5]), Ordering::Greater);
-    assert_eq!(epochs[7].cmp(&epochs[6]), Ordering::Greater);
-    assert_eq!(epochs[8].cmp(&epochs[0]), Ordering::Greater);
-    assert_eq!(epochs[8].cmp(&epochs[1]), Ordering::Greater);
-    assert_eq!(epochs[8].cmp(&epochs[2]), Ordering::Greater);
-    assert_eq!(epochs[8].cmp(&epochs[3]), Ordering::Greater);
-    assert_eq!(epochs[8].cmp(&epochs[4]), Ordering::Greater);
-    assert_eq!(epochs[8].cmp(&epochs[5]), Ordering::Greater);
-    assert_eq!(epochs[8].cmp(&epochs[6]), Ordering::Greater);
-    assert_eq!(epochs[8].cmp(&epochs[7]), Ordering::Greater);
-    assert_eq!(epochs[9].cmp(&epochs[0]), Ordering::Greater);
-    assert_eq!(epochs[9].cmp(&epochs[1]), Ordering::Greater);
-    assert_eq!(epochs[9].cmp(&epochs[2]), Ordering::Greater);
-    assert_eq!(epochs[9].cmp(&epochs[3]), Ordering::Greater);
-    assert_eq!(epochs[9].cmp(&epochs[4]), Ordering::Greater);
-    assert_eq!(epochs[9].cmp(&epochs[5]), Ordering::Greater);
-    assert_eq!(epochs[9].cmp(&epochs[6]), Ordering::Greater);
-    assert_eq!(epochs[9].cmp(&epochs[7]), Ordering::Greater);
-    assert_eq!(epochs[9].cmp(&epochs[8]), Ordering::Greater);
+    let epochs = &*STACKS_EPOCHS_MAINNET;
+    assert_eq!(
+        epochs[StacksEpochId::Epoch10].cmp(&epochs[StacksEpochId::Epoch20]),
+        Ordering::Less
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch20].cmp(&epochs[StacksEpochId::Epoch2_05]),
+        Ordering::Less
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch10].cmp(&epochs[StacksEpochId::Epoch2_05]),
+        Ordering::Less
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch10].cmp(&epochs[StacksEpochId::Epoch10]),
+        Ordering::Equal
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch20].cmp(&epochs[StacksEpochId::Epoch20]),
+        Ordering::Equal
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch2_05].cmp(&epochs[StacksEpochId::Epoch2_05]),
+        Ordering::Equal
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch21].cmp(&epochs[StacksEpochId::Epoch21]),
+        Ordering::Equal
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch22].cmp(&epochs[StacksEpochId::Epoch22]),
+        Ordering::Equal
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch2_05].cmp(&epochs[StacksEpochId::Epoch10]),
+        Ordering::Greater
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch2_05].cmp(&epochs[StacksEpochId::Epoch20]),
+        Ordering::Greater
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch20].cmp(&epochs[StacksEpochId::Epoch10]),
+        Ordering::Greater
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch21].cmp(&epochs[StacksEpochId::Epoch10]),
+        Ordering::Greater
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch21].cmp(&epochs[StacksEpochId::Epoch20]),
+        Ordering::Greater
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch21].cmp(&epochs[StacksEpochId::Epoch2_05]),
+        Ordering::Greater
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch22].cmp(&epochs[StacksEpochId::Epoch10]),
+        Ordering::Greater
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch22].cmp(&epochs[StacksEpochId::Epoch20]),
+        Ordering::Greater
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch22].cmp(&epochs[StacksEpochId::Epoch2_05]),
+        Ordering::Greater
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch22].cmp(&epochs[StacksEpochId::Epoch21]),
+        Ordering::Greater
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch23].cmp(&epochs[StacksEpochId::Epoch10]),
+        Ordering::Greater
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch23].cmp(&epochs[StacksEpochId::Epoch20]),
+        Ordering::Greater
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch23].cmp(&epochs[StacksEpochId::Epoch2_05]),
+        Ordering::Greater
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch23].cmp(&epochs[StacksEpochId::Epoch21]),
+        Ordering::Greater
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch23].cmp(&epochs[StacksEpochId::Epoch22]),
+        Ordering::Greater
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch24].cmp(&epochs[StacksEpochId::Epoch10]),
+        Ordering::Greater
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch24].cmp(&epochs[StacksEpochId::Epoch20]),
+        Ordering::Greater
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch24].cmp(&epochs[StacksEpochId::Epoch2_05]),
+        Ordering::Greater
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch24].cmp(&epochs[StacksEpochId::Epoch21]),
+        Ordering::Greater
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch24].cmp(&epochs[StacksEpochId::Epoch22]),
+        Ordering::Greater
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch24].cmp(&epochs[StacksEpochId::Epoch23]),
+        Ordering::Greater
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch25].cmp(&epochs[StacksEpochId::Epoch10]),
+        Ordering::Greater
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch25].cmp(&epochs[StacksEpochId::Epoch20]),
+        Ordering::Greater
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch25].cmp(&epochs[StacksEpochId::Epoch2_05]),
+        Ordering::Greater
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch25].cmp(&epochs[StacksEpochId::Epoch21]),
+        Ordering::Greater
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch25].cmp(&epochs[StacksEpochId::Epoch22]),
+        Ordering::Greater
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch25].cmp(&epochs[StacksEpochId::Epoch23]),
+        Ordering::Greater
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch25].cmp(&epochs[StacksEpochId::Epoch24]),
+        Ordering::Greater
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch30].cmp(&epochs[StacksEpochId::Epoch10]),
+        Ordering::Greater
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch30].cmp(&epochs[StacksEpochId::Epoch20]),
+        Ordering::Greater
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch30].cmp(&epochs[StacksEpochId::Epoch2_05]),
+        Ordering::Greater
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch30].cmp(&epochs[StacksEpochId::Epoch21]),
+        Ordering::Greater
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch30].cmp(&epochs[StacksEpochId::Epoch22]),
+        Ordering::Greater
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch30].cmp(&epochs[StacksEpochId::Epoch23]),
+        Ordering::Greater
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch30].cmp(&epochs[StacksEpochId::Epoch24]),
+        Ordering::Greater
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch30].cmp(&epochs[StacksEpochId::Epoch25]),
+        Ordering::Greater
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch31].cmp(&epochs[StacksEpochId::Epoch10]),
+        Ordering::Greater
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch31].cmp(&epochs[StacksEpochId::Epoch20]),
+        Ordering::Greater
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch31].cmp(&epochs[StacksEpochId::Epoch2_05]),
+        Ordering::Greater
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch31].cmp(&epochs[StacksEpochId::Epoch21]),
+        Ordering::Greater
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch31].cmp(&epochs[StacksEpochId::Epoch22]),
+        Ordering::Greater
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch31].cmp(&epochs[StacksEpochId::Epoch23]),
+        Ordering::Greater
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch31].cmp(&epochs[StacksEpochId::Epoch24]),
+        Ordering::Greater
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch31].cmp(&epochs[StacksEpochId::Epoch25]),
+        Ordering::Greater
+    );
+    assert_eq!(
+        epochs[StacksEpochId::Epoch31].cmp(&epochs[StacksEpochId::Epoch30]),
+        Ordering::Greater
+    );
 }
 
 #[test]
@@ -596,37 +756,37 @@ fn test_ord_for_stacks_epoch_id() {
 }
 pub trait StacksEpochExtension {
     #[cfg(test)]
-    fn unit_test(stacks_epoch_id: StacksEpochId, epoch_2_0_block_height: u64) -> Vec<StacksEpoch>;
+    fn unit_test(stacks_epoch_id: StacksEpochId, epoch_2_0_block_height: u64) -> EpochList;
     #[cfg(test)]
-    fn unit_test_2_05(epoch_2_0_block_height: u64) -> Vec<StacksEpoch>;
+    fn unit_test_2_05(epoch_2_0_block_height: u64) -> EpochList;
     #[cfg(test)]
-    fn unit_test_2_05_only(epoch_2_0_block_height: u64) -> Vec<StacksEpoch>;
+    fn unit_test_2_05_only(epoch_2_0_block_height: u64) -> EpochList;
     #[cfg(test)]
-    fn unit_test_pre_2_05(epoch_2_0_block_height: u64) -> Vec<StacksEpoch>;
+    fn unit_test_pre_2_05(epoch_2_0_block_height: u64) -> EpochList;
     #[cfg(test)]
-    fn unit_test_2_1(epoch_2_0_block_height: u64) -> Vec<StacksEpoch>;
+    fn unit_test_2_1(epoch_2_0_block_height: u64) -> EpochList;
     #[cfg(test)]
-    fn unit_test_2_2(epoch_2_0_block_height: u64) -> Vec<StacksEpoch>;
+    fn unit_test_2_2(epoch_2_0_block_height: u64) -> EpochList;
     #[cfg(test)]
-    fn unit_test_2_3(epoch_2_0_block_height: u64) -> Vec<StacksEpoch>;
+    fn unit_test_2_3(epoch_2_0_block_height: u64) -> EpochList;
     #[cfg(test)]
-    fn unit_test_2_4(epoch_2_0_block_height: u64) -> Vec<StacksEpoch>;
+    fn unit_test_2_4(epoch_2_0_block_height: u64) -> EpochList;
     #[cfg(test)]
-    fn unit_test_2_5(epoch_2_0_block_height: u64) -> Vec<StacksEpoch>;
+    fn unit_test_2_5(epoch_2_0_block_height: u64) -> EpochList;
     #[cfg(test)]
-    fn unit_test_3_0(epoch_2_0_block_height: u64) -> Vec<StacksEpoch>;
+    fn unit_test_3_0(epoch_2_0_block_height: u64) -> EpochList;
     #[cfg(test)]
-    fn unit_test_3_1(epoch_2_0_block_height: u64) -> Vec<StacksEpoch>;
+    fn unit_test_3_1(epoch_2_0_block_height: u64) -> EpochList;
     #[cfg(test)]
-    fn unit_test_2_1_only(epoch_2_0_block_height: u64) -> Vec<StacksEpoch>;
+    fn unit_test_2_1_only(epoch_2_0_block_height: u64) -> EpochList;
     #[cfg(test)]
-    fn unit_test_3_0_only(first_burnchain_height: u64) -> Vec<StacksEpoch>;
+    fn unit_test_3_0_only(first_burnchain_height: u64) -> EpochList;
     fn all(
         epoch_2_0_block_height: u64,
         epoch_2_05_block_height: u64,
         epoch_2_1_block_height: u64,
-    ) -> Vec<StacksEpoch>;
-    fn validate_epochs(epochs: &[StacksEpoch]) -> Vec<StacksEpoch>;
+    ) -> EpochList;
+    fn validate_epochs(epochs: &[StacksEpoch]) -> EpochList;
     /// This method gets the epoch vector.
     ///
     /// Choose according to:
@@ -637,15 +797,15 @@ pub trait StacksEpochExtension {
     ///
     fn get_epochs(
         bitcoin_network: BitcoinNetworkType,
-        configured_epochs: Option<&Vec<StacksEpoch>>,
-    ) -> Vec<StacksEpoch>;
+        configured_epochs: Option<&EpochList>,
+    ) -> EpochList;
 }
 
 impl StacksEpochExtension for StacksEpoch {
     fn get_epochs(
         bitcoin_network: BitcoinNetworkType,
-        configured_epochs: Option<&Vec<StacksEpoch>>,
-    ) -> Vec<StacksEpoch> {
+        configured_epochs: Option<&EpochList>,
+    ) -> EpochList {
         match configured_epochs {
             Some(epochs) => {
                 assert!(bitcoin_network != BitcoinNetworkType::Mainnet);
@@ -656,13 +816,13 @@ impl StacksEpochExtension for StacksEpoch {
     }
 
     #[cfg(test)]
-    fn unit_test_pre_2_05(first_burnchain_height: u64) -> Vec<StacksEpoch> {
+    fn unit_test_pre_2_05(first_burnchain_height: u64) -> EpochList {
         info!(
             "StacksEpoch unit_test first_burn_height = {}",
             first_burnchain_height
         );
 
-        vec![
+        EpochList::new(&[
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch10,
                 start_height: 0,
@@ -677,17 +837,17 @@ impl StacksEpochExtension for StacksEpoch {
                 block_limit: ExecutionCost::max_value(),
                 network_epoch: PEER_VERSION_EPOCH_2_0,
             },
-        ]
+        ])
     }
 
     #[cfg(test)]
-    fn unit_test_2_05(first_burnchain_height: u64) -> Vec<StacksEpoch> {
+    fn unit_test_2_05(first_burnchain_height: u64) -> EpochList {
         info!(
             "StacksEpoch unit_test first_burn_height = {}",
             first_burnchain_height
         );
 
-        vec![
+        EpochList::new(&[
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch10,
                 start_height: 0,
@@ -715,17 +875,17 @@ impl StacksEpochExtension for StacksEpoch {
                 },
                 network_epoch: PEER_VERSION_EPOCH_2_05,
             },
-        ]
+        ])
     }
 
     #[cfg(test)]
-    fn unit_test_2_05_only(first_burnchain_height: u64) -> Vec<StacksEpoch> {
+    fn unit_test_2_05_only(first_burnchain_height: u64) -> EpochList {
         info!(
             "StacksEpoch unit_test first_burn_height = {}",
             first_burnchain_height
         );
 
-        vec![
+        EpochList::new(&[
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch10,
                 start_height: 0,
@@ -753,17 +913,17 @@ impl StacksEpochExtension for StacksEpoch {
                 },
                 network_epoch: PEER_VERSION_EPOCH_2_05,
             },
-        ]
+        ])
     }
 
     #[cfg(test)]
-    fn unit_test_2_1(first_burnchain_height: u64) -> Vec<StacksEpoch> {
+    fn unit_test_2_1(first_burnchain_height: u64) -> EpochList {
         info!(
             "StacksEpoch unit_test first_burn_height = {}",
             first_burnchain_height
         );
 
-        vec![
+        EpochList::new(&[
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch10,
                 start_height: 0,
@@ -804,17 +964,17 @@ impl StacksEpochExtension for StacksEpoch {
                 },
                 network_epoch: PEER_VERSION_EPOCH_2_1,
             },
-        ]
+        ])
     }
 
     #[cfg(test)]
-    fn unit_test_2_2(first_burnchain_height: u64) -> Vec<StacksEpoch> {
+    fn unit_test_2_2(first_burnchain_height: u64) -> EpochList {
         info!(
             "StacksEpoch unit_test first_burn_height = {}",
             first_burnchain_height
         );
 
-        vec![
+        EpochList::new(&[
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch10,
                 start_height: 0,
@@ -868,17 +1028,17 @@ impl StacksEpochExtension for StacksEpoch {
                 },
                 network_epoch: PEER_VERSION_EPOCH_2_2,
             },
-        ]
+        ])
     }
 
     #[cfg(test)]
-    fn unit_test_2_3(first_burnchain_height: u64) -> Vec<StacksEpoch> {
+    fn unit_test_2_3(first_burnchain_height: u64) -> EpochList {
         info!(
             "StacksEpoch unit_test_2_3 first_burn_height = {}",
             first_burnchain_height
         );
 
-        vec![
+        EpochList::new(&[
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch10,
                 start_height: 0,
@@ -945,17 +1105,17 @@ impl StacksEpochExtension for StacksEpoch {
                 },
                 network_epoch: PEER_VERSION_EPOCH_2_3,
             },
-        ]
+        ])
     }
 
     #[cfg(test)]
-    fn unit_test_2_4(first_burnchain_height: u64) -> Vec<StacksEpoch> {
+    fn unit_test_2_4(first_burnchain_height: u64) -> EpochList {
         info!(
             "StacksEpoch unit_test_2_4 first_burn_height = {}",
             first_burnchain_height
         );
 
-        vec![
+        EpochList::new(&[
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch10,
                 start_height: 0,
@@ -1035,17 +1195,17 @@ impl StacksEpochExtension for StacksEpoch {
                 },
                 network_epoch: PEER_VERSION_EPOCH_2_4,
             },
-        ]
+        ])
     }
 
     #[cfg(test)]
-    fn unit_test_2_5(first_burnchain_height: u64) -> Vec<StacksEpoch> {
+    fn unit_test_2_5(first_burnchain_height: u64) -> EpochList {
         info!(
             "StacksEpoch unit_test_2_5 first_burn_height = {}",
             first_burnchain_height
         );
 
-        vec![
+        EpochList::new(&[
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch10,
                 start_height: 0,
@@ -1138,17 +1298,17 @@ impl StacksEpochExtension for StacksEpoch {
                 },
                 network_epoch: PEER_VERSION_EPOCH_2_5,
             },
-        ]
+        ])
     }
 
     #[cfg(test)]
-    fn unit_test_3_0(first_burnchain_height: u64) -> Vec<StacksEpoch> {
+    fn unit_test_3_0(first_burnchain_height: u64) -> EpochList {
         info!(
             "StacksEpoch unit_test_3_0 first_burn_height = {}",
             first_burnchain_height
         );
 
-        vec![
+        EpochList::new(&[
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch10,
                 start_height: 0,
@@ -1254,17 +1414,17 @@ impl StacksEpochExtension for StacksEpoch {
                 },
                 network_epoch: PEER_VERSION_EPOCH_3_0,
             },
-        ]
+        ])
     }
 
     #[cfg(test)]
-    fn unit_test_3_1(first_burnchain_height: u64) -> Vec<StacksEpoch> {
+    fn unit_test_3_1(first_burnchain_height: u64) -> EpochList {
         info!(
             "StacksEpoch unit_test_3_1 first_burn_height = {}",
             first_burnchain_height
         );
 
-        vec![
+        EpochList::new(&[
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch10,
                 start_height: 0,
@@ -1383,17 +1543,17 @@ impl StacksEpochExtension for StacksEpoch {
                 },
                 network_epoch: PEER_VERSION_EPOCH_3_1,
             },
-        ]
+        ])
     }
 
     #[cfg(test)]
-    fn unit_test_2_1_only(first_burnchain_height: u64) -> Vec<StacksEpoch> {
+    fn unit_test_2_1_only(first_burnchain_height: u64) -> EpochList {
         info!(
             "StacksEpoch unit_test first_burn_height = {}",
             first_burnchain_height
         );
 
-        vec![
+        EpochList::new(&[
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch10,
                 start_height: 0,
@@ -1434,17 +1594,17 @@ impl StacksEpochExtension for StacksEpoch {
                 },
                 network_epoch: PEER_VERSION_EPOCH_2_1,
             },
-        ]
+        ])
     }
 
     #[cfg(test)]
-    fn unit_test_3_0_only(first_burnchain_height: u64) -> Vec<StacksEpoch> {
+    fn unit_test_3_0_only(first_burnchain_height: u64) -> EpochList {
         info!(
             "StacksEpoch unit_test first_burn_height = {}",
             first_burnchain_height
         );
 
-        vec![
+        EpochList::new(&[
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch10,
                 start_height: 0,
@@ -1508,11 +1668,11 @@ impl StacksEpochExtension for StacksEpoch {
                 block_limit: BLOCK_LIMIT_MAINNET_21,
                 network_epoch: PEER_VERSION_EPOCH_3_0,
             },
-        ]
+        ])
     }
 
     #[cfg(test)]
-    fn unit_test(stacks_epoch_id: StacksEpochId, first_burnchain_height: u64) -> Vec<StacksEpoch> {
+    fn unit_test(stacks_epoch_id: StacksEpochId, first_burnchain_height: u64) -> EpochList {
         match stacks_epoch_id {
             StacksEpochId::Epoch10 | StacksEpochId::Epoch20 => {
                 StacksEpoch::unit_test_pre_2_05(first_burnchain_height)
@@ -1532,8 +1692,8 @@ impl StacksEpochExtension for StacksEpoch {
         epoch_2_0_block_height: u64,
         epoch_2_05_block_height: u64,
         epoch_2_1_block_height: u64,
-    ) -> Vec<StacksEpoch> {
-        vec![
+    ) -> EpochList {
+        EpochList::new(&[
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch10,
                 start_height: 0,
@@ -1562,13 +1722,13 @@ impl StacksEpochExtension for StacksEpoch {
                 block_limit: ExecutionCost::max_value(),
                 network_epoch: PEER_VERSION_EPOCH_1_0,
             },
-        ]
+        ])
     }
 
     /// Verify that a list of epochs is well-formed, and if so, return the list of epochs.
     /// Epochs must proceed in order, and must represent contiguous block ranges.
     /// Panic if the list is not well-formed.
-    fn validate_epochs(epochs_ref: &[StacksEpoch]) -> Vec<StacksEpoch> {
+    fn validate_epochs(epochs_ref: &[StacksEpoch]) -> EpochList {
         // sanity check -- epochs must all be contiguous, each epoch must be unique,
         // and the range of epochs should span the whole non-negative i64 space.
         let mut epochs = epochs_ref.to_vec();
@@ -1619,6 +1779,6 @@ impl StacksEpochExtension for StacksEpoch {
         }
 
         assert_eq!(epoch_end_height, STACKS_EPOCH_MAX);
-        epochs
+        EpochList::new(&epochs)
     }
 }
