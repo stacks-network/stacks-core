@@ -9519,7 +9519,7 @@ fn test_shadow_recovery() {
     let coord_channel = signer_test.running_nodes.coord_channel.clone();
     let commits_submitted = signer_test.running_nodes.commits_submitted.clone();
 
-    let burnchain = naka_conf.get_burnchain();
+    let _burnchain = naka_conf.get_burnchain();
 
     // make another tenure
     next_block_and_mine_commit(
