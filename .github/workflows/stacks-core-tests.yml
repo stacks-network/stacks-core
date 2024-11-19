@@ -93,7 +93,8 @@ jobs:
       - name: Run Tests
         id: run_tests
         timeout-minutes: ${{ fromJSON(env.TEST_TIMEOUT) }}
-        uses: stacks-network/actions/stacks-core/run-tests/partition@feat/shadow
+        # uses: stacks-network/actions/stacks-core/run-tests/partition@feat/shadow
+        uses: stacks-network/actions/stacks-core/run-tests/partition@main
         with:
           partition: ${{ matrix.partition }}
           total-partitions: 8
