@@ -538,7 +538,13 @@ impl Signer {
             .signer_db
             .block_lookup(self.reward_cycle, &signer_signature_hash)
         {
-            Ok(Some(block_info)) => block_info,
+            Ok(Some(block_info)) => {
+                if block_info.is_locally_finalized() {
+                    debug!("{self}: Received block validation for a block that is already marked as {}. Ignoring...", block_info.state);
+                    return None;
+                }
+                block_info
+            }
             Ok(None) => {
                 // We have not seen this block before. Why are we getting a response for it?
                 debug!("{self}: Received a block validate response for a block we have not seen before. Ignoring...");
@@ -591,7 +597,13 @@ impl Signer {
             .signer_db
             .block_lookup(self.reward_cycle, &signer_signature_hash)
         {
-            Ok(Some(block_info)) => block_info,
+            Ok(Some(block_info)) => {
+                if block_info.is_locally_finalized() {
+                    debug!("{self}: Received block validation for a block that is already marked as {}. Ignoring...", block_info.state);
+                    return None;
+                }
+                block_info
+            }
             Ok(None) => {
                 // We have not seen this block before. Why are we getting a response for it?
                 debug!("{self}: Received a block validate response for a block we have not seen before. Ignoring...");

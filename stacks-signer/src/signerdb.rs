@@ -266,6 +266,14 @@ impl BlockInfo {
             BlockState::GloballyAccepted | BlockState::GloballyRejected
         )
     }
+
+    /// Check if the block is locally accepted or rejected
+    pub fn is_locally_finalized(&self) -> bool {
+        matches!(
+            self.state,
+            BlockState::LocallyAccepted | BlockState::LocallyRejected
+        )
+    }
 }
 
 /// This struct manages a SQLite database connection
