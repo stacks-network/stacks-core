@@ -2290,7 +2290,7 @@ pub mod test {
     use crate::chainstate::stacks::{StacksMicroblockHeader, *};
     use crate::chainstate::*;
     use crate::clarity::vm::clarity::TransactionConnection;
-    use crate::core::{StacksEpoch, StacksEpochExtension, NETWORK_P2P_PORT};
+    use crate::core::{EpochList, StacksEpoch, StacksEpochExtension, NETWORK_P2P_PORT};
     use crate::net::asn::*;
     use crate::net::atlas::*;
     use crate::net::chat::*;
@@ -2595,7 +2595,7 @@ pub mod test {
         pub initial_lockups: Vec<ChainstateAccountLockup>,
         pub spending_account: TestMiner,
         pub setup_code: String,
-        pub epochs: Option<Vec<StacksEpoch>>,
+        pub epochs: Option<EpochList>,
         /// If some(), TestPeer should check the PoX-2 invariants
         /// on cycle numbers bounded (inclusive) by the supplied u64s
         pub check_pox_invariants: Option<(u64, u64)>,
