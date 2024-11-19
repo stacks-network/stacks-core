@@ -337,9 +337,14 @@ impl SortitionsView {
             // in tenure extends, we need to check:
             // (1) if this is the most recent sortition, an extend is allowed if it changes the burnchain view
             // (2) if this is the most recent sortition, an extend is allowed if enough time has passed to refresh the block limit
+            let sortition_consensus_hash = proposed_by.state().consensus_hash;
             let changed_burn_view =
-                tenure_extend.burn_view_consensus_hash != proposed_by.state().consensus_hash;
-            let enough_time_passed = Self::tenure_time_passed_block_lim()?;
+                tenure_extend.burn_view_consensus_hash != sortition_consensus_hash;
+            let enough_time_passed = get_epoch_time_secs()
+                > signer_db.get_tenure_extend_timestamp(
+                    self.config.tenure_idle_timeout,
+                    &sortition_consensus_hash,
+                );
             if !changed_burn_view && !enough_time_passed {
                 warn!(
                     "Miner block proposal contains a tenure extend, but the burnchain view has not changed and enough time has not passed to refresh the block limit. Considering proposal invalid.";
@@ -656,12 +661,6 @@ impl SortitionsView {
             );
             Ok(false)
         }
-    }
-
-    /// Has the current tenure lasted long enough to extend the block limit?
-    pub fn tenure_time_passed_block_lim() -> Result<bool, ClientError> {
-        // TODO
-        Ok(false)
     }
 
     /// Fetch a new view of the recent sortitions
