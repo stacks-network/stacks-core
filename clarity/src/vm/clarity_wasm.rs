@@ -2078,8 +2078,17 @@ fn link_host_functions(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Er
     link_map_set_fn(linker)?;
     link_map_insert_fn(linker)?;
     link_map_delete_fn(linker)?;
-    link_get_block_info_fn(linker)?;
-    link_get_burn_block_info_fn(linker)?;
+    link_get_block_info_time_property_fn(linker)?;
+    link_get_block_info_vrf_seed_property_fn(linker)?;
+    link_get_block_info_header_hash_property_fn(linker)?;
+    link_get_block_info_burnchain_header_hash_property_fn(linker)?;
+    link_get_block_info_identity_header_hash_property_fn(linker)?;
+    link_get_block_info_miner_address_property_fn(linker)?;
+    link_get_block_info_miner_spend_winner_property_fn(linker)?;
+    link_get_block_info_miner_spend_total_property_fn(linker)?;
+    link_get_block_info_block_reward_property_fn(linker)?;
+    link_get_burn_block_info_header_hash_property_fn(linker)?;
+    link_get_burn_block_info_pox_addrs_property_fn(linker)?;
     link_contract_call_fn(linker)?;
     link_begin_public_call_fn(linker)?;
     link_begin_read_only_call_fn(linker)?;
@@ -5019,200 +5028,136 @@ fn link_map_delete_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Err
         })
 }
 
-/// Link host interface function, `get_block_info`, into the Wasm module.
-/// This function is called for the `get-block-info?` expression.
-fn link_get_block_info_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+fn check_height_valid(
+    caller: &mut Caller<'_, ClarityWasmContext>,
+    memory: &Memory,
+    height_lo: i64,
+    height_hi: i64,
+    return_offset: i32,
+) -> Result<u32, Error> {
+    let height = (height_lo as u128) | ((height_hi as u128) << 64);
+
+    let height_value = match u32::try_from(height) {
+        Ok(result) => result,
+        _ => {
+            // Write a 0 to the return buffer for `none`
+            write_to_wasm(
+                caller,
+                *memory,
+                &TypeSignature::BoolType,
+                return_offset,
+                return_offset + get_type_size(&TypeSignature::BoolType),
+                &Value::Bool(false),
+                true,
+            )?;
+            return Err(Error::Wasm(WasmError::ValueTypeMismatch));
+        }
+    };
+
+    let current_block_height = caller
+        .data_mut()
+        .global_context
+        .database
+        .get_current_block_height();
+    if height_value >= current_block_height {
+        // Write a 0 to the return buffer for `none`
+        write_to_wasm(
+            caller,
+            *memory,
+            &TypeSignature::BoolType,
+            return_offset,
+            return_offset + get_type_size(&TypeSignature::BoolType),
+            &Value::Bool(false),
+            true,
+        )?;
+    }
+    Ok(height_value)
+}
+
+/// Link host interface function, `get_block_info_time`, into the Wasm module.
+/// This function is called for the `get-block-info? time` expression.
+fn link_get_block_info_time_property_fn(
+    linker: &mut Linker<ClarityWasmContext>,
+) -> Result<(), Error> {
     linker
         .func_wrap(
             "clarity",
-            "get_block_info",
+            "get_block_info_time_property",
             |mut caller: Caller<'_, ClarityWasmContext>,
-             name_offset: i32,
-             name_length: i32,
              height_lo: i64,
              height_hi: i64,
              return_offset: i32,
              _return_length: i32| {
-                // runtime_cost(ClarityCostFunction::BlockInfo, env, 0)?;
-
-                // Get the memory from the caller
                 let memory = caller
                     .get_export("memory")
                     .and_then(|export| export.into_memory())
                     .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
 
-                // Retrieve the property name
-                let property_name =
-                    read_identifier_from_wasm(memory, &mut caller, name_offset, name_length)?;
+                let height_value =
+                    check_height_valid(&mut caller, &memory, height_lo, height_hi, return_offset)?;
 
-                let height = (height_lo as u128) | ((height_hi as u128) << 64);
-
-                let block_info_prop = BlockInfoProperty::lookup_by_name_at_version(
-                    &property_name,
-                    caller.data().contract_context().get_clarity_version(),
-                )
-                .ok_or(CheckErrors::GetBlockInfoExpectPropertyName)?;
-
-                let height_value = match u32::try_from(height) {
-                    Ok(result) => result,
-                    _ => {
-                        // Write a 0 to the return buffer for `none`
-                        write_to_wasm(
-                            &mut caller,
-                            memory,
-                            &TypeSignature::BoolType,
-                            return_offset,
-                            return_offset + get_type_size(&TypeSignature::BoolType),
-                            &Value::Bool(false),
-                            true,
-                        )?;
-                        return Ok(());
-                    }
-                };
-
-                let current_block_height = caller
+                let block_time = caller
                     .data_mut()
                     .global_context
                     .database
-                    .get_current_block_height();
-                if height_value >= current_block_height {
-                    // Write a 0 to the return buffer for `none`
-                    write_to_wasm(
-                        &mut caller,
-                        memory,
-                        &TypeSignature::BoolType,
-                        return_offset,
-                        return_offset + get_type_size(&TypeSignature::BoolType),
-                        &Value::Bool(false),
-                        true,
-                    )?;
-                    return Ok(());
-                }
+                    .get_block_time(height_value)?;
+                write_to_wasm(
+                    &mut caller,
+                    memory,
+                    &TypeSignature::UIntType,
+                    return_offset,
+                    return_offset + get_type_size(&TypeSignature::UIntType),
+                    &Value::UInt(block_time as u128),
+                    true,
+                )?;
 
-                let (result, result_ty) = match block_info_prop {
-                    BlockInfoProperty::Time => {
-                        let block_time = caller
-                            .data_mut()
-                            .global_context
-                            .database
-                            .get_block_time(height_value)?;
-                        (Value::UInt(block_time as u128), TypeSignature::UIntType)
-                    }
-                    BlockInfoProperty::VrfSeed => {
-                        let vrf_seed = caller
-                            .data_mut()
-                            .global_context
-                            .database
-                            .get_block_vrf_seed(height_value)?;
-                        let data = vrf_seed.as_bytes().to_vec();
-                        let len = data.len() as u32;
-                        (
-                            Value::Sequence(SequenceData::Buffer(BuffData { data })),
-                            TypeSignature::SequenceType(SequenceSubtype::BufferType(
-                                BufferLength::try_from(len)?,
-                            )),
-                        )
-                    }
-                    BlockInfoProperty::HeaderHash => {
-                        let header_hash = caller
-                            .data_mut()
-                            .global_context
-                            .database
-                            .get_block_header_hash(height_value)?;
-                        let data = header_hash.as_bytes().to_vec();
-                        let len = data.len() as u32;
-                        (
-                            Value::Sequence(SequenceData::Buffer(BuffData { data })),
-                            TypeSignature::SequenceType(SequenceSubtype::BufferType(
-                                BufferLength::try_from(len)?,
-                            )),
-                        )
-                    }
-                    BlockInfoProperty::BurnchainHeaderHash => {
-                        let burnchain_header_hash = caller
-                            .data_mut()
-                            .global_context
-                            .database
-                            .get_burnchain_block_header_hash(height_value)?;
-                        let data = burnchain_header_hash.as_bytes().to_vec();
-                        let len = data.len() as u32;
-                        (
-                            Value::Sequence(SequenceData::Buffer(BuffData { data })),
-                            TypeSignature::SequenceType(SequenceSubtype::BufferType(
-                                BufferLength::try_from(len)?,
-                            )),
-                        )
-                    }
-                    BlockInfoProperty::IdentityHeaderHash => {
-                        let id_header_hash = caller
-                            .data_mut()
-                            .global_context
-                            .database
-                            .get_index_block_header_hash(height_value)?;
-                        let data = id_header_hash.as_bytes().to_vec();
-                        let len = data.len() as u32;
-                        (
-                            Value::Sequence(SequenceData::Buffer(BuffData { data })),
-                            TypeSignature::SequenceType(SequenceSubtype::BufferType(
-                                BufferLength::try_from(len)?,
-                            )),
-                        )
-                    }
-                    BlockInfoProperty::MinerAddress => {
-                        let miner_address = caller
-                            .data_mut()
-                            .global_context
-                            .database
-                            .get_miner_address(height_value)?;
-                        (Value::from(miner_address), TypeSignature::PrincipalType)
-                    }
-                    BlockInfoProperty::MinerSpendWinner => {
-                        let winner_spend = caller
-                            .data_mut()
-                            .global_context
-                            .database
-                            .get_miner_spend_winner(height_value)?;
-                        (Value::UInt(winner_spend), TypeSignature::UIntType)
-                    }
-                    BlockInfoProperty::MinerSpendTotal => {
-                        let total_spend = caller
-                            .data_mut()
-                            .global_context
-                            .database
-                            .get_miner_spend_total(height_value)?;
-                        (Value::UInt(total_spend), TypeSignature::UIntType)
-                    }
-                    BlockInfoProperty::BlockReward => {
-                        // this is already an optional
-                        let block_reward_opt = caller
-                            .data_mut()
-                            .global_context
-                            .database
-                            .get_block_reward(height_value)?;
-                        (
-                            match block_reward_opt {
-                                Some(x) => Value::UInt(x),
-                                None => {
-                                    // Write a 0 to the return buffer for `none`
-                                    write_to_wasm(
-                                        &mut caller,
-                                        memory,
-                                        &TypeSignature::BoolType,
-                                        return_offset,
-                                        return_offset + get_type_size(&TypeSignature::BoolType),
-                                        &Value::Bool(false),
-                                        true,
-                                    )?;
-                                    return Ok(());
-                                }
-                            },
-                            TypeSignature::UIntType,
-                        )
-                    }
-                };
+                Ok(())
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            Error::Wasm(WasmError::UnableToLinkHostFunction(
+                "get_block_info_time_property".to_string(),
+                e,
+            ))
+        })
+}
 
-                // Write the result to the return buffer
-                let ty = TypeSignature::OptionalType(Box::new(result_ty));
+/// Link host interface function, `get_block_info_vrf_seed`, into the Wasm module.
+/// This function is called for the `get-block-info? vrf-seed` expression.
+fn link_get_block_info_vrf_seed_property_fn(
+    linker: &mut Linker<ClarityWasmContext>,
+) -> Result<(), Error> {
+    linker
+        .func_wrap(
+            "clarity",
+            "get_block_info_vrf_seed_property",
+            |mut caller: Caller<'_, ClarityWasmContext>,
+             height_lo: i64,
+             height_hi: i64,
+             return_offset: i32,
+             _return_length: i32| {
+                let memory = caller
+                    .get_export("memory")
+                    .and_then(|export| export.into_memory())
+                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+
+                let height_value =
+                    check_height_valid(&mut caller, &memory, height_lo, height_hi, return_offset)?;
+
+                let vrf_seed = caller
+                    .data_mut()
+                    .global_context
+                    .database
+                    .get_block_vrf_seed(height_value)?;
+                let data = vrf_seed.as_bytes().to_vec();
+                let len = data.len() as u32;
+                let (result, ty) = (
+                    Value::Sequence(SequenceData::Buffer(BuffData { data })),
+                    TypeSignature::SequenceType(SequenceSubtype::BufferType(
+                        BufferLength::try_from(len)?,
+                    )),
+                );
                 write_to_wasm(
                     &mut caller,
                     memory,
@@ -5229,127 +5174,440 @@ fn link_get_block_info_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(),
         .map(|_| ())
         .map_err(|e| {
             Error::Wasm(WasmError::UnableToLinkHostFunction(
-                "get_block_info".to_string(),
+                "get_block_info_vrf_seed_property".to_string(),
                 e,
             ))
         })
 }
 
-/// Link host interface function, `get_burn_block_info`, into the Wasm module.
-/// This function is called for the `get-burn-block-info?` expression.
-fn link_get_burn_block_info_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+/// Link host interface function, `get_block_info_header_hash`, into the Wasm module.
+/// This function is called for the `get-block-info? header-hash` expression.
+fn link_get_block_info_header_hash_property_fn(
+    linker: &mut Linker<ClarityWasmContext>,
+) -> Result<(), Error> {
     linker
         .func_wrap(
             "clarity",
-            "get_burn_block_info",
+            "get_block_info_header_hash_property",
             |mut caller: Caller<'_, ClarityWasmContext>,
-             name_offset: i32,
-             name_length: i32,
              height_lo: i64,
              height_hi: i64,
              return_offset: i32,
              _return_length: i32| {
-                // runtime_cost(ClarityCostFunction::GetBurnBlockInfo, env, 0)?;
-
-                // Get the memory from the caller
                 let memory = caller
                     .get_export("memory")
                     .and_then(|export| export.into_memory())
                     .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
 
-                // Retrieve the property name
-                let property_name =
-                    read_identifier_from_wasm(memory, &mut caller, name_offset, name_length)?;
+                let height_value =
+                    check_height_valid(&mut caller, &memory, height_lo, height_hi, return_offset)?;
 
-                let height = (height_lo as u128) | ((height_hi as u128) << 64);
+                let header_hash = caller
+                    .data_mut()
+                    .global_context
+                    .database
+                    .get_block_header_hash(height_value)?;
+                let data = header_hash.as_bytes().to_vec();
+                let len = data.len() as u32;
+                let (result, ty) = (
+                    Value::Sequence(SequenceData::Buffer(BuffData { data })),
+                    TypeSignature::SequenceType(SequenceSubtype::BufferType(
+                        BufferLength::try_from(len)?,
+                    )),
+                );
+                write_to_wasm(
+                    &mut caller,
+                    memory,
+                    &ty,
+                    return_offset,
+                    return_offset + get_type_size(&ty),
+                    &Value::some(result)?,
+                    true,
+                )?;
 
-                let block_info_prop = BurnBlockInfoProperty::lookup_by_name(&property_name)
-                    .ok_or(CheckErrors::GetBurnBlockInfoExpectPropertyName)?;
+                Ok(())
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            Error::Wasm(WasmError::UnableToLinkHostFunction(
+                "get_block_info_header_hash_property".to_string(),
+                e,
+            ))
+        })
+}
 
-                // Note: we assume that we will not have a height bigger than u32::MAX.
-                let height_value = match u32::try_from(height) {
-                    Ok(result) => result,
-                    _ => {
-                        // Write a 0 to the return buffer for `none`
-                        write_to_wasm(
-                            &mut caller,
-                            memory,
-                            &TypeSignature::BoolType,
-                            return_offset,
-                            return_offset + get_type_size(&TypeSignature::BoolType),
-                            &Value::Bool(false),
-                            true,
-                        )?;
-                        return Ok(());
-                    }
-                };
+/// Link host interface function, `get_block_info_burnchain_header_hash`, into the Wasm module.
+/// This function is called for the `get-block-info? burnchain-header-hash` expression.
+fn link_get_block_info_burnchain_header_hash_property_fn(
+    linker: &mut Linker<ClarityWasmContext>,
+) -> Result<(), Error> {
+    linker
+        .func_wrap(
+            "clarity",
+            "get_block_info_burnchain_header_hash_property",
+            |mut caller: Caller<'_, ClarityWasmContext>,
+             height_lo: i64,
+             height_hi: i64,
+             return_offset: i32,
+             _return_length: i32| {
+                let memory = caller
+                    .get_export("memory")
+                    .and_then(|export| export.into_memory())
+                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
 
-                let (result, result_ty) = match block_info_prop {
-                    BurnBlockInfoProperty::HeaderHash => {
-                        let burnchain_header_hash_opt = caller
-                            .data_mut()
-                            .global_context
-                            .database
-                            .get_burnchain_block_header_hash_for_burnchain_height(
-                            height_value,
-                        )?;
-                        (
-                            match burnchain_header_hash_opt {
-                                Some(burnchain_header_hash) => {
-                                    Value::some(Value::Sequence(SequenceData::Buffer(BuffData {
-                                        data: burnchain_header_hash.as_bytes().to_vec(),
-                                    })))
-                                    .expect("FATAL: could not wrap a (buff 32) in an optional")
-                                }
-                                None => Value::none(),
-                            },
-                            TypeSignature::OptionalType(Box::new(BUFF_32.clone())),
-                        )
-                    }
-                    BurnBlockInfoProperty::PoxAddrs => {
-                        let pox_addrs_and_payout = caller
-                            .data_mut()
-                            .global_context
-                            .database
-                            .get_pox_payout_addrs_for_burnchain_height(height_value)?;
-                        let addr_ty: TypeSignature = TupleTypeSignature::try_from(vec![
-                            ("hashbytes".into(), BUFF_32.clone()),
-                            ("version".into(), BUFF_1.clone()),
-                        ])
-                        .expect("FATAL: could not build tuple type signature")
-                        .into();
-                        let addrs_ty = TypeSignature::list_of(addr_ty.clone(), 2)
-                            .expect("FATAL: could not build list type signature");
-                        let tuple_ty = TupleTypeSignature::try_from(vec![
-                            ("addrs".into(), addrs_ty),
-                            ("payout".into(), TypeSignature::UIntType),
-                        ])?;
-                        let value = match pox_addrs_and_payout {
-                            Some((addrs, payout)) => Value::some(Value::Tuple(
-                                TupleData::from_data(vec![
-                                    (
-                                        "addrs".into(),
-                                        Value::list_with_type(
-                                            &caller.data_mut().global_context.epoch_id,
-                                            addrs.into_iter().map(Value::Tuple).collect(),
-                                            ListTypeData::new_list(addr_ty, 2)
-                                                .expect("FATAL: could not create list type"),
-                                        )
-                                        .expect("FATAL: could not convert address list to Value"),
-                                    ),
-                                    ("payout".into(), Value::UInt(payout)),
-                                ])
-                                .expect("FATAL: failed to build pox addrs and payout tuple"),
-                            ))
-                            .expect("FATAL: could not build Some(..)"),
-                            None => Value::none(),
-                        };
-                        let ty = TypeSignature::OptionalType(Box::new(tuple_ty.into()));
-                        (value, ty)
-                    }
-                };
+                let height_value =
+                    check_height_valid(&mut caller, &memory, height_lo, height_hi, return_offset)?;
 
-                // Write the result to the return buffer
+                let burnchain_header_hash = caller
+                    .data_mut()
+                    .global_context
+                    .database
+                    .get_burnchain_block_header_hash(height_value)?;
+                let data = burnchain_header_hash.as_bytes().to_vec();
+                let len = data.len() as u32;
+                let (result, ty) = (
+                    Value::Sequence(SequenceData::Buffer(BuffData { data })),
+                    TypeSignature::SequenceType(SequenceSubtype::BufferType(
+                        BufferLength::try_from(len)?,
+                    )),
+                );
+                write_to_wasm(
+                    &mut caller,
+                    memory,
+                    &ty,
+                    return_offset,
+                    return_offset + get_type_size(&ty),
+                    &Value::some(result)?,
+                    true,
+                )?;
+
+                Ok(())
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            Error::Wasm(WasmError::UnableToLinkHostFunction(
+                "get_block_info_burnchain_header_hash_property".to_string(),
+                e,
+            ))
+        })
+}
+
+/// Link host interface function, `get_block_info_id_header_hash`, into the Wasm module.
+/// This function is called for the `get-block-info? id-header-hash` expression.
+fn link_get_block_info_identity_header_hash_property_fn(
+    linker: &mut Linker<ClarityWasmContext>,
+) -> Result<(), Error> {
+    linker
+        .func_wrap(
+            "clarity",
+            "get_block_info_identity_header_hash_property",
+            |mut caller: Caller<'_, ClarityWasmContext>,
+             height_lo: i64,
+             height_hi: i64,
+             return_offset: i32,
+             _return_length: i32| {
+                let memory = caller
+                    .get_export("memory")
+                    .and_then(|export| export.into_memory())
+                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+
+                let height_value =
+                    check_height_valid(&mut caller, &memory, height_lo, height_hi, return_offset)?;
+
+                let id_header_hash = caller
+                    .data_mut()
+                    .global_context
+                    .database
+                    .get_index_block_header_hash(height_value)?;
+                let data = id_header_hash.as_bytes().to_vec();
+                let len = data.len() as u32;
+                let (result, ty) = (
+                    Value::Sequence(SequenceData::Buffer(BuffData { data })),
+                    TypeSignature::SequenceType(SequenceSubtype::BufferType(
+                        BufferLength::try_from(len)?,
+                    )),
+                );
+                write_to_wasm(
+                    &mut caller,
+                    memory,
+                    &ty,
+                    return_offset,
+                    return_offset + get_type_size(&ty),
+                    &Value::some(result)?,
+                    true,
+                )?;
+
+                Ok(())
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            Error::Wasm(WasmError::UnableToLinkHostFunction(
+                "get_block_info_identity_header_hash_property".to_string(),
+                e,
+            ))
+        })
+}
+
+/// Link host interface function, `get_block_info_miner_address`, into the Wasm module.
+/// This function is called for the `get-block-info? miner-address` expression.
+fn link_get_block_info_miner_address_property_fn(
+    linker: &mut Linker<ClarityWasmContext>,
+) -> Result<(), Error> {
+    linker
+        .func_wrap(
+            "clarity",
+            "get_block_info_miner_address_property",
+            |mut caller: Caller<'_, ClarityWasmContext>,
+             height_lo: i64,
+             height_hi: i64,
+             return_offset: i32,
+             _return_length: i32| {
+                let memory = caller
+                    .get_export("memory")
+                    .and_then(|export| export.into_memory())
+                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+
+                let height_value =
+                    check_height_valid(&mut caller, &memory, height_lo, height_hi, return_offset)?;
+
+                let miner_address = caller
+                    .data_mut()
+                    .global_context
+                    .database
+                    .get_miner_address(height_value)?;
+                let (result, ty) = (Value::from(miner_address), TypeSignature::PrincipalType);
+                write_to_wasm(
+                    &mut caller,
+                    memory,
+                    &ty,
+                    return_offset,
+                    return_offset + get_type_size(&ty),
+                    &Value::some(result)?,
+                    true,
+                )?;
+
+                Ok(())
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            Error::Wasm(WasmError::UnableToLinkHostFunction(
+                "get_block_info_miner_address_property".to_string(),
+                e,
+            ))
+        })
+}
+
+/// Link host interface function, `get_block_info_miner_spend_winner`, into the Wasm module.
+/// This function is called for the `get-block-info? miner-spend-winner` expression.
+fn link_get_block_info_miner_spend_winner_property_fn(
+    linker: &mut Linker<ClarityWasmContext>,
+) -> Result<(), Error> {
+    linker
+        .func_wrap(
+            "clarity",
+            "get_block_info_miner_spend_winner_property",
+            |mut caller: Caller<'_, ClarityWasmContext>,
+             height_lo: i64,
+             height_hi: i64,
+             return_offset: i32,
+             _return_length: i32| {
+                let memory = caller
+                    .get_export("memory")
+                    .and_then(|export| export.into_memory())
+                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+
+                let height_value =
+                    check_height_valid(&mut caller, &memory, height_lo, height_hi, return_offset)?;
+
+                let winner_spend = caller
+                    .data_mut()
+                    .global_context
+                    .database
+                    .get_miner_spend_winner(height_value)?;
+                let (result, ty) = (Value::UInt(winner_spend), TypeSignature::UIntType);
+                write_to_wasm(
+                    &mut caller,
+                    memory,
+                    &ty,
+                    return_offset,
+                    return_offset + get_type_size(&ty),
+                    &Value::some(result)?,
+                    true,
+                )?;
+
+                Ok(())
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            Error::Wasm(WasmError::UnableToLinkHostFunction(
+                "get_block_info_miner_spend_winner_property".to_string(),
+                e,
+            ))
+        })
+}
+
+/// Link host interface function, `get_block_info_miner_spend_total`, into the Wasm module.
+/// This function is called for the `get-block-info? miner-spend-total` expression.
+fn link_get_block_info_miner_spend_total_property_fn(
+    linker: &mut Linker<ClarityWasmContext>,
+) -> Result<(), Error> {
+    linker
+        .func_wrap(
+            "clarity",
+            "get_block_info_miner_spend_total_property",
+            |mut caller: Caller<'_, ClarityWasmContext>,
+             height_lo: i64,
+             height_hi: i64,
+             return_offset: i32,
+             _return_length: i32| {
+                let memory = caller
+                    .get_export("memory")
+                    .and_then(|export| export.into_memory())
+                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+
+                let height_value =
+                    check_height_valid(&mut caller, &memory, height_lo, height_hi, return_offset)?;
+
+                let total_spend = caller
+                    .data_mut()
+                    .global_context
+                    .database
+                    .get_miner_spend_total(height_value)?;
+                let (result, ty) = (Value::UInt(total_spend), TypeSignature::UIntType);
+                write_to_wasm(
+                    &mut caller,
+                    memory,
+                    &ty,
+                    return_offset,
+                    return_offset + get_type_size(&ty),
+                    &Value::some(result)?,
+                    true,
+                )?;
+
+                Ok(())
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            Error::Wasm(WasmError::UnableToLinkHostFunction(
+                "get_block_info_miner_spend_total_property".to_string(),
+                e,
+            ))
+        })
+}
+
+/// Link host interface function, `get_block_info_block_reward`, into the Wasm module.
+/// This function is called for the `get-block-info? block-reward` expression.
+fn link_get_block_info_block_reward_property_fn(
+    linker: &mut Linker<ClarityWasmContext>,
+) -> Result<(), Error> {
+    linker
+        .func_wrap(
+            "clarity",
+            "get_block_info_block_reward_property",
+            |mut caller: Caller<'_, ClarityWasmContext>,
+             height_lo: i64,
+             height_hi: i64,
+             return_offset: i32,
+             _return_length: i32| {
+                let memory = caller
+                    .get_export("memory")
+                    .and_then(|export| export.into_memory())
+                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+
+                let height_value =
+                    check_height_valid(&mut caller, &memory, height_lo, height_hi, return_offset)?;
+
+                let block_reward_opt = caller
+                    .data_mut()
+                    .global_context
+                    .database
+                    .get_block_reward(height_value)?;
+                let (result, ty) = (
+                    match block_reward_opt {
+                        Some(x) => Value::UInt(x),
+                        None => {
+                            // Write a 0 to the return buffer for `none`
+                            write_to_wasm(
+                                &mut caller,
+                                memory,
+                                &TypeSignature::BoolType,
+                                return_offset,
+                                return_offset + get_type_size(&TypeSignature::BoolType),
+                                &Value::Bool(false),
+                                true,
+                            )?;
+                            return Ok(());
+                        }
+                    },
+                    TypeSignature::UIntType,
+                );
+                write_to_wasm(
+                    &mut caller,
+                    memory,
+                    &ty,
+                    return_offset,
+                    return_offset + get_type_size(&ty),
+                    &Value::some(result)?,
+                    true,
+                )?;
+
+                Ok(())
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            Error::Wasm(WasmError::UnableToLinkHostFunction(
+                "get_block_info_block_reward_property".to_string(),
+                e,
+            ))
+        })
+}
+
+/// Link host interface function, `get_burn_block_info_header_hash_property`, into the Wasm module.
+/// This function is called for the `get-burn-block-info? header-hash` expression.
+fn link_get_burn_block_info_header_hash_property_fn(
+    linker: &mut Linker<ClarityWasmContext>,
+) -> Result<(), Error> {
+    linker
+        .func_wrap(
+            "clarity",
+            "get_burn_block_info_header_hash_property",
+            |mut caller: Caller<'_, ClarityWasmContext>,
+             height_lo: i64,
+             height_hi: i64,
+             return_offset: i32,
+             _return_length: i32| {
+                let memory = caller
+                    .get_export("memory")
+                    .and_then(|export| export.into_memory())
+                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+
+                let height_value =
+                    check_height_valid(&mut caller, &memory, height_lo, height_hi, return_offset)?;
+
+                let burnchain_header_hash_opt = caller
+                    .data_mut()
+                    .global_context
+                    .database
+                    .get_burnchain_block_header_hash_for_burnchain_height(height_value)?;
+                let (result, result_ty) = (
+                    match burnchain_header_hash_opt {
+                        Some(burnchain_header_hash) => {
+                            Value::some(Value::Sequence(SequenceData::Buffer(BuffData {
+                                data: burnchain_header_hash.as_bytes().to_vec(),
+                            })))?
+                        }
+                        None => Value::none(),
+                    },
+                    TypeSignature::OptionalType(Box::new(BUFF_32.clone())),
+                );
+
                 write_to_wasm(
                     &mut caller,
                     memory,
@@ -5366,7 +5624,84 @@ fn link_get_burn_block_info_fn(linker: &mut Linker<ClarityWasmContext>) -> Resul
         .map(|_| ())
         .map_err(|e| {
             Error::Wasm(WasmError::UnableToLinkHostFunction(
-                "get_burn_block_info".to_string(),
+                "get_burn_block_info_header_hash_property".to_string(),
+                e,
+            ))
+        })
+}
+
+/// Link host interface function, `get_burn_block_info_pox_addrs_property`, into the Wasm module.
+/// This function is called for the `get-burn-block-info? pox-addrs` expression.
+fn link_get_burn_block_info_pox_addrs_property_fn(
+    linker: &mut Linker<ClarityWasmContext>,
+) -> Result<(), Error> {
+    linker
+        .func_wrap(
+            "clarity",
+            "get_burn_block_info_pox_addrs_property",
+            |mut caller: Caller<'_, ClarityWasmContext>,
+             height_lo: i64,
+             height_hi: i64,
+             return_offset: i32,
+             _return_length: i32| {
+                let memory = caller
+                    .get_export("memory")
+                    .and_then(|export| export.into_memory())
+                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+
+                let height_value =
+                    check_height_valid(&mut caller, &memory, height_lo, height_hi, return_offset)?;
+
+                let pox_addrs_and_payout = caller
+                    .data_mut()
+                    .global_context
+                    .database
+                    .get_pox_payout_addrs_for_burnchain_height(height_value)?;
+                let addr_ty: TypeSignature = TupleTypeSignature::try_from(vec![
+                    ("hashbytes".into(), BUFF_32.clone()),
+                    ("version".into(), BUFF_1.clone()),
+                ])?
+                .into();
+                let addrs_ty = TypeSignature::list_of(addr_ty.clone(), 2)?;
+                let tuple_ty = TupleTypeSignature::try_from(vec![
+                    ("addrs".into(), addrs_ty),
+                    ("payout".into(), TypeSignature::UIntType),
+                ])?;
+                let value = match pox_addrs_and_payout {
+                    Some((addrs, payout)) => {
+                        Value::some(Value::Tuple(TupleData::from_data(vec![
+                            (
+                                "addrs".into(),
+                                Value::list_with_type(
+                                    &caller.data_mut().global_context.epoch_id,
+                                    addrs.into_iter().map(Value::Tuple).collect(),
+                                    ListTypeData::new_list(addr_ty, 2)?,
+                                )?,
+                            ),
+                            ("payout".into(), Value::UInt(payout)),
+                        ])?))?
+                    }
+                    None => Value::none(),
+                };
+                let ty = TypeSignature::OptionalType(Box::new(tuple_ty.into()));
+
+                write_to_wasm(
+                    &mut caller,
+                    memory,
+                    &ty,
+                    return_offset,
+                    return_offset + get_type_size(&ty),
+                    &value,
+                    true,
+                )?;
+
+                Ok(())
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            Error::Wasm(WasmError::UnableToLinkHostFunction(
+                "get_burn_block_info_pox_addrs_property".to_string(),
                 e,
             ))
         })
