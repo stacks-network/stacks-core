@@ -829,7 +829,7 @@ impl SignerDb {
     }
 
     /// Compute the tenure extend timestamp based on the tenure start and already consumed idle time of the
-    /// globally accepted blocks of the provided tenure (identified by the cosnensus hash)
+    /// globally accepted blocks of the provided tenure (identified by the consensus hash)
     pub fn get_tenure_extend_timestamp(
         &self,
         tenure_idle_timeout: Duration,
