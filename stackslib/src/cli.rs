@@ -79,24 +79,24 @@ impl StacksChainConfig {
         pox_constants.pox_3_activation_height = 5;
         pox_constants.pox_4_activation_height = 6;
         pox_constants.v3_unlock_height = 7;
-        let mut epochs = STACKS_EPOCHS_REGTEST.to_vec();
-        epochs[0].start_height = 0;
-        epochs[0].end_height = 0;
-        epochs[1].start_height = 0;
-        epochs[1].end_height = 1;
-        epochs[2].start_height = 1;
-        epochs[2].end_height = 2;
-        epochs[3].start_height = 2;
-        epochs[3].end_height = 3;
-        epochs[4].start_height = 3;
-        epochs[4].end_height = 4;
-        epochs[5].start_height = 4;
-        epochs[5].end_height = 5;
-        epochs[6].start_height = 5;
-        epochs[6].end_height = 6;
-        epochs[7].start_height = 6;
-        epochs[7].end_height = 56_457;
-        epochs[8].start_height = 56_457;
+        let mut epochs = EpochList::new(&*STACKS_EPOCHS_REGTEST);
+        epochs[StacksEpochId::Epoch10].start_height = 0;
+        epochs[StacksEpochId::Epoch10].end_height = 0;
+        epochs[StacksEpochId::Epoch20].start_height = 0;
+        epochs[StacksEpochId::Epoch20].end_height = 1;
+        epochs[StacksEpochId::Epoch2_05].start_height = 1;
+        epochs[StacksEpochId::Epoch2_05].end_height = 2;
+        epochs[StacksEpochId::Epoch21].start_height = 2;
+        epochs[StacksEpochId::Epoch21].end_height = 3;
+        epochs[StacksEpochId::Epoch22].start_height = 3;
+        epochs[StacksEpochId::Epoch22].end_height = 4;
+        epochs[StacksEpochId::Epoch23].start_height = 4;
+        epochs[StacksEpochId::Epoch23].end_height = 5;
+        epochs[StacksEpochId::Epoch24].start_height = 5;
+        epochs[StacksEpochId::Epoch24].end_height = 6;
+        epochs[StacksEpochId::Epoch25].start_height = 6;
+        epochs[StacksEpochId::Epoch25].end_height = 56_457;
+        epochs[StacksEpochId::Epoch30].start_height = 56_457;
         Self {
             chain_id: CHAIN_ID_TESTNET,
             first_block_height: 0,
