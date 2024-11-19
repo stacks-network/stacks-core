@@ -86,8 +86,8 @@ use crate::net::atlas::BNS_CHARS_REGEX;
 use crate::net::Error as net_error;
 use crate::util_lib::boot::{boot_code_acc, boot_code_addr, boot_code_id, boot_code_tx_auth};
 use crate::util_lib::db::{
-    query_count, query_row, tx_begin_immediate, tx_busy_handler, DBConn, DBTx, Error as db_error,
-    FromColumn, FromRow, IndexDBConn, IndexDBTx,
+    query_count, query_row, query_rows, tx_begin_immediate, tx_busy_handler, DBConn, DBTx,
+    Error as db_error, FromColumn, FromRow, IndexDBConn, IndexDBTx,
 };
 
 pub mod accounts;
@@ -664,6 +664,18 @@ impl<'a> ChainstateTx<'a> {
                 warn!("Failed to monitor TX processed: {:?}", e; "txid" => %txid);
             }
         }
+    }
+
+    pub fn get_index_block_hashes_from_txid(
+        &self,
+        txid: Txid,
+    ) -> Result<Vec<StacksBlockId>, Error> {
+        let args = params![txid];
+        query_rows(
+            self.tx.tx(),
+            "SELECT index_block_hash FROM transactions WHERE txid = ?",
+            args,
+        ).map_err(|e| e.into())
     }
 }
 
