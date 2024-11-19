@@ -528,10 +528,6 @@ impl StacksEpochId {
                     first_burnchain_height,
                     current_burnchain_height,
                 );
-                info!(
-                    "Epoch31 coinbase at ({},{}) is {}",
-                    first_burnchain_height, current_burnchain_height, cb
-                );
                 cb
             }
         }
