@@ -9303,6 +9303,132 @@ fn v3_signer_api_endpoint() {
     run_loop_thread.join().unwrap();
 }
 
+/// Test `/v3/blocks/height` API endpoint
+///
+/// This endpoint returns the block blob given a height
+#[test]
+#[ignore]
+fn v3_blockbyheight_api_endpoint() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let (mut conf, _miner_account) = naka_neon_integration_conf(None);
+    let password = "12345".to_string();
+    conf.connection_options.auth_token = Some(password.clone());
+    conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
+    let stacker_sk = setup_stacker(&mut conf);
+    let signer_sk = Secp256k1PrivateKey::new();
+    let signer_addr = tests::to_addr(&signer_sk);
+    let sender_sk = Secp256k1PrivateKey::new();
+    // setup sender + recipient for some test stx transfers
+    // these are necessary for the interim blocks to get mined at all
+    let sender_addr = tests::to_addr(&sender_sk);
+    let send_amt = 100;
+    let send_fee = 180;
+    conf.add_initial_balance(
+        PrincipalData::from(sender_addr).to_string(),
+        send_amt + send_fee,
+    );
+    conf.add_initial_balance(PrincipalData::from(signer_addr).to_string(), 100000);
+
+    // only subscribe to the block proposal events
+    test_observer::spawn();
+    test_observer::register(&mut conf, &[EventKeyType::BlockProposal]);
+
+    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .expect("Failed starting bitcoind");
+    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    btc_regtest_controller.bootstrap_chain(201);
+
+    let mut run_loop = boot_nakamoto::BootRunLoop::new(conf.clone()).unwrap();
+    let run_loop_stopper = run_loop.get_termination_switch();
+    let Counters {
+        blocks_processed,
+        naka_submitted_commits: commits_submitted,
+        naka_proposed_blocks: proposals_submitted,
+        ..
+    } = run_loop.counters();
+
+    let coord_channel = run_loop.coordinator_channels();
+
+    let run_loop_thread = thread::spawn(move || run_loop.start(None, 0));
+    let mut signers = TestSigners::new(vec![signer_sk]);
+    wait_for_runloop(&blocks_processed);
+    boot_to_epoch_3(
+        &conf,
+        &blocks_processed,
+        &[stacker_sk],
+        &[signer_sk],
+        &mut Some(&mut signers),
+        &mut btc_regtest_controller,
+    );
+
+    info!("------------------------- Reached Epoch 3.0 -------------------------");
+
+    blind_signer(&conf, &signers, proposals_submitted);
+
+    wait_for_first_naka_block_commit(60, &commits_submitted);
+
+    // Mine 1 nakamoto tenure
+    next_block_and_mine_commit(
+        &mut btc_regtest_controller,
+        60,
+        &coord_channel,
+        &commits_submitted,
+    )
+    .unwrap();
+
+    let burnchain = conf.get_burnchain();
+    let sortdb = burnchain.open_sortition_db(true).unwrap();
+    let (chainstate, _) = StacksChainState::open(
+        conf.is_mainnet(),
+        conf.burnchain.chain_id,
+        &conf.get_chainstate_path_str(),
+        None,
+    )
+    .unwrap();
+
+    info!("------------------------- Setup finished, run test -------------------------");
+
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+
+    let get_v3_block_by_height = |height: u64| {
+        let url = &format!("{http_origin}/v3/blocks/height/{height}");
+        info!("Send request: GET {url}");
+        reqwest::blocking::get(url).unwrap_or_else(|e| panic!("GET request failed: {e}"))
+    };
+
+    let tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
+        .unwrap()
+        .unwrap();
+
+    let block_height = tip.stacks_block_height;
+    let block_data = get_v3_block_by_height(block_height);
+
+    assert!(block_data.status().is_success());
+    let block_bytes_vec = block_data.bytes().unwrap().to_vec();
+    assert!(block_bytes_vec.len() > 0);
+
+    // does the block id of the returned blob matches ?
+    let block_id = NakamotoBlockHeader::consensus_deserialize(&mut block_bytes_vec.as_slice())
+        .unwrap()
+        .block_id();
+    assert_eq!(block_id, tip.index_block_hash());
+
+    info!("------------------------- Test finished, clean up -------------------------");
+
+    coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .stop_chains_coordinator();
+    run_loop_stopper.store(false, Ordering::SeqCst);
+
+    run_loop_thread.join().unwrap();
+}
+
 #[test]
 #[ignore]
 /// This test spins up a nakamoto-neon node.

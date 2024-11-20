@@ -13,6 +13,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 - Add index to `metadata_table` in Clarity DB on `blockhash`
 - Add `block_commit_delay_ms` to the config file to control the time to wait after seeing a new burn block, before submitting a block commit, to allow time for the first Nakamoto block of the new tenure to be mined, allowing this miner to avoid the need to RBF the block commit.
 - Add `tenure_cost_limit_per_block_percentage` to the miner config file to control the percentage remaining tenure cost limit to consume per nakamoto block.
+- Add `/v3/blocks/height/:block_height` rpc endpoint
 - If the winning miner of a sortition is committed to the wrong parent tenure, the previous miner can immediately tenure extend and continue mining since the winning miner would never be able to propose a valid block. (#5361)
 
 ## [3.0.0.0.1]
