@@ -9824,6 +9824,11 @@ fn clarity_cost_spend_down() {
     );
 
     info!("Bootstrapped to Epoch-3.0 boundary, starting nakamoto miner");
+    
+    info!("Nakamoto miner started...");
+    blind_signer(&naka_conf, &signers, proposals_submitted);
+
+    wait_for_first_naka_block_commit(60, &commits_submitted);
 
     let small_contract = format!(
         r#"
