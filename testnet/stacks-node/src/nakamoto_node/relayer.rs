@@ -1169,11 +1169,11 @@ impl RelayerThread {
         tip_block_ch: ConsensusHash,
         tip_block_bh: BlockHeaderHash,
     ) -> Result<(), NakamotoNodeError> {
-        let mut last_committed = self.make_block_commit(&tip_block_ch, &tip_block_bh)?;
         if self.fault_injection_skip_block_commit() {
             warn!("Relayer: not submitting block-commit to bitcoin network due to test directive.");
             return Ok(());
         }
+        let mut last_committed = self.make_block_commit(&tip_block_ch, &tip_block_bh)?;
 
         // last chance -- is this still the stacks tip?
         let (cur_stacks_tip_ch, cur_stacks_tip_bh) =

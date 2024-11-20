@@ -208,6 +208,9 @@ impl SortitionsView {
             // - If the tip is in the current tenure, we are in the process of mining this tenure.
             // - If the tip is not in the current tenure, then we’re starting a new tenure,
             //   and the current sortition's parent tenure must match the tenure of the tip.
+            // - If the tip is not building off of the current sortition's parent tenure, then
+            //   check to see if the tip's parent is within the first proposal burn block timeout,
+            //   which allows for forks when a burn block arrives quickly.
             // - Else the miner of the current sortition has committed to an incorrect parent tenure.
             let consensus_hash_match =
                 self.cur_sortition.consensus_hash == tip.block.header.consensus_hash;
@@ -215,7 +218,6 @@ impl SortitionsView {
                 self.cur_sortition.parent_tenure_id == tip.block.header.consensus_hash;
             if !consensus_hash_match && !parent_tenure_id_match {
                 // More expensive check, so do it only if we need to.
-                info!("Current sortition does not build off of canonical tip tenure, checking if this is valid behavior");
                 let is_valid_parent_tenure = Self::check_parent_tenure_choice(
                     &self.cur_sortition,
                     block,
@@ -335,6 +337,7 @@ impl SortitionsView {
                         "Miner block proposal is from last sortition winner, when the new sortition winner is still valid. Considering proposal invalid.";
                         "proposed_block_consensus_hash" => %block.header.consensus_hash,
                         "proposed_block_signer_sighash" => %block.header.signer_signature_hash(),
+                        "current_sortition_miner_status" => ?self.cur_sortition.miner_status,
                     );
                     return Ok(false);
                 }
@@ -470,6 +473,8 @@ impl SortitionsView {
                             "violating_tenure_proposed_time" => local_block_info.proposed_time,
                             "new_tenure_received_time" => sortition_state_received_time,
                             "new_tenure_burn_timestamp" => sortition_state.burn_header_timestamp,
+                            "first_proposal_burn_block_timing_secs" => first_proposal_burn_block_timing.as_secs(),
+                            "proposal_to_sortition" => proposal_to_sortition,
                         );
                         continue;
                     }

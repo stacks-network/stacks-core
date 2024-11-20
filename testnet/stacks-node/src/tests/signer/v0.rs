@@ -7541,6 +7541,8 @@ fn tenure_extend_after_bad_commit() {
     // partition the signer set so that ~half are listening and using node 1 for RPC and events,
     //  and the rest are using node 2
 
+    let first_proposal_burn_block_timing = Duration::from_secs(1);
+
     let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
         vec![(sender_addr, (send_amt + send_fee) * num_txs)],
@@ -7552,6 +7554,7 @@ fn tenure_extend_after_bad_commit() {
             };
             signer_config.node_host = node_host.to_string();
             signer_config.block_proposal_timeout = Duration::from_secs(30);
+            signer_config.first_proposal_burn_block_timing = first_proposal_burn_block_timing;
         },
         |config| {
             config.node.rpc_bind = format!("{localhost}:{node_1_rpc}");
@@ -7831,6 +7834,15 @@ fn tenure_extend_after_bad_commit() {
         .stacks_tip_height;
     let burn_height_before = get_burn_height();
 
+    // Sleep enough time to pass the first proposal burn block timing
+    let sleep_duration = first_proposal_burn_block_timing.saturating_add(Duration::from_secs(2));
+    info!(
+        "Sleeping for {} seconds before issuing next burn block.",
+        sleep_duration.as_secs()
+    );
+    thread::sleep(sleep_duration);
+
+    info!("--------------- Triggering new burn block for tenure C ---------------");
     next_block_and(
         &mut signer_test.running_nodes.btc_regtest_controller,
         60,
