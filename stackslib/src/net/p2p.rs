@@ -1823,10 +1823,9 @@ impl PeerNetwork {
 
         match self.can_register_peer(&neighbor_key, outbound) {
             Ok(_) => {
-                info!(
-                    "Neighbor accepted! public key: {:?} address: {:?}",
-                    pubkey_opt, neighbor_key.addrbytes
-                );
+                info!("Neighbor accepted!";
+                "public key" => ?pubkey_opt,
+                "address" => %neighbor_key.addrbytes);
             }
             Err(e) => {
                 debug!(
@@ -1922,9 +1921,10 @@ impl PeerNetwork {
         for (nk, pubkh) in nk_remove.into_iter() {
             // remove event state
             self.events.remove(&nk);
-            info!(
-                "Dropping neighbor! event id: {:?} public address: {:?} public key: {:?}",
-                event_id, pubkh, nk.addrbytes
+            info!("Dropping neighbor!";
+                "event id" => %event_id,
+                "public address" => %pubkh,
+                "public key" => %nk.addrbytes
             );
 
             // remove inventory state
