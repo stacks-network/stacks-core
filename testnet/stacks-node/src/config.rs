@@ -835,7 +835,7 @@ impl Config {
         let miner = match config_file.miner {
             Some(mut miner) => {
                 miner.mining_key = match String::from_utf8(node.seed.clone()) {
-                    OK(res) => Some(res),
+                    Ok(res) => Some(res),
                     Err(_) => None,
                 };
                 miner.into_config_default(miner_default_config)?
