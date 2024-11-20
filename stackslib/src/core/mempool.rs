@@ -390,7 +390,12 @@ pub trait ProposalCallbackReceiver: Send {
 
 pub trait MemPoolEventDispatcher {
     fn get_proposal_callback_receiver(&self) -> Option<Box<dyn ProposalCallbackReceiver>>;
-    fn mempool_txs_dropped(&self, txids: Vec<Txid>, new_txid: Option<Txid>, reason: MemPoolDropReason);
+    fn mempool_txs_dropped(
+        &self,
+        txids: Vec<Txid>,
+        new_txid: Option<Txid>,
+        reason: MemPoolDropReason,
+    );
     fn mined_block_event(
         &self,
         target_burn_height: u64,

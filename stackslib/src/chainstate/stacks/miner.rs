@@ -1406,8 +1406,16 @@ impl<'a> StacksMicroblockBuilder<'a> {
         self.runtime.num_mined = num_txs;
 
         mem_pool.drop_txs(&invalidated_txs)?;
-        event_dispatcher.mempool_txs_dropped(invalidated_txs, None, MemPoolDropReason::TOO_EXPENSIVE);
-        event_dispatcher.mempool_txs_dropped(to_drop_and_blacklist, None, MemPoolDropReason::PROBLEMATIC);
+        event_dispatcher.mempool_txs_dropped(
+            invalidated_txs,
+            None,
+            MemPoolDropReason::TOO_EXPENSIVE,
+        );
+        event_dispatcher.mempool_txs_dropped(
+            to_drop_and_blacklist,
+            None,
+            MemPoolDropReason::PROBLEMATIC,
+        );
 
         if blocked {
             debug!(
@@ -2506,7 +2514,11 @@ impl StacksBlockBuilder {
 
         if let Some(observer) = event_observer {
             observer.mempool_txs_dropped(invalidated_txs, None, MemPoolDropReason::TOO_EXPENSIVE);
-            observer.mempool_txs_dropped(to_drop_and_blacklist, None, MemPoolDropReason::PROBLEMATIC);
+            observer.mempool_txs_dropped(
+                to_drop_and_blacklist,
+                None,
+                MemPoolDropReason::PROBLEMATIC,
+            );
         }
 
         if let Err(e) = result {
