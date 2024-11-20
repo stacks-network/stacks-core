@@ -39,7 +39,9 @@ use stacks::codec::StacksMessageCodec;
 use stacks::core::{StacksEpochId, CHAIN_ID_TESTNET};
 use stacks::libstackerdb::StackerDBChunkData;
 use stacks::net::api::getsigner::GetSignerResponse;
-use stacks::net::api::postblock_proposal::{ValidateRejectCode, TEST_VALIDATE_STALL};
+use stacks::net::api::postblock_proposal::{
+    ValidateRejectCode, TEST_VALIDATE_DELAY_DURATION_SECS, TEST_VALIDATE_STALL,
+};
 use stacks::net::relay::fault_injection::set_ignore_block;
 use stacks::types::chainstate::{StacksAddress, StacksBlockId, StacksPrivateKey, StacksPublicKey};
 use stacks::types::PublicKey;
@@ -2622,6 +2624,9 @@ fn stx_transfers_dont_effect_idle_timeout() {
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
 
     signer_test.boot_to_epoch_3();
+
+    // Add a delay to the block validation process
+    TEST_VALIDATE_DELAY_DURATION_SECS.lock().unwrap().replace(5);
 
     let info_before = get_chain_info(&signer_test.running_nodes.conf);
     let blocks_before = signer_test

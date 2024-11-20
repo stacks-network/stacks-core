@@ -16,6 +16,8 @@
 
 use std::io::{Read, Write};
 use std::thread::{self, JoinHandle, Thread};
+#[cfg(any(test, feature = "testing"))]
+use std::time::Duration;
 
 use clarity::vm::ast::ASTRules;
 use clarity::vm::costs::ExecutionCost;
@@ -65,6 +67,10 @@ use crate::util_lib::db::Error as DBError;
 
 #[cfg(any(test, feature = "testing"))]
 pub static TEST_VALIDATE_STALL: std::sync::Mutex<Option<bool>> = std::sync::Mutex::new(None);
+#[cfg(any(test, feature = "testing"))]
+/// Artificial delay to add to block validation.
+pub static TEST_VALIDATE_DELAY_DURATION_SECS: std::sync::Mutex<Option<u64>> =
+    std::sync::Mutex::new(None);
 
 // This enum is used to supply a `reason_code` for validation
 //  rejection responses. This is serialized as an enum with string
@@ -363,6 +369,14 @@ impl NakamotoBlockProposal {
                 .try_into()
                 .unwrap_or(u64::MAX)
         };
+
+        #[cfg(any(test, feature = "testing"))]
+        {
+            if let Some(delay) = *TEST_VALIDATE_DELAY_DURATION_SECS.lock().unwrap() {
+                warn!("Sleeping for {} seconds to simulate slow processing", delay);
+                thread::sleep(Duration::from_secs(delay));
+            }
+        }
 
         let mainnet = self.chain_id == CHAIN_ID_MAINNET;
         if self.chain_id != chainstate.chain_id || mainnet != chainstate.mainnet {
