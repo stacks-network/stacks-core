@@ -215,7 +215,7 @@ impl CoinbaseInterval {
         intervals: &[CoinbaseInterval],
         effective_height: u64,
     ) -> u128 {
-        if intervals.len() == 0 {
+        if intervals.is_empty() {
             return 0;
         }
         if intervals.len() == 1 {

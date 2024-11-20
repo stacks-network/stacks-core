@@ -48,7 +48,6 @@ pub mod contracts;
 
 /// Backwards-compatibility shim for type_checker tests. Runs at latest Clarity version.
 pub fn mem_type_check(exp: &str) -> CheckResult<(Option<TypeSignature>, ContractAnalysis)> {
-    // TODO (question for reviewers): This uses Clarity 3 with Epoch 2.1.  Is this a problem?
     mem_run_analysis(
         exp,
         crate::vm::ClarityVersion::latest(),
