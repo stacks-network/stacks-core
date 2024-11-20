@@ -4202,6 +4202,7 @@ fn partial_tenure_fork() {
         )],
         |signer_config| {
             signer_config.node_host = node_1_rpc_bind.clone();
+            signer_config.first_proposal_burn_block_timing = Duration::from_secs(0);
         },
         |config| {
             config.node.rpc_bind = format!("{localhost}:{node_1_rpc}");
@@ -4210,6 +4211,7 @@ fn partial_tenure_fork() {
             config.node.p2p_address = format!("{localhost}:{node_1_p2p}");
             config.miner.wait_on_interim_blocks = Duration::from_secs(5);
             config.node.pox_sync_sample_secs = 30;
+            config.miner.block_commit_delay = Duration::from_secs(0);
 
             config.node.seed = btc_miner_1_seed.clone();
             config.node.local_peer_seed = btc_miner_1_seed.clone();
@@ -4269,6 +4271,8 @@ fn partial_tenure_fork() {
     let Counters {
         naka_mined_blocks: blocks_mined2,
         naka_proposed_blocks: blocks_proposed2,
+        naka_submitted_commits: commits_2,
+        naka_skip_commit_op: rl2_skip_commit_op,
         ..
     } = run_loop_2.counters();
 
@@ -4308,8 +4312,12 @@ fn partial_tenure_fork() {
     let mut miner_1_blocks = 0;
     let mut miner_2_blocks = 0;
     let mut min_miner_2_blocks = 0;
-    let mut last_sortition_winner: Option<u64> = None;
-    let mut miner_2_won_2_in_a_row = false;
+
+    let commits_1 = signer_test.running_nodes.commits_submitted.clone();
+    let rl1_skip_commit_op = signer_test
+        .running_nodes
+        .nakamoto_test_skip_commit_op
+        .clone();
 
     let sortdb = SortitionDB::open(
         &conf.get_burn_db_file_path(),
@@ -4317,6 +4325,38 @@ fn partial_tenure_fork() {
         conf.get_burnchain().pox_constants,
     )
     .unwrap();
+
+    // Pause block commits
+    rl1_skip_commit_op.set(true);
+    rl2_skip_commit_op.set(true);
+
+    let mined_before_1 = blocks_mined1.load(Ordering::SeqCst);
+    let mined_before_2 = blocks_mined2.load(Ordering::SeqCst);
+    let commits_before_1 = commits_1.load(Ordering::SeqCst);
+    let commits_before_2 = commits_2.load(Ordering::SeqCst);
+
+    // Ensure that both block commits have been sent before continuing
+    next_block_and(
+        &mut signer_test.running_nodes.btc_regtest_controller,
+        60,
+        || {
+            let mined_1 = blocks_mined1.load(Ordering::SeqCst);
+            let mined_2 = blocks_mined2.load(Ordering::SeqCst);
+
+            Ok(mined_1 > mined_before_1 || mined_2 > mined_before_2)
+        },
+    )
+    .expect("Timed out waiting for block commit after new Stacks block");
+
+    // Unpause block commits and wait for both miners' commits
+    rl1_skip_commit_op.set(false);
+    rl2_skip_commit_op.set(false);
+    wait_for(60, || {
+        let commits_after_1 = commits_1.load(Ordering::SeqCst);
+        let commits_after_2 = commits_2.load(Ordering::SeqCst);
+        Ok(commits_after_1 > commits_before_1 && commits_after_2 > commits_before_2)
+    })
+    .expect("Timed out waiting for block commits");
 
     while miner_1_tenures < min_miner_1_tenures || miner_2_tenures < min_miner_2_tenures {
         if btc_blocks_mined >= max_nakamoto_tenures {
@@ -4333,10 +4373,8 @@ fn partial_tenure_fork() {
             .nakamoto_blocks_proposed
             .load(Ordering::SeqCst);
 
-        sleep_ms(1000);
-
         info!(
-            "----- Next tenure checking -----";
+            "Next tenure checking";
             "fork_initiated?" => fork_initiated,
             "miner_1_tenures" => miner_1_tenures,
             "miner_2_tenures" => miner_2_tenures,
@@ -4346,8 +4384,17 @@ fn partial_tenure_fork() {
             "proposed_before_2" => proposed_before_2,
             "mined_before_1" => mined_before_1,
             "mined_before_2" => mined_before_2,
-            "last_sortition_winner" => last_sortition_winner,
         );
+
+        let tip_before = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+        let commits_before_1 = commits_1.load(Ordering::SeqCst);
+        let commits_before_2 = commits_2.load(Ordering::SeqCst);
+
+        // Pause block commits
+        rl1_skip_commit_op.set(true);
+        rl2_skip_commit_op.set(true);
+        let commits_before_1 = commits_1.load(Ordering::SeqCst);
+        let commits_before_2 = commits_2.load(Ordering::SeqCst);
 
         next_block_and(
             &mut signer_test.running_nodes.btc_regtest_controller,
@@ -4362,36 +4409,28 @@ fn partial_tenure_fork() {
                     || mined_2 > mined_before_2)
             },
         )
-        .unwrap_or_else(|_| {
-            let mined_1 = blocks_mined1.load(Ordering::SeqCst);
-            let mined_2 = blocks_mined2.load(Ordering::SeqCst);
-            let proposed_1 = signer_test
-                .running_nodes
-                .nakamoto_blocks_proposed
-                .load(Ordering::SeqCst);
-            let proposed_2 = blocks_proposed2.load(Ordering::SeqCst);
-            error!(
-                "Next tenure failed to tick";
-                "fork_initiated?" => fork_initiated,
-                "miner_1_tenures" => miner_1_tenures,
-                "miner_2_tenures" => miner_2_tenures,
-                "min_miner_1_tenures" => min_miner_2_tenures,
-                "min_miner_2_tenures" => min_miner_2_tenures,
-                "proposed_before_1" => proposed_before_1,
-                "proposed_before_2" => proposed_before_2,
-                "mined_before_1" => mined_before_1,
-                "mined_before_2" => mined_before_2,
-                "mined_1" => mined_1,
-                "mined_2" => mined_2,
-                "proposed_1" => proposed_1,
-                "proposed_2" => proposed_2,
-            );
-            panic!();
-        });
+        .expect("Timed out waiting for tenure change Stacks block");
         btc_blocks_mined += 1;
 
+        // Unpause block commits
+        rl1_skip_commit_op.set(false);
+        rl2_skip_commit_op.set(false);
+
+        // Wait for the block to be processed and the block commits to be submitted
+        wait_for(60, || {
+            let tip_after = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+            // Ensure that both block commits have been sent before continuing
+            let commits_after_1 = commits_1.load(Ordering::SeqCst);
+            let commits_after_2 = commits_2.load(Ordering::SeqCst);
+            Ok(commits_after_1 > commits_before_1
+                && commits_after_2 > commits_before_2
+                && tip_after.consensus_hash != tip_before.consensus_hash)
+        })
+        .expect("Sortition DB tip did not change");
+
         let tip_sn = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
-        let sortition_winner = match tip_sn.miner_pk_hash {
+        info!("tip_after: {:?}", tip_sn);
+        let miner = match tip_sn.miner_pk_hash {
             Some(pk_hash) => {
                 if pk_hash == mining_pkh_1 {
                     1
@@ -4399,27 +4438,14 @@ fn partial_tenure_fork() {
                     2
                 }
             }
-            // No sortition means miner 2 won (?)
             None => {
-                panic!("No sortition winner found, assuming miner 2 won");
-                //2
+                panic!("No sortition found");
             }
         };
-
-        let mined_1 = blocks_mined1.load(Ordering::SeqCst);
-        let miner: u64 = if mined_1 > mined_before_1 { 1 } else { 2 };
-
-        if let Some(last_sortition_winner) = last_sortition_winner {
-            if last_sortition_winner == sortition_winner && sortition_winner == 2 {
-                miner_2_won_2_in_a_row = true;
-            }
-        }
-
-        last_sortition_winner = Some(sortition_winner);
+        info!("Next tenure mined by miner {miner}");
 
         if miner == 1 && miner_1_tenures == 0 {
             // Setup miner 2 to ignore a block in this tenure
-            info!("----- Setup miner 2 to ignore a block in this tenure -----");
             ignore_block = pre_nakamoto_peer_1_height
                 + (btc_blocks_mined - 1) * (inter_blocks_per_tenure + 1)
                 + 3;
@@ -4445,9 +4471,7 @@ fn partial_tenure_fork() {
             let proposed_before_2 = blocks_proposed2.load(Ordering::SeqCst);
 
             info!(
-                "----- Mining interim blocks -----";
-                "interim_block_ix" => interim_block_ix,
-                "btc_blocks_mined" => btc_blocks_mined,
+                "Mining interim blocks";
                 "fork_initiated?" => fork_initiated,
                 "miner_1_tenures" => miner_1_tenures,
                 "miner_2_tenures" => miner_2_tenures,
@@ -4456,9 +4480,6 @@ fn partial_tenure_fork() {
                 "proposed_before_2" => proposed_before_2,
                 "mined_before_1" => mined_before_1,
                 "mined_before_2" => mined_before_2,
-                "miner" => miner as u64,
-                "last_sortition_winner" => last_sortition_winner,
-                "miner_2_won_2_in_a_row?" => miner_2_won_2_in_a_row,
             );
 
             // submit a tx so that the miner will mine an extra block
@@ -4482,9 +4503,7 @@ fn partial_tenure_fork() {
 
                         Ok((fork_initiated && proposed_2 > proposed_before_2)
                             || mined_1 > mined_before_1
-                            || mined_2 > mined_before_2
-                            // Special case where neither miner can mine a block:
-                            || miner_2_won_2_in_a_row)
+                            || mined_2 > mined_before_2)
                     })
                     .unwrap_or_else(|_| {
                         let mined_1 = blocks_mined1.load(Ordering::SeqCst);
@@ -4497,6 +4516,7 @@ fn partial_tenure_fork() {
                         error!(
                             "Next interim block failed to tick";
                             "fork_initiated?" => fork_initiated,
+                            "miner" => miner,
                             "miner_1_tenures" => miner_1_tenures,
                             "miner_2_tenures" => miner_2_tenures,
                             "min_miner_1_tenures" => min_miner_2_tenures,
@@ -4523,48 +4543,40 @@ fn partial_tenure_fork() {
                     }
                 }
             }
-            info!(
-                "----- Attempted to mine interim block {btc_blocks_mined}:{interim_block_ix} -----"
-            );
-        }
-
-        if sortition_winner == 1 {
-            miner_1_tenures += 1;
-        } else {
-            miner_2_tenures += 1;
+            info!("Attempted to mine interim block {btc_blocks_mined}:{interim_block_ix}");
         }
 
         if miner == 1 {
+            miner_1_tenures += 1;
             miner_1_blocks += blocks;
         } else {
-            // miner_2_blocks += blocks;
-            // Miner 2 should never mine any blocks
-            miner_2_blocks += 0;
+            miner_2_tenures += 1;
+            miner_2_blocks += blocks;
         }
 
         let mined_1 = blocks_mined1.load(Ordering::SeqCst);
         let mined_2 = blocks_mined2.load(Ordering::SeqCst);
 
         info!(
-            "----- Miner 1 tenures: {miner_1_tenures}, Miner 2 tenures: {miner_2_tenures}, Miner 1 before: {mined_before_1}, Miner 2 before: {mined_before_2}, Miner 1 blocks: {mined_1}, Miner 2 blocks: {mined_2} -----",
+            "Miner 1 tenures: {miner_1_tenures}, Miner 2 tenures: {miner_2_tenures}, Miner 1 before: {mined_before_1}, Miner 2 before: {mined_before_2}, Miner 1 blocks: {mined_1}, Miner 2 blocks: {mined_2}",
         );
 
-        if miner == 1 && !miner_2_won_2_in_a_row {
+        if miner == 1 {
             assert_eq!(mined_1, mined_before_1 + blocks + 1);
+        } else if miner_2_tenures < min_miner_2_tenures {
+            assert_eq!(mined_2, mined_before_2 + blocks + 1);
+        } else {
+            // Miner 2 should have mined 0 blocks after the fork
+            assert_eq!(mined_2, mined_before_2);
         }
-        // Miner 2 should have mined 0 blocks
-        assert_eq!(mined_2, mined_before_2);
     }
 
     info!(
-        "----- New chain info 1: {:?} -----",
+        "New chain info 1: {:?}",
         get_chain_info(&signer_test.running_nodes.conf)
     );
 
-    info!(
-        "----- New chain info 2: {:?} -----",
-        get_chain_info(&conf_node_2)
-    );
+    info!("New chain info 2: {:?}", get_chain_info(&conf_node_2));
 
     let peer_1_height = get_chain_info(&conf).stacks_tip_height;
     let peer_2_height = get_chain_info(&conf_node_2).stacks_tip_height;
