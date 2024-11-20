@@ -627,6 +627,40 @@ paths:
           content:
             application/text-plain: {}
 
+  /v3/blocks/height/{block_height}:
+    get:
+      summary: Fetch a Nakamoto block by its height and optional tip
+      tags:
+        - Blocks
+      operationId: get_block_v3_by_height
+      description:
+        Fetch a Nakamoto block by its height and optional tip.
+      parameters:
+        - name: block_height
+          in: path
+          description: The block's height
+          required: true
+          schema:
+            type: integer
+        - name: tip
+          in: query
+          schema:
+            type: string
+          description: The Stacks chain tip to query from. If tip == latest or empty, the query will be run
+            from the latest known tip.
+      responses:
+        "200":
+          description: The raw SIP-003-encoded block will be returned.
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "404":
+          description: The block could not be found
+          content:
+            application/text-plain: {}
+
   /v3/tenures/info:
     get:
       summary: Fetch metadata about the ongoing Nakamoto tenure
