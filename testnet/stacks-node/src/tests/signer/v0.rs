@@ -4182,9 +4182,6 @@ fn partial_tenure_fork() {
     let btc_miner_1_pk = Keychain::default(btc_miner_1_seed.clone()).get_pub_key();
     let btc_miner_2_pk = Keychain::default(btc_miner_2_seed.clone()).get_pub_key();
 
-    let mining_pkh_1 = Hash160::from_node_public_key(&btc_miner_1_pk);
-    let _mining_pkh_2 = Hash160::from_node_public_key(&btc_miner_2_pk);
-
     let node_1_rpc = gen_random_port();
     let node_1_p2p = gen_random_port();
     let node_2_rpc = gen_random_port();
@@ -4263,6 +4260,13 @@ fn partial_tenure_fork() {
         conf.burnchain.peer_version,
     );
 
+    let mining_pk_1 = StacksPublicKey::from_private(&conf.miner.mining_key.unwrap());
+    let mining_pk_2 = StacksPublicKey::from_private(&conf_node_2.miner.mining_key.unwrap());
+    let mining_pkh_1 = Hash160::from_node_public_key(&mining_pk_1);
+    let mining_pkh_2 = Hash160::from_node_public_key(&mining_pk_2);
+    debug!("The mining key for miner 1 is {mining_pkh_1}");
+    debug!("The mining key for miner 2 is {mining_pkh_2}");
+
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
     let mut run_loop_2 = boot_nakamoto::BootRunLoop::new(conf_node_2.clone()).unwrap();
@@ -4312,6 +4316,8 @@ fn partial_tenure_fork() {
     let mut miner_1_blocks = 0;
     let mut miner_2_blocks = 0;
     let mut min_miner_2_blocks = 0;
+    let mut last_sortition_winner: Option<u64> = None;
+    let mut miner_2_won_2_in_a_row = false;
 
     let commits_1 = signer_test.running_nodes.commits_submitted.clone();
     let rl1_skip_commit_op = signer_test
@@ -4386,13 +4392,11 @@ fn partial_tenure_fork() {
             "mined_before_2" => mined_before_2,
         );
 
-        let tip_before = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
-        let commits_before_1 = commits_1.load(Ordering::SeqCst);
-        let commits_before_2 = commits_2.load(Ordering::SeqCst);
-
         // Pause block commits
         rl1_skip_commit_op.set(true);
         rl2_skip_commit_op.set(true);
+
+        let tip_before = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
         let commits_before_1 = commits_1.load(Ordering::SeqCst);
         let commits_before_2 = commits_2.load(Ordering::SeqCst);
 
@@ -4413,6 +4417,7 @@ fn partial_tenure_fork() {
         btc_blocks_mined += 1;
 
         // Unpause block commits
+        info!("Unpausing block commits");
         rl1_skip_commit_op.set(false);
         rl2_skip_commit_op.set(false);
 
@@ -4443,6 +4448,15 @@ fn partial_tenure_fork() {
             }
         };
         info!("Next tenure mined by miner {miner}");
+
+        if let Some(last_sortition_winner) = last_sortition_winner {
+            if last_sortition_winner == miner && miner == 2 {
+                miner_2_won_2_in_a_row = true;
+            } else {
+                miner_2_won_2_in_a_row = false;
+            }
+        }
+        last_sortition_winner = Some(miner);
 
         if miner == 1 && miner_1_tenures == 0 {
             // Setup miner 2 to ignore a block in this tenure
@@ -4503,35 +4517,11 @@ fn partial_tenure_fork() {
 
                         Ok((fork_initiated && proposed_2 > proposed_before_2)
                             || mined_1 > mined_before_1
-                            || mined_2 > mined_before_2)
+                            || mined_2 > mined_before_2
+                            // Special case where neither miner can mine a block:
+                            || (fork_initiated && miner_2_won_2_in_a_row))
                     })
-                    .unwrap_or_else(|_| {
-                        let mined_1 = blocks_mined1.load(Ordering::SeqCst);
-                        let mined_2 = blocks_mined2.load(Ordering::SeqCst);
-                        let proposed_1 = signer_test
-                            .running_nodes
-                            .nakamoto_blocks_proposed
-                            .load(Ordering::SeqCst);
-                        let proposed_2 = blocks_proposed2.load(Ordering::SeqCst);
-                        error!(
-                            "Next interim block failed to tick";
-                            "fork_initiated?" => fork_initiated,
-                            "miner" => miner,
-                            "miner_1_tenures" => miner_1_tenures,
-                            "miner_2_tenures" => miner_2_tenures,
-                            "min_miner_1_tenures" => min_miner_2_tenures,
-                            "min_miner_2_tenures" => min_miner_2_tenures,
-                            "proposed_before_1" => proposed_before_1,
-                            "proposed_before_2" => proposed_before_2,
-                            "mined_before_1" => mined_before_1,
-                            "mined_before_2" => mined_before_2,
-                            "mined_1" => mined_1,
-                            "mined_2" => mined_2,
-                            "proposed_1" => proposed_1,
-                            "proposed_2" => proposed_2,
-                        );
-                        panic!();
-                    });
+                    .expect("Timed out waiting for interim block to be mined");
                 }
                 Err(e) => {
                     if e.to_string().contains("TooMuchChaining") {
