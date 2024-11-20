@@ -11,6 +11,9 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 - Add index for StacksBlockId to nakamoto block headers table (improves node performance)
 - Remove the panic for reporting DB deadlocks (just error and continue waiting)
 - When a TX is dropped from the mempool because of an RBF, the node will emit `new_txid` when emitting the dropped tx event.
+- Add index to `metadata_table` in Clarity DB on `blockhash`
+- Add `block_commit_delay_ms` to the config file to control the time to wait after seeing a new burn block, before submitting a block commit, to allow time for the first Nakamoto block of the new tenure to be mined, allowing this miner to avoid the need to RBF the block commit.
+- Add `tenure_cost_limit_per_block_percentage` to the miner config file to control the percentage remaining tenure cost limit to consume per nakamoto block.
 
 ## [3.0.0.0.1]
 

@@ -131,7 +131,7 @@ impl StacksNode {
             .get_miner_address(StacksEpochId::Epoch21, &public_key);
         let miner_addr_str = addr2str(&miner_addr);
         let _ = monitoring::set_burnchain_signer(BurnchainSigner(miner_addr_str)).map_err(|e| {
-            warn!("Failed to set global burnchain signer: {:?}", &e);
+            warn!("Failed to set global burnchain signer: {e:?}");
             e
         });
     }
@@ -308,13 +308,13 @@ impl StacksNode {
         for op in block_commits.into_iter() {
             if op.txid == block_snapshot.winning_block_txid {
                 info!(
-                    "Received burnchain block #{} including block_commit_op (winning) - {} ({})",
-                    block_height, op.apparent_sender, &op.block_header_hash
+                    "Received burnchain block #{block_height} including block_commit_op (winning) - {} ({})",
+                    op.apparent_sender, &op.block_header_hash
                 );
             } else if self.is_miner {
                 info!(
-                    "Received burnchain block #{} including block_commit_op - {} ({})",
-                    block_height, op.apparent_sender, &op.block_header_hash
+                    "Received burnchain block #{block_height} including block_commit_op - {} ({})",
+                    op.apparent_sender, &op.block_header_hash
                 );
             }
         }
@@ -359,7 +359,7 @@ impl StacksNode {
 }
 
 pub(crate) fn save_activated_vrf_key(path: &str, activated_key: &RegisteredKey) {
-    info!("Activated VRF key; saving to {}", path);
+    info!("Activated VRF key; saving to {path}");
 
     let Ok(key_json) = serde_json::to_string(&activated_key) else {
         warn!("Failed to serialize VRF key");
@@ -369,15 +369,15 @@ pub(crate) fn save_activated_vrf_key(path: &str, activated_key: &RegisteredKey) 
     let mut f = match fs::File::create(path) {
         Ok(f) => f,
         Err(e) => {
-            warn!("Failed to create {}: {:?}", &path, &e);
+            warn!("Failed to create {path}: {e:?}");
             return;
         }
     };
 
     if let Err(e) = f.write_all(key_json.as_bytes()) {
-        warn!("Failed to write activated VRF key to {}: {:?}", &path, &e);
+        warn!("Failed to write activated VRF key to {path}: {e:?}");
         return;
     }
 
-    info!("Saved activated VRF key to {}", &path);
+    info!("Saved activated VRF key to {path}");
 }

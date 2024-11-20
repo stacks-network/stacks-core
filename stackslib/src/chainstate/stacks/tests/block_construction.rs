@@ -614,7 +614,7 @@ fn test_build_anchored_blocks_connected_by_microblocks_across_epoch() {
     peer_config.initial_balances = vec![(addr.to_account_principal(), 1000000000)];
     let burnchain = peer_config.burnchain.clone();
 
-    let epochs = vec![
+    let epochs = EpochList::new(&[
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch10,
             start_height: 0,
@@ -642,7 +642,7 @@ fn test_build_anchored_blocks_connected_by_microblocks_across_epoch() {
             },
             network_epoch: PEER_VERSION_EPOCH_2_05,
         },
-    ];
+    ]);
     peer_config.epochs = Some(epochs);
 
     let num_blocks = 10;
@@ -850,7 +850,7 @@ fn test_build_anchored_blocks_connected_by_microblocks_across_epoch_invalid() {
     peer_config.initial_balances = vec![(addr.to_account_principal(), 1000000000)];
     let burnchain = peer_config.burnchain.clone();
 
-    let epochs = vec![
+    let epochs = EpochList::new(&[
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch10,
             start_height: 0,
@@ -878,7 +878,7 @@ fn test_build_anchored_blocks_connected_by_microblocks_across_epoch_invalid() {
             },
             network_epoch: PEER_VERSION_EPOCH_2_05,
         },
-    ];
+    ]);
     peer_config.epochs = Some(epochs);
 
     let num_blocks = 10;
@@ -1344,7 +1344,7 @@ fn test_build_anchored_blocks_skip_too_expensive() {
 
     let mut peer_config = TestPeerConfig::new(function_name!(), 2006, 2007);
     peer_config.initial_balances = initial_balances;
-    peer_config.epochs = Some(vec![StacksEpoch {
+    peer_config.epochs = Some(EpochList::new(&[StacksEpoch {
         epoch_id: StacksEpochId::Epoch20,
         start_height: 0,
         end_height: i64::MAX as u64,
@@ -1358,7 +1358,7 @@ fn test_build_anchored_blocks_skip_too_expensive() {
             runtime: 3350,
         },
         network_epoch: PEER_VERSION_EPOCH_2_0,
-    }]);
+    }]));
     let burnchain = peer_config.burnchain.clone();
 
     let mut peer = TestPeer::new(peer_config);
@@ -3459,7 +3459,7 @@ fn test_contract_call_across_clarity_versions() {
     ];
     let burnchain = peer_config.burnchain.clone();
 
-    let epochs = vec![
+    let epochs = EpochList::new(&[
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch10,
             start_height: 0,
@@ -3488,7 +3488,7 @@ fn test_contract_call_across_clarity_versions() {
             block_limit: ExecutionCost::max_value(),
             network_epoch: PEER_VERSION_EPOCH_2_1,
         },
-    ];
+    ]);
     peer_config.epochs = Some(epochs);
 
     let num_blocks = 10;
@@ -4033,7 +4033,7 @@ fn test_is_tx_problematic() {
 
     let mut peer_config = TestPeerConfig::new(function_name!(), 2018, 2019);
     peer_config.initial_balances = initial_balances;
-    peer_config.epochs = Some(vec![
+    peer_config.epochs = Some(EpochList::new(&[
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch20,
             start_height: 0,
@@ -4048,7 +4048,7 @@ fn test_is_tx_problematic() {
             block_limit: ExecutionCost::max_value(),
             network_epoch: PEER_VERSION_EPOCH_2_05,
         },
-    ]);
+    ]));
     let burnchain = peer_config.burnchain.clone();
 
     let mut peer = TestPeer::new(peer_config);
@@ -4506,7 +4506,7 @@ fn mempool_incorporate_pox_unlocks() {
 
     let mut peer_config = TestPeerConfig::new(function_name!(), 2020, 2021);
     peer_config.initial_balances = initial_balances;
-    peer_config.epochs = Some(vec![
+    peer_config.epochs = Some(EpochList::new(&[
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch20,
             start_height: 0,
@@ -4528,9 +4528,9 @@ fn mempool_incorporate_pox_unlocks() {
             block_limit: ExecutionCost::max_value(),
             network_epoch: PEER_VERSION_EPOCH_2_1,
         },
-    ]);
+    ]));
     peer_config.burnchain.pox_constants.v1_unlock_height =
-        peer_config.epochs.as_ref().unwrap()[1].end_height as u32 + 1;
+        peer_config.epochs.as_ref().unwrap()[StacksEpochId::Epoch2_05].end_height as u32 + 1;
     let pox_constants = peer_config.burnchain.pox_constants.clone();
     let burnchain = peer_config.burnchain.clone();
 

@@ -123,6 +123,9 @@ jobs:
           - tests::signer::v0::signing_in_0th_tenure_of_reward_cycle
           - tests::signer::v0::continue_after_tenure_extend
           - tests::signer::v0::multiple_miners_with_custom_chain_id
+          - tests::signer::v0::block_commit_delay
+          - tests::signer::v0::continue_after_fast_block_no_sortition
+          - tests::signer::v0::block_validation_response_timeout
           - tests::nakamoto_integrations::burn_ops_integration_test
           - tests::nakamoto_integrations::check_block_heights
           - tests::nakamoto_integrations::clarity_burn_state
@@ -137,6 +140,7 @@ jobs:
           - tests::nakamoto_integrations::utxo_check_on_startup_recover
           - tests::nakamoto_integrations::v3_signer_api_endpoint
           - tests::nakamoto_integrations::signer_chainstate
+          - tests::nakamoto_integrations::clarity_cost_spend_down
           # TODO: enable these once v1 signer is supported by a new nakamoto epoch
           # - tests::signer::v1::dkg
           # - tests::signer::v1::sign_request_rejected

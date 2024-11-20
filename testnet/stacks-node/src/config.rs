@@ -52,6 +52,7 @@ use stacks::net::atlas::AtlasConfig;
 use stacks::net::connection::ConnectionOptions;
 use stacks::net::{Neighbor, NeighborKey};
 use stacks::types::chainstate::BurnchainHeaderHash;
+use stacks::types::EpochList;
 use stacks::util_lib::boot::boot_code_id;
 use stacks::util_lib::db::Error as DBError;
 use stacks_common::consts::SIGNER_SLOTS_PER_USER;
@@ -89,6 +90,8 @@ const INV_REWARD_CYCLES_TESTNET: u64 = 6;
 const DEFAULT_MIN_TIME_BETWEEN_BLOCKS_MS: u64 = 1_000;
 const DEFAULT_FIRST_REJECTION_PAUSE_MS: u64 = 5_000;
 const DEFAULT_SUBSEQUENT_REJECTION_PAUSE_MS: u64 = 10_000;
+const DEFAULT_BLOCK_COMMIT_DELAY_MS: u64 = 20_000;
+const DEFAULT_TENURE_COST_LIMIT_PER_BLOCK_PERCENTAGE: u8 = 25;
 
 #[derive(Clone, Deserialize, Default, Debug)]
 #[serde(deny_unknown_fields)]
@@ -108,7 +111,7 @@ pub struct ConfigFile {
 
 impl ConfigFile {
     pub fn from_path(path: &str) -> Result<ConfigFile, String> {
-        let content = fs::read_to_string(path).map_err(|e| format!("Invalid path: {}", &e))?;
+        let content = fs::read_to_string(path).map_err(|e| format!("Invalid path: {e}"))?;
         let mut f = Self::from_str(&content)?;
         f.__path = Some(path.to_string());
         Ok(f)
@@ -117,7 +120,7 @@ impl ConfigFile {
     #[allow(clippy::should_implement_trait)]
     pub fn from_str(content: &str) -> Result<ConfigFile, String> {
         let mut config: ConfigFile =
-            toml::from_str(content).map_err(|e| format!("Invalid toml: {}", e))?;
+            toml::from_str(content).map_err(|e| format!("Invalid toml: {e}"))?;
         if let Some(mstx_balance) = config.mstx_balance.take() {
             warn!("'mstx_balance' in the config is deprecated; please use 'ustx_balance' instead.");
             match config.ustx_balance {
@@ -393,24 +396,24 @@ impl Config {
 
         if let Some(first_burn_block_height) = self.burnchain.first_burn_block_height {
             debug!(
-                "Override first_block_height from {} to {}",
-                burnchain.first_block_height, first_burn_block_height
+                "Override first_block_height from {} to {first_burn_block_height}",
+                burnchain.first_block_height
             );
             burnchain.first_block_height = first_burn_block_height;
         }
 
         if let Some(first_burn_block_timestamp) = self.burnchain.first_burn_block_timestamp {
             debug!(
-                "Override first_block_timestamp from {} to {}",
-                burnchain.first_block_timestamp, first_burn_block_timestamp
+                "Override first_block_timestamp from {} to {first_burn_block_timestamp}",
+                burnchain.first_block_timestamp
             );
             burnchain.first_block_timestamp = first_burn_block_timestamp;
         }
 
         if let Some(first_burn_block_hash) = &self.burnchain.first_burn_block_hash {
             debug!(
-                "Override first_burn_block_hash from {} to {}",
-                burnchain.first_block_hash, first_burn_block_hash
+                "Override first_burn_block_hash from {} to {first_burn_block_hash}",
+                burnchain.first_block_hash
             );
             burnchain.first_block_hash = BurnchainHeaderHash::from_hex(first_burn_block_hash)
                 .expect("Invalid first_burn_block_hash");
@@ -428,17 +431,14 @@ impl Config {
 
         if let Some(v1_unlock_height) = self.burnchain.pox_2_activation {
             debug!(
-                "Override v1_unlock_height from {} to {}",
-                burnchain.pox_constants.v1_unlock_height, v1_unlock_height
+                "Override v1_unlock_height from {} to {v1_unlock_height}",
+                burnchain.pox_constants.v1_unlock_height
             );
             burnchain.pox_constants.v1_unlock_height = v1_unlock_height;
         }
 
         if let Some(epochs) = &self.burnchain.epochs {
-            if let Some(epoch) = epochs
-                .iter()
-                .find(|epoch| epoch.epoch_id == StacksEpochId::Epoch10)
-            {
+            if let Some(epoch) = epochs.get(StacksEpochId::Epoch10) {
                 // Epoch 1.0 start height can be equal to the first block height iff epoch 2.0
                 // start height is also equal to the first block height.
                 assert!(
@@ -447,20 +447,14 @@ impl Config {
                 );
             }
 
-            if let Some(epoch) = epochs
-                .iter()
-                .find(|epoch| epoch.epoch_id == StacksEpochId::Epoch20)
-            {
+            if let Some(epoch) = epochs.get(StacksEpochId::Epoch20) {
                 assert_eq!(
                     epoch.start_height, burnchain.first_block_height,
                     "FATAL: Epoch 2.0 start height must match the first block height"
                 );
             }
 
-            if let Some(epoch) = epochs
-                .iter()
-                .find(|epoch| epoch.epoch_id == StacksEpochId::Epoch21)
-            {
+            if let Some(epoch) = epochs.get(StacksEpochId::Epoch21) {
                 // Override v1_unlock_height to the start_height of epoch2.1
                 debug!(
                     "Override v2_unlock_height from {} to {}",
@@ -470,10 +464,7 @@ impl Config {
                 burnchain.pox_constants.v1_unlock_height = epoch.start_height as u32 + 1;
             }
 
-            if let Some(epoch) = epochs
-                .iter()
-                .find(|epoch| epoch.epoch_id == StacksEpochId::Epoch22)
-            {
+            if let Some(epoch) = epochs.get(StacksEpochId::Epoch22) {
                 // Override v2_unlock_height to the start_height of epoch2.2
                 debug!(
                     "Override v2_unlock_height from {} to {}",
@@ -483,10 +474,7 @@ impl Config {
                 burnchain.pox_constants.v2_unlock_height = epoch.start_height as u32 + 1;
             }
 
-            if let Some(epoch) = epochs
-                .iter()
-                .find(|epoch| epoch.epoch_id == StacksEpochId::Epoch24)
-            {
+            if let Some(epoch) = epochs.get(StacksEpochId::Epoch24) {
                 // Override pox_3_activation_height to the start_height of epoch2.4
                 debug!(
                     "Override pox_3_activation_height from {} to {}",
@@ -495,10 +483,7 @@ impl Config {
                 burnchain.pox_constants.pox_3_activation_height = epoch.start_height as u32;
             }
 
-            if let Some(epoch) = epochs
-                .iter()
-                .find(|epoch| epoch.epoch_id == StacksEpochId::Epoch25)
-            {
+            if let Some(epoch) = epochs.get(StacksEpochId::Epoch25) {
                 // Override pox_4_activation_height to the start_height of epoch2.5
                 debug!(
                     "Override pox_4_activation_height from {} to {}",
@@ -511,16 +496,16 @@ impl Config {
 
         if let Some(sunset_start) = self.burnchain.sunset_start {
             debug!(
-                "Override sunset_start from {} to {}",
-                burnchain.pox_constants.sunset_start, sunset_start
+                "Override sunset_start from {} to {sunset_start}",
+                burnchain.pox_constants.sunset_start
             );
             burnchain.pox_constants.sunset_start = sunset_start.into();
         }
 
         if let Some(sunset_end) = self.burnchain.sunset_end {
             debug!(
-                "Override sunset_end from {} to {}",
-                burnchain.pox_constants.sunset_end, sunset_end
+                "Override sunset_end from {} to {sunset_end}",
+                burnchain.pox_constants.sunset_end
             );
             burnchain.pox_constants.sunset_end = sunset_end.into();
         }
@@ -534,9 +519,7 @@ impl Config {
             self.burnchain.get_bitcoin_network().1,
             self.burnchain.epochs.as_ref(),
         );
-        let Some(epoch_30) = StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch30)
-            .map(|epoch_ix| epochs[epoch_ix].clone())
-        else {
+        let Some(epoch_30) = epochs.get(StacksEpochId::Epoch30) else {
             // no Epoch 3.0, so just return
             return;
         };
@@ -595,7 +578,7 @@ impl Config {
             match Burnchain::new(&working_dir, &self.burnchain.chain, &network_name) {
                 Ok(burnchain) => burnchain,
                 Err(e) => {
-                    error!("Failed to instantiate burnchain: {}", e);
+                    error!("Failed to instantiate burnchain: {e}");
                     panic!()
                 }
             }
@@ -615,13 +598,12 @@ impl Config {
         // sanity check: v1_unlock_height must happen after pox-2 instantiation
         let epoch21_index = StacksEpoch::find_epoch_by_id(epochs, StacksEpochId::Epoch21)
             .expect("FATAL: no epoch 2.1 defined");
-
         let epoch21 = &epochs[epoch21_index];
         let v1_unlock_height = burnchain.pox_constants.v1_unlock_height as u64;
 
         assert!(
             v1_unlock_height > epoch21.start_height,
-            "FATAL: v1 unlock height occurs at or before pox-2 activation: {} <= {}\nburnchain: {:?}", v1_unlock_height, epoch21.start_height, burnchain
+            "FATAL: v1 unlock height occurs at or before pox-2 activation: {v1_unlock_height} <= {}\nburnchain: {burnchain:?}", epoch21.start_height
         );
 
         let epoch21_rc = burnchain
@@ -636,8 +618,7 @@ impl Config {
             // the reward cycle boundary.
             assert!(
                 !burnchain.is_reward_cycle_start(v1_unlock_height),
-                "FATAL: v1 unlock height is at a reward cycle boundary\nburnchain: {:?}",
-                burnchain
+                "FATAL: v1 unlock height is at a reward cycle boundary\nburnchain: {burnchain:?}"
             );
         }
     }
@@ -649,7 +630,7 @@ impl Config {
         burn_mode: &str,
         bitcoin_network: BitcoinNetworkType,
         pox_2_activation: Option<u32>,
-    ) -> Result<Vec<StacksEpoch>, String> {
+    ) -> Result<EpochList<ExecutionCost>, String> {
         let default_epochs = match bitcoin_network {
             BitcoinNetworkType::Mainnet => {
                 Err("Cannot configure epochs in mainnet mode".to_string())
@@ -679,7 +660,7 @@ impl Config {
             } else if epoch_name == EPOCH_CONFIG_3_0_0 {
                 Ok(StacksEpochId::Epoch30)
             } else {
-                Err(format!("Unknown epoch name specified: {}", epoch_name))
+                Err(format!("Unknown epoch name specified: {epoch_name}"))
             }?;
             matched_epochs.push((epoch_id, configured_epoch.start_height));
         }
@@ -710,9 +691,7 @@ impl Config {
             .zip(matched_epochs.iter().map(|(epoch_id, _)| epoch_id))
         {
             if expected_epoch != configured_epoch {
-                return Err(format!(
-                                "Configured epochs may not skip an epoch. Expected epoch = {}, Found epoch = {}",
-                                expected_epoch, configured_epoch));
+                return Err(format!("Configured epochs may not skip an epoch. Expected epoch = {expected_epoch}, Found epoch = {configured_epoch}"));
             }
         }
 
@@ -732,8 +711,8 @@ impl Config {
         for (i, (epoch_id, start_height)) in matched_epochs.iter().enumerate() {
             if epoch_id != &out_epochs[i].epoch_id {
                 return Err(
-                                format!("Unmatched epochs in configuration and node implementation. Implemented = {}, Configured = {}",
-                                   epoch_id, &out_epochs[i].epoch_id));
+                    format!("Unmatched epochs in configuration and node implementation. Implemented = {epoch_id}, Configured = {}",
+                            &out_epochs[i].epoch_id));
             }
             // end_height = next epoch's start height || i64::max if last epoch
             let end_height = if i + 1 < matched_epochs.len() {
@@ -759,11 +738,11 @@ impl Config {
                 .find(|&e| e.epoch_id == StacksEpochId::Epoch21)
                 .ok_or("Cannot configure pox_2_activation if epoch 2.1 is not configured")?;
             if last_epoch.start_height > pox_2_activation as u64 {
-                Err(format!("Cannot configure pox_2_activation at a lower height than the Epoch 2.1 start height. pox_2_activation = {}, epoch 2.1 start height = {}", pox_2_activation, last_epoch.start_height))?;
+                Err(format!("Cannot configure pox_2_activation at a lower height than the Epoch 2.1 start height. pox_2_activation = {pox_2_activation}, epoch 2.1 start height = {}", last_epoch.start_height))?;
             }
         }
 
-        Ok(out_epochs)
+        Ok(EpochList::new(&out_epochs))
     }
 
     pub fn from_config_file(
@@ -1078,6 +1057,8 @@ impl Config {
                 candidate_retry_cache_size: miner_config.candidate_retry_cache_size,
                 txs_to_consider: miner_config.txs_to_consider,
                 filter_origins: miner_config.filter_origins,
+                tenure_cost_limit_per_block_percentage: miner_config
+                    .tenure_cost_limit_per_block_percentage,
             },
             miner_status,
             confirm_microblocks: false,
@@ -1118,6 +1099,8 @@ impl Config {
                 candidate_retry_cache_size: miner_config.candidate_retry_cache_size,
                 txs_to_consider: miner_config.txs_to_consider,
                 filter_origins: miner_config.filter_origins,
+                tenure_cost_limit_per_block_percentage: miner_config
+                    .tenure_cost_limit_per_block_percentage,
             },
             miner_status,
             confirm_microblocks: true,
@@ -1202,7 +1185,7 @@ pub struct BurnchainConfig {
     pub first_burn_block_hash: Option<String>,
     /// Custom override for the definitions of the epochs. This will only be applied for testnet and
     /// regtest nodes.
-    pub epochs: Option<Vec<StacksEpoch>>,
+    pub epochs: Option<EpochList<ExecutionCost>>,
     pub pox_2_activation: Option<u32>,
     pub pox_reward_length: Option<u32>,
     pub pox_prepare_length: Option<u32>,
@@ -1267,14 +1250,11 @@ impl BurnchainConfig {
             false => "http://",
         };
         let wallet_path = if let Some(wallet_id) = wallet.as_ref() {
-            format!("/wallet/{}", wallet_id)
+            format!("/wallet/{wallet_id}")
         } else {
             "".to_string()
         };
-        format!(
-            "{}{}:{}{}",
-            scheme, self.peer_host, self.rpc_port, wallet_path
-        )
+        format!("{scheme}{}:{}{wallet_path}", self.peer_host, self.rpc_port)
     }
 
     pub fn get_rpc_socket_addr(&self) -> SocketAddr {
@@ -1505,15 +1485,14 @@ impl BurnchainConfigFile {
                     // Using std::net::LookupHost would be preferable, but it's
                     // unfortunately unstable at this point.
                     // https://doc.rust-lang.org/1.6.0/std/net/struct.LookupHost.html
-                    let mut sock_addrs = format!("{}:1", &peer_host)
+                    let mut sock_addrs = format!("{peer_host}:1")
                         .to_socket_addrs()
-                        .map_err(|e| format!("Invalid burnchain.peer_host: {}", &e))?;
+                        .map_err(|e| format!("Invalid burnchain.peer_host: {e}"))?;
                     let sock_addr = match sock_addrs.next() {
                         Some(addr) => addr,
                         None => {
                             return Err(format!(
-                                "No IP address could be queried for '{}'",
-                                &peer_host
+                                "No IP address could be queried for '{peer_host}'"
                             ));
                         }
                     };
@@ -1710,10 +1689,7 @@ impl CostEstimatorName {
         if &s.to_lowercase() == "naive_pessimistic" {
             CostEstimatorName::NaivePessimistic
         } else {
-            panic!(
-                "Bad cost estimator name supplied in configuration file: {}",
-                s
-            );
+            panic!("Bad cost estimator name supplied in configuration file: {s}");
         }
     }
 }
@@ -1725,10 +1701,7 @@ impl FeeEstimatorName {
         } else if &s.to_lowercase() == "fuzzed_weighted_median_fee_rate" {
             FeeEstimatorName::FuzzedWeightedMedianFeeRate
         } else {
-            panic!(
-                "Bad fee estimator name supplied in configuration file: {}",
-                s
-            );
+            panic!("Bad fee estimator name supplied in configuration file: {s}");
         }
     }
 }
@@ -1738,7 +1711,7 @@ impl CostMetricName {
         if &s.to_lowercase() == "proportion_dot_product" {
             CostMetricName::ProportionDotProduct
         } else {
-            panic!("Bad cost metric name supplied in configuration file: {}", s);
+            panic!("Bad cost metric name supplied in configuration file: {s}");
         }
     }
 }
@@ -1908,7 +1881,7 @@ impl Default for NodeConfig {
         rng.fill_bytes(&mut buf);
 
         let now = get_epoch_time_ms();
-        let testnet_id = format!("stacks-node-{}", now);
+        let testnet_id = format!("stacks-node-{now}");
 
         let rpc_port = 20443;
         let p2p_port = 20444;
@@ -1923,11 +1896,11 @@ impl Default for NodeConfig {
         NodeConfig {
             name: name.to_string(),
             seed: seed.to_vec(),
-            working_dir: format!("/tmp/{}", testnet_id),
-            rpc_bind: format!("0.0.0.0:{}", rpc_port),
-            p2p_bind: format!("0.0.0.0:{}", p2p_port),
-            data_url: format!("http://127.0.0.1:{}", rpc_port),
-            p2p_address: format!("127.0.0.1:{}", rpc_port),
+            working_dir: format!("/tmp/{testnet_id}"),
+            rpc_bind: format!("0.0.0.0:{rpc_port}"),
+            p2p_bind: format!("0.0.0.0:{p2p_port}"),
+            data_url: format!("http://127.0.0.1:{rpc_port}"),
+            p2p_address: format!("127.0.0.1:{rpc_port}"),
             bootstrap_node: vec![],
             deny_nodes: vec![],
             local_peer_seed: local_peer_seed.to_vec(),
@@ -2015,15 +1988,12 @@ impl NodeConfig {
     pub fn add_bootstrap_node(&mut self, bootstrap_node: &str, chain_id: u32, peer_version: u32) {
         let parts: Vec<&str> = bootstrap_node.split('@').collect();
         if parts.len() != 2 {
-            panic!(
-                "Invalid bootstrap node '{}': expected PUBKEY@IP:PORT",
-                bootstrap_node
-            );
+            panic!("Invalid bootstrap node '{bootstrap_node}': expected PUBKEY@IP:PORT");
         }
         let (pubkey_str, hostport) = (parts[0], parts[1]);
         let pubkey = Secp256k1PublicKey::from_hex(pubkey_str)
             .unwrap_or_else(|_| panic!("Invalid public key '{pubkey_str}'"));
-        debug!("Resolve '{}'", &hostport);
+        debug!("Resolve '{hostport}'");
 
         let mut attempts = 0;
         let max_attempts = 5;
@@ -2035,22 +2005,16 @@ impl NodeConfig {
                     if let Some(addr) = addrs.next() {
                         break addr;
                     } else {
-                        panic!("No addresses found for '{}'", hostport);
+                        panic!("No addresses found for '{hostport}'");
                     }
                 }
                 Err(e) => {
                     if attempts >= max_attempts {
-                        panic!(
-                            "Failed to resolve '{}' after {} attempts: {}",
-                            hostport, max_attempts, e
-                        );
+                        panic!("Failed to resolve '{hostport}' after {max_attempts} attempts: {e}");
                     } else {
                         error!(
-                            "Attempt {} - Failed to resolve '{}': {}. Retrying in {:?}...",
+                            "Attempt {} - Failed to resolve '{hostport}': {e}. Retrying in {delay:?}...",
                             attempts + 1,
-                            hostport,
-                            e,
-                            delay
                         );
                         thread::sleep(delay);
                         attempts += 1;
@@ -2167,6 +2131,10 @@ pub struct MinerConfig {
     pub first_rejection_pause_ms: u64,
     /// Time in milliseconds to pause after receiving subsequent threshold rejections, before proposing a new block.
     pub subsequent_rejection_pause_ms: u64,
+    /// Duration to wait for a Nakamoto block after seeing a burnchain block before submitting a block commit.
+    pub block_commit_delay: Duration,
+    /// The percentage of the remaining tenure cost limit to consume each block.
+    pub tenure_cost_limit_per_block_percentage: Option<u8>,
 }
 
 impl Default for MinerConfig {
@@ -2199,6 +2167,10 @@ impl Default for MinerConfig {
             min_time_between_blocks_ms: DEFAULT_MIN_TIME_BETWEEN_BLOCKS_MS,
             first_rejection_pause_ms: DEFAULT_FIRST_REJECTION_PAUSE_MS,
             subsequent_rejection_pause_ms: DEFAULT_SUBSEQUENT_REJECTION_PAUSE_MS,
+            block_commit_delay: Duration::from_millis(DEFAULT_BLOCK_COMMIT_DELAY_MS),
+            tenure_cost_limit_per_block_percentage: Some(
+                DEFAULT_TENURE_COST_LIMIT_PER_BLOCK_PERCENTAGE,
+            ),
         }
     }
 }
@@ -2261,7 +2233,7 @@ impl ConnectionOptionsFile {
                 public_ip_address
                     .parse::<SocketAddr>()
                     .map(|addr| (PeerAddress::from_socketaddr(&addr), addr.port()))
-                    .map_err(|e| format!("Invalid connection_option.public_ip_address: {}", e))
+                    .map_err(|e| format!("Invalid connection_option.public_ip_address: {e}"))
             })
             .transpose()?;
         let mut read_only_call_limit = HELIUM_DEFAULT_CONNECTION_OPTIONS
@@ -2568,6 +2540,8 @@ pub struct MinerConfigFile {
     pub min_time_between_blocks_ms: Option<u64>,
     pub first_rejection_pause_ms: Option<u64>,
     pub subsequent_rejection_pause_ms: Option<u64>,
+    pub block_commit_delay_ms: Option<u64>,
+    pub tenure_cost_limit_per_block_percentage: Option<u8>,
 }
 
 impl MinerConfigFile {
@@ -2578,6 +2552,22 @@ impl MinerConfigFile {
             .map(|x| Secp256k1PrivateKey::from_hex(x))
             .transpose()?;
         let pre_nakamoto_mock_signing = mining_key.is_some();
+
+        let tenure_cost_limit_per_block_percentage =
+            if let Some(percentage) = self.tenure_cost_limit_per_block_percentage {
+                if percentage == 100 {
+                    None
+                } else if percentage > 0 && percentage < 100 {
+                    Some(percentage)
+                } else {
+                    return Err(
+                        "miner.tenure_cost_limit_per_block_percentage must be between 1 and 100"
+                            .to_string(),
+                    );
+                }
+            } else {
+                miner_default_config.tenure_cost_limit_per_block_percentage
+            };
         Ok(MinerConfig {
             first_attempt_time_ms: self
                 .first_attempt_time_ms
@@ -2645,7 +2635,7 @@ impl MinerConfigFile {
                             |txs_to_consider_str| match str::parse(txs_to_consider_str) {
                                 Ok(txtype) => txtype,
                                 Err(e) => {
-                                    panic!("could not parse '{}': {}", &txs_to_consider_str, &e);
+                                    panic!("could not parse '{txs_to_consider_str}': {e}");
                                 }
                             },
                         )
@@ -2661,7 +2651,7 @@ impl MinerConfigFile {
                         .map(|origin_str| match StacksAddress::from_string(origin_str) {
                             Some(addr) => addr,
                             None => {
-                                panic!("could not parse '{}' into a Stacks address", origin_str);
+                                panic!("could not parse '{origin_str}' into a Stacks address");
                             }
                         })
                         .collect()
@@ -2683,6 +2673,8 @@ impl MinerConfigFile {
             }).unwrap_or(miner_default_config.min_time_between_blocks_ms),
             first_rejection_pause_ms: self.first_rejection_pause_ms.unwrap_or(miner_default_config.first_rejection_pause_ms),
             subsequent_rejection_pause_ms: self.subsequent_rejection_pause_ms.unwrap_or(miner_default_config.subsequent_rejection_pause_ms),
+            block_commit_delay: self.block_commit_delay_ms.map(Duration::from_millis).unwrap_or(miner_default_config.block_commit_delay),
+            tenure_cost_limit_per_block_percentage,
         })
     }
 }
@@ -2999,7 +2991,7 @@ mod tests {
             "#,
             )
             .unwrap_err();
-            println!("{}", err);
+            println!("{err}");
             assert!(err.starts_with("Invalid toml: unknown field `unknown_field`"));
         }
 
@@ -3020,7 +3012,7 @@ mod tests {
     fn test_example_confs() {
         // For each config file in the ../conf/ directory, we should be able to parse it
         let conf_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("conf");
-        println!("Reading config files from: {:?}", conf_dir);
+        println!("Reading config files from: {conf_dir:?}");
         let conf_files = fs::read_dir(conf_dir).unwrap();
 
         for entry in conf_files {
