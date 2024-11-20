@@ -19,6 +19,7 @@ use std::path::Path;
 use std::time::{Duration, SystemTime};
 
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
+use blockstack_lib::chainstate::stacks::address::StacksAddressExtensions;
 use blockstack_lib::chainstate::stacks::TransactionPayload;
 use blockstack_lib::util_lib::db::{
     query_row, query_rows, sqlite_open, table_exists, tx_begin_immediate, u64_to_sql,
@@ -856,7 +857,7 @@ impl SignerDb {
         // If we have no blocks known for this tenure, we will assume it has only JUST started and calculate
         // our tenure extend timestamp based on the epoch time in secs.
         let mut tenure_start_timestamp = None;
-        let mut tenure_process_time_ms = 0;
+        let mut tenure_process_time_ms = 0_u64;
         // Note that the globally accepted blocks are already returned in descending order of stacks height, therefore by newest block to oldest block
         for block_info in self
             .get_globally_accepted_blocks(consensus_hash)
@@ -865,7 +866,19 @@ impl SignerDb {
         {
             // Always use the oldest block as our tenure start timestamp
             tenure_start_timestamp = Some(block_info.proposed_time);
-            tenure_process_time_ms += block_info.validation_time_ms.unwrap_or(0);
+            let non_bootcode_contract_call_block = block_info.block.txs.iter().any(|tx| {
+                // We only care about blocks that contain a non bootcode contract call
+                match &tx.payload {
+                    TransactionPayload::ContractCall(cc) => !cc.address.is_boot_code_addr(),
+                    TransactionPayload::SmartContract(..) => true,
+                    _ => false,
+                }
+            });
+
+            if non_bootcode_contract_call_block {
+                tenure_process_time_ms = tenure_process_time_ms
+                    .saturating_add(block_info.validation_time_ms.unwrap_or(0));
+            }
 
             if block_info
                 .block
