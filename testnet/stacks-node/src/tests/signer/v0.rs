@@ -4332,6 +4332,14 @@ fn partial_tenure_fork() {
     )
     .unwrap();
 
+    // Wait for miner 2 to catch up to miner 1
+    wait_for(60, || {
+        let info_1 = get_chain_info(&conf);
+        let info_2 = get_chain_info(&conf_node_2);
+        Ok(info_1.stacks_tip_height == info_2.stacks_tip_height)
+    })
+    .expect("Timed out waiting for miner 2 to catch up to miner 1");
+
     // Pause block commits
     rl1_skip_commit_op.set(true);
     rl2_skip_commit_op.set(true);
