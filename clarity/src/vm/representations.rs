@@ -459,13 +459,13 @@ pub struct SymbolicExpression {
     pub span: Span,
 
     #[cfg(feature = "developer-mode")]
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pre_comments: Vec<(String, Span)>,
     #[cfg(feature = "developer-mode")]
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub end_line_comment: Option<String>,
-    #[serde(default)]
     #[cfg(feature = "developer-mode")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub post_comments: Vec<(String, Span)>,
 }
 
