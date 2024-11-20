@@ -146,7 +146,7 @@ fn make_simple_pox_4_lock(
     )
 }
 
-pub fn make_test_epochs_pox(use_nakamoto: bool) -> (Vec<StacksEpoch>, PoxConstants) {
+pub fn make_test_epochs_pox(use_nakamoto: bool) -> (EpochList, PoxConstants) {
     let EMPTY_SORTITIONS = 25;
     let EPOCH_2_1_HEIGHT = EMPTY_SORTITIONS + 11; // 36
     let EPOCH_2_2_HEIGHT = EPOCH_2_1_HEIGHT + 14; // 50
@@ -157,7 +157,7 @@ pub fn make_test_epochs_pox(use_nakamoto: bool) -> (Vec<StacksEpoch>, PoxConstan
     let EPOCH_2_5_HEIGHT = EPOCH_2_4_HEIGHT + 44; // 100
     let EPOCH_3_0_HEIGHT = EPOCH_2_5_HEIGHT + 23; // 123
 
-    let mut epochs = vec![
+    let mut epochs = EpochList::new(&[
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch10,
             start_height: 0,
@@ -220,7 +220,7 @@ pub fn make_test_epochs_pox(use_nakamoto: bool) -> (Vec<StacksEpoch>, PoxConstan
             block_limit: ExecutionCost::max_value(),
             network_epoch: PEER_VERSION_EPOCH_2_5,
         },
-    ];
+    ]);
 
     if use_nakamoto {
         epochs.push(StacksEpoch {
@@ -455,7 +455,7 @@ fn pox_extend_transition() {
     }
 
     // produce blocks until epoch 2.1
-    while get_tip(peer.sortdb.as_ref()).block_height < epochs[3].start_height {
+    while get_tip(peer.sortdb.as_ref()).block_height < epochs[StacksEpochId::Epoch21].start_height {
         peer.tenure_with_txs(&[], &mut coinbase_nonce);
         alice_rewards_to_v2_start_checks(latest_block, &mut peer);
     }
@@ -522,7 +522,7 @@ fn pox_extend_transition() {
     v2_rewards_checks(latest_block, &mut peer);
 
     // roll the chain forward until just before Epoch-2.2
-    while get_tip(peer.sortdb.as_ref()).block_height < epochs[4].start_height {
+    while get_tip(peer.sortdb.as_ref()).block_height < epochs[StacksEpochId::Epoch22].start_height {
         latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
         // at this point, alice's balance should be locked, and so should bob's
         let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice).into());
@@ -936,7 +936,8 @@ fn pox_lock_unlock() {
     while get_tip(peer.sortdb.as_ref()).block_height < u64::from(target_height) {
         latest_block = Some(peer.tenure_with_txs(&[], &mut coinbase_nonce));
         // if we reach epoch 2.1, perform the check
-        if get_tip(peer.sortdb.as_ref()).block_height > epochs[3].start_height {
+        if get_tip(peer.sortdb.as_ref()).block_height > epochs[StacksEpochId::Epoch21].start_height
+        {
             assert_latest_was_burn(&mut peer);
         }
     }
@@ -1116,7 +1117,8 @@ fn pox_3_defunct() {
     while get_tip(peer.sortdb.as_ref()).block_height < u64::from(target_height) {
         latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
         // if we reach epoch 2.1, perform the check
-        if get_tip(peer.sortdb.as_ref()).block_height > epochs[3].start_height {
+        if get_tip(peer.sortdb.as_ref()).block_height > epochs[StacksEpochId::Epoch21].start_height
+        {
             assert_latest_was_burn(&mut peer);
         }
     }
@@ -1245,7 +1247,8 @@ fn pox_3_unlocks() {
     while get_tip(peer.sortdb.as_ref()).block_height < u64::from(target_height) {
         latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
         // if we reach epoch 2.1, perform the check
-        if get_tip(peer.sortdb.as_ref()).block_height > epochs[3].start_height {
+        if get_tip(peer.sortdb.as_ref()).block_height > epochs[StacksEpochId::Epoch21].start_height
+        {
             assert_latest_was_burn(&mut peer);
         }
     }
@@ -4334,7 +4337,7 @@ fn stack_agg_increase() {
     peer_config.burnchain.pox_constants.reward_cycle_length = 20;
     peer_config.burnchain.pox_constants.prepare_length = 5;
     let epochs = peer_config.epochs.clone().unwrap();
-    let epoch_3 = &epochs[StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch30).unwrap()];
+    let epoch_3 = &epochs[StacksEpochId::Epoch30];
 
     let mut peer = TestPeer::new_with_observer(peer_config, Some(&observer));
     let mut peer_nonce = 0;
@@ -8882,7 +8885,9 @@ pub fn prepare_pox4_test<'a>(
         while get_tip(peer.sortdb.as_ref()).block_height < u64::from(target_height) {
             latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
             // if we reach epoch 2.1, perform the check
-            if get_tip(peer.sortdb.as_ref()).block_height > epochs[3].start_height {
+            if get_tip(peer.sortdb.as_ref()).block_height
+                > epochs[StacksEpochId::Epoch21].start_height
+            {
                 assert_latest_was_burn(&mut peer);
             }
         }
@@ -8981,7 +8986,8 @@ fn missed_slots_no_unlock() {
     let EMPTY_SORTITIONS = 25;
 
     let (epochs, mut pox_constants) = make_test_epochs_pox(false);
-    pox_constants.pox_4_activation_height = u32::try_from(epochs[7].start_height).unwrap() + 1;
+    pox_constants.pox_4_activation_height =
+        u32::try_from(epochs[StacksEpochId::Epoch25].start_height).unwrap() + 1;
 
     let mut burnchain = Burnchain::default_unittest(
         0,
@@ -9013,7 +9019,8 @@ fn missed_slots_no_unlock() {
         + 1;
 
     // produce blocks until epoch 2.5
-    while get_tip(peer.sortdb.as_ref()).block_height <= epochs[7].start_height {
+    while get_tip(peer.sortdb.as_ref()).block_height <= epochs[StacksEpochId::Epoch25].start_height
+    {
         peer.tenure_with_txs(&[], &mut coinbase_nonce);
     }
 
@@ -9232,7 +9239,8 @@ fn no_lockups_2_5() {
     let EMPTY_SORTITIONS = 25;
 
     let (epochs, mut pox_constants) = make_test_epochs_pox(false);
-    pox_constants.pox_4_activation_height = u32::try_from(epochs[7].start_height).unwrap() + 1;
+    pox_constants.pox_4_activation_height =
+        u32::try_from(epochs[StacksEpochId::Epoch25].start_height).unwrap() + 1;
 
     let mut burnchain = Burnchain::default_unittest(
         0,
@@ -9264,7 +9272,8 @@ fn no_lockups_2_5() {
         + 1;
 
     // produce blocks until epoch 2.5
-    while get_tip(peer.sortdb.as_ref()).block_height <= epochs[7].start_height {
+    while get_tip(peer.sortdb.as_ref()).block_height <= epochs[StacksEpochId::Epoch25].start_height
+    {
         peer.tenure_with_txs(&[], &mut coinbase_nonce);
     }
 

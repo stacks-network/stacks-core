@@ -122,6 +122,8 @@ pub struct ProposalEvalConfig {
     /// Time to wait for the last block of a tenure to be globally accepted or rejected before considering
     /// a new miner's block at the same height as valid.
     pub tenure_last_block_proposal_timeout: Duration,
+    /// How much idle time must pass before allowing a tenure extend
+    pub tenure_idle_timeout: Duration,
 }
 
 impl From<&SignerConfig> for ProposalEvalConfig {
@@ -130,6 +132,7 @@ impl From<&SignerConfig> for ProposalEvalConfig {
             first_proposal_burn_block_timing: value.first_proposal_burn_block_timing,
             block_proposal_timeout: value.block_proposal_timeout,
             tenure_last_block_proposal_timeout: value.tenure_last_block_proposal_timeout,
+            tenure_idle_timeout: value.tenure_idle_timeout,
         }
     }
 }
@@ -351,9 +354,14 @@ impl SortitionsView {
             // in tenure extends, we need to check:
             // (1) if this is the most recent sortition, an extend is allowed if it changes the burnchain view
             // (2) if this is the most recent sortition, an extend is allowed if enough time has passed to refresh the block limit
+            let sortition_consensus_hash = proposed_by.state().consensus_hash;
             let changed_burn_view =
-                tenure_extend.burn_view_consensus_hash != proposed_by.state().consensus_hash;
-            let enough_time_passed = Self::tenure_time_passed_block_lim()?;
+                tenure_extend.burn_view_consensus_hash != sortition_consensus_hash;
+            let enough_time_passed = get_epoch_time_secs()
+                > signer_db.get_tenure_extend_timestamp(
+                    self.config.tenure_idle_timeout,
+                    &sortition_consensus_hash,
+                );
             if !changed_burn_view && !enough_time_passed {
                 warn!(
                     "Miner block proposal contains a tenure extend, but the burnchain view has not changed and enough time has not passed to refresh the block limit. Considering proposal invalid.";
@@ -670,12 +678,6 @@ impl SortitionsView {
             );
             Ok(false)
         }
-    }
-
-    /// Has the current tenure lasted long enough to extend the block limit?
-    pub fn tenure_time_passed_block_lim() -> Result<bool, ClientError> {
-        // TODO
-        Ok(false)
     }
 
     /// Fetch a new view of the recent sortitions

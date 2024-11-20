@@ -16,9 +16,10 @@
 
 use std::fmt::Display;
 use std::path::Path;
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
+use blockstack_lib::chainstate::stacks::TransactionPayload;
 use blockstack_lib::util_lib::db::{
     query_row, query_rows, sqlite_open, table_exists, tx_begin_immediate, u64_to_sql,
     Error as DBError,
@@ -157,6 +158,8 @@ pub struct BlockInfo {
     pub signed_group: Option<u64>,
     /// The block state relative to the signer's view of the stacks blockchain
     pub state: BlockState,
+    /// Consumed processing time in milliseconds to validate this block
+    pub validation_time_ms: Option<u64>,
     /// Extra data specific to v0, v1, etc.
     pub ext: ExtraBlockInfo,
 }
@@ -175,6 +178,7 @@ impl From<BlockProposal> for BlockInfo {
             signed_group: None,
             ext: ExtraBlockInfo::default(),
             state: BlockState::Unprocessed,
+            validation_time_ms: None,
         }
     }
 }
@@ -257,6 +261,22 @@ impl BlockInfo {
         }
         self.state = state;
         Ok(())
+    }
+
+    /// Check if the block is globally accepted or rejected
+    pub fn has_reached_consensus(&self) -> bool {
+        matches!(
+            self.state,
+            BlockState::GloballyAccepted | BlockState::GloballyRejected
+        )
+    }
+
+    /// Check if the block is locally accepted or rejected
+    pub fn is_locally_finalized(&self) -> bool {
+        matches!(
+            self.state,
+            BlockState::LocallyAccepted | BlockState::LocallyRejected
+        )
     }
 }
 
@@ -842,6 +862,61 @@ impl SignerDb {
             BlockState::try_from(state.as_str()).map_err(|_| DBError::Corruption)?,
         ))
     }
+
+    /// Return the all globally accepted block in a tenure (identified by its consensus hash) in stacks height descending order
+    fn get_globally_accepted_blocks(
+        &self,
+        tenure: &ConsensusHash,
+    ) -> Result<Vec<BlockInfo>, DBError> {
+        let query = "SELECT block_info FROM blocks WHERE consensus_hash = ?1 AND json_extract(block_info, '$.state') = ?2 ORDER BY stacks_height DESC";
+        let args = params![tenure, &BlockState::GloballyAccepted.to_string()];
+        let result: Vec<String> = query_rows(&self.db, query, args)?;
+        result
+            .iter()
+            .map(|info| serde_json::from_str(info).map_err(DBError::from))
+            .collect()
+    }
+
+    /// Compute the tenure extend timestamp based on the tenure start and already consumed idle time of the
+    /// globally accepted blocks of the provided tenure (identified by the consensus hash)
+    pub fn get_tenure_extend_timestamp(
+        &self,
+        tenure_idle_timeout: Duration,
+        consensus_hash: &ConsensusHash,
+    ) -> u64 {
+        // We do not know our tenure start timestamp until we find the last processed tenure change transaction for the given consensus hash.
+        // We may not even have it in our database, in which case, we should use the oldest known block in the tenure.
+        // If we have no blocks known for this tenure, we will assume it has only JUST started and calculate
+        // our tenure extend timestamp based on the epoch time in secs.
+        let mut tenure_start_timestamp = None;
+        let mut tenure_process_time_ms = 0;
+        // Note that the globally accepted blocks are already returned in descending order of stacks height, therefore by newest block to oldest block
+        for block_info in self
+            .get_globally_accepted_blocks(consensus_hash)
+            .unwrap_or_default()
+            .iter()
+        {
+            // Always use the oldest block as our tenure start timestamp
+            tenure_start_timestamp = Some(block_info.proposed_time);
+            tenure_process_time_ms += block_info.validation_time_ms.unwrap_or(0);
+
+            if block_info
+                .block
+                .txs
+                .first()
+                .map(|tx| matches!(tx.payload, TransactionPayload::TenureChange(_)))
+                .unwrap_or(false)
+            {
+                // Tenure change found. No more blocks should count towards this tenure's processing time.
+                break;
+            }
+        }
+
+        tenure_start_timestamp
+            .unwrap_or(get_epoch_time_secs())
+            .saturating_add(tenure_idle_timeout.as_secs())
+            .saturating_sub(tenure_process_time_ms / 1000)
+    }
 }
 
 fn try_deserialize<T>(s: Option<String>) -> Result<Option<T>, DBError>
@@ -1218,6 +1293,7 @@ mod tests {
             12345
         );
     }
+
     #[test]
     fn state_machine() {
         let (mut block, _) = create_block();
@@ -1258,6 +1334,139 @@ mod tests {
         assert!(!block.check_state(BlockState::LocallyRejected));
         assert!(!block.check_state(BlockState::GloballyAccepted));
         assert!(block.check_state(BlockState::GloballyRejected));
+    }
+
+    #[test]
+    fn get_accepted_blocks() {
+        let db_path = tmp_db_path();
+        let mut db = SignerDb::new(db_path).expect("Failed to create signer db");
+        let consensus_hash_1 = ConsensusHash([0x01; 20]);
+        let consensus_hash_2 = ConsensusHash([0x02; 20]);
+        let consensus_hash_3 = ConsensusHash([0x03; 20]);
+        let (mut block_info_1, _block_proposal) = create_block_override(|b| {
+            b.block.header.consensus_hash = consensus_hash_1;
+            b.block.header.miner_signature = MessageSignature([0x01; 65]);
+            b.block.header.chain_length = 1;
+            b.burn_height = 1;
+        });
+        let (mut block_info_2, _block_proposal) = create_block_override(|b| {
+            b.block.header.consensus_hash = consensus_hash_1;
+            b.block.header.miner_signature = MessageSignature([0x02; 65]);
+            b.block.header.chain_length = 2;
+            b.burn_height = 2;
+        });
+        let (mut block_info_3, _block_proposal) = create_block_override(|b| {
+            b.block.header.consensus_hash = consensus_hash_1;
+            b.block.header.miner_signature = MessageSignature([0x03; 65]);
+            b.block.header.chain_length = 3;
+            b.burn_height = 3;
+        });
+        let (mut block_info_4, _block_proposal) = create_block_override(|b| {
+            b.block.header.consensus_hash = consensus_hash_2;
+            b.block.header.miner_signature = MessageSignature([0x03; 65]);
+            b.block.header.chain_length = 3;
+            b.burn_height = 4;
+        });
+        block_info_1.mark_globally_accepted().unwrap();
+        block_info_2.mark_locally_accepted(false).unwrap();
+        block_info_3.mark_locally_accepted(false).unwrap();
+        block_info_4.mark_globally_accepted().unwrap();
+
+        db.insert_block(&block_info_1).unwrap();
+        db.insert_block(&block_info_2).unwrap();
+        db.insert_block(&block_info_3).unwrap();
+        db.insert_block(&block_info_4).unwrap();
+
+        // Verify tenure consensus_hash_1
+        let block_info = db
+            .get_last_accepted_block(&consensus_hash_1)
+            .unwrap()
+            .unwrap();
+        assert_eq!(block_info, block_info_3);
+        let block_info = db
+            .get_last_globally_accepted_block(&consensus_hash_1)
+            .unwrap()
+            .unwrap();
+        assert_eq!(block_info, block_info_1);
+
+        // Verify tenure consensus_hash_2
+        let block_info = db
+            .get_last_accepted_block(&consensus_hash_2)
+            .unwrap()
+            .unwrap();
+        assert_eq!(block_info, block_info_4);
+        let block_info = db
+            .get_last_globally_accepted_block(&consensus_hash_2)
+            .unwrap()
+            .unwrap();
+        assert_eq!(block_info, block_info_4);
+
+        // Verify tenure consensus_hash_3
+        assert!(db
+            .get_last_accepted_block(&consensus_hash_3)
+            .unwrap()
+            .is_none());
+        assert!(db
+            .get_last_globally_accepted_block(&consensus_hash_3)
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn get_all_globally_accepted_blocks() {
+        let db_path = tmp_db_path();
+        let mut db = SignerDb::new(db_path).expect("Failed to create signer db");
+        let consensus_hash_1 = ConsensusHash([0x01; 20]);
+        let consensus_hash_2 = ConsensusHash([0x02; 20]);
+        let consensus_hash_3 = ConsensusHash([0x03; 20]);
+        let (mut block_info_1, _block_proposal) = create_block_override(|b| {
+            b.block.header.consensus_hash = consensus_hash_1;
+            b.block.header.miner_signature = MessageSignature([0x01; 65]);
+            b.block.header.chain_length = 1;
+            b.burn_height = 1;
+        });
+        let (mut block_info_2, _block_proposal) = create_block_override(|b| {
+            b.block.header.consensus_hash = consensus_hash_1;
+            b.block.header.miner_signature = MessageSignature([0x02; 65]);
+            b.block.header.chain_length = 2;
+            b.burn_height = 2;
+        });
+        let (mut block_info_3, _block_proposal) = create_block_override(|b| {
+            b.block.header.consensus_hash = consensus_hash_1;
+            b.block.header.miner_signature = MessageSignature([0x03; 65]);
+            b.block.header.chain_length = 3;
+            b.burn_height = 3;
+        });
+        let (mut block_info_4, _block_proposal) = create_block_override(|b| {
+            b.block.header.consensus_hash = consensus_hash_2;
+            b.block.header.miner_signature = MessageSignature([0x03; 65]);
+            b.block.header.chain_length = 3;
+            b.burn_height = 4;
+        });
+        block_info_1.mark_globally_accepted().unwrap();
+        block_info_2.mark_locally_accepted(false).unwrap();
+        block_info_3.mark_globally_accepted().unwrap();
+        block_info_4.mark_globally_accepted().unwrap();
+
+        db.insert_block(&block_info_1).unwrap();
+        db.insert_block(&block_info_2).unwrap();
+        db.insert_block(&block_info_3).unwrap();
+        db.insert_block(&block_info_4).unwrap();
+
+        // Verify tenure consensus_hash_1
+        let block_infos = db.get_globally_accepted_blocks(&consensus_hash_1).unwrap();
+        assert_eq!(block_infos, vec![block_info_3, block_info_1]);
+
+        // Verify tenure consensus_hash_2
+        let block_infos = db.get_globally_accepted_blocks(&consensus_hash_2).unwrap();
+        assert_eq!(block_infos.len(), 1);
+        assert_eq!(block_infos, vec![block_info_4]);
+
+        // Verify tenure consensus_hash_3
+        assert!(db
+            .get_globally_accepted_blocks(&consensus_hash_3)
+            .unwrap()
+            .is_empty());
     }
 
     #[test]

@@ -21,6 +21,7 @@ use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
 use blockstack_lib::net::api::postblock_proposal::{
     BlockValidateOk, BlockValidateReject, BlockValidateResponse,
 };
+use blockstack_lib::util_lib::db::Error as DBError;
 use clarity::types::chainstate::StacksPrivateKey;
 use clarity::types::{PrivateKey, StacksEpochId};
 use clarity::util::hash::MerkleHashFunc;
@@ -302,7 +303,10 @@ impl Signer {
             BlockResponse::accepted(
                 block_info.signer_signature_hash(),
                 signature,
-                self.calculate_tenure_extend_timestamp(),
+                self.signer_db.get_tenure_extend_timestamp(
+                    self.proposal_config.tenure_idle_timeout,
+                    &block_info.block.header.consensus_hash,
+                ),
             )
         } else {
             debug!("{self}: Rejecting block {}", block_info.block.block_id());
@@ -311,7 +315,10 @@ impl Signer {
                 RejectCode::RejectedInPriorRound,
                 &self.private_key,
                 self.mainnet,
-                self.calculate_tenure_extend_timestamp(),
+                self.signer_db.get_tenure_extend_timestamp(
+                    self.proposal_config.tenure_idle_timeout,
+                    &block_info.block.header.consensus_hash,
+                ),
             )
         };
         Some(response)
@@ -414,7 +421,10 @@ impl Signer {
                         RejectCode::ConnectivityIssues,
                         &self.private_key,
                         self.mainnet,
-                        self.calculate_tenure_extend_timestamp(),
+                        self.signer_db.get_tenure_extend_timestamp(
+                            self.proposal_config.tenure_idle_timeout,
+                            &block_proposal.block.header.consensus_hash,
+                        ),
                     ))
                 }
                 // Block proposal is bad
@@ -429,7 +439,10 @@ impl Signer {
                         RejectCode::SortitionViewMismatch,
                         &self.private_key,
                         self.mainnet,
-                        self.calculate_tenure_extend_timestamp(),
+                        self.signer_db.get_tenure_extend_timestamp(
+                            self.proposal_config.tenure_idle_timeout,
+                            &block_proposal.block.header.consensus_hash,
+                        ),
                     ))
                 }
                 // Block proposal passed check, still don't know if valid
@@ -446,7 +459,10 @@ impl Signer {
                 RejectCode::NoSortitionView,
                 &self.private_key,
                 self.mainnet,
-                self.calculate_tenure_extend_timestamp(),
+                self.signer_db.get_tenure_extend_timestamp(
+                    self.proposal_config.tenure_idle_timeout,
+                    &block_proposal.block.header.consensus_hash,
+                ),
             ))
         };
 
@@ -504,7 +520,7 @@ impl Signer {
             // Do not store KNOWN invalid blocks as this could DOS the signer. We only store blocks that are valid or unknown.
             self.signer_db
                 .insert_block(&block_info)
-                .unwrap_or_else(|_| panic!("{self}: Failed to insert block in DB"));
+                .unwrap_or_else(|e| self.handle_insert_block_error(e));
         }
     }
 
@@ -547,9 +563,7 @@ impl Signer {
             .block_lookup(self.reward_cycle, &signer_signature_hash)
         {
             Ok(Some(block_info)) => {
-                if block_info.state == BlockState::GloballyRejected
-                    || block_info.state == BlockState::GloballyAccepted
-                {
+                if block_info.is_locally_finalized() {
                     debug!("{self}: Received block validation for a block that is already marked as {}. Ignoring...", block_info.state);
                     return None;
                 }
@@ -566,9 +580,15 @@ impl Signer {
             }
         };
         if let Err(e) = block_info.mark_locally_accepted(false) {
-            warn!("{self}: Failed to mark block as locally accepted: {e:?}",);
-            return None;
+            if !block_info.has_reached_consensus() {
+                warn!("{self}: Failed to mark block as locally accepted: {e:?}",);
+                return None;
+            }
+            block_info.signed_self.get_or_insert(get_epoch_time_secs());
         }
+        // Record the block validation time
+        block_info.validation_time_ms = Some(block_validate_ok.validation_time_ms);
+
         let signature = self
             .private_key
             .sign(&signer_signature_hash.0)
@@ -576,11 +596,14 @@ impl Signer {
 
         self.signer_db
             .insert_block(&block_info)
-            .unwrap_or_else(|_| panic!("{self}: Failed to insert block in DB"));
+            .unwrap_or_else(|e| self.handle_insert_block_error(e));
         let accepted = BlockAccepted::new(
             block_info.signer_signature_hash(),
             signature,
-            self.calculate_tenure_extend_timestamp(),
+            self.signer_db.get_tenure_extend_timestamp(
+                self.proposal_config.tenure_idle_timeout,
+                &block_info.block.header.consensus_hash,
+            ),
         );
         // have to save the signature _after_ the block info
         self.handle_block_signature(stacks_client, &accepted);
@@ -609,9 +632,7 @@ impl Signer {
             .block_lookup(self.reward_cycle, &signer_signature_hash)
         {
             Ok(Some(block_info)) => {
-                if block_info.state == BlockState::GloballyRejected
-                    || block_info.state == BlockState::GloballyAccepted
-                {
+                if block_info.is_locally_finalized() {
                     debug!("{self}: Received block validation for a block that is already marked as {}. Ignoring...", block_info.state);
                     return None;
                 }
@@ -628,18 +649,23 @@ impl Signer {
             }
         };
         if let Err(e) = block_info.mark_locally_rejected() {
-            warn!("{self}: Failed to mark block as locally rejected: {e:?}",);
-            return None;
+            if !block_info.has_reached_consensus() {
+                warn!("{self}: Failed to mark block as locally rejected: {e:?}",);
+                return None;
+            }
         }
         let block_rejection = BlockRejection::from_validate_rejection(
             block_validate_reject.clone(),
             &self.private_key,
             self.mainnet,
-            self.calculate_tenure_extend_timestamp(),
+            self.signer_db.get_tenure_extend_timestamp(
+                self.proposal_config.tenure_idle_timeout,
+                &block_info.block.header.consensus_hash,
+            ),
         );
         self.signer_db
             .insert_block(&block_info)
-            .unwrap_or_else(|_| panic!("{self}: Failed to insert block in DB"));
+            .unwrap_or_else(|e| self.handle_insert_block_error(e));
         self.handle_block_rejection(&block_rejection);
         Some(BlockResponse::Rejected(block_rejection))
     }
@@ -733,7 +759,10 @@ impl Signer {
             RejectCode::ConnectivityIssues,
             &self.private_key,
             self.mainnet,
-            self.calculate_tenure_extend_timestamp(),
+            self.signer_db.get_tenure_extend_timestamp(
+                self.proposal_config.tenure_idle_timeout,
+                &block_proposal.block.header.consensus_hash,
+            ),
         );
         if let Err(e) = block_info.mark_locally_rejected() {
             warn!("{self}: Failed to mark block as locally rejected: {e:?}",);
@@ -753,7 +782,7 @@ impl Signer {
         }
         self.signer_db
             .insert_block(&block_info)
-            .unwrap_or_else(|_| panic!("{self}: Failed to insert block in DB"));
+            .unwrap_or_else(|e| self.handle_insert_block_error(e));
     }
 
     /// Compute the signing weight, given a list of signatures
@@ -1110,13 +1139,16 @@ impl Signer {
             // in case this is the first time we saw this block. Safe to do since this is testing case only.
             self.signer_db
                 .insert_block(block_info)
-                .unwrap_or_else(|_| panic!("{self}: Failed to insert block in DB"));
+                .unwrap_or_else(|e| self.handle_insert_block_error(e));
             Some(BlockResponse::rejected(
                 block_proposal.block.header.signer_signature_hash(),
                 RejectCode::TestingDirective,
                 &self.private_key,
                 self.mainnet,
-                self.calculate_tenure_extend_timestamp(),
+                self.signer_db.get_tenure_extend_timestamp(
+                    self.proposal_config.tenure_idle_timeout,
+                    &block_proposal.block.header.consensus_hash,
+                ),
             ))
         } else {
             None
@@ -1136,9 +1168,9 @@ impl Signer {
         }
     }
 
-    /// Calculate the tenure extend timestamp based on the tenure start and already consumed idle time
-    fn calculate_tenure_extend_timestamp(&self) -> u64 {
-        // TODO: udpate this to grab the idle time consumed against the tenure start time
-        get_epoch_time_secs()
+    /// Helper for logging insert_block error
+    fn handle_insert_block_error(&self, e: DBError) {
+        error!("{self}: Failed to insert block into signer-db: {e:?}");
+        panic!("{self} Failed to write block to signerdb: {e}");
     }
 }
