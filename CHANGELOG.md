@@ -10,6 +10,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 ### Changed
 - Add index for StacksBlockId to nakamoto block headers table (improves node performance)
 - Remove the panic for reporting DB deadlocks (just error and continue waiting)
+- When a TX is dropped from the mempool because of an RBF, the node will emit `new_txid` when emitting the dropped tx event.
 
 ## [3.0.0.0.1]
 
@@ -17,7 +18,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 - Add index for StacksBlockId to nakamoto block headers table (improves node performance)
 - Remove the panic for reporting DB deadlocks (just error and continue waiting)
 - Various test fixes for CI (5353, 5368, 5372, 5371, 5380, 5378, 5387, 5396, 5390, 5394)
-- Various log fixes: 
+- Various log fixes:
     - don't say proceeding to mine blocks if not a miner
     - misc. warns downgraded to debugs
 - 5391: Update default block proposal timeout to 10 minutes
