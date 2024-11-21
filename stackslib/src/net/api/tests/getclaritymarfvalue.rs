@@ -15,8 +15,8 @@
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
-use clarity::vm::types::{QualifiedContractIdentifier, StacksAddressExtensions};
-use clarity::vm::{ClarityName, ContractName};
+use clarity::vm::types::{QualifiedContractIdentifier, StacksAddressExtensions, TypeSignature};
+use clarity::vm::{ClarityName, ContractName, Value};
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{StacksAddress, TrieHash};
 use stacks_common::types::net::PeerHost;
@@ -126,6 +126,15 @@ fn test_try_make_response() {
     );
     requests.push(request);
 
+    // query vm-account balance
+    let request = StacksHttpRequest::new_getclaritymarf(
+        addr.into(),
+        TrieHash::from_key("vm-account::ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R::19"),
+        TipRequest::UseLatestAnchoredTip,
+        true,
+    );
+    requests.push(request);
+
     let mut responses = test_rpc(function_name!(), requests);
 
     // existing data
@@ -179,4 +188,16 @@ fn test_try_make_response() {
 
     let (preamble, body) = response.destruct();
     assert_eq!(preamble.status_code, 404);
+
+    // vm-account blaance
+    let response = responses.remove(0);
+    debug!(
+        "Response:\n{}\n",
+        std::str::from_utf8(&response.try_serialize().unwrap()).unwrap()
+    );
+
+    let resp = response.decode_data_var_response().unwrap();
+    let balance = Value::try_deserialize_hex(&resp.data[2..], &TypeSignature::IntType, false);
+    assert_eq!(balance, Ok(Value::Int(256_000_000_000)));
+    assert!(resp.marf_proof.is_some());
 }
