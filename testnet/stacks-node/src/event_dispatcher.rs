@@ -951,7 +951,12 @@ impl ProposalCallbackReceiver for ProposalCallbackHandler {
 }
 
 impl MemPoolEventDispatcher for EventDispatcher {
-    fn mempool_txs_dropped(&self, txids: Vec<Txid>, new_txid: Option<Txid>, reason: MemPoolDropReason) {
+    fn mempool_txs_dropped(
+        &self,
+        txids: Vec<Txid>,
+        new_txid: Option<Txid>,
+        reason: MemPoolDropReason,
+    ) {
         if !txids.is_empty() {
             self.process_dropped_mempool_txs(txids, new_txid, reason)
         }
@@ -1572,7 +1577,12 @@ impl EventDispatcher {
         }
     }
 
-    pub fn process_dropped_mempool_txs(&self, txs: Vec<Txid>, new_txid: Option<Txid>, reason: MemPoolDropReason) {
+    pub fn process_dropped_mempool_txs(
+        &self,
+        txs: Vec<Txid>,
+        new_txid: Option<Txid>,
+        reason: MemPoolDropReason,
+    ) {
         // lazily assemble payload only if we have observers
         let interested_observers = self.filter_observers(&self.mempool_observers_lookup, true);
 
@@ -1584,15 +1594,15 @@ impl EventDispatcher {
             .into_iter()
             .map(|tx| serde_json::Value::String(format!("0x{}", &tx)))
             .collect();
-        
-        let payload = match new_txid{
+
+        let payload = match new_txid {
             Some(id) => {
                 json!({
                     "dropped_txids": serde_json::Value::Array(dropped_txids),
                     "reason": reason.to_string(),
                     "new_txid": format!("0x{}", &id),
                 })
-            },
+            }
             None => {
                 json!({
                     "dropped_txids": serde_json::Value::Array(dropped_txids),
