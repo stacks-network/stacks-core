@@ -48,7 +48,7 @@ use stacks::chainstate::burn::Opcodes;
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 #[cfg(test)]
 use stacks::chainstate::stacks::address::PoxAddress;
-use stacks::core::{StacksEpoch, StacksEpochId};
+use stacks::core::{EpochList, StacksEpochId};
 use stacks::monitoring::{increment_btc_blocks_received_counter, increment_btc_ops_sent_counter};
 use stacks::net::http::{HttpRequestContents, HttpResponsePayload};
 use stacks::net::httpcore::{send_http_request, StacksHttpRequest};
@@ -2206,7 +2206,7 @@ impl BurnchainController for BitcoinRegtestController {
         Ok(())
     }
 
-    fn get_stacks_epochs(&self) -> Vec<StacksEpoch> {
+    fn get_stacks_epochs(&self) -> EpochList {
         self.indexer.get_stacks_epochs()
     }
 

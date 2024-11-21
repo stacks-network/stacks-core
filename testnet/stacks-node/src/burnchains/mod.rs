@@ -8,7 +8,7 @@ use stacks::burnchains::{BurnchainStateTransitionOps, Txid};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::BlockstackOperationType;
 use stacks::chainstate::burn::BlockSnapshot;
-use stacks::core::{StacksEpoch, StacksEpochId};
+use stacks::core::{EpochList, StacksEpochId};
 use stacks_common::codec::Error as CodecError;
 
 pub use self::bitcoin_regtest_controller::{make_bitcoin_indexer, BitcoinRegtestController};
@@ -53,7 +53,7 @@ pub trait BurnchainController {
     /// Invoke connect() on underlying burnchain and sortition databases, to perform any migration
     ///  or instantiation before other callers may use open()
     fn connect_dbs(&mut self) -> Result<(), Error>;
-    fn get_stacks_epochs(&self) -> Vec<StacksEpoch>;
+    fn get_stacks_epochs(&self) -> EpochList;
 
     #[cfg(test)]
     fn bootstrap_chain(&mut self, blocks_count: u64);

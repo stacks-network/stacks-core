@@ -140,6 +140,8 @@ jobs:
           - tests::nakamoto_integrations::utxo_check_on_startup_recover
           - tests::nakamoto_integrations::v3_signer_api_endpoint
           - tests::nakamoto_integrations::signer_chainstate
+          - tests::nakamoto_integrations::clarity_cost_spend_down
+          - tests::nakamoto_integrations::v3_blockbyheight_api_endpoint
           # TODO: enable these once v1 signer is supported by a new nakamoto epoch
           # - tests::signer::v1::dkg
           # - tests::signer::v1::sign_request_rejected
