@@ -655,6 +655,14 @@ impl BlockResponse {
     ) -> Self {
         Self::Rejected(BlockRejection::new(hash, reject_code, private_key, mainnet))
     }
+
+    /// The signer signature hash for the block response
+    pub fn signer_signature_hash(&self) -> Sha512Trunc256Sum {
+        match self {
+            BlockResponse::Accepted(accepted) => accepted.signer_signature_hash,
+            BlockResponse::Rejected(rejection) => rejection.signer_signature_hash,
+        }
+    }
 }
 
 impl StacksMessageCodec for BlockResponse {
