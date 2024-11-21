@@ -19,7 +19,6 @@ use std::path::Path;
 use std::time::{Duration, SystemTime};
 
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
-use blockstack_lib::chainstate::stacks::address::StacksAddressExtensions;
 use blockstack_lib::chainstate::stacks::TransactionPayload;
 use blockstack_lib::util_lib::db::{
     query_row, query_rows, sqlite_open, table_exists, tx_begin_immediate, u64_to_sql,
@@ -866,19 +865,9 @@ impl SignerDb {
         {
             // Always use the oldest block as our tenure start timestamp
             tenure_start_timestamp = Some(block_info.proposed_time);
-            let non_bootcode_contract_call_block = block_info.block.txs.iter().any(|tx| {
-                // We only care about blocks that contain a non bootcode contract call
-                match &tx.payload {
-                    TransactionPayload::ContractCall(cc) => !cc.address.is_boot_code_addr(),
-                    TransactionPayload::SmartContract(..) => true,
-                    _ => false,
-                }
-            });
 
-            if non_bootcode_contract_call_block {
-                tenure_process_time_ms = tenure_process_time_ms
-                    .saturating_add(block_info.validation_time_ms.unwrap_or(0));
-            }
+            tenure_process_time_ms =
+                tenure_process_time_ms.saturating_add(block_info.validation_time_ms.unwrap_or(0));
 
             if block_info
                 .block
