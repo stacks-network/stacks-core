@@ -4353,7 +4353,7 @@ fn partial_tenure_fork() {
     let commits_before_1 = commits_1.load(Ordering::SeqCst);
     let commits_before_2 = commits_2.load(Ordering::SeqCst);
 
-    // Ensure that both block commits have been sent before continuing
+    // Mine the first block
     next_block_and(
         &mut signer_test.running_nodes.btc_regtest_controller,
         180,
@@ -4364,13 +4364,15 @@ fn partial_tenure_fork() {
             Ok(mined_1 > mined_before_1 || mined_2 > mined_before_2)
         },
     )
-    .expect("Timed out waiting for block commit after new Stacks block");
+    .expect("Timed out waiting for new Stacks block to be mined");
 
     info!("-------- Mined first block, wait for block commits --------");
 
     // Unpause block commits and wait for both miners' commits
     rl1_skip_commit_op.set(false);
     rl2_skip_commit_op.set(false);
+
+    // Ensure that both block commits have been sent before continuing
     wait_for(60, || {
         let commits_after_1 = commits_1.load(Ordering::SeqCst);
         let commits_after_2 = commits_2.load(Ordering::SeqCst);
