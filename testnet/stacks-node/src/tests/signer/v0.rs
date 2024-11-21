@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::cmp::min;
 use std::collections::{HashMap, HashSet};
 use std::ops::Add;
 use std::str::FromStr;
@@ -7691,9 +7692,15 @@ fn tenure_extend_after_bad_commit() {
     let sortdb = burnchain.open_sortition_db(true).unwrap();
 
     let get_burn_height = || {
-        SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
+        let sort_height = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
             .unwrap()
-            .block_height
+            .block_height;
+        let info_1 = get_chain_info(&conf);
+        let info_2 = get_chain_info(&conf_node_2);
+        min(
+            sort_height,
+            min(info_1.burn_block_height, info_2.burn_block_height),
+        )
     };
 
     info!("------------------------- Pause Miner 1's Block Commit -------------------------");
@@ -8163,9 +8170,15 @@ fn tenure_extend_after_2_bad_commits() {
     let sortdb = burnchain.open_sortition_db(true).unwrap();
 
     let get_burn_height = || {
-        SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
+        let sort_height = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
             .unwrap()
-            .block_height
+            .block_height;
+        let info_1 = get_chain_info(&conf);
+        let info_2 = get_chain_info(&conf_node_2);
+        min(
+            sort_height,
+            min(info_1.burn_block_height, info_2.burn_block_height),
+        )
     };
 
     info!("------------------------- Pause Miner 1's Block Commit -------------------------");
