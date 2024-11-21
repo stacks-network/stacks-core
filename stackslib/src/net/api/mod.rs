@@ -42,6 +42,7 @@ pub mod getattachment;
 pub mod getattachmentsinv;
 pub mod getblock;
 pub mod getblock_v3;
+pub mod getblockbyheight;
 pub mod getclaritymarfvalue;
 pub mod getclaritymetadata;
 pub mod getconstantval;
@@ -94,6 +95,7 @@ impl StacksHttp {
         self.register_rpc_endpoint(getattachmentsinv::RPCGetAttachmentsInvRequestHandler::new());
         self.register_rpc_endpoint(getblock::RPCBlocksRequestHandler::new());
         self.register_rpc_endpoint(getblock_v3::RPCNakamotoBlockRequestHandler::new());
+        self.register_rpc_endpoint(getblockbyheight::RPCNakamotoBlockByHeightRequestHandler::new());
         self.register_rpc_endpoint(getclaritymarfvalue::RPCGetClarityMarfRequestHandler::new());
         self.register_rpc_endpoint(getclaritymetadata::RPCGetClarityMetadataRequestHandler::new());
         self.register_rpc_endpoint(getconstantval::RPCGetConstantValRequestHandler::new());
