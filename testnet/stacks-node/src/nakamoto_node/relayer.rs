@@ -941,7 +941,7 @@ impl RelayerThread {
     }
 
     /// Determine the type of tenure change to issue based on whether this
-    /// miner successfully issued a tenure change in the last tenure.
+    /// miner was the last successful miner (miner of the canonical tip).
     fn determine_tenure_type(
         &self,
         canonical_snapshot: BlockSnapshot,
@@ -950,14 +950,14 @@ impl RelayerThread {
         mining_pkh: Hash160,
     ) -> (StacksBlockId, BlockSnapshot, MinerReason) {
         if canonical_snapshot.miner_pk_hash != Some(mining_pkh) {
-            debug!("Relayer: Failed to issue a tenure change payload in our last tenure. Issue a new tenure change payload.");
+            debug!("Relayer: Miner was not the last successful miner. Issue a new tenure change payload.");
             (
                 StacksBlockId(last_snapshot.winning_stacks_block_hash.0),
                 last_snapshot,
                 MinerReason::EmptyTenure,
             )
         } else {
-            debug!("Relayer: Successfully issued a tenure change payload. Issue a continue extend from the chain tip.");
+            debug!("Relayer: Miner was the last successful miner. Issue a tenure extend from the chain tip.");
             (
                 self.sortdb.get_canonical_stacks_tip_block_id(),
                 canonical_snapshot,
