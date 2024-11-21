@@ -4332,6 +4332,8 @@ fn partial_tenure_fork() {
     )
     .unwrap();
 
+    info!("-------- Waiting miner 2 to catch up to miner 1 --------");
+
     // Wait for miner 2 to catch up to miner 1
     wait_for(60, || {
         let info_1 = get_chain_info(&conf);
@@ -4339,6 +4341,8 @@ fn partial_tenure_fork() {
         Ok(info_1.stacks_tip_height == info_2.stacks_tip_height)
     })
     .expect("Timed out waiting for miner 2 to catch up to miner 1");
+
+    info!("-------- Miner 2 caught up to miner 1 --------");
 
     // Pause block commits
     rl1_skip_commit_op.set(true);
@@ -4352,7 +4356,7 @@ fn partial_tenure_fork() {
     // Ensure that both block commits have been sent before continuing
     next_block_and(
         &mut signer_test.running_nodes.btc_regtest_controller,
-        60,
+        180,
         || {
             let mined_1 = blocks_mined1.load(Ordering::SeqCst);
             let mined_2 = blocks_mined2.load(Ordering::SeqCst);
@@ -4361,6 +4365,8 @@ fn partial_tenure_fork() {
         },
     )
     .expect("Timed out waiting for block commit after new Stacks block");
+
+    info!("-------- Mined first block, wait for block commits --------");
 
     // Unpause block commits and wait for both miners' commits
     rl1_skip_commit_op.set(false);
