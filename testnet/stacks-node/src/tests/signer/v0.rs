@@ -68,7 +68,7 @@ use crate::event_dispatcher::MinedNakamotoBlockEvent;
 use crate::nakamoto_node::miner::{
     TEST_BLOCK_ANNOUNCE_STALL, TEST_BROADCAST_STALL, TEST_MINE_STALL, TEST_NO_TENURE_EXTEND,
 };
-use crate::nakamoto_node::sign_coordinator::TEST_IGNORE_SIGNERS;
+use crate::nakamoto_node::signerdb_listener::TEST_IGNORE_SIGNERS;
 use crate::neon::Counters;
 use crate::run_loop::boot_nakamoto;
 use crate::tests::nakamoto_integrations::{

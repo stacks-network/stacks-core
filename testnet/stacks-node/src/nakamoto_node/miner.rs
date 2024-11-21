@@ -41,14 +41,13 @@ use stacks::net::p2p::NetworkHandle;
 use stacks::net::stackerdb::StackerDBs;
 use stacks::net::{NakamotoBlocksData, StacksMessageType};
 use stacks::util::get_epoch_time_secs;
-use stacks::util::secp256k1::MessageSignature;
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
 use stacks_common::types::{PrivateKey, StacksEpochId};
 use stacks_common::util::vrf::VRFProof;
 
 use super::relayer::RelayerThread;
-use super::sign_coordinator::SignCoordinator;
 use super::{Config, Error as NakamotoNodeError, EventDispatcher, Keychain};
+use crate::nakamoto_node::signer_coordinator::SignerCoordinator;
 use crate::nakamoto_node::VRF_MOCK_MINER_KEY;
 use crate::neon_node;
 use crate::run_loop::nakamoto::Globals;
@@ -291,6 +290,37 @@ impl BlockMinerThread {
             .map_err(|e| NakamotoNodeError::MiningFailure(ChainstateError::NetError(e)))?;
         let mut last_block_rejected = false;
 
+        let reward_set = self.load_signer_set()?;
+        let Some(miner_privkey) = self.config.miner.mining_key else {
+            return Err(NakamotoNodeError::MinerConfigurationFailed(
+                "No mining key configured, cannot mine",
+            ));
+        };
+        let sortdb = SortitionDB::open(
+            &self.config.get_burn_db_file_path(),
+            true,
+            self.burnchain.pox_constants.clone(),
+        )
+        .expect("FATAL: could not open sortition DB");
+        let burn_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
+            .expect("FATAL: failed to query sortition DB for canonical burn chain tip");
+
+        // Start the signer coordinator
+        let mut coordinator = SignerCoordinator::new(
+            self.event_dispatcher.stackerdb_channel.clone(),
+            self.globals.should_keep_running.clone(),
+            &reward_set,
+            &burn_tip,
+            &self.burnchain,
+            miner_privkey,
+            &self.config,
+        )
+        .map_err(|e| {
+            NakamotoNodeError::SigningCoordinatorFailure(format!(
+                "Failed to initialize the signing coordinator. Cannot mine! {e:?}"
+            ))
+        })?;
+
         // now, actually run this tenure
         loop {
             #[cfg(test)]
@@ -371,9 +401,22 @@ impl BlockMinerThread {
 
             if let Some(mut new_block) = new_block {
                 Self::fault_injection_block_broadcast_stall(&new_block);
-                let (reward_set, signer_signature) = match self
-                    .gather_signatures(&mut new_block, &mut stackerdbs)
-                {
+                let mut chain_state = neon_node::open_chainstate_with_faults(&self.config)
+                    .map_err(|e| {
+                        NakamotoNodeError::SigningCoordinatorFailure(format!(
+                            "Failed to open chainstate DB. Cannot mine! {e:?}"
+                        ))
+                    })?;
+                let signer_signature = match coordinator.propose_block(
+                    &mut new_block,
+                    &self.burn_block,
+                    &self.burnchain,
+                    &sortdb,
+                    &mut chain_state,
+                    &mut stackerdbs,
+                    &self.globals.counters,
+                    &self.burn_election_block.consensus_hash,
+                ) {
                     Ok(x) => x,
                     Err(e) => match e {
                         NakamotoNodeError::StacksTipChanged => {
@@ -412,6 +455,8 @@ impl BlockMinerThread {
                     },
                 };
                 last_block_rejected = false;
+
+                let reward_set = self.load_signer_set()?;
 
                 new_block.header.signer_signature = signer_signature;
                 if let Err(e) = self.broadcast(new_block.clone(), reward_set, &stackerdbs) {
@@ -524,68 +569,6 @@ impl BlockMinerThread {
 
         self.signer_set_cache = Some(reward_set.clone());
         Ok(reward_set)
-    }
-
-    /// Gather a list of signatures from the signers for the block
-    fn gather_signatures(
-        &mut self,
-        new_block: &mut NakamotoBlock,
-        stackerdbs: &mut StackerDBs,
-    ) -> Result<(RewardSet, Vec<MessageSignature>), NakamotoNodeError> {
-        let Some(miner_privkey) = self.config.miner.mining_key else {
-            return Err(NakamotoNodeError::MinerConfigurationFailed(
-                "No mining key configured, cannot mine",
-            ));
-        };
-        let sort_db = SortitionDB::open(
-            &self.config.get_burn_db_file_path(),
-            true,
-            self.burnchain.pox_constants.clone(),
-        )
-        .map_err(|e| {
-            NakamotoNodeError::SigningCoordinatorFailure(format!(
-                "Failed to open sortition DB. Cannot mine! {e:?}"
-            ))
-        })?;
-
-        let reward_set = self.load_signer_set()?;
-
-        if self.config.get_node_config(false).mock_mining {
-            return Ok((reward_set, Vec::new()));
-        }
-
-        let mut coordinator = SignCoordinator::new(
-            &reward_set,
-            miner_privkey,
-            &self.config,
-            self.globals.should_keep_running.clone(),
-            self.event_dispatcher.stackerdb_channel.clone(),
-        )
-        .map_err(|e| {
-            NakamotoNodeError::SigningCoordinatorFailure(format!(
-                "Failed to initialize the signing coordinator. Cannot mine! {e:?}"
-            ))
-        })?;
-
-        let mut chain_state =
-            neon_node::open_chainstate_with_faults(&self.config).map_err(|e| {
-                NakamotoNodeError::SigningCoordinatorFailure(format!(
-                    "Failed to open chainstate DB. Cannot mine! {e:?}"
-                ))
-            })?;
-
-        let signature = coordinator.run_sign_v0(
-            new_block,
-            &self.burn_block,
-            &self.burnchain,
-            &sort_db,
-            &mut chain_state,
-            stackerdbs,
-            &self.globals.counters,
-            &self.burn_election_block.consensus_hash,
-        )?;
-
-        Ok((reward_set, signature))
     }
 
     /// Fault injection -- possibly fail to broadcast
@@ -706,7 +689,7 @@ impl BlockMinerThread {
         let miners_contract_id = boot_code_id(MINERS_NAME, chain_state.mainnet);
         let mut miners_session = StackerDBSession::new(&rpc_socket.to_string(), miners_contract_id);
 
-        SignCoordinator::send_miners_message(
+        SignerCoordinator::send_miners_message(
             miner_privkey,
             &sort_db,
             &self.burn_block,
