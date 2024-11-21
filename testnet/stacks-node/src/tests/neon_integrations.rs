@@ -43,7 +43,7 @@ use stacks::cli::{self, StacksChainConfig};
 use stacks::codec::StacksMessageCodec;
 use stacks::core::mempool::MemPoolWalkTxTypes;
 use stacks::core::{
-    self, StacksEpoch, StacksEpochId, BLOCK_LIMIT_MAINNET_20, BLOCK_LIMIT_MAINNET_205,
+    self, EpochList, StacksEpoch, StacksEpochId, BLOCK_LIMIT_MAINNET_20, BLOCK_LIMIT_MAINNET_205,
     BLOCK_LIMIT_MAINNET_21, CHAIN_ID_TESTNET, HELIUM_BLOCK_LIMIT_20, PEER_VERSION_EPOCH_1_0,
     PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05, PEER_VERSION_EPOCH_2_1,
     PEER_VERSION_EPOCH_2_2, PEER_VERSION_EPOCH_2_3, PEER_VERSION_EPOCH_2_4, PEER_VERSION_EPOCH_2_5,
@@ -98,7 +98,7 @@ fn inner_neon_integration_test_conf(seed: Option<Vec<u8>>) -> (Config, StacksAdd
     let mut conf = super::new_test_conf();
 
     // tests can override this, but these tests run with epoch 2.05 by default
-    conf.burnchain.epochs = Some(vec![
+    conf.burnchain.epochs = Some(EpochList::new(&[
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch10,
             start_height: 0,
@@ -127,7 +127,7 @@ fn inner_neon_integration_test_conf(seed: Option<Vec<u8>>) -> (Config, StacksAdd
             block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
             network_epoch: PEER_VERSION_EPOCH_2_1,
         },
-    ]);
+    ]));
 
     let seed = seed.unwrap_or(conf.node.seed.clone());
     conf.node.seed = seed;
@@ -371,8 +371,10 @@ pub mod test_observer {
                     inner_obj
                 } else if let Some(inner_obj) = txevent_obj.get("Skipped") {
                     inner_obj
+                } else if let Some(inner_obj) = txevent_obj.get("Problematic") {
+                    inner_obj
                 } else {
-                    panic!("TransactionEvent object should have one of Success, ProcessingError, or Skipped")
+                    panic!("TransactionEvent object should have one of Success, ProcessingError, Skipped, or Problematic. Had keys: {:?}", txevent_obj.keys().map(|x| x.to_string()).collect::<Vec<_>>());
                 };
                 inner_obj
                     .as_object()
@@ -663,9 +665,8 @@ pub fn next_block_and_wait_with_timeout(
 ) -> bool {
     let current = blocks_processed.load(Ordering::SeqCst);
     info!(
-        "Issuing block at {}, waiting for bump ({})",
-        get_epoch_time_secs(),
-        current
+        "Issuing block at {}, waiting for bump ({current})",
+        get_epoch_time_secs()
     );
     btc_controller.build_next_block(1);
     let start = Instant::now();
@@ -692,9 +693,8 @@ pub fn next_block_and_iterate(
 ) -> bool {
     let current = blocks_processed.load(Ordering::SeqCst);
     eprintln!(
-        "Issuing block at {}, waiting for bump ({})",
-        get_epoch_time_secs(),
-        current
+        "Issuing block at {}, waiting for bump ({current})",
+        get_epoch_time_secs()
     );
     btc_controller.build_next_block(1);
     let start = Instant::now();
@@ -1064,7 +1064,7 @@ fn bitcoind_integration_test() {
 
     // let's query the miner's account nonce:
 
-    eprintln!("Miner account: {}", miner_account);
+    eprintln!("Miner account: {miner_account}");
 
     let account = get_account(&http_origin, &miner_account);
     assert_eq!(account.balance, 0);
@@ -1708,7 +1708,7 @@ fn liquid_ustx_integration() {
     let dropped_txs = test_observer::get_memtx_drops();
     assert_eq!(dropped_txs.len(), 1);
     assert_eq!(&dropped_txs[0].1, "ReplaceByFee");
-    assert_eq!(&dropped_txs[0].0, &format!("0x{}", replaced_txid));
+    assert_eq!(&dropped_txs[0].0, &format!("0x{replaced_txid}"));
 
     // mine 1 burn block for the miner to issue the next block
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
@@ -2122,7 +2122,7 @@ fn stx_delegate_btc_integration_test() {
     });
 
     // update epoch info so that Epoch 2.1 takes effect
-    conf.burnchain.epochs = Some(vec![
+    conf.burnchain.epochs = Some(EpochList::new(&[
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch20,
             start_height: 0,
@@ -2144,7 +2144,7 @@ fn stx_delegate_btc_integration_test() {
             block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
             network_epoch: PEER_VERSION_EPOCH_2_1,
         },
-    ]);
+    ]));
     conf.burnchain.pox_2_activation = Some(3);
 
     test_observer::spawn();
@@ -2380,7 +2380,7 @@ fn stack_stx_burn_op_test() {
     });
 
     // update epoch info so that Epoch 2.1 takes effect
-    conf.burnchain.epochs = Some(vec![
+    conf.burnchain.epochs = Some(EpochList::new(&[
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch20,
             start_height: 0,
@@ -2430,7 +2430,7 @@ fn stack_stx_burn_op_test() {
             block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
             network_epoch: PEER_VERSION_EPOCH_2_5,
         },
-    ]);
+    ]));
     conf.burnchain.pox_2_activation = Some(3);
 
     test_observer::spawn();
@@ -2779,7 +2779,7 @@ fn vote_for_aggregate_key_burn_op_test() {
     });
 
     // update epoch info so that Epoch 2.1 takes effect
-    conf.burnchain.epochs = Some(vec![
+    conf.burnchain.epochs = Some(EpochList::new(&[
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch20,
             start_height: 0,
@@ -2829,7 +2829,7 @@ fn vote_for_aggregate_key_burn_op_test() {
             block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
             network_epoch: PEER_VERSION_EPOCH_2_5,
         },
-    ]);
+    ]));
     conf.burnchain.pox_2_activation = Some(3);
 
     test_observer::spawn();
@@ -3555,9 +3555,8 @@ fn microblock_fork_poison_integration_test() {
         );
 
         eprintln!(
-            "Created first microblock: {}: {:?}",
-            &first_microblock.block_hash(),
-            &first_microblock
+            "Created first microblock: {}: {first_microblock:?}",
+            &first_microblock.block_hash()
         );
 
         // NOTE: this microblock conflicts because it has the same parent as the first microblock,
@@ -4015,7 +4014,7 @@ fn microblock_integration_test() {
         burn_blocks_with_burns.len()
     );
     for burn_block in burn_blocks_with_burns {
-        eprintln!("{}", burn_block);
+        eprintln!("{burn_block}");
     }
 
     let mut prior = None;
@@ -5068,8 +5067,8 @@ fn size_overflow_unconfirmed_invalid_stream_microblocks_integration_test() {
         })
         .collect();
 
-    let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
-    epochs[1].block_limit = core::BLOCK_LIMIT_MAINNET_20;
+    let mut epochs = EpochList::new(&*core::STACKS_EPOCHS_REGTEST);
+    epochs[StacksEpochId::Epoch20].block_limit = core::BLOCK_LIMIT_MAINNET_20;
     conf.burnchain.epochs = Some(epochs);
 
     conf.miner.first_attempt_time_ms = i64::MAX as u64;
@@ -5213,8 +5212,8 @@ fn runtime_overflow_unconfirmed_microblocks_integration_test() {
     conf.miner.first_attempt_time_ms = i64::MAX as u64;
     conf.miner.subsequent_attempt_time_ms = i64::MAX as u64;
 
-    let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
-    epochs[1].block_limit = core::BLOCK_LIMIT_MAINNET_20;
+    let mut epochs = EpochList::new(&*core::STACKS_EPOCHS_REGTEST);
+    epochs[StacksEpochId::Epoch20].block_limit = core::BLOCK_LIMIT_MAINNET_20;
     conf.burnchain.epochs = Some(epochs);
 
     let txs: Vec<Vec<_>> = spender_sks
@@ -5270,9 +5269,9 @@ fn runtime_overflow_unconfirmed_microblocks_integration_test() {
                             )
                         )
                         (begin
-                            (crash-me \"{}\"))
+                            (crash-me \"large-contract-{}-{ix}\"))
                         ",
-                        &format!("large-contract-{}-{ix}", &spender_addrs_c32[ix])
+                        &spender_addrs_c32[ix]
                     )
                 )]
             } else {
@@ -5325,8 +5324,8 @@ fn runtime_overflow_unconfirmed_microblocks_integration_test() {
                                 )
                             )
                             (begin
-                                (crash-me \"{}\"))
-                            ", &format!("small-contract-{}-{ix}-{i}", &spender_addrs_c32[ix]))
+                                (crash-me \"small-contract-{}-{ix}-{i}\"))
+                            ", spender_addrs_c32[ix])
                     );
                     ret.push(tx);
                 }
@@ -6465,7 +6464,7 @@ fn microblock_limit_hit_integration_test() {
     conf.miner.first_attempt_time_ms = i64::MAX as u64;
     conf.miner.subsequent_attempt_time_ms = i64::MAX as u64;
 
-    conf.burnchain.epochs = Some(vec![
+    conf.burnchain.epochs = Some(EpochList::new(&[
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch10,
             start_height: 0,
@@ -6500,7 +6499,7 @@ fn microblock_limit_hit_integration_test() {
             block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
             network_epoch: PEER_VERSION_EPOCH_2_1,
         },
-    ]);
+    ]));
     conf.burnchain.pox_2_activation = Some(10_003);
 
     // included in the first block
@@ -7758,7 +7757,7 @@ fn atlas_integration_test() {
             let mut attachments_did_sync = false;
             let mut timeout = 60;
             while !attachments_did_sync {
-                let zonefile_hex = hex_bytes(&format!("facade0{}", i)).unwrap();
+                let zonefile_hex = hex_bytes(&format!("facade0{i}")).unwrap();
                 let hashed_zonefile = Hash160::from_data(&zonefile_hex);
                 let path = format!("{http_origin}/v2/attachments/{}", hashed_zonefile.to_hex());
                 let res = client
@@ -7872,7 +7871,7 @@ fn atlas_integration_test() {
         let user = StacksPrivateKey::new();
         let zonefile_hex = format!("facade0{i}");
         let hashed_zonefile = Hash160::from_data(&hex_bytes(&zonefile_hex).unwrap());
-        let name = format!("johndoe{}", i);
+        let name = format!("johndoe{i}");
         let tx = make_contract_call(
             &user_1,
             2 + i,
@@ -9576,7 +9575,7 @@ fn test_problematic_txs_are_not_stored() {
     });
 
     // force mainnet limits in 2.05 for this test
-    conf.burnchain.epochs = Some(vec![
+    conf.burnchain.epochs = Some(EpochList::new(&[
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch20,
             start_height: 0,
@@ -9598,7 +9597,7 @@ fn test_problematic_txs_are_not_stored() {
             block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
             network_epoch: PEER_VERSION_EPOCH_2_1,
         },
-    ]);
+    ]));
     conf.burnchain.pox_2_activation = Some(10_003);
 
     // take effect immediately
@@ -9621,7 +9620,7 @@ fn test_problematic_txs_are_not_stored() {
     let edge_repeat_factor = AST_CALL_STACK_DEPTH_BUFFER + (MAX_CALL_STACK_DEPTH as u64) - 1;
     let tx_edge_body_start = "{ a : ".repeat(edge_repeat_factor as usize);
     let tx_edge_body_end = "} ".repeat(edge_repeat_factor as usize);
-    let tx_edge_body = format!("{}u1 {}", tx_edge_body_start, tx_edge_body_end);
+    let tx_edge_body = format!("{tx_edge_body_start}u1 {tx_edge_body_end}");
 
     let tx_edge = make_contract_publish(
         &spender_sk_1,
@@ -9821,7 +9820,7 @@ fn test_problematic_blocks_are_not_mined() {
     });
 
     // force mainnet limits in 2.05 for this test
-    conf.burnchain.epochs = Some(vec![
+    conf.burnchain.epochs = Some(EpochList::new(&[
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch20,
             start_height: 0,
@@ -9843,7 +9842,7 @@ fn test_problematic_blocks_are_not_mined() {
             block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
             network_epoch: PEER_VERSION_EPOCH_2_1,
         },
-    ]);
+    ]));
     conf.burnchain.pox_2_activation = Some(10_003);
 
     // AST precheck becomes default at burn height
@@ -10158,7 +10157,7 @@ fn test_problematic_blocks_are_not_relayed_or_stored() {
     });
 
     // force mainnet limits in 2.05 for this test
-    conf.burnchain.epochs = Some(vec![
+    conf.burnchain.epochs = Some(EpochList::new(&[
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch20,
             start_height: 0,
@@ -10180,7 +10179,7 @@ fn test_problematic_blocks_are_not_relayed_or_stored() {
             block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
             network_epoch: PEER_VERSION_EPOCH_2_1,
         },
-    ]);
+    ]));
     conf.burnchain.pox_2_activation = Some(10_003);
 
     // AST precheck becomes default at burn height
@@ -10477,8 +10476,8 @@ fn test_problematic_blocks_are_not_relayed_or_stored() {
 
     let follower_tip_info = get_chain_info(&follower_conf);
     eprintln!(
-        "\nFollower is at burn block {} stacks block {} (bad block is {})\n",
-        follower_tip_info.burn_block_height, follower_tip_info.stacks_tip_height, bad_block_height
+        "\nFollower is at burn block {} stacks block {} (bad block is {bad_block_height})\n",
+        follower_tip_info.burn_block_height, follower_tip_info.stacks_tip_height
     );
 
     // follower rejects the bad block
@@ -10531,7 +10530,7 @@ fn test_problematic_microblocks_are_not_mined() {
     });
 
     // force mainnet limits in 2.05 for this test
-    conf.burnchain.epochs = Some(vec![
+    conf.burnchain.epochs = Some(EpochList::new(&[
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch20,
             start_height: 0,
@@ -10553,7 +10552,7 @@ fn test_problematic_microblocks_are_not_mined() {
             block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
             network_epoch: PEER_VERSION_EPOCH_2_1,
         },
-    ]);
+    ]));
     conf.burnchain.pox_2_activation = Some(10_003);
 
     // AST precheck becomes default at burn height
@@ -10883,7 +10882,7 @@ fn test_problematic_microblocks_are_not_relayed_or_stored() {
     });
 
     // force mainnet limits in 2.05 for this test
-    conf.burnchain.epochs = Some(vec![
+    conf.burnchain.epochs = Some(EpochList::new(&[
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch20,
             start_height: 0,
@@ -10905,7 +10904,7 @@ fn test_problematic_microblocks_are_not_relayed_or_stored() {
             block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
             network_epoch: PEER_VERSION_EPOCH_2_1,
         },
-    ]);
+    ]));
     conf.burnchain.pox_2_activation = Some(10_003);
 
     // AST precheck becomes default at burn height
@@ -11225,8 +11224,8 @@ fn test_problematic_microblocks_are_not_relayed_or_stored() {
 
     let follower_tip_info = get_chain_info(&follower_conf);
     eprintln!(
-        "\nFollower is at burn block {} stacks block {} (bad block is {})\n",
-        follower_tip_info.burn_block_height, follower_tip_info.stacks_tip_height, bad_block_height
+        "\nFollower is at burn block {} stacks block {} (bad block is {bad_block_height})\n",
+        follower_tip_info.burn_block_height, follower_tip_info.stacks_tip_height
     );
 
     // follower rejects the bad microblock -- can't append subsequent blocks
@@ -11514,7 +11513,7 @@ fn make_mblock_tx_chain(privk: &StacksPrivateKey, fee_plus: u64, chain_id: u32) 
         let mut addr_prefix = addr.to_string();
         let _ = addr_prefix.split_off(12);
         let contract_name = format!("crct-{nonce}-{addr_prefix}-{random_iters}");
-        eprintln!("Make tx {}", &contract_name);
+        eprintln!("Make tx {contract_name}");
         let tx = make_contract_publish_microblock_only(
             privk,
             nonce,

@@ -42,7 +42,6 @@ use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::nakamoto::signer_set::NakamotoSigners;
 use stacks::chainstate::stacks::boot::{NakamotoSignerEntry, SIGNERS_NAME};
 use stacks::chainstate::stacks::StacksPrivateKey;
-use stacks::core::StacksEpoch;
 use stacks::net::api::postblock_proposal::{
     BlockValidateOk, BlockValidateReject, BlockValidateResponse,
 };
@@ -453,8 +452,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
     // Must be called AFTER booting the chainstate
     fn run_until_epoch_3_boundary(&mut self) {
         let epochs = self.running_nodes.conf.burnchain.epochs.clone().unwrap();
-        let epoch_3 =
-            &epochs[StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch30).unwrap()];
+        let epoch_3 = &epochs[StacksEpochId::Epoch30];
 
         let epoch_30_boundary = epoch_3.start_height - 1;
         // advance to epoch 3.0 and trigger a sign round (cannot vote on blocks in pre epoch 3.0)
@@ -557,7 +555,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         signer_signature_hash: &Sha512Trunc256Sum,
         expected_signers: &[StacksPublicKey],
     ) -> Result<(), String> {
-        // Make sure that ALL signers accepted the block proposal
+        // Make sure that at least 70% of signers accepted the block proposal
         wait_for(timeout_secs, || {
             let signatures = test_observer::get_stackerdb_chunks()
                 .into_iter()
@@ -585,7 +583,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
                     }
                 })
                 .collect::<HashSet<_>>();
-            Ok(signatures.len() == expected_signers.len())
+            Ok(signatures.len() > expected_signers.len() * 7 / 10)
         })
     }
 

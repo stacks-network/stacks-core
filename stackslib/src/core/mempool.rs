@@ -542,10 +542,13 @@ pub struct MemPoolWalkSettings {
     pub txs_to_consider: HashSet<MemPoolWalkTxTypes>,
     /// Origins for transactions that we'll consider
     pub filter_origins: HashSet<StacksAddress>,
+    /// What percentage of the remaining cost limit should we consume before stopping the walk
+    /// None means we consume the entire cost limit ASAP
+    pub tenure_cost_limit_per_block_percentage: Option<u8>,
 }
 
-impl MemPoolWalkSettings {
-    pub fn default() -> MemPoolWalkSettings {
+impl Default for MemPoolWalkSettings {
+    fn default() -> Self {
         MemPoolWalkSettings {
             max_walk_time_ms: u64::MAX,
             consider_no_estimate_tx_prob: 5,
@@ -559,8 +562,11 @@ impl MemPoolWalkSettings {
             .into_iter()
             .collect(),
             filter_origins: HashSet::new(),
+            tenure_cost_limit_per_block_percentage: None,
         }
     }
+}
+impl MemPoolWalkSettings {
     pub fn zero() -> MemPoolWalkSettings {
         MemPoolWalkSettings {
             max_walk_time_ms: u64::MAX,
@@ -575,6 +581,7 @@ impl MemPoolWalkSettings {
             .into_iter()
             .collect(),
             filter_origins: HashSet::new(),
+            tenure_cost_limit_per_block_percentage: None,
         }
     }
 }
