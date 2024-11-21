@@ -260,6 +260,14 @@ impl SignerTrait<SignerMessage> for Signer {
                 true
             })
     }
+
+    fn cleanup_stale_data(&mut self, current_reward_cycle: u64) {
+        // We currently delete only data older than 2 reward cycles ago.
+        let _ = self
+            .signer_db
+            .cleanup_stale_data(current_reward_cycle.saturating_sub(2))
+            .inspect_err(|e| error!("self: Failed to cleanup stale signerdb data: {e:?}"));
+    }
 }
 
 impl From<SignerConfig> for Signer {
@@ -294,7 +302,7 @@ impl Signer {
     /// Determine this signers response to a proposed block
     /// Returns a BlockResponse if we have already validated the block
     /// Returns None otherwise
-    fn determine_response(&self, block_info: &BlockInfo) -> Option<BlockResponse> {
+    fn determine_response(&mut self, block_info: &BlockInfo) -> Option<BlockResponse> {
         let valid = block_info.valid?;
         let response = if valid {
             debug!("{self}: Accepting block {}", block_info.block.block_id());
@@ -305,7 +313,7 @@ impl Signer {
             BlockResponse::accepted(
                 block_info.signer_signature_hash(),
                 signature,
-                self.signer_db.get_tenure_extend_timestamp(
+                self.signer_db.calculate_tenure_extend_timestamp(
                     self.proposal_config.tenure_idle_timeout,
                     &block_info.block.header.consensus_hash,
                 ),
@@ -317,7 +325,7 @@ impl Signer {
                 RejectCode::RejectedInPriorRound,
                 &self.private_key,
                 self.mainnet,
-                self.signer_db.get_tenure_extend_timestamp(
+                self.signer_db.calculate_tenure_extend_timestamp(
                     self.proposal_config.tenure_idle_timeout,
                     &block_info.block.header.consensus_hash,
                 ),
@@ -423,7 +431,7 @@ impl Signer {
                         RejectCode::ConnectivityIssues,
                         &self.private_key,
                         self.mainnet,
-                        self.signer_db.get_tenure_extend_timestamp(
+                        self.signer_db.calculate_tenure_extend_timestamp(
                             self.proposal_config.tenure_idle_timeout,
                             &block_proposal.block.header.consensus_hash,
                         ),
@@ -441,7 +449,7 @@ impl Signer {
                         RejectCode::SortitionViewMismatch,
                         &self.private_key,
                         self.mainnet,
-                        self.signer_db.get_tenure_extend_timestamp(
+                        self.signer_db.calculate_tenure_extend_timestamp(
                             self.proposal_config.tenure_idle_timeout,
                             &block_proposal.block.header.consensus_hash,
                         ),
@@ -461,7 +469,7 @@ impl Signer {
                 RejectCode::NoSortitionView,
                 &self.private_key,
                 self.mainnet,
-                self.signer_db.get_tenure_extend_timestamp(
+                self.signer_db.calculate_tenure_extend_timestamp(
                     self.proposal_config.tenure_idle_timeout,
                     &block_proposal.block.header.consensus_hash,
                 ),
@@ -615,7 +623,7 @@ impl Signer {
         let accepted = BlockAccepted::new(
             block_info.signer_signature_hash(),
             signature,
-            self.signer_db.get_tenure_extend_timestamp(
+            self.signer_db.calculate_tenure_extend_timestamp(
                 self.proposal_config.tenure_idle_timeout,
                 &block_info.block.header.consensus_hash,
             ),
@@ -673,7 +681,7 @@ impl Signer {
             block_validate_reject.clone(),
             &self.private_key,
             self.mainnet,
-            self.signer_db.get_tenure_extend_timestamp(
+            self.signer_db.calculate_tenure_extend_timestamp(
                 self.proposal_config.tenure_idle_timeout,
                 &block_info.block.header.consensus_hash,
             ),
@@ -774,7 +782,7 @@ impl Signer {
             RejectCode::ConnectivityIssues,
             &self.private_key,
             self.mainnet,
-            self.signer_db.get_tenure_extend_timestamp(
+            self.signer_db.calculate_tenure_extend_timestamp(
                 self.proposal_config.tenure_idle_timeout,
                 &block_proposal.block.header.consensus_hash,
             ),
@@ -1160,7 +1168,7 @@ impl Signer {
                 RejectCode::TestingDirective,
                 &self.private_key,
                 self.mainnet,
-                self.signer_db.get_tenure_extend_timestamp(
+                self.signer_db.calculate_tenure_extend_timestamp(
                     self.proposal_config.tenure_idle_timeout,
                     &block_proposal.block.header.consensus_hash,
                 ),

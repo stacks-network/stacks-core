@@ -377,6 +377,14 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
             "is_in_next_prepare_phase" => is_in_next_prepare_phase,
         );
 
+        if reward_cycle_before_refresh != current_reward_cycle {
+            for signer in self.stacks_signers.values_mut() {
+                if let ConfiguredSigner::RegisteredSigner(signer) = signer {
+                    signer.cleanup_stale_data(current_reward_cycle);
+                }
+            }
+        }
+
         // Check if we need to refresh the signers:
         //   need to refresh the current signer if we are not configured for the current reward cycle
         //   need to refresh the next signer if we're not configured for the next reward cycle, and we're in the prepare phase

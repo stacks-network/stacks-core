@@ -76,6 +76,8 @@ pub trait Signer<T: SignerEventTrait>: Debug + Display {
     );
     /// Check if the signer is in the middle of processing blocks
     fn has_unprocessed_blocks(&self) -> bool;
+    /// Cleanup signer stale data
+    fn cleanup_stale_data(&mut self, current_reward_cycle: u64);
 }
 
 /// A wrapper around the running signer type for the signer
