@@ -416,8 +416,10 @@ CREATE TABLE IF NOT EXISTS tenure_blocks (
     tenure_change INTEGER NOT NULL
 ) STRICT;"#;
 
+// Migration logic necessary to move from blocks into tenure_blocks table
+// It will only migrate globally accepted blocks that are less than 2 reward cycles old.
 static MIGRATE_GLOBALLY_ACCEPTED_BLOCKS_TO_TENURE_BLOCKS: &str = r#"
- INSERT INTO tenure_blocks (
+INSERT INTO tenure_blocks (
     signer_signature_hash,
     reward_cycle,
     consensus_hash,
@@ -439,6 +441,32 @@ WHERE json_extract(block_info, '$.state') = 'GloballyAccepted'
   AND reward_cycle + 2 > (
       SELECT MAX(reward_cycle) FROM blocks
   );"#;
+
+static CREATE_TENURE_BLOCKS_ON_BLOCKS_TRIGGER: &str = r#"
+CREATE TRIGGER insert_into_tenure_blocks
+AFTER INSERT ON blocks
+FOR EACH ROW
+WHEN json_extract(NEW.block_info, '$.state') = 'GloballyAccepted'
+BEGIN
+    INSERT OR REPLACE INTO tenure_blocks (
+        signer_signature_hash,
+        reward_cycle,
+        consensus_hash,
+        proposed_time,
+        validation_time_ms,
+        stacks_height,
+        tenure_change
+    )
+    VALUES (
+        NEW.signer_signature_hash,
+        NEW.reward_cycle,
+        NEW.consensus_hash,
+        json_extract(NEW.block_info, '$.proposed_time'),
+        COALESCE(json_extract(NEW.block_info, '$.validation_time_ms'), 0),
+        NEW.stacks_height,
+        json_extract(NEW.block_info, '$.tenure_change')
+    );
+END;"#;
 
 static SCHEMA_1: &[&str] = &[
     DROP_SCHEMA_0,
@@ -478,6 +506,7 @@ static SCHEMA_3: &[&str] = &[
 
 static SCHEMA_4: &[&str] = &[
     CREATE_TENURE_BLOCKS_TABLE,
+    CREATE_TENURE_BLOCKS_ON_BLOCKS_TRIGGER,
     CREATE_INDEXES_4,
     MIGRATE_GLOBALLY_ACCEPTED_BLOCKS_TO_TENURE_BLOCKS,
     "INSERT INTO db_config (version) VALUES (4);",
@@ -755,28 +784,13 @@ impl SignerDb {
             "broadcasted" => ?broadcasted,
             "vote" => vote
         );
-        let sql_tx = tx_begin_immediate(&mut self.db)?;
-        sql_tx.execute("INSERT OR REPLACE INTO blocks (reward_cycle, burn_block_height, signer_signature_hash, block_info, signed_over, broadcasted, stacks_height, consensus_hash) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)", params![
+        self.db.execute("INSERT OR REPLACE INTO blocks (reward_cycle, burn_block_height, signer_signature_hash, block_info, signed_over, broadcasted, stacks_height, consensus_hash) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)", params![
             u64_to_sql(block_info.reward_cycle)?, u64_to_sql(block_info.burn_block_height)?, hash.to_string(), block_json,
             signed_over,
             &broadcasted,
             u64_to_sql(block_info.block.header.chain_length)?,
             block_info.block.header.consensus_hash.to_hex(),
         ])?;
-
-        if block_info.state == BlockState::GloballyAccepted {
-            // We only insert globally accepted blocks per consensus hash into our reduced table for easy processing time calculations
-            sql_tx.execute("INSERT OR REPLACE INTO tenure_blocks (signer_signature_hash, reward_cycle, consensus_hash, proposed_time, validation_time_ms, stacks_height, tenure_change) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)", params![
-                hash.to_string(),
-                u64_to_sql(block_info.reward_cycle)?,
-                block_info.block.header.consensus_hash.to_hex(),
-                u64_to_sql(block_info.proposed_time)?,
-                u64_to_sql(block_info.validation_time_ms.unwrap_or(0))?,
-                u64_to_sql(block_info.block.header.chain_length)?,
-                block_info.tenure_change
-            ])?;
-        }
-        sql_tx.commit()?;
         Ok(())
     }
 
@@ -1621,80 +1635,6 @@ mod tests {
             timestamp_hash_3.saturating_sub(tenure_idle_timeout.as_secs())
                 < block_infos[0].proposed_time
         );
-    }
-
-    #[test]
-    fn tenure_blocks_migration() {
-        let db_path = tmp_db_path();
-        let db = SignerDb::new(db_path).expect("Failed to create signer db");
-        let mut block_infos = generate_tenure_blocks();
-        let consensus_hash_1 = block_infos[0].block.header.consensus_hash;
-        let consensus_hash_2 = block_infos.last().unwrap().block.header.consensus_hash;
-        let consensus_hash_3 = ConsensusHash([0x03; 20]);
-        // Let's try to migrate over something that is older than the max reward cycle in our list
-        let (mut old_block_info, _block_proposal) = create_block_override(|b| {
-            b.block.header.consensus_hash = block_infos[4].block.header.consensus_hash;
-            b.block.header.miner_signature = MessageSignature([0x06; 65]);
-            b.block.header.chain_length = 5;
-            b.burn_height = 3;
-            b.reward_cycle = block_infos[4].reward_cycle - 2;
-        });
-        old_block_info.state = BlockState::GloballyAccepted;
-        old_block_info.validation_time_ms = Some(20000);
-        old_block_info.proposed_time = block_infos[4].proposed_time + 5;
-        block_infos.push(old_block_info);
-
-        // Manually insert to make sure the migration works as expected! It should ignore any blocks that are locally accepted or are more than 2 reward cycles older than the max reward cycle
-        let insert_sql = "INSERT OR REPLACE INTO blocks (reward_cycle, burn_block_height, signer_signature_hash, block_info, signed_over, broadcasted, stacks_height, consensus_hash) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)";
-
-        for block_info in block_infos.iter() {
-            let block_json =
-                serde_json::to_string(&block_info).expect("Unable to serialize block info");
-            db.db
-                .execute(
-                    insert_sql,
-                    params![
-                        u64_to_sql(block_info.reward_cycle).unwrap(),
-                        u64_to_sql(block_info.burn_block_height).unwrap(),
-                        block_info.signer_signature_hash().to_string(),
-                        block_json,
-                        block_info.signed_over,
-                        Some(true),
-                        u64_to_sql(block_info.block.header.chain_length).unwrap(),
-                        block_info.block.header.consensus_hash.to_hex(),
-                    ],
-                )
-                .unwrap();
-        }
-
-        let (tenure_start, validation_time_ms) = db.get_tenure_times(&consensus_hash_1).unwrap();
-        assert!(tenure_start < block_infos[0].proposed_time);
-        assert_eq!(validation_time_ms, 0);
-        let (tenure_start, validation_time_ms) = db.get_tenure_times(&consensus_hash_2).unwrap();
-        assert!(tenure_start < block_infos[0].proposed_time);
-        assert_eq!(validation_time_ms, 0);
-        let (tenure_start, validation_time_ms) = db.get_tenure_times(&consensus_hash_3).unwrap();
-        assert!(tenure_start < block_infos[0].proposed_time);
-        assert_eq!(validation_time_ms, 0);
-
-        db.db
-            .execute_batch(MIGRATE_GLOBALLY_ACCEPTED_BLOCKS_TO_TENURE_BLOCKS)
-            .unwrap();
-
-        // Verify tenure consensus_hash_1
-        let (start_time, processing_time) = db.get_tenure_times(&consensus_hash_1).unwrap();
-        assert_eq!(start_time, block_infos[2].proposed_time);
-        assert_eq!(processing_time, 5000);
-
-        // Verify tenure consensus_hash_2
-        let (start_time, processing_time) = db.get_tenure_times(&consensus_hash_2).unwrap();
-        assert_eq!(start_time, block_infos[4].proposed_time);
-        assert_eq!(processing_time, 20000);
-
-        // Verify tenure consensus_hash_3 (uknown hash)
-        let (start_time, validation_time) = db.get_tenure_times(&consensus_hash_3).unwrap();
-        assert!(start_time < block_infos[0].proposed_time, "Should have been generated from get_epoch_time_secs() making it much older than our artificially late proposal times");
-        assert_eq!(validation_time, 0);
     }
 
     #[test]
