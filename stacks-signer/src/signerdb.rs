@@ -435,7 +435,10 @@ SELECT
     stacks_height,
     json_extract(block_info, '$.tenure_change') AS tenure_change
 FROM blocks
-WHERE json_extract(block_info, '$.state') = 'GloballyAccepted';"#;
+WHERE json_extract(block_info, '$.state') = 'GloballyAccepted'
+  AND reward_cycle + 2 > (
+      SELECT MAX(reward_cycle) FROM blocks
+  );"#;
 
 static SCHEMA_1: &[&str] = &[
     DROP_SCHEMA_0,
@@ -1624,12 +1627,24 @@ mod tests {
     fn tenure_blocks_migration() {
         let db_path = tmp_db_path();
         let db = SignerDb::new(db_path).expect("Failed to create signer db");
-        let block_infos = generate_tenure_blocks();
+        let mut block_infos = generate_tenure_blocks();
         let consensus_hash_1 = block_infos[0].block.header.consensus_hash;
         let consensus_hash_2 = block_infos.last().unwrap().block.header.consensus_hash;
         let consensus_hash_3 = ConsensusHash([0x03; 20]);
+        // Let's try to migrate over something that is older than the max reward cycle in our list
+        let (mut old_block_info, _block_proposal) = create_block_override(|b| {
+            b.block.header.consensus_hash = block_infos[4].block.header.consensus_hash;
+            b.block.header.miner_signature = MessageSignature([0x06; 65]);
+            b.block.header.chain_length = 5;
+            b.burn_height = 3;
+            b.reward_cycle = block_infos[4].reward_cycle - 2;
+        });
+        old_block_info.state = BlockState::GloballyAccepted;
+        old_block_info.validation_time_ms = Some(20000);
+        old_block_info.proposed_time = block_infos[4].proposed_time + 5;
+        block_infos.push(old_block_info);
 
-        // Manually insert to make sure the migration works as expected! It should ignore any blocks that are locally accepted
+        // Manually insert to make sure the migration works as expected! It should ignore any blocks that are locally accepted or are more than 2 reward cycles older than the max reward cycle
         let insert_sql = "INSERT OR REPLACE INTO blocks (reward_cycle, burn_block_height, signer_signature_hash, block_info, signed_over, broadcasted, stacks_height, consensus_hash) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)";
 
         for block_info in block_infos.iter() {
