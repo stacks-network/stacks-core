@@ -7726,9 +7726,11 @@ fn tenure_extend_after_bad_commit() {
             .get_peer_info()
             .expect("Failed to get peer info")
             .stacks_tip_height;
+        let info_2 = get_chain_info(&conf_node_2);
         Ok(
             blocks_mined1.load(Ordering::SeqCst) > blocks_processed_before_1
                 && stacks_height > stacks_height_before
+                && info_2.stacks_tip_height > stacks_height_before
                 && test_observer::get_blocks().len() > nmb_old_blocks,
         )
     })
@@ -7765,9 +7767,11 @@ fn tenure_extend_after_bad_commit() {
             .get_peer_info()
             .expect("Failed to get peer info")
             .stacks_tip_height;
+        let info_2 = get_chain_info(&conf_node_2);
         Ok(
             blocks_mined1.load(Ordering::SeqCst) > blocks_processed_before_1
                 && stacks_height > stacks_height_before
+                && info_2.stacks_tip_height > stacks_height_before
                 && test_observer::get_blocks().len() > nmb_old_blocks,
         )
     })
@@ -7833,9 +7837,11 @@ fn tenure_extend_after_bad_commit() {
             .get_peer_info()
             .expect("Failed to get peer info")
             .stacks_tip_height;
+        let info_2 = get_chain_info(&conf_node_2);
         Ok(
             blocks_mined1.load(Ordering::SeqCst) > blocks_processed_before_1
                 && stacks_height > stacks_height_before
+                && info_2.stacks_tip_height > stacks_height_before
                 && test_observer::get_blocks().len() > nmb_old_blocks,
         )
     })
@@ -7883,9 +7889,11 @@ fn tenure_extend_after_bad_commit() {
             .get_peer_info()
             .expect("Failed to get peer info")
             .stacks_tip_height;
+        let info_2 = get_chain_info(&conf_node_2);
         Ok(
             blocks_mined1.load(Ordering::SeqCst) > blocks_processed_before_1
                 && stacks_height > stacks_height_before
+                && info_2.stacks_tip_height > stacks_height_before
                 && test_observer::get_blocks().len() > nmb_old_blocks,
         )
     })
@@ -7921,9 +7929,11 @@ fn tenure_extend_after_bad_commit() {
             .get_peer_info()
             .expect("Failed to get peer info")
             .stacks_tip_height;
+        let info_2 = get_chain_info(&conf_node_2);
         Ok(
             blocks_mined1.load(Ordering::SeqCst) > blocks_processed_before_1
                 && stacks_height > stacks_height_before
+                && info_2.stacks_tip_height > stacks_height_before
                 && test_observer::get_blocks().len() > nmb_old_blocks,
         )
     })
@@ -7956,7 +7966,9 @@ fn tenure_extend_after_bad_commit() {
                 .get_peer_info()
                 .expect("Failed to get peer info")
                 .stacks_tip_height;
-            Ok(stacks_height > stacks_height_before)
+            let info_2 = get_chain_info(&conf_node_2);
+            Ok(stacks_height > stacks_height_before
+                && info_2.stacks_tip_height > stacks_height_before)
         },
     )
     .expect("Timed out waiting for final block to be mined and processed");
