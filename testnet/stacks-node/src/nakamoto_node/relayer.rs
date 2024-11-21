@@ -896,13 +896,6 @@ impl RelayerThread {
             })
     }
 
-    /// Get the Stacks block ID for the canonical tip.
-    fn get_canonical_stacks_tip(&self) -> StacksBlockId {
-        let (ch, bh) =
-            SortitionDB::get_canonical_stacks_chain_tip_hash(self.sortdb.conn()).unwrap();
-        StacksBlockId::new(&ch, &bh)
-    }
-
     /// Get the public key hash for the mining key.
     fn get_mining_key_pkh(&self) -> Option<Hash160> {
         let Some(ref mining_key) = self.config.miner.mining_key else {
@@ -966,7 +959,7 @@ impl RelayerThread {
         } else {
             debug!("Relayer: Successfully issued a tenure change payload. Issue a continue extend from the chain tip.");
             (
-                self.get_canonical_stacks_tip(),
+                self.sortdb.get_canonical_stacks_tip_block_id(),
                 canonical_snapshot,
                 MinerReason::Extended {
                     burn_view_consensus_hash: new_burn_view,
