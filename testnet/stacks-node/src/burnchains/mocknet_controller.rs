@@ -14,7 +14,7 @@ use stacks::chainstate::burn::operations::{
 };
 use stacks::chainstate::burn::BlockSnapshot;
 use stacks::core::{
-    StacksEpoch, StacksEpochId, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05,
+    EpochList, StacksEpoch, StacksEpochId, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05,
     PEER_VERSION_EPOCH_2_1, STACKS_EPOCH_MAX,
 };
 use stacks_common::types::chainstate::{BurnchainHeaderHash, PoxId};
@@ -99,10 +99,10 @@ impl BurnchainController for MocknetController {
         }
     }
 
-    fn get_stacks_epochs(&self) -> Vec<StacksEpoch> {
+    fn get_stacks_epochs(&self) -> EpochList {
         match &self.config.burnchain.epochs {
             Some(epochs) => epochs.clone(),
-            None => vec![
+            None => EpochList::new(&[
                 StacksEpoch {
                     epoch_id: StacksEpochId::Epoch20,
                     start_height: 0,
@@ -124,7 +124,7 @@ impl BurnchainController for MocknetController {
                     block_limit: ExecutionCost::max_value(),
                     network_epoch: PEER_VERSION_EPOCH_2_1,
                 },
-            ],
+            ]),
         }
     }
 
