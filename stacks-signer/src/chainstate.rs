@@ -466,7 +466,7 @@ impl SortitionsView {
 
     /// Get the last block from the given tenure
     /// Returns the last locally accepted block if it is not timed out, otherwise it will return the last globally accepted block.
-    fn get_tenure_last_block_info(
+    pub fn get_tenure_last_block_info(
         consensus_hash: &ConsensusHash,
         signer_db: &SignerDb,
         tenure_last_block_proposal_timeout: Duration,

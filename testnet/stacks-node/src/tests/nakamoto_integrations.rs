@@ -6458,6 +6458,7 @@ fn signer_chainstate() {
                 signed_group: None,
                 ext: ExtraBlockInfo::None,
                 state: BlockState::Unprocessed,
+                miner_pubkey: proposal.1,
             })
             .unwrap();
 
@@ -6546,6 +6547,7 @@ fn signer_chainstate() {
                 signed_group: Some(get_epoch_time_secs()),
                 ext: ExtraBlockInfo::None,
                 state: BlockState::GloballyAccepted,
+                miner_pubkey: proposal_interim.1,
             })
             .unwrap();
 

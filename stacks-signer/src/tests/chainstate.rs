@@ -247,7 +247,7 @@ fn reorg_timing_testing(
         reward_cycle: 1,
     };
     let mut header_clone = block_proposal_1.block.header.clone();
-    let mut block_info_1 = BlockInfo::from(block_proposal_1);
+    let mut block_info_1 = BlockInfo::new(block_proposal_1, block_pk);
     block_info_1.mark_locally_accepted(false).unwrap();
     signer_db.insert_block(&block_info_1).unwrap();
 
@@ -457,8 +457,12 @@ fn check_sortition_timeout() {
     fs::create_dir_all(signer_db_dir).unwrap();
     let mut signer_db = SignerDb::new(signer_db_path).unwrap();
 
+    let block_sk = StacksPrivateKey::from_seed(&[0, 1]);
+    let block_pk = StacksPublicKey::from_private(&block_sk);
+    let block_pkh = Hash160::from_node_public_key(&block_pk);
+
     let mut sortition = SortitionState {
-        miner_pkh: Hash160([0; 20]),
+        miner_pkh: block_pkh,
         miner_pubkey: None,
         prior_sortition: ConsensusHash([0; 20]),
         parent_tenure_id: ConsensusHash([0; 20]),
@@ -514,7 +518,7 @@ fn check_sortition_timeout() {
         reward_cycle: 1,
     };
 
-    let mut block_info = BlockInfo::from(block_proposal);
+    let mut block_info = BlockInfo::new(block_proposal, block_pk);
     block_info.signed_over = true;
     signer_db.insert_block(&block_info).unwrap();
 

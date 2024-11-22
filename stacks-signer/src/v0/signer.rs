@@ -144,7 +144,11 @@ impl SignerTrait<SignerMessage> for Signer {
         match event {
             SignerEvent::BlockValidationResponse(block_validate_response) => {
                 debug!("{self}: Received a block proposal result from the stacks node...");
-                self.handle_block_validate_response(stacks_client, block_validate_response)
+                self.handle_block_validate_response(
+                    stacks_client,
+                    block_validate_response,
+                    sortition_state,
+                )
             }
             SignerEvent::SignerMessages(_signer_set, messages) => {
                 debug!(
@@ -313,6 +317,87 @@ impl Signer {
         Some(response)
     }
 
+    /// Check if block should be rejected based on sortition state
+    /// Will return a BlockResponse::Rejection if the block is invalid, none otherwise.
+    fn check_block_against_sortition_state(
+        &mut self,
+        stacks_client: &StacksClient,
+        sortition_state: &mut Option<SortitionsView>,
+        block: &NakamotoBlock,
+        miner_pubkey: &Secp256k1PublicKey,
+    ) -> Option<BlockResponse> {
+        let signer_signature_hash = block.header.signer_signature_hash();
+        let block_id = block.block_id();
+        // Get sortition view if we don't have it
+        if sortition_state.is_none() {
+            *sortition_state =
+                SortitionsView::fetch_view(self.proposal_config.clone(), stacks_client)
+                    .inspect_err(|e| {
+                        warn!(
+                            "{self}: Failed to update sortition view: {e:?}";
+                            "signer_sighash" => %signer_signature_hash,
+                            "block_id" => %block_id,
+                        )
+                    })
+                    .ok();
+        }
+
+        // Check if proposal can be rejected now if not valid against sortition view
+        if let Some(sortition_state) = sortition_state {
+            match sortition_state.check_proposal(
+                stacks_client,
+                &mut self.signer_db,
+                &block,
+                miner_pubkey,
+                self.reward_cycle,
+                true,
+            ) {
+                // Error validating block
+                Err(e) => {
+                    warn!(
+                        "{self}: Error checking block proposal: {e:?}";
+                        "signer_sighash" => %signer_signature_hash,
+                        "block_id" => %block_id,
+                    );
+                    Some(BlockResponse::rejected(
+                        signer_signature_hash,
+                        RejectCode::ConnectivityIssues,
+                        &self.private_key,
+                        self.mainnet,
+                    ))
+                }
+                // Block proposal is bad
+                Ok(false) => {
+                    warn!(
+                        "{self}: Block proposal invalid";
+                        "signer_sighash" => %signer_signature_hash,
+                        "block_id" => %block_id,
+                    );
+                    Some(BlockResponse::rejected(
+                        signer_signature_hash,
+                        RejectCode::SortitionViewMismatch,
+                        &self.private_key,
+                        self.mainnet,
+                    ))
+                }
+                // Block proposal passed check, still don't know if valid
+                Ok(true) => None,
+            }
+        } else {
+            warn!(
+                "{self}: Cannot validate block, no sortition view";
+                "signer_sighash" => %signer_signature_hash,
+                "block_id" => %block_id,
+            );
+            Some(BlockResponse::rejected(
+                signer_signature_hash,
+                RejectCode::NoSortitionView,
+                &self.private_key,
+                self.mainnet,
+            ))
+        }
+    }
+
     /// Handle block proposal messages submitted to signers stackerdb
     fn handle_block_proposal(
         &mut self,
@@ -372,7 +457,7 @@ impl Signer {
             "burn_height" => block_proposal.burn_height,
         );
         crate::monitoring::increment_block_proposals_received();
-        let mut block_info = BlockInfo::from(block_proposal.clone());
+        let mut block_info = BlockInfo::new(block_proposal.clone(), miner_pubkey.clone());
 
         // Get sortition view if we don't have it
         if sortition_state.is_none() {
@@ -389,59 +474,12 @@ impl Signer {
         }
 
         // Check if proposal can be rejected now if not valid against sortition view
-        let block_response = if let Some(sortition_state) = sortition_state {
-            match sortition_state.check_proposal(
-                stacks_client,
-                &mut self.signer_db,
-                &block_proposal.block,
-                miner_pubkey,
-                self.reward_cycle,
-                true,
-            ) {
-                // Error validating block
-                Err(e) => {
-                    warn!(
-                        "{self}: Error checking block proposal: {e:?}";
-                        "signer_sighash" => %signer_signature_hash,
-                        "block_id" => %block_proposal.block.block_id(),
-                    );
-                    Some(BlockResponse::rejected(
-                        block_proposal.block.header.signer_signature_hash(),
-                        RejectCode::ConnectivityIssues,
-                        &self.private_key,
-                        self.mainnet,
-                    ))
-                }
-                // Block proposal is bad
-                Ok(false) => {
-                    warn!(
-                        "{self}: Block proposal invalid";
-                        "signer_sighash" => %signer_signature_hash,
-                        "block_id" => %block_proposal.block.block_id(),
-                    );
-                    Some(BlockResponse::rejected(
-                        block_proposal.block.header.signer_signature_hash(),
-                        RejectCode::SortitionViewMismatch,
-                        &self.private_key,
-                        self.mainnet,
-                    ))
-                }
-                // Block proposal passed check, still don't know if valid
-                Ok(true) => None,
-            }
-        } else {
-            warn!(
-                "{self}: Cannot validate block, no sortition view";
-                "signer_sighash" => %signer_signature_hash,
-                "block_id" => %block_proposal.block.block_id(),
-            );
-            Some(BlockResponse::rejected(
-                block_proposal.block.header.signer_signature_hash(),
-                RejectCode::NoSortitionView,
-                &self.private_key,
-                self.mainnet,
-            ))
-        };
+        let block_response = self.check_block_against_sortition_state(
+            stacks_client,
+            sortition_state,
+            &block_proposal.block,
+            miner_pubkey,
+        );
 
         #[cfg(any(test, feature = "testing"))]
         let block_response =
@@ -450,7 +488,9 @@ impl Signer {
         if let Some(block_response) = block_response {
             // We know proposal is invalid. Send rejection message, do not do further validation
             if let Err(e) = block_info.mark_locally_rejected() {
-                warn!("{self}: Failed to mark block as locally rejected: {e:?}",);
+                if !block_info.has_reached_consensus() {
+                    warn!("{self}: Failed to mark block as locally rejected: {e:?}");
+                }
             };
             debug!("{self}: Broadcasting a block response to stacks node: {block_response:?}");
             let res = self
@@ -521,6 +561,7 @@ impl Signer {
         &mut self,
         stacks_client: &StacksClient,
         block_validate_ok: &BlockValidateOk,
+        sortition_state: &mut Option<SortitionsView>,
     ) -> Option<BlockResponse> {
         crate::monitoring::increment_block_validation_responses(true);
         let signer_signature_hash = block_validate_ok.signer_signature_hash;
@@ -556,25 +597,57 @@ impl Signer {
                 return None;
             }
         };
-        if let Err(e) = block_info.mark_locally_accepted(false) {
-            if !block_info.has_reached_consensus() {
-                warn!("{self}: Failed to mark block as locally accepted: {e:?}",);
-                return None;
-            }
-            block_info.signed_self.get_or_insert(get_epoch_time_secs());
-        }
-        let signature = self
-            .private_key
-            .sign(&signer_signature_hash.0)
-            .expect("Failed to sign block");
+        if let Some(block_response) = self.check_block_against_sortition_state(
+            stacks_client,
+            sortition_state,
+            &block_info.block,
+            &block_info.miner_pubkey,
+        ) {
+            // The sortition state has changed. We no longer view this block as valid. Override the validation response.
+            if let Err(e) = block_info.mark_locally_rejected() {
+                if !block_info.has_reached_consensus() {
+                    warn!("{self}: Failed to mark block as locally rejected: {e:?}");
+                }
+            };
+            debug!("{self}: Broadcasting a block response to stacks node: {block_response:?}");
+            let res = self
+                .stackerdb
+                .send_message_with_retry::<SignerMessage>(block_response.into());
 
-        self.signer_db
-            .insert_block(&block_info)
-            .unwrap_or_else(|e| self.handle_insert_block_error(e));
-        let accepted = BlockAccepted::new(block_info.signer_signature_hash(), signature);
-        // have to save the signature _after_ the block info
-        self.handle_block_signature(stacks_client, &accepted);
-        Some(BlockResponse::Accepted(accepted))
+            match res {
+                Err(e) => warn!("{self}: Failed to send block rejection to stacker-db: {e:?}"),
+                Ok(ack) if !ack.accepted => warn!(
+                    "{self}: Block rejection not accepted by stacker-db: {:?}",
+                    ack.reason
+                ),
+                Ok(_) => debug!("{self}: Block rejection accepted by stacker-db"),
+            }
+            self.signer_db
+                .insert_block(&block_info)
+                .unwrap_or_else(|e| self.handle_insert_block_error(e));
+            None
+        } else {
+            if let Err(e) = block_info.mark_locally_accepted(false) {
+                if !block_info.has_reached_consensus() {
+                    warn!("{self}: Failed to mark block as locally accepted: {e:?}",);
+                    return None;
+                }
+                block_info.signed_self.get_or_insert(get_epoch_time_secs());
+            }
+            let signature = self
+                .private_key
+                .sign(&signer_signature_hash.0)
+                .expect("Failed to sign block");
+
+            self.signer_db
+                .insert_block(&block_info)
+                .unwrap_or_else(|e| self.handle_insert_block_error(e));
+
+            let accepted = BlockAccepted::new(block_info.signer_signature_hash(), signature);
+            // have to save the signature _after_ the block info
+            self.handle_block_signature(stacks_client, &accepted);
+            Some(BlockResponse::Accepted(accepted))
+        }
     }
 
     /// Handle the block validate reject response. Returns our block response if we have one
@@ -638,11 +711,12 @@ impl Signer {
         &mut self,
         stacks_client: &StacksClient,
         block_validate_response: &BlockValidateResponse,
+        sortition_state: &mut Option<SortitionsView>,
     ) {
         info!("{self}: Received a block validate response: {block_validate_response:?}");
         let block_response = match block_validate_response {
             BlockValidateResponse::Ok(block_validate_ok) => {
-                self.handle_block_validate_ok(stacks_client, block_validate_ok)
+                self.handle_block_validate_ok(stacks_client, block_validate_ok, sortition_state)
             }
             BlockValidateResponse::Reject(block_validate_reject) => {
                 self.handle_block_validate_reject(block_validate_reject)
@@ -724,7 +798,9 @@ impl Signer {
             self.mainnet,
         );
         if let Err(e) = block_info.mark_locally_rejected() {
-            warn!("{self}: Failed to mark block as locally rejected: {e:?}",);
+            if !block_info.has_reached_consensus() {
+                warn!("{self}: Failed to mark block as locally rejected: {e:?}");
+            }
         };
         debug!("{self}: Broadcasting a block response to stacks node: {rejection:?}");
         let res = self
@@ -1090,7 +1166,9 @@ impl Signer {
                 "consensus_hash" => %block_proposal.block.header.consensus_hash
             );
             if let Err(e) = block_info.mark_locally_rejected() {
-                warn!("{self}: Failed to mark block as locally rejected: {e:?}",);
+                if !block_info.has_reached_consensus() {
+                    warn!("{self}: Failed to mark block as locally rejected: {e:?}");
+                }
             };
             // We must insert the block into the DB to prevent subsequent repeat proposals being accepted (should reject
             // as invalid since we rejected in a prior round if this crops up again)
