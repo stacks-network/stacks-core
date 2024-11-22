@@ -382,20 +382,50 @@ impl RelayerThread {
     /// parent block could be an epoch 2 block.  In this case, the right thing to do is to wait for
     /// the next block-commit.
     pub(crate) fn choose_miner_directive(
-        config: &Config,
-        sortdb: &SortitionDB,
+        &self,
         sn: BlockSnapshot,
         won_sortition: bool,
         committed_index_hash: StacksBlockId,
     ) -> Option<MinerDirective> {
+        let (cur_stacks_tip_ch, cur_stacks_tip_bh) =
+            SortitionDB::get_canonical_stacks_chain_tip_hash(self.sortdb.conn())
+                .expect("FATAL: failed to query sortition DB for stacks tip");
+
+        let stacks_tip = StacksBlockId::new(&cur_stacks_tip_ch, &cur_stacks_tip_bh);
+        let highest_tenure_start_block_header = NakamotoChainState::get_tenure_start_block_header(
+            &mut self.chainstate.index_conn(),
+            &stacks_tip,
+            &cur_stacks_tip_ch,
+        )
+        .expect(
+            "Relayer: Failed to get tenure-start block header for stacks tip {stacks_tip}: {e:?}",
+        )
+        .expect("Relayer: Failed to find tenure-start block header for stacks tip {stacks_tip}");
+
         let directive = if sn.sortition {
             Some(
-                if won_sortition || config.get_node_config(false).mock_mining {
+                if won_sortition || self.config.get_node_config(false).mock_mining {
+                    info!("Relayer: Won sortition; begin tenure.");
                     MinerDirective::BeginTenure {
                         parent_tenure_start: committed_index_hash,
                         burnchain_tip: sn,
                     }
+                } else if committed_index_hash
+                    != highest_tenure_start_block_header.index_block_hash()
+                {
+                    info!(
+                        "Relayer: Winner of sortition {} did not commit to the correct parent tenure. Attempt to continue tenure.",
+                        &sn.consensus_hash
+                    );
+                    // We didn't win the sortition, but the miner that did win
+                    // did not commit to the correct parent tenure. This means
+                    // it will be unable to produce a valid block, so we should
+                    // continue our tenure.
+                    MinerDirective::ContinueTenure {
+                        new_burn_view: sn.consensus_hash,
+                    }
                 } else {
+                    info!("Relayer: Stop tenure");
                     MinerDirective::StopTenure
                 },
             )
@@ -404,16 +434,16 @@ impl RelayerThread {
             // If it's in epoch 2.x, then we must always begin a new tenure, but we can't do so
             // right now since this sortition has no winner.
             let (cur_stacks_tip_ch, _cur_stacks_tip_bh) =
-                SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn())
+                SortitionDB::get_canonical_stacks_chain_tip_hash(self.sortdb.conn())
                     .expect("FATAL: failed to query sortition DB for stacks tip");
 
             let stacks_tip_sn =
-                SortitionDB::get_block_snapshot_consensus(sortdb.conn(), &cur_stacks_tip_ch)
+                SortitionDB::get_block_snapshot_consensus(self.sortdb.conn(), &cur_stacks_tip_ch)
                     .expect("FATAL: failed to query sortiiton DB for epoch")
                     .expect("FATAL: no sortition for canonical stacks tip");
 
             let cur_epoch =
-                SortitionDB::get_stacks_epoch(sortdb.conn(), stacks_tip_sn.block_height)
+                SortitionDB::get_stacks_epoch(self.sortdb.conn(), stacks_tip_sn.block_height)
                     .expect("FATAL: failed to query sortition DB for epoch")
                     .expect("FATAL: no epoch defined for existing sortition");
 
@@ -424,6 +454,7 @@ impl RelayerThread {
                 );
                 None
             } else {
+                info!("Relayer: No sortition; continue tenure.");
                 Some(MinerDirective::ContinueTenure {
                     new_burn_view: sn.consensus_hash,
                 })
@@ -480,13 +511,7 @@ impl RelayerThread {
             return Ok(None);
         }
 
-        let directive_opt = Self::choose_miner_directive(
-            &self.config,
-            &self.sortdb,
-            sn,
-            won_sortition,
-            committed_index_hash,
-        );
+        let directive_opt = self.choose_miner_directive(sn, won_sortition, committed_index_hash);
         Ok(directive_opt)
     }
 
@@ -852,62 +877,96 @@ impl RelayerThread {
         Ok(())
     }
 
-    fn continue_tenure(&mut self, new_burn_view: ConsensusHash) -> Result<(), NakamotoNodeError> {
-        if let Err(e) = self.stop_tenure() {
-            error!("Relayer: Failed to stop tenure: {e:?}");
-            return Ok(());
-        }
-        debug!("Relayer: successfully stopped tenure.");
-        // Check if we should undergo a tenure change to switch to the new burn view
-        let burn_tip =
-            SortitionDB::get_block_snapshot_consensus(self.sortdb.conn(), &new_burn_view)
-                .map_err(|e| {
-                    error!("Relayer: failed to get block snapshot for new burn view: {e:?}");
-                    NakamotoNodeError::SnapshotNotFoundForChainTip
-                })?
-                .ok_or_else(|| {
-                    error!("Relayer: failed to get block snapshot for new burn view");
-                    NakamotoNodeError::SnapshotNotFoundForChainTip
-                })?;
-
-        let (canonical_stacks_tip_ch, canonical_stacks_tip_bh) =
-            SortitionDB::get_canonical_stacks_chain_tip_hash(self.sortdb.conn()).unwrap();
-        let canonical_stacks_tip =
-            StacksBlockId::new(&canonical_stacks_tip_ch, &canonical_stacks_tip_bh);
-
+    /// Get the public key hash for the mining key.
+    fn get_mining_key_pkh(&self) -> Option<Hash160> {
         let Some(ref mining_key) = self.config.miner.mining_key else {
-            return Ok(());
+            return None;
         };
-        let mining_pkh = Hash160::from_node_public_key(&StacksPublicKey::from_private(mining_key));
+        Some(Hash160::from_node_public_key(
+            &StacksPublicKey::from_private(mining_key),
+        ))
+    }
 
-        // If we won the last sortition, then we should start a new tenure off of it.
-        let last_block_election_snapshot = {
-            let ih = self.sortdb.index_handle(&burn_tip.sortition_id);
-            ih.get_last_snapshot_with_sortition(burn_tip.block_height)
-                .map_err(|e| {
-                    error!("Relayer: failed to get last snapshot with sortition: {e:?}");
-                    NakamotoNodeError::SnapshotNotFoundForChainTip
-                })?
-        };
+    /// Get the tenure-start block header hash of a given consensus hash.
+    /// For Nakamoto blocks, this is the first block in the tenure identified by the consensus
+    /// hash.
+    /// For epoch2 blocks, this is simply the block whose winning sortition happened in the
+    /// sortition identified by the consensus hash.
+    ///
+    /// `tip_block_id` is the chain tip from which to perform the query.
+    fn get_tenure_bhh(
+        &self,
+        tip_block_id: &StacksBlockId,
+        ch: &ConsensusHash,
+    ) -> Result<BlockHeaderHash, NakamotoNodeError> {
+        let highest_tenure_start_block_header = NakamotoChainState::get_tenure_start_block_header(
+            &mut self.chainstate.index_conn(),
+            tip_block_id,
+            &ch,
+        )?
+        .ok_or_else(|| {
+            error!(
+                "Relayer: Failed to find tenure-start block header for stacks tip {tip_block_id}"
+            );
+            NakamotoNodeError::ParentNotFound
+        })?;
+        Ok(BlockHeaderHash(
+            highest_tenure_start_block_header.index_block_hash().0,
+        ))
+    }
 
-        let won_last_sortition = last_block_election_snapshot.miner_pk_hash == Some(mining_pkh);
-        debug!(
-            "Relayer: Current burn block had no sortition. Checking for tenure continuation.";
-            "won_last_sortition" => won_last_sortition,
-            "current_mining_pkh" => %mining_pkh,
-            "last_block_election_snapshot.consensus_hash" => %last_block_election_snapshot.consensus_hash,
-            "last_block_election_snapshot.miner_pk_hash" => ?last_block_election_snapshot.miner_pk_hash,
-            "canonical_stacks_tip_id" => %canonical_stacks_tip,
-            "canonical_stacks_tip_ch" => %canonical_stacks_tip_ch,
-            "burn_view_ch" => %new_burn_view,
-        );
-
-        if !won_last_sortition {
-            return Ok(());
+    /// Determine the type of tenure change to issue based on whether this
+    /// miner was the last successful miner (miner of the canonical tip).
+    fn determine_tenure_type(
+        &self,
+        canonical_snapshot: BlockSnapshot,
+        last_snapshot: BlockSnapshot,
+        new_burn_view: ConsensusHash,
+        mining_pkh: Hash160,
+    ) -> (StacksBlockId, BlockSnapshot, MinerReason) {
+        if canonical_snapshot.miner_pk_hash != Some(mining_pkh) {
+            debug!("Relayer: Miner was not the last successful miner. Issue a new tenure change payload.");
+            (
+                StacksBlockId(last_snapshot.winning_stacks_block_hash.0),
+                last_snapshot,
+                MinerReason::EmptyTenure,
+            )
+        } else {
+            debug!("Relayer: Miner was the last successful miner. Issue a tenure extend from the chain tip.");
+            (
+                self.sortdb.get_canonical_stacks_tip_block_id(),
+                canonical_snapshot,
+                MinerReason::Extended {
+                    burn_view_consensus_hash: new_burn_view,
+                },
+            )
         }
+    }
 
-        let canonical_block_snapshot =
-            SortitionDB::get_block_snapshot_consensus(self.sortdb.conn(), &canonical_stacks_tip_ch)
+    /// Get the block snapshot of the most recent sortition that committed to
+    /// the canonical tip. If the latest sortition did not commit to the
+    /// canonical tip, then the tip's tenure is the last good sortition.
+    fn get_last_good_block_snapshot(
+        &self,
+        burn_tip: &BlockSnapshot,
+        highest_tenure_bhh: &BlockHeaderHash,
+        canonical_stacks_tip_ch: &ConsensusHash,
+    ) -> Result<BlockSnapshot, NakamotoNodeError> {
+        let ih = self.sortdb.index_handle(&burn_tip.sortition_id);
+        let sn = ih
+            .get_last_snapshot_with_sortition(burn_tip.block_height)
+            .map_err(|e| {
+                error!("Relayer: failed to get last snapshot with sortition: {e:?}");
+                NakamotoNodeError::SnapshotNotFoundForChainTip
+            })?;
+        if &sn.winning_stacks_block_hash != highest_tenure_bhh {
+            info!(
+                "Relayer: Sortition winner is not committed to the canonical tip; allowing last miner to extend";
+                "burn_block_height" => burn_tip.block_height,
+                "consensus_hash" => %burn_tip.consensus_hash,
+            );
+
+            SortitionDB::get_block_snapshot_consensus(self.sortdb.conn(), canonical_stacks_tip_ch)
                 .map_err(|e| {
                     error!("Relayer: failed to get block snapshot for canonical tip: {e:?}");
                     NakamotoNodeError::SnapshotNotFoundForChainTip
@@ -915,41 +974,90 @@ impl RelayerThread {
                 .ok_or_else(|| {
                     error!("Relayer: failed to get block snapshot for canonical tip");
                     NakamotoNodeError::SnapshotNotFoundForChainTip
+                })
+        } else {
+            Ok(sn)
+        }
+    }
+
+    /// Attempt to continue a miner's tenure into the next burn block.
+    /// This is allowed if the miner won the last good sortition and one of the
+    /// following conditions is met:
+    /// - There was no sortition in the latest burn block
+    /// - The winner of the latest sortition did not commit to the canonical tip
+    /// - The winner of the latest sortition did not mine any blocks within the
+    ///   timeout period (not yet implemented)
+    fn continue_tenure(&mut self, new_burn_view: ConsensusHash) -> Result<(), NakamotoNodeError> {
+        if let Err(e) = self.stop_tenure() {
+            error!("Relayer: Failed to stop tenure: {e:?}");
+            return Ok(());
+        }
+        debug!("Relayer: successfully stopped tenure.");
+
+        // Get the necessary snapshots and state
+        let burn_tip =
+            SortitionDB::get_block_snapshot_consensus(self.sortdb.conn(), &new_burn_view)?
+                .ok_or_else(|| {
+                    error!("Relayer: failed to get block snapshot for new burn view");
+                    NakamotoNodeError::SnapshotNotFoundForChainTip
                 })?;
+        let (canonical_stacks_tip_ch, canonical_stacks_tip_bh) =
+            SortitionDB::get_canonical_stacks_chain_tip_hash(self.sortdb.conn()).unwrap();
+        let canonical_stacks_tip =
+            StacksBlockId::new(&canonical_stacks_tip_ch, &canonical_stacks_tip_bh);
+        let Some(mining_pkh) = self.get_mining_key_pkh() else {
+            return Ok(());
+        };
+        let highest_tenure_bhh =
+            self.get_tenure_bhh(&canonical_stacks_tip, &canonical_stacks_tip_ch)?;
+        let last_good_block_election_snapshot = self.get_last_good_block_snapshot(
+            &burn_tip,
+            &highest_tenure_bhh,
+            &canonical_stacks_tip_ch,
+        )?;
 
-        let won_canonical_block_snapshot =
-            canonical_block_snapshot.miner_pk_hash == Some(mining_pkh);
+        let won_last_sortition =
+            last_good_block_election_snapshot.miner_pk_hash == Some(mining_pkh);
+        info!(
+            "Relayer: Current burn block had no sortition or a bad sortition. Checking for tenure continuation.";
+            "won_last_sortition" => won_last_sortition,
+            "current_mining_pkh" => %mining_pkh,
+            "last_good_block_election_snapshot.consensus_hash" => %last_good_block_election_snapshot.consensus_hash,
+            "last_good_block_election_snapshot.miner_pk_hash" => ?last_good_block_election_snapshot.miner_pk_hash,
+            "canonical_stacks_tip_id" => %canonical_stacks_tip,
+            "canonical_stacks_tip_ch" => %canonical_stacks_tip_ch,
+            "burn_view_ch" => %new_burn_view,
+        );
 
-        let (parent_tenure_start, block_election_snapshot, reason) =
-            if !won_canonical_block_snapshot {
-                debug!("Relayer: Failed to issue a tenure change payload in our last tenure. Issue a new tenure change payload.");
-                (
-                    StacksBlockId(last_block_election_snapshot.winning_stacks_block_hash.0),
-                    last_block_election_snapshot,
-                    MinerReason::EmptyTenure,
-                )
-            } else {
-                debug!("Relayer: Successfully issued a tenure change payload in its tenure. Issue a continue extend from the chain tip.");
-                (
-                    canonical_stacks_tip, //For tenure extend, we should be extending off the canonical tip
-                    canonical_block_snapshot,
-                    MinerReason::Extended {
-                        burn_view_consensus_hash: new_burn_view,
-                    },
-                )
-            };
-        match self.start_new_tenure(
+        if !won_last_sortition {
+            info!("Relayer: Did not win the last sortition. Cannot continue tenure.");
+            return Ok(());
+        }
+
+        let canonical_snapshot = SortitionDB::get_block_snapshot_consensus(
+            self.sortdb.conn(),
+            &canonical_stacks_tip_ch,
+        )?
+        .ok_or_else(|| {
+            error!("Relayer: failed to get block snapshot for canonical tip");
+            NakamotoNodeError::SnapshotNotFoundForChainTip
+        })?;
+        let (parent_tenure_start, block_election_snapshot, reason) = self.determine_tenure_type(
+            canonical_snapshot,
+            last_good_block_election_snapshot,
+            new_burn_view,
+            mining_pkh,
+        );
+
+        if let Err(e) = self.start_new_tenure(
             parent_tenure_start,
             block_election_snapshot,
             burn_tip,
             reason,
         ) {
-            Ok(()) => {
-                debug!("Relayer: successfully started new tenure.");
-            }
-            Err(e) => {
-                error!("Relayer: Failed to start new tenure: {e:?}");
-            }
+            error!("Relayer: Failed to start new tenure: {e:?}");
+        } else {
+            debug!("Relayer: successfully started new tenure.");
         }
         Ok(())
     }
@@ -1029,11 +1137,11 @@ impl RelayerThread {
         tip_block_ch: ConsensusHash,
         tip_block_bh: BlockHeaderHash,
     ) -> Result<(), NakamotoNodeError> {
-        let mut last_committed = self.make_block_commit(&tip_block_ch, &tip_block_bh)?;
         if self.fault_injection_skip_block_commit() {
             warn!("Relayer: not submitting block-commit to bitcoin network due to test directive.");
             return Ok(());
         }
+        let mut last_committed = self.make_block_commit(&tip_block_ch, &tip_block_bh)?;
 
         // last chance -- is this still the stacks tip?
         let (cur_stacks_tip_ch, cur_stacks_tip_bh) =
