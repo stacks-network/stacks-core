@@ -36,10 +36,11 @@ use stacks::util::hash::Sha512Trunc256Sum;
 use stacks::util::secp256k1::MessageSignature;
 use stacks::util_lib::boot::boot_code_id;
 
-use super::signerdb_listener::{SignerDBListener, TimestampInfo, EVENT_RECEIVER_POLL};
 use super::Error as NakamotoNodeError;
 use crate::event_dispatcher::StackerDBChannel;
-use crate::nakamoto_node::signerdb_listener::BlockStatus;
+use crate::nakamoto_node::stackerdb_listener::{
+    BlockStatus, StackerDBListener, TimestampInfo, EVENT_RECEIVER_POLL,
+};
 use crate::neon::Counters;
 use crate::Config;
 
@@ -96,8 +97,8 @@ impl SignerCoordinator {
         message_key: StacksPrivateKey,
         config: &Config,
     ) -> Result<Self, ChainstateError> {
-        // Create the signer DB listener
-        let mut listener = SignerDBListener::new(
+        // Create the stacker DB listener
+        let mut listener = StackerDBListener::new(
             stackerdb_channel,
             keep_running.clone(),
             reward_set,
@@ -125,14 +126,14 @@ impl SignerCoordinator {
 
         // Spawn the signer DB listener thread
         let listener_thread = std::thread::Builder::new()
-            .name("signerdb_listener".to_string())
+            .name("stackerdb_listener".to_string())
             .spawn(move || {
                 if let Err(e) = listener.run() {
-                    error!("SignerDBListener: failed to run: {e:?}");
+                    error!("StackerDBListener: failed to run: {e:?}");
                 }
             })
             .map_err(|e| {
-                error!("Failed to spawn signerdb_listener thread: {e:?}");
+                error!("Failed to spawn stackerdb_listener thread: {e:?}");
                 ChainstateError::MinerAborted
             })?;
 
