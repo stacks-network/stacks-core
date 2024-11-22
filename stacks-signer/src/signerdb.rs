@@ -326,9 +326,6 @@ CREATE INDEX IF NOT EXISTS block_rejection_signer_addrs_on_block_signature_hash 
 
 static CREATE_INDEXES_4: &str = r#"
 CREATE INDEX IF NOT EXISTS blocks_state ON blocks ((json_extract(block_info, '$.state')));
-"#;
-
-static CREATE_INDEXES_5: &str = r#"
 CREATE INDEX IF NOT EXISTS blocks_signed_group ON blocks ((json_extract(block_info, '$.signed_group')));
 "#;
 
@@ -434,11 +431,6 @@ static SCHEMA_4: &[&str] = &[
     "INSERT OR REPLACE INTO db_config (version) VALUES (4);",
 ];
 
-static SCHEMA_5: &[&str] = &[
-    CREATE_INDEXES_5,
-    "INSERT OR REPLACE INTO db_config (version) VALUES (5);",
-];
-
 impl SignerDb {
     /// The current schema version used in this build of the signer binary.
     pub const SCHEMA_VERSION: u32 = 4;
@@ -527,20 +519,6 @@ impl SignerDb {
         Ok(())
     }
 
-    /// Migrate from schema 4 to schema 5
-    fn schema_5_migration(tx: &Transaction) -> Result<(), DBError> {
-        if Self::get_schema_version(tx)? >= 5 {
-            // no migration necessary
-            return Ok(());
-        }
-
-        for statement in SCHEMA_5.iter() {
-            tx.execute_batch(statement)?;
-        }
-
-        Ok(())
-    }
-
     /// Either instantiate a new database, or migrate an existing one
     /// If the detected version of the existing database is 0 (i.e., a pre-migration
     /// logic DB, the DB will be dropped).
@@ -553,8 +531,7 @@ impl SignerDb {
                 1 => Self::schema_2_migration(&sql_tx)?,
                 2 => Self::schema_3_migration(&sql_tx)?,
                 3 => Self::schema_4_migration(&sql_tx)?,
-                4 => Self::schema_5_migration(&sql_tx)?,
-                5 => break,
+                4 => break,
                 x => return Err(DBError::Other(format!(
                     "Database schema is newer than supported by this binary. Expected version = {}, Database version = {x}",
                     Self::SCHEMA_VERSION,
