@@ -114,8 +114,6 @@ pub enum Error {
     /// A failure occurred while constructing a VRF Proof
     #[error("A failure occurred while constructing a VRF Proof")]
     BadVrfConstruction,
-    #[error("The miner didn't accept their own block")]
-    CannotSelfSign,
     #[error("A failure occurred while mining: {0}")]
     MiningFailure(#[from] ChainstateError),
     /// The miner didn't accept their own block
