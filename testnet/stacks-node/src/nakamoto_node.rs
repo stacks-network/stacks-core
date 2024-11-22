@@ -28,6 +28,7 @@ use stacks::monitoring::update_active_miners_count_gauge;
 use stacks::net::atlas::AtlasConfig;
 use stacks::net::relay::Relayer;
 use stacks::net::stackerdb::StackerDBs;
+use stacks::net::Error as NetError;
 use stacks::util_lib::db::Error as DBError;
 use stacks_common::types::chainstate::SortitionId;
 use stacks_common::types::StacksEpochId;
@@ -116,7 +117,7 @@ pub enum Error {
     #[error("The miner didn't accept their own block")]
     CannotSelfSign,
     #[error("A failure occurred while mining: {0}")]
-    MiningFailure(ChainstateError),
+    MiningFailure(#[from] ChainstateError),
     /// The miner didn't accept their own block
     #[error("The miner didn't accept their own block: {0}")]
     AcceptFailure(ChainstateError),
@@ -136,6 +137,9 @@ pub enum Error {
     /// DBError wrapper
     #[error("DBError: {0}")]
     DBError(#[from] DBError),
+    /// NetError wrapper
+    #[error("NetError: {0}")]
+    NetError(#[from] NetError),
 }
 
 impl StacksNode {

@@ -256,7 +256,7 @@ impl BlockMinerThread {
         globals.block_miner();
         let prior_miner_result = prior_miner
             .join()
-            .map_err(|_| NakamotoNodeError::MiningFailure(ChainstateError::MinerAborted))?;
+            .map_err(|_| ChainstateError::MinerAborted)?;
         if let Err(e) = prior_miner_result {
             // it's okay if the prior miner thread exited with an error.
             // in many cases this is expected (i.e., a burnchain block occurred)
@@ -285,8 +285,7 @@ impl BlockMinerThread {
         if let Some(prior_miner) = prior_miner {
             Self::stop_miner(&self.globals, prior_miner)?;
         }
-        let mut stackerdbs = StackerDBs::connect(&self.config.get_stacker_db_file_path(), true)
-            .map_err(|e| NakamotoNodeError::MiningFailure(ChainstateError::NetError(e)))?;
+        let mut stackerdbs = StackerDBs::connect(&self.config.get_stacker_db_file_path(), true)?;
         let mut last_block_rejected = false;
 
         // now, actually run this tenure
@@ -360,9 +359,7 @@ impl BlockMinerThread {
                         // try again, in case a new sortition is pending
                         self.globals
                             .raise_initiative(format!("MiningFailure: {e:?}"));
-                        return Err(NakamotoNodeError::MiningFailure(
-                            ChainstateError::MinerAborted,
-                        ));
+                        return Err(ChainstateError::MinerAborted.into());
                     }
                 }
             };
@@ -1052,9 +1049,7 @@ impl BlockMinerThread {
         ) {
             // treat a too-soon-to-mine block as an interrupt: this will let the caller sleep and then re-evaluate
             //  all the pre-mining checks (burnchain tip changes, signal interrupts, etc.)
-            return Err(NakamotoNodeError::MiningFailure(
-                ChainstateError::MinerAborted,
-            ));
+            return Err(ChainstateError::MinerAborted.into());
         }
 
         // build the block itself
@@ -1082,13 +1077,11 @@ impl BlockMinerThread {
             ) {
                 error!("Relayer: Failure mining anchored block: {e}");
             }
-            NakamotoNodeError::MiningFailure(e)
+            e
         })?;
 
         if block.txs.is_empty() {
-            return Err(NakamotoNodeError::MiningFailure(
-                ChainstateError::NoTransactionsToMine,
-            ));
+            return Err(ChainstateError::NoTransactionsToMine.into());
         }
         let mining_key = self.keychain.get_nakamoto_sk();
         let miner_signature = mining_key
