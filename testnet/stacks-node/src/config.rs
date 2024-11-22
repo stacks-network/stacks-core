@@ -53,6 +53,7 @@ use stacks::net::connection::ConnectionOptions;
 use stacks::net::{Neighbor, NeighborKey};
 use stacks::types::chainstate::BurnchainHeaderHash;
 use stacks::types::EpochList;
+use stacks::util::hash::to_hex;
 use stacks::util_lib::boot::boot_code_id;
 use stacks::util_lib::db::Error as DBError;
 use stacks_common::consts::SIGNER_SLOTS_PER_USER;
@@ -834,14 +835,11 @@ impl Config {
 
         let miner = match config_file.miner {
             Some(mut miner) => {
-                if miner.mining_key == None {
+                if miner.mining_key.is_none() && !node.seed.is_empty() {
                     info!("Mining key found!";
                         "Mining key" => ?miner.mining_key,
                     "Node seed" => ?node.seed);
-                    miner.mining_key = match String::from_utf8(node.seed.clone()) {
-                        Ok(res) => Some(res),
-                        Err(_) => None,
-                    };
+                    miner.mining_key = Some(to_hex(&node.seed));
                 }
                 miner.into_config_default(miner_default_config)?
             }
