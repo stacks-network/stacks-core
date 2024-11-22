@@ -836,8 +836,8 @@ impl Config {
             Some(mut miner) => {
                 if miner.mining_key == None {
                     info!("Mining key found!";
-                        "Mining key" => %miner.mining_key,
-                    "Node seed" => %node.seed);
+                        "Mining key" => ?miner.mining_key,
+                    "Node seed" => ?node.seed);
                     miner.mining_key = match String::from_utf8(node.seed.clone()) {
                         Ok(res) => Some(res),
                         Err(_) => None,
@@ -2558,7 +2558,7 @@ pub struct MinerConfigFile {
 impl MinerConfigFile {
     fn into_config_default(self, miner_default_config: MinerConfig) -> Result<MinerConfig, String> {
         info!("into config default function!";
-            "Mining key" => %self.mining_key);
+            "Mining key" => ?self.mining_key);
         match &self.mining_key {
             Some(_) => {}
             None => {
