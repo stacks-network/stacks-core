@@ -43,7 +43,7 @@ pub mod miner;
 pub mod peer;
 pub mod relayer;
 pub mod signer_coordinator;
-pub mod signerdb_listener;
+pub mod stackerdb_listener;
 
 use self::peer::PeerThread;
 use self::relayer::{RelayerDirective, RelayerThread};

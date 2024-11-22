@@ -59,10 +59,10 @@ pub(crate) struct TimestampInfo {
     pub weight: u32,
 }
 
-/// The listener for the signer database, which listens for messages from the
+/// The listener for the StackerDB, which listens for messages from the
 /// signers and tracks the state of block signatures and idle timestamps.
 #[derive(Debug)]
-pub struct SignerDBListener {
+pub struct StackerDBListener {
     /// Channel to receive StackerDB events
     receiver: Receiver<StackerDBChunksEvent>,
     /// Flag to shut the listener down
@@ -86,7 +86,7 @@ pub struct SignerDBListener {
     pub(crate) signer_idle_timestamps: Arc<Mutex<HashMap<StacksPublicKey, TimestampInfo>>>,
 }
 
-impl SignerDBListener {
+impl StackerDBListener {
     pub fn new(
         stackerdb_channel: Arc<Mutex<StackerDBChannel>>,
         keep_running: Arc<AtomicBool>,
@@ -147,9 +147,9 @@ impl SignerDBListener {
         })
     }
 
-    /// Run the signer database listener.
+    /// Run the StackerDB listener.
     pub fn run(&mut self) -> Result<(), NakamotoNodeError> {
-        info!("SignerDBListener: Starting up");
+        info!("StackerDBListener: Starting up");
         loop {
             let event = match self.receiver.recv_timeout(EVENT_RECEIVER_POLL) {
                 Ok(event) => event,
@@ -157,7 +157,7 @@ impl SignerDBListener {
                     continue;
                 }
                 Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                    warn!("SignerDBListener: StackerDB event receiver disconnected");
+                    warn!("StackerDBListener: StackerDB event receiver disconnected");
                     return Err(NakamotoNodeError::SigningCoordinatorFailure(
                         "StackerDB event receiver disconnected".into(),
                     ));
@@ -166,7 +166,7 @@ impl SignerDBListener {
 
             // was the miner asked to stop?
             if !self.keep_running.load(Ordering::SeqCst) {
-                info!("SignerDBListener: received miner exit request. Aborting");
+                info!("StackerDBListener: received miner exit request. Aborting");
                 return Err(NakamotoNodeError::ChannelClosed);
             }
 
@@ -175,23 +175,25 @@ impl SignerDBListener {
                 event.contract_id.name.starts_with(SIGNERS_NAME) && event.contract_id.is_boot();
 
             if !is_signer_event {
-                debug!("SignerDBListener: Ignoring StackerDB event for non-signer contract"; "contract" => %event.contract_id);
+                debug!("StackerDBListener: Ignoring StackerDB event for non-signer contract"; "contract" => %event.contract_id);
                 continue;
             }
 
             let modified_slots = &event.modified_slots.clone();
 
             let Ok(signer_event) = SignerEvent::<SignerMessageV0>::try_from(event).map_err(|e| {
-                warn!("SignerDBListener: Failure parsing StackerDB event into signer event. Ignoring message."; "err" => ?e);
+                warn!("StackerDBListener: Failure parsing StackerDB event into signer event. Ignoring message."; "err" => ?e);
             }) else {
                 continue;
             };
             let SignerEvent::SignerMessages(signer_set, messages) = signer_event else {
-                debug!("SignerDBListener: Received signer event other than a signer message. Ignoring.");
+                debug!("StackerDBListener: Received signer event other than a signer message. Ignoring.");
                 continue;
             };
             if signer_set != self.signer_set {
-                debug!("SignerDBListener: Received signer event for other reward cycle. Ignoring.");
+                debug!(
+                    "StackerDBListener: Received signer event for other reward cycle. Ignoring."
+                );
                 continue;
             };
             let slot_ids = modified_slots
@@ -199,7 +201,7 @@ impl SignerDBListener {
                 .map(|chunk| chunk.slot_id)
                 .collect::<Vec<_>>();
 
-            debug!("SignerDBListener: Received messages from signers";
+            debug!("StackerDBListener: Received messages from signers";
                 "count" => messages.len(),
                 "slot_ids" => ?slot_ids,
             );
@@ -232,7 +234,7 @@ impl SignerDBListener {
                             Some(block) => block,
                             None => {
                                 info!(
-                                    "SignerDBListener: Received signature for block that we did not request. Ignoring.";
+                                    "StackerDBListener: Received signature for block that we did not request. Ignoring.";
                                     "signature" => %signature,
                                     "block_signer_sighash" => %block_sighash,
                                     "slot_id" => slot_id,
@@ -245,13 +247,13 @@ impl SignerDBListener {
                         let Ok(valid_sig) = signer_pubkey.verify(block_sighash.bits(), &signature)
                         else {
                             warn!(
-                                "SignerDBListener: Got invalid signature from a signer. Ignoring."
+                                "StackerDBListener: Got invalid signature from a signer. Ignoring."
                             );
                             continue;
                         };
                         if !valid_sig {
                             warn!(
-                                "SignerDBListener: Processed signature but didn't validate over the expected block. Ignoring";
+                                "StackerDBListener: Processed signature but didn't validate over the expected block. Ignoring";
                                 "signature" => %signature,
                                 "block_signer_signature_hash" => %block_sighash,
                                 "slot_id" => slot_id,
@@ -260,7 +262,7 @@ impl SignerDBListener {
                         }
 
                         if Self::fault_injection_ignore_signatures() {
-                            warn!("SignerDBListener: fault injection: ignoring well-formed signature for block";
+                            warn!("StackerDBListener: fault injection: ignoring well-formed signature for block";
                                 "block_signer_sighash" => %block_sighash,
                                 "signer_pubkey" => signer_pubkey.to_hex(),
                                 "signer_slot_id" => slot_id,
@@ -278,7 +280,7 @@ impl SignerDBListener {
                                 .expect("FATAL: total weight signed exceeds u32::MAX");
                         }
 
-                        info!("SignerDBListener: Signature Added to block";
+                        info!("StackerDBListener: Signature Added to block";
                             "block_signer_sighash" => %block_sighash,
                             "signer_pubkey" => signer_pubkey.to_hex(),
                             "signer_slot_id" => slot_id,
@@ -311,7 +313,7 @@ impl SignerDBListener {
                             Some(block) => block,
                             None => {
                                 info!(
-                                    "SignerDBListener: Received rejection for block that we did not request. Ignoring.";
+                                    "StackerDBListener: Received rejection for block that we did not request. Ignoring.";
                                     "block_signer_sighash" => %rejected_data.signer_signature_hash,
                                     "slot_id" => slot_id,
                                     "signer_set" => self.signer_set,
@@ -323,13 +325,13 @@ impl SignerDBListener {
                         let rejected_pubkey = match rejected_data.recover_public_key() {
                             Ok(rejected_pubkey) => {
                                 if rejected_pubkey != signer_pubkey {
-                                    warn!("SignerDBListener: Recovered public key from rejected data does not match signer's public key. Ignoring.");
+                                    warn!("StackerDBListener: Recovered public key from rejected data does not match signer's public key. Ignoring.");
                                     continue;
                                 }
                                 rejected_pubkey
                             }
                             Err(e) => {
-                                warn!("SignerDBListener: Failed to recover public key from rejected data: {e:?}. Ignoring.");
+                                warn!("StackerDBListener: Failed to recover public key from rejected data: {e:?}. Ignoring.");
                                 continue;
                             }
                         };
@@ -339,7 +341,7 @@ impl SignerDBListener {
                             .checked_add(signer_entry.weight)
                             .expect("FATAL: total weight rejected exceeds u32::MAX");
 
-                        info!("SignerDBListener: Signer rejected block";
+                        info!("StackerDBListener: Signer rejected block";
                             "block_signer_sighash" => %rejected_data.signer_signature_hash,
                             "signer_pubkey" => rejected_pubkey.to_hex(),
                             "signer_slot_id" => slot_id,
