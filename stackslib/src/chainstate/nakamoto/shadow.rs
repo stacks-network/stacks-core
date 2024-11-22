@@ -266,7 +266,7 @@ impl NakamotoChainState {
         mainnet: bool,
         chain_id: u32,
     ) -> Result<(), ChainstateError> {
-        if !self.is_shadow_block() {
+        if !block.is_shadow_block() {
             error!(
                 "FATAL: tried to validate non-shadow block in a shadow-block-specific validator"
             );
