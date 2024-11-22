@@ -53,6 +53,7 @@ use stacks::net::connection::ConnectionOptions;
 use stacks::net::{Neighbor, NeighborKey};
 use stacks::types::chainstate::BurnchainHeaderHash;
 use stacks::types::EpochList;
+use stacks::util::hash::to_hex;
 use stacks::util_lib::boot::boot_code_id;
 use stacks::util_lib::db::Error as DBError;
 use stacks_common::consts::SIGNER_SLOTS_PER_USER;
