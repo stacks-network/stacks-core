@@ -6460,6 +6460,12 @@ fn signer_chainstate() {
                 ext: ExtraBlockInfo::None,
                 state: BlockState::Unprocessed,
                 validation_time_ms: None,
+                tenure_change: proposal
+                    .0
+                    .txs
+                    .first()
+                    .map(|tx| matches!(tx.payload, TransactionPayload::TenureChange(_)))
+                    .unwrap_or(false),
             })
             .unwrap();
 
@@ -6550,6 +6556,12 @@ fn signer_chainstate() {
                 ext: ExtraBlockInfo::None,
                 state: BlockState::GloballyAccepted,
                 validation_time_ms: Some(1000),
+                tenure_change: proposal_interim
+                    .0
+                    .txs
+                    .first()
+                    .map(|tx| matches!(tx.payload, TransactionPayload::TenureChange(_)))
+                    .unwrap_or(false),
             })
             .unwrap();
 
