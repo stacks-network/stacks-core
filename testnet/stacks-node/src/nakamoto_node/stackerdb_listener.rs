@@ -61,10 +61,11 @@ pub(crate) struct TimestampInfo {
 
 /// The listener for the StackerDB, which listens for messages from the
 /// signers and tracks the state of block signatures and idle timestamps.
-#[derive(Debug)]
 pub struct StackerDBListener {
-    /// Channel to receive StackerDB events
-    receiver: Receiver<StackerDBChunksEvent>,
+    /// Channel to communicate with StackerDB
+    stackerdb_channel: Arc<Mutex<StackerDBChannel>>,
+    /// Receiver end of the StackerDB events channel
+    receiver: Option<Receiver<StackerDBChunksEvent>>,
     /// Flag to shut the listener down
     keep_running: Arc<AtomicBool>,
     /// The signer set for this tenure (0 or 1)
@@ -136,7 +137,8 @@ impl StackerDBListener {
             .collect::<Result<HashMap<_, _>, ChainstateError>>()?;
 
         Ok(Self {
-            receiver,
+            stackerdb_channel,
+            receiver: Some(receiver),
             keep_running,
             signer_set,
             total_weight,
@@ -150,8 +152,15 @@ impl StackerDBListener {
     /// Run the StackerDB listener.
     pub fn run(&mut self) -> Result<(), NakamotoNodeError> {
         info!("StackerDBListener: Starting up");
+
+        let Some(receiver) = &self.receiver else {
+            return Err(NakamotoNodeError::SigningCoordinatorFailure(
+                "StackerDBListener: Failed to obtain the StackerDB event receiver".into(),
+            ));
+        };
+
         loop {
-            let event = match self.receiver.recv_timeout(EVENT_RECEIVER_POLL) {
+            let event = match receiver.recv_timeout(EVENT_RECEIVER_POLL) {
                 Ok(event) => event,
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
                     continue;
@@ -409,5 +418,17 @@ impl StackerDBListener {
     #[cfg(not(test))]
     fn fault_injection_ignore_signatures() -> bool {
         false
+    }
+}
+
+impl Drop for StackerDBListener {
+    fn drop(&mut self) {
+        let stackerdb_channel = self
+            .stackerdb_channel
+            .lock()
+            .expect("FATAL: failed to lock stackerdb channel");
+        stackerdb_channel.replace_receiver(self.receiver.take().expect(
+            "FATAL: lost possession of the StackerDB channel before dropping SignCoordinator",
+        ));
     }
 }
