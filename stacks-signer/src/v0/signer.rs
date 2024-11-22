@@ -18,6 +18,8 @@ use std::sync::mpsc::Sender;
 use std::time::{Duration, Instant};
 
 use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
+use blockstack_lib::chainstate::stacks::address::StacksAddressExtensions;
+use blockstack_lib::chainstate::stacks::TransactionPayload;
 use blockstack_lib::net::api::postblock_proposal::{
     BlockValidateOk, BlockValidateReject, BlockValidateResponse,
 };
@@ -587,7 +589,20 @@ impl Signer {
             block_info.signed_self.get_or_insert(get_epoch_time_secs());
         }
         // Record the block validation time
-        block_info.validation_time_ms = Some(block_validate_ok.validation_time_ms);
+        let non_bootcode_contract_call_block = block_info.block.txs.iter().any(|tx| {
+            // We only care about blocks that contain a non bootcode contract call
+            match &tx.payload {
+                TransactionPayload::ContractCall(cc) => !cc.address.is_boot_code_addr(),
+                TransactionPayload::SmartContract(..) => true,
+                _ => false,
+            }
+        });
+        if non_bootcode_contract_call_block {
+            block_info.validation_time_ms = Some(block_validate_ok.validation_time_ms);
+        } else {
+            // Ignore purely boot code and stx transfers when calculating the processing/validation time
+            block_info.validation_time_ms = Some(0);
+        }
 
         let signature = self
             .private_key
