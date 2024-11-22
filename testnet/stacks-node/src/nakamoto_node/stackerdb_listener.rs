@@ -225,8 +225,10 @@ impl StackerDBListener {
                             signer_signature_hash: block_sighash,
                             signature,
                             metadata,
-                            tenure_extend_timestamp, // TOOD: utilize this info
+                            response_data,
                         } = accepted;
+                        let tenure_extend_timestamp = response_data.tenure_extend_timestamp;
+
                         let (lock, cvar) = &*self.blocks;
                         let mut blocks = lock.lock().expect("FATAL: failed to lock block status");
 
@@ -350,7 +352,7 @@ impl StackerDBListener {
                             "total_weight_signed" => block.total_weight_signed,
                             "reason" => rejected_data.reason,
                             "reason_code" => %rejected_data.reason_code,
-                            "tenure_extend_timestamp" => rejected_data.tenure_extend_timestamp,
+                            "tenure_extend_timestamp" => rejected_data.response_data.tenure_extend_timestamp,
                             "server_version" => rejected_data.metadata.server_version,
                         );
 
@@ -366,7 +368,7 @@ impl StackerDBListener {
                         // Update the idle timestamp for this signer
                         self.update_idle_timestamp(
                             signer_pubkey,
-                            rejected_data.tenure_extend_timestamp,
+                            rejected_data.response_data.tenure_extend_timestamp,
                             signer_entry.weight,
                         );
                     }
