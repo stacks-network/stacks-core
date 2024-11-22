@@ -31,24 +31,28 @@ use stacks::chainstate::stacks::Error as ChainstateError;
 use stacks::codec::StacksMessageCodec;
 use stacks::libstackerdb::StackerDBChunkData;
 use stacks::net::stackerdb::StackerDBs;
-use stacks::types::chainstate::{StacksPrivateKey, StacksPublicKey};
+use stacks::types::chainstate::{StacksBlockId, StacksPrivateKey, StacksPublicKey};
 use stacks::util::hash::Sha512Trunc256Sum;
 use stacks::util::secp256k1::MessageSignature;
 use stacks::util_lib::boot::boot_code_id;
 
-use super::signerdb_listener::{SignerDBListener, TimestampInfo};
+use super::signerdb_listener::{SignerDBListener, TimestampInfo, EVENT_RECEIVER_POLL};
 use super::Error as NakamotoNodeError;
 use crate::event_dispatcher::StackerDBChannel;
 use crate::nakamoto_node::signerdb_listener::BlockStatus;
 use crate::neon::Counters;
 use crate::Config;
 
-/// Helper function to determine if we should wait for more signatures
-fn should_wait(status: Option<&BlockStatus>, weight_threshold: u32, total_weight: u32) -> bool {
+/// Helper function to determine if signer threshold has been reached for a block
+fn is_threshold_reached(
+    status: Option<&BlockStatus>,
+    weight_threshold: u32,
+    total_weight: u32,
+) -> bool {
     match status {
         Some(status) => {
-            status.total_weight_signed < weight_threshold
-                && status.total_reject_weight.saturating_add(weight_threshold) <= total_weight
+            status.total_weight_signed >= weight_threshold
+                || status.total_reject_weight.saturating_add(weight_threshold) > total_weight
         }
         None => true,
     }
@@ -268,81 +272,104 @@ impl SignerCoordinator {
             }
         }
 
-        self.get_block_status(&block.header.signer_signature_hash(), chain_state, counters)
+        self.get_block_status(
+            &block.header.signer_signature_hash(),
+            &block.block_id(),
+            chain_state,
+            sortdb,
+            burn_tip,
+            counters,
+        )
     }
 
     /// Get the block status for a given block hash.
     /// If we have not yet received enough signatures for this block, this
-    /// method will block until we do.
+    /// method will block until we do. If this block shows up in the staging DB
+    /// before we have enough signatures, we will return the signatures from
+    /// there. If a new burnchain tip is detected, we will return an error.
     fn get_block_status(
         &self,
-        block_hash: &Sha512Trunc256Sum,
+        block_signer_sighash: &Sha512Trunc256Sum,
+        block_id: &StacksBlockId,
         chain_state: &mut StacksChainState,
+        sortdb: &SortitionDB,
+        burn_tip: &BlockSnapshot,
         counters: &Counters,
     ) -> Result<Vec<MessageSignature>, NakamotoNodeError> {
         let (lock, cvar) = &*self.blocks;
         let mut blocks = lock.lock().expect("FATAL: failed to lock block status");
 
-        // TODO: integrate this check into the waiting for the condvar
-        // Look in the nakamoto staging db -- a block can only get stored there
-        // if it has enough signing weight to clear the threshold.
-        // if let Ok(Some((stored_block, _sz))) = chain_state
-        //     .nakamoto_blocks_db()
-        //     .get_nakamoto_block(&block.block_id())
-        //     .map_err(|e| {
-        //         warn!(
-        //             "Failed to query chainstate for block {}: {e:?}",
-        //             &block.block_id()
-        //         );
-        //         e
-        //     })
-        // {
-        //     debug!("SignCoordinator: Found signatures in relayed block");
-        //     counters.bump_naka_signer_pushed_blocks();
-        //     return Ok(stored_block.header.signer_signature);
-        // }
+        loop {
+            let (guard, timeout_result) = cvar
+                .wait_timeout_while(blocks, EVENT_RECEIVER_POLL, |map| {
+                    !is_threshold_reached(
+                        map.get(block_signer_sighash),
+                        self.weight_threshold,
+                        self.total_weight,
+                    )
+                })
+                .expect("FATAL: failed to wait on block status cond var");
+            blocks = guard;
 
-        // if Self::check_burn_tip_changed(sortdb, burn_tip) {
-        //     debug!("SignCoordinator: Exiting due to new burnchain tip");
-        //     return Err(NakamotoNodeError::BurnchainTipChanged);
-        // }
+            // If we just received a timeout, we should check if the burnchain
+            // tip has changed or if we received this signed block already in
+            // the staging db.
+            if timeout_result.timed_out() {
+                // Look in the nakamoto staging db -- a block can only get stored there
+                // if it has enough signing weight to clear the threshold.
+                if let Ok(Some((stored_block, _sz))) = chain_state
+                    .nakamoto_blocks_db()
+                    .get_nakamoto_block(block_id)
+                    .map_err(|e| {
+                        warn!(
+                            "Failed to query chainstate for block: {e:?}";
+                            "block_id" => %block_id,
+                            "block_signer_sighash" => %block_signer_sighash,
+                        );
+                        e
+                    })
+                {
+                    debug!("SignCoordinator: Found signatures in relayed block");
+                    counters.bump_naka_signer_pushed_blocks();
+                    return Ok(stored_block.header.signer_signature);
+                }
 
-        blocks = cvar
-            .wait_while(blocks, |map| {
-                should_wait(
-                    map.get(block_hash),
-                    self.weight_threshold,
-                    self.total_weight,
-                )
-            })
-            .expect("FATAL: failed to wait on block status");
-        let block_status = blocks.get(block_hash).cloned().ok_or_else(|| {
-            NakamotoNodeError::SigningCoordinatorFailure(
-                "Block unexpectedly missing from map".into(),
-            )
-        })?;
-        if block_status
-            .total_reject_weight
-            .saturating_add(self.weight_threshold)
-            > self.total_weight
-        {
-            info!(
-                "{}/{} signers vote to reject block",
-                block_status.total_reject_weight, self.total_weight;
-                "stacks_block_hash" => %block_hash,
-            );
-            counters.bump_naka_rejected_blocks();
-            Err(NakamotoNodeError::SignersRejected)
-        } else if block_status.total_weight_signed >= self.weight_threshold {
-            info!("Received enough signatures, block accepted";
-                "stacks_block_hash" => %block_hash,
-            );
-            Ok(block_status.gathered_signatures.values().cloned().collect())
-        } else {
-            info!("Unblocked without reaching the threshold, likely due to an interruption";
-                "stacks_block_hash" => %block_hash,
-            );
-            Err(NakamotoNodeError::ChannelClosed)
+                if Self::check_burn_tip_changed(sortdb, burn_tip) {
+                    debug!("SignCoordinator: Exiting due to new burnchain tip");
+                    return Err(NakamotoNodeError::BurnchainTipChanged);
+                }
+            }
+            // Else, we have received enough signatures to proceed
+            else {
+                let block_status = blocks.get(block_signer_sighash).ok_or_else(|| {
+                    NakamotoNodeError::SigningCoordinatorFailure(
+                        "Block unexpectedly missing from map".into(),
+                    )
+                })?;
+
+                if block_status
+                    .total_reject_weight
+                    .saturating_add(self.weight_threshold)
+                    > self.total_weight
+                {
+                    info!(
+                        "{}/{} signers vote to reject block",
+                        block_status.total_reject_weight, self.total_weight;
+                        "block_signer_sighash" => %block_signer_sighash,
+                    );
+                    counters.bump_naka_rejected_blocks();
+                    return Err(NakamotoNodeError::SignersRejected);
+                } else if block_status.total_weight_signed >= self.weight_threshold {
+                    info!("Received enough signatures, block accepted";
+                        "block_signer_sighash" => %block_signer_sighash,
+                    );
+                    return Ok(block_status.gathered_signatures.values().cloned().collect());
+                } else {
+                    return Err(NakamotoNodeError::SigningCoordinatorFailure(
+                        "Unblocked without reaching the threshold".into(),
+                    ));
+                }
+            }
         }
     }
 
@@ -367,5 +394,18 @@ impl SignerCoordinator {
         // time, so return u64::MAX to indicate that we should not extend the
         // tenure.
         u64::MAX
+    }
+
+    /// Check if the tenure needs to change
+    fn check_burn_tip_changed(sortdb: &SortitionDB, burn_block: &BlockSnapshot) -> bool {
+        let cur_burn_chain_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
+            .expect("FATAL: failed to query sortition DB for canonical burn chain tip");
+
+        if cur_burn_chain_tip.consensus_hash != burn_block.consensus_hash {
+            info!("SignCoordinator: Cancel signature aggregation; burnchain tip has changed");
+            true
+        } else {
+            false
+        }
     }
 }

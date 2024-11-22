@@ -295,6 +295,13 @@ impl SignerDBListener {
                             // Signal to anyone waiting on this block that we have enough signatures
                             cvar.notify_all();
                         }
+
+                        // Update the idle timestamp for this signer
+                        self.update_idle_timestamp(
+                            signer_pubkey,
+                            tenure_extend_timestamp,
+                            signer_entry.weight,
+                        );
                     }
                     SignerMessageV0::BlockResponse(BlockResponse::Rejected(rejected_data)) => {
                         let (lock, cvar) = &*self.blocks;
@@ -354,25 +361,36 @@ impl SignerDBListener {
                             cvar.notify_all();
                         }
 
-                        continue;
+                        // Update the idle timestamp for this signer
+                        self.update_idle_timestamp(
+                            signer_pubkey,
+                            rejected_data.tenure_extend_timestamp,
+                            signer_entry.weight,
+                        );
                     }
                     SignerMessageV0::BlockProposal(_) => {
                         debug!("Received block proposal message. Ignoring.");
-                        continue;
                     }
                     SignerMessageV0::BlockPushed(_) => {
                         debug!("Received block pushed message. Ignoring.");
-                        continue;
                     }
                     SignerMessageV0::MockSignature(_)
                     | SignerMessageV0::MockProposal(_)
                     | SignerMessageV0::MockBlock(_) => {
                         debug!("Received mock message. Ignoring.");
-                        continue;
                     }
                 };
             }
         }
+    }
+
+    fn update_idle_timestamp(&self, signer_pubkey: StacksPublicKey, timestamp: u64, weight: u32) {
+        let mut idle_timestamps = self
+            .signer_idle_timestamps
+            .lock()
+            .expect("FATAL: failed to lock idle timestamps");
+        let timestamp_info = TimestampInfo { timestamp, weight };
+        idle_timestamps.insert(signer_pubkey, timestamp_info);
     }
 
     /// Do we ignore signer signatures?
