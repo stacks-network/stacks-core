@@ -73,6 +73,9 @@ use crate::{
     SignerMessage as SignerMessageTrait, VERSION_STRING,
 };
 
+/// Maximum size of the [BlockResponseData] serialized bytes
+pub const BLOCK_RESPONSE_DATA_MAX_SIZE: u32 = 2 * 1024 * 1024; // 2MB
+
 define_u8_enum!(
 /// Enum representing the stackerdb message identifier: this is
 ///  the contract index in the signers contracts (i.e., X in signers-0-X)
@@ -761,7 +764,8 @@ pub struct BlockResponseData {
     pub version: u8,
     /// The block response data
     pub tenure_extend_timestamp: u64,
-    /// The unknown block response data bytes
+    /// When deserializing future versions,
+    /// there may be extra bytes that we don't know about
     pub unknown_bytes: Vec<u8>,
 }
 
@@ -800,9 +804,7 @@ impl StacksMessageCodec for BlockResponseData {
         write_next(fd, &self.version)?;
         let mut inner_bytes = vec![];
         self.inner_consensus_serialize(&mut inner_bytes)?;
-        let bytes_len = inner_bytes.len() as u32;
-        write_next(fd, &bytes_len)?;
-        fd.write_all(&inner_bytes).map_err(CodecError::WriteError)?;
+        write_next(fd, &inner_bytes)?;
         Ok(())
     }
 
@@ -814,7 +816,7 @@ impl StacksMessageCodec for BlockResponseData {
         let Ok(version) = read_next(fd) else {
             return Ok(Self::empty());
         };
-        let inner_bytes = read_next::<Vec<u8>, _>(fd)?;
+        let inner_bytes: Vec<u8> = read_next_at_most(fd, BLOCK_RESPONSE_DATA_MAX_SIZE)?;
         let mut inner_reader = inner_bytes.as_slice();
         let tenure_extend_timestamp = read_next(&mut inner_reader)?;
         Ok(Self {
