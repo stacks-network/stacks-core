@@ -1515,4 +1515,60 @@ mod test {
             .expect("Failed to deserialize BlockResponseData");
         assert_eq!(deserialized_data, deserialized_data_2);
     }
+
+    /// Test using an older version of BlockAccepted to verify that we can deserialize
+    /// future versions
+
+    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+    pub struct BlockAcceptedOld {
+        /// The signer signature hash of the block that was accepted
+        pub signer_signature_hash: Sha512Trunc256Sum,
+        /// The signer's signature across the acceptance
+        pub signature: MessageSignature,
+        /// Signer message metadata
+        pub metadata: SignerMessageMetadata,
+    }
+
+    impl StacksMessageCodec for BlockAcceptedOld {
+        fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
+            write_next(fd, &self.signer_signature_hash)?;
+            write_next(fd, &self.signature)?;
+            write_next(fd, &self.metadata)?;
+            Ok(())
+        }
+
+        fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
+            let signer_signature_hash = read_next::<Sha512Trunc256Sum, _>(fd)?;
+            let signature = read_next::<MessageSignature, _>(fd)?;
+            let metadata = read_next::<SignerMessageMetadata, _>(fd)?;
+            Ok(Self {
+                signer_signature_hash,
+                signature,
+                metadata,
+            })
+        }
+    }
+
+    #[test]
+    fn block_accepted_old_version_can_deserialize() {
+        let block_accepted = BlockAccepted {
+            signer_signature_hash: Sha512Trunc256Sum::from_hex("11717149677c2ac97d15ae5954f7a716f10100b9cb81a2bf27551b2f2e54ef19").unwrap(),
+            metadata: SignerMessageMetadata::default(),
+            signature: MessageSignature::from_hex("001c694f8134c5c90f2f2bcd330e9f423204884f001b5df0050f36a2c4ff79dd93522bb2ae395ea87de4964886447507c18374b7a46ee2e371e9bf332f0706a3e8").unwrap(),
+            response_data: BlockResponseData::new(u64::MAX)
+        };
+
+        let mut bytes = vec![];
+        block_accepted.consensus_serialize(&mut bytes).unwrap();
+
+        // Ensure the old version can deserialize
+        let block_accepted_old = read_next::<BlockAcceptedOld, _>(&mut &bytes[..])
+            .expect("Failed to deserialize BlockAcceptedOld");
+        assert_eq!(
+            block_accepted.signer_signature_hash,
+            block_accepted_old.signer_signature_hash
+        );
+        assert_eq!(block_accepted.signature, block_accepted_old.signature);
+        assert_eq!(block_accepted.metadata, block_accepted_old.metadata);
+    }
 }
