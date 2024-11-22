@@ -11,13 +11,14 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ### Changed
 
-## [3.0.0.0.2.0]
+## [3.0.0.0.3.0]
 
 ### Added
 
 ### Changed
 
 - Allow a miner to extend their tenure immediately if the winner of the next tenure has committed to the wrong parent tenure (#5361)
+- If the winning miner of a sortition is committed to the wrong parent tenure, the previous miner can immediately tenure extend and continue mining since the winning miner would never be able to propose a valid block. (#5361)
 
 ## [3.0.0.0.2.0]
 
