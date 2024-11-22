@@ -458,7 +458,7 @@ impl SignCoordinator {
                             signer_signature_hash: response_hash,
                             signature,
                             metadata,
-                            tenure_extend_timestamp: _, // TOOD: utilize this info
+                            response_data: _, // TOOD: utilize this info
                         } = accepted;
                         let block_sighash = block.header.signer_signature_hash();
                         if block_sighash != response_hash {
