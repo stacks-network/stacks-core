@@ -66,6 +66,8 @@ pub struct StackerDBListener {
     stackerdb_channel: Arc<Mutex<StackerDBChannel>>,
     /// Receiver end of the StackerDB events channel
     receiver: Option<Receiver<StackerDBChunksEvent>>,
+    /// Flag to shut the node down
+    node_keep_running: Arc<AtomicBool>,
     /// Flag to shut the listener down
     keep_running: Arc<AtomicBool>,
     /// The signer set for this tenure (0 or 1)
@@ -90,6 +92,7 @@ pub struct StackerDBListener {
 impl StackerDBListener {
     pub fn new(
         stackerdb_channel: Arc<Mutex<StackerDBChannel>>,
+        node_keep_running: Arc<AtomicBool>,
         keep_running: Arc<AtomicBool>,
         reward_set: &RewardSet,
         burn_tip: &BlockSnapshot,
@@ -139,6 +142,7 @@ impl StackerDBListener {
         Ok(Self {
             stackerdb_channel,
             receiver: Some(receiver),
+            node_keep_running,
             keep_running,
             signer_set,
             total_weight,
@@ -160,6 +164,18 @@ impl StackerDBListener {
         };
 
         loop {
+            // was the node asked to stop?
+            if !self.node_keep_running.load(Ordering::SeqCst) {
+                info!("StackerDBListener: received node exit request. Aborting");
+                return Err(NakamotoNodeError::ChannelClosed);
+            }
+
+            // was the listener asked to stop?
+            if !self.keep_running.load(Ordering::SeqCst) {
+                info!("StackerDBListener: received listener exit request. Aborting");
+                return Err(NakamotoNodeError::ChannelClosed);
+            }
+
             let event = match receiver.recv_timeout(EVENT_RECEIVER_POLL) {
                 Ok(event) => event,
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
@@ -172,12 +188,6 @@ impl StackerDBListener {
                     ));
                 }
             };
-
-            // was the miner asked to stop?
-            if !self.keep_running.load(Ordering::SeqCst) {
-                info!("StackerDBListener: received miner exit request. Aborting");
-                return Err(NakamotoNodeError::ChannelClosed);
-            }
 
             // check to see if this event we got is a signer event
             let is_signer_event =

@@ -81,6 +81,8 @@ pub struct SignerCoordinator {
     ///  - key: StacksPublicKey
     ///  - value: TimestampInfo
     signer_idle_timestamps: Arc<Mutex<HashMap<StacksPublicKey, TimestampInfo>>>,
+    /// Keep running flag for the signer DB listener thread
+    keep_running: Arc<AtomicBool>,
     /// Handle for the signer DB listener thread
     listener_thread: Option<JoinHandle<()>>,
 }
@@ -90,16 +92,19 @@ impl SignerCoordinator {
     /// This will spawn a new thread to listen for messages from the signer DB.
     pub fn new(
         stackerdb_channel: Arc<Mutex<StackerDBChannel>>,
-        keep_running: Arc<AtomicBool>,
+        node_keep_running: Arc<AtomicBool>,
         reward_set: &RewardSet,
         burn_tip: &BlockSnapshot,
         burnchain: &Burnchain,
         message_key: StacksPrivateKey,
         config: &Config,
     ) -> Result<Self, ChainstateError> {
+        let keep_running = Arc::new(AtomicBool::new(true));
+
         // Create the stacker DB listener
         let mut listener = StackerDBListener::new(
             stackerdb_channel,
+            node_keep_running.clone(),
             keep_running.clone(),
             reward_set,
             burn_tip,
@@ -121,6 +126,7 @@ impl SignerCoordinator {
             weight_threshold: listener.weight_threshold,
             blocks: listener.blocks.clone(),
             signer_idle_timestamps: listener.signer_idle_timestamps.clone(),
+            keep_running,
             listener_thread: None,
         };
 
@@ -407,6 +413,18 @@ impl SignerCoordinator {
             true
         } else {
             false
+        }
+    }
+
+    pub fn shutdown(&mut self) {
+        if let Some(listener_thread) = self.listener_thread.take() {
+            info!("SignerCoordinator: shutting down stacker db listener thread");
+            self.keep_running
+                .store(false, std::sync::atomic::Ordering::Relaxed);
+            if let Err(e) = listener_thread.join() {
+                error!("Failed to join signer listener thread: {e:?}");
+            }
+            debug!("SignerCoordinator: stacker db listener thread has shut down");
         }
     }
 }
