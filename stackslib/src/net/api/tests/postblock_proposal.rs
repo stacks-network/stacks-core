@@ -384,12 +384,14 @@ fn test_try_make_response() {
     let observer = ProposalTestObserver::new();
     let proposal_observer = Arc::clone(&observer.proposal_observer);
 
+    info!("Run requests with observer");
     let mut responses = rpc_test.run_with_observer(requests, Some(&observer));
 
     let response = responses.remove(0);
 
     // Wait for the results to be non-empty
     loop {
+        info!("Wait for results to be non-empty");
         if proposal_observer
             .lock()
             .unwrap()

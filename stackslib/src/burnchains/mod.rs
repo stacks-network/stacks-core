@@ -450,6 +450,7 @@ impl PoxConstants {
         )
     }
 
+    // NOTE: this is the *old* pre-Nakamoto testnet
     pub fn testnet_default() -> PoxConstants {
         PoxConstants::new(
             POX_REWARD_CYCLE_LENGTH / 2,   // 1050
@@ -466,6 +467,10 @@ impl PoxConstants {
                 .try_into()
                 .expect("Epoch transition height must be <= u32::MAX"),
         ) // total liquid supply is 40000000000000000 µSTX
+    }
+
+    pub fn nakamoto_testnet_default() -> PoxConstants {
+        PoxConstants::new(900, 100, 51, 100, 0, u64::MAX, u64::MAX, 242, 243, 246, 244)
     }
 
     // TODO: add tests from mutation testing results #4838
