@@ -99,6 +99,7 @@ impl SignerCoordinator {
         message_key: StacksPrivateKey,
         config: &Config,
     ) -> Result<Self, ChainstateError> {
+        info!("SignerCoordinator: starting up");
         let keep_running = Arc::new(AtomicBool::new(true));
 
         // Create the stacker DB listener
@@ -135,7 +136,7 @@ impl SignerCoordinator {
             .name("stackerdb_listener".to_string())
             .spawn(move || {
                 if let Err(e) = listener.run() {
-                    error!("StackerDBListener: failed to run: {e:?}");
+                    error!("StackerDBListener: exited with error: {e:?}");
                 }
             })
             .map_err(|e| {

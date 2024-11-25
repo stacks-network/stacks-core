@@ -167,13 +167,13 @@ impl StackerDBListener {
             // was the node asked to stop?
             if !self.node_keep_running.load(Ordering::SeqCst) {
                 info!("StackerDBListener: received node exit request. Aborting");
-                return Err(NakamotoNodeError::ChannelClosed);
+                return Ok(());
             }
 
             // was the listener asked to stop?
             if !self.keep_running.load(Ordering::SeqCst) {
                 info!("StackerDBListener: received listener exit request. Aborting");
-                return Err(NakamotoNodeError::ChannelClosed);
+                return Ok(());
             }
 
             let event = match receiver.recv_timeout(EVENT_RECEIVER_POLL) {
