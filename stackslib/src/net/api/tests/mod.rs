@@ -47,7 +47,7 @@ use crate::net::httpcore::{StacksHttpRequest, StacksHttpResponse};
 use crate::net::relay::Relayer;
 use crate::net::rpc::ConversationHttp;
 use crate::net::test::{TestEventObserver, TestPeer, TestPeerConfig};
-use crate::net::tests::inv::nakamoto::make_nakamoto_peers_from_invs;
+use crate::net::tests::inv::nakamoto::make_nakamoto_peers_from_invs_ext;
 use crate::net::{
     Attachment, AttachmentInstance, MemPoolEventDispatcher, RPCHandlerArgs, StackerDBConfig,
     StacksNodeState, UrlString,
@@ -849,8 +849,18 @@ impl<'a> TestRPC<'a> {
             true, true, true, true, true, true, true, true, true, true,
         ]];
 
-        let (mut peer, mut other_peers) =
-            make_nakamoto_peers_from_invs(function_name!(), observer, 10, 3, bitvecs.clone(), 1);
+        let (mut peer, mut other_peers) = make_nakamoto_peers_from_invs_ext(
+            function_name!(),
+            observer,
+            bitvecs.clone(),
+            |boot_plan| {
+                boot_plan
+                    .with_pox_constants(10, 3)
+                    .with_extra_peers(1)
+                    .with_initial_balances(vec![])
+                    .with_malleablized_blocks(false)
+            },
+        );
         let mut other_peer = other_peers.pop().unwrap();
 
         let peer_1_indexer = BitcoinIndexer::new_unit_test(&peer.config.burnchain.working_dir);

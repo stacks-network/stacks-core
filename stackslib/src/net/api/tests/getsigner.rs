@@ -139,7 +139,7 @@ fn test_try_make_response() {
     let response = responses.remove(0);
     info!("response: {:?}", &response);
     let signer_response = response.decode_signer().unwrap();
-    assert_eq!(signer_response.blocks_signed, 40);
+    assert_eq!(signer_response.blocks_signed, 20);
 
     // Signer doesn't exist so it should not have signed anything
     let response = responses.remove(0);

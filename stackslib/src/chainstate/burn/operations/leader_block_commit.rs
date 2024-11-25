@@ -136,7 +136,8 @@ impl LeaderBlockCommitOp {
         block_header_hash: &BlockHeaderHash,
         block_height: u64,
         new_seed: &VRFSeed,
-        parent: &LeaderBlockCommitOp,
+        parent_block_height: u32,
+        parent_vtxindex: u16,
         key_block_ptr: u32,
         key_vtxindex: u16,
         burn_fee: u64,
@@ -148,8 +149,8 @@ impl LeaderBlockCommitOp {
             new_seed: new_seed.clone(),
             key_block_ptr: key_block_ptr,
             key_vtxindex: key_vtxindex,
-            parent_block_ptr: parent.block_height as u32,
-            parent_vtxindex: parent.vtxindex as u16,
+            parent_block_ptr: parent_block_height,
+            parent_vtxindex: parent_vtxindex,
             memo: vec![],
             burn_fee: burn_fee,
             input: input.clone(),
@@ -696,8 +697,19 @@ impl LeaderBlockCommitOp {
         //  is descendant
         let directly_descended_from_anchor = epoch_id.block_commits_to_parent()
             && self.block_header_hash == reward_set_info.anchor_block;
-        let descended_from_anchor = directly_descended_from_anchor || tx
-            .descended_from(parent_block_height, &reward_set_info.anchor_block)
+
+        // second, if we're in a nakamoto epoch, and the parent block has vtxindex 0 (i.e. the
+        // coinbase of the burnchain block), then assume that this block descends from the anchor
+        // block for the purposes of validating its PoX payouts.  The block validation logic will
+        // check that the parent block is indeed a shadow block, and that `self.parent_block_ptr`
+        // points to the shadow block's tenure's burnchain block.
+        let maybe_shadow_parent = epoch_id.supports_shadow_blocks()
+            && self.parent_block_ptr != 0
+            && self.parent_vtxindex == 0;
+
+        let descended_from_anchor = directly_descended_from_anchor
+            || maybe_shadow_parent
+            || tx.descended_from(parent_block_height, &reward_set_info.anchor_block)
             .map_err(|e| {
                 error!("Failed to check whether parent (height={}) is descendent of anchor block={}: {}",
                        parent_block_height, &reward_set_info.anchor_block, e);
@@ -1033,10 +1045,12 @@ impl LeaderBlockCommitOp {
             return Err(op_error::BlockCommitNoParent);
         } else if self.parent_block_ptr != 0 || self.parent_vtxindex != 0 {
             // not building off of genesis, so the parent block must exist
+            // unless the parent is a shadow block
             let has_parent = tx
                 .get_block_commit_parent(parent_block_height, self.parent_vtxindex.into(), &tx_tip)?
                 .is_some();
-            if !has_parent {
+            let maybe_shadow_block = self.parent_vtxindex == 0 && epoch_id.supports_shadow_blocks();
+            if !has_parent && !maybe_shadow_block {
                 warn!("Invalid block commit: no parent block in this fork";
                       "apparent_sender" => %apparent_sender_repr
                 );
