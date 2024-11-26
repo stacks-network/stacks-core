@@ -184,7 +184,7 @@ impl From<BlockProposal> for BlockInfo {
     }
 }
 impl BlockInfo {
-    /// Wether the block is a tenure change block or not
+    /// Whether the block is a tenure change block or not
     pub fn is_tenure_change(&self) -> bool {
         self.block
             .txs

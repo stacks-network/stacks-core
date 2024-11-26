@@ -583,10 +583,10 @@ impl Signer {
             block_info.signed_self.get_or_insert(get_epoch_time_secs());
         }
         // Record the block validation time but do not consider stx transfers or boot contract calls
-        if block_validate_ok.cost.is_zero() {
-            0
+        block_info.validation_time_ms = if block_validate_ok.cost.is_zero() {
+            Some(0)
         } else {
-            block_validate_ok.validation_time_ms
+            Some(block_validate_ok.validation_time_ms)
         };
 
         let signature = self
