@@ -128,6 +128,7 @@ jobs:
           - tests::signer::v0::block_commit_delay
           - tests::signer::v0::continue_after_fast_block_no_sortition
           - tests::signer::v0::block_validation_response_timeout
+          - tests::signer::v0::tenure_extend_after_bad_commit
           - tests::nakamoto_integrations::burn_ops_integration_test
           - tests::nakamoto_integrations::check_block_heights
           - tests::nakamoto_integrations::clarity_burn_state
