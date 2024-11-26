@@ -625,11 +625,10 @@ impl SignerDb {
         Ok(())
     }
 
-    /// Either instantiate a new database, or migrate an existing one
-    /// If the detected version of the existing database is 0 (i.e., a pre-migration
-    /// logic DB, the DB will be dropped).
-    fn create_or_migrate(&mut self) -> Result<(), DBError> {
+    /// Register custom scalar functions used by the database
+    fn register_scalar_functions(&self) -> Result<(), DBError> {
         // Register helper function for determining if a block is a tenure change transaction
+        // Required only for data migration from Schema 4 to Schema 5
         self.db.create_scalar_function(
             "is_tenure_change",
             1,
@@ -641,6 +640,20 @@ impl SignerDb {
                 Ok(block_info.is_tenure_change())
             },
         )?;
+        Ok(())
+    }
+
+    /// Drop registered scalar functions used only for data migrations
+    fn remove_scalar_functions(&self) -> Result<(), DBError> {
+        self.db.remove_function("is_tenure_change", 1)?;
+        Ok(())
+    }
+
+    /// Either instantiate a new database, or migrate an existing one
+    /// If the detected version of the existing database is 0 (i.e., a pre-migration
+    /// logic DB, the DB will be dropped).
+    fn create_or_migrate(&mut self) -> Result<(), DBError> {
+        self.register_scalar_functions()?;
         let sql_tx = tx_begin_immediate(&mut self.db)?;
         loop {
             let version = Self::get_schema_version(&sql_tx)?;
@@ -658,6 +671,7 @@ impl SignerDb {
             }
         }
         sql_tx.commit()?;
+        self.remove_scalar_functions()?;
         Ok(())
     }
 
