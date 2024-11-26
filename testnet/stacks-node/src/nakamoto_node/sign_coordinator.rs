@@ -16,7 +16,7 @@
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Receiver;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use hashbrown::{HashMap, HashSet};
@@ -43,7 +43,7 @@ use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{StacksPrivateKey, StacksPublicKey};
 
 use super::Error as NakamotoNodeError;
-use crate::event_dispatcher::STACKER_DB_CHANNEL;
+use crate::event_dispatcher::StackerDBChannel;
 use crate::neon::Counters;
 use crate::Config;
 
@@ -68,11 +68,16 @@ pub struct SignCoordinator {
     total_weight: u32,
     keep_running: Arc<AtomicBool>,
     pub next_signer_bitvec: BitVec<4000>,
+    stackerdb_channel: Arc<Mutex<StackerDBChannel>>,
 }
 
 impl Drop for SignCoordinator {
     fn drop(&mut self) {
-        STACKER_DB_CHANNEL.replace_receiver(self.receiver.take().expect(
+        let stackerdb_channel = self
+            .stackerdb_channel
+            .lock()
+            .expect("FATAL: failed to lock stackerdb channel");
+        stackerdb_channel.replace_receiver(self.receiver.take().expect(
             "FATAL: lost possession of the StackerDB channel before dropping SignCoordinator",
         ));
     }
@@ -87,6 +92,7 @@ impl SignCoordinator {
         message_key: StacksPrivateKey,
         config: &Config,
         keep_running: Arc<AtomicBool>,
+        stackerdb_channel: Arc<Mutex<StackerDBChannel>>,
     ) -> Result<Self, ChainstateError> {
         let is_mainnet = config.is_mainnet();
         let Some(ref reward_set_signers) = reward_set.signers else {
@@ -150,7 +156,10 @@ impl SignCoordinator {
             use crate::tests::nakamoto_integrations::TEST_SIGNING;
             if TEST_SIGNING.lock().unwrap().is_some() {
                 debug!("Short-circuiting spinning up coordinator from signer commitments. Using test signers channel.");
-                let (receiver, replaced_other) = STACKER_DB_CHANNEL.register_miner_coordinator();
+                let (receiver, replaced_other) = stackerdb_channel
+                    .lock()
+                    .expect("FATAL: failed to lock StackerDB channel")
+                    .register_miner_coordinator();
                 if replaced_other {
                     warn!("Replaced the miner/coordinator receiver of a prior thread. Prior thread may have crashed.");
                 }
@@ -164,12 +173,16 @@ impl SignCoordinator {
                     weight_threshold: threshold,
                     total_weight,
                     keep_running,
+                    stackerdb_channel,
                 };
                 return Ok(sign_coordinator);
             }
         }
 
-        let (receiver, replaced_other) = STACKER_DB_CHANNEL.register_miner_coordinator();
+        let (receiver, replaced_other) = stackerdb_channel
+            .lock()
+            .expect("FATAL: failed to lock StackerDB channel")
+            .register_miner_coordinator();
         if replaced_other {
             warn!("Replaced the miner/coordinator receiver of a prior thread. Prior thread may have crashed.");
         }
@@ -184,6 +197,7 @@ impl SignCoordinator {
             weight_threshold: threshold,
             total_weight,
             keep_running,
+            stackerdb_channel,
         })
     }
 
@@ -458,7 +472,7 @@ impl SignCoordinator {
                             signer_signature_hash: response_hash,
                             signature,
                             metadata,
-                            tenure_extend_timestamp: _, // TOOD: utilize this info
+                            response_data: _, // TOOD: utilize this info
                         } = accepted;
                         let block_sighash = block.header.signer_signature_hash();
                         if block_sighash != response_hash {

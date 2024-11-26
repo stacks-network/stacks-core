@@ -73,6 +73,9 @@ use crate::{
     SignerMessage as SignerMessageTrait, VERSION_STRING,
 };
 
+/// Maximum size of the [BlockResponseData] serialized bytes
+pub const BLOCK_RESPONSE_DATA_MAX_SIZE: u32 = 2 * 1024 * 1024; // 2MB
+
 define_u8_enum!(
 /// Enum representing the stackerdb message identifier: this is
 ///  the contract index in the signers contracts (i.e., X in signers-0-X)
@@ -647,7 +650,7 @@ impl BlockResponse {
             signer_signature_hash,
             signature,
             metadata: SignerMessageMetadata::default(),
-            tenure_extend_timestamp,
+            response_data: BlockResponseData::new(tenure_extend_timestamp),
         })
     }
 
@@ -751,6 +754,79 @@ impl SignerMessageMetadata {
     }
 }
 
+/// The latest version of the block response data
+pub const BLOCK_RESPONSE_DATA_VERSION: u8 = 2;
+
+/// Versioned, backwards-compatible struct for block response data
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct BlockResponseData {
+    /// The version of the block response data
+    pub version: u8,
+    /// The block response data
+    pub tenure_extend_timestamp: u64,
+    /// When deserializing future versions,
+    /// there may be extra bytes that we don't know about
+    pub unknown_bytes: Vec<u8>,
+}
+
+impl BlockResponseData {
+    /// Create a new BlockResponseData for the provided tenure extend timestamp and unknown bytes
+    pub fn new(tenure_extend_timestamp: u64) -> Self {
+        Self {
+            version: BLOCK_RESPONSE_DATA_VERSION,
+            tenure_extend_timestamp,
+            unknown_bytes: vec![],
+        }
+    }
+
+    /// Create an empty BlockResponseData
+    pub fn empty() -> Self {
+        Self::new(u64::MAX)
+    }
+
+    /// Serialize the "inner" block response data. Used to determine the bytes length of the serialized block response data
+    fn inner_consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
+        write_next(fd, &self.tenure_extend_timestamp)?;
+        // write_next(fd, &self.unknown_bytes)?;
+        fd.write_all(&self.unknown_bytes)
+            .map_err(CodecError::WriteError)?;
+        Ok(())
+    }
+}
+
+impl StacksMessageCodec for BlockResponseData {
+    /// Serialize the block response data.
+    /// When creating a new version of the block response data, we are only ever
+    /// appending new bytes to the end of the struct. When serializing, we use
+    /// `bytes_len` to ensure that older versions of the code can read through the
+    /// end of the serialized bytes.
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
+        write_next(fd, &self.version)?;
+        let mut inner_bytes = vec![];
+        self.inner_consensus_serialize(&mut inner_bytes)?;
+        write_next(fd, &inner_bytes)?;
+        Ok(())
+    }
+
+    /// Deserialize the block response data in a backwards-compatible manner.
+    /// When creating a new version of the block response data, we are only ever
+    /// appending new bytes to the end of the struct. When deserializing, we use
+    /// `bytes_len` to ensure that we read through the end of the serialized bytes.
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
+        let Ok(version) = read_next(fd) else {
+            return Ok(Self::empty());
+        };
+        let inner_bytes: Vec<u8> = read_next_at_most(fd, BLOCK_RESPONSE_DATA_MAX_SIZE)?;
+        let mut inner_reader = inner_bytes.as_slice();
+        let tenure_extend_timestamp = read_next(&mut inner_reader)?;
+        Ok(Self {
+            version,
+            tenure_extend_timestamp,
+            unknown_bytes: inner_reader.to_vec(),
+        })
+    }
+}
+
 /// A rejection response from a signer for a proposed block
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct BlockAccepted {
@@ -760,8 +836,8 @@ pub struct BlockAccepted {
     pub signature: MessageSignature,
     /// Signer message metadata
     pub metadata: SignerMessageMetadata,
-    /// The timestamp at which a tenure extend will be accepted by the responding signer
-    pub tenure_extend_timestamp: u64,
+    /// Extra versioned block response data
+    pub response_data: BlockResponseData,
 }
 
 impl StacksMessageCodec for BlockAccepted {
@@ -769,7 +845,7 @@ impl StacksMessageCodec for BlockAccepted {
         write_next(fd, &self.signer_signature_hash)?;
         write_next(fd, &self.signature)?;
         write_next(fd, &self.metadata)?;
-        write_next(fd, &self.tenure_extend_timestamp)?;
+        write_next(fd, &self.response_data)?;
         Ok(())
     }
 
@@ -777,12 +853,12 @@ impl StacksMessageCodec for BlockAccepted {
         let signer_signature_hash = read_next::<Sha512Trunc256Sum, _>(fd)?;
         let signature = read_next::<MessageSignature, _>(fd)?;
         let metadata = read_next::<SignerMessageMetadata, _>(fd)?;
-        let tenure_extend_timestamp = read_next::<u64, _>(fd).unwrap_or(u64::MAX);
+        let response_data = read_next::<BlockResponseData, _>(fd)?;
         Ok(Self {
             signer_signature_hash,
             signature,
             metadata,
-            tenure_extend_timestamp,
+            response_data,
         })
     }
 }
@@ -798,7 +874,7 @@ impl BlockAccepted {
             signer_signature_hash,
             signature,
             metadata: SignerMessageMetadata::default(),
-            tenure_extend_timestamp,
+            response_data: BlockResponseData::new(tenure_extend_timestamp),
         }
     }
 }
@@ -818,8 +894,8 @@ pub struct BlockRejection {
     pub chain_id: u32,
     /// Signer message metadata
     pub metadata: SignerMessageMetadata,
-    /// The timestamp at which a tenure extend will be accepted by the responding signer
-    pub tenure_extend_timestamp: u64,
+    /// Extra versioned block response data
+    pub response_data: BlockResponseData,
 }
 
 impl BlockRejection {
@@ -843,7 +919,7 @@ impl BlockRejection {
             signature: MessageSignature::empty(),
             chain_id,
             metadata: SignerMessageMetadata::default(),
-            tenure_extend_timestamp: timestamp,
+            response_data: BlockResponseData::new(timestamp),
         };
         rejection
             .sign(private_key)
@@ -870,7 +946,7 @@ impl BlockRejection {
             chain_id,
             signature: MessageSignature::empty(),
             metadata: SignerMessageMetadata::default(),
-            tenure_extend_timestamp: timestamp,
+            response_data: BlockResponseData::new(timestamp),
         };
         rejection
             .sign(private_key)
@@ -921,7 +997,7 @@ impl StacksMessageCodec for BlockRejection {
         write_next(fd, &self.chain_id)?;
         write_next(fd, &self.signature)?;
         write_next(fd, &self.metadata)?;
-        write_next(fd, &self.tenure_extend_timestamp)?;
+        write_next(fd, &self.response_data)?;
         Ok(())
     }
 
@@ -935,7 +1011,7 @@ impl StacksMessageCodec for BlockRejection {
         let chain_id = read_next::<u32, _>(fd)?;
         let signature = read_next::<MessageSignature, _>(fd)?;
         let metadata = read_next::<SignerMessageMetadata, _>(fd)?;
-        let tenure_extend_timestamp = read_next::<u64, _>(fd).unwrap_or(u64::MAX);
+        let response_data = read_next::<BlockResponseData, _>(fd)?;
         Ok(Self {
             reason,
             reason_code,
@@ -943,7 +1019,7 @@ impl StacksMessageCodec for BlockRejection {
             chain_id,
             signature,
             metadata,
-            tenure_extend_timestamp,
+            response_data,
         })
     }
 }
@@ -1103,7 +1179,7 @@ mod test {
             signer_signature_hash: Sha512Trunc256Sum([0u8; 32]),
             signature: MessageSignature::empty(),
             metadata: SignerMessageMetadata::default(),
-            tenure_extend_timestamp: thread_rng().next_u64(),
+            response_data: BlockResponseData::new(thread_rng().next_u64()),
         };
         let response = BlockResponse::Accepted(accepted);
         let serialized_response = response.serialize_to_vec();
@@ -1130,7 +1206,7 @@ mod test {
             signer_signature_hash: Sha512Trunc256Sum([2u8; 32]),
             signature: MessageSignature::empty(),
             metadata: SignerMessageMetadata::default(),
-            tenure_extend_timestamp: thread_rng().next_u64(),
+            response_data: BlockResponseData::new(thread_rng().next_u64()),
         };
         let signer_message = SignerMessage::BlockResponse(BlockResponse::Accepted(accepted));
         let serialized_signer_message = signer_message.serialize_to_vec();
@@ -1277,9 +1353,9 @@ mod test {
     #[test]
     fn test_backwards_compatibility() {
         let block_rejected_hex = "010100000050426c6f636b206973206e6f7420612074656e7572652d737461727420626c6f636b2c20616e642068617320616e20756e7265636f676e697a65642074656e75726520636f6e73656e7375732068617368000691f95f84b7045f7dce7757052caa986ef042cb58f7df5031a3b5b5d0e3dda63e80000000006fb349212e1a1af1a3c712878d5159b5ec14636adb6f70be00a6da4ad4f88a9934d8a9abb229620dd8e0f225d63401e36c64817fb29e6c05591dcbe95c512df3";
-        let block_rejected_bytes = hex_bytes(&block_rejected_hex).unwrap();
+        let block_rejected_bytes = hex_bytes(block_rejected_hex).unwrap();
         let block_accepted_hex = "010011717149677c2ac97d15ae5954f7a716f10100b9cb81a2bf27551b2f2e54ef19001c694f8134c5c90f2f2bcd330e9f423204884f001b5df0050f36a2c4ff79dd93522bb2ae395ea87de4964886447507c18374b7a46ee2e371e9bf332f0706a3e8";
-        let block_accepted_bytes = hex_bytes(&block_accepted_hex).unwrap();
+        let block_accepted_bytes = hex_bytes(block_accepted_hex).unwrap();
         let block_rejected = read_next::<SignerMessage, _>(&mut &block_rejected_bytes[..])
             .expect("Failed to deserialize BlockRejection");
         let block_accepted = read_next::<SignerMessage, _>(&mut &block_accepted_bytes[..])
@@ -1294,7 +1370,7 @@ mod test {
                 chain_id: CHAIN_ID_TESTNET,
                 signature: MessageSignature::from_hex("006fb349212e1a1af1a3c712878d5159b5ec14636adb6f70be00a6da4ad4f88a9934d8a9abb229620dd8e0f225d63401e36c64817fb29e6c05591dcbe95c512df3").unwrap(),
                 metadata: SignerMessageMetadata::empty(),
-                tenure_extend_timestamp: u64::MAX
+                response_data: BlockResponseData::new(u64::MAX)
             }))
         );
 
@@ -1307,17 +1383,17 @@ mod test {
                 .unwrap(),
                 metadata: SignerMessageMetadata::empty(),
                 signature: MessageSignature::from_hex("001c694f8134c5c90f2f2bcd330e9f423204884f001b5df0050f36a2c4ff79dd93522bb2ae395ea87de4964886447507c18374b7a46ee2e371e9bf332f0706a3e8").unwrap(),
-                tenure_extend_timestamp: u64::MAX
+                response_data: BlockResponseData::new(u64::MAX)
             }))
         );
     }
 
     #[test]
     fn test_block_response_metadata() {
-        let block_rejected_hex = "010100000050426c6f636b206973206e6f7420612074656e7572652d737461727420626c6f636b2c20616e642068617320616e20756e7265636f676e697a65642074656e75726520636f6e73656e7375732068617368000691f95f84b7045f7dce7757052caa986ef042cb58f7df5031a3b5b5d0e3dda63e80000000006fb349212e1a1af1a3c712878d5159b5ec14636adb6f70be00a6da4ad4f88a9934d8a9abb229620dd8e0f225d63401e36c64817fb29e6c05591dcbe95c512df30000000b48656c6c6f20776f726c6400";
-        let block_rejected_bytes = hex_bytes(&block_rejected_hex).unwrap();
-        let block_accepted_hex = "010011717149677c2ac97d15ae5954f7a716f10100b9cb81a2bf27551b2f2e54ef19001c694f8134c5c90f2f2bcd330e9f423204884f001b5df0050f36a2c4ff79dd93522bb2ae395ea87de4964886447507c18374b7a46ee2e371e9bf332f0706a3e80000000b48656c6c6f20776f726c6400";
-        let block_accepted_bytes = hex_bytes(&block_accepted_hex).unwrap();
+        let block_rejected_hex = "010100000050426c6f636b206973206e6f7420612074656e7572652d737461727420626c6f636b2c20616e642068617320616e20756e7265636f676e697a65642074656e75726520636f6e73656e7375732068617368000691f95f84b7045f7dce7757052caa986ef042cb58f7df5031a3b5b5d0e3dda63e80000000006fb349212e1a1af1a3c712878d5159b5ec14636adb6f70be00a6da4ad4f88a9934d8a9abb229620dd8e0f225d63401e36c64817fb29e6c05591dcbe95c512df30000000b48656c6c6f20776f726c64";
+        let block_rejected_bytes = hex_bytes(block_rejected_hex).unwrap();
+        let block_accepted_hex = "010011717149677c2ac97d15ae5954f7a716f10100b9cb81a2bf27551b2f2e54ef19001c694f8134c5c90f2f2bcd330e9f423204884f001b5df0050f36a2c4ff79dd93522bb2ae395ea87de4964886447507c18374b7a46ee2e371e9bf332f0706a3e80000000b48656c6c6f20776f726c64";
+        let block_accepted_bytes = hex_bytes(block_accepted_hex).unwrap();
         let block_rejected = read_next::<SignerMessage, _>(&mut &block_rejected_bytes[..])
             .expect("Failed to deserialize BlockRejection");
         let block_accepted = read_next::<SignerMessage, _>(&mut &block_accepted_bytes[..])
@@ -1334,7 +1410,7 @@ mod test {
                 metadata: SignerMessageMetadata {
                     server_version: "Hello world".to_string(),
                 },
-                tenure_extend_timestamp: u64::MAX,
+                response_data: BlockResponseData::new(u64::MAX),
             }))
         );
 
@@ -1349,7 +1425,7 @@ mod test {
                     server_version: "Hello world".to_string(),
                 },
                 signature: MessageSignature::from_hex("001c694f8134c5c90f2f2bcd330e9f423204884f001b5df0050f36a2c4ff79dd93522bb2ae395ea87de4964886447507c18374b7a46ee2e371e9bf332f0706a3e8").unwrap(),
-                tenure_extend_timestamp: u64::MAX
+                response_data: BlockResponseData::empty(),
             }))
         );
     }
@@ -1361,5 +1437,138 @@ mod test {
             read_next::<SignerMessageMetadata, _>(&mut &serialized_metadata[..])
                 .expect("Failed to deserialize SignerMessageMetadata");
         assert_eq!(deserialized_metadata, SignerMessageMetadata::empty());
+    }
+
+    #[test]
+    fn block_response_data_serialization() {
+        let mut response_data = BlockResponseData::new(2);
+        response_data.unknown_bytes = vec![1, 2, 3, 4];
+        let mut bytes = vec![];
+        response_data.consensus_serialize(&mut bytes).unwrap();
+        // 1 byte version + 4 bytes (bytes_len) + 8 bytes tenure_extend_timestamp + 4 bytes unknown_bytes
+        assert_eq!(bytes.len(), 17);
+        let deserialized_data = read_next::<BlockResponseData, _>(&mut &bytes[..])
+            .expect("Failed to deserialize BlockResponseData");
+        assert_eq!(response_data, deserialized_data);
+
+        let response_data = BlockResponseData::new(2);
+        let mut bytes = vec![];
+        response_data.consensus_serialize(&mut bytes).unwrap();
+        // 1 byte version + 4 bytes (bytes_len) + 8 bytes tenure_extend_timestamp + 0 bytes unknown_bytes
+        assert_eq!(bytes.len(), 13);
+        let deserialized_data = read_next::<BlockResponseData, _>(&mut &bytes[..])
+            .expect("Failed to deserialize BlockResponseData");
+        assert_eq!(response_data, deserialized_data);
+    }
+
+    /// Mock struct for testing "future proofing" of the block response data
+    pub struct NewerBlockResponseData {
+        pub version: u8,
+        pub tenure_extend_timestamp: u64,
+        pub some_other_field: u64,
+        pub yet_another_field: u64,
+    }
+
+    impl NewerBlockResponseData {
+        pub fn inner_consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
+            write_next(fd, &self.tenure_extend_timestamp)?;
+            write_next(fd, &self.some_other_field)?;
+            write_next(fd, &self.yet_another_field)?;
+            Ok(())
+        }
+
+        pub fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
+            write_next(fd, &self.version)?;
+            let mut inner_bytes = vec![];
+            self.inner_consensus_serialize(&mut inner_bytes)?;
+            let bytes_len = inner_bytes.len() as u32;
+            write_next(fd, &bytes_len)?;
+            fd.write_all(&inner_bytes).map_err(CodecError::WriteError)?;
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn test_newer_block_response_data() {
+        let new_response_data = NewerBlockResponseData {
+            version: 11,
+            tenure_extend_timestamp: 2,
+            some_other_field: 3,
+            yet_another_field: 4,
+        };
+
+        let mut bytes = vec![];
+        new_response_data.consensus_serialize(&mut bytes).unwrap();
+        let mut reader = bytes.as_slice();
+        let deserialized_data = read_next::<BlockResponseData, _>(&mut reader)
+            .expect("Failed to deserialize BlockResponseData");
+        assert_eq!(reader.len(), 0, "Expected bytes to be fully consumed");
+        assert_eq!(deserialized_data.version, 11);
+        assert_eq!(deserialized_data.tenure_extend_timestamp, 2);
+        // two extra u64s:
+        assert_eq!(deserialized_data.unknown_bytes.len(), 16);
+
+        // BlockResponseData with unknown bytes can serialize/deserialize back to itself
+        let mut bytes = vec![];
+        deserialized_data.consensus_serialize(&mut bytes).unwrap();
+        let deserialized_data_2 = read_next::<BlockResponseData, _>(&mut &bytes[..])
+            .expect("Failed to deserialize BlockResponseData");
+        assert_eq!(deserialized_data, deserialized_data_2);
+    }
+
+    /// Test using an older version of BlockAccepted to verify that we can deserialize
+    /// future versions
+
+    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+    pub struct BlockAcceptedOld {
+        /// The signer signature hash of the block that was accepted
+        pub signer_signature_hash: Sha512Trunc256Sum,
+        /// The signer's signature across the acceptance
+        pub signature: MessageSignature,
+        /// Signer message metadata
+        pub metadata: SignerMessageMetadata,
+    }
+
+    impl StacksMessageCodec for BlockAcceptedOld {
+        fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
+            write_next(fd, &self.signer_signature_hash)?;
+            write_next(fd, &self.signature)?;
+            write_next(fd, &self.metadata)?;
+            Ok(())
+        }
+
+        fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
+            let signer_signature_hash = read_next::<Sha512Trunc256Sum, _>(fd)?;
+            let signature = read_next::<MessageSignature, _>(fd)?;
+            let metadata = read_next::<SignerMessageMetadata, _>(fd)?;
+            Ok(Self {
+                signer_signature_hash,
+                signature,
+                metadata,
+            })
+        }
+    }
+
+    #[test]
+    fn block_accepted_old_version_can_deserialize() {
+        let block_accepted = BlockAccepted {
+            signer_signature_hash: Sha512Trunc256Sum::from_hex("11717149677c2ac97d15ae5954f7a716f10100b9cb81a2bf27551b2f2e54ef19").unwrap(),
+            metadata: SignerMessageMetadata::default(),
+            signature: MessageSignature::from_hex("001c694f8134c5c90f2f2bcd330e9f423204884f001b5df0050f36a2c4ff79dd93522bb2ae395ea87de4964886447507c18374b7a46ee2e371e9bf332f0706a3e8").unwrap(),
+            response_data: BlockResponseData::new(u64::MAX)
+        };
+
+        let mut bytes = vec![];
+        block_accepted.consensus_serialize(&mut bytes).unwrap();
+
+        // Ensure the old version can deserialize
+        let block_accepted_old = read_next::<BlockAcceptedOld, _>(&mut &bytes[..])
+            .expect("Failed to deserialize BlockAcceptedOld");
+        assert_eq!(
+            block_accepted.signer_signature_hash,
+            block_accepted_old.signer_signature_hash
+        );
+        assert_eq!(block_accepted.signature, block_accepted_old.signature);
+        assert_eq!(block_accepted.metadata, block_accepted_old.metadata);
     }
 }
