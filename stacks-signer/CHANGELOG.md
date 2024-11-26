@@ -11,7 +11,6 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ### Changed
 
-- Allow a miner to extend their tenure immediately if the winner of the next tenure has committed to the wrong parent tenure (#5361)
 - Add tenure extend timestamp to signer block responses
 - Added tenure_idle_timeout_secs configuration option for determining when a tenure extend will be accepted
 - Allow a miner to extend their tenure immediately if the winner of the next tenure has committed to the wrong parent tenure (#5361)
