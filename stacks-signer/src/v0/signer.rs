@@ -372,10 +372,12 @@ impl Signer {
             "burn_height" => block_proposal.burn_height,
         );
         crate::monitoring::increment_block_proposals_received();
+        info!("{self}: done monitoring");
         let mut block_info = BlockInfo::from(block_proposal.clone());
 
         // Get sortition view if we don't have it
         if sortition_state.is_none() {
+            info!("{self}: Fetching sortition view for block proposal");
             *sortition_state =
                 SortitionsView::fetch_view(self.proposal_config.clone(), stacks_client)
                     .inspect_err(|e| {
@@ -386,10 +388,12 @@ impl Signer {
                         )
                     })
                     .ok();
+            info!("{self}: done fetching sortition view");
         }
 
         // Check if proposal can be rejected now if not valid against sortition view
         let block_response = if let Some(sortition_state) = sortition_state {
+            info!("{self}: Checking block proposal against sortition view");
             match sortition_state.check_proposal(
                 stacks_client,
                 &mut self.signer_db,
@@ -443,6 +447,8 @@ impl Signer {
             ))
         };
 
+        info!("{self}: got block response: {block_response:?}");
+
         #[cfg(any(test, feature = "testing"))]
         let block_response =
             self.test_reject_block_proposal(block_proposal, &mut block_info, block_response);
@@ -467,6 +473,7 @@ impl Signer {
             }
         } else {
             // Just in case check if the last block validation submission timed out.
+            info!("{self}: Checking for timed out block proposal submissions");
             self.check_submitted_block_proposal();
             if self.submitted_block_proposal.is_none() {
                 // We don't know if proposal is valid, submit to stacks-node for further checks and store it locally.

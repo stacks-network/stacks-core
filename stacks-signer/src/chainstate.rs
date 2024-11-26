@@ -193,6 +193,7 @@ impl SortitionsView {
         reward_cycle: u64,
         reset_view_if_wrong_consensus_hash: bool,
     ) -> Result<bool, SignerChainstateError> {
+        info!("check_proposal: Checking block proposal");
         if self
             .cur_sortition
             .is_timed_out(self.config.block_proposal_timeout, signer_db)?
@@ -204,6 +205,7 @@ impl SortitionsView {
             );
             self.cur_sortition.miner_status = SortitionMinerStatus::InvalidatedBeforeFirstBlock;
         } else if let Some(tip) = signer_db.get_canonical_tip()? {
+            info!("check_proposal: Got canonical tip");
             // Check if the current sortition is aligned with the expected tenure:
             // - If the tip is in the current tenure, we are in the process of mining this tenure.
             // - If the tip is not in the current tenure, then we’re starting a new tenure,
@@ -217,6 +219,7 @@ impl SortitionsView {
             let parent_tenure_id_match =
                 self.cur_sortition.parent_tenure_id == tip.block.header.consensus_hash;
             if !consensus_hash_match && !parent_tenure_id_match {
+                info!("check_proposal: calling check_parent_tenure_choice");
                 // More expensive check, so do it only if we need to.
                 let is_valid_parent_tenure = Self::check_parent_tenure_choice(
                     &self.cur_sortition,
@@ -233,11 +236,14 @@ impl SortitionsView {
                     );
                     self.cur_sortition.miner_status =
                         SortitionMinerStatus::InvalidatedBeforeFirstBlock;
+                } else {
+                    info!("check_proposal: parent tenure is valid");
                 }
             }
         }
 
         if let Some(last_sortition) = self.last_sortition.as_mut() {
+            info!("check_proposal: Last sortition exists");
             if last_sortition.is_timed_out(self.config.block_proposal_timeout, signer_db)? {
                 info!(
                     "Last miner timed out, marking as invalid.";
@@ -247,6 +253,7 @@ impl SortitionsView {
                 last_sortition.miner_status = SortitionMinerStatus::InvalidatedBeforeFirstBlock;
             }
         }
+        info!("check_proposal: Checking pox treatment");
         let bitvec_all_1s = block.header.pox_treatment.iter().all(|entry| entry);
         if !bitvec_all_1s {
             warn!(
@@ -344,6 +351,7 @@ impl SortitionsView {
             }
         };
 
+        info!("check_proposal: Checking tenure change");
         if let Some(tenure_change) = block.get_tenure_change_tx_payload() {
             if !self.validate_tenure_change_payload(
                 &proposed_by,
@@ -356,6 +364,7 @@ impl SortitionsView {
                 return Ok(false);
             }
         } else {
+            info!("check_proposal: Checking if it confirms the latest block in the tenure");
             // check if the new block confirms the last block in the current tenure
             let confirms_latest_in_tenure =
                 Self::confirms_latest_block_in_same_tenure(block, signer_db)?;
@@ -364,6 +373,7 @@ impl SortitionsView {
             }
         }
 
+        info!("check_proposal: Checking tenure extend");
         if let Some(tenure_extend) = block.get_tenure_extend_tx_payload() {
             // in tenure extends, we need to check:
             // (1) if this is the most recent sortition, an extend is allowed if it changes the burnchain view
@@ -371,6 +381,7 @@ impl SortitionsView {
             let changed_burn_view =
                 tenure_extend.burn_view_consensus_hash != proposed_by.state().consensus_hash;
             let enough_time_passed = Self::tenure_time_passed_block_lim()?;
+            info!("check_proposal: changed_burn_view: {changed_burn_view}, enough_time_passed: {enough_time_passed}");
             if !changed_burn_view && !enough_time_passed {
                 warn!(
                     "Miner block proposal contains a tenure extend, but the burnchain view has not changed and enough time has not passed to refresh the block limit. Considering proposal invalid.";
@@ -381,6 +392,7 @@ impl SortitionsView {
             }
         }
 
+        info!("check_proposal: Proposal is valid");
         Ok(true)
     }
 
