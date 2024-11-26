@@ -28,6 +28,8 @@ use stacks::monitoring::update_active_miners_count_gauge;
 use stacks::net::atlas::AtlasConfig;
 use stacks::net::relay::Relayer;
 use stacks::net::stackerdb::StackerDBs;
+use stacks::net::Error as NetError;
+use stacks::util_lib::db::Error as DBError;
 use stacks_common::types::chainstate::SortitionId;
 use stacks_common::types::StacksEpochId;
 
@@ -72,46 +74,71 @@ pub struct StacksNode {
 }
 
 /// Types of errors that can arise during Nakamoto StacksNode operation
-#[derive(Debug)]
+#[derive(thiserror::Error, Debug)]
 pub enum Error {
     /// Can't find the block sortition snapshot for the chain tip
+    #[error("Can't find the block sortition snapshot for the chain tip")]
     SnapshotNotFoundForChainTip,
     /// The burnchain tip changed while this operation was in progress
+    #[error("The burnchain tip changed while this operation was in progress")]
     BurnchainTipChanged,
     /// The Stacks tip changed while this operation was in progress
+    #[error("The Stacks tip changed while this operation was in progress")]
     StacksTipChanged,
     /// Signers rejected a block
+    #[error("Signers rejected a block")]
     SignersRejected,
     /// Error while spawning a subordinate thread
+    #[error("Error while spawning a subordinate thread: {0}")]
     SpawnError(std::io::Error),
     /// Injected testing errors
+    #[error("Injected testing errors")]
     FaultInjection,
     /// This miner was elected, but another sortition occurred before mining started
+    #[error("This miner was elected, but another sortition occurred before mining started")]
     MissedMiningOpportunity,
     /// Attempted to mine while there was no active VRF key
+    #[error("Attempted to mine while there was no active VRF key")]
     NoVRFKeyActive,
     /// The parent block or tenure could not be found
+    #[error("The parent block or tenure could not be found")]
     ParentNotFound,
     /// Something unexpected happened (e.g., hash mismatches)
+    #[error("Something unexpected happened (e.g., hash mismatches)")]
     UnexpectedChainState,
     /// A burnchain operation failed when submitting it to the burnchain
+    #[error("A burnchain operation failed when submitting it to the burnchain: {0}")]
     BurnchainSubmissionFailed(BurnchainsError),
     /// A new parent has been discovered since mining started
+    #[error("A new parent has been discovered since mining started")]
     NewParentDiscovered,
     /// A failure occurred while constructing a VRF Proof
+    #[error("A failure occurred while constructing a VRF Proof")]
     BadVrfConstruction,
-    CannotSelfSign,
-    MiningFailure(ChainstateError),
+    #[error("A failure occurred while mining: {0}")]
+    MiningFailure(#[from] ChainstateError),
     /// The miner didn't accept their own block
+    #[error("The miner didn't accept their own block: {0}")]
     AcceptFailure(ChainstateError),
+    #[error("A failure occurred while signing a miner's block: {0}")]
     MinerSignatureError(&'static str),
+    #[error("A failure occurred while signing a signer's block: {0}")]
     SignerSignatureError(String),
     /// A failure occurred while configuring the miner thread
+    #[error("A failure occurred while configuring the miner thread: {0}")]
     MinerConfigurationFailed(&'static str),
     /// An error occurred while operating as the signing coordinator
+    #[error("An error occurred while operating as the signing coordinator: {0}")]
     SigningCoordinatorFailure(String),
     // The thread that we tried to send to has closed
+    #[error("The thread that we tried to send to has closed")]
     ChannelClosed,
+    /// DBError wrapper
+    #[error("DBError: {0}")]
+    DBError(#[from] DBError),
+    /// NetError wrapper
+    #[error("NetError: {0}")]
+    NetError(#[from] NetError),
 }
 
 impl StacksNode {
