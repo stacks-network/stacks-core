@@ -223,7 +223,7 @@ use crate::burnchains::{make_bitcoin_indexer, Error as BurnchainControllerError}
 use crate::chain_data::MinerStats;
 use crate::config::NodeConfig;
 use crate::globals::{NeonGlobals as Globals, RelayerDirective};
-use crate::nakamoto_node::sign_coordinator::SignCoordinator;
+use crate::nakamoto_node::signer_coordinator::SignerCoordinator;
 use crate::run_loop::neon::RunLoop;
 use crate::run_loop::RegisteredKey;
 use crate::ChainTip;
@@ -2364,7 +2364,7 @@ impl BlockMinerThread {
         let mut miners_stackerdb =
             StackerDBSession::new(&self.config.node.rpc_bind, miner_contract_id);
 
-        SignCoordinator::send_miners_message(
+        SignerCoordinator::send_miners_message(
             &mining_key,
             &burn_db,
             &self.burn_block,
@@ -2392,7 +2392,7 @@ impl BlockMinerThread {
         };
 
         info!("Sending mock block to stackerdb: {mock_block:?}");
-        SignCoordinator::send_miners_message(
+        SignerCoordinator::send_miners_message(
             &mining_key,
             &burn_db,
             &self.burn_block,

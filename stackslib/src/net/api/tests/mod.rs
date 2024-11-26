@@ -47,7 +47,7 @@ use crate::net::httpcore::{StacksHttpRequest, StacksHttpResponse};
 use crate::net::relay::Relayer;
 use crate::net::rpc::ConversationHttp;
 use crate::net::test::{TestEventObserver, TestPeer, TestPeerConfig};
-use crate::net::tests::inv::nakamoto::make_nakamoto_peers_from_invs;
+use crate::net::tests::inv::nakamoto::make_nakamoto_peers_from_invs_ext;
 use crate::net::{
     Attachment, AttachmentInstance, MemPoolEventDispatcher, RPCHandlerArgs, StackerDBConfig,
     StacksNodeState, UrlString,
@@ -60,6 +60,7 @@ mod getattachment;
 mod getattachmentsinv;
 mod getblock;
 mod getblock_v3;
+mod getblockbyheight;
 mod getconstantval;
 mod getcontractabi;
 mod getcontractsrc;
@@ -199,6 +200,10 @@ pub struct TestRPC<'a> {
     pub convo_2: ConversationHttp,
     /// hash of the chain tip
     pub canonical_tip: StacksBlockId,
+    /// block header hash of the chain tip
+    pub tip_hash: BlockHeaderHash,
+    /// block height of the chain tip
+    pub tip_height: u64,
     /// consensus hash of the chain tip
     pub consensus_hash: ConsensusHash,
     /// hash of last microblock
@@ -515,6 +520,7 @@ impl<'a> TestRPC<'a> {
         let microblock_txids = microblock.txs.iter().map(|tx| tx.txid()).collect();
         let canonical_tip =
             StacksBlockHeader::make_index_block_hash(&consensus_hash, &stacks_block.block_hash());
+        let tip_hash = stacks_block.block_hash();
 
         if process_microblock {
             // store microblock stream
@@ -812,6 +818,8 @@ impl<'a> TestRPC<'a> {
             32,
         );
 
+        let tip_height: u64 = 1;
+
         TestRPC {
             privk1,
             privk2,
@@ -822,6 +830,8 @@ impl<'a> TestRPC<'a> {
             convo_1,
             convo_2,
             canonical_tip,
+            tip_hash,
+            tip_height,
             consensus_hash,
             microblock_tip_hash: microblock.block_hash(),
             mempool_txids,
@@ -839,8 +849,18 @@ impl<'a> TestRPC<'a> {
             true, true, true, true, true, true, true, true, true, true,
         ]];
 
-        let (mut peer, mut other_peers) =
-            make_nakamoto_peers_from_invs(function_name!(), observer, 10, 3, bitvecs.clone(), 1);
+        let (mut peer, mut other_peers) = make_nakamoto_peers_from_invs_ext(
+            function_name!(),
+            observer,
+            bitvecs.clone(),
+            |boot_plan| {
+                boot_plan
+                    .with_pox_constants(10, 3)
+                    .with_extra_peers(1)
+                    .with_initial_balances(vec![])
+                    .with_malleablized_blocks(false)
+            },
+        );
         let mut other_peer = other_peers.pop().unwrap();
 
         let peer_1_indexer = BitcoinIndexer::new_unit_test(&peer.config.burnchain.working_dir);
@@ -909,6 +929,8 @@ impl<'a> TestRPC<'a> {
             convo_2,
             canonical_tip: nakamoto_tip.index_block_hash(),
             consensus_hash: nakamoto_tip.consensus_hash.clone(),
+            tip_hash: nakamoto_tip.anchored_header.block_hash(),
+            tip_height: nakamoto_tip.stacks_block_height,
             microblock_tip_hash: BlockHeaderHash([0x00; 32]),
             mempool_txids: vec![],
             microblock_txids: vec![],

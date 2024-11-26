@@ -288,6 +288,7 @@ impl HttpPeer {
     /// Deregister a socket/event pair
     #[cfg_attr(test, mutants::skip)]
     pub fn deregister_http(&mut self, network_state: &mut NetworkState, event_id: usize) -> () {
+        test_debug!("Remove HTTP event {}", event_id);
         self.peers.remove(&event_id);
 
         match self.sockets.remove(&event_id) {
@@ -456,7 +457,7 @@ impl HttpPeer {
                                         "Failed to flush HTTP 400 to socket {:?}: {:?}",
                                         &client_sock, &e
                                     );
-                                    convo_dead = true;
+                                    // convo_dead = true;
                                 }
                             }
                             Err(e) => {
@@ -559,19 +560,11 @@ impl HttpPeer {
         let mut to_remove = vec![];
         let mut msgs = vec![];
         for event_id in &poll_state.ready {
-            if !self.sockets.contains_key(&event_id) {
+            let Some(client_sock) = self.sockets.get_mut(&event_id) else {
                 debug!("Rogue socket event {}", event_id);
                 to_remove.push(*event_id);
                 continue;
-            }
-
-            let client_sock_opt = self.sockets.get_mut(&event_id);
-            if client_sock_opt.is_none() {
-                debug!("No such socket event {}", event_id);
-                to_remove.push(*event_id);
-                continue;
-            }
-            let client_sock = client_sock_opt.unwrap();
+            };
 
             match self.peers.get_mut(event_id) {
                 Some(ref mut convo) => {
