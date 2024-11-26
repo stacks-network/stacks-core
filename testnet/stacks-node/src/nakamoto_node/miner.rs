@@ -1162,7 +1162,7 @@ impl BlockMinerThread {
                     tenure_change_tx: None,
                 });
             }
-            debug!("Miner: Time-based tenure extend";
+            info!("Miner: Time-based tenure extend";
                 "current_timestamp" => get_epoch_time_secs(),
                 "tenure_extend_timestamp" => tenure_extend_timestamp,
             );
