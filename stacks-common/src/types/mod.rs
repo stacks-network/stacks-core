@@ -352,7 +352,7 @@ impl StacksEpochId {
             | StacksEpochId::Epoch23
             | StacksEpochId::Epoch24
             | StacksEpochId::Epoch25 => false,
-            StacksEpochId::Epoch30 => true,
+            StacksEpochId::Epoch30 | StacksEpochId::Epoch31 => true,
         }
     }
 
