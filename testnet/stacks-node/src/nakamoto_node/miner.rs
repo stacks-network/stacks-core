@@ -140,6 +140,8 @@ pub struct BlockMinerThread {
     burnchain: Burnchain,
     /// Last block mined
     last_block_mined: Option<NakamotoBlock>,
+    /// Number of blocks mined in this tenure
+    mined_blocks: u64,
     /// Copy of the node's registered VRF key
     registered_key: RegisteredKey,
     /// Burnchain block snapshot which elected this miner
@@ -173,6 +175,7 @@ impl BlockMinerThread {
             keychain: rt.keychain.clone(),
             burnchain: rt.burnchain.clone(),
             last_block_mined: None,
+            mined_blocks: 0,
             registered_key,
             burn_election_block,
             burn_block,
@@ -345,6 +348,7 @@ impl BlockMinerThread {
         stackerdbs: &mut StackerDBs,
         last_block_rejected: &mut bool,
     ) -> Result<(), NakamotoNodeError> {
+        info!("Miner: Starting main loop");
         #[cfg(test)]
         if *TEST_MINE_STALL.lock().unwrap() == Some(true) {
             // Do an extra check just so we don't log EVERY time.
@@ -382,7 +386,8 @@ impl BlockMinerThread {
                 }
             }
 
-            match self.mine_block() {
+            info!("Miner: Mining a new block");
+            match self.mine_block(coordinator) {
                 Ok(x) => {
                     if !self.validate_timestamp(&x)? {
                         info!("Block mined too quickly. Will try again.";
@@ -502,6 +507,7 @@ impl BlockMinerThread {
             self.globals.coord().announce_new_stacks_block();
 
             self.last_block_mined = Some(new_block);
+            self.mined_blocks += 1;
         }
 
         let Ok(sort_db) = SortitionDB::open(
@@ -999,8 +1005,12 @@ impl BlockMinerThread {
     #[cfg_attr(test, mutants::skip)]
     /// Try to mine a Stacks block by assembling one from mempool transactions and sending a
     /// burnchain block-commit transaction.  If we succeed, then return the assembled block.
-    fn mine_block(&mut self) -> Result<NakamotoBlock, NakamotoNodeError> {
+    fn mine_block(
+        &mut self,
+        coordinator: &mut SignerCoordinator,
+    ) -> Result<NakamotoBlock, NakamotoNodeError> {
         debug!("block miner thread ID is {:?}", thread::current().id());
+        info!("Miner: Mining block");
 
         let burn_db_path = self.config.get_burn_db_file_path();
         let reward_set = self.load_signer_set()?;
@@ -1043,7 +1053,11 @@ impl BlockMinerThread {
             &parent_block_info,
             vrf_proof,
             target_epoch_id,
+            coordinator,
         )?;
+
+        // TODO: If we are doing a time-based tenure extend, we need to reset
+        // the budget and the block_count here
 
         parent_block_info.stacks_parent_header.microblock_tail = None;
 
@@ -1128,24 +1142,52 @@ impl BlockMinerThread {
     #[cfg_attr(test, mutants::skip)]
     /// Create the tenure start info for the block we're going to build
     fn make_tenure_start_info(
-        &self,
+        &mut self,
         chainstate: &StacksChainState,
         parent_block_info: &ParentStacksBlockInfo,
         vrf_proof: VRFProof,
         target_epoch_id: StacksEpochId,
+        coordinator: &mut SignerCoordinator,
     ) -> Result<NakamotoTenureInfo, NakamotoNodeError> {
+        info!("Miner: Creating tenure start info");
         let current_miner_nonce = parent_block_info.coinbase_nonce;
-        let Some(parent_tenure_info) = &parent_block_info.parent_tenure else {
-            return Ok(NakamotoTenureInfo {
-                coinbase_tx: None,
-                tenure_change_tx: None,
-            });
+        let parent_tenure_info = match &parent_block_info.parent_tenure {
+            Some(info) => info.clone(),
+            None => {
+                // We may be able to extend the current tenure
+                if self.last_block_mined.is_none() {
+                    info!("Miner: No parent tenure and no last block mined");
+                    return Ok(NakamotoTenureInfo {
+                        coinbase_tx: None,
+                        tenure_change_tx: None,
+                    });
+                }
+                ParentTenureInfo {
+                    parent_tenure_blocks: self.mined_blocks,
+                    parent_tenure_consensus_hash: self.burn_election_block.consensus_hash,
+                }
+            }
         };
         if self.last_block_mined.is_some() {
-            return Ok(NakamotoTenureInfo {
-                coinbase_tx: None,
-                tenure_change_tx: None,
-            });
+            info!("make_tenure_start_info: last block mined is some");
+            // Check if we can extend the current tenure
+            let tenure_extend_timestamp = coordinator.get_tenure_extend_timestamp();
+            info!(
+                "make_tenure_start_info: tenure_extend_timestamp: {}, now: {}",
+                tenure_extend_timestamp,
+                get_epoch_time_secs()
+            );
+            if get_epoch_time_secs() < tenure_extend_timestamp {
+                info!("Miner: Not extending tenure");
+                return Ok(NakamotoTenureInfo {
+                    coinbase_tx: None,
+                    tenure_change_tx: None,
+                });
+            }
+            info!("Miner: Extending tenure");
+            self.reason = MinerReason::Extended {
+                burn_view_consensus_hash: self.burn_election_block.consensus_hash,
+            };
         }
 
         let parent_block_id = parent_block_info.stacks_parent_header.index_block_hash();
