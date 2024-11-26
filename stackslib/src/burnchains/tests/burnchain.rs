@@ -44,7 +44,6 @@ use crate::chainstate::burn::{
     BlockSnapshot, ConsensusHash, ConsensusHashExtensions, OpsHash, SortitionHash,
 };
 use crate::chainstate::stacks::address::StacksAddressExtensions;
-use crate::chainstate::stacks::index::TrieHashExtension;
 use crate::chainstate::stacks::StacksPublicKey;
 use crate::util_lib::db::Error as db_error;
 

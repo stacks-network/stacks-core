@@ -366,7 +366,6 @@ mod tests {
     use crate::chainstate::burn::operations::{LeaderBlockCommitOp, LeaderKeyRegisterOp};
     use crate::chainstate::burn::*;
     use crate::chainstate::stacks::address::StacksAddressExtensions;
-    use crate::chainstate::stacks::index::TrieHashExtension;
     use crate::chainstate::stacks::StacksPublicKey;
     use crate::core::MICROSTACKS_PER_STACKS;
 
