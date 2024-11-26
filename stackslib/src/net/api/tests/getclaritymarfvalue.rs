@@ -15,6 +15,7 @@
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
+use clarity::vm::database::{ClarityDeserializable, STXBalance};
 use clarity::vm::types::{QualifiedContractIdentifier, StacksAddressExtensions, TypeSignature};
 use clarity::vm::{ClarityName, ContractName, Value};
 use stacks_common::codec::StacksMessageCodec;
@@ -149,7 +150,7 @@ fn test_try_make_response() {
         Some(1)
     );
 
-    let resp = response.decode_data_var_response().unwrap();
+    let resp = response.decode_clarity_marf_response().unwrap();
     assert_eq!(resp.data, "0x0000000000000000000000000000000000");
     assert!(resp.marf_proof.is_some());
 
@@ -165,7 +166,7 @@ fn test_try_make_response() {
         Some(1)
     );
 
-    let resp = response.decode_data_var_response().unwrap();
+    let resp = response.decode_clarity_marf_response().unwrap();
     assert_eq!(resp.data, "0x0100000000000000000000000000000001");
     assert!(resp.marf_proof.is_some());
 
@@ -189,15 +190,16 @@ fn test_try_make_response() {
     let (preamble, body) = response.destruct();
     assert_eq!(preamble.status_code, 404);
 
-    // vm-account blaance
+    // vm-account balance
     let response = responses.remove(0);
     debug!(
         "Response:\n{}\n",
         std::str::from_utf8(&response.try_serialize().unwrap()).unwrap()
     );
 
-    let resp = response.decode_data_var_response().unwrap();
-    let balance = Value::try_deserialize_hex(&resp.data[2..], &TypeSignature::IntType, false);
-    assert_eq!(balance, Ok(Value::Int(256_000_000_000)));
-    assert!(resp.marf_proof.is_some());
+    let resp = response.decode_clarity_marf_response().unwrap();
+    let balance = STXBalance::deserialize(&resp.data[2..]).unwrap();
+
+    assert_eq!(balance.amount_unlocked(), 1_000_000_000);
+    assert_eq!(balance.amount_locked(), 0);
 }
