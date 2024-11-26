@@ -977,8 +977,8 @@ impl SignerDb {
 
     /// Return the start time (epoch time in seconds) and the processing time in milliseconds of the tenure (idenfitied by consensus_hash).
     fn get_tenure_times(&self, tenure: &ConsensusHash) -> Result<(u64, u64), DBError> {
-        let query = "SELECT tenure_change, proposed_time, validation_time_ms FROM blocks WHERE consensus_hash = ?1 ORDER BY stacks_height DESC";
-        let args = params![tenure];
+        let query = "SELECT tenure_change, proposed_time, validation_time_ms FROM blocks WHERE consensus_hash = ?1 AND state = ?2 ORDER BY stacks_height DESC";
+        let args = params![tenure, BlockState::GloballyAccepted.to_string()];
         let mut stmt = self.db.prepare(query)?;
         let rows = stmt.query_map(args, |row| {
             let tenure_change_block: u64 = row.get(0)?;
@@ -1564,7 +1564,6 @@ mod tests {
             b.block.header.miner_signature = MessageSignature([0x01; 65]);
             b.block.header.chain_length = 1;
             b.burn_height = 1;
-            b.reward_cycle = 1;
         });
         block_info_1.state = BlockState::GloballyAccepted;
         block_info_1.block.txs.push(tenure_change_tx.clone());
@@ -1576,7 +1575,6 @@ mod tests {
             b.block.header.miner_signature = MessageSignature([0x02; 65]);
             b.block.header.chain_length = 2;
             b.burn_height = 2;
-            b.reward_cycle = 1;
         });
         block_info_2.state = BlockState::GloballyAccepted;
         block_info_2.validation_time_ms = Some(2000);
@@ -1587,19 +1585,18 @@ mod tests {
             b.block.header.miner_signature = MessageSignature([0x03; 65]);
             b.block.header.chain_length = 3;
             b.burn_height = 2;
-            b.reward_cycle = 2;
         });
         block_info_3.state = BlockState::GloballyAccepted;
         block_info_3.block.txs.push(tenure_change_tx);
         block_info_3.validation_time_ms = Some(5000);
         block_info_3.proposed_time = block_info_1.proposed_time + 10;
 
+        // This should have no effect on the time calculations as its not a globally accepted block
         let (mut block_info_4, _block_proposal) = create_block_override(|b| {
             b.block.header.consensus_hash = consensus_hash_1;
             b.block.header.miner_signature = MessageSignature([0x04; 65]);
             b.block.header.chain_length = 3;
             b.burn_height = 2;
-            b.reward_cycle = 2;
         });
         block_info_4.state = BlockState::LocallyAccepted;
         block_info_4.validation_time_ms = Some(9000);
@@ -1610,11 +1607,21 @@ mod tests {
             b.block.header.miner_signature = MessageSignature([0x05; 65]);
             b.block.header.chain_length = 4;
             b.burn_height = 3;
-            b.reward_cycle = 3;
         });
         block_info_5.state = BlockState::GloballyAccepted;
         block_info_5.validation_time_ms = Some(20000);
         block_info_5.proposed_time = block_info_1.proposed_time + 20;
+
+        // This should have no effect on the time calculations as its not a globally accepted block
+        let (mut block_info_6, _block_proposal) = create_block_override(|b| {
+            b.block.header.consensus_hash = consensus_hash_2;
+            b.block.header.miner_signature = MessageSignature([0x06; 65]);
+            b.block.header.chain_length = 5;
+            b.burn_height = 3;
+        });
+        block_info_6.state = BlockState::LocallyAccepted;
+        block_info_6.validation_time_ms = Some(40000);
+        block_info_6.proposed_time = block_info_1.proposed_time + 25;
 
         vec![
             block_info_1,
@@ -1622,6 +1629,7 @@ mod tests {
             block_info_3,
             block_info_4,
             block_info_5,
+            block_info_6,
         ]
     }
 
@@ -1650,6 +1658,7 @@ mod tests {
         assert_eq!(processing_time, 5000);
 
         db.insert_block(&block_infos[4]).unwrap();
+        db.insert_block(&block_infos[5]).unwrap();
 
         // Verify tenure consensus_hash_2
         let (start_time, processing_time) = db.get_tenure_times(&consensus_hash_2).unwrap();
@@ -1701,6 +1710,7 @@ mod tests {
         );
 
         db.insert_block(&block_infos[4]).unwrap();
+        db.insert_block(&block_infos[5]).unwrap();
 
         // Verify tenure consensus_hash_2
         let timestamp_hash_2 =
