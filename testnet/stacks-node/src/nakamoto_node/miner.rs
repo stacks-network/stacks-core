@@ -348,7 +348,6 @@ impl BlockMinerThread {
         stackerdbs: &mut StackerDBs,
         last_block_rejected: &mut bool,
     ) -> Result<(), NakamotoNodeError> {
-        info!("Miner: Starting main loop");
         #[cfg(test)]
         if *TEST_MINE_STALL.lock().unwrap() == Some(true) {
             // Do an extra check just so we don't log EVERY time.
@@ -386,7 +385,6 @@ impl BlockMinerThread {
                 }
             }
 
-            info!("Miner: Mining a new block");
             match self.mine_block(coordinator) {
                 Ok(x) => {
                     if !self.validate_timestamp(&x)? {
@@ -1056,9 +1054,6 @@ impl BlockMinerThread {
             coordinator,
         )?;
 
-        // TODO: If we are doing a time-based tenure extend, we need to reset
-        // the budget and the block_count here
-
         parent_block_info.stacks_parent_header.microblock_tail = None;
 
         let signer_bitvec_len = reward_set.rewarded_addresses.len().try_into().ok();
@@ -1149,14 +1144,13 @@ impl BlockMinerThread {
         target_epoch_id: StacksEpochId,
         coordinator: &mut SignerCoordinator,
     ) -> Result<NakamotoTenureInfo, NakamotoNodeError> {
-        info!("Miner: Creating tenure start info");
         let current_miner_nonce = parent_block_info.coinbase_nonce;
         let parent_tenure_info = match &parent_block_info.parent_tenure {
             Some(info) => info.clone(),
             None => {
                 // We may be able to extend the current tenure
                 if self.last_block_mined.is_none() {
-                    info!("Miner: No parent tenure and no last block mined");
+                    debug!("Miner: No parent tenure and no last block mined");
                     return Ok(NakamotoTenureInfo {
                         coinbase_tx: None,
                         tenure_change_tx: None,
@@ -1169,25 +1163,19 @@ impl BlockMinerThread {
             }
         };
         if self.last_block_mined.is_some() {
-            info!("make_tenure_start_info: last block mined is some");
             // Check if we can extend the current tenure
             let tenure_extend_timestamp = coordinator.get_tenure_extend_timestamp();
-            info!(
-                "make_tenure_start_info: tenure_extend_timestamp: {}, now: {}",
-                tenure_extend_timestamp,
-                get_epoch_time_secs()
-            );
             if get_epoch_time_secs() < tenure_extend_timestamp {
-                info!("Miner: Not extending tenure");
                 return Ok(NakamotoTenureInfo {
                     coinbase_tx: None,
                     tenure_change_tx: None,
                 });
             }
-            info!("Miner: Extending tenure");
-            self.reason = MinerReason::Extended {
-                burn_view_consensus_hash: self.burn_election_block.consensus_hash,
-            };
+            debug!("Miner: Time-based tenure extend";
+                "current_timestamp" => get_epoch_time_secs(),
+                "tenure_extend_timestamp" => tenure_extend_timestamp,
+            );
+            self.tenure_extend_reset();
         }
 
         let parent_block_id = parent_block_info.stacks_parent_header.index_block_hash();
@@ -1253,6 +1241,13 @@ impl BlockMinerThread {
         } else {
             Ok(())
         }
+    }
+
+    fn tenure_extend_reset(&mut self) {
+        self.reason = MinerReason::Extended {
+            burn_view_consensus_hash: self.burn_block.consensus_hash,
+        };
+        self.mined_blocks = 0;
     }
 }
 

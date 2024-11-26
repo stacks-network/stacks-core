@@ -387,12 +387,11 @@ impl SignerCoordinator {
     /// Get the timestamp at which at least 70% of the signing power should be
     /// willing to accept a time-based tenure extension.
     pub fn get_tenure_extend_timestamp(&self) -> u64 {
-        info!("SignerCoordinator: getting tenure extension timestamp");
         let signer_idle_timestamps = self
             .signer_idle_timestamps
             .lock()
             .expect("FATAL: failed to lock signer idle timestamps");
-        info!("SignerCoordinator: signer_idle_timestamps: {signer_idle_timestamps:?}");
+        debug!("SignerCoordinator: signer_idle_timestamps: {signer_idle_timestamps:?}");
         let mut idle_timestamps = signer_idle_timestamps.values().collect::<Vec<_>>();
         idle_timestamps.sort_by_key(|info| info.timestamp);
         let mut weight_sum = 0;
