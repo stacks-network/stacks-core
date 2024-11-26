@@ -225,16 +225,19 @@ impl SignerCoordinator {
         counters: &Counters,
         election_sortition: &ConsensusHash,
     ) -> Result<Vec<MessageSignature>, NakamotoNodeError> {
-        // Add this block to the block status map
-        let (lock, _cvar) = &*self.blocks;
-        let mut blocks = lock.lock().expect("FATAL: failed to lock block status");
-        let block_status = BlockStatus {
-            responded_signers: HashSet::new(),
-            gathered_signatures: BTreeMap::new(),
-            total_weight_signed: 0,
-            total_reject_weight: 0,
-        };
-        blocks.insert(block.header.signer_signature_hash(), block_status);
+        // Add this block to the block status map.
+        // Create a scope to drop the lock on the block status map.
+        {
+            let (lock, _cvar) = &*self.blocks;
+            let mut blocks = lock.lock().expect("FATAL: failed to lock block status");
+            let block_status = BlockStatus {
+                responded_signers: HashSet::new(),
+                gathered_signatures: BTreeMap::new(),
+                total_weight_signed: 0,
+                total_reject_weight: 0,
+            };
+            blocks.insert(block.header.signer_signature_hash(), block_status);
+        }
 
         let reward_cycle_id = burnchain
             .block_height_to_reward_cycle(burn_tip.block_height)
@@ -410,7 +413,7 @@ impl SignerCoordinator {
             .expect("FATAL: failed to query sortition DB for canonical burn chain tip");
 
         if cur_burn_chain_tip.consensus_hash != burn_block.consensus_hash {
-            info!("SignCoordinator: Cancel signature aggregation; burnchain tip has changed");
+            info!("SignerCoordinator: Cancel signature aggregation; burnchain tip has changed");
             true
         } else {
             false
