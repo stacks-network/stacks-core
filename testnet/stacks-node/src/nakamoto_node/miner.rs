@@ -61,8 +61,6 @@ pub static TEST_BROADCAST_STALL: std::sync::Mutex<Option<bool>> = std::sync::Mut
 pub static TEST_BLOCK_ANNOUNCE_STALL: std::sync::Mutex<Option<bool>> = std::sync::Mutex::new(None);
 #[cfg(test)]
 pub static TEST_SKIP_P2P_BROADCAST: std::sync::Mutex<Option<bool>> = std::sync::Mutex::new(None);
-#[cfg(test)]
-pub static TEST_NO_TENURE_EXTEND: std::sync::Mutex<Option<bool>> = std::sync::Mutex::new(None);
 
 /// If the miner was interrupted while mining a block, how long should the
 ///  miner thread sleep before trying again?
@@ -388,7 +386,7 @@ impl BlockMinerThread {
                 Ok(x) => {
                     if !self.validate_timestamp(&x)? {
                         info!("Block mined too quickly. Will try again.";
-                              "block_timestamp" => x.header.timestamp,
+                            "block_timestamp" => x.header.timestamp,
                         );
                         continue;
                     }
@@ -588,67 +586,6 @@ impl BlockMinerThread {
 
         self.signer_set_cache = Some(reward_set.clone());
         Ok(reward_set)
-    }
-
-    /// Gather a list of signatures from the signers for the block
-    fn gather_signatures(
-        &mut self,
-        new_block: &mut NakamotoBlock,
-        stackerdbs: &mut StackerDBs,
-    ) -> Result<(RewardSet, Vec<MessageSignature>), NakamotoNodeError> {
-        let Some(miner_privkey) = self.config.miner.mining_key else {
-            return Err(NakamotoNodeError::MinerConfigurationFailed(
-                "No mining key configured, cannot mine",
-            ));
-        };
-        let sort_db = SortitionDB::open(
-            &self.config.get_burn_db_file_path(),
-            true,
-            self.burnchain.pox_constants.clone(),
-        )
-        .map_err(|e| {
-            NakamotoNodeError::SigningCoordinatorFailure(format!(
-                "Failed to open sortition DB. Cannot mine! {e:?}"
-            ))
-        })?;
-
-        let reward_set = self.load_signer_set()?;
-
-        if self.config.get_node_config(false).mock_mining {
-            return Ok((reward_set, Vec::new()));
-        }
-
-        let mut coordinator = SignCoordinator::new(
-            &reward_set,
-            miner_privkey,
-            &self.config,
-            self.globals.should_keep_running.clone(),
-        )
-        .map_err(|e| {
-            NakamotoNodeError::SigningCoordinatorFailure(format!(
-                "Failed to initialize the signing coordinator. Cannot mine! {e:?}"
-            ))
-        })?;
-
-        let mut chain_state =
-            neon_node::open_chainstate_with_faults(&self.config).map_err(|e| {
-                NakamotoNodeError::SigningCoordinatorFailure(format!(
-                    "Failed to open chainstate DB. Cannot mine! {e:?}"
-                ))
-            })?;
-
-        let signature = coordinator.run_sign_v0(
-            new_block,
-            &self.burn_block,
-            &self.burnchain,
-            &sort_db,
-            &mut chain_state,
-            stackerdbs,
-            &self.globals.counters,
-            &self.burn_election_block.consensus_hash,
-        )?;
-
-        Ok((reward_set, signature))
     }
 
     /// Fault injection -- possibly fail to broadcast
