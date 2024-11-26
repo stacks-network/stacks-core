@@ -26,6 +26,7 @@ use blockstack_lib::util_lib::db::{
 };
 use clarity::types::chainstate::{BurnchainHeaderHash, StacksAddress};
 use libsigner::BlockProposal;
+use rusqlite::functions::FunctionFlags;
 use rusqlite::{
     params, Connection, Error as SqliteError, OpenFlags, OptionalExtension, Transaction,
 };
@@ -160,20 +161,12 @@ pub struct BlockInfo {
     pub state: BlockState,
     /// Consumed processing time in milliseconds to validate this block
     pub validation_time_ms: Option<u64>,
-    /// Wether the block is a tenure change block
-    pub tenure_change: bool,
     /// Extra data specific to v0, v1, etc.
     pub ext: ExtraBlockInfo,
 }
 
 impl From<BlockProposal> for BlockInfo {
     fn from(value: BlockProposal) -> Self {
-        let tenure_change = value
-            .block
-            .txs
-            .first()
-            .map(|tx| matches!(tx.payload, TransactionPayload::TenureChange(_)))
-            .unwrap_or(false);
         Self {
             block: value.block,
             burn_block_height: value.burn_height,
@@ -187,11 +180,19 @@ impl From<BlockProposal> for BlockInfo {
             ext: ExtraBlockInfo::default(),
             state: BlockState::Unprocessed,
             validation_time_ms: None,
-            tenure_change,
         }
     }
 }
 impl BlockInfo {
+    /// Wether the block is a tenure change block or not
+    pub fn is_tenure_change(&self) -> bool {
+        self.block
+            .txs
+            .first()
+            .map(|tx| matches!(tx.payload, TransactionPayload::TenureChange(_)))
+            .unwrap_or(false)
+    }
+
     /// Mark this block as locally accepted, valid, signed over, and records either the self or group signed timestamp in the block info if it wasn't
     ///  already set.
     pub fn mark_locally_accepted(&mut self, group_signed: bool) -> Result<(), String> {
@@ -343,8 +344,11 @@ CREATE INDEX IF NOT EXISTS blocks_signed_group ON blocks ((json_extract(block_in
 "#;
 
 static CREATE_INDEXES_5: &str = r#"
-CREATE INDEX IF NOT EXISTS tenure_blocks_on_consensus_hash ON tenure_blocks(consensus_hash);
-CREATE INDEX IF NOT EXISTS tenure_blocks_on_reward_cycle ON tenure_blocks(reward_cycle);
+CREATE INDEX IF NOT EXISTS blocks_signed_over ON blocks (consensus_hash, signed_over);
+CREATE INDEX IF NOT EXISTS blocks_consensus_hash ON blocks (consensus_hash);
+CREATE INDEX IF NOT EXISTS blocks_state ON blocks (consensus_hash, state);
+CREATE INDEX IF NOT EXISTS blocks_state ON blocks (state);
+CREATE INDEX IF NOT EXISTS blocks_signed_group ON blocks (signed_group);
 "#;
 
 static CREATE_SIGNER_STATE_TABLE: &str = "
@@ -408,70 +412,68 @@ CREATE TABLE IF NOT EXISTS block_rejection_signer_addrs (
     PRIMARY KEY (signer_addr)
 ) STRICT;"#;
 
-// A lighter blocks table to aid in calculating tenure processing times
-// Will only track the most recent tenure blocks
-static CREATE_TENURE_BLOCKS_TABLE: &str = r#"
-CREATE TABLE IF NOT EXISTS tenure_blocks (
+// Migration logic necessary to move blocks from the old blocks table to the new blocks table
+static MIGRATE_BLOCKS_TABLE_2_BLOCKS_TABLE_3: &str = r#"
+CREATE TABLE IF NOT EXISTS temp_blocks (
+    -- The block sighash commits to all of the stacks and burnchain state as of its parent,
+    -- as well as the tenure itself so there's no need to include the reward cycle.  Just
+    -- the sighash is sufficient to uniquely identify the block across all burnchain, PoX,
+    -- and stacks forks.
     signer_signature_hash TEXT NOT NULL PRIMARY KEY,
     reward_cycle INTEGER NOT NULL,
+    block_info TEXT NOT NULL,
     consensus_hash TEXT NOT NULL,
-    proposed_time INTEGER NOT NULL,
-    validation_time_ms INTEGER NOT NULL,
+    signed_over INTEGER NOT NULL,
+    broadcasted INTEGER,
     stacks_height INTEGER NOT NULL,
+    burn_block_height INTEGER NOT NULL,
+    valid INTEGER,
+    state TEXT NOT NULL,
+    signed_group INTEGER,
+    signed_self INTEGER,
+    proposed_time INTEGER NOT NULL,
+    validation_time_ms INTEGER,
     tenure_change INTEGER NOT NULL
-) STRICT;"#;
+) STRICT;
 
-// Migration logic necessary to move from blocks into tenure_blocks table
-// It will only migrate globally accepted blocks that are less than 2 reward cycles old.
-static MIGRATE_GLOBALLY_ACCEPTED_BLOCKS_TO_TENURE_BLOCKS: &str = r#"
-INSERT INTO tenure_blocks (
+INSERT INTO temp_blocks (
     signer_signature_hash,
     reward_cycle,
+    block_info,
     consensus_hash,
+    signed_over,
+    broadcasted,
+    stacks_height,
+    burn_block_height,
+    valid, 
+    state,
+    signed_group, 
+    signed_self,
     proposed_time,
     validation_time_ms,
-    stacks_height,
     tenure_change
 )
 SELECT 
     signer_signature_hash,
     reward_cycle,
+    block_info,
     consensus_hash,
-    json_extract(block_info, '$.proposed_time') AS proposed_time,
-    COALESCE(json_extract(block_info, '$.validation_time_ms'), 0) AS validation_time_ms,
+    signed_over,
+    broadcasted,
     stacks_height,
-    json_extract(block_info, '$.tenure_change') AS tenure_change
-FROM blocks
-WHERE json_extract(block_info, '$.state') = 'GloballyAccepted'
-  AND reward_cycle + 2 > (
-      SELECT MAX(reward_cycle) FROM blocks
-  );"#;
+    burn_block_height, 
+    json_extract(block_info, '$.valid') AS valid,
+    json_extract(block_info, '$.state') AS state,
+    json_extract(block_info, '$.signed_group') AS signed_group,
+    json_extract(block_info, '$.signed_self') AS signed_self,
+    json_extract(block_info, '$.proposed_time') AS proposed_time,
+    json_extract(block_info, '$.validation_time_ms') AS validation_time_ms,
+    is_tenure_change(block_info) AS tenure_change
+FROM blocks;
 
-static CREATE_TENURE_BLOCKS_ON_BLOCKS_TRIGGER: &str = r#"
-CREATE TRIGGER insert_into_tenure_blocks
-AFTER INSERT ON blocks
-FOR EACH ROW
-WHEN json_extract(NEW.block_info, '$.state') = 'GloballyAccepted'
-BEGIN
-    INSERT OR REPLACE INTO tenure_blocks (
-        signer_signature_hash,
-        reward_cycle,
-        consensus_hash,
-        proposed_time,
-        validation_time_ms,
-        stacks_height,
-        tenure_change
-    )
-    VALUES (
-        NEW.signer_signature_hash,
-        NEW.reward_cycle,
-        NEW.consensus_hash,
-        json_extract(NEW.block_info, '$.proposed_time'),
-        COALESCE(json_extract(NEW.block_info, '$.validation_time_ms'), 0),
-        NEW.stacks_height,
-        json_extract(NEW.block_info, '$.tenure_change')
-    );
-END;"#;
+DROP TABLE blocks;
+
+ALTER TABLE temp_blocks RENAME TO blocks;"#;
 
 static SCHEMA_1: &[&str] = &[
     DROP_SCHEMA_0,
@@ -515,16 +517,15 @@ static SCHEMA_4: &[&str] = &[
 ];
 
 static SCHEMA_5: &[&str] = &[
-    CREATE_TENURE_BLOCKS_TABLE,
-    CREATE_TENURE_BLOCKS_ON_BLOCKS_TRIGGER,
-    CREATE_INDEXES_4,
-    MIGRATE_GLOBALLY_ACCEPTED_BLOCKS_TO_TENURE_BLOCKS,
-    "INSERT INTO db_config (version) VALUES (4);",
+    MIGRATE_BLOCKS_TABLE_2_BLOCKS_TABLE_3,
+    CREATE_INDEXES_5,
+    "DELETE FROM db_config;", // Be extra careful. Make sure there is only ever one row in the table.
+    "INSERT INTO db_config (version) VALUES (5);",
 ];
 
 impl SignerDb {
     /// The current schema version used in this build of the signer binary.
-    pub const SCHEMA_VERSION: u32 = 4;
+    pub const SCHEMA_VERSION: u32 = 5;
 
     /// Create a new `SignerState` instance.
     /// This will create a new SQLite database at the given path
@@ -612,7 +613,7 @@ impl SignerDb {
 
     /// Migrate from schema 4 to schema 5
     fn schema_5_migration(tx: &Transaction) -> Result<(), DBError> {
-        if Self::get_schema_version(tx)? >= 4 {
+        if Self::get_schema_version(tx)? >= 5 {
             // no migration necessary
             return Ok(());
         }
@@ -628,6 +629,18 @@ impl SignerDb {
     /// If the detected version of the existing database is 0 (i.e., a pre-migration
     /// logic DB, the DB will be dropped).
     fn create_or_migrate(&mut self) -> Result<(), DBError> {
+        // Register helper function for determining if a block is a tenure change transaction
+        self.db.create_scalar_function(
+            "is_tenure_change",
+            1,
+            FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
+            |ctx| {
+                let value = ctx.get::<String>(0)?;
+                let block_info = serde_json::from_str::<BlockInfo>(&value)
+                    .map_err(|e| SqliteError::UserFunctionError(e.into()))?;
+                Ok(block_info.is_tenure_change())
+            },
+        )?;
         let sql_tx = tx_begin_immediate(&mut self.db)?;
         loop {
             let version = Self::get_schema_version(&sql_tx)?;
@@ -683,15 +696,11 @@ impl SignerDb {
 
     /// Fetch a block from the database using the block's
     /// `signer_signature_hash`
-    pub fn block_lookup(
-        &self,
-        reward_cycle: u64,
-        hash: &Sha512Trunc256Sum,
-    ) -> Result<Option<BlockInfo>, DBError> {
+    pub fn block_lookup(&self, hash: &Sha512Trunc256Sum) -> Result<Option<BlockInfo>, DBError> {
         let result: Option<String> = query_row(
             &self.db,
-            "SELECT block_info FROM blocks WHERE reward_cycle = ? AND signer_signature_hash = ?",
-            params![u64_to_sql(reward_cycle)?, hash.to_string()],
+            "SELECT block_info FROM blocks WHERE signer_signature_hash = ?",
+            params![hash.to_string()],
         )?;
 
         try_deserialize(result)
@@ -724,7 +733,7 @@ impl SignerDb {
         &self,
         tenure: &ConsensusHash,
     ) -> Result<Option<BlockInfo>, DBError> {
-        let query = "SELECT block_info FROM blocks WHERE consensus_hash = ?1 AND json_extract(block_info, '$.state') IN (?2, ?3) ORDER BY stacks_height DESC LIMIT 1";
+        let query = "SELECT block_info FROM blocks WHERE consensus_hash = ?1 AND state IN (?2, ?3) ORDER BY stacks_height DESC LIMIT 1";
         let args = params![
             tenure,
             &BlockState::GloballyAccepted.to_string(),
@@ -740,7 +749,7 @@ impl SignerDb {
         &self,
         tenure: &ConsensusHash,
     ) -> Result<Option<BlockInfo>, DBError> {
-        let query = "SELECT block_info FROM blocks WHERE consensus_hash = ?1 AND json_extract(block_info, '$.state') = ?2 ORDER BY stacks_height DESC LIMIT 1";
+        let query = "SELECT block_info FROM blocks WHERE consensus_hash = ?1 AND state = ?2 ORDER BY stacks_height DESC LIMIT 1";
         let args = params![tenure, &BlockState::GloballyAccepted.to_string()];
         let result: Option<String> = query_row(&self.db, query, args)?;
 
@@ -749,7 +758,7 @@ impl SignerDb {
 
     /// Return the canonical tip -- the last globally accepted block.
     pub fn get_canonical_tip(&self) -> Result<Option<BlockInfo>, DBError> {
-        let query = "SELECT block_info FROM blocks WHERE json_extract(block_info, '$.state') = ?1 ORDER BY stacks_height DESC, json_extract(block_info, '$.signed_group') DESC LIMIT 1";
+        let query = "SELECT block_info FROM blocks WHERE state = ?1 ORDER BY stacks_height DESC, signed_group DESC LIMIT 1";
         let args = params![&BlockState::GloballyAccepted.to_string()];
         let result: Option<String> = query_row(&self.db, query, args)?;
 
@@ -803,12 +812,12 @@ impl SignerDb {
             serde_json::to_string(&block_info).expect("Unable to serialize block info");
         let hash = &block_info.signer_signature_hash();
         let block_id = &block_info.block.block_id();
-        let signed_over = &block_info.signed_over;
+        let signed_over = block_info.signed_over;
         let vote = block_info
             .vote
             .as_ref()
             .map(|v| if v.rejected { "REJECT" } else { "ACCEPT" });
-        let broadcasted = self.get_block_broadcasted(block_info.reward_cycle, hash)?;
+        let broadcasted = self.get_block_broadcasted(hash)?;
         debug!("Inserting block_info.";
             "reward_cycle" => %block_info.reward_cycle,
             "burn_block_height" => %block_info.burn_block_height,
@@ -818,19 +827,28 @@ impl SignerDb {
             "broadcasted" => ?broadcasted,
             "vote" => vote
         );
-        self.db.execute("INSERT OR REPLACE INTO blocks (reward_cycle, burn_block_height, signer_signature_hash, block_info, signed_over, broadcasted, stacks_height, consensus_hash) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)", params![
-            u64_to_sql(block_info.reward_cycle)?, u64_to_sql(block_info.burn_block_height)?, hash.to_string(), block_json,
-            signed_over,
+        self.db.execute("INSERT OR REPLACE INTO blocks (reward_cycle, burn_block_height, signer_signature_hash, block_info, signed_over, broadcasted, stacks_height, consensus_hash, valid, state, signed_group, signed_self, proposed_time, validation_time_ms, tenure_change) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)", params![
+            u64_to_sql(block_info.reward_cycle)?,
+            u64_to_sql(block_info.burn_block_height)?,
+            hash.to_string(),
+            block_json,
+            &block_info.signed_over,
             &broadcasted,
             u64_to_sql(block_info.block.header.chain_length)?,
             block_info.block.header.consensus_hash.to_hex(),
+            &block_info.valid, &block_info.state.to_string(),
+            &block_info.signed_group,
+            &block_info.signed_self,
+            &block_info.proposed_time,
+            &block_info.validation_time_ms,
+            &block_info.is_tenure_change()
         ])?;
         Ok(())
     }
 
     /// Determine if there are any unprocessed blocks
     pub fn has_unprocessed_blocks(&self, reward_cycle: u64) -> Result<bool, DBError> {
-        let query = "SELECT block_info FROM blocks WHERE reward_cycle = ?1 AND json_extract(block_info, '$.state') = ?2 LIMIT 1";
+        let query = "SELECT block_info FROM blocks WHERE reward_cycle = ?1 AND state = ?2 LIMIT 1";
         let result: Option<String> = query_row(
             &self.db,
             query,
@@ -908,15 +926,13 @@ impl SignerDb {
     /// Mark a block as having been broadcasted and therefore GloballyAccepted
     pub fn set_block_broadcasted(
         &self,
-        reward_cycle: u64,
         block_sighash: &Sha512Trunc256Sum,
         ts: u64,
     ) -> Result<(), DBError> {
-        let qry = "UPDATE blocks SET broadcasted = ?1, block_info = json_set(block_info, '$.state', ?2) WHERE reward_cycle = ?3 AND signer_signature_hash = ?4";
+        let qry = "UPDATE blocks SET broadcasted = ?1, block_info = json_set(block_info, '$.state', ?2), state = $2 WHERE signer_signature_hash = ?3";
         let args = params![
             u64_to_sql(ts)?,
             BlockState::GloballyAccepted.to_string(),
-            u64_to_sql(reward_cycle)?,
             block_sighash
         ];
 
@@ -928,12 +944,11 @@ impl SignerDb {
     /// Get the timestamp at which the block was broadcasted.
     pub fn get_block_broadcasted(
         &self,
-        reward_cycle: u64,
         block_sighash: &Sha512Trunc256Sum,
     ) -> Result<Option<u64>, DBError> {
         let qry =
-            "SELECT IFNULL(broadcasted,0) AS broadcasted FROM blocks WHERE reward_cycle = ?1 AND signer_signature_hash = ?2";
-        let args = params![u64_to_sql(reward_cycle)?, block_sighash];
+            "SELECT IFNULL(broadcasted,0) AS broadcasted FROM blocks WHERE signer_signature_hash = ?";
+        let args = params![block_sighash];
 
         let Some(broadcasted): Option<u64> = query_row(&self.db, qry, args)? else {
             return Ok(None);
@@ -947,11 +962,10 @@ impl SignerDb {
     /// Get the current state of a given block in the database
     pub fn get_block_state(
         &self,
-        reward_cycle: u64,
         block_sighash: &Sha512Trunc256Sum,
     ) -> Result<Option<BlockState>, DBError> {
-        let qry = "SELECT json_extract(block_info, '$.state') FROM blocks WHERE reward_cycle = ?1 AND signer_signature_hash = ?2 LIMIT 1";
-        let args = params![&u64_to_sql(reward_cycle)?, block_sighash];
+        let qry = "SELECT state FROM blocks WHERE signer_signature_hash = ?1 LIMIT 1";
+        let args = params![block_sighash];
         let state_opt: Option<String> = query_row(&self.db, qry, args)?;
         let Some(state) = state_opt else {
             return Ok(None);
@@ -961,24 +975,15 @@ impl SignerDb {
         ))
     }
 
-    /// Cleanup stale data by removing anything equal to or older than the provided reward cycle
-    pub fn cleanup_stale_data(&mut self, reward_cycle: u64) -> Result<(), DBError> {
-        self.db.execute(
-            "DELETE FROM tenure_blocks WHERE reward_cycle <= ?",
-            params![u64_to_sql(reward_cycle)?],
-        )?;
-        Ok(())
-    }
-
     /// Return the start time (epoch time in seconds) and the processing time in milliseconds of the tenure (idenfitied by consensus_hash).
     fn get_tenure_times(&self, tenure: &ConsensusHash) -> Result<(u64, u64), DBError> {
-        let query = "SELECT tenure_change, proposed_time, validation_time_ms FROM tenure_blocks WHERE consensus_hash = ?1 ORDER BY stacks_height DESC";
+        let query = "SELECT tenure_change, proposed_time, validation_time_ms FROM blocks WHERE consensus_hash = ?1 ORDER BY stacks_height DESC";
         let args = params![tenure];
         let mut stmt = self.db.prepare(query)?;
         let rows = stmt.query_map(args, |row| {
             let tenure_change_block: u64 = row.get(0)?;
             let proposed_time: u64 = row.get(1)?;
-            let validation_time_ms: u64 = row.get(2)?;
+            let validation_time_ms: Option<u64> = row.get(2)?;
             Ok((tenure_change_block > 0, proposed_time, validation_time_ms))
         })?;
         let mut tenure_processing_time_ms = 0_u64;
@@ -986,7 +991,7 @@ impl SignerDb {
         for row in rows {
             let (tenure_change_block, proposed_time, validation_time_ms) = row?;
             tenure_processing_time_ms =
-                tenure_processing_time_ms.saturating_add(validation_time_ms);
+                tenure_processing_time_ms.saturating_add(validation_time_ms.unwrap_or(0));
             tenure_start_time = Some(proposed_time);
             if tenure_change_block {
                 break;
@@ -1038,6 +1043,12 @@ mod tests {
     use std::path::PathBuf;
 
     use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
+    use blockstack_lib::chainstate::stacks::{
+        StacksTransaction, TenureChangeCause, TenureChangePayload, TransactionAuth,
+        TransactionVersion,
+    };
+    use clarity::types::chainstate::{StacksBlockId, StacksPrivateKey, StacksPublicKey};
+    use clarity::util::hash::Hash160;
     use clarity::util::secp256k1::MessageSignature;
     use libsigner::BlockProposal;
 
@@ -1080,39 +1091,42 @@ mod tests {
 
     fn test_basic_signer_db_with_path(db_path: impl AsRef<Path>) {
         let mut db = SignerDb::new(db_path).expect("Failed to create signer db");
-        let (block_info, block_proposal) = create_block();
-        let reward_cycle = block_info.reward_cycle;
-        db.insert_block(&block_info)
+        let (block_info_1, block_proposal_1) = create_block_override(|b| {
+            b.block.header.consensus_hash = ConsensusHash([0x01; 20]);
+        });
+        let (block_info_2, block_proposal_2) = create_block_override(|b| {
+            b.block.header.consensus_hash = ConsensusHash([0x02; 20]);
+        });
+        db.insert_block(&block_info_1)
             .expect("Unable to insert block into db");
         let block_info = db
-            .block_lookup(
-                reward_cycle,
-                &block_proposal.block.header.signer_signature_hash(),
-            )
+            .block_lookup(&block_proposal_1.block.header.signer_signature_hash())
             .unwrap()
             .expect("Unable to get block from db");
 
-        assert_eq!(BlockInfo::from(block_proposal.clone()), block_info);
+        assert_eq!(BlockInfo::from(block_proposal_1.clone()), block_info);
 
-        // Test looking up a block from a different reward cycle
+        // Test looking up a block with an unknown hash
         let block_info = db
-            .block_lookup(
-                reward_cycle + 1,
-                &block_proposal.block.header.signer_signature_hash(),
-            )
+            .block_lookup(&block_proposal_2.block.header.signer_signature_hash())
             .unwrap();
         assert!(block_info.is_none());
 
+        db.insert_block(&block_info_2)
+            .expect("Unable to insert block into db");
+        let block_info = db
+            .block_lookup(&block_proposal_2.block.header.signer_signature_hash())
+            .unwrap()
+            .expect("Unable to get block from db");
+
+        assert_eq!(BlockInfo::from(block_proposal_2.clone()), block_info);
         // test getting the block state
         let block_state = db
-            .get_block_state(
-                reward_cycle,
-                &block_proposal.block.header.signer_signature_hash(),
-            )
+            .get_block_state(&block_proposal_1.block.header.signer_signature_hash())
             .unwrap()
             .expect("Unable to get block state from db");
 
-        assert_eq!(block_state, BlockInfo::from(block_proposal.clone()).state);
+        assert_eq!(block_state, BlockInfo::from(block_proposal_1.clone()).state);
     }
 
     #[test]
@@ -1132,15 +1146,11 @@ mod tests {
         let db_path = tmp_db_path();
         let mut db = SignerDb::new(db_path).expect("Failed to create signer db");
         let (block_info, block_proposal) = create_block();
-        let reward_cycle = block_info.reward_cycle;
         db.insert_block(&block_info)
             .expect("Unable to insert block into db");
 
         let block_info = db
-            .block_lookup(
-                reward_cycle,
-                &block_proposal.block.header.signer_signature_hash(),
-            )
+            .block_lookup(&block_proposal.block.header.signer_signature_hash())
             .unwrap()
             .expect("Unable to get block from db");
 
@@ -1166,10 +1176,7 @@ mod tests {
             .expect("Unable to insert block into db");
 
         let block_info = db
-            .block_lookup(
-                reward_cycle,
-                &block_proposal.block.header.signer_signature_hash(),
-            )
+            .block_lookup(&block_proposal.block.header.signer_signature_hash())
             .unwrap()
             .expect("Unable to get block from db");
 
@@ -1341,48 +1348,32 @@ mod tests {
             .expect("Unable to insert block into db");
 
         assert!(db
-            .get_block_broadcasted(
-                block_info_1.reward_cycle,
-                &block_info_1.signer_signature_hash()
-            )
+            .get_block_broadcasted(&block_info_1.signer_signature_hash())
             .unwrap()
             .is_none());
         assert_eq!(
-            db.block_lookup(
-                block_info_1.reward_cycle,
-                &block_info_1.signer_signature_hash()
-            )
-            .expect("Unable to get block from db")
-            .expect("Unable to get block from db")
-            .state,
+            db.block_lookup(&block_info_1.signer_signature_hash())
+                .expect("Unable to get block from db")
+                .expect("Unable to get block from db")
+                .state,
             BlockState::Unprocessed
         );
-        db.set_block_broadcasted(
-            block_info_1.reward_cycle,
-            &block_info_1.signer_signature_hash(),
-            12345,
-        )
-        .unwrap();
+        db.set_block_broadcasted(&block_info_1.signer_signature_hash(), 12345)
+            .unwrap();
         assert_eq!(
-            db.block_lookup(
-                block_info_1.reward_cycle,
-                &block_info_1.signer_signature_hash()
-            )
-            .expect("Unable to get block from db")
-            .expect("Unable to get block from db")
-            .state,
+            db.block_lookup(&block_info_1.signer_signature_hash())
+                .expect("Unable to get block from db")
+                .expect("Unable to get block from db")
+                .state,
             BlockState::GloballyAccepted
         );
         db.insert_block(&block_info_1)
             .expect("Unable to insert block into db a second time");
 
         assert_eq!(
-            db.get_block_broadcasted(
-                block_info_1.reward_cycle,
-                &block_info_1.signer_signature_hash()
-            )
-            .unwrap()
-            .unwrap(),
+            db.get_block_broadcasted(&block_info_1.signer_signature_hash())
+                .unwrap()
+                .unwrap(),
             12345
         );
     }
@@ -1547,6 +1538,25 @@ mod tests {
     }
 
     fn generate_tenure_blocks() -> Vec<BlockInfo> {
+        let tenure_change_payload = TenureChangePayload {
+            tenure_consensus_hash: ConsensusHash([0x04; 20]), // same as in nakamoto header
+            prev_tenure_consensus_hash: ConsensusHash([0x01; 20]),
+            burn_view_consensus_hash: ConsensusHash([0x04; 20]),
+            previous_tenure_end: StacksBlockId([0x03; 32]),
+            previous_tenure_blocks: 1,
+            cause: TenureChangeCause::BlockFound,
+            pubkey_hash: Hash160::from_node_public_key(&StacksPublicKey::from_private(
+                &StacksPrivateKey::new(),
+            )),
+        };
+        let tenure_change_tx_payload =
+            TransactionPayload::TenureChange(tenure_change_payload.clone());
+        let tenure_change_tx = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            TransactionAuth::from_p2pkh(&StacksPrivateKey::new()).unwrap(),
+            tenure_change_tx_payload.clone(),
+        );
+
         let consensus_hash_1 = ConsensusHash([0x01; 20]);
         let consensus_hash_2 = ConsensusHash([0x02; 20]);
         let (mut block_info_1, _block_proposal) = create_block_override(|b| {
@@ -1557,7 +1567,7 @@ mod tests {
             b.reward_cycle = 1;
         });
         block_info_1.state = BlockState::GloballyAccepted;
-        block_info_1.tenure_change = true;
+        block_info_1.block.txs.push(tenure_change_tx.clone());
         block_info_1.validation_time_ms = Some(1000);
         block_info_1.proposed_time = get_epoch_time_secs() + 500;
 
@@ -1580,7 +1590,7 @@ mod tests {
             b.reward_cycle = 2;
         });
         block_info_3.state = BlockState::GloballyAccepted;
-        block_info_3.tenure_change = true;
+        block_info_3.block.txs.push(tenure_change_tx);
         block_info_3.validation_time_ms = Some(5000);
         block_info_3.proposed_time = block_info_1.proposed_time + 10;
 
@@ -1710,49 +1720,5 @@ mod tests {
             timestamp_hash_3.saturating_sub(tenure_idle_timeout.as_secs())
                 < block_infos[0].proposed_time
         );
-    }
-
-    #[test]
-    fn cleanup() {
-        let db_path = tmp_db_path();
-        let mut db = SignerDb::new(db_path).expect("Failed to create signer db");
-        let block_infos = generate_tenure_blocks();
-        let consensus_hash_1 = block_infos[0].block.header.consensus_hash;
-        let consensus_hash_2 = block_infos.last().unwrap().block.header.consensus_hash;
-
-        for block_info in &block_infos {
-            db.insert_block(block_info).unwrap();
-        }
-
-        // Verify this does nothing. All data is still there.
-        db.cleanup_stale_data(block_infos[0].reward_cycle - 1)
-            .unwrap();
-
-        // Verify tenure consensus_hash_1
-        let (start_time_1, processing_time_1) = db.get_tenure_times(&consensus_hash_1).unwrap();
-        assert_eq!(start_time_1, block_infos[2].proposed_time);
-        assert_eq!(processing_time_1, 5000);
-
-        // Verify tenure consensus_hash_2
-        let (start_time_2, processing_time_2) = db.get_tenure_times(&consensus_hash_2).unwrap();
-        assert_eq!(start_time_2, block_infos[4].proposed_time);
-        assert_eq!(processing_time_2, 20000);
-
-        // Verify this deletes some data
-        db.cleanup_stale_data(block_infos[2].reward_cycle).unwrap();
-
-        // Verify tenure consensus_hash_1 AFTER deletion has updated correctly.
-        let (start_time_1_after, processing_time_1_after) =
-            db.get_tenure_times(&consensus_hash_1).unwrap();
-        assert_ne!(start_time_1_after, start_time_1);
-        assert_ne!(processing_time_1_after, processing_time_1);
-        assert!(start_time_1_after < block_infos[0].proposed_time, "Should have been generated from get_epoch_time_secs() making it much older than our artificially late proposal times");
-        assert_eq!(processing_time_1_after, 0);
-
-        // Verify tenure consensus_hash_2 AFTER deletion has not updated.
-        let (start_time_2_after, processing_time_2_after) =
-            db.get_tenure_times(&consensus_hash_2).unwrap();
-        assert_eq!(start_time_2_after, start_time_2);
-        assert_eq!(processing_time_2_after, processing_time_2);
     }
 }

@@ -193,7 +193,6 @@ impl SortitionsView {
         signer_db: &mut SignerDb,
         block: &NakamotoBlock,
         block_pk: &StacksPublicKey,
-        reward_cycle: u64,
         reset_view_if_wrong_consensus_hash: bool,
     ) -> Result<bool, SignerChainstateError> {
         if self
@@ -287,14 +286,7 @@ impl SortitionsView {
                     "last_sortition_consensus_hash" => ?self.last_sortition.as_ref().map(|x| x.consensus_hash),
                 );
                 self.reset_view(client)?;
-                return self.check_proposal(
-                    client,
-                    signer_db,
-                    block,
-                    block_pk,
-                    reward_cycle,
-                    false,
-                );
+                return self.check_proposal(client, signer_db, block, block_pk, false);
             }
             warn!(
                 "Miner block proposal has consensus hash that is neither the current or last sortition. Considering invalid.";
@@ -352,7 +344,6 @@ impl SortitionsView {
                 &proposed_by,
                 tenure_change,
                 block,
-                reward_cycle,
                 signer_db,
                 client,
             )? {
@@ -547,7 +538,6 @@ impl SortitionsView {
     fn check_tenure_change_confirms_parent(
         tenure_change: &TenureChangePayload,
         block: &NakamotoBlock,
-        reward_cycle: u64,
         signer_db: &mut SignerDb,
         client: &StacksClient,
         tenure_last_block_proposal_timeout: Duration,
@@ -592,7 +582,7 @@ impl SortitionsView {
             // If we have seen this block already, make sure its state is updated to globally accepted.
             // Otherwise, don't worry about it.
             if let Ok(Some(mut block_info)) =
-                signer_db.block_lookup(reward_cycle, &nakamoto_tip.signer_signature_hash())
+                signer_db.block_lookup(&nakamoto_tip.signer_signature_hash())
             {
                 if block_info.state != BlockState::GloballyAccepted {
                     if let Err(e) = block_info.mark_globally_accepted() {
@@ -627,7 +617,6 @@ impl SortitionsView {
         proposed_by: &ProposedBy,
         tenure_change: &TenureChangePayload,
         block: &NakamotoBlock,
-        reward_cycle: u64,
         signer_db: &mut SignerDb,
         client: &StacksClient,
     ) -> Result<bool, SignerChainstateError> {
@@ -635,7 +624,6 @@ impl SortitionsView {
         let confirms_expected_parent = Self::check_tenure_change_confirms_parent(
             tenure_change,
             block,
-            reward_cycle,
             signer_db,
             client,
             self.config.tenure_last_block_proposal_timeout,

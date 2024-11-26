@@ -258,14 +258,6 @@ impl SignerTrait<SignerMessage> for Signer {
                 true
             })
     }
-
-    fn cleanup_stale_data(&mut self, current_reward_cycle: u64) {
-        // We currently delete only data older than 2 reward cycles ago.
-        let _ = self
-            .signer_db
-            .cleanup_stale_data(current_reward_cycle.saturating_sub(2))
-            .inspect_err(|e| error!("self: Failed to cleanup stale signerdb data: {e:?}"));
-    }
 }
 
 impl From<SignerConfig> for Signer {
@@ -355,7 +347,7 @@ impl Signer {
         let signer_signature_hash = block_proposal.block.header.signer_signature_hash();
         if let Some(block_info) = self
             .signer_db
-            .block_lookup(self.reward_cycle, &signer_signature_hash)
+            .block_lookup(&signer_signature_hash)
             .expect("Failed to connect to signer DB")
         {
             let Some(block_response) = self.determine_response(&block_info) else {
@@ -414,7 +406,6 @@ impl Signer {
                 &mut self.signer_db,
                 &block_proposal.block,
                 miner_pubkey,
-                self.reward_cycle,
                 true,
             ) {
                 // Error validating block
@@ -566,10 +557,7 @@ impl Signer {
             self.submitted_block_proposal = None;
         }
         // For mutability reasons, we need to take the block_info out of the map and add it back after processing
-        let mut block_info = match self
-            .signer_db
-            .block_lookup(self.reward_cycle, &signer_signature_hash)
-        {
+        let mut block_info = match self.signer_db.block_lookup(&signer_signature_hash) {
             Ok(Some(block_info)) => {
                 if block_info.is_locally_finalized() {
                     debug!("{self}: Received block validation for a block that is already marked as {}. Ignoring...", block_info.state);
@@ -639,10 +627,7 @@ impl Signer {
         {
             self.submitted_block_proposal = None;
         }
-        let mut block_info = match self
-            .signer_db
-            .block_lookup(self.reward_cycle, &signer_signature_hash)
-        {
+        let mut block_info = match self.signer_db.block_lookup(&signer_signature_hash) {
             Ok(Some(block_info)) => {
                 if block_info.is_locally_finalized() {
                     debug!("{self}: Received block validation for a block that is already marked as {}. Ignoring...", block_info.state);
@@ -732,10 +717,7 @@ impl Signer {
         }
         let signature_sighash = block_proposal.block.header.signer_signature_hash();
         // For mutability reasons, we need to take the block_info out of the map and add it back after processing
-        let mut block_info = match self
-            .signer_db
-            .block_lookup(self.reward_cycle, &signature_sighash)
-        {
+        let mut block_info = match self.signer_db.block_lookup(&signature_sighash) {
             Ok(Some(block_info)) => {
                 if block_info.state == BlockState::GloballyRejected
                     || block_info.state == BlockState::GloballyAccepted
@@ -822,7 +804,7 @@ impl Signer {
         let block_hash = &rejection.signer_signature_hash;
         let signature = &rejection.signature;
 
-        let mut block_info = match self.signer_db.block_lookup(self.reward_cycle, block_hash) {
+        let mut block_info = match self.signer_db.block_lookup(block_hash) {
             Ok(Some(block_info)) => {
                 if block_info.state == BlockState::GloballyRejected
                     || block_info.state == BlockState::GloballyAccepted
@@ -928,10 +910,7 @@ impl Signer {
         );
 
         // Have we already processed this block?
-        match self
-            .signer_db
-            .get_block_state(self.reward_cycle, block_hash)
-        {
+        match self.signer_db.get_block_state(block_hash) {
             Ok(Some(state)) => {
                 if state == BlockState::GloballyAccepted || state == BlockState::GloballyRejected {
                     debug!("{self}: Received block signature for a block that is already marked as {}. Ignoring...", state);
@@ -1013,14 +992,10 @@ impl Signer {
         }
 
         // have enough signatures to broadcast!
-        let Ok(Some(mut block_info)) = self
-            .signer_db
-            .block_lookup(self.reward_cycle, block_hash)
-            .map_err(|e| {
-                warn!("{self}: Failed to load block {block_hash}: {e:?})");
-                e
-            })
-        else {
+        let Ok(Some(mut block_info)) = self.signer_db.block_lookup(block_hash).map_err(|e| {
+            warn!("{self}: Failed to load block {block_hash}: {e:?})");
+            e
+        }) else {
             warn!("{self}: No such block {block_hash}");
             return;
         };
@@ -1093,11 +1068,10 @@ impl Signer {
         );
         stacks_client.post_block_until_ok(self, &block);
 
-        if let Err(e) = self.signer_db.set_block_broadcasted(
-            self.reward_cycle,
-            &block_hash,
-            get_epoch_time_secs(),
-        ) {
+        if let Err(e) = self
+            .signer_db
+            .set_block_broadcasted(&block_hash, get_epoch_time_secs())
+        {
             warn!("{self}: Failed to set block broadcasted for {block_hash}: {e:?}");
         }
     }
@@ -1113,11 +1087,10 @@ impl Signer {
                 "consensus_hash" => %block.header.consensus_hash
             );
 
-            if let Err(e) = self.signer_db.set_block_broadcasted(
-                self.reward_cycle,
-                &block_hash,
-                get_epoch_time_secs(),
-            ) {
+            if let Err(e) = self
+                .signer_db
+                .set_block_broadcasted(&block_hash, get_epoch_time_secs())
+            {
                 warn!("{self}: Failed to set block broadcasted for {block_hash}: {e:?}");
             }
             return true;

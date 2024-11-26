@@ -6365,13 +6365,6 @@ fn signer_chainstate() {
         )
         .unwrap();
 
-        let reward_cycle = burnchain
-            .block_height_to_reward_cycle(
-                SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
-                    .unwrap()
-                    .block_height,
-            )
-            .unwrap();
         // this config disallows any reorg due to poorly timed block commits
         let proposal_conf = ProposalEvalConfig {
             first_proposal_burn_block_timing: Duration::from_secs(0),
@@ -6393,7 +6386,6 @@ fn signer_chainstate() {
                     &mut signer_db,
                     prior_tenure_first,
                     miner_pk,
-                    reward_cycle,
                     true,
                 )
                 .unwrap();
@@ -6403,14 +6395,7 @@ fn signer_chainstate() {
             );
             for block in prior_tenure_interims.iter() {
                 let valid = sortitions_view
-                    .check_proposal(
-                        &signer_client,
-                        &mut signer_db,
-                        block,
-                        miner_pk,
-                        reward_cycle,
-                        true,
-                    )
+                    .check_proposal(&signer_client, &mut signer_db, block, miner_pk, true)
                     .unwrap();
                 assert!(
                     !valid,
@@ -6445,7 +6430,6 @@ fn signer_chainstate() {
                 &mut signer_db,
                 &proposal.0,
                 &proposal.1,
-                reward_cycle,
                 true,
             )
             .unwrap();
@@ -6468,12 +6452,6 @@ fn signer_chainstate() {
                 ext: ExtraBlockInfo::None,
                 state: BlockState::Unprocessed,
                 validation_time_ms: None,
-                tenure_change: proposal
-                    .0
-                    .txs
-                    .first()
-                    .map(|tx| matches!(tx.payload, TransactionPayload::TenureChange(_)))
-                    .unwrap_or(false),
             })
             .unwrap();
 
@@ -6508,7 +6486,6 @@ fn signer_chainstate() {
                 &mut signer_db,
                 &proposal_interim.0,
                 &proposal_interim.1,
-                reward_cycle,
                 true,
             )
             .unwrap();
@@ -6540,7 +6517,6 @@ fn signer_chainstate() {
                 &mut signer_db,
                 &proposal_interim.0,
                 &proposal_interim.1,
-                reward_cycle,
                 true,
             )
             .unwrap();
@@ -6564,12 +6540,6 @@ fn signer_chainstate() {
                 ext: ExtraBlockInfo::None,
                 state: BlockState::GloballyAccepted,
                 validation_time_ms: Some(1000),
-                tenure_change: proposal_interim
-                    .0
-                    .txs
-                    .first()
-                    .map(|tx| matches!(tx.payload, TransactionPayload::TenureChange(_)))
-                    .unwrap_or(false),
             })
             .unwrap();
 
@@ -6613,12 +6583,6 @@ fn signer_chainstate() {
         tenure_idle_timeout: Duration::from_secs(300),
     };
     let mut sortitions_view = SortitionsView::fetch_view(proposal_conf, &signer_client).unwrap();
-    let burn_block_height = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
-        .unwrap()
-        .block_height;
-    let reward_cycle = burnchain
-        .block_height_to_reward_cycle(burn_block_height)
-        .unwrap();
     assert!(
         !sortitions_view
             .check_proposal(
@@ -6626,7 +6590,6 @@ fn signer_chainstate() {
                 &mut signer_db,
                 &sibling_block,
                 &miner_pk,
-                reward_cycle,
                 false,
             )
             .unwrap(),
@@ -6684,7 +6647,6 @@ fn signer_chainstate() {
                 &mut signer_db,
                 &sibling_block,
                 &miner_pk,
-                reward_cycle,
                 false,
             )
             .unwrap(),
@@ -6748,7 +6710,6 @@ fn signer_chainstate() {
                 &mut signer_db,
                 &sibling_block,
                 &miner_pk,
-                reward_cycle,
                 false,
             )
             .unwrap(),
@@ -6814,7 +6775,6 @@ fn signer_chainstate() {
                 &mut signer_db,
                 &sibling_block,
                 &miner_pk,
-                reward_cycle,
                 false,
             )
             .unwrap(),
@@ -9666,8 +9626,6 @@ fn test_shadow_recovery() {
     let btc_regtest_controller = &mut signer_test.running_nodes.btc_regtest_controller;
     let coord_channel = signer_test.running_nodes.coord_channel.clone();
     let commits_submitted = signer_test.running_nodes.commits_submitted.clone();
-
-    let burnchain = naka_conf.get_burnchain();
 
     // make another tenure
     next_block_and_mine_commit(
