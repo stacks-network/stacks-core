@@ -5034,7 +5034,7 @@ fn check_height_valid(
     height_lo: i64,
     height_hi: i64,
     return_offset: i32,
-) -> Result<u32, Error> {
+) -> Result<Option<u32>, Error> {
     let height = (height_hi as u128) << 64 | ((height_lo as u64) as u128);
 
     let height_value = match u32::try_from(height) {
@@ -5050,7 +5050,7 @@ fn check_height_valid(
                 &Value::Bool(false),
                 true,
             )?;
-            return Err(Error::Wasm(WasmError::ValueTypeMismatch));
+            return Ok(None);
         }
     };
 
@@ -5070,8 +5070,9 @@ fn check_height_valid(
             &Value::Bool(false),
             true,
         )?;
+        return Ok(None);
     }
-    Ok(height_value)
+    Ok(Some(height_value))
 }
 
 /// Link host interface function, `get_block_info_time`, into the Wasm module.
@@ -5093,25 +5094,27 @@ fn link_get_block_info_time_property_fn(
                     .and_then(|export| export.into_memory())
                     .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
 
-                let height_value =
-                    check_height_valid(&mut caller, memory, height_lo, height_hi, return_offset)?;
-
-                let block_time = caller
-                    .data_mut()
-                    .global_context
-                    .database
-                    .get_block_time(height_value)?;
-                let (result, ty) = (Value::UInt(block_time as u128), TypeSignature::UIntType);
-                write_to_wasm(
-                    &mut caller,
-                    memory,
-                    &ty,
-                    return_offset,
-                    return_offset + get_type_size(&ty),
-                    &Value::some(result)?,
-                    true,
-                )?;
-
+                if let Some(height_value) =
+                    check_height_valid(&mut caller, memory, height_lo, height_hi, return_offset)?
+                {
+                    let block_time = caller
+                        .data_mut()
+                        .global_context
+                        .database
+                        .get_block_time(height_value)?;
+                    let (result, result_ty) =
+                        (Value::UInt(block_time as u128), TypeSignature::UIntType);
+                    let ty = TypeSignature::OptionalType(Box::new(result_ty));
+                    write_to_wasm(
+                        &mut caller,
+                        memory,
+                        &ty,
+                        return_offset,
+                        return_offset + get_type_size(&ty),
+                        &Value::some(result)?,
+                        true,
+                    )?;
+                }
                 Ok(())
             },
         )
@@ -5143,32 +5146,34 @@ fn link_get_block_info_vrf_seed_property_fn(
                     .and_then(|export| export.into_memory())
                     .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
 
-                let height_value =
-                    check_height_valid(&mut caller, memory, height_lo, height_hi, return_offset)?;
+                if let Some(height_value) =
+                    check_height_valid(&mut caller, memory, height_lo, height_hi, return_offset)?
+                {
+                    let vrf_seed = caller
+                        .data_mut()
+                        .global_context
+                        .database
+                        .get_block_vrf_seed(height_value)?;
+                    let data = vrf_seed.as_bytes().to_vec();
+                    let len = data.len() as u32;
+                    let (result, result_ty) = (
+                        Value::Sequence(SequenceData::Buffer(BuffData { data })),
+                        TypeSignature::SequenceType(SequenceSubtype::BufferType(
+                            BufferLength::try_from(len)?,
+                        )),
+                    );
+                    let ty = TypeSignature::OptionalType(Box::new(result_ty));
 
-                let vrf_seed = caller
-                    .data_mut()
-                    .global_context
-                    .database
-                    .get_block_vrf_seed(height_value)?;
-                let data = vrf_seed.as_bytes().to_vec();
-                let len = data.len() as u32;
-                let (result, ty) = (
-                    Value::Sequence(SequenceData::Buffer(BuffData { data })),
-                    TypeSignature::SequenceType(SequenceSubtype::BufferType(
-                        BufferLength::try_from(len)?,
-                    )),
-                );
-                write_to_wasm(
-                    &mut caller,
-                    memory,
-                    &ty,
-                    return_offset,
-                    return_offset + get_type_size(&ty),
-                    &Value::some(result)?,
-                    true,
-                )?;
-
+                    write_to_wasm(
+                        &mut caller,
+                        memory,
+                        &ty,
+                        return_offset,
+                        return_offset + get_type_size(&ty),
+                        &Value::some(result)?,
+                        true,
+                    )?;
+                }
                 Ok(())
             },
         )
@@ -5200,32 +5205,34 @@ fn link_get_block_info_header_hash_property_fn(
                     .and_then(|export| export.into_memory())
                     .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
 
-                let height_value =
-                    check_height_valid(&mut caller, memory, height_lo, height_hi, return_offset)?;
+                if let Some(height_value) =
+                    check_height_valid(&mut caller, memory, height_lo, height_hi, return_offset)?
+                {
+                    let header_hash = caller
+                        .data_mut()
+                        .global_context
+                        .database
+                        .get_block_header_hash(height_value)?;
+                    let data = header_hash.as_bytes().to_vec();
+                    let len = data.len() as u32;
+                    let (result, result_ty) = (
+                        Value::Sequence(SequenceData::Buffer(BuffData { data })),
+                        TypeSignature::SequenceType(SequenceSubtype::BufferType(
+                            BufferLength::try_from(len)?,
+                        )),
+                    );
+                    let ty = TypeSignature::OptionalType(Box::new(result_ty));
 
-                let header_hash = caller
-                    .data_mut()
-                    .global_context
-                    .database
-                    .get_block_header_hash(height_value)?;
-                let data = header_hash.as_bytes().to_vec();
-                let len = data.len() as u32;
-                let (result, ty) = (
-                    Value::Sequence(SequenceData::Buffer(BuffData { data })),
-                    TypeSignature::SequenceType(SequenceSubtype::BufferType(
-                        BufferLength::try_from(len)?,
-                    )),
-                );
-                write_to_wasm(
-                    &mut caller,
-                    memory,
-                    &ty,
-                    return_offset,
-                    return_offset + get_type_size(&ty),
-                    &Value::some(result)?,
-                    true,
-                )?;
-
+                    write_to_wasm(
+                        &mut caller,
+                        memory,
+                        &ty,
+                        return_offset,
+                        return_offset + get_type_size(&ty),
+                        &Value::some(result)?,
+                        true,
+                    )?;
+                }
                 Ok(())
             },
         )
@@ -5257,32 +5264,34 @@ fn link_get_block_info_burnchain_header_hash_property_fn(
                     .and_then(|export| export.into_memory())
                     .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
 
-                let height_value =
-                    check_height_valid(&mut caller, memory, height_lo, height_hi, return_offset)?;
+                if let Some(height_value) =
+                    check_height_valid(&mut caller, memory, height_lo, height_hi, return_offset)?
+                {
+                    let burnchain_header_hash = caller
+                        .data_mut()
+                        .global_context
+                        .database
+                        .get_burnchain_block_header_hash(height_value)?;
+                    let data = burnchain_header_hash.as_bytes().to_vec();
+                    let len = data.len() as u32;
+                    let (result, result_ty) = (
+                        Value::Sequence(SequenceData::Buffer(BuffData { data })),
+                        TypeSignature::SequenceType(SequenceSubtype::BufferType(
+                            BufferLength::try_from(len)?,
+                        )),
+                    );
+                    let ty = TypeSignature::OptionalType(Box::new(result_ty));
 
-                let burnchain_header_hash = caller
-                    .data_mut()
-                    .global_context
-                    .database
-                    .get_burnchain_block_header_hash(height_value)?;
-                let data = burnchain_header_hash.as_bytes().to_vec();
-                let len = data.len() as u32;
-                let (result, ty) = (
-                    Value::Sequence(SequenceData::Buffer(BuffData { data })),
-                    TypeSignature::SequenceType(SequenceSubtype::BufferType(
-                        BufferLength::try_from(len)?,
-                    )),
-                );
-                write_to_wasm(
-                    &mut caller,
-                    memory,
-                    &ty,
-                    return_offset,
-                    return_offset + get_type_size(&ty),
-                    &Value::some(result)?,
-                    true,
-                )?;
-
+                    write_to_wasm(
+                        &mut caller,
+                        memory,
+                        &ty,
+                        return_offset,
+                        return_offset + get_type_size(&ty),
+                        &Value::some(result)?,
+                        true,
+                    )?;
+                }
                 Ok(())
             },
         )
@@ -5314,32 +5323,34 @@ fn link_get_block_info_identity_header_hash_property_fn(
                     .and_then(|export| export.into_memory())
                     .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
 
-                let height_value =
-                    check_height_valid(&mut caller, memory, height_lo, height_hi, return_offset)?;
+                if let Some(height_value) =
+                    check_height_valid(&mut caller, memory, height_lo, height_hi, return_offset)?
+                {
+                    let id_header_hash = caller
+                        .data_mut()
+                        .global_context
+                        .database
+                        .get_index_block_header_hash(height_value)?;
+                    let data = id_header_hash.as_bytes().to_vec();
+                    let len = data.len() as u32;
+                    let (result, result_ty) = (
+                        Value::Sequence(SequenceData::Buffer(BuffData { data })),
+                        TypeSignature::SequenceType(SequenceSubtype::BufferType(
+                            BufferLength::try_from(len)?,
+                        )),
+                    );
+                    let ty = TypeSignature::OptionalType(Box::new(result_ty));
 
-                let id_header_hash = caller
-                    .data_mut()
-                    .global_context
-                    .database
-                    .get_index_block_header_hash(height_value)?;
-                let data = id_header_hash.as_bytes().to_vec();
-                let len = data.len() as u32;
-                let (result, ty) = (
-                    Value::Sequence(SequenceData::Buffer(BuffData { data })),
-                    TypeSignature::SequenceType(SequenceSubtype::BufferType(
-                        BufferLength::try_from(len)?,
-                    )),
-                );
-                write_to_wasm(
-                    &mut caller,
-                    memory,
-                    &ty,
-                    return_offset,
-                    return_offset + get_type_size(&ty),
-                    &Value::some(result)?,
-                    true,
-                )?;
-
+                    write_to_wasm(
+                        &mut caller,
+                        memory,
+                        &ty,
+                        return_offset,
+                        return_offset + get_type_size(&ty),
+                        &Value::some(result)?,
+                        true,
+                    )?;
+                }
                 Ok(())
             },
         )
@@ -5371,25 +5382,28 @@ fn link_get_block_info_miner_address_property_fn(
                     .and_then(|export| export.into_memory())
                     .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
 
-                let height_value =
-                    check_height_valid(&mut caller, memory, height_lo, height_hi, return_offset)?;
+                if let Some(height_value) =
+                    check_height_valid(&mut caller, memory, height_lo, height_hi, return_offset)?
+                {
+                    let miner_address = caller
+                        .data_mut()
+                        .global_context
+                        .database
+                        .get_miner_address(height_value)?;
+                    let (result, result_ty) =
+                        (Value::from(miner_address), TypeSignature::PrincipalType);
+                    let ty = TypeSignature::OptionalType(Box::new(result_ty));
 
-                let miner_address = caller
-                    .data_mut()
-                    .global_context
-                    .database
-                    .get_miner_address(height_value)?;
-                let (result, ty) = (Value::from(miner_address), TypeSignature::PrincipalType);
-                write_to_wasm(
-                    &mut caller,
-                    memory,
-                    &ty,
-                    return_offset,
-                    return_offset + get_type_size(&ty),
-                    &Value::some(result)?,
-                    true,
-                )?;
-
+                    write_to_wasm(
+                        &mut caller,
+                        memory,
+                        &ty,
+                        return_offset,
+                        return_offset + get_type_size(&ty),
+                        &Value::some(result)?,
+                        true,
+                    )?;
+                }
                 Ok(())
             },
         )
@@ -5421,25 +5435,27 @@ fn link_get_block_info_miner_spend_winner_property_fn(
                     .and_then(|export| export.into_memory())
                     .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
 
-                let height_value =
-                    check_height_valid(&mut caller, memory, height_lo, height_hi, return_offset)?;
+                if let Some(height_value) =
+                    check_height_valid(&mut caller, memory, height_lo, height_hi, return_offset)?
+                {
+                    let winner_spend = caller
+                        .data_mut()
+                        .global_context
+                        .database
+                        .get_miner_spend_winner(height_value)?;
+                    let (result, result_ty) = (Value::UInt(winner_spend), TypeSignature::UIntType);
+                    let ty = TypeSignature::OptionalType(Box::new(result_ty));
 
-                let winner_spend = caller
-                    .data_mut()
-                    .global_context
-                    .database
-                    .get_miner_spend_winner(height_value)?;
-                let (result, ty) = (Value::UInt(winner_spend), TypeSignature::UIntType);
-                write_to_wasm(
-                    &mut caller,
-                    memory,
-                    &ty,
-                    return_offset,
-                    return_offset + get_type_size(&ty),
-                    &Value::some(result)?,
-                    true,
-                )?;
-
+                    write_to_wasm(
+                        &mut caller,
+                        memory,
+                        &ty,
+                        return_offset,
+                        return_offset + get_type_size(&ty),
+                        &Value::some(result)?,
+                        true,
+                    )?;
+                }
                 Ok(())
             },
         )
@@ -5471,25 +5487,27 @@ fn link_get_block_info_miner_spend_total_property_fn(
                     .and_then(|export| export.into_memory())
                     .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
 
-                let height_value =
-                    check_height_valid(&mut caller, memory, height_lo, height_hi, return_offset)?;
+                if let Some(height_value) =
+                    check_height_valid(&mut caller, memory, height_lo, height_hi, return_offset)?
+                {
+                    let total_spend = caller
+                        .data_mut()
+                        .global_context
+                        .database
+                        .get_miner_spend_total(height_value)?;
+                    let (result, result_ty) = (Value::UInt(total_spend), TypeSignature::UIntType);
+                    let ty = TypeSignature::OptionalType(Box::new(result_ty));
 
-                let total_spend = caller
-                    .data_mut()
-                    .global_context
-                    .database
-                    .get_miner_spend_total(height_value)?;
-                let (result, ty) = (Value::UInt(total_spend), TypeSignature::UIntType);
-                write_to_wasm(
-                    &mut caller,
-                    memory,
-                    &ty,
-                    return_offset,
-                    return_offset + get_type_size(&ty),
-                    &Value::some(result)?,
-                    true,
-                )?;
-
+                    write_to_wasm(
+                        &mut caller,
+                        memory,
+                        &ty,
+                        return_offset,
+                        return_offset + get_type_size(&ty),
+                        &Value::some(result)?,
+                        true,
+                    )?;
+                }
                 Ok(())
             },
         )
@@ -5521,43 +5539,45 @@ fn link_get_block_info_block_reward_property_fn(
                     .and_then(|export| export.into_memory())
                     .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
 
-                let height_value =
-                    check_height_valid(&mut caller, memory, height_lo, height_hi, return_offset)?;
+                if let Some(height_value) =
+                    check_height_valid(&mut caller, memory, height_lo, height_hi, return_offset)?
+                {
+                    let block_reward_opt = caller
+                        .data_mut()
+                        .global_context
+                        .database
+                        .get_block_reward(height_value)?;
+                    let (result, result_ty) = (
+                        match block_reward_opt {
+                            Some(x) => Value::UInt(x),
+                            None => {
+                                // Write a 0 to the return buffer for `none`
+                                write_to_wasm(
+                                    &mut caller,
+                                    memory,
+                                    &TypeSignature::BoolType,
+                                    return_offset,
+                                    return_offset + get_type_size(&TypeSignature::BoolType),
+                                    &Value::Bool(false),
+                                    true,
+                                )?;
+                                return Ok(());
+                            }
+                        },
+                        TypeSignature::UIntType,
+                    );
+                    let ty = TypeSignature::OptionalType(Box::new(result_ty));
 
-                let block_reward_opt = caller
-                    .data_mut()
-                    .global_context
-                    .database
-                    .get_block_reward(height_value)?;
-                let (result, ty) = (
-                    match block_reward_opt {
-                        Some(x) => Value::UInt(x),
-                        None => {
-                            // Write a 0 to the return buffer for `none`
-                            write_to_wasm(
-                                &mut caller,
-                                memory,
-                                &TypeSignature::BoolType,
-                                return_offset,
-                                return_offset + get_type_size(&TypeSignature::BoolType),
-                                &Value::Bool(false),
-                                true,
-                            )?;
-                            return Ok(());
-                        }
-                    },
-                    TypeSignature::UIntType,
-                );
-                write_to_wasm(
-                    &mut caller,
-                    memory,
-                    &ty,
-                    return_offset,
-                    return_offset + get_type_size(&ty),
-                    &Value::some(result)?,
-                    true,
-                )?;
-
+                    write_to_wasm(
+                        &mut caller,
+                        memory,
+                        &ty,
+                        return_offset,
+                        return_offset + get_type_size(&ty),
+                        &Value::some(result)?,
+                        true,
+                    )?;
+                }
                 Ok(())
             },
         )
@@ -5588,10 +5608,25 @@ fn link_get_burn_block_info_header_hash_property_fn(
                     .get_export("memory")
                     .and_then(|export| export.into_memory())
                     .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+                let height = (height_hi as u128) << 64 | ((height_lo as u64) as u128);
 
-                let height_value =
-                    check_height_valid(&mut caller, memory, height_lo, height_hi, return_offset)?;
-
+                // Note: we assume that we will not have a height bigger than u32::MAX.
+                let height_value = match u32::try_from(height) {
+                    Ok(result) => result,
+                    _ => {
+                        // Write a 0 to the return buffer for `none`
+                        write_to_wasm(
+                            &mut caller,
+                            memory,
+                            &TypeSignature::BoolType,
+                            return_offset,
+                            return_offset + get_type_size(&TypeSignature::BoolType),
+                            &Value::Bool(false),
+                            true,
+                        )?;
+                        return Ok(());
+                    }
+                };
                 let burnchain_header_hash_opt = caller
                     .data_mut()
                     .global_context
@@ -5618,7 +5653,6 @@ fn link_get_burn_block_info_header_hash_property_fn(
                     &result,
                     true,
                 )?;
-
                 Ok(())
             },
         )
@@ -5650,8 +5684,25 @@ fn link_get_burn_block_info_pox_addrs_property_fn(
                     .and_then(|export| export.into_memory())
                     .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
 
-                let height_value =
-                    check_height_valid(&mut caller, memory, height_lo, height_hi, return_offset)?;
+                let height = (height_hi as u128) << 64 | ((height_lo as u64) as u128);
+
+                // Note: we assume that we will not have a height bigger than u32::MAX.
+                let height_value = match u32::try_from(height) {
+                    Ok(result) => result,
+                    _ => {
+                        // Write a 0 to the return buffer for `none`
+                        write_to_wasm(
+                            &mut caller,
+                            memory,
+                            &TypeSignature::BoolType,
+                            return_offset,
+                            return_offset + get_type_size(&TypeSignature::BoolType),
+                            &Value::Bool(false),
+                            true,
+                        )?;
+                        return Ok(());
+                    }
+                };
 
                 let pox_addrs_and_payout = caller
                     .data_mut()
@@ -5695,7 +5746,6 @@ fn link_get_burn_block_info_pox_addrs_property_fn(
                     &value,
                     true,
                 )?;
-
                 Ok(())
             },
         )
