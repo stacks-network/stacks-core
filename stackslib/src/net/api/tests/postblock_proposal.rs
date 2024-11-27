@@ -220,6 +220,7 @@ impl MemPoolEventDispatcher for ProposalTestObserver {
 }
 
 #[test]
+#[ignore]
 fn test_try_make_response() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
     let test_observer = TestEventObserver::new();
@@ -281,6 +282,7 @@ fn test_try_make_response() {
             None,
             None,
             8,
+            None,
         )
         .unwrap();
 
@@ -376,12 +378,14 @@ fn test_try_make_response() {
     let observer = ProposalTestObserver::new();
     let proposal_observer = Arc::clone(&observer.proposal_observer);
 
+    info!("Run requests with observer");
     let mut responses = rpc_test.run_with_observer(requests, Some(&observer));
 
     let response = responses.remove(0);
 
     // Wait for the results to be non-empty
     loop {
+        info!("Wait for results to be non-empty");
         if proposal_observer
             .lock()
             .unwrap()

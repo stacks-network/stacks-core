@@ -1,5 +1,6 @@
 use std::ops::{Deref, DerefMut};
 
+use clarity::types::chainstate::TrieHash;
 use clarity::util::hash::Sha512Trunc256Sum;
 use clarity::vm::analysis::AnalysisDatabase;
 use clarity::vm::database::sqlite::{

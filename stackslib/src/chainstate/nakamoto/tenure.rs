@@ -749,8 +749,18 @@ impl NakamotoChainState {
                 warn!("Invalid tenure-change: parent snapshot comes after current tip"; "burn_view_consensus_hash" => %tenure_payload.burn_view_consensus_hash, "prev_tenure_consensus_hash" => %tenure_payload.prev_tenure_consensus_hash);
                 return Ok(None);
             }
-            if !prev_sn.sortition {
-                // parent wasn't a sortition-induced tenure change
+
+            // is the parent a shadow block?
+            // Only possible if the parent is also a nakamoto block
+            let is_parent_shadow_block = NakamotoChainState::get_nakamoto_block_version(
+                headers_conn.sqlite(),
+                &block_header.parent_block_id,
+            )?
+            .map(|parent_version| NakamotoBlockHeader::is_shadow_block_version(parent_version))
+            .unwrap_or(false);
+
+            if !is_parent_shadow_block && !prev_sn.sortition {
+                // parent wasn't a shadow block (we expect a sortition), but this wasn't a sortition-induced tenure change
                 warn!("Invalid tenure-change: no block found";
                       "prev_tenure_consensus_hash" => %tenure_payload.prev_tenure_consensus_hash
                 );
@@ -758,8 +768,8 @@ impl NakamotoChainState {
             }
         }
 
-        // the tenure must correspond to sortitions
-        if !tenure_sn.sortition {
+        // if this isn't a shadow block, then the tenure must correspond to sortitions
+        if !block_header.is_shadow_block() && !tenure_sn.sortition {
             warn!("Invalid tenure-change: no block found";
                   "tenure_consensus_hash" => %tenure_payload.tenure_consensus_hash
             );
@@ -840,6 +850,7 @@ impl NakamotoChainState {
         handle: &mut SH,
         block: &NakamotoBlock,
         parent_coinbase_height: u64,
+        do_not_advance: bool,
     ) -> Result<u64, ChainstateError> {
         let Some(tenure_payload) = block.get_tenure_tx_payload() else {
             // no new tenure
@@ -867,6 +878,9 @@ impl NakamotoChainState {
             ));
         };
 
+        if do_not_advance {
+            return Ok(coinbase_height);
+        }
         Self::insert_nakamoto_tenure(headers_tx, &block.header, coinbase_height, tenure_payload)?;
         return Ok(coinbase_height);
     }
@@ -1051,6 +1065,15 @@ impl NakamotoChainState {
                 );
                 ChainstateError::NoSuchBlockError
             })?;
+
+        if snapshot.consensus_hash != *block_consensus_hash {
+            // should be unreachable, but check defensively
+            warn!(
+                "Snapshot for {} is not the same as the one for {}",
+                &burn_header_hash, block_consensus_hash
+            );
+            return Err(ChainstateError::NoSuchBlockError);
+        }
 
         Ok(snapshot)
     }

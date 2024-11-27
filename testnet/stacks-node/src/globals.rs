@@ -23,6 +23,7 @@ use crate::TipCandidate;
 pub type NeonGlobals = Globals<RelayerDirective>;
 
 /// Command types for the relayer thread, issued to it by other threads
+#[allow(clippy::large_enum_variant)]
 pub enum RelayerDirective {
     /// Handle some new data that arrived on the network (such as blocks, transactions, and
     HandleNetResult(NetworkResult),
@@ -99,6 +100,7 @@ impl<T> Clone for Globals<T> {
 }
 
 impl<T> Globals<T> {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         coord_comms: CoordinatorChannels,
         miner_status: Arc<Mutex<MinerStatus>>,
@@ -282,15 +284,14 @@ impl<T> Globals<T> {
                         **leader_key_registration_state
                     {
                         info!(
-                            "Received burnchain block #{} including key_register_op - {}",
-                            burn_block_height, txid
+                            "Received burnchain block #{burn_block_height} including key_register_op - {txid}"
                         );
                         if txid == op.txid {
                             let active_key = RegisteredKey {
                                 target_block_height,
                                 vrf_public_key: op.public_key,
-                                block_height: op.block_height as u64,
-                                op_vtxindex: op.vtxindex as u32,
+                                block_height: op.block_height,
+                                op_vtxindex: op.vtxindex,
                                 memo: op.memo,
                             };
 
@@ -300,8 +301,8 @@ impl<T> Globals<T> {
                             activated_key = Some(active_key);
                         } else {
                             debug!(
-                                "key_register_op {} does not match our pending op {}",
-                                txid, &op.txid
+                                "key_register_op {txid} does not match our pending op {}",
+                                &op.txid
                             );
                         }
                     }
@@ -450,10 +451,7 @@ impl<T> Globals<T> {
     /// Clear the initiative flag and return its value
     pub fn take_initiative(&self) -> Option<String> {
         match self.initiative.lock() {
-            Ok(mut initiative) => {
-                let ret = (*initiative).take();
-                ret
-            }
+            Ok(mut initiative) => (*initiative).take(),
             Err(_e) => {
                 error!("FATAL: failed to lock initiative");
                 panic!();

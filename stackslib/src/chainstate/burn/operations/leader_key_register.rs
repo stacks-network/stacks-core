@@ -253,7 +253,6 @@ pub mod tests {
     };
     use crate::chainstate::burn::{BlockSnapshot, ConsensusHash, OpsHash, SortitionHash};
     use crate::chainstate::stacks::address::StacksAddressExtensions;
-    use crate::chainstate::stacks::index::TrieHashExtension;
     use crate::core::StacksEpochId;
 
     pub struct OpFixture {
