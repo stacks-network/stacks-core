@@ -1159,13 +1159,13 @@ mod test {
         let initial_balance = 1000000000;
         let mut peer_config = TestPeerConfig::new(function_name!(), 7004, 7005);
         peer_config.initial_balances = vec![(addr.to_account_principal(), initial_balance)];
-        peer_config.epochs = Some(vec![StacksEpoch {
+        peer_config.epochs = Some(EpochList::new(&[StacksEpoch {
             epoch_id: StacksEpochId::Epoch20,
             start_height: 0,
             end_height: (i64::MAX) as u64,
             block_limit: BLOCK_LIMIT_MAINNET_20,
             network_epoch: PEER_VERSION_EPOCH_2_0,
-        }]);
+        }]));
         let burnchain = peer_config.burnchain.clone();
 
         let mut peer = TestPeer::new(peer_config);
