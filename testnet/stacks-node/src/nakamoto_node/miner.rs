@@ -1049,15 +1049,13 @@ impl BlockMinerThread {
         // build the block itself
         let (mut block, consumed, size, tx_events) = NakamotoBlockBuilder::build_nakamoto_block(
             &chain_state,
-            // TODO (for reviewers): should this be `self.burn_election_block.consensus_hash`?
             &burn_db
-                .index_handle_at_ch(&self.burn_block.consensus_hash)
+                .index_handle_at_ch(&self.burn_election_block.consensus_hash)
                 .map_err(|_| NakamotoNodeError::UnexpectedChainState)?,
             &mut mem_pool,
             &parent_block_info.stacks_parent_header,
             &self.burn_election_block.consensus_hash,
-            // TODO (for reviewers): should this be `self.burn_election_block.total_burn`?
-            self.burn_block.total_burn,
+            self.burn_election_block.total_burn,
             tenure_start_info,
             self.config
                 .make_nakamoto_block_builder_settings(self.globals.get_miner_status()),
