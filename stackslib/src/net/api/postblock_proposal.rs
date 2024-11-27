@@ -374,9 +374,30 @@ impl NakamotoBlockProposal {
             });
         }
 
-        let sort_tip = SortitionDB::get_canonical_sortition_tip(sortdb.conn())?;
-        let burn_dbconn: SortitionHandleConn = sortdb.index_handle(&sort_tip);
-        let mut db_handle = sortdb.index_handle(&sort_tip);
+        // open sortition view to the current burn view.
+        // If the block has a TenureChange with an Extend cause, then the burn view is whatever is
+        // indicated in the TenureChange.
+        // Otherwise, it's the same as the block's parent's burn view.
+        let parent_stacks_header = NakamotoChainState::get_block_header(
+            chainstate.db(),
+            &self.block.header.parent_block_id,
+        )?
+        .ok_or_else(|| BlockValidateRejectReason {
+            reason_code: ValidateRejectCode::InvalidBlock,
+            reason: "Invalid parent block".into(),
+        })?;
+
+        let burn_view_consensus_hash =
+            NakamotoChainState::get_block_burn_view(sortdb, &self.block, &parent_stacks_header)?;
+        let sort_tip =
+            SortitionDB::get_block_snapshot_consensus(sortdb.conn(), &burn_view_consensus_hash)?
+                .ok_or_else(|| BlockValidateRejectReason {
+                    reason_code: ValidateRejectCode::NoSuchTenure,
+                    reason: "Failed to find sortition for block tenure".to_string(),
+                })?;
+
+        let burn_dbconn: SortitionHandleConn = sortdb.index_handle(&sort_tip.sortition_id);
+        let mut db_handle = sortdb.index_handle(&sort_tip.sortition_id);
 
         // (For the signer)
         // Verify that the block's tenure is on the canonical sortition history
@@ -413,14 +434,6 @@ impl NakamotoBlockProposal {
         )?;
 
         // Validate txs against chainstate
-        let parent_stacks_header = NakamotoChainState::get_block_header(
-            chainstate.db(),
-            &self.block.header.parent_block_id,
-        )?
-        .ok_or_else(|| BlockValidateRejectReason {
-            reason_code: ValidateRejectCode::InvalidBlock,
-            reason: "Invalid parent block".into(),
-        })?;
 
         // Validate the block's timestamp. It must be:
         // - Greater than the parent block's timestamp
