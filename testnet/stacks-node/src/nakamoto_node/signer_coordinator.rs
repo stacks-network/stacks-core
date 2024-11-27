@@ -13,12 +13,10 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::BTreeMap;
 use std::sync::atomic::AtomicBool;
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 
-use hashbrown::{HashMap, HashSet};
 use libsigner::v0::messages::{MinerSlotID, SignerMessage as SignerMessageV0};
 use libsigner::{BlockProposal, SignerSession, StackerDBSession};
 use stacks::burnchains::Burnchain;
@@ -31,33 +29,17 @@ use stacks::chainstate::stacks::Error as ChainstateError;
 use stacks::codec::StacksMessageCodec;
 use stacks::libstackerdb::StackerDBChunkData;
 use stacks::net::stackerdb::StackerDBs;
-use stacks::types::chainstate::{StacksBlockId, StacksPrivateKey, StacksPublicKey};
+use stacks::types::chainstate::{StacksBlockId, StacksPrivateKey};
 use stacks::util::hash::Sha512Trunc256Sum;
 use stacks::util::secp256k1::MessageSignature;
 use stacks::util_lib::boot::boot_code_id;
 
+use super::stackerdb_listener::StackerDBListenerComms;
 use super::Error as NakamotoNodeError;
 use crate::event_dispatcher::StackerDBChannel;
-use crate::nakamoto_node::stackerdb_listener::{
-    BlockStatus, StackerDBListener, TimestampInfo, EVENT_RECEIVER_POLL,
-};
+use crate::nakamoto_node::stackerdb_listener::{StackerDBListener, EVENT_RECEIVER_POLL};
 use crate::neon::Counters;
 use crate::Config;
-
-/// Helper function to determine if signer threshold has been reached for a block
-fn is_threshold_reached(
-    status: Option<&BlockStatus>,
-    weight_threshold: u32,
-    total_weight: u32,
-) -> bool {
-    match status {
-        Some(status) => {
-            status.total_weight_signed >= weight_threshold
-                || status.total_reject_weight.saturating_add(weight_threshold) > total_weight
-        }
-        None => true,
-    }
-}
 
 /// The state of the signer database listener, used by the miner thread to
 /// interact with the signer listener.
@@ -72,15 +54,8 @@ pub struct SignerCoordinator {
     total_weight: u32,
     /// The weight threshold for block approval
     weight_threshold: u32,
-    /// Tracks signatures for blocks
-    ///   - key: Sha512Trunc256Sum (signer signature hash)
-    ///   - value: BlockStatus
-    blocks: Arc<(Mutex<HashMap<Sha512Trunc256Sum, BlockStatus>>, Condvar)>,
-    /// Tracks the timestamps from signers to decide when they should be
-    /// willing to accept time-based tenure extensions
-    ///  - key: StacksPublicKey
-    ///  - value: TimestampInfo
-    signer_idle_timestamps: Arc<Mutex<HashMap<StacksPublicKey, TimestampInfo>>>,
+    /// Interface to the StackerDB listener thread's data
+    stackerdb_comms: StackerDBListenerComms,
     /// Keep running flag for the signer DB listener thread
     keep_running: Arc<AtomicBool>,
     /// Handle for the signer DB listener thread
@@ -125,8 +100,7 @@ impl SignerCoordinator {
             miners_session,
             total_weight: listener.total_weight,
             weight_threshold: listener.weight_threshold,
-            blocks: listener.blocks.clone(),
-            signer_idle_timestamps: listener.signer_idle_timestamps.clone(),
+            stackerdb_comms: listener.get_comms(),
             keep_running,
             listener_thread: None,
         };
@@ -226,18 +200,7 @@ impl SignerCoordinator {
         election_sortition: &ConsensusHash,
     ) -> Result<Vec<MessageSignature>, NakamotoNodeError> {
         // Add this block to the block status map.
-        // Create a scope to drop the lock on the block status map.
-        {
-            let (lock, _cvar) = &*self.blocks;
-            let mut blocks = lock.lock().expect("FATAL: failed to lock block status");
-            let block_status = BlockStatus {
-                responded_signers: HashSet::new(),
-                gathered_signatures: BTreeMap::new(),
-                total_weight_signed: 0,
-                total_reject_weight: 0,
-            };
-            blocks.insert(block.header.signer_signature_hash(), block_status);
-        }
+        self.stackerdb_comms.insert_block(&block.header);
 
         let reward_cycle_id = burnchain
             .block_height_to_reward_cycle(burn_tip.block_height)
@@ -307,79 +270,74 @@ impl SignerCoordinator {
         burn_tip: &BlockSnapshot,
         counters: &Counters,
     ) -> Result<Vec<MessageSignature>, NakamotoNodeError> {
-        let (lock, cvar) = &*self.blocks;
-        let mut blocks = lock.lock().expect("FATAL: failed to lock block status");
-
         loop {
-            let (guard, timeout_result) = cvar
-                .wait_timeout_while(blocks, EVENT_RECEIVER_POLL, |map| {
-                    !is_threshold_reached(
-                        map.get(block_signer_sighash),
-                        self.weight_threshold,
-                        self.total_weight,
-                    )
-                })
-                .expect("FATAL: failed to wait on block status cond var");
-            blocks = guard;
+            let block_status = match self.stackerdb_comms.wait_for_block_status(
+                block_signer_sighash,
+                EVENT_RECEIVER_POLL,
+                |status| {
+                    status.total_weight_signed < self.weight_threshold
+                        && status
+                            .total_reject_weight
+                            .saturating_add(self.weight_threshold)
+                            <= self.total_weight
+                },
+            )? {
+                Some(status) => status,
+                None => {
+                    // If we just received a timeout, we should check if the burnchain
+                    // tip has changed or if we received this signed block already in
+                    // the staging db.
+                    debug!("SignerCoordinator: Timeout waiting for block signatures");
 
-            // If we just received a timeout, we should check if the burnchain
-            // tip has changed or if we received this signed block already in
-            // the staging db.
-            if timeout_result.timed_out() {
-                // Look in the nakamoto staging db -- a block can only get stored there
-                // if it has enough signing weight to clear the threshold.
-                if let Ok(Some((stored_block, _sz))) = chain_state
-                    .nakamoto_blocks_db()
-                    .get_nakamoto_block(block_id)
-                    .map_err(|e| {
-                        warn!(
-                            "Failed to query chainstate for block: {e:?}";
-                            "block_id" => %block_id,
-                            "block_signer_sighash" => %block_signer_sighash,
-                        );
-                        e
-                    })
-                {
-                    debug!("SignCoordinator: Found signatures in relayed block");
-                    counters.bump_naka_signer_pushed_blocks();
-                    return Ok(stored_block.header.signer_signature);
-                }
+                    // Look in the nakamoto staging db -- a block can only get stored there
+                    // if it has enough signing weight to clear the threshold.
+                    if let Ok(Some((stored_block, _sz))) = chain_state
+                        .nakamoto_blocks_db()
+                        .get_nakamoto_block(block_id)
+                        .map_err(|e| {
+                            warn!(
+                                "Failed to query chainstate for block: {e:?}";
+                                "block_id" => %block_id,
+                                "block_signer_sighash" => %block_signer_sighash,
+                            );
+                            e
+                        })
+                    {
+                        debug!("SignCoordinator: Found signatures in relayed block");
+                        counters.bump_naka_signer_pushed_blocks();
+                        return Ok(stored_block.header.signer_signature);
+                    }
 
-                if Self::check_burn_tip_changed(sortdb, burn_tip) {
-                    debug!("SignCoordinator: Exiting due to new burnchain tip");
-                    return Err(NakamotoNodeError::BurnchainTipChanged);
-                }
-            }
-            // Else, we have received enough signatures to proceed
-            else {
-                let block_status = blocks.get(block_signer_sighash).ok_or_else(|| {
-                    NakamotoNodeError::SigningCoordinatorFailure(
-                        "Block unexpectedly missing from map".into(),
-                    )
-                })?;
+                    if Self::check_burn_tip_changed(sortdb, burn_tip) {
+                        debug!("SignCoordinator: Exiting due to new burnchain tip");
+                        return Err(NakamotoNodeError::BurnchainTipChanged);
+                    }
 
-                if block_status
-                    .total_reject_weight
-                    .saturating_add(self.weight_threshold)
-                    > self.total_weight
-                {
-                    info!(
-                        "{}/{} signers vote to reject block",
-                        block_status.total_reject_weight, self.total_weight;
-                        "block_signer_sighash" => %block_signer_sighash,
-                    );
-                    counters.bump_naka_rejected_blocks();
-                    return Err(NakamotoNodeError::SignersRejected);
-                } else if block_status.total_weight_signed >= self.weight_threshold {
-                    info!("Received enough signatures, block accepted";
-                        "block_signer_sighash" => %block_signer_sighash,
-                    );
-                    return Ok(block_status.gathered_signatures.values().cloned().collect());
-                } else {
-                    return Err(NakamotoNodeError::SigningCoordinatorFailure(
-                        "Unblocked without reaching the threshold".into(),
-                    ));
+                    continue;
                 }
+            };
+
+            if block_status
+                .total_reject_weight
+                .saturating_add(self.weight_threshold)
+                > self.total_weight
+            {
+                info!(
+                    "{}/{} signers vote to reject block",
+                    block_status.total_reject_weight, self.total_weight;
+                    "block_signer_sighash" => %block_signer_sighash,
+                );
+                counters.bump_naka_rejected_blocks();
+                return Err(NakamotoNodeError::SignersRejected);
+            } else if block_status.total_weight_signed >= self.weight_threshold {
+                info!("Received enough signatures, block accepted";
+                    "block_signer_sighash" => %block_signer_sighash,
+                );
+                return Ok(block_status.gathered_signatures.values().cloned().collect());
+            } else {
+                return Err(NakamotoNodeError::SigningCoordinatorFailure(
+                    "Unblocked without reaching the threshold".into(),
+                ));
             }
         }
     }
@@ -387,26 +345,8 @@ impl SignerCoordinator {
     /// Get the timestamp at which at least 70% of the signing power should be
     /// willing to accept a time-based tenure extension.
     pub fn get_tenure_extend_timestamp(&self) -> u64 {
-        let signer_idle_timestamps = self
-            .signer_idle_timestamps
-            .lock()
-            .expect("FATAL: failed to lock signer idle timestamps");
-        debug!("SignerCoordinator: signer_idle_timestamps: {signer_idle_timestamps:?}");
-        let mut idle_timestamps = signer_idle_timestamps.values().collect::<Vec<_>>();
-        idle_timestamps.sort_by_key(|info| info.timestamp);
-        let mut weight_sum = 0;
-        for info in idle_timestamps {
-            weight_sum += info.weight;
-            if weight_sum >= self.weight_threshold {
-                info!("SignerCoordinator: 70% threshold reached");
-                return info.timestamp;
-            }
-        }
-
-        // We don't have enough information to reach a 70% threshold at any
-        // time, so return u64::MAX to indicate that we should not extend the
-        // tenure.
-        u64::MAX
+        self.stackerdb_comms
+            .get_tenure_extend_timestamp(self.weight_threshold)
     }
 
     /// Check if the tenure needs to change

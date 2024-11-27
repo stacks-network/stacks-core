@@ -46,7 +46,7 @@ pub static TEST_IGNORE_SIGNERS: std::sync::Mutex<Option<bool>> = std::sync::Mute
 pub static EVENT_RECEIVER_POLL: Duration = Duration::from_millis(500);
 
 #[derive(Debug, Clone)]
-pub(crate) struct BlockStatus {
+pub struct BlockStatus {
     pub responded_signers: HashSet<StacksPublicKey>,
     pub gathered_signatures: BTreeMap<u32, MessageSignature>,
     pub total_weight_signed: u32,
@@ -87,6 +87,19 @@ pub struct StackerDBListener {
     ///  - key: StacksPublicKey
     ///  - value: TimestampInfo
     pub(crate) signer_idle_timestamps: Arc<Mutex<HashMap<StacksPublicKey, TimestampInfo>>>,
+}
+
+/// Interface for other threads to retrieve info from the StackerDBListener
+pub struct StackerDBListenerComms {
+    /// Tracks signatures for blocks
+    ///   - key: Sha512Trunc256Sum (signer signature hash)
+    ///   - value: BlockStatus
+    blocks: Arc<(Mutex<HashMap<Sha512Trunc256Sum, BlockStatus>>, Condvar)>,
+    /// Tracks the timestamps from signers to decide when they should be
+    /// willing to accept time-based tenure extensions
+    ///  - key: StacksPublicKey
+    ///  - value: TimestampInfo
+    signer_idle_timestamps: Arc<Mutex<HashMap<StacksPublicKey, TimestampInfo>>>,
 }
 
 impl StackerDBListener {
@@ -151,6 +164,13 @@ impl StackerDBListener {
             blocks: Arc::new((Mutex::new(HashMap::new()), Condvar::new())),
             signer_idle_timestamps: Arc::new(Mutex::new(HashMap::new())),
         })
+    }
+
+    pub fn get_comms(&self) -> StackerDBListenerComms {
+        StackerDBListenerComms {
+            blocks: self.blocks.clone(),
+            signer_idle_timestamps: self.signer_idle_timestamps.clone(),
+        }
     }
 
     /// Run the StackerDB listener.
@@ -440,5 +460,86 @@ impl Drop for StackerDBListener {
         stackerdb_channel.replace_receiver(self.receiver.take().expect(
             "FATAL: lost possession of the StackerDB channel before dropping SignCoordinator",
         ));
+    }
+}
+
+impl StackerDBListenerComms {
+    /// Insert a block into the block status map with initial values.
+    pub fn insert_block(&self, block: &NakamotoBlockHeader) {
+        let (lock, _cvar) = &*self.blocks;
+        let mut blocks = lock.lock().expect("FATAL: failed to lock block status");
+        let block_status = BlockStatus {
+            responded_signers: HashSet::new(),
+            gathered_signatures: BTreeMap::new(),
+            total_weight_signed: 0,
+            total_reject_weight: 0,
+        };
+        blocks.insert(block.signer_signature_hash(), block_status);
+    }
+
+    /// Get the status for `block` from the Stacker DB listener.
+    /// If the block is not found in the map, return an error.
+    /// If the block is found, call `condition` to check if the block status
+    /// satisfies the condition.
+    /// If the condition is satisfied, return the block status as
+    ///   `Ok(Some(status))`.
+    /// If the condition is not satisfied, wait for it to be satisfied.
+    /// If the timeout is reached, return `Ok(None)`.
+    pub fn wait_for_block_status<F>(
+        &self,
+        block_signer_sighash: &Sha512Trunc256Sum,
+        timeout: Duration,
+        condition: F,
+    ) -> Result<Option<BlockStatus>, NakamotoNodeError>
+    where
+        F: Fn(&BlockStatus) -> bool,
+    {
+        let (lock, cvar) = &*self.blocks;
+        let blocks = lock.lock().expect("FATAL: failed to lock block status");
+
+        let (guard, timeout_result) = cvar
+            .wait_timeout_while(blocks, timeout, |map| {
+                let Some(status) = map.get(block_signer_sighash) else {
+                    return true;
+                };
+                condition(status)
+            })
+            .expect("FATAL: failed to wait on block status cond var");
+
+        // If we timed out, return None
+        if timeout_result.timed_out() {
+            return Ok(None);
+        }
+        match guard.get(block_signer_sighash) {
+            Some(status) => Ok(Some(status.clone())),
+            None => Err(NakamotoNodeError::SigningCoordinatorFailure(
+                "Block not found in status map".into(),
+            )),
+        }
+    }
+
+    /// Get the timestamp at which at least 70% of the signing power should be
+    /// willing to accept a time-based tenure extension.
+    pub fn get_tenure_extend_timestamp(&self, weight_threshold: u32) -> u64 {
+        let signer_idle_timestamps = self
+            .signer_idle_timestamps
+            .lock()
+            .expect("FATAL: failed to lock signer idle timestamps");
+        debug!("SignerCoordinator: signer_idle_timestamps: {signer_idle_timestamps:?}");
+        let mut idle_timestamps = signer_idle_timestamps.values().collect::<Vec<_>>();
+        idle_timestamps.sort_by_key(|info| info.timestamp);
+        let mut weight_sum = 0;
+        for info in idle_timestamps {
+            weight_sum += info.weight;
+            if weight_sum >= weight_threshold {
+                info!("SignerCoordinator: 70% threshold reached");
+                return info.timestamp;
+            }
+        }
+
+        // We don't have enough information to reach a 70% threshold at any
+        // time, so return u64::MAX to indicate that we should not extend the
+        // tenure.
+        u64::MAX
     }
 }
