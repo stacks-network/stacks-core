@@ -20,7 +20,6 @@ use rusqlite::{
     Savepoint,
 };
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId, TrieHash};
-
 use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::util::db::tx_busy_handler;
 use stacks_common::util::hash::Sha512Trunc256Sum;
