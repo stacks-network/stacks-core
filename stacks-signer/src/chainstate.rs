@@ -514,7 +514,7 @@ impl SortitionsView {
 
         if let Some(local_info) = last_locally_accepted_block {
             if let Some(signed_over_time) = local_info.signed_self {
-                if signed_over_time + tenure_last_block_proposal_timeout.as_secs()
+                if signed_over_time.saturating_add(tenure_last_block_proposal_timeout.as_secs())
                     > get_epoch_time_secs()
                 {
                     // The last locally accepted block is not timed out, return it

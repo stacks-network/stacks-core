@@ -24,7 +24,6 @@ use blockstack_lib::util_lib::db::{
     Error as DBError,
 };
 use clarity::types::chainstate::{BurnchainHeaderHash, StacksAddress};
-use clarity::util::secp256k1::Secp256k1PublicKey;
 use libsigner::BlockProposal;
 use rusqlite::{
     params, Connection, Error as SqliteError, OpenFlags, OptionalExtension, Transaction,
@@ -158,19 +157,16 @@ pub struct BlockInfo {
     pub signed_group: Option<u64>,
     /// The block state relative to the signer's view of the stacks blockchain
     pub state: BlockState,
-    /// The miner pubkey that proposed this block
-    pub miner_pubkey: Secp256k1PublicKey,
     /// Extra data specific to v0, v1, etc.
     pub ext: ExtraBlockInfo,
 }
 
-impl BlockInfo {
-    /// Create a new block info from the provided proposal and corresponding miner pubkey
-    pub fn new(block_proposal: BlockProposal, miner_pubkey: Secp256k1PublicKey) -> Self {
+impl From<BlockProposal> for BlockInfo {
+    fn from(value: BlockProposal) -> Self {
         Self {
-            block: block_proposal.block,
-            burn_block_height: block_proposal.burn_height,
-            reward_cycle: block_proposal.reward_cycle,
+            block: value.block,
+            burn_block_height: value.burn_height,
+            reward_cycle: value.reward_cycle,
             vote: None,
             valid: None,
             signed_over: false,
@@ -178,11 +174,11 @@ impl BlockInfo {
             signed_self: None,
             signed_group: None,
             ext: ExtraBlockInfo::default(),
-            miner_pubkey,
             state: BlockState::Unprocessed,
         }
     }
-
+}
+impl BlockInfo {
     /// Mark this block as locally accepted, valid, signed over, and records either the self or group signed timestamp in the block info if it wasn't
     ///  already set.
     pub fn mark_locally_accepted(&mut self, group_signed: bool) -> Result<(), String> {
@@ -617,6 +613,18 @@ impl SignerDb {
         try_deserialize(result)
     }
 
+    /// Return the last accepted block the signer (highest stacks height). It will tie break a match based on which was more recently signed.
+    pub fn get_signer_last_accepted_block(&self) -> Result<Option<BlockInfo>, DBError> {
+        let query = "SELECT block_info FROM blocks WHERE json_extract(block_info, '$.state') IN (?1, ?2) ORDER BY stacks_height DESC, json_extract(block_info, '$.signed_group') DESC, json_extract(block_info, '$.signed_self') DESC LIMIT 1";
+        let args = params![
+            &BlockState::GloballyAccepted.to_string(),
+            &BlockState::LocallyAccepted.to_string()
+        ];
+        let result: Option<String> = query_row(&self.db, query, args)?;
+
+        try_deserialize(result)
+    }
+
     /// Return the last accepted block in a tenure (identified by its consensus hash).
     pub fn get_last_accepted_block(
         &self,
@@ -891,7 +899,7 @@ mod tests {
     use std::path::PathBuf;
 
     use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
-    use clarity::util::secp256k1::{MessageSignature, Secp256k1PrivateKey};
+    use clarity::util::secp256k1::MessageSignature;
     use libsigner::BlockProposal;
 
     use super::*;
@@ -917,13 +925,7 @@ mod tests {
             reward_cycle: 42,
         };
         overrides(&mut block_proposal);
-        (
-            BlockInfo::new(
-                block_proposal.clone(),
-                Secp256k1PublicKey::from_private(&Secp256k1PrivateKey::new()),
-            ),
-            block_proposal,
-        )
+        (BlockInfo::from(block_proposal.clone()), block_proposal)
     }
 
     fn create_block() -> (BlockInfo, BlockProposal) {
@@ -940,7 +942,6 @@ mod tests {
     fn test_basic_signer_db_with_path(db_path: impl AsRef<Path>) {
         let mut db = SignerDb::new(db_path).expect("Failed to create signer db");
         let (block_info, block_proposal) = create_block();
-        let miner_pubkey = block_info.miner_pubkey;
         let reward_cycle = block_info.reward_cycle;
         db.insert_block(&block_info)
             .expect("Unable to insert block into db");
@@ -952,10 +953,7 @@ mod tests {
             .unwrap()
             .expect("Unable to get block from db");
 
-        assert_eq!(
-            BlockInfo::new(block_proposal.clone(), miner_pubkey),
-            block_info
-        );
+        assert_eq!(BlockInfo::from(block_proposal.clone()), block_info);
 
         // Test looking up a block from a different reward cycle
         let block_info = db
@@ -975,10 +973,7 @@ mod tests {
             .unwrap()
             .expect("Unable to get block state from db");
 
-        assert_eq!(
-            block_state,
-            BlockInfo::new(block_proposal.clone(), miner_pubkey).state
-        );
+        assert_eq!(block_state, BlockInfo::from(block_proposal.clone()).state);
     }
 
     #[test]
@@ -998,7 +993,6 @@ mod tests {
         let db_path = tmp_db_path();
         let mut db = SignerDb::new(db_path).expect("Failed to create signer db");
         let (block_info, block_proposal) = create_block();
-        let miner_pubkey = block_info.miner_pubkey;
         let reward_cycle = block_info.reward_cycle;
         db.insert_block(&block_info)
             .expect("Unable to insert block into db");
@@ -1011,10 +1005,7 @@ mod tests {
             .unwrap()
             .expect("Unable to get block from db");
 
-        assert_eq!(
-            BlockInfo::new(block_proposal.clone(), miner_pubkey),
-            block_info
-        );
+        assert_eq!(BlockInfo::from(block_proposal.clone()), block_info);
 
         let old_block_info = block_info;
         let old_block_proposal = block_proposal;
@@ -1337,5 +1328,70 @@ mod tests {
             .expect("Unable to insert block into db");
 
         assert_eq!(db.get_canonical_tip().unwrap().unwrap(), block_info_2);
+    }
+
+    #[test]
+    fn signer_last_accepted_block() {
+        let db_path = tmp_db_path();
+        let mut db = SignerDb::new(db_path).expect("Failed to create signer db");
+
+        let (mut block_info_1, _block_proposal_1) = create_block_override(|b| {
+            b.block.header.miner_signature = MessageSignature([0x01; 65]);
+            b.block.header.chain_length = 1;
+            b.burn_height = 1;
+        });
+
+        let (mut block_info_2, _block_proposal_2) = create_block_override(|b| {
+            b.block.header.miner_signature = MessageSignature([0x02; 65]);
+            b.block.header.chain_length = 2;
+            b.burn_height = 1;
+        });
+
+        let (mut block_info_3, _block_proposal_3) = create_block_override(|b| {
+            b.block.header.miner_signature = MessageSignature([0x02; 65]);
+            b.block.header.chain_length = 2;
+            b.burn_height = 4;
+        });
+        block_info_3
+            .mark_locally_accepted(false)
+            .expect("Failed to mark block as locally accepted");
+
+        db.insert_block(&block_info_1)
+            .expect("Unable to insert block into db");
+        db.insert_block(&block_info_2)
+            .expect("Unable to insert block into db");
+
+        assert!(db.get_signer_last_accepted_block().unwrap().is_none());
+
+        block_info_1
+            .mark_globally_accepted()
+            .expect("Failed to mark block as globally accepted");
+        db.insert_block(&block_info_1)
+            .expect("Unable to insert block into db");
+
+        assert_eq!(
+            db.get_signer_last_accepted_block().unwrap().unwrap(),
+            block_info_1
+        );
+
+        block_info_2
+            .mark_globally_accepted()
+            .expect("Failed to mark block as globally accepted");
+        block_info_2.signed_self = Some(get_epoch_time_secs());
+        db.insert_block(&block_info_2)
+            .expect("Unable to insert block into db");
+
+        assert_eq!(
+            db.get_signer_last_accepted_block().unwrap().unwrap(),
+            block_info_2
+        );
+
+        db.insert_block(&block_info_3)
+            .expect("Unable to insert block into db");
+
+        assert_eq!(
+            db.get_signer_last_accepted_block().unwrap().unwrap(),
+            block_info_3
+        );
     }
 }

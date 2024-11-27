@@ -6466,7 +6466,6 @@ fn signer_chainstate() {
                 signed_group: None,
                 ext: ExtraBlockInfo::None,
                 state: BlockState::Unprocessed,
-                miner_pubkey: proposal.1,
             })
             .unwrap();
 
@@ -6555,7 +6554,6 @@ fn signer_chainstate() {
                 signed_group: Some(get_epoch_time_secs()),
                 ext: ExtraBlockInfo::None,
                 state: BlockState::GloballyAccepted,
-                miner_pubkey: proposal_interim.1,
             })
             .unwrap();
 
@@ -9651,8 +9649,6 @@ fn test_shadow_recovery() {
     let btc_regtest_controller = &mut signer_test.running_nodes.btc_regtest_controller;
     let coord_channel = signer_test.running_nodes.coord_channel.clone();
     let commits_submitted = signer_test.running_nodes.commits_submitted.clone();
-
-    let burnchain = naka_conf.get_burnchain();
 
     // make another tenure
     next_block_and_mine_commit(

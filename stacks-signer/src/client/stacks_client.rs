@@ -300,8 +300,24 @@ impl StacksClient {
         }
     }
 
+    #[cfg(any(test, feature = "testing"))]
+    fn test_stall_block_validation_submission() {
+        use crate::v0::signer::TEST_STALL_BLOCK_VALIDATION_SUBMISSION;
+
+        if *TEST_STALL_BLOCK_VALIDATION_SUBMISSION.lock().unwrap() == Some(true) {
+            // Do an extra check just so we don't log EVERY time.
+            warn!("Block validation submission is stalled due to testing directive");
+            while *TEST_STALL_BLOCK_VALIDATION_SUBMISSION.lock().unwrap() == Some(true) {
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            warn!("Block validation submission is no longer stalled due to testing directive. Continuing...");
+        }
+    }
+
     /// Submit the block proposal to the stacks node. The block will be validated and returned via the HTTP endpoint for Block events.
     pub fn submit_block_for_validation(&self, block: NakamotoBlock) -> Result<(), ClientError> {
+        #[cfg(any(test, feature = "testing"))]
+        Self::test_stall_block_validation_submission();
         debug!("stacks_node_client: Submitting block for validation...";
             "signer_sighash" => %block.header.signer_signature_hash(),
             "block_id" => %block.header.block_id(),

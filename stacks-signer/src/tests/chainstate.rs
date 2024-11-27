@@ -247,7 +247,7 @@ fn reorg_timing_testing(
         reward_cycle: 1,
     };
     let mut header_clone = block_proposal_1.block.header.clone();
-    let mut block_info_1 = BlockInfo::new(block_proposal_1, block_pk);
+    let mut block_info_1 = BlockInfo::from(block_proposal_1);
     block_info_1.mark_locally_accepted(false).unwrap();
     signer_db.insert_block(&block_info_1).unwrap();
 
@@ -518,7 +518,7 @@ fn check_sortition_timeout() {
         reward_cycle: 1,
     };
 
-    let mut block_info = BlockInfo::new(block_proposal, block_pk);
+    let mut block_info = BlockInfo::from(block_proposal);
     block_info.signed_over = true;
     signer_db.insert_block(&block_info).unwrap();
 

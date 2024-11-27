@@ -351,7 +351,9 @@ impl NakamotoBlockProposal {
                 while *TEST_VALIDATE_STALL.lock().unwrap() == Some(true) {
                     std::thread::sleep(std::time::Duration::from_millis(10));
                 }
-                info!("Block validation is no longer stalled due to testing directive.");
+                info!(
+                    "Block validation is no longer stalled due to testing directive. Continuing..."
+                );
             }
         }
         let ts_start = get_epoch_time_ms();

@@ -64,6 +64,11 @@ pub static TEST_PAUSE_BLOCK_BROADCAST: std::sync::Mutex<Option<bool>> = std::syn
 /// Skip broadcasting the block to the network
 pub static TEST_SKIP_BLOCK_BROADCAST: std::sync::Mutex<Option<bool>> = std::sync::Mutex::new(None);
 
+#[cfg(any(test, feature = "testing"))]
+/// Pause the block broadcast
+pub static TEST_STALL_BLOCK_VALIDATION_SUBMISSION: std::sync::Mutex<Option<bool>> =
+    std::sync::Mutex::new(None);
+
 /// The stacks signer registered for the reward cycle
 #[derive(Debug)]
 pub struct Signer {
@@ -144,11 +149,7 @@ impl SignerTrait<SignerMessage> for Signer {
         match event {
             SignerEvent::BlockValidationResponse(block_validate_response) => {
                 debug!("{self}: Received a block proposal result from the stacks node...");
-                self.handle_block_validate_response(
-                    stacks_client,
-                    block_validate_response,
-                    sortition_state,
-                )
+                self.handle_block_validate_response(stacks_client, block_validate_response)
             }
             SignerEvent::SignerMessages(_signer_set, messages) => {
                 debug!(
@@ -347,7 +348,7 @@ impl Signer {
             match sortition_state.check_proposal(
                 stacks_client,
                 &mut self.signer_db,
-                &block,
+                block,
                 miner_pubkey,
                 self.reward_cycle,
                 true,
@@ -457,7 +458,7 @@ impl Signer {
             "burn_height" => block_proposal.burn_height,
         );
         crate::monitoring::increment_block_proposals_received();
-        let mut block_info = BlockInfo::new(block_proposal.clone(), miner_pubkey.clone());
+        let mut block_info = BlockInfo::from(block_proposal.clone());
 
         // Get sortition view if we don't have it
         if sortition_state.is_none() {
@@ -556,12 +557,74 @@ impl Signer {
             }
         }
     }
+
+    /// WARNING: Do NOT call this function PRIOR to check_proposal or block_proposal validaiton succeeds.
+    ///
+    /// Re-verify a block's chain length against the last signed block within signerdb.
+    /// This is required in case a block has been approved since the initial checks of the block validation endpoint.
+    fn check_block_against_signer_db_state(
+        &self,
+        proposed_block: &NakamotoBlock,
+    ) -> Option<BlockResponse> {
+        let signer_signature_hash = proposed_block.header.signer_signature_hash();
+        let proposed_block_consensus_hash = proposed_block.header.consensus_hash;
+
+        match self.signer_db.get_signer_last_accepted_block() {
+            Ok(Some(last_block_info)) => {
+                if proposed_block.header.chain_length <= last_block_info.block.header.chain_length {
+                    // We do not allow reorgs at any time within the same consensus hash OR of globally accepted blocks
+                    let non_reorgable_block = last_block_info.block.header.consensus_hash
+                        == proposed_block_consensus_hash
+                        || last_block_info.state == BlockState::GloballyAccepted;
+                    // Is the reorg timeout requirement exceeded?
+                    let reorg_timeout_exceeded = last_block_info
+                        .signed_self
+                        .map(|signed_over_time| {
+                            signed_over_time.saturating_add(
+                                self.proposal_config
+                                    .tenure_last_block_proposal_timeout
+                                    .as_secs(),
+                            ) <= get_epoch_time_secs()
+                        })
+                        .unwrap_or(false);
+                    if non_reorgable_block || !reorg_timeout_exceeded {
+                        warn!(
+                            "Miner's block proposal does not confirm as many blocks as we expect";
+                            "proposed_block_consensus_hash" => %proposed_block_consensus_hash,
+                            "proposed_block_signer_sighash" => %signer_signature_hash,
+                            "proposed_chain_length" => proposed_block.header.chain_length,
+                            "expected_at_least" => last_block_info.block.header.chain_length + 1,
+                        );
+                        return Some(BlockResponse::rejected(
+                            signer_signature_hash,
+                            RejectCode::SortitionViewMismatch,
+                            &self.private_key,
+                            self.mainnet,
+                        ));
+                    }
+                }
+                None
+            }
+            Ok(_) => None,
+            Err(e) => {
+                warn!("{self}: Failed to check block against signer db: {e}";
+                    "signer_sighash" => %signer_signature_hash,
+                    "block_id" => %proposed_block.block_id()
+                );
+                Some(BlockResponse::rejected(
+                    signer_signature_hash,
+                    RejectCode::ConnectivityIssues,
+                    &self.private_key,
+                    self.mainnet,
+                ))
+            }
+        }
+    }
     /// Handle the block validate ok response. Returns our block response if we have one
     fn handle_block_validate_ok(
         &mut self,
         stacks_client: &StacksClient,
         block_validate_ok: &BlockValidateOk,
-        sortition_state: &mut Option<SortitionsView>,
     ) -> Option<BlockResponse> {
         crate::monitoring::increment_block_validation_responses(true);
         let signer_signature_hash = block_validate_ok.signer_signature_hash;
@@ -597,13 +660,9 @@ impl Signer {
                 return None;
             }
         };
-        if let Some(block_response) = self.check_block_against_sortition_state(
-            stacks_client,
-            sortition_state,
-            &block_info.block,
-            &block_info.miner_pubkey,
-        ) {
-            // The sortition state has changed. We no longer view this block as valid. Override the validation response.
+
+        if let Some(block_response) = self.check_block_against_signer_db_state(&block_info.block) {
+            // The signer db state has changed. We no longer view this block as valid. Override the validation response.
             if let Err(e) = block_info.mark_locally_rejected() {
                 if !block_info.has_reached_consensus() {
                     warn!("{self}: Failed to mark block as locally rejected: {e:?}");
@@ -711,12 +770,11 @@ impl Signer {
         &mut self,
         stacks_client: &StacksClient,
         block_validate_response: &BlockValidateResponse,
-        sortition_state: &mut Option<SortitionsView>,
     ) {
         info!("{self}: Received a block validate response: {block_validate_response:?}");
         let block_response = match block_validate_response {
             BlockValidateResponse::Ok(block_validate_ok) => {
-                self.handle_block_validate_ok(stacks_client, block_validate_ok, sortition_state)
+                self.handle_block_validate_ok(stacks_client, block_validate_ok)
             }
             BlockValidateResponse::Reject(block_validate_reject) => {
                 self.handle_block_validate_reject(block_validate_reject)
@@ -1070,7 +1128,7 @@ impl Signer {
                 while *TEST_PAUSE_BLOCK_BROADCAST.lock().unwrap() == Some(true) {
                     std::thread::sleep(std::time::Duration::from_millis(10));
                 }
-                info!("Block validation is no longer stalled due to testing directive.";
+                info!("Block broadcast is no longer stalled due to testing directive. Continuing...";
                     "block_id" => %block_info.block.block_id(),
                     "height" => block_info.block.header.chain_length,
                 );
