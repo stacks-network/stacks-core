@@ -2654,7 +2654,7 @@ fn stx_transfers_dont_effect_idle_timeout() {
     let send_fee = 180;
     let num_txs = 5;
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
-    let idle_timeout = Duration::from_secs(30);
+    let idle_timeout = Duration::from_secs(60);
     let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
         vec![(sender_addr, (send_amt + send_fee) * num_txs)],
@@ -2674,7 +2674,10 @@ fn stx_transfers_dont_effect_idle_timeout() {
     // Add a delay to the block validation process
     TEST_VALIDATE_DELAY_DURATION_SECS.lock().unwrap().replace(5);
 
-    let info_before = get_chain_info(&signer_test.running_nodes.conf);
+    let info_before = signer_test
+        .stacks_client
+        .get_peer_info()
+        .expect("Failed to get peer info");
     let blocks_before = signer_test
         .running_nodes
         .nakamoto_blocks_mined
@@ -2692,7 +2695,10 @@ fn stx_transfers_dont_effect_idle_timeout() {
             .running_nodes
             .nakamoto_blocks_mined
             .load(Ordering::SeqCst);
-        let info = get_chain_info(&signer_test.running_nodes.conf);
+        let info = signer_test
+            .stacks_client
+            .get_peer_info()
+            .expect("Failed to get peer info");
         Ok(blocks_mined > blocks_before && info.stacks_tip_height > info_before.stacks_tip_height)
     })
     .expect("Timed out waiting for first nakamoto block to be mined");
@@ -2742,20 +2748,21 @@ fn stx_transfers_dont_effect_idle_timeout() {
         accepted.clone()
     };
 
-    let latest_acceptance = get_last_block_response(slot_id);
-    assert_eq!(latest_acceptance.signer_signature_hash, last_block_hash);
+    let initial_acceptance = get_last_block_response(slot_id);
+    assert_eq!(initial_acceptance.signer_signature_hash, last_block_hash);
 
     info!(
         "---- Last idle timeout: {} ----",
-        latest_acceptance.response_data.tenure_extend_timestamp
+        initial_acceptance.response_data.tenure_extend_timestamp
     );
 
     // Now, mine a few nakamoto blocks with just transfers
 
     let mut sender_nonce = 0;
 
-    let mut last_acceptance = latest_acceptance;
-
+    // Note that this response was BEFORE the block was globally accepted. it will report a guestimated idle time
+    let initial_acceptance = initial_acceptance;
+    let mut first_global_acceptance = None;
     for i in 0..num_txs {
         info!("---- Mining interim block {} ----", i + 1);
         let transfer_tx = make_stacks_transfer(
@@ -2768,10 +2775,15 @@ fn stx_transfers_dont_effect_idle_timeout() {
         );
         submit_tx(&http_origin, &transfer_tx);
         sender_nonce += 1;
-
-        let info_before = get_chain_info(&signer_test.running_nodes.conf);
+        let info_before = signer_test
+            .stacks_client
+            .get_peer_info()
+            .expect("Failed to get peer info");
         wait_for(30, || {
-            let info = get_chain_info(&signer_test.running_nodes.conf);
+            let info = signer_test
+                .stacks_client
+                .get_peer_info()
+                .expect("Failed to get peer info");
             Ok(info.stacks_tip_height > info_before.stacks_tip_height)
         })
         .expect("Timed out waiting for nakamoto block to be mined");
@@ -2780,13 +2792,20 @@ fn stx_transfers_dont_effect_idle_timeout() {
         let last_block_hash = get_last_block_hash();
 
         assert_eq!(latest_acceptance.signer_signature_hash, last_block_hash);
-        // Because the block only contains transfers, the idle timeout should not have changed
-        assert_eq!(
-            last_acceptance.response_data.tenure_extend_timestamp,
-            latest_acceptance.response_data.tenure_extend_timestamp
-        );
 
-        last_acceptance = latest_acceptance;
+        if first_global_acceptance.is_none() {
+            assert!(latest_acceptance.response_data.tenure_extend_timestamp < initial_acceptance.response_data.tenure_extend_timestamp, "First global acceptance should be less than initial guesstimated acceptance as its based on block proposal time rather than epoch time at time of response.");
+            first_global_acceptance = Some(latest_acceptance);
+        } else {
+            // Because the block only contains transfers, the idle timeout should not have changed between blocks post the tenure change
+            assert_eq!(
+                latest_acceptance.response_data.tenure_extend_timestamp,
+                first_global_acceptance
+                    .as_ref()
+                    .map(|acceptance| acceptance.response_data.tenure_extend_timestamp)
+                    .unwrap()
+            );
+        };
     }
 
     info!("---- Waiting for a tenure extend ----");
