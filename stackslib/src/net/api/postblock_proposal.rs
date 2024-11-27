@@ -363,9 +363,17 @@ impl NakamotoBlockProposal {
             });
         }
 
-        let sort_tip = SortitionDB::get_canonical_sortition_tip(sortdb.conn())?;
-        let burn_dbconn: SortitionHandleConn = sortdb.index_handle(&sort_tip);
-        let mut db_handle = sortdb.index_handle(&sort_tip);
+        let sort_tip = SortitionDB::get_block_snapshot_consensus(
+            sortdb.conn(),
+            &self.block.header.consensus_hash,
+        )?
+        .ok_or_else(|| BlockValidateRejectReason {
+            reason_code: ValidateRejectCode::NoSuchTenure,
+            reason: "Failed to find sortition for block tenure".to_string(),
+        })?;
+
+        let burn_dbconn: SortitionHandleConn = sortdb.index_handle(&sort_tip.sortition_id);
+        let mut db_handle = sortdb.index_handle(&sort_tip.sortition_id);
 
         // (For the signer)
         // Verify that the block's tenure is on the canonical sortition history
