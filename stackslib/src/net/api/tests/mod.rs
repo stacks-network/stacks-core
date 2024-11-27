@@ -61,6 +61,8 @@ mod getattachmentsinv;
 mod getblock;
 mod getblock_v3;
 mod getblockbyheight;
+mod getclaritymarfvalue;
+mod getclaritymetadata;
 mod getconstantval;
 mod getcontractabi;
 mod getcontractsrc;
@@ -120,7 +122,7 @@ const TEST_CONTRACT: &'static str = "
         (ok 1)))
     (begin
       (map-set unit-map { account: 'ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R } { units: 123 }))
-    
+
     (define-read-only (ro-confirmed) u1)
 
     (define-public (do-test) (ok u0))
@@ -1044,7 +1046,7 @@ impl<'a> TestRPC<'a> {
 
             peer_2.sortdb = Some(peer_2_sortdb);
             peer_2.stacks_node = Some(peer_2_stacks_node);
-            let mut peer_1_mempool = peer_1.mempool.take().unwrap();
+            peer_2.mempool = Some(peer_2_mempool);
 
             convo_send_recv(&mut convo_2, &mut convo_1);
 
@@ -1052,8 +1054,6 @@ impl<'a> TestRPC<'a> {
 
             // hack around the borrow-checker
             convo_send_recv(&mut convo_1, &mut convo_2);
-
-            peer_2.mempool = Some(peer_2_mempool);
 
             let peer_1_sortdb = peer_1.sortdb.take().unwrap();
             let mut peer_1_stacks_node = peer_1.stacks_node.take().unwrap();
@@ -1076,27 +1076,45 @@ impl<'a> TestRPC<'a> {
                 .unwrap();
             }
 
-            {
-                let rpc_args = RPCHandlerArgs::default();
-                let mut node_state = StacksNodeState::new(
-                    &mut peer_1.network,
-                    &peer_1_sortdb,
-                    &mut peer_1_stacks_node.chainstate,
-                    &mut peer_1_mempool,
-                    &rpc_args,
-                    false,
-                );
-                convo_1.chat(&mut node_state).unwrap();
-            }
-
-            convo_1.try_flush().unwrap();
-
             peer_1.sortdb = Some(peer_1_sortdb);
             peer_1.stacks_node = Some(peer_1_stacks_node);
-            peer_1.mempool = Some(peer_1_mempool);
 
-            // should have gotten a reply
-            let resp_opt = convo_1.try_get_response();
+            let resp_opt = loop {
+                debug!("Peer 1 try get response");
+                convo_send_recv(&mut convo_1, &mut convo_2);
+                {
+                    let peer_1_sortdb = peer_1.sortdb.take().unwrap();
+                    let mut peer_1_stacks_node = peer_1.stacks_node.take().unwrap();
+                    let mut peer_1_mempool = peer_1.mempool.take().unwrap();
+
+                    let rpc_args = RPCHandlerArgs::default();
+                    let mut node_state = StacksNodeState::new(
+                        &mut peer_1.network,
+                        &peer_1_sortdb,
+                        &mut peer_1_stacks_node.chainstate,
+                        &mut peer_1_mempool,
+                        &rpc_args,
+                        false,
+                    );
+
+                    convo_1.chat(&mut node_state).unwrap();
+
+                    peer_1.sortdb = Some(peer_1_sortdb);
+                    peer_1.stacks_node = Some(peer_1_stacks_node);
+                    peer_1.mempool = Some(peer_1_mempool);
+                }
+
+                convo_1.try_flush().unwrap();
+
+                info!("Try get response from request {:?}", &request);
+
+                // should have gotten a reply
+                let resp_opt = convo_1.try_get_response();
+                if resp_opt.is_some() {
+                    break resp_opt;
+                }
+            };
+
             assert!(resp_opt.is_some());
 
             let resp = resp_opt.unwrap();

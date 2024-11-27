@@ -1186,7 +1186,6 @@ mod tests {
     use crate::chainstate::burn::operations::*;
     use crate::chainstate::burn::{ConsensusHash, *};
     use crate::chainstate::stacks::address::StacksAddressExtensions;
-    use crate::chainstate::stacks::index::TrieHashExtension;
     use crate::chainstate::stacks::StacksPublicKey;
     use crate::core::{
         StacksEpoch, StacksEpochExtension, StacksEpochId, PEER_VERSION_EPOCH_1_0,
