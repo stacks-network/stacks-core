@@ -22,18 +22,24 @@ pub mod mempool;
 pub mod neighbors;
 pub mod relay;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use clarity::vm::clarity::ClarityConnection;
-use clarity::vm::types::PrincipalData;
+use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
+use libstackerdb::StackerDBChunkData;
 use rand::prelude::SliceRandom;
 use rand::{thread_rng, Rng, RngCore};
 use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
+use stacks_common::bitvec::BitVec;
 use stacks_common::consts::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 use stacks_common::types::chainstate::{
-    StacksAddress, StacksBlockId, StacksPrivateKey, StacksPublicKey,
+    BurnchainHeaderHash, ConsensusHash, StacksAddress, StacksBlockId, StacksPrivateKey,
+    StacksPublicKey, TrieHash,
 };
+use stacks_common::types::net::PeerAddress;
 use stacks_common::types::{Address, StacksEpochId};
+use stacks_common::util::hash::Sha512Trunc256Sum;
+use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::util::vrf::VRFProof;
 
 use crate::burnchains::PoxConstants;
@@ -45,7 +51,7 @@ use crate::chainstate::nakamoto::staging_blocks::NakamotoBlockObtainMethod;
 use crate::chainstate::nakamoto::test_signers::TestSigners;
 use crate::chainstate::nakamoto::tests::get_account;
 use crate::chainstate::nakamoto::tests::node::TestStacker;
-use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
+use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader, NakamotoChainState};
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::test::{
     key_to_stacks_addr, make_pox_4_lockup, make_pox_4_lockup_chain_id, make_signer_key_signature,
@@ -54,8 +60,10 @@ use crate::chainstate::stacks::boot::test::{
 use crate::chainstate::stacks::boot::{
     MINERS_NAME, SIGNERS_VOTING_FUNCTION_NAME, SIGNERS_VOTING_NAME,
 };
+use crate::chainstate::stacks::db::blocks::test::make_empty_coinbase_block;
 use crate::chainstate::stacks::db::{MinerPaymentTxFees, StacksAccount, StacksChainState};
 use crate::chainstate::stacks::events::TransactionOrigin;
+use crate::chainstate::stacks::test::make_codec_test_microblock;
 use crate::chainstate::stacks::{
     CoinbasePayload, StacksTransaction, StacksTransactionSigner, TenureChangeCause,
     TenureChangePayload, TokenTransferMemo, TransactionAnchorMode, TransactionAuth,
@@ -66,6 +74,10 @@ use crate::core::{StacksEpoch, StacksEpochExtension};
 use crate::net::relay::{BlockAcceptResponse, Relayer};
 use crate::net::stackerdb::StackerDBConfig;
 use crate::net::test::{TestEventObserver, TestPeer, TestPeerConfig};
+use crate::net::{
+    BlocksData, BlocksDatum, MicroblocksData, NakamotoBlocksData, NeighborKey, NetworkResult,
+    PingData, StackerDBPushChunkData, StacksMessage, StacksMessageType,
+};
 use crate::util_lib::boot::boot_code_id;
 use crate::util_lib::signed_structured_data::pox4::make_pox_4_signer_key_signature;
 
@@ -93,6 +105,8 @@ pub struct NakamotoBootPlan {
     pub num_peers: usize,
     /// Whether to add an initial balance for `private_key`'s account
     pub add_default_balance: bool,
+    /// Whether or not to produce malleablized blocks
+    pub malleablized_blocks: bool,
     pub network_id: u32,
 }
 
@@ -109,6 +123,7 @@ impl NakamotoBootPlan {
             observer: Some(TestEventObserver::new()),
             num_peers: 0,
             add_default_balance: true,
+            malleablized_blocks: true,
             network_id: TestPeerConfig::default().network_id,
         }
     }
@@ -162,6 +177,11 @@ impl NakamotoBootPlan {
 
     pub fn with_extra_peers(mut self, num_peers: usize) -> Self {
         self.num_peers = num_peers;
+        self
+    }
+
+    pub fn with_malleablized_blocks(mut self, malleablized_blocks: bool) -> Self {
+        self.malleablized_blocks = malleablized_blocks;
         self
     }
 
@@ -394,6 +414,8 @@ impl NakamotoBootPlan {
         peer_config.burnchain.pox_constants = self.pox_constants.clone();
         let mut peer = TestPeer::new_with_observer(peer_config.clone(), observer);
 
+        peer.mine_malleablized_blocks = self.malleablized_blocks;
+
         let mut other_peers = vec![];
         for i in 0..self.num_peers {
             let mut other_config = peer_config.clone();
@@ -404,7 +426,11 @@ impl NakamotoBootPlan {
             other_config.private_key = StacksPrivateKey::from_seed(&(i as u128).to_be_bytes());
 
             other_config.add_neighbor(&peer.to_neighbor());
-            other_peers.push(TestPeer::new_with_observer(other_config, None));
+
+            let mut other_peer = TestPeer::new_with_observer(other_config, None);
+            other_peer.mine_malleablized_blocks = self.malleablized_blocks;
+
+            other_peers.push(other_peer);
         }
 
         self.advance_to_nakamoto(&mut peer, &mut other_peers);
@@ -525,7 +551,7 @@ impl NakamotoBootPlan {
             })
             .collect();
 
-        let old_tip = peer.network.stacks_tip.clone();
+        let mut old_tip = peer.network.stacks_tip.clone();
         let mut stacks_block = peer.tenure_with_txs(&stack_txs, &mut peer_nonce);
 
         let (stacks_tip_ch, stacks_tip_bh) =
@@ -533,13 +559,14 @@ impl NakamotoBootPlan {
         let stacks_tip = StacksBlockId::new(&stacks_tip_ch, &stacks_tip_bh);
         assert_eq!(peer.network.stacks_tip.block_id(), stacks_tip);
         if old_tip.block_id() != stacks_tip {
+            old_tip.burnchain_height = peer.network.parent_stacks_tip.burnchain_height;
             assert_eq!(old_tip, peer.network.parent_stacks_tip);
         }
 
         for (other_peer, other_peer_nonce) in
             other_peers.iter_mut().zip(other_peer_nonces.iter_mut())
         {
-            let old_tip = other_peer.network.stacks_tip.clone();
+            let mut old_tip = other_peer.network.stacks_tip.clone();
             other_peer.tenure_with_txs(&stack_txs, other_peer_nonce);
 
             let (stacks_tip_ch, stacks_tip_bh) =
@@ -548,6 +575,7 @@ impl NakamotoBootPlan {
             let stacks_tip = StacksBlockId::new(&stacks_tip_ch, &stacks_tip_bh);
             assert_eq!(other_peer.network.stacks_tip.block_id(), stacks_tip);
             if old_tip.block_id() != stacks_tip {
+                old_tip.burnchain_height = other_peer.network.parent_stacks_tip.burnchain_height;
                 assert_eq!(old_tip, other_peer.network.parent_stacks_tip);
             }
         }
@@ -560,7 +588,7 @@ impl NakamotoBootPlan {
             .burnchain
             .is_in_prepare_phase(sortition_height.into())
         {
-            let old_tip = peer.network.stacks_tip.clone();
+            let mut old_tip = peer.network.stacks_tip.clone();
             stacks_block = peer.tenure_with_txs(&[], &mut peer_nonce);
 
             let (stacks_tip_ch, stacks_tip_bh) =
@@ -568,13 +596,14 @@ impl NakamotoBootPlan {
             let stacks_tip = StacksBlockId::new(&stacks_tip_ch, &stacks_tip_bh);
             assert_eq!(peer.network.stacks_tip.block_id(), stacks_tip);
             if old_tip.block_id() != stacks_tip {
+                old_tip.burnchain_height = peer.network.parent_stacks_tip.burnchain_height;
                 assert_eq!(old_tip, peer.network.parent_stacks_tip);
             }
             other_peers
                 .iter_mut()
                 .zip(other_peer_nonces.iter_mut())
                 .for_each(|(peer, nonce)| {
-                    let old_tip = peer.network.stacks_tip.clone();
+                    let mut old_tip = peer.network.stacks_tip.clone();
                     peer.tenure_with_txs(&[], nonce);
 
                     let (stacks_tip_ch, stacks_tip_bh) =
@@ -583,6 +612,7 @@ impl NakamotoBootPlan {
                     let stacks_tip = StacksBlockId::new(&stacks_tip_ch, &stacks_tip_bh);
                     assert_eq!(peer.network.stacks_tip.block_id(), stacks_tip);
                     if old_tip.block_id() != stacks_tip {
+                        old_tip.burnchain_height = peer.network.parent_stacks_tip.burnchain_height;
                         assert_eq!(old_tip, peer.network.parent_stacks_tip);
                     }
                 });
@@ -595,7 +625,7 @@ impl NakamotoBootPlan {
 
         // advance to the start of epoch 3.0
         while sortition_height < epoch_30_height - 1 {
-            let old_tip = peer.network.stacks_tip.clone();
+            let mut old_tip = peer.network.stacks_tip.clone();
             peer.tenure_with_txs(&vec![], &mut peer_nonce);
 
             let (stacks_tip_ch, stacks_tip_bh) =
@@ -603,13 +633,14 @@ impl NakamotoBootPlan {
             let stacks_tip = StacksBlockId::new(&stacks_tip_ch, &stacks_tip_bh);
             assert_eq!(peer.network.stacks_tip.block_id(), stacks_tip);
             if old_tip.block_id() != stacks_tip {
+                old_tip.burnchain_height = peer.network.parent_stacks_tip.burnchain_height;
                 assert_eq!(old_tip, peer.network.parent_stacks_tip);
             }
 
             for (other_peer, other_peer_nonce) in
                 other_peers.iter_mut().zip(other_peer_nonces.iter_mut())
             {
-                let old_tip = peer.network.stacks_tip.clone();
+                let mut old_tip = peer.network.stacks_tip.clone();
                 other_peer.tenure_with_txs(&vec![], other_peer_nonce);
 
                 let (stacks_tip_ch, stacks_tip_bh) =
@@ -618,6 +649,8 @@ impl NakamotoBootPlan {
                 let stacks_tip = StacksBlockId::new(&stacks_tip_ch, &stacks_tip_bh);
                 assert_eq!(other_peer.network.stacks_tip.block_id(), stacks_tip);
                 if old_tip.block_id() != stacks_tip {
+                    old_tip.burnchain_height =
+                        other_peer.network.parent_stacks_tip.burnchain_height;
                     assert_eq!(old_tip, other_peer.network.parent_stacks_tip);
                 }
             }
@@ -1124,4 +1157,677 @@ fn test_boot_nakamoto_peer() {
 
     let observer = TestEventObserver::new();
     let (peer, other_peers) = plan.boot_into_nakamoto_peers(boot_tenures, Some(&observer));
+}
+
+#[test]
+fn test_network_result_update() {
+    let mut network_result_1 = NetworkResult::new(
+        StacksBlockId([0x11; 32]),
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        ConsensusHash([0x11; 20]),
+        HashMap::new(),
+    );
+
+    let mut network_result_2 = NetworkResult::new(
+        StacksBlockId([0x22; 32]),
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        ConsensusHash([0x22; 20]),
+        HashMap::new(),
+    );
+
+    let nk1 = NeighborKey {
+        peer_version: 1,
+        network_id: 1,
+        addrbytes: PeerAddress([0x11; 16]),
+        port: 1,
+    };
+
+    let nk2 = NeighborKey {
+        peer_version: 2,
+        network_id: 2,
+        addrbytes: PeerAddress([0x22; 16]),
+        port: 2,
+    };
+
+    let msg1 = StacksMessage::new(
+        1,
+        1,
+        1,
+        &BurnchainHeaderHash([0x11; 32]),
+        1,
+        &BurnchainHeaderHash([0x11; 32]),
+        StacksMessageType::Ping(PingData { nonce: 1 }),
+    );
+
+    let mut msg2 = StacksMessage::new(
+        2,
+        2,
+        2,
+        &BurnchainHeaderHash([0x22; 32]),
+        2,
+        &BurnchainHeaderHash([0x22; 32]),
+        StacksMessageType::Ping(PingData { nonce: 2 }),
+    );
+    msg2.sign(2, &StacksPrivateKey::new()).unwrap();
+
+    let pkey_1 = StacksPrivateKey::new();
+    let pkey_2 = StacksPrivateKey::new();
+
+    let pushed_pkey_1 = StacksPrivateKey::new();
+    let pushed_pkey_2 = StacksPrivateKey::new();
+
+    let uploaded_pkey_1 = StacksPrivateKey::new();
+    let uploaded_pkey_2 = StacksPrivateKey::new();
+
+    let blk1 = make_empty_coinbase_block(&pkey_1);
+    let blk2 = make_empty_coinbase_block(&pkey_2);
+
+    let pushed_blk1 = make_empty_coinbase_block(&pushed_pkey_1);
+    let pushed_blk2 = make_empty_coinbase_block(&pushed_pkey_2);
+
+    let uploaded_blk1 = make_empty_coinbase_block(&uploaded_pkey_1);
+    let uploaded_blk2 = make_empty_coinbase_block(&uploaded_pkey_2);
+
+    let mblk1 = make_codec_test_microblock(1);
+    let mblk2 = make_codec_test_microblock(2);
+
+    let pushed_mblk1 = make_codec_test_microblock(3);
+    let pushed_mblk2 = make_codec_test_microblock(4);
+
+    let uploaded_mblk1 = make_codec_test_microblock(5);
+    let uploaded_mblk2 = make_codec_test_microblock(6);
+
+    let pushed_tx1 = make_codec_test_microblock(3).txs[2].clone();
+    let pushed_tx2 = make_codec_test_microblock(4).txs[3].clone();
+
+    let uploaded_tx1 = make_codec_test_microblock(5).txs[4].clone();
+    let uploaded_tx2 = make_codec_test_microblock(6).txs[5].clone();
+
+    let synced_tx1 = make_codec_test_microblock(7).txs[6].clone();
+    let synced_tx2 = make_codec_test_microblock(8).txs[7].clone();
+
+    let naka_header_1 = NakamotoBlockHeader {
+        version: 1,
+        chain_length: 1,
+        burn_spent: 1,
+        consensus_hash: ConsensusHash([0x01; 20]),
+        parent_block_id: StacksBlockId([0x01; 32]),
+        tx_merkle_root: Sha512Trunc256Sum([0x01; 32]),
+        state_index_root: TrieHash([0x01; 32]),
+        timestamp: 1,
+        miner_signature: MessageSignature::empty(),
+        signer_signature: vec![],
+        pox_treatment: BitVec::zeros(1).unwrap(),
+    };
+
+    let naka_header_2 = NakamotoBlockHeader {
+        version: 2,
+        chain_length: 2,
+        burn_spent: 2,
+        consensus_hash: ConsensusHash([0x02; 20]),
+        parent_block_id: StacksBlockId([0x02; 32]),
+        tx_merkle_root: Sha512Trunc256Sum([0x02; 32]),
+        state_index_root: TrieHash([0x02; 32]),
+        timestamp: 2,
+        miner_signature: MessageSignature::empty(),
+        signer_signature: vec![],
+        pox_treatment: BitVec::zeros(1).unwrap(),
+    };
+
+    let naka_pushed_header_1 = NakamotoBlockHeader {
+        version: 3,
+        chain_length: 3,
+        burn_spent: 3,
+        consensus_hash: ConsensusHash([0x03; 20]),
+        parent_block_id: StacksBlockId([0x03; 32]),
+        tx_merkle_root: Sha512Trunc256Sum([0x03; 32]),
+        state_index_root: TrieHash([0x03; 32]),
+        timestamp: 3,
+        miner_signature: MessageSignature::empty(),
+        signer_signature: vec![],
+        pox_treatment: BitVec::zeros(1).unwrap(),
+    };
+
+    let naka_pushed_header_2 = NakamotoBlockHeader {
+        version: 4,
+        chain_length: 4,
+        burn_spent: 4,
+        consensus_hash: ConsensusHash([0x04; 20]),
+        parent_block_id: StacksBlockId([0x04; 32]),
+        tx_merkle_root: Sha512Trunc256Sum([0x04; 32]),
+        state_index_root: TrieHash([0x04; 32]),
+        timestamp: 4,
+        miner_signature: MessageSignature::empty(),
+        signer_signature: vec![],
+        pox_treatment: BitVec::zeros(1).unwrap(),
+    };
+
+    let naka_uploaded_header_1 = NakamotoBlockHeader {
+        version: 5,
+        chain_length: 5,
+        burn_spent: 5,
+        consensus_hash: ConsensusHash([0x05; 20]),
+        parent_block_id: StacksBlockId([0x05; 32]),
+        tx_merkle_root: Sha512Trunc256Sum([0x05; 32]),
+        state_index_root: TrieHash([0x05; 32]),
+        timestamp: 5,
+        miner_signature: MessageSignature::empty(),
+        signer_signature: vec![],
+        pox_treatment: BitVec::zeros(1).unwrap(),
+    };
+
+    let naka_uploaded_header_2 = NakamotoBlockHeader {
+        version: 6,
+        chain_length: 6,
+        burn_spent: 6,
+        consensus_hash: ConsensusHash([0x06; 20]),
+        parent_block_id: StacksBlockId([0x06; 32]),
+        tx_merkle_root: Sha512Trunc256Sum([0x06; 32]),
+        state_index_root: TrieHash([0x06; 32]),
+        timestamp: 6,
+        miner_signature: MessageSignature::empty(),
+        signer_signature: vec![],
+        pox_treatment: BitVec::zeros(1).unwrap(),
+    };
+
+    let nblk1 = NakamotoBlock {
+        header: naka_header_1.clone(),
+        txs: vec![],
+    };
+    let nblk2 = NakamotoBlock {
+        header: naka_header_2.clone(),
+        txs: vec![],
+    };
+
+    let pushed_nblk1 = NakamotoBlock {
+        header: naka_pushed_header_1.clone(),
+        txs: vec![],
+    };
+    let pushed_nblk2 = NakamotoBlock {
+        header: naka_pushed_header_2.clone(),
+        txs: vec![],
+    };
+
+    let uploaded_nblk1 = NakamotoBlock {
+        header: naka_uploaded_header_1.clone(),
+        txs: vec![],
+    };
+    let uploaded_nblk2 = NakamotoBlock {
+        header: naka_uploaded_header_2.clone(),
+        txs: vec![],
+    };
+
+    let pushed_stackerdb_chunk_1 = StackerDBPushChunkData {
+        contract_id: QualifiedContractIdentifier::transient(),
+        rc_consensus_hash: ConsensusHash([0x11; 20]),
+        chunk_data: StackerDBChunkData {
+            slot_id: 1,
+            slot_version: 1,
+            sig: MessageSignature::empty(),
+            data: vec![1],
+        },
+    };
+
+    let pushed_stackerdb_chunk_2 = StackerDBPushChunkData {
+        contract_id: QualifiedContractIdentifier::transient(),
+        rc_consensus_hash: ConsensusHash([0x22; 20]),
+        chunk_data: StackerDBChunkData {
+            slot_id: 2,
+            slot_version: 2,
+            sig: MessageSignature::empty(),
+            data: vec![2],
+        },
+    };
+
+    let uploaded_stackerdb_chunk_1 = StackerDBPushChunkData {
+        contract_id: QualifiedContractIdentifier::transient(),
+        rc_consensus_hash: ConsensusHash([0x33; 20]),
+        chunk_data: StackerDBChunkData {
+            slot_id: 3,
+            slot_version: 3,
+            sig: MessageSignature::empty(),
+            data: vec![3],
+        },
+    };
+
+    let uploaded_stackerdb_chunk_2 = StackerDBPushChunkData {
+        contract_id: QualifiedContractIdentifier::transient(),
+        rc_consensus_hash: ConsensusHash([0x44; 20]),
+        chunk_data: StackerDBChunkData {
+            slot_id: 4,
+            slot_version: 4,
+            sig: MessageSignature::empty(),
+            data: vec![4],
+        },
+    };
+
+    network_result_1
+        .unhandled_messages
+        .insert(nk1.clone(), vec![msg1.clone()]);
+    network_result_1
+        .blocks
+        .push((ConsensusHash([0x11; 20]), blk1.clone(), 1));
+    network_result_1.confirmed_microblocks.push((
+        ConsensusHash([0x11; 20]),
+        vec![mblk1.clone()],
+        1,
+    ));
+    network_result_1
+        .nakamoto_blocks
+        .insert(nblk1.block_id(), nblk1.clone());
+    network_result_1
+        .pushed_transactions
+        .insert(nk1.clone(), vec![(vec![], pushed_tx1.clone())]);
+    network_result_1.pushed_blocks.insert(
+        nk1.clone(),
+        vec![BlocksData {
+            blocks: vec![BlocksDatum(ConsensusHash([0x11; 20]), pushed_blk1.clone())],
+        }],
+    );
+    network_result_1.pushed_microblocks.insert(
+        nk1.clone(),
+        vec![(
+            vec![],
+            MicroblocksData {
+                index_anchor_block: StacksBlockId([0x11; 32]),
+                microblocks: vec![pushed_mblk1.clone()],
+            },
+        )],
+    );
+    network_result_1.pushed_nakamoto_blocks.insert(
+        nk1.clone(),
+        vec![(
+            vec![],
+            NakamotoBlocksData {
+                blocks: vec![pushed_nblk1],
+            },
+        )],
+    );
+    network_result_1
+        .uploaded_transactions
+        .push(uploaded_tx1.clone());
+    network_result_1.uploaded_blocks.push(BlocksData {
+        blocks: vec![BlocksDatum(
+            ConsensusHash([0x11; 20]),
+            uploaded_blk1.clone(),
+        )],
+    });
+    network_result_1.uploaded_microblocks.push(MicroblocksData {
+        index_anchor_block: StacksBlockId([0x11; 32]),
+        microblocks: vec![uploaded_mblk1.clone()],
+    });
+    network_result_1
+        .uploaded_nakamoto_blocks
+        .push(uploaded_nblk1.clone());
+    network_result_1
+        .pushed_stackerdb_chunks
+        .push(pushed_stackerdb_chunk_1.clone());
+    network_result_1
+        .uploaded_stackerdb_chunks
+        .push(uploaded_stackerdb_chunk_1.clone());
+    network_result_1.synced_transactions.push(synced_tx1);
+
+    network_result_2
+        .unhandled_messages
+        .insert(nk2.clone(), vec![msg2.clone()]);
+    network_result_2
+        .blocks
+        .push((ConsensusHash([0x22; 20]), blk2.clone(), 2));
+    network_result_2.confirmed_microblocks.push((
+        ConsensusHash([0x22; 20]),
+        vec![mblk2.clone()],
+        2,
+    ));
+    network_result_2
+        .nakamoto_blocks
+        .insert(nblk2.block_id(), nblk2.clone());
+    network_result_2
+        .pushed_transactions
+        .insert(nk2.clone(), vec![(vec![], pushed_tx2.clone())]);
+    network_result_2.pushed_blocks.insert(
+        nk2.clone(),
+        vec![BlocksData {
+            blocks: vec![BlocksDatum(ConsensusHash([0x22; 20]), pushed_blk2.clone())],
+        }],
+    );
+    network_result_2.pushed_microblocks.insert(
+        nk2.clone(),
+        vec![(
+            vec![],
+            MicroblocksData {
+                index_anchor_block: StacksBlockId([0x22; 32]),
+                microblocks: vec![pushed_mblk2.clone()],
+            },
+        )],
+    );
+    network_result_2.pushed_nakamoto_blocks.insert(
+        nk2.clone(),
+        vec![(
+            vec![],
+            NakamotoBlocksData {
+                blocks: vec![pushed_nblk2],
+            },
+        )],
+    );
+    network_result_2
+        .uploaded_transactions
+        .push(uploaded_tx2.clone());
+    network_result_2.uploaded_blocks.push(BlocksData {
+        blocks: vec![BlocksDatum(
+            ConsensusHash([0x22; 20]),
+            uploaded_blk2.clone(),
+        )],
+    });
+    network_result_2.uploaded_microblocks.push(MicroblocksData {
+        index_anchor_block: StacksBlockId([0x22; 32]),
+        microblocks: vec![uploaded_mblk2.clone()],
+    });
+    network_result_2
+        .uploaded_nakamoto_blocks
+        .push(uploaded_nblk2.clone());
+    network_result_2
+        .pushed_stackerdb_chunks
+        .push(pushed_stackerdb_chunk_2.clone());
+    network_result_2
+        .uploaded_stackerdb_chunks
+        .push(uploaded_stackerdb_chunk_2.clone());
+    network_result_2.synced_transactions.push(synced_tx2);
+
+    let mut network_result_union = network_result_2.clone();
+    let mut n1 = network_result_1.clone();
+    network_result_union
+        .unhandled_messages
+        .extend(n1.unhandled_messages.into_iter());
+    network_result_union.blocks.append(&mut n1.blocks);
+    network_result_union
+        .confirmed_microblocks
+        .append(&mut n1.confirmed_microblocks);
+    network_result_union
+        .nakamoto_blocks
+        .extend(n1.nakamoto_blocks.into_iter());
+    network_result_union
+        .pushed_transactions
+        .extend(n1.pushed_transactions.into_iter());
+    network_result_union
+        .pushed_blocks
+        .extend(n1.pushed_blocks.into_iter());
+    network_result_union
+        .pushed_microblocks
+        .extend(n1.pushed_microblocks.into_iter());
+    network_result_union
+        .pushed_nakamoto_blocks
+        .extend(n1.pushed_nakamoto_blocks.into_iter());
+    network_result_union
+        .uploaded_transactions
+        .append(&mut n1.uploaded_transactions);
+    network_result_union
+        .uploaded_blocks
+        .append(&mut n1.uploaded_blocks);
+    network_result_union
+        .uploaded_microblocks
+        .append(&mut n1.uploaded_microblocks);
+    network_result_union
+        .uploaded_nakamoto_blocks
+        .append(&mut n1.uploaded_nakamoto_blocks);
+    // stackerdb chunks from n1 get dropped since their rc_consensus_hash no longer matches
+    network_result_union
+        .synced_transactions
+        .append(&mut n1.synced_transactions);
+
+    // update is idempotent
+    let old = network_result_1.clone();
+    let new = network_result_1.clone();
+    assert_eq!(old.update(new), network_result_1);
+
+    // disjoint results get unioned, except for stackerdb chunks
+    let old = network_result_1.clone();
+    let new = network_result_2.clone();
+    assert_eq!(old.update(new), network_result_union);
+
+    // merging a subset is idempotent
+    assert_eq!(
+        network_result_1
+            .clone()
+            .update(network_result_union.clone()),
+        network_result_union
+    );
+    assert_eq!(
+        network_result_2
+            .clone()
+            .update(network_result_union.clone()),
+        network_result_union
+    );
+
+    // stackerdb uploaded chunks get consolidated correctly
+    let mut old = NetworkResult::new(
+        StacksBlockId([0xaa; 32]),
+        10,
+        10,
+        10,
+        10,
+        10,
+        10,
+        10,
+        ConsensusHash([0xaa; 20]),
+        HashMap::new(),
+    );
+    let mut new = old.clone();
+
+    let old_chunk_1 = StackerDBPushChunkData {
+        contract_id: QualifiedContractIdentifier::transient(),
+        rc_consensus_hash: ConsensusHash([0xaa; 20]),
+        chunk_data: StackerDBChunkData {
+            slot_id: 1,
+            slot_version: 1,
+            sig: MessageSignature::empty(),
+            data: vec![3],
+        },
+    };
+
+    let new_chunk_1 = StackerDBPushChunkData {
+        contract_id: QualifiedContractIdentifier::transient(),
+        rc_consensus_hash: ConsensusHash([0xaa; 20]),
+        chunk_data: StackerDBChunkData {
+            slot_id: 1,
+            slot_version: 2,
+            sig: MessageSignature::empty(),
+            data: vec![3],
+        },
+    };
+
+    let new_chunk_2 = StackerDBPushChunkData {
+        contract_id: QualifiedContractIdentifier::transient(),
+        rc_consensus_hash: ConsensusHash([0xaa; 20]),
+        chunk_data: StackerDBChunkData {
+            slot_id: 2,
+            slot_version: 2,
+            sig: MessageSignature::empty(),
+            data: vec![3],
+        },
+    };
+
+    old.uploaded_stackerdb_chunks.push(old_chunk_1.clone());
+    // replaced
+    new.uploaded_stackerdb_chunks.push(new_chunk_1.clone());
+    // included
+    new.uploaded_stackerdb_chunks.push(new_chunk_2.clone());
+
+    assert_eq!(
+        old.update(new).uploaded_stackerdb_chunks,
+        vec![new_chunk_1.clone(), new_chunk_2.clone()]
+    );
+
+    // stackerdb pushed chunks get consolidated correctly
+    let mut old = NetworkResult::new(
+        StacksBlockId([0xaa; 32]),
+        10,
+        10,
+        10,
+        10,
+        10,
+        10,
+        10,
+        ConsensusHash([0xaa; 20]),
+        HashMap::new(),
+    );
+    let mut new = old.clone();
+
+    let old_chunk_1 = StackerDBPushChunkData {
+        contract_id: QualifiedContractIdentifier::transient(),
+        rc_consensus_hash: ConsensusHash([0xaa; 20]),
+        chunk_data: StackerDBChunkData {
+            slot_id: 1,
+            slot_version: 1,
+            sig: MessageSignature::empty(),
+            data: vec![3],
+        },
+    };
+
+    let new_chunk_1 = StackerDBPushChunkData {
+        contract_id: QualifiedContractIdentifier::transient(),
+        rc_consensus_hash: ConsensusHash([0xaa; 20]),
+        chunk_data: StackerDBChunkData {
+            slot_id: 1,
+            slot_version: 2,
+            sig: MessageSignature::empty(),
+            data: vec![3],
+        },
+    };
+
+    let new_chunk_2 = StackerDBPushChunkData {
+        contract_id: QualifiedContractIdentifier::transient(),
+        rc_consensus_hash: ConsensusHash([0xaa; 20]),
+        chunk_data: StackerDBChunkData {
+            slot_id: 2,
+            slot_version: 2,
+            sig: MessageSignature::empty(),
+            data: vec![3],
+        },
+    };
+
+    old.pushed_stackerdb_chunks.push(old_chunk_1.clone());
+    // replaced
+    new.pushed_stackerdb_chunks.push(new_chunk_1.clone());
+    // included
+    new.pushed_stackerdb_chunks.push(new_chunk_2.clone());
+
+    assert_eq!(
+        old.update(new).pushed_stackerdb_chunks,
+        vec![new_chunk_1.clone(), new_chunk_2.clone()]
+    );
+
+    // nakamoto blocks obtained via download, upload, or pushed get consoldated
+    let mut old = NetworkResult::new(
+        StacksBlockId([0xbb; 32]),
+        11,
+        11,
+        11,
+        11,
+        11,
+        11,
+        11,
+        ConsensusHash([0xbb; 20]),
+        HashMap::new(),
+    );
+    old.nakamoto_blocks.insert(nblk1.block_id(), nblk1.clone());
+    old.pushed_nakamoto_blocks.insert(
+        nk1.clone(),
+        vec![(
+            vec![],
+            NakamotoBlocksData {
+                blocks: vec![nblk1.clone()],
+            },
+        )],
+    );
+    old.uploaded_nakamoto_blocks.push(nblk1.clone());
+
+    let new = NetworkResult::new(
+        StacksBlockId([0xbb; 32]),
+        11,
+        11,
+        11,
+        11,
+        11,
+        11,
+        11,
+        ConsensusHash([0xbb; 20]),
+        HashMap::new(),
+    );
+
+    let mut new_pushed = new.clone();
+    let mut new_uploaded = new.clone();
+    let mut new_downloaded = new.clone();
+
+    new_downloaded
+        .nakamoto_blocks
+        .insert(nblk1.block_id(), nblk1.clone());
+    new_pushed.pushed_nakamoto_blocks.insert(
+        nk2.clone(),
+        vec![(
+            vec![],
+            NakamotoBlocksData {
+                blocks: vec![nblk1.clone()],
+            },
+        )],
+    );
+    new_uploaded.uploaded_nakamoto_blocks.push(nblk1.clone());
+
+    debug!("====");
+    let updated_downloaded = old.clone().update(new_downloaded);
+    assert_eq!(updated_downloaded.nakamoto_blocks.len(), 1);
+    assert_eq!(
+        updated_downloaded
+            .nakamoto_blocks
+            .get(&nblk1.block_id())
+            .unwrap(),
+        &nblk1
+    );
+    assert_eq!(updated_downloaded.pushed_nakamoto_blocks.len(), 0);
+    assert_eq!(updated_downloaded.uploaded_nakamoto_blocks.len(), 0);
+
+    debug!("====");
+    let updated_pushed = old.clone().update(new_pushed);
+    assert_eq!(updated_pushed.nakamoto_blocks.len(), 0);
+    assert_eq!(updated_pushed.pushed_nakamoto_blocks.len(), 1);
+    assert_eq!(
+        updated_pushed
+            .pushed_nakamoto_blocks
+            .get(&nk2)
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(
+        updated_pushed.pushed_nakamoto_blocks.get(&nk2).unwrap()[0]
+            .1
+            .blocks
+            .len(),
+        1
+    );
+    assert_eq!(
+        updated_pushed.pushed_nakamoto_blocks.get(&nk2).unwrap()[0]
+            .1
+            .blocks[0],
+        nblk1
+    );
+    assert_eq!(updated_pushed.uploaded_nakamoto_blocks.len(), 0);
+
+    debug!("====");
+    let updated_uploaded = old.clone().update(new_uploaded);
+    assert_eq!(updated_uploaded.nakamoto_blocks.len(), 0);
+    assert_eq!(updated_uploaded.pushed_nakamoto_blocks.len(), 0);
+    assert_eq!(updated_uploaded.uploaded_nakamoto_blocks.len(), 1);
+    assert_eq!(updated_uploaded.uploaded_nakamoto_blocks[0], nblk1);
 }
