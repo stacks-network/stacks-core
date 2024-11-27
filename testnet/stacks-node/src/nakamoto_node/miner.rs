@@ -621,7 +621,12 @@ impl BlockMinerThread {
             return Ok(());
         }
 
-        let mut sortition_handle = sort_db.index_handle_at_ch(&block.header.consensus_hash)?;
+        let parent_block_info =
+            NakamotoChainState::get_block_header(chain_state.db(), &block.header.parent_block_id)?
+                .ok_or_else(|| ChainstateError::NoSuchBlockError)?;
+        let burn_view_ch =
+            NakamotoChainState::get_block_burn_view(sort_db, &block, &parent_block_info)?;
+        let mut sortition_handle = sort_db.index_handle_at_ch(&burn_view_ch)?;
         let chainstate_config = chain_state.config();
         let (headers_conn, staging_tx) = chain_state.headers_conn_and_staging_tx_begin()?;
         let accepted = NakamotoChainState::accept_block(
