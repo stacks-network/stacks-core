@@ -24,7 +24,6 @@ use blockstack_lib::util_lib::db::{
     Error as DBError,
 };
 use clarity::types::chainstate::{BurnchainHeaderHash, StacksAddress};
-use clarity::util::get_epoch_time_secs;
 use libsigner::BlockProposal;
 use rusqlite::{
     params, Connection, Error as SqliteError, OpenFlags, OptionalExtension, Transaction,
@@ -33,6 +32,7 @@ use serde::{Deserialize, Serialize};
 use slog::{slog_debug, slog_error};
 use stacks_common::codec::{read_next, write_next, Error as CodecError, StacksMessageCodec};
 use stacks_common::types::chainstate::ConsensusHash;
+use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::{debug, define_u8_enum, error};
@@ -258,6 +258,22 @@ impl BlockInfo {
         self.state = state;
         Ok(())
     }
+
+    /// Check if the block is globally accepted or rejected
+    pub fn has_reached_consensus(&self) -> bool {
+        matches!(
+            self.state,
+            BlockState::GloballyAccepted | BlockState::GloballyRejected
+        )
+    }
+
+    /// Check if the block is locally accepted or rejected
+    pub fn is_locally_finalized(&self) -> bool {
+        matches!(
+            self.state,
+            BlockState::LocallyAccepted | BlockState::LocallyRejected
+        )
+    }
 }
 
 /// This struct manages a SQLite database connection
@@ -306,6 +322,11 @@ CREATE INDEX IF NOT EXISTS block_signatures_on_signer_signature_hash ON block_si
 
 static CREATE_INDEXES_3: &str = r#"
 CREATE INDEX IF NOT EXISTS block_rejection_signer_addrs_on_block_signature_hash ON block_rejection_signer_addrs(signer_signature_hash);
+"#;
+
+static CREATE_INDEXES_4: &str = r#"
+CREATE INDEX IF NOT EXISTS blocks_state ON blocks ((json_extract(block_info, '$.state')));
+CREATE INDEX IF NOT EXISTS blocks_signed_group ON blocks ((json_extract(block_info, '$.signed_group')));
 "#;
 
 static CREATE_SIGNER_STATE_TABLE: &str = "
@@ -405,9 +426,14 @@ static SCHEMA_3: &[&str] = &[
     "INSERT INTO db_config (version) VALUES (3);",
 ];
 
+static SCHEMA_4: &[&str] = &[
+    CREATE_INDEXES_4,
+    "INSERT OR REPLACE INTO db_config (version) VALUES (4);",
+];
+
 impl SignerDb {
     /// The current schema version used in this build of the signer binary.
-    pub const SCHEMA_VERSION: u32 = 3;
+    pub const SCHEMA_VERSION: u32 = 4;
 
     /// Create a new `SignerState` instance.
     /// This will create a new SQLite database at the given path
@@ -427,7 +453,7 @@ impl SignerDb {
             return Ok(0);
         }
         let result = conn
-            .query_row("SELECT version FROM db_config LIMIT 1", [], |row| {
+            .query_row("SELECT MAX(version) FROM db_config LIMIT 1", [], |row| {
                 row.get(0)
             })
             .optional();
@@ -479,6 +505,20 @@ impl SignerDb {
         Ok(())
     }
 
+    /// Migrate from schema 3 to schema 4
+    fn schema_4_migration(tx: &Transaction) -> Result<(), DBError> {
+        if Self::get_schema_version(tx)? >= 4 {
+            // no migration necessary
+            return Ok(());
+        }
+
+        for statement in SCHEMA_4.iter() {
+            tx.execute_batch(statement)?;
+        }
+
+        Ok(())
+    }
+
     /// Either instantiate a new database, or migrate an existing one
     /// If the detected version of the existing database is 0 (i.e., a pre-migration
     /// logic DB, the DB will be dropped).
@@ -490,7 +530,8 @@ impl SignerDb {
                 0 => Self::schema_1_migration(&sql_tx)?,
                 1 => Self::schema_2_migration(&sql_tx)?,
                 2 => Self::schema_3_migration(&sql_tx)?,
-                3 => break,
+                3 => Self::schema_4_migration(&sql_tx)?,
+                4 => break,
                 x => return Err(DBError::Other(format!(
                     "Database schema is newer than supported by this binary. Expected version = {}, Database version = {x}",
                     Self::SCHEMA_VERSION,
@@ -595,6 +636,15 @@ impl SignerDb {
     ) -> Result<Option<BlockInfo>, DBError> {
         let query = "SELECT block_info FROM blocks WHERE consensus_hash = ?1 AND json_extract(block_info, '$.state') = ?2 ORDER BY stacks_height DESC LIMIT 1";
         let args = params![tenure, &BlockState::GloballyAccepted.to_string()];
+        let result: Option<String> = query_row(&self.db, query, args)?;
+
+        try_deserialize(result)
+    }
+
+    /// Return the canonical tip -- the last globally accepted block.
+    pub fn get_canonical_tip(&self) -> Result<Option<BlockInfo>, DBError> {
+        let query = "SELECT block_info FROM blocks WHERE json_extract(block_info, '$.state') = ?1 ORDER BY stacks_height DESC, json_extract(block_info, '$.signed_group') DESC LIMIT 1";
+        let args = params![&BlockState::GloballyAccepted.to_string()];
         let result: Option<String> = query_row(&self.db, query, args)?;
 
         try_deserialize(result)
@@ -1225,5 +1275,46 @@ mod tests {
         assert!(!block.check_state(BlockState::LocallyRejected));
         assert!(!block.check_state(BlockState::GloballyAccepted));
         assert!(block.check_state(BlockState::GloballyRejected));
+    }
+
+    #[test]
+    fn test_get_canonical_tip() {
+        let db_path = tmp_db_path();
+        let mut db = SignerDb::new(db_path).expect("Failed to create signer db");
+
+        let (mut block_info_1, _block_proposal_1) = create_block_override(|b| {
+            b.block.header.miner_signature = MessageSignature([0x01; 65]);
+            b.block.header.chain_length = 1;
+            b.burn_height = 1;
+        });
+
+        let (mut block_info_2, _block_proposal_2) = create_block_override(|b| {
+            b.block.header.miner_signature = MessageSignature([0x02; 65]);
+            b.block.header.chain_length = 2;
+            b.burn_height = 2;
+        });
+
+        db.insert_block(&block_info_1)
+            .expect("Unable to insert block into db");
+        db.insert_block(&block_info_2)
+            .expect("Unable to insert block into db");
+
+        assert!(db.get_canonical_tip().unwrap().is_none());
+
+        block_info_1
+            .mark_globally_accepted()
+            .expect("Failed to mark block as globally accepted");
+        db.insert_block(&block_info_1)
+            .expect("Unable to insert block into db");
+
+        assert_eq!(db.get_canonical_tip().unwrap().unwrap(), block_info_1);
+
+        block_info_2
+            .mark_globally_accepted()
+            .expect("Failed to mark block as globally accepted");
+        db.insert_block(&block_info_2)
+            .expect("Unable to insert block into db");
+
+        assert_eq!(db.get_canonical_tip().unwrap().unwrap(), block_info_2);
     }
 }

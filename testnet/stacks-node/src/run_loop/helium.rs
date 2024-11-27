@@ -21,10 +21,7 @@ impl RunLoop {
     }
 
     /// Sets up a runloop and node, given a config.
-    pub fn new_with_boot_exec(
-        config: Config,
-        boot_exec: Box<dyn FnOnce(&mut ClarityTx) -> ()>,
-    ) -> Self {
+    pub fn new_with_boot_exec(config: Config, boot_exec: Box<dyn FnOnce(&mut ClarityTx)>) -> Self {
         // Build node based on config
         let node = Node::new(config.clone(), boot_exec);
 
@@ -174,17 +171,14 @@ impl RunLoop {
                 None => None,
             };
 
-            match artifacts_from_tenure {
-                Some(ref artifacts) => {
-                    // Have each node receive artifacts from the current tenure
-                    self.node.commit_artifacts(
-                        &artifacts.anchored_block,
-                        &artifacts.parent_block,
-                        &mut burnchain,
-                        artifacts.burn_fee,
-                    );
-                }
-                None => {}
+            if let Some(artifacts) = &artifacts_from_tenure {
+                // Have each node receive artifacts from the current tenure
+                self.node.commit_artifacts(
+                    &artifacts.anchored_block,
+                    &artifacts.parent_block,
+                    &mut burnchain,
+                    artifacts.burn_fee,
+                );
             }
 
             let (new_burnchain_tip, _) = burnchain.sync(None)?;
