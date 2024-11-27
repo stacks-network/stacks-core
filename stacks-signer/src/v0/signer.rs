@@ -18,8 +18,6 @@ use std::sync::mpsc::Sender;
 use std::time::{Duration, Instant};
 
 use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
-use blockstack_lib::chainstate::stacks::address::StacksAddressExtensions;
-use blockstack_lib::chainstate::stacks::TransactionPayload;
 use blockstack_lib::net::api::postblock_proposal::{
     BlockValidateOk, BlockValidateReject, BlockValidateResponse,
 };
@@ -294,7 +292,7 @@ impl Signer {
     /// Determine this signers response to a proposed block
     /// Returns a BlockResponse if we have already validated the block
     /// Returns None otherwise
-    fn determine_response(&self, block_info: &BlockInfo) -> Option<BlockResponse> {
+    fn determine_response(&mut self, block_info: &BlockInfo) -> Option<BlockResponse> {
         let valid = block_info.valid?;
         let response = if valid {
             debug!("{self}: Accepting block {}", block_info.block.block_id());
@@ -305,7 +303,7 @@ impl Signer {
             BlockResponse::accepted(
                 block_info.signer_signature_hash(),
                 signature,
-                self.signer_db.get_tenure_extend_timestamp(
+                self.signer_db.calculate_tenure_extend_timestamp(
                     self.proposal_config.tenure_idle_timeout,
                     &block_info.block.header.consensus_hash,
                 ),
@@ -317,7 +315,7 @@ impl Signer {
                 RejectCode::RejectedInPriorRound,
                 &self.private_key,
                 self.mainnet,
-                self.signer_db.get_tenure_extend_timestamp(
+                self.signer_db.calculate_tenure_extend_timestamp(
                     self.proposal_config.tenure_idle_timeout,
                     &block_info.block.header.consensus_hash,
                 ),
@@ -349,7 +347,7 @@ impl Signer {
         let signer_signature_hash = block_proposal.block.header.signer_signature_hash();
         if let Some(block_info) = self
             .signer_db
-            .block_lookup(self.reward_cycle, &signer_signature_hash)
+            .block_lookup(&signer_signature_hash)
             .expect("Failed to connect to signer DB")
         {
             let Some(block_response) = self.determine_response(&block_info) else {
@@ -408,7 +406,6 @@ impl Signer {
                 &mut self.signer_db,
                 &block_proposal.block,
                 miner_pubkey,
-                self.reward_cycle,
                 true,
             ) {
                 // Error validating block
@@ -423,7 +420,7 @@ impl Signer {
                         RejectCode::ConnectivityIssues,
                         &self.private_key,
                         self.mainnet,
-                        self.signer_db.get_tenure_extend_timestamp(
+                        self.signer_db.calculate_tenure_extend_timestamp(
                             self.proposal_config.tenure_idle_timeout,
                             &block_proposal.block.header.consensus_hash,
                         ),
@@ -441,7 +438,7 @@ impl Signer {
                         RejectCode::SortitionViewMismatch,
                         &self.private_key,
                         self.mainnet,
-                        self.signer_db.get_tenure_extend_timestamp(
+                        self.signer_db.calculate_tenure_extend_timestamp(
                             self.proposal_config.tenure_idle_timeout,
                             &block_proposal.block.header.consensus_hash,
                         ),
@@ -461,7 +458,7 @@ impl Signer {
                 RejectCode::NoSortitionView,
                 &self.private_key,
                 self.mainnet,
-                self.signer_db.get_tenure_extend_timestamp(
+                self.signer_db.calculate_tenure_extend_timestamp(
                     self.proposal_config.tenure_idle_timeout,
                     &block_proposal.block.header.consensus_hash,
                 ),
@@ -560,10 +557,7 @@ impl Signer {
             self.submitted_block_proposal = None;
         }
         // For mutability reasons, we need to take the block_info out of the map and add it back after processing
-        let mut block_info = match self
-            .signer_db
-            .block_lookup(self.reward_cycle, &signer_signature_hash)
-        {
+        let mut block_info = match self.signer_db.block_lookup(&signer_signature_hash) {
             Ok(Some(block_info)) => {
                 if block_info.is_locally_finalized() {
                     debug!("{self}: Received block validation for a block that is already marked as {}. Ignoring...", block_info.state);
@@ -588,21 +582,12 @@ impl Signer {
             }
             block_info.signed_self.get_or_insert(get_epoch_time_secs());
         }
-        // Record the block validation time
-        let non_bootcode_contract_call_block = block_info.block.txs.iter().any(|tx| {
-            // We only care about blocks that contain a non bootcode contract call
-            match &tx.payload {
-                TransactionPayload::ContractCall(cc) => !cc.address.is_boot_code_addr(),
-                TransactionPayload::SmartContract(..) => true,
-                _ => false,
-            }
-        });
-        if non_bootcode_contract_call_block {
-            block_info.validation_time_ms = Some(block_validate_ok.validation_time_ms);
+        // Record the block validation time but do not consider stx transfers or boot contract calls
+        block_info.validation_time_ms = if block_validate_ok.cost.is_zero() {
+            Some(0)
         } else {
-            // Ignore purely boot code and stx transfers when calculating the processing/validation time
-            block_info.validation_time_ms = Some(0);
-        }
+            Some(block_validate_ok.validation_time_ms)
+        };
 
         let signature = self
             .private_key
@@ -615,7 +600,7 @@ impl Signer {
         let accepted = BlockAccepted::new(
             block_info.signer_signature_hash(),
             signature,
-            self.signer_db.get_tenure_extend_timestamp(
+            self.signer_db.calculate_tenure_extend_timestamp(
                 self.proposal_config.tenure_idle_timeout,
                 &block_info.block.header.consensus_hash,
             ),
@@ -642,10 +627,7 @@ impl Signer {
         {
             self.submitted_block_proposal = None;
         }
-        let mut block_info = match self
-            .signer_db
-            .block_lookup(self.reward_cycle, &signer_signature_hash)
-        {
+        let mut block_info = match self.signer_db.block_lookup(&signer_signature_hash) {
             Ok(Some(block_info)) => {
                 if block_info.is_locally_finalized() {
                     debug!("{self}: Received block validation for a block that is already marked as {}. Ignoring...", block_info.state);
@@ -673,7 +655,7 @@ impl Signer {
             block_validate_reject.clone(),
             &self.private_key,
             self.mainnet,
-            self.signer_db.get_tenure_extend_timestamp(
+            self.signer_db.calculate_tenure_extend_timestamp(
                 self.proposal_config.tenure_idle_timeout,
                 &block_info.block.header.consensus_hash,
             ),
@@ -735,10 +717,7 @@ impl Signer {
         }
         let signature_sighash = block_proposal.block.header.signer_signature_hash();
         // For mutability reasons, we need to take the block_info out of the map and add it back after processing
-        let mut block_info = match self
-            .signer_db
-            .block_lookup(self.reward_cycle, &signature_sighash)
-        {
+        let mut block_info = match self.signer_db.block_lookup(&signature_sighash) {
             Ok(Some(block_info)) => {
                 if block_info.state == BlockState::GloballyRejected
                     || block_info.state == BlockState::GloballyAccepted
@@ -774,7 +753,7 @@ impl Signer {
             RejectCode::ConnectivityIssues,
             &self.private_key,
             self.mainnet,
-            self.signer_db.get_tenure_extend_timestamp(
+            self.signer_db.calculate_tenure_extend_timestamp(
                 self.proposal_config.tenure_idle_timeout,
                 &block_proposal.block.header.consensus_hash,
             ),
@@ -825,7 +804,7 @@ impl Signer {
         let block_hash = &rejection.signer_signature_hash;
         let signature = &rejection.signature;
 
-        let mut block_info = match self.signer_db.block_lookup(self.reward_cycle, block_hash) {
+        let mut block_info = match self.signer_db.block_lookup(block_hash) {
             Ok(Some(block_info)) => {
                 if block_info.state == BlockState::GloballyRejected
                     || block_info.state == BlockState::GloballyAccepted
@@ -931,10 +910,7 @@ impl Signer {
         );
 
         // Have we already processed this block?
-        match self
-            .signer_db
-            .get_block_state(self.reward_cycle, block_hash)
-        {
+        match self.signer_db.get_block_state(block_hash) {
             Ok(Some(state)) => {
                 if state == BlockState::GloballyAccepted || state == BlockState::GloballyRejected {
                     debug!("{self}: Received block signature for a block that is already marked as {}. Ignoring...", state);
@@ -1016,14 +992,10 @@ impl Signer {
         }
 
         // have enough signatures to broadcast!
-        let Ok(Some(mut block_info)) = self
-            .signer_db
-            .block_lookup(self.reward_cycle, block_hash)
-            .map_err(|e| {
-                warn!("{self}: Failed to load block {block_hash}: {e:?})");
-                e
-            })
-        else {
+        let Ok(Some(mut block_info)) = self.signer_db.block_lookup(block_hash).map_err(|e| {
+            warn!("{self}: Failed to load block {block_hash}: {e:?})");
+            e
+        }) else {
             warn!("{self}: No such block {block_hash}");
             return;
         };
@@ -1096,11 +1068,10 @@ impl Signer {
         );
         stacks_client.post_block_until_ok(self, &block);
 
-        if let Err(e) = self.signer_db.set_block_broadcasted(
-            self.reward_cycle,
-            &block_hash,
-            get_epoch_time_secs(),
-        ) {
+        if let Err(e) = self
+            .signer_db
+            .set_block_broadcasted(&block_hash, get_epoch_time_secs())
+        {
             warn!("{self}: Failed to set block broadcasted for {block_hash}: {e:?}");
         }
     }
@@ -1116,11 +1087,10 @@ impl Signer {
                 "consensus_hash" => %block.header.consensus_hash
             );
 
-            if let Err(e) = self.signer_db.set_block_broadcasted(
-                self.reward_cycle,
-                &block_hash,
-                get_epoch_time_secs(),
-            ) {
+            if let Err(e) = self
+                .signer_db
+                .set_block_broadcasted(&block_hash, get_epoch_time_secs())
+            {
                 warn!("{self}: Failed to set block broadcasted for {block_hash}: {e:?}");
             }
             return true;
@@ -1160,7 +1130,7 @@ impl Signer {
                 RejectCode::TestingDirective,
                 &self.private_key,
                 self.mainnet,
-                self.signer_db.get_tenure_extend_timestamp(
+                self.signer_db.calculate_tenure_extend_timestamp(
                     self.proposal_config.tenure_idle_timeout,
                     &block_proposal.block.header.consensus_hash,
                 ),
