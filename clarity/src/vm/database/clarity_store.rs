@@ -18,7 +18,7 @@ use std::path::PathBuf;
 
 #[cfg(feature = "canonical")]
 use rusqlite::Connection;
-use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId, VRFSeed};
+use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId, TrieHash, VRFSeed};
 use stacks_common::util::hash::{hex_bytes, to_hex, Hash160, Sha512Trunc256Sum};
 
 use crate::vm::analysis::AnalysisDatabase;
