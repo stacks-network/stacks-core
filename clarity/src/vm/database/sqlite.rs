@@ -19,7 +19,7 @@ use rusqlite::{
     params, Connection, Error as SqliteError, ErrorCode as SqliteErrorCode, OptionalExtension, Row,
     Savepoint,
 };
-use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId};
+use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId, TrieHash};
 use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::util::db::tx_busy_handler;
 use stacks_common::util::hash::Sha512Trunc256Sum;
@@ -324,8 +324,19 @@ impl ClarityBackingStore for MemoryBackingStore {
         SqliteConnection::get(self.get_side_store(), key)
     }
 
+    fn get_data_from_path(&mut self, hash: &TrieHash) -> Result<Option<String>> {
+        SqliteConnection::get(self.get_side_store(), hash.to_string().as_str())
+    }
+
     fn get_data_with_proof(&mut self, key: &str) -> Result<Option<(String, Vec<u8>)>> {
         Ok(SqliteConnection::get(self.get_side_store(), key)?.map(|x| (x, vec![])))
+    }
+
+    fn get_data_with_proof_from_path(
+        &mut self,
+        hash: &TrieHash,
+    ) -> Result<Option<(String, Vec<u8>)>> {
+        self.get_data_with_proof(&hash.to_string())
     }
 
     fn get_side_store(&mut self) -> &Connection {
