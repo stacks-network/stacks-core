@@ -943,7 +943,7 @@ impl SignerDb {
         block_sighash: &Sha512Trunc256Sum,
         ts: u64,
     ) -> Result<(), DBError> {
-        let qry = "UPDATE blocks SET broadcasted = ?1, block_info = json_set(block_info, '$.state', ?2), state = $2 WHERE signer_signature_hash = ?3";
+        let qry = "UPDATE blocks SET broadcasted = ?1, block_info = json_set(block_info, '$.state', ?2), state = ?2 WHERE signer_signature_hash = ?3";
         let args = params![
             u64_to_sql(ts)?,
             BlockState::GloballyAccepted.to_string(),
@@ -995,10 +995,10 @@ impl SignerDb {
         let args = params![tenure, BlockState::GloballyAccepted.to_string()];
         let mut stmt = self.db.prepare(query)?;
         let rows = stmt.query_map(args, |row| {
-            let tenure_change_block: u64 = row.get(0)?;
+            let tenure_change_block: bool = row.get(0)?;
             let proposed_time: u64 = row.get(1)?;
             let validation_time_ms: Option<u64> = row.get(2)?;
-            Ok((tenure_change_block > 0, proposed_time, validation_time_ms))
+            Ok((tenure_change_block, proposed_time, validation_time_ms))
         })?;
         let mut tenure_processing_time_ms = 0_u64;
         let mut tenure_start_time = None;
@@ -1372,6 +1372,10 @@ mod tests {
                 .state,
             BlockState::Unprocessed
         );
+        assert!(db
+            .get_last_globally_accepted_block(&block_info_1.block.header.consensus_hash)
+            .unwrap()
+            .is_none());
         db.set_block_broadcasted(&block_info_1.signer_signature_hash(), 12345)
             .unwrap();
         assert_eq!(
@@ -1380,6 +1384,13 @@ mod tests {
                 .expect("Unable to get block from db")
                 .state,
             BlockState::GloballyAccepted
+        );
+        assert_eq!(
+            db.get_last_globally_accepted_block(&block_info_1.block.header.consensus_hash)
+                .unwrap()
+                .unwrap()
+                .signer_signature_hash(),
+            block_info_1.block.header.signer_signature_hash()
         );
         db.insert_block(&block_info_1)
             .expect("Unable to insert block into db a second time");
