@@ -2078,8 +2078,6 @@ fn link_host_functions(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Er
     link_map_set_fn(linker)?;
     link_map_insert_fn(linker)?;
     link_map_delete_fn(linker)?;
-    link_get_block_info_fn(linker)?;
-    link_get_burn_block_info_fn(linker)?;
     link_get_stacks_block_info_header_hash_property_fn(linker)?;
     link_get_stacks_block_info_time_property_fn(linker)?;
     link_get_stacks_block_info_identity_header_hash_property_fn(linker)?;
