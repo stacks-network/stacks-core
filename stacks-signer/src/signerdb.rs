@@ -345,8 +345,7 @@ CREATE INDEX IF NOT EXISTS blocks_signed_group ON blocks ((json_extract(block_in
 
 static CREATE_INDEXES_5: &str = r#"
 CREATE INDEX IF NOT EXISTS blocks_signed_over ON blocks (consensus_hash, signed_over);
-CREATE INDEX IF NOT EXISTS blocks_consensus_hash ON blocks (consensus_hash);
-CREATE INDEX IF NOT EXISTS blocks_state ON blocks (consensus_hash, state);
+CREATE INDEX IF NOT EXISTS blocks_consensus_hash_state ON blocks (consensus_hash, state);
 CREATE INDEX IF NOT EXISTS blocks_state ON blocks (state);
 CREATE INDEX IF NOT EXISTS blocks_signed_group ON blocks (signed_group);
 "#;
