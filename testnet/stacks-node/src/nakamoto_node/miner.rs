@@ -67,6 +67,7 @@ pub static TEST_SKIP_P2P_BROADCAST: std::sync::Mutex<Option<bool>> = std::sync::
 ///  miner thread sleep before trying again?
 const ABORT_TRY_AGAIN_MS: u64 = 200;
 
+#[allow(clippy::large_enum_variant)]
 pub enum MinerDirective {
     /// The miner won sortition so they should begin a new tenure
     BeginTenure {
@@ -108,6 +109,8 @@ pub enum MinerReason {
         /// sortition.
         burn_view_consensus_hash: ConsensusHash,
     },
+    /// The miner thread was spawned to initialize a prior empty tenure
+    EmptyTenure,
 }
 
 impl std::fmt::Display for MinerReason {
@@ -120,6 +123,7 @@ impl std::fmt::Display for MinerReason {
                 f,
                 "Extended: burn_view_consensus_hash = {burn_view_consensus_hash:?}",
             ),
+            MinerReason::EmptyTenure => write!(f, "EmptyTenure"),
         }
     }
 }
@@ -252,7 +256,7 @@ impl BlockMinerThread {
         globals.block_miner();
         let prior_miner_result = prior_miner
             .join()
-            .map_err(|_| NakamotoNodeError::MiningFailure(ChainstateError::MinerAborted))?;
+            .map_err(|_| ChainstateError::MinerAborted)?;
         if let Err(e) = prior_miner_result {
             // it's okay if the prior miner thread exited with an error.
             // in many cases this is expected (i.e., a burnchain block occurred)
@@ -281,8 +285,8 @@ impl BlockMinerThread {
         if let Some(prior_miner) = prior_miner {
             Self::stop_miner(&self.globals, prior_miner)?;
         }
-        let mut stackerdbs = StackerDBs::connect(&self.config.get_stacker_db_file_path(), true)
-            .map_err(|e| NakamotoNodeError::MiningFailure(ChainstateError::NetError(e)))?;
+        let mut stackerdbs = StackerDBs::connect(&self.config.get_stacker_db_file_path(), true)?;
+        let mut last_block_rejected = false;
 
         // now, actually run this tenure
         loop {
@@ -354,10 +358,8 @@ impl BlockMinerThread {
 
                         // try again, in case a new sortition is pending
                         self.globals
-                            .raise_initiative(format!("MiningFailure: {:?}", &e));
-                        return Err(NakamotoNodeError::MiningFailure(
-                            ChainstateError::MinerAborted,
-                        ));
+                            .raise_initiative(format!("MiningFailure: {e:?}"));
+                        return Err(ChainstateError::MinerAborted.into());
                     }
                 }
             };
@@ -386,15 +388,25 @@ impl BlockMinerThread {
                             return Err(e);
                         }
                         _ => {
-                            error!("Error while gathering signatures: {e:?}. Will try mining again.";
+                            // Sleep for a bit to allow signers to catch up
+                            let pause_ms = if last_block_rejected {
+                                self.config.miner.subsequent_rejection_pause_ms
+                            } else {
+                                self.config.miner.first_rejection_pause_ms
+                            };
+
+                            error!("Error while gathering signatures: {e:?}. Will try mining again in {pause_ms}.";
                                 "signer_sighash" => %new_block.header.signer_signature_hash(),
                                 "block_height" => new_block.header.chain_length,
                                 "consensus_hash" => %new_block.header.consensus_hash,
                             );
+                            thread::sleep(Duration::from_millis(pause_ms));
+                            last_block_rejected = true;
                             continue;
                         }
                     },
                 };
+                last_block_rejected = false;
 
                 new_block.header.signer_signature = signer_signature;
                 if let Err(e) = self.broadcast(new_block.clone(), reward_set, &stackerdbs) {
@@ -413,7 +425,7 @@ impl BlockMinerThread {
 
                 // update mined-block counters and mined-tenure counters
                 self.globals.counters.bump_naka_mined_blocks();
-                if !self.last_block_mined.is_none() {
+                if self.last_block_mined.is_some() {
                     // this is the first block of the tenure, bump tenure counter
                     self.globals.counters.bump_naka_mined_tenures();
                 }
@@ -542,6 +554,7 @@ impl BlockMinerThread {
             miner_privkey,
             &self.config,
             self.globals.should_keep_running.clone(),
+            self.event_dispatcher.stackerdb_channel.clone(),
         )
         .map_err(|e| {
             NakamotoNodeError::SigningCoordinatorFailure(format!(
@@ -562,12 +575,12 @@ impl BlockMinerThread {
             &self.burnchain,
             &sort_db,
             &mut chain_state,
-            &stackerdbs,
+            stackerdbs,
             &self.globals.counters,
             &self.burn_election_block.consensus_hash,
         )?;
 
-        return Ok((reward_set, signature));
+        Ok((reward_set, signature))
     }
 
     /// Fault injection -- possibly fail to broadcast
@@ -579,13 +592,12 @@ impl BlockMinerThread {
             .fault_injection_block_push_fail_probability
             .unwrap_or(0)
             .min(100);
-        let will_drop = if drop_prob > 0 {
+        if drop_prob > 0 {
             let throw: u8 = thread_rng().gen_range(0..100);
             throw < drop_prob
         } else {
             false
-        };
-        will_drop
+        }
     }
 
     /// Store a block to the chainstate, and if successful (it should be since we mined it),
@@ -610,7 +622,7 @@ impl BlockMinerThread {
         let (headers_conn, staging_tx) = chain_state.headers_conn_and_staging_tx_begin()?;
         let accepted = NakamotoChainState::accept_block(
             &chainstate_config,
-            &block,
+            block,
             &mut sortition_handle,
             &staging_tx,
             headers_conn,
@@ -637,14 +649,14 @@ impl BlockMinerThread {
         }
 
         let block_id = block.block_id();
-        debug!("Broadcasting block {}", &block_id);
+        debug!("Broadcasting block {block_id}");
         if let Err(e) = self.p2p_handle.broadcast_message(
             vec![],
             StacksMessageType::NakamotoBlocks(NakamotoBlocksData {
                 blocks: vec![block.clone()],
             }),
         ) {
-            warn!("Failed to broadcast block {}: {:?}", &block_id, &e);
+            warn!("Failed to broadcast block {block_id}: {e:?}");
         }
         Ok(())
     }
@@ -693,7 +705,7 @@ impl BlockMinerThread {
             miner_privkey,
             &sort_db,
             &self.burn_block,
-            &stackerdbs,
+            stackerdbs,
             SignerMessage::BlockPushed(block),
             MinerSlotID::BlockPushed,
             chain_state.mainnet,
@@ -790,7 +802,7 @@ impl BlockMinerThread {
         // load up stacks chain tip
         let (stacks_tip_ch, stacks_tip_bh) =
             SortitionDB::get_canonical_stacks_chain_tip_hash(burn_db.conn()).map_err(|e| {
-                error!("Failed to load canonical Stacks tip: {:?}", &e);
+                error!("Failed to load canonical Stacks tip: {e:?}");
                 NakamotoNodeError::ParentNotFound
             })?;
 
@@ -802,8 +814,8 @@ impl BlockMinerThread {
         )
         .map_err(|e| {
             error!(
-                "Could not query header info for tenure tip {} off of {}: {:?}",
-                &self.burn_election_block.consensus_hash, &stacks_tip_block_id, &e
+                "Could not query header info for tenure tip {} off of {stacks_tip_block_id}: {e:?}",
+                &self.burn_election_block.consensus_hash
             );
             NakamotoNodeError::ParentNotFound
         })?;
@@ -831,8 +843,8 @@ impl BlockMinerThread {
                 NakamotoChainState::get_block_header(chain_state.db(), &self.parent_tenure_id)
                     .map_err(|e| {
                         error!(
-                            "Could not query header for parent tenure ID {}: {:?}",
-                            &self.parent_tenure_id, &e
+                            "Could not query header for parent tenure ID {}: {e:?}",
+                            &self.parent_tenure_id
                         );
                         NakamotoNodeError::ParentNotFound
                     })?
@@ -847,7 +859,7 @@ impl BlockMinerThread {
                 &parent_tenure_header.consensus_hash,
             )
             .map_err(|e| {
-                error!("Could not query parent tenure finish block: {:?}", &e);
+                error!("Could not query parent tenure finish block: {e:?}");
                 NakamotoNodeError::ParentNotFound
             })?;
             if let Some(header) = header_opt {
@@ -858,31 +870,27 @@ impl BlockMinerThread {
                     "Stacks block parent ID may be an epoch2x block: {}",
                     &self.parent_tenure_id
                 );
-                let epoch2_header =
-                    NakamotoChainState::get_block_header(chain_state.db(), &self.parent_tenure_id)
-                        .map_err(|e| {
-                            error!(
-                                "Could not query header info for epoch2x tenure block ID {}: {:?}",
-                                &self.parent_tenure_id, &e
-                            );
-                            NakamotoNodeError::ParentNotFound
-                        })?
-                        .ok_or_else(|| {
-                            error!(
-                                "No header info for epoch2x tenure block ID {}",
-                                &self.parent_tenure_id
-                            );
-                            NakamotoNodeError::ParentNotFound
-                        })?;
-
-                epoch2_header
+                NakamotoChainState::get_block_header(chain_state.db(), &self.parent_tenure_id)
+                    .map_err(|e| {
+                        error!(
+                            "Could not query header info for epoch2x tenure block ID {}: {e:?}",
+                            &self.parent_tenure_id
+                        );
+                        NakamotoNodeError::ParentNotFound
+                    })?
+                    .ok_or_else(|| {
+                        error!(
+                            "No header info for epoch2x tenure block ID {}",
+                            &self.parent_tenure_id
+                        );
+                        NakamotoNodeError::ParentNotFound
+                    })?
             }
         };
 
         debug!(
-            "Miner: stacks tip parent header is {} {:?}",
-            &stacks_tip_header.index_block_hash(),
-            &stacks_tip_header
+            "Miner: stacks tip parent header is {} {stacks_tip_header:?}",
+            &stacks_tip_header.index_block_hash()
         );
         let miner_address = self
             .keychain
@@ -914,19 +922,19 @@ impl BlockMinerThread {
         let vrf_proof = if self.config.get_node_config(false).mock_mining {
             self.keychain.generate_proof(
                 VRF_MOCK_MINER_KEY,
-                self.burn_block.sortition_hash.as_bytes(),
+                self.burn_election_block.sortition_hash.as_bytes(),
             )
         } else {
             self.keychain.generate_proof(
                 self.registered_key.target_block_height,
-                self.burn_block.sortition_hash.as_bytes(),
+                self.burn_election_block.sortition_hash.as_bytes(),
             )
         };
 
         debug!(
             "Generated VRF Proof: {} over {} ({},{}) with key {}",
             vrf_proof.to_hex(),
-            &self.burn_block.sortition_hash,
+            &self.burn_election_block.sortition_hash,
             &self.burn_block.block_height,
             &self.burn_block.burn_header_hash,
             &self.registered_key.vrf_public_key.to_hex()
@@ -966,8 +974,8 @@ impl BlockMinerThread {
             NakamotoChainState::get_block_header(chain_state.db(), &x.header.parent_block_id)
                 .map_err(|e| {
                     error!(
-                        "Could not query header info for parent block ID {}: {:?}",
-                        &x.header.parent_block_id, &e
+                        "Could not query header info for parent block ID {}: {e:?}",
+                        &x.header.parent_block_id
                     );
                     NakamotoNodeError::ParentNotFound
                 })?
@@ -1041,9 +1049,7 @@ impl BlockMinerThread {
         ) {
             // treat a too-soon-to-mine block as an interrupt: this will let the caller sleep and then re-evaluate
             //  all the pre-mining checks (burnchain tip changes, signal interrupts, etc.)
-            return Err(NakamotoNodeError::MiningFailure(
-                ChainstateError::MinerAborted,
-            ));
+            return Err(ChainstateError::MinerAborted.into());
         }
 
         // build the block itself
@@ -1071,13 +1077,11 @@ impl BlockMinerThread {
             ) {
                 error!("Relayer: Failure mining anchored block: {e}");
             }
-            NakamotoNodeError::MiningFailure(e)
+            e
         })?;
 
         if block.txs.is_empty() {
-            return Err(NakamotoNodeError::MiningFailure(
-                ChainstateError::NoTransactionsToMine,
-            ));
+            return Err(ChainstateError::NoTransactionsToMine.into());
         }
         let mining_key = self.keychain.get_nakamoto_sk();
         let miner_signature = mining_key
@@ -1136,9 +1140,9 @@ impl BlockMinerThread {
 
         let parent_block_id = parent_block_info.stacks_parent_header.index_block_hash();
         let mut payload = TenureChangePayload {
-            tenure_consensus_hash: self.burn_election_block.consensus_hash.clone(),
+            tenure_consensus_hash: self.burn_election_block.consensus_hash,
             prev_tenure_consensus_hash: parent_tenure_info.parent_tenure_consensus_hash,
-            burn_view_consensus_hash: self.burn_election_block.consensus_hash.clone(),
+            burn_view_consensus_hash: self.burn_election_block.consensus_hash,
             previous_tenure_end: parent_block_id,
             previous_tenure_blocks: u32::try_from(parent_tenure_info.parent_tenure_blocks)
                 .expect("FATAL: more than u32 blocks in a tenure"),
@@ -1147,7 +1151,7 @@ impl BlockMinerThread {
         };
 
         let (tenure_change_tx, coinbase_tx) = match &self.reason {
-            MinerReason::BlockFound => {
+            MinerReason::BlockFound | MinerReason::EmptyTenure => {
                 let tenure_change_tx =
                     self.generate_tenure_change_tx(current_miner_nonce, payload)?;
                 let coinbase_tx =
@@ -1241,7 +1245,7 @@ impl ParentStacksBlockInfo {
         }
 
         let Ok(Some(parent_tenure_header)) =
-            NakamotoChainState::get_block_header(chain_state.db(), &parent_tenure_id)
+            NakamotoChainState::get_block_header(chain_state.db(), parent_tenure_id)
         else {
             warn!("Failed loading parent tenure ID"; "parent_tenure_id" => %parent_tenure_id);
             return Err(NakamotoNodeError::ParentNotFound);
@@ -1282,7 +1286,7 @@ impl ParentStacksBlockInfo {
             } else {
                 1
             };
-            let parent_tenure_consensus_hash = parent_tenure_header.consensus_hash.clone();
+            let parent_tenure_consensus_hash = parent_tenure_header.consensus_hash;
             Some(ParentTenureInfo {
                 parent_tenure_blocks,
                 parent_tenure_consensus_hash,
@@ -1310,7 +1314,7 @@ impl ParentStacksBlockInfo {
             let account = chain_state
                 .with_read_only_clarity_tx(
                     &burn_db
-                        .index_handle_at_block(&chain_state, &stacks_tip_header.index_block_hash())
+                        .index_handle_at_block(chain_state, &stacks_tip_header.index_block_hash())
                         .map_err(|_| NakamotoNodeError::UnexpectedChainState)?,
                     &stacks_tip_header.index_block_hash(),
                     |conn| StacksChainState::get_account(conn, &principal),

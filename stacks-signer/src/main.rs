@@ -157,11 +157,7 @@ fn handle_generate_stacking_signature(
 
 fn handle_check_config(args: RunSignerArgs) {
     let config = GlobalConfig::try_from(&args.config).unwrap();
-    println!(
-        "Signer version: {}\nConfig: \n{}",
-        VERSION_STRING.to_string(),
-        config
-    );
+    println!("Signer version: {}\nConfig: \n{}", *VERSION_STRING, config);
 }
 
 fn handle_generate_vote(args: GenerateVoteArgs, do_print: bool) -> MessageSignature {

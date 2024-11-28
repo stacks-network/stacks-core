@@ -18,7 +18,7 @@ use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::mpsc::{channel, Receiver, Sender};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::thread::sleep;
 use std::time::Duration;
 
@@ -107,17 +107,8 @@ pub const PATH_BLOCK_PROCESSED: &str = "new_block";
 pub const PATH_ATTACHMENT_PROCESSED: &str = "attachments/new";
 pub const PATH_PROPOSAL_RESPONSE: &str = "proposal_response";
 
-pub static STACKER_DB_CHANNEL: StackerDBChannel = StackerDBChannel::new();
-
 /// This struct receives StackerDB event callbacks without registering
-/// over the JSON/RPC interface. To ensure that any event observer
-/// uses the same channel, we use a lazy_static global for the channel (this
-/// implements a singleton using STACKER_DB_CHANNEL).
-///
-/// This is in place because a Nakamoto miner needs to receive
-/// StackerDB events. It could either poll the database (seems like a
-/// bad idea) or listen for events. Registering for RPC callbacks
-/// seems bad. So instead, it uses a singleton sync channel.
+/// over the JSON/RPC interface.
 pub struct StackerDBChannel {
     sender_info: Mutex<Option<InnerStackerDBChannel>>,
 }
@@ -178,6 +169,12 @@ impl InnerStackerDBChannel {
         };
 
         (recv, sender_info)
+    }
+}
+
+impl Default for StackerDBChannel {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -256,7 +253,7 @@ where
     serializer.serialize_str(&value.to_string())
 }
 
-fn serialize_pox_addresses<S>(value: &Vec<PoxAddress>, serializer: S) -> Result<S::Ok, S::Error>
+fn serialize_pox_addresses<S>(value: &[PoxAddress], serializer: S) -> Result<S::Ok, S::Error>
 where
     S: serde::Serializer,
 {
@@ -374,7 +371,7 @@ impl EventObserver {
                 }
                 Err(err) => {
                     // Log the error, then retry after a delay
-                    warn!("Failed to insert payload into event observer database: {:?}", err;
+                    warn!("Failed to insert payload into event observer database: {err:?}";
                         "backoff" => ?backoff,
                         "attempts" => attempts
                     );
@@ -402,8 +399,8 @@ impl EventObserver {
                 let id: i64 = row.get(0)?;
                 let url: String = row.get(1)?;
                 let payload_text: String = row.get(2)?;
-                let payload: serde_json::Value = serde_json::from_str(&payload_text)
-                    .map_err(|e| db_error::SerializationError(e))?;
+                let payload: serde_json::Value =
+                    serde_json::from_str(&payload_text).map_err(db_error::SerializationError)?;
                 let timeout_ms: u64 = row.get(3)?;
                 Ok((id, url, payload, timeout_ms))
             },
@@ -457,7 +454,7 @@ impl EventObserver {
         );
 
         let url = Url::parse(full_url)
-            .unwrap_or_else(|_| panic!("Event dispatcher: unable to parse {} as a URL", full_url));
+            .unwrap_or_else(|_| panic!("Event dispatcher: unable to parse {full_url} as a URL"));
 
         let host = url.host_str().expect("Invalid URL: missing host");
         let port = url.port_or_known_default().unwrap_or(80);
@@ -494,8 +491,7 @@ impl EventObserver {
                 }
                 Err(err) => {
                     warn!(
-                        "Event dispatcher: connection or request failed to {}:{} - {:?}",
-                        &host, &port, err;
+                        "Event dispatcher: connection or request failed to {host}:{port} - {err:?}";
                         "backoff" => ?backoff,
                         "attempts" => attempts
                     );
@@ -549,11 +545,11 @@ impl EventObserver {
     pub fn send_payload(&self, payload: &serde_json::Value, path: &str) {
         // Construct the full URL
         let url_str = if path.starts_with('/') {
-            format!("{}{}", &self.endpoint, path)
+            format!("{}{path}", &self.endpoint)
         } else {
-            format!("{}/{}", &self.endpoint, path)
+            format!("{}/{path}", &self.endpoint)
         };
-        let full_url = format!("http://{}", url_str);
+        let full_url = format!("http://{url_str}");
 
         if let Some(db_path) = &self.db_path {
             let conn =
@@ -604,7 +600,7 @@ impl EventObserver {
             .collect();
 
         json!({
-            "burn_block_hash": format!("0x{}", burn_block),
+            "burn_block_hash": format!("0x{burn_block}"),
             "burn_block_height": burn_block_height,
             "reward_recipients": serde_json::Value::Array(reward_recipients),
             "reward_slot_holders": serde_json::Value::Array(reward_slot_holders),
@@ -642,7 +638,7 @@ impl EventObserver {
             TransactionOrigin::Burn(op) => (
                 op.txid().to_string(),
                 "00".to_string(),
-                BlockstackOperationType::blockstack_op_to_json(&op),
+                BlockstackOperationType::blockstack_op_to_json(op),
             ),
             TransactionOrigin::Stacks(ref tx) => {
                 let txid = tx.txid().to_string();
@@ -741,10 +737,10 @@ impl EventObserver {
             .collect();
 
         let payload = json!({
-            "parent_index_block_hash": format!("0x{}", parent_index_block_hash),
+            "parent_index_block_hash": format!("0x{parent_index_block_hash}"),
             "events": serialized_events,
             "transactions": serialized_txs,
-            "burn_block_hash": format!("0x{}", burn_block_hash),
+            "burn_block_hash": format!("0x{burn_block_hash}"),
             "burn_block_height": burn_block_height,
             "burn_block_timestamp": burn_block_timestamp,
         });
@@ -776,6 +772,7 @@ impl EventObserver {
         self.send_payload(payload, PATH_BURN_BLOCK_SUBMIT);
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn make_new_block_processed_payload(
         &self,
         filtered_events: Vec<(usize, &(bool, Txid, &StacksTransactionEvent))>,
@@ -806,12 +803,15 @@ impl EventObserver {
             })
             .collect();
 
-        let mut tx_index: u32 = 0;
         let mut serialized_txs = vec![];
-        for receipt in receipts.iter() {
-            let payload = EventObserver::make_new_block_txs_payload(receipt, tx_index);
+        for (tx_index, receipt) in receipts.iter().enumerate() {
+            let payload = EventObserver::make_new_block_txs_payload(
+                receipt,
+                tx_index
+                    .try_into()
+                    .expect("BUG: more receipts than U32::MAX"),
+            );
             serialized_txs.push(payload);
-            tx_index += 1;
         }
 
         let signer_bitvec_value = signer_bitvec_opt
@@ -821,7 +821,7 @@ impl EventObserver {
 
         let (reward_set_value, cycle_number_value) = match &reward_set_data {
             Some(data) => (
-                serde_json::to_value(&RewardSetEventPayload::from_reward_set(&data.reward_set))
+                serde_json::to_value(RewardSetEventPayload::from_reward_set(&data.reward_set))
                     .unwrap_or_default(),
                 serde_json::to_value(data.cycle_number).unwrap_or_default(),
             ),
@@ -835,17 +835,17 @@ impl EventObserver {
             "block_time": block_timestamp,
             "burn_block_hash": format!("0x{}", metadata.burn_header_hash),
             "burn_block_height": metadata.burn_header_height,
-            "miner_txid": format!("0x{}", winner_txid),
+            "miner_txid": format!("0x{winner_txid}"),
             "burn_block_time": metadata.burn_header_timestamp,
             "index_block_hash": format!("0x{}", metadata.index_block_hash()),
             "parent_block_hash": format!("0x{}", block.parent_block_hash),
-            "parent_index_block_hash": format!("0x{}", parent_index_hash),
+            "parent_index_block_hash": format!("0x{parent_index_hash}"),
             "parent_microblock": format!("0x{}", block.parent_microblock_hash),
             "parent_microblock_sequence": block.parent_microblock_sequence,
             "matured_miner_rewards": mature_rewards.clone(),
             "events": serialized_events,
             "transactions": serialized_txs,
-            "parent_burn_block_hash":  format!("0x{}", parent_burn_block_hash),
+            "parent_burn_block_hash":  format!("0x{parent_burn_block_hash}"),
             "parent_burn_block_height": parent_burn_block_height,
             "parent_burn_block_timestamp": parent_burn_block_timestamp,
             "anchored_cost": anchored_consumed,
@@ -914,6 +914,8 @@ pub struct EventDispatcher {
     /// Index into `registered_observers` that will receive block proposal events (Nakamoto and
     /// later)
     block_proposal_observers_lookup: HashSet<u16>,
+    /// Channel for sending StackerDB events to the miner coordinator
+    pub stackerdb_channel: Arc<Mutex<StackerDBChannel>>,
 }
 
 /// This struct is used specifically for receiving proposal responses.
@@ -1097,9 +1099,16 @@ impl BlockEventDispatcher for EventDispatcher {
     }
 }
 
+impl Default for EventDispatcher {
+    fn default() -> Self {
+        EventDispatcher::new()
+    }
+}
+
 impl EventDispatcher {
     pub fn new() -> EventDispatcher {
         EventDispatcher {
+            stackerdb_channel: Arc::new(Mutex::new(StackerDBChannel::new())),
             registered_observers: vec![],
             contract_events_observers_lookup: HashMap::new(),
             assets_observers_lookup: HashMap::new(),
@@ -1125,7 +1134,7 @@ impl EventDispatcher {
     ) {
         // lazily assemble payload only if we have observers
         let interested_observers = self.filter_observers(&self.burn_block_observers_lookup, true);
-        if interested_observers.len() < 1 {
+        if interested_observers.is_empty() {
             return;
         }
 
@@ -1149,6 +1158,7 @@ impl EventDispatcher {
     /// - dispatch_matrix: a vector where each index corresponds to the hashset of event indexes
     ///     that each respective event observer is subscribed to
     /// - events: a vector of all events from all the tx receipts
+    #[allow(clippy::type_complexity)]
     fn create_dispatch_matrix_and_event_vector<'a>(
         &self,
         receipts: &'a Vec<StacksTransactionReceipt>,
@@ -1241,6 +1251,7 @@ impl EventDispatcher {
         (dispatch_matrix, events)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn process_chain_tip(
         &self,
         block: &StacksBlockEventData,
@@ -1264,7 +1275,7 @@ impl EventDispatcher {
         let all_receipts = receipts.to_owned();
         let (dispatch_matrix, events) = self.create_dispatch_matrix_and_event_vector(&all_receipts);
 
-        if dispatch_matrix.len() > 0 {
+        if !dispatch_matrix.is_empty() {
             let mature_rewards_vec = if let Some(rewards_info) = mature_rewards_info {
                 mature_rewards
                     .iter()
@@ -1297,7 +1308,7 @@ impl EventDispatcher {
                 let payload = self.registered_observers[observer_id]
                     .make_new_block_processed_payload(
                         filtered_events,
-                        &block,
+                        block,
                         metadata,
                         receipts,
                         parent_index_hash,
@@ -1342,7 +1353,7 @@ impl EventDispatcher {
                     )
             })
             .collect();
-        if interested_observers.len() < 1 {
+        if interested_observers.is_empty() {
             return;
         }
         let flattened_receipts = processed_unconfirmed_state
@@ -1390,12 +1401,12 @@ impl EventDispatcher {
             .enumerate()
             .filter_map(|(obs_id, observer)| {
                 let lookup_ix = u16::try_from(obs_id).expect("FATAL: more than 2^16 observers");
-                if lookup.contains(&lookup_ix) {
-                    return Some(observer);
-                } else if include_any && self.any_event_observers_lookup.contains(&lookup_ix) {
-                    return Some(observer);
+                if lookup.contains(&lookup_ix)
+                    || (include_any && self.any_event_observers_lookup.contains(&lookup_ix))
+                {
+                    Some(observer)
                 } else {
-                    return None;
+                    None
                 }
             })
             .collect()
@@ -1405,7 +1416,7 @@ impl EventDispatcher {
         // lazily assemble payload only if we have observers
         let interested_observers = self.filter_observers(&self.mempool_observers_lookup, true);
 
-        if interested_observers.len() < 1 {
+        if interested_observers.is_empty() {
             return;
         }
 
@@ -1427,7 +1438,7 @@ impl EventDispatcher {
     ) {
         let interested_observers = self.filter_observers(&self.miner_observers_lookup, false);
 
-        if interested_observers.len() < 1 {
+        if interested_observers.is_empty() {
             return;
         }
 
@@ -1456,7 +1467,7 @@ impl EventDispatcher {
     ) {
         let interested_observers =
             self.filter_observers(&self.mined_microblocks_observers_lookup, false);
-        if interested_observers.len() < 1 {
+        if interested_observers.is_empty() {
             return;
         }
 
@@ -1483,7 +1494,7 @@ impl EventDispatcher {
         tx_events: Vec<TransactionEvent>,
     ) {
         let interested_observers = self.filter_observers(&self.miner_observers_lookup, false);
-        if interested_observers.len() < 1 {
+        if interested_observers.is_empty() {
             return;
         }
 
@@ -1502,7 +1513,7 @@ impl EventDispatcher {
             block_size: block_size_bytes,
             cost: consumed.clone(),
             tx_events,
-            miner_signature: block.header.miner_signature.clone(),
+            miner_signature: block.header.miner_signature,
             signer_signature_hash: block.header.signer_signature_hash(),
             signer_signature: block.header.signer_signature.clone(),
             signer_bitvec,
@@ -1522,13 +1533,16 @@ impl EventDispatcher {
         modified_slots: Vec<StackerDBChunkData>,
     ) {
         debug!(
-            "event_dispatcher: New StackerDB chunk events for {}: {:?}",
-            contract_id, modified_slots
+            "event_dispatcher: New StackerDB chunk events for {contract_id}: {modified_slots:?}"
         );
 
         let interested_observers = self.filter_observers(&self.stackerdb_observers_lookup, false);
 
-        let interested_receiver = STACKER_DB_CHANNEL.is_active(&contract_id);
+        let stackerdb_channel = self
+            .stackerdb_channel
+            .lock()
+            .expect("FATAL: failed to lock StackerDB channel mutex");
+        let interested_receiver = stackerdb_channel.is_active(&contract_id);
         if interested_observers.is_empty() && interested_receiver.is_none() {
             return;
         }
@@ -1558,13 +1572,13 @@ impl EventDispatcher {
         // lazily assemble payload only if we have observers
         let interested_observers = self.filter_observers(&self.mempool_observers_lookup, true);
 
-        if interested_observers.len() < 1 {
+        if interested_observers.is_empty() {
             return;
         }
 
         let dropped_txids: Vec<_> = txs
             .into_iter()
-            .map(|tx| serde_json::Value::String(format!("0x{}", &tx)))
+            .map(|tx| serde_json::Value::String(format!("0x{tx}")))
             .collect();
 
         let payload = json!({
@@ -1577,9 +1591,9 @@ impl EventDispatcher {
         }
     }
 
-    pub fn process_new_attachments(&self, attachments: &Vec<(AttachmentInstance, Attachment)>) {
+    pub fn process_new_attachments(&self, attachments: &[(AttachmentInstance, Attachment)]) {
         let interested_observers: Vec<_> = self.registered_observers.iter().enumerate().collect();
-        if interested_observers.len() < 1 {
+        if interested_observers.is_empty() {
             return;
         }
 
@@ -1598,7 +1612,7 @@ impl EventDispatcher {
         &self,
         asset_identifier: &AssetIdentifier,
         event_index: usize,
-        dispatch_matrix: &mut Vec<HashSet<usize>>,
+        dispatch_matrix: &mut [HashSet<usize>],
     ) {
         if let Some(observer_indexes) = self.assets_observers_lookup.get(asset_identifier) {
             for o_i in observer_indexes {
@@ -1857,8 +1871,7 @@ mod test {
         // Assert that the connection attempt timed out
         assert!(
             result.is_err(),
-            "Expected a timeout error, but got {:?}",
-            result
+            "Expected a timeout error, but got {result:?}"
         );
         assert_eq!(
             result.unwrap_err().kind(),
@@ -2116,7 +2129,7 @@ mod test {
         let (tx, rx) = channel();
 
         // Start a mock server in a separate thread
-        let server = Server::http(format!("127.0.0.1:{}", port)).unwrap();
+        let server = Server::http(format!("127.0.0.1:{port}")).unwrap();
         thread::spawn(move || {
             let request = server.recv().unwrap();
             assert_eq!(request.url(), "/test");
@@ -2131,7 +2144,7 @@ mod test {
         });
 
         let observer =
-            EventObserver::new(None, format!("127.0.0.1:{}", port), Duration::from_secs(3));
+            EventObserver::new(None, format!("127.0.0.1:{port}"), Duration::from_secs(3));
 
         let payload = json!({"key": "value"});
 
@@ -2150,7 +2163,7 @@ mod test {
         let (tx, rx) = channel();
 
         // Start a mock server in a separate thread
-        let server = Server::http(format!("127.0.0.1:{}", port)).unwrap();
+        let server = Server::http(format!("127.0.0.1:{port}")).unwrap();
         thread::spawn(move || {
             let mut attempt = 0;
             while let Ok(request) = server.recv() {
@@ -2180,7 +2193,7 @@ mod test {
         });
 
         let observer =
-            EventObserver::new(None, format!("127.0.0.1:{}", port), Duration::from_secs(3));
+            EventObserver::new(None, format!("127.0.0.1:{port}"), Duration::from_secs(3));
 
         let payload = json!({"key": "value"});
 
@@ -2200,7 +2213,7 @@ mod test {
         let (tx, rx) = channel();
 
         // Start a mock server in a separate thread
-        let server = Server::http(format!("127.0.0.1:{}", port)).unwrap();
+        let server = Server::http(format!("127.0.0.1:{port}")).unwrap();
         thread::spawn(move || {
             let mut attempt = 0;
             let mut _request_holder = None;
@@ -2224,7 +2237,7 @@ mod test {
             }
         });
 
-        let observer = EventObserver::new(None, format!("127.0.0.1:{}", port), timeout);
+        let observer = EventObserver::new(None, format!("127.0.0.1:{port}"), timeout);
 
         let payload = json!({"key": "value"});
 
@@ -2237,7 +2250,7 @@ mod test {
         // Record the time after the function returns
         let elapsed_time = start_time.elapsed();
 
-        println!("Elapsed time: {:?}", elapsed_time);
+        println!("Elapsed time: {elapsed_time:?}");
         assert!(
             elapsed_time >= timeout,
             "Expected a timeout, but the function returned too quickly"
@@ -2263,9 +2276,9 @@ mod test {
         // Set up a channel to notify when the server has processed the request
         let (tx, rx) = channel();
 
-        info!("Starting mock server on port {}", port);
+        info!("Starting mock server on port {port}");
         // Start a mock server in a separate thread
-        let server = Server::http(format!("127.0.0.1:{}", port)).unwrap();
+        let server = Server::http(format!("127.0.0.1:{port}")).unwrap();
         thread::spawn(move || {
             let mut attempt = 0;
             let mut _request_holder = None;
@@ -2316,7 +2329,7 @@ mod test {
 
         let observer = EventObserver::new(
             Some(working_dir.clone()),
-            format!("127.0.0.1:{}", port),
+            format!("127.0.0.1:{port}"),
             timeout,
         );
 
