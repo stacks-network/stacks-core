@@ -1156,19 +1156,8 @@ impl RunLoop {
 
         let mut sortition_db_height = rc_aligned_height;
         let mut burnchain_height = sortition_db_height;
-        let mut num_sortitions_in_last_cycle = 1;
 
         // prepare to fetch the first reward cycle!
-        let mut target_burnchain_block_height = cmp::min(
-            burnchain_config.reward_cycle_to_block_height(
-                burnchain_config
-                    .block_height_to_reward_cycle(burnchain_height)
-                    .expect("BUG: block height is not in a reward cycle")
-                    + 1,
-            ),
-            burnchain.get_headers_height() - 1,
-        );
-
         debug!("Runloop: Begin main runloop starting a burnchain block {sortition_db_height}");
 
         let mut last_tenure_sortition_height = 0;
@@ -1196,17 +1185,13 @@ impl RunLoop {
 
             let remote_chain_height = burnchain.get_headers_height() - 1;
 
-            // wait for the p2p state-machine to do at least one pass
-            debug!("Runloop: Wait until Stacks block downloads reach a quiescent state before processing more burnchain blocks"; "remote_chain_height" => remote_chain_height, "local_chain_height" => burnchain_height);
-
-            // wait until it's okay to process the next reward cycle's sortitions
-            let ibd = match self.get_pox_watchdog().pox_sync_wait(
+            // wait until it's okay to process the next reward cycle's sortitions.
+            let (ibd, target_burnchain_block_height) = match self.get_pox_watchdog().pox_sync_wait(
                 &burnchain_config,
                 &burnchain_tip,
                 remote_chain_height,
-                num_sortitions_in_last_cycle,
             ) {
-                Ok(ibd) => ibd,
+                Ok(x) => x,
                 Err(e) => {
                     debug!("Runloop: PoX sync wait routine aborted: {e:?}");
                     continue;
@@ -1219,9 +1204,6 @@ impl RunLoop {
             } else {
                 0.0
             };
-
-            // will recalculate this in the following loop
-            num_sortitions_in_last_cycle = 0;
 
             // Download each burnchain block and process their sortitions.  This, in turn, will
             // cause the node's p2p and relayer threads to go fetch and download Stacks blocks and
@@ -1270,8 +1252,6 @@ impl RunLoop {
                         "Runloop: New burnchain block height {next_sortition_height} > {sortition_db_height}"
                     );
 
-                    let mut sort_count = 0;
-
                     debug!("Runloop: block mining until we process all sortitions");
                     signal_mining_blocked(globals.get_miner_status());
 
@@ -1289,9 +1269,6 @@ impl RunLoop {
                                     "Failed to find block in fork processed by burnchain indexer",
                                 )
                         };
-                        if block.sortition {
-                            sort_count += 1;
-                        }
 
                         let sortition_id = &block.sortition_id;
 
@@ -1338,9 +1315,8 @@ impl RunLoop {
                     debug!("Runloop: enable miner after processing sortitions");
                     signal_mining_ready(globals.get_miner_status());
 
-                    num_sortitions_in_last_cycle = sort_count;
                     debug!(
-                        "Runloop: Synchronized sortitions up to block height {next_sortition_height} from {sortition_db_height} (chain tip height is {burnchain_height}); {num_sortitions_in_last_cycle} sortitions"
+                        "Runloop: Synchronized sortitions up to block height {next_sortition_height} from {sortition_db_height} (chain tip height is {burnchain_height})"
                     );
 
                     sortition_db_height = next_sortition_height;
@@ -1358,22 +1334,6 @@ impl RunLoop {
                     break;
                 }
             }
-
-            // advance one reward cycle at a time.
-            // If we're still downloading, then this is simply target_burnchain_block_height + reward_cycle_len.
-            // Otherwise, this is burnchain_tip + reward_cycle_len
-            let next_target_burnchain_block_height = cmp::min(
-                burnchain_config.reward_cycle_to_block_height(
-                    burnchain_config
-                        .block_height_to_reward_cycle(target_burnchain_block_height)
-                        .expect("FATAL: burnchain height before system start")
-                        + 1,
-                ),
-                remote_chain_height,
-            );
-
-            debug!("Runloop: Advance target burnchain block height from {target_burnchain_block_height} to {next_target_burnchain_block_height} (sortition height {sortition_db_height})");
-            target_burnchain_block_height = next_target_burnchain_block_height;
 
             if sortition_db_height >= burnchain_height && !ibd {
                 let canonical_stacks_tip_height =
