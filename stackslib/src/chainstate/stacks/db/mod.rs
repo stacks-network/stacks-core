@@ -86,8 +86,8 @@ use crate::net::atlas::BNS_CHARS_REGEX;
 use crate::net::Error as net_error;
 use crate::util_lib::boot::{boot_code_acc, boot_code_addr, boot_code_id, boot_code_tx_auth};
 use crate::util_lib::db::{
-    query_count, query_row, query_rows, tx_begin_immediate, tx_busy_handler, DBConn, DBTx,
-    Error as db_error, FromColumn, FromRow, IndexDBConn, IndexDBTx,
+    query_count, query_row, tx_begin_immediate, tx_busy_handler, DBConn, DBTx, Error as db_error,
+    FromColumn, FromRow, IndexDBConn, IndexDBTx,
 };
 use std::cell::RefCell;
 
