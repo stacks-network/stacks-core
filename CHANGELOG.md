@@ -10,7 +10,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 ### Added
 
 ### Changed
-
+- Add `/v3/transactions/:txid` rpc endpoint
 
 ## [3.0.0.0.3]
 
