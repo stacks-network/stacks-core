@@ -596,5 +596,6 @@ environment variable to "1"
 This will return 404 if the transaction does not exist and 501 (Not Implemented) if
 transaction log is not enabled.
 
-This endpoint also accepts a querystring parameter `?tip=` which when supplied
-will ensure the returned transaction is an a block relative to the specified tip.
+This endpoint also accepts a querystring parameter `?tip=` which when supplied will ensure
+the returned transaction is an a block relative to the specified tip (as the transaction log
+could store even non canonical tip transactions).
