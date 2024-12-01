@@ -91,6 +91,7 @@ use crate::chainstate::nakamoto::tenure::{
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::{POX_4_NAME, SIGNERS_UPDATE_STATE};
 use crate::chainstate::stacks::db::blocks::DummyEventDispatcher;
+use crate::chainstate::stacks::db::is_transaction_log_enabled;
 use crate::chainstate::stacks::db::{
     DBConfig as ChainstateConfig, StacksChainState, StacksDBConn, StacksDBTx,
 };
@@ -4631,6 +4632,26 @@ impl NakamotoChainState {
                 .unwrap();
             clarity.save_analysis(&contract_id, &analysis).unwrap();
         })
+    }
+
+    /// Get transactions by txid from the transaction log
+    /// NOTE: multiple rows could match as the transaction log contains unconfirmed/orphaned
+    /// transactions too
+    pub fn get_index_block_hashes_from_txid(
+        conn: &Connection,
+        txid: Txid,
+    ) -> Result<Vec<StacksBlockId>, chainstate::stacks::Error> {
+        if is_transaction_log_enabled() {
+            let args = params![txid];
+            query_rows(
+                conn,
+                "SELECT index_block_hash FROM transactions WHERE txid = ?",
+                args,
+            )
+            .map_err(|e| e.into())
+        } else {
+            Err(chainstate::stacks::Error::NoTransactionLog)
+        }
     }
 }
 

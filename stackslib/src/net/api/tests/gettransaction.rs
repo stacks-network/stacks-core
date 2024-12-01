@@ -97,9 +97,9 @@ fn test_try_parse_request() {
 struct TransactionLogState(bool);
 
 impl TransactionLogState {
-    fn new() -> Self {
+    fn new(enable: bool) -> Self {
         let current_value = TRANSACTION_LOG.with(|v| *v.borrow());
-        TRANSACTION_LOG.with(|v| *v.borrow_mut() = true);
+        TRANSACTION_LOG.with(|v| *v.borrow_mut() = enable);
         Self { 0: current_value }
     }
 }
@@ -111,9 +111,34 @@ impl Drop for TransactionLogState {
 }
 
 #[test]
+fn test_transaction_log_not_implemented() {
+    // TRANSACTION_LOG original value will be restored at the end of test
+    let enable_transaction_log = TransactionLogState::new(false);
+    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
+
+    let test_observer = TestEventObserver::new();
+    let rpc_test = TestRPC::setup_nakamoto(function_name!(), &test_observer);
+
+    let mut requests = vec![];
+
+    // query dummy transaction
+    let request = StacksHttpRequest::new_gettransaction(addr.into(), Txid([0x21; 32]));
+    requests.push(request);
+
+    let mut responses = rpc_test.run(requests);
+
+    // get response (501 Not Implemented)
+    let response = responses.remove(0);
+
+    let (preamble, body) = response.destruct();
+
+    assert_eq!(preamble.status_code, 501);
+}
+
+#[test]
 fn test_try_make_response() {
     // TRANSACTION_LOG original value will be restored at the end of test
-    let enable_transaction_log = TransactionLogState::new();
+    let enable_transaction_log = TransactionLogState::new(true);
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
 
     let test_observer = TestEventObserver::new();

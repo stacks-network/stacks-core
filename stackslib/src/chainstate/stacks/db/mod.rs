@@ -104,7 +104,7 @@ lazy_static! {
         std::env::var("STACKS_TRANSACTION_LOG") == Ok("1".into());
 }
 #[cfg(not(test))]
-fn is_transaction_log_enabled() -> bool {
+pub fn is_transaction_log_enabled() -> bool {
     *TRANSACTION_LOG
 }
 
@@ -113,7 +113,7 @@ thread_local! {
     pub static TRANSACTION_LOG: RefCell<bool> = RefCell::new(false);
 }
 #[cfg(test)]
-fn is_transaction_log_enabled() -> bool {
+pub fn is_transaction_log_enabled() -> bool {
     TRANSACTION_LOG.with(|v| *v.borrow())
 }
 
@@ -678,23 +678,6 @@ impl<'a> ChainstateTx<'a> {
             if let Err(e) = monitoring::log_transaction_processed(&txid, &self.root_path) {
                 warn!("Failed to monitor TX processed: {:?}", e; "txid" => %txid);
             }
-        }
-    }
-
-    pub fn get_index_block_hashes_from_txid(
-        &self,
-        txid: Txid,
-    ) -> Result<Vec<StacksBlockId>, Error> {
-        if is_transaction_log_enabled() {
-            let args = params![txid];
-            query_rows(
-                self.tx.tx(),
-                "SELECT index_block_hash FROM transactions WHERE txid = ?",
-                args,
-            )
-            .map_err(|e| e.into())
-        } else {
-            Err(Error::NoTransactionLog)
         }
     }
 }

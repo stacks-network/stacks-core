@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2023 Stacks Open Internet Foundation
+// Copyright (C) 2020-2024 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -29,11 +29,14 @@ use stacks_common::util::hash::{to_hex, Hash160, Sha256Sum};
 use crate::burnchains::affirmation::AffirmationMap;
 use crate::burnchains::Txid;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
+use crate::chainstate::nakamoto::NakamotoChainState;
+use crate::chainstate::stacks::db::is_transaction_log_enabled;
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::core::mempool::MemPoolDB;
 use crate::net::http::{
-    parse_json, Error, HttpNotFound, HttpRequest, HttpRequestContents, HttpRequestPreamble,
-    HttpResponse, HttpResponseContents, HttpResponsePayload, HttpResponsePreamble, HttpServerError,
+    parse_json, Error, HttpNotFound, HttpNotImplemented, HttpRequest, HttpRequestContents,
+    HttpRequestPreamble, HttpResponse, HttpResponseContents, HttpResponsePayload,
+    HttpResponsePreamble, HttpServerError,
 };
 use crate::net::httpcore::{
     request, HttpPreambleExtensions, RPCRequestHandler, StacksHttpRequest, StacksHttpResponse,
@@ -106,20 +109,27 @@ impl RPCRequestHandler for RPCGetTransactionRequestHandler {
         _contents: HttpRequestContents,
         node: &mut StacksNodeState,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
+        if !is_transaction_log_enabled() {
+            return StacksHttpResponse::new_error(
+                &preamble,
+                &HttpNotImplemented::new("Transaction log is not enabled".into()),
+            )
+            .try_into_contents()
+            .map_err(NetError::from);
+        }
+
         let txid = self
             .txid
             .take()
             .ok_or(NetError::SendError("`txid` no set".into()))?;
 
         let txinfo_res =
-            node.with_node_state(|_network, _sortdb, chainstate, mempool, _rpc_args| {
-                let index_block_hashes = match chainstate.chainstate_tx_begin() {
-                    Ok((chainstate_tx, clarity_instance)) => {
-                        match chainstate_tx.get_index_block_hashes_from_txid(txid) {
-                            Ok(index_block_hashes) => index_block_hashes,
-                            Err(_) => return Err(NetError::NotFoundError),
-                        }
-                    }
+            node.with_node_state(|_network, _sortdb, chainstate, _mempool, _rpc_args| {
+                let index_block_hashes = match NakamotoChainState::get_index_block_hashes_from_txid(
+                    chainstate.index_conn().conn(),
+                    txid,
+                ) {
+                    Ok(index_block_hashes) => index_block_hashes,
                     Err(_) => return Err(NetError::NotFoundError),
                 };
 
