@@ -46,7 +46,7 @@ use crate::net::{Error as NetError, StacksNodeState};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TransactionResponse {
-    pub block_hash: String,
+    pub index_block_hash: StacksBlockId,
     pub tx: String,
 }
 
@@ -123,51 +123,68 @@ impl RPCRequestHandler for RPCGetTransactionRequestHandler {
             .take()
             .ok_or(NetError::SendError("`txid` no set".into()))?;
 
-        let txinfo_res =
-            node.with_node_state(|_network, _sortdb, chainstate, _mempool, _rpc_args| {
-                let index_block_hashes = match NakamotoChainState::get_index_block_hashes_from_txid(
-                    chainstate.index_conn().conn(),
-                    txid,
-                ) {
-                    Ok(index_block_hashes) => index_block_hashes,
-                    Err(_) => return Err(NetError::NotFoundError),
-                };
+        node.with_node_state(|_network, _sortdb, chainstate, _mempool, _rpc_args| {
+            let index_block_hashes = match NakamotoChainState::get_index_block_hashes_from_txid(
+                chainstate.index_conn().conn(),
+                txid,
+            ) {
+                Ok(index_block_hashes) => index_block_hashes,
+                Err(e) => {
+                    // nope -- error trying to check
+                    let msg = format!("Failed to load transaction: {:?}\n", &e);
+                    warn!("{}", &msg);
+                    return StacksHttpResponse::new_error(&preamble, &HttpServerError::new(msg))
+                        .try_into_contents()
+                        .map_err(NetError::from);
+                }
+            };
 
-                // search for the first matching tx with valid index_block_hash
-                for index_block_hash in index_block_hashes {
-                    match chainstate
-                        .nakamoto_blocks_db()
-                        .get_nakamoto_block(&index_block_hash)
-                    {
-                        Ok(nakamoto_block) => {
-                            for tx in nakamoto_block.unwrap().0.txs {
+            // search for the first matching tx with valid index_block_hash
+            for index_block_hash in index_block_hashes {
+                match chainstate
+                    .nakamoto_blocks_db()
+                    .get_nakamoto_block(&index_block_hash)
+                {
+                    Ok(nakamoto_block) => match nakamoto_block {
+                        Some(block) => {
+                            for tx in block.0.txs {
                                 if tx.txid() == txid {
-                                    return Ok(TransactionResponse {
-                                        block_hash: index_block_hash.to_hex(),
-                                        tx: to_hex(&tx.serialize_to_vec()),
-                                    });
+                                    let preamble = HttpResponsePreamble::ok_json(&preamble);
+                                    let body = HttpResponseContents::try_from_json(
+                                        &TransactionResponse {
+                                            index_block_hash,
+                                            tx: to_hex(&tx.serialize_to_vec()),
+                                        },
+                                    )?;
+                                    return Ok((preamble, body));
                                 }
                             }
                         }
-                        Err(_) => return Err(NetError::NotFoundError),
+                        // nakamoto block not found
+                        None => (),
+                    },
+                    Err(e) => {
+                        // nope -- error trying to check
+                        let msg = format!("Failed to load transaction: {:?}\n", &e);
+                        warn!("{}", &msg);
+                        return StacksHttpResponse::new_error(
+                            &preamble,
+                            &HttpServerError::new(msg),
+                        )
+                        .try_into_contents()
+                        .map_err(NetError::from);
                     }
-                }
+                };
+            }
 
-                return Err(NetError::NotFoundError);
-            });
-
-        if txinfo_res.is_err() {
+            // txid not found
             return StacksHttpResponse::new_error(
                 &preamble,
-                &HttpNotFound::new(format!("Transaction {} not found", &txid)),
+                &HttpNotFound::new(format!("No such transaction {:?}\n", &txid)),
             )
             .try_into_contents()
             .map_err(NetError::from);
-        }
-
-        let preamble = HttpResponsePreamble::ok_json(&preamble);
-        let body = HttpResponseContents::try_from_json(&txinfo_res.ok())?;
-        Ok((preamble, body))
+        })
     }
 }
 
