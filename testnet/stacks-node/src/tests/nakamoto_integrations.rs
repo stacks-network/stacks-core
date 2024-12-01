@@ -9437,6 +9437,167 @@ fn v3_blockbyheight_api_endpoint() {
     run_loop_thread.join().unwrap();
 }
 
+/// Test `/v3/transactions/txid` API endpoint
+///
+/// This endpoint returns a JSON with index_block_hash
+/// end the transaction body as hex.
+#[test]
+#[ignore]
+fn v3_transactions_api_endpoint() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    env::set_var("STACKS_TRANSACTION_LOG", "1");
+
+    let (mut conf, _miner_account) = naka_neon_integration_conf(None);
+    let password = "12345".to_string();
+    conf.connection_options.auth_token = Some(password.clone());
+    conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
+    let stacker_sk = setup_stacker(&mut conf);
+    let signer_sk = Secp256k1PrivateKey::new();
+    let signer_addr = tests::to_addr(&signer_sk);
+    let sender_sk = Secp256k1PrivateKey::new();
+    // setup sender + recipient for some test stx transfers
+    // these are necessary for the interim blocks to get mined at all
+    let sender_addr = tests::to_addr(&sender_sk);
+    let send_amt = 100;
+    let send_fee = 180;
+    conf.add_initial_balance(
+        PrincipalData::from(sender_addr).to_string(),
+        send_amt + send_fee,
+    );
+    conf.add_initial_balance(PrincipalData::from(signer_addr).to_string(), 100000);
+
+    // only subscribe to the block proposal events
+    test_observer::spawn();
+    test_observer::register(&mut conf, &[EventKeyType::MinedBlocks]);
+
+    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .expect("Failed starting bitcoind");
+    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    btc_regtest_controller.bootstrap_chain(201);
+
+    let mut run_loop = boot_nakamoto::BootRunLoop::new(conf.clone()).unwrap();
+    let run_loop_stopper = run_loop.get_termination_switch();
+    let Counters {
+        blocks_processed,
+        naka_submitted_commits: commits_submitted,
+        naka_proposed_blocks: proposals_submitted,
+        ..
+    } = run_loop.counters();
+
+    let coord_channel = run_loop.coordinator_channels();
+
+    let run_loop_thread = thread::spawn(move || run_loop.start(None, 0));
+    let mut signers = TestSigners::new(vec![signer_sk]);
+    wait_for_runloop(&blocks_processed);
+    boot_to_epoch_3(
+        &conf,
+        &blocks_processed,
+        &[stacker_sk],
+        &[signer_sk],
+        &mut Some(&mut signers),
+        &mut btc_regtest_controller,
+    );
+
+    info!("------------------------- Reached Epoch 3.0 -------------------------");
+
+    blind_signer(&conf, &signers, proposals_submitted);
+
+    wait_for_first_naka_block_commit(60, &commits_submitted);
+
+    // Mine 1 nakamoto tenure
+    next_block_and_mine_commit(
+        &mut btc_regtest_controller,
+        60,
+        &coord_channel,
+        &commits_submitted,
+    )
+    .unwrap();
+
+    let burnchain = conf.get_burnchain();
+    let _sortdb = burnchain.open_sortition_db(true).unwrap();
+    let (_chainstate, _) = StacksChainState::open(
+        conf.is_mainnet(),
+        conf.burnchain.chain_id,
+        &conf.get_chainstate_path_str(),
+        None,
+    )
+    .unwrap();
+
+    info!("------------------------- Setup finished, run test -------------------------");
+
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+
+    let get_v3_transactions = |txid: Txid| {
+        let url = &format!("{http_origin}/v3/transactions/{txid}");
+        info!("Send request: GET {url}");
+        reqwest::blocking::get(url)
+            .unwrap_or_else(|e| panic!("GET request failed: {e}"))
+            .json::<serde_json::Value>()
+            .unwrap()
+    };
+
+    let get_transaction_from_block = |index_block_hash: String, txid: String| {
+        for block_json in test_observer::get_blocks() {
+            if block_json["index_block_hash"].as_str().unwrap() == format!("0x{}", index_block_hash)
+            {
+                for transaction_json in block_json["transactions"].as_array().unwrap() {
+                    if transaction_json["txid"].as_str().unwrap() == format!("0x{}", txid) {
+                        return Some(transaction_json["raw_tx"].as_str().unwrap().to_string());
+                    }
+                }
+            }
+        }
+        None
+    };
+
+    let block_events = test_observer::get_mined_nakamoto_blocks();
+
+    let last_block_event = block_events.last().unwrap();
+
+    let first_transaction = match last_block_event.tx_events.first().unwrap() {
+        TransactionEvent::Success(first_transaction) => Some(first_transaction.txid),
+        _ => None,
+    }
+    .unwrap();
+
+    let response_json = get_v3_transactions(first_transaction);
+
+    assert_eq!(
+        response_json
+            .get("index_block_hash")
+            .unwrap()
+            .as_str()
+            .unwrap(),
+        last_block_event.block_id
+    );
+
+    let raw_tx = get_transaction_from_block(
+        last_block_event.block_id.clone(),
+        first_transaction.to_hex(),
+    )
+    .unwrap();
+
+    assert_eq!(
+        format!("0x{}", response_json.get("tx").unwrap().as_str().unwrap()),
+        raw_tx
+    );
+
+    info!("------------------------- Test finished, clean up -------------------------");
+
+    coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .stop_chains_coordinator();
+    run_loop_stopper.store(false, Ordering::SeqCst);
+
+    run_loop_thread.join().unwrap();
+}
+
 #[test]
 #[ignore]
 /// This test spins up a nakamoto-neon node.
