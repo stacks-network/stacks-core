@@ -3696,6 +3696,12 @@ impl SortitionDB {
             .try_into()
             .ok()
     }
+
+    /// Get the Stacks block ID for the canonical tip.
+    pub fn get_canonical_stacks_tip_block_id(&self) -> StacksBlockId {
+        let (ch, bh) = SortitionDB::get_canonical_stacks_chain_tip_hash(self.conn()).unwrap();
+        StacksBlockId::new(&ch, &bh)
+    }
 }
 
 impl<'a> SortitionDBTx<'a> {
@@ -6601,7 +6607,6 @@ pub mod tests {
         BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
     };
     use crate::chainstate::burn::ConsensusHash;
-    use crate::chainstate::stacks::index::TrieHashExtension;
     use crate::chainstate::stacks::StacksPublicKey;
     use crate::core::{StacksEpochExtension, *};
     use crate::util_lib::db::Error as db_error;

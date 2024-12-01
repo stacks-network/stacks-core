@@ -856,6 +856,14 @@ impl StacksChainState {
             burn_total
         );
 
+        // in the case of shadow blocks, there will be zero burns.
+        // the coinbase is still generated, but it's rendered unspendable
+        let (this_burn_total, burn_total) = if burn_total == 0 {
+            (1, 1)
+        } else {
+            (this_burn_total, burn_total)
+        };
+
         // each participant gets a share of the coinbase proportional to the fraction it burned out
         // of all participants' burns.
         let coinbase_reward = participant

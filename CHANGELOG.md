@@ -7,6 +7,15 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ## [Unreleased]
 
+### Added
+
+### Changed
+
+
+## [3.0.0.0.3]
+
+### Added
+
 ### Changed
 - Add index for StacksBlockId to nakamoto block headers table (improves node performance)
 - Remove the panic for reporting DB deadlocks (just error and continue waiting)
@@ -14,6 +23,16 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 - Add `block_commit_delay_ms` to the config file to control the time to wait after seeing a new burn block, before submitting a block commit, to allow time for the first Nakamoto block of the new tenure to be mined, allowing this miner to avoid the need to RBF the block commit.
 - Add `tenure_cost_limit_per_block_percentage` to the miner config file to control the percentage remaining tenure cost limit to consume per nakamoto block.
 - Add `/v3/blocks/height/:block_height` rpc endpoint
+- If the winning miner of a sortition is committed to the wrong parent tenure, the previous miner can immediately tenure extend and continue mining since the winning miner would never be able to propose a valid block. (#5361)
+
+## [3.0.0.0.2]
+
+### Added
+
+### Changed
+- Fixes  a few bugs in the relayer and networking stack
+  - detects and deprioritizes unhealthy replicas
+  - fixes an issue in the p2p stack which was preventing it from caching the reward set.
 
 ## [3.0.0.0.1]
 
