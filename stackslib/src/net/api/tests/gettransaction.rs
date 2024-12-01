@@ -59,6 +59,7 @@ fn test_try_parse_request() {
     let request = StacksHttpRequest::new_gettransaction(
         addr.into(),
         Txid::from_hex("00112233445566778899AABBCCDDEEFF00112233445566778899AABBCCDDEEFF").unwrap(),
+        TipRequest::UseLatestAnchoredTip,
     );
     let bytes = request.try_serialize().unwrap();
 
@@ -121,7 +122,11 @@ fn test_transaction_log_not_implemented() {
     let mut requests = vec![];
 
     // query dummy transaction
-    let request = StacksHttpRequest::new_gettransaction(addr.into(), Txid([0x21; 32]));
+    let request = StacksHttpRequest::new_gettransaction(
+        addr.into(),
+        Txid([0x21; 32]),
+        TipRequest::UseLatestAnchoredTip,
+    );
     requests.push(request);
 
     let mut responses = rpc_test.run(requests);
@@ -144,7 +149,11 @@ fn test_try_make_response() {
     let rpc_test = TestRPC::setup_nakamoto(function_name!(), &test_observer);
 
     let consensus_hash = rpc_test.consensus_hash;
-    let canonical_tip = rpc_test.canonical_tip;
+    let canonical_tip = rpc_test.canonical_tip.clone();
+
+    // dummy hack for generating an invalid tip
+    let mut dummy_tip = rpc_test.canonical_tip.clone();
+    dummy_tip.0[0] = dummy_tip.0[0].wrapping_add(1);
 
     let peer = &rpc_test.peer_1;
     let sortdb = peer.sortdb.as_ref().unwrap();
@@ -164,14 +173,42 @@ fn test_try_make_response() {
     let mut requests = vec![];
 
     // query the transactions
-    let request = StacksHttpRequest::new_gettransaction(addr.into(), tx_genesis.txid());
+    let request = StacksHttpRequest::new_gettransaction(
+        addr.into(),
+        tx_genesis.txid(),
+        TipRequest::UseLatestAnchoredTip,
+    );
     requests.push(request);
 
-    let request = StacksHttpRequest::new_gettransaction(addr.into(), tx_tip.txid());
+    let request = StacksHttpRequest::new_gettransaction(
+        addr.into(),
+        tx_tip.txid(),
+        TipRequest::UseLatestAnchoredTip,
+    );
+    requests.push(request);
+
+    // valid tx with explicit tip
+    let request = StacksHttpRequest::new_gettransaction(
+        addr.into(),
+        tx_tip.txid(),
+        TipRequest::SpecificTip(canonical_tip),
+    );
+    requests.push(request);
+
+    // valid tx with explicit tip
+    let request = StacksHttpRequest::new_gettransaction(
+        addr.into(),
+        tx_tip.txid(),
+        TipRequest::SpecificTip(dummy_tip),
+    );
     requests.push(request);
 
     // fake transaction
-    let request = StacksHttpRequest::new_gettransaction(addr.into(), Txid([0x21; 32]));
+    let request = StacksHttpRequest::new_gettransaction(
+        addr.into(),
+        Txid([0x21; 32]),
+        TipRequest::UseLatestAnchoredTip,
+    );
     requests.push(request);
 
     let mut responses = rpc_test.run(requests);
@@ -193,6 +230,21 @@ fn test_try_make_response() {
     let stacks_transaction = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
     assert_eq!(stacks_transaction.txid(), tx_tip.txid());
     assert_eq!(stacks_transaction.serialize_to_vec(), tx_bytes);
+
+    // check explicit tip txid
+    let response = responses.remove(0);
+    let resp = response.decode_gettransaction().unwrap();
+
+    let tx_bytes = hex_bytes(&resp.tx).unwrap();
+    let stacks_transaction = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
+    assert_eq!(stacks_transaction.txid(), tx_tip.txid());
+    assert_eq!(stacks_transaction.serialize_to_vec(), tx_bytes);
+
+    // check invalid tip txid
+    let response = responses.remove(0);
+    let (preamble, body) = response.destruct();
+
+    assert_eq!(preamble.status_code, 404);
 
     // invalid tx
     let response = responses.remove(0);

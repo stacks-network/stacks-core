@@ -39,10 +39,11 @@ use crate::net::http::{
     HttpResponsePreamble, HttpServerError,
 };
 use crate::net::httpcore::{
-    request, HttpPreambleExtensions, RPCRequestHandler, StacksHttpRequest, StacksHttpResponse,
+    request, HttpPreambleExtensions, HttpRequestContentsExtensions, RPCRequestHandler,
+    StacksHttpRequest, StacksHttpResponse,
 };
 use crate::net::p2p::PeerNetwork;
-use crate::net::{Error as NetError, StacksNodeState};
+use crate::net::{Error as NetError, StacksNodeState, TipRequest};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TransactionResponse {
@@ -106,7 +107,7 @@ impl RPCRequestHandler for RPCGetTransactionRequestHandler {
     fn try_handle_request(
         &mut self,
         preamble: HttpRequestPreamble,
-        _contents: HttpRequestContents,
+        contents: HttpRequestContents,
         node: &mut StacksNodeState,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         if !is_transaction_log_enabled() {
@@ -117,6 +118,13 @@ impl RPCRequestHandler for RPCGetTransactionRequestHandler {
             .try_into_contents()
             .map_err(NetError::from);
         }
+
+        let tip = match node.load_stacks_chain_tip(&preamble, &contents) {
+            Ok(tip) => tip,
+            Err(error_resp) => {
+                return error_resp.try_into_contents().map_err(NetError::from);
+            }
+        };
 
         let txid = self
             .txid
@@ -149,14 +157,36 @@ impl RPCRequestHandler for RPCGetTransactionRequestHandler {
                         Some(block) => {
                             for tx in block.0.txs {
                                 if tx.txid() == txid {
-                                    let preamble = HttpResponsePreamble::ok_json(&preamble);
-                                    let body = HttpResponseContents::try_from_json(
-                                        &TransactionResponse {
-                                            index_block_hash,
-                                            tx: to_hex(&tx.serialize_to_vec()),
-                                        },
-                                    )?;
-                                    return Ok((preamble, body));
+                                    // if the tx matches, check if the block is an ancestor of the specified tip
+                                    let found_block = match chainstate
+                                        .index_conn()
+                                        .get_ancestor_block_height(&index_block_hash, &tip)
+                                    {
+                                        Ok(found_block) => found_block,
+                                        Err(e) => {
+                                            // nope -- error trying to check
+                                            let msg =
+                                                format!("Failed to check block tip: {:?}\n", &e);
+                                            warn!("{}", &msg);
+                                            return StacksHttpResponse::new_error(
+                                                &preamble,
+                                                &HttpServerError::new(msg),
+                                            )
+                                            .try_into_contents()
+                                            .map_err(NetError::from);
+                                        }
+                                    };
+
+                                    if found_block.is_some() {
+                                        let preamble = HttpResponsePreamble::ok_json(&preamble);
+                                        let body = HttpResponseContents::try_from_json(
+                                            &TransactionResponse {
+                                                index_block_hash,
+                                                tx: to_hex(&tx.serialize_to_vec()),
+                                            },
+                                        )?;
+                                        return Ok((preamble, body));
+                                    }
                                 }
                             }
                         }
@@ -202,12 +232,12 @@ impl HttpResponse for RPCGetTransactionRequestHandler {
 
 impl StacksHttpRequest {
     /// Make a new get-unconfirmed-tx request
-    pub fn new_gettransaction(host: PeerHost, txid: Txid) -> StacksHttpRequest {
+    pub fn new_gettransaction(host: PeerHost, txid: Txid, tip: TipRequest) -> StacksHttpRequest {
         StacksHttpRequest::new_for_peer(
             host,
             "GET".into(),
             format!("/v3/transactions/{}", &txid),
-            HttpRequestContents::new(),
+            HttpRequestContents::new().for_tip(tip),
         )
         .expect("FATAL: failed to construct request from infallible data")
     }
