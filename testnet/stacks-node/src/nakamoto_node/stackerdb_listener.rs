@@ -532,7 +532,9 @@ impl StackerDBListenerComms {
         for info in idle_timestamps {
             weight_sum += info.weight;
             if weight_sum >= weight_threshold {
-                info!("SignerCoordinator: 70% threshold reached");
+                debug!("SignerCoordinator: 70% threshold reached for tenure extension timestamp";
+                    "timestamp" => info.timestamp,
+                );
                 return info.timestamp;
             }
         }
