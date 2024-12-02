@@ -59,7 +59,7 @@ fn verifier_catches_stale_proof() {
     let new_value = m.get(&block_2, &k1).unwrap().unwrap();
     test_debug!("NEW: {:?}", new_value);
 
-    let path = TriePath::from_key(&k1);
+    let path = TrieHash::from_key(&k1);
 
     merkle_test_marf_key_value(&mut m.borrow_storage_backend(), &block_2, &k1, &new_v, None);
 
@@ -75,7 +75,7 @@ fn verifier_catches_stale_proof() {
             .unwrap();
 
     // the verifier should not allow a proof from k1 to old_v from block_2
-    let triepath_2 = TriePath::from_key(&k1);
+    let triepath_2 = TrieHash::from_key(&k1);
     let marf_value_2 = MARFValue::from_value(&old_v);
     assert!(!proof_2.verify(&triepath_2, &marf_value_2, &root_hash_2, &root_to_block));
 
@@ -86,7 +86,7 @@ fn verifier_catches_stale_proof() {
             .unwrap();
 
     // the verifier should allow a proof from k1 to old_v from block_1
-    let triepath_1 = TriePath::from_key(&k1);
+    let triepath_1 = TrieHash::from_key(&k1);
     let marf_value_1 = MARFValue::from_value(&old_v);
     assert!(proof_1.verify(&triepath_1, &marf_value_1, &root_hash_1, &root_to_block));
 }
@@ -169,7 +169,7 @@ fn ncc_verifier_catches_stale_proof() {
         TrieMerkleProof::from_entry(&mut m.borrow_storage_backend(), &k1, &another_v, &block_5)
             .unwrap();
 
-    let triepath_4 = TriePath::from_key(&k1);
+    let triepath_4 = TrieHash::from_key(&k1);
     let marf_value_4 = MARFValue::from_value(&another_v);
     let root_to_block = {
         m.borrow_storage_backend()
@@ -186,7 +186,7 @@ fn ncc_verifier_catches_stale_proof() {
         TrieMerkleProof::from_entry(&mut m.borrow_storage_backend(), &k1, &old_v, &block_2)
             .unwrap();
 
-    let triepath_4 = TriePath::from_key(&k1);
+    let triepath_4 = TrieHash::from_key(&k1);
     let marf_value_4 = MARFValue::from_value(&old_v);
     let root_to_block = {
         m.borrow_storage_backend()
