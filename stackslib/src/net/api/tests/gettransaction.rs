@@ -33,8 +33,7 @@ use super::TestRPC;
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandle};
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use crate::chainstate::stacks::db::blocks::test::*;
-use crate::chainstate::stacks::db::StacksChainState;
-use crate::chainstate::stacks::db::TRANSACTION_LOG;
+use crate::chainstate::stacks::db::{StacksChainState, TRANSACTION_LOG};
 use crate::chainstate::stacks::{
     Error as chainstate_error, StacksBlock, StacksBlockHeader, StacksMicroblock,
 };

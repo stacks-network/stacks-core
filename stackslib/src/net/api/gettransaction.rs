@@ -30,8 +30,7 @@ use crate::burnchains::affirmation::AffirmationMap;
 use crate::burnchains::Txid;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::nakamoto::NakamotoChainState;
-use crate::chainstate::stacks::db::is_transaction_log_enabled;
-use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::db::{is_transaction_log_enabled, StacksChainState};
 use crate::core::mempool::MemPoolDB;
 use crate::net::http::{
     parse_json, Error, HttpNotFound, HttpNotImplemented, HttpRequest, HttpRequestContents,

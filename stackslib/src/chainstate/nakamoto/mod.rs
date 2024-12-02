@@ -91,9 +91,9 @@ use crate::chainstate::nakamoto::tenure::{
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::{POX_4_NAME, SIGNERS_UPDATE_STATE};
 use crate::chainstate::stacks::db::blocks::DummyEventDispatcher;
-use crate::chainstate::stacks::db::is_transaction_log_enabled;
 use crate::chainstate::stacks::db::{
-    DBConfig as ChainstateConfig, StacksChainState, StacksDBConn, StacksDBTx,
+    is_transaction_log_enabled, DBConfig as ChainstateConfig, StacksChainState, StacksDBConn,
+    StacksDBTx,
 };
 use crate::chainstate::stacks::index::marf::MarfConnection;
 use crate::chainstate::stacks::{

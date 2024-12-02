@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::cell::RefCell;
 use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, HashSet};
 use std::io::prelude::*;
@@ -89,7 +90,6 @@ use crate::util_lib::db::{
     query_count, query_row, tx_begin_immediate, tx_busy_handler, DBConn, DBTx, Error as db_error,
     FromColumn, FromRow, IndexDBConn, IndexDBTx,
 };
-use std::cell::RefCell;
 
 pub mod accounts;
 pub mod blocks;
