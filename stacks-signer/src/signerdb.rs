@@ -859,17 +859,6 @@ where
 }
 
 #[cfg(test)]
-/// Create a test signer db
-pub fn test_signer_db(db_path: &str) -> SignerDb {
-    use std::fs;
-
-    if fs::metadata(db_path).is_ok() {
-        fs::remove_file(db_path).unwrap();
-    }
-    SignerDb::new(db_path).expect("Failed to create signer db")
-}
-
-#[cfg(test)]
 mod tests {
     use std::fs;
     use std::path::PathBuf;
