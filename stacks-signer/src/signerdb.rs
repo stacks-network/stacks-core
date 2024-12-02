@@ -811,13 +811,8 @@ impl SignerDb {
         block_sighash: &Sha512Trunc256Sum,
         ts: u64,
     ) -> Result<(), DBError> {
-        let qry = "UPDATE blocks SET broadcasted = ?1, block_info = json_set(block_info, '$.state', ?2) WHERE reward_cycle = ?3 AND signer_signature_hash = ?4";
-        let args = params![
-            u64_to_sql(ts)?,
-            BlockState::GloballyAccepted.to_string(),
-            u64_to_sql(reward_cycle)?,
-            block_sighash
-        ];
+        let qry = "UPDATE blocks SET broadcasted = ?1 WHERE reward_cycle = ?2 AND signer_signature_hash = ?3";
+        let args = params![u64_to_sql(ts)?, u64_to_sql(reward_cycle)?, block_sighash];
 
         debug!("Marking block {} as broadcasted at {}", block_sighash, ts);
         self.db.execute(qry, args)?;
@@ -872,6 +867,7 @@ where
 }
 
 #[cfg(test)]
+/// Create a test signer db
 pub fn test_signer_db(db_path: &str) -> SignerDb {
     use std::fs;
 
@@ -1220,7 +1216,7 @@ mod tests {
             .expect("Unable to get block from db")
             .expect("Unable to get block from db")
             .state,
-            BlockState::GloballyAccepted
+            BlockState::Unprocessed
         );
         db.insert_block(&block_info_1)
             .expect("Unable to insert block into db a second time");

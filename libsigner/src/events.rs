@@ -114,6 +114,13 @@ pub enum SignerEvent<T: SignerEventTrait> {
         /// the time at which this event was received by the signer's event processor
         received_time: SystemTime,
     },
+    /// A new processed Nakamoto block was received from the node with the given block hash
+    NewNakamotoBlock {
+        /// The block header hash for the newly processed stacks block
+        block_hash: Sha512Trunc256Sum,
+        /// The block height for the newly processed stacks block
+        block_height: u64,
+    },
 }
 
 /// Trait to implement a stop-signaler for the event receiver thread.
@@ -311,16 +318,15 @@ impl<T: SignerEventTrait> EventReceiver<T> for SignerEventReceiver<T> {
             } else if request.url() == "/shutdown" {
                 event_receiver.stop_signal.store(true, Ordering::SeqCst);
                 return Err(EventError::Terminated);
+            } else if request.url() == "/new_block" {
+                process_new_block(request)
             } else {
                 let url = request.url().to_string();
-                // `/new_block` is expected, but not specifically handled. do not log.
-                if &url != "/new_block" {
-                    debug!(
-                        "[{:?}] next_event got request with unexpected url {}, return OK so other side doesn't keep sending this",
-                        event_receiver.local_addr,
-                        url
-                    );
-                }
+                debug!(
+                    "[{:?}] next_event got request with unexpected url {}, return OK so other side doesn't keep sending this",
+                    event_receiver.local_addr,
+                    url
+                );
                 ack_dispatcher(request);
                 Err(EventError::UnrecognizedEvent(url))
             }
@@ -475,9 +481,7 @@ fn process_proposal_response<T: SignerEventTrait>(
     if let Err(e) = request.as_reader().read_to_string(&mut body) {
         error!("Failed to read body: {:?}", &e);
 
-        if let Err(e) = request.respond(HttpResponse::empty(200u16)) {
-            error!("Failed to respond to request: {:?}", &e);
-        }
+        ack_dispatcher(request);
         return Err(EventError::MalformedRequest(format!(
             "Failed to read body: {:?}",
             &e
@@ -487,10 +491,7 @@ fn process_proposal_response<T: SignerEventTrait>(
     let event: BlockValidateResponse = serde_json::from_slice(body.as_bytes())
         .map_err(|e| EventError::Deserialize(format!("Could not decode body to JSON: {:?}", &e)))?;
 
-    if let Err(e) = request.respond(HttpResponse::empty(200u16)) {
-        error!("Failed to respond to request: {:?}", &e);
-    }
-
+    ack_dispatcher(request);
     Ok(SignerEvent::BlockValidationResponse(event))
 }
 
@@ -503,9 +504,7 @@ fn process_new_burn_block_event<T: SignerEventTrait>(
     if let Err(e) = request.as_reader().read_to_string(&mut body) {
         error!("Failed to read body: {:?}", &e);
 
-        if let Err(e) = request.respond(HttpResponse::empty(200u16)) {
-            error!("Failed to respond to request: {:?}", &e);
-        }
+        ack_dispatcher(request);
         return Err(EventError::MalformedRequest(format!(
             "Failed to read body: {:?}",
             &e
@@ -534,9 +533,46 @@ fn process_new_burn_block_event<T: SignerEventTrait>(
         received_time: SystemTime::now(),
         burn_header_hash,
     };
-    if let Err(e) = request.respond(HttpResponse::empty(200u16)) {
-        error!("Failed to respond to request: {:?}", &e);
+    ack_dispatcher(request);
+    Ok(event)
+}
+
+/// Process a new burn block event from the node
+fn process_new_block<T: SignerEventTrait>(
+    mut request: HttpRequest,
+) -> Result<SignerEvent<T>, EventError> {
+    debug!("Got new_block event");
+    let mut body = String::new();
+    if let Err(e) = request.as_reader().read_to_string(&mut body) {
+        error!("Failed to read body: {:?}", &e);
+
+        ack_dispatcher(request);
+        return Err(EventError::MalformedRequest(format!(
+            "Failed to read body: {:?}",
+            &e
+        )));
     }
+    #[derive(Debug, Deserialize)]
+    struct TempBlockEvent {
+        block_hash: String,
+        block_height: u64,
+    }
+
+    let temp: TempBlockEvent = serde_json::from_slice(body.as_bytes())
+        .map_err(|e| EventError::Deserialize(format!("Could not decode body to JSON: {:?}", &e)))?;
+    let block_hash: Sha512Trunc256Sum = temp
+        .block_hash
+        .get(2..)
+        .ok_or_else(|| EventError::Deserialize("Hex string should be 0x prefixed".into()))
+        .and_then(|hex| {
+            Sha512Trunc256Sum::from_hex(hex)
+                .map_err(|e| EventError::Deserialize(format!("Invalid hex string: {e}")))
+        })?;
+    let event = SignerEvent::NewNakamotoBlock {
+        block_hash,
+        block_height: temp.block_height,
+    };
+    ack_dispatcher(request);
     Ok(event)
 }
 

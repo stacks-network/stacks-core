@@ -126,6 +126,7 @@ impl SignerTrait<SignerMessage> for Signer {
             Some(SignerEvent::BlockValidationResponse(_))
             | Some(SignerEvent::MinerMessages(..))
             | Some(SignerEvent::NewBurnBlock { .. })
+            | Some(SignerEvent::NewNakamotoBlock { .. })
             | Some(SignerEvent::StatusCheck)
             | None => None,
             Some(SignerEvent::SignerMessages(msg_parity, ..)) => Some(u64::from(*msg_parity) % 2),
@@ -245,6 +246,33 @@ impl SignerTrait<SignerMessage> for Signer {
                         panic!("{self} Failed to write burn block event to signerdb: {e}");
                     });
                 *sortition_state = None;
+            }
+            SignerEvent::NewNakamotoBlock {
+                block_hash,
+                block_height,
+            } => {
+                debug!(
+                    "{self}: Received a new block event.";
+                    "block_hash" => %block_hash,
+                    "block_height" => block_height
+                );
+                if let Ok(Some(mut block_info)) = self
+                    .signer_db
+                    .block_lookup(self.reward_cycle, block_hash)
+                    .inspect_err(|e| warn!("{self}: Failed to load block state: {e:?}"))
+                {
+                    if block_info.state == BlockState::GloballyAccepted {
+                        // We have already globally accepted this block. Do nothing.
+                        return;
+                    }
+                    if let Err(e) = block_info.mark_globally_accepted() {
+                        warn!("{self}: Failed to mark block as globally accepted: {e:?}");
+                        return;
+                    }
+                    if let Err(e) = self.signer_db.insert_block(&block_info) {
+                        warn!("{self}: Failed to update block state to globally accepted: {e:?}");
+                    }
+                }
             }
         }
     }
