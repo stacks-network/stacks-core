@@ -285,6 +285,94 @@ impl StackerDBConfig {
         Ok(ret)
     }
 
+    /// Evaluate contract-given hint-replicas
+    fn eval_hint_replicas(
+        contract_id: &QualifiedContractIdentifier,
+        hint_replicas_list: Vec<ClarityValue>,
+    ) -> Result<Vec<NeighborAddress>, NetError> {
+        let mut hint_replicas = vec![];
+        for hint_replica_value in hint_replicas_list.into_iter() {
+            let hint_replica_data = hint_replica_value.expect_tuple()?;
+
+            let addr_byte_list = hint_replica_data
+                .get("addr")
+                .expect("FATAL: missing 'addr'")
+                .clone()
+                .expect_list()?;
+            let port = hint_replica_data
+                .get("port")
+                .expect("FATAL: missing 'port'")
+                .clone()
+                .expect_u128()?;
+            let pubkey_hash_bytes = hint_replica_data
+                .get("public-key-hash")
+                .expect("FATAL: missing 'public-key-hash")
+                .clone()
+                .expect_buff_padded(20, 0)?;
+
+            let mut addr_bytes = vec![];
+            for byte_val in addr_byte_list.into_iter() {
+                let byte = byte_val.expect_u128()?;
+                if byte > (u8::MAX as u128) {
+                    let reason = format!(
+                        "Contract {} stipulates an addr byte above u8::MAX",
+                        contract_id
+                    );
+                    warn!("{}", &reason);
+                    return Err(NetError::InvalidStackerDBContract(
+                        contract_id.clone(),
+                        reason,
+                    ));
+                }
+                addr_bytes.push(byte as u8);
+            }
+            if addr_bytes.len() != 16 {
+                let reason = format!(
+                    "Contract {} did not stipulate a full 16-octet IP address",
+                    contract_id
+                );
+                warn!("{}", &reason);
+                return Err(NetError::InvalidStackerDBContract(
+                    contract_id.clone(),
+                    reason,
+                ));
+            }
+
+            if port < 1024 || port > u128::from(u16::MAX - 1) {
+                let reason = format!(
+                    "Contract {} stipulates a port lower than 1024 or above u16::MAX - 1",
+                    contract_id
+                );
+                warn!("{}", &reason);
+                return Err(NetError::InvalidStackerDBContract(
+                    contract_id.clone(),
+                    reason,
+                ));
+            }
+            // NOTE: port is now known to be in range [1024, 65535]
+
+            let mut pubkey_hash_slice = [0u8; 20];
+            pubkey_hash_slice.copy_from_slice(&pubkey_hash_bytes[0..20]);
+
+            let peer_addr = PeerAddress::from_slice(&addr_bytes).expect("FATAL: not 16 bytes");
+            if peer_addr.is_in_private_range() {
+                debug!(
+                    "Ignoring private IP address '{}' in hint-replicas",
+                    &peer_addr.to_socketaddr(port as u16)
+                );
+                continue;
+            }
+
+            let naddr = NeighborAddress {
+                addrbytes: peer_addr,
+                port: port as u16,
+                public_key_hash: Hash160(pubkey_hash_slice),
+            };
+            hint_replicas.push(naddr);
+        }
+        Ok(hint_replicas)
+    }
+
     /// Evaluate the contract to get its config
     fn eval_config(
         chainstate: &mut StacksChainState,
@@ -293,6 +381,7 @@ impl StackerDBConfig {
         tip: &StacksBlockId,
         signers: Vec<(StacksAddress, u32)>,
         local_max_neighbors: u64,
+        local_hint_replicas: Option<Vec<NeighborAddress>>,
     ) -> Result<StackerDBConfig, NetError> {
         let value =
             chainstate.eval_read_only(burn_dbconn, tip, contract_id, "(stackerdb-get-config)")?;
@@ -394,91 +483,17 @@ impl StackerDBConfig {
             max_neighbors = u128::from(local_max_neighbors);
         }
 
-        let hint_replicas_list = config_tuple
-            .get("hint-replicas")
-            .expect("FATAL: missing 'hint-replicas'")
-            .clone()
-            .expect_list()?;
-        let mut hint_replicas = vec![];
-        for hint_replica_value in hint_replicas_list.into_iter() {
-            let hint_replica_data = hint_replica_value.expect_tuple()?;
-
-            let addr_byte_list = hint_replica_data
-                .get("addr")
-                .expect("FATAL: missing 'addr'")
+        let hint_replicas = if let Some(replicas) = local_hint_replicas {
+            replicas.clone()
+        } else {
+            let hint_replicas_list = config_tuple
+                .get("hint-replicas")
+                .expect("FATAL: missing 'hint-replicas'")
                 .clone()
                 .expect_list()?;
-            let port = hint_replica_data
-                .get("port")
-                .expect("FATAL: missing 'port'")
-                .clone()
-                .expect_u128()?;
-            let pubkey_hash_bytes = hint_replica_data
-                .get("public-key-hash")
-                .expect("FATAL: missing 'public-key-hash")
-                .clone()
-                .expect_buff_padded(20, 0)?;
 
-            let mut addr_bytes = vec![];
-            for byte_val in addr_byte_list.into_iter() {
-                let byte = byte_val.expect_u128()?;
-                if byte > (u8::MAX as u128) {
-                    let reason = format!(
-                        "Contract {} stipulates an addr byte above u8::MAX",
-                        contract_id
-                    );
-                    warn!("{}", &reason);
-                    return Err(NetError::InvalidStackerDBContract(
-                        contract_id.clone(),
-                        reason,
-                    ));
-                }
-                addr_bytes.push(byte as u8);
-            }
-            if addr_bytes.len() != 16 {
-                let reason = format!(
-                    "Contract {} did not stipulate a full 16-octet IP address",
-                    contract_id
-                );
-                warn!("{}", &reason);
-                return Err(NetError::InvalidStackerDBContract(
-                    contract_id.clone(),
-                    reason,
-                ));
-            }
-
-            if port < 1024 || port > u128::from(u16::MAX - 1) {
-                let reason = format!(
-                    "Contract {} stipulates a port lower than 1024 or above u16::MAX - 1",
-                    contract_id
-                );
-                warn!("{}", &reason);
-                return Err(NetError::InvalidStackerDBContract(
-                    contract_id.clone(),
-                    reason,
-                ));
-            }
-            // NOTE: port is now known to be in range [1024, 65535]
-
-            let mut pubkey_hash_slice = [0u8; 20];
-            pubkey_hash_slice.copy_from_slice(&pubkey_hash_bytes[0..20]);
-
-            let peer_addr = PeerAddress::from_slice(&addr_bytes).expect("FATAL: not 16 bytes");
-            if peer_addr.is_in_private_range() {
-                debug!(
-                    "Ignoring private IP address '{}' in hint-replicas",
-                    &peer_addr.to_socketaddr(port as u16)
-                );
-                continue;
-            }
-
-            let naddr = NeighborAddress {
-                addrbytes: peer_addr,
-                port: port as u16,
-                public_key_hash: Hash160(pubkey_hash_slice),
-            };
-            hint_replicas.push(naddr);
-        }
+            Self::eval_hint_replicas(contract_id, hint_replicas_list)?
+        };
 
         Ok(StackerDBConfig {
             chunk_size: chunk_size as u64,
@@ -497,6 +512,7 @@ impl StackerDBConfig {
         sortition_db: &SortitionDB,
         contract_id: &QualifiedContractIdentifier,
         max_neighbors: u64,
+        local_hint_replicas: Option<Vec<NeighborAddress>>,
     ) -> Result<StackerDBConfig, NetError> {
         let chain_tip =
             NakamotoChainState::get_canonical_block_header(chainstate.db(), sortition_db)?
@@ -578,6 +594,7 @@ impl StackerDBConfig {
             &chain_tip_hash,
             signers,
             max_neighbors,
+            local_hint_replicas,
         )?;
         Ok(config)
     }
