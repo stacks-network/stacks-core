@@ -64,6 +64,11 @@ pub static TEST_PAUSE_BLOCK_BROADCAST: std::sync::Mutex<Option<bool>> = std::syn
 /// Skip broadcasting the block to the network
 pub static TEST_SKIP_BLOCK_BROADCAST: std::sync::Mutex<Option<bool>> = std::sync::Mutex::new(None);
 
+#[cfg(any(test, feature = "testing"))]
+/// Skip any block responses from other signers
+pub static TEST_IGNORE_BLOCK_RESPONSES: std::sync::Mutex<Option<bool>> =
+    std::sync::Mutex::new(None);
+
 /// The stacks signer registered for the reward cycle
 #[derive(Debug)]
 pub struct Signer {
@@ -476,10 +481,7 @@ impl Signer {
             self.test_reject_block_proposal(block_proposal, &mut block_info, block_response);
 
         if let Some(block_response) = block_response {
-            // We know proposal is invalid. Send rejection message, do not do further validation
-            if let Err(e) = block_info.mark_locally_rejected() {
-                warn!("{self}: Failed to mark block as locally rejected: {e:?}",);
-            };
+            // We know proposal is invalid. Send rejection message, do not do further validation and do not store it.
             debug!("{self}: Broadcasting a block response to stacks node: {block_response:?}");
             let res = self
                 .stackerdb
@@ -535,6 +537,10 @@ impl Signer {
         stacks_client: &StacksClient,
         block_response: &BlockResponse,
     ) {
+        #[cfg(any(test, feature = "testing"))]
+        if self.test_ignore_block_responses(block_response) {
+            return;
+        }
         match block_response {
             BlockResponse::Accepted(accepted) => {
                 self.handle_block_signature(stacks_client, accepted);
@@ -870,7 +876,7 @@ impl Signer {
             // Not enough rejection signatures to make a decision
             return;
         }
-        debug!("{self}: {total_reject_weight}/{total_weight} signers voteed to reject the block {block_hash}");
+        debug!("{self}: {total_reject_weight}/{total_weight} signers voted to reject the block {block_hash}");
         if let Err(e) = block_info.mark_globally_rejected() {
             warn!("{self}: Failed to mark block as globally rejected: {e:?}",);
         }
@@ -999,7 +1005,7 @@ impl Signer {
             return;
         };
         // move block to LOCALLY accepted state.
-        // We only mark this GLOBALLY accepted if we manage to broadcast it...
+        // It is only considered globally accepted IFF we receive a new block event confirming it OR see the chain tip of the node advance to it.
         if let Err(e) = block_info.mark_locally_accepted(true) {
             // Do not abort as we should still try to store the block signature threshold
             warn!("{self}: Failed to mark block as locally accepted: {e:?}");
@@ -1012,22 +1018,8 @@ impl Signer {
             panic!("{self} Failed to write block to signerdb: {e}");
         });
         #[cfg(any(test, feature = "testing"))]
-        {
-            if *TEST_PAUSE_BLOCK_BROADCAST.lock().unwrap() == Some(true) {
-                // Do an extra check just so we don't log EVERY time.
-                warn!("Block broadcast is stalled due to testing directive.";
-                    "block_id" => %block_info.block.block_id(),
-                    "height" => block_info.block.header.chain_length,
-                );
-                while *TEST_PAUSE_BLOCK_BROADCAST.lock().unwrap() == Some(true) {
-                    std::thread::sleep(std::time::Duration::from_millis(10));
-                }
-                info!("Block validation is no longer stalled due to testing directive.";
-                    "block_id" => %block_info.block.block_id(),
-                    "height" => block_info.block.header.chain_length,
-                );
-            }
-        }
+        self.test_pause_block_broadcast(&block_info);
+
         self.broadcast_signed_block(stacks_client, block_info.block, &addrs_to_sigs);
         if self
             .submitted_block_proposal
@@ -1134,6 +1126,36 @@ impl Signer {
             ))
         } else {
             None
+        }
+    }
+
+    #[cfg(any(test, feature = "testing"))]
+    fn test_ignore_block_responses(&self, block_response: &BlockResponse) -> bool {
+        if *TEST_IGNORE_BLOCK_RESPONSES.lock().unwrap() == Some(true) {
+            warn!(
+                "{self}: Ignoring block response due to testing directive";
+                "block_response" => %block_response
+            );
+            return true;
+        }
+        false
+    }
+
+    #[cfg(any(test, feature = "testing"))]
+    fn test_pause_block_broadcast(&self, block_info: &BlockInfo) {
+        if *TEST_PAUSE_BLOCK_BROADCAST.lock().unwrap() == Some(true) {
+            // Do an extra check just so we don't log EVERY time.
+            warn!("{self}: Block broadcast is stalled due to testing directive.";
+                "block_id" => %block_info.block.block_id(),
+                "height" => block_info.block.header.chain_length,
+            );
+            while *TEST_PAUSE_BLOCK_BROADCAST.lock().unwrap() == Some(true) {
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            info!("{self}: Block validation is no longer stalled due to testing directive.";
+                "block_id" => %block_info.block.block_id(),
+                "height" => block_info.block.header.chain_length,
+            );
         }
     }
 

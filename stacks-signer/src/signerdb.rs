@@ -230,17 +230,9 @@ impl BlockInfo {
         }
         match state {
             BlockState::Unprocessed => false,
-            BlockState::LocallyAccepted => {
-                matches!(
-                    prev_state,
-                    BlockState::Unprocessed | BlockState::LocallyAccepted
-                )
-            }
-            BlockState::LocallyRejected => {
-                matches!(
-                    prev_state,
-                    BlockState::Unprocessed | BlockState::LocallyRejected
-                )
+            BlockState::LocallyAccepted | BlockState::LocallyRejected => {
+                !matches!(prev_state, BlockState::GloballyRejected)
+                    && !matches!(prev_state, BlockState::GloballyAccepted)
             }
             BlockState::GloballyAccepted => !matches!(prev_state, BlockState::GloballyRejected),
             BlockState::GloballyRejected => !matches!(prev_state, BlockState::GloballyAccepted),
@@ -1245,7 +1237,14 @@ mod tests {
         assert_eq!(block.state, BlockState::LocallyAccepted);
         assert!(!block.check_state(BlockState::Unprocessed));
         assert!(block.check_state(BlockState::LocallyAccepted));
-        assert!(!block.check_state(BlockState::LocallyRejected));
+        assert!(block.check_state(BlockState::LocallyRejected));
+        assert!(block.check_state(BlockState::GloballyAccepted));
+        assert!(block.check_state(BlockState::GloballyRejected));
+
+        block.move_to(BlockState::LocallyRejected).unwrap();
+        assert!(!block.check_state(BlockState::Unprocessed));
+        assert!(block.check_state(BlockState::LocallyAccepted));
+        assert!(block.check_state(BlockState::LocallyRejected));
         assert!(block.check_state(BlockState::GloballyAccepted));
         assert!(block.check_state(BlockState::GloballyRejected));
 
@@ -1257,15 +1256,8 @@ mod tests {
         assert!(block.check_state(BlockState::GloballyAccepted));
         assert!(!block.check_state(BlockState::GloballyRejected));
 
-        // Must manually override as will not be able to move from GloballyAccepted to LocallyAccepted
-        block.state = BlockState::LocallyRejected;
-        assert!(!block.check_state(BlockState::Unprocessed));
-        assert!(!block.check_state(BlockState::LocallyAccepted));
-        assert!(block.check_state(BlockState::LocallyRejected));
-        assert!(block.check_state(BlockState::GloballyAccepted));
-        assert!(block.check_state(BlockState::GloballyRejected));
-
-        block.move_to(BlockState::GloballyRejected).unwrap();
+        // Must manually override as will not be able to move from GloballyAccepted to GloballyRejected
+        block.state = BlockState::GloballyRejected;
         assert!(!block.check_state(BlockState::Unprocessed));
         assert!(!block.check_state(BlockState::LocallyAccepted));
         assert!(!block.check_state(BlockState::LocallyRejected));
