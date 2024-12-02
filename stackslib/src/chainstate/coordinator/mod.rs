@@ -198,6 +198,9 @@ pub trait BlockEventDispatcher {
 }
 
 pub struct ChainsCoordinatorConfig {
+    /// true: assume all anchor blocks are present, and block chain sync until they arrive
+    /// false: process sortitions in reward cycles without anchor blocks
+    pub assume_present_anchor_blocks: bool,
     /// true: use affirmation maps before 2.1
     /// false: only use affirmation maps in 2.1 or later
     pub always_use_affirmation_maps: bool,
@@ -209,8 +212,9 @@ pub struct ChainsCoordinatorConfig {
 impl ChainsCoordinatorConfig {
     pub fn new() -> ChainsCoordinatorConfig {
         ChainsCoordinatorConfig {
-            always_use_affirmation_maps: false,
+            always_use_affirmation_maps: true,
             require_affirmed_anchor_blocks: true,
+            assume_present_anchor_blocks: true,
         }
     }
 }
@@ -2335,6 +2339,20 @@ impl<
                 .unwrap_or_else(|| {
                     panic!("BUG: no epoch defined at height {}", header.block_height)
                 });
+
+        if self.config.assume_present_anchor_blocks {
+            // anchor blocks are always assumed to be present in the chain history,
+            // so report its absence if we don't have it.
+            if let PoxAnchorBlockStatus::SelectedAndUnknown(missing_anchor_block, _) =
+                &rc_info.anchor_status
+            {
+                info!(
+                    "Currently missing PoX anchor block {}, which is assumed to be present",
+                    &missing_anchor_block
+                );
+                return Ok(Some(missing_anchor_block.clone()));
+            }
+        }
 
         if cur_epoch.epoch_id >= StacksEpochId::Epoch21 || self.config.always_use_affirmation_maps {
             // potentially have an anchor block, but only process the next reward cycle (and

@@ -1638,6 +1638,7 @@ pub struct NodeConfig {
     pub use_test_genesis_chainstate: Option<bool>,
     pub always_use_affirmation_maps: bool,
     pub require_affirmed_anchor_blocks: bool,
+    pub assume_present_anchor_blocks: bool,
     /// Fault injection for failing to push blocks
     pub fault_injection_block_push_fail_probability: Option<u8>,
     // fault injection for hiding blocks.
@@ -1921,6 +1922,7 @@ impl Default for NodeConfig {
             use_test_genesis_chainstate: None,
             always_use_affirmation_maps: true,
             require_affirmed_anchor_blocks: true,
+            assume_present_anchor_blocks: true,
             fault_injection_block_push_fail_probability: None,
             fault_injection_hide_blocks: false,
             chain_liveness_poll_time_secs: 300,
@@ -2393,6 +2395,7 @@ pub struct NodeConfigFile {
     pub use_test_genesis_chainstate: Option<bool>,
     pub always_use_affirmation_maps: Option<bool>,
     pub require_affirmed_anchor_blocks: Option<bool>,
+    pub assume_present_anchor_blocks: Option<bool>,
     /// At most, how often should the chain-liveness thread
     ///  wake up the chains-coordinator. Defaults to 300s (5 min).
     pub chain_liveness_poll_time_secs: Option<u64>,
@@ -2474,6 +2477,10 @@ impl NodeConfigFile {
             // miners should always try to mine, even if they don't have the anchored
             // blocks in the canonical affirmation map. Followers, however, can stall.
             require_affirmed_anchor_blocks: self.require_affirmed_anchor_blocks.unwrap_or(!miner),
+            // as of epoch 3.0, all prepare phases have anchor blocks.
+            // at the start of epoch 3.0, the chain stalls without anchor blocks.
+            // only set this to false if you're doing some very extreme testing.
+            assume_present_anchor_blocks: true,
             // chainstate fault_injection activation for hide_blocks.
             // you can't set this in the config file.
             fault_injection_hide_blocks: false,
