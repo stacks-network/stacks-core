@@ -17,7 +17,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ### Changed
 
-- Load the BurnStateDB implementation from the block's header's `consensus_hash` field
+- Use the same burn view loader in both block validation and block processing
 
 ## [3.0.0.0.3.0]
 
