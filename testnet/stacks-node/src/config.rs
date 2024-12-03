@@ -2370,16 +2370,7 @@ impl ConnectionOptionsFile {
                     hint_replicas_res
                 })
                 .transpose()?
-                .and_then(|stackerdb_replicas_list| {
-                    // coalesce to a hashmap, but don't worry about duplicate entries
-                    // (garbage in, garbage out)
-                    let stackerdb_hint_replicas: HashMap<
-                        QualifiedContractIdentifier,
-                        Vec<NeighborAddress>,
-                    > = stackerdb_replicas_list.into_iter().collect();
-
-                    Some(stackerdb_hint_replicas)
-                })
+                .map(HashMap::from_iter)
                 .unwrap_or(default.stackerdb_hint_replicas),
             ..default
         })
