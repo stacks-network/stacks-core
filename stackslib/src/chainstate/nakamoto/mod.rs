@@ -2452,7 +2452,7 @@ impl NakamotoChainState {
         db_handle: &mut SortitionHandleConn,
         staging_db_tx: &NakamotoStagingBlocksTx,
         headers_conn: &Connection,
-        reward_set: RewardSet,
+        reward_set: &RewardSet,
         obtain_method: NakamotoBlockObtainMethod,
     ) -> Result<bool, ChainstateError> {
         test_debug!("Consider Nakamoto block {}", &block.block_id());
@@ -2522,7 +2522,7 @@ impl NakamotoChainState {
             return Ok(false);
         };
 
-        let signing_weight = match block.header.verify_signer_signatures(&reward_set) {
+        let signing_weight = match block.header.verify_signer_signatures(reward_set) {
             Ok(x) => x,
             Err(e) => {
                 warn!("Received block, but the signer signatures are invalid";
