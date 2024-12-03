@@ -29,7 +29,7 @@ use stacks_common::util::macros::is_trace;
 
 use crate::chainstate::stacks::index::node::{
     clear_backptr, ConsensusSerializable, TrieNode, TrieNode16, TrieNode256, TrieNode4, TrieNode48,
-    TrieNodeID, TrieNodeType, TriePtr, TRIEPATH_MAX_LEN, TRIEPTR_SIZE,
+    TrieNodeID, TrieNodeType, TriePtr, TRIEPTR_SIZE,
 };
 use crate::chainstate::stacks::index::storage::{TrieFileStorage, TrieStorageConnection};
 use crate::chainstate::stacks::index::{BlockMap, Error, MarfTrieId, TrieLeaf};
@@ -55,15 +55,15 @@ pub fn path_from_bytes<R: Read>(r: &mut R) -> Result<Vec<u8>, Error> {
         }
     })?;
 
-    if lenbuf[0] as usize > TRIEPATH_MAX_LEN {
+    if lenbuf[0] as usize > TRIEHASH_ENCODED_SIZE {
         trace!(
             "Path length is {} (expected <= {})",
             lenbuf[0],
-            TRIEPATH_MAX_LEN
+            TRIEHASH_ENCODED_SIZE
         );
         return Err(Error::CorruptionError(format!(
             "Node path is longer than {} bytes (got {})",
-            TRIEPATH_MAX_LEN, lenbuf[0]
+            TRIEHASH_ENCODED_SIZE, lenbuf[0]
         )));
     }
 
@@ -326,7 +326,7 @@ pub fn read_nodetype_at_head_nohash<F: Read + Seek>(
 ///   node hash      id  ptrs & ptr data      path
 ///
 /// X is fixed and determined by the TrieNodeType variant.
-/// Y is variable, but no more than TriePath::len().
+/// Y is variable, but no more than TrieHash::len().
 ///
 /// If `read_hash` is false, then the contents of the node hash are undefined.
 fn inner_read_nodetype_at_head<F: Read + Seek>(
