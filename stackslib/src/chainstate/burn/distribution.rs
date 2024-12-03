@@ -450,7 +450,6 @@ mod tests {
     };
     use crate::chainstate::burn::ConsensusHash;
     use crate::chainstate::stacks::address::StacksAddressExtensions;
-    use crate::chainstate::stacks::index::TrieHashExtension;
     use crate::chainstate::stacks::StacksPublicKey;
     use crate::core::MINING_COMMITMENT_WINDOW;
 

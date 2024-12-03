@@ -106,7 +106,7 @@ fn test_migrate_existing_trie_blobs() {
             marf.begin(&last_block_header, &block_header).unwrap();
 
             for (key, value) in block_data.iter() {
-                let path = TriePath::from_key(key);
+                let path = TrieHash::from_key(key);
                 let leaf = TrieLeaf::from_value(&vec![], value.clone());
                 marf.insert_raw(path, leaf).unwrap();
             }
@@ -147,7 +147,7 @@ fn test_migrate_existing_trie_blobs() {
     // verify that we can read everything from the blobs
     for (i, block_data) in data.iter().enumerate() {
         for (key, value) in block_data.iter() {
-            let path = TriePath::from_key(key);
+            let path = TrieHash::from_key(key);
             let marf_leaf = TrieLeaf::from_value(&vec![], value.clone());
 
             let leaf = MARF::get_path(

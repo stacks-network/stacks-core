@@ -3986,7 +3986,7 @@ impl<'a> SortitionDBConn<'a> {
             tip,
             reward_cycle_id,
         )?;
-        info!("Fetching preprocessed reward set";
+        debug!("Fetching preprocessed reward set";
               "tip_sortition_id" => %tip,
               "reward_cycle_id" => reward_cycle_id,
               "prepare_phase_start_sortition_id" => %first_sortition,
@@ -6601,7 +6601,6 @@ pub mod tests {
         BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
     };
     use crate::chainstate::burn::ConsensusHash;
-    use crate::chainstate::stacks::index::TrieHashExtension;
     use crate::chainstate::stacks::StacksPublicKey;
     use crate::core::{StacksEpochExtension, *};
     use crate::util_lib::db::Error as db_error;
