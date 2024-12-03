@@ -19,6 +19,7 @@ use std::time::{Duration, Instant};
 
 use clarity::boot_util::boot_code_id;
 use clarity::vm::types::PrincipalData;
+use lazy_static::lazy_static;
 use libsigner::v0::messages::{MinerSlotID, SignerMessage};
 use libsigner::StackerDBSession;
 use rand::{thread_rng, Rng};
@@ -50,14 +51,21 @@ use super::relayer::RelayerThread;
 use super::sign_coordinator::SignCoordinator;
 use super::{Config, Error as NakamotoNodeError, EventDispatcher, Keychain};
 use crate::nakamoto_node::VRF_MOCK_MINER_KEY;
+#[cfg(test)]
+use crate::neon::TestFlag;
 use crate::neon_node;
 use crate::run_loop::nakamoto::Globals;
 use crate::run_loop::RegisteredKey;
 
 #[cfg(test)]
 pub static TEST_MINE_STALL: std::sync::Mutex<Option<bool>> = std::sync::Mutex::new(None);
+
 #[cfg(test)]
-pub static TEST_BROADCAST_STALL: std::sync::Mutex<Option<bool>> = std::sync::Mutex::new(None);
+lazy_static! {
+    /// Stall miner block proposals broadcast while this flag is set.
+    pub static ref TEST_BROADCAST_STALL: TestFlag = TestFlag::default();
+}
+
 #[cfg(test)]
 pub static TEST_BLOCK_ANNOUNCE_STALL: std::sync::Mutex<Option<bool>> = std::sync::Mutex::new(None);
 #[cfg(test)]
@@ -185,7 +193,7 @@ impl BlockMinerThread {
 
     #[cfg(test)]
     fn fault_injection_block_broadcast_stall(new_block: &NakamotoBlock) {
-        if *TEST_BROADCAST_STALL.lock().unwrap() == Some(true) {
+        if TEST_BROADCAST_STALL.get() {
             // Do an extra check just so we don't log EVERY time.
             warn!("Fault injection: Broadcasting is stalled due to testing directive.";
                       "stacks_block_id" => %new_block.block_id(),
@@ -193,7 +201,7 @@ impl BlockMinerThread {
                       "height" => new_block.header.chain_length,
                       "consensus_hash" => %new_block.header.consensus_hash
             );
-            while *TEST_BROADCAST_STALL.lock().unwrap() == Some(true) {
+            while TEST_BROADCAST_STALL.get() {
                 std::thread::sleep(std::time::Duration::from_millis(10));
             }
             info!("Fault injection: Broadcasting is no longer stalled due to testing directive.";

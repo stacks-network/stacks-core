@@ -419,25 +419,26 @@ impl SignerTest<SpawnedSigner> {
     }
 }
 
-fn last_block_contains_tenure_change_tx(cause: TenureChangeCause) -> bool {
+fn last_block_contains_tenure_change_tx(cause: TenureChangeCause) -> Option<bool> {
     let blocks = test_observer::get_blocks();
-    let last_block = &blocks.last().unwrap();
-    let transactions = last_block["transactions"].as_array().unwrap();
+    let last_block = &blocks.last()?;
+    let transactions = last_block["transactions"].as_array()?;
     let tx = transactions.first().expect("No transactions in block");
     let raw_tx = tx["raw_tx"].as_str().unwrap();
     let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
     let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
+
     match &parsed.payload {
         TransactionPayload::TenureChange(payload) if payload.cause == cause => {
             info!("Found tenure change transaction: {parsed:?}");
-            true
+            Some(true)
         }
-        _ => false,
+        _ => Some(false),
     }
 }
 
 fn verify_last_block_contains_tenure_change_tx(cause: TenureChangeCause) {
-    assert!(last_block_contains_tenure_change_tx(cause));
+    assert!(last_block_contains_tenure_change_tx(cause).unwrap_or(false));
 }
 
 #[test]
@@ -1003,7 +1004,7 @@ fn forked_tenure_testing(
         .unwrap();
 
     // For the next tenure, submit the commit op but do not allow any stacks blocks to be broadcasted
-    TEST_BROADCAST_STALL.lock().unwrap().replace(true);
+    TEST_BROADCAST_STALL.set(true);
     TEST_BLOCK_ANNOUNCE_STALL.lock().unwrap().replace(true);
     let blocks_before = mined_blocks.load(Ordering::SeqCst);
     let commits_before = commits_submitted.load(Ordering::SeqCst);
@@ -1027,7 +1028,7 @@ fn forked_tenure_testing(
         .running_nodes
         .nakamoto_test_skip_commit_op
         .set(true);
-    TEST_BROADCAST_STALL.lock().unwrap().replace(false);
+    TEST_BROADCAST_STALL.set(false);
 
     // Wait for a stacks block to be broadcasted
     let start_time = Instant::now();
@@ -1914,7 +1915,7 @@ fn miner_forking() {
 
     info!("------------------------- RL1 Wins Sortition -------------------------");
     info!("Pausing stacks block proposal to force an empty tenure commit from RL2");
-    TEST_BROADCAST_STALL.lock().unwrap().replace(true);
+    TEST_BROADCAST_STALL.set(true);
     let rl1_commits_before = commits_submitted_rl1.load(Ordering::SeqCst);
 
     info!("Unpausing commits from RL1");
@@ -1968,7 +1969,7 @@ fn miner_forking() {
 
     // unblock block mining
     let blocks_len = test_observer::get_blocks().len();
-    TEST_BROADCAST_STALL.lock().unwrap().replace(false);
+    TEST_BROADCAST_STALL.set(false);
 
     // Wait for the block to be broadcasted and processed
     wait_for(30, || Ok(test_observer::get_blocks().len() > blocks_len))
@@ -2009,9 +2010,7 @@ fn miner_forking() {
     .unwrap();
 
     wait_for(60, || {
-        Ok(last_block_contains_tenure_change_tx(
-            TenureChangeCause::Extended,
-        ))
+        Ok(last_block_contains_tenure_change_tx(TenureChangeCause::Extended).unwrap_or(false))
     })
     .expect("RL1 did not produce a tenure extend block");
 
@@ -2054,7 +2053,7 @@ fn miner_forking() {
 
     info!("------------------------- RL1 RBFs its Own Commit -------------------------");
     info!("Pausing stacks block proposal to test RBF capability");
-    TEST_BROADCAST_STALL.lock().unwrap().replace(true);
+    TEST_BROADCAST_STALL.set(true);
     let rl1_commits_before = commits_submitted_rl1.load(Ordering::SeqCst);
 
     info!("Unpausing commits from RL1");
@@ -2092,7 +2091,7 @@ fn miner_forking() {
     let rl1_commits_before = commits_submitted_rl1.load(Ordering::SeqCst);
     // unblock block mining
     let blocks_len = test_observer::get_blocks().len();
-    TEST_BROADCAST_STALL.lock().unwrap().replace(false);
+    TEST_BROADCAST_STALL.set(false);
 
     // Wait for the block to be broadcasted and processed
     wait_for(30, || Ok(test_observer::get_blocks().len() > blocks_len))
@@ -2547,12 +2546,9 @@ fn signers_broadcast_signed_blocks() {
 
 #[test]
 #[ignore]
-/// This test checks the behaviour of signers when a sortition is empty. Specifically:
-/// - An empty sortition will cause the signers to mark a miner as misbehaving once a timeout is exceeded.
-/// - The miner will stop trying to mine once it sees a threshold of signers reject the block
-/// - The empty sortition will trigger the miner to attempt a tenure extend.
-/// - Signers will accept the tenure extend and sign subsequent blocks built off the old sortition
-fn empty_sortition() {
+/// This test checks the behaviour of signers when a miner fails to propose a block within the configured timeout.
+/// - A miner will be marked as malicious if it fails to propose a block within the configured timeout
+fn delayed_miner_marked_malicious() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
     }
@@ -2574,7 +2570,8 @@ fn empty_sortition() {
         num_signers,
         vec![(sender_addr, send_amt + send_fee)],
         |config| {
-            // make the duration long enough that the miner will be marked as malicious
+            // make the duration short enough that the miner will be marked as malicious
+            // but long enough that the test doesn't prematurely mark a miner malicious during bootup
             config.block_proposal_timeout = block_proposal_timeout;
         },
         |_| {},
@@ -2586,12 +2583,14 @@ fn empty_sortition() {
 
     signer_test.boot_to_epoch_3();
 
-    TEST_BROADCAST_STALL.lock().unwrap().replace(true);
-
     info!("------------------------- Test Mine Regular Tenure A  -------------------------");
     let commits_before = signer_test
         .running_nodes
         .commits_submitted
+        .load(Ordering::SeqCst);
+    let blocks_before = signer_test
+        .running_nodes
+        .nakamoto_blocks_mined
         .load(Ordering::SeqCst);
     // Mine a regular tenure
     next_block_and(
@@ -2602,13 +2601,18 @@ fn empty_sortition() {
                 .running_nodes
                 .commits_submitted
                 .load(Ordering::SeqCst);
-            Ok(commits_count > commits_before)
+            let mined_blocks = signer_test
+                .running_nodes
+                .nakamoto_blocks_mined
+                .load(Ordering::SeqCst);
+            Ok(commits_count > commits_before && mined_blocks > blocks_before)
         },
     )
     .unwrap();
 
-    info!("------------------------- Test Mine Empty Tenure B  -------------------------");
-    info!("Pausing stacks block mining to trigger an empty sortition.");
+    info!("------------------------- Mine Empty Tenure B  -------------------------");
+    info!("Pausing miner's stacks block broadcast to force it to be marked malicious by signers.");
+    TEST_BROADCAST_STALL.set(true);
     let blocks_before = signer_test
         .running_nodes
         .nakamoto_blocks_mined
@@ -2632,99 +2636,182 @@ fn empty_sortition() {
     )
     .unwrap();
 
-    info!("Pausing stacks block proposal to force an empty tenure");
-    TEST_BROADCAST_STALL.lock().unwrap().replace(true);
+    std::thread::sleep(block_proposal_timeout.add(Duration::from_secs(1)));
+    // Clear All Signer Responses so we know we only have the latest to the delayed block
+    test_observer::clear();
+    TEST_BROADCAST_STALL.set(false);
 
-    info!("Pausing commit op to prevent tenure C from starting...");
-    signer_test
+    info!("------------------------- Test Delayed Block is Rejected  -------------------------");
+    // The miner's proposed block should get rejected by all the signers
+    wait_for(30, || {
+        let stackerdb_events = test_observer::get_stackerdb_chunks();
+        let block_rejections = stackerdb_events
+            .into_iter()
+            .flat_map(|chunk| chunk.modified_slots)
+            .filter_map(|chunk| {
+                let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
+                    .expect("Failed to deserialize SignerMessage");
+                if let SignerMessage::BlockResponse(BlockResponse::Rejected(BlockRejection {
+                    reason_code,
+                    metadata,
+                    signature,
+                    ..
+                })) = message
+                {
+                    assert!(matches!(reason_code, RejectCode::SortitionViewMismatch));
+                    assert_eq!(metadata.server_version, VERSION_STRING.to_string());
+                    Some(signature)
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+        Ok(block_rejections.len() == num_signers)
+    })
+    .expect("FAIL: Timed out waiting for block proposal rejections");
+
+    signer_test.shutdown();
+}
+
+#[test]
+#[ignore]
+/// This test checks the behaviour of signers when a miner fails to propose a block within the configured timeout and then attempts a tenure extend.
+/// - A miner will be marked as malicious if it fails to propose a block within the configured timeout
+/// - A miner will then attempt to extend its prior tenure.
+/// - Signers will accept the tenure extend and sign subsequent blocks built off the old sortition
+/// TODO: ADD THIS TO CI WHEN WE ACTUALLY TRIGGER A TENURE EXTEND IF WE FAIL TO MINE IN TIME
+fn delayed_miner_triggers_tenure_extend() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(EnvFilter::from_default_env())
+        .init();
+
+    info!("------------------------- Test Setup -------------------------");
+    let num_signers = 5;
+    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_addr = tests::to_addr(&sender_sk);
+    let send_amt = 100;
+    let send_fee = 180;
+    let recipient = PrincipalData::from(StacksAddress::burn_address(false));
+    let block_proposal_timeout = Duration::from_secs(20);
+    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
+        num_signers,
+        vec![(sender_addr, send_amt + send_fee)],
+        |config| {
+            // make the duration short enough that the miner will be marked as malicious
+            config.block_proposal_timeout = block_proposal_timeout;
+        },
+        |_| {},
+        None,
+        None,
+    );
+    let http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
+    let short_timeout = Duration::from_secs(20);
+
+    signer_test.boot_to_epoch_3();
+
+    info!("------------------------- Test Mine Regular Tenure A  -------------------------");
+    let commits_before = signer_test
         .running_nodes
-        .nakamoto_test_skip_commit_op
-        .set(true);
-
-    let blocks_after = signer_test
+        .commits_submitted
+        .load(Ordering::SeqCst);
+    let blocks_before = signer_test
         .running_nodes
         .nakamoto_blocks_mined
         .load(Ordering::SeqCst);
-    assert_eq!(blocks_after, blocks_before);
+    // Mine a regular tenure
+    next_block_and(
+        &mut signer_test.running_nodes.btc_regtest_controller,
+        60,
+        || {
+            let commits_count = signer_test
+                .running_nodes
+                .commits_submitted
+                .load(Ordering::SeqCst);
+            let mined_blocks = signer_test
+                .running_nodes
+                .nakamoto_blocks_mined
+                .load(Ordering::SeqCst);
+            Ok(commits_count > commits_before && mined_blocks > blocks_before)
+        },
+    )
+    .unwrap();
 
-    let rejected_before = signer_test
+    info!("------------------------- Mine Empty Tenure B  -------------------------");
+    info!("Pausing miner's stacks block broadcast to force it to be marked malicious by signers.");
+    TEST_BROADCAST_STALL.set(true);
+    let blocks_before = signer_test
         .running_nodes
-        .nakamoto_blocks_rejected
+        .nakamoto_blocks_mined
         .load(Ordering::SeqCst);
-
-    // submit a tx so that the miner will mine an extra block
-    let sender_nonce = 0;
-    let transfer_tx = make_stacks_transfer(
-        &sender_sk,
-        sender_nonce,
-        send_fee,
-        signer_test.running_nodes.conf.burnchain.chain_id,
-        &recipient,
-        send_amt,
-    );
-    submit_tx(&http_origin, &transfer_tx);
+    let commits_before = signer_test
+        .running_nodes
+        .commits_submitted
+        .load(Ordering::SeqCst);
+    // Start new Tenure B
+    // In the next block, the miner should win the tenure
+    next_block_and(
+        &mut signer_test.running_nodes.btc_regtest_controller,
+        60,
+        || {
+            let commits_count = signer_test
+                .running_nodes
+                .commits_submitted
+                .load(Ordering::SeqCst);
+            let blocks_proposed = signer_test
+                .running_nodes
+                .nakamoto_blocks_proposed
+                .load(Ordering::SeqCst);
+            Ok(commits_count > commits_before)
+        },
+    )
+    .unwrap();
 
     std::thread::sleep(block_proposal_timeout.add(Duration::from_secs(1)));
-
-    TEST_BROADCAST_STALL.lock().unwrap().replace(false);
+    // Clear All Signer Responses so we know we only have the latest to the delayed block
+    test_observer::clear();
+    TEST_BROADCAST_STALL.set(false);
 
     info!("------------------------- Test Delayed Block is Rejected  -------------------------");
-    let reward_cycle = signer_test.get_current_reward_cycle();
-    let mut stackerdb = StackerDB::new(
-        &signer_test.running_nodes.conf.node.rpc_bind,
-        StacksPrivateKey::new(), // We are just reading so don't care what the key is
-        false,
-        reward_cycle,
-        SignerSlotID(0), // We are just reading so again, don't care about index.
-    );
-
-    let signer_slot_ids: Vec<_> = signer_test
-        .get_signer_indices(reward_cycle)
-        .iter()
-        .map(|id| id.0)
-        .collect();
-    assert_eq!(signer_slot_ids.len(), num_signers);
-
     // The miner's proposed block should get rejected by all the signers
-    let mut found_rejections = Vec::new();
-    wait_for(short_timeout.as_secs(), || {
-        for slot_id in signer_slot_ids.iter() {
-            if found_rejections.contains(slot_id) {
-                continue;
-            }
-            let mut latest_msgs = StackerDB::get_messages(
-                stackerdb
-                    .get_session_mut(&MessageSlotID::BlockResponse)
-                    .expect("Failed to get BlockResponse stackerdb session"),
-                &[*slot_id]
-            ).expect("Failed to get message from stackerdb");
-            assert!(latest_msgs.len() <= 1);
-            let Some(latest_msg) = latest_msgs.pop() else {
-                info!("No message yet from slot #{slot_id}, will wait to try again");
-                continue;
-            };
-            if let SignerMessage::BlockResponse(BlockResponse::Rejected(BlockRejection {
-                reason_code,
-                metadata,
-                ..
-            })) = latest_msg
-            {
-                assert!(matches!(reason_code, RejectCode::SortitionViewMismatch));
-                assert_eq!(metadata.server_version, VERSION_STRING.to_string());
-                found_rejections.push(*slot_id);
-            } else {
-                info!("Latest message from slot #{slot_id} isn't a block rejection, will wait to see if the signer updates to a rejection");
-            }
-        }
-        let rejections = signer_test
-            .running_nodes
-            .nakamoto_blocks_rejected
-            .load(Ordering::SeqCst);
+    wait_for(30, || {
+        let stackerdb_events = test_observer::get_stackerdb_chunks();
+        let block_rejections = stackerdb_events
+            .into_iter()
+            .flat_map(|chunk| chunk.modified_slots)
+            .filter_map(|chunk| {
+                let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
+                    .expect("Failed to deserialize SignerMessage");
+                if let SignerMessage::BlockResponse(BlockResponse::Rejected(BlockRejection {
+                    reason_code,
+                    metadata,
+                    signature,
+                    ..
+                })) = message
+                {
+                    assert!(matches!(reason_code, RejectCode::SortitionViewMismatch));
+                    assert_eq!(metadata.server_version, VERSION_STRING.to_string());
+                    Some(signature)
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+        Ok(block_rejections.len() == num_signers)
+    })
+    .expect("FAIL: Timed out waiting for block proposal rejections");
 
-        // wait until we've found rejections for all the signers, and the miner has confirmed that
-        // the signers have rejected the block
-        Ok(found_rejections.len() == signer_slot_ids.len() && rejections > rejected_before)
-    }).unwrap();
+    info!("------------------------- Waiting for Tenure Extend Tx  -------------------------");
+    // Wait for a block with a tenure extend to be mined
+    wait_for(60, || {
+        Ok(last_block_contains_tenure_change_tx(TenureChangeCause::Extended).unwrap_or(false))
+    })
+    .expect("Timed out waiting for tenure extend");
+
     signer_test.shutdown();
 }
 
@@ -2847,9 +2934,7 @@ fn empty_sortition_before_approval() {
 
     // Wait for a block with a tenure extend to be mined
     wait_for(60, || {
-        Ok(last_block_contains_tenure_change_tx(
-            TenureChangeCause::Extended,
-        ))
+        Ok(last_block_contains_tenure_change_tx(TenureChangeCause::Extended).unwrap_or(false))
     })
     .expect("Timed out waiting for tenure extend");
 

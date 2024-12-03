@@ -98,7 +98,7 @@ jobs:
           - tests::signer::v0::end_of_tenure
           - tests::signer::v0::forked_tenure_okay
           - tests::signer::v0::forked_tenure_invalid
-          - tests::signer::v0::empty_sortition
+          - tests::signer::v0::delayed_miner_marked_malicious
           - tests::signer::v0::empty_sortition_before_approval
           - tests::signer::v0::empty_sortition_before_proposal
           - tests::signer::v0::bitcoind_forking_test

@@ -4973,7 +4973,7 @@ fn forked_tenure_is_ignored() {
 
     // For the next tenure, submit the commit op but do not allow any stacks blocks to be broadcasted.
     // Stall the miner thread; only wait until the number of submitted commits increases.
-    TEST_BROADCAST_STALL.lock().unwrap().replace(true);
+    TEST_BROADCAST_STALL.set(true);
     TEST_BLOCK_ANNOUNCE_STALL.lock().unwrap().replace(true);
     let blocks_before = mined_blocks.load(Ordering::SeqCst);
     let commits_before = commits_submitted.load(Ordering::SeqCst);
@@ -4991,7 +4991,7 @@ fn forked_tenure_is_ignored() {
     // Unpause the broadcast of Tenure B's block, do not submit commits, and do not allow blocks to
     // be processed
     test_skip_commit_op.set(true);
-    TEST_BROADCAST_STALL.lock().unwrap().replace(false);
+    TEST_BROADCAST_STALL.set(false);
 
     // Wait for a stacks block to be broadcasted.
     // However, it will not be processed.
