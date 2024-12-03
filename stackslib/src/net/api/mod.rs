@@ -67,6 +67,7 @@ pub mod getstxtransfercost;
 pub mod gettenure;
 pub mod gettenureinfo;
 pub mod gettenuretip;
+pub mod gettransaction;
 pub mod gettransaction_unconfirmed;
 pub mod liststackerdbreplicas;
 pub mod postblock;
@@ -133,6 +134,7 @@ impl StacksHttp {
         self.register_rpc_endpoint(
             gettransaction_unconfirmed::RPCGetTransactionUnconfirmedRequestHandler::new(),
         );
+        self.register_rpc_endpoint(gettransaction::RPCGetTransactionRequestHandler::new());
         self.register_rpc_endpoint(getsigner::GetSignerRequestHandler::default());
         self.register_rpc_endpoint(
             liststackerdbreplicas::RPCListStackerDBReplicasRequestHandler::new(),

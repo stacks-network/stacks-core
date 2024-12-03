@@ -130,6 +130,7 @@ pub fn http_error_from_code_and_text(code: u16, message: String) -> Box<dyn Http
         403 => Box::new(HttpForbidden::new(message)),
         404 => Box::new(HttpNotFound::new(message)),
         500 => Box::new(HttpServerError::new(message)),
+        501 => Box::new(HttpNotImplemented::new(message)),
         503 => Box::new(HttpServiceUnavailable::new(message)),
         _ => Box::new(HttpError::new(code, message)),
     }
@@ -306,6 +307,33 @@ impl HttpServerError {
 impl HttpErrorResponse for HttpServerError {
     fn code(&self) -> u16 {
         500
+    }
+    fn payload(&self) -> HttpResponsePayload {
+        HttpResponsePayload::Text(self.error_text.clone())
+    }
+    fn try_parse_response(
+        &self,
+        preamble: &HttpResponsePreamble,
+        body: &[u8],
+    ) -> Result<HttpResponsePayload, Error> {
+        try_parse_error_response(preamble.status_code, preamble.content_type, body)
+    }
+}
+
+/// HTTP 501
+pub struct HttpNotImplemented {
+    error_text: String,
+}
+
+impl HttpNotImplemented {
+    pub fn new(error_text: String) -> Self {
+        Self { error_text }
+    }
+}
+
+impl HttpErrorResponse for HttpNotImplemented {
+    fn code(&self) -> u16 {
+        501
     }
     fn payload(&self) -> HttpResponsePayload {
         HttpResponsePayload::Text(self.error_text.clone())
