@@ -1327,6 +1327,14 @@ impl ExecutionCost {
             read_length: first.read_length.max(second.read_length),
         }
     }
+
+    pub fn is_zero(&self) -> bool {
+        self.write_length == 0
+            && self.write_count == 0
+            && self.read_length == 0
+            && self.read_count == 0
+            && self.runtime == 0
+    }
 }
 
 // ONLY WORKS IF INPUT IS u64
