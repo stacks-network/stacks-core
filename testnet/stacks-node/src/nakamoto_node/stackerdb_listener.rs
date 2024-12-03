@@ -199,6 +199,7 @@ impl StackerDBListener {
             let event = match receiver.recv_timeout(EVENT_RECEIVER_POLL) {
                 Ok(event) => event,
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                    debug!("StackerDBListener: No StackerDB event received. Checking flags and polling again.");
                     continue;
                 }
                 Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
