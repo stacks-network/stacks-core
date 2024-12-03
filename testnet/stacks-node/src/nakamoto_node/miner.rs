@@ -138,7 +138,7 @@ pub struct BlockMinerThread {
     burnchain: Burnchain,
     /// Last block mined
     last_block_mined: Option<NakamotoBlock>,
-    /// Number of blocks mined in this tenure
+    /// Number of blocks mined since a tenure change/extend
     mined_blocks: u64,
     /// Copy of the node's registered VRF key
     registered_key: RegisteredKey,
