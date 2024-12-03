@@ -20,6 +20,8 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
 use hashbrown::{HashMap, HashSet};
+#[cfg(test)]
+use lazy_static::lazy_static;
 use libsigner::v0::messages::{BlockAccepted, BlockResponse, SignerMessage as SignerMessageV0};
 use libsigner::SignerEvent;
 use stacks::burnchains::Burnchain;
@@ -35,11 +37,15 @@ use stacks::util::secp256k1::MessageSignature;
 
 use super::Error as NakamotoNodeError;
 use crate::event_dispatcher::StackerDBChannel;
-
-/// Fault injection flag to prevent the miner from seeing enough signer signatures.
-/// Used to test that the signers will broadcast a block if it gets enough signatures
 #[cfg(test)]
-pub static TEST_IGNORE_SIGNERS: std::sync::Mutex<Option<bool>> = std::sync::Mutex::new(None);
+use crate::neon::TestFlag;
+
+#[cfg(test)]
+lazy_static! {
+    /// Fault injection flag to prevent the miner from seeing enough signer signatures.
+    /// Used to test that the signers will broadcast a block if it gets enough signatures
+    pub static ref TEST_IGNORE_SIGNERS: TestFlag = TestFlag::default();
+}
 
 /// How long should the coordinator poll on the event receiver before
 /// waking up to check timeouts?
@@ -440,10 +446,7 @@ impl StackerDBListener {
     /// Do we ignore signer signatures?
     #[cfg(test)]
     fn fault_injection_ignore_signatures() -> bool {
-        if *TEST_IGNORE_SIGNERS.lock().unwrap() == Some(true) {
-            return true;
-        }
-        false
+        TEST_IGNORE_SIGNERS.get()
     }
 
     #[cfg(not(test))]

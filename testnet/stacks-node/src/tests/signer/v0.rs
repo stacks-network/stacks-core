@@ -2513,7 +2513,7 @@ fn signers_broadcast_signed_blocks() {
     })
     .expect("Timed out waiting for first nakamoto block to be mined");
 
-    TEST_IGNORE_SIGNERS.lock().unwrap().replace(true);
+    TEST_IGNORE_SIGNERS.set(true);
     let blocks_before = signer_test
         .running_nodes
         .nakamoto_blocks_mined
@@ -2798,7 +2798,7 @@ fn empty_sortition_before_approval() {
     let stacks_height_before = info.stacks_tip_height;
 
     info!("Forcing miner to ignore signatures for next block");
-    TEST_IGNORE_SIGNERS.lock().unwrap().replace(true);
+    TEST_IGNORE_SIGNERS.set(true);
 
     info!("Pausing block commits to trigger an empty sortition.");
     signer_test
@@ -2851,7 +2851,7 @@ fn empty_sortition_before_approval() {
         .replace(false);
 
     info!("Stop ignoring signers and wait for the tip to advance");
-    TEST_IGNORE_SIGNERS.lock().unwrap().replace(false);
+    TEST_IGNORE_SIGNERS.set(false);
 
     wait_for(60, || {
         let info = get_chain_info(&signer_test.running_nodes.conf);
@@ -5608,7 +5608,7 @@ fn miner_recovers_when_broadcast_block_delay_across_tenures_occurs() {
     // broadcasted to the miner so it can end its tenure before block confirmation obtained
     // Clear the stackerdb chunks
     info!("Forcing miner to ignore block responses for block N+1");
-    TEST_IGNORE_SIGNERS.lock().unwrap().replace(true);
+    TEST_IGNORE_SIGNERS.set(true);
     info!("Delaying signer block N+1 broadcasting to the miner");
     TEST_PAUSE_BLOCK_BROADCAST.lock().unwrap().replace(true);
     test_observer::clear();
@@ -5735,7 +5735,7 @@ fn miner_recovers_when_broadcast_block_delay_across_tenures_occurs() {
     .expect("Timed out waiting for block proposal of N+1' block proposal");
 
     info!("Allowing miner to accept block responses again. ");
-    TEST_IGNORE_SIGNERS.lock().unwrap().replace(false);
+    TEST_IGNORE_SIGNERS.set(false);
     info!("Allowing signers to broadcast block N+1 to the miner");
     TEST_PAUSE_BLOCK_BROADCAST.lock().unwrap().replace(false);
 
