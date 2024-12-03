@@ -138,7 +138,7 @@ pub struct BlockMinerThread {
     burnchain: Burnchain,
     /// Last block mined
     last_block_mined: Option<NakamotoBlock>,
-    /// Number of blocks mined in this tenure
+    /// Number of blocks mined since a tenure change/extend
     mined_blocks: u64,
     /// Copy of the node's registered VRF key
     registered_key: RegisteredKey,
@@ -328,6 +328,7 @@ impl BlockMinerThread {
                 &sortdb,
                 &mut stackerdbs,
                 &mut last_block_rejected,
+                &reward_set,
             ) {
                 // Before stopping this miner, shutdown the coordinator thread.
                 coordinator.shutdown();
@@ -344,6 +345,7 @@ impl BlockMinerThread {
         sortdb: &SortitionDB,
         stackerdbs: &mut StackerDBs,
         last_block_rejected: &mut bool,
+        reward_set: &RewardSet,
     ) -> Result<(), NakamotoNodeError> {
         #[cfg(test)]
         if *TEST_MINE_STALL.lock().unwrap() == Some(true) {
@@ -470,8 +472,6 @@ impl BlockMinerThread {
                 },
             };
             *last_block_rejected = false;
-
-            let reward_set = self.load_signer_set()?;
 
             new_block.header.signer_signature = signer_signature;
             if let Err(e) = self.broadcast(new_block.clone(), reward_set, &stackerdbs) {
@@ -612,7 +612,7 @@ impl BlockMinerThread {
         sort_db: &SortitionDB,
         chain_state: &mut StacksChainState,
         block: &NakamotoBlock,
-        reward_set: RewardSet,
+        reward_set: &RewardSet,
     ) -> Result<(), ChainstateError> {
         if Self::fault_injection_skip_block_broadcast() {
             warn!(
@@ -669,7 +669,7 @@ impl BlockMinerThread {
     fn broadcast(
         &mut self,
         block: NakamotoBlock,
-        reward_set: RewardSet,
+        reward_set: &RewardSet,
         stackerdbs: &StackerDBs,
     ) -> Result<(), NakamotoNodeError> {
         let mut chain_state = neon_node::open_chainstate_with_faults(&self.config)
