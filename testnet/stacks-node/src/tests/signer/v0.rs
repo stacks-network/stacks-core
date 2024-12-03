@@ -43,7 +43,7 @@ use stacks::net::api::postblock_proposal::{ValidateRejectCode, TEST_VALIDATE_STA
 use stacks::net::relay::fault_injection::set_ignore_block;
 use stacks::types::chainstate::{StacksAddress, StacksBlockId, StacksPrivateKey, StacksPublicKey};
 use stacks::types::PublicKey;
-use stacks::util::hash::{hex_bytes, Hash160, MerkleHashFunc};
+use stacks::util::hash::{hex_bytes, Hash160, MerkleHashFunc, MerkleTree, Sha512Trunc256Sum};
 use stacks::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 use stacks::util_lib::boot::boot_code_id;
 use stacks::util_lib::signed_structured_data::pox4::{
@@ -56,8 +56,8 @@ use stacks_signer::chainstate::{ProposalEvalConfig, SortitionsView};
 use stacks_signer::client::{SignerSlotID, StackerDB};
 use stacks_signer::config::{build_signer_config_tomls, GlobalConfig as SignerConfig, Network};
 use stacks_signer::v0::signer::{
-    TEST_IGNORE_ALL_BLOCK_PROPOSALS, TEST_PAUSE_BLOCK_BROADCAST, TEST_REJECT_ALL_BLOCK_PROPOSAL,
-    TEST_SKIP_BLOCK_BROADCAST,
+    TEST_IGNORE_ALL_BLOCK_PROPOSALS, TEST_IGNORE_BLOCK_RESPONSES, TEST_PAUSE_BLOCK_BROADCAST,
+    TEST_REJECT_ALL_BLOCK_PROPOSAL, TEST_SKIP_BLOCK_BROADCAST,
 };
 use stacks_signer::v0::SpawnedSigner;
 use tracing_subscriber::prelude::*;
@@ -65,7 +65,7 @@ use tracing_subscriber::{fmt, EnvFilter};
 
 use super::SignerTest;
 use crate::config::{EventKeyType, EventObserverConfig};
-use crate::event_dispatcher::MinedNakamotoBlockEvent;
+use crate::event_dispatcher::{MinedNakamotoBlockEvent, TEST_SKIP_BLOCK_ANNOUNCEMENT};
 use crate::nakamoto_node::miner::{
     TEST_BLOCK_ANNOUNCE_STALL, TEST_BROADCAST_STALL, TEST_MINE_STALL,
 };
@@ -375,7 +375,7 @@ impl SignerTest<SpawnedSigner> {
         }
     }
 
-    /// Propose an invalid block to the signers
+    /// Propose a block to the signers
     fn propose_block(&mut self, block: NakamotoBlock, timeout: Duration) {
         let miners_contract_id = boot_code_id(MINERS_NAME, false);
         let mut session =
@@ -385,6 +385,7 @@ impl SignerTest<SpawnedSigner> {
             .btc_regtest_controller
             .get_headers_height();
         let reward_cycle = self.get_current_reward_cycle();
+        let signer_signature_hash = block.header.signer_signature_hash();
         let message = SignerMessage::BlockProposal(BlockProposal {
             block,
             burn_height,
@@ -401,7 +402,7 @@ impl SignerTest<SpawnedSigner> {
         let mut version = 0;
         let slot_id = MinerSlotID::BlockProposal.to_u8() as u32;
         let start = Instant::now();
-        debug!("Proposing invalid block to signers");
+        debug!("Proposing block to signers: {signer_signature_hash}");
         while !accepted {
             let mut chunk =
                 StackerDBChunkData::new(slot_id * 2, version, message.serialize_to_vec());
@@ -8556,4 +8557,253 @@ fn tenure_extend_after_2_bad_commits() {
     run_loop_stopper_2.store(false, Ordering::SeqCst);
     run_loop_2_thread.join().unwrap();
     signer_test.shutdown();
+}
+
+#[test]
+#[ignore]
+/// Test that signers that reject a block locally, but that was accepted globally will accept
+/// only accept a block built upon it when they receive the new block event confirming their prior
+/// rejected block.
+///
+/// Test Setup:
+/// The test spins up five stacks signers, one miner Nakamoto node, and a corresponding bitcoind.
+/// The stacks node is then advanced to Epoch 3.0 boundary to allow block signing.
+///
+/// Test Execution:
+/// The node mines 1 stacks block N (all signers sign it). <30% of signers are configured to auto reject
+/// any block proposals, announcement of new blocks are skipped, and signatures ignored by signers.
+/// The subsequent block N+1 is proposed, triggering one of the <30% signers submit the block to the node
+/// for validation. The node will fail due to a bad block header hash mismatch (passes height checks)
+///
+/// Test Assertion:
+/// - All signers accepted block N.
+/// - Less than 30% of the signers rejected block N+1.
+/// - The 30% of signers that rejected block N+1, will submit the block for validation
+/// as it passes preliminary checks (even though its a sister block, it is a sister block to a locally rejected block)
+fn global_acceptance_depends_on_block_announcement() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(EnvFilter::from_default_env())
+        .init();
+
+    info!("------------------------- Test Setup -------------------------");
+    let num_signers = 5;
+    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_addr = tests::to_addr(&sender_sk);
+    let send_amt = 100;
+    let send_fee = 180;
+    let nmb_txs = 4;
+
+    let recipient = PrincipalData::from(StacksAddress::burn_address(false));
+    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new(
+        num_signers,
+        vec![(sender_addr, (send_amt + send_fee) * nmb_txs)],
+    );
+
+    let all_signers: Vec<_> = signer_test
+        .signer_stacks_private_keys
+        .iter()
+        .map(StacksPublicKey::from_private)
+        .collect();
+
+    let http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
+    let short_timeout = 30;
+    signer_test.boot_to_epoch_3();
+
+    info!("------------------------- Test Mine Nakamoto Block N -------------------------");
+    let info_before = signer_test
+        .stacks_client
+        .get_peer_info()
+        .expect("Failed to get peer info");
+
+    test_observer::clear();
+    // submit a tx so that the miner will mine a stacks block N
+    let mut sender_nonce = 0;
+    let transfer_tx = make_stacks_transfer(
+        &sender_sk,
+        sender_nonce,
+        send_fee,
+        signer_test.running_nodes.conf.burnchain.chain_id,
+        &recipient,
+        send_amt,
+    );
+    let tx = submit_tx(&http_origin, &transfer_tx);
+    sender_nonce += 1;
+    info!("Submitted tx {tx} in to mine block N");
+
+    wait_for(short_timeout, || {
+        Ok(signer_test
+            .stacks_client
+            .get_peer_info()
+            .expect("Failed to get peer info")
+            .stacks_tip_height
+            > info_before.stacks_tip_height)
+    })
+    .expect("Timed out waiting for N to be mined and processed");
+
+    let info_after = signer_test
+        .stacks_client
+        .get_peer_info()
+        .expect("Failed to get peer info");
+    assert_eq!(
+        info_before.stacks_tip_height + 1,
+        info_after.stacks_tip_height
+    );
+
+    // Ensure that the block was accepted globally so the stacks tip has advanced to N
+    let nakamoto_blocks = test_observer::get_mined_nakamoto_blocks();
+    let block_n = nakamoto_blocks.last().unwrap();
+    assert_eq!(info_after.stacks_tip.to_string(), block_n.block_hash);
+
+    // Make sure that ALL signers accepted the block proposal
+    signer_test
+        .wait_for_block_acceptance(short_timeout, &block_n.signer_signature_hash, &all_signers)
+        .expect("Timed out waiting for block acceptance of N");
+
+    info!("------------------------- Mine Nakamoto Block N+1 -------------------------");
+    // Make less than 30% of the signers reject the block and ensure it is accepted by the node, but not announced.
+    let rejecting_signers: Vec<_> = all_signers
+        .iter()
+        .cloned()
+        .take(num_signers * 3 / 10)
+        .collect();
+    let non_rejecting_signers = all_signers[num_signers * 3 / 10..].to_vec();
+    TEST_REJECT_ALL_BLOCK_PROPOSAL
+        .lock()
+        .unwrap()
+        .replace(rejecting_signers.clone());
+    TEST_SKIP_BLOCK_ANNOUNCEMENT.lock().unwrap().replace(true);
+    TEST_IGNORE_BLOCK_RESPONSES.lock().unwrap().replace(true);
+    TEST_IGNORE_SIGNERS.lock().unwrap().replace(true);
+    test_observer::clear();
+
+    // submit a tx so that the miner will mine a stacks block N+1
+    let info_before = signer_test
+        .stacks_client
+        .get_peer_info()
+        .expect("Failed to get peer info");
+    let transfer_tx = make_stacks_transfer(
+        &sender_sk,
+        sender_nonce,
+        send_fee,
+        signer_test.running_nodes.conf.burnchain.chain_id,
+        &recipient,
+        send_amt,
+    );
+    let tx = submit_tx(&http_origin, &transfer_tx);
+    info!("Submitted tx {tx} in to mine block N+1");
+
+    let mut proposed_block = None;
+    let start_time = Instant::now();
+    while proposed_block.is_none() && start_time.elapsed() < Duration::from_secs(30) {
+        proposed_block = test_observer::get_stackerdb_chunks()
+            .into_iter()
+            .flat_map(|chunk| chunk.modified_slots)
+            .find_map(|chunk| {
+                let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
+                    .expect("Failed to deserialize SignerMessage");
+                match message {
+                    SignerMessage::BlockProposal(proposal) => {
+                        if proposal.block.header.consensus_hash
+                            == info_before.stacks_tip_consensus_hash
+                        {
+                            Some(proposal.block)
+                        } else {
+                            None
+                        }
+                    }
+                    _ => None,
+                }
+            });
+    }
+    let proposed_block = proposed_block.expect("Failed to find proposed block within 30s");
+
+    signer_test
+        .wait_for_block_acceptance(
+            short_timeout,
+            &proposed_block.header.signer_signature_hash(),
+            &non_rejecting_signers,
+        )
+        .expect("Timed out waiting for block acceptance of N+1 by non rejecting signers");
+
+    signer_test
+        .wait_for_block_rejections(short_timeout, &rejecting_signers)
+        .expect("Timed out waiting for block rejection of N+1' from rejecting signers");
+
+    info!(
+        "------------------------- Attempt to Mine Nakamoto Block N+1' -------------------------"
+    );
+    TEST_REJECT_ALL_BLOCK_PROPOSAL
+        .lock()
+        .unwrap()
+        .replace(Vec::new());
+    test_observer::clear();
+
+    let mut sister_block = proposed_block;
+
+    let transfer_tx_bytes = make_stacks_transfer(
+        &sender_sk,
+        sender_nonce,
+        send_fee,
+        signer_test.running_nodes.conf.burnchain.chain_id,
+        &recipient,
+        send_amt * 2,
+    );
+    let tx = StacksTransaction::consensus_deserialize(&mut &transfer_tx_bytes[..]).unwrap();
+    let txs = vec![tx];
+    let txid_vecs = txs.iter().map(|tx| tx.txid().as_bytes().to_vec()).collect();
+
+    let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs);
+    let tx_merkle_root = merkle_tree.root();
+    sister_block.txs = txs;
+    sister_block.header.tx_merkle_root = tx_merkle_root;
+    sister_block
+        .header
+        .sign_miner(&signer_test.running_nodes.conf.miner.mining_key.unwrap())
+        .unwrap();
+    signer_test.propose_block(sister_block.clone(), Duration::from_secs(30));
+
+    wait_for(30, || {
+        let stackerdb_events = test_observer::get_stackerdb_chunks();
+        let block_rejections: HashSet<_> = stackerdb_events
+            .into_iter()
+            .flat_map(|chunk| chunk.modified_slots)
+            .filter_map(|chunk| {
+                let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
+                    .expect("Failed to deserialize SignerMessage");
+                match message {
+                    SignerMessage::BlockResponse(BlockResponse::Rejected(rejection)) => {
+                        let rejected_pubkey = rejection
+                            .recover_public_key()
+                            .expect("Failed to recover public key from rejection");
+                        // Proves that one of the rejecting signers actually submitted the block for validation as it passed its preliminary checks about chain length
+                        assert_eq!(
+                            rejection.reason_code,
+                            RejectCode::ValidationFailed(ValidateRejectCode::BadBlockHash)
+                        );
+                        Some(rejected_pubkey)
+                    }
+                    _ => None,
+                }
+            })
+            .collect::<HashSet<_>>();
+        Ok(block_rejections.len() == all_signers.len())
+    })
+    .expect("Timed out waiting for block rejections for N+1'");
+    // Assert the block was NOT mined and the tip has not changed.
+    let info_after = signer_test
+        .stacks_client
+        .get_peer_info()
+        .expect("Failed to get peer info");
+    assert_eq!(
+        info_after,
+        signer_test
+            .stacks_client
+            .get_peer_info()
+            .expect("Failed to get peer info")
+    );
 }
