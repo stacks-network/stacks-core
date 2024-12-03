@@ -1026,7 +1026,7 @@ impl SignerDb {
         let (tenure_start_time, tenure_process_time_ms) = self.get_tenure_times(tenure).inspect_err(|e| error!("Error occurred calculating tenure extend timestamp: {e:?}. Defaulting to {tenure_idle_timeout_secs} from now.")).unwrap_or((get_epoch_time_secs(), 0));
         tenure_start_time
             .saturating_add(tenure_idle_timeout_secs)
-            .saturating_sub(tenure_process_time_ms / 1000)
+            .saturating_add(tenure_process_time_ms / 1000)
     }
 }
 
@@ -1717,7 +1717,7 @@ mod tests {
             block_infos[0]
                 .proposed_time
                 .saturating_add(tenure_idle_timeout.as_secs())
-                .saturating_sub(3)
+                .saturating_add(3)
         );
 
         db.insert_block(&block_infos[2]).unwrap();
@@ -1730,7 +1730,7 @@ mod tests {
             block_infos[2]
                 .proposed_time
                 .saturating_add(tenure_idle_timeout.as_secs())
-                .saturating_sub(5)
+                .saturating_add(5)
         );
 
         db.insert_block(&block_infos[4]).unwrap();
@@ -1744,14 +1744,14 @@ mod tests {
             block_infos[4]
                 .proposed_time
                 .saturating_add(tenure_idle_timeout.as_secs())
-                .saturating_sub(20)
+                .saturating_add(20)
         );
 
         // Verify tenure consensus_hash_3 (unknown hash)
         let timestamp_hash_3 =
             db.calculate_tenure_extend_timestamp(tenure_idle_timeout, &consensus_hash_3);
         assert!(
-            timestamp_hash_3.saturating_sub(tenure_idle_timeout.as_secs())
+            timestamp_hash_3.saturating_add(tenure_idle_timeout.as_secs())
                 < block_infos[0].proposed_time
         );
     }
