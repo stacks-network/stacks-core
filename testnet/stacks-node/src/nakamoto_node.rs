@@ -44,7 +44,8 @@ use crate::run_loop::RegisteredKey;
 pub mod miner;
 pub mod peer;
 pub mod relayer;
-pub mod sign_coordinator;
+pub mod signer_coordinator;
+pub mod stackerdb_listener;
 
 use self::peer::PeerThread;
 use self::relayer::{RelayerDirective, RelayerThread};
