@@ -3987,7 +3987,7 @@ impl<'a> SortitionDBConn<'a> {
             tip,
             reward_cycle_id,
         )?;
-        info!("Fetching preprocessed reward set";
+        debug!("Fetching preprocessed reward set";
               "tip_sortition_id" => %tip,
               "reward_cycle_id" => reward_cycle_id,
               "prepare_phase_start_sortition_id" => %first_sortition,
