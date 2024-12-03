@@ -9,6 +9,10 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ### Added
 
+- New RPC endpoints
+  - `/v2/clarity/marf/:marf_key_hash`
+  - `/v2/clarity/metadata/:principal/:contract_name/:clarity_metadata_key`
+
 ### Changed
 
 
