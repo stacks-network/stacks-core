@@ -126,7 +126,7 @@ impl SignerTrait<SignerMessage> for Signer {
             Some(SignerEvent::BlockValidationResponse(_))
             | Some(SignerEvent::MinerMessages(..))
             | Some(SignerEvent::NewBurnBlock { .. })
-            | Some(SignerEvent::NewNakamotoBlock { .. })
+            | Some(SignerEvent::NewBlock { .. })
             | Some(SignerEvent::StatusCheck)
             | None => None,
             Some(SignerEvent::SignerMessages(msg_parity, ..)) => Some(u64::from(*msg_parity) % 2),
@@ -247,7 +247,7 @@ impl SignerTrait<SignerMessage> for Signer {
                     });
                 *sortition_state = None;
             }
-            SignerEvent::NewNakamotoBlock {
+            SignerEvent::NewBlock {
                 block_hash,
                 block_height,
             } => {
@@ -400,6 +400,7 @@ impl Signer {
             "burn_height" => block_proposal.burn_height,
         );
         crate::monitoring::increment_block_proposals_received();
+        #[allow(unused_mut)]
         let mut block_info = BlockInfo::from(block_proposal.clone());
 
         // Get sortition view if we don't have it
@@ -532,10 +533,6 @@ impl Signer {
         stacks_client: &StacksClient,
         block_response: &BlockResponse,
     ) {
-        #[cfg(any(test, feature = "testing"))]
-        if self.test_ignore_block_responses(block_response) {
-            return;
-        }
         match block_response {
             BlockResponse::Accepted(accepted) => {
                 self.handle_block_signature(stacks_client, accepted);

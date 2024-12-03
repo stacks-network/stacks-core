@@ -70,10 +70,6 @@ use url::Url;
 
 use super::config::{EventKeyType, EventObserverConfig};
 
-#[cfg(test)]
-pub static TEST_SKIP_BLOCK_ANNOUNCEMENT: std::sync::Mutex<Option<bool>> =
-    std::sync::Mutex::new(None);
-
 #[derive(Debug, Clone)]
 struct EventObserver {
     /// Path to the database where pending payloads are stored. If `None`, then
@@ -1303,11 +1299,6 @@ impl EventDispatcher {
 
             let mature_rewards = serde_json::Value::Array(mature_rewards_vec);
 
-            #[cfg(any(test, feature = "testing"))]
-            if test_skip_block_announcement(&block) {
-                return;
-            }
-
             for (observer_id, filtered_events_ids) in dispatch_matrix.iter().enumerate() {
                 let filtered_events: Vec<_> = filtered_events_ids
                     .iter()
@@ -1702,18 +1693,6 @@ impl EventDispatcher {
 
         self.registered_observers.push(event_observer);
     }
-}
-
-#[cfg(any(test, feature = "testing"))]
-fn test_skip_block_announcement(block: &StacksBlockEventData) -> bool {
-    if *TEST_SKIP_BLOCK_ANNOUNCEMENT.lock().unwrap() == Some(true) {
-        warn!(
-            "Skipping new block announcement due to testing directive";
-            "block_hash" => %block.block_hash
-        );
-        return true;
-    }
-    false
 }
 
 #[cfg(test)]

@@ -114,8 +114,8 @@ pub enum SignerEvent<T: SignerEventTrait> {
         /// the time at which this event was received by the signer's event processor
         received_time: SystemTime,
     },
-    /// A new processed Nakamoto block was received from the node with the given block hash
-    NewNakamotoBlock {
+    /// A new processed Stacks block was received from the node with the given block hash
+    NewBlock {
         /// The block header hash for the newly processed stacks block
         block_hash: Sha512Trunc256Sum,
         /// The block height for the newly processed stacks block
@@ -568,7 +568,7 @@ fn process_new_block<T: SignerEventTrait>(
             Sha512Trunc256Sum::from_hex(hex)
                 .map_err(|e| EventError::Deserialize(format!("Invalid hex string: {e}")))
         })?;
-    let event = SignerEvent::NewNakamotoBlock {
+    let event = SignerEvent::NewBlock {
         block_hash,
         block_height: temp.block_height,
     };

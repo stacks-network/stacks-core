@@ -230,10 +230,10 @@ impl BlockInfo {
         }
         match state {
             BlockState::Unprocessed => false,
-            BlockState::LocallyAccepted | BlockState::LocallyRejected => {
-                !matches!(prev_state, BlockState::GloballyRejected)
-                    && !matches!(prev_state, BlockState::GloballyAccepted)
-            }
+            BlockState::LocallyAccepted | BlockState::LocallyRejected => !matches!(
+                prev_state,
+                BlockState::GloballyRejected | BlockState::GloballyAccepted
+            ),
             BlockState::GloballyAccepted => !matches!(prev_state, BlockState::GloballyRejected),
             BlockState::GloballyRejected => !matches!(prev_state, BlockState::GloballyAccepted),
         }
