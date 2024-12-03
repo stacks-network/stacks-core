@@ -64,11 +64,6 @@ pub static TEST_PAUSE_BLOCK_BROADCAST: std::sync::Mutex<Option<bool>> = std::syn
 /// Skip broadcasting the block to the network
 pub static TEST_SKIP_BLOCK_BROADCAST: std::sync::Mutex<Option<bool>> = std::sync::Mutex::new(None);
 
-#[cfg(any(test, feature = "testing"))]
-/// Skip any block responses from other signers
-pub static TEST_IGNORE_BLOCK_RESPONSES: std::sync::Mutex<Option<bool>> =
-    std::sync::Mutex::new(None);
-
 /// The stacks signer registered for the reward cycle
 #[derive(Debug)]
 pub struct Signer {
@@ -1127,18 +1122,6 @@ impl Signer {
         } else {
             None
         }
-    }
-
-    #[cfg(any(test, feature = "testing"))]
-    fn test_ignore_block_responses(&self, block_response: &BlockResponse) -> bool {
-        if *TEST_IGNORE_BLOCK_RESPONSES.lock().unwrap() == Some(true) {
-            warn!(
-                "{self}: Ignoring block response due to testing directive";
-                "block_response" => %block_response
-            );
-            return true;
-        }
-        false
     }
 
     #[cfg(any(test, feature = "testing"))]
