@@ -23,19 +23,19 @@ use crate::vm::analysis::type_checker::is_reserved_word;
 use crate::vm::analysis::types::ContractAnalysis;
 use crate::vm::contexts::MAX_CONTEXT_DEPTH;
 use crate::vm::representations::{ClarityName, SymbolicExpression};
-use crate::vm::types::signatures::{CallableSubtype, FunctionSignature};
+use crate::vm::types::signatures::{CallableSubtype, FunctionSignature, MethodSignature};
 use crate::vm::types::{FunctionType, QualifiedContractIdentifier, TraitIdentifier, TypeSignature};
 use crate::vm::ClarityVersion;
 
 enum TraitContext {
     /// Traits stored in this context use the trait type-checking behavior defined in Clarity1
-    Clarity1(HashMap<ClarityName, BTreeMap<ClarityName, FunctionSignature>>),
+    Clarity1(HashMap<ClarityName, BTreeMap<ClarityName, MethodSignature>>),
     /// Traits stored in this context use the new trait type-checking behavior defined in Clarity2
     Clarity2 {
         /// Aliases for locally defined traits and traits imported with `use-trait`
         defined: HashSet<ClarityName>,
         /// All traits which are defined or used in a contract
-        all: HashMap<TraitIdentifier, BTreeMap<ClarityName, FunctionSignature>>,
+        all: HashMap<TraitIdentifier, BTreeMap<ClarityName, MethodSignature>>,
     },
 }
 
@@ -61,7 +61,7 @@ impl TraitContext {
         &mut self,
         contract_identifier: QualifiedContractIdentifier,
         trait_name: ClarityName,
-        trait_signature: BTreeMap<ClarityName, FunctionSignature>,
+        trait_signature: BTreeMap<ClarityName, MethodSignature>,
     ) -> CheckResult<()> {
         match self {
             Self::Clarity1(map) => {
@@ -85,7 +85,7 @@ impl TraitContext {
         &mut self,
         alias: ClarityName,
         trait_id: TraitIdentifier,
-        trait_signature: BTreeMap<ClarityName, FunctionSignature>,
+        trait_signature: BTreeMap<ClarityName, MethodSignature>,
     ) -> CheckResult<()> {
         match self {
             Self::Clarity1(map) => {
@@ -102,7 +102,7 @@ impl TraitContext {
     pub fn get_trait(
         &self,
         trait_id: &TraitIdentifier,
-    ) -> Option<&BTreeMap<ClarityName, FunctionSignature>> {
+    ) -> Option<&BTreeMap<ClarityName, MethodSignature>> {
         match self {
             Self::Clarity1(map) => map.get(&trait_id.name),
             Self::Clarity2 { defined: _, all } => all.get(trait_id),
@@ -284,7 +284,7 @@ impl ContractContext {
     pub fn add_defined_trait(
         &mut self,
         trait_name: ClarityName,
-        trait_signature: BTreeMap<ClarityName, FunctionSignature>,
+        trait_signature: BTreeMap<ClarityName, MethodSignature>,
     ) -> CheckResult<()> {
         if self.clarity_version >= ClarityVersion::Clarity3 {
             self.check_name_used(&trait_name)?;
@@ -301,7 +301,7 @@ impl ContractContext {
         &mut self,
         alias: ClarityName,
         trait_id: TraitIdentifier,
-        trait_signature: BTreeMap<ClarityName, FunctionSignature>,
+        trait_signature: BTreeMap<ClarityName, MethodSignature>,
     ) -> CheckResult<()> {
         if self.clarity_version >= ClarityVersion::Clarity3 {
             self.check_name_used(&alias)?;
@@ -318,7 +318,7 @@ impl ContractContext {
     pub fn get_trait(
         &self,
         trait_id: &TraitIdentifier,
-    ) -> Option<&BTreeMap<ClarityName, FunctionSignature>> {
+    ) -> Option<&BTreeMap<ClarityName, MethodSignature>> {
         self.traits.get_trait(trait_id)
     }
 

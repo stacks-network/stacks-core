@@ -25,6 +25,7 @@ use stacks_common::consts::CHAIN_ID_TESTNET;
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::StacksEpochId;
 
+use super::types::signatures::MethodSignature;
 use super::EvalHook;
 use crate::vm::ast::{ASTRules, ContractAST};
 use crate::vm::callables::{DefinedFunction, FunctionIdentifier};
@@ -210,7 +211,7 @@ pub struct ContractContext {
     pub contract_identifier: QualifiedContractIdentifier,
     pub variables: HashMap<ClarityName, Value>,
     pub functions: HashMap<ClarityName, DefinedFunction>,
-    pub defined_traits: HashMap<ClarityName, BTreeMap<ClarityName, FunctionSignature>>,
+    pub defined_traits: HashMap<ClarityName, BTreeMap<ClarityName, MethodSignature>>,
     pub implemented_traits: HashSet<TraitIdentifier>,
     // tracks the names of NFTs, FTs, Maps, and Data Vars.
     //  used for ensuring that they never are defined twice.
@@ -1805,7 +1806,7 @@ impl ContractContext {
     pub fn lookup_trait_definition(
         &self,
         name: &str,
-    ) -> Option<BTreeMap<ClarityName, FunctionSignature>> {
+    ) -> Option<BTreeMap<ClarityName, MethodSignature>> {
         self.defined_traits.get(name).cloned()
     }
 
@@ -1974,7 +1975,7 @@ mod test {
     use crate::vm::tests::{
         test_epochs, tl_env_factory, MemoryEnvironmentGenerator, TopLevelMemoryEnvironmentGenerator,
     };
-    use crate::vm::types::signatures::CallableSubtype;
+    use crate::vm::types::signatures::{CallableSubtype, MethodType};
     use crate::vm::types::{FixedFunction, FunctionArg, FunctionType, StandardPrincipalData};
 
     #[test]
@@ -2186,12 +2187,13 @@ mod test {
         let mut trait_functions = BTreeMap::new();
         trait_functions.insert(
             "alpha".into(),
-            FunctionSignature {
+            MethodSignature {
                 args: vec![TypeSignature::TraitReferenceType(trait_id.clone())],
                 returns: TypeSignature::ResponseType(Box::new((
                     TypeSignature::UIntType,
                     TypeSignature::UIntType,
                 ))),
+                define_type: MethodType::NotDefined,
             },
         );
         contract_context

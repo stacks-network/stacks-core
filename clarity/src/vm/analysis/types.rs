@@ -24,7 +24,7 @@ use crate::vm::analysis::contract_interface_builder::ContractInterface;
 use crate::vm::analysis::errors::{CheckErrors, CheckResult};
 use crate::vm::analysis::type_checker::contexts::TypeMap;
 use crate::vm::costs::{CostTracker, ExecutionCost, LimitedCostTracker};
-use crate::vm::types::signatures::FunctionSignature;
+use crate::vm::types::signatures::{FunctionSignature, MethodSignature, MethodType};
 use crate::vm::types::{FunctionType, QualifiedContractIdentifier, TraitIdentifier, TypeSignature};
 use crate::vm::{ClarityName, ClarityVersion, SymbolicExpression};
 
@@ -52,7 +52,7 @@ pub struct ContractAnalysis {
     pub persisted_variable_types: BTreeMap<ClarityName, TypeSignature>,
     pub fungible_tokens: BTreeSet<ClarityName>,
     pub non_fungible_tokens: BTreeMap<ClarityName, TypeSignature>,
-    pub defined_traits: BTreeMap<ClarityName, BTreeMap<ClarityName, FunctionSignature>>,
+    pub defined_traits: BTreeMap<ClarityName, BTreeMap<ClarityName, MethodSignature>>,
     pub implemented_traits: BTreeSet<TraitIdentifier>,
     pub contract_interface: Option<ContractInterface>,
     pub is_cost_contract_eligible: bool,
@@ -153,7 +153,7 @@ impl ContractAnalysis {
     pub fn add_defined_trait(
         &mut self,
         name: ClarityName,
-        function_types: BTreeMap<ClarityName, FunctionSignature>,
+        function_types: BTreeMap<ClarityName, MethodSignature>,
     ) {
         self.defined_traits.insert(name, function_types);
     }
@@ -189,7 +189,7 @@ impl ContractAnalysis {
     pub fn get_defined_trait(
         &self,
         name: &str,
-    ) -> Option<&BTreeMap<ClarityName, FunctionSignature>> {
+    ) -> Option<&BTreeMap<ClarityName, MethodSignature>> {
         self.defined_traits.get(name)
     }
 
@@ -228,7 +228,7 @@ impl ContractAnalysis {
         &self,
         epoch: &StacksEpochId,
         trait_identifier: &TraitIdentifier,
-        trait_definition: &BTreeMap<ClarityName, FunctionSignature>,
+        trait_definition: &BTreeMap<ClarityName, MethodSignature>,
     ) -> CheckResult<()> {
         let trait_name = trait_identifier.name.to_string();
 
@@ -236,9 +236,12 @@ impl ContractAnalysis {
             match (
                 self.get_public_function_type(func_name),
                 self.get_read_only_function_type(func_name),
+                &expected_sig.define_type,
             ) {
-                (Some(FunctionType::Fixed(func)), None)
-                | (None, Some(FunctionType::Fixed(func))) => {
+                (None, Some(FunctionType::Fixed(func)), MethodType::ReadOnly)
+                | (Some(FunctionType::Fixed(func)), None, MethodType::Public)
+                | (None, Some(FunctionType::Fixed(func)), MethodType::NotDefined)
+                | (Some(FunctionType::Fixed(func)), None, MethodType::NotDefined) => {
                     let args_sig = func.args.iter().map(|a| a.signature.clone()).collect();
                     if !expected_sig.check_args_trait_compliance(epoch, args_sig)? {
                         return Err(CheckErrors::BadTraitImplementation(
@@ -256,7 +259,7 @@ impl ContractAnalysis {
                         .into());
                     }
                 }
-                (_, _) => {
+                (_, _, _) => {
                     return Err(CheckErrors::BadTraitImplementation(
                         trait_name,
                         func_name.to_string(),
@@ -296,12 +299,13 @@ mod test {
         let mut trait_functions = BTreeMap::new();
         trait_functions.insert(
             "alpha".into(),
-            FunctionSignature {
+            MethodSignature {
                 args: vec![TypeSignature::TraitReferenceType(trait_id.clone())],
                 returns: TypeSignature::ResponseType(Box::new((
                     TypeSignature::UIntType,
                     TypeSignature::UIntType,
                 ))),
+                define_type: MethodType::NotDefined,
             },
         );
         contract_analysis.add_defined_trait("foo".into(), trait_functions);

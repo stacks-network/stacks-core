@@ -499,21 +499,23 @@ fn check_contract_call(
                 let trait_signature = checker.contract_context.get_trait(trait_id).ok_or(
                     CheckErrors::TraitReferenceUnknown(trait_id.name.to_string()),
                 )?;
-                let func_signature =
-                    trait_signature
+                let func_signature = {
+                    let method_sign = trait_signature
                         .get(func_name)
                         .ok_or(CheckErrors::TraitMethodUnknown(
                             trait_id.name.to_string(),
                             func_name.to_string(),
                         ))?;
 
+                        FunctionSignature { args: method_sign.args.clone(), returns: method_sign.returns.clone() }
+                    };
                 runtime_cost(
                     ClarityCostFunction::AnalysisLookupFunctionTypes,
                     &mut checker.cost_track,
                     func_signature.total_type_size()?,
                 )?;
 
-                func_signature.clone()
+                func_signature
             } else {
                 // Clarity2+
                 match checker.contract_context.get_variable_type(trait_instance) {
@@ -577,12 +579,16 @@ fn check_contract_call(
                         let trait_signature = checker.contract_context.get_trait(trait_id).ok_or(
                             CheckErrors::TraitReferenceUnknown(trait_id.name.to_string()),
                         )?;
-                        let func_signature = trait_signature.get(func_name).ok_or(
-                            CheckErrors::TraitMethodUnknown(
-                                trait_id.name.to_string(),
-                                func_name.to_string(),
-                            ),
-                        )?;
+                        let func_signature = {
+                            let method_sign = trait_signature
+                                .get(func_name)
+                                .ok_or(CheckErrors::TraitMethodUnknown(
+                                    trait_id.name.to_string(),
+                                    func_name.to_string(),
+                                ))?;
+        
+                                FunctionSignature { args: method_sign.args.clone(), returns: method_sign.returns.clone() }
+                            };
 
                         runtime_cost(
                             ClarityCostFunction::AnalysisLookupFunctionTypes,
@@ -590,7 +596,7 @@ fn check_contract_call(
                             func_signature.total_type_size()?,
                         )?;
 
-                        func_signature.clone()
+                        func_signature
                     }
                 }
             }

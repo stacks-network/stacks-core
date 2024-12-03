@@ -27,7 +27,7 @@ use crate::vm::representations::SymbolicExpressionType::{
     Atom, AtomValue, Field, List, LiteralValue,
 };
 use crate::vm::representations::{ClarityName, SymbolicExpression};
-use crate::vm::types::signatures::FunctionSignature;
+use crate::vm::types::signatures::{FunctionSignature, MethodSignature};
 use crate::vm::types::{
     parse_name_type_pairs, PrincipalData, QualifiedContractIdentifier, TraitIdentifier,
     TupleTypeSignature, TypeSignature, Value,
@@ -105,7 +105,7 @@ pub enum DefineResult {
     PersistedVariable(ClarityName, TypeSignature, Value),
     FungibleToken(ClarityName, Option<u128>),
     NonFungibleAsset(ClarityName, TypeSignature),
-    Trait(ClarityName, BTreeMap<ClarityName, FunctionSignature>),
+    Trait(ClarityName, BTreeMap<ClarityName, MethodSignature>),
     UseTrait(ClarityName, TraitIdentifier),
     ImplTrait(TraitIdentifier),
     NoDefine,

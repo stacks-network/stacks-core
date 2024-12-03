@@ -22,7 +22,7 @@ use crate::vm::analysis::errors::{CheckError, CheckErrors, CheckResult};
 use crate::vm::analysis::types::ContractAnalysis;
 use crate::vm::contexts::MAX_CONTEXT_DEPTH;
 use crate::vm::representations::{ClarityName, SymbolicExpression};
-use crate::vm::types::signatures::FunctionSignature;
+use crate::vm::types::signatures::{FunctionSignature, MethodSignature};
 use crate::vm::types::{FunctionType, TraitIdentifier, TypeSignature};
 
 pub struct ContractContext {
@@ -34,7 +34,7 @@ pub struct ContractContext {
     persisted_variable_types: HashMap<ClarityName, TypeSignature>,
     fungible_tokens: HashSet<ClarityName>,
     non_fungible_tokens: HashMap<ClarityName, TypeSignature>,
-    traits: HashMap<ClarityName, BTreeMap<ClarityName, FunctionSignature>>,
+    traits: HashMap<ClarityName, BTreeMap<ClarityName, MethodSignature>>,
     pub implemented_traits: HashSet<TraitIdentifier>,
 }
 
@@ -170,7 +170,7 @@ impl ContractContext {
     pub fn add_trait(
         &mut self,
         trait_name: ClarityName,
-        trait_signature: BTreeMap<ClarityName, FunctionSignature>,
+        trait_signature: BTreeMap<ClarityName, MethodSignature>,
     ) -> CheckResult<()> {
         self.traits.insert(trait_name, trait_signature);
         Ok(())
@@ -181,7 +181,7 @@ impl ContractContext {
         Ok(())
     }
 
-    pub fn get_trait(&self, trait_name: &str) -> Option<&BTreeMap<ClarityName, FunctionSignature>> {
+    pub fn get_trait(&self, trait_name: &str) -> Option<&BTreeMap<ClarityName, MethodSignature>> {
         self.traits.get(trait_name)
     }
 
