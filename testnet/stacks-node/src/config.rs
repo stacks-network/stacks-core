@@ -659,6 +659,8 @@ impl Config {
                 Ok(StacksEpochId::Epoch25)
             } else if epoch_name == EPOCH_CONFIG_3_0_0 {
                 Ok(StacksEpochId::Epoch30)
+            } else if epoch_name == EPOCH_CONFIG_3_1_0 {
+                Ok(StacksEpochId::Epoch31)
             } else {
                 Err(format!("Unknown epoch name specified: {epoch_name}"))
             }?;
@@ -685,6 +687,7 @@ impl Config {
             StacksEpochId::Epoch24,
             StacksEpochId::Epoch25,
             StacksEpochId::Epoch30,
+            StacksEpochId::Epoch31,
         ];
         for (expected_epoch, configured_epoch) in expected_list
             .iter()
@@ -1291,6 +1294,7 @@ pub const EPOCH_CONFIG_2_3_0: &str = "2.3";
 pub const EPOCH_CONFIG_2_4_0: &str = "2.4";
 pub const EPOCH_CONFIG_2_5_0: &str = "2.5";
 pub const EPOCH_CONFIG_3_0_0: &str = "3.0";
+pub const EPOCH_CONFIG_3_1_0: &str = "3.1";
 
 #[derive(Clone, Deserialize, Default, Debug)]
 pub struct AffirmationOverride {
