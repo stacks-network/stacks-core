@@ -424,7 +424,7 @@ fn test_try_make_response() {
                 signer_signature_hash,
                 good_block.header.signer_signature_hash()
             );
-            assert_eq!(cost, ExecutionCost::zero());
+            assert_eq!(cost, ExecutionCost::ZERO);
             assert_eq!(size, 180);
             assert!(validation_time_ms > 0 && validation_time_ms < 60000);
         }

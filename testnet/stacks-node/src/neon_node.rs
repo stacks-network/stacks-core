@@ -611,8 +611,7 @@ impl MicroblockMinerThread {
         match StacksChainState::get_anchored_block_header_info(chainstate.db(), &ch, &bhh) {
             Ok(Some(_)) => {
                 let parent_index_hash = StacksBlockHeader::make_index_block_hash(&ch, &bhh);
-                let cost_so_far = if relayer_thread.microblock_stream_cost == ExecutionCost::zero()
-                {
+                let cost_so_far = if relayer_thread.microblock_stream_cost == ExecutionCost::ZERO {
                     // unknown cost, or this is idempotent.
                     StacksChainState::get_stacks_block_anchored_cost(
                         chainstate.db(),
@@ -2845,7 +2844,7 @@ impl RelayerThread {
             miner_tip: None,
             last_microblock_tenure_time: 0,
             microblock_deadline: 0,
-            microblock_stream_cost: ExecutionCost::zero(),
+            microblock_stream_cost: ExecutionCost::ZERO,
 
             relayer,
 
@@ -3503,7 +3502,7 @@ impl RelayerThread {
         if best_tip == new_miner_tip && best_tip != my_miner_tip {
             // tip has changed
             debug!("Relayer: Best miner tip went from {my_miner_tip:?} to {new_miner_tip:?}");
-            self.microblock_stream_cost = ExecutionCost::zero();
+            self.microblock_stream_cost = ExecutionCost::ZERO;
         }
         self.miner_tip = best_tip;
     }

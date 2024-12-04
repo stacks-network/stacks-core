@@ -1623,7 +1623,7 @@ impl StacksChainState {
                 allocations_tx,
                 allocation_events,
                 Value::okay_true(),
-                ExecutionCost::zero(),
+                ExecutionCost::ZERO,
             );
             receipts.push(allocations_receipt);
 
@@ -1724,7 +1724,7 @@ impl StacksChainState {
                 &mut tx,
                 &parent_hash,
                 &first_tip_info,
-                &ExecutionCost::zero(),
+                &ExecutionCost::ZERO,
                 0,
             )?;
             tx.commit()?;
