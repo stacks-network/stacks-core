@@ -45,6 +45,7 @@ use stacks::net::api::postblock_proposal::{
 use stacks::net::relay::fault_injection::set_ignore_block;
 use stacks::types::chainstate::{StacksAddress, StacksBlockId, StacksPrivateKey, StacksPublicKey};
 use stacks::types::PublicKey;
+use stacks::util::get_epoch_time_secs;
 use stacks::util::hash::{hex_bytes, Hash160, MerkleHashFunc, Sha512Trunc256Sum};
 use stacks::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 use stacks::util_lib::boot::boot_code_id;
@@ -83,7 +84,9 @@ use crate::tests::neon_integrations::{
     get_account, get_chain_info, get_chain_info_opt, next_block_and_wait,
     run_until_burnchain_height, submit_tx, submit_tx_fallible, test_observer,
 };
-use crate::tests::{self, gen_random_port, make_stacks_transfer};
+use crate::tests::{
+    self, gen_random_port, make_contract_call, make_contract_publish, make_stacks_transfer,
+};
 use crate::{nakamoto_node, BitcoinRegtestController, BurnchainController, Config, Keychain};
 
 impl SignerTest<SpawnedSigner> {
@@ -2601,23 +2604,7 @@ fn tenure_extend_after_idle() {
     signer_test.boot_to_epoch_3();
 
     info!("---- Nakamoto booted, starting test ----");
-    let info_before = get_chain_info(&signer_test.running_nodes.conf);
-    let blocks_before = signer_test
-        .running_nodes
-        .nakamoto_blocks_mined
-        .load(Ordering::SeqCst);
     signer_test.mine_nakamoto_block(Duration::from_secs(30));
-
-    // Verify that the block was mined
-    wait_for(30, || {
-        let blocks_mined = signer_test
-            .running_nodes
-            .nakamoto_blocks_mined
-            .load(Ordering::SeqCst);
-        let info = get_chain_info(&signer_test.running_nodes.conf);
-        Ok(blocks_mined > blocks_before && info.stacks_tip_height > info_before.stacks_tip_height)
-    })
-    .expect("Timed out waiting for first nakamoto block to be mined");
 
     info!("---- Waiting for a tenure extend ----");
 
@@ -2674,34 +2661,13 @@ fn stx_transfers_dont_effect_idle_timeout() {
     // Add a delay to the block validation process
     TEST_VALIDATE_DELAY_DURATION_SECS.lock().unwrap().replace(5);
 
-    let info_before = signer_test
-        .stacks_client
-        .get_peer_info()
-        .expect("Failed to get peer info");
-    let blocks_before = signer_test
-        .running_nodes
-        .nakamoto_blocks_mined
-        .load(Ordering::SeqCst);
+    let info_before = signer_test.get_peer_info();
+    let blocks_before = signer_test.running_nodes.nakamoto_blocks_mined.get();
     info!("---- Nakamoto booted, starting test ----";
         "info_height" => info_before.stacks_tip_height,
         "blocks_before" => blocks_before,
     );
     signer_test.mine_nakamoto_block(Duration::from_secs(30));
-
-    info!("---- Verifying that the block was mined ----");
-    // Verify that the block was mined
-    wait_for(30, || {
-        let blocks_mined = signer_test
-            .running_nodes
-            .nakamoto_blocks_mined
-            .load(Ordering::SeqCst);
-        let info = signer_test
-            .stacks_client
-            .get_peer_info()
-            .expect("Failed to get peer info");
-        Ok(blocks_mined > blocks_before && info.stacks_tip_height > info_before.stacks_tip_height)
-    })
-    .expect("Timed out waiting for first nakamoto block to be mined");
 
     info!("---- Getting current idle timeout ----");
 
@@ -2726,29 +2692,7 @@ fn stx_transfers_dont_effect_idle_timeout() {
 
     let slot_id = 0_u32;
 
-    let get_last_block_response = |slot_id: u32| {
-        let mut stackerdb = StackerDB::new(
-            &naka_conf.node.rpc_bind,
-            StacksPrivateKey::new(), // We are just reading so don't care what the key is
-            false,
-            reward_cycle,
-            SignerSlotID(0), // We are just reading so again, don't care about index.
-        );
-        let latest_msgs = StackerDB::get_messages(
-            stackerdb
-                .get_session_mut(&MessageSlotID::BlockResponse)
-                .expect("Failed to get BlockResponse stackerdb session"),
-            &[slot_id],
-        )
-        .expect("Failed to get message from stackerdb");
-        let latest_msg = latest_msgs.last().unwrap();
-        let SignerMessage::BlockResponse(BlockResponse::Accepted(accepted)) = latest_msg else {
-            panic!("Latest message from slot #{slot_id} isn't a block acceptance");
-        };
-        accepted.clone()
-    };
-
-    let initial_acceptance = get_last_block_response(slot_id);
+    let initial_acceptance = signer_test.get_latest_block_acceptance(slot_id);
     assert_eq!(initial_acceptance.signer_signature_hash, last_block_hash);
 
     info!(
@@ -2765,30 +2709,20 @@ fn stx_transfers_dont_effect_idle_timeout() {
     let mut first_global_acceptance = None;
     for i in 0..num_txs {
         info!("---- Mining interim block {} ----", i + 1);
-        let transfer_tx = make_stacks_transfer(
-            &sender_sk,
-            sender_nonce,
-            send_fee,
-            naka_conf.burnchain.chain_id,
-            &recipient,
-            send_amt,
-        );
-        submit_tx(&http_origin, &transfer_tx);
-        sender_nonce += 1;
-        let info_before = signer_test
-            .stacks_client
-            .get_peer_info()
-            .expect("Failed to get peer info");
-        wait_for(30, || {
-            let info = signer_test
-                .stacks_client
-                .get_peer_info()
-                .expect("Failed to get peer info");
-            Ok(info.stacks_tip_height > info_before.stacks_tip_height)
-        })
-        .expect("Timed out waiting for nakamoto block to be mined");
+        signer_test.wait_for_nakamoto_block(30, || {
+            let transfer_tx = make_stacks_transfer(
+                &sender_sk,
+                sender_nonce,
+                send_fee,
+                naka_conf.burnchain.chain_id,
+                &recipient,
+                send_amt,
+            );
+            submit_tx(&http_origin, &transfer_tx);
+            sender_nonce += 1;
+        });
 
-        let latest_acceptance = get_last_block_response(slot_id);
+        let latest_acceptance = signer_test.get_latest_block_acceptance(slot_id);
         let last_block_hash = get_last_block_hash();
 
         assert_eq!(latest_acceptance.signer_signature_hash, last_block_hash);
@@ -2810,6 +2744,240 @@ fn stx_transfers_dont_effect_idle_timeout() {
 
     info!("---- Waiting for a tenure extend ----");
 
+    signer_test.shutdown();
+}
+
+#[test]
+#[ignore]
+/// Verify that a tenure extend will occur after an idle timeout
+/// while actively mining.
+fn idle_tenure_extend_active_mining() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(EnvFilter::from_default_env())
+        .init();
+
+    info!("------------------------- Test Setup -------------------------");
+    let num_signers = 5;
+    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_addr = tests::to_addr(&sender_sk);
+    let deployer_sk = Secp256k1PrivateKey::new();
+    let deployer_addr = tests::to_addr(&deployer_sk);
+    let send_amt = 100;
+    let send_fee = 180;
+    let num_txs = 5;
+    let num_naka_blocks = 5;
+    let tenure_count = 2;
+    let tx_fee = 10000;
+    let deploy_fee = 190200;
+    let amount =
+        deploy_fee + tx_fee * num_txs * tenure_count * num_naka_blocks * 100 + 100 * tenure_count;
+    let recipient = PrincipalData::from(StacksAddress::burn_address(false));
+    let idle_timeout = Duration::from_secs(60);
+    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
+        num_signers,
+        vec![(sender_addr, amount), (deployer_addr, amount)],
+        |config| {
+            // make the duration long enough that the miner will be marked as malicious
+            config.tenure_idle_timeout = idle_timeout;
+        },
+        |_| {},
+        None,
+        None,
+    );
+    let naka_conf = signer_test.running_nodes.conf.clone();
+    let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
+    let mut sender_nonces: HashMap<String, u64> = HashMap::new();
+
+    let get_and_increment_nonce =
+        |sender_sk: &Secp256k1PrivateKey, sender_nonces: &mut HashMap<String, u64>| {
+            let nonce = sender_nonces.get(&sender_sk.to_hex()).unwrap_or(&0);
+            let result = *nonce;
+            sender_nonces.insert(sender_sk.to_hex(), result + 1);
+            result
+        };
+
+    signer_test.boot_to_epoch_3();
+
+    // Add a delay to the block validation process
+    TEST_VALIDATE_DELAY_DURATION_SECS.lock().unwrap().replace(3);
+
+    signer_test.mine_nakamoto_block(Duration::from_secs(30));
+
+    info!("---- Getting current idle timeout ----");
+
+    let get_last_block_hash = || {
+        let blocks = test_observer::get_blocks();
+        let last_block = blocks.last().unwrap();
+        let block_hash =
+            hex_bytes(&last_block.get("block_hash").unwrap().as_str().unwrap()[2..]).unwrap();
+        Sha512Trunc256Sum::from_vec(&block_hash).unwrap()
+    };
+
+    let last_block_hash = get_last_block_hash();
+
+    let slot_id = 0_u32;
+
+    let get_last_block_hash = || {
+        let blocks = test_observer::get_blocks();
+        let last_block = blocks.last().unwrap();
+        let block_hash =
+            hex_bytes(&last_block.get("block_hash").unwrap().as_str().unwrap()[2..]).unwrap();
+        Sha512Trunc256Sum::from_vec(&block_hash).unwrap()
+    };
+
+    let log_idle_diff = |timestamp: u64| {
+        let now = get_epoch_time_secs();
+        let diff = timestamp.saturating_sub(now);
+        info!("----- Idle diff: {diff} seconds -----");
+    };
+
+    let initial_response = signer_test.get_latest_block_response(slot_id);
+    assert_eq!(
+        initial_response.get_signer_signature_hash(),
+        last_block_hash
+    );
+
+    info!(
+        "---- Last idle timeout: {} ----",
+        initial_response.get_tenure_extend_timestamp()
+    );
+
+    // Deploy a contract that will be called a lot
+
+    let contract_src = format!(
+        r#"
+(define-data-var my-var uint u0)
+(define-public (f) (begin {} (ok 1))) (begin (f))
+        "#,
+        (0..250)
+            .map(|_| format!("(var-get my-var)"))
+            .collect::<Vec<String>>()
+            .join(" ")
+    );
+
+    // First, lets deploy the contract
+    let deployer_nonce = get_and_increment_nonce(&deployer_sk, &mut sender_nonces);
+    let contract_tx = make_contract_publish(
+        &deployer_sk,
+        deployer_nonce,
+        deploy_fee,
+        naka_conf.burnchain.chain_id,
+        "small-contract",
+        &contract_src,
+    );
+    submit_tx(&http_origin, &contract_tx);
+
+    info!("----- Submitted deploy txs, mining BTC block -----");
+
+    signer_test.mine_nakamoto_block(Duration::from_secs(30));
+    let mut last_response = signer_test.get_latest_block_response(slot_id);
+
+    // Make multiple tenures that get extended through idle timeouts
+    for t in 1..=tenure_count {
+        info!("----- Mining tenure {t} -----");
+        log_idle_diff(last_response.get_tenure_extend_timestamp());
+        // Now, start a tenure with contract calls
+        for i in 1..=num_naka_blocks {
+            // Just in case these Nakamoto blocks pass the idle timeout (probably because CI is slow), exit early
+            if i != 1 && last_block_contains_tenure_change_tx(TenureChangeCause::Extended) {
+                info!("---- Tenure extended before mining {i} nakamoto blocks -----");
+                break;
+            }
+            info!("----- Mining nakamoto block {i} in tenure {t} -----");
+
+            signer_test.wait_for_nakamoto_block(30, || {
+                // Throw in a STX transfer to test mixed blocks
+                let sender_nonce = get_and_increment_nonce(&sender_sk, &mut sender_nonces);
+                let transfer_tx = make_stacks_transfer(
+                    &sender_sk,
+                    sender_nonce,
+                    send_fee,
+                    naka_conf.burnchain.chain_id,
+                    &recipient,
+                    send_amt,
+                );
+                submit_tx(&http_origin, &transfer_tx);
+
+                for _ in 0..num_txs {
+                    let deployer_nonce = get_and_increment_nonce(&deployer_sk, &mut sender_nonces);
+                    // Fill up the mempool with contract calls
+                    let contract_tx = make_contract_call(
+                        &deployer_sk,
+                        deployer_nonce,
+                        tx_fee,
+                        naka_conf.burnchain.chain_id,
+                        &deployer_addr,
+                        "small-contract",
+                        "f",
+                        &[],
+                    );
+                    match submit_tx_fallible(&http_origin, &contract_tx) {
+                        Ok(_txid) => {}
+                        Err(_e) => {
+                            // If we fail to submit a tx, we need to make sure we don't
+                            // increment the nonce for this sender, so we don't end up
+                            // skipping a tx.
+                            sender_nonces.insert(deployer_sk.to_hex(), deployer_nonce);
+                        }
+                    }
+                }
+            });
+            let latest_response = signer_test.get_latest_block_response(slot_id);
+            let naka_blocks = test_observer::get_mined_nakamoto_blocks();
+            info!(
+                "----- Latest tenure extend timestamp: {} -----",
+                latest_response.get_tenure_extend_timestamp()
+            );
+            log_idle_diff(latest_response.get_tenure_extend_timestamp());
+            info!(
+                "----- Latest block transaction events: {} -----",
+                naka_blocks.last().unwrap().tx_events.len()
+            );
+            assert_eq!(
+                latest_response.get_signer_signature_hash(),
+                get_last_block_hash(),
+                "Expected the latest block response to be for the latest block"
+            );
+            assert_ne!(
+                last_response.get_tenure_extend_timestamp(),
+                latest_response.get_tenure_extend_timestamp(),
+                "Tenure extend timestamp should change with each block"
+            );
+            last_response = latest_response;
+        }
+
+        let current_time = get_epoch_time_secs();
+        let extend_diff = last_response
+            .get_tenure_extend_timestamp()
+            .saturating_sub(current_time);
+
+        info!(
+            "----- After mining {num_naka_blocks} nakamoto blocks in tenure {t}, waiting for TenureExtend -----";
+            "tenure_extend_timestamp" => last_response.get_tenure_extend_timestamp(),
+            "extend_diff" => extend_diff,
+            "current_time" => current_time,
+        );
+
+        // Now, wait for the idle timeout to trigger
+        wait_for(extend_diff + 30, || {
+            Ok(last_block_contains_tenure_change_tx(
+                TenureChangeCause::Extended,
+            ))
+        })
+        .expect("Expected a tenure extend after idle timeout");
+
+        last_response = signer_test.get_latest_block_response(slot_id);
+
+        info!("----- Tenure {t} extended -----");
+        log_idle_diff(last_response.get_tenure_extend_timestamp());
+    }
+
+    info!("------------------------- Test Shutdown -------------------------");
     signer_test.shutdown();
 }
 

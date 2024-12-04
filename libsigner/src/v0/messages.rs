@@ -670,6 +670,22 @@ impl BlockResponse {
             timestamp,
         ))
     }
+
+    /// Get the tenure extend timestamp from the block response
+    pub fn get_tenure_extend_timestamp(&self) -> u64 {
+        match self {
+            BlockResponse::Accepted(accepted) => accepted.response_data.tenure_extend_timestamp,
+            BlockResponse::Rejected(rejection) => rejection.response_data.tenure_extend_timestamp,
+        }
+    }
+
+    /// Get the signer signature hash from the block response
+    pub fn get_signer_signature_hash(&self) -> Sha512Trunc256Sum {
+        match self {
+            BlockResponse::Accepted(accepted) => accepted.signer_signature_hash,
+            BlockResponse::Rejected(rejection) => rejection.signer_signature_hash,
+        }
+    }
 }
 
 impl StacksMessageCodec for BlockResponse {
