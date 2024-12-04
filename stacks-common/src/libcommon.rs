@@ -95,6 +95,10 @@ pub mod consts {
     pub const NETWORK_ID_TESTNET: u32 = 0xff000000;
 }
 
+pub mod versions {
+    include!(concat!(env!("OUT_DIR"), "/versions.rs"));
+}
+
 /// This test asserts that the constant above doesn't change.
 /// This exists because the constant above is used by Epoch 2.5 instantiation code.
 ///
