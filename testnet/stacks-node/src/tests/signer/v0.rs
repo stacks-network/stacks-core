@@ -509,7 +509,7 @@ fn block_proposal_rejection() {
         signer_test.wait_for_validate_reject_response(short_timeout, block_signer_signature_hash_2);
     assert!(matches!(
         reject.reason_code,
-        ValidateRejectCode::UnknownParent
+        ValidateRejectCode::InvalidBlock
     ));
 
     let start_polling = Instant::now();
@@ -538,10 +538,10 @@ fn block_proposal_rejection() {
                     );
                 } else if signer_signature_hash == block_signer_signature_hash_2 {
                     found_signer_signature_hash_2 = true;
-                    assert!(
-                        matches!(reason_code, RejectCode::ValidationFailed(_)),
-                        "Expected validation failed rejection. Got: {reason_code}"
-                    );
+                    assert!(matches!(
+                        reason_code,
+                        RejectCode::ValidationFailed(ValidateRejectCode::InvalidBlock)
+                    ));
                 } else {
                     continue;
                 }

@@ -14,6 +14,14 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 - Added tenure extend timestamp to signer block responses
 - Added tenure_idle_timeout_secs configuration option for determining when a tenure extend will be accepted
 
+## [3.0.0.0.4.0]
+
+### Added
+
+### Changed
+
+- Use the same burn view loader in both block validation and block processing
+
 ## [3.0.0.0.3.0]
 
 ### Added

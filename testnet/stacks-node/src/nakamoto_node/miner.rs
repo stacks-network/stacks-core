@@ -144,7 +144,11 @@ pub struct BlockMinerThread {
     registered_key: RegisteredKey,
     /// Burnchain block snapshot which elected this miner
     burn_election_block: BlockSnapshot,
-    /// Current burnchain tip
+    /// Current burnchain tip as of the last TenureChange
+    /// * if the last tenure-change was a BlockFound, then this is the same as the
+    /// `burn_election_block`.
+    /// * otherwise, if the last tenure-change is an Extend, then this is the sortition of the burn
+    /// view consensus hash in the TenureChange
     burn_block: BlockSnapshot,
     /// The start of the parent tenure for this tenure
     parent_tenure_id: StacksBlockId,
