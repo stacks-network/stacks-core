@@ -992,9 +992,8 @@ impl Signer {
         }
 
         // have enough signatures to broadcast!
-        let Ok(Some(mut block_info)) = self.signer_db.block_lookup(block_hash).map_err(|e| {
+        let Ok(Some(mut block_info)) = self.signer_db.block_lookup(block_hash).inspect_err(|e| {
             warn!("{self}: Failed to load block {block_hash}: {e:?})");
-            e
         }) else {
             warn!("{self}: No such block {block_hash}");
             return;
