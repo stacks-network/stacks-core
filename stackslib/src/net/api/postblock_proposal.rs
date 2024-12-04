@@ -18,6 +18,7 @@ use std::io::{Read, Write};
 use std::thread::{self, JoinHandle, Thread};
 #[cfg(any(test, feature = "testing"))]
 use std::time::Duration;
+use std::time::Instant;
 
 use clarity::vm::ast::ASTRules;
 use clarity::vm::costs::ExecutionCost;
@@ -361,14 +362,7 @@ impl NakamotoBlockProposal {
                 info!("Block validation is no longer stalled due to testing directive.");
             }
         }
-        let ts_start = get_epoch_time_ms();
-        // Measure time from start of function
-        let time_elapsed = || {
-            get_epoch_time_ms()
-                .saturating_sub(ts_start)
-                .try_into()
-                .unwrap_or(u64::MAX)
-        };
+        let start = Instant::now();
 
         #[cfg(any(test, feature = "testing"))]
         {
@@ -579,7 +573,7 @@ impl NakamotoBlockProposal {
             });
         }
 
-        let validation_time_ms = time_elapsed();
+        let validation_time_ms = u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX);
 
         info!(
             "Participant: validated anchored block";
