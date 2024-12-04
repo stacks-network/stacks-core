@@ -2974,6 +2974,30 @@ fn idle_tenure_extend_active_mining() {
         log_idle_diff(last_response.get_tenure_extend_timestamp());
     }
 
+    // After the last extend, mine a few more naka blocks
+    for i in 1..=num_naka_blocks {
+        // Just in case these Nakamoto blocks pass the idle timeout (probably because CI is slow), exit early
+        if i != 1 && last_block_contains_tenure_change_tx(TenureChangeCause::Extended) {
+            info!("---- Tenure extended before mining {i} nakamoto blocks -----");
+            break;
+        }
+        info!("----- Mining nakamoto block {i} after last tenure extend -----");
+
+        signer_test.wait_for_nakamoto_block(30, || {
+            // Throw in a STX transfer to test mixed blocks
+            let sender_nonce = get_and_increment_nonce(&sender_sk, &mut sender_nonces);
+            let transfer_tx = make_stacks_transfer(
+                &sender_sk,
+                sender_nonce,
+                send_fee,
+                naka_conf.burnchain.chain_id,
+                &recipient,
+                send_amt,
+            );
+            submit_tx(&http_origin, &transfer_tx);
+        });
+    }
+
     info!("------------------------- Test Shutdown -------------------------");
     signer_test.shutdown();
 }
