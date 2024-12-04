@@ -313,6 +313,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
     fn mine_nakamoto_block(&mut self, timeout: Duration) {
         let commits_submitted = self.running_nodes.commits_submitted.clone();
         let mined_block_time = Instant::now();
+        let mined_before = self.running_nodes.nakamoto_blocks_mined.get();
         let info_before = self.get_peer_info();
         next_block_and_mine_commit(
             &mut self.running_nodes.btc_regtest_controller,
@@ -324,7 +325,9 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
 
         wait_for(timeout.as_secs(), || {
             let info_after = self.get_peer_info();
-            Ok(info_after.stacks_tip_height > info_before.stacks_tip_height)
+            let blocks_mined = self.running_nodes.nakamoto_blocks_mined.get();
+            Ok(info_after.stacks_tip_height > info_before.stacks_tip_height
+                && blocks_mined > mined_before)
         })
         .unwrap();
         let mined_block_elapsed_time = mined_block_time.elapsed();
@@ -359,6 +362,8 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
     }
 
     /// Helper function to run some code and then wait for a nakamoto block to be mined.
+    /// Chain information is captured before `f` is called, and then again after `f`
+    /// to ensure that the block was mined.
     /// Note: this function does _not_ mine a BTC block.
     fn wait_for_nakamoto_block(&mut self, timeout_secs: u64, f: impl FnOnce() -> ()) {
         let blocks_before = self.running_nodes.nakamoto_blocks_mined.get();

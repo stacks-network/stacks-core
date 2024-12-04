@@ -2592,7 +2592,6 @@ fn tenure_extend_after_idle() {
         num_signers,
         vec![(sender_addr, send_amt + send_fee)],
         |config| {
-            // make the duration long enough that the miner will be marked as malicious
             config.tenure_idle_timeout = idle_timeout;
         },
         |_| {},
@@ -2646,7 +2645,6 @@ fn stx_transfers_dont_effect_idle_timeout() {
         num_signers,
         vec![(sender_addr, (send_amt + send_fee) * num_txs)],
         |config| {
-            // make the duration long enough that the miner will be marked as malicious
             config.tenure_idle_timeout = idle_timeout;
         },
         |_| {},
@@ -2782,7 +2780,6 @@ fn idle_tenure_extend_active_mining() {
         num_signers,
         vec![(sender_addr, amount), (deployer_addr, amount)],
         |config| {
-            // make the duration long enough that the miner will be marked as malicious
             config.tenure_idle_timeout = idle_timeout;
         },
         |_| {},
