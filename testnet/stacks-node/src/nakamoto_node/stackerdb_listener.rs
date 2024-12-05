@@ -354,17 +354,14 @@ impl StackerDBListener {
                         let (lock, cvar) = &*self.blocks;
                         let mut blocks = lock.lock().expect("FATAL: failed to lock block status");
 
-                        let block = match blocks.get_mut(&rejected_data.signer_signature_hash) {
-                            Some(block) => block,
-                            None => {
-                                info!(
-                                    "StackerDBListener: Received rejection for block that we did not request. Ignoring.";
-                                    "block_signer_sighash" => %rejected_data.signer_signature_hash,
-                                    "slot_id" => slot_id,
-                                    "signer_set" => self.signer_set,
-                                );
-                                continue;
-                            }
+                        let Some(block) = blocks.get_mut(&rejected_data.signer_signature_hash) else {
+                            info!(
+                                "StackerDBListener: Received rejection for block that we did not request. Ignoring.";
+                                "block_signer_sighash" => %rejected_data.signer_signature_hash,
+                                "slot_id" => slot_id,
+                                "signer_set" => self.signer_set,
+                            );
+                            continue;
                         };
 
                         let rejected_pubkey = match rejected_data.recover_public_key() {
