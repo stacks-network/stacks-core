@@ -127,7 +127,7 @@ pub struct ExecutionResult {
     pub diagnostics: Vec<Diagnostic>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize)]
 pub struct CostSynthesis {
     pub total: ExecutionCost,
     pub limit: ExecutionCost,
