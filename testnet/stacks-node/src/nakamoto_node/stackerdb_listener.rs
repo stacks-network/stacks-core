@@ -278,18 +278,15 @@ impl StackerDBListener {
                         let (lock, cvar) = &*self.blocks;
                         let mut blocks = lock.lock().expect("FATAL: failed to lock block status");
 
-                        let block = match blocks.get_mut(&block_sighash) {
-                            Some(block) => block,
-                            None => {
-                                info!(
-                                    "StackerDBListener: Received signature for block that we did not request. Ignoring.";
-                                    "signature" => %signature,
-                                    "block_signer_sighash" => %block_sighash,
-                                    "slot_id" => slot_id,
-                                    "signer_set" => self.signer_set,
-                                );
-                                continue;
-                            }
+                        let Some(block) = blocks.get_mut(&block_sighash) else {
+                            info!(
+                                "StackerDBListener: Received signature for block that we did not request. Ignoring.";
+                                "signature" => %signature,
+                                "block_signer_sighash" => %block_sighash,
+                                "slot_id" => slot_id,
+                                "signer_set" => self.signer_set,
+                            );
+                            continue;
                         };
 
                         let Ok(valid_sig) = signer_pubkey.verify(block_sighash.bits(), &signature)
