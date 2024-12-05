@@ -44,6 +44,7 @@ use stacks_common::types::chainstate::{StacksPrivateKey, StacksPublicKey};
 
 use super::Error as NakamotoNodeError;
 use crate::event_dispatcher::StackerDBChannel;
+use crate::nakamoto_node::miner::BlockMinerThread;
 use crate::neon::Counters;
 use crate::Config;
 
@@ -61,6 +62,7 @@ static EVENT_RECEIVER_POLL: Duration = Duration::from_millis(500);
 pub struct SignCoordinator {
     receiver: Option<Receiver<StackerDBChunksEvent>>,
     message_key: StacksPrivateKey,
+    needs_initial_block: bool,
     is_mainnet: bool,
     miners_session: StackerDBSession,
     signer_entries: HashMap<u32, NakamotoSignerEntry>,
@@ -90,6 +92,7 @@ impl SignCoordinator {
     pub fn new(
         reward_set: &RewardSet,
         message_key: StacksPrivateKey,
+        needs_initial_block: bool,
         config: &Config,
         keep_running: Arc<AtomicBool>,
         stackerdb_channel: Arc<Mutex<StackerDBChannel>>,
@@ -164,8 +167,9 @@ impl SignCoordinator {
                     warn!("Replaced the miner/coordinator receiver of a prior thread. Prior thread may have crashed.");
                 }
                 let sign_coordinator = Self {
-                    message_key,
                     receiver: Some(receiver),
+                    message_key,
+                    needs_initial_block,
                     is_mainnet,
                     miners_session,
                     next_signer_bitvec,
@@ -190,6 +194,7 @@ impl SignCoordinator {
         Ok(Self {
             receiver: Some(receiver),
             message_key,
+            needs_initial_block,
             is_mainnet,
             miners_session,
             next_signer_bitvec,
@@ -268,7 +273,22 @@ impl SignCoordinator {
     }
 
     /// Check if the tenure needs to change
-    fn check_burn_tip_changed(sortdb: &SortitionDB, burn_block: &BlockSnapshot) -> bool {
+    fn check_burn_tip_changed(
+        sortdb: &SortitionDB,
+        chain_state: &mut StacksChainState,
+        burn_block: &BlockSnapshot,
+        needs_initial_block: bool,
+    ) -> bool {
+        if BlockMinerThread::check_burn_view_changed(sortdb, chain_state, burn_block).is_err() {
+            // can't continue mining -- burn view changed, or a DB error occurred
+            return true;
+        }
+
+        if !needs_initial_block {
+            // must get that first initial block in, assuming the burn view is still valid.
+            return false;
+        }
+
         let cur_burn_chain_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
             .expect("FATAL: failed to query sortition DB for canonical burn chain tip");
 
@@ -313,6 +333,8 @@ impl SignCoordinator {
             burn_height: burn_tip.block_height,
             reward_cycle: reward_cycle_id,
         };
+
+        let needs_initial_block = self.needs_initial_block;
 
         let block_proposal_message = SignerMessageV0::BlockProposal(block_proposal);
         debug!("Sending block proposal message to signers";
@@ -382,7 +404,7 @@ impl SignCoordinator {
                 return Ok(stored_block.header.signer_signature);
             }
 
-            if Self::check_burn_tip_changed(sortdb, burn_tip) {
+            if Self::check_burn_tip_changed(sortdb, chain_state, burn_tip, needs_initial_block) {
                 debug!("SignCoordinator: Exiting due to new burnchain tip");
                 return Err(NakamotoNodeError::BurnchainTipChanged);
             }

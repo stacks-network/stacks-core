@@ -10210,7 +10210,19 @@ fn test_tenure_change_and_extend_from_flashblocks() {
 
     let burn_view_contract = r#"
 (define-data-var my-var uint u0)
-(define-public (f) (begin (var-set my-var burn-block-height) (ok 1))) (begin (f))
+(define-data-var my-counter uint u0)
+
+(define-public (f) 
+   (begin
+      (var-set my-var burn-block-height)
+      (if (is-eq u0 (mod burn-block-height u2))
+        (var-set my-counter (+ u1 (var-get my-counter)))
+        (var-set my-counter (+ u2 (var-get my-counter))))
+      (ok 1)
+   )
+)
+
+(begin (f))
 "#
     .to_string();
 
@@ -10248,35 +10260,6 @@ fn test_tenure_change_and_extend_from_flashblocks() {
 
     // stall miner and relayer
     TEST_MINE_STALL.lock().unwrap().replace(true);
-
-    let mut accounts_before = vec![];
-
-    // fill mempool with transactions that depend on the burn view
-    for sender_sk in account_keys.iter() {
-        let sender_addr = tests::to_addr(&sender_sk);
-        let account = loop {
-            let Ok(account) = get_account_result(&http_origin, &sender_addr) else {
-                debug!("follower_bootup: Failed to load miner account");
-                thread::sleep(Duration::from_millis(100));
-                continue;
-            };
-            break account;
-        };
-
-        // Fill up the mempool with contract calls
-        let contract_tx = make_contract_call(
-            &sender_sk,
-            account.nonce,
-            tx_fee,
-            naka_conf.burnchain.chain_id,
-            &deployer_addr,
-            "burn-view-contract",
-            "f",
-            &[],
-        );
-        submit_tx(&http_origin, &contract_tx);
-        accounts_before.push(account);
-    }
 
     // make tenure but don't wait for a stacks block
     next_block_and_commits_only(
@@ -10334,6 +10317,37 @@ fn test_tenure_change_and_extend_from_flashblocks() {
     })
     .unwrap();
 
+    let mut accounts_before = vec![];
+    let mut sent_txids = vec![];
+
+    // fill mempool with transactions that depend on the burn view
+    for sender_sk in account_keys.iter() {
+        let sender_addr = tests::to_addr(&sender_sk);
+        let account = loop {
+            let Ok(account) = get_account_result(&http_origin, &sender_addr) else {
+                debug!("follower_bootup: Failed to load miner account");
+                thread::sleep(Duration::from_millis(100));
+                continue;
+            };
+            break account;
+        };
+
+        // Fill up the mempool with contract calls
+        let contract_tx = make_contract_call(
+            &sender_sk,
+            account.nonce,
+            tx_fee,
+            naka_conf.burnchain.chain_id,
+            &deployer_addr,
+            "burn-view-contract",
+            "f",
+            &[],
+        );
+        let txid = submit_tx(&http_origin, &contract_tx);
+        sent_txids.push(txid);
+        accounts_before.push(account);
+    }
+
     // unstall miner and relayer
     nakamoto_test_skip_commit_op.set(false);
     TEST_MINE_STALL.lock().unwrap().replace(false);
@@ -10346,15 +10360,6 @@ fn test_tenure_change_and_extend_from_flashblocks() {
         let directives_cnt = nakamoto_miner_directives.load(Ordering::SeqCst);
         Ok(directives_cnt > miner_directives_before)
     })
-    .unwrap();
-
-    // start up the next tenure
-    next_block_and_commits_only(
-        btc_regtest_controller,
-        60,
-        &coord_channel,
-        &commits_submitted,
-    )
     .unwrap();
 
     // wait for all of the aforementioned transactions to get mined
@@ -10377,6 +10382,15 @@ fn test_tenure_change_and_extend_from_flashblocks() {
         }
         Ok(true)
     })
+    .unwrap();
+
+    // start up the next tenure
+    next_block_and_commits_only(
+        btc_regtest_controller,
+        60,
+        &coord_channel,
+        &commits_submitted,
+    )
     .unwrap();
 
     // see if we can boot a follower off of this node now
