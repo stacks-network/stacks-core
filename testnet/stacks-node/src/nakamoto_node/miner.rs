@@ -68,6 +68,7 @@ pub static TEST_SKIP_P2P_BROADCAST: std::sync::Mutex<Option<bool>> = std::sync::
 const ABORT_TRY_AGAIN_MS: u64 = 200;
 
 #[allow(clippy::large_enum_variant)]
+#[derive(Debug)]
 pub enum MinerDirective {
     /// The miner won sortition so they should begin a new tenure
     BeginTenure {
@@ -272,6 +273,21 @@ impl BlockMinerThread {
         Ok(())
     }
 
+    #[cfg(test)]
+    fn fault_injection_stall_miner() {
+        if *TEST_MINE_STALL.lock().unwrap() == Some(true) {
+            // Do an extra check just so we don't log EVERY time.
+            warn!("Mining is stalled due to testing directive");
+            while *TEST_MINE_STALL.lock().unwrap() == Some(true) {
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            warn!("Mining is no longer stalled due to testing directive. Continuing...");
+        }
+    }
+
+    #[cfg(not(test))]
+    fn fault_injection_stall_miner() {}
+
     pub fn run_miner(
         mut self,
         prior_miner: Option<JoinHandle<Result<(), NakamotoNodeError>>>,
@@ -284,6 +300,7 @@ impl BlockMinerThread {
             "parent_tenure_id" => %self.parent_tenure_id,
             "thread_id" => ?thread::current().id(),
             "burn_block_consensus_hash" => %self.burn_block.consensus_hash,
+            "burn_election_block_consensus_hash" => %self.burn_election_block.consensus_hash,
             "reason" => %self.reason,
         );
         if let Some(prior_miner) = prior_miner {
@@ -294,15 +311,7 @@ impl BlockMinerThread {
 
         // now, actually run this tenure
         loop {
-            #[cfg(test)]
-            if *TEST_MINE_STALL.lock().unwrap() == Some(true) {
-                // Do an extra check just so we don't log EVERY time.
-                warn!("Mining is stalled due to testing directive");
-                while *TEST_MINE_STALL.lock().unwrap() == Some(true) {
-                    std::thread::sleep(std::time::Duration::from_millis(10));
-                }
-                warn!("Mining is no longer stalled due to testing directive. Continuing...");
-            }
+            Self::fault_injection_stall_miner();
             let new_block = loop {
                 // If we're mock mining, we may not have processed the block that the
                 // actual tenure winner committed to yet. So, before attempting to
@@ -1190,6 +1199,11 @@ impl BlockMinerThread {
                 (Some(tenure_change_tx), None)
             }
         };
+
+        debug!(
+            "make_tenure_start_info: reason = {:?}, tenure_change_tx = {:?}",
+            &self.reason, &tenure_change_tx
+        );
 
         Ok(NakamotoTenureInfo {
             coinbase_tx,
