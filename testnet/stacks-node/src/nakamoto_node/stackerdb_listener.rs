@@ -16,12 +16,12 @@
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Receiver;
+#[cfg(test)]
+use std::sync::LazyLock;
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
 use hashbrown::{HashMap, HashSet};
-#[cfg(test)]
-use lazy_static::lazy_static;
 use libsigner::v0::messages::{BlockAccepted, BlockResponse, SignerMessage as SignerMessageV0};
 use libsigner::SignerEvent;
 use stacks::burnchains::Burnchain;
@@ -41,11 +41,9 @@ use crate::event_dispatcher::StackerDBChannel;
 use crate::neon::TestFlag;
 
 #[cfg(test)]
-lazy_static! {
-    /// Fault injection flag to prevent the miner from seeing enough signer signatures.
-    /// Used to test that the signers will broadcast a block if it gets enough signatures
-    pub static ref TEST_IGNORE_SIGNERS: TestFlag = TestFlag::default();
-}
+/// Fault injection flag to prevent the miner from seeing enough signer signatures.
+/// Used to test that the signers will broadcast a block if it gets enough signatures
+pub static TEST_IGNORE_SIGNERS: LazyLock<TestFlag> = LazyLock::new(TestFlag::default);
 
 /// How long should the coordinator poll on the event receiver before
 /// waking up to check timeouts?
@@ -243,7 +241,7 @@ impl StackerDBListener {
                 continue;
             };
             let slot_ids = modified_slots
-                .iter()
+                .into_iter()
                 .map(|chunk| chunk.slot_id)
                 .collect::<Vec<_>>();
 
@@ -354,7 +352,8 @@ impl StackerDBListener {
                         let (lock, cvar) = &*self.blocks;
                         let mut blocks = lock.lock().expect("FATAL: failed to lock block status");
 
-                        let Some(block) = blocks.get_mut(&rejected_data.signer_signature_hash) else {
+                        let Some(block) = blocks.get_mut(&rejected_data.signer_signature_hash)
+                        else {
                             info!(
                                 "StackerDBListener: Received rejection for block that we did not request. Ignoring.";
                                 "block_signer_sighash" => %rejected_data.signer_signature_hash,
