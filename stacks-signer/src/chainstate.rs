@@ -365,16 +365,19 @@ impl SortitionsView {
             let sortition_consensus_hash = proposed_by.state().consensus_hash;
             let changed_burn_view =
                 tenure_extend.burn_view_consensus_hash != sortition_consensus_hash;
-            let enough_time_passed = get_epoch_time_secs()
-                > signer_db.calculate_tenure_extend_timestamp(
-                    self.config.tenure_idle_timeout,
-                    &sortition_consensus_hash,
-                );
+            let extend_timestamp = signer_db.calculate_tenure_extend_timestamp(
+                self.config.tenure_idle_timeout,
+                &sortition_consensus_hash,
+            );
+            let epoch_time = get_epoch_time_secs();
+            let enough_time_passed = epoch_time > extend_timestamp;
             if !changed_burn_view && !enough_time_passed {
                 warn!(
                     "Miner block proposal contains a tenure extend, but the burnchain view has not changed and enough time has not passed to refresh the block limit. Considering proposal invalid.";
                     "proposed_block_consensus_hash" => %block.header.consensus_hash,
                     "proposed_block_signer_sighash" => %block.header.signer_signature_hash(),
+                    "extend_timestamp" => extend_timestamp,
+                    "epoch_time" => epoch_time,
                 );
                 return Ok(false);
             }
