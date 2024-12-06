@@ -1001,15 +1001,19 @@ impl SignerDb {
         })?;
         let mut tenure_processing_time_ms = 0_u64;
         let mut tenure_start_time = None;
-        for row in rows {
+        let mut nmb_rows = 0;
+        for (i, row) in rows.enumerate() {
+            nmb_rows += 1;
             let (tenure_change_block, proposed_time, validation_time_ms) = row?;
             tenure_processing_time_ms =
                 tenure_processing_time_ms.saturating_add(validation_time_ms.unwrap_or(0));
             tenure_start_time = Some(proposed_time);
             if tenure_change_block {
+                debug!("Found tenure change block {i} blocks ago in tenure {tenure}");
                 break;
             }
         }
+        debug!("Calculated tenure extend timestamp from {nmb_rows} blocks in tenure {tenure}");
         Ok((
             tenure_start_time.unwrap_or(get_epoch_time_secs()),
             tenure_processing_time_ms,
@@ -1024,9 +1028,19 @@ impl SignerDb {
     ) -> u64 {
         let tenure_idle_timeout_secs = tenure_idle_timeout.as_secs();
         let (tenure_start_time, tenure_process_time_ms) = self.get_tenure_times(tenure).inspect_err(|e| error!("Error occurred calculating tenure extend timestamp: {e:?}. Defaulting to {tenure_idle_timeout_secs} from now.")).unwrap_or((get_epoch_time_secs(), 0));
-        tenure_start_time
+        // Plus (ms + 999)/1000 to round up to the nearest second
+        let tenure_extend_timestamp = tenure_start_time
             .saturating_add(tenure_idle_timeout_secs)
-            .saturating_add(tenure_process_time_ms / 1000)
+            .saturating_add(tenure_process_time_ms.saturating_add(999) / 1000);
+        debug!("Calculated tenure extend timestamp";
+            "tenure_extend_timestamp" => tenure_extend_timestamp,
+            "tenure_start_time" => tenure_start_time,
+            "tenure_process_time_ms" => tenure_process_time_ms,
+            "tenure_idle_timeout_secs" => tenure_idle_timeout_secs,
+            "tenure_extend_in" => tenure_extend_timestamp.saturating_sub(get_epoch_time_secs()),
+            "consensus_hash" => %tenure,
+        );
+        tenure_extend_timestamp
     }
 }
 
