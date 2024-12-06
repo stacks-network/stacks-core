@@ -26,6 +26,8 @@ use clarity::types::chainstate::StacksPrivateKey;
 use clarity::types::{PrivateKey, StacksEpochId};
 use clarity::util::hash::MerkleHashFunc;
 use clarity::util::secp256k1::Secp256k1PublicKey;
+#[cfg(any(test, feature = "testing"))]
+use lazy_static::lazy_static;
 use libsigner::v0::messages::{
     BlockAccepted, BlockRejection, BlockResponse, MessageSlotID, MockProposal, MockSignature,
     RejectCode, SignerMessage,
@@ -35,6 +37,8 @@ use slog::{slog_debug, slog_error, slog_info, slog_warn};
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::secp256k1::MessageSignature;
+#[cfg(any(test, feature = "testing"))]
+use stacks_common::util::TestFlag;
 use stacks_common::{debug, error, info, warn};
 
 use crate::chainstate::{ProposalEvalConfig, SortitionsView};
@@ -45,29 +49,28 @@ use crate::signerdb::{BlockInfo, BlockState, SignerDb};
 use crate::Signer as SignerTrait;
 
 #[cfg(any(test, feature = "testing"))]
-/// A global variable that can be used to reject all block proposals if the signer's public key is in the provided list
-pub static TEST_REJECT_ALL_BLOCK_PROPOSAL: std::sync::Mutex<
-    Option<Vec<stacks_common::types::chainstate::StacksPublicKey>>,
-> = std::sync::Mutex::new(None);
+lazy_static! {
+    /// A global variable that can be used to reject all block proposals if the signer's public key is in the provided list
+    pub static ref TEST_REJECT_ALL_BLOCK_PROPOSAL: TestFlag<Vec<stacks_common::types::chainstate::StacksPublicKey>> = TestFlag::default();
+}
 
 #[cfg(any(test, feature = "testing"))]
-/// A global variable that can be used to ignore block proposals if the signer's public key is in the provided list
-pub static TEST_IGNORE_ALL_BLOCK_PROPOSALS: std::sync::Mutex<
-    Option<Vec<stacks_common::types::chainstate::StacksPublicKey>>,
-> = std::sync::Mutex::new(None);
+lazy_static! {
+    /// A global variable that can be used to ignore block proposals if the signer's public key is in the provided list
+    pub static ref TEST_IGNORE_ALL_BLOCK_PROPOSALS: TestFlag<Vec<stacks_common::types::chainstate::StacksPublicKey>> = TestFlag::default();
+}
 
 #[cfg(any(test, feature = "testing"))]
-/// Pause the block broadcast
-pub static TEST_PAUSE_BLOCK_BROADCAST: std::sync::Mutex<Option<bool>> = std::sync::Mutex::new(None);
+lazy_static! {
+    /// Pause the block broadcast
+    pub static ref TEST_PAUSE_BLOCK_BROADCAST: TestFlag<bool> = TestFlag::default();
+}
 
 #[cfg(any(test, feature = "testing"))]
-/// Skip broadcasting the block to the network
-pub static TEST_SKIP_BLOCK_BROADCAST: std::sync::Mutex<Option<bool>> = std::sync::Mutex::new(None);
-
-#[cfg(any(test, feature = "testing"))]
-/// Skip any block responses from other signers
-pub static TEST_IGNORE_BLOCK_RESPONSES: std::sync::Mutex<Option<bool>> =
-    std::sync::Mutex::new(None);
+lazy_static! {
+    /// Skip broadcasting the block to the network
+    pub static ref TEST_SKIP_BLOCK_BROADCAST: TestFlag<bool> = TestFlag::default();
+}
 
 /// The stacks signer registered for the reward cycle
 #[derive(Debug)]
@@ -174,9 +177,8 @@ impl SignerTrait<SignerMessage> for Signer {
                     match message {
                         SignerMessage::BlockProposal(block_proposal) => {
                             #[cfg(any(test, feature = "testing"))]
-                            if let Some(public_keys) =
-                                &*TEST_IGNORE_ALL_BLOCK_PROPOSALS.lock().unwrap()
                             {
+                                let public_keys = TEST_IGNORE_ALL_BLOCK_PROPOSALS.get();
                                 if public_keys.contains(
                                     &stacks_common::types::chainstate::StacksPublicKey::from_private(
                                         &self.private_key,
@@ -405,8 +407,10 @@ impl Signer {
             "burn_height" => block_proposal.burn_height,
         );
         crate::monitoring::increment_block_proposals_received();
-        #[allow(unused_mut)]
+        #[cfg(any(test, feature = "testing"))]
         let mut block_info = BlockInfo::from(block_proposal.clone());
+        #[cfg(not(any(test, feature = "testing")))]
+        let block_info = BlockInfo::from(block_proposal.clone());
 
         // Get sortition view if we don't have it
         if sortition_state.is_none() {
@@ -538,10 +542,6 @@ impl Signer {
         stacks_client: &StacksClient,
         block_response: &BlockResponse,
     ) {
-        #[cfg(any(test, feature = "testing"))]
-        if self.test_ignore_block_responses(block_response) {
-            return;
-        }
         match block_response {
             BlockResponse::Accepted(accepted) => {
                 self.handle_block_signature(stacks_client, accepted);
@@ -1071,7 +1071,7 @@ impl Signer {
 
     #[cfg(any(test, feature = "testing"))]
     fn test_skip_block_broadcast(&self, block: &NakamotoBlock) -> bool {
-        if *TEST_SKIP_BLOCK_BROADCAST.lock().unwrap() == Some(true) {
+        if TEST_SKIP_BLOCK_BROADCAST.get() {
             let block_hash = block.header.signer_signature_hash();
             warn!(
                 "{self}: Skipping block broadcast due to testing directive";
@@ -1099,9 +1099,7 @@ impl Signer {
         block_info: &mut BlockInfo,
         block_response: Option<BlockResponse>,
     ) -> Option<BlockResponse> {
-        let Some(public_keys) = &*TEST_REJECT_ALL_BLOCK_PROPOSAL.lock().unwrap() else {
-            return block_response;
-        };
+        let public_keys = TEST_REJECT_ALL_BLOCK_PROPOSAL.get();
         if public_keys.contains(
             &stacks_common::types::chainstate::StacksPublicKey::from_private(&self.private_key),
         ) {
@@ -1126,31 +1124,19 @@ impl Signer {
                 self.mainnet,
             ))
         } else {
-            None
+            block_response
         }
-    }
-
-    #[cfg(any(test, feature = "testing"))]
-    fn test_ignore_block_responses(&self, block_response: &BlockResponse) -> bool {
-        if *TEST_IGNORE_BLOCK_RESPONSES.lock().unwrap() == Some(true) {
-            warn!(
-                "{self}: Ignoring block response due to testing directive";
-                "block_response" => %block_response
-            );
-            return true;
-        }
-        false
     }
 
     #[cfg(any(test, feature = "testing"))]
     fn test_pause_block_broadcast(&self, block_info: &BlockInfo) {
-        if *TEST_PAUSE_BLOCK_BROADCAST.lock().unwrap() == Some(true) {
+        if TEST_PAUSE_BLOCK_BROADCAST.get() {
             // Do an extra check just so we don't log EVERY time.
             warn!("{self}: Block broadcast is stalled due to testing directive.";
                 "block_id" => %block_info.block.block_id(),
                 "height" => block_info.block.header.chain_length,
             );
-            while *TEST_PAUSE_BLOCK_BROADCAST.lock().unwrap() == Some(true) {
+            while TEST_PAUSE_BLOCK_BROADCAST.get() {
                 std::thread::sleep(std::time::Duration::from_millis(10));
             }
             info!("{self}: Block validation is no longer stalled due to testing directive.";

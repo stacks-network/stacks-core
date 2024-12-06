@@ -21,6 +21,8 @@ use stacks::chainstate::stacks::db::{ChainStateBootData, StacksChainState};
 use stacks::chainstate::stacks::miner::{signal_mining_blocked, signal_mining_ready, MinerStatus};
 use stacks::core::StacksEpochId;
 use stacks::net::atlas::{AtlasConfig, AtlasDB, Attachment};
+#[cfg(test)]
+use stacks::util::TestFlag;
 use stacks::util_lib::db::Error as db_error;
 use stacks_common::deps_common::ctrlc as termination;
 use stacks_common::deps_common::ctrlc::SignalId;
@@ -82,30 +84,6 @@ impl std::ops::Deref for RunLoopCounter {
     }
 }
 
-#[cfg(test)]
-#[derive(Clone)]
-pub struct TestFlag(pub Arc<std::sync::Mutex<Option<bool>>>);
-
-#[cfg(test)]
-impl Default for TestFlag {
-    fn default() -> Self {
-        Self(Arc::new(std::sync::Mutex::new(None)))
-    }
-}
-
-#[cfg(test)]
-impl TestFlag {
-    /// Set the test flag to the given value
-    pub fn set(&self, value: bool) {
-        *self.0.lock().unwrap() = Some(value);
-    }
-
-    /// Get the test flag value. Defaults to false if the flag is not set.
-    pub fn get(&self) -> bool {
-        self.0.lock().unwrap().unwrap_or(false)
-    }
-}
-
 #[derive(Clone, Default)]
 pub struct Counters {
     pub blocks_processed: RunLoopCounter,
@@ -123,7 +101,7 @@ pub struct Counters {
     pub naka_signer_pushed_blocks: RunLoopCounter,
 
     #[cfg(test)]
-    pub naka_skip_commit_op: TestFlag,
+    pub naka_skip_commit_op: TestFlag<bool>,
 }
 
 impl Counters {
