@@ -532,7 +532,7 @@ impl StackerDBListenerComms {
             if weight_sum >= weight_threshold {
                 debug!("SignerCoordinator: 70% threshold reached for tenure extension timestamp";
                     "tenure_extend_timestamp" => info.timestamp,
-                    "tenure_extend_in" => (info.timestamp - get_epoch_time_secs())
+                    "tenure_extend_in" => (info.timestamp as i64 - get_epoch_time_secs() as i64)
                 );
                 return info.timestamp;
             }
