@@ -16,6 +16,9 @@
 
 use std::io::{Read, Write};
 use std::thread::{self, JoinHandle, Thread};
+#[cfg(any(test, feature = "testing"))]
+use std::time::Duration;
+use std::time::Instant;
 
 use clarity::vm::ast::ASTRules;
 use clarity::vm::costs::ExecutionCost;
@@ -65,6 +68,10 @@ use crate::util_lib::db::Error as DBError;
 
 #[cfg(any(test, feature = "testing"))]
 pub static TEST_VALIDATE_STALL: std::sync::Mutex<Option<bool>> = std::sync::Mutex::new(None);
+#[cfg(any(test, feature = "testing"))]
+/// Artificial delay to add to block validation.
+pub static TEST_VALIDATE_DELAY_DURATION_SECS: std::sync::Mutex<Option<u64>> =
+    std::sync::Mutex::new(None);
 
 // This enum is used to supply a `reason_code` for validation
 //  rejection responses. This is serialized as an enum with string
@@ -145,6 +152,7 @@ pub struct BlockValidateOk {
     pub signer_signature_hash: Sha512Trunc256Sum,
     pub cost: ExecutionCost,
     pub size: u64,
+    pub validation_time_ms: u64,
 }
 
 /// This enum is used for serializing the response to block
@@ -354,9 +362,15 @@ impl NakamotoBlockProposal {
                 info!("Block validation is no longer stalled due to testing directive.");
             }
         }
-        let ts_start = get_epoch_time_ms();
-        // Measure time from start of function
-        let time_elapsed = || get_epoch_time_ms().saturating_sub(ts_start);
+        let start = Instant::now();
+
+        #[cfg(any(test, feature = "testing"))]
+        {
+            if let Some(delay) = *TEST_VALIDATE_DELAY_DURATION_SECS.lock().unwrap() {
+                warn!("Sleeping for {} seconds to simulate slow processing", delay);
+                thread::sleep(Duration::from_secs(delay));
+            }
+        }
 
         let mainnet = self.chain_id == CHAIN_ID_MAINNET;
         if self.chain_id != chainstate.chain_id || mainnet != chainstate.mainnet {
@@ -568,6 +582,8 @@ impl NakamotoBlockProposal {
             });
         }
 
+        let validation_time_ms = u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX);
+
         info!(
             "Participant: validated anchored block";
             "block_header_hash" => %computed_block_header_hash,
@@ -576,7 +592,7 @@ impl NakamotoBlockProposal {
             "parent_stacks_block_id" => %block.header.parent_block_id,
             "block_size" => size,
             "execution_cost" => %cost,
-            "validation_time_ms" => time_elapsed(),
+            "validation_time_ms" => validation_time_ms,
             "tx_fees_microstacks" => block.txs.iter().fold(0, |agg: u64, tx| {
                 agg.saturating_add(tx.get_tx_fee())
             })
@@ -586,6 +602,7 @@ impl NakamotoBlockProposal {
             signer_signature_hash: block.header.signer_signature_hash(),
             cost,
             size,
+            validation_time_ms,
         })
     }
 }
