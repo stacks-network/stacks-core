@@ -41,7 +41,7 @@ use crate::burnchains::affirmation::AffirmationMap;
 use crate::burnchains::Txid;
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleConn};
 use crate::chainstate::nakamoto::miner::NakamotoBlockBuilder;
-use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
+use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState, NAKAMOTO_BLOCK_VERSION};
 use crate::chainstate::stacks::db::blocks::MINIMUM_TX_FEE_RATE_PER_BYTE;
 use crate::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState};
 use crate::chainstate::stacks::miner::{BlockBuilder, BlockLimitFunction, TransactionResult};
@@ -386,6 +386,15 @@ impl NakamotoBlockProposal {
                 reason_code: ValidateRejectCode::InvalidBlock,
                 reason: "Wrong network/chain_id".into(),
             });
+        }
+
+        // Check block version. If it's less than the compiled-in version, just emit a warning
+        // because there's a new version of the node / signer binary available that really ought to
+        // be used (hint, hint)
+        if self.block.header.version != NAKAMOTO_BLOCK_VERSION {
+            warn!("Proposed block has unexpected version. Upgrade your node and/or signer ASAP.";
+                  "block.header.version" => %self.block.header.version,
+                  "expected" => %NAKAMOTO_BLOCK_VERSION);
         }
 
         // open sortition view to the current burn view.
