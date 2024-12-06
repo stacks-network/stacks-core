@@ -433,6 +433,16 @@ impl StackerDBListener {
             .signer_idle_timestamps
             .lock()
             .expect("FATAL: failed to lock idle timestamps");
+
+        // Check the current timestamp for the given signer_pubkey
+        if let Some(existing_info) = idle_timestamps.get(&signer_pubkey) {
+            // Only update if the new timestamp is greater
+            if timestamp <= existing_info.timestamp {
+                return; // Exit early if the new timestamp is not greater
+            }
+        }
+
+        // Update the map with the new timestamp and weight
         let timestamp_info = TimestampInfo { timestamp, weight };
         idle_timestamps.insert(signer_pubkey, timestamp_info);
     }
