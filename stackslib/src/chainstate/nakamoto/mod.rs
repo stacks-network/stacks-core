@@ -131,7 +131,7 @@ pub use self::staging_blocks::{
     NakamotoStagingBlocksConn, NakamotoStagingBlocksConnRef, NakamotoStagingBlocksTx,
 };
 
-pub const NAKAMOTO_BLOCK_VERSION: u8 = 0;
+pub const NAKAMOTO_BLOCK_VERSION: u8 = 2;
 
 define_named_enum!(HeaderTypeNames {
     Nakamoto("nakamoto"),
