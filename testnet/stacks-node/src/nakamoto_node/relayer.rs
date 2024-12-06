@@ -239,6 +239,8 @@ pub struct RelayerThread {
     /// Information about the last-sent block commit, and the relayer's view of the chain at the
     /// time it was sent.
     last_committed: Option<LastCommit>,
+    /// Last burnchain view for which we considered starting a miner
+    last_burn_view: Option<BlockSnapshot>,
     /// Timeout for waiting for the first block in a tenure before submitting a block commit
     new_tenure_timeout: Option<Instant>,
 }
@@ -298,6 +300,7 @@ impl RelayerThread {
             is_miner,
             next_initiative: Instant::now() + Duration::from_millis(next_initiative_delay),
             last_committed: None,
+            last_burn_view: None,
             new_tenure_timeout: None,
         }
     }
@@ -904,7 +907,7 @@ impl RelayerThread {
             new_miner_handle.thread().id()
         );
         self.miner_thread.replace(new_miner_handle);
-
+        self.last_burn_view.replace(burn_view);
         Ok(())
     }
 
@@ -1286,6 +1289,8 @@ impl RelayerThread {
     /// * If this isn't a miner, then it's always nothing.
     /// * Otherwise, if we haven't done so already, go register a VRF public key
     /// * If the stacks chain tip or burnchain tip has changed, then issue a block-commit
+    /// * If the last burn view we started a miner for is not the canonical burn view, then
+    /// try and start a new tenure (or continue an existing one).
     fn initiative(&mut self) -> Option<RelayerDirective> {
         if !self.is_miner {
             return None;
@@ -1328,6 +1333,20 @@ impl RelayerThread {
             return None;
         };
         let stacks_tip = StacksBlockId::new(&stacks_tip_ch, &stacks_tip_bh);
+
+        // see if we have to try and continue a tenure
+        if let Ok(ongoing_tenure_id) =
+            BlockMinerThread::get_ongoing_tenure_id(&self.sortdb, &mut self.chainstate).map_err(
+                |e| {
+                    error!("Failed to get ongoing tenure ID: {:?}", &e);
+                    e
+                },
+            )
+        {
+            if ongoing_tenure_id.burn_view_consensus_hash != sort_tip.consensus_hash {
+                todo!();
+            }
+        }
 
         // check stacks and sortition tips to see if any chainstate change has happened.
         // did our view of the sortition history change?

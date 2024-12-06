@@ -935,6 +935,7 @@ impl BlockMinerThread {
         match ParentStacksBlockInfo::lookup(
             chain_state,
             burn_db,
+            &self.reason,
             &self.burn_block,
             miner_address,
             &self.parent_tenure_id,
@@ -1229,17 +1230,11 @@ impl BlockMinerThread {
         })
     }
 
-    /// Check to see if the given burn view is at or ahead of the stacks blockchain's burn view.
-    /// If so, then return Ok(())
-    /// If not, then return Err(NakamotoNodeError::BurnchainTipChanged)
-    pub fn check_burn_view_changed(
+    /// Get the ongoing burn view in the chain state
+    pub fn get_ongoing_tenure_id(
         sortdb: &SortitionDB,
         chain_state: &mut StacksChainState,
-        burn_view: &BlockSnapshot,
-    ) -> Result<(), NakamotoNodeError> {
-        // if the local burn view has advanced, then this miner thread is defunct.  Someone else
-        // extended their tenure in a sortition at or after our burn view, and the node accepted
-        // it, so we should stop.
+    ) -> Result<NakamotoTenureEventId, NakamotoNodeError> {
         let cur_stacks_tip_header =
             NakamotoChainState::get_canonical_block_header(chain_state.db(), sortdb)?
                 .ok_or_else(|| NakamotoNodeError::UnexpectedChainState)?;
@@ -1259,7 +1254,21 @@ impl BlockMinerThread {
                 block_id: cur_stacks_tip_id,
             }
         };
+        Ok(ongoing_tenure_id)
+    }
 
+    /// Check to see if the given burn view is at or ahead of the stacks blockchain's burn view.
+    /// If so, then return Ok(())
+    /// If not, then return Err(NakamotoNodeError::BurnchainTipChanged)
+    pub fn check_burn_view_changed(
+        sortdb: &SortitionDB,
+        chain_state: &mut StacksChainState,
+        burn_view: &BlockSnapshot,
+    ) -> Result<(), NakamotoNodeError> {
+        // if the local burn view has advanced, then this miner thread is defunct.  Someone else
+        // extended their tenure in a sortition at or after our burn view, and the node accepted
+        // it, so we should stop.
+        let ongoing_tenure_id = Self::get_ongoing_tenure_id(sortdb, chain_state)?;
         if ongoing_tenure_id.burn_view_consensus_hash != burn_view.consensus_hash {
             let ongoing_tenure_sortition = SortitionDB::get_block_snapshot_consensus(
                 sortdb.conn(),
@@ -1328,6 +1337,7 @@ impl ParentStacksBlockInfo {
     pub fn lookup(
         chain_state: &mut StacksChainState,
         burn_db: &mut SortitionDB,
+        reason: &MinerReason,
         check_burn_block: &BlockSnapshot,
         miner_address: StacksAddress,
         parent_tenure_id: &StacksBlockId,
@@ -1341,19 +1351,21 @@ impl ParentStacksBlockInfo {
         .expect("Failed to look up block's parent snapshot")
         .expect("Failed to look up block's parent snapshot");
 
-        // don't mine off of an old burnchain block
-        let burn_chain_tip = SortitionDB::get_canonical_burn_chain_tip(burn_db.conn())
-            .expect("FATAL: failed to query sortition DB for canonical burn chain tip");
+        if *reason != MinerReason::EmptyTenure {
+            // don't mine off of an old burnchain block
+            let burn_chain_tip = SortitionDB::get_canonical_burn_chain_tip(burn_db.conn())
+                .expect("FATAL: failed to query sortition DB for canonical burn chain tip");
 
-        if burn_chain_tip.consensus_hash != check_burn_block.consensus_hash {
-            info!(
-                "New canonical burn chain tip detected. Will not try to mine.";
-                "new_consensus_hash" => %burn_chain_tip.consensus_hash,
-                "old_consensus_hash" => %check_burn_block.consensus_hash,
-                "new_burn_height" => burn_chain_tip.block_height,
-                "old_burn_height" => check_burn_block.block_height
-            );
-            return Err(NakamotoNodeError::BurnchainTipChanged);
+            if burn_chain_tip.consensus_hash != check_burn_block.consensus_hash {
+                info!(
+                    "New canonical burn chain tip detected. Will not try to mine.";
+                    "new_consensus_hash" => %burn_chain_tip.consensus_hash,
+                    "old_consensus_hash" => %check_burn_block.consensus_hash,
+                    "new_burn_height" => burn_chain_tip.block_height,
+                    "old_burn_height" => check_burn_block.block_height
+                );
+                return Err(NakamotoNodeError::BurnchainTipChanged);
+            }
         }
 
         let Ok(Some(parent_tenure_header)) =

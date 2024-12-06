@@ -284,7 +284,7 @@ impl SignCoordinator {
             return true;
         }
 
-        if !needs_initial_block {
+        if needs_initial_block {
             // must get that first initial block in, assuming the burn view is still valid.
             return false;
         }
