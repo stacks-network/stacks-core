@@ -1160,7 +1160,7 @@ impl BlockMinerThread {
         if self.last_block_mined.is_some() {
             // Check if we can extend the current tenure
             let tenure_extend_timestamp = coordinator.get_tenure_extend_timestamp();
-            if get_epoch_time_secs() < tenure_extend_timestamp {
+            if get_epoch_time_secs() <= tenure_extend_timestamp {
                 return Ok(NakamotoTenureInfo {
                     coinbase_tx: None,
                     tenure_change_tx: None,
