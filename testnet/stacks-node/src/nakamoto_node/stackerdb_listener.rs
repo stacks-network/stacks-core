@@ -32,6 +32,7 @@ use stacks::chainstate::stacks::events::StackerDBChunksEvent;
 use stacks::chainstate::stacks::Error as ChainstateError;
 use stacks::types::chainstate::StacksPublicKey;
 use stacks::types::PublicKey;
+use stacks::util::get_epoch_time_secs;
 use stacks::util::hash::{MerkleHashFunc, Sha512Trunc256Sum};
 use stacks::util::secp256k1::MessageSignature;
 
@@ -530,7 +531,8 @@ impl StackerDBListenerComms {
             weight_sum += info.weight;
             if weight_sum >= weight_threshold {
                 debug!("SignerCoordinator: 70% threshold reached for tenure extension timestamp";
-                    "timestamp" => info.timestamp,
+                    "tenure_extend_timestamp" => info.timestamp,
+                    "tenure_extend_in" => (info.timestamp - get_epoch_time_secs())
                 );
                 return info.timestamp;
             }
