@@ -6815,13 +6815,12 @@ fn block_commit_delay() {
 
     info!("------------------------- Test Setup -------------------------");
     let num_signers = 5;
-    let block_proposal_timeout = Duration::from_secs(20);
     let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
         vec![],
         |config| {
             // make the duration long enough that the miner will be marked as malicious
-            config.block_proposal_timeout = block_proposal_timeout;
+            config.block_proposal_timeout = Duration::from_secs(600);
         },
         |config| {
             // Set the block commit delay to 10 minutes to ensure no block commit is sent
