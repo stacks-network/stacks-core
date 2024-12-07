@@ -1645,8 +1645,6 @@ impl MemPoolDB {
 
         debug!("Mempool walk for {}ms", settings.max_walk_time_ms,);
 
-        let tx_consideration_sampler = Uniform::new(0, 100);
-        let mut rng = rand::thread_rng();
         let mut candidate_cache = CandidateCache::new(settings.candidate_retry_cache_size);
         let mut nonce_cache = NonceCache::new(settings.nonce_cache_size);
 
@@ -1654,30 +1652,43 @@ impl MemPoolDB {
         // single transaction.  This cannot grow to more than `settings.nonce_cache_size` entries.
         let mut retry_store = HashMap::new();
 
+        // Iterate pending mempool transactions using a heuristic that maximizes miner fee profitability and minimizes CPU time
+        // wasted on already-mined or not-yet-mineable transactions. This heuristic takes the following steps:
+        //
+        // 1. Tries to filter out transactions that have nonces smaller than the origin address' next expected nonce as stated in
+        //    the `nonces` table, if available
+        // 2. Groups remaining transactions by origin address and ranks them prioritizing those with smaller nonces and higher
+        //    fees
+        // 3. Sorts all ranked transactions by fee and returns them for evaluation
+        //
+        // This logic prevents miners from repeatedly visiting (and then skipping) high fee transactions that would get evaluated
+        // first based on their `fee_rate` but are otherwise non-mineable because they have very high or invalid nonces. A large
+        // volume of these transactions would cause considerable slowness when selecting valid transactions to mine.
+        //
+        // This query also makes sure transactions that have NULL `fee_rate`s are visited, because they will also get ranked
+        // according to their nonce and then sub-sorted by their total `tx_fee` to determine which of them gets evaluated first.
         let sql = "
-             SELECT txid, origin_nonce, origin_address, sponsor_nonce, sponsor_address, fee_rate
-             FROM mempool
-             WHERE fee_rate IS NULL
-             ";
-        let mut query_stmt_null = self
-            .db
-            .prepare(&sql)
-            .map_err(|err| Error::SqliteError(err))?;
-        let mut null_iterator = query_stmt_null
-            .query(NO_PARAMS)
-            .map_err(|err| Error::SqliteError(err))?;
-
-        let sql = "
+            WITH nonce_filtered AS (
+                SELECT txid, origin_nonce, origin_address, sponsor_nonce, sponsor_address, fee_rate, tx_fee
+                FROM mempool
+                LEFT JOIN nonces ON nonces.address = mempool.origin_address AND origin_nonce >= nonces.nonce
+            ),
+            address_nonce_ranked AS (
+                SELECT *, ROW_NUMBER() OVER (
+                    PARTITION BY origin_address
+                    ORDER BY origin_nonce ASC, fee_rate DESC, tx_fee DESC
+                ) AS rank
+                FROM nonce_filtered
+            )
             SELECT txid, origin_nonce, origin_address, sponsor_nonce, sponsor_address, fee_rate
-            FROM mempool
-            WHERE fee_rate IS NOT NULL
-            ORDER BY fee_rate DESC
+            FROM address_nonce_ranked
+            ORDER BY rank ASC, fee_rate DESC, tx_fee DESC
             ";
-        let mut query_stmt_fee = self
+        let mut query_stmt = self
             .db
             .prepare(&sql)
             .map_err(|err| Error::SqliteError(err))?;
-        let mut fee_iterator = query_stmt_fee
+        let mut tx_iterator = query_stmt
             .query(NO_PARAMS)
             .map_err(|err| Error::SqliteError(err))?;
 
@@ -1688,9 +1699,6 @@ impl MemPoolDB {
                 break MempoolIterationStopReason::DeadlineReached;
             }
 
-            let start_with_no_estimate =
-                tx_consideration_sampler.sample(&mut rng) < settings.consider_no_estimate_tx_prob;
-
             // First, try to read from the retry list
             let (candidate, update_estimate) = match candidate_cache.next() {
                 Some(tx) => {
@@ -1698,36 +1706,16 @@ impl MemPoolDB {
                     (tx, update_estimate)
                 }
                 None => {
-                    // When the retry list is empty, read from the mempool db,
-                    // randomly selecting from either the null fee-rate transactions
-                    // or those with fee-rate estimates.
-                    let opt_tx = if start_with_no_estimate {
-                        null_iterator
-                            .next()
-                            .map_err(|err| Error::SqliteError(err))?
-                    } else {
-                        fee_iterator.next().map_err(|err| Error::SqliteError(err))?
-                    };
-                    match opt_tx {
-                        Some(row) => (MemPoolTxInfoPartial::from_row(row)?, start_with_no_estimate),
+                    // When the retry list is empty, read from the mempool db
+                    match tx_iterator.next().map_err(|err| Error::SqliteError(err))? {
+                        Some(row) => {
+                            let tx = MemPoolTxInfoPartial::from_row(row)?;
+                            let update_estimate = tx.fee_rate.is_none();
+                            (tx, update_estimate)
+                        },
                         None => {
-                            // If the selected iterator is empty, check the other
-                            match if start_with_no_estimate {
-                                fee_iterator.next().map_err(|err| Error::SqliteError(err))?
-                            } else {
-                                null_iterator
-                                    .next()
-                                    .map_err(|err| Error::SqliteError(err))?
-                            } {
-                                Some(row) => (
-                                    MemPoolTxInfoPartial::from_row(row)?,
-                                    !start_with_no_estimate,
-                                ),
-                                None => {
-                                    debug!("No more transactions to consider in mempool");
-                                    break MempoolIterationStopReason::NoMoreCandidates;
-                                }
-                            }
+                            debug!("No more transactions to consider in mempool");
+                            break MempoolIterationStopReason::NoMoreCandidates;
                         }
                     }
                 }
@@ -1774,6 +1762,7 @@ impl MemPoolDB {
                         "expected_origin_nonce" => expected_origin_nonce,
                         "expected_sponsor_nonce" => expected_sponsor_nonce,
                     );
+                    // FIXME: record this fact so we can take it into acct in the next pass
                     // This transaction cannot execute in this pass, just drop it
                     continue;
                 }
@@ -1928,10 +1917,8 @@ impl MemPoolDB {
         // drop these rusqlite statements and queries, since their existence as immutable borrows on the
         // connection prevents us from beginning a transaction below (which requires a mutable
         // borrow).
-        drop(null_iterator);
-        drop(fee_iterator);
-        drop(query_stmt_null);
-        drop(query_stmt_fee);
+        drop(tx_iterator);
+        drop(query_stmt);
 
         if retry_store.len() > 0 {
             let tx = self.tx_begin()?;
