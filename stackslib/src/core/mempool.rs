@@ -1762,7 +1762,6 @@ impl MemPoolDB {
                         "expected_origin_nonce" => expected_origin_nonce,
                         "expected_sponsor_nonce" => expected_sponsor_nonce,
                     );
-                    // FIXME: record this fact so we can take it into acct in the next pass
                     // This transaction cannot execute in this pass, just drop it
                     continue;
                 }
