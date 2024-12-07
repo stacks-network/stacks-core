@@ -122,6 +122,9 @@ jobs:
           - tests::signer::v0::signer_set_rollover
           - tests::signer::v0::signing_in_0th_tenure_of_reward_cycle
           - tests::signer::v0::continue_after_tenure_extend
+          - tests::signer::v0::tenure_extend_after_idle
+          - tests::signer::v0::stx_transfers_dont_effect_idle_timeout
+          - tests::signer::v0::idle_tenure_extend_active_mining
           - tests::signer::v0::multiple_miners_with_custom_chain_id
           - tests::signer::v0::block_commit_delay
           - tests::signer::v0::continue_after_fast_block_no_sortition
@@ -142,6 +145,7 @@ jobs:
           - tests::nakamoto_integrations::v3_signer_api_endpoint
           - tests::nakamoto_integrations::test_shadow_recovery
           - tests::nakamoto_integrations::signer_chainstate
+          - tests::nakamoto_integrations::sip029_coinbase_change
           - tests::nakamoto_integrations::clarity_cost_spend_down
           - tests::nakamoto_integrations::v3_blockbyheight_api_endpoint
           - tests::nakamoto_integrations::test_tenure_change_and_extend_from_flashblocks
