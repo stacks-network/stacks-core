@@ -17,7 +17,7 @@
 use std::hash::Hash;
 
 use hashbrown::HashMap;
-use stacks_common::types::chainstate::StacksBlockId;
+use stacks_common::types::chainstate::{StacksBlockId, TrieHash};
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 
@@ -369,6 +369,21 @@ impl<'a> RollbackWrapper<'a> {
             .transpose()
     }
 
+    /// this function will only return commitment proofs for values _already_ materialized
+    ///  in the underlying store. otherwise it returns None.
+    pub fn get_data_with_proof_by_hash<T>(
+        &mut self,
+        hash: &TrieHash,
+    ) -> InterpreterResult<Option<(T, Vec<u8>)>>
+    where
+        T: ClarityDeserializable<T>,
+    {
+        self.store
+            .get_data_with_proof_from_path(hash)?
+            .map(|(value, proof)| Ok((T::deserialize(&value)?, proof)))
+            .transpose()
+    }
+
     pub fn get_data<T>(&mut self, key: &str) -> InterpreterResult<Option<T>>
     where
         T: ClarityDeserializable<T>,
@@ -388,6 +403,23 @@ impl<'a> RollbackWrapper<'a> {
         // otherwise, lookup from store
         self.store
             .get_data(key)?
+            .map(|x| T::deserialize(&x))
+            .transpose()
+    }
+
+    /// DO NOT USE IN CONSENSUS CODE.
+    ///
+    /// Load data directly from the underlying store, given its trie hash.  The lookup map will not
+    /// be used.
+    ///
+    /// This should never be called from within the Clarity VM, or via block-processing.  It's only
+    /// meant to be used by the RPC system.
+    pub fn get_data_by_hash<T>(&mut self, hash: &TrieHash) -> InterpreterResult<Option<T>>
+    where
+        T: ClarityDeserializable<T>,
+    {
+        self.store
+            .get_data_from_path(hash)?
             .map(|x| T::deserialize(&x))
             .transpose()
     }

@@ -70,7 +70,7 @@ impl HttpRequest for RPCPostBlockRequestHandler {
     }
 
     fn path_regex(&self) -> Regex {
-        Regex::new(&format!("^{PATH}$")).unwrap()
+        Regex::new(&format!("^{}(/)?$", PATH.trim_end_matches('/'))).unwrap()
     }
 
     fn metrics_identifier(&self) -> &str {
