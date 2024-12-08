@@ -11,6 +11,14 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ### Changed
 
+## [3.1.0.0.0.0]
+
+### Added
+
+- **SIP-029 consensus rules, activating in epoch 3.1 at block 875,000** (see [SIP-029](https://github.com/will-corcoran/sips/blob/feat/sip-029-halving-alignment/sips/sip-029/sip-029-halving-alignment.md) for details)
+
+### Changed
+
 ## [3.0.0.0.4.0]
 
 ### Added
