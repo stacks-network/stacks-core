@@ -423,8 +423,8 @@ impl<'a, T: BlockEventDispatcher> OnChainRewardSetProvider<'a, T> {
                     return Ok(RewardSet::empty());
                 }
             }
-            StacksEpochId::Epoch25 | StacksEpochId::Epoch30 => {
-                // Epoch 2.5 and 3.0 compute reward sets, but *only* if PoX-4 is active
+            StacksEpochId::Epoch25 | StacksEpochId::Epoch30 | StacksEpochId::Epoch31 => {
+                // Epoch 2.5, 3.0, and 3.1 compute reward sets, but *only* if PoX-4 is active
                 if burnchain
                     .pox_constants
                     .active_pox_contract(current_burn_height)
@@ -2692,6 +2692,7 @@ impl<
                     let (next_snapshot, _) = self
                         .sortition_db
                         .evaluate_sortition(
+                            self.chain_state_db.mainnet,
                             &header,
                             ops,
                             &self.burnchain,
