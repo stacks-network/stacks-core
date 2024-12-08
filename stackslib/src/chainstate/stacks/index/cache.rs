@@ -40,7 +40,7 @@ use crate::chainstate::stacks::index::bits::{
 };
 use crate::chainstate::stacks::index::node::{
     clear_backptr, is_backptr, set_backptr, TrieNode, TrieNode16, TrieNode256, TrieNode4,
-    TrieNode48, TrieNodeID, TrieNodeType, TriePath, TriePtr,
+    TrieNode48, TrieNodeID, TrieNodeType, TriePtr,
 };
 use crate::chainstate::stacks::index::{trie_sql, ClarityMarfTrieId, Error, MarfTrieId, TrieLeaf};
 use crate::util_lib::db::{
@@ -420,7 +420,7 @@ pub mod test {
                 }
             } else {
                 for (key, value) in block_data.iter() {
-                    let path = TriePath::from_key(key);
+                    let path = TrieHash::from_key(key);
                     let leaf = TrieLeaf::from_value(&vec![], value.clone());
                     marf.insert_raw(path, leaf).unwrap();
                 }
@@ -443,7 +443,7 @@ pub mod test {
         for (i, block_data) in data.iter().enumerate() {
             test_debug!("Read block {}", i);
             for (key, value) in block_data.iter() {
-                let path = TriePath::from_key(key);
+                let path = TrieHash::from_key(key);
                 let marf_leaf = TrieLeaf::from_value(&vec![], value.clone());
 
                 let read_time = SystemTime::now();

@@ -1597,6 +1597,7 @@ simulating a miner.
                     SortitionDB::get_canonical_burn_chain_tip(new_sortition_db.conn()).unwrap();
                 new_sortition_db
                     .evaluate_sortition(
+                        false,
                         &burn_block_header,
                         blockstack_txs,
                         &burnchain,
@@ -2094,6 +2095,7 @@ fn analyze_sortition_mev(argv: Vec<String>) {
         debug!("Re-evaluate sortition at height {}", height);
         let (next_sn, state_transition) = sortdb
             .evaluate_sortition(
+                true,
                 &burn_block.header,
                 burn_block.ops.clone(),
                 &burnchain,
@@ -2109,6 +2111,7 @@ fn analyze_sortition_mev(argv: Vec<String>) {
         let mut sort_tx = sortdb.tx_begin_at_tip();
         let tip_pox_id = sort_tx.get_pox_id().unwrap();
         let next_sn_nakamoto = BlockSnapshot::make_snapshot_in_epoch(
+            true,
             &mut sort_tx,
             &burnchain,
             &ancestor_sn.sortition_id,

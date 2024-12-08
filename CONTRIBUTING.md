@@ -579,7 +579,7 @@ _Do_ document things that are not clear, e.g.:
 Keep in mind that better variable names can reduce the need for comments, e.g.:
 
 - `burnblock_height` instead of `height` may eliminate the need to comment that `height` refers to a burnblock height
-- `process_microblocks` instead of `process_blocks` is more correct, and may eliminate the need to to explain that the inputs are microblocks
+- `process_microblocks` instead of `process_blocks` is more correct, and may eliminate the need to explain that the inputs are microblocks
 - `add_transaction_to_microblock` explains more than `handle_transaction`, and reduces the need to even read the comment
 
 # Licensing and contributor license agreement

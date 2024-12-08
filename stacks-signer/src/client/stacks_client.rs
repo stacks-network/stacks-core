@@ -173,6 +173,9 @@ impl StacksClient {
         &self,
         consensus_hash: &ConsensusHash,
     ) -> Result<StacksBlockHeaderTypes, ClientError> {
+        debug!("StacksClient: Getting tenure tip";
+            "consensus_hash" => %consensus_hash,
+        );
         let send_request = || {
             self.stacks_node_client
                 .get(self.tenure_tip_path(consensus_hash))
@@ -192,6 +195,7 @@ impl StacksClient {
 
     /// Get the last set reward cycle stored within the stackerdb contract
     pub fn get_last_set_cycle(&self) -> Result<u128, ClientError> {
+        debug!("StacksClient: Getting last set cycle");
         let signer_stackerdb_contract_id = boot_code_id(SIGNERS_NAME, self.mainnet);
         let function_name_str = "get-last-set-cycle";
         let function_name = ClarityName::from(function_name_str);
@@ -210,6 +214,10 @@ impl StacksClient {
         stackerdb_contract: &QualifiedContractIdentifier,
         page: u32,
     ) -> Result<Vec<(StacksAddress, u128)>, ClientError> {
+        debug!("StacksClient: Getting signer slots";
+            "stackerdb_contract" => %stackerdb_contract,
+            "page" => page,
+        );
         let function_name_str = "stackerdb-get-signer-slots-page";
         let function_name = ClarityName::from(function_name_str);
         let function_args = &[ClarityValue::UInt(page.into())];
@@ -250,6 +258,9 @@ impl StacksClient {
         &self,
         reward_cycle: u64,
     ) -> Result<HashMap<StacksAddress, SignerSlotID>, ClientError> {
+        debug!("StacksClient: Getting parsed signer slots";
+            "reward_cycle" => reward_cycle,
+        );
         let signer_set =
             u32::try_from(reward_cycle % 2).expect("FATAL: reward_cycle % 2 exceeds u32::MAX");
         let signer_stackerdb_contract_id = boot_code_id(SIGNERS_NAME, self.mainnet);
@@ -272,6 +283,7 @@ impl StacksClient {
 
     /// Determine the stacks node current epoch
     pub fn get_node_epoch(&self) -> Result<StacksEpochId, ClientError> {
+        debug!("StacksClient: Getting node epoch");
         let pox_info = self.get_pox_data()?;
         let burn_block_height = self.get_burn_block_height()?;
 
@@ -302,7 +314,7 @@ impl StacksClient {
 
     /// Submit the block proposal to the stacks node. The block will be validated and returned via the HTTP endpoint for Block events.
     pub fn submit_block_for_validation(&self, block: NakamotoBlock) -> Result<(), ClientError> {
-        debug!("stacks_node_client: Submitting block for validation...";
+        debug!("StacksClient: Submitting block for validation";
             "signer_sighash" => %block.header.signer_signature_hash(),
             "block_id" => %block.header.block_id(),
             "block_height" => %block.header.chain_length,
@@ -337,6 +349,10 @@ impl StacksClient {
         chosen_parent: &ConsensusHash,
         last_sortition: &ConsensusHash,
     ) -> Result<Vec<TenureForkingInfo>, ClientError> {
+        debug!("StacksClient: Getting tenure forking info";
+            "chosen_parent" => %chosen_parent,
+            "last_sortition" => %last_sortition,
+        );
         let mut tenures: VecDeque<TenureForkingInfo> =
             self.get_tenure_forking_info_step(chosen_parent, last_sortition)?;
         if tenures.is_empty() {
@@ -373,7 +389,7 @@ impl StacksClient {
         chosen_parent: &ConsensusHash,
         last_sortition: &ConsensusHash,
     ) -> Result<VecDeque<TenureForkingInfo>, ClientError> {
-        debug!("stacks_node_client: Getting tenure forking info...";
+        debug!("StacksClient: Getting tenure forking info";
             "chosen_parent" => %chosen_parent,
             "last_sortition" => %last_sortition,
         );
@@ -402,7 +418,7 @@ impl StacksClient {
 
     /// Get the current winning sortition and the last winning sortition
     pub fn get_current_and_last_sortition(&self) -> Result<CurrentAndLastSortition, ClientError> {
-        debug!("stacks_node_client: Getting current and prior sortition...");
+        debug!("StacksClient: Getting current and prior sortition");
         let path = format!("{}/latest_and_last", self.sortition_info_path());
         let timer = crate::monitoring::new_rpc_call_timer(&path, &self.http_origin);
         let send_request = || {
@@ -443,7 +459,7 @@ impl StacksClient {
 
     /// Get the current peer info data from the stacks node
     pub fn get_peer_info(&self) -> Result<PeerInfo, ClientError> {
-        debug!("stacks_node_client: Getting peer info...");
+        debug!("StacksClient: Getting peer info");
         let timer =
             crate::monitoring::new_rpc_call_timer(&self.core_info_path(), &self.http_origin);
         let send_request = || {
@@ -466,7 +482,9 @@ impl StacksClient {
         &self,
         reward_cycle: u64,
     ) -> Result<Option<Vec<NakamotoSignerEntry>>, ClientError> {
-        debug!("stacks_node_client: Getting reward set signers for reward cycle {reward_cycle}...");
+        debug!("StacksClient: Getting reward set signers";
+            "reward_cycle" => reward_cycle,
+        );
         let timer = crate::monitoring::new_rpc_call_timer(
             &format!("{}/v3/stacker_set/:reward_cycle", self.http_origin),
             &self.http_origin,
@@ -502,7 +520,7 @@ impl StacksClient {
 
     /// Retrieve the current pox data from the stacks node
     pub fn get_pox_data(&self) -> Result<RPCPoxInfoData, ClientError> {
-        debug!("stacks_node_client: Getting pox data...");
+        debug!("StacksClient: Getting pox data");
         let timer = crate::monitoring::new_rpc_call_timer(&self.pox_path(), &self.http_origin);
         let send_request = || {
             self.stacks_node_client
@@ -521,11 +539,13 @@ impl StacksClient {
 
     /// Helper function to retrieve the burn tip height from the stacks node
     fn get_burn_block_height(&self) -> Result<u64, ClientError> {
+        debug!("StacksClient: Getting burn block height");
         self.get_peer_info().map(|info| info.burn_block_height)
     }
 
     /// Get the current reward cycle info from the stacks node
     pub fn get_current_reward_cycle_info(&self) -> Result<RewardCycleInfo, ClientError> {
+        debug!("StacksClient: Getting current reward cycle info");
         let pox_data = self.get_pox_data()?;
         let blocks_mined = pox_data
             .current_burnchain_block_height
@@ -548,7 +568,9 @@ impl StacksClient {
         &self,
         address: &StacksAddress,
     ) -> Result<AccountEntryResponse, ClientError> {
-        debug!("stacks_node_client: Getting account info...");
+        debug!("StacksClient: Getting account info";
+            "address" => %address,
+        );
         let timer_label = format!("{}/v2/accounts/:principal", self.http_origin);
         let timer = crate::monitoring::new_rpc_call_timer(&timer_label, &self.http_origin);
         let send_request = || {
@@ -570,6 +592,11 @@ impl StacksClient {
     ///
     /// In tests, this panics if the retry takes longer than 30 seconds.
     pub fn post_block_until_ok<F: Display>(&self, log_fmt: &F, block: &NakamotoBlock) -> bool {
+        debug!("StacksClient: Posting block to stacks node";
+            "signer_sighash" => %block.header.signer_signature_hash(),
+            "block_id" => %block.header.block_id(),
+            "block_height" => %block.header.chain_length,
+        );
         let start_time = Instant::now();
         loop {
             match self.post_block(block) {
@@ -595,7 +622,8 @@ impl StacksClient {
     /// Returns `true` if the block was accepted or `false` if the block
     ///   was rejected.
     pub fn post_block(&self, block: &NakamotoBlock) -> Result<bool, ClientError> {
-        debug!("stacks_node_client: Posting block to the stacks node...";
+        debug!("StacksClient: Posting block to the stacks node";
+            "signer_sighash" => %block.header.signer_signature_hash(),
             "block_id" => %block.header.block_id(),
             "block_height" => %block.header.chain_length,
         );
@@ -630,7 +658,9 @@ impl StacksClient {
         function_name: &ClarityName,
         function_args: &[ClarityValue],
     ) -> Result<ClarityValue, ClientError> {
-        debug!("stacks_node_client: Calling read-only function {function_name} with args {function_args:?}...");
+        debug!(
+            "StacksClient: Calling read-only function {function_name} with args {function_args:?}"
+        );
         let args = function_args
             .iter()
             .filter_map(|arg| arg.serialize_to_hex().ok())

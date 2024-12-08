@@ -40,7 +40,7 @@ use crate::chainstate::burn::{
     SortitionHash,
 };
 use crate::chainstate::stacks::db::StacksChainState;
-use crate::chainstate::stacks::index::{ClarityMarfTrieId, MarfTrieId, TrieHashExtension};
+use crate::chainstate::stacks::index::{ClarityMarfTrieId, MarfTrieId};
 use crate::core::*;
 use crate::util_lib::db::Error as db_error;
 
@@ -498,6 +498,7 @@ impl BlockSnapshot {
     ///
     /// Call this *after* you store all of the block's transactions to the burn db.
     pub fn make_snapshot(
+        mainnet: bool,
         sort_tx: &mut SortitionHandleTx,
         burnchain: &Burnchain,
         my_sortition_id: &SortitionId,
@@ -518,6 +519,7 @@ impl BlockSnapshot {
             .epoch_id;
 
         Self::make_snapshot_in_epoch(
+            mainnet,
             sort_tx,
             burnchain,
             my_sortition_id,
@@ -531,6 +533,7 @@ impl BlockSnapshot {
     }
 
     pub fn make_snapshot_in_epoch(
+        mainnet: bool,
         sort_tx: &mut SortitionHandleTx,
         burnchain: &Burnchain,
         my_sortition_id: &SortitionId,
@@ -561,6 +564,8 @@ impl BlockSnapshot {
             initial_mining_bonus_ustx
         } else {
             let missed_coinbase = StacksChainState::get_coinbase_reward(
+                epoch_id,
+                mainnet,
                 parent_snapshot.block_height,
                 first_block_height,
             );
@@ -788,6 +793,7 @@ mod test {
         burnchain_state_transition: &BurnchainStateTransition,
     ) -> Result<BlockSnapshot, db_error> {
         BlockSnapshot::make_snapshot(
+            false,
             sort_tx,
             burnchain,
             my_sortition_id,

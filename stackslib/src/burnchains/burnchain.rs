@@ -1083,7 +1083,9 @@ impl Burnchain {
     }
 
     /// Hand off the block to the ChainsCoordinator _and_ process the sortition
-    ///   *only* to be used by legacy stacks node interfaces, like the Helium node
+    ///   *only* to be used by legacy stacks node interfaces, like the Helium node.
+    ///
+    /// It does not work on mainnet.
     fn process_block_and_sortition_deprecated<B: BurnchainHeaderReader>(
         db: &mut SortitionDB,
         burnchain_db: &mut BurnchainDB,
@@ -1120,6 +1122,7 @@ impl Burnchain {
         // method is deprecated and only used in defunct helium nodes
 
         db.evaluate_sortition(
+            false,
             &header,
             blockstack_txs,
             burnchain,

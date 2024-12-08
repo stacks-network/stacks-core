@@ -31,9 +31,7 @@ use crate::chainstate::stacks::index::node::*;
 use crate::chainstate::stacks::index::proofs::*;
 use crate::chainstate::stacks::index::storage::*;
 use crate::chainstate::stacks::index::trie::*;
-use crate::chainstate::stacks::index::{
-    MARFValue, MarfTrieId, TrieHashExtension, TrieLeaf, TrieMerkleProof,
-};
+use crate::chainstate::stacks::index::{MARFValue, MarfTrieId, TrieLeaf, TrieMerkleProof};
 use crate::chainstate::stacks::{BlockHeaderHash, TrieHash};
 
 pub mod cache;
@@ -108,7 +106,7 @@ pub fn merkle_test(
     value: &Vec<u8>,
 ) -> () {
     let (_, root_hash) = Trie::read_root(s).unwrap();
-    let triepath = TriePath::from_bytes(&path[..]).unwrap();
+    let triepath = TrieHash::from_bytes(&path[..]).unwrap();
 
     let block_header = BlockHeaderHash([0u8; 32]);
     s.open_block(&block_header).unwrap();
@@ -147,7 +145,7 @@ pub fn merkle_test_marf(
 
     s.open_block(header).unwrap();
     let (_, root_hash) = Trie::read_root(s).unwrap();
-    let triepath = TriePath::from_bytes(&path[..]).unwrap();
+    let triepath = TrieHash::from_bytes(&path[..]).unwrap();
 
     let mut marf_value = [0u8; 40];
     marf_value.copy_from_slice(&value[0..40]);
@@ -199,7 +197,7 @@ pub fn merkle_test_marf_key_value(
     test_debug!("---------");
 
     let root_to_block = root_to_block.unwrap_or_else(|| s.read_root_to_block_table().unwrap());
-    let triepath = TriePath::from_key(key);
+    let triepath = TrieHash::from_key(key);
     let marf_value = MARFValue::from_value(value);
 
     assert!(proof.verify(&triepath, &marf_value, &root_hash, &root_to_block));

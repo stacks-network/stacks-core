@@ -529,7 +529,7 @@ const LOG2_API: SimpleFunctionAPI = SimpleFunctionAPI {
     snippet: "log2 ${1:expr-1}",
     signature: "(log2 n)",
     description:
-        "Returns the power to which the number 2 must be raised to to obtain the value `n`, rounded 
+        "Returns the power to which the number 2 must be raised to obtain the value `n`, rounded 
 down to the nearest integer. Fails on a negative numbers.
 ",
     example: "(log2 u8) ;; Returns u3

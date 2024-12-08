@@ -4215,7 +4215,7 @@ fn trie_cursor_walk_full() {
 
     // walk down the trie
     let mut c = TrieCursor::new(
-        &TriePath::from_bytes(&path).unwrap(),
+        &TrieHash::from_bytes(&path).unwrap(),
         trie_io.root_trieptr(),
     );
     let mut walk_point = nodes[0].clone();
@@ -4313,7 +4313,7 @@ fn trie_cursor_walk_1() {
 
     // walk down the trie
     let mut c = TrieCursor::new(
-        &TriePath::from_bytes(&path).unwrap(),
+        &TrieHash::from_bytes(&path).unwrap(),
         trie_io.root_trieptr(),
     );
     let mut walk_point = nodes[0].clone();
@@ -4406,7 +4406,7 @@ fn trie_cursor_walk_2() {
 
     // walk down the trie
     let mut c = TrieCursor::new(
-        &TriePath::from_bytes(&path).unwrap(),
+        &TrieHash::from_bytes(&path).unwrap(),
         trie_io.root_trieptr(),
     );
     let mut walk_point = nodes[0].clone();
@@ -4496,7 +4496,7 @@ fn trie_cursor_walk_3() {
 
     // walk down the trie
     let mut c = TrieCursor::new(
-        &TriePath::from_bytes(&path).unwrap(),
+        &TrieHash::from_bytes(&path).unwrap(),
         trie_io.root_trieptr(),
     );
     let mut walk_point = nodes[0].clone();
@@ -4585,7 +4585,7 @@ fn trie_cursor_walk_4() {
 
     // walk down the trie
     let mut c = TrieCursor::new(
-        &TriePath::from_bytes(&path).unwrap(),
+        &TrieHash::from_bytes(&path).unwrap(),
         trie_io.root_trieptr(),
     );
     let mut walk_point = nodes[0].clone();
@@ -4673,7 +4673,7 @@ fn trie_cursor_walk_5() {
 
     // walk down the trie
     let mut c = TrieCursor::new(
-        &TriePath::from_bytes(&path).unwrap(),
+        &TrieHash::from_bytes(&path).unwrap(),
         trie_io.root_trieptr(),
     );
     let mut walk_point = nodes[0].clone();
@@ -4760,7 +4760,7 @@ fn trie_cursor_walk_6() {
 
     // walk down the trie
     let mut c = TrieCursor::new(
-        &TriePath::from_bytes(&path).unwrap(),
+        &TrieHash::from_bytes(&path).unwrap(),
         trie_io.root_trieptr(),
     );
     let mut walk_point = nodes[0].clone();
@@ -4845,7 +4845,7 @@ fn trie_cursor_walk_10() {
 
     // walk down the trie
     let mut c = TrieCursor::new(
-        &TriePath::from_bytes(&path).unwrap(),
+        &TrieHash::from_bytes(&path).unwrap(),
         trie_io.root_trieptr(),
     );
     let mut walk_point = nodes[0].clone();
@@ -4937,7 +4937,7 @@ fn trie_cursor_walk_20() {
 
     // walk down the trie
     let mut c = TrieCursor::new(
-        &TriePath::from_bytes(&path).unwrap(),
+        &TrieHash::from_bytes(&path).unwrap(),
         trie_io.root_trieptr(),
     );
     let mut walk_point = nodes[0].clone();
@@ -5028,7 +5028,7 @@ fn trie_cursor_walk_32() {
 
     // walk down the trie
     let mut c = TrieCursor::new(
-        &TriePath::from_bytes(&path).unwrap(),
+        &TrieHash::from_bytes(&path).unwrap(),
         trie_io.root_trieptr(),
     );
     let walk_point = nodes[0].clone();

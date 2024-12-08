@@ -1270,8 +1270,18 @@ fn bitcoind_forking_test() {
     let sender_addr = tests::to_addr(&sender_sk);
     let send_amt = 100;
     let send_fee = 180;
-    let mut signer_test: SignerTest<SpawnedSigner> =
-        SignerTest::new(num_signers, vec![(sender_addr, send_amt + send_fee)]);
+    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
+        num_signers,
+        vec![(sender_addr, send_amt + send_fee)],
+        |_| {},
+        |node_config| {
+            let epochs = node_config.burnchain.epochs.as_mut().unwrap();
+            epochs[StacksEpochId::Epoch30].end_height = 3_015;
+            epochs[StacksEpochId::Epoch31].start_height = 3_015;
+        },
+        None,
+        None,
+    );
     let conf = signer_test.running_nodes.conf.clone();
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
     let miner_address = Keychain::default(conf.node.seed.clone())
@@ -3072,6 +3082,8 @@ fn mock_sign_epoch_25() {
             let epochs = node_config.burnchain.epochs.as_mut().unwrap();
             epochs[StacksEpochId::Epoch25].end_height = 251;
             epochs[StacksEpochId::Epoch30].start_height = 251;
+            epochs[StacksEpochId::Epoch30].end_height = 265;
+            epochs[StacksEpochId::Epoch31].start_height = 265;
         },
         None,
         None,
@@ -3170,7 +3182,7 @@ fn mock_sign_epoch_25() {
             );
         }
         assert!(
-            main_poll_time.elapsed() <= Duration::from_secs(45),
+            main_poll_time.elapsed() <= Duration::from_secs(145),
             "Timed out waiting to advance epoch 3.0 boundary"
         );
     }
@@ -3232,6 +3244,8 @@ fn multiple_miners_mock_sign_epoch_25() {
             let epochs = config.burnchain.epochs.as_mut().unwrap();
             epochs[StacksEpochId::Epoch25].end_height = 251;
             epochs[StacksEpochId::Epoch30].start_height = 251;
+            epochs[StacksEpochId::Epoch30].end_height = 265;
+            epochs[StacksEpochId::Epoch31].start_height = 265;
             config.events_observers.retain(|listener| {
                 let Ok(addr) = std::net::SocketAddr::from_str(&listener.endpoint) else {
                     warn!(

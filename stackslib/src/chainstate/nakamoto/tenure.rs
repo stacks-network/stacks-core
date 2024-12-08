@@ -971,6 +971,8 @@ impl NakamotoChainState {
         .accumulated_coinbase_ustx;
 
         let coinbase_at_block = StacksChainState::get_coinbase_reward(
+            evaluated_epoch,
+            chainstate_tx.config.mainnet,
             chain_tip_burn_header_height,
             burn_dbconn.context.first_block_height,
         );

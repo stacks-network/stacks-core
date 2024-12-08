@@ -3163,6 +3163,7 @@ impl SortitionDB {
             StacksEpochId::Epoch24 => version_u32 >= 3,
             StacksEpochId::Epoch25 => version_u32 >= 3,
             StacksEpochId::Epoch30 => version_u32 >= 3,
+            StacksEpochId::Epoch31 => version_u32 >= 3,
         }
     }
 
@@ -4288,6 +4289,7 @@ impl SortitionDB {
     ///                   commits its results. This is used to post the calculated reward set to an event observer.
     pub fn evaluate_sortition<F: FnOnce(Option<RewardSetInfo>) -> ()>(
         &mut self,
+        mainnet: bool,
         burn_header: &BurnchainBlockHeader,
         ops: Vec<BlockstackOperationType>,
         burnchain: &Burnchain,
@@ -4365,6 +4367,7 @@ impl SortitionDB {
         };
 
         let new_snapshot = sortition_db_handle.process_block_txs(
+            mainnet,
             &parent_snapshot,
             burn_header,
             burnchain,
@@ -6601,7 +6604,6 @@ pub mod tests {
         BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
     };
     use crate::chainstate::burn::ConsensusHash;
-    use crate::chainstate::stacks::index::TrieHashExtension;
     use crate::chainstate::stacks::StacksPublicKey;
     use crate::core::{StacksEpochExtension, *};
     use crate::util_lib::db::Error as db_error;
